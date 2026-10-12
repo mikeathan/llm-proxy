@@ -342,7 +342,11 @@ func (s *runSession) finalizationFallback(err error, what string) (string, error
 		s.agent.deps.Logger.Warn(what+" failed; using best available answer", "error", err)
 		return fallback, nil
 	}
-	if summary := s.synthesizeRunSummary(); summary != "" {
+	cause := finalizeFailureUnusable
+	if err != nil {
+		cause = finalizeFailureProvider
+	}
+	if summary := s.synthesizeRunSummary(cause); summary != "" {
 		s.agent.deps.Logger.Warn(what+" failed; using synthesized run summary", "error", err)
 		return summary, nil
 	}
@@ -424,8 +428,9 @@ func (s *runSession) stitchTruncated(content string) string {
 // no assistant text exists to salvage — the plan_execute shape, where history
 // is pure tool calls. A provider outage on the report turn must not discard
 // completed work. Returns "" when the run did no tool work, so the caller can
-// still fail loudly.
-func (s *runSession) synthesizeRunSummary() string {
+// still fail loudly. The cause is named in the headline so an operator is not
+// sent chasing the provider when the model's reply was the problem.
+func (s *runSession) synthesizeRunSummary(cause finalizeFailure) string {
 	perTool := make(map[string]int)
 	var failures []string
 	// Tool calls are counted from the usage tracker — the per-execution record
@@ -471,7 +476,7 @@ func (s *runSession) synthesizeRunSummary() string {
 	sort.Strings(names)
 
 	var b strings.Builder
-	b.WriteString("Run executed tool work, but the final report generation failed (provider error). Summary synthesized from the run history:\n\n")
+	b.WriteString(cause.summaryHeadline() + " Summary synthesized from the run history:\n\n")
 	b.WriteString(fmt.Sprintf("- Tool calls: %d\n", total))
 	for _, name := range names {
 		b.WriteString(fmt.Sprintf("  - %s × %d\n", name, perTool[name]))
@@ -487,6 +492,25 @@ func (s *runSession) synthesizeRunSummary() string {
 }
 
 const sessionSummaryErrorMaxLen = 240 // chars per failure line in a synthesized summary
+
+// finalizeFailure says why a finalization turn gave no usable report.
+type finalizeFailure string
+
+const (
+	finalizeFailureProvider finalizeFailure = "provider" // the report turn's LLM call returned an error
+	finalizeFailureUnusable finalizeFailure = "unusable" // the turn came back empty, as tool-call text or as a bare scaffold
+
+	summaryHeadlineProvider = "Run executed tool work, but the final report generation failed (provider error)."
+	summaryHeadlineUnusable = "Run executed tool work, but the model did not produce a usable final report (its last reply was empty or tool-call text)."
+)
+
+// summaryHeadline is the first line of a synthesized summary for this cause.
+func (f finalizeFailure) summaryHeadline() string {
+	if f == finalizeFailureProvider {
+		return summaryHeadlineProvider
+	}
+	return summaryHeadlineUnusable
+}
 
 // toolResultError extracts the "error" field from a marshaled tool result JSON
 // (the shape appendToolResult produces for failures). Returns "" when the
