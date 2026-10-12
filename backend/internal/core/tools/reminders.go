@@ -30,6 +30,7 @@ type ReminderView struct {
 	Cron    string
 	Zone    string
 	Channel string // where it will be delivered, or "in-app"
+	Paused  bool
 }
 
 // ReminderService is what the tools need from the reminders subsystem. It is
@@ -109,19 +110,18 @@ func (t *ReminderTools) parseSpec(args ScheduleReminderArgs) (ReminderSpec, erro
 		Connector: strings.ToLower(strings.TrimSpace(args.Connector)),
 	}
 	if args.When != "" {
-		at, err := time.Parse(time.RFC3339, strings.TrimSpace(args.When))
+		at, err := models.ParseInstant("when", args.When)
 		if err != nil {
-			return ReminderSpec{}, fmt.Errorf("'when' must be RFC 3339 with an offset, e.g. 2026-10-12T09:00:00+01:00: %w", err)
+			return ReminderSpec{}, err
 		}
-		spec.At = at.UTC()
+		spec.At = at
 	}
 	if args.Until != "" {
-		until, err := time.Parse(time.RFC3339, strings.TrimSpace(args.Until))
+		until, err := models.ParseInstant("until", args.Until)
 		if err != nil {
-			return ReminderSpec{}, fmt.Errorf("'until' must be RFC 3339: %w", err)
+			return ReminderSpec{}, err
 		}
-		u := until.UTC()
-		spec.Until = &u
+		spec.Until = &until
 	}
 	return spec, nil
 }
@@ -144,6 +144,9 @@ func (t *ReminderTools) List(ctx context.Context, _ struct{}) (any, error) {
 		fmt.Fprintf(&b, "%d: %q at %s %s via %s", v.ID, v.Message, v.At.In(loc).Format(reminderTimeLayout), v.Zone, v.Channel)
 		if v.Cron != "" {
 			fmt.Fprintf(&b, " (repeats: %s)", v.Cron)
+		}
+		if v.Paused {
+			b.WriteString(" (paused)")
 		}
 		b.WriteByte('\n')
 	}

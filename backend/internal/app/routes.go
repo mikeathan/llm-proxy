@@ -81,7 +81,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 
 	if s.Reminders != nil {
-		hs.Reminders = handlers.NewReminderHandlers(s.Reminders)
+		hs.Reminders = handlers.NewReminderHandlers(reminderZone(s), s.Reminders)
 	}
 
 	commTools := communicationTools(s.ToolProvider())
@@ -279,7 +279,11 @@ func buildRouter(hs *HandlerSet) http.Handler {
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)
+		router.Post("/admin/api/reminders", hs.Reminders.Create, jsonMethodNotAllowed)
 		router.Put("/admin/api/reminders/{id}", hs.Reminders.Edit, jsonMethodNotAllowed)
+		router.Post("/admin/api/reminders/{id}/pause", hs.Reminders.Pause, jsonMethodNotAllowed)
+		router.Post("/admin/api/reminders/{id}/resume", hs.Reminders.Resume, jsonMethodNotAllowed)
+		router.Post("/admin/api/reminders/{id}/skip", hs.Reminders.Skip, jsonMethodNotAllowed)
 		router.Delete("/admin/api/reminders/{id}", hs.Reminders.Delete, jsonMethodNotAllowed)
 	}
 

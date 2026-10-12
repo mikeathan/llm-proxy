@@ -170,3 +170,103 @@ func TestStore_DeleteRemovesAnyStatus(t *testing.T) {
 		t.Fatalf("Delete of unknown = %v, want ErrNotFound", err)
 	}
 }
+
+func TestStore_UpdateIsRefusedWhenTheReminderWasEditedMeanwhile(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	id, _ := s.Add(ctx, Reminder{Message: "old", FireAt: base})
+	loopsCopy, _ := s.Get(ctx, id) // what the delivery loop read before it started sending
+
+	if err := s.Replace(ctx, Reminder{ID: id, Message: "edited", FireAt: base.Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	loopsCopy.Status = StatusDone
+	if err := s.Update(ctx, loopsCopy); err != ErrNotFound {
+		t.Fatalf("a stale write after an edit = %v, want ErrNotFound", err)
+	}
+	got, _ := s.Get(ctx, id)
+	if got.Message != "edited" || got.Status != StatusScheduled || !got.FireAt.Equal(base.Add(time.Hour)) {
+		t.Fatalf("the edit was overwritten: %+v", got)
+	}
+
+	// A write made from a fresh read goes through.
+	got.Attempts = 1
+	if err := s.Update(ctx, got); err != nil {
+		t.Fatalf("Update from a fresh copy: %v", err)
+	}
+}
+
+func TestStore_ReplaceReArmsAFinishedReminder(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	for _, finished := range []Status{StatusDone, StatusMissed, StatusFailed} {
+		id, _ := s.Add(ctx, Reminder{Message: "x", FireAt: base})
+		r, _ := s.Get(ctx, id)
+		r.Status, r.Attempts, r.LastError = finished, 3, "boom"
+		_ = s.Update(ctx, r)
+
+		if err := s.Replace(ctx, Reminder{ID: id, Message: "again", FireAt: base.Add(24 * time.Hour)}); err != nil {
+			t.Fatalf("Replace of a %s reminder: %v", finished, err)
+		}
+		got, _ := s.Get(ctx, id)
+		if got.Status != StatusScheduled || got.Attempts != 0 || got.LastError != "" {
+			t.Errorf("%s: want a fresh scheduled reminder, got %+v", finished, got)
+		}
+	}
+}
+
+func TestStore_ReplaceKeepsAPausedReminderPaused(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	id, _ := s.Add(ctx, Reminder{Message: "x", FireAt: base, Cron: "0 9 * * *", Timezone: "UTC"})
+	r, _ := s.Get(ctx, id)
+	r.Status = StatusPaused
+	if err := s.Transition(ctx, r, StatusScheduled); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Replace(ctx, Reminder{ID: id, Message: "edited", FireAt: base, Cron: "0 9 * * *"})
+	if got, _ := s.Get(ctx, id); got.Status != StatusPaused || got.Message != "edited" {
+		t.Fatalf("editing a paused reminder must not un-pause it: %+v", got)
+	}
+}
+
+func TestStore_PausedIsOpenButNeverDue(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	live, _ := s.Add(ctx, Reminder{Message: "live", FireAt: base})
+	paused, _ := s.Add(ctx, Reminder{Message: "paused", FireAt: base.Add(-time.Hour)})
+	r, _ := s.Get(ctx, paused)
+	r.Status = StatusPaused
+	_ = s.Transition(ctx, r, StatusScheduled)
+
+	open, _ := s.ListOpen(ctx)
+	if len(open) != 2 {
+		t.Fatalf("ListOpen = %+v, want both (the UI shows a paused reminder)", open)
+	}
+	scheduled, _ := s.ListScheduled(ctx)
+	if len(scheduled) != 1 || scheduled[0].ID != live {
+		t.Fatalf("ListScheduled = %+v, want only the live one (the timer must ignore a paused one)", scheduled)
+	}
+	due, _ := s.Due(ctx, base)
+	if len(due) != 1 || due[0].ID != live {
+		t.Fatalf("Due = %+v, a paused reminder must never be due", due)
+	}
+	if n, _ := s.CountOpen(ctx); n != 2 {
+		t.Errorf("CountOpen = %d, a paused reminder still counts against the cap", n)
+	}
+	if err := s.Cancel(ctx, paused); err != nil {
+		t.Errorf("a paused reminder can be cancelled: %v", err)
+	}
+}
+
+func TestStore_TransitionOnlyFromTheExpectedStates(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	id, _ := s.Add(ctx, Reminder{Message: "x", FireAt: base})
+	r, _ := s.Get(ctx, id)
+	r.Status = StatusPaused
+	if err := s.Transition(ctx, r, StatusPaused); err != ErrNotFound {
+		t.Fatalf("pausing from a state not in the allowed list = %v, want ErrNotFound", err)
+	}
+	if err := s.Transition(ctx, r, StatusScheduled); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Get(ctx, id); got.Status != StatusPaused {
+		t.Fatalf("status = %q", got.Status)
+	}
+}

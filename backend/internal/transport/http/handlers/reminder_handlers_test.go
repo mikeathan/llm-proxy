@@ -21,6 +21,36 @@ type fakeReminderLister struct {
 	editErr      error
 	removed      []int64
 	removeErr    error
+	created      *reminders.Reminder
+	createErr    error
+	acted        string // "pause 3", "resume 3", "skip 3"
+	actErr       error
+}
+
+func (f *fakeReminderLister) Create(_ context.Context, in reminders.Reminder) (reminders.Reminder, error) {
+	f.created = &in
+	if f.createErr != nil {
+		return reminders.Reminder{}, f.createErr
+	}
+	in.ID, in.Status = 11, reminders.StatusScheduled
+	return in, nil
+}
+
+func (f *fakeReminderLister) act(what string, id int64) (reminders.Reminder, error) {
+	f.acted = fmt.Sprintf("%s %d", what, id)
+	if f.actErr != nil {
+		return reminders.Reminder{}, f.actErr
+	}
+	return reminders.Reminder{ID: id, Message: "standup", Status: reminders.StatusPaused, Timezone: "UTC"}, nil
+}
+func (f *fakeReminderLister) Pause(_ context.Context, id int64) (reminders.Reminder, error) {
+	return f.act("pause", id)
+}
+func (f *fakeReminderLister) Resume(_ context.Context, id int64) (reminders.Reminder, error) {
+	return f.act("resume", id)
+}
+func (f *fakeReminderLister) Skip(_ context.Context, id int64) (reminders.Reminder, error) {
+	return f.act("skip", id)
 }
 
 func (f *fakeReminderLister) Edit(_ context.Context, id int64, in reminders.Reminder) (reminders.Reminder, error) {
@@ -53,7 +83,7 @@ func (f *fakeReminderLister) Channel(c string) string {
 
 func TestReminderHandlers_ListReturnsOpenAndRecent(t *testing.T) {
 	at := time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC)
-	h := NewReminderHandlers(&fakeReminderLister{
+	h := NewReminderHandlers(testZone, &fakeReminderLister{
 		open:   []reminders.Reminder{{ID: 1, Message: "call bank", FireAt: at, Timezone: "Europe/London", Status: reminders.StatusScheduled}},
 		recent: []reminders.Reminder{{ID: 2, Message: "old", FireAt: at.Add(-time.Hour), Status: reminders.StatusFailed, LastError: "connector down"}},
 	})
@@ -81,10 +111,17 @@ func TestReminderHandlers_ListReturnsOpenAndRecent(t *testing.T) {
 
 func TestReminderHandlers_EmptyListsAreArrays(t *testing.T) {
 	rec := httptest.NewRecorder()
-	NewReminderHandlers(&fakeReminderLister{}).List(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	NewReminderHandlers(testZone, &fakeReminderLister{}).List(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	if got := rec.Body.String(); got != "{\"open\":[],\"recent\":[]}\n" {
 		t.Errorf("body = %q, want empty arrays (the UI iterates them)", got)
 	}
+}
+
+func testZone(requested string) (*time.Location, error) {
+	if requested == "" {
+		return time.UTC, nil
+	}
+	return time.LoadLocation(requested)
 }
 
 func request(method, body, id string) *http.Request {
@@ -96,7 +133,7 @@ func request(method, body, id string) *http.Request {
 
 func TestReminderHandlers_ListExposesWhatTheEditFormNeeds(t *testing.T) {
 	until := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
-	h := NewReminderHandlers(&fakeReminderLister{open: []reminders.Reminder{
+	h := NewReminderHandlers(testZone, &fakeReminderLister{open: []reminders.Reminder{
 		{ID: 1, Message: "x", FireAt: time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC), Cron: "0 9 * * 1", Until: &until, Connector: "", Status: reminders.StatusScheduled},
 	}})
 	rec := httptest.NewRecorder()
@@ -114,7 +151,7 @@ func TestReminderHandlers_ListExposesWhatTheEditFormNeeds(t *testing.T) {
 func TestReminderHandlers_EditAppliesTheForm(t *testing.T) {
 	f := &fakeReminderLister{}
 	rec := httptest.NewRecorder()
-	NewReminderHandlers(f).Edit(rec, request(http.MethodPut,
+	NewReminderHandlers(testZone, f).Edit(rec, request(http.MethodPut,
 		`{"message":"call the bank","fire_at":"2026-10-12T09:00:00+01:00","connector":"telegram"}`, "7"))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s", rec.Code, rec.Body)
@@ -133,7 +170,7 @@ func TestReminderHandlers_EditAppliesTheForm(t *testing.T) {
 func TestReminderHandlers_EditRecurringWithEnd(t *testing.T) {
 	f := &fakeReminderLister{}
 	rec := httptest.NewRecorder()
-	NewReminderHandlers(f).Edit(rec, request(http.MethodPut, `{"message":"standup","cron":"0 9 * * 1","until":"2027-01-01T00:00:00Z"}`, "3"))
+	NewReminderHandlers(testZone, f).Edit(rec, request(http.MethodPut, `{"message":"standup","cron":"0 9 * * 1","until":"2027-01-01T00:00:00Z"}`, "3"))
 	if rec.Code != http.StatusOK || f.edited.Cron != "0 9 * * 1" || f.edited.Until == nil || !f.edited.FireAt.IsZero() {
 		t.Fatalf("status=%d edited=%+v", rec.Code, f.edited)
 	}
@@ -157,7 +194,7 @@ func TestReminderHandlers_EditErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		rec := httptest.NewRecorder()
-		NewReminderHandlers(&fakeReminderLister{editErr: tc.err}).Edit(rec, request(http.MethodPut, tc.body, tc.id))
+		NewReminderHandlers(testZone, &fakeReminderLister{editErr: tc.err}).Edit(rec, request(http.MethodPut, tc.body, tc.id))
 		if rec.Code != tc.want {
 			t.Errorf("%s: status = %d, want %d (%s)", tc.name, rec.Code, tc.want, rec.Body)
 		}
@@ -167,17 +204,96 @@ func TestReminderHandlers_EditErrors(t *testing.T) {
 func TestReminderHandlers_Delete(t *testing.T) {
 	f := &fakeReminderLister{}
 	rec := httptest.NewRecorder()
-	NewReminderHandlers(f).Delete(rec, request(http.MethodDelete, "", "5"))
+	NewReminderHandlers(testZone, f).Delete(rec, request(http.MethodDelete, "", "5"))
 	if rec.Code != http.StatusNoContent || len(f.removed) != 1 || f.removed[0] != 5 {
 		t.Fatalf("status=%d removed=%v", rec.Code, f.removed)
 	}
 	rec = httptest.NewRecorder()
-	NewReminderHandlers(&fakeReminderLister{removeErr: reminders.ErrNotFound}).Delete(rec, request(http.MethodDelete, "", "5"))
+	NewReminderHandlers(testZone, &fakeReminderLister{removeErr: reminders.ErrNotFound}).Delete(rec, request(http.MethodDelete, "", "5"))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("unknown id status = %d", rec.Code)
 	}
 	rec = httptest.NewRecorder()
-	NewReminderHandlers(f).Delete(rec, request(http.MethodDelete, "", "x"))
+	NewReminderHandlers(testZone, f).Delete(rec, request(http.MethodDelete, "", "x"))
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bad id status = %d", rec.Code)
+	}
+}
+
+func TestReminderHandlers_Create(t *testing.T) {
+	f := &fakeReminderLister{}
+	rec := httptest.NewRecorder()
+	NewReminderHandlers(testZone, f).Create(rec, request(http.MethodPost,
+		`{"message":"call the bank","fire_at":"2026-10-12T09:00:00+01:00","connector":"telegram","timezone":"Europe/London"}`, ""))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body)
+	}
+	got := f.created
+	if got.Message != "call the bank" || got.Timezone != "Europe/London" || got.Connector != "telegram" || got.CreatedBy != "ui" ||
+		!got.FireAt.Equal(time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC)) {
+		t.Fatalf("created = %+v", got)
+	}
+	var item map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &item)
+	if item["id"] != float64(11) {
+		t.Errorf("response = %+v", item)
+	}
+}
+
+func TestReminderHandlers_CreateRecurringUsesTheOwnerZoneWhenNoneGiven(t *testing.T) {
+	f := &fakeReminderLister{}
+	owner := func(requested string) (*time.Location, error) { return time.LoadLocation("Asia/Tokyo") }
+	rec := httptest.NewRecorder()
+	NewReminderHandlers(owner, f).Create(rec, request(http.MethodPost, `{"message":"standup","cron":"0 9 * * 1"}`, ""))
+	if rec.Code != http.StatusCreated || f.created.Timezone != "Asia/Tokyo" || f.created.Cron != "0 9 * * 1" {
+		t.Fatalf("status=%d created=%+v", rec.Code, f.created)
+	}
+}
+
+func TestReminderHandlers_CreateErrors(t *testing.T) {
+	cases := []struct {
+		name, body string
+		err        error
+		want       int
+	}{
+		{"bad json", `{`, nil, http.StatusBadRequest},
+		{"bad time", `{"message":"x","fire_at":"tomorrow"}`, nil, http.StatusBadRequest},
+		{"unknown timezone", `{"message":"x","fire_at":"2030-01-01T00:00:00Z","timezone":"Mars/Base"}`, nil, http.StatusBadRequest},
+		{"refused by rules", `{"message":"x","fire_at":"2020-01-01T00:00:00Z"}`, fmt.Errorf("%w: past", reminders.ErrInvalid), http.StatusBadRequest},
+		{"storage failure", `{"message":"x","fire_at":"2030-01-01T00:00:00Z"}`, errors.New("disk"), http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		NewReminderHandlers(testZone, &fakeReminderLister{createErr: tc.err}).Create(rec, request(http.MethodPost, tc.body, ""))
+		if rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d (%s)", tc.name, rec.Code, tc.want, rec.Body)
+		}
+	}
+}
+
+func TestReminderHandlers_PauseResumeSkip(t *testing.T) {
+	f := &fakeReminderLister{}
+	h := NewReminderHandlers(testZone, f)
+	for _, tc := range []struct {
+		name string
+		call func(http.ResponseWriter, *http.Request)
+	}{{"pause", h.Pause}, {"resume", h.Resume}, {"skip", h.Skip}} {
+		rec := httptest.NewRecorder()
+		tc.call(rec, request(http.MethodPost, "", "3"))
+		if rec.Code != http.StatusOK || f.acted != tc.name+" 3" {
+			t.Errorf("%s: status=%d acted=%q", tc.name, rec.Code, f.acted)
+		}
+	}
+	for name, err := range map[string]error{"refused": fmt.Errorf("%w: only repeating", reminders.ErrInvalid), "unknown": reminders.ErrNotFound} {
+		rec := httptest.NewRecorder()
+		NewReminderHandlers(testZone, &fakeReminderLister{actErr: err}).Pause(rec, request(http.MethodPost, "", "3"))
+		want := map[string]int{"refused": http.StatusBadRequest, "unknown": http.StatusNotFound}[name]
+		if rec.Code != want {
+			t.Errorf("%s: status = %d, want %d", name, rec.Code, want)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.Pause(rec, request(http.MethodPost, "", "x"))
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("bad id status = %d", rec.Code)
 	}

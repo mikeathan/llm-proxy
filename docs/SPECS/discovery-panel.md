@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.9"
+version: "2.10"
 status: stable
 last_updated: 2026-10-11
 constitution_references: []
@@ -12,6 +12,13 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.10 (2026-10-12)** — Reminders page management. **New reminder** (page header and empty state) opens the form
+  with the time set to 09:00 tomorrow in the browser's timezone. The form has a **Repeat** switch, so a one-off can
+  become repeating and the other way round. Finished reminders (sent, missed, failed) in History have **Reschedule**,
+  which opens the same form. A repeating upcoming reminder has **Pause** / **Resume** and **Skip next occurrence**; a
+  paused one shows a Paused tag. The Overview summary uses the same row, read-only. Refusals from pause, resume and
+  skip appear on the page; refusals from a form appear in the form.
 
 - **2.9 (2026-10-11)** — Reminders page. A seventh destination, **Reminders** (`/reminders`), between Automations and
   Models, lists what the assistant has been asked to remind the user of and lets them edit or delete it (SPEC-011).

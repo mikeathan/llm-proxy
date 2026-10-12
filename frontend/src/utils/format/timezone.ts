@@ -61,3 +61,13 @@ export function fromZonedInput(local: string, zone: string): string | null {
   }
   return new Date(Math.round(guess / MS_PER_MINUTE) * MS_PER_MINUTE).toISOString()
 }
+
+const MS_PER_DAY = 86_400_000
+const DEFAULT_REMINDER_HOUR = '09:00'
+
+/** 09:00 tomorrow in the zone, as a UTC ISO string: where a new reminder starts. */
+export function defaultReminderTime(now: Date, zone: string): string {
+  const today = toZonedInput(now.toISOString(), zone).slice(0, 'YYYY-MM-DD'.length)
+  const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + MS_PER_DAY).toISOString().slice(0, today.length)
+  return fromZonedInput(`${tomorrow}T${DEFAULT_REMINDER_HOUR}`, zone) ?? now.toISOString()
+}

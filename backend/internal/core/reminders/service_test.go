@@ -133,7 +133,6 @@ func newRig(t *testing.T, defaultConnector string) *rig {
 	}
 	r.svc = NewService(r.store, r.del, r.notes, r.clock, Config{
 		DefaultConnector: func() string { return defaultConnector },
-		RetryDelays:      []time.Duration{time.Minute, 5 * time.Minute},
 	})
 	return r
 }
@@ -494,5 +493,146 @@ func TestRemove_DeletesAndNeverDelivers(t *testing.T) {
 	}
 	if err := r.svc.Remove(context.Background(), rem.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("second Remove = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCreate_RepliesWhereAsked(t *testing.T) {
+	r := newRig(t, "telegram")
+	r.del.configured["slack"] = true
+	got, err := r.svc.Create(context.Background(), Reminder{Message: "a", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC", Origin: "slack"})
+	if err != nil || got.Connector != "slack" {
+		t.Fatalf("asked in slack: connector=%q err=%v", got.Connector, err)
+	}
+	got, _ = r.svc.Create(context.Background(), Reminder{Message: "b", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC"})
+	if got.Connector != "" || r.svc.Channel(got.Connector) != "telegram" {
+		t.Errorf("web chat follows the default: connector=%q channel=%q", got.Connector, r.svc.Channel(got.Connector))
+	}
+	got, _ = r.svc.Create(context.Background(), Reminder{Message: "c", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC", Origin: "discord"})
+	if got.Connector != "" {
+		t.Errorf("an origin that is not configured must not be stored, got %q", got.Connector)
+	}
+}
+
+func TestEdit_ReschedulesAFinishedReminder(t *testing.T) {
+	r := newRig(t, "telegram")
+	for _, finished := range []Status{StatusDone, StatusMissed, StatusFailed} {
+		rem := r.create(t, "once "+string(finished), time.Hour, "")
+		cur, _ := r.store.Get(context.Background(), rem.ID)
+		cur.Status, cur.Attempts, cur.LastError = finished, 3, "boom"
+		if err := r.store.Update(context.Background(), cur); err != nil {
+			t.Fatal(err)
+		}
+		got, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: rem.Message, FireAt: r.clock.Now().Add(2 * time.Hour)})
+		if err != nil || got.Status != StatusScheduled || got.Attempts != 0 || got.LastError != "" {
+			t.Fatalf("%s: got %+v err=%v, want a fresh scheduled reminder", finished, got, err)
+		}
+	}
+}
+
+func TestEdit_ACancelledReminderCannotBeEdited(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := r.create(t, "x", time.Hour, "")
+	_ = r.svc.Cancel(context.Background(), rem.ID)
+	if _, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "y", FireAt: r.clock.Now().Add(time.Hour)}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// The result of a send must not overwrite what the user changed while it was in flight.
+func TestRun_EditDuringSendIsNotClobbered(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := r.create(t, "old text", time.Hour, "")
+	newTime := r.clock.Now().Add(48 * time.Hour)
+	r.del.onDeliver = func() {
+		if _, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "edited", FireAt: newTime}); err != nil {
+			t.Errorf("Edit: %v", err)
+		}
+	}
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour)
+	eventually(t, "delivered", func() bool { return len(r.del.all()) == 1 })
+	time.Sleep(30 * time.Millisecond)
+	got, _ := r.store.Get(context.Background(), rem.ID)
+	if got.Message != "edited" || got.Status != StatusScheduled || !got.FireAt.Equal(newTime) {
+		t.Fatalf("the edit was overwritten by the send's result: %+v", got)
+	}
+}
+
+func repeating(t *testing.T, r *rig) Reminder {
+	t.Helper()
+	rem, err := r.svc.Create(context.Background(), Reminder{Message: "standup", Cron: "0 13 * * *", Timezone: "UTC"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rem
+}
+
+func TestService_PauseResume(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := repeating(t, r) // first at 13:00 today
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+
+	got, err := r.svc.Pause(context.Background(), rem.ID)
+	if err != nil || got.Status != StatusPaused {
+		t.Fatalf("Pause: %+v err=%v", got, err)
+	}
+	r.clock.Advance(26 * time.Hour) // past two occurrences
+	time.Sleep(30 * time.Millisecond)
+	if len(r.del.all()) != 0 {
+		t.Fatalf("a paused reminder was delivered: %+v", r.del.all())
+	}
+	if open, _ := r.svc.List(context.Background()); len(open) != 1 || open[0].Status != StatusPaused {
+		t.Fatalf("a paused reminder stays in the list: %+v", open)
+	}
+
+	got, err = r.svc.Resume(context.Background(), rem.ID)
+	if err != nil || got.Status != StatusScheduled || !got.FireAt.After(r.clock.Now()) {
+		t.Fatalf("Resume: %+v err=%v", got, err)
+	}
+	if len(r.del.all()) != 0 {
+		t.Fatal("resuming must not replay what was silenced")
+	}
+	time.Sleep(20 * time.Millisecond)
+	r.clock.Advance(24 * time.Hour)
+	eventually(t, "fires again after resume", func() bool { return len(r.del.all()) == 1 })
+}
+
+func TestService_Skip(t *testing.T) {
+	r := newRig(t, "telegram")
+	rem := repeating(t, r) // next 13:00 today
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	got, err := r.svc.Skip(context.Background(), rem.ID)
+	if err != nil || !got.FireAt.Equal(time.Date(2026, 10, 12, 13, 0, 0, 0, time.UTC)) {
+		t.Fatalf("Skip: %+v err=%v, want tomorrow 13:00", got, err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	r.clock.Advance(2 * time.Hour) // today's 13:00 passes
+	time.Sleep(30 * time.Millisecond)
+	if len(r.del.all()) != 0 {
+		t.Fatal("the skipped occurrence was delivered")
+	}
+}
+
+func TestPauseResumeSkip_Errors(t *testing.T) {
+	r := newRig(t, "telegram")
+	oneoff := r.create(t, "x", time.Hour, "")
+	rep := repeating(t, r)
+	ctx := context.Background()
+	if _, err := r.svc.Pause(ctx, oneoff.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("pausing a one-off: %v", err)
+	}
+	if _, err := r.svc.Resume(ctx, rep.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("resuming one that is not paused: %v", err)
+	}
+	if _, err := r.svc.Skip(ctx, oneoff.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("skipping a one-off: %v", err)
+	}
+	for name, fn := range map[string]func(context.Context, int64) (Reminder, error){"Pause": r.svc.Pause, "Resume": r.svc.Resume, "Skip": r.svc.Skip} {
+		if _, err := fn(ctx, 9999); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s of an unknown id: %v", name, err)
+		}
 	}
 }

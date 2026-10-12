@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/platform/db"
@@ -22,7 +23,16 @@ const (
 	StatusCancelled Status = "cancelled"
 	StatusMissed    Status = "missed"
 	StatusFailed    Status = "failed"
+	// StatusPaused is a repeating reminder that is silenced: it keeps its place in
+	// the list and counts against the open limit, but never fires until resumed.
+	StatusPaused Status = "paused"
 )
+
+// openStatuses are the reminders a user still manages as "upcoming".
+var openStatuses = []Status{StatusScheduled, StatusPaused}
+
+// finishedStatuses can be brought back to life by editing them (reschedule).
+var finishedStatuses = []Status{StatusDone, StatusMissed, StatusFailed}
 
 // ErrInvalid wraps every refusal of a reminder the user (or agent) described:
 // transport maps it to a 400, as opposed to a storage failure.
@@ -41,7 +51,14 @@ type Reminder struct {
 	Until     *time.Time
 	Timezone  string
 	Connector string
-	Status    Status
+	// Origin is the connector type the request arrived through. It only informs
+	// the channel chosen at creation and is never stored.
+	Origin string
+	Status Status
+	// Rev counts edits made by the user. The delivery loop writes a result back
+	// only if Rev is still what it read, so a result computed from an old copy
+	// can never overwrite an edit made while it was being sent.
+	Rev       int64
 	Attempts  int
 	LastError string
 	CreatedBy string
@@ -66,7 +83,7 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, fire_at);
 `
 
-const columns = `id, message, fire_at, cron, until_at, timezone, connector, status, attempts, last_error, created_by, created_at`
+const columns = `id, message, fire_at, cron, until_at, timezone, connector, status, rev, attempts, last_error, created_by, created_at`
 
 // Store persists reminders in the shared SQLite database. Times are stored as
 // UTC unix seconds.
@@ -79,6 +96,10 @@ func NewStore(p db.Provider) (*Store, error) {
 	database := p.DB()
 	if _, err := database.Exec(migrateSQL); err != nil {
 		return nil, fmt.Errorf("reminders migrate: %w", err)
+	}
+	// Additive and idempotent: SQLite has no ADD COLUMN IF NOT EXISTS.
+	if _, err := database.Exec(`ALTER TABLE reminders ADD COLUMN rev INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return nil, fmt.Errorf("reminders migrate rev: %w", err)
 	}
 	return &Store{db: database}, nil
 }
@@ -108,9 +129,31 @@ func (s *Store) Get(ctx context.Context, id int64) (Reminder, error) {
 	return r, err
 }
 
-// ListOpen returns scheduled reminders, soonest first.
+// ListOpen returns the reminders a user manages as upcoming (scheduled and
+// paused), soonest first.
 func (s *Store) ListOpen(ctx context.Context) ([]Reminder, error) {
-	return s.query(ctx, `SELECT `+columns+` FROM reminders WHERE status = 'scheduled' ORDER BY fire_at, id`)
+	return s.byStatus(ctx, openStatuses)
+}
+
+// ListScheduled returns only the reminders that will fire, soonest first: what
+// the delivery timer is armed from.
+func (s *Store) ListScheduled(ctx context.Context) ([]Reminder, error) {
+	return s.byStatus(ctx, []Status{StatusScheduled})
+}
+
+func (s *Store) byStatus(ctx context.Context, statuses []Status) ([]Reminder, error) {
+	in, args := inClause(statuses)
+	return s.query(ctx, `SELECT `+columns+` FROM reminders WHERE status IN (`+in+`) ORDER BY fire_at, id`, args...)
+}
+
+// inClause is the placeholders and arguments for `status IN (…)`.
+func inClause(statuses []Status) (string, []any) {
+	marks := make([]string, len(statuses))
+	args := make([]any, len(statuses))
+	for i, st := range statuses {
+		marks[i], args[i] = "?", string(st)
+	}
+	return strings.Join(marks, ","), args
 }
 
 // Due returns scheduled reminders whose fire time is at or before now.
@@ -124,38 +167,59 @@ func (s *Store) Recent(ctx context.Context, limit int) ([]Reminder, error) {
 	return s.query(ctx, `SELECT `+columns+` FROM reminders WHERE status IN ('done','missed','failed') ORDER BY fire_at DESC, id DESC LIMIT ?`, limit)
 }
 
-// Update writes the mutable fields of a reminder that is still scheduled.
-// ErrNotFound means it is no longer open (cancelled while a send was in flight):
-// the cancel wins and the stale write is dropped.
+// Update writes the result of a delivery attempt back to a reminder that is still
+// scheduled and has not been edited since it was read (same Rev). ErrNotFound
+// means a cancel, delete or edit got there first: the user's change wins and the
+// stale result is dropped.
 func (s *Store) Update(ctx context.Context, r Reminder) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ? WHERE id = ? AND status = 'scheduled'`,
-		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID)
+		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ? WHERE id = ? AND status = 'scheduled' AND rev = ?`,
+		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID, r.Rev)
 	if err != nil {
 		return fmt.Errorf("reminders update: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affected(res)
 }
 
-// Replace overwrites the user-editable fields (message, time, recurrence, end,
-// channel) of a reminder that is still scheduled and starts its delivery afresh.
-// Identity (zone, creator, creation time) is kept. ErrNotFound when it is no
-// longer open, so an edit never revives a cancelled or finished reminder.
+// Replace overwrites what the user can edit (message, time, recurrence, end,
+// channel) and starts delivery afresh: a scheduled or finished reminder becomes
+// scheduled (so a missed or failed one can be rescheduled), a paused one stays
+// paused. Identity (zone, creator, creation time) is kept and Rev is bumped.
+// ErrNotFound when the reminder is cancelled or does not exist.
 func (s *Store) Replace(ctx context.Context, r Reminder) error {
 	var until any
 	if r.Until != nil {
 		until = r.Until.Unix()
 	}
+	editable := append(append([]Status{}, openStatuses...), finishedStatuses...)
+	in, args := inClause(editable)
+	args = append([]any{r.Message, r.FireAt.Unix(), r.Cron, until, r.Connector, r.ID}, args...)
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE reminders SET message = ?, fire_at = ?, cron = ?, until_at = ?, connector = ?, attempts = 0, last_error = ''
-		 WHERE id = ? AND status = 'scheduled'`,
-		r.Message, r.FireAt.Unix(), r.Cron, until, r.Connector, r.ID)
+		`UPDATE reminders SET message = ?, fire_at = ?, cron = ?, until_at = ?, connector = ?, attempts = 0, last_error = '',
+		   status = CASE WHEN status = 'paused' THEN 'paused' ELSE 'scheduled' END, rev = rev + 1
+		 WHERE id = ? AND status IN (`+in+`)`, args...)
 	if err != nil {
 		return fmt.Errorf("reminders replace: %w", err)
 	}
+	return affected(res)
+}
+
+// Transition applies a state change the user asked for (pause, resume, skip):
+// it writes the reminder's status, time and failure record, bumps Rev, and only
+// if the reminder is currently in one of the from states; otherwise ErrNotFound.
+func (s *Store) Transition(ctx context.Context, r Reminder, from ...Status) error {
+	in, args := inClause(from)
+	args = append([]any{r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID}, args...)
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ?, rev = rev + 1 WHERE id = ? AND status IN (`+in+`)`, args...)
+	if err != nil {
+		return fmt.Errorf("reminders transition: %w", err)
+	}
+	return affected(res)
+}
+
+// affected is ErrNotFound when a guarded write matched no row.
+func affected(res sql.Result) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return ErrNotFound
 	}
@@ -168,28 +232,22 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("reminders delete: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affected(res)
 }
 
 // Cancel marks a scheduled reminder cancelled; ErrNotFound when it is not open.
 func (s *Store) Cancel(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE reminders SET status = 'cancelled' WHERE id = ? AND status = 'scheduled'`, id)
+	res, err := s.db.ExecContext(ctx, `UPDATE reminders SET status = 'cancelled', rev = rev + 1 WHERE id = ? AND status IN ('scheduled','paused')`, id)
 	if err != nil {
 		return fmt.Errorf("reminders cancel: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affected(res)
 }
 
 // CountOpen is the number of scheduled reminders.
 func (s *Store) CountOpen(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM reminders WHERE status = 'scheduled'`).Scan(&n)
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM reminders WHERE status IN ('scheduled','paused')`).Scan(&n)
 	return n, err
 }
 
@@ -220,7 +278,7 @@ func scan(row scanner) (Reminder, error) {
 		status            string
 	)
 	if err := row.Scan(&r.ID, &r.Message, &fireAt, &r.Cron, &until, &r.Timezone, &r.Connector,
-		&status, &r.Attempts, &r.LastError, &r.CreatedBy, &createdAt); err != nil {
+		&status, &r.Rev, &r.Attempts, &r.LastError, &r.CreatedBy, &createdAt); err != nil {
 		return Reminder{}, err
 	}
 	r.FireAt = time.Unix(fireAt, 0).UTC()

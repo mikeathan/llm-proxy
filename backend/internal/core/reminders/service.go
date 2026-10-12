@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"llm-proxy/internal/platform/logging"
@@ -13,24 +12,11 @@ import (
 const (
 	// MaxOpen caps scheduled reminders so a runaway agent cannot fill the table.
 	MaxOpen = 50
-	// lateWindow: a reminder found overdue by less than this is still delivered
-	// (marked late); older ones become "missed" and are shown in-app only.
-	lateWindow = 12 * time.Hour
-	// lateGrace is the normal timer jitter below which a delivery is not "late".
-	lateGrace = 2 * time.Minute
-	// maxAttempts is the number of delivery tries before a reminder is failed.
-	maxAttempts = 3
 	// saveRetryDelay holds a reminder back when its state could not be saved, so a
 	// store that is down cannot turn the loop into a spin that re-sends it.
-	saveRetryDelay  = 30 * time.Second
-	deliverTimeout  = 30 * time.Second
-	InAppChannel    = "in-app"
-	eventDue        = "due"
-	eventLate       = "late"
-	eventMissed     = "missed"
-	eventFailed     = "failed"
-	latePrefix      = "(late) "
-	defaultFirstTry = time.Minute
+	saveRetryDelay = 30 * time.Second
+	deliverTimeout = 30 * time.Second
+	latePrefix     = "(late) "
 )
 
 // Deliverer sends reminder text to a connector. connector is a connector type
@@ -73,11 +59,11 @@ func SystemClock() Clock { return realClock{} }
 
 // Config is read live so a settings change applies without a restart.
 type Config struct {
-	// DefaultConnector returns the connector type used when a reminder names none;
-	// empty means in-app only.
+	// DefaultConnector returns the default channel setting: a connector type, or ""
+	// for in-app only. A type that is not configured is ignored (ChannelPolicy).
 	DefaultConnector func() string
-	// RetryDelays are the waits before retry 2, 3, … (default 1m then 5m).
-	RetryDelays []time.Duration
+	// Policy is the lifecycle numbers; the zero value means DefaultPolicy.
+	Policy Policy
 }
 
 // Service owns the reminder lifecycle: creation, cancellation and the single
@@ -88,6 +74,7 @@ type Service struct {
 	notice  Notice
 	clock   Clock
 	cfg     Config
+	channel ChannelPolicy
 	wake    chan struct{}
 	// held maps a reminder whose state could not be saved to the time before which
 	// it is not retried. Touched only by the Run goroutine.
@@ -99,25 +86,15 @@ func NewService(s *Store, d Deliverer, n Notice, c Clock, cfg Config) *Service {
 	if cfg.DefaultConnector == nil {
 		cfg.DefaultConnector = func() string { return "" }
 	}
-	if len(cfg.RetryDelays) == 0 {
-		cfg.RetryDelays = []time.Duration{defaultFirstTry, 5 * time.Minute}
+	if cfg.Policy.MaxAttempts == 0 {
+		cfg.Policy = DefaultPolicy()
 	}
-	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
+	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg,
+		channel: ChannelPolicy{Default: cfg.DefaultConnector, Configured: d.HasConnector}, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
 }
 
-// HasConnector reports whether a connector of that type is configured.
-func (s *Service) HasConnector(connector string) bool { return s.deliver.HasConnector(connector) }
-
-// Channel is where a reminder naming `connector` (or none) will be delivered.
-func (s *Service) Channel(connector string) string {
-	if connector != "" {
-		return connector
-	}
-	if def := s.cfg.DefaultConnector(); def != "" {
-		return def
-	}
-	return InAppChannel
-}
+// Channel is where a reminder with this stored channel choice will be delivered.
+func (s *Service) Channel(stored string) string { return s.channel.Resolve(stored) }
 
 // Create validates and stores a reminder, then wakes the loop. A recurring
 // reminder without FireAt starts at its next cron occurrence.
@@ -139,17 +116,15 @@ func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
 	return s.store.Get(ctx, id)
 }
 
-// Edit replaces the message, time, recurrence, end and channel of an open
-// reminder under the same rules as Create (its timezone is kept). ErrNotFound
-// when it is not open; ErrInvalid (wrapped) when the new description is refused,
-// in which case nothing changes.
+// Edit replaces the message, time, recurrence, end and channel of a reminder under
+// the same rules as Create (its timezone is kept). A finished reminder (sent,
+// missed, failed) is rescheduled by editing it; a paused one stays paused.
+// ErrNotFound when it is cancelled or unknown; ErrInvalid (wrapped) when the new
+// description is refused, in which case nothing changes.
 func (s *Service) Edit(ctx context.Context, id int64, in Reminder) (Reminder, error) {
 	cur, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Reminder{}, err
-	}
-	if cur.Status != StatusScheduled {
-		return Reminder{}, ErrNotFound
 	}
 	in.ID, in.Timezone, in.CreatedBy = id, cur.Timezone, cur.CreatedBy
 	in, err = s.prepare(in)
@@ -178,10 +153,44 @@ func (s *Service) prepare(r Reminder) (Reminder, error) {
 	if err := ValidateNew(r, now); err != nil {
 		return Reminder{}, fmt.Errorf("%w: %s", ErrInvalid, err)
 	}
-	if r.Connector != "" && r.Connector != InAppChannel && !s.deliver.HasConnector(r.Connector) {
-		return Reminder{}, fmt.Errorf("%w: no %q connector is configured: enable it in Settings or choose another channel", ErrInvalid, r.Connector)
+	if err := s.channel.ValidateNamed(r.Connector); err != nil {
+		return Reminder{}, fmt.Errorf("%w: %s", ErrInvalid, err)
 	}
+	r.Connector = s.channel.ForNew(r.Connector, r.Origin)
 	return r, nil
+}
+
+// Pause silences a repeating reminder without deleting it.
+func (s *Service) Pause(ctx context.Context, id int64) (Reminder, error) {
+	return s.change(ctx, id, StatusScheduled, func(r Reminder) (Reminder, error) { return Pause(r) })
+}
+
+// Resume brings a paused reminder back at its next occurrence.
+func (s *Service) Resume(ctx context.Context, id int64) (Reminder, error) {
+	return s.change(ctx, id, StatusPaused, func(r Reminder) (Reminder, error) { return Resume(r, s.clock.Now()) })
+}
+
+// Skip moves a repeating reminder past its next occurrence.
+func (s *Service) Skip(ctx context.Context, id int64) (Reminder, error) {
+	return s.change(ctx, id, StatusScheduled, func(r Reminder) (Reminder, error) { return SkipNext(r) })
+}
+
+// change reads a reminder, applies one of the pure state changes and writes the
+// result only if it is still in the state it was read in, then re-arms the loop.
+func (s *Service) change(ctx context.Context, id int64, from Status, apply func(Reminder) (Reminder, error)) (Reminder, error) {
+	cur, err := s.store.Get(ctx, id)
+	if err != nil {
+		return Reminder{}, err
+	}
+	next, err := apply(cur)
+	if err != nil {
+		return Reminder{}, err
+	}
+	if err := s.store.Transition(ctx, next, from); err != nil {
+		return Reminder{}, err
+	}
+	s.poke()
+	return s.store.Get(ctx, id)
 }
 
 // Cancel cancels an open reminder.
@@ -246,7 +255,7 @@ func (s *Service) Run(ctx context.Context) {
 // armTimer returns a timer for the earliest open reminder, or nil when none. A
 // reminder held back after a failed save is not due again before its hold ends.
 func (s *Service) armTimer(ctx context.Context) Timer {
-	open, err := s.store.ListOpen(ctx)
+	open, err := s.store.ListScheduled(ctx)
 	if err != nil || len(open) == 0 {
 		if err != nil && ctx.Err() == nil {
 			logging.Warn("reminders: list failed", "error", err)
@@ -302,23 +311,19 @@ func (s *Service) handle(ctx context.Context, r Reminder, now time.Time) {
 		}
 		return
 	}
-	overdue := now.Sub(r.FireAt)
-	if overdue > lateWindow {
-		s.markMissed(ctx, r, now)
-		return
+	timing := s.cfg.Policy.Classify(r, now)
+	outcome := Overdue
+	if timing != Missed {
+		outcome = Delivered(timing)
+		if err := s.send(ctx, r, timing == Late); err != nil {
+			outcome = Failed(err.Error())
+		}
 	}
-	late := overdue > lateGrace
-	err := s.send(ctx, r, late)
-	if err != nil {
-		s.fail(ctx, r, now, err)
-		return
+	step := s.cfg.Policy.Advance(r, outcome, now)
+	if step.Event != "" {
+		s.notice.Notify(ctx, step.Next, step.Event)
 	}
-	event := eventDue
-	if late {
-		event = eventLate
-	}
-	s.notice.Notify(ctx, r, event)
-	s.finish(ctx, r, now)
+	s.save(ctx, step.Next, now)
 }
 
 func (s *Service) send(ctx context.Context, r Reminder, late bool) error {
@@ -335,55 +340,6 @@ func (s *Service) send(ctx context.Context, r Reminder, late bool) error {
 	return s.deliver.Deliver(sendCtx, channel, msg)
 }
 
-// finish closes a one-off or advances a recurring reminder to its next time.
-func (s *Service) finish(ctx context.Context, r Reminder, now time.Time) {
-	r.Attempts, r.LastError = 0, ""
-	if next, ok := NextFire(r, now); r.Cron != "" && ok {
-		r.FireAt = next
-	} else {
-		r.Status = StatusDone
-	}
-	s.save(ctx, r, now)
-}
-
-func (s *Service) markMissed(ctx context.Context, r Reminder, now time.Time) {
-	s.notice.Notify(ctx, r, eventMissed)
-	if next, ok := NextFire(r, now); r.Cron != "" && ok {
-		r.FireAt, r.Attempts, r.LastError = next, 0, ""
-	} else {
-		r.Status = StatusMissed
-	}
-	s.save(ctx, r, now)
-}
-
-// fail records a failed send. After maxAttempts a one-off becomes failed; a
-// recurring reminder reports the failure and moves on to its next occurrence, so
-// a short connector outage does not end it for good.
-func (s *Service) fail(ctx context.Context, r Reminder, now time.Time, cause error) {
-	r.Attempts++
-	r.LastError = truncate(cause.Error(), 300)
-	switch {
-	case r.Attempts < maxAttempts:
-		r.FireAt = now.Add(s.retryDelay(r.Attempts))
-	default:
-		s.notice.Notify(ctx, r, eventFailed)
-		if next, ok := NextFire(r, now); r.Cron != "" && ok {
-			r.FireAt, r.Attempts = next, 0
-		} else {
-			r.Status = StatusFailed
-		}
-	}
-	s.save(ctx, r, now)
-}
-
-func (s *Service) retryDelay(attempts int) time.Duration {
-	i := attempts - 1
-	if i >= len(s.cfg.RetryDelays) {
-		i = len(s.cfg.RetryDelays) - 1
-	}
-	return s.cfg.RetryDelays[i]
-}
-
 // save writes the new state. A cancel that won the race (ErrNotFound) is not an
 // error; any other failure holds the reminder back instead of retrying at once.
 func (s *Service) save(ctx context.Context, r Reminder, now time.Time) {
@@ -396,11 +352,3 @@ func (s *Service) save(ctx context.Context, r Reminder, now time.Time) {
 }
 
 func (s *Service) hold(id int64, now time.Time) { s.held[id] = now.Add(saveRetryDelay) }
-
-func truncate(msg string, n int) string {
-	msg = strings.TrimSpace(msg)
-	if len(msg) <= n {
-		return msg
-	}
-	return msg[:n]
-}

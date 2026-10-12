@@ -119,10 +119,20 @@ describe('GlobalSettings', () => {
       },
     })
 
-    it('offers automatic plus each enabled connector type as the default channel', () => {
+    it('offers the web UI alone plus each enabled connector type as the default channel', () => {
       const { w } = mountGlobal(withConnectors())
       const select = fieldByLabel(w, /default channel/i)
-      expect(select.findAll('option').map((o) => o.attributes('value'))).toEqual(['', 'telegram', 'slack'])
+      expect(select.findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([
+        ['', 'Web UI only'],
+        ['telegram', 'telegram'],
+        ['slack', 'slack'],
+      ])
+    })
+
+    it('says that nothing is chosen for you', () => {
+      const { w } = mountGlobal(withConnectors())
+      expect(w.text()).toMatch(/web ui only/i)
+      expect(w.text()).not.toMatch(/automatic/i)
     })
 
     it('saves the chosen default channel without touching the timezone', async () => {

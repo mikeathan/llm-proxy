@@ -1,7 +1,7 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.1"
+version: "1.3"
 status: stable
 last_updated: 2026-10-11
 constitution_references: [II.2, II.14, V]
@@ -12,6 +12,24 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.3 (2026-10-12)** — Edit gaps and pause. (a) A finished reminder (sent, missed, failed) is **rescheduled** by editing
+  it: it becomes scheduled again with its failure record cleared; a cancelled one stays closed. (b) An edit can turn a
+  one-off into a repeating reminder and back. (c) Reminders can be **created** from the UI (`POST /admin/api/reminders`;
+  zone = the browser's, else the owner setting, else UTC; creator `ui`). (d) A repeating reminder can be **paused** (new
+  status `paused`: listed, counted against the open limit, never fires, still cancellable), **resumed** (next occurrence
+  after now; what was silenced is not replayed; refused if its end date has passed) and have its **next occurrence
+  skipped**. (e) Concurrency: a reminder carries a revision counter bumped by every user change; the delivery loop writes a
+  result back only if the revision is unchanged, so a send that was in flight can no longer overwrite an edit, pause or skip
+  made meanwhile (the user's change wins).
+
+- **1.2 (2026-10-12)** — A connector is used only because it was named, chosen as the default, or is the one the
+  request came through — never because it happens to be the only one configured. A reminder with no channel and no
+  default now goes to the web UI only (previously the single configured connector was picked). The Settings option
+  "Automatic" is now **Web UI only**; a reminder's own channel choice "Default channel" follows the setting. Internally,
+  where a reminder goes is decided in one place (`ChannelPolicy`, `core/reminders/channel.go`) and what a delivery
+  outcome does to a reminder in one pure function (`Policy.Advance`, `transition.go`); behaviour of retries, late and
+  missed handling is unchanged.
 
 - **1.1 (2026-10-11)** — Managing reminders. The Reminders page (SPEC-003 2.9) lists, edits and deletes them through
   `PUT` and `DELETE /admin/api/reminders/{id}` (§4). An edit replaces message, time or recurrence, end and channel under
@@ -42,11 +60,12 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 3. **Validation (refuse, store nothing).** Blank message; both or neither of `when`/`cron`; a time in the past or more
    than a year ahead; an unknown timezone; a recurrence that fires more often than every 15 minutes or has an `until` in
    the past; a named connector type that is not configured; more than 50 open reminders.
-4. **Channel.** A named connector is used as given. Otherwise a request that arrived through a connector (chat app) is
-   answered on that connector if it is still configured (`models.OriginConnector`, set by the inbound webhook run). Otherwise
-   the default is `reminders.default_connector` if that type is configured, else the only configured connector, else
-   **in-app only** — with several connectors and no setting nothing is guessed, and no connector name is hard-coded.
-   Every outcome is also recorded for the in-app list.
+4. **Channel.** A named connector is used as given (`in-app` is a valid choice). Otherwise a request that arrived through a
+   connector (chat app) is answered on it if it is still configured (`models.OriginConnector`, set by the inbound webhook
+   run). Otherwise the reminder follows `reminders.default_connector` if that type is configured, else it is delivered
+   **in-app only**. A connector is never chosen just because it is available, and no connector name is hard-coded. The
+   choice stored on a reminder is "" (follow the default, resolved at send time), `in-app` or a connector type. Every
+   outcome is also recorded for the in-app list.
 5. **Timezone.** `timezone` argument → `reminders.timezone` setting → `UTC` (never a bare "Local", which names no zone a
    user or browser can read). A connector-originated chat
    reports the owner zone (`reminders.timezone`, else `UTC`) to the agent instead of a hard-coded `UTC`
@@ -70,13 +89,14 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 ## 3. Data model
 
 Table `reminders` in the shared SQLite database (`core/reminders/store.go`): `id, message, fire_at (UTC unix),
-cron, until_at, timezone, connector, status (scheduled|done|cancelled|missed|failed), attempts, last_error, created_by,
+cron, until_at, timezone, connector, status (scheduled|paused|done|cancelled|missed|failed), rev, attempts, last_error, created_by,
 created_at`. Settings (`settings.yml`, `reminders:`): `default_connector`, `timezone`; both optional, saved whole,
 timezone validated at save (400).
 
 ## 4. API
 
-`GET /admin/api/reminders` → `{open: [...], recent: [...]}`, `PUT /admin/api/reminders/{id}` (edit) and
+`GET /admin/api/reminders` → `{open: [...], recent: [...]}` (open includes paused), `POST /admin/api/reminders` (create),
+`PUT /admin/api/reminders/{id}` (edit / reschedule), `POST /admin/api/reminders/{id}/pause|resume|skip` and
 `DELETE /admin/api/reminders/{id}` (see [api-reference](../api-reference.md#reminders-api)). The Settings page edits
 `reminders` through `PUT /admin/api/config`; the Overview page summarises the list and the Reminders page manages it.
 

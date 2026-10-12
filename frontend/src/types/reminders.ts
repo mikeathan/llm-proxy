@@ -1,5 +1,5 @@
 // Reminders as GET /admin/api/reminders reports them (backend reminderView).
-export type ReminderStatus = 'scheduled' | 'done' | 'missed' | 'failed' | 'cancelled'
+export type ReminderStatus = 'scheduled' | 'paused' | 'done' | 'missed' | 'failed' | 'cancelled'
 
 export interface ReminderItem {
   id: number
@@ -33,4 +33,6 @@ export interface ReminderEdit {
   cron?: string
   until?: string
   connector: string
+  // Only when creating: the IANA zone the time is in (an edit keeps the reminder's own).
+  timezone?: string
 }

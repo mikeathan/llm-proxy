@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
 )
 
@@ -37,21 +38,6 @@ func (reminderNotice) Notify(_ context.Context, r reminders.Reminder, event stri
 	logging.Info("reminder", "id", r.ID, "event", event, "channel", r.Connector)
 }
 
-// defaultReminderConnector is the channel for a reminder that names none and did
-// not arrive through a connector: the configured default if that connector
-// exists, else the only configured connector, else "" (in-app only). With several
-// connectors and no setting it does not guess.
-func defaultReminderConnector(comm *tools.CommunicationTools, cfg func() models.RemindersConfig) string {
-	types := comm.Types()
-	if want := cfg().DefaultConnector; want != "" && slices.Contains(types, want) {
-		return want
-	}
-	if len(types) == 1 {
-		return types[0]
-	}
-	return ""
-}
-
 // reminderPort adapts the reminders service to the agent tools' interface.
 type reminderPort struct {
 	svc      *reminders.Service
@@ -63,11 +49,6 @@ func (p reminderPort) Zone(requested string) (*time.Location, error) {
 }
 
 func (p reminderPort) Schedule(ctx context.Context, spec tools.ReminderSpec) (tools.ReminderView, error) {
-	// Reply where asked: with no channel named, a request that came through a
-	// connector is answered on it, as long as it is still configured.
-	if spec.Connector == "" && spec.Origin != "" && p.svc.HasConnector(spec.Origin) {
-		spec.Connector = spec.Origin
-	}
 	got, err := p.svc.Create(ctx, reminders.Reminder{
 		Message:   spec.Message,
 		FireAt:    spec.At,
@@ -75,6 +56,7 @@ func (p reminderPort) Schedule(ctx context.Context, spec tools.ReminderSpec) (to
 		Until:     spec.Until,
 		Timezone:  spec.Zone,
 		Connector: spec.Connector,
+		Origin:    spec.Origin,
 		CreatedBy: "assistant",
 	})
 	if err != nil {
@@ -100,7 +82,7 @@ func (p reminderPort) List(ctx context.Context) ([]tools.ReminderView, error) {
 func (p reminderPort) view(r reminders.Reminder) tools.ReminderView {
 	return tools.ReminderView{
 		ID: r.ID, Message: r.Message, At: r.FireAt, Cron: r.Cron, Zone: r.Timezone,
-		Channel: p.svc.Channel(r.Connector),
+		Channel: p.svc.Channel(r.Connector), Paused: r.Status == reminders.StatusPaused,
 	}
 }
 
@@ -116,6 +98,14 @@ func localRegistry(tp assistantPkg.ToolProvider) *assistantPkg.LocalToolRegistry
 		}
 	}
 	return nil
+}
+
+// reminderZone resolves the timezone for a reminder created from the UI the same
+// way the assistant's tool does: the one sent, else the owner's setting, else UTC.
+func reminderZone(s *AppServices) handlers.ZoneResolver {
+	return func(requested string) (*time.Location, error) {
+		return reminders.ResolveZone(requested, s.AppCtx.GetSettings().Reminders.Effective().Timezone)
+	}
 }
 
 // initReminders builds the reminder service and attaches its tools. It is a no-op
@@ -137,6 +127,6 @@ func (c *Container) initReminders(s *AppServices) {
 	}
 	settings := func() models.RemindersConfig { return s.AppCtx.GetSettings().Reminders.Effective() }
 	s.Reminders = reminders.NewService(store, reminderDeliverer{comm: comm}, reminderNotice{}, reminders.SystemClock(),
-		reminders.Config{DefaultConnector: func() string { return defaultReminderConnector(comm, settings) }})
+		reminders.Config{DefaultConnector: func() string { return settings().DefaultConnector }})
 	registry.WithReminders(reminderPort{svc: s.Reminders, settings: settings})
 }
