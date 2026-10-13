@@ -119,26 +119,41 @@ describe('GlobalSettings', () => {
       },
     })
 
-    it('offers the web UI alone plus each enabled connector type as the default channel', () => {
+    const toggles = (w: ReturnType<typeof mountGlobal>['w']) =>
+      w.find('[data-test="reminder-delivery"]').findAll('input[role="switch"]')
+    const toggleFor = (w: ReturnType<typeof mountGlobal>['w'], name: RegExp) =>
+      toggles(w).find((t) => name.test(t.element.closest('label')?.textContent ?? ''))!
+
+    it('always includes the web UI and offers each enabled connector type, ticked by default', () => {
       const { w } = mountGlobal(withConnectors())
-      const select = fieldByLabel(w, /default channel/i)
-      expect(select.findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([
-        ['', 'Web UI only'],
-        ['telegram', 'telegram'],
-        ['slack', 'slack'],
+      const rows = toggles(w).map((t) => [t.element.closest('label')!.textContent!.trim(), (t.element as HTMLInputElement).checked, (t.element as HTMLInputElement).disabled])
+      expect(rows).toEqual([
+        ['Web UI', true, true],
+        ['telegram', true, false],
+        ['slack', true, false],
       ])
+      expect(w.get('[data-test="reminder-delivery-summary"]').text()).toBe('Reminders go to: Web UI + telegram, slack')
     })
 
-    it('says that nothing is chosen for you', () => {
-      const { w } = mountGlobal(withConnectors())
-      expect(w.text()).toMatch(/web ui only/i)
-      expect(w.text()).not.toMatch(/automatic/i)
+    it('says so when no connector is switched on', () => {
+      const { w } = mountGlobal()
+      expect(w.get('[data-test="reminder-delivery"]').text()).toMatch(/no connector is switched on/i)
+      expect(w.get('[data-test="reminder-delivery-summary"]').text()).toBe('Reminders go to: Web UI')
     })
 
-    it('saves the chosen default channel without touching the timezone', async () => {
+    it('saves a connector as skipped when it is ticked off, keeping the timezone', async () => {
       const { w, last } = mountGlobal({ ...withConnectors(), reminders: { timezone: 'Europe/London' } })
-      await fieldByLabel(w, /default channel/i).setValue('slack')
-      expect(last().reminders).toEqual({ default_connector: 'slack', timezone: 'Europe/London' })
+      await toggleFor(w, /slack/).setValue(false)
+      expect(last().reminders).toEqual({ skip_connectors: ['slack'], timezone: 'Europe/London' })
+    })
+
+    it('shows a skipped connector as ticked off and ticks it back on', async () => {
+      const { w, last } = mountGlobal({ ...withConnectors(), reminders: { skip_connectors: ['slack', 'discord'] } })
+      expect((toggleFor(w, /slack/).element as HTMLInputElement).checked).toBe(false)
+      expect(w.get('[data-test="reminder-delivery-summary"]').text()).toBe('Reminders go to: Web UI + telegram')
+      await toggleFor(w, /slack/).setValue(true)
+      // an entry for a connector that is not switched on is kept
+      expect(last().reminders?.skip_connectors).toEqual(['discord'])
     })
 
     it('saves a typed timezone and flags an unknown one', async () => {

@@ -58,6 +58,17 @@ describe('RemindersView', () => {
     expect(w.text()).toMatch(/sent/i)
   })
 
+  // Delivered to one connector, failed on another: the reminder is "Sent" and the failure is still shown.
+  it('shows what failed on a connector for a reminder that was sent through another', async () => {
+    const w = await mountView({
+      open: [],
+      recent: [item({ id: 5, message: 'Eye test', status: 'done', channel: 'telegram, slack', last_error: 'slack: channel not found' })],
+    })
+    expect(w.text()).toMatch(/sent/i)
+    expect(w.text()).toContain('telegram, slack')
+    expect(w.text()).toContain('slack: channel not found')
+  })
+
   it('shows messages as plain text', async () => {
     const w = await mountView({ open: [item({ message: '<img src=x onerror=alert(1)>' })], recent: [] })
     expect(w.find('img').exists()).toBe(false)
@@ -83,10 +94,10 @@ describe('RemindersView', () => {
     await buttonByName(w, /edit/i)!.trigger('click')
     const message = w.find('textarea')
     expect((message.element as HTMLTextAreaElement).value).toBe('Call the bank')
-    // channels offered: the default, the web UI alone, and only the enabled connector types
+    // channels offered: the default (named with where it goes now), the web UI alone, and only the enabled connector types
     const channels = w.findAll('select').find((s) => s.attributes('aria-label') === 'Channel')!
     expect(channels.findAll('option').map((o) => [o.attributes('value'), o.text()])).toEqual([
-      ['', 'Default channel'],
+      ['', 'Default: Web UI + telegram'],
       ['in-app', 'Web UI only'],
       ['telegram', 'telegram'],
     ])

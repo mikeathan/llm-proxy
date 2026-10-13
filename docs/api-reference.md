@@ -99,7 +99,7 @@ Returns full admin state: active model, available models, guardrails config, pro
 | GET | `/admin/api/version` | Build info (version, commit, date) |
 | GET | `/admin/api/config` | Full config. `memory` is always present: `{assistant_hot, automation_hot}`, the resolved global hot-memory defaults (shipped: assistant on, automations off) |
 | PUT | `/admin/api/config` | Update config. `memory: {assistant_hot, automation_hot}` writes both defaults and leaves the other memory settings alone; omit `memory` to leave them unchanged |
-| GET/PUT | `/admin/api/config` → `reminders` | `reminders: {default_connector, timezone}` is always present on GET (empty strings when unset). PUT saves both as given (SPEC-011); an unknown IANA `timezone` is a 400 and nothing is saved; omit `reminders` to leave it unchanged |
+| GET/PUT | `/admin/api/config` → `reminders` | `reminders: {skip_connectors, timezone}` — `skip_connectors` are the connector types ticked off for reminders (every other enabled connector gets them, SPEC-011 §2.4); `timezone` an IANA name. Both optional; PUT saves them as given (SPEC-011); an unknown IANA `timezone` is a 400 and nothing is saved; omit `reminders` to leave it unchanged |
 | GET | `/admin/api/system` | System settings |
 | PUT | `/admin/api/system` | Update system |
 | POST | `/admin/api/system/restart` | Restart server |

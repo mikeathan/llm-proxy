@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"llm-proxy/internal/platform/paths"
@@ -65,18 +66,18 @@ func TestApplySystemUpdate_RemindersSettings(t *testing.T) {
 		t.Fatalf("shipped default should be unset, got %+v", srv.GetSettings().Reminders)
 	}
 
-	want := models.RemindersConfig{DefaultConnector: "telegram", Timezone: "Europe/London"}
+	want := models.RemindersConfig{SkipConnectors: []string{"telegram"}, Timezone: "Europe/London"}
 	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Reminders: &want}); err != nil {
 		t.Fatalf("ApplySystemUpdate: %v", err)
 	}
-	if got := srv.GetSettings().Reminders; got == nil || *got != want {
+	if got := srv.GetSettings().Reminders; got == nil || !reflect.DeepEqual(*got, want) {
 		t.Fatalf("saved = %+v, want %+v", got, want)
 	}
 
 	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{}); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.GetSettings().Reminders; got == nil || *got != want {
+	if got := srv.GetSettings().Reminders; got == nil || !reflect.DeepEqual(*got, want) {
 		t.Errorf("an update that omits reminders changed them to %+v", got)
 	}
 
@@ -85,7 +86,7 @@ func TestApplySystemUpdate_RemindersSettings(t *testing.T) {
 	if !models.IsRemindersConfigError(err) {
 		t.Fatalf("invalid timezone err = %v, want a reminders config error", err)
 	}
-	if got := srv.GetSettings().Reminders; got == nil || *got != want {
+	if got := srv.GetSettings().Reminders; got == nil || !reflect.DeepEqual(*got, want) {
 		t.Errorf("a rejected update must not change the saved settings, got %+v", got)
 	}
 
@@ -93,7 +94,7 @@ func TestApplySystemUpdate_RemindersSettings(t *testing.T) {
 	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Reminders: &reset}); err != nil {
 		t.Fatal(err)
 	}
-	if got := srv.GetSettings().Reminders; got != nil && *got != reset {
+	if got := srv.GetSettings().Reminders; got != nil && !reflect.DeepEqual(*got, reset) {
 		t.Errorf("reset left %+v", got)
 	}
 }

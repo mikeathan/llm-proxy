@@ -259,8 +259,8 @@ export interface GlobalConfig {
 }
 
 export interface RemindersConfig {
-  // A connector type (telegram, slack, …); empty = automatic.
-  default_connector?: string
+  // Connector types (telegram, slack, …) ticked off for reminders; every other enabled connector gets them.
+  skip_connectors?: string[]
   // IANA timezone name; empty = the server's.
   timezone?: string
 }

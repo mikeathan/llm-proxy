@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"slices"
 	"time"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
@@ -25,9 +24,7 @@ func (d reminderDeliverer) Deliver(ctx context.Context, connector, message strin
 	return d.comm.NotifyAllPlain(ctx, message, connector)
 }
 
-func (d reminderDeliverer) HasConnector(connector string) bool {
-	return slices.Contains(d.comm.Types(), connector)
-}
+func (d reminderDeliverer) Connectors() []string { return d.comm.Types() }
 
 // reminderNotice records each delivery outcome. The persisted reminder row is the
 // in-app notice (served by GET /admin/api/reminders); the log line carries the id
@@ -127,6 +124,6 @@ func (c *Container) initReminders(s *AppServices) {
 	}
 	settings := func() models.RemindersConfig { return s.AppCtx.GetSettings().Reminders.Effective() }
 	s.Reminders = reminders.NewService(store, reminderDeliverer{comm: comm}, reminderNotice{}, reminders.SystemClock(),
-		reminders.Config{DefaultConnector: func() string { return settings().DefaultConnector }})
+		reminders.Config{Skipped: func() []string { return settings().SkipConnectors }})
 	registry.WithReminders(reminderPort{svc: s.Reminders, settings: settings})
 }
