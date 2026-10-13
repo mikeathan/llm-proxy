@@ -1,6 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { describe, it, expect, afterEach, vi } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
+const commandService = vi.hoisted(() => ({ list: vi.fn(), preview: vi.fn() }))
+vi.mock('../../../../services/commands/commandService', () => ({ CommandService: commandService }))
+
 import ChatInput from '../../../../components/AgentIde/assistant/ChatInput.vue'
 
 const mounted: VueWrapper[] = []
@@ -80,5 +83,55 @@ describe('ChatInput', () => {
     expect(w.emitted('send')).toBeUndefined()
     await w.get('textarea').trigger('keydown', { key: 'Enter' })
     expect(w.emitted('send')).toHaveLength(1)
+  })
+})
+
+describe('ChatInput slash commands', () => {
+  const lastFill = (w: VueWrapper) => { const all = w.emitted('update:inputMessage')!; return all[all.length - 1] }
+
+  const remind = { name: 'remind', usage: '/remind <when> <message>', summary: 'Set a reminder', examples: ['tomorrow 9am call the bank'] }
+
+  async function typed(text: string) {
+    commandService.list.mockResolvedValue([remind])
+    commandService.preview.mockResolvedValue({ matched: true, command: 'remind', text: 'Tue 13 Oct 2026 09:00 Europe/London' })
+    const w = mountInput()
+    await w.setProps({ inputMessage: text })
+    await flushPromises()
+    return w
+  }
+
+  it('opens a menu of commands on "/" and fills the one picked', async () => {
+    const w = await typed('/')
+    await w.get('[data-test="slash-command-remind"]').trigger('click')
+    expect(lastFill(w)).toEqual(['/remind '])
+  })
+
+  it('completes the first match with Tab instead of moving focus', async () => {
+    const w = await typed('/re')
+    await w.get('textarea').trigger('keydown', { key: 'Tab' })
+    expect(lastFill(w)).toEqual(['/remind '])
+  })
+
+  it('shows the usage and clickable examples once the command is named', async () => {
+    const w = await typed('/remind ')
+    expect(w.get('[data-test="slash-usage"]').text()).toBe('/remind <when> <message>')
+    await w.get('[data-test="slash-example"]').trigger('click')
+    expect(lastFill(w)).toEqual(['/remind tomorrow 9am call the bank'])
+  })
+
+  it('previews what the typed command would do', async () => {
+    vi.useFakeTimers()
+    try {
+      const w = await typed('/remind tomorrow 9am call')
+      await vi.advanceTimersByTimeAsync(300)
+      expect(w.get('[data-test="slash-preview"]').text()).toContain('Tue 13 Oct 2026 09:00 Europe/London')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows nothing for ordinary text', async () => {
+    const w = await typed('what is on my calendar')
+    expect(w.find('[data-test="slash-helper"]').exists()).toBe(false)
   })
 })

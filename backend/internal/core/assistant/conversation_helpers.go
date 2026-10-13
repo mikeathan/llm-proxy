@@ -415,3 +415,17 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 	}
 	return history
 }
+
+// withLocalTime returns history with the user's local time appended to the last
+// user message, for the model only: the stored session is not touched, so the
+// note is current on every turn however long the conversation has been open.
+func withLocalTime(history []proxy.Message, now time.Time, zone string) []proxy.Message {
+	last := len(history) - 1
+	if last < 0 || history[last].Role != proxy.UserRole {
+		return history
+	}
+	out := make([]proxy.Message, len(history))
+	copy(out, history)
+	out[last].Content += "\n\n" + prompts.TurnTimeNote(now, zone)
+	return out
+}

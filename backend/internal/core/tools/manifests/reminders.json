@@ -4,7 +4,7 @@
   "description": "Reminder tools: schedule a message to be delivered to the user at a future time, list open reminders, cancel one.",
   "runtime": {
     "schedule_reminder": {
-      "description": "Schedule a reminder that is delivered to the user, word for word, at a future time (no AI is involved when it fires). Use it when the user says 'remind me …'. Work out the exact time yourself from the current time and Timezone in your system prompt: 'tomorrow morning' = 09:00, 'afternoon' = 14:00, 'evening' = 18:00, 'tonight' = 20:00 in the user's timezone, unless they give a time. Pass either 'when' (one-off) or 'cron' (recurring), never both. Pass 'connector' only if the user named a channel (e.g. 'telegram'); otherwise omit it: a request that came through a chat app is answered there, and anything else goes to the user's default channel, or is shown in the web UI only if none is set. The result states the exact time, timezone and channel: repeat it to the user so they can correct a wrong guess. If this tool returns an error, the reminder was NOT saved — tell the user.",
+      "description": "Schedule a reminder that is delivered to the user, word for word, at a future time (no AI is involved when it fires). Use it when the user says 'remind me …'. Read the day and time off the 'Now' line and the calendar in the context note at the end of the user's message (in the user's timezone); never use the shell or web search for dates. A time the user states always wins: '8pm' is 20:00. Only when they give no time: 'tomorrow morning' = 09:00, 'afternoon' = 14:00, 'evening' = 18:00, 'tonight' = 20:00. Pass either 'when' (one-off) or 'cron' (recurring), never both. Do not pass 'timezone' unless the user named a place or zone: the user's own zone is applied. Pass 'connector' only if the user named a channel (e.g. 'telegram'); otherwise omit it. The result states the exact time, timezone and channel: repeat all three to the user exactly as returned. If this tool returns an error, the reminder was NOT saved: tell the user.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -14,7 +14,7 @@
           },
           "when": {
             "type": "string",
-            "description": "One-off time as RFC 3339 with the user's UTC offset, e.g. '2026-10-12T09:00:00+01:00'. Must be in the future."
+            "description": "One-off local date and time as 'YYYY-MM-DD HH:MM', e.g. '2026-10-18 20:00' (in the user's timezone; no offset needed). Must be in the future."
           },
           "cron": {
             "type": "string",
@@ -22,11 +22,11 @@
           },
           "until": {
             "type": "string",
-            "description": "Optional end of a recurring reminder, RFC 3339."
+            "description": "Optional end of a recurring reminder, same format as 'when'."
           },
           "timezone": {
             "type": "string",
-            "description": "IANA timezone name the time is in, e.g. 'Europe/London'. Use the Timezone from your system prompt."
+            "description": "IANA zone name. Omit it: the user's own timezone is used. Set it only when the user names a different place or zone."
           },
           "connector": {
             "type": "string",

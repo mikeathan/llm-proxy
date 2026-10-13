@@ -94,3 +94,18 @@ func TestValidateNew_Rejects(t *testing.T) {
 		t.Errorf("valid recurring rejected: %v", err)
 	}
 }
+
+func TestChatZone_Order(t *testing.T) {
+	tests := []struct{ name, owner, browser, want string }{
+		{"owner setting wins", "Europe/London", "Atlantic/Canary", "Europe/London"},
+		{"browser when no owner setting", "", "Atlantic/Canary", "Atlantic/Canary"},
+		{"invalid owner is skipped", "Mars/Base", "Atlantic/Canary", "Atlantic/Canary"},
+		{"invalid browser is skipped", "", "Local", "UTC"},
+		{"nothing known is UTC", "", "", "UTC"},
+	}
+	for _, tc := range tests {
+		if got := ChatZone(tc.owner, tc.browser); got != tc.want {
+			t.Errorf("%s: ChatZone(%q, %q) = %q, want %q", tc.name, tc.owner, tc.browser, got, tc.want)
+		}
+	}
+}

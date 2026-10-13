@@ -113,8 +113,15 @@ func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
 		return Reminder{}, err
 	}
 	s.poke()
+	// Facts about the schedule only: the message is the user's own text and is never logged.
+	logging.Info("reminder created", "id", id, "fire_at", r.FireAt.UTC().Format(time.RFC3339), "cron", r.Cron,
+		"zone", r.Timezone, "channel", r.Connector, "created_by", r.CreatedBy)
 	return s.store.Get(ctx, id)
 }
+
+// Plan resolves and validates a described reminder exactly as Create would, without
+// storing it: the reminder as it would be saved, or the reason it would be refused.
+func (s *Service) Plan(r Reminder) (Reminder, error) { return s.prepare(r) }
 
 // Edit replaces the message, time, recurrence, end and channel of a reminder under
 // the same rules as Create (its timezone is kept). A finished reminder (sent,

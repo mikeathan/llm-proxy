@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/commands"
 	"llm-proxy/models"
 )
 
@@ -44,5 +45,15 @@ func TestWebhookHandler_AgentTimezone(t *testing.T) {
 func TestAgentRunContext_CarriesTheConnectorType(t *testing.T) {
 	if got := models.OriginConnector(agentRunContext("telegram")); got != "telegram" {
 		t.Fatalf("origin = %q, want telegram", got)
+	}
+}
+
+func TestWebhookHandler_PlainTextIsNotACommand(t *testing.T) {
+	h := &WebhookHandler{Commands: commands.New(zoneEcho())}
+	if h.handleCommand("tg", "telegram", "what is the weather") {
+		t.Error("plain text must go to the assistant")
+	}
+	if (&WebhookHandler{}).handleCommand("tg", "telegram", "/remind x") {
+		t.Error("a handler with no registry handles nothing")
 	}
 }

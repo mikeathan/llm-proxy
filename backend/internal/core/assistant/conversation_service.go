@@ -1,6 +1,7 @@
 package assistant
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -58,6 +59,11 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 		return ExecuteResult{}, fmt.Errorf("resolve session: %w", err)
 	}
 
+	// The conversation's zone (fixed when it began, as its prompt shows) is what the
+	// agent's tools read a local time in.
+	chatZone := cmp.Or(session.Timezone, timezone)
+	ctx = models.WithChatTimezone(ctx, chatZone)
+
 	// 2. Model config
 	modelName, useNativeTools := s.resolveModelConfig(ctx, workspaceID, conversationID, message)
 
@@ -93,7 +99,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	agent := s.buildAgent(ctx, modelName, workspaceID, session.ID, log, provider, client, engine, observer, excludeTools)
 
 	// 6. Execute agent
-	llmHistory := FilterCancelledTurns(session.History, session.CancelledIndices)
+	llmHistory := withLocalTime(FilterCancelledTurns(session.History, session.CancelledIndices), time.Now(), chatZone)
 	reply, updatedHistory, agErr := agent.Execute(execCtx, llmHistory)
 	finishTurnRun(run, usage.FromContext(execCtx), agent.ToolWarnings())
 

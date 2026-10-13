@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -67,12 +68,10 @@ type CancelReminderArgs struct {
 	ID int64 `json:"id"`
 }
 
-const reminderTimeLayout = "Mon 2 Jan 2006 15:04"
-
 // Schedule stores a reminder. The result states the resolved absolute time, zone
 // and channel so the user can spot a wrong guess immediately.
 func (t *ReminderTools) Schedule(ctx context.Context, args ScheduleReminderArgs) (any, error) {
-	spec, err := t.parseSpec(args)
+	spec, err := t.parseSpec(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -85,21 +84,22 @@ func (t *ReminderTools) Schedule(ctx context.Context, args ScheduleReminderArgs)
 	if loc == nil {
 		loc = time.UTC
 	}
-	when := view.At.In(loc).Format(reminderTimeLayout)
+	when := view.At.In(loc).Format(models.ReminderTimeLayout)
 	if view.Cron != "" {
 		return fmt.Sprintf("Reminder %d set: repeats (%s) starting %s %s via %s", view.ID, view.Cron, when, view.Zone, view.Channel), nil
 	}
 	return fmt.Sprintf("Reminder %d set for %s %s via %s", view.ID, when, view.Zone, view.Channel), nil
 }
 
-func (t *ReminderTools) parseSpec(args ScheduleReminderArgs) (ReminderSpec, error) {
+func (t *ReminderTools) parseSpec(ctx context.Context, args ScheduleReminderArgs) (ReminderSpec, error) {
 	if strings.TrimSpace(args.Message) == "" {
 		return ReminderSpec{}, errors.New("message is required: what should the reminder say?")
 	}
 	if (args.When == "") == (args.Cron == "") {
 		return ReminderSpec{}, errors.New("give exactly one of 'when' (one-off) or 'cron' (recurring)")
 	}
-	loc, err := t.svc.Zone(strings.TrimSpace(args.Timezone))
+	// A zone the user named wins; otherwise the conversation's own zone, so "8pm" means their 8pm.
+	loc, err := t.svc.Zone(cmp.Or(strings.TrimSpace(args.Timezone), models.ChatTimezone(ctx)))
 	if err != nil {
 		return ReminderSpec{}, err
 	}
@@ -110,14 +110,14 @@ func (t *ReminderTools) parseSpec(args ScheduleReminderArgs) (ReminderSpec, erro
 		Connector: strings.ToLower(strings.TrimSpace(args.Connector)),
 	}
 	if args.When != "" {
-		at, err := models.ParseInstant("when", args.When)
+		at, err := models.ParseInstantIn("when", args.When, loc)
 		if err != nil {
 			return ReminderSpec{}, err
 		}
 		spec.At = at
 	}
 	if args.Until != "" {
-		until, err := models.ParseInstant("until", args.Until)
+		until, err := models.ParseInstantIn("until", args.Until, loc)
 		if err != nil {
 			return ReminderSpec{}, err
 		}
@@ -141,7 +141,7 @@ func (t *ReminderTools) List(ctx context.Context, _ struct{}) (any, error) {
 		if loc == nil {
 			loc = time.UTC
 		}
-		fmt.Fprintf(&b, "%d: %q at %s %s via %s", v.ID, v.Message, v.At.In(loc).Format(reminderTimeLayout), v.Zone, v.Channel)
+		fmt.Fprintf(&b, "%d: %q at %s %s via %s", v.ID, v.Message, v.At.In(loc).Format(models.ReminderTimeLayout), v.Zone, v.Channel)
 		if v.Cron != "" {
 			fmt.Fprintf(&b, " (repeats: %s)", v.Cron)
 		}

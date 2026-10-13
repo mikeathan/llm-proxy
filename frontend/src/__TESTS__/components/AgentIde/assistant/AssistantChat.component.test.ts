@@ -38,10 +38,13 @@ vi.mock('../../../../composables/memory/useMemoryReview', () => ({ useMemoryRevi
 const confirm = vi.fn()
 vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
+const commandService = vi.hoisted(() => ({ list: vi.fn(), run: vi.fn(), preview: vi.fn() }))
+vi.mock('../../../../services/commands/commandService', () => ({ CommandService: commandService }))
+
 import AssistantChat from '../../../../components/AgentIde/assistant/AssistantChat.vue'
 
 function mountChat() {
-  const w = mount(AssistantChat, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true, ChatMessages: true, GuardrailBanner: true } } })
+  const w = mount(AssistantChat, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } } })
   const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? '') || name.test(b.text()))
   const status = () => w.get('[data-test="chat-status"]').text()
   return { w, button, status }
@@ -56,6 +59,8 @@ describe('AssistantChat', () => {
     a.modelBusy.value = null
     a.sseConnected.value = true
     confirm.mockResolvedValue(true)
+    commandService.list.mockResolvedValue([])
+    commandService.run.mockResolvedValue({ handled: false, reply: '', failed: false })
   })
 
   it('states what the assistant is doing, from the real run state', async () => {
@@ -111,5 +116,44 @@ describe('AssistantChat', () => {
     await flushPromises()
     expect(confirm).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'warning' }))
     expect(a.deleteSession).toHaveBeenCalledWith('ws', 's1')
+  })
+
+  // A slash command is answered by the backend and never reaches the assistant.
+  describe('slash commands', () => {
+    async function send(w: ReturnType<typeof mountChat>['w'], text: string) {
+      await w.get('textarea').setValue(text)
+      await w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+    }
+
+    it('runs a command in code and clears the box', async () => {
+      commandService.run.mockResolvedValue({ handled: true, reply: 'Reminder 4 set', failed: false })
+      const { w } = mountChat()
+      await send(w, '/remind tomorrow 9am call')
+      expect(commandService.run).toHaveBeenCalledWith('/remind tomorrow 9am call')
+      expect(a.sendMessage).not.toHaveBeenCalled()
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    })
+
+    it('keeps the text of a refused command so it can be corrected', async () => {
+      commandService.run.mockResolvedValue({ handled: true, reply: 'couldn\'t read "blah"', failed: true })
+      const { w } = mountChat()
+      await send(w, '/remind blah 9am call')
+      expect(a.sendMessage).not.toHaveBeenCalled()
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('/remind blah 9am call')
+    })
+
+    it('sends an unknown /word to the assistant as usual', async () => {
+      const { w } = mountChat()
+      await send(w, '/etc/hosts is odd')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', '/etc/hosts is odd')
+    })
+
+    it('sends plain text to the assistant without asking the command endpoint', async () => {
+      const { w } = mountChat()
+      await send(w, 'remind me tomorrow')
+      expect(commandService.run).not.toHaveBeenCalled()
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'remind me tomorrow')
+    })
   })
 })

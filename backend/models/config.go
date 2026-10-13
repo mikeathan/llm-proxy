@@ -22,6 +22,7 @@ const (
 	RunNetworkScopeKey   contextKey = "run_network_scope"
 	UnattendedRunKey     contextKey = "unattended_run"
 	OriginConnectorKey   contextKey = "origin_connector"
+	ChatTimezoneKey      contextKey = "chat_timezone"
 	JournalRunKey        contextKey = "journal_run"
 )
 
@@ -121,6 +122,21 @@ func OriginConnector(ctx context.Context) string {
 		return ""
 	}
 	v, _ := ctx.Value(OriginConnectorKey).(string)
+	return v
+}
+
+// WithChatTimezone records the IANA zone a conversation reports to the agent (the
+// one its prompt shows), so a tool that takes a local time reads it in that zone.
+func WithChatTimezone(ctx context.Context, zone string) context.Context {
+	return context.WithValue(ctx, ChatTimezoneKey, zone)
+}
+
+// ChatTimezone is the conversation's zone, "" for a run that has none. Nil-safe.
+func ChatTimezone(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v, _ := ctx.Value(ChatTimezoneKey).(string)
 	return v
 }
 

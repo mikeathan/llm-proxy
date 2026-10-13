@@ -5,6 +5,7 @@ import { useMemoryReview } from "../../../composables/memory/useMemoryReview";
 import { useToast } from "../../../composables/useToast";
 import MemoryReviewDialog from "../memory/MemoryReviewDialog.vue";
 import { AssistantService } from "../../../services/assistant/assistantService";
+import { CommandService } from "../../../services/commands/commandService";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useResponsiveLayout } from "../../../composables/ui/useResponsiveLayout";
 import GuardrailBanner from "../../../components/common/chat/GuardrailBanner.vue";
@@ -167,9 +168,29 @@ const confirmDelete = (title: string, message: string) =>
     await fetchSessions(props.workspaceId);
   };
 
+  // A slash command is answered by the backend without the assistant. Text that is not a command (or an unknown
+  // /word) goes to the assistant as usual; a refused command keeps its text so it can be corrected.
+  const runCommand = async (text: string): Promise<boolean> => {
+    let result;
+    try {
+      result = await CommandService.run(text);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "The command could not be run");
+      return true;
+    }
+    if (!result.handled) return false;
+    if (result.failed) toast.error(result.reply);
+    else {
+      toast.success(result.reply);
+      inputMessage.value = "";
+    }
+    return true;
+  };
+
   const handleSend = async () => {
     const text = inputMessage.value.trim();
     if (!text || loading.value) return;
+    if (text.startsWith("/") && await runCommand(text)) return;
     inputMessage.value = "";
     await launchRun(text);
   };

@@ -742,3 +742,14 @@ func AutomationJournalBlock(journal string) string {
 		models.ToolAutomationJournal, models.MaxJournalChars)
 	return sb.String()
 }
+
+// The constants below render the user's local clock for the system
+// prompt, so the model reads weekdays and dates off it instead of calculating them.
+const (
+	LocalTimeNoteHeader = "[Context for this message, not written by the user. Read days and dates from it; do not compute them.]"
+	LocalNowLine        = "Now (%s): %s (UTC%s)"
+	LocalNowLayout      = "Mon 2 Jan 2006 15:04"
+	LocalDayLayout      = "Mon 2 Jan"
+	LocalCalendarLine   = "Next %d days: %s"
+	LocalCalendarDays   = 14
+)

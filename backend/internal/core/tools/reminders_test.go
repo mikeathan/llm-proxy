@@ -180,3 +180,39 @@ func TestScheduleReminder_PassesTheOriginConnector(t *testing.T) {
 		t.Fatalf("spec = %+v, want origin telegram and no named connector", svc.specs[0])
 	}
 }
+
+func TestScheduleReminder_LocalTimeUsesTheResolvedZone(t *testing.T) {
+	svc := &fakeReminderService{}
+	got, err := NewReminderTools(svc).Schedule(context.Background(), ScheduleReminderArgs{
+		Message: "Eye test tomorrow", When: "2026-10-18 20:00", Timezone: "Europe/London"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 10, 18, 19, 0, 0, 0, time.UTC); !svc.specs[0].At.Equal(want) {
+		t.Errorf("At = %v, want %v (20:00 BST)", svc.specs[0].At, want)
+	}
+	if out := got.(string); !strings.Contains(out, "Sun 18 Oct 2026 20:00") {
+		t.Errorf("echo %q should state the local time", out)
+	}
+}
+
+func TestScheduleReminder_DefaultsToTheConversationZone(t *testing.T) {
+	svc := &fakeReminderService{}
+	ctx := models.WithChatTimezone(context.Background(), "Europe/London")
+	if _, err := NewReminderTools(svc).Schedule(ctx, ScheduleReminderArgs{Message: "x", When: "2030-10-18 20:00"}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.specs[0].Zone != "Europe/London" {
+		t.Errorf("Zone = %q, want the conversation's zone", svc.specs[0].Zone)
+	}
+	if want := time.Date(2030, 10, 18, 19, 0, 0, 0, time.UTC); !svc.specs[0].At.Equal(want) {
+		t.Errorf("At = %v, want %v", svc.specs[0].At, want)
+	}
+	// A zone the user named still wins.
+	if _, err := NewReminderTools(svc).Schedule(ctx, ScheduleReminderArgs{Message: "x", When: "2030-10-18 20:00", Timezone: "Asia/Tokyo"}); err != nil {
+		t.Fatal(err)
+	}
+	if svc.specs[1].Zone != "Asia/Tokyo" {
+		t.Errorf("Zone = %q, want the named zone", svc.specs[1].Zone)
+	}
+}
