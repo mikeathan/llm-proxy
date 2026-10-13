@@ -5,7 +5,7 @@ import FormField from "../common/forms/FormField.vue";
 import SegmentedControl from "../common/forms/SegmentedControl.vue";
 import BaseToggle from "../common/buttons/BaseToggle.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
-import SelectInput from "../common/forms/SelectInput.vue";
+import ToggleField from "../common/forms/ToggleField.vue";
 import {
   argsToString,
   stringToArgs,
@@ -13,9 +13,10 @@ import {
   stringToEnvMap,
 } from "../../utils/config";
 import { LOG_LEVELS } from "../../constants/api";
-import type { GlobalConfig, MemoryHotDefaults, ProviderItem, RemindersConfig, SchedulerConfig } from "../../types/admin";
+import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig } from "../../types/admin";
 import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
-import { DEFAULT_CHANNEL_HINT, IN_APP_CHANNEL_LABEL, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR } from "../../constants/reminders";
+import { DELIVER_TO_HINT, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR, WEB_UI_LABEL } from "../../constants/reminders";
+import { defaultConnectorTypes, deliveryLabel, enabledConnectorTypes, withConnectorSkipped } from "../../utils/reminders/channels";
 import { browserTimeZone, isKnownTimeZone, knownTimeZones } from "../../utils/format/timezone";
 import type { Model } from "../../types/model";
 import type { ChoiceOption } from "../../types/ui";
@@ -141,22 +142,17 @@ function memoryField(key: keyof MemoryHotDefaults) {
 const assistantHot = memoryField("assistant_hot");
 const automationHot = memoryField("automation_hot");
 
-/** A reminders field as a v-model target; the section is written whole. */
-function remindersField(key: keyof RemindersConfig) {
-  return computed<string>({
-    get: () => props.editConfig.reminders?.[key] ?? "",
-    set: (value) => replaceConfig({ reminders: { ...props.editConfig.reminders, [key]: value } }),
-  });
-}
-const reminderChannel = remindersField("default_connector");
-const reminderTimezone = remindersField("timezone");
-// Only a connector that is switched on can carry a reminder.
-const reminderChannelOptions = computed<ChoiceOption[]>(() => {
-  const types = Object.values(props.editConfig.communication?.connectors ?? {})
-    .filter((connector) => connector.enabled)
-    .map((connector) => connector.type);
-  return [{ value: "", label: IN_APP_CHANNEL_LABEL }, ...[...new Set(types)].map((type) => ({ value: type, label: type }))];
+/** The timezone as a v-model target; the reminders section is written whole. */
+const reminderTimezone = computed<string>({
+  get: () => props.editConfig.reminders?.timezone ?? "",
+  set: (value) => replaceConfig({ reminders: { ...props.editConfig.reminders, timezone: value } }),
 });
+// Only a connector that is switched on can carry a reminder; it does until it is ticked off.
+const reminderConnectors = computed(() => enabledConnectorTypes(props.editConfig.communication?.connectors));
+const receivesReminders = (type: string) => !(props.editConfig.reminders?.skip_connectors ?? []).includes(type);
+const setReceivesReminders = (type: string, receives: boolean) =>
+  replaceConfig({ reminders: { ...props.editConfig.reminders, skip_connectors: withConnectorSkipped(props.editConfig.reminders?.skip_connectors, type, receives) } });
+const reminderDelivery = computed(() => deliveryLabel(defaultConnectorTypes(reminderConnectors.value, props.editConfig.reminders?.skip_connectors)));
 const timezoneError = computed(() => (isKnownTimeZone(reminderTimezone.value) ? undefined : UNKNOWN_TIMEZONE_ERROR));
 const TIMEZONE_LIST_ID = "reminder-timezones";
 const timezoneChoices = knownTimeZones();
@@ -381,9 +377,20 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
         model involved.
       </p>
       <div class="form-grid">
-        <FormField label="Default channel" :hint="DEFAULT_CHANNEL_HINT">
-          <template #default="{ id }">
-            <SelectInput :id="id" v-model="reminderChannel" :options="reminderChannelOptions" label="Default channel" />
+        <FormField label="Deliver reminders to" :hint="DELIVER_TO_HINT">
+          <template #default>
+            <div class="flex flex-col gap-1" data-test="reminder-delivery">
+              <ToggleField :model-value="true" disabled :label="WEB_UI_LABEL" hint="Always: every reminder is listed on the Reminders page." />
+              <ToggleField
+                v-for="type in reminderConnectors"
+                :key="type"
+                :model-value="receivesReminders(type)"
+                :label="type"
+                @update:model-value="setReceivesReminders(type, $event)"
+              />
+              <p v-if="!reminderConnectors.length" class="m-0 text-[length:var(--text-small)] text-faint">No connector is switched on, so reminders stay in the web UI.</p>
+              <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="reminder-delivery-summary">Reminders go to: {{ reminderDelivery }}</p>
+            </div>
           </template>
         </FormField>
         <FormField label="Timezone" :hint="TIMEZONE_HINT" :error="timezoneError">

@@ -3,6 +3,7 @@ package reminders
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -75,6 +76,7 @@ type fakeDeliverer struct {
 	sends      []sent
 	err        error
 	configured map[string]bool
+	failFor    map[string]error // per connector; err fails them all
 }
 
 func (d *fakeDeliverer) Deliver(_ context.Context, connector, message string) error {
@@ -86,11 +88,23 @@ func (d *fakeDeliverer) Deliver(_ context.Context, connector, message string) er
 	if d.err != nil {
 		return d.err
 	}
+	if err := d.failFor[connector]; err != nil {
+		return err
+	}
 	d.sends = append(d.sends, sent{connector, message})
 	return nil
 }
 
-func (d *fakeDeliverer) HasConnector(connector string) bool { return d.configured[connector] }
+func (d *fakeDeliverer) Connectors() []string {
+	var types []string
+	for c, on := range d.configured {
+		if on {
+			types = append(types, c)
+		}
+	}
+	slices.Sort(types)
+	return types
+}
 
 func (d *fakeDeliverer) all() []sent {
 	d.mu.Lock()
@@ -123,7 +137,7 @@ type rig struct {
 	notes *fakeNotice
 }
 
-func newRig(t *testing.T, defaultConnector string) *rig {
+func newRig(t *testing.T, skipped ...string) *rig {
 	t.Helper()
 	r := &rig{
 		store: newTestStore(t),
@@ -132,7 +146,7 @@ func newRig(t *testing.T, defaultConnector string) *rig {
 		notes: &fakeNotice{},
 	}
 	r.svc = NewService(r.store, r.del, r.notes, r.clock, Config{
-		DefaultConnector: func() string { return defaultConnector },
+		Skipped: func() []string { return skipped },
 	})
 	return r
 }
@@ -166,6 +180,15 @@ func eventually(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s", what)
 }
 
+func (r *rig) statusOf(t *testing.T, id int64) Status {
+	t.Helper()
+	got, err := r.store.Get(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got.Status
+}
+
 func (r *rig) create(t *testing.T, msg string, in time.Duration, connector string) Reminder {
 	t.Helper()
 	got, err := r.svc.Create(context.Background(), Reminder{
@@ -179,7 +202,7 @@ func (r *rig) create(t *testing.T, msg string, in time.Duration, connector strin
 // ── tests ───────────────────────────────────────────────────
 
 func TestRun_FiresAtDueTime(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.create(t, "call bank", time.Hour, "")
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -201,7 +224,7 @@ func TestRun_FiresAtDueTime(t *testing.T) {
 }
 
 func TestRun_EarlierInsertWakesLoop(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.create(t, "later", 3*time.Hour, "")
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -216,7 +239,7 @@ func TestRun_EarlierInsertWakesLoop(t *testing.T) {
 }
 
 func TestRun_TwoDueSameInstantBothFire(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.create(t, "a", time.Hour, "")
 	r.create(t, "b", time.Hour, "")
 	r.start(t)
@@ -226,7 +249,7 @@ func TestRun_TwoDueSameInstantBothFire(t *testing.T) {
 }
 
 func TestRun_CancelBeforeFireNeverDelivers(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "nope", time.Hour, "")
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -241,7 +264,7 @@ func TestRun_CancelBeforeFireNeverDelivers(t *testing.T) {
 }
 
 func TestRun_RestartDeliversLateUnder12h(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.create(t, "water plants", time.Hour, "")
 	r.clock.Advance(4 * time.Hour) // service was "down" past the fire time
 	r.start(t)
@@ -252,7 +275,7 @@ func TestRun_RestartDeliversLateUnder12h(t *testing.T) {
 }
 
 func TestRun_RestartMarksMissedOver12h(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "old", time.Hour, "")
 	r.clock.Advance(14 * time.Hour)
 	r.start(t)
@@ -269,7 +292,7 @@ func TestRun_RestartMarksMissedOver12h(t *testing.T) {
 }
 
 func TestRun_RecurringAdvances(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem, err := r.svc.Create(context.Background(), Reminder{
 		Message: "standup", Cron: "0 13 * * *", Timezone: "UTC"}) // next 13:00 today
 	if err != nil {
@@ -286,7 +309,7 @@ func TestRun_RecurringAdvances(t *testing.T) {
 }
 
 func TestRun_RetryThenFailed(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.del.err = errors.New("connector down")
 	rem := r.create(t, "flaky", time.Hour, "")
 	r.start(t)
@@ -309,7 +332,7 @@ func TestRun_RetryThenFailed(t *testing.T) {
 }
 
 func TestRun_NoConnectorMeansInAppOnly(t *testing.T) {
-	r := newRig(t, "") // no default channel configured
+	r := newRig(t, "telegram") // telegram ticked off
 	r.create(t, "in-app", time.Hour, "")
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -321,7 +344,7 @@ func TestRun_NoConnectorMeansInAppOnly(t *testing.T) {
 }
 
 func TestRun_ExitsOnContextCancel(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.create(t, "x", time.Hour, "")
 	cancel := r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -329,7 +352,7 @@ func TestRun_ExitsOnContextCancel(t *testing.T) {
 }
 
 func TestCreate_UnconfiguredNamedConnectorErrors(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	_, err := r.svc.Create(context.Background(), Reminder{
 		Message: "x", FireAt: r.clock.Now().Add(time.Hour), Connector: "slack", Timezone: "UTC"})
 	if err == nil || !strings.Contains(err.Error(), "slack") {
@@ -341,7 +364,7 @@ func TestCreate_UnconfiguredNamedConnectorErrors(t *testing.T) {
 }
 
 func TestCreate_LimitOf50(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	for i := 0; i < MaxOpen; i++ {
 		r.create(t, "n", time.Hour, "")
 	}
@@ -353,21 +376,21 @@ func TestCreate_LimitOf50(t *testing.T) {
 }
 
 func TestChannel_Resolution(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	if got := r.svc.Channel(""); got != "telegram" {
 		t.Errorf("default channel = %q", got)
 	}
 	if got := r.svc.Channel("slack"); got != "slack" {
 		t.Errorf("named channel = %q", got)
 	}
-	none := newRig(t, "")
+	none := newRig(t, "telegram")
 	if got := none.svc.Channel(""); got != "in-app" {
 		t.Errorf("no default = %q, want in-app", got)
 	}
 }
 
 func TestRun_CancelDuringSendIsNotUndone(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem, err := r.svc.Create(context.Background(), Reminder{Message: "standup", Cron: "0 13 * * *", Timezone: "UTC"})
 	if err != nil {
 		t.Fatal(err)
@@ -387,7 +410,7 @@ func TestRun_CancelDuringSendIsNotUndone(t *testing.T) {
 // A store that cannot be written must not turn the loop into a spin that re-sends
 // the same message as fast as the connector answers.
 func TestRun_FailedSaveDoesNotSpin(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.create(t, "once", time.Hour, "")
 	// Reads keep working, every write fails (a busy or read-only database).
 	if _, err := r.store.db.Exec(`CREATE TRIGGER no_writes BEFORE UPDATE ON reminders BEGIN SELECT RAISE(ABORT, 'database is read-only'); END`); err != nil {
@@ -402,7 +425,7 @@ func TestRun_FailedSaveDoesNotSpin(t *testing.T) {
 }
 
 func TestRun_RecurringSurvivesFailedDelivery(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.del.err = errors.New("connector down")
 	rem, _ := r.svc.Create(context.Background(), Reminder{Message: "standup", Cron: "0 13 * * *", Timezone: "UTC"})
 	r.start(t)
@@ -422,7 +445,7 @@ func TestRun_RecurringSurvivesFailedDelivery(t *testing.T) {
 }
 
 func TestEdit_ChangesTheReminderAndRearmsTheLoop(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "old", 5*time.Hour, "")
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -443,7 +466,7 @@ func TestEdit_ChangesTheReminderAndRearmsTheLoop(t *testing.T) {
 }
 
 func TestEdit_Validates(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "x", time.Hour, "")
 	soon := r.clock.Now().Add(time.Hour)
 	cases := map[string]Reminder{
@@ -470,7 +493,7 @@ func TestEdit_Validates(t *testing.T) {
 }
 
 func TestEdit_OneOffCanBecomeRecurring(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "x", time.Hour, "")
 	got, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "x", Cron: "0 13 * * *"})
 	if err != nil || got.Cron == "" || !got.FireAt.Equal(time.Date(2026, 10, 11, 13, 0, 0, 0, time.UTC)) {
@@ -479,7 +502,7 @@ func TestEdit_OneOffCanBecomeRecurring(t *testing.T) {
 }
 
 func TestRemove_DeletesAndNeverDelivers(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "bye", time.Hour, "")
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -497,15 +520,15 @@ func TestRemove_DeletesAndNeverDelivers(t *testing.T) {
 }
 
 func TestCreate_RepliesWhereAsked(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	r.del.configured["slack"] = true
 	got, err := r.svc.Create(context.Background(), Reminder{Message: "a", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC", Origin: "slack"})
 	if err != nil || got.Connector != "slack" {
 		t.Fatalf("asked in slack: connector=%q err=%v", got.Connector, err)
 	}
 	got, _ = r.svc.Create(context.Background(), Reminder{Message: "b", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC"})
-	if got.Connector != "" || r.svc.Channel(got.Connector) != "telegram" {
-		t.Errorf("web chat follows the default: connector=%q channel=%q", got.Connector, r.svc.Channel(got.Connector))
+	if got.Connector != "" || r.svc.Channel(got.Connector) != "slack, telegram" {
+		t.Errorf("web chat follows the default (every enabled connector): connector=%q channel=%q", got.Connector, r.svc.Channel(got.Connector))
 	}
 	got, _ = r.svc.Create(context.Background(), Reminder{Message: "c", FireAt: r.clock.Now().Add(time.Hour), Timezone: "UTC", Origin: "discord"})
 	if got.Connector != "" {
@@ -514,7 +537,7 @@ func TestCreate_RepliesWhereAsked(t *testing.T) {
 }
 
 func TestEdit_ReschedulesAFinishedReminder(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	for _, finished := range []Status{StatusDone, StatusMissed, StatusFailed} {
 		rem := r.create(t, "once "+string(finished), time.Hour, "")
 		cur, _ := r.store.Get(context.Background(), rem.ID)
@@ -530,7 +553,7 @@ func TestEdit_ReschedulesAFinishedReminder(t *testing.T) {
 }
 
 func TestEdit_ACancelledReminderCannotBeEdited(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "x", time.Hour, "")
 	_ = r.svc.Cancel(context.Background(), rem.ID)
 	if _, err := r.svc.Edit(context.Background(), rem.ID, Reminder{Message: "y", FireAt: r.clock.Now().Add(time.Hour)}); !errors.Is(err, ErrNotFound) {
@@ -540,7 +563,7 @@ func TestEdit_ACancelledReminderCannotBeEdited(t *testing.T) {
 
 // The result of a send must not overwrite what the user changed while it was in flight.
 func TestRun_EditDuringSendIsNotClobbered(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := r.create(t, "old text", time.Hour, "")
 	newTime := r.clock.Now().Add(48 * time.Hour)
 	r.del.onDeliver = func() {
@@ -569,7 +592,7 @@ func repeating(t *testing.T, r *rig) Reminder {
 }
 
 func TestService_PauseResume(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := repeating(t, r) // first at 13:00 today
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -600,7 +623,7 @@ func TestService_PauseResume(t *testing.T) {
 }
 
 func TestService_Skip(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	rem := repeating(t, r) // next 13:00 today
 	r.start(t)
 	eventually(t, "timer armed", r.clock.armed)
@@ -617,7 +640,7 @@ func TestService_Skip(t *testing.T) {
 }
 
 func TestPauseResumeSkip_Errors(t *testing.T) {
-	r := newRig(t, "telegram")
+	r := newRig(t)
 	oneoff := r.create(t, "x", time.Hour, "")
 	rep := repeating(t, r)
 	ctx := context.Background()
@@ -635,4 +658,71 @@ func TestPauseResumeSkip_Errors(t *testing.T) {
 			t.Errorf("%s of an unknown id: %v", name, err)
 		}
 	}
+}
+
+// A reminder that follows the default goes to every enabled connector the owner has not ticked off.
+func TestRun_DefaultGoesToEveryEnabledConnector(t *testing.T) {
+	r := newRig(t)
+	r.del.configured["slack"] = true
+	r.create(t, "call the bank", time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour)
+	eventually(t, "both sends", func() bool { return len(r.del.all()) == 2 })
+	got := r.del.all()
+	if got[0] != (sent{"slack", "call the bank"}) || got[1] != (sent{"telegram", "call the bank"}) {
+		t.Errorf("sends = %+v, want slack and telegram with the same text", got)
+	}
+	eventually(t, "one-off closed", func() bool { return r.statusOf(t, 1) == StatusDone })
+}
+
+func TestRun_TickedOffConnectorIsNotUsed(t *testing.T) {
+	r := newRig(t, "slack")
+	r.del.configured["slack"] = true
+	r.create(t, "call the bank", time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour)
+	eventually(t, "send", func() bool { return len(r.del.all()) == 1 })
+	if got := r.del.all()[0]; got.connector != "telegram" {
+		t.Errorf("sent to %q, want telegram only", got.connector)
+	}
+}
+
+// One connector failing while another took it is reported but not retried: a retry would send the text twice.
+func TestRun_PartialDeliveryIsReportedNotRetried(t *testing.T) {
+	r := newRig(t)
+	r.del.configured["slack"] = true
+	r.del.failFor = map[string]error{"slack": errors.New("channel not found")}
+	r.create(t, "call the bank", time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour)
+	eventually(t, "partial event", func() bool { return slices.Contains(r.notes.all(), "partial:call the bank") })
+	got, err := r.store.Get(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusDone || !strings.Contains(got.LastError, "slack: channel not found") {
+		t.Errorf("status=%s last_error=%q, want done with the slack failure kept", got.Status, got.LastError)
+	}
+	r.clock.Advance(10 * time.Minute)
+	time.Sleep(30 * time.Millisecond)
+	if n := len(r.del.all()); n != 1 {
+		t.Errorf("%d sends, want 1: the connector that failed is not retried and telegram is not repeated", n)
+	}
+}
+
+func TestRun_FailsOnlyWhenEveryConnectorFails(t *testing.T) {
+	r := newRig(t)
+	r.del.configured["slack"] = true
+	r.del.err = errors.New("down")
+	r.create(t, "call the bank", time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour)
+	eventually(t, "retry scheduled", func() bool {
+		got, err := r.store.Get(context.Background(), 1)
+		return err == nil && got.Attempts == 1 && got.Status == StatusScheduled
+	})
 }

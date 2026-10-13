@@ -12,6 +12,8 @@ const (
 	EventLate   = "late"
 	EventMissed = "missed"
 	EventFailed = "failed"
+	// EventPartial: delivered to at least one channel, failed on another.
+	EventPartial = "partial"
 )
 
 // maxErrorLength bounds the delivery error kept on a reminder.
@@ -73,6 +75,8 @@ type Outcome struct {
 	kind outcomeKind
 	late bool
 	err  string
+	// warn is what failed on a channel while another took the reminder.
+	warn string
 }
 
 // Overdue: the reminder was found past the late window and is not sent.
@@ -80,6 +84,12 @@ var Overdue = Outcome{kind: outcomeOverdue}
 
 // Delivered: it was sent (or, in-app only, recorded) with the given timing.
 func Delivered(t Timing) Outcome { return Outcome{kind: outcomeDelivered, late: t == Late} }
+
+// DeliveredPartly: it reached at least one channel but not all; warn says what failed.
+// It is not retried, since a retry would send the text again to the channels that have it.
+func DeliveredPartly(t Timing, warn string) Outcome {
+	return Outcome{kind: outcomeDelivered, late: t == Late, warn: warn}
+}
 
 // Failed: the send returned an error.
 func Failed(err string) Outcome { return Outcome{kind: outcomeFailed, err: err} }
@@ -101,8 +111,11 @@ func (p Policy) Advance(r Reminder, o Outcome, now time.Time) Step {
 		if o.late {
 			event = EventLate
 		}
-		next := reset(r)
-		return Step{Next: moveOnOr(next, now, StatusDone), Event: event}
+		next := moveOnOr(reset(r), now, StatusDone)
+		if o.warn != "" {
+			event, next.LastError = EventPartial, truncate(o.warn, maxErrorLength)
+		}
+		return Step{Next: next, Event: event}
 	case outcomeOverdue:
 		return Step{Next: moveOnOr(reset(r), now, StatusMissed), Event: EventMissed}
 	default:

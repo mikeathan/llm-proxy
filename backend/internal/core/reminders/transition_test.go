@@ -194,3 +194,25 @@ func TestSkipNext(t *testing.T) {
 		t.Errorf("skipping the last occurrence, err = %v (delete it instead)", err)
 	}
 }
+
+func TestAdvance_PartlyDeliveredClosesAndKeepsWhatFailed(t *testing.T) {
+	step := policy.Advance(oneOff(t0), DeliveredPartly(OnTime, "slack: channel not found"), t0)
+	if step.Next.Status != StatusDone || step.Event != EventPartial || step.Next.LastError != "slack: channel not found" {
+		t.Errorf("one-off: %+v", step)
+	}
+	if step.Next.Attempts != 0 {
+		t.Errorf("a partly delivered reminder is not retried, attempts = %d", step.Next.Attempts)
+	}
+}
+
+func TestAdvance_PartlyDeliveredRecurringMovesOn(t *testing.T) {
+	step := policy.Advance(daily(t0), DeliveredPartly(OnTime, "slack: down"), t0)
+	if step.Next.Status != StatusScheduled || !step.Next.FireAt.After(t0) || step.Event != EventPartial {
+		t.Errorf("recurring: %+v", step)
+	}
+	// The next clean delivery clears the failure.
+	clean := policy.Advance(step.Next, Delivered(OnTime), step.Next.FireAt)
+	if clean.Next.LastError != "" {
+		t.Errorf("last_error = %q after a clean delivery", clean.Next.LastError)
+	}
+}

@@ -1,7 +1,7 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.4"
+version: "1.5"
 status: stable
 last_updated: 2026-10-13
 constitution_references: [II.2, II.14, V]
@@ -12,6 +12,17 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.5 (2026-10-13)** — Several channels. A reminder that names no channel goes to the **web UI and to every enabled
+  connector the owner has not ticked off**, so enabling Telegram is enough for reminders to reach it and a connector
+  enabled later is included without setup. The setting `reminders.default_connector` (one type) is **removed** and
+  replaced by `reminders.skip_connectors` (the types ticked off; unset = none skipped); an old `default_connector` key
+  in `settings.yml` is ignored. Settings shows "Deliver reminders to" with a switch per enabled connector and the
+  resulting list; a reminder's own "Default" choice names where it goes now. Delivery to several connectors succeeds
+  when at least one takes it: a connector that failed while another succeeded is recorded (`last_error`, event
+  `partial`) but **not retried**, because a retry would repeat the text on the channels that already have it; the
+  reminder fails and is retried only when every connector fails. A named channel still means that one connector only
+  (SPEC §2.4 otherwise unchanged).
 
 - **1.4 (2026-10-13)** — Creating a reminder no longer needs the model to do calendar arithmetic or a person to state
   their timezone. (a) **Local clock on every turn:** a context note appended to the turn's user message, for the model only and never
@@ -74,10 +85,11 @@ chosen connector or the default one. No model runs when it fires, so it costs no
    the past; a named connector type that is not configured; more than 50 open reminders.
 4. **Channel.** A named connector is used as given (`in-app` is a valid choice). Otherwise a request that arrived through a
    connector (chat app) is answered on it if it is still configured (`models.OriginConnector`, set by the inbound webhook
-   run). Otherwise the reminder follows `reminders.default_connector` if that type is configured, else it is delivered
-   **in-app only**. A connector is never chosen just because it is available, and no connector name is hard-coded. The
-   choice stored on a reminder is "" (follow the default, resolved at send time), `in-app` or a connector type. Every
-   outcome is also recorded for the in-app list.
+   run). Otherwise the reminder follows the default: **every enabled connector not listed in `reminders.skip_connectors`**
+   (none enabled, or all skipped, means the web UI only). Where a reminder goes is decided in one place
+   (`ChannelPolicy.Resolve`) and no connector name is hard-coded. The choice stored on a reminder is "" (follow the
+   default, resolved at send time), `in-app` or one connector type. The web UI list always has every reminder and its
+   outcome.
 5. **Timezone.** `timezone` argument → `reminders.timezone` setting → `UTC` (never a bare "Local", which names no zone a
    user or browser can read). A connector-originated chat
    reports the owner zone (`reminders.timezone`, else `UTC`) to the agent instead of a hard-coded `UTC`
@@ -91,7 +103,8 @@ chosen connector or the default one. No model runs when it fires, so it costs no
    `(late) ` prefix. Overdue more than 12 h becomes `missed` (recurring: advances) and is **not** sent to a connector.
 8. **Failure.** A failed send is retried after 1 min, then 5 min; after 3 attempts a one-off is `failed` with the error and
    a recurring reminder reports the failure and moves on to its next occurrence. A reminder is never `done` unless a send
-   returned nil (or the channel is in-app only). Delivery is at-least-once: if a send succeeds but the store cannot save
+   returned nil for at least one connector (or it goes to the web UI only). With several connectors a failure on one
+   while another succeeded is recorded and not retried (§Changelog 1.5). Delivery is at-least-once: if a send succeeds but the store cannot save
    the result, the reminder is held back 30 s and may be sent again; a connector that fails after part of the text
    was sent can repeat that part on retry.
 9. **Cancel wins.** A state write only applies to a reminder that is still `scheduled`; a cancel made while a send is in
@@ -110,7 +123,7 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 
 Table `reminders` in the shared SQLite database (`core/reminders/store.go`): `id, message, fire_at (UTC unix),
 cron, until_at, timezone, connector, status (scheduled|paused|done|cancelled|missed|failed), rev, attempts, last_error, created_by,
-created_at`. Settings (`settings.yml`, `reminders:`): `default_connector`, `timezone`; both optional, saved whole,
+created_at`. Settings (`settings.yml`, `reminders:`): `skip_connectors` (list), `timezone`; both optional, saved whole,
 timezone validated at save (400).
 
 ## 4. API

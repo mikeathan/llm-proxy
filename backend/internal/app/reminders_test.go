@@ -34,8 +34,8 @@ func commWith(types ...string) (*tools.CommunicationTools, map[string]*sinkConne
 func TestReminderDeliverer(t *testing.T) {
 	comm, conns := commWith("telegram")
 	d := reminderDeliverer{comm: comm}
-	if !d.HasConnector("telegram") || d.HasConnector("slack") {
-		t.Fatal("HasConnector must reflect the configured types")
+	if got := d.Connectors(); !slices.Equal(got, []string{"telegram"}) {
+		t.Fatalf("Connectors() = %v, want the configured types", got)
 	}
 	if err := d.Deliver(context.Background(), "telegram", "hello"); err != nil || !slices.Equal(conns["telegram"].sent, []string{"hello"}) {
 		t.Fatalf("err=%v sent=%v", err, conns["telegram"].sent)
@@ -54,10 +54,10 @@ func TestReminderPort_ScheduleListCancel(t *testing.T) {
 	}
 	comm, _ := commWith("telegram")
 	cfg := func() models.RemindersConfig {
-		return models.RemindersConfig{Timezone: "Europe/London", DefaultConnector: "telegram"}
+		return models.RemindersConfig{Timezone: "Europe/London"}
 	}
 	svc := reminders.NewService(store, reminderDeliverer{comm: comm}, reminderNotice{}, reminders.SystemClock(),
-		reminders.Config{DefaultConnector: func() string { return cfg().DefaultConnector }})
+		reminders.Config{Skipped: func() []string { return cfg().SkipConnectors }})
 	port := reminderPort{svc: svc, settings: cfg}
 
 	loc, err := port.Zone("")
@@ -88,9 +88,9 @@ func TestReminderPort_ScheduleListCancel(t *testing.T) {
 	}
 }
 
-// The only connector is not picked for the user: a reminder that names no channel
-// and has no default goes to the web UI only.
-func TestReminderPort_NoDefaultMeansInAppOnly(t *testing.T) {
+// A connector that is enabled gets reminders until it is ticked off; a reminder
+// that names no channel then goes to the web UI only.
+func TestReminderPort_TickedOffConnectorMeansInAppOnly(t *testing.T) {
 	p, err := db.Open(filepath.Join(t.TempDir(), "r.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -98,9 +98,9 @@ func TestReminderPort_NoDefaultMeansInAppOnly(t *testing.T) {
 	t.Cleanup(func() { _ = p.DB().Close() })
 	store, _ := reminders.NewStore(p)
 	comm, _ := commWith("telegram")
-	cfg := func() models.RemindersConfig { return models.RemindersConfig{} }
+	cfg := func() models.RemindersConfig { return models.RemindersConfig{SkipConnectors: []string{"telegram"}} }
 	svc := reminders.NewService(store, reminderDeliverer{comm: comm}, reminderNotice{}, reminders.SystemClock(),
-		reminders.Config{DefaultConnector: func() string { return cfg().DefaultConnector }})
+		reminders.Config{Skipped: func() []string { return cfg().SkipConnectors }})
 	port := reminderPort{svc: svc, settings: cfg}
 
 	view, err := port.Schedule(context.Background(), tools.ReminderSpec{Message: "a", At: time.Now().Add(time.Hour), Zone: "UTC"})

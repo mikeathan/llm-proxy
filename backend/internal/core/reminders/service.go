@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/platform/logging"
@@ -20,10 +21,10 @@ const (
 )
 
 // Deliverer sends reminder text to a connector. connector is a connector type
-// (for example "telegram"); HasConnector reports whether one is configured.
+// (for example "telegram"); Connectors lists the ones that are configured and enabled.
 type Deliverer interface {
 	Deliver(ctx context.Context, connector, message string) error
-	HasConnector(connector string) bool
+	Connectors() []string
 }
 
 // Notice is the in-app sink: every delivery outcome is recorded there so a
@@ -59,9 +60,9 @@ func SystemClock() Clock { return realClock{} }
 
 // Config is read live so a settings change applies without a restart.
 type Config struct {
-	// DefaultConnector returns the default channel setting: a connector type, or ""
-	// for in-app only. A type that is not configured is ignored (ChannelPolicy).
-	DefaultConnector func() string
+	// Skipped returns the connector types ticked off for reminders (ChannelPolicy);
+	// nil means none, so every enabled connector gets them.
+	Skipped func() []string
 	// Policy is the lifecycle numbers; the zero value means DefaultPolicy.
 	Policy Policy
 }
@@ -83,18 +84,22 @@ type Service struct {
 
 // NewService builds the service; call Run once from the app bootstrap layer.
 func NewService(s *Store, d Deliverer, n Notice, c Clock, cfg Config) *Service {
-	if cfg.DefaultConnector == nil {
-		cfg.DefaultConnector = func() string { return "" }
+	if cfg.Skipped == nil {
+		cfg.Skipped = func() []string { return nil }
 	}
 	if cfg.Policy.MaxAttempts == 0 {
 		cfg.Policy = DefaultPolicy()
 	}
 	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg,
-		channel: ChannelPolicy{Default: cfg.DefaultConnector, Configured: d.HasConnector}, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
+		channel: ChannelPolicy{Connectors: d.Connectors, Skipped: cfg.Skipped}, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
 }
 
-// Channel is where a reminder with this stored channel choice will be delivered.
-func (s *Service) Channel(stored string) string { return s.channel.Resolve(stored) }
+// Channels are the connectors a reminder with this stored channel choice will be
+// delivered to; none means the web UI only.
+func (s *Service) Channels(stored string) []string { return s.channel.Resolve(stored) }
+
+// Channel names where a reminder with this stored choice goes, for people.
+func (s *Service) Channel(stored string) string { return ChannelLabel(s.Channels(stored)) }
 
 // Create validates and stores a reminder, then wakes the loop. A recurring
 // reminder without FireAt starts at its next cron occurrence.
@@ -321,10 +326,7 @@ func (s *Service) handle(ctx context.Context, r Reminder, now time.Time) {
 	timing := s.cfg.Policy.Classify(r, now)
 	outcome := Overdue
 	if timing != Missed {
-		outcome = Delivered(timing)
-		if err := s.send(ctx, r, timing == Late); err != nil {
-			outcome = Failed(err.Error())
-		}
+		outcome = s.send(ctx, r, timing)
 	}
 	step := s.cfg.Policy.Advance(r, outcome, now)
 	if step.Event != "" {
@@ -333,15 +335,32 @@ func (s *Service) handle(ctx context.Context, r Reminder, now time.Time) {
 	s.save(ctx, step.Next, now)
 }
 
-func (s *Service) send(ctx context.Context, r Reminder, late bool) error {
-	channel := s.Channel(r.Connector)
-	if channel == InAppChannel {
-		return nil
-	}
+// send delivers to every connector the reminder resolves to. It succeeds when at
+// least one took it (the others' failures are reported, not retried: a retry would
+// send the text again to the ones that already have it) and fails only when none did.
+func (s *Service) send(ctx context.Context, r Reminder, timing Timing) Outcome {
+	channels := s.Channels(r.Connector)
 	msg := r.Message
-	if late {
+	if timing == Late {
 		msg = latePrefix + msg
 	}
+	var failures []string
+	for _, channel := range channels {
+		if err := s.deliverTo(ctx, channel, msg); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %s", channel, err))
+		}
+	}
+	switch {
+	case len(failures) == 0:
+		return Delivered(timing)
+	case len(failures) < len(channels):
+		return DeliveredPartly(timing, strings.Join(failures, "; "))
+	default:
+		return Failed(strings.Join(failures, "; "))
+	}
+}
+
+func (s *Service) deliverTo(ctx context.Context, channel, msg string) error {
 	sendCtx, cancel := context.WithTimeout(ctx, deliverTimeout)
 	defer cancel()
 	return s.deliver.Deliver(sendCtx, channel, msg)

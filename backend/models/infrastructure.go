@@ -83,12 +83,14 @@ type UserSettings struct {
 }
 
 // RemindersConfig is where reminders go and which timezone they use when the
-// request does not say. Both are optional: no default connector means a reminder
-// that names no channel is delivered in-app only; no timezone means the server's.
+// request does not say. Both are optional: a reminder that names no channel goes
+// to the web UI and to every enabled connector not listed in SkipConnectors; no
+// timezone means UTC.
 type RemindersConfig struct {
-	// DefaultConnector is the connector type (for example "telegram") used when a
-	// reminder names no channel.
-	DefaultConnector string `yaml:"default_connector,omitempty" json:"default_connector,omitempty"`
+	// SkipConnectors are connector types (for example "slack") ticked off for
+	// reminders. A connector that is enabled and not listed here gets them, so one
+	// switched on later is included without further setup.
+	SkipConnectors []string `yaml:"skip_connectors,omitempty" json:"skip_connectors,omitempty"`
 	// Timezone is an IANA name (Europe/London) used for chat sources that do not
 	// report the user's zone, such as an inbound connector message.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`

@@ -18,10 +18,11 @@ export const REMINDER_OUTCOME_TAG: Partial<Record<ReminderStatus, { state: Statu
   failed: { state: 'error', label: 'Failed' },
 }
 
-// Default-channel choices. A connector is used only when it is named or chosen
-// here, never because it happens to be available.
-export const DEFAULT_CHANNEL_HINT =
-  'Where a reminder goes when you do not name a channel. One asked for in a chat app is answered there. Otherwise it is shown in the web UI only, unless you choose a connector here.'
+// Where reminders go. The web UI always gets them; a connector that is switched on gets them too until it is
+// ticked off, so one switched on later is included without further setup.
+export const DELIVER_TO_HINT =
+  'Where a reminder goes when you do not name a channel. It is always in the web UI. A reminder asked for in a chat app is answered there, and one that names a channel goes only there.'
+export const WEB_UI_LABEL = 'Web UI'
 export const TIMEZONE_HINT =
   'Used when a reminder comes from a chat app, which does not report your timezone. The web UI always uses your browser timezone.'
 export const UNKNOWN_TIMEZONE_ERROR = 'Not a known timezone. Use a name such as Europe/London.'
@@ -40,5 +41,3 @@ export const REMINDER_UNTIL_TIME = '23:59'
 
 // The channel choices that exist whatever is connected.
 export const IN_APP_CHANNEL_LABEL = 'Web UI only'
-// The editor's choice for "whatever the default channel setting says".
-export const FOLLOW_DEFAULT_CHANNEL_LABEL = 'Default channel'
