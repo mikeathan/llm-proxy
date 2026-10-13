@@ -255,7 +255,17 @@ Supports streaming (SSE) with `stream: true`.
 | POST | `/admin/api/reminders/{id}/skip` | Skip a repeating reminder's next occurrence. 400 if it is a one-off, not scheduled, or this is its last occurrence |
 | DELETE | `/admin/api/reminders/{id}` | Delete a reminder in any status (an open one is never sent). 204; 404 unknown; 400 bad id |
 
-Each item also carries `connector` (the channel as chosen: `""` automatic, `in-app`, or a type) and `until`. Reminders are created by the assistant's tools (SPEC-011), not by this API.
+Each item also carries `connector` (the channel as chosen: `""` automatic, `in-app`, or a type) and `until`. Reminders are created by the assistant's tools, by `/remind` (Commands API) and by `POST` above (SPEC-011).
+
+## Commands API
+
+Slash commands (`/remind`, SPEC-011 §2.11) answered in code, without the assistant. The zone is the owner's `reminders.timezone`, else the request's `timezone` (the browser's), else UTC. Always registered; the list is empty when reminders are unavailable.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/api/commands` | `{commands: [{name, usage, summary, examples[]}]}` for the chat's command menu |
+| POST | `/admin/api/commands/run` | `{message, timezone?}` → `{handled, reply?, failed?}`. `handled: false` for text that is not a registered command (send it to the assistant). `failed: true` when the command was refused; `reply` then carries the reason and usage |
+| POST | `/admin/api/commands/preview` | `{message, timezone?}` → `{matched, command?, text?, error?}`: what the command would do with the text typed so far (nothing is stored), or why it would be refused |
 
 ## Memory API
 

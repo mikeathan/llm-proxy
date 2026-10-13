@@ -259,3 +259,16 @@ func TestOriginConnector(t *testing.T) {
 		t.Errorf("origin = %q", got)
 	}
 }
+
+func TestChatTimezone_Context(t *testing.T) {
+	if got := ChatTimezone(context.Background()); got != "" {
+		t.Errorf("unset = %q, want empty", got)
+	}
+	if got := ChatTimezone(WithChatTimezone(context.Background(), "Europe/London")); got != "Europe/London" {
+		t.Errorf("got %q", got)
+	}
+	//nolint:staticcheck // nil context is part of the contract
+	if got := ChatTimezone(nil); got != "" {
+		t.Errorf("nil ctx = %q, want empty", got)
+	}
+}

@@ -27,6 +27,7 @@ type HandlerSet struct {
 	Recordings *handlers.RecordingHandlers
 	Memory     *handlers.MemoryHandlers
 	Reminders  *handlers.ReminderHandlers
+	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 }
 
@@ -34,6 +35,8 @@ type HandlerSet struct {
 func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
 	hs := &HandlerSet{}
 	hs.Assistant = handlers.NewAssistantMessageHandler(s)
+	ownerZone := func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone }
+	hs.Assistant.OwnerTimezone = ownerZone
 	// Operator actions on queued inbound callers. These are the only paths that
 	// cancel a run to free the local model, alongside the host's explicit
 	// inbound-preempt policy.
@@ -86,7 +89,10 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 
 	commTools := communicationTools(s.ToolProvider())
 
+	registry := buildCommands(s)
+	hs.Commands = handlers.NewCommandHandlers(registry, ownerZone)
 	hs.Webhook = &handlers.WebhookHandler{
+		Commands:    registry,
 		Registry:    s.AppCtx.GetRegistry,
 		Persistence: s.Persistence(),
 		Events:      s.Events(),
@@ -97,7 +103,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		Limiter:     ratelimiter.NewLimiter(utils.NewRealClock()),
 		// Connector messages carry no browser timezone; the owner's configured zone
 		// keeps "tomorrow morning" meaning the owner's morning.
-		OwnerTimezone: func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone },
+		OwnerTimezone: ownerZone,
 	}
 
 	return hs
@@ -286,6 +292,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Post("/admin/api/reminders/{id}/skip", hs.Reminders.Skip, jsonMethodNotAllowed)
 		router.Delete("/admin/api/reminders/{id}", hs.Reminders.Delete, jsonMethodNotAllowed)
 	}
+
+	router.Get("/admin/api/commands", hs.Commands.List, jsonMethodNotAllowed)
+	router.Post("/admin/api/commands/run", hs.Commands.Run, jsonMethodNotAllowed)
+	router.Post("/admin/api/commands/preview", hs.Commands.Preview, jsonMethodNotAllowed)
 
 	// Memory API
 	if hs.Memory != nil {

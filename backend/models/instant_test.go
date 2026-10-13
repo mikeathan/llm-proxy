@@ -18,3 +18,27 @@ func TestParseInstant(t *testing.T) {
 		}
 	}
 }
+
+func TestParseInstantIn(t *testing.T) {
+	london, err := time.LoadLocation("Europe/London")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 10, 18, 19, 0, 0, 0, time.UTC) // 20:00 BST
+	for _, local := range []string{"2026-10-18 20:00", "2026-10-18T20:00", "2026-10-18T20:00:00", " 2026-10-18 20:00 "} {
+		got, err := ParseInstantIn("when", local, london)
+		if err != nil || !got.Equal(want) {
+			t.Errorf("%q: got %v err=%v, want %v", local, got, err, want)
+		}
+	}
+	// An explicit offset always wins over the zone.
+	got, err := ParseInstantIn("when", "2026-10-18T20:00:00Z", london)
+	if err != nil || !got.Equal(time.Date(2026, 10, 18, 20, 0, 0, 0, time.UTC)) {
+		t.Errorf("offset: got %v err=%v", got, err)
+	}
+	for _, bad := range []string{"", "tomorrow", "2026-10-18"} {
+		if _, err := ParseInstantIn("when", bad, london); err == nil || !strings.Contains(err.Error(), "when") {
+			t.Errorf("%q: err = %v, want one naming the field", bad, err)
+		}
+	}
+}

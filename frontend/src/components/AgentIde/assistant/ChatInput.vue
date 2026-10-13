@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { computed, ref, toRef, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { formatTokenCount } from '../../../utils/format/units'
 import BaseButton from '../../common/buttons/BaseButton.vue'
 import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
+import SlashHelper from './SlashHelper.vue'
+import { useSlashCommands } from '../../../composables/assistant/useSlashCommands'
+import type { CommandInfo } from '../../../types/commands'
 
 // The message box grows with its text up to a cap, then scrolls; a long draft
 // (a big paste) says how big it is and can be expanded to most of the screen
@@ -27,6 +30,16 @@ const LINE_BREAK = '\n'
 
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const expanded = ref(false)
+
+// "/" opens the command menu; once a command is named it shows its usage and a live preview.
+const { suggestions, active, preview, completion, withExample } = useSlashCommands(toRef(props, 'inputMessage'))
+
+function fill(text: string) {
+  emit('update:inputMessage', text)
+  inputRef.value?.focus()
+}
+const pickCommand = (command: CommandInfo) => fill(completion(command))
+const pickExample = (command: CommandInfo, example: string) => fill(withExample(command, example))
 
 const lineCount = computed(() => props.inputMessage.split(LINE_BREAK).length)
 const isLongDraft = computed(() => lineCount.value > LONG_DRAFT_LINES || props.inputMessage.length > LONG_DRAFT_CHARS)
@@ -57,6 +70,13 @@ watch(() => props.inputMessage, (text) => {
 watch(expanded, () => void nextTick(resize))
 
 function onKeydown(e: KeyboardEvent) {
+  // Tab completes the first matching command.
+  const first = suggestions.value[0]
+  if (e.key === 'Tab' && !e.shiftKey && first) {
+    e.preventDefault()
+    pickCommand(first)
+    return
+  }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     emit('send')
@@ -80,6 +100,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 <template>
   <div class="input-area">
     <div class="flex min-w-0 flex-1 flex-col gap-1">
+      <SlashHelper :suggestions="suggestions" :active="active" :preview="preview" @pick="pickCommand" @example="pickExample" />
       <div class="input-wrap">
         <ArcOrbitLoader :active="loading && paused" :thickness="1" />
         <textarea

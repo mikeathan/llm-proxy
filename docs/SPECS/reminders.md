@@ -1,9 +1,9 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.3"
+version: "1.4"
 status: stable
-last_updated: 2026-10-11
+last_updated: 2026-10-13
 constitution_references: [II.2, II.14, V]
 related_specs: [SPEC-009, SPEC-001]
 supersedes:
@@ -12,6 +12,18 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.4 (2026-10-13)** — Creating a reminder no longer needs the model to do calendar arithmetic or a person to state
+  their timezone. (a) **Local clock on every turn:** a context note appended to the turn's user message, for the model only and never
+  stored, carries `Now (<zone>): Mon 12 Oct 2026 20:29 (UTC+01:00)` and the next 14 days, so "Sunday the 18th" is read off
+  it and the date is right however long the conversation has been open (the system prompt stays byte-identical). (b) **One chat zone:** a conversation reports
+  `reminders.ChatZone(owner, browser)` — the owner setting, else the zone the browser reported, else UTC (connector
+  messages have no browser zone) — and `schedule_reminder` reads a local `when` in that zone unless the user named one
+  (`models.WithChatTimezone`). (c) **`when` takes a local date and time** (`2026-10-18 20:00`, no offset);
+  RFC 3339 with an offset still works and wins. (d) **`/remind <when> <message>`** is a slash command answered in code
+  with no model (`core/commands`, grammar in §2.11); the same registry serves the web chat (`GET /admin/api/commands`,
+  `POST /admin/api/commands/run|preview`) and every connector through the inbound webhook, where a reminder is
+  answered on the channel it came from. The chat box shows a command menu, usage and a live preview.
 
 - **1.3 (2026-10-12)** — Edit gaps and pause. (a) A finished reminder (sent, missed, failed) is **rescheduled** by editing
   it: it becomes scheduled again with its failure record cleared; a cancelled one stays closed. (b) An edit can turn a
@@ -51,7 +63,7 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 
 1. **Creation.** The agent tools (attended runs only — hidden from and refused to unattended automations, which may be
    steered by content they read) `schedule_reminder`, `list_reminders` and `cancel_reminder` (category `reminders`) are the
-   only creators. `schedule_reminder` takes `message` and exactly one of `when` (RFC 3339, with offset) or `cron` (five
+   only creators. `schedule_reminder` takes `message` and exactly one of `when` (a local `YYYY-MM-DD HH:MM` in the conversation's zone, or RFC 3339 with offset) or `cron` (five
    fields or a descriptor — the one grammar of `core/automation/cron.go`, no seconds), plus optional `until`, `timezone`
    (IANA) and `connector` (a connector *type*, e.g. `telegram`).
 2. **Echo.** The tool result states the id, absolute local time, timezone and channel; the model must repeat it so a wrong
@@ -85,6 +97,14 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 9. **Cancel wins.** A state write only applies to a reminder that is still `scheduled`; a cancel made while a send is in
    flight is never reversed.
 10. **Verbatim.** The message is stored and sent as text; it is never interpreted, templated into a prompt, or logged.
+11. **`/remind` grammar.** `/remind <when> <message>` (also `/remind@bot` in Telegram). `<when>` is read from the left by
+    `reminders.ParseCommand` and the first word that is not part of it starts the message, kept as typed. Day: `today`,
+    `tomorrow`, `tonight` (20:00), `[next|this] <weekday>` (the next one, never today), `18[th] [of] oct [year]`,
+    `oct 18 [year]`, `18/10[/yyyy]` (day first), `2026-10-18`; a month and day already past mean next year. Time:
+    `[at] 8pm | 8:30pm | 20:00 | noon | midnight | morning | afternoon | evening` — a bare number is not a time. A time alone (`8pm call mum`) is today if still ahead, else tomorrow. A day with no time
+    means 09:00. `in 2h | 30 minutes | 3 days | 1 week`. Recurring: `every day|weekday|weekend|<weekday> [time]` (cron).
+    A word ending in `:` closes the time part (`tomorrow 9am: March for charity`). Anything unreadable is refused with
+    the word named and the usage; nothing is stored. The same validation as the tools applies (`Service.Plan`).
 
 ## 3. Data model
 

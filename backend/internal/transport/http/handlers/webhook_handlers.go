@@ -8,7 +8,9 @@ import (
 	"io"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/commands"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -39,19 +41,19 @@ type WebhookHandler struct {
 	Limiter     ratelimiter.Limiter
 	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset.
 	OwnerTimezone func() string
+	// Commands are the slash commands (/remind, ...) answered without the assistant.
+	Commands *commands.Registry
 }
 
 // agentTimezone is the zone a connector-originated run reports to the agent: the
-// owner's configured zone when it is set and valid, else UTC.
+// owner's configured zone when it is set and valid, else UTC (a connector message
+// carries no browser zone).
 func (h *WebhookHandler) agentTimezone() string {
+	owner := ""
 	if h.OwnerTimezone != nil {
-		if tz := h.OwnerTimezone(); tz != "" {
-			if _, err := time.LoadLocation(tz); err == nil {
-				return tz
-			}
-		}
+		owner = h.OwnerTimezone()
 	}
-	return "UTC"
+	return reminders.ChatZone(owner, "")
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -112,15 +114,28 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Logger.Info("webhook: routing message", "connector", connectorName, "workspace", workspaceID, "chat_id", chatID)
 
-	// Route: /run commands go to dispatcher, everything else goes to the agent
-	if strings.HasPrefix(message, "/run ") {
+	// Route: slash commands are answered in code, /run goes to the dispatcher,
+	// everything else goes to the agent.
+	switch {
+	case h.handleCommand(connectorName, cfg.Type, message):
+	case strings.HasPrefix(message, "/run "):
 		h.handleAutomation(workspaceID, connectorName, cfg.Type, message)
-	} else {
+	default:
 		h.handleAgentMessage(workspaceID, connectorName, cfg.Type, message, chatID)
 	}
 
 	h.Logger.Info("webhook: processed successfully", "connector", connectorName)
 	respondJSON(w, map[string]string{"status": "ok"})
+}
+
+// handleCommand answers a registered slash command in the chat it came from and
+// reports whether the message was one.
+func (h *WebhookHandler) handleCommand(connectorName, connectorType, message string) bool {
+	reply, handled := h.Commands.Execute(agentRunContext(connectorType), message, commands.Env{Zone: h.agentTimezone()})
+	if handled {
+		h.replyPlainToChat(connectorName, reply.Text)
+	}
+	return handled
 }
 
 // handleAutomation triggers an automation by name and sends result back.
@@ -229,12 +244,26 @@ func (h *WebhookHandler) runAgentReply(workspaceID, connectorName, connectorType
 // replyToChat sends a message back through the originating connector.
 // The connector owns all platform-specific logic via the Connector interface.
 func (h *WebhookHandler) replyToChat(connectorName, message string) {
+	h.reply(connectorName, message, false)
+}
+
+// replyPlainToChat is replyToChat for text that holds the user's own words (a
+// reminder's message): a connector that parses markup sends it as typed.
+func (h *WebhookHandler) replyPlainToChat(connectorName, message string) {
+	h.reply(connectorName, message, true)
+}
+
+func (h *WebhookHandler) reply(connectorName, message string, plain bool) {
 	conn, ok := h.CommTools.GetByName(connectorName)
 	if !ok {
 		h.Logger.Warn("no connector registered", "connector", connectorName)
 		return
 	}
-	if err := conn.Send(context.Background(), message); err != nil {
+	send := conn.Send
+	if p, isPlain := conn.(tools.PlainSender); plain && isPlain {
+		send = p.SendPlain
+	}
+	if err := send(context.Background(), message); err != nil {
 		h.Logger.Error("webhook reply failed", "connector", connectorName, "error", err)
 	}
 }

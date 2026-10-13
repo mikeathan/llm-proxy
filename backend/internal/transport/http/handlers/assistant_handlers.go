@@ -14,6 +14,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -43,6 +44,9 @@ type AssistantMessageHandler struct {
 	service     assistantPkg.ConversationService
 	running     sync.Map
 	lane        *runlane.Scheduler
+	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset; it
+	// outranks the zone a browser reports (reminders.ChatZone).
+	OwnerTimezone func() string
 	// reviewTimeout bounds a memory review's wait plus model call; zero means memoryReviewTimeout.
 	reviewTimeout time.Duration
 }
@@ -229,7 +233,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		recorder = eventSink
 	}
 
-	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, payload.Timezone, payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
+	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, h.chatZone(payload.Timezone), payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) {
 			return result, nil
@@ -237,6 +241,15 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		return nil, &handlerError{Status: http.StatusInternalServerError, Message: execErr.Error()}
 	}
 	return result, nil
+}
+
+// chatZone is the timezone this run reports to the agent for a browser-reported zone.
+func (h *AssistantMessageHandler) chatZone(browser string) string {
+	owner := ""
+	if h.OwnerTimezone != nil {
+		owner = h.OwnerTimezone()
+	}
+	return reminders.ChatZone(owner, browser)
 }
 
 // setupRecording creates the run directory and event sink for recording

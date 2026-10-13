@@ -2,7 +2,9 @@ package assistant
 
 import (
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -400,5 +402,36 @@ func TestNeutralizeStaleToolFailures_NilEngineOrEmptyHistoryIsNoOp(t *testing.T)
 	}
 	if n := NeutralizeStaleToolFailures(nil, newNeutralizeEngine(true), "ws-1"); n != 0 {
 		t.Errorf("empty history: neutralized = %d, want 0", n)
+	}
+}
+
+func TestWithLocalTime_AnnotatesOnlyTheLastUserMessageOnACopy(t *testing.T) {
+	history := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "sys"},
+		{Role: proxy.UserRole, Content: "first"},
+		{Role: proxy.AssistantRole, Content: "ok"},
+		{Role: proxy.UserRole, Content: "remind me tomorrow"},
+	}
+	// Two days after the conversation began: the note carries today's date, not the start date.
+	now := time.Date(2026, 10, 14, 19, 29, 0, 0, time.UTC)
+	got := withLocalTime(history, now, "Europe/London")
+	if !strings.Contains(got[3].Content, "Wed 14 Oct 2026 20:29") || !strings.HasPrefix(got[3].Content, "remind me tomorrow") {
+		t.Errorf("last user message = %q", got[3].Content)
+	}
+	if got[1].Content != "first" || got[0].Content != "sys" {
+		t.Errorf("earlier messages must be untouched: %+v", got)
+	}
+	if history[3].Content != "remind me tomorrow" {
+		t.Errorf("the stored history was modified: %q", history[3].Content)
+	}
+}
+
+func TestWithLocalTime_LeavesAHistoryWithoutAUserTailAlone(t *testing.T) {
+	history := []proxy.Message{{Role: proxy.AssistantRole, Content: "hi"}}
+	if got := withLocalTime(history, time.Now(), "UTC"); got[0].Content != "hi" {
+		t.Errorf("got %+v", got)
+	}
+	if got := withLocalTime(nil, time.Now(), "UTC"); got != nil {
+		t.Errorf("got %+v", got)
 	}
 }
