@@ -205,7 +205,8 @@ func (s *Scheduler) CancelModelWait(key string) bool {
 // before, so nothing is evicted out from under a live run — and the held lane
 // keeps it from being re-taken in the meantime. A preempted scheduled run is
 // re-queued and restarts when the gate empties. Reports ErrUnknownWaiter when no
-// queued entry matches, and is idempotent.
+// queued entry matches (including a caller that was already granted), and is
+// idempotent while the caller is queued.
 func (s *Scheduler) PromoteModelWait(key string) error {
 	s.gateMu.Lock()
 	w := s.findWaiterLocked(key)

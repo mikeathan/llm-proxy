@@ -266,7 +266,11 @@ func TestModelGate(t *testing.T) {
 		if err := s.PromoteModelWait("inbound-1"); err != nil {
 			t.Fatalf("PromoteModelWait = %v", err)
 		}
-		if err := s.PromoteModelWait("inbound-1"); err != nil {
+		// Idempotent while the caller is still queued. The preempted run unwinds on its
+		// own goroutine, so on a loaded machine the caller may already have been granted
+		// (and so left the queue) by now: then no queued entry matches and the answer is
+		// ErrUnknownWaiter, which is the documented result, not a failure.
+		if err := s.PromoteModelWait("inbound-1"); err != nil && !errors.Is(err, ErrUnknownWaiter) {
 			t.Fatalf("PromoteModelWait must be idempotent, got %v", err)
 		}
 		if err := s.PromoteModelWait("no-such-entry"); !errors.Is(err, ErrUnknownWaiter) {
