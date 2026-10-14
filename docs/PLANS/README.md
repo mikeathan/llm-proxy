@@ -44,7 +44,7 @@ Organized by subsystem:
 | [`assistant-ui/consolidate-app-banner.md`](assistant-ui/consolidate-app-banner.md) | Consolidate banner logic into a single event-driven `AppBanner` | complete | 2026-08-14 | SPEC-003 |
 | [`assistant-ui/reasoning-inset-auto-collapse.md`](assistant-ui/reasoning-inset-auto-collapse.md) | Reasoning inset auto-expand while running, collapse on done | complete | 2026-08-14 | SPEC-003 |
 | [`cross-cutting/frontend-redesign-retro.md`](cross-cutting/frontend-redesign-retro.md) | Frontend Redesign — Retro Theme System, Shell, Tree & Notifications (absorbs `automation-edit-form-reactivity` at Phase 5) — Phases 0–7 complete; SPEC-003 v2.0 | complete | 2026-09-30 | SPEC-003, SPEC-007 |
-| [`cross-cutting/frontend-redesign-v2.md`](cross-cutting/frontend-redesign-v2.md) | Frontend Redesign v2 — assistant-first shell + ask panel, Settings tabs, calmer look, more themes, phone bottom tabs | active | 2026-10-14 | SPEC-003, SPEC-007 |
+| [`cross-cutting/frontend-redesign-v2.md`](cross-cutting/frontend-redesign-v2.md) | Frontend Redesign v2 — assistant-first shell + ask panel, Settings tabs, calmer look, more themes, phone bottom tabs | partial | 2026-10-14 | SPEC-003, SPEC-007 |
 | [`cross-cutting/ci-github-actions-and-versioning.md`](cross-cutting/ci-github-actions-and-versioning.md) | CI, GitHub Actions Integration & Versioning Flow (P1 CI + P4 tag implemented; P2/P3 + P6 pending, P5 parked) | partial | 2026-08-30 | — |
 | [`cross-cutting/connector-inbound-webhook.md`](cross-cutting/connector-inbound-webhook.md) | Communication Connector Inbound Webhook | complete | 2026-06-28 | SPEC-009 |
 | [`cross-cutting/connector-auto-reply.md`](cross-cutting/connector-auto-reply.md) | Communication Connector Auto-Reply & Automation Trigger | active | 2026-06-28 | SPEC-009 |
@@ -100,7 +100,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | Status | Plan | Open scope |
 |--------|-------|-----------|
 | partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
-| active | Frontend Redesign v2 | Phase 0 docs → 1 themes → 2 Settings tabs → 3 assistant ergonomics → 4 base look (tone, not lines) → 5 shell (workspace chip, ask panel, phone tabs); then Automations/Reminders/Models/Activity on a phone |
+| partial | Frontend Redesign v2 | Phases 0–5 delivered 2026-10-14; left: Automations/Reminders/Models/Activity on a phone, arrow-key handling + focus trap in the new sheets, "All workspaces" scope decision, optional accent swatches, recent-chats menu in the ask panel |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |

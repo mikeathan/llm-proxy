@@ -1,11 +1,11 @@
 ---
-status: active
+status: partial
 last_reviewed: 2026-10-14
 ---
 
 # Frontend Redesign v2 — Assistant-first shell, calmer look, Settings tabs, more themes
 
-**Status:** active — approved by the operator 2026-10-14 (design review in-session; the mockups were not committed).
+**Status:** partial — approved by the operator 2026-10-14 (design review in-session; the mockups were not committed). Phases 0–5 delivered 2026-10-14 (one PR); the remaining work below is follow-up.
 **Date:** 2026-10-14
 **Related Specs:** SPEC-003 (Admin UI — amended to v2.11 in this plan), SPEC-007 §V (run scheduler, read-only consumer)
 **Constitution refs:** V.2 (spec-first), V.3 (no half-finished work), IV.4 (no dead code)
@@ -31,8 +31,8 @@ The operator finds the console noisy and hard to use, in four concrete ways:
 | V1 | **Assistant first.** Assistant is the first destination and the home of the shell; **Workspaces leaves the sidebar** (D10 changes) — a global **workspace chip** in the header chooses the active workspace (default: last used, `useLastWorkspace`) and a **Workspace** destination holds Files · Memory · Playbooks · Heartbeat · Settings. |
 | V2 | **Ask field + panel.** A compact "Ask the agent…" field in the header opens the assistant as a side panel on any page (full screen on phones). On the Assistant route it is hidden. Only one `AssistantChat` is ever mounted (each `useAssistant()` owns an SSE connection). |
 | V3 | **Settings tabs.** Six group tabs on top of the existing `/settings/:section` routes — General · Models · Safety · Connectors · Appearance · System; groups with several sections show chips (providers, Security/Guardrails, Communication/Search/MCP). Shared save model and single page guard unchanged. |
-| V4 | **Assistant ergonomics.** Message box ≥ 3 lines, 16 px on touch, 44 px targets; a phone full-screen editor for long drafts; a `[history \| + New]` control; history collapsible (persisted) with a "New" row pinned in the history footer; the answer reads in a looser column (line height ≈ 1.6, larger block gaps). |
-| V5 | **Base look.** Areas are separated by tone and space, not borders; borders stay on inputs and the composer; one 8 px radius (composer 12 px); the accent appears only on the primary button, the active-nav marker, focus, and the logo; run state keeps its own colours. Retro signatures stay: mono micro-labels and numerals, the primary button's hard 2 px offset. |
+| V4 | **Assistant ergonomics.** Message box ≥ 3 lines, 16 px on touch, 44 px targets; a phone full-screen editor for long drafts; a `[history \| + New]` control; history collapsible (persisted) with a "New" row pinned in the history footer; the answer reads with deliberate spacing (a turn without steps carries no empty timeline wrapper, the user message's hover actions float, larger gaps between turns). |
+| V5 | **Base look.** Areas are separated by tone and space, not borders; borders stay on inputs and the composer; 6/8 px radii (`--radius-sm/md`; no new radius token); the accent appears only on the primary button, the active-nav marker, focus, and the logo; run state keeps its own colours. Retro signatures stay: mono micro-labels and numerals, the primary button's hard 2 px offset. |
 | V6 | **Phone navigation.** Bottom tab bar — Assistant · Workspace · Automations · Reminders · More (Overview, Models, Activity, Settings). |
 | V7 | **Themes.** More dark and light presets (a second dark theme besides the soft default), each passing the contrast gate. Custom themes, import/export and Follow system are unchanged. |
 
@@ -47,6 +47,17 @@ Rules it relaxes from the retro plan: square 2 px corners (→ 8 px), hairline p
 4. **Base look** — primitives (`Panel`, header, sidebar, session list, cards) move from lines to tone; radius tokens. *Accept:* visual baselines regenerated deliberately and listed in the PR; contrast gate green.
 5. **Shell** — workspace chip, Workspace destination, ask field + panel (`AssistantChat` `variant="panel"`), phone bottom tabs + More. *Accept:* route tests for the new destinations; a run survives opening/closing the panel (SSE replays on reconnect); never two `AssistantChat` mounted.
 
+## As built (2026-10-14)
+
+- **0 Docs** — this plan, SPEC-003 v2.11 (§II.1, II.2, II.7, III, IV, V), pitfalls 48–50, `assistant-ui-patterns`.
+- **1 Themes** — `retro-midnight`, `retro-forest`, `retro-plum` (dark), `retro-paper-cool`, `retro-sand` (light); `PRESET_IDS` in `types/theme.ts`; the contrast script reads ids from `tokens.css`. Phase 1b (accent swatches) **not built**: custom themes already change any colour.
+- **2 Settings tabs** — `SettingsTabs` + `ScrollStrip` (+ `useScrollEdges`); `getSettingsTabGroups`; `SettingsNav` removed.
+- **3 Assistant** — `ComposeSheet`, header cap, persisted list state, footer New, quiet status, `dvh` height, spacing.
+- **4 Look** — Panel, header, sidebar, chat chrome by tone; radii 6/8 px; `/design` baselines regenerated.
+- **5 Shell** — keep-alive chat closed on leave (own commit), ask panel (`AssistantChat variant="panel"`), assistant-first navigation (`utils/navigation.ts`) with a phone bottom bar, workspace chip (`useActiveWorkspace`), home route. The workspace page header's picker is gone. On a phone the assistant is fixed between the top strip and the bar and the workspace header is hidden there.
+
+Deviations from the mockups: the panel header has no recent-chats menu (its conversation list is the same overlay as on a phone); the header's "Ask" field is an icon while the panel is open; Settings is the only page that says "All workspaces" (Overview, Automations, Activity and Models show the workspace the shell opens, which is what the ask panel talks to).
+
 ## Risks
 
 - **Two chats at once.** `useAssistant()` calls own separate connections but share `messages`/`sessions`; two mounted chats duplicate steps (documented in `useAssistant.ts`). Mitigation: the panel mounts only when open and not on the Assistant route (one owner, tested).
@@ -55,4 +66,8 @@ Rules it relaxes from the retro plan: square 2 px corners (→ 8 px), hairline p
 
 ## Remaining Work
 
-Everything (plan just opened). Not designed yet: Automations, Reminders, Models and Activity pages on a phone (tables), empty/error/loading polish of the new surfaces, arrow-key handling for radio groups elsewhere. **Phase 1b (optional, after the presets land):** a per-user accent swatch set over any preset (stored through `usePersistedState`; every preset × swatch pair added to the contrast gate). Custom themes already cover changing colours, so this is a convenience, not a gap.
+- Automations, Reminders, Models and Activity on a phone (tables and logs need a "fewer details" layout); their empty/error/loading polish.
+- Arrow-key handling for radio groups and the new sheets (More, workspace menu); a focus trap in the phone ask dialog.
+- Decide whether Overview, Automations and Activity should read "All workspaces" in the chip (today only Settings does).
+- Optional Phase 1b: a per-user accent swatch set over any preset (`usePersistedState`; every preset × swatch pair added to the contrast gate).
+- A recent-chats menu in the ask panel's title (prototyped in the mockup).

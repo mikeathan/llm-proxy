@@ -14,19 +14,18 @@ supersedes:
 ## Changelog
 
 - **2.11 (2026-10-14)** — Redesign v2 (plan `cross-cutting/frontend-redesign-v2.md`). The shell is assistant-first:
-  **Assistant** is the first destination, **Workspaces** leaves the sidebar (a global **workspace chip** in the header
-  picks the active workspace, defaulting to the last used, and a **Workspace** destination holds Files, Memory,
-  Playbooks, Heartbeat and Settings), and a compact **Ask** field opens the assistant as a side panel on any page
-  (full screen on phones; hidden on the Assistant route; one `AssistantChat` mounted at a time). Below the mobile
-  breakpoint a **bottom tab bar** (Assistant, Workspace, Automations, Reminders, More) replaces the drawer as the
-  primary navigation. **Settings** gets six group tabs (General, Models, Safety, Connectors, Appearance, System) over
-  the unchanged `/settings/<section>` routes, with chips for groups holding several sections. The assistant's message
-  box starts at three lines (16 px on touch), long drafts open a full-screen editor on phones, history is collapsible
-  (persisted) with a pinned **New** row, and answers read in a looser column. **Look:** areas are separated by tone and
-  space rather than borders (borders stay on inputs and the composer), one 8 px radius (12 px for the composer), and the
-  accent appears only on the primary button, the active-navigation marker, focus and the logo. **Themes:** more dark and
-  light presets. Changes the retro design language of §IV (2 px corners, hairline panel borders) and the seven-destination
-  rail of §II.1.
+  **Assistant** leads the navigation, **Workspaces** leaves the sidebar for a single **Workspace** entry (Files, Memory,
+  Playbooks, Heartbeat and the workspace's Settings), and a **workspace chip** in the header names and switches the
+  workspace the shell opens (the one last used; Settings says "All workspaces"). A compact **Ask** field opens the
+  assistant as a column beside any page (a full-screen dialog on a phone); the app opens on the assistant of the workspace
+  last used, else the Overview. On a phone a **bottom tab bar** (Assistant, Workspace, Automations, Reminders, More)
+  replaces the drawer. **Settings** has six tabs (General, Models, Safety, Connectors, Appearance, System) over the
+  unchanged `/settings/<section>` routes. The assistant's message box starts at three lines (16 px on touch), a long
+  draft opens a full-screen editor on a phone, history and New are one control (the list's open state persists), and
+  an answer reads with deliberate spacing. **Look:** areas are separated by tone, not borders, and corners are 6/8 px.
+  **Themes:** five more presets (three dark, two light). Changes §II.1 (seven destinations, drawer), the retro design
+  language of §IV (2 px corners, hairline panel borders) and the preset registration steps of §II.7. One chat is ever
+  live; Workspaces closes its chat when left.
 
 - **2.10 (2026-10-12)** — Reminders page management. **New reminder** (page header and empty state) opens the form
   with the time set to 09:00 tomorrow in the browser's timezone. The form has a **Repeat** switch, so a one-off can
@@ -122,31 +121,36 @@ account model, and makes no network request outside the proxy's own origin.
 ## II. Functional Requirements
 
 ### 1. Shell and navigation
-- Seven destinations in a persistent, collapsible left sidebar: **Overview,
-  Workspaces, Automations, Reminders, Models, Activity, Settings**. The collapse state
-  persists; below the mobile breakpoint the sidebar becomes a drawer.
-- The sidebar's Workspaces row carries an **assistant shortcut**: a chat icon
-  at the row's end linking to `/workspaces/<ws>/assistant` for the workspace
-  last opened (remembered through `usePersistedState`, validated as a
-  workspace name). When only one workspace exists, that one is remembered as
-  soon as the list loads. A remembered workspace that no longer exists is
-  forgotten. The icon is revealed on hover or keyboard focus. It stays shown
-  while that assistant is open, and always in the mobile drawer, which has no
-  hover. It is absent until a workspace is known and in the collapsed rail.
-  It is a shortcut, not a destination.
-- A header carries the **host stats strip** (§II.8), the run-activity pill
-  (global lane state, see §II.5) and the notification bell. A context drawer (Monitor) is available at every
-  width.
+- Eight entries in a persistent, collapsible left sidebar: **Assistant, Overview, Workspace, Automations, Reminders,
+  Models, Activity, Settings**. The collapse state persists. Assistant and Workspace open the workspace last used
+  (`/workspaces/<ws>/assistant`, `/workspaces/<ws>/files`), or the workspace list while none is known; the current entry
+  comes from the route (an assistant route is Assistant, any other workspace route is Workspace). Run-end badges go to
+  Assistant for an assistant run and otherwise to the owning destination.
+- The app opens (`/`) on the assistant of the workspace last used, else the Overview; the brand links there. The last
+  workspace is remembered through `usePersistedState`; one place (`useActiveWorkspace`, started from `App.vue`) keeps it
+  valid: a workspace that no longer exists is forgotten, and when none is remembered the first is used.
+- Below the desktop breakpoint the sidebar is replaced by a **bottom tab bar**: Assistant, Workspace, Automations,
+  Reminders, and **More**, a sheet holding Overview, Models, Activity and Settings. It respects the safe area
+  (`viewport-fit=cover`); the content is padded clear of it, and the assistant fills the space between the top strip
+  and the bar so its message box stays in reach.
+- A header carries the **workspace chip** (the workspace the shell opens; a menu switches it, keeping the section on a
+  workspace page, and links to Manage workspaces; Settings, which is about everything, says "All workspaces"), the
+  **host stats strip** (§II.8), a compact **Ask** field, the run-activity pill (global lane state, §II.5) and the
+  notification bell. A context drawer (Monitor) is available at every width.
+- The **Ask** field opens the assistant of the workspace last used as a column beside the page (a full-screen dialog on
+  a phone). It resumes the conversation that is open, so a run started on the Assistant page carries on there; it is
+  absent on the Assistant page, where the panel is never open, and while no workspace is known. Escape closes it. Only one
+  `AssistantChat` is ever live (each owns a live connection): the panel and the Assistant page never coexist, and the
+  Workspaces view closes its chat when it is left (the run continues on the server and replays when a chat opens).
 - Every page is addressable by URL (§III.2); refreshing a deep link renders
-  the same page. An unknown path renders a not-found page **inside the
-  shell** — never a silent redirect.
-- The first tab stop is a "Skip to content" link that moves focus to
-  `main#content`.
+  the same page. An unknown path renders a not-found page **inside the shell** — never a silent redirect.
+- The first tab stop is a "Skip to content" link that moves focus to `main#content`.
 
 ### 2. Destinations
 - **Overview** — health (active model, system metrics), running work with
   lane slot bars, recent runs.
-- **Workspaces** — list page; per workspace: **Files** (tree + editor),
+- **Workspace** — the entry for the active workspace (the **Workspaces** list, with create and delete, is reached from
+  the chip's "Manage workspaces"); per workspace: **Files** (tree + editor),
   **Assistant** (sessions with search, pins and time groups), **Memory**,
   **Playbooks**, **Heartbeat** (on/off, interval, model, alert connector, last check; warns when
   a check would wake the local model), **Settings** (the workspace guardrail layer, §II.6).
@@ -162,8 +166,11 @@ account model, and makes no network request outside the proxy's own origin.
   its details. A linked run no longer in the kept history says so. In the
   ledger and the run details, the automation and workspace names link to
   their pages.
-- **Settings** — global configuration by section (`/settings/<section>`),
-  including provider keys, security, MCP servers (SPEC-008) and Appearance.
+- **Settings** — global configuration by section (`/settings/<section>`), under six tabs: **General** (routing, engine,
+  scheduler, memory, reminders, logging), **Models** (local models and each cloud provider's keys and models, as a second
+  row), **Safety** (Security, Agent Guardrails), **Connectors** (Communication, Search, MCP servers — SPEC-008),
+  **Appearance** and **System** (processes). A tab opens its first section; a tab with several shows them as a row that
+  scrolls sideways on a phone. Providers discovered at runtime appear under Models.
 
 ### 3. Workspace file tree
 - Fed by `GET /admin/api/dispatcher/workspaces/{workspace}/tree`
@@ -218,20 +225,18 @@ account model, and makes no network request outside the proxy's own origin.
   step (SPEC-006).
 
 ### 7. Theming
-- Built-in presets: `retro-dark-soft` (default; a faded black, easier on the
-  eyes), `retro-dark` (the original near-black ink), `retro-dark-lifted`,
-  `retro-paper` (light). With no stored choice the UI follows the system
-  colour scheme: a dark OS gets the default, a light OS gets `retro-paper`.
-  The picker is Settings · Appearance. Adding a preset means a block in
-  `styles/tokens.css`, the id in `types/theme.ts`, `theme/presets.ts`,
-  `theme/tokenSheet.ts`, `public/theme-boot.js` and
-  `frontend/scripts/check-contrast.cjs` (every pair must pass).
-- Custom themes: duplicate a preset or import JSON; both paths run one
-  validator. Only known token names are accepted; each value must match its
-  kind's grammar (opaque colour, length, duration). Fonts and easing are not
-  editable. A contrast failure blocks saving until the operator
-  acknowledges it; a grammar failure always rejects. Themes export to JSON
-  (they are device-local and would otherwise be lost with browser data).
+- Built-in presets: `retro-dark-soft` (default; a faded black, easier on the eyes), `retro-dark` (the original
+  near-black ink), `retro-dark-lifted`, `retro-midnight`, `retro-forest`, `retro-plum` (more dark themes, each with its
+  own accent), `retro-paper` (light), `retro-paper-cool` and `retro-sand` (more light themes). With no stored choice the UI
+  follows the system colour scheme: a dark OS gets the default, a light OS gets `retro-paper`. The picker is Settings ·
+  Appearance. Adding a preset means a block in `styles/tokens.css`, the id in `PRESET_IDS` (`types/theme.ts`, the one
+  TypeScript list), a label in `theme/presets.ts` and the scheme in `public/theme-boot.js` (plain ES5; the boot contract
+  test holds it to the list); `frontend/scripts/check-contrast.cjs` reads the ids from `tokens.css`, so the new block is gated at
+  once and every pair must pass. A test fails if `tokens.css` and `PRESET_IDS` disagree.
+- Custom themes: duplicate a preset or import JSON; both paths run one validator. Only known token names are accepted;
+  each value must match its kind's grammar (opaque colour, length, duration). Fonts and easing are not editable. A
+  contrast failure blocks saving until the operator acknowledges it; a grammar failure always rejects. Themes export to
+  JSON (they are device-local and would otherwise be lost with browser data).
 
 ### 8. Host stats
 - The header strip shows CPU load, memory %, GPU core % and tokens/s from
@@ -253,7 +258,8 @@ account model, and makes no network request outside the proxy's own origin.
 
 ### 1. Layout (`frontend/src/`)
 - `views/` — one component per destination (lazy route chunks).
-- `components/layout/` — shell (sidebar, header, context drawer, skip link);
+- `components/layout/` — shell (sidebar, bottom tab bar, header, workspace chip, ask field and panel, context drawer, skip
+  link);
   `components/common/` — shared primitives by domain (`buttons/`,
   `display/`, `feedback/`, `forms/`, `layout/`); `components/ui/` — dialogs
   and toasts; `components/AgentIde/` — workspace/automation feature
@@ -275,12 +281,12 @@ History mode under Vite's `base` (`/admin/`). Route names are constants in
 
 | Path | Name | Notes |
 |---|---|---|
-| `/` | — | redirect → `/overview` |
+| `/` | — | redirect → the assistant of the workspace last used, else `/overview` |
 | `/overview` | `overview` | |
 | `/workspaces` | `workspaces` | list; keep-alive |
 | `/workspaces/:ws` | `workspace` | redirect → files |
 | `/workspaces/:ws/files/:path(.*)*` | `workspace-files` | nested path in the URL |
-| `/workspaces/:ws/assistant/:conversationId?` | `workspace-assistant` | notification target |
+| `/workspaces/:ws/assistant/:conversationId?` | `workspace-assistant` | notification target; the Assistant entry |
 | `/workspaces/:ws/:section(memory\|playbooks\|heartbeat\|settings)` | `workspace-section` | `/security` redirects to `settings` |
 | `/automations` | `automations` | |
 | `/automations/new` | `automation-new` | |
@@ -289,12 +295,12 @@ History mode under Vite's `base` (`/admin/`). Route names are constants in
 | `/automations/:id/edit` | `automation-edit` | |
 | `/models` | `models` | |
 | `/activity` | `activity` | query: `kind`, `status`, `workspace`, `q`, `from`, `to`; keep-alive |
-| `/settings/:section?` | `settings` | |
+| `/settings/:section?` | `settings` | `workspaceScope: 'all'` (the header chip says "All workspaces") |
 | `/design` | `design` | **dev builds only** — living token/primitive reference |
 | `/:pathMatch(.*)*` | `not-found` | in-shell |
 
 Keep-alive is opt-in by route meta (Workspaces, Activity); there is no global
-`<KeepAlive>`.
+`<KeepAlive>`. The kept-alive Workspaces view closes its assistant chat when it is deactivated.
 
 ### 3. SPA fallback (backend)
 `handlers/admin_ui.go` serves existing files from the embedded bundle as-is.
@@ -334,20 +340,23 @@ loudly instead of receiving HTML.
   module-level singleton.
 
 ## IV. Design Language
-- Warm ink canvas with a cream light preset; persimmon is the brand accent and
-  never a state colour; mint / cobalt / citrine / red carry success / info /
-  running / error.
-- Flat surfaces: **no shadows**, except the primary button's hard brand
-  offset. No glass, no blur.
-- Components use semantic token classes only; raw Tailwind palette classes
-  fail `npm run lint`.
-- Typography (Inter, JetBrains Mono) is self-hosted; motion durations are
-  tokens.
+- A warm ink canvas with a cream light preset; the brand accent (persimmon by default) is never a state colour; mint /
+  cobalt / citrine / red carry success / info / running / error.
+- **Tone, not lines.** Panels, the header, the sidebar and the chat are set apart by surface tone (raised on canvas); a
+  hairline border stays only where it says "this is an input" (fields, the composer), under the title of a flush panel
+  and on a drawer's edge. Corners are 6 px (`--radius-sm`) and 8 px (`--radius-md`).
+- The accent appears on the primary button (its hard offset), the current-page marker, focus and the logo.
+- **No shadows**, except the primary button's hard brand offset. No glass, no blur.
+- Components use semantic token classes only; raw Tailwind palette classes fail `npm run lint`.
+- Typography (Inter, JetBrains Mono) is self-hosted; motion durations are tokens. Mono micro-labels and numerals are
+  the retro signature.
 
 ## V. Accessibility and Performance
 - Every preset passes the contrast gate
   (`frontend/scripts/check-contrast.cjs`, run by `npm run lint`; WCAG 4.5:1 for text roles); the
   preset test fails `npm test` on a regression.
+- On a touch screen the message box uses 16 px text (a smaller field makes the browser zoom) and send, stop and expand are
+  44 px targets; the bottom bar clears the home indicator.
 - Every control is keyboard reachable with a visible focus indicator;
   icon-only buttons carry a label; toasts are announced through a live
   region.
