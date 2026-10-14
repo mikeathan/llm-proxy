@@ -2,21 +2,19 @@
 import type { RouteLocationNamedRaw } from "vue-router"
 import { toWorkspaceAssistant, toWorkspaceFile, toWorkspaceSection } from "../../../router/routes"
 import type { WorkspaceNavSection } from "../../../types/routes"
-import SelectInput from "../../common/forms/SelectInput.vue"
 import StatusTag from "../../common/display/StatusTag.vue"
 
-// A workspace page's header: switch workspace, and move between its sections
-// (real links, so each section is addressable and back/forward works).
+// A workspace page's header: move between its sections (real links, so each section
+// is addressable and back/forward works). Which workspace it is is the header chip's
+// business (WorkspaceSwitcher), so there is no picker here.
 
 const props = defineProps<{
   ws: string
-  workspaces: { id: string }[]
   section: WorkspaceNavSection
   chatRunning: boolean
   externalAccess: boolean
 }>()
 
-const emit = defineEmits<{ (e: "switch", id: string): void }>()
 defineSlots<{ actions?(): unknown }>()
 
 interface SectionLink {
@@ -37,12 +35,6 @@ const SECTIONS: SectionLink[] = [
 
 <template>
   <div class="flex flex-wrap items-center gap-3">
-    <SelectInput
-      :model-value="props.ws"
-      :options="props.workspaces.map((w) => ({ value: w.id, label: w.id }))"
-      label="Workspace"
-      @update:model-value="emit('switch', $event)"
-    />
     <nav aria-label="Workspace sections" class="inline-flex max-w-full overflow-x-auto rounded-[var(--radius-md)] border border-control">
       <RouterLink
         v-for="(link, index) in SECTIONS"

@@ -4,6 +4,7 @@ import { useRoute } from "vue-router"
 import RunActivityPill from "./RunActivityPill.vue"
 import HostStats from "./HostStats.vue"
 import BrandMark from "./BrandMark.vue"
+import WorkspaceSwitcher from "./WorkspaceSwitcher.vue"
 import { PRODUCT_NAME } from "../../config/brand"
 import { useLastWorkspace } from "../../composables/ui/useLastWorkspace"
 import { homeLocation } from "../../utils/navigation"
@@ -11,7 +12,8 @@ import { homeLocation } from "../../utils/navigation"
 // The top strip: where you are, plus the host stats and the global run pill,
 // visible on every destination (plan D10). Navigation lives in AppSidebar (a wide
 // screen) and BottomTabs (a phone); on a phone the strip also carries the brand,
-// since the rail is hidden.
+// since the rail is hidden. The strip sits above the phone's bottom bar so the bottom
+// sheets its controls open (stats, runs, workspaces) cover the bar.
 
 defineProps<{
   mobile: boolean
@@ -25,7 +27,7 @@ const title = computed(() => route.meta.title ?? "")
 </script>
 
 <template>
-  <header class="sticky top-0 z-30 flex h-12 flex-none items-center gap-3 bg-canvas px-3 lg:px-6">
+  <header class="sticky top-0 z-40 flex h-12 flex-none items-center gap-3 bg-canvas px-3 lg:px-6">
     <template v-if="mobile">
       <RouterLink
         :to="home"
@@ -38,6 +40,7 @@ const title = computed(() => route.meta.title ?? "")
       <span class="text-decorative" aria-hidden="true">/</span>
     </template>
 
+    <WorkspaceSwitcher :mobile="mobile" />
     <nav aria-label="Breadcrumb" class="min-w-0 flex-1 truncate font-mono text-[length:var(--text-small)]">
       <span aria-current="page" class="text-primary">{{ title }}</span>
     </nav>

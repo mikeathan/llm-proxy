@@ -26,7 +26,6 @@ import {
   toWorkspaceFile,
   toWorkspaces,
   toAutomationNew,
-  toWorkspaceSection,
   workspaceLocation,
 } from "../router/routes"
 import type { AutomationRun } from "../types/dispatcher"
@@ -210,27 +209,15 @@ watch(() => current.value.fullPath, () => {
 const workspacesLoaded = ref(false)
 const unknownWorkspace = computed(() => !!ws.value && workspacesLoaded.value && !workspaces.value.some((w) => w.id === ws.value))
 
-// The sidebar's assistant shortcut opens the workspace last viewed here; with a
-// single workspace that one is remembered as soon as the list loads, and a
-// remembered workspace that no longer exists is forgotten.
-const { lastWorkspace, remember: rememberWorkspace, forget: forgetWorkspace } = useLastWorkspace()
+// The workspace viewed here is the one the shell opens next (Assistant, Workspace, the
+// ask panel). Keeping that choice valid — forgetting a deleted workspace, defaulting
+// when none is remembered — is useActiveWorkspace's job, once, for the whole app.
+const { remember: rememberWorkspace, forget: forgetWorkspace } = useLastWorkspace()
 watch([ws, workspacesLoaded], ([workspace, loaded]) => {
-  if (!loaded) return
-  if (workspace && !unknownWorkspace.value) rememberWorkspace(workspace)
-  const ids = workspaces.value.map((w) => w.id)
-  if (lastWorkspace.value && !ids.includes(lastWorkspace.value)) forgetWorkspace(lastWorkspace.value)
-  if (!lastWorkspace.value && ids.length === 1) rememberWorkspace(ids[0]!)
+  if (loaded && workspace && !unknownWorkspace.value) rememberWorkspace(workspace)
 }, { immediate: true })
 
 const section = computed<WorkspaceNavSection>(() => (location.value.assistant ? "assistant" : location.value.section ?? "files"))
-
-// Switching workspace keeps the section (a file path does not carry over).
-function switchWorkspace(id: string) {
-  const s = section.value
-  if (s === "files") void router.push(toWorkspaceFile(id))
-  else if (s === "assistant") void router.push(toWorkspaceAssistant(id))
-  else void router.push(toWorkspaceSection(id, s))
-}
 
 async function handleCreateWorkspace(name: string) {
   try {
@@ -361,11 +348,9 @@ usePolling(() => {
       <WorkspaceHeader
         :class="{ 'max-lg:hidden': section === 'assistant' }"
         :ws="ws"
-        :workspaces="workspaces"
         :section="section"
         :chat-running="assistantRunning"
         :external-access="!!workspaceExternalAccess[ws]"
-        @switch="switchWorkspace"
       >
         <template #actions>
           <BaseButton variant="secondary" icon="nav-activity" :aria-expanded="monitorOpen" @click="monitorOpen = true">Monitor</BaseButton>

@@ -91,6 +91,8 @@ declare module 'vue-router' {
   interface RouteMeta {
     // Sidebar destination this route belongs to; the active item derives from it.
     destination?: Destination
+    // A page that is about everything, not one workspace: the header says "All workspaces".
+    workspaceScope?: 'all'
     // Kept alive across destination switches (plan D19).
     keepAlive?: boolean
     // Rendered without the app shell (the dev-only /design reference).

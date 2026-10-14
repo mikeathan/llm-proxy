@@ -15,6 +15,7 @@ import Toast from './components/ui/Toast.vue'
 import ConfirmDialog from './components/ui/ConfirmDialog.vue'
 import AppBanner from './components/ui/AppBanner.vue'
 import { useConfirm } from './composables/ui/useConfirm'
+import { useActiveWorkspace } from './composables/ui/useActiveWorkspace'
 import { useRunNotifications } from './composables/assistant/useRunNotifications'
 import RunNotifications from './components/common/display/RunNotifications.vue'
 import { badgeTarget } from './utils/navigation'
@@ -67,6 +68,7 @@ const contentClass = computed(() => [
 
 const { state, refresh: refreshModels } = useModels()
 const { refresh: refreshMcp } = useMcpServers()
+const { refresh: refreshWorkspaces } = useActiveWorkspace()
 
 // The model warning logic lives in useModelBanner, which registers its
 // state/transient watchers once at module load (no per-component startup
@@ -74,7 +76,7 @@ const { refresh: refreshMcp } = useMcpServers()
 // recompute so the warning appears/disappears reactively after a Settings save
 // or model add without a page reload.
 onMounted(() => {
-  Promise.all([refreshModels(), refreshMcp()]).then(recomputeModelBanner)
+  Promise.all([refreshModels(), refreshMcp(), refreshWorkspaces()]).then(recomputeModelBanner)
 })
 </script>
 

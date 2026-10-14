@@ -61,6 +61,13 @@ export const toSettings = (section?: SettingsSection): RouteLocationNamedRaw => 
   params: section ? { section } : {},
 })
 
+/** The same place in another workspace: its assistant, or its section, else its files (a file path does not carry over). */
+export function toSameSectionIn(from: WorkspaceLocation, ws: string): RouteLocationNamedRaw {
+  if (from.assistant) return toWorkspaceAssistant(ws)
+  if (from.section) return toWorkspaceSection(ws, from.section)
+  return toWorkspaceFile(ws)
+}
+
 const stringParam = (value: string | string[] | undefined): string | null =>
   typeof value === 'string' && value ? value : null
 

@@ -138,7 +138,7 @@ describe('Workspaces', () => {
     d.workspaceTrees.value = { demo: TREE, lab: TREE }
   })
 
-  describe('last workspace (sidebar assistant shortcut)', () => {
+  describe('last workspace (what the shell opens next)', () => {
     const last = useLastWorkspace()
     afterEach(() => {
       last.forget(last.lastWorkspace.value ?? '')
@@ -152,18 +152,6 @@ describe('Workspaces', () => {
       expect(last.lastWorkspace.value).toBe('lab')
     })
 
-    it('remembers the only workspace from the list', async () => {
-      d.workspaces.value = [{ id: 'solo' }]
-      await mountAt('/workspaces')
-      expect(last.lastWorkspace.value).toBe('solo')
-    })
-
-    it('forgets a remembered workspace that is gone', async () => {
-      last.remember('deleted-elsewhere')
-      await mountAt('/workspaces')
-      expect(last.lastWorkspace.value).toBeNull()
-    })
-
     it('forgets a workspace when it is deleted', async () => {
       d.deleteWorkspace.mockResolvedValue(undefined)
       last.remember('lab')
@@ -172,14 +160,6 @@ describe('Workspaces', () => {
       await flushPromises()
       expect(last.lastWorkspace.value).toBeNull()
     })
-  })
-
-  it('switches workspace within the same section', async () => {
-    const { w, router } = await mountAt('/workspaces/demo/memory')
-    expect(w.find('[data-test="memory"]').exists()).toBe(true)
-    await w.get('select[aria-label="Workspace"]').setValue('lab')
-    await flushPromises()
-    expect(router.currentRoute.value.path).toBe('/workspaces/lab/memory')
   })
 
   it('offers appending playbooks to the open file of this workspace', async () => {

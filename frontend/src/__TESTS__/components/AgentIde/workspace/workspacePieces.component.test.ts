@@ -70,7 +70,7 @@ describe('WorkspaceList', () => {
 describe('WorkspaceHeader', () => {
   const mountHeader = (props: Record<string, unknown> = {}) =>
     withRouter((plugins) => mount(WorkspaceHeader, {
-      props: { ws: 'demo', workspaces: [{ id: 'demo' }, { id: 'lab' }], section: 'memory', chatRunning: false, externalAccess: false, ...props },
+      props: { ws: 'demo', section: 'memory', chatRunning: false, externalAccess: false, ...props },
       global: { plugins, stubs },
     }), '/workspaces/demo/memory')
 
@@ -88,10 +88,9 @@ describe('WorkspaceHeader', () => {
     expect(links.filter((a) => a.attributes('aria-current') === 'page').map((a) => a.text())).toEqual(['Memory'])
   })
 
-  it('switches workspace and flags a running chat', async () => {
+  it('flags a running chat, and has no workspace picker of its own (the header chip chooses)', async () => {
     const w = await mountHeader({ chatRunning: true })
-    await w.get('select').setValue('lab')
-    expect(w.emitted('switch')).toEqual([['lab']])
+    expect(w.find('select').exists()).toBe(false)
     expect(w.get('nav').text()).toContain('running')
   })
 })
