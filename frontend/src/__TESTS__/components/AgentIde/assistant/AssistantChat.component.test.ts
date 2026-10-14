@@ -116,6 +116,50 @@ describe('AssistantChat', () => {
     expect(w.get('[data-test="session-new"]').text()).toMatch(/new chat/i)
   })
 
+  describe('as the ask panel', () => {
+    function mountPanel() {
+      const w = mount(AssistantChat, {
+        props: { workspaceId: 'ws', variant: 'panel' },
+        global: { stubs: { Icon: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
+      })
+      const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? '') || name.test(b.text()))
+      return { w, button }
+    }
+
+    it('never shows the conversation list as a column, and opens it over the chat', async () => {
+      const { w, button } = mountPanel()
+      expect(w.find('aside.chat-sidebar').exists()).toBe(false)
+      await button(/^show conversations$/i)!.trigger('click')
+      const drawer = w.get('.mobile-drawer')
+      expect(drawer.classes()).toContain('mobile-drawer--panel')
+      expect(w.text()).toContain('Plan the move')
+    })
+
+    it('does not touch the list preference of the Assistant page', async () => {
+      const { button } = mountPanel()
+      await button(/^show conversations$/i)!.trigger('click')
+      expect(localStorage.getItem('admin-ui:assistant-history-open')).toBeNull()
+    })
+
+    it('keeps its header icon-only, and can be closed', async () => {
+      const { w, button } = mountPanel()
+      expect(w.get('[data-test="header-new"]').text()).toBe('')
+      await button(/^close the assistant$/i)!.trigger('click')
+      expect(w.emitted('close')).toHaveLength(1)
+    })
+
+    it('puts the cursor in the message on request', async () => {
+      const w = mount(AssistantChat, {
+        props: { workspaceId: 'ws', variant: 'panel' },
+        global: { stubs: { Icon: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
+        attachTo: document.body,
+      })
+      ;(w.vm as unknown as { focusInput: () => void }).focusInput()
+      expect(document.activeElement).toBe(w.get('textarea').element)
+      w.unmount()
+    })
+  })
+
   it('says "Ready" only to assistive technology, and shows a working state in words', async () => {
     const { w } = mountChat()
     expect(w.get('[data-test="chat-status"] .sr-only').text()).toBe('Ready')

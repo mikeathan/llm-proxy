@@ -34,6 +34,9 @@ const props = defineProps<{
   // null for a new chat. The chat reports its own session changes back through
   // update:conversationId so the URL always names what is on screen.
   conversationId?: string | null;
+  // `panel` is the narrow ask panel on any page: the conversation list is always
+  // an overlay inside it (never a column) and nothing is persisted for it.
+  variant?: "page" | "panel";
 }>();
 
 const emit = defineEmits<{
@@ -44,6 +47,8 @@ const emit = defineEmits<{
 // The session list becomes a slide-over below `sm`.
 const { breakpoint } = useResponsiveLayout();
 const isMobile = computed(() => breakpoint.value === "base");
+// Where the conversation list is an overlay and the header is icon-only: a phone, or the narrow panel.
+const compact = computed(() => props.variant === "panel" || isMobile.value);
 
 const {
   loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
@@ -89,15 +94,18 @@ const historyOpenPref = usePersistedState<boolean>(HISTORY_OPEN_KEY, {
 });
 const drawerOpen = ref(false);
 const sidebarOpen = computed({
-  get: () => (isMobile.value ? drawerOpen.value : historyOpenPref.value),
+  get: () => (compact.value ? drawerOpen.value : historyOpenPref.value),
   set: (open: boolean) => {
-    if (isMobile.value) drawerOpen.value = open;
+    if (compact.value) drawerOpen.value = open;
     else historyOpenPref.value = open;
   },
 });
 const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || NEW_CONVERSATION);
 const inboundCount = ref(0);
 const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
+const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
+// The ask panel puts the cursor in the message when it opens.
+defineExpose({ focusInput: () => chatInputRef.value?.focus() });
 
 function forceScrollToBottom() {
   chatMessagesRef.value?.scrollToBottom("smooth");
@@ -238,7 +246,7 @@ const handleModelBusyCancel = () => {
   const settleLoadedSession = async () => {
     collapseAllInsets();
     await scrollToLatest();
-    if (isMobile.value) {
+    if (compact.value) {
       sidebarOpen.value = false;
     }
   };
@@ -291,7 +299,7 @@ const handleDeleteGroup = async (ids: string[]) => {
   <div class="assistant-shell">
     <!-- Desktop sidebar -->
     <aside
-      v-if="!isMobile"
+      v-if="!compact"
       class="chat-sidebar"
       :class="{ 'chat-sidebar--open': sidebarOpen }"
     >
@@ -314,7 +322,7 @@ const handleDeleteGroup = async (ids: string[]) => {
 
     <!-- Mobile drawer -->
     <Transition name="drawer">
-      <div v-if="isMobile && sidebarOpen" class="mobile-drawer" @click.stop>
+      <div v-if="compact && sidebarOpen" :class="['mobile-drawer', { 'mobile-drawer--panel': variant === 'panel' }]" @click.stop>
         <ChatSessionList
           :sessions="sessions"
           :current-session-id="currentSessionId"
@@ -335,8 +343,8 @@ const handleDeleteGroup = async (ids: string[]) => {
     <!-- Mobile backdrop -->
     <Transition name="fade">
       <div
-        v-if="isMobile && sidebarOpen"
-        class="mobile-backdrop"
+        v-if="compact && sidebarOpen"
+        :class="['mobile-backdrop', { 'mobile-backdrop--panel': variant === 'panel' }]"
         @click="toggleSidebar"
       />
     </Transition>
@@ -345,12 +353,12 @@ const handleDeleteGroup = async (ids: string[]) => {
       <header class="chat-header">
         <div class="flex min-w-0 items-center gap-2">
           <!-- History and New are one control, so New is never alone; with the list open on a roomy screen the list holds both. -->
-          <div v-if="isMobile || !sidebarOpen" class="header-cap" role="group" aria-label="Conversations">
+          <div v-if="compact || !sidebarOpen" class="header-cap" role="group" aria-label="Conversations">
             <span class="relative">
               <BaseButton
                 variant="ghost"
                 size="sm"
-                :icon="isMobile ? 'menu' : 'chevron-right'"
+                :icon="compact ? 'menu' : 'chevron-right'"
                 icon-only
                 :label="sidebarOpen ? 'Hide conversations' : 'Show conversations'"
                 :aria-expanded="sidebarOpen"
@@ -359,7 +367,7 @@ const handleDeleteGroup = async (ids: string[]) => {
               <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
             </span>
             <span class="cap-sep" aria-hidden="true"></span>
-            <BaseButton data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="isMobile" label="New chat" aria-label="New chat" @click="handleNewChat">New</BaseButton>
+            <BaseButton data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" @click="handleNewChat">New</BaseButton>
           </div>
           <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
           <StatusTag data-test="chat-status" :state="status.state" :label="status.label" :quiet="status.state === 'neutral'" />
@@ -369,7 +377,7 @@ const handleDeleteGroup = async (ids: string[]) => {
             variant="ghost"
             size="sm"
             icon="memory"
-            :icon-only="isMobile"
+            :icon-only="compact"
             label="Review for memories"
             :disabled="!currentSessionId || loading"
             title="Ask the model which facts in this conversation are worth remembering"
@@ -407,6 +415,7 @@ const handleDeleteGroup = async (ids: string[]) => {
       />
 
       <ChatInput
+        ref="chatInputRef"
         :compact="isMobile"
         :loading="loading"
         :paused="paused"
@@ -465,6 +474,14 @@ const handleDeleteGroup = async (ids: string[]) => {
 
 .mobile-drawer {
   @apply fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] z-40;
+}
+
+/* In the ask panel the list slides over the chat, not over the whole screen. */
+.mobile-backdrop--panel {
+  @apply absolute;
+}
+.mobile-drawer--panel {
+  @apply absolute w-[85%];
 }
 
 /* ── Drawer transitions ── */

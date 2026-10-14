@@ -107,6 +107,8 @@ onMounted(() => {
   document.addEventListener('keydown', onGlobalKeydown)
   resize()
 })
+// The ask panel puts the cursor in the message when it opens.
+defineExpose({ focus: () => inputRef.value?.focus() })
 onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 </script>
 

@@ -4,6 +4,8 @@ import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router'
 import SkipLink from './components/layout/SkipLink.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AdminHeader from './components/layout/AdminHeader.vue'
+import AskField from './components/layout/AskField.vue'
+import AskPanel from './components/layout/AskPanel.vue'
 import { useModels } from './composables/models/useModels'
 import { useMcpServers } from './composables/system/useMcpServers'
 import { useModelBanner } from './composables/models/useModelBanner'
@@ -81,6 +83,7 @@ onMounted(() => {
     <div class="flex min-w-0 flex-1 flex-col">
       <AdminHeader :mobile="isMobile" :drawer-open="drawerOpen" @toggle-drawer="drawerOpen = !drawerOpen">
         <template #actions>
+          <AskField :mobile="isMobile" />
           <RunNotifications
             :notifications="runNotifications.notifications.value"
             @open="openRun"
@@ -107,6 +110,9 @@ onMounted(() => {
         </template>
       </main>
     </div>
+
+    <!-- The assistant beside any page; a full-screen dialog on a narrow screen. -->
+    <AskPanel />
   </div>
 
   <Toast />

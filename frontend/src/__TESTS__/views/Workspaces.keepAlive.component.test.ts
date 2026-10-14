@@ -3,6 +3,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { defineComponent, h, KeepAlive, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import { createMemoryHistory, RouterView } from 'vue-router'
 import { createAppRouter } from '../../router'
+import AskPanel from '../../components/layout/AskPanel.vue'
+import { useAskPanel } from '../../composables/ui/useAskPanel'
+import { useLastWorkspace } from '../../composables/ui/useLastWorkspace'
 import type { WorkspaceTree } from '../../types/workspace'
 
 // The Workspaces destination is kept alive when the operator moves elsewhere. Its
@@ -40,10 +43,13 @@ vi.mock('../../services/automation/dispatcherService', () => ({
   DispatcherService: { getAllWorkspaceConfigs: vi.fn().mockResolvedValue({}), readWorkspaceFile: vi.fn().mockResolvedValue(''), writeWorkspaceFile: vi.fn() },
 }))
 
-const lifecycle = { mounted: 0, unmounted: 0 }
+const lifecycle = { mounted: 0, unmounted: 0, peak: 0 }
 const Chat = defineComponent({
   setup() {
-    onMounted(() => lifecycle.mounted++)
+    onMounted(() => {
+      lifecycle.mounted++
+      lifecycle.peak = Math.max(lifecycle.peak, lifecycle.mounted - lifecycle.unmounted)
+    })
     onUnmounted(() => lifecycle.unmounted++)
     return () => h('div', { 'data-test': 'chat' })
   },
@@ -54,7 +60,10 @@ const openChats = () => lifecycle.mounted - lifecycle.unmounted
 
 // The shell's own arrangement: the routed view inside a KeepAlive that keeps Workspaces.
 const Shell = defineComponent({
-  setup: () => () => h(RouterView, null, { default: ({ Component }: { Component: never }) => h(KeepAlive, { include: ['WorkspacesView'] }, () => (Component ? h(Component) : null)) }),
+  setup: () => () => [
+    h(RouterView, null, { default: ({ Component }: { Component: never }) => h(KeepAlive, { include: ['WorkspacesView'] }, () => (Component ? h(Component) : null)) }),
+    h(AskPanel),
+  ],
 })
 
 const mounted: VueWrapper[] = []
@@ -65,7 +74,7 @@ async function mountShell(path: string) {
   const w = mount(Shell, { global: { plugins: [router], stubs: STUBS }, attachTo: document.body })
   mounted.push(w)
   await flushPromises()
-  await vi.waitFor(() => expect(w.find('[data-test="chat"]').exists()).toBe(true))
+  if (path.includes('/assistant')) await vi.waitFor(() => expect(w.find('[data-test="chat"]').exists()).toBe(true))
   return { w, router }
 }
 
@@ -75,6 +84,8 @@ describe('Workspaces assistant chat across navigation', () => {
     document.body.innerHTML = ''
     lifecycle.mounted = 0
     lifecycle.unmounted = 0
+    lifecycle.peak = 0
+    useAskPanel().hide()
   })
 
   it('closes the chat when the operator leaves, and opens a fresh one on return', async () => {
@@ -99,5 +110,35 @@ describe('Workspaces assistant chat across navigation', () => {
     await router.push('/workspaces/demo/assistant')
     await flushPromises()
     expect(openChats()).toBe(1)
+  })
+
+  it('has at most one chat open while the panel and the Assistant page trade places', async () => {
+    useLastWorkspace().remember('demo')
+    const { router } = await mountShell('/workspaces/demo/assistant')
+    const panel = useAskPanel()
+    const settle = () => flushPromises()
+
+    panel.show() // on the Assistant page the panel gives way to the page's chat
+    await settle()
+    expect(openChats()).toBe(1)
+
+    await router.push('/elsewhere')
+    await settle()
+    expect(openChats()).toBe(0) // the page chat left with the page
+    panel.show()
+    await settle()
+    expect(openChats()).toBe(1) // the panel's chat
+
+    await router.push('/workspaces/demo/assistant')
+    await settle()
+    expect(openChats()).toBe(1) // the page's chat, the panel's gone
+
+    await router.push('/workspaces/demo/files')
+    await settle()
+    panel.show()
+    await settle()
+    expect(openChats()).toBe(1) // the panel again, beside Files
+
+    expect(lifecycle.peak).toBe(1)
   })
 })

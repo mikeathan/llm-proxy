@@ -42,7 +42,7 @@ watch(
     aria-modal="true"
     aria-label="Write a message"
     class="fixed inset-0 z-50 flex flex-col bg-canvas"
-    @keydown.escape="emit('close')"
+    @keydown.escape.stop="emit('close')"
   >
     <header class="flex flex-none items-center gap-2 border-b border-hairline p-2">
       <BaseButton variant="ghost" size="lg" class-name="[@media(pointer:coarse)]:h-11" @click="emit('close')">Done</BaseButton>
