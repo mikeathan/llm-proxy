@@ -367,10 +367,11 @@ const handleDeleteGroup = async (ids: string[]) => {
               <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
             </span>
             <span class="cap-sep" aria-hidden="true"></span>
-            <BaseButton data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" @click="handleNewChat">New</BaseButton>
+            <BaseButton data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" class-name="!text-primary" @click="handleNewChat">New</BaseButton>
           </div>
+          <!-- The state leads the title: a dot while ready, the dot and its words while the chat is doing something. -->
+          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" :quiet="status.state === 'neutral'" class="flex-none" />
           <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
-          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" :quiet="status.state === 'neutral'" />
         </div>
         <div class="flex flex-none items-center gap-1">
           <BaseButton

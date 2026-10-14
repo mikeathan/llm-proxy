@@ -16,6 +16,7 @@ const hollow = computed(() => HOLLOW_DOT_STATES.includes(props.state))
     :class="[
       'inline-flex h-5 items-center gap-1.5 whitespace-nowrap px-[7px] font-mono text-[length:var(--text-micro)] font-medium uppercase tracking-[var(--tracking-micro)]',
       STATUS_TAG_CLASS[state],
+      quiet ? '!bg-transparent !px-0' : '',
     ]"
   >
     <span
