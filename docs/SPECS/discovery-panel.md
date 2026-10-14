@@ -20,7 +20,7 @@ supersedes:
   assistant as a column beside any page (a full-screen dialog on a phone); the app opens on the assistant of the workspace
   last used, else the Overview. On a phone a **bottom tab bar** (Assistant, Workspace, Automations, Reminders, More)
   replaces the drawer. **Settings** has six tabs (General, Models, Safety, Connectors, Appearance, System) over the
-  unchanged `/settings/<section>` routes. The assistant's message box starts at three lines (16 px on touch), a long
+  unchanged `/settings/<section>` routes. The assistant's message box starts at three lines (16 px on touch) with a small toolbar under it (Commands, which types the `/` that opens the command menu, and Memory, the review of the conversation for memories); a long
   draft opens a full-screen editor on a phone, history and New are one control (the list's open state persists), and
   an answer reads with deliberate spacing. **Look:** areas are separated by tone, not borders, and corners are 6/8 px.
   **Themes:** five more presets (three dark, two light). Changes §II.1 (seven destinations, drawer), the retro design

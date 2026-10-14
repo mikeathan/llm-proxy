@@ -19,11 +19,14 @@ const props = defineProps<{
   inputMessage: string
   /** A small screen: expanding opens the full-screen editor instead of growing the box. */
   compact?: boolean
+  /** There is a saved conversation that can be reviewed for memories. */
+  canReview?: boolean
 }>()
 
 const emit = defineEmits<{
   send: []
   cancel: []
+  review: []
   'update:inputMessage': [value: string]
 }>()
 
@@ -33,6 +36,8 @@ const LONG_DRAFT_CHARS = 600
 const LINE_BREAK = '\n'
 const START_ROWS = 3
 // Primary actions grow to a 44px target on a touch screen.
+// The toolbar buttons are text buttons: they grow in height only.
+const TOOL_TOUCH = '[@media(pointer:coarse)]:h-11'
 const TOUCH_TARGET = '[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11'
 
 const inputRef = ref<HTMLTextAreaElement | null>(null)
@@ -47,6 +52,13 @@ function fill(text: string) {
   inputRef.value?.focus()
 }
 const pickCommand = (command: CommandInfo) => fill(completion(command))
+
+// Commands start a message: the button types the "/" that opens the menu, and is offered only where one could start.
+const canStartCommand = computed(() => !props.inputMessage.trim() || props.inputMessage.startsWith('/'))
+function startCommand() {
+  if (!props.inputMessage) fill('/')
+  else inputRef.value?.focus()
+}
 const pickExample = (command: CommandInfo, example: string) => fill(withExample(command, example))
 
 const lineCount = computed(() => props.inputMessage.split(LINE_BREAK).length)
@@ -131,18 +143,27 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           :disabled="loading"
         ></textarea>
       </div>
-      <div v-if="isLongDraft" class="flex items-center justify-between gap-2">
-        <span data-test="draft-size" class="font-mono text-[length:var(--text-micro)] tabular-nums text-muted">{{ draftSize }}</span>
-        <BaseButton
-          variant="ghost"
-          size="sm"
-          :icon="expanded && !compact ? 'chevron-down' : 'chevron-up'"
-          icon-only
-          :label="expandLabel"
-          :aria-pressed="compact ? undefined : expanded"
-          class-name="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
-          @click="toggleExpand"
-        />
+      <!-- What the box can do besides take text: start a command, review the conversation for memories, and (for a long draft) its size and expand. -->
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1">
+          <BaseButton variant="ghost" size="sm" aria-label="Commands" title="Start a command, such as /remind" :disabled="!canStartCommand || loading" :class-name="TOOL_TOUCH" @click="startCommand">
+            <span aria-hidden="true">/</span><span>Commands</span>
+          </BaseButton>
+          <BaseButton variant="ghost" size="sm" icon="memory" title="Ask the model which facts in this conversation are worth remembering" :disabled="!canReview || loading" :class-name="TOOL_TOUCH" @click="emit('review')">Memory</BaseButton>
+        </div>
+        <div v-if="isLongDraft" class="flex items-center gap-2">
+          <span data-test="draft-size" class="font-mono text-[length:var(--text-micro)] tabular-nums text-muted">{{ draftSize }}</span>
+          <BaseButton
+            variant="ghost"
+            size="sm"
+            :icon="expanded && !compact ? 'chevron-down' : 'chevron-up'"
+            icon-only
+            :label="expandLabel"
+            :aria-pressed="compact ? undefined : expanded"
+            class-name="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+            @click="toggleExpand"
+          />
+        </div>
       </div>
     </div>
     <BaseButton v-if="loading" variant="danger" size="lg" icon="stop" icon-only label="Stop the run" :class-name="TOUCH_TARGET" @click="emit('cancel')" />

@@ -7,9 +7,9 @@ vi.mock('../../../../services/commands/commandService', () => ({ CommandService:
 import ChatInput from '../../../../components/AgentIde/assistant/ChatInput.vue'
 
 const mounted: VueWrapper[] = []
-function mountInput(inputMessage = '', compact = false) {
+function mountInput(inputMessage = '', compact = false, canReview = true) {
   const w = mount(ChatInput, {
-    props: { loading: false, paused: false, inputMessage, compact },
+    props: { loading: false, paused: false, inputMessage, compact, canReview },
     global: { stubs: { Icon: true, teleport: true } },
     attachTo: document.body,
   })
@@ -119,6 +119,35 @@ describe('ChatInput', () => {
     expect(w.emitted('send')).toBeUndefined()
     await w.get('textarea').trigger('keydown', { key: 'Enter' })
     expect(w.emitted('send')).toHaveLength(1)
+  })
+})
+
+describe('ChatInput toolbar', () => {
+  const tool = (w: VueWrapper, name: RegExp) => w.findAll('button').find((b) => name.test(b.text()) || name.test(b.attributes('aria-label') ?? ''))!
+
+  it('starts a command from a button, for anyone who does not know to type "/"', async () => {
+    const w = mountInput('')
+    await tool(w, /commands/i).trigger('click')
+    const fills = w.emitted('update:inputMessage')!
+    expect(fills[fills.length - 1]).toEqual(['/'])
+  })
+
+  it('offers commands on an empty message or one already starting with "/", not in the middle of prose', () => {
+    expect(tool(mountInput(''), /commands/i).attributes('disabled')).toBeUndefined()
+    expect(tool(mountInput('/rem'), /commands/i).attributes('disabled')).toBeUndefined()
+    expect(tool(mountInput('what is on'), /commands/i).attributes('disabled')).toBeDefined()
+  })
+
+  it('reviews the conversation for memories from the box, when there is one to review', async () => {
+    const w = mountInput('', false, true)
+    await tool(w, /^memory$/i).trigger('click')
+    expect(w.emitted('review')).toHaveLength(1)
+    expect(tool(mountInput('', false, false), /^memory$/i).attributes('disabled')).toBeDefined()
+  })
+
+  it('keeps the toolbar while a run is going, with commands unavailable', () => {
+    const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: '', canReview: false }, global: { stubs: { Icon: true, teleport: true } } })
+    expect(w.findAll('button').some((b) => /memory/i.test(b.text()))).toBe(true)
   })
 })
 

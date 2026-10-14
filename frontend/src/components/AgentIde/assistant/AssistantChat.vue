@@ -377,16 +377,6 @@ const handleDeleteGroup = async (ids: string[]) => {
           <h2 v-if="!isFreshConversation" class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
         </div>
         <div class="flex flex-none items-center gap-1">
-          <BaseButton
-            variant="ghost"
-            size="sm"
-            icon="memory"
-            :icon-only="compact"
-            label="Review for memories"
-            :disabled="!currentSessionId || loading"
-            title="Ask the model which facts in this conversation are worth remembering"
-            @click="startReview()"
-          >Review for memories</BaseButton>
           <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
         </div>
       </header>
@@ -421,11 +411,13 @@ const handleDeleteGroup = async (ids: string[]) => {
       <ChatInput
         ref="chatInputRef"
         :compact="isMobile"
+        :can-review="!!currentSessionId"
         :loading="loading"
         :paused="paused"
         :input-message="inputMessage"
         @send="handleSend"
         @cancel="cancel"
+        @review="startReview()"
         @update:input-message="inputMessage = $event"
       />
     </div>

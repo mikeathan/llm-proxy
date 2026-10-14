@@ -183,9 +183,9 @@ describe('AssistantChat', () => {
   })
 
   // The review needs a saved conversation and a finished turn; it is the operator's per-chat control over memory.
-  it('offers "Review for memories" only for a saved conversation that is not running', async () => {
+  it('offers the Memory review (in the message box) only for a saved conversation that is not running', async () => {
     const { button } = mountChat()
-    const reviewButton = () => button(/^review for memories$/i)!
+    const reviewButton = () => button(/^memory$/i)!
     expect(reviewButton().attributes('disabled')).toBeDefined()
     a.currentSessionId.value = 's1'
     await flushPromises()
