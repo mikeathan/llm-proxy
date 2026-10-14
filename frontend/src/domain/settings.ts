@@ -6,12 +6,16 @@ import type { SettingsTab, SettingsTabGroup } from "../types/admin";
  * Domain logic for settings categorization and validation.
  */
 
+// Every section that is not a cloud provider; providers are discovered at runtime.
+const FIXED_SECTIONS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
+  "appearance", "local", "runs", "memory", "storage", "limits", "local-models", "mcp",
+  "guardrails", "security", "processes", "communication", "search",
+]);
+
 /**
  * Checks if a tab is a provider-specific tab.
  */
-export const isProviderTab = (tab: SettingsTab): boolean => {
-  return tab !== "appearance" && tab !== "local" && tab !== "runs" && tab !== "memory" && tab !== "storage" && tab !== "limits" && tab !== "local-models" && tab !== "mcp" && tab !== "guardrails" && tab !== "security" && tab !== "processes" && tab !== "communication" && tab !== "search";
-};
+export const isProviderTab = (tab: SettingsTab): boolean => !FIXED_SECTIONS.has(tab);
 
 /**
  * Groups the Settings sections into the six tabs (plan frontend-redesign-v2, V3).
