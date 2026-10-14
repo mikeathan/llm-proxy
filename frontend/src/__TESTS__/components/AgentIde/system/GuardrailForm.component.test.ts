@@ -29,7 +29,40 @@ describe('GuardrailForm', () => {
     const { w } = mountForm()
     const root = w.element.className
     expect(root).not.toMatch(/grid-cols-2/)
-    expect(w.findAll('section[aria-label]').length).toBeGreaterThan(1)
+    expect(w.findAll('section').length).toBeGreaterThan(1)
+  })
+
+  describe('folding', () => {
+    const toggles = (w: ReturnType<typeof mountForm>['w']) => w.findAll('button[aria-expanded]')
+    const toggle = (w: ReturnType<typeof mountForm>['w'], title: RegExp) => toggles(w).find((b) => title.test(b.text()))!
+
+    it('starts with every section folded to a line that says what it does', () => {
+      const { w } = mountForm(structuredClone(ENABLED))
+      expect(toggles(w).length).toBeGreaterThan(1)
+      expect(toggles(w).every((b) => b.attributes('aria-expanded') === 'false')).toBe(true)
+      expect(toggle(w, /terminal tool/i).text()).toContain('1 allowed command')
+      expect(toggle(w, /secrets and patterns/i).text()).toMatch(/blocking secrets/i)
+    })
+
+    it('opens a section on click and folds it again', async () => {
+      const { w } = mountForm(structuredClone(ENABLED))
+      await toggle(w, /terminal tool/i).trigger('click')
+      expect(toggle(w, /terminal tool/i).attributes('aria-expanded')).toBe('true')
+      await toggle(w, /terminal tool/i).trigger('click')
+      expect(toggle(w, /terminal tool/i).attributes('aria-expanded')).toBe('false')
+    })
+
+    it('has nothing to open in a section whose tool is switched off', () => {
+      const { w } = mountForm()
+      expect(toggles(w).some((b) => /terminal tool/i.test(b.text()))).toBe(false)
+      expect(w.text()).toMatch(/terminal tool/i)
+    })
+
+    it('opens a section as soon as its tool is switched on', async () => {
+      const { w } = mountForm()
+      await fieldByLabel(w, /^communication$/i).setValue(true)
+      expect(toggle(w, /communication/i).attributes('aria-expanded')).toBe('true')
+    })
   })
 
   it('enables communication and edits approval and message limits', async () => {
@@ -124,6 +157,29 @@ describe('GuardrailForm over the global policy', () => {
     expect(last().terminal.timeout_seconds).toBe(90)
     await timeout.setValue('')
     expect(last().terminal.timeout_seconds).toBe(0)
+  })
+
+  it('opens the sections the workspace changes, and folds the ones it inherits', () => {
+    const global = structuredClone(ENABLED)
+    const layer = seedLayer(global)
+    layer.terminal.allowed_commands = ['git']
+    const w = mount(GuardrailForm, { props: { modelValue: layer, inherited: global }, global: { stubs: { Icon: true } } })
+    const state = (title: RegExp) => w.findAll('button[aria-expanded]').find((b) => title.test(b.text()))?.attributes('aria-expanded')
+    expect(state(/terminal tool/i)).toBe('true')
+    expect(state(/secrets and patterns/i)).toBe('false')
+    expect(state(/communication/i)).toBeUndefined() // off globally: nothing to open
+  })
+
+  it('says how many changes a folded workspace section holds', async () => {
+    const global = structuredClone(ENABLED)
+    global.network.enabled = true
+    const layer = seedLayer(global)
+    layer.network.allow_lan_access = true
+    const w = mount(GuardrailForm, { props: { modelValue: layer, inherited: global }, global: { stubs: { Icon: true } } })
+    const network = w.findAll('section').find((x) => /agent network access/i.test(x.text()))!
+    expect(network.find('[data-test="changes-network"]').exists()).toBe(false) // open: the fields carry their own tags
+    await network.get('button').trigger('click')
+    expect(network.get('[data-test="changes-network"]').text()).toMatch(/1 change/)
   })
 
   it('labels every field only when editing a workspace layer', () => {

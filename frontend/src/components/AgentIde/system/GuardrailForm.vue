@@ -3,13 +3,14 @@ import { computed, ref, watch } from "vue";
 import type { AgentGuardrailsConfig, GuardrailFieldSpec, GuardrailSection, GuardrailSectionSpec, GuardrailSource } from "../../../types/admin";
 import type { StatusState } from "../../../types/ui";
 import { GUARDRAIL_RULES, fieldSource, mergeGuardrails } from "../../../domain/guardrailLayers";
+import { guardrailSectionSummary } from "../../../domain/guardrailSummary";
 import { NETWORK_INTERNET_HELP, NETWORK_LAN_HELP, NETWORK_SHELL_CAVEAT, networkPostureLabel } from "../../../utils/network";
 import BaseToggle from "../../common/buttons/BaseToggle.vue";
 import FormField from "../../common/forms/FormField.vue";
 import ListField from "../../common/forms/ListField.vue";
-import MicroLabel from "../../common/display/MicroLabel.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
 import Callout from "../../common/feedback/Callout.vue";
+import Disclosure from "../../common/layout/Disclosure.vue";
 
 // The guardrail policy form, in two modes. Without `inherited` it edits a whole
 // policy (Settings · Guardrails). With `inherited` (the global policy) it edits
@@ -17,7 +18,8 @@ import Callout from "../../common/feedback/Callout.vue";
 // (domain/guardrailLayers mirrors its merge): global list entries are fixed and
 // the workspace adds to them, switches the global policy turns on stay on,
 // an empty number inherits, and every field says whether it is inherited,
-// overridden or an exception.
+// overridden or an exception. Each section folds to one line (title and what it
+// currently does); a workspace layer starts with the sections it changes open.
 const props = defineProps<{
   modelValue: AgentGuardrailsConfig;
   inherited?: AgentGuardrailsConfig;
@@ -143,6 +145,28 @@ const toggleValue = (section: GuardrailSection, field: string) =>
 
 const sectionOpen = (spec: GuardrailSectionSpec) => !spec.switchField || shown(spec.section, spec.switchField) === true;
 
+// Fields of a section that differ from the global policy (workspace layer only).
+const changeCount = (spec: GuardrailSectionSpec) =>
+  [spec.switchField, ...spec.fields.map((f) => f.field), ...(spec.section === "terminal" ? [SESSION_IDLE] : [])].filter(
+    (field) => field && source(spec.section, field) && source(spec.section, field) !== "inherited",
+  ).length;
+
+const unfolded = ref(new Set<GuardrailSection>(SECTIONS.filter((spec) => changeCount(spec) > 0).map((spec) => spec.section)));
+const isUnfolded = (spec: GuardrailSectionSpec) => unfolded.value.has(spec.section);
+function setUnfolded(spec: GuardrailSectionSpec, open: boolean) {
+  const next = new Set(unfolded.value);
+  if (open) next.add(spec.section);
+  else next.delete(spec.section);
+  unfolded.value = next;
+}
+// Switching a tool on is asking to configure it.
+function setSwitch(spec: GuardrailSectionSpec, field: string, on: boolean) {
+  set(spec.section, field, on);
+  if (on) setUnfolded(spec, true);
+}
+const summaryOf = (spec: GuardrailSectionSpec) => guardrailSectionSummary(spec.section, effective.value);
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 // Numbers: a workspace leaves them empty to inherit (0 means "inherit" there).
 function numberValue(section: GuardrailSection, field: string): number | "" {
   const value = own(section, field);
@@ -183,134 +207,139 @@ const tagOf = (section: GuardrailSection, field: string) => {
 </script>
 
 <template>
-  <div class="flex w-full max-w-[960px] flex-col gap-4">
-    <section
+  <div class="flex w-full max-w-[960px] flex-col gap-2">
+    <Disclosure
       v-for="spec in SECTIONS"
       :key="spec.section"
-      :aria-label="spec.title"
-      class="flex min-w-0 flex-col gap-4 rounded-[var(--radius-sm)] border border-hairline bg-canvas p-4"
+      :title="spec.title"
+      :summary="summaryOf(spec)"
+      :open="isUnfolded(spec)"
+      :expandable="sectionOpen(spec)"
+      @update:open="setUnfolded(spec, $event)"
     >
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <MicroLabel>{{ spec.title }}</MicroLabel>
-        <span v-if="spec.switchField" class="flex items-center gap-2">
-          <StatusTag v-if="tagOf(spec.section, spec.switchField)" :data-test="`source-${spec.section}-${spec.switchField}`" v-bind="tagOf(spec.section, spec.switchField)!" />
+      <template #aside>
+        <StatusTag
+          v-if="layered && !isUnfolded(spec) && changeCount(spec) > 0"
+          :data-test="`changes-${spec.section}`"
+          state="info"
+          :label="plural(changeCount(spec), 'change')"
+        />
+        <template v-if="spec.switchField">
+          <StatusTag v-if="isUnfolded(spec) && tagOf(spec.section, spec.switchField)" :data-test="`source-${spec.section}-${spec.switchField}`" v-bind="tagOf(spec.section, spec.switchField)!" />
           <BaseToggle
             :model-value="toggleValue(spec.section, spec.switchField)"
             :disabled="lockedOn(spec.section, spec.switchField)"
             :label="spec.title"
             hide-label
-            @update:model-value="set(spec.section, spec.switchField, $event)"
+            @update:model-value="setSwitch(spec, spec.switchField, $event)"
           />
-        </span>
-      </div>
+        </template>
+      </template>
       <p v-if="spec.section === 'communication'" class="m-0 text-[length:var(--text-small)] text-muted">
         Allow the agent to send through connectors configured in Settings · Communication, using notify_user. Enabling a connector alone does not grant this permission. Host network access must also be on.
       </p>
       <p v-if="spec.switchField && lockedOn(spec.section, spec.switchField)" class="m-0 text-[length:var(--text-small)] text-faint">
         On in the global policy — a workspace cannot turn it off.
       </p>
+      <template v-if="spec.section === 'network'">
+        <p class="m-0 text-[length:var(--text-small)] text-muted">
+          The two switches are independent: Internet does not include the local network.
+          Agent tools can reach: <span class="font-mono text-primary">{{ networkPosture }}</span>.
+        </p>
+        <p class="m-0 text-[length:var(--text-small)] text-faint">{{ NETWORK_SHELL_CAVEAT }}</p>
+      </template>
 
-      <template v-if="sectionOpen(spec)">
-        <template v-if="spec.section === 'network'">
-          <p class="m-0 text-[length:var(--text-small)] text-muted">
-            The two switches are independent: Internet does not include the local network.
-            Agent tools can reach: <span class="font-mono text-primary">{{ networkPosture }}</span>.
-          </p>
-          <p class="m-0 text-[length:var(--text-small)] text-faint">{{ NETWORK_SHELL_CAVEAT }}</p>
-        </template>
-
-        <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
-          <FormField
-            v-for="field in spec.fields"
-            :key="field.field"
-            :class="field.control === 'list' ? 'col-span-full' : undefined"
-            :label="field.label"
-            :hint="fieldHint(spec.section, field)"
-          >
-            <template v-if="tagOf(spec.section, field.field)" #tag>
-              <StatusTag :data-test="`source-${spec.section}-${field.field}`" v-bind="tagOf(spec.section, field.field)!" />
-            </template>
-            <template #default="{ id, describedBy }">
-              <BaseToggle
-                v-if="field.control === 'toggle'"
+      <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-4">
+        <FormField
+          v-for="field in spec.fields"
+          :key="field.field"
+          :class="field.control === 'list' ? 'col-span-full' : undefined"
+          :label="field.label"
+          :hint="fieldHint(spec.section, field)"
+        >
+          <template v-if="tagOf(spec.section, field.field)" #tag>
+            <StatusTag :data-test="`source-${spec.section}-${field.field}`" v-bind="tagOf(spec.section, field.field)!" />
+          </template>
+          <template #default="{ id, describedBy }">
+            <BaseToggle
+              v-if="field.control === 'toggle'"
+              :id="id"
+              :described-by="describedBy"
+              :model-value="toggleValue(spec.section, field.field)"
+              :disabled="lockedOn(spec.section, field.field) || lockedOff(spec.section, field.field)"
+              :label="field.label"
+              hide-label
+              @update:model-value="set(spec.section, field.field, $event)"
+            />
+            <div v-else-if="field.control === 'list'" class="flex flex-col gap-1.5">
+              <p
+                v-if="layered"
+                :data-test="`inherited-${spec.section}-${field.field}`"
+                class="m-0 break-words font-mono text-[length:var(--text-micro)] text-faint"
+              >
+                Global: {{ asList(base(spec.section, field.field)).join(", ") || "none" }}
+              </p>
+              <ListField
                 :id="id"
                 :described-by="describedBy"
-                :model-value="toggleValue(spec.section, field.field)"
-                :disabled="lockedOn(spec.section, field.field) || lockedOff(spec.section, field.field)"
-                :label="field.label"
-                hide-label
+                :model-value="asList(own(spec.section, field.field))"
+                :placeholder="layered ? undefined : field.placeholder"
                 @update:model-value="set(spec.section, field.field, $event)"
               />
-              <div v-else-if="field.control === 'list'" class="flex flex-col gap-1.5">
-                <p
-                  v-if="layered"
-                  :data-test="`inherited-${spec.section}-${field.field}`"
-                  class="m-0 break-words font-mono text-[length:var(--text-micro)] text-faint"
-                >
-                  Global: {{ asList(base(spec.section, field.field)).join(", ") || "none" }}
-                </p>
-                <ListField
-                  :id="id"
-                  :described-by="describedBy"
-                  :model-value="asList(own(spec.section, field.field))"
-                  :placeholder="layered ? undefined : field.placeholder"
-                  @update:model-value="set(spec.section, field.field, $event)"
-                />
-                <p
-                  v-if="redundant(spec.section, field.field).length"
-                  :data-test="`redundant-${spec.section}-${field.field}`"
-                  class="m-0 text-[length:var(--text-small)] text-state-running"
-                >
-                  Already in the global policy: <span class="font-mono">{{ redundant(spec.section, field.field).join(", ") }}</span>
-                </p>
-              </div>
+              <p
+                v-if="redundant(spec.section, field.field).length"
+                :data-test="`redundant-${spec.section}-${field.field}`"
+                class="m-0 text-[length:var(--text-small)] text-state-running"
+              >
+                Already in the global policy: <span class="font-mono">{{ redundant(spec.section, field.field).join(", ") }}</span>
+              </p>
+            </div>
+            <input
+              v-else
+              :id="id"
+              :aria-describedby="describedBy"
+              :value="numberValue(spec.section, field.field)"
+              :placeholder="numberPlaceholder(spec.section, field.field)"
+              type="number"
+              min="0"
+              step="1"
+              class="form-control font-mono tabular-nums"
+              @input="setNumber(spec.section, field.field, ($event.target as HTMLInputElement).value)"
+            />
+          </template>
+        </FormField>
+
+        <FormField
+          v-if="spec.section === 'terminal'"
+          label="Session idle timeout"
+          :hint="sessionIdle > 0 ? 'Seconds of inactivity before a terminal session closes.' : 'Sessions stay open until reset.'"
+        >
+          <template v-if="tagOf('terminal', SESSION_IDLE)" #tag>
+            <StatusTag :data-test="`source-terminal-${SESSION_IDLE}`" v-bind="tagOf('terminal', SESSION_IDLE)!" />
+          </template>
+          <template #default="{ id, describedBy }">
+            <div class="flex items-center gap-3">
+              <BaseToggle :model-value="sessionIdle > 0" label="Close idle sessions" hide-label @update:model-value="setSessionIdle" />
               <input
-                v-else
+                v-if="sessionIdle > 0"
                 :id="id"
                 :aria-describedby="describedBy"
-                :value="numberValue(spec.section, field.field)"
-                :placeholder="numberPlaceholder(spec.section, field.field)"
+                :value="sessionIdle"
                 type="number"
-                min="0"
+                min="1"
                 step="1"
-                class="form-control font-mono tabular-nums"
-                @input="setNumber(spec.section, field.field, ($event.target as HTMLInputElement).value)"
+                class="form-control w-28 font-mono tabular-nums"
+                @input="setNumber('terminal', SESSION_IDLE, ($event.target as HTMLInputElement).value)"
               />
-            </template>
-          </FormField>
+            </div>
+          </template>
+        </FormField>
+      </div>
 
-          <FormField
-            v-if="spec.section === 'terminal'"
-            label="Session idle timeout"
-            :hint="sessionIdle > 0 ? 'Seconds of inactivity before a terminal session closes.' : 'Sessions stay open until reset.'"
-          >
-            <template v-if="tagOf('terminal', SESSION_IDLE)" #tag>
-              <StatusTag :data-test="`source-terminal-${SESSION_IDLE}`" v-bind="tagOf('terminal', SESSION_IDLE)!" />
-            </template>
-            <template #default="{ id, describedBy }">
-              <div class="flex items-center gap-3">
-                <BaseToggle :model-value="sessionIdle > 0" label="Close idle sessions" hide-label @update:model-value="setSessionIdle" />
-                <input
-                  v-if="sessionIdle > 0"
-                  :id="id"
-                  :aria-describedby="describedBy"
-                  :value="sessionIdle"
-                  type="number"
-                  min="1"
-                  step="1"
-                  class="form-control w-28 font-mono tabular-nums"
-                  @input="setNumber('terminal', SESSION_IDLE, ($event.target as HTMLInputElement).value)"
-                />
-              </div>
-            </template>
-          </FormField>
-        </div>
-
-        <Callout v-if="spec.section === 'terminal' && externalPaths.length" tone="warning" title="External file system access">
-          The agent can reach paths outside its workspace directory:
-          <span class="font-mono text-primary">{{ externalPaths.join(", ") }}</span>. This weakens isolation — keep it for trusted work only.
-        </Callout>
-      </template>
-    </section>
+      <Callout v-if="spec.section === 'terminal' && externalPaths.length" tone="warning" title="External file system access">
+        The agent can reach paths outside its workspace directory:
+        <span class="font-mono text-primary">{{ externalPaths.join(", ") }}</span>. This weakens isolation — keep it for trusted work only.
+      </Callout>
+    </Disclosure>
   </div>
 </template>
