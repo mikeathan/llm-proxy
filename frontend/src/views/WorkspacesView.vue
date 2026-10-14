@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onActivated, onDeactivated, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { useModels } from "../composables/models/useModels"
@@ -64,6 +64,15 @@ const AUTOMATION_LANE_KIND: LaneKind = "automation"
 
 const router = useRouter()
 const current = useDestinationRoute("workspaces")
+// This view is kept alive (plan D19), but the assistant chat in it owns a live
+// connection to the run, so it must not outlive a visit: while the operator is
+// elsewhere the chat is closed (the run goes on server-side and replays when a chat
+// opens again), and the ask panel can open the one chat every other page may have.
+// `v-if` on the chat reads this flag.
+const viewActive = ref(true)
+onActivated(() => (viewActive.value = true))
+onDeactivated(() => (viewActive.value = false))
+
 const location = computed(() => workspaceLocation(current.value))
 const ws = computed(() => location.value.ws)
 
@@ -411,6 +420,7 @@ usePolling(() => {
 
       <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)]">
         <AssistantChat
+          v-if="viewActive"
           :workspaceId="ws"
           :conversation-id="location.conversationId"
           @update:conversation-id="handleConversationChange"
