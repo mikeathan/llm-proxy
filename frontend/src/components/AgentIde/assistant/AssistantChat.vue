@@ -100,6 +100,8 @@ const sidebarOpen = computed({
     else historyOpenPref.value = open;
   },
 });
+// A conversation that has not started: there is nothing to start new from, so New is not offered.
+const isFreshConversation = computed(() => !currentSessionId.value && messages.value.length === 0);
 const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || NEW_CONVERSATION);
 const inboundCount = ref(0);
 const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
@@ -366,8 +368,8 @@ const handleDeleteGroup = async (ids: string[]) => {
               />
               <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
             </span>
-            <span class="cap-sep" aria-hidden="true"></span>
-            <BaseButton data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" class-name="!text-primary" @click="handleNewChat">New</BaseButton>
+            <span v-if="!isFreshConversation" class="cap-sep" aria-hidden="true"></span>
+            <BaseButton v-if="!isFreshConversation" data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" class-name="!text-primary" @click="handleNewChat">New</BaseButton>
           </div>
           <!-- The state leads the title: a dot while ready, the dot and its words while the chat is doing something. -->
           <StatusTag data-test="chat-status" :state="status.state" :label="status.label" :quiet="status.state === 'neutral'" class="flex-none" />

@@ -107,6 +107,7 @@ describe('AssistantChat', () => {
   })
 
   it('puts New next to the list toggle while the list is closed, and in the list once it is open', async () => {
+    a.currentSessionId.value = 's1'
     const { w, button } = mountChat()
     expect(w.find('[data-test="header-new"]').exists()).toBe(true)
     await w.get('[data-test="header-new"]').trigger('click')
@@ -114,6 +115,17 @@ describe('AssistantChat', () => {
     await button(/^show conversations$/i)!.trigger('click')
     expect(w.find('[data-test="header-new"]').exists()).toBe(false)
     expect(w.get('[data-test="session-new"]').text()).toMatch(/new chat/i)
+    a.currentSessionId.value = null
+  })
+
+  it('offers no New while the conversation is already new (the title says so)', async () => {
+    const { w } = mountChat()
+    expect(w.find('[data-test="header-new"]').exists()).toBe(false)
+    expect(w.get('h2').text()).toBe('New conversation')
+    a.currentSessionId.value = 's1'
+    await flushPromises()
+    expect(w.find('[data-test="header-new"]').exists()).toBe(true)
+    a.currentSessionId.value = null
   })
 
   describe('as the ask panel', () => {
@@ -141,10 +153,12 @@ describe('AssistantChat', () => {
     })
 
     it('keeps its header icon-only, and can be closed', async () => {
+      a.currentSessionId.value = 's1'
       const { w, button } = mountPanel()
       expect(w.get('[data-test="header-new"]').text()).toBe('')
       await button(/^close the assistant$/i)!.trigger('click')
       expect(w.emitted('close')).toHaveLength(1)
+      a.currentSessionId.value = null
     })
 
     it('puts the cursor in the message on request', async () => {
