@@ -1,9 +1,9 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.1"
+version: "1.3"
 status: stable
-last_updated: 2026-09-06
+last_updated: 2026-10-14
 constitution_references: [II.3]
 related_specs: [SPEC-001]
 supersedes:
@@ -40,13 +40,32 @@ Tool calls are validated in order:
 2. **Terminal** — Command whitelist, blocked patterns, blocked filenames (inherited from the
    filesystem `blocked_filenames` list **plus** the internal invariant paths, merged via
    `effectiveBlockedFilenames`), path jail prevention, timeout enforcement, external path
-   access (workspace-level only). The whitelist is enforced **per command segment** — the
-   command is decomposed with shell-syntax awareness (quotes, heredocs in every marker form,
-   here-strings, escaped delimiters, newlines as separators) so a disallowed command cannot
-   ride in on the tail of an allowlisted one. Commands with **unbalanced syntax** (an
-   unterminated quote or heredoc, which would make the tail opaque to the whitelist) are
-   rejected fail-closed; `executeShell` re-checks before touching the persistent shell so a
-   malformed command can never wedge the shared session. In addition to the input-side
+   access (workspace-level only). The whitelist is enforced on **every command the shell would run**: the command is
+   parsed as bash (`mvdan.cc/sh/v3/syntax`, `internal/core/tools/shell_commands.go`) and the
+   tree is walked, so commands in pipelines and lists, loop and branch bodies, subshells and
+   groups, function bodies, `&` jobs, command substitutions (`$(...)`, backticks), process
+   substitutions and unquoted heredoc bodies are all checked, and shell syntax (`for`, `do`,
+   `done`, `if`/`then`/`fi`, assignments, comments) is never mistaken for a command. A command
+   the shell would reject (an unterminated quote or heredoc, a stray `fi`) is rejected fail-closed;
+   one whose **name is not a literal** (`$CMD`, `$(echo rm)`), or that a wrapper or shell
+   launcher makes unreadable (below), is rejected fail-closed **when an allowed list is set**
+   (without one there are no names to check, so it runs as before); `executeShell` re-parses
+   before touching the persistent shell so a malformed command can never wedge the shared
+   session. A shell launcher's `-c` argument (`bash -c`, `sh -lc`) is validated recursively and
+   must itself be a literal; a launcher with no `-c` and no script file (it would read stdin, as
+   in `echo rm | bash`) and `eval` of a non-literal are refused. **Wrappers** that launch another
+   program by argument (`env`, `nohup`, `nice`, `timeout`, `command`, `builtin`, `exec`, `sudo`,
+   `xargs`, `find -exec/-execdir/-ok/-okdir`) are unwrapped to any depth
+   (`internal/core/tools/shell_wrappers.go`), so `env rm x` needs `rm` allowed; an option the
+   table does not know, a non-literal option or launched name, and `env -S` are refused. The
+   interpreters themselves (`python -c`, `node -e`, `npx`, `npm run`, `git -c alias`, `go run`)
+   stay as open as the allowed list makes them: narrowing it is a policy choice.
+   "Allow and remember" is planned once: the blocked-step event (`guardrail_blocked`) carries
+   `remember` (one line per change, e.g. "Allow the command: wc") and `remember_reason` (why
+   there is nothing to remember), and the save applies the same plan. It saves only commands
+   (`tools.ShellCommandNames`) that are not allowed yet, never syntax words, and nothing when
+   the command cannot be read; the prompt disables "Allow and remember" when the plan is empty.
+   In addition to the input-side
    denial, terminal **output** is scrubbed of blocked-path references
    (`redactBlockedPaths`): recursive commands (`find .`, `du -sh .`, `ls -la`, `tree`)
    emit blocked paths even when no explicit operand was written, so the same invariant is

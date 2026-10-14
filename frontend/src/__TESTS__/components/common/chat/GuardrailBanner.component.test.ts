@@ -6,10 +6,10 @@ vi.mock('../../../../services/httpClient', () => ({ post: (...args: unknown[]) =
 
 import GuardrailBanner from '../../../../components/common/chat/GuardrailBanner.vue'
 
-const DECISION = { decision_id: 'd1', tool: 'terminal', reason: 'rm is blocked', category: 'terminal', args: 'rm -rf x' }
+const DECISION = { decision_id: 'd1', tool: 'terminal', reason: 'rm is blocked', category: 'terminal', args: 'rm -rf x', remember: ['Allow the command: wc'] }
 
-function mountBanner(submit = vi.fn().mockResolvedValue(undefined)) {
-  const w = mount(GuardrailBanner, { props: { decision: DECISION as never, submit }, global: { stubs: { Icon: true } } })
+function mountBanner(submit = vi.fn().mockResolvedValue(undefined), decision: object = DECISION) {
+  const w = mount(GuardrailBanner, { props: { decision: decision as never, submit }, global: { stubs: { Icon: true } } })
   const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.text()))!
   return { w, submit, button }
 }
@@ -25,6 +25,22 @@ describe('GuardrailBanner', () => {
     expect(w.attributes('role')).toBe('alert')
     expect(w.text()).toContain('terminal')
     expect(w.text()).toContain('rm is blocked')
+  })
+
+  it('says what "Allow and remember" will save, as plain text', () => {
+    const { w } = mountBanner(undefined, { ...DECISION, remember: ['Allow the command: wc', 'Allow the command: <b>sort</b>'] })
+    expect(w.text()).toContain('Allow the command: wc')
+    expect(w.text()).toContain('Allow the command: <b>sort</b>')
+    expect(w.find('b').exists()).toBe(false)
+  })
+
+  it('offers no remember when there is nothing to remember, and says why', async () => {
+    const { w, button, submit } = mountBanner(undefined, { ...DECISION, remember: undefined, remember_reason: "This command can't be read, so nothing can be remembered." })
+    expect(button(/allow and remember/i).attributes('disabled')).toBeDefined()
+    expect(w.text()).toContain("can't be read")
+    await button(/allow and remember/i).trigger('click')
+    expect(submit).not.toHaveBeenCalled()
+    expect(button(/allow once/i).attributes('disabled')).toBeUndefined()
   })
 
   it.each([

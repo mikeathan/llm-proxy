@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import type { GuardrailBlockedPayload } from "../../../types";
 import BaseButton from "../buttons/BaseButton.vue";
 
@@ -13,6 +13,11 @@ const props = defineProps<{
 }>();
 
 const SEND_FAILED = "Could not send the decision — try again.";
+const NOTHING_TO_REMEMBER = "Nothing to remember.";
+
+// What remembering would save is shown as text only: it is derived from the model's own command.
+const rememberLines = computed(() => props.decision.remember ?? []);
+const canRemember = computed(() => rememberLines.value.length > 0);
 
 const submitting = ref(false);
 const failed = ref(false);
@@ -44,8 +49,17 @@ async function decide(allow: boolean, persist: boolean) {
       <dt class="text-muted">Category</dt>
       <dd class="m-0 font-mono text-secondary">{{ decision.category }}</dd>
     </dl>
+    <div class="flex flex-col gap-1 text-[length:var(--text-small)]">
+      <template v-if="canRemember">
+        <p class="m-0 text-muted">Allow and remember will, for this workspace:</p>
+        <ul class="m-0 list-disc pl-5 font-mono text-secondary">
+          <li v-for="line in rememberLines" :key="line">{{ line }}</li>
+        </ul>
+      </template>
+      <p v-else class="m-0 text-muted">{{ decision.remember_reason || NOTHING_TO_REMEMBER }}</p>
+    </div>
     <div class="flex flex-wrap gap-2">
-      <BaseButton variant="primary" size="sm" :disabled="submitting" @click="decide(true, true)">Allow and remember</BaseButton>
+      <BaseButton variant="primary" size="sm" :disabled="submitting || !canRemember" @click="decide(true, true)">Allow and remember</BaseButton>
       <BaseButton variant="secondary" size="sm" :disabled="submitting" @click="decide(true, false)">Allow once</BaseButton>
       <BaseButton variant="danger" size="sm" :disabled="submitting" @click="decide(false, false)">Deny</BaseButton>
     </div>

@@ -715,6 +715,15 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 	return false, false
 }
 
+// rememberPreview is what "Allow and remember" would change for a blocked step,
+// for the approval prompt. Without a guardrail engine there is nothing to save.
+func (a *Agent) rememberPreview(category, args string) guardrails.RememberPreview {
+	if a.deps.Guardrails == nil {
+		return guardrails.RememberPreview{Reason: "Nothing can be remembered here."}
+	}
+	return a.deps.Guardrails.PreviewRemember(a.config.WorkspaceID, category, args)
+}
+
 // awaitGuardrailApproval asks the interactive callback for a decision, bounded
 // by GuardrailApprovalTimeout (Constitution II.10 / SPEC guardrails) so an
 // unanswered prompt cannot stall the run indefinitely. decided=false means the
@@ -723,13 +732,17 @@ func (a *Agent) resolveGuardrail(ctx context.Context, tc proxy.ToolCall, history
 func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, err error, denial *guardrailDenialReason) (approved, stopBatch, decided bool) {
 	approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
 	defer approvalCancel()
+	category := toolCategory(tc.Function.Name)
+	remember := a.rememberPreview(category, tc.Function.Arguments)
 	decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
-		DecisionID:  fmt.Sprintf("gr_%d", time.Now().UnixNano()),
-		Tool:        tc.Function.Name,
-		Args:        tc.Function.Arguments,
-		Reason:      err.Error(),
-		Category:    toolCategory(tc.Function.Name),
-		WorkspaceID: a.config.WorkspaceID,
+		DecisionID:     fmt.Sprintf("gr_%d", time.Now().UnixNano()),
+		Tool:           tc.Function.Name,
+		Args:           tc.Function.Arguments,
+		Reason:         err.Error(),
+		Category:       category,
+		WorkspaceID:    a.config.WorkspaceID,
+		Remember:       remember.Lines,
+		RememberReason: remember.Reason,
 	})
 	if decErr != nil {
 		// No decision arrived before the approval bound — the prompt expired.
