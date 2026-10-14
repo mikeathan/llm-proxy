@@ -173,12 +173,14 @@ describe('AssistantChat', () => {
     })
   })
 
-  it('says "Ready" only to assistive technology, and shows a working state in words', async () => {
+  it('shows nothing while ready (assistive technology still hears it), and the state in words once the chat is busy', async () => {
     const { w } = mountChat()
-    expect(w.get('[data-test="chat-status"] .sr-only').text()).toBe('Ready')
+    expect(w.get('[data-test="chat-status"]').classes()).toContain('sr-only')
+    expect(w.get('[data-test="chat-status"]').text()).toBe('Ready')
     a.loading.value = true
     await flushPromises()
-    expect(w.find('[data-test="chat-status"] .sr-only').exists()).toBe(false)
+    expect(w.get('[data-test="chat-status"]').classes()).not.toContain('sr-only')
+    expect(w.get('[data-test="chat-status"]').text()).toBe('Working')
   })
 
   // The review needs a saved conversation and a finished turn; it is the operator's per-chat control over memory.

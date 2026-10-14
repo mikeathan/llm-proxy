@@ -371,8 +371,9 @@ const handleDeleteGroup = async (ids: string[]) => {
             <span v-if="!isFreshConversation" class="cap-sep" aria-hidden="true"></span>
             <BaseButton v-if="!isFreshConversation" data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" class-name="!text-primary" @click="handleNewChat">New</BaseButton>
           </div>
-          <!-- The state leads the title: a dot while ready, the dot and its words while the chat is doing something. -->
-          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" :quiet="status.state === 'neutral'" class="flex-none" />
+          <!-- A ready chat shows nothing (assistive technology still hears "Ready"); the state leads the title only while the chat is doing something. -->
+          <span v-if="status.state === 'neutral'" data-test="chat-status" class="sr-only" role="status">{{ status.label }}</span>
+          <StatusTag v-else data-test="chat-status" :state="status.state" :label="status.label" class="flex-none" />
           <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
         </div>
         <div class="flex flex-none items-center gap-1">
