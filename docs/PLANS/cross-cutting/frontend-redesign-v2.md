@@ -50,7 +50,7 @@ Rules it relaxes from the retro plan: square 2 px corners (→ 8 px), hairline p
 ## As built (2026-10-14)
 
 - **0 Docs** — this plan, SPEC-003 v2.11 (§II.1, II.2, II.7, III, IV, V), pitfalls 48–50, `assistant-ui-patterns`.
-- **1 Themes** — `retro-midnight`, `retro-forest`, `retro-plum` (dark), `retro-paper-cool`, `retro-sand` (light); `PRESET_IDS` in `types/theme.ts`; the contrast script reads ids from `tokens.css`. Phase 1b (accent swatches) **not built**: custom themes already change any colour.
+- **1 Themes** — `retro-midnight`, `retro-forest`, `retro-plum` (dark), `retro-paper-cool`, `retro-sand` (light); `PRESET_IDS` in `types/theme.ts`; the contrast script reads ids from `tokens.css`. Phase 1b (accent over any preset) **built later the same day**: eight swatches plus any colour, `theme/accent.ts`, proven for every preset × swatch.
 - **2 Settings tabs** — `SettingsTabs` + `ScrollStrip` (+ `useScrollEdges`); `getSettingsTabGroups`; `SettingsNav` removed.
 - **3 Assistant** — `ComposeSheet`, header cap, persisted list state, footer New, quiet status, `dvh` height, spacing.
 - **4 Look** — Panel, header, sidebar, chat chrome by tone; radii 6/8 px; `/design` baselines regenerated.
@@ -69,5 +69,4 @@ Deviations from the mockups: the panel header has no recent-chats menu (its conv
 - Automations, Reminders, Models and Activity on a phone (tables and logs need a "fewer details" layout); their empty/error/loading polish.
 - Arrow-key handling for radio groups and the new sheets (More, workspace menu); a focus trap in the phone ask dialog.
 - Decide whether Overview, Automations and Activity should read "All workspaces" in the chip (today only Settings does).
-- Optional Phase 1b: a per-user accent swatch set over any preset (`usePersistedState`; every preset × swatch pair added to the contrast gate).
 - A recent-chats menu in the ask panel's title (prototyped in the mockup).

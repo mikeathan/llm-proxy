@@ -1,4 +1,4 @@
-import { PRESET_IDS } from '../../../types/theme'
+import { ACCENT_IDS, PRESET_IDS } from '../../../types/theme'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { memoryStorage } from '../../helpers/memoryStorage'
@@ -56,6 +56,43 @@ describe('AppearanceSettings', () => {
     expect(controller.current.value.themeId).toBe('retro-paper')
     await radios[PRESET_IDS.indexOf('retro-midnight')]!.setValue(true)
     expect(controller.current.value.themeId).toBe('retro-midnight')
+  })
+
+  describe('accent', () => {
+    const radio = (w: ReturnType<typeof setup>['w'], value: string) => w.get(`input[type="radio"][name="accent"][value="${value}"]`)
+
+    it('offers the theme\'s own accent and every swatch, with the theme\'s own chosen to begin with', () => {
+      const { w } = setup()
+      const values = w.findAll('input[type="radio"][name="accent"]').map((r) => r.attributes('value'))
+      expect(values).toEqual(['default', ...ACCENT_IDS])
+      expect((radio(w, 'default').element as HTMLInputElement).checked).toBe(true)
+    })
+
+    it('applies a swatch as soon as it is picked, and goes back to the theme\'s own', async () => {
+      const { w } = setup()
+      await radio(w, 'sky').setValue(true)
+      expect(controller.accent.value).toEqual({ kind: 'named', id: 'sky' })
+      expect(controller.current.value.overrides['accent-brand']).toBeDefined()
+      expect((radio(w, 'sky').element as HTMLInputElement).checked).toBe(true)
+      await radio(w, 'default').setValue(true)
+      expect(controller.accent.value).toBeNull()
+      expect(controller.current.value.overrides).toEqual({})
+    })
+
+    it('takes any colour from the colour picker', async () => {
+      const { w } = setup()
+      await w.get('input[type="color"][aria-label="Custom accent colour"]').setValue('#2f9e44')
+      expect(controller.accent.value).toEqual({ kind: 'custom', hex: '#2f9e44' })
+    })
+
+    it('says it is the custom theme\'s business while one is in use, and offers no choice', async () => {
+      const { w } = setup()
+      controller.saveCustomTheme(SEA)
+      controller.selectCustom('sea')
+      await flushPromises()
+      expect(w.get('fieldset[disabled]').text()).toContain('Accent')
+      expect(w.text()).toMatch(/custom theme .* sets its own colours/i)
+    })
   })
 
   it('follows the system setting until a theme is chosen', async () => {

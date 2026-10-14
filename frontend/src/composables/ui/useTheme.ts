@@ -1,5 +1,7 @@
 import { computed, ref, watch } from 'vue'
 import type {
+  AccentChoice,
+  AccentId,
   AppliedTheme,
   CustomTheme,
   PresetId,
@@ -9,9 +11,10 @@ import type {
   ThemeTokens,
 } from '../../types/theme'
 import { applyTheme } from '../../theme/apply'
+import { accentChannels, accentOverrides } from '../../theme/accent'
 import { channelsToHex, parseColour } from '../../theme/colour'
 import { DEFAULT_PRESET_ID, isPresetId, PRESETS } from '../../theme/presets'
-import { PRESET_IDS } from '../../types/theme'
+import { ACCENT_IDS, PRESET_IDS } from '../../types/theme'
 import { TOKEN_REGISTRY, isTokenName } from '../../theme/tokenRegistry'
 import { validateCustomTheme } from '../../theme/validate'
 import { browserStorage, usePersistedState } from './usePersistedState'
@@ -32,6 +35,14 @@ function parseSelection(data: unknown): ThemeSelection | null {
   const { kind, id } = data as Record<string, unknown>
   if (kind === 'preset' && isPresetId(id)) return { kind, id }
   if (kind === 'custom' && typeof id === 'string') return { kind, id }
+  return null
+}
+
+function parseAccent(data: unknown): AccentChoice | null {
+  if (typeof data !== 'object' || data === null) return null
+  const { kind, id, hex } = data as Record<string, unknown>
+  if (kind === 'named' && (ACCENT_IDS as readonly unknown[]).includes(id)) return { kind, id: id as AccentId }
+  if (kind === 'custom' && typeof hex === 'string' && parseColour(hex)) return { kind, hex }
   return null
 }
 
@@ -61,6 +72,13 @@ export function createThemeController(env: ThemeEnvironment) {
     fallback: null,
     storage,
   })
+  // The accent the operator put over a preset (null = the preset's own).
+  const accent = usePersistedState<AccentChoice | null>('theme-accent', {
+    version: STORAGE_VERSION,
+    parse: parseAccent,
+    fallback: null,
+    storage,
+  })
   const customThemes = usePersistedState<CustomTheme[]>('custom-themes', {
     version: STORAGE_VERSION,
     parse: parseCustomThemes,
@@ -80,7 +98,10 @@ export function createThemeController(env: ThemeEnvironment) {
       return { themeId: custom.id, presetId: custom.base, scheme: PRESETS[custom.base].scheme, overrides: custom.overrides }
     }
     const presetId = sel?.kind === 'preset' ? sel.id : systemPrefersLight.value ? SYSTEM_LIGHT_PRESET : DEFAULT_PRESET_ID
-    return { themeId: presetId, presetId, scheme: PRESETS[presetId].scheme, overrides: {} }
+    // A preset takes the chosen accent, adjusted to read on that preset; a custom theme keeps its own colours.
+    const rgb = accent.value ? accentChannels(accent.value) : null
+    const overrides = rgb ? accentOverrides(PRESETS[presetId].tokens, rgb) : {}
+    return { themeId: presetId, presetId, scheme: PRESETS[presetId].scheme, overrides }
   })
 
   let started = false
@@ -162,6 +183,13 @@ export function createThemeController(env: ThemeEnvironment) {
     },
     followSystem: () => {
       selection.value = null
+    },
+    accent,
+    // Choosing an accent while following the OS keeps the theme that is showing (the pre-paint
+    // record cannot say which preset the OS would pick, so it needs one named).
+    setAccent: (choice: AccentChoice | null) => {
+      if (choice && !selection.value) selection.value = { kind: 'preset', id: current.value.presetId }
+      accent.value = choice
     },
     saveCustomTheme,
     deleteCustomTheme,

@@ -90,6 +90,13 @@ export const PRESET_IDS = [
 
 export type PresetId = (typeof PRESET_IDS)[number]
 
+/** The accent swatches Settings · Appearance offers over any preset (theme/accent.ts). */
+export const ACCENT_IDS = ['persimmon', 'raspberry', 'orchid', 'violet', 'indigo', 'sky', 'teal', 'sand'] as const
+export type AccentId = (typeof ACCENT_IDS)[number]
+
+/** The accent the operator picked: a named swatch, or any colour. Null in storage = the preset's own. */
+export type AccentChoice = { kind: 'named'; id: AccentId } | { kind: 'custom'; hex: string }
+
 /** A partial token map in canonical stored form (colour → "R G B"). */
 export type ThemeTokens = Partial<Record<TokenName, string>>
 

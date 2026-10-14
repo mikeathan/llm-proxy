@@ -100,7 +100,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | Status | Plan | Open scope |
 |--------|-------|-----------|
 | partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
-| partial | Frontend Redesign v2 | Phases 0–5 delivered 2026-10-14; left: Automations/Reminders/Models/Activity on a phone, arrow-key handling + focus trap in the new sheets, "All workspaces" scope decision, optional accent swatches, recent-chats menu in the ask panel |
+| partial | Frontend Redesign v2 | Phases 0–5 delivered 2026-10-14; left: Automations/Reminders/Models/Activity on a phone, arrow-key handling + focus trap in the new sheets, "All workspaces" scope decision, recent-chats menu in the ask panel |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |

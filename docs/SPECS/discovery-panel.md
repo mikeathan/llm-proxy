@@ -23,7 +23,7 @@ supersedes:
   unchanged `/settings/<section>` routes. The assistant's message box starts at three lines (16 px on touch) with a small toolbar under it (Commands, which types the `/` that opens the command menu, and Memory, the review of the conversation for memories); a long
   draft opens a full-screen editor on a phone, history and New are one control (the list's open state persists), and
   an answer reads with deliberate spacing. **Look:** areas are separated by tone, not borders, and corners are 6/8 px.
-  **Themes:** five more presets (three dark, two light). Changes §II.1 (seven destinations, drawer), the retro design
+  **Themes:** five more presets (three dark, two light) and an accent picker over any preset. Changes §II.1 (seven destinations, drawer), the retro design
   language of §IV (2 px corners, hairline panel borders) and the preset registration steps of §II.7. One chat is ever
   live; Workspaces closes its chat when left.
 
@@ -233,6 +233,7 @@ account model, and makes no network request outside the proxy's own origin.
   TypeScript list), a label in `theme/presets.ts` and the scheme in `public/theme-boot.js` (plain ES5; the boot contract
   test holds it to the list); `frontend/scripts/check-contrast.cjs` reads the ids from `tokens.css`, so the new block is gated at
   once and every pair must pass. A test fails if `tokens.css` and `PRESET_IDS` disagree.
+- **Accent**: over any built-in theme the operator can pick one of eight swatches or any colour (Settings · Appearance, stored through `usePersistedState`, applied as overrides of `--accent-brand` and `--focus-ring`). The colour is moved toward white (dark presets) or black (light ones) until it reads on every surface and the preset's label colour reads on it (`theme/accent.ts`), so no preset × accent pair can fail the contrast gate; a unit test proves every preset × swatch and awkward colours. Choosing one while following the OS pins the theme that is showing; a custom theme keeps its own colours and the picker is disabled.
 - Custom themes: duplicate a preset or import JSON; both paths run one validator. Only known token names are accepted;
   each value must match its kind's grammar (opaque colour, length, duration). Fonts and easing are not editable. A
   contrast failure blocks saving until the operator acknowledges it; a grammar failure always rejects. Themes export to
