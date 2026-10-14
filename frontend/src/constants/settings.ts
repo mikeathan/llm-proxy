@@ -12,13 +12,15 @@ export const SETTINGS_GROUP_LABELS: Record<SettingsGroupId, string> = {
   system: "System",
 }
 
-// The labels of the General sections. `local` is also the Local Engine provider's label on the
+// The labels of the General and Safety sections. `local` is also the Local Engine provider's label on the
 // Models page, which is why the Settings row has its own wording for it.
 export const SETTINGS_SECTION_LABELS: Partial<Record<SettingsTab, string>> = {
   local: "Routing & engine",
   runs: "Runs",
   memory: "Memory & reminders",
   storage: "Storage & logging",
+  security: "Sandboxing",
+  limits: "Limits & reset",
 }
 
 // General is four short sections (plan frontend-redesign-v2); each panel of GlobalSettings belongs to one.
@@ -38,7 +40,7 @@ export const GENERAL_PANEL_SECTION: Record<GeneralPanel, SettingsTab> = {
 export const SETTINGS_GROUP_SECTIONS: Record<SettingsGroupId, readonly SettingsTab[]> = {
   general: ["local", "runs", "memory", "storage"],
   models: ["local-models"],
-  safety: ["security", "guardrails"],
+  safety: ["security", "limits", "guardrails"],
   connectors: ["communication", "search", "mcp"],
   appearance: ["appearance"],
   system: ["processes"],

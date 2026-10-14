@@ -15,15 +15,19 @@ import { useConfirm } from '../../composables/ui/useConfirm'
 import { useHostSandboxingEditor } from '../../composables/settings/useHostSandboxingEditor'
 import { errorMessage } from '../../utils/errors'
 import { formatSandboxSurface, sandboxSurfaceShort } from '../../utils/sandboxing'
-import type { SandboxSurface } from '../../types/admin'
+import type { SandboxSurface, SettingsTab } from '../../types/admin'
 import type { StatusState } from '../../types/ui'
 
 // Settings · Security & sandboxing: the host-wide containment policy (its own
 // draft and save — host settings, not the shared configuration), what the host
 // actually enforces, live terminal sessions and the reset controls.
-// `active` is whether this section is showing: the session monitor polls only
+// `section` is which of the two Security sections is showing (security: the sandbox policy and
+// what the host enforces; limits: limits, live terminals and resets). Both stay mounted over one
+// draft; the session monitor polls only
 // then. The page's unsaved-change guard learns about the draft via dirty-change.
-const props = defineProps<{ active: boolean }>()
+const props = defineProps<{ section: SettingsTab }>()
+const inSecurity = computed(() => props.section === 'security')
+const inLimits = computed(() => props.section === 'limits')
 const emit = defineEmits<{ (e: 'dirty-change', dirty: boolean): void }>()
 
 const toast = useToast()
@@ -190,7 +194,7 @@ const handleWipeout = async () => {
     <LoadingState v-if="loading" label="Loading security settings" />
 
     <template v-else>
-      <Panel title="Sandboxing">
+      <Panel v-show="inSecurity" title="Sandboxing">
         <div class="flex flex-col divide-y divide-hairline">
           <div class="switch-row">
             <div class="min-w-0">
@@ -268,9 +272,9 @@ const handleWipeout = async () => {
         </div>
       </Panel>
 
-      <SettingsActions :dirty="hasChanges" :saving="saving" :error="saveError ? `Could not save the security settings: ${saveError}` : ''" save-label="Save security settings" @save="handleSave" @discard="editor.discard" />
+      <SettingsActions v-show="inSecurity || hasChanges" :dirty="hasChanges" :saving="saving" :error="saveError ? `Could not save the security settings: ${saveError}` : ''" save-label="Save security settings" @save="handleSave" @discard="editor.discard" />
 
-      <Panel title="Resource limits">
+      <Panel v-show="inLimits" title="Resource limits">
         <p class="m-0 max-w-[72ch] text-[length:var(--text-small)] text-secondary">
           Max memory <span class="font-mono tabular-nums text-primary">{{ draft.max_memory_mb }} MB</span> (informational) · max storage
           <span class="font-mono tabular-nums text-primary">{{ draft.max_storage_gb }} GB</span> per workspace.
@@ -278,7 +282,7 @@ const handleWipeout = async () => {
         </p>
       </Panel>
 
-      <Panel title="Effective enforcement">
+      <Panel v-show="inSecurity" title="Effective enforcement">
         <p class="mb-3 mt-0 max-w-[72ch] text-[length:var(--text-small)] text-muted">
           What the running host actually enforces, next to the policy above. A surface reported "off" with a reason means the requested enforcement is not active on this host — downgrades are never silent.
         </p>
@@ -290,9 +294,9 @@ const handleWipeout = async () => {
         </dl>
       </Panel>
 
-      <TerminalMonitor v-if="props.active && draft.enabled" />
+      <TerminalMonitor v-if="inLimits && draft.enabled" />
 
-      <Panel title="Reset controls">
+      <Panel v-show="inLimits" title="Reset controls">
         <p class="mb-3 mt-0 max-w-[72ch] text-[length:var(--text-small)] text-muted">
           Clear runtime state or reset configuration and secrets to factory defaults. Operates on a fixed allowlist of paths — the orchestrator database, templates and workspaces are never touched, except by a wipeout.
         </p>

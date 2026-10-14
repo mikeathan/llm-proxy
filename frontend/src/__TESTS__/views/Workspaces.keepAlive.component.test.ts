@@ -33,6 +33,7 @@ const d = {
 vi.mock('../../composables/automation/useDispatcher', () => ({ useDispatcher: () => d }))
 vi.mock('../../composables/models/useModels', () => ({ useModels: () => ({ state: ref({ config: { guardrails: {} } }) }) }))
 vi.mock('../../composables/assistant/useAssistant', () => ({
+  openConversationId: ref(''),
   useAssistant: () => ({ runningSessions: ref([]), reconcileRunning: vi.fn(), reconcileRunningConversation: vi.fn() }),
 }))
 vi.mock('../../composables/assistant/useRunningActivity', () => ({
@@ -45,7 +46,8 @@ vi.mock('../../services/automation/dispatcherService', () => ({
 
 const lifecycle = { mounted: 0, unmounted: 0, peak: 0 }
 const Chat = defineComponent({
-  setup() {
+  setup(_, { expose }) {
+    expose({ focusInput: () => {} })
     onMounted(() => {
       lifecycle.mounted++
       lifecycle.peak = Math.max(lifecycle.peak, lifecycle.mounted - lifecycle.unmounted)

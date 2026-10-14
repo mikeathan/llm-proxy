@@ -6,8 +6,8 @@ import { getSettingsTabGroups } from '../../../domain/settings'
 import { ROUTE_NAMES } from '../../../types/routes'
 import type { SettingsTab } from '../../../types/admin'
 
-const TABS: SettingsTab[] = ['appearance', 'local', 'local-models', 'guardrails', 'gemini', 'openai', 'mcp', 'communication', 'search', 'processes']
-const LABELS: Record<string, string> = { local: 'Local Engine', 'local-models': 'Local Models', gemini: 'Google Gemini', openai: 'OpenAI', guardrails: 'Agent Guardrails', security: 'Security', mcp: 'MCP Servers', communication: 'Communication', search: 'Search', processes: 'Processes', appearance: 'Appearance' }
+const TABS: SettingsTab[] = ['appearance', 'local', 'local-models', 'limits', 'guardrails', 'gemini', 'openai', 'mcp', 'communication', 'search', 'processes']
+const LABELS: Record<string, string> = { local: 'Local Engine', 'local-models': 'Local Models', gemini: 'Google Gemini', openai: 'OpenAI', guardrails: 'Agent Guardrails', security: 'Security', limits: 'Limits & reset', mcp: 'MCP Servers', communication: 'Communication', search: 'Search', processes: 'Processes', appearance: 'Appearance' }
 
 function mountTabs(active: SettingsTab) {
   const router = createRouter({
@@ -51,6 +51,6 @@ describe('SettingsTabs', () => {
   it('follows a section to its group (Guardrails sits under Safety)', () => {
     const w = mountTabs('guardrails')
     expect(w.get('nav[aria-label="Settings"] a[aria-current="page"]').text()).toBe('Safety')
-    expect(w.findAll('nav[aria-label="Safety sections"] a').map((a) => a.text())).toEqual(['Security', 'Agent Guardrails'])
+    expect(w.findAll('nav[aria-label="Safety sections"] a').map((a) => a.text())).toEqual(['Security', 'Limits & reset', 'Agent Guardrails'])
   })
 })

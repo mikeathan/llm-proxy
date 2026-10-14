@@ -76,6 +76,8 @@ const providerTabs = computed(() => settingsTabs.value.filter(isProviderTab) as 
 const labelOf = (tab: SettingsTab) => SETTINGS_SECTION_LABELS[tab] ?? getLabel(tab)
 // General is several short sections over one form: all stay mounted, so an edit survives moving between them.
 const isGeneralSection = computed(() => SETTINGS_GROUP_SECTIONS.general.includes(activeTab.value))
+// Security is two sections over one draft, for the same reason.
+const isSecuritySection = computed(() => activeTab.value === 'security' || activeTab.value === 'limits')
 
 // ── Models ────────────────────────────────────────────────────────────────
 const models = computed<Model[]>(() => modelsState.value?.models ?? [])
@@ -219,8 +221,8 @@ const updateConfigValue = (value: GlobalConfig) => {
             <ProviderModelsCard :provider="LOCAL_PROVIDER" :api-keys="[]" :models="modelsOf(LOCAL_PROVIDER)" :available-models="availableModels" @refresh="refreshModels" />
           </div>
 
-          <div v-show="activeTab === 'security'">
-            <SecuritySettings :active="activeTab === 'security'" @dirty-change="draftDirty.security = $event" />
+          <div v-show="isSecuritySection">
+            <SecuritySettings :section="activeTab" @dirty-change="draftDirty.security = $event" />
           </div>
 
           <div v-show="activeTab === 'guardrails'" class="flex flex-col gap-4">
