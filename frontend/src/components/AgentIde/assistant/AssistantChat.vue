@@ -86,7 +86,7 @@ const inputMessage = ref("");
 // screen (closed until the operator opens it); on a phone it is a drawer that always
 // starts closed.
 const HISTORY_OPEN_KEY = "assistant-history-open";
-const NEW_CONVERSATION = "New conversation";
+const UNTITLED_CONVERSATION = "Conversation";
 const historyOpenPref = usePersistedState<boolean>(HISTORY_OPEN_KEY, {
   version: 1,
   fallback: false,
@@ -102,7 +102,7 @@ const sidebarOpen = computed({
 });
 // A conversation that has not started: there is nothing to start new from, so New is not offered.
 const isFreshConversation = computed(() => !currentSessionId.value && messages.value.length === 0);
-const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || NEW_CONVERSATION);
+const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || UNTITLED_CONVERSATION);
 const inboundCount = ref(0);
 const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
 const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
@@ -374,7 +374,7 @@ const handleDeleteGroup = async (ids: string[]) => {
           <!-- A ready chat shows nothing (assistive technology still hears "Ready"); the state leads the title only while the chat is doing something. -->
           <span v-if="status.state === 'neutral'" data-test="chat-status" class="sr-only" role="status">{{ status.label }}</span>
           <StatusTag v-else data-test="chat-status" :state="status.state" :label="status.label" class="flex-none" />
-          <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
+          <h2 v-if="!isFreshConversation" class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
         </div>
         <div class="flex flex-none items-center gap-1">
           <BaseButton

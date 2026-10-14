@@ -97,9 +97,9 @@ describe('AssistantChat', () => {
     expect(again.button(/^hide conversations$/i)).toBeDefined()
   })
 
-  it('shows the open conversation as the title, and a new one as such', async () => {
+  it('titles the open conversation, and says nothing for a new one (the empty chat already does)', async () => {
     const { w } = mountChat()
-    expect(w.get('h2').text()).toBe('New conversation')
+    expect(w.find('h2').exists()).toBe(false)
     a.currentSessionId.value = 's1'
     await flushPromises()
     expect(w.get('h2').text()).toBe('Plan the move')
@@ -118,10 +118,9 @@ describe('AssistantChat', () => {
     a.currentSessionId.value = null
   })
 
-  it('offers no New while the conversation is already new (the title says so)', async () => {
+  it('offers no New while the conversation is already new', async () => {
     const { w } = mountChat()
     expect(w.find('[data-test="header-new"]').exists()).toBe(false)
-    expect(w.get('h2').text()).toBe('New conversation')
     a.currentSessionId.value = 's1'
     await flushPromises()
     expect(w.find('[data-test="header-new"]').exists()).toBe(true)
