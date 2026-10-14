@@ -439,16 +439,19 @@ const handleDeleteGroup = async (ids: string[]) => {
       @retry="startReview()"
     />
 
-    <ConfirmDialog
-      v-model="showModelBusy"
-      :title="MODEL_BUSY_DIALOG_TITLE"
-      :message="modelBusyMessage || MODEL_BUSY_DIALOG_MESSAGE"
-      type="warning"
-      :confirm-text="MODEL_BUSY_WAIT_LABEL"
-      :cancel-text="MODEL_BUSY_CANCEL_LABEL"
-      @confirm="dismissModelBusy"
-      @cancel="handleModelBusyCancel"
-    />
+    <!-- Teleported with the other overlays opened from here, so its scrim covers the whole screen. -->
+    <Teleport to="body">
+      <ConfirmDialog
+        v-model="showModelBusy"
+        :title="MODEL_BUSY_DIALOG_TITLE"
+        :message="modelBusyMessage || MODEL_BUSY_DIALOG_MESSAGE"
+        type="warning"
+        :confirm-text="MODEL_BUSY_WAIT_LABEL"
+        :cancel-text="MODEL_BUSY_CANCEL_LABEL"
+        @confirm="dismissModelBusy"
+        @cancel="handleModelBusyCancel"
+      />
+    </Teleport>
   </div>
 </template>
 

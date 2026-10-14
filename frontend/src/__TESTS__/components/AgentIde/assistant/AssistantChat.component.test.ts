@@ -44,7 +44,7 @@ vi.mock('../../../../services/commands/commandService', () => ({ CommandService:
 import AssistantChat from '../../../../components/AgentIde/assistant/AssistantChat.vue'
 
 function mountChat() {
-  const w = mount(AssistantChat, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } } })
+  const w = mount(AssistantChat, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } } })
   const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? '') || name.test(b.text()))
   const status = () => w.get('[data-test="chat-status"]').text()
   return { w, button, status }
@@ -120,7 +120,7 @@ describe('AssistantChat', () => {
     function mountPanel() {
       const w = mount(AssistantChat, {
         props: { workspaceId: 'ws', variant: 'panel' },
-        global: { stubs: { Icon: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
+        global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
       })
       const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? '') || name.test(b.text()))
       return { w, button }
@@ -150,7 +150,7 @@ describe('AssistantChat', () => {
     it('puts the cursor in the message on request', async () => {
       const w = mount(AssistantChat, {
         props: { workspaceId: 'ws', variant: 'panel' },
-        global: { stubs: { Icon: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
+        global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
         attachTo: document.body,
       })
       ;(w.vm as unknown as { focusInput: () => void }).focusInput()
