@@ -84,7 +84,7 @@ function evaluate(readToken) {
 
 const TOKENS_PATH = path.resolve(__dirname, '../src/styles/tokens.css')
 const BASE_THEME = 'retro-dark'
-const THEMES = ['retro-dark', 'retro-dark-soft', 'retro-dark-lifted', 'retro-paper']
+const THEME_SELECTOR = /\[data-theme='([a-z-]+)'\]/g
 const BLOCK_PATTERN = /([^{}]+)\{([^{}]*)\}/g
 const DECLARATION_PATTERN = /--([a-z0-9-]+)\s*:\s*([^;]+);/g
 
@@ -100,12 +100,12 @@ function declarations(body) {
 
 // themeBlocks maps each theme id to the custom properties declared for it,
 // merged in source order as the cascade does (a later block wins).
+// The preset ids are read from tokens.css itself, so a new preset block is gated
+// the moment it exists — the list is not restated here.
 function themeBlocks(css) {
   const blocks = {}
   for (const [, selector, body] of stripComments(css).matchAll(BLOCK_PATTERN)) {
-    for (const theme of THEMES) {
-      if (selector.includes(`[data-theme='${theme}']`)) blocks[theme] = { ...blocks[theme], ...declarations(body) }
-    }
+    for (const [, theme] of selector.matchAll(THEME_SELECTOR)) blocks[theme] = { ...blocks[theme], ...declarations(body) }
   }
   return blocks
 }
@@ -134,8 +134,8 @@ function main() {
   const blocks = themeBlocks(fs.readFileSync(TOKENS_PATH, 'utf8'))
   const byTheme = {}
   let failures = 0
-  for (const theme of THEMES) {
-    if (!blocks[theme]) throw new Error(`tokens.css has no [data-theme='${theme}'] block`)
+  if (!blocks[BASE_THEME]) throw new Error(`tokens.css has no [data-theme='${BASE_THEME}'] block`)
+  for (const theme of Object.keys(blocks)) {
     const tokens = resolveTheme(blocks, theme)
     const results = evaluate((name) => {
       if (!(name in tokens)) throw new Error(`${theme} does not define --${name}`)

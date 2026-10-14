@@ -21,7 +21,10 @@
 :root,
 [data-theme='retro-dark'],
 [data-theme='retro-dark-soft'],
-[data-theme='retro-dark-lifted'] {
+[data-theme='retro-dark-lifted'],
+[data-theme='retro-midnight'],
+[data-theme='retro-forest'],
+[data-theme='retro-plum'] {
   color-scheme: dark;
 
   --canvas: 12 11 10;
@@ -101,6 +104,100 @@
   --text-faint: 150 144 134;
 }
 
+/* ── retro-midnight / retro-forest / retro-plum — more dark themes (plan frontend-redesign-v2, V7) ──
+   A blue-black, a green-black and a violet-black ink, each with its own accent. Values are worked out so
+   every pair passes scripts/check-contrast.cjs; each block is complete, so it does not lean on the base. */
+[data-theme='retro-midnight'] {
+  color-scheme: dark;
+  --canvas: 20 24 34;
+  --surface: 20 24 34;
+  --surface-raised: 29 34 47;
+  --surface-hover: 41 46 59;
+  --surface-active: 54 59 71;
+  --border-hairline: 46 50 60;
+  --border-strong: 74 78 88;
+  --border-control: 133 137 146;
+  --text-primary: 236 240 248;
+  --text-secondary: 206 210 218;
+  --text-muted: 171 175 184;
+  --text-faint: 163 167 175;
+  --text-decorative: 106 110 120;
+  --text-inverse: 0 0 10;
+  --text-on-accent: 12 11 10;
+  --accent-brand: 244 127 166;
+  --accent-info: 108 140 255;
+  --accent-info-text: 150 174 255;
+  --state-success: 47 212 163;
+  --state-running: 232 207 74;
+  --state-queued: 191 172 98;
+  --state-error: 255 126 136;
+  --state-live: 47 212 163;
+  --focus-ring: 244 127 166;
+  --bar-track: 63 67 77;
+  --scrim: 0 0 0;
+}
+
+[data-theme='retro-forest'] {
+  color-scheme: dark;
+  --canvas: 24 30 26;
+  --surface: 24 30 26;
+  --surface-raised: 33 41 36;
+  --surface-hover: 45 53 48;
+  --surface-active: 58 65 60;
+  --border-hairline: 50 55 51;
+  --border-strong: 78 83 78;
+  --border-control: 136 141 135;
+  --text-primary: 238 242 234;
+  --text-secondary: 208 212 205;
+  --text-muted: 174 178 172;
+  --text-faint: 169 174 167;
+  --text-decorative: 110 115 109;
+  --text-inverse: 0 6 2;
+  --text-on-accent: 12 11 10;
+  --accent-brand: 255 170 120;
+  --accent-info: 108 140 255;
+  --accent-info-text: 150 174 255;
+  --state-success: 47 212 163;
+  --state-running: 232 207 74;
+  --state-queued: 191 172 98;
+  --state-error: 255 138 148;
+  --state-live: 47 212 163;
+  --focus-ring: 255 170 120;
+  --bar-track: 67 72 68;
+  --scrim: 0 0 0;
+}
+
+[data-theme='retro-plum'] {
+  color-scheme: dark;
+  --canvas: 28 24 38;
+  --surface: 28 24 38;
+  --surface-raised: 38 33 51;
+  --surface-hover: 50 45 63;
+  --surface-active: 63 58 75;
+  --border-hairline: 54 50 63;
+  --border-strong: 82 78 91;
+  --border-control: 141 137 149;
+  --text-primary: 244 240 250;
+  --text-secondary: 214 210 220;
+  --text-muted: 179 175 186;
+  --text-faint: 171 167 178;
+  --text-decorative: 114 110 123;
+  --text-inverse: 4 0 14;
+  --text-on-accent: 12 11 10;
+  --accent-brand: 216 139 238;
+  --accent-info: 108 140 255;
+  --accent-info-text: 150 174 255;
+  --state-success: 47 212 163;
+  --state-running: 232 207 74;
+  --state-queued: 191 172 98;
+  --state-error: 255 132 142;
+  --state-live: 47 212 163;
+  --focus-ring: 216 139 238;
+  --bar-track: 71 67 80;
+  --scrim: 0 0 0;
+}
+
+
 /* ── retro-paper — warm light theme with its own accent set ─────────── */
 [data-theme='retro-paper'] {
   color-scheme: light;
@@ -136,6 +233,67 @@
   --focus-ring: 168 52 16;
   --bar-track: 196 187 164;
   --scrim: 28 26 23;
+}
+
+/* ── retro-paper-cool / retro-sand — more light themes ── */
+[data-theme='retro-paper-cool'] {
+  color-scheme: light;
+  --canvas: 242 244 247;
+  --surface: 242 244 247;
+  --surface-raised: 232 236 242;
+  --surface-hover: 220 224 230;
+  --surface-active: 207 211 218;
+  --border-hairline: 216 218 222;
+  --border-strong: 188 190 195;
+  --border-control: 113 116 124;
+  --text-primary: 24 28 38;
+  --text-secondary: 55 58 67;
+  --text-muted: 86 90 98;
+  --text-faint: 88 91 99;
+  --text-decorative: 155 158 163;
+  --text-inverse: 246 247 249;
+  --text-on-accent: 250 248 242;
+  --accent-brand: 140 40 160;
+  --accent-info: 53 82 200;
+  --accent-info-text: 47 73 184;
+  --state-success: 8 104 78;
+  --state-running: 104 90 0;
+  --state-queued: 100 86 28;
+  --state-error: 168 24 64;
+  --state-live: 8 104 78;
+  --focus-ring: 140 40 160;
+  --bar-track: 198 201 205;
+  --scrim: 24 28 38;
+}
+
+[data-theme='retro-sand'] {
+  color-scheme: light;
+  --canvas: 234 227 213;
+  --surface: 234 227 213;
+  --surface-raised: 226 218 202;
+  --surface-hover: 214 207 191;
+  --surface-active: 202 195 180;
+  --border-hairline: 210 203 190;
+  --border-strong: 183 177 165;
+  --border-control: 109 105 96;
+  --text-primary: 30 27 22;
+  --text-secondary: 59 55 49;
+  --text-muted: 85 81 73;
+  --text-faint: 84 80 72;
+  --text-decorative: 152 147 137;
+  --text-inverse: 240 235 226;
+  --text-on-accent: 250 248 242;
+  --accent-brand: 17 86 103;
+  --accent-info: 53 82 200;
+  --accent-info-text: 45 69 175;
+  --state-success: 8 89 67;
+  --state-running: 89 78 0;
+  --state-queued: 90 78 26;
+  --state-error: 152 22 58;
+  --state-live: 8 89 67;
+  --focus-ring: 17 86 103;
+  --bar-track: 193 187 175;
+  --scrim: 30 27 22;
 }
 
 /* ── Theme-independent tokens: typography, shape, motion (D17) ──────── */

@@ -1,3 +1,4 @@
+import { PRESET_IDS } from '../../../types/theme'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { memoryStorage } from '../../helpers/memoryStorage'
@@ -50,9 +51,11 @@ describe('AppearanceSettings', () => {
   it('applies a preset as soon as it is picked', async () => {
     const { w } = setup()
     const radios = w.findAll('input[type="radio"][name="theme"]')
-    expect(radios.map((r) => r.attributes('value'))).toEqual(['retro-dark', 'retro-dark-soft', 'retro-dark-lifted', 'retro-paper'])
-    await radios[3]!.setValue(true)
+    expect(radios.map((r) => r.attributes('value'))).toEqual([...PRESET_IDS])
+    await radios[PRESET_IDS.indexOf('retro-paper')]!.setValue(true)
     expect(controller.current.value.themeId).toBe('retro-paper')
+    await radios[PRESET_IDS.indexOf('retro-midnight')]!.setValue(true)
+    expect(controller.current.value.themeId).toBe('retro-midnight')
   })
 
   it('follows the system setting until a theme is chosen', async () => {
