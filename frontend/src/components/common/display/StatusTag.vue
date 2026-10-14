@@ -4,8 +4,10 @@ import type { StatusState } from "../../../types/ui"
 import { HOLLOW_DOT_STATES, STATUS_TAG_CLASS } from "../../../constants/status"
 
 // Borderless tinted state tag with a square dot (hollow while queued). The
-// label is always present — state is never conveyed by colour alone.
-const props = defineProps<{ state: StatusState; label: string }>()
+// label is always present — state is never conveyed by colour alone. `quiet`
+// keeps the label for assistive technology and shows only the dot, for a state
+// that needs no announcing (a chat that is simply ready).
+const props = defineProps<{ state: StatusState; label: string; quiet?: boolean }>()
 const hollow = computed(() => HOLLOW_DOT_STATES.includes(props.state))
 </script>
 
@@ -21,6 +23,6 @@ const hollow = computed(() => HOLLOW_DOT_STATES.includes(props.state))
       aria-hidden="true"
       :class="['h-1.5 w-1.5 flex-none', hollow ? 'bg-transparent shadow-[inset_0_0_0_1px_currentColor]' : 'bg-current']"
     ></span>
-    {{ label }}
+    <span :class="quiet ? 'sr-only' : undefined">{{ label }}</span>
   </span>
 </template>

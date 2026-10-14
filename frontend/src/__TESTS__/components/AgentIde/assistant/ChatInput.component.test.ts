@@ -7,9 +7,9 @@ vi.mock('../../../../services/commands/commandService', () => ({ CommandService:
 import ChatInput from '../../../../components/AgentIde/assistant/ChatInput.vue'
 
 const mounted: VueWrapper[] = []
-function mountInput(inputMessage = '') {
+function mountInput(inputMessage = '', compact = false) {
   const w = mount(ChatInput, {
-    props: { loading: false, paused: false, inputMessage },
+    props: { loading: false, paused: false, inputMessage, compact },
     global: { stubs: { Icon: true } },
     attachTo: document.body,
   })
@@ -54,6 +54,10 @@ describe('ChatInput', () => {
     expect((w.get('textarea').element as HTMLTextAreaElement).style.height).toBe('120px')
   })
 
+  it('starts three lines tall, so a message has room to be written', () => {
+    expect(mountInput().get('textarea').attributes('rows')).toBe('3')
+  })
+
   it('keeps a short message compact, without a size note or an expand control', () => {
     const w = mountInput('hello')
     expect(w.find('[data-test="draft-size"]').exists()).toBe(false)
@@ -68,6 +72,38 @@ describe('ChatInput', () => {
     await toggle.trigger('click')
     expect(w.get('textarea').classes()).toContain('is-expanded')
     expect(w.get('button[aria-label="Shrink the message box"]').attributes('aria-pressed')).toBe('true')
+  })
+
+  describe('on a small screen', () => {
+    it('opens the full-screen editor instead of growing in place', async () => {
+      const w = mountInput(LONG_DRAFT, true)
+      await w.get('button[aria-label="Open the full-screen editor"]').trigger('click')
+      expect(w.find('[role="dialog"]').exists()).toBe(true)
+      expect((w.get('[role="dialog"] textarea').element as HTMLTextAreaElement).value).toBe(LONG_DRAFT)
+      expect(w.get('textarea').classes()).not.toContain('is-expanded')
+    })
+
+    it('edits the same draft, and closes the editor once the message is sent', async () => {
+      const w = mountInput(LONG_DRAFT, true)
+      await w.get('button[aria-label="Open the full-screen editor"]').trigger('click')
+      await w.get('[role="dialog"] textarea').setValue('edited')
+      const fills = w.emitted('update:inputMessage')!
+      expect(fills[fills.length - 1]).toEqual(['edited'])
+      await w.setProps({ inputMessage: '' })
+      expect(w.find('[role="dialog"]').exists()).toBe(false)
+    })
+
+    it('sends from the editor', async () => {
+      const w = mountInput(LONG_DRAFT, true)
+      await w.get('button[aria-label="Open the full-screen editor"]').trigger('click')
+      await w.findAll('[role="dialog"] button').find((b) => /send/i.test(b.text()))!.trigger('click')
+      expect(w.emitted('send')).toHaveLength(1)
+    })
+
+    it('keeps send and stop at a touch-sized target', () => {
+      const w = mountInput('hi', true)
+      expect(w.get('button[aria-label="Send"]').classes().join(' ')).toContain('h-11')
+    })
   })
 
   it('collapses again once the message is sent', async () => {

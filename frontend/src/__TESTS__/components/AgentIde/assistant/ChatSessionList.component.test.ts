@@ -46,6 +46,21 @@ describe('ChatSessionList', () => {
     expect(onNewChat).toHaveBeenCalled()
   })
 
+  it('keeps New in a footer row of its own, away from the list actions', async () => {
+    const { w, onNewChat } = await mountList()
+    const footer = w.get('[data-test="session-new"]')
+    expect(footer.text()).toMatch(/new chat/i)
+    await footer.trigger('click')
+    expect(onNewChat).toHaveBeenCalled()
+    expect(w.findAll('button[aria-label="New chat"]')).toHaveLength(0)
+  })
+
+  it('offers to hide the list on every screen size', async () => {
+    const { w, button } = await mountList()
+    await button(/^hide conversations$/i)!.trigger('click')
+    expect(w.emitted('close')).toHaveLength(1)
+  })
+
   it('searches conversation titles', async () => {
     const { w, headings } = await mountList()
     await w.get('input[type="search"]').setValue('nas')

@@ -1,20 +1,24 @@
 <script setup lang="ts">
 import { computed, ref, toRef, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { formatTokenCount } from '../../../utils/format/units'
+import { formatDraftSize } from '../../../utils/assistant/draftSize'
 import BaseButton from '../../common/buttons/BaseButton.vue'
 import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 import SlashHelper from './SlashHelper.vue'
+import ComposeSheet from './ComposeSheet.vue'
 import { useSlashCommands } from '../../../composables/assistant/useSlashCommands'
 import type { CommandInfo } from '../../../types/commands'
 
-// The message box grows with its text up to a cap, then scrolls; a long draft
-// (a big paste) says how big it is and can be expanded to most of the screen
-// to read it before sending.
+// The message box starts three lines tall and grows with its text up to a cap, then
+// scrolls; a long draft (a big paste) says how big it is and can be expanded to read
+// it before sending — in place on a roomy screen, in a full-screen editor on a
+// compact one (`compact`).
 
 const props = defineProps<{
   loading: boolean
   paused: boolean
   inputMessage: string
+  /** A small screen: expanding opens the full-screen editor instead of growing the box. */
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -27,9 +31,13 @@ const emit = defineEmits<{
 const LONG_DRAFT_LINES = 8
 const LONG_DRAFT_CHARS = 600
 const LINE_BREAK = '\n'
+const START_ROWS = 3
+// Primary actions grow to a 44px target on a touch screen.
+const TOUCH_TARGET = '[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11'
 
 const inputRef = ref<HTMLTextAreaElement | null>(null)
 const expanded = ref(false)
+const sheetOpen = ref(false)
 
 // "/" opens the command menu; once a command is named it shows its usage and a live preview.
 const { suggestions, active, preview, completion, withExample } = useSlashCommands(toRef(props, 'inputMessage'))
@@ -43,11 +51,13 @@ const pickExample = (command: CommandInfo, example: string) => fill(withExample(
 
 const lineCount = computed(() => props.inputMessage.split(LINE_BREAK).length)
 const isLongDraft = computed(() => lineCount.value > LONG_DRAFT_LINES || props.inputMessage.length > LONG_DRAFT_CHARS)
-const draftSize = computed(() => {
-  const lines = lineCount.value
-  const chars = props.inputMessage.length
-  return `${lines} line${lines === 1 ? '' : 's'} · ${formatTokenCount(chars)} character${chars === 1 ? '' : 's'}`
-})
+const draftSize = computed(() => formatDraftSize(props.inputMessage))
+
+const expandLabel = computed(() => (props.compact ? 'Open the full-screen editor' : expanded.value ? 'Shrink the message box' : 'Expand the message box'))
+function toggleExpand() {
+  if (props.compact) sheetOpen.value = true
+  else expanded.value = !expanded.value
+}
 
 // Height follows the content; the CSS max-height caps it and the box scrolls.
 // A hidden box (its kept-alive page in the background) reports no content
@@ -64,7 +74,10 @@ function resize() {
 // The prop, not the input event, drives the size: a send clears it and a
 // template can fill it without the user typing.
 watch(() => props.inputMessage, (text) => {
-  if (!text) expanded.value = false
+  if (!text) {
+    expanded.value = false
+    sheetOpen.value = false
+  }
   void nextTick(resize)
 })
 watch(expanded, () => void nextTick(resize))
@@ -112,7 +125,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           placeholder="Ask the workspace agent…"
           class="chat-input"
           :class="{ 'is-loading': loading, 'is-expanded': expanded }"
-          rows="1"
+          :rows="START_ROWS"
           :disabled="loading"
         ></textarea>
       </div>
@@ -121,16 +134,24 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
         <BaseButton
           variant="ghost"
           size="sm"
-          :icon="expanded ? 'chevron-down' : 'chevron-up'"
+          :icon="expanded && !compact ? 'chevron-down' : 'chevron-up'"
           icon-only
-          :label="expanded ? 'Shrink the message box' : 'Expand the message box'"
-          :aria-pressed="expanded"
-          @click="expanded = !expanded"
+          :label="expandLabel"
+          :aria-pressed="compact ? undefined : expanded"
+          class-name="[@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+          @click="toggleExpand"
         />
       </div>
     </div>
-    <BaseButton v-if="loading" variant="danger" size="lg" icon="stop" icon-only label="Stop the run" @click="emit('cancel')" />
-    <BaseButton v-else variant="primary" size="lg" icon="send" icon-only label="Send" :disabled="!inputMessage.trim()" @click="emit('send')" />
+    <BaseButton v-if="loading" variant="danger" size="lg" icon="stop" icon-only label="Stop the run" :class-name="TOUCH_TARGET" @click="emit('cancel')" />
+    <BaseButton v-else variant="primary" size="lg" icon="send" icon-only label="Send" :class-name="TOUCH_TARGET" :disabled="!inputMessage.trim()" @click="emit('send')" />
+    <ComposeSheet
+      :open="sheetOpen"
+      :model-value="inputMessage"
+      @update:model-value="emit('update:inputMessage', $event)"
+      @send="emit('send')"
+      @close="sheetOpen = false"
+    />
   </div>
 </template>
 
@@ -142,5 +163,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .chat-input.is-expanded { max-height: min(55vh, calc(100vh - 22rem)); }
 .chat-input:disabled { @apply opacity-50 cursor-not-allowed; }
 .chat-input.is-loading { @apply border-transparent; }
+/* 16px on a touch screen: below that the browser zooms the page when the box is focused. */
+@media (pointer: coarse) { .chat-input { font-size: 16px; } }
 
 </style>

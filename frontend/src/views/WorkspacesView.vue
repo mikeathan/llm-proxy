@@ -409,7 +409,7 @@ usePolling(() => {
         </Panel>
       </div>
 
-      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100vh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-sm)] border border-hairline">
+      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-sm)] border border-hairline">
         <AssistantChat
           :workspaceId="ws"
           :conversation-id="location.conversationId"

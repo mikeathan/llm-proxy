@@ -167,7 +167,8 @@ watch(
       <span v-if="live && seconds > 0" class="activity-time">{{ formatElapsedSeconds(seconds) }}</span>
     </button>
 
-    <div class="bubble-inset-wrap" :class="{ collapsed: isInsetCollapsed }">
+    <!-- A turn that answered without any work has no timeline, and no empty wrapper to add a gap above the answer. -->
+    <div v-if="hasActivity" class="bubble-inset-wrap" :class="{ collapsed: isInsetCollapsed }">
       <!-- v-show (not v-if): keeping the timeline mounted makes collapse/expand
            during streaming flicker-free (no re-mount + markdown re-parse on
            expand). display:none still prevents the empty-panel paint while
@@ -304,7 +305,7 @@ watch(
 </template>
 
 <style scoped>
-.turn { @apply flex w-full min-w-0 flex-col gap-2 break-words; }
+.turn { @apply flex w-full min-w-0 flex-col gap-3 break-words; }
 .message-wrapper--virtualized { content-visibility: auto; contain-intrinsic-size: auto 120px; }
 
 /* ── Activity line ── */
@@ -365,7 +366,7 @@ watch(
 .inset-notice--resolved { @apply opacity-60; }
 
 /* ── Answer and its actions ── */
-.turn-answer { @apply min-w-0 pt-1; }
+.turn-answer { @apply min-w-0 pt-1.5; }
 .turn-footer { @apply -ml-1.5 flex min-w-0 items-center gap-2; }
 .turn-memory { @apply flex min-w-0 flex-col gap-1 border-l-2 border-hairline pl-3 text-[length:var(--text-small)] text-muted; }
 .turn-memory-label { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-faint; }

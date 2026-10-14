@@ -25,6 +25,7 @@ import { useConfirm } from "../../../composables/ui/useConfirm";
 import { usePinnedSessions } from "../../../composables/assistant/usePinnedSessions";
 import type { StatusState } from "../../../types/ui";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
+import { usePersistedState } from "../../../composables/ui/usePersistedState";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 
 const props = defineProps<{
@@ -76,7 +77,25 @@ const status = computed<{ state: StatusState; label: string }>(() => {
 });
 
 const inputMessage = ref("");
-const sidebarOpen = ref(false);
+// Whether the conversation list is open is a per-browser preference on a roomy
+// screen (closed until the operator opens it); on a phone it is a drawer that always
+// starts closed.
+const HISTORY_OPEN_KEY = "assistant-history-open";
+const NEW_CONVERSATION = "New conversation";
+const historyOpenPref = usePersistedState<boolean>(HISTORY_OPEN_KEY, {
+  version: 1,
+  fallback: false,
+  parse: (data) => (typeof data === "boolean" ? data : null),
+});
+const drawerOpen = ref(false);
+const sidebarOpen = computed({
+  get: () => (isMobile.value ? drawerOpen.value : historyOpenPref.value),
+  set: (open: boolean) => {
+    if (isMobile.value) drawerOpen.value = open;
+    else historyOpenPref.value = open;
+  },
+});
+const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || NEW_CONVERSATION);
 const inboundCount = ref(0);
 const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
 
@@ -325,26 +344,33 @@ const handleDeleteGroup = async (ids: string[]) => {
     <div class="chat-area">
       <header class="chat-header">
         <div class="flex min-w-0 items-center gap-2">
-          <span class="relative">
-            <BaseButton
-              variant="ghost"
-              size="sm"
-              :icon="sidebarOpen ? 'chevron-left' : 'chevron-right'"
-              icon-only
-              :label="sidebarOpen ? 'Hide conversations' : 'Show conversations'"
-              :aria-expanded="sidebarOpen"
-              @click="toggleSidebar"
-            />
-            <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
-          </span>
-          <BaseButton variant="ghost" size="sm" icon="plus" icon-only label="New chat" @click="handleNewChat" />
-          <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ workspaceId }}</h2>
-          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" />
+          <!-- History and New are one control, so New is never alone; with the list open on a roomy screen the list holds both. -->
+          <div v-if="isMobile || !sidebarOpen" class="header-cap" role="group" aria-label="Conversations">
+            <span class="relative">
+              <BaseButton
+                variant="ghost"
+                size="sm"
+                :icon="isMobile ? 'menu' : 'chevron-right'"
+                icon-only
+                :label="sidebarOpen ? 'Hide conversations' : 'Show conversations'"
+                :aria-expanded="sidebarOpen"
+                @click="toggleSidebar"
+              />
+              <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
+            </span>
+            <span class="cap-sep" aria-hidden="true"></span>
+            <BaseButton data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="isMobile" label="New chat" aria-label="New chat" @click="handleNewChat">New</BaseButton>
+          </div>
+          <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
+          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" :quiet="status.state === 'neutral'" />
         </div>
         <div class="flex flex-none items-center gap-1">
           <BaseButton
             variant="ghost"
             size="sm"
+            icon="memory"
+            :icon-only="isMobile"
+            label="Review for memories"
             :disabled="!currentSessionId || loading"
             title="Ask the model which facts in this conversation are worth remembering"
             @click="startReview()"
@@ -381,6 +407,7 @@ const handleDeleteGroup = async (ids: string[]) => {
       />
 
       <ChatInput
+        :compact="isMobile"
         :loading="loading"
         :paused="paused"
         :input-message="inputMessage"
@@ -473,6 +500,13 @@ const handleDeleteGroup = async (ids: string[]) => {
 
 .chat-header {
   @apply flex min-h-11 items-center justify-between gap-2 border-b border-hairline bg-surface px-3 py-1.5 z-10;
+}
+
+.header-cap {
+  @apply inline-flex flex-none items-center rounded-[var(--radius-md)] bg-surface-raised p-0.5;
+}
+.cap-sep {
+  @apply h-4 w-px flex-none bg-border-strong;
 }
 
 .badge-dot {

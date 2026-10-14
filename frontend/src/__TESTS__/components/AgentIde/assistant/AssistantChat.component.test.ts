@@ -89,6 +89,41 @@ describe('AssistantChat', () => {
     expect(button(/^close the assistant$/i)).toBeDefined()
   })
 
+  it('keeps the conversation list open between visits, on a roomy screen', async () => {
+    const first = mountChat()
+    await first.button(/^show conversations$/i)!.trigger('click')
+    first.w.unmount()
+    const again = mountChat()
+    expect(again.button(/^hide conversations$/i)).toBeDefined()
+  })
+
+  it('shows the open conversation as the title, and a new one as such', async () => {
+    const { w } = mountChat()
+    expect(w.get('h2').text()).toBe('New conversation')
+    a.currentSessionId.value = 's1'
+    await flushPromises()
+    expect(w.get('h2').text()).toBe('Plan the move')
+    a.currentSessionId.value = null
+  })
+
+  it('puts New next to the list toggle while the list is closed, and in the list once it is open', async () => {
+    const { w, button } = mountChat()
+    expect(w.find('[data-test="header-new"]').exists()).toBe(true)
+    await w.get('[data-test="header-new"]').trigger('click')
+    expect(a.newSession).toHaveBeenCalled()
+    await button(/^show conversations$/i)!.trigger('click')
+    expect(w.find('[data-test="header-new"]').exists()).toBe(false)
+    expect(w.get('[data-test="session-new"]').text()).toMatch(/new chat/i)
+  })
+
+  it('says "Ready" only to assistive technology, and shows a working state in words', async () => {
+    const { w } = mountChat()
+    expect(w.get('[data-test="chat-status"] .sr-only').text()).toBe('Ready')
+    a.loading.value = true
+    await flushPromises()
+    expect(w.find('[data-test="chat-status"] .sr-only').exists()).toBe(false)
+  })
+
   // The review needs a saved conversation and a finished turn; it is the operator's per-chat control over memory.
   it('offers "Review for memories" only for a saved conversation that is not running', async () => {
     const { button } = mountChat()
