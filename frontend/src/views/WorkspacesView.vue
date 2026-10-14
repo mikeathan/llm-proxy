@@ -357,7 +357,9 @@ usePolling(() => {
 
     <!-- One workspace -->
     <template v-else>
+      <!-- On a phone the chat fills the screen between the top strip and the tab bar; its sections are one tap away under Workspace. -->
       <WorkspaceHeader
+        :class="{ 'max-lg:hidden': section === 'assistant' }"
         :ws="ws"
         :workspaces="workspaces"
         :section="section"
@@ -418,7 +420,7 @@ usePolling(() => {
         </Panel>
       </div>
 
-      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)]">
+      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)] max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom))] max-lg:top-12 max-lg:z-20 max-lg:h-auto max-lg:min-h-0 max-lg:rounded-none">
         <AssistantChat
           v-if="viewActive"
           :workspaceId="ws"

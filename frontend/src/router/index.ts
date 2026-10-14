@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import { toWorkspaceFile, toWorkspaceSection } from './routes'
+import { useLastWorkspace } from '../composables/ui/useLastWorkspace'
+import { homeLocation } from '../utils/navigation'
 
 // Route table (plan D18). Every page is a lazy chunk. Routes that share a
 // loader render the same component, so moving between them keeps one instance
@@ -16,6 +18,8 @@ const SettingsView = () => import('../views/SettingsView.vue')
 const NotFoundView = () => import('../views/NotFoundView.vue')
 
 const WORKSPACES_META = { destination: 'workspaces', keepAlive: true, fullWidth: true, title: 'Workspaces' } as const
+// The assistant is a Workspaces route (one kept-alive view), titled for what it is.
+const ASSISTANT_META = { ...WORKSPACES_META, title: 'Assistant' } as const
 const AUTOMATIONS_META = { destination: 'automations', fullWidth: true, title: 'Automations' } as const
 const SECTION_PATTERN = WORKSPACE_SECTIONS.join('|')
 
@@ -26,7 +30,8 @@ const devRoutes: RouteRecordRaw[] = import.meta.env.DEV
   : []
 
 export const routes: RouteRecordRaw[] = [
-  { path: '/', redirect: { name: ROUTE_NAMES.overview } },
+  // The app opens on the assistant of the workspace last used, else the Overview.
+  { path: '/', redirect: () => homeLocation(useLastWorkspace().lastWorkspace.value) },
   { path: '/overview', name: ROUTE_NAMES.overview, component: OverviewView, meta: { destination: 'overview', title: 'Overview' } },
 
   { path: '/workspaces', name: ROUTE_NAMES.workspaces, component: WorkspacesView, meta: WORKSPACES_META },
@@ -36,7 +41,7 @@ export const routes: RouteRecordRaw[] = [
     redirect: (to) => toWorkspaceFile(String(to.params.ws)),
   },
   { path: '/workspaces/:ws/files/:path(.*)*', name: ROUTE_NAMES.workspaceFiles, component: WorkspacesView, meta: WORKSPACES_META },
-  { path: '/workspaces/:ws/assistant/:conversationId?', name: ROUTE_NAMES.workspaceAssistant, component: WorkspacesView, meta: WORKSPACES_META },
+  { path: '/workspaces/:ws/assistant/:conversationId?', name: ROUTE_NAMES.workspaceAssistant, component: WorkspacesView, meta: ASSISTANT_META },
   // The workspace guardrail policy moved from Security to Settings (Phase 5); old links still land.
   {
     path: '/workspaces/:ws/security',

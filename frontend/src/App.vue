@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, type RouteLocationNormalizedLoaded } from 'vue-router'
 import SkipLink from './components/layout/SkipLink.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
+import BottomTabs from './components/layout/BottomTabs.vue'
 import AdminHeader from './components/layout/AdminHeader.vue'
 import AskField from './components/layout/AskField.vue'
 import AskPanel from './components/layout/AskPanel.vue'
@@ -16,7 +17,8 @@ import AppBanner from './components/ui/AppBanner.vue'
 import { useConfirm } from './composables/ui/useConfirm'
 import { useRunNotifications } from './composables/assistant/useRunNotifications'
 import RunNotifications from './components/common/display/RunNotifications.vue'
-import type { Destination } from './types/routes'
+import { badgeTarget } from './utils/navigation'
+import type { NavId } from './types/routes'
 import type { RunEndItem } from './types/notifications'
 
 const { isOpen, options, handleConfirm, handleCancel } = useConfirm()
@@ -27,19 +29,18 @@ const route = useRoute()
 // Run notifications (plan Phase 4): the bell lives in the top strip and each
 // destination owning unread runs gets a badge. Opening a run clears it.
 const runNotifications = useRunNotifications()
-const destinationBadges = computed(() => {
-  const counts: Partial<Record<Destination, number>> = {}
+const navBadges = computed(() => {
+  const counts: Partial<Record<NavId, number>> = {}
   for (const batch of runNotifications.notifications.value) {
-    for (const item of batch.items) counts[item.destination] = (counts[item.destination] ?? 0) + 1
+    for (const item of batch.items) {
+      const entry = badgeTarget(item)
+      counts[entry] = (counts[entry] ?? 0) + 1
+    }
   }
   return counts
 })
 const openRun = (item: RunEndItem) => runNotifications.dismissItem(item.id)
 const { isMobile } = useResponsiveLayout()
-const drawerOpen = ref(false)
-watch(isMobile, (mobile) => {
-  if (!mobile) drawerOpen.value = false
-})
 
 // Keep-alive is opt-in by route meta (plan D19): once a `keepAlive` route has
 // resolved its lazy component, that component's name joins the include list.
@@ -57,9 +58,12 @@ watch(
   },
   { immediate: true },
 )
-const contentClass = computed(() =>
+// A phone keeps the content clear of the bottom bar (its height plus the home indicator).
+const BOTTOM_BAR_CLEARANCE = 'pb-[calc(3.5rem+env(safe-area-inset-bottom)+1rem)]'
+const contentClass = computed(() => [
   route.meta.fullWidth ? 'w-full px-4 py-4 md:px-6 [counter-reset:section]' : 'mx-auto w-full max-w-[1120px] px-4 py-4 md:px-6 md:py-8 [counter-reset:section]',
-)
+  isMobile.value ? BOTTOM_BAR_CLEARANCE : '',
+])
 
 const { state, refresh: refreshModels } = useModels()
 const { refresh: refreshMcp } = useMcpServers()
@@ -78,10 +82,10 @@ onMounted(() => {
   <RouterView v-if="route.meta.bare" />
   <div v-else class="flex min-h-screen bg-canvas font-sans text-secondary">
     <SkipLink target="content" />
-    <AppSidebar v-model:open="drawerOpen" :mobile="isMobile" :badges="destinationBadges" />
+    <AppSidebar v-if="!isMobile" :badges="navBadges" />
 
     <div class="flex min-w-0 flex-1 flex-col">
-      <AdminHeader :mobile="isMobile" :drawer-open="drawerOpen" @toggle-drawer="drawerOpen = !drawerOpen">
+      <AdminHeader :mobile="isMobile">
         <template #actions>
           <AskField :mobile="isMobile" />
           <RunNotifications
@@ -113,6 +117,9 @@ onMounted(() => {
 
     <!-- The assistant beside any page; a full-screen dialog on a narrow screen. -->
     <AskPanel />
+
+    <!-- A phone's navigation: tabs within thumb's reach and a More sheet. -->
+    <BottomTabs v-if="isMobile" :badges="navBadges" />
   </div>
 
   <Toast />

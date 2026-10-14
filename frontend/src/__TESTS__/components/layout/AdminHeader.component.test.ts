@@ -5,11 +5,11 @@ import { createAppRouter } from '../../../router'
 import AdminHeader from '../../../components/layout/AdminHeader.vue'
 import { PRODUCT_NAME } from '../../../config/brand'
 
-async function mountAt(path: string, mobile: boolean, drawerOpen = false) {
+async function mountAt(path: string, mobile: boolean) {
   const router = createAppRouter(createMemoryHistory())
   await router.push(path)
   const wrapper = mount(AdminHeader, {
-    props: { mobile, drawerOpen },
+    props: { mobile },
     global: { plugins: [router], stubs: {
         Icon: true,
         RunActivityPill: { template: '<div data-test="run-pill" />' },
@@ -22,7 +22,7 @@ async function mountAt(path: string, mobile: boolean, drawerOpen = false) {
 
 describe('AdminHeader (top strip)', () => {
   it('shows the page title and the run pill on every destination', async () => {
-    for (const [path, title] of [['/overview', 'Overview'], ['/workspaces/ws/files', 'Workspaces'], ['/nope', 'Not found']]) {
+    for (const [path, title] of [['/overview', 'Overview'], ['/workspaces/ws/files', 'Workspaces'], ['/workspaces/ws/assistant', 'Assistant'], ['/nope', 'Not found']]) {
       const wrapper = await mountAt(path!, false)
       expect(wrapper.get('[aria-current="page"]').text()).toBe(title)
       expect(wrapper.find('[data-test="run-pill"]').exists()).toBe(true)
@@ -39,17 +39,13 @@ describe('AdminHeader (top strip)', () => {
 
   it('leaves the brand to the rail on desktop', async () => {
     const wrapper = await mountAt('/overview', false)
-    expect(wrapper.find('[data-test="drawer-toggle"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain(PRODUCT_NAME)
   })
 
-  it('on mobile, shows the brand and a labelled drawer toggle', async () => {
+  it('on mobile, shows the brand, linked home, in place of the hidden rail', async () => {
     const wrapper = await mountAt('/overview', true)
     expect(wrapper.text()).toContain(PRODUCT_NAME)
-    const toggle = wrapper.get('[data-test="drawer-toggle"]')
-    expect(toggle.attributes('aria-label')).toBe('Open navigation')
-    expect(toggle.attributes('aria-expanded')).toBe('false')
-    await toggle.trigger('click')
-    expect(wrapper.emitted('toggle-drawer')).toHaveLength(1)
+    expect(wrapper.get('a[aria-label$="home"]').attributes('href')).toBe('/overview')
+    expect(wrapper.find('[data-test="drawer-toggle"]').exists()).toBe(false)
   })
 })
