@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.10"
+version: "2.11"
 status: stable
-last_updated: 2026-10-11
+last_updated: 2026-10-14
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -12,6 +12,21 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.11 (2026-10-14)** — Redesign v2 (plan `cross-cutting/frontend-redesign-v2.md`). The shell is assistant-first:
+  **Assistant** is the first destination, **Workspaces** leaves the sidebar (a global **workspace chip** in the header
+  picks the active workspace, defaulting to the last used, and a **Workspace** destination holds Files, Memory,
+  Playbooks, Heartbeat and Settings), and a compact **Ask** field opens the assistant as a side panel on any page
+  (full screen on phones; hidden on the Assistant route; one `AssistantChat` mounted at a time). Below the mobile
+  breakpoint a **bottom tab bar** (Assistant, Workspace, Automations, Reminders, More) replaces the drawer as the
+  primary navigation. **Settings** gets six group tabs (General, Models, Safety, Connectors, Appearance, System) over
+  the unchanged `/settings/<section>` routes, with chips for groups holding several sections. The assistant's message
+  box starts at three lines (16 px on touch), long drafts open a full-screen editor on phones, history is collapsible
+  (persisted) with a pinned **New** row, and answers read in a looser column. **Look:** areas are separated by tone and
+  space rather than borders (borders stay on inputs and the composer), one 8 px radius (12 px for the composer), and the
+  accent appears only on the primary button, the active-navigation marker, focus and the logo. **Themes:** more dark and
+  light presets. Changes the retro design language of §IV (2 px corners, hairline panel borders) and the seven-destination
+  rail of §II.1.
 
 - **2.10 (2026-10-12)** — Reminders page management. **New reminder** (page header and empty state) opens the form
   with the time set to 09:00 tomorrow in the browser's timezone. The form has a **Repeat** switch, so a one-off can
