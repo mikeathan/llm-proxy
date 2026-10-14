@@ -156,7 +156,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 </template>
 
 <style scoped>
-.input-area { @apply p-3 sm:p-4 border-t border-hairline bg-surface flex items-end gap-2 shrink-0; }
+.input-area { @apply p-3 sm:p-4 bg-canvas flex items-end gap-2 shrink-0; }
 .input-wrap { @apply relative; isolation: isolate; }
 .chat-input { @apply block w-full rounded-[var(--radius-md)] border border-control bg-canvas px-3 py-2.5 text-[length:var(--text-body)] text-primary placeholder:text-faint resize-none transition-colors focus-visible:outline-none focus-visible:ring-2; position: relative; z-index: 0; max-height: min(40vh, 18rem); overflow-y: auto; }
 /* The chat panel is 100vh - 10rem tall: leave room for its header and the latest messages. */

@@ -18,7 +18,7 @@ const emit = defineEmits<{
 
 <template>
   <div class="group relative flex flex-col items-end">
-    <div class="relative max-w-[85%] rounded-[var(--radius-md)] border border-hairline bg-surface-raised px-3.5 py-2.5 text-primary">
+    <div class="relative max-w-[85%] rounded-[var(--radius-md)] bg-surface-raised px-3.5 py-2.5 text-primary">
       <div class="whitespace-pre-wrap break-words text-[length:var(--text-body)] leading-relaxed">{{ content }}</div>
     </div>
     <div class="absolute right-0 top-full z-[1] flex items-center gap-0.5 opacity-0 transition-opacity duration-fast focus-within:opacity-100 group-hover:opacity-100">

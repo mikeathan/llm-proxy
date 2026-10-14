@@ -120,14 +120,14 @@ function onKeydown(event: KeyboardEvent) {
     :data-collapsed="collapsed"
     :inert="mobile && !open ? true : undefined"
     :class="[
-      'flex flex-col border-r border-hairline bg-canvas',
+      'flex flex-col bg-surface-raised',
       mobile
         ? ['fixed inset-y-0 left-0 z-40 w-[264px] transition-transform duration-slow ease-emphasised', open ? 'translate-x-0' : '-translate-x-full']
         : ['sticky top-0 h-screen flex-none transition-[width] duration-slow ease-standard', collapsed ? 'w-14' : 'w-[216px]'],
     ]"
     @keydown="onKeydown"
   >
-    <div class="flex h-12 flex-none items-center gap-2.5 overflow-hidden border-b border-hairline px-4">
+    <div class="flex h-12 flex-none items-center gap-2.5 overflow-hidden px-4">
       <RouterLink
         :to="toOverview()"
         :aria-label="`${PRODUCT_NAME} home`"
@@ -187,7 +187,7 @@ function onKeydown(event: KeyboardEvent) {
       </div>
     </nav>
 
-    <div v-if="!mobile" class="flex-none border-t border-hairline p-2">
+    <div v-if="!mobile" class="flex-none p-2">
       <button
         type="button"
         data-test="sidebar-collapse"

@@ -499,7 +499,7 @@ const handleDeleteGroup = async (ids: string[]) => {
 }
 
 .chat-header {
-  @apply flex min-h-11 items-center justify-between gap-2 border-b border-hairline bg-surface px-3 py-1.5 z-10;
+  @apply flex min-h-11 items-center justify-between gap-2 bg-canvas px-3 py-1.5 z-10;
 }
 
 .header-cap {

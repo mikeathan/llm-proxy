@@ -72,8 +72,8 @@ const cancelRename = () => {
 </script>
 
 <template>
-  <div class="flex h-full w-full flex-col overflow-hidden border-r border-hairline bg-surface">
-    <div class="flex flex-none items-center justify-between gap-2 border-b border-hairline px-3 py-2">
+  <div class="flex h-full w-full flex-col overflow-hidden bg-surface-raised">
+    <div class="flex flex-none items-center justify-between gap-2 px-3 py-2">
       <MicroLabel>Conversations</MicroLabel>
       <span class="flex items-center gap-1">
         <BaseButton v-if="sessions.length" variant="ghost" size="sm" icon="trash" icon-only label="Delete all conversations" @click="emit('clear-all')" />
