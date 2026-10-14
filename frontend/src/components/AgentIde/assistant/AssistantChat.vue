@@ -322,7 +322,7 @@ const handleDeleteGroup = async (ids: string[]) => {
 
     <!-- Mobile drawer -->
     <Transition name="drawer">
-      <div v-if="compact && sidebarOpen" :class="['mobile-drawer', { 'mobile-drawer--panel': variant === 'panel' }]" @click.stop>
+      <div v-if="compact && sidebarOpen" class="mobile-drawer" @click.stop>
         <ChatSessionList
           :sessions="sessions"
           :current-session-id="currentSessionId"
@@ -344,7 +344,7 @@ const handleDeleteGroup = async (ids: string[]) => {
     <Transition name="fade">
       <div
         v-if="compact && sidebarOpen"
-        :class="['mobile-backdrop', { 'mobile-backdrop--panel': variant === 'panel' }]"
+        class="mobile-backdrop"
         @click="toggleSidebar"
       />
     </Transition>
@@ -469,19 +469,12 @@ const handleDeleteGroup = async (ids: string[]) => {
 
 /* ── Mobile drawer + backdrop ── */
 .mobile-backdrop {
-  @apply fixed inset-0 bg-scrim/50 z-30;
+  @apply absolute inset-0 bg-scrim/50 z-30;
 }
 
+/* The list slides over the chat box (a phone's, or the ask panel's), never over the top strip or the tab bar. */
 .mobile-drawer {
-  @apply fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] z-40;
-}
-
-/* In the ask panel the list slides over the chat, not over the whole screen. */
-.mobile-backdrop--panel {
-  @apply absolute;
-}
-.mobile-drawer--panel {
-  @apply absolute w-[85%];
+  @apply absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] z-40;
 }
 
 /* ── Drawer transitions ── */

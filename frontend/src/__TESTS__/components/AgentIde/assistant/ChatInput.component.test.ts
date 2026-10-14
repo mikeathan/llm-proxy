@@ -10,7 +10,7 @@ const mounted: VueWrapper[] = []
 function mountInput(inputMessage = '', compact = false) {
   const w = mount(ChatInput, {
     props: { loading: false, paused: false, inputMessage, compact },
-    global: { stubs: { Icon: true } },
+    global: { stubs: { Icon: true, teleport: true } },
     attachTo: document.body,
   })
   mounted.push(w)

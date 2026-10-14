@@ -130,8 +130,7 @@ describe('AssistantChat', () => {
       const { w, button } = mountPanel()
       expect(w.find('aside.chat-sidebar').exists()).toBe(false)
       await button(/^show conversations$/i)!.trigger('click')
-      const drawer = w.get('.mobile-drawer')
-      expect(drawer.classes()).toContain('mobile-drawer--panel')
+      expect(w.find('.mobile-drawer').exists()).toBe(true)
       expect(w.text()).toContain('Plan the move')
     })
 

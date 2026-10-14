@@ -7,6 +7,8 @@ import BaseButton from '../../common/buttons/BaseButton.vue'
 // is too short to read or edit a big paste with the keyboard up. It edits the same
 // draft as the chat's own box, so nothing is copied back and forth. Escape and Done
 // close it, focus lands in the message when it opens and returns to what opened it.
+// It is teleported to <body>: a fixed ancestor (the phone's chat box) is a stacking
+// context, so an editor left inside it would sit under the top strip and the tab bar.
 const props = defineProps<{ open: boolean; modelValue: string }>()
 
 const emit = defineEmits<{
@@ -36,6 +38,7 @@ watch(
 </script>
 
 <template>
+  <Teleport to="body">
   <div
     v-if="open"
     role="dialog"
@@ -57,6 +60,7 @@ watch(
       @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     ></textarea>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>

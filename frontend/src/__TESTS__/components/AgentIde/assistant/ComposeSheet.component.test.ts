@@ -7,7 +7,7 @@ const mounted: VueWrapper[] = []
 function mountSheet(props: { open?: boolean; modelValue?: string } = {}) {
   const w = mount(ComposeSheet, {
     props: { open: true, modelValue: 'first line\nsecond line', ...props },
-    global: { stubs: { Icon: true } },
+    global: { stubs: { Icon: true, teleport: true } },
     attachTo: document.body,
   })
   mounted.push(w)
