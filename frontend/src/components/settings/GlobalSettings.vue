@@ -13,7 +13,9 @@ import {
   stringToEnvMap,
 } from "../../utils/config";
 import { LOG_LEVELS } from "../../constants/api";
-import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig } from "../../types/admin";
+import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig, SettingsTab } from "../../types/admin";
+import type { GeneralPanel } from "../../types/admin";
+import { GENERAL_PANEL_SECTION } from "../../constants/settings";
 import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
 import { DELIVER_TO_HINT, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR, WEB_UI_LABEL } from "../../constants/reminders";
 import { defaultConnectorTypes, deliveryLabel, enabledConnectorTypes, withConnectorSkipped } from "../../utils/reminders/channels";
@@ -26,10 +28,14 @@ import type { ChoiceOption } from "../../types/ui";
 // it and its save); only the log level applies on the spot.
 
 const props = defineProps<{
+  /** Which General section is open: only its panels show (all stay mounted). */
+  section: SettingsTab;
   editConfig: GlobalConfig;
   logLevel: string;
   models: Model[];
 }>();
+
+const show = (panel: GeneralPanel) => GENERAL_PANEL_SECTION[panel] === props.section;
 
 const emit = defineEmits<{
   (e: "update:editConfig", config: GlobalConfig): void;
@@ -181,7 +187,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
 
 <template>
   <form class="flex flex-col gap-4" @submit.prevent="$emit('updateConfig')">
-    <Panel title="Routing">
+    <Panel v-show="show('routing')" title="Routing">
       <div class="form-grid">
         <FormField label="Primary model" hint="Serves requests that name no model.">
           <template #default="{ id, describedBy }">
@@ -202,7 +208,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Local engine">
+    <Panel v-show="show('engine')" title="Local engine">
       <div class="form-grid">
         <FormField label="Model directory" hint="Scanned for .gguf files. Absolute, or relative to the data root.">
           <template #default="{ id, describedBy }">
@@ -243,7 +249,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Workspace storage">
+    <Panel v-show="show('storage')" title="Workspace storage">
       <div class="form-grid">
         <FormField
           label="Workspaces directory"
@@ -261,7 +267,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Model lifecycle">
+    <Panel v-show="show('lifecycle')" title="Model lifecycle">
       <div class="form-grid">
         <FormField label="Idle timeout (seconds)" hint="A local model with no requests for this long is stopped to free memory. -1 keeps it loaded.">
           <template #default="{ id, describedBy }">
@@ -271,7 +277,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="GPU metrics">
+    <Panel v-show="show('gpu')" title="GPU metrics">
       <div class="form-grid">
         <FormField label="GPU provider" hint="How utilisation and memory are read.">
           <template #default="{ id, describedBy }">
@@ -298,7 +304,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Run scheduler">
+    <Panel v-show="show('scheduler')" title="Run scheduler">
       <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
         How many agent runs execute at once per workload class. Local runs share one GPU; cloud runs run in parallel.
       </p>
@@ -321,7 +327,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="External requests">
+    <Panel v-show="show('external')" title="External requests">
       <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
         An external client (another proxy, a tool) asking for a different local model would otherwise stop the
         running one. It is held or told to retry instead — a run is only interrupted when you serve the request from
@@ -351,7 +357,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Memory">
+    <Panel v-show="show('memory')" title="Memory">
       <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
         Hot memory puts the facts you marked "always" in front of the model at the start of a run. It uses a small
         share of the context window, and only when such facts exist. These are the defaults: a workspace's assistant
@@ -371,7 +377,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Reminders">
+    <Panel v-show="show('reminders')" title="Reminders">
       <p class="mb-4 mt-0 max-w-[64ch] text-[length:var(--text-small)] text-muted">
         Ask the assistant to remind you of something and it is delivered word for word at the time you gave, with no
         model involved.
@@ -407,7 +413,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
       </div>
     </Panel>
 
-    <Panel title="Logging">
+    <Panel v-show="show('logging')" title="Logging">
       <FormField label="System log level" hint="Applies immediately — no save needed.">
         <template #default>
           <SegmentedControl :model-value="logLevel" :options="LOG_LEVEL_OPTIONS" label="System log level" class="w-fit" @update:model-value="$emit('updateLogLevel', $event)" />

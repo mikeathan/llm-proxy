@@ -3,19 +3,19 @@ import { mount } from '@vue/test-utils'
 import GlobalSettings from '../../../components/settings/GlobalSettings.vue'
 import { DEFAULT_CONFIG } from '../../../composables/models/useConfig'
 import { fieldByLabel } from '../../helpers/fieldByLabel'
-import type { GlobalConfig } from '../../../types/admin'
+import type { GlobalConfig, SettingsTab } from '../../../types/admin'
 import type { Model } from '../../../types/model'
 
 const MODELS = [{ name: 'qwen', provider: 'local' }, { name: 'gpt', provider: 'openai' }] as Model[]
 
 // VTU's emitted() does not record script-setup emits in this harness, so the
 // listener callbacks are the component's observable contract.
-function mountGlobal(overrides: Partial<GlobalConfig> = {}) {
+function mountGlobal(overrides: Partial<GlobalConfig> = {}, section: SettingsTab = 'local') {
   const onUpdate = vi.fn()
   const onSave = vi.fn()
   const onLogLevel = vi.fn()
   const w = mount(GlobalSettings, {
-    props: { editConfig: { ...structuredClone(DEFAULT_CONFIG), ...overrides }, logLevel: 'info', models: MODELS },
+    props: { editConfig: { ...structuredClone(DEFAULT_CONFIG), ...overrides }, logLevel: 'info', models: MODELS, section },
     attrs: { 'onUpdate:editConfig': onUpdate, onUpdateConfig: onSave, onUpdateLogLevel: onLogLevel },
     global: { stubs: { Icon: true } },
   })
@@ -32,6 +32,26 @@ const SCHEDULER_DEFAULTS = {
   inbound_max_queued: 32,
   inbound_preempt: false,
 }
+
+// General is four short sections (plan frontend-redesign-v2): each shows only its own panels, all stay mounted.
+describe('GlobalSettings sections', () => {
+  const visiblePanels = (w: ReturnType<typeof mountGlobal>['w']) =>
+    w.findAll('section').filter((p) => !p.attributes('style')?.includes('display: none')).map((p) => p.get('h2').text().replace(/^\d+\s*—?\s*/, '').toLowerCase())
+
+  it.each([
+    ['local', ['routing', 'local engine', 'model lifecycle', 'gpu metrics']],
+    ['runs', ['run scheduler', 'external requests']],
+    ['memory', ['memory', 'reminders']],
+    ['storage', ['workspace storage', 'logging']],
+  ] as const)('%s shows only its panels', (section, titles) => {
+    expect(visiblePanels(mountGlobal({}, section).w)).toEqual(titles)
+  })
+
+  it('keeps every panel in the page, so an edit survives moving between sections', () => {
+    const { w } = mountGlobal({}, 'runs')
+    expect(w.findAll('section')).toHaveLength(10)
+  })
+})
 
 describe('GlobalSettings', () => {
   it('offers every configured model for primary and fallback routing', () => {

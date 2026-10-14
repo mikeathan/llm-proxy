@@ -51,7 +51,7 @@ Rules it relaxes from the retro plan: square 2 px corners (→ 8 px), hairline p
 
 - **0 Docs** — this plan, SPEC-003 v2.11 (§II.1, II.2, II.7, III, IV, V), pitfalls 48–50, `assistant-ui-patterns`.
 - **1 Themes** — `retro-midnight`, `retro-forest`, `retro-plum` (dark), `retro-paper-cool`, `retro-sand` (light); `PRESET_IDS` in `types/theme.ts`; the contrast script reads ids from `tokens.css`. Phase 1b (accent over any preset) **built later the same day**: eight swatches plus any colour, `theme/accent.ts`, proven for every preset × swatch.
-- **2 Settings tabs** — `SettingsTabs` + `ScrollStrip` (+ `useScrollEdges`); `getSettingsTabGroups`; `SettingsNav` removed.
+- **2 Settings tabs** — `SettingsTabs` + `ScrollStrip` (+ `useScrollEdges`); `getSettingsTabGroups`; `SettingsNav` removed. General is split into four short sections (`local`, `runs`, `memory`, `storage`) over one form: `GlobalSettings` takes a `section` and shows only its panels (all stay mounted).
 - **3 Assistant** — `ComposeSheet`, header cap, persisted list state, footer New, quiet status, `dvh` height, spacing.
 - **4 Look** — Panel, header, sidebar, chat chrome by tone; radii 6/8 px; `/design` baselines regenerated.
 - **5 Shell** — keep-alive chat closed on leave (own commit), ask panel (`AssistantChat variant="panel"`), assistant-first navigation (`utils/navigation.ts`) with a phone bottom bar, workspace chip (`useActiveWorkspace`), home route. The workspace page header's picker is gone. On a phone the assistant is fixed between the top strip and the bar and the workspace header is hidden there.

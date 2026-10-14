@@ -12,6 +12,7 @@ import { useSettingsSection } from "../composables/settings/useSettingsSection"
 import { useProviderKeys } from "../composables/settings/useProviderKeys"
 import { AdminApiService } from "../services/admin/adminService"
 import { getSettingsTabGroups, isProviderTab } from "../domain/settings"
+import { SETTINGS_GROUP_SECTIONS, SETTINGS_SECTION_LABELS } from "../constants/settings"
 import { errorMessage } from "../utils/errors"
 import { ROUTE_NAMES } from "../types/routes"
 import type { GlobalConfig, ProviderType, SettingsTab } from "../types/admin"
@@ -72,7 +73,9 @@ const { activeTab } = useSettingsSection(
   manifestsLoaded,
 )
 const providerTabs = computed(() => settingsTabs.value.filter(isProviderTab) as ProviderType[])
-const labelOf = (tab: SettingsTab) => getLabel(tab)
+const labelOf = (tab: SettingsTab) => SETTINGS_SECTION_LABELS[tab] ?? getLabel(tab)
+// General is several short sections over one form: all stay mounted, so an edit survives moving between them.
+const isGeneralSection = computed(() => SETTINGS_GROUP_SECTIONS.general.includes(activeTab.value))
 
 // ── Models ────────────────────────────────────────────────────────────────
 const models = computed<Model[]>(() => modelsState.value?.models ?? [])
@@ -199,8 +202,9 @@ const updateConfigValue = (value: GlobalConfig) => {
             <AppearanceSettings @dirty-change="draftDirty.appearance = $event" />
           </div>
 
-          <div v-show="activeTab === 'local'" class="flex flex-col gap-4">
+          <div v-show="isGeneralSection" class="flex flex-col gap-4">
             <GlobalSettings
+              :section="activeTab"
               :edit-config="config"
               :log-level="logLevel"
               :models="models"

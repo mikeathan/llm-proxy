@@ -166,8 +166,8 @@ account model, and makes no network request outside the proxy's own origin.
   its details. A linked run no longer in the kept history says so. In the
   ledger and the run details, the automation and workspace names link to
   their pages.
-- **Settings** — global configuration by section (`/settings/<section>`), under six tabs: **General** (routing, engine,
-  scheduler, memory, reminders, logging), **Models** (local models and each cloud provider's keys and models, as a second
+- **Settings** — global configuration by section (`/settings/<section>`), under six tabs: **General** (four short sections —
+  Routing & engine, Runs, Memory & reminders, Storage & logging — each its own `/settings/<section>` page over one form; `/settings/local` is the first), **Models** (local models and each cloud provider's keys and models, as a second
   row), **Safety** (Security, Agent Guardrails), **Connectors** (Communication, Search, MCP servers — SPEC-008),
   **Appearance** and **System** (processes). A tab opens its first section; a tab with several shows them as a row that
   scrolls sideways on a phone. Providers discovered at runtime appear under Models.

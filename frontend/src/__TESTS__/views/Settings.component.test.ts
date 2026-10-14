@@ -98,10 +98,20 @@ describe('Settings (global)', () => {
     expect(sections.findAll('a[aria-current="page"]').map((a) => a.attributes('href'))).toEqual(['/settings/mcp'])
   })
 
+  it('splits General into short sections, each its own page', async () => {
+    const { w } = await mountSettings('/settings/runs')
+    const row = w.get('nav[aria-label="General sections"]')
+    expect(row.findAll('a').map((a) => a.text())).toEqual(['Routing & engine', 'Runs', 'Memory & reminders', 'Storage & logging'])
+    expect(row.get('a[aria-current="page"]').attributes('href')).toBe('/settings/runs')
+    const visible = w.findAll('section').filter((p) => p.isVisible()).map((p) => p.text())
+    expect(visible.some((t) => /run scheduler/i.test(t))).toBe(true)
+    expect(visible.some((t) => /local engine/i.test(t))).toBe(false)
+  })
+
   it('keeps every section reachable from the tabs', async () => {
     const { w } = await mountSettings('/settings/local')
     const hrefs = w.findAll('nav a').map((a) => a.attributes('href'))
-    expect(hrefs).toEqual(expect.arrayContaining(['/settings/local', '/settings/local-models', '/settings/security', '/settings/communication', '/settings/appearance', '/settings/processes']))
+    expect(hrefs).toEqual(expect.arrayContaining(['/settings/local', '/settings/runs', '/settings/memory', '/settings/storage', '/settings/local-models', '/settings/security', '/settings/communication', '/settings/appearance', '/settings/processes']))
   })
 
   it('opens a provider under the Models tab, with the other providers as sections', async () => {
