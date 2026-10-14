@@ -22,10 +22,15 @@ export interface ConnectorForm {
   webhook_token: string
 }
 
-// A titled group of Settings categories in the category nav.
-export interface SettingsGroup {
-  name: string
-  tabs: SettingsTab[]
+// The Settings tabs, in order. Each holds one or more Settings sections (routes).
+export const SETTINGS_GROUP_IDS = ['general', 'models', 'safety', 'connectors', 'appearance', 'system'] as const
+export type SettingsGroupId = (typeof SETTINGS_GROUP_IDS)[number]
+
+// One Settings tab: its sections are the `/settings/<section>` routes it covers.
+export interface SettingsTabGroup {
+  id: SettingsGroupId
+  label: string
+  sections: SettingsTab[]
 }
 
 // The last "Test connection" of a provider's key in Settings.

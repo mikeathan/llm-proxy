@@ -88,22 +88,26 @@ describe('Settings (global)', () => {
     expect((modelHost(w).element as HTMLInputElement).value).toBe('10.0.0.2')
   })
 
-  it('links every category, grouped, and marks the current one', async () => {
+  it('shows the six tabs, marks the current one, and lists the sections of a group', async () => {
     const { w } = await mountSettings('/settings/mcp')
-    const nav = w.get('nav[aria-label="Settings categories"]')
-    for (const group of [/system/i, /cloud providers/i, /extensions/i]) expect(nav.text()).toMatch(group)
-    expect(nav.findAll('a[aria-current="page"]').map((a) => a.attributes('href'))).toEqual(['/settings/mcp'])
-    expect(nav.findAll('a').map((a) => a.attributes('href'))).toEqual(
-      expect.arrayContaining(['/settings/appearance', '/settings/local', '/settings/guardrails', '/settings/openai', '/settings/search']),
-    )
+    const tabs = w.get('nav[aria-label="Settings"]')
+    expect(tabs.findAll('a').map((a) => a.text())).toEqual(['General', 'Models', 'Safety', 'Connectors', 'Appearance', 'System'])
+    expect(tabs.findAll('a[aria-current="page"]').map((a) => a.text())).toEqual(['Connectors'])
+    const sections = w.get('nav[aria-label="Connectors sections"]')
+    expect(sections.findAll('a').map((a) => a.attributes('href'))).toEqual(['/settings/communication', '/settings/search', '/settings/mcp'])
+    expect(sections.findAll('a[aria-current="page"]').map((a) => a.attributes('href'))).toEqual(['/settings/mcp'])
   })
 
-  it('offers the categories as a picker on small screens', async () => {
-    const { w, router } = await mountSettings('/settings/local')
-    const picker = fieldByLabel(w, /^category$/i)
-    expect(picker.findAll('optgroup').map((g) => g.attributes('label'))).toEqual(['System', 'Cloud providers', 'Extensions'])
-    await picker.setValue('search')
-    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/settings/search'))
+  it('keeps every section reachable from the tabs', async () => {
+    const { w } = await mountSettings('/settings/local')
+    const hrefs = w.findAll('nav a').map((a) => a.attributes('href'))
+    expect(hrefs).toEqual(expect.arrayContaining(['/settings/local', '/settings/local-models', '/settings/security', '/settings/communication', '/settings/appearance', '/settings/processes']))
+  })
+
+  it('opens a provider under the Models tab, with the other providers as sections', async () => {
+    const { w } = await mountSettings('/settings/openai')
+    expect(w.get('nav[aria-label="Settings"] a[aria-current="page"]').text()).toBe('Models')
+    expect(w.get('nav[aria-label="Models sections"] a[aria-current="page"]').attributes('href')).toBe('/settings/openai')
   })
 
   it('offers Save only once something changed, then saves the whole configuration', async () => {
@@ -175,11 +179,11 @@ describe('Settings (global)', () => {
     expect(w.text()).not.toContain('Unsaved changes')
   })
 
-  it('opens Appearance as a section, first in the list', async () => {
+  it('opens Appearance as a tab of its own', async () => {
     const { w } = await mountSettings('/settings/appearance')
-    const links = w.get('nav[aria-label="Settings categories"]').findAll('a')
-    expect(links[0]!.attributes('href')).toBe('/settings/appearance')
-    expect(links[0]!.attributes('aria-current')).toBe('page')
+    const current = w.get('nav[aria-label="Settings"] a[aria-current="page"]')
+    expect(current.text()).toBe('Appearance')
+    expect(current.attributes('href')).toBe('/settings/appearance')
     expect(w.findComponent({ name: 'AppearanceSettings' }).isVisible()).toBe(true)
   })
 

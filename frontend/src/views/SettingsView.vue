@@ -11,7 +11,7 @@ import { useUnsavedChangesGuard } from "../composables/ui/useUnsavedChangesGuard
 import { useSettingsSection } from "../composables/settings/useSettingsSection"
 import { useProviderKeys } from "../composables/settings/useProviderKeys"
 import { AdminApiService } from "../services/admin/adminService"
-import { getSettingsGroups, isProviderTab } from "../domain/settings"
+import { getSettingsTabGroups, isProviderTab } from "../domain/settings"
 import { errorMessage } from "../utils/errors"
 import { ROUTE_NAMES } from "../types/routes"
 import type { GlobalConfig, ProviderType, SettingsTab } from "../types/admin"
@@ -24,7 +24,7 @@ import UnsavedTag from "../components/common/display/UnsavedTag.vue"
 import FormField from "../components/common/forms/FormField.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
-import SettingsNav from "../components/settings/SettingsNav.vue"
+import SettingsTabs from "../components/settings/SettingsTabs.vue"
 import SettingsActions from "../components/settings/SettingsActions.vue"
 import GlobalSettings from "../components/settings/GlobalSettings.vue"
 import SecuritySettings from "../components/settings/SecuritySettings.vue"
@@ -66,9 +66,9 @@ const { confirm } = useConfirm()
 
 // ── Sections ──────────────────────────────────────────────────────────────
 const manifestsLoaded = ref(false)
-const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value))
+const settingsGroups = computed(() => getSettingsTabGroups(settingsTabs.value))
 const { activeTab } = useSettingsSection(
-  (tab) => settingsGroups.value.some((group) => group.tabs.includes(tab)),
+  (tab) => settingsGroups.value.some((group) => group.sections.includes(tab)),
   manifestsLoaded,
 )
 const providerTabs = computed(() => settingsTabs.value.filter(isProviderTab) as ProviderType[])
@@ -180,8 +180,8 @@ const updateConfigValue = (value: GlobalConfig) => {
       </template>
     </PageHeader>
 
-    <div class="grid items-start gap-3 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-6">
-      <SettingsNav :groups="settingsGroups" :active="activeTab" :label-of="labelOf" />
+    <div class="flex min-w-0 flex-col gap-4">
+      <SettingsTabs :groups="settingsGroups" :active="activeTab" :label-of="labelOf" />
 
       <div class="flex min-w-0 flex-col gap-4">
         <ErrorState
