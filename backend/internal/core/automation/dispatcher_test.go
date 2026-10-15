@@ -513,7 +513,7 @@ func TestDispatcher_Lane_PreemptedRunIsSkippedNotFailed(t *testing.T) {
 	d := newLaneDispatcher(t, exec)
 	registerManualAutomation(t, d, "ws", "a")
 
-	events, _ := d.Events().Subscribe("ws", assistant.ChannelAutomation)
+	events, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
 
 	if _, err := d.Trigger("ws", "a", ""); err != nil {
 		t.Fatal(err)

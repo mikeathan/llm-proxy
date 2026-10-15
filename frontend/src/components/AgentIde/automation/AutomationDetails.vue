@@ -53,6 +53,11 @@ const journal = useAutomationJournal(
   () => !!props.automation.journal,
 );
 
+// The console holds the latest run's steps in memory only (nothing is stored per run unless
+// run directories are enabled), so a finished run often has none to show.
+const NO_STEPS_KEPT = "No steps to show. The console keeps the latest run's steps in memory only, so they are gone after a restart. The run's result is under Runs below.";
+const NEVER_RAN = "Not running. A run's reasoning, tool calls and answer stream here as it happens.";
+
 const runs = computed(() =>
   [...(props.automation.history ?? [])].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)),
 );
@@ -225,7 +230,7 @@ const runKey = (run: AutomationRun) => run.id;
         :submit="submitDecision"
       />
       <p v-if="!showLiveUI && !hasOutput" class="m-0 text-[length:var(--text-small)] text-muted">
-        Not running. A run's reasoning, tool calls and answer stream here as it happens.
+        {{ runs.length ? NO_STEPS_KEPT : NEVER_RAN }}
       </p>
       <div v-else class="max-h-[60vh] overflow-y-auto">
         <ChatMessages

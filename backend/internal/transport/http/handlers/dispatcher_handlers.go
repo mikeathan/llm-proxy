@@ -433,9 +433,28 @@ func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *htt
 	respondJSON(w, map[string]string{"status": "updated"})
 }
 
+// requestedStream is the event stream a /live request asks for. Assistant chat asks
+// for ?channel=assistant. An automation run's console asks for ?automation=<name>:
+// events are routed per automation, so it only ever sees its own automation's run,
+// never another's in the same workspace. ok is false when that name is missing.
+func requestedStream(r *http.Request) (channel assistant.EventChannel, ok bool) {
+	channel = assistant.EventChannel(r.URL.Query().Get("channel"))
+	if channel != "" && channel != assistant.ChannelAutomation {
+		return channel, true
+	}
+	automation := r.URL.Query().Get("automation")
+	return assistant.AutomationStream(automation), automation != ""
+}
+
 func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *http.Request) {
 	workspaceID, _, ok := h.parse(w, r, models.WorkspaceIDParam)
 	if !ok {
+		return
+	}
+
+	channel, ok := requestedStream(r)
+	if !ok {
+		respondError(w, http.StatusBadRequest, "automation is required for the automation stream")
 		return
 	}
 
@@ -451,13 +470,6 @@ func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *htt
 		return
 	}
 
-	// Subscribe to events for the requested channel. Assistant chat requests
-	// ?channel=assistant so automation runs cannot leak into its stream; the
-	// default channel is automation (legacy console behaviour).
-	channel := assistant.ChannelAutomation
-	if c := r.URL.Query().Get("channel"); c != "" {
-		channel = assistant.EventChannel(c)
-	}
 	ch, recent := h.dispatcher.Events().Subscribe(workspaceID, channel)
 	defer h.dispatcher.Events().Unsubscribe(workspaceID, channel, ch)
 
@@ -892,6 +904,8 @@ func (h *DispatcherHandlers) DeleteAutomationRuns(w http.ResponseWriter, r *http
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	// The console replays the latest run's steps from memory: they go with the runs.
+	h.dispatcher.Events().Clear(workspaceID, assistant.AutomationStream(automation))
 	respondJSON(w, map[string]string{"status": "deleted"})
 }
 

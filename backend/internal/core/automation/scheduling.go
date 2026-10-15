@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"llm-proxy/internal/core/assistant"
 	"os"
 	"path/filepath"
 	"slices"
@@ -146,6 +147,7 @@ func (d *Dispatcher) Unregister(workspaceID, automationName string) error {
 	d.removeJob(entry.ID)
 
 	d.registry.Unregister(workspaceID, automationName)
+	d.events.Clear(workspaceID, assistant.AutomationStream(automationName))
 	return nil
 }
 

@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.13"
+version: "1.14"
 status: stable
-last_updated: 2026-10-11
+last_updated: 2026-10-15
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -118,12 +118,18 @@ of run events to the frontend.
 
 ### 4. SSE Streaming
 
-- `/dispatcher/workspaces/{ws}/live` — SSE endpoint for per-workspace live events.
+- `/dispatcher/workspaces/{ws}/live` — SSE endpoint for live events. `?channel=assistant` is the chat;
+  an automation run's console asks `?channel=automation&automation={name}` (the name is required — 400
+  without it) and receives **only that automation's events**, replaying its latest run first. Every event
+  an automation run publishes carries `automation` (the name; `AgentEvent.Automation`) and is routed to
+  `assistant.AutomationStream(name)`, so a workspace's other automations (the heartbeat, a second
+  schedule) never appear in this one's console. A run's boot clears only its own automation's replay
+  buffer. The same stream is what the `/run` connector command waits on for its run's completion.
 - Events: the shared `assistant.AgentEvent` types — `step_start`, `message`, `tool_call`,
   `tool_result`, `reasoning`, `tool_stream`, `guardrail_violation`/`guardrail_blocked`/
   `guardrail_invalidated`, `upstream`, `error` — plus `lifecycle` phases (`session_started`/
   `progress`/`completed`, `stuck_detected`, `fallback_*`, `agent_thinking`, `still_thinking`).
-- `Bus` in `internal/core/eventbus` manages per-workspace, per-channel pub/sub
+- `Bus` in `internal/core/eventbus` manages per-workspace, per-stream (channel, or per automation) pub/sub
   (`Subscribe`/`Publish`/`Unsubscribe`); `Sink` writes the same events to a per-run JSONL file.
 
 ### 5. Run Artifacts

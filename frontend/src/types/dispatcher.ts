@@ -183,6 +183,9 @@ export interface AgentEvent {
   // per connection so an automation run can never leak into the chat pane.
   channel?: 'assistant' | 'automation'
   conversation_id?: string
+  // The automation that produced the event (automation channel only); the stream is
+  // routed per automation, so a console only receives its own automation's events.
+  automation?: string
   payload: AgentStepStartPayload | AgentMessagePayload | AgentToolCallPayload | AgentToolResultPayload | AgentGuardrailViolationPayload | GuardrailBlockedPayload | UpstreamEventPayload | string
   timestamp?: string
 }

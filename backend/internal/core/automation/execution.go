@@ -151,7 +151,7 @@ func (d *Dispatcher) reportPrepareFailure(entry *AutomationEntry, err error, sta
 	if fi.Hint != "" {
 		payload["hint"] = fi.Hint
 	}
-	d.events.Publish(entry.Workspace, assistant.AgentEvent{
+	d.publish(entry, assistant.AgentEvent{
 		Type:    assistant.EventError,
 		Channel: assistant.ChannelAutomation,
 		Payload: payload,
@@ -209,8 +209,8 @@ func (d *Dispatcher) prepareRun(execCtx context.Context, entry *AutomationEntry)
 	}
 
 	// Immediately notify UI that execution has actively started
-	d.events.Clear(entry.Workspace, assistant.ChannelAutomation)
-	d.events.Publish(entry.Workspace, assistant.AgentEvent{
+	d.events.Clear(entry.Workspace, assistant.AutomationStream(entry.Name))
+	d.publish(entry, assistant.AgentEvent{
 		Type:      assistant.EventMessage,
 		Channel:   assistant.ChannelAutomation,
 		Timestamp: time.Now(),
@@ -250,7 +250,7 @@ func (d *Dispatcher) failRun(entry *AutomationEntry, state *models.AgentState, e
 	if fi.Hint != "" {
 		payload["hint"] = fi.Hint
 	}
-	d.events.Publish(entry.Workspace, assistant.AgentEvent{
+	d.publish(entry, assistant.AgentEvent{
 		Type:    assistant.EventError,
 		Channel: assistant.ChannelAutomation,
 		Payload: payload,
@@ -358,7 +358,7 @@ func (d *Dispatcher) recordPreempted(entry *AutomationEntry, state *models.Agent
 	_ = d.persistence.WriteState(entry.Workspace, state)
 	d.metrics.RecordPreempted()
 	d.metrics.RecordExecution(false, true, elapsed)
-	d.events.Publish(entry.Workspace, assistant.AgentEvent{
+	d.publish(entry, assistant.AgentEvent{
 		Type:    assistant.EventMessage,
 		Channel: assistant.ChannelAutomation,
 		Payload: proxy.Message{Role: "system", Content: MsgRunPausedForInteractive},
@@ -415,4 +415,12 @@ func newExecuteRequest(entry *AutomationEntry, state *models.AgentState, taskCon
 		MemoryMode:     entry.MemoryMode,
 		Journal:        entry.Journal,
 	}
+}
+
+// publish sends an event of an automation's run, naming the automation so it is
+// routed to that automation's stream and no other's. Every event a run publishes
+// goes through here.
+func (d *Dispatcher) publish(entry *AutomationEntry, ev assistant.AgentEvent) {
+	ev.Automation = entry.Name
+	d.events.Publish(entry.Workspace, ev)
 }

@@ -102,6 +102,17 @@ describe('AutomationDetails', () => {
     expect(w.find('[data-test="console"]').exists()).toBe(false)
     expect(w.text()).toContain('Idle')
     expect(w.text()).not.toContain('Live stream')
+    expect(w.text()).not.toContain('Not running')
+  })
+
+  it('says why a finished run has no steps here, instead of "not running"', async () => {
+    const w = await mountDetails()
+    expect(w.text()).toContain('No steps to show')
+    expect(w.text()).toContain('memory only')
+  })
+
+  it('says a run\'s steps stream here once the automation has never run', async () => {
+    const w = await mountDetails({ automation: { ...AUTO, last_output: '', last_error: '', history: [] } })
     expect(w.text()).toContain('Not running')
   })
 

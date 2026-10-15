@@ -382,16 +382,14 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 		Observer: func(ev assistant.AgentEvent) {
 			// The full event stream already lives in the run-dir events.jsonl;
 			// this observer only fans out to live subscribers and the sink.
-			e.svc.Events().Publish(req.WorkspaceID, ev)
+			e.publishRunEvent(req, ev)
 			if eventSink != nil {
 				eventSink.Write(ev)
 			}
 		},
 		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
 			e.svc.GuardrailDecisionStore(),
-			func(ev assistant.AgentEvent) {
-				e.svc.Events().Publish(req.WorkspaceID, ev)
-			},
+			func(ev assistant.AgentEvent) { e.publishRunEvent(req, ev) },
 			assistant.ChannelAutomation,
 		),
 		// AllowedTools restricts the exposed tool schema for unattended runs
@@ -505,7 +503,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 	outcome.resp.State.SetRunning("")
 
 	// Push a concluding message to the UI stream to clear "thinking..."
-	e.svc.Events().Publish(outcome.req.WorkspaceID, assistant.AgentEvent{
+	e.publishRunEvent(outcome.req, assistant.AgentEvent{
 		Type:    assistant.EventMessage,
 		Channel: assistant.ChannelAutomation,
 		Payload: proxy.Message{
@@ -658,4 +656,11 @@ func ApplyPulseLogic(resp *ExecuteResponse) {
 		resp.Output = ""
 		resp.State.LastPulse = time.Now()
 	}
+}
+
+// publishRunEvent sends an event of this run, naming its automation so it is routed
+// to that automation's stream (see Dispatcher.publish).
+func (e *LLMTaskExecutor) publishRunEvent(req ExecuteRequest, ev assistant.AgentEvent) {
+	ev.Automation = req.AutomationName
+	e.svc.Events().Publish(req.WorkspaceID, ev)
 }

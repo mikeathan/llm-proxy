@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -440,5 +441,75 @@ func TestRecordRun_UsesTheRunIDAndReportsIt(t *testing.T) {
 	e.recordRun(runOutcome{req: ExecuteRequest{AutomationName: "nightly"}, resp: resp, runID: "run_ctx_1"}, "out", "", time.Second)
 	if len(state.History) != 1 || state.History[0].ID != "run_ctx_1" || resp.RunID != "run_ctx_1" {
 		t.Fatalf("history id = %q, resp.RunID = %q, want run_ctx_1 for both", state.History[0].ID, resp.RunID)
+	}
+}
+
+// recordingPublisher keeps what is published, to check events are tagged.
+type recordingPublisher struct {
+	mu     sync.Mutex
+	events []assistant.AgentEvent
+}
+
+func (r *recordingPublisher) Publish(_ string, ev assistant.AgentEvent) {
+	r.mu.Lock()
+	r.events = append(r.events, ev)
+	r.mu.Unlock()
+}
+func (r *recordingPublisher) Clear(string, assistant.EventChannel) {}
+
+type publishingSvc struct {
+	mockSvc
+	pub       *recordingPublisher
+	decisions *assistant.GuardrailDecisionStore
+}
+
+func (s *publishingSvc) GuardrailDecisionStore() *assistant.GuardrailDecisionStore {
+	return s.decisions
+}
+
+func (s *publishingSvc) Events() assistant.EventPublisher { return s.pub }
+
+// The agent's observer, the guardrail prompt and the run's concluding message all
+// publish for one run; each must name the automation it belongs to.
+func TestRunEvents_NameTheirAutomation(t *testing.T) {
+	svc := &publishingSvc{pub: &recordingPublisher{}}
+	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
+	req := ExecuteRequest{WorkspaceID: "ws", AutomationName: "daily-llm-news"}
+
+	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), nil)
+	opts.Observer(assistant.AgentEvent{Type: assistant.EventToolCall, Channel: assistant.ChannelAutomation})
+	executor.publishRunEvent(req, assistant.AgentEvent{Type: assistant.EventMessage, Channel: assistant.ChannelAutomation})
+
+	if len(svc.pub.events) != 2 {
+		t.Fatalf("published %d events, want 2", len(svc.pub.events))
+	}
+	for _, ev := range svc.pub.events {
+		if ev.Automation != "daily-llm-news" {
+			t.Errorf("%s event has Automation %q", ev.Type, ev.Automation)
+		}
+	}
+}
+
+// An approval prompt in an automation run is published as a blocked/invalidated
+// pair; both must name the automation, or the console of that automation never
+// sees the invalidation and its banner stays up.
+func TestGuardrailPrompt_PairNamesTheAutomation(t *testing.T) {
+	svc := &publishingSvc{pub: &recordingPublisher{}, decisions: assistant.NewGuardrailDecisionStore()}
+	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
+	opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", AutomationName: "daily-llm-news"}, logging.NewNopLogger(), nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = opts.GuardrailDecisionHandler(ctx, assistant.GuardrailBlockedPayload{DecisionID: "d1", Tool: "run_terminal", Category: "terminal"})
+
+	types := map[assistant.AgentEventType]bool{}
+	for _, ev := range svc.pub.events {
+		types[ev.Type] = true
+		if ev.Automation != "daily-llm-news" {
+			t.Errorf("%s event has Automation %q", ev.Type, ev.Automation)
+		}
+	}
+	if !types[assistant.EventGuardrailBlocked] || !types[assistant.EventGuardrailInvalidated] {
+		t.Errorf("published %v, want a blocked and an invalidated event", types)
 	}
 }

@@ -68,9 +68,18 @@ type EventChannel string
 const (
 	// ChannelAssistant is the assistant chat event stream.
 	ChannelAssistant EventChannel = "assistant"
-	// ChannelAutomation is the automation run event stream.
+	// ChannelAutomation is the automation run event stream. Events of a run carry
+	// the automation's name and are routed to AutomationStream(name); the bare
+	// channel only holds an event published without one.
 	ChannelAutomation EventChannel = "automation"
 )
+
+// AutomationStream is the stream one automation's events are routed to. Streams
+// are per automation because a workspace runs several (the heartbeat among them):
+// a console must only ever show the run of the automation it belongs to.
+func AutomationStream(automation string) EventChannel {
+	return EventChannel(string(ChannelAutomation) + ":" + automation)
+}
 
 // Lifecycle phase constants for the AgentEvent lifecycle payload.
 // Used to communicate session state changes to the frontend via SSE.
@@ -125,8 +134,9 @@ const (
 type AgentEvent struct {
 	ID             string         `json:"id"`
 	Type           AgentEventType `json:"type"`
-	Channel        EventChannel   `json:"channel"`         // producer stream: assistant | automation
-	ConversationID string         `json:"conversation_id"` // assistant session id (empty for automation)
+	Channel        EventChannel   `json:"channel"`              // producer stream: assistant | automation
+	ConversationID string         `json:"conversation_id"`      // assistant session id (empty for automation)
+	Automation     string         `json:"automation,omitempty"` // automation that produced it (automation channel only)
 	Payload        any            `json:"payload"`
 	Timestamp      time.Time      `json:"timestamp"`
 }
