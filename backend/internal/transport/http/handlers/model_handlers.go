@@ -208,6 +208,18 @@ func (r *modelFormRequest) workloadClass(classify func(models.ModelConfig) model
 	return models.ClassifyConfig(cfg)
 }
 
+// hasRealContext reports whether the form carries an actual context length (a serving or
+// training length the provider or server reported), not just metadata with the field empty.
+func (r *modelFormRequest) hasRealContext() bool {
+	switch {
+	case r.Meta != nil:
+		return r.Meta.Nctx > 0 || r.Meta.ContextLength > 0
+	case r.Metadata != nil:
+		return r.Metadata.Nctx > 0 || r.Metadata.ContextLength > 0
+	}
+	return false
+}
+
 // enrichMetadataFromProviders populates model metadata from the provider's
 // model-listing API (meta, limits) and auto-computes InternalCreditWeight
 // from OpenRouter pricing.  When exact context length is available, it
@@ -253,6 +265,13 @@ func (r *modelFormRequest) enrichMetadataFromProviders(classify func(models.Mode
 		logging.Debug("[enrich] resolved serving context", "ctx", metaCtx)
 	} else if r.Metadata != nil {
 		metaCtx = orchestrator.ResolveLocalContext(&models.ModelConfig{Metadata: r.Metadata})
+	}
+
+	// ResolveLocalContext falls back to a local serving default when nothing is known. That default
+	// describes a local server, not a cloud model: recorded as Nctx it would read as a published
+	// window and clamp the model's output cap to 1 token. Cloud models keep only a real context.
+	if workload != models.WorkloadLocal && !r.hasRealContext() {
+		metaCtx = 0
 	}
 
 	if r.Metadata == nil && metaCtx > 0 {
@@ -549,6 +568,14 @@ func modelConfigFromRequest(req modelFormRequest, filename, path string, args []
 	}
 }
 
+// applyDefaultsWithHydratedClass derives a model's budget defaults with the workload class the
+// enrichment used (hydrated with the credential). Re-classifying without the credential would
+// treat a model on a LAN or loopback server as cloud and clamp its output cap to 1 token.
+func applyDefaultsWithHydratedClass(cfg *models.ModelConfig, req *modelFormRequest, classify func(models.ModelConfig) models.WorkloadClass) {
+	cfg.WorkloadClass = req.workloadClass(classify)
+	orchestrator.ApplyMetadataDefaults(cfg)
+}
+
 // registerModelFromRequest runs the model-registration pipeline: catalog
 // capability enrichment, metadata defaults, and runtime add. It returns the
 // runtime config, used by handleAddModel.
@@ -569,7 +596,7 @@ func registerModelFromRequest(
 
 	logging.Debug("[registerModel] before ApplyMetadataDefaults", "name", req.Name, "ctx_budget", req.ContextBudget, "max_tokens", req.MaxTokens, "reasoning", req.ReasoningBudget, "metadata", req.Metadata)
 	runtimeCfg := modelConfigFromRequest(*req, filename, fullPath, runtimeArgs, admin.Environment())
-	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
+	applyDefaultsWithHydratedClass(&runtimeCfg, req, runtime.ClassifyModel)
 	logging.Info("[registerModel] after ApplyMetadataDefaults", "name", runtimeCfg.Name, "ctx_budget", runtimeCfg.ContextBudget, "max_tokens", runtimeCfg.MaxTokens, "reasoning", runtimeCfg.ReasoningBudget)
 
 	if err := runtime.AddModel(runtimeCfg); err != nil {
@@ -591,6 +618,7 @@ func persistModelAndOverrides(
 	submittedMaxTokens, submittedCtxBudget int,
 ) error {
 	persistCfg := modelConfigFromRequest(req, filename, "", append([]string{}, req.Args...), nil)
+	persistCfg.WorkloadClass = runtimeCfg.WorkloadClass
 	orchestrator.ApplyMetadataDefaults(&persistCfg)
 	if err := persistFn(persistCfg); err != nil {
 		return err
@@ -840,7 +868,7 @@ func (h *ModelHandlers) handleUpdateModel(w http.ResponseWriter, r *http.Request
 
 	runtimeCfg := modelConfigFromRequest(req, req.Filename, fullPath, runtimeArgs, h.admin.Environment())
 	logging.Debug("[updateModel] before runtime ApplyMetadataDefaults", "runtime_before", runtimeCfg.ContextBudget)
-	orchestrator.ApplyMetadataDefaults(&runtimeCfg)
+	applyDefaultsWithHydratedClass(&runtimeCfg, &req, h.runtime.ClassifyModel)
 	logging.Info("[updateModel] after runtime ApplyMetadataDefaults", "runtime_after", runtimeCfg.ContextBudget)
 	if err := h.runtime.UpdateModel(runtimeCfg); err != nil {
 		status := http.StatusInternalServerError
