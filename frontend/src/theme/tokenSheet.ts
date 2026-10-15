@@ -1,4 +1,5 @@
-import type { ColourScheme, PresetId, TokenSheet } from '../types/theme'
+import { PRESET_IDS } from '../types/theme'
+import type { ColourScheme, PresetId, ThemeTokens, TokenSheet } from '../types/theme'
 import { isTokenName } from './tokenRegistry'
 
 // Reads token declarations out of styles/tokens.css — the single source of
@@ -11,7 +12,6 @@ const PRESET_SELECTOR = /^\[data-theme='([a-z-]+)'\]$/
 const ROOT_SELECTOR = ':root'
 const COMMENT = /\/\*[\s\S]*?\*\//g
 const DECLARATION = /^(--[a-z0-9-]+|color-scheme)\s*:\s*(.+)$/
-const PRESETS: readonly PresetId[] = ['retro-dark', 'retro-dark-soft', 'retro-dark-lifted', 'retro-paper']
 
 interface Block {
   selectors: string[]
@@ -44,13 +44,13 @@ function topLevelBlocks(css: string): Block[] {
 }
 
 function isPreset(id: string): id is PresetId {
-  return (PRESETS as readonly string[]).includes(id)
+  return (PRESET_IDS as readonly string[]).includes(id)
 }
 
 export function parseTokenSheet(css: string): TokenSheet {
   const sheet: TokenSheet = {
     global: {},
-    themes: { 'retro-dark': {}, 'retro-dark-soft': {}, 'retro-dark-lifted': {}, 'retro-paper': {} },
+    themes: Object.fromEntries(PRESET_IDS.map((id) => [id, {}])) as Record<PresetId, ThemeTokens>,
     schemes: {},
   }
   for (const { selectors, body } of topLevelBlocks(css.replace(COMMENT, ''))) {

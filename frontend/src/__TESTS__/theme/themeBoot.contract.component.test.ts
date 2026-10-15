@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import bootSource from '../../../public/theme-boot.js?raw'
+import { accentOverrides } from '../../theme/accent'
 import { applyTheme } from '../../theme/apply'
 import { PRESETS } from '../../theme/presets'
 import type { AppliedTheme } from '../../types/theme'
@@ -43,6 +44,12 @@ describe('theme-boot.js ≡ applyTheme', () => {
 
   it.each(Object.values(PRESETS).map((p) => p.id))('stored preset %s', (id) => {
     expect(runBoot(record(preset(id)))).toEqual(runApply(preset(id)))
+  })
+
+  it('stored preset with a chosen accent', () => {
+    const withAccent: AppliedTheme = { ...preset('retro-paper'), overrides: accentOverrides(PRESETS['retro-paper'].tokens, [96, 178, 240]) }
+    expect(Object.keys(withAccent.overrides)).toEqual(['accent-brand', 'focus-ring'])
+    expect(runBoot(record(withAccent))).toEqual(runApply(withAccent))
   })
 
   it('stored custom theme with overrides', () => {

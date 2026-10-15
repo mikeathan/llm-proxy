@@ -11,4 +11,10 @@ describe('UserMessage', () => {
     await w.get('button[aria-label^="Send again"]').trigger('click')
     expect(w.emitted('retry')).toEqual([['line 1\nline 2']])
   })
+
+  it('floats its actions below the message, so they do not reserve a row of their own', () => {
+    const w = mount(UserMessage, { props: { content: 'hi' }, global: { stubs: { Icon: true } } })
+    const row = w.get('button[aria-label^="Send again"]').element.parentElement!
+    expect(row.className).toContain('absolute')
+  })
 })

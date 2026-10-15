@@ -18,6 +18,10 @@ export const PROVIDER_IDS = [
 export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   appearance: "Appearance",
   local: "Local Engine",
+  runs: "Runs",
+  memory: "Memory & reminders",
+  storage: "Storage & logging",
+  limits: "Limits & reset",
   "local-models": "Local Models",
   security: "Security & sandboxing",
   guardrails: "Agent Guardrails",

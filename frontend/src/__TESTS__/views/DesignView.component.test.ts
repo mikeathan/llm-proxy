@@ -4,7 +4,7 @@ import { nextTick } from 'vue'
 import DesignView from '../../views/DesignView.vue'
 import { CONTRAST_PAIRS } from '../../theme/contrastPairs'
 import { TOKEN_REGISTRY } from '../../theme/tokenRegistry'
-import { PRESET_IDS } from '../../theme/presets'
+import { PRESET_IDS } from '../../types/theme'
 import { useTheme } from '../../composables/ui/useTheme'
 
 // main.ts starts the theme in the app; the view only reads and selects.

@@ -2,7 +2,7 @@
 import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'appearance' | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search'
+export type SettingsTab = ProviderType | 'appearance' | 'runs' | 'memory' | 'storage' | 'limits' | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search'
 
 export interface APIKeyItem {
   id: string
@@ -22,10 +22,19 @@ export interface ConnectorForm {
   webhook_token: string
 }
 
-// A titled group of Settings categories in the category nav.
-export interface SettingsGroup {
-  name: string
-  tabs: SettingsTab[]
+// The Settings tabs, in order. Each holds one or more Settings sections (routes).
+export const SETTINGS_GROUP_IDS = ['general', 'models', 'safety', 'connectors', 'appearance', 'system'] as const
+export type SettingsGroupId = (typeof SETTINGS_GROUP_IDS)[number]
+
+// The panels of Settings · General (each belongs to one of its sections, constants/settings.ts).
+export const GENERAL_PANELS = ['routing', 'engine', 'lifecycle', 'gpu', 'scheduler', 'external', 'memory', 'reminders', 'storage', 'logging'] as const
+export type GeneralPanel = (typeof GENERAL_PANELS)[number]
+
+// One Settings tab: its sections are the `/settings/<section>` routes it covers.
+export interface SettingsTabGroup {
+  id: SettingsGroupId
+  label: string
+  sections: SettingsTab[]
 }
 
 // The last "Test connection" of a provider's key in Settings.

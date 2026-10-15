@@ -70,7 +70,32 @@ export type Channels = readonly [number, number, number]
 
 export type ColourScheme = 'dark' | 'light'
 
-export type PresetId = 'retro-dark' | 'retro-dark-soft' | 'retro-dark-lifted' | 'retro-paper'
+/**
+ * The built-in presets, in picker order. The one TypeScript list: theme/presets.ts
+ * and theme/tokenSheet.ts import it, scripts/check-contrast.cjs reads the same ids
+ * from styles/tokens.css, and public/theme-boot.js (plain ES5) is held to it by
+ * themeBoot.contract.component.test.ts.
+ */
+export const PRESET_IDS = [
+  'retro-dark',
+  'retro-dark-soft',
+  'retro-dark-lifted',
+  'retro-midnight',
+  'retro-forest',
+  'retro-plum',
+  'retro-paper',
+  'retro-paper-cool',
+  'retro-sand',
+] as const
+
+export type PresetId = (typeof PRESET_IDS)[number]
+
+/** The accent swatches Settings · Appearance offers over any preset (theme/accent.ts). */
+export const ACCENT_IDS = ['persimmon', 'raspberry', 'orchid', 'violet', 'indigo', 'sky', 'teal', 'sand'] as const
+export type AccentId = (typeof ACCENT_IDS)[number]
+
+/** The accent the operator picked: a named swatch, or any colour. Null in storage = the preset's own. */
+export type AccentChoice = { kind: 'named'; id: AccentId } | { kind: 'custom'; hex: string }
 
 /** A partial token map in canonical stored form (colour → "R G B"). */
 export type ThemeTokens = Partial<Record<TokenName, string>>

@@ -159,7 +159,7 @@ defineExpose({
 
 <style scoped>
 .message-container { @apply relative flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5; }
-.turn-group { @apply mx-auto flex w-full max-w-[52rem] flex-col gap-4; }
+.turn-group { @apply mx-auto flex w-full max-w-[52rem] flex-col gap-6; }
 .chat-empty { @apply mx-auto flex max-w-[56ch] flex-col gap-2 border border-dashed border-control p-5 text-[length:var(--text-small)] text-secondary; }
 .chat-empty p { @apply m-0; }
 .chat-empty-eyebrow { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }

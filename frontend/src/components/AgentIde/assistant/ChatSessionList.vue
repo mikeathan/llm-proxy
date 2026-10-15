@@ -15,7 +15,8 @@ import Icon from '../../icons/Icon.vue'
 // (kept per workspace in this browser), grouped Pinned · Today · Yesterday ·
 // This week · Older, with webhook conversations in their own folder. Row
 // actions are named after their conversation and show on hover or keyboard
-// focus (always on touch-sized screens). Deleting is confirmed by the chat.
+// focus (always on touch-sized screens). Deleting is confirmed by the chat. The
+// header hides the list; New chat is the footer row.
 const props = defineProps<{
   sessions: SessionBrief[]
   currentSessionId: string | null
@@ -71,13 +72,12 @@ const cancelRename = () => {
 </script>
 
 <template>
-  <div class="flex h-full w-full flex-col overflow-hidden border-r border-hairline bg-surface">
-    <div class="flex flex-none items-center justify-between gap-2 border-b border-hairline px-3 py-2">
+  <div class="flex h-full w-full flex-col overflow-hidden bg-surface-raised">
+    <div class="flex flex-none items-center justify-between gap-2 px-3 py-2">
       <MicroLabel>Conversations</MicroLabel>
       <span class="flex items-center gap-1">
         <BaseButton v-if="sessions.length" variant="ghost" size="sm" icon="trash" icon-only label="Delete all conversations" @click="emit('clear-all')" />
-        <BaseButton variant="ghost" size="sm" icon="plus" icon-only label="New chat" @click="emit('new-chat')" />
-        <BaseButton v-if="isMobile" variant="ghost" size="sm" icon="close" icon-only label="Close conversations" @click="emit('close')" />
+        <BaseButton variant="ghost" size="sm" icon="chevron-left" icon-only label="Hide conversations" @click="emit('close')" />
       </span>
     </div>
 
@@ -180,5 +180,10 @@ const cancelRename = () => {
         </section>
       </div>
     </template>
+
+    <!-- New sits in its own footer row: findable, and apart from the actions that delete. -->
+    <div class="flex-none p-2">
+      <BaseButton data-test="session-new" variant="ghost" icon="plus" class-name="w-full !justify-start [@media(pointer:coarse)]:h-11" @click="emit('new-chat')">New chat</BaseButton>
+    </div>
   </div>
 </template>

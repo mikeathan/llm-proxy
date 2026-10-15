@@ -25,6 +25,7 @@ import { useConfirm } from "../../../composables/ui/useConfirm";
 import { usePinnedSessions } from "../../../composables/assistant/usePinnedSessions";
 import type { StatusState } from "../../../types/ui";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
+import { usePersistedState } from "../../../composables/ui/usePersistedState";
 import { useExpandedSegments } from "../../../composables/ui/useExpandedSegments";
 
 const props = defineProps<{
@@ -33,6 +34,9 @@ const props = defineProps<{
   // null for a new chat. The chat reports its own session changes back through
   // update:conversationId so the URL always names what is on screen.
   conversationId?: string | null;
+  // `panel` is the narrow ask panel on any page: the conversation list is always
+  // an overlay inside it (never a column) and nothing is persisted for it.
+  variant?: "page" | "panel";
 }>();
 
 const emit = defineEmits<{
@@ -43,6 +47,8 @@ const emit = defineEmits<{
 // The session list becomes a slide-over below `sm`.
 const { breakpoint } = useResponsiveLayout();
 const isMobile = computed(() => breakpoint.value === "base");
+// Where the conversation list is an overlay and the header is icon-only: a phone, or the narrow panel.
+const compact = computed(() => props.variant === "panel" || isMobile.value);
 
 const {
   loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
@@ -76,9 +82,32 @@ const status = computed<{ state: StatusState; label: string }>(() => {
 });
 
 const inputMessage = ref("");
-const sidebarOpen = ref(false);
+// Whether the conversation list is open is a per-browser preference on a roomy
+// screen (closed until the operator opens it); on a phone it is a drawer that always
+// starts closed.
+const HISTORY_OPEN_KEY = "assistant-history-open";
+const UNTITLED_CONVERSATION = "Conversation";
+const historyOpenPref = usePersistedState<boolean>(HISTORY_OPEN_KEY, {
+  version: 1,
+  fallback: false,
+  parse: (data) => (typeof data === "boolean" ? data : null),
+});
+const drawerOpen = ref(false);
+const sidebarOpen = computed({
+  get: () => (compact.value ? drawerOpen.value : historyOpenPref.value),
+  set: (open: boolean) => {
+    if (compact.value) drawerOpen.value = open;
+    else historyOpenPref.value = open;
+  },
+});
+// A conversation that has not started: there is nothing to start new from, so New is not offered.
+const isFreshConversation = computed(() => !currentSessionId.value && messages.value.length === 0);
+const conversationTitle = computed(() => sessions.value.find((s) => s.id === currentSessionId.value)?.snippet || UNTITLED_CONVERSATION);
 const inboundCount = ref(0);
 const chatMessagesRef = ref<InstanceType<typeof ChatMessages> | null>(null);
+const chatInputRef = ref<InstanceType<typeof ChatInput> | null>(null);
+// The ask panel puts the cursor in the message when it opens.
+defineExpose({ focusInput: () => chatInputRef.value?.focus() });
 
 function forceScrollToBottom() {
   chatMessagesRef.value?.scrollToBottom("smooth");
@@ -219,7 +248,7 @@ const handleModelBusyCancel = () => {
   const settleLoadedSession = async () => {
     collapseAllInsets();
     await scrollToLatest();
-    if (isMobile.value) {
+    if (compact.value) {
       sidebarOpen.value = false;
     }
   };
@@ -272,7 +301,7 @@ const handleDeleteGroup = async (ids: string[]) => {
   <div class="assistant-shell">
     <!-- Desktop sidebar -->
     <aside
-      v-if="!isMobile"
+      v-if="!compact"
       class="chat-sidebar"
       :class="{ 'chat-sidebar--open': sidebarOpen }"
     >
@@ -295,7 +324,7 @@ const handleDeleteGroup = async (ids: string[]) => {
 
     <!-- Mobile drawer -->
     <Transition name="drawer">
-      <div v-if="isMobile && sidebarOpen" class="mobile-drawer" @click.stop>
+      <div v-if="compact && sidebarOpen" class="mobile-drawer" @click.stop>
         <ChatSessionList
           :sessions="sessions"
           :current-session-id="currentSessionId"
@@ -316,7 +345,7 @@ const handleDeleteGroup = async (ids: string[]) => {
     <!-- Mobile backdrop -->
     <Transition name="fade">
       <div
-        v-if="isMobile && sidebarOpen"
+        v-if="compact && sidebarOpen"
         class="mobile-backdrop"
         @click="toggleSidebar"
       />
@@ -325,30 +354,29 @@ const handleDeleteGroup = async (ids: string[]) => {
     <div class="chat-area">
       <header class="chat-header">
         <div class="flex min-w-0 items-center gap-2">
-          <span class="relative">
-            <BaseButton
-              variant="ghost"
-              size="sm"
-              :icon="sidebarOpen ? 'chevron-left' : 'chevron-right'"
-              icon-only
-              :label="sidebarOpen ? 'Hide conversations' : 'Show conversations'"
-              :aria-expanded="sidebarOpen"
-              @click="toggleSidebar"
-            />
-            <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
-          </span>
-          <BaseButton variant="ghost" size="sm" icon="plus" icon-only label="New chat" @click="handleNewChat" />
-          <h2 class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ workspaceId }}</h2>
-          <StatusTag data-test="chat-status" :state="status.state" :label="status.label" />
+          <!-- History and New are one control, so New is never alone; with the list open on a roomy screen the list holds both. -->
+          <div v-if="compact || !sidebarOpen" class="header-cap" role="group" aria-label="Conversations">
+            <span class="relative">
+              <BaseButton
+                variant="ghost"
+                size="sm"
+                :icon="compact ? 'menu' : 'chevron-right'"
+                icon-only
+                :label="sidebarOpen ? 'Hide conversations' : 'Show conversations'"
+                :aria-expanded="sidebarOpen"
+                @click="toggleSidebar"
+              />
+              <span v-if="inboundCount > 0 && !sidebarOpen" class="badge-dot" aria-hidden="true" />
+            </span>
+            <span v-if="!isFreshConversation" class="cap-sep" aria-hidden="true"></span>
+            <BaseButton v-if="!isFreshConversation" data-test="header-new" variant="ghost" size="sm" icon="plus" :icon-only="compact" label="New chat" aria-label="New chat" class-name="!text-primary" @click="handleNewChat">New</BaseButton>
+          </div>
+          <!-- A ready chat shows nothing (assistive technology still hears "Ready"); the state leads the title only while the chat is doing something. -->
+          <span v-if="status.state === 'neutral'" data-test="chat-status" class="sr-only" role="status">{{ status.label }}</span>
+          <StatusTag v-else data-test="chat-status" :state="status.state" :label="status.label" class="flex-none" />
+          <h2 v-if="!isFreshConversation" class="m-0 min-w-0 truncate font-mono text-[length:var(--text-small)] font-medium text-primary">{{ conversationTitle }}</h2>
         </div>
         <div class="flex flex-none items-center gap-1">
-          <BaseButton
-            variant="ghost"
-            size="sm"
-            :disabled="!currentSessionId || loading"
-            title="Ask the model which facts in this conversation are worth remembering"
-            @click="startReview()"
-          >Review for memories</BaseButton>
           <BaseButton variant="ghost" size="sm" icon="close" icon-only label="Close the assistant" @click="emit('close')" />
         </div>
       </header>
@@ -381,11 +409,15 @@ const handleDeleteGroup = async (ids: string[]) => {
       />
 
       <ChatInput
+        ref="chatInputRef"
+        :compact="isMobile"
+        :can-review="!!currentSessionId"
         :loading="loading"
         :paused="paused"
         :input-message="inputMessage"
         @send="handleSend"
         @cancel="cancel"
+        @review="startReview()"
         @update:input-message="inputMessage = $event"
       />
     </div>
@@ -403,16 +435,19 @@ const handleDeleteGroup = async (ids: string[]) => {
       @retry="startReview()"
     />
 
-    <ConfirmDialog
-      v-model="showModelBusy"
-      :title="MODEL_BUSY_DIALOG_TITLE"
-      :message="modelBusyMessage || MODEL_BUSY_DIALOG_MESSAGE"
-      type="warning"
-      :confirm-text="MODEL_BUSY_WAIT_LABEL"
-      :cancel-text="MODEL_BUSY_CANCEL_LABEL"
-      @confirm="dismissModelBusy"
-      @cancel="handleModelBusyCancel"
-    />
+    <!-- Teleported with the other overlays opened from here, so its scrim covers the whole screen. -->
+    <Teleport to="body">
+      <ConfirmDialog
+        v-model="showModelBusy"
+        :title="MODEL_BUSY_DIALOG_TITLE"
+        :message="modelBusyMessage || MODEL_BUSY_DIALOG_MESSAGE"
+        type="warning"
+        :confirm-text="MODEL_BUSY_WAIT_LABEL"
+        :cancel-text="MODEL_BUSY_CANCEL_LABEL"
+        @confirm="dismissModelBusy"
+        @cancel="handleModelBusyCancel"
+      />
+    </Teleport>
   </div>
 </template>
 
@@ -433,11 +468,12 @@ const handleDeleteGroup = async (ids: string[]) => {
 
 /* ── Mobile drawer + backdrop ── */
 .mobile-backdrop {
-  @apply fixed inset-0 bg-scrim/50 z-30;
+  @apply absolute inset-0 bg-scrim/50 z-30;
 }
 
+/* The list slides over the chat box (a phone's, or the ask panel's), never over the top strip or the tab bar. */
 .mobile-drawer {
-  @apply fixed left-0 top-0 bottom-0 w-[85vw] max-w-[320px] z-40;
+  @apply absolute left-0 top-0 bottom-0 w-[85%] max-w-[320px] z-40;
 }
 
 /* ── Drawer transitions ── */
@@ -472,7 +508,14 @@ const handleDeleteGroup = async (ids: string[]) => {
 }
 
 .chat-header {
-  @apply flex min-h-11 items-center justify-between gap-2 border-b border-hairline bg-surface px-3 py-1.5 z-10;
+  @apply flex min-h-11 items-center justify-between gap-2 bg-canvas px-3 py-1.5 z-10;
+}
+
+.header-cap {
+  @apply inline-flex flex-none items-center rounded-[var(--radius-md)] bg-surface-raised p-0.5;
+}
+.cap-sep {
+  @apply h-4 w-px flex-none bg-border-strong;
 }
 
 .badge-dot {

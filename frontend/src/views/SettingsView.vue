@@ -11,7 +11,8 @@ import { useUnsavedChangesGuard } from "../composables/ui/useUnsavedChangesGuard
 import { useSettingsSection } from "../composables/settings/useSettingsSection"
 import { useProviderKeys } from "../composables/settings/useProviderKeys"
 import { AdminApiService } from "../services/admin/adminService"
-import { getSettingsGroups, isProviderTab } from "../domain/settings"
+import { getSettingsTabGroups, isProviderTab } from "../domain/settings"
+import { SETTINGS_GROUP_SECTIONS, SETTINGS_SECTION_LABELS } from "../constants/settings"
 import { errorMessage } from "../utils/errors"
 import { ROUTE_NAMES } from "../types/routes"
 import type { GlobalConfig, ProviderType, SettingsTab } from "../types/admin"
@@ -24,7 +25,7 @@ import UnsavedTag from "../components/common/display/UnsavedTag.vue"
 import FormField from "../components/common/forms/FormField.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
-import SettingsNav from "../components/settings/SettingsNav.vue"
+import SettingsTabs from "../components/settings/SettingsTabs.vue"
 import SettingsActions from "../components/settings/SettingsActions.vue"
 import GlobalSettings from "../components/settings/GlobalSettings.vue"
 import SecuritySettings from "../components/settings/SecuritySettings.vue"
@@ -66,13 +67,17 @@ const { confirm } = useConfirm()
 
 // ── Sections ──────────────────────────────────────────────────────────────
 const manifestsLoaded = ref(false)
-const settingsGroups = computed(() => getSettingsGroups(settingsTabs.value))
+const settingsGroups = computed(() => getSettingsTabGroups(settingsTabs.value))
 const { activeTab } = useSettingsSection(
-  (tab) => settingsGroups.value.some((group) => group.tabs.includes(tab)),
+  (tab) => settingsGroups.value.some((group) => group.sections.includes(tab)),
   manifestsLoaded,
 )
 const providerTabs = computed(() => settingsTabs.value.filter(isProviderTab) as ProviderType[])
-const labelOf = (tab: SettingsTab) => getLabel(tab)
+const labelOf = (tab: SettingsTab) => SETTINGS_SECTION_LABELS[tab] ?? getLabel(tab)
+// General is several short sections over one form: all stay mounted, so an edit survives moving between them.
+const isGeneralSection = computed(() => SETTINGS_GROUP_SECTIONS.general.includes(activeTab.value))
+// Security is two sections over one draft, for the same reason.
+const isSecuritySection = computed(() => activeTab.value === 'security' || activeTab.value === 'limits')
 
 // ── Models ────────────────────────────────────────────────────────────────
 const models = computed<Model[]>(() => modelsState.value?.models ?? [])
@@ -180,8 +185,8 @@ const updateConfigValue = (value: GlobalConfig) => {
       </template>
     </PageHeader>
 
-    <div class="grid items-start gap-3 lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-6">
-      <SettingsNav :groups="settingsGroups" :active="activeTab" :label-of="labelOf" />
+    <div class="flex min-w-0 flex-col gap-4">
+      <SettingsTabs :groups="settingsGroups" :active="activeTab" :label-of="labelOf" />
 
       <div class="flex min-w-0 flex-col gap-4">
         <ErrorState
@@ -199,8 +204,9 @@ const updateConfigValue = (value: GlobalConfig) => {
             <AppearanceSettings @dirty-change="draftDirty.appearance = $event" />
           </div>
 
-          <div v-show="activeTab === 'local'" class="flex flex-col gap-4">
+          <div v-show="isGeneralSection" class="flex flex-col gap-4">
             <GlobalSettings
+              :section="activeTab"
               :edit-config="config"
               :log-level="logLevel"
               :models="models"
@@ -215,8 +221,8 @@ const updateConfigValue = (value: GlobalConfig) => {
             <ProviderModelsCard :provider="LOCAL_PROVIDER" :api-keys="[]" :models="modelsOf(LOCAL_PROVIDER)" :available-models="availableModels" @refresh="refreshModels" />
           </div>
 
-          <div v-show="activeTab === 'security'">
-            <SecuritySettings :active="activeTab === 'security'" @dirty-change="draftDirty.security = $event" />
+          <div v-show="isSecuritySection">
+            <SecuritySettings :section="activeTab" @dirty-change="draftDirty.security = $event" />
           </div>
 
           <div v-show="activeTab === 'guardrails'" class="flex flex-col gap-4">

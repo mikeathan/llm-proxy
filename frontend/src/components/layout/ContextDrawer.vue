@@ -40,7 +40,7 @@ watch(
 
 <template>
   <template v-if="open">
-    <div data-test="drawer-scrim" class="fixed inset-0 z-30 bg-scrim/60" aria-hidden="true" @click="close"></div>
+    <div data-test="drawer-scrim" class="fixed inset-0 z-40 bg-scrim/60" aria-hidden="true" @click="close"></div>
     <div
       role="dialog"
       aria-modal="true"

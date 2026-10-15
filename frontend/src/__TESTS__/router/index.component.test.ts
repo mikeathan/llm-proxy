@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createMemoryHistory, type RouteLocationNormalized } from 'vue-router'
 import { createAppRouter, routes, scrollBehavior } from '../../router'
 import { ROUTE_NAMES } from '../../types/routes'
+import { useLastWorkspace } from '../../composables/ui/useLastWorkspace'
+import { memoryStorage } from '../helpers/memoryStorage'
 
 const router = createAppRouter(createMemoryHistory())
 const nameOf = (path: string) => router.resolve(path).name
@@ -48,10 +50,20 @@ describe('route table (D18)', () => {
     expect(nameOf(path)).toBe(ROUTE_NAMES.notFound)
   })
 
-  it('redirects / to Overview and a bare workspace to its files', async () => {
+  it('opens on the Overview until a workspace is known, then on that workspace\'s assistant', async () => {
+    vi.stubGlobal('localStorage', memoryStorage())
     const r = createAppRouter(createMemoryHistory())
     await r.push('/')
     expect(r.currentRoute.value.name).toBe(ROUTE_NAMES.overview)
+    useLastWorkspace().remember('lab')
+    await r.push('/')
+    expect(r.currentRoute.value.fullPath).toBe('/workspaces/lab/assistant')
+    useLastWorkspace().forget('lab')
+    vi.unstubAllGlobals()
+  })
+
+  it('redirects a bare workspace to its files', async () => {
+    const r = createAppRouter(createMemoryHistory())
     await r.push('/workspaces/ws')
     expect(r.currentRoute.value.fullPath).toBe('/workspaces/ws/files')
   })

@@ -2,7 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CONTRAST_PAIRS, evaluateContrast } from '../../theme/contrastPairs'
-import { PRESETS, PRESET_IDS } from '../../theme/presets'
+import { PRESETS } from '../../theme/presets'
+import { PRESET_IDS } from '../../types/theme'
 
 // scripts/check-contrast.cjs (run by `npm run lint`) keeps its own copy of the
 // pair list so it can run without the app bundle. This proves the copy has not

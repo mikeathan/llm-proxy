@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onActivated, onDeactivated, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { useModels } from "../composables/models/useModels"
@@ -26,7 +26,6 @@ import {
   toWorkspaceFile,
   toWorkspaces,
   toAutomationNew,
-  toWorkspaceSection,
   workspaceLocation,
 } from "../router/routes"
 import type { AutomationRun } from "../types/dispatcher"
@@ -64,6 +63,15 @@ const AUTOMATION_LANE_KIND: LaneKind = "automation"
 
 const router = useRouter()
 const current = useDestinationRoute("workspaces")
+// This view is kept alive (plan D19), but the assistant chat in it owns a live
+// connection to the run, so it must not outlive a visit: while the operator is
+// elsewhere the chat is closed (the run goes on server-side and replays when a chat
+// opens again), and the ask panel can open the one chat every other page may have.
+// `v-if` on the chat reads this flag.
+const viewActive = ref(true)
+onActivated(() => (viewActive.value = true))
+onDeactivated(() => (viewActive.value = false))
+
 const location = computed(() => workspaceLocation(current.value))
 const ws = computed(() => location.value.ws)
 
@@ -201,27 +209,15 @@ watch(() => current.value.fullPath, () => {
 const workspacesLoaded = ref(false)
 const unknownWorkspace = computed(() => !!ws.value && workspacesLoaded.value && !workspaces.value.some((w) => w.id === ws.value))
 
-// The sidebar's assistant shortcut opens the workspace last viewed here; with a
-// single workspace that one is remembered as soon as the list loads, and a
-// remembered workspace that no longer exists is forgotten.
-const { lastWorkspace, remember: rememberWorkspace, forget: forgetWorkspace } = useLastWorkspace()
+// The workspace viewed here is the one the shell opens next (Assistant, Workspace, the
+// ask panel). Keeping that choice valid — forgetting a deleted workspace, defaulting
+// when none is remembered — is useActiveWorkspace's job, once, for the whole app.
+const { remember: rememberWorkspace, forget: forgetWorkspace } = useLastWorkspace()
 watch([ws, workspacesLoaded], ([workspace, loaded]) => {
-  if (!loaded) return
-  if (workspace && !unknownWorkspace.value) rememberWorkspace(workspace)
-  const ids = workspaces.value.map((w) => w.id)
-  if (lastWorkspace.value && !ids.includes(lastWorkspace.value)) forgetWorkspace(lastWorkspace.value)
-  if (!lastWorkspace.value && ids.length === 1) rememberWorkspace(ids[0]!)
+  if (loaded && workspace && !unknownWorkspace.value) rememberWorkspace(workspace)
 }, { immediate: true })
 
 const section = computed<WorkspaceNavSection>(() => (location.value.assistant ? "assistant" : location.value.section ?? "files"))
-
-// Switching workspace keeps the section (a file path does not carry over).
-function switchWorkspace(id: string) {
-  const s = section.value
-  if (s === "files") void router.push(toWorkspaceFile(id))
-  else if (s === "assistant") void router.push(toWorkspaceAssistant(id))
-  else void router.push(toWorkspaceSection(id, s))
-}
 
 async function handleCreateWorkspace(name: string) {
   try {
@@ -348,13 +344,13 @@ usePolling(() => {
 
     <!-- One workspace -->
     <template v-else>
+      <!-- On a phone the chat fills the screen between the top strip and the tab bar; its sections are one tap away under Workspace. -->
       <WorkspaceHeader
+        :class="{ 'max-lg:hidden': section === 'assistant' }"
         :ws="ws"
-        :workspaces="workspaces"
         :section="section"
         :chat-running="assistantRunning"
         :external-access="!!workspaceExternalAccess[ws]"
-        @switch="switchWorkspace"
       >
         <template #actions>
           <BaseButton variant="secondary" icon="nav-activity" :aria-expanded="monitorOpen" @click="monitorOpen = true">Monitor</BaseButton>
@@ -409,8 +405,9 @@ usePolling(() => {
         </Panel>
       </div>
 
-      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100vh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-sm)] border border-hairline">
+      <div v-else-if="activeMainView === 'assistant'" class="h-[calc(100dvh-10rem)] min-h-[480px] overflow-hidden rounded-[var(--radius-md)] max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom))] max-lg:top-12 max-lg:z-20 max-lg:h-auto max-lg:min-h-0 max-lg:rounded-none">
         <AssistantChat
+          v-if="viewActive"
           :workspaceId="ws"
           :conversation-id="location.conversationId"
           @update:conversation-id="handleConversationChange"

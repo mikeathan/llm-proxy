@@ -27,6 +27,8 @@ defineEmits<{
 </script>
 
 <template>
+  <!-- Teleported to <body>: this dialog is opened from inside the chat, whose phone box is a fixed (stacking-context) element that would put the drawer under the top strip and the tab bar. -->
+  <Teleport to="body">
   <ContextDrawer :open="open" title="Review for memories" wide @update:open="$emit('update:open', $event)">
     <div class="flex flex-col gap-4">
       <p class="m-0 text-[length:var(--text-small)] text-muted">
@@ -81,4 +83,5 @@ defineEmits<{
       </template>
     </div>
   </ContextDrawer>
+  </Teleport>
 </template>

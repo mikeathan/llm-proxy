@@ -10,7 +10,7 @@ const mounted: VueWrapper[] = []
 function mountDialog(props: Record<string, unknown> = {}) {
   const w = mount(MemoryReviewDialog, {
     props: { open: true, loading: false, saving: false, error: '', items: [], selectedCount: 0, ...props },
-    global: { stubs: { Icon: true } },
+    global: { stubs: { Icon: true, teleport: true } },
     attachTo: document.body,
   })
   mounted.push(w)

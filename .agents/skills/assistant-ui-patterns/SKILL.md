@@ -1,7 +1,7 @@
 ---
 name: assistant-ui-patterns
 description: "AgentIde UI shell patterns: chat shell composition, sidebar/drawer states, mobile breakpoints, the shared chat renderer, and UI gotchas. Use when working on AgentIde layout/components."
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-14
 ---
 
 # Assistant UI Chat Patterns
@@ -16,7 +16,7 @@ last_reviewed: 2026-09-30
 AssistantChat.vue
   ├── useResponsiveLayout()              → breakpoint ('base' = below sm → drawer)
   ├── useAssistant (singleton composable) → messages, sessions, currentSessionId
-  ├── ChatSessionList.vue                 → sidebar / drawer (3 states)
+  ├── ChatSessionList.vue                 → column or drawer (see Sidebar States)
   ├── ChatMessages.vue                    → rendered messages + tool blocks (mode: 'chat' | 'automation')
   └── ChatInput.vue                      → text input + send/cancel
 
@@ -35,17 +35,20 @@ SSE: useLiveConsole  → EventSource → /admin/api/dispatcher/workspaces/{ws}/l
 
 ## Sidebar States (ChatSessionList.vue)
 
-The sidebar has 3 visual states driven by the parent:
+The conversation list has three placements, chosen by `AssistantChat`:
 
-| State | Width | Desktop | Mobile |
-|-------|-------|---------|--------|
-| Collapsed (default) | 0px / hidden | No visible bar | Drawer closed |
-| Hovered (not supported) | — | Do NOT use mouse-position auto-expand | — |
-| Toggled | 260px / 85vw | Manual `sidebarOpen` ref | Manual `sidebarOpen` ref |
+| Where | Placement | Open state |
+|-------|-----------|------------|
+| Assistant page, roomy screen | a 260px column beside the chat | persisted per browser (`assistant-history-open`, `usePersistedState`); closed until opened |
+| Assistant page on a phone (`base`), and the **ask panel** (`variant="panel"`) | a drawer sliding over the chat (`fixed` on a phone, `absolute` inside the panel) | local, always starts closed |
 
-Current implementation uses a single `sidebarOpen` boolean. Desktop aside transitions `width: 0 ↔ 260px`. Mobile drawer uses `Transition name="drawer"` with `transform: translateX(-100%)`.
+`compact = variant === 'panel' || isMobile` selects the second row. History and New are one header control (`.header-cap`: toggle | New) while the list is closed; with a column open the list holds both (a "New chat" footer row, a "Hide conversations" header button) and the cap is hidden. The list is toggled manually only.
 
 **Do NOT add mouseenter/mouseleave auto-expand.** The user explicitly requested manual-only toggle.
+
+## The ask panel and the one-chat rule
+
+`AssistantChat variant="panel"` is the chat in the shell's ask panel (`components/layout/AskPanel.vue`) beside any page. Only **one** `AssistantChat` may be mounted: the panel never opens on the Assistant route, and the Workspaces view closes its chat when deactivated (kept-alive otherwise). Details and the test that guards it: `docs/architecture.md` pitfall 49. The panel resumes `openConversationId` (a read-only export of `useAssistant.ts` that creates no connection).
 
 ### List contents (retro redesign, 2026-09-30)
 
@@ -106,8 +109,8 @@ Tool/reasoning segments render inside `ChatBubble.vue` via `ToolCallSegment.vue`
 
 | Breakpoint | Used By | Behavior |
 |-----------|---------|----------|
-| `< 640px` (`base`) | AssistantChat.vue | Mobile sidebar drawer |
-| `< 1024px` (below `lg`) | App shell, `views/WorkspacesView.vue`, `views/AutomationsView.vue` | Sidebar becomes a drawer; one pane at a time (list on the overview, the addressed page otherwise) |
+| `< 640px` (`base`) | AssistantChat.vue | Conversation list as a drawer; the message box opens a full-screen editor for a long draft |
+| `< 1024px` (below `lg`) | App shell, `views/WorkspacesView.vue`, `views/AutomationsView.vue` | Sidebar is replaced by the bottom tab bar (`BottomTabs.vue`); one pane at a time; the assistant fills the screen between the top strip and the bar |
 
 Breakpoints are named (`sm | md | lg | xl | 2xl`) and come from `src/theme/breakpoints.ts`, which also feeds Tailwind's `screens` — never hardcode a pixel width. The assistant chat switches at `sm` because the chat panel is narrower than the full view.
 

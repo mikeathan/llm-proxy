@@ -19,6 +19,13 @@ const activeWorkspaceId = ref<string | null>(null)
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
 
+/**
+ * The open conversation's id, read-only. For a caller that only needs to know what is
+ * open (the ask panel, to resume it): unlike useAssistant() it creates no live
+ * connection and no message builder, so it can be read from anywhere.
+ */
+export const openConversationId = computed(() => currentSessionId.value)
+
 // lastRunningConversationId holds the most recent backend-reported running
 // conversation ID for the active workspace. It is applied after every
 // fetchSessions so a page refresh immediately marks the correct session as

@@ -62,9 +62,20 @@ describe('ChatBubble live reasoning gating', () => {
       idx: 0,
       phase: 'thinking',
     })
-    // The inset (and the live block inside it) is kept mounted but hidden via
-    // v-show so collapse/expand mid-stream is flicker-free — assert hidden
-    // (display:none), not absent.
+    // A turn with no steps has no timeline at all (no empty wrapper to add a gap
+    // above its answer); the new run's thinking must not appear in it either way.
+    expect(wrapper.find('.bubble-inset-wrap').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('new run thinking…')
+  })
+
+  it('keeps a historical turn that has steps mounted but hides the live block, so collapse stays flicker-free', async () => {
+    const wrapper = mountBubble({
+      turn: turn({ segments: [{ kind: 'reasoning', text: 'earlier thought' }] }),
+      liveReasoning: 'new run thinking…',
+      isLastTurn: false,
+      idx: 0,
+      phase: 'thinking',
+    })
     const live = wrapper.find('.inset-reasoning--live')
     expect(live.exists()).toBe(true)
     expect(live.attributes('style')).toContain('display: none')

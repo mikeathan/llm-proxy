@@ -1,3 +1,4 @@
+import type { SettingsTab } from '../../../types/admin'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { AdminApiService } from '../../../services/admin/adminService'
@@ -32,11 +33,11 @@ const SANDBOX: SandboxingConfig = {
 }
 const settings = (patch: Partial<SandboxingConfig> = {}): HostSettings => ({ sandboxing: { ...SANDBOX, ...patch } })
 
-async function mountSecurity(host = settings(), active = true) {
+async function mountSecurity(host = settings(), section: SettingsTab = 'limits') {
   vi.mocked(AdminApiService.fetchHostSettings).mockResolvedValue(structuredClone(host))
   const onDirty = vi.fn()
   const w = mount(SecuritySettings, {
-    props: { active },
+    props: { section },
     attrs: { onDirtyChange: onDirty },
     global: { stubs: { TerminalMonitor: true, Icon: true } },
   })
@@ -115,8 +116,8 @@ describe('SecuritySettings', () => {
   })
 
   it('monitors terminal sessions only while the section is showing', async () => {
-    expect((await mountSecurity(settings(), true)).w.findComponent({ name: 'TerminalMonitor' }).exists()).toBe(true)
-    expect((await mountSecurity(settings(), false)).w.findComponent({ name: 'TerminalMonitor' }).exists()).toBe(false)
+    expect((await mountSecurity(settings(), 'limits')).w.findComponent({ name: 'TerminalMonitor' }).exists()).toBe(true)
+    expect((await mountSecurity(settings(), 'security')).w.findComponent({ name: 'TerminalMonitor' }).exists()).toBe(false)
   })
 
   it.each([
@@ -135,5 +136,29 @@ describe('SecuritySettings', () => {
     await button().trigger('click')
     await flushPromises()
     expect(AdminApiService[call]).toHaveBeenCalledTimes(1)
+  })
+
+  // Security is two short sections: the sandbox policy with what the host enforces, and limits with maintenance.
+  describe('sections', () => {
+    const shown = (w: Awaited<ReturnType<typeof mountSecurity>>['w']) =>
+      w.findAll('section').filter((p) => !p.attributes('style')?.includes('display: none')).map((p) => p.get('h2').text().replace(/^\d+\s*—?\s*/, '').toLowerCase())
+
+    it('shows the sandbox policy and what the host enforces under Security', async () => {
+      expect(shown((await mountSecurity(settings(), 'security')).w)).toEqual(['sandboxing', 'effective enforcement'])
+    })
+
+    it('shows the limits, the live terminals and the resets under Limits', async () => {
+      expect(shown((await mountSecurity(settings(), 'limits')).w)).toEqual(['resource limits', 'reset controls'])
+    })
+
+    it('keeps the save row in view wherever there is an unsaved sandbox edit', async () => {
+      const { w, master } = await mountSecurity(settings(), 'limits')
+      const saveRow = () => w.findComponent({ name: 'SettingsActions' })
+      expect(saveRow().attributes('style') ?? '').toContain('display: none')
+      confirm.mockResolvedValueOnce(true)
+      await master.setValue(false)
+      await flushPromises()
+      expect(saveRow().attributes('style') ?? '').not.toContain('display: none')
+    })
   })
 })

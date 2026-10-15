@@ -5,7 +5,11 @@ import type { DataTableColumn, StatusState } from "../../types/ui"
 import { useTheme } from "../../composables/ui/useTheme"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useToast } from "../../composables/useToast"
+import { ACCENTS, accentChannels } from "../../theme/accent"
+import { channelsToHex } from "../../theme/colour"
 import { PRESETS } from "../../theme/presets"
+import { ACCENT_IDS } from "../../types/theme"
+import type { AccentId } from "../../types/theme"
 import { validateCustomTheme } from "../../theme/validate"
 import { draftFromPreset, draftFromTheme } from "../../theme/themeDraft"
 import { downloadText } from "../../utils/download"
@@ -45,6 +49,28 @@ const activeCustom = computed(() =>
   theme.selection.value?.kind === "custom" ? theme.customThemes.value.find((t) => t.id === theme.selection.value?.id) : undefined,
 )
 const currentPresetLabel = computed(() => PRESETS[theme.current.value.presetId].label)
+
+// ── Accent ─────────────────────────────────────────────────────────────────
+// A colour over any built-in theme: the logo, the current-page marker, focus and the
+// primary button's edge. A custom theme sets its own colours, so it has no accent choice.
+const DEFAULT_ACCENT = "default"
+const FALLBACK_CUSTOM_ACCENT = "#ff6a3d"
+const selectedAccent = computed(() => {
+  const choice = theme.accent.value
+  return !choice ? DEFAULT_ACCENT : choice.kind === "named" ? choice.id : "custom"
+})
+const customAccentHex = computed(() => {
+  const choice = theme.accent.value
+  return choice?.kind === "custom" ? choice.hex : FALLBACK_CUSTOM_ACCENT
+})
+const swatchColour = (id: AccentId) => `rgb(${ACCENTS[id].rgb.join(" ")})`
+const pickAccent = (id: AccentId | typeof DEFAULT_ACCENT) => theme.setAccent(id === DEFAULT_ACCENT ? null : { kind: "named", id })
+const pickCustomAccent = (event: Event) => theme.setAccent({ kind: "custom", hex: (event.target as HTMLInputElement).value })
+const customSwatch = computed(() => {
+  const choice = theme.accent.value
+  const rgb = choice?.kind === "custom" ? accentChannels(choice) : null
+  return rgb ? channelsToHex(rgb) : null
+})
 
 // ── Custom themes ──────────────────────────────────────────────────────────
 const takenIds = computed(() => theme.customThemes.value.map((t) => t.id))
@@ -205,6 +231,34 @@ async function importFile(file: File) {
       </div>
     </Panel>
 
+    <Panel title="Accent">
+      <fieldset :disabled="!!activeCustom" class="m-0 flex flex-wrap gap-2 border-0 p-0">
+        <legend class="sr-only">Accent</legend>
+        <label class="relative block cursor-pointer">
+          <input type="radio" name="accent" class="peer sr-only" :value="DEFAULT_ACCENT" :checked="selectedAccent === DEFAULT_ACCENT" @change="pickAccent(DEFAULT_ACCENT)" />
+          <span class="accent-chip">Theme default</span>
+        </label>
+        <label v-for="id in ACCENT_IDS" :key="id" class="relative block cursor-pointer">
+          <input type="radio" name="accent" class="peer sr-only" :value="id" :checked="selectedAccent === id" @change="pickAccent(id)" />
+          <span class="accent-chip">
+            <span aria-hidden="true" class="h-4 w-4 flex-none rounded-full" :style="{ backgroundColor: swatchColour(id) }"></span>
+            {{ ACCENTS[id].label }}
+          </span>
+        </label>
+        <label class="accent-chip cursor-pointer" :class="selectedAccent === 'custom' ? 'border-accent-brand' : ''">
+          <span aria-hidden="true" class="h-4 w-4 flex-none rounded-full border border-hairline" :style="{ backgroundColor: customSwatch ?? 'transparent' }"></span>
+          Custom…
+          <input type="color" aria-label="Custom accent colour" :value="customAccentHex" class="sr-only" @input="pickCustomAccent" />
+        </label>
+      </fieldset>
+      <p v-if="activeCustom" class="m-0 mt-3 text-[length:var(--text-small)] text-muted">
+        The custom theme <span class="font-mono text-primary">{{ activeCustom.label }}</span> sets its own colours; pick a built-in theme to change the accent.
+      </p>
+      <p v-else class="m-0 mt-3 text-[length:var(--text-small)] text-muted">
+        Changes the logo, the current-page marker, focus and the edge of the main button. Run status keeps its own colours, and the colour is adjusted per theme so text stays readable.
+      </p>
+    </Panel>
+
     <Panel title="Custom themes" :flush="!!theme.customThemes.value.length">
       <template #actions>
         <BaseButton variant="secondary" size="sm" icon="plus" @click="duplicatePreset(theme.current.value.presetId)">Duplicate {{ currentPresetLabel }}</BaseButton>
@@ -257,3 +311,11 @@ async function importFile(file: File) {
     />
   </div>
 </template>
+
+<style scoped>
+/* A choice that looks like the theme cards: a tonal chip, ringed in the brand colour when picked (no shadow). */
+.accent-chip { @apply inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] border-2 border-transparent bg-surface-active px-3 font-mono text-[length:var(--text-small)] text-primary; }
+input:checked + .accent-chip { @apply border-accent-brand; }
+input:focus-visible + .accent-chip, .accent-chip:focus-within { @apply outline outline-2 outline-offset-2 outline-focus-ring; }
+fieldset:disabled .accent-chip { @apply opacity-50; }
+</style>

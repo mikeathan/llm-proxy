@@ -115,3 +115,78 @@ describe('theme controller', () => {
     })
   })
 })
+
+describe('accent', () => {
+  it('puts a chosen accent on the current preset, and clears it again', async () => {
+    const { theme, root } = setup()
+    theme.start()
+    theme.selectPreset('retro-dark-soft')
+    theme.setAccent({ kind: 'named', id: 'sky' })
+    await nextTick()
+    expect(theme.current.value.overrides['accent-brand']).toBeDefined()
+    expect(root.style.getPropertyValue('--accent-brand')).toBe(theme.current.value.overrides['accent-brand'])
+    expect(root.style.getPropertyValue('--focus-ring')).toBe(theme.current.value.overrides['accent-brand'])
+    theme.setAccent(null)
+    await nextTick()
+    expect(theme.current.value.overrides).toEqual({})
+    expect(root.style.getPropertyValue('--accent-brand')).toBe('')
+  })
+
+  it('keeps the accent when the preset changes, readable on the new one', async () => {
+    const { theme } = setup()
+    theme.start()
+    theme.selectPreset('retro-dark-soft')
+    theme.setAccent({ kind: 'named', id: 'raspberry' })
+    const dark = theme.current.value.overrides['accent-brand']
+    theme.selectPreset('retro-paper')
+    await nextTick()
+    expect(theme.current.value.overrides['accent-brand']).toBeDefined()
+    expect(theme.current.value.overrides['accent-brand']).not.toBe(dark)
+    expect(theme.accent.value).toEqual({ kind: 'named', id: 'raspberry' })
+  })
+
+  it('accepts any colour', async () => {
+    const { theme } = setup()
+    theme.start()
+    theme.selectPreset('retro-dark-soft')
+    theme.setAccent({ kind: 'custom', hex: '#2f9e44' })
+    expect(theme.current.value.overrides['accent-brand']).toBeDefined()
+  })
+
+  it('stops following the OS when an accent is chosen, keeping the theme it showed', async () => {
+    const { theme } = setup(true)
+    theme.start()
+    expect(theme.selection.value).toBeNull()
+    theme.setAccent({ kind: 'named', id: 'teal' })
+    await nextTick()
+    expect(theme.selection.value).toEqual({ kind: 'preset', id: 'retro-paper' })
+    expect(theme.current.value.presetId).toBe('retro-paper')
+  })
+
+  it('leaves a custom theme its own colours', async () => {
+    const { theme } = setup()
+    theme.start()
+    theme.saveCustomTheme(sea)
+    theme.selectCustom('sea')
+    theme.setAccent({ kind: 'named', id: 'sky' })
+    await nextTick()
+    expect(theme.current.value.overrides).toEqual({ 'accent-brand': '255 160 122' })
+  })
+
+  it('persists for the boot script and across a restart, and ignores a corrupt record', async () => {
+    const first = setup()
+    first.theme.start()
+    first.theme.selectPreset('retro-dark-soft')
+    first.theme.setAccent({ kind: 'named', id: 'violet' })
+    await nextTick()
+    const record = JSON.parse(first.storage.getItem('admin-ui:theme-applied')!)
+    expect(record.data.overrides['accent-brand']).toBe(first.theme.current.value.overrides['accent-brand'])
+
+    const again = setup(false, first.storage)
+    expect(again.theme.accent.value).toEqual({ kind: 'named', id: 'violet' })
+
+    const broken = memoryStorage({ 'admin-ui:theme-accent': JSON.stringify({ version: 1, data: { kind: 'custom', hex: 'nope' } }) })
+    expect(setup(false, broken).theme.accent.value).toBeNull()
+  })
+})
+

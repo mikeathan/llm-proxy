@@ -1,14 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { BASE_PRESET_ID, DEFAULT_PRESET_ID, PRESETS, PRESET_IDS } from '../../theme/presets'
+import { BASE_PRESET_ID, DEFAULT_PRESET_ID, PRESETS } from '../../theme/presets'
+import { PRESET_IDS } from '../../types/theme'
 import { TOKEN_NAMES } from '../../theme/tokenRegistry'
 import { evaluateContrast } from '../../theme/contrastPairs'
 import { parseColour } from '../../theme/colour'
+import tokensCss from '../../styles/tokens.css?raw'
 
 describe('presets (from styles/tokens.css)', () => {
   it('defaults to retro-dark and lists every preset', () => {
     expect(DEFAULT_PRESET_ID).toBe('retro-dark-soft')
     expect(BASE_PRESET_ID).toBe('retro-dark')
-    expect(PRESET_IDS).toEqual(['retro-dark', 'retro-dark-soft', 'retro-dark-lifted', 'retro-paper'])
+    expect(PRESET_IDS).toEqual([
+      'retro-dark',
+      'retro-dark-soft',
+      'retro-dark-lifted',
+      'retro-midnight',
+      'retro-forest',
+      'retro-plum',
+      'retro-paper',
+      'retro-paper-cool',
+      'retro-sand',
+    ])
+  })
+
+  it('registers every preset block in tokens.css, and every id has a block', () => {
+    const blockIds = [...new Set([...tokensCss.matchAll(/\[data-theme='([a-z-]+)'\]/g)].map((m) => m[1]))]
+    expect(blockIds.sort()).toEqual([...PRESET_IDS].sort())
   })
 
   it.each(PRESET_IDS)('%s defines every registered token', (id) => {

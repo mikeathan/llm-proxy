@@ -3,7 +3,16 @@ import { expect, test, type Page } from '@playwright/test'
 // Keys and version mirror src/composables/ui/useTheme.ts (contract-tested there).
 const SELECTION_KEY = 'admin-ui:theme-selection'
 const APPLIED_KEY = 'admin-ui:theme-applied'
-const SCHEMES = { 'retro-dark': 'dark', 'retro-dark-soft': 'dark', 'retro-paper': 'light' } as const
+const SCHEMES = {
+  'retro-dark': 'dark',
+  'retro-dark-soft': 'dark',
+  'retro-midnight': 'dark',
+  'retro-forest': 'dark',
+  'retro-plum': 'dark',
+  'retro-paper': 'light',
+  'retro-paper-cool': 'light',
+  'retro-sand': 'light',
+} as const
 
 async function storeTheme(page: Page, id: keyof typeof SCHEMES) {
   await page.addInitScript(

@@ -17,7 +17,17 @@
   var VERSION = 1
   var DEFAULT_PRESET = 'retro-dark-soft'
   var LIGHT_PRESET = 'retro-paper'
-  var SCHEMES = { 'retro-dark': 'dark', 'retro-dark-soft': 'dark', 'retro-dark-lifted': 'dark', 'retro-paper': 'light' }
+  var SCHEMES = {
+    'retro-dark': 'dark',
+    'retro-dark-soft': 'dark',
+    'retro-dark-lifted': 'dark',
+    'retro-midnight': 'dark',
+    'retro-forest': 'dark',
+    'retro-plum': 'dark',
+    'retro-paper': 'light',
+    'retro-paper-cool': 'light',
+    'retro-sand': 'light',
+  }
   var TOKEN_NAME = /^[a-z][a-z0-9-]{0,39}$/
   var TOKEN_VALUE = /^(?:\d{1,3} \d{1,3} \d{1,3}|\d{1,4}(?:\.\d{1,2})?(?:px|ms))$/
   var root = document.documentElement
