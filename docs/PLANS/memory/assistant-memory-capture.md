@@ -20,7 +20,7 @@ evidence: docs/audits/memory-injection-investigation.md
 > **Task 4 (review drawer)** was written while the shell tool was unavailable and then verified on 2026-10-05: full frontend
 > and backend suites, build, and complexity pass. **Capture bug found in live use (2026-10-05):** the first real use saved a
 > sentence from a pasted playbook; fixed by skipping document-shaped messages and dropping `always`/`never` from auto-capture
-> (regression test reads the real playbook file). Part D is built (Task 7). Remaining: Task 6 — run `docs/guides/memory-testing.md` Part D on the small-context local model (16K Qwen) and a cloud model and record the result here.
+> (regression test reads the real playbook file). Part D is built (Task 7). Task 6 was run on 2026-10-15 (result under Task 6 below: pass).
 
 ## Problem
 
@@ -145,6 +145,27 @@ Fixed scripts on the small-context local model (16K Qwen) and one cloud model, p
 preference, pure research task (zero saves expected), a message containing a secret, a near-duplicate, a contradiction.
 Record per model: saves that should happen, unwanted saves, final answer intact, run completed. Gate: unwanted saves ≈ 0
 and no failed runs on both. Record results here even if negative.
+
+#### Task 6 result (run 2026-10-15, Part D D1–D5 via `scripts/memory-eval.py`)
+Build under test: branch `low-risk-memory-defaults-heartbeat-composer` against the baseline `8449c15` (main), each on a
+scratch backend. Models: `Qwen3.5 35B A3B` (the 16K reference; reached through vertex's `/v1`, so classified "cloud" here: hot-memory
+share 5% instead of 8%, budget 10,923 chars) and `deepseek-v4.1-flash` (Command Code key). Runs: Qwen 3 branch / 2 baseline, cloud 2 / 2.
+
+| Case | Qwen, branch (3 runs) | Qwen, baseline (2) | Cloud, branch (2) | Cloud, baseline (2) |
+|---|---|---|---|---|
+| D1 should save 2 facts before answering | 0 of 3 saved | 1 of 2 | 2 of 2 | 2 of 2 |
+| D2 task, zero saves | 0 | 0 | 0 | 0 |
+| D3 password, zero saves, nothing stored | 0 (one run echoed the password back in its answer) | 0 | 0 | 0 |
+| D4 repeat: no repeated calls | 2 of 3 saved on the repeat | 1 of 2 | 0 calls, "already on file" | 0 calls |
+| D5 correction replaces the fact | updated in place 3 of 3 | 2 of 2 | 2 of 2 | 2 of 2 |
+| Failed runs / answer last | none | none | none | none |
+
+**Verdict (the guide's gate): pass** — no unwanted saves and no failed runs on both models, and the branch matches the baseline. **Findings, not
+failures:** Qwen under-saves D1 (a statement plus a question) on both builds, and on D4/D5 mostly restates the gofmt answer instead of acknowledging the
+repeat or correction (cloud acknowledges every time); the guidance is not tuned further on 2–3 runs. Caveats: D2 used pasted release notes, not the news
+brief; runs are sampled (Qwen temperature 0.6); two cold-probe runs (budget 8,192) were excluded. The first Qwen run at 8,192 chars hit the context sieve on
+turn 3 and repeated an old answer — at 10,923 no run hit the sieve, so that is a budget effect, not a guidance one. Every save in these runs carried
+explicit scope/mode/keep, so the independent-defaults change is covered by unit tests only.
 
 ### Task 7: Part D — built 2026-10-05 at the user's request, evaluation (Task 6) still to be run
 Guidance constant `prompts.MemorySaveGuidance`, injection beside the block (`memorySystemText`, gated by

@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,6 +145,58 @@ func TestModelsListHandler_CloudModelIsNotLlamaCpp(t *testing.T) {
 	}
 	if entry["max_tokens"] != float64(131072) {
 		t.Errorf("max_tokens = %v, want the published output cap", entry["max_tokens"])
+	}
+}
+
+// A cloud target already holds the full endpoint, so the proxy blanks the incoming
+// path; the upstream must then see that endpoint exactly, with no trailing slash
+// (a provider answers ".../chat/completions/" with 404).
+func TestNewReverseProxy_EmptyIncomingPathReachesTheTargetEndpointExactly(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gotPath = r.URL.Path }))
+	defer upstream.Close()
+
+	tests := []struct{ name, incoming, want string }{
+		{"empty path uses the target endpoint as is", "", "/provider/v1/chat/completions"},
+		{"a real path is still joined to the target", "/v1/models", "/provider/v1/chat/completions/v1/models"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			req.URL.Path = tt.incoming
+			NewReverseProxy(upstream.URL+"/provider/v1/chat/completions").ServeHTTP(httptest.NewRecorder(), req)
+			if gotPath != tt.want {
+				t.Errorf("upstream path = %q, want %q", gotPath, tt.want)
+			}
+		})
+	}
+}
+
+// A caller names a model the way /v1/models lists it; a cloud provider only knows its own id for it.
+func TestEnsureModelProxyHandler_CloudModelIsSentUnderTheProvidersId(t *testing.T) {
+	var gotPath, gotModel string
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		gotModel, _ = gotBody["model"].(string)
+	}))
+	defer upstream.Close()
+
+	rt := &fakeRuntime{instance: llm.ModelInstance{Name: "flash", ModelID: "vendor/flash", URL: upstream.URL + "/provider/v1/chat/completions"}}
+	body := `{"model":"flash","max_tokens":5,"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	NewProxyHandlers(rt).EnsureModelProxyHandler(httptest.NewRecorder(), req)
+
+	if gotModel != "vendor/flash" {
+		t.Errorf("upstream model = %q, want the provider id vendor/flash", gotModel)
+	}
+	if gotPath != "/provider/v1/chat/completions" {
+		t.Errorf("upstream path = %q, want the target endpoint exactly", gotPath)
+	}
+	if gotBody["max_tokens"] != float64(5) || gotBody["messages"] == nil {
+		t.Errorf("the rest of the request was not forwarded intact: %v", gotBody)
 	}
 }
 

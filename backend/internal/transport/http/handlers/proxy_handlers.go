@@ -196,6 +196,36 @@ func peekModelName(r *http.Request) string {
 	return payload.Model
 }
 
+// setRequestModel names the model in a JSON request body by modelID. Callers address a
+// model as /v1/models lists it; a cloud provider only knows its own id for it. A body that
+// is not a JSON object, or a model without an id, is forwarded untouched.
+func setRequestModel(r *http.Request, modelID string) {
+	if modelID == "" || r.Body == nil {
+		return
+	}
+	raw, err := io.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(raw))
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return
+	}
+	id, err := json.Marshal(modelID)
+	if err != nil {
+		return
+	}
+	fields["model"] = id
+	rewritten, err := json.Marshal(fields)
+	if err != nil {
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(rewritten))
+	r.ContentLength = int64(len(rewritten))
+	r.Header.Set("Content-Length", strconv.Itoa(len(rewritten)))
+}
+
 func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.Request) {
 	model := r.Header.Get("X-Model-Name")
 	if model == "" {
@@ -247,6 +277,7 @@ func (h *ProxyHandlers) EnsureModelProxyHandler(w http.ResponseWriter, r *http.R
 			// We MUST clear the request path so the ReverseProxy doesn't double it.
 			r.URL.Path = ""
 			r.URL.RawPath = ""
+			setRequestModel(r, mi.ModelID)
 		}
 
 		for k, vv := range mi.Headers {
@@ -295,7 +326,14 @@ func NewReverseProxy(target string) *httputil.ReverseProxy {
 
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
+		// An empty incoming path means "the target is the whole endpoint" (a cloud provider's
+		// full URL). The stock director would join it as target + "/", which providers reject.
+		useTargetPath := req.URL.Path == ""
 		originalDirector(req)
+		if useTargetPath {
+			req.URL.Path = u.Path
+			req.URL.RawPath = u.RawPath
+		}
 		req.Host = u.Host
 	}
 

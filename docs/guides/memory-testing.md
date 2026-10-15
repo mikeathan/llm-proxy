@@ -273,6 +273,8 @@ and read each turn's tool steps and the Memory panel afterwards. Do this on your
 | D4 | send D1's first sentence again in the same chat | "already saved" and **no** repeated calls; the run completes |
 | D5 | `Actually we deploy through the new host, not vertex.` after D1 | the old fact is replaced (`old_text`) or a new one is added; note which |
 
+To run D1–D5 unattended, use `scripts/memory-eval.py <base-url> <label> <model>…` against a scratch backend (see its header).
+
 Record per model: saves that should have happened, saves that should not have (D2/D3 must be zero), whether the final
 answer is intact and last, and whether every run completed. **Pass** = no unwanted saves and no failed runs on both models.
 If a model over-saves or loses its answer, remove the guidance (one constant, `memorySystemText`) and keep Parts A and C.
