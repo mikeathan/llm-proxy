@@ -1,7 +1,7 @@
 ---
 name: assistant-ui-patterns
 description: "AgentIde UI shell patterns: chat shell composition, sidebar/drawer states, mobile breakpoints, the shared chat renderer, and UI gotchas. Use when working on AgentIde layout/components."
-last_reviewed: 2026-10-14
+last_reviewed: 2026-10-15
 ---
 
 # Assistant UI Chat Patterns
@@ -24,7 +24,7 @@ AutomationDetails.vue
   └── useLiveConsole → useMessageBuilder → ChatMessages (mode="automation")
 
 SSE: useAssistantSSE → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=assistant
-SSE: useLiveConsole  → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=automation
+SSE: useLiveConsole  → EventSource → /admin/api/dispatcher/workspaces/{ws}/live?channel=automation&automation={name}  (that automation's events only)
 ```
 
 **Critical invariant:** `useAssistant` is a **module-level singleton**. State is shared across all components that import it. Never create a local instance.

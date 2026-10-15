@@ -7,7 +7,10 @@ import { post } from "../../services/httpClient";
 import { useMessageBuilder } from "../../utils/message/messageBuilder";
 import type { AssistantMessage } from "../../types/assistant";
 
-export function useLiveConsole(workspaceId: () => string, _isExecuting: () => boolean | undefined, historyEvents: () => AgentEvent[] | undefined, runName?: string) {
+// The console of one automation. It streams that automation's events only
+// (`automation` in the URL): a workspace runs several (the heartbeat among them), and
+// their runs must never appear here. The stream replays the automation's latest run.
+export function useLiveConsole(workspaceId: () => string, _isExecuting: () => boolean | undefined, historyEvents: () => AgentEvent[] | undefined, runName: string) {
   const pendingDecision = ref<GuardrailBlockedPayload | null>(null);
   const handledDecisionIds = new Set<string>();
   // O(1) event-id dedup, shared with the chat channel (useAssistantSSE).
@@ -17,7 +20,7 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
   const builder = useMessageBuilder(messages, {
     source: 'automation',
     finalizeOn: 'lifecycle',
-    headerMessage: { role: 'user', content: runName ? `Automation run: ${runName}` : 'Automation run' },
+    headerMessage: { role: 'user', content: `Automation run: ${runName}` },
   });
 
   const handleAgentEvent = (ev: AgentEvent) => {
@@ -49,7 +52,7 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
   };
 
   const sse = useSSEConnection({
-    url: () => `/admin/api/dispatcher/workspaces/${workspaceId()}/live`,
+    url: () => `/admin/api/dispatcher/workspaces/${workspaceId()}/live?channel=automation&automation=${encodeURIComponent(runName)}`,
     onMessage: handleAgentEvent,
   });
 
@@ -81,7 +84,7 @@ export function useLiveConsole(workspaceId: () => string, _isExecuting: () => bo
     eventIds.reset();
     messages.value = [{
       role: 'user',
-      content: runName ? `Automation run: ${runName}` : 'Automation run',
+      content: `Automation run: ${runName}`,
     }];
   }
 

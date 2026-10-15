@@ -1,7 +1,7 @@
 ---
 name: event-streaming-patterns
 description: "Event streaming patterns: SSE composables, observer chaining, guardrail flow, heartbeat cleanup, and dedup. Use when working with event streams or SSE handlers."
-last_reviewed: 2026-10-05
+last_reviewed: 2026-10-15
 ---
 
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
@@ -23,7 +23,12 @@ Agent.notify() → Observer(AgentEvent)
 
 The same SSE endpoint (`/admin/api/dispatcher/workspaces/{id}/live`) serves both
 automation and assistant events. The `agent_update` SSE event carries `AgentEvent`
-as JSON payload.
+as JSON payload. Chat asks `?channel=assistant`; an automation console asks
+`?channel=automation&automation={name}` (required, else 400) and gets only that automation's
+events: every automation event carries `AgentEvent.Automation` and is routed to
+`assistant.AutomationStream(name)`, with its own replay buffer (cleared by that automation's boot,
+Clear runs / Unregister). Publish through `Dispatcher.publish` / `LLMTaskExecutor.publishRunEvent`,
+never `Events().Publish` directly.
 
 ## AgentEvent Types
 
@@ -139,13 +144,13 @@ pendingDecision.value = null
 ### Automation: `useLiveConsole`
 
 ```typescript
-export function useLiveConsole(workspaceId, isExecuting, historyEvents) {
+export function useLiveConsole(workspaceId, isExecuting, historyEvents, automationName) {
     const liveEvents = ref<AgentEvent[]>([])
     const displayEvents = computed(() => liveEvents.value.length > 0
         ? liveEvents.value
         : historyEvents() || [])
 
-    connect()  // EventSource → /live endpoint
+    connect()  // EventSource → /live?channel=automation&automation=<name>
     disconnect()
     submitDecision(allow, persist)
 }
@@ -176,7 +181,7 @@ export function useAssistantSSE(workspaceId) {
 
 ## SSE Event Deduplication Strategy
 
-The bus keeps a per-workspace/channel `recent` buffer (1000 events / 4 MiB) that a new subscriber receives before live events: it is how a reopened chat rebuilds a running turn. `reasoning` and `tool_stream` events are **full snapshots** (the text so far), so `Bus.Publish` replaces the newest buffered event when the new one supersedes it (same type and conversation, string payloads, nothing between: `assistant.SupersedesSnapshot`). Without that, a four-minute run published ~3,300 snapshots (11 MB), evicted `session_started` and the tool cycles, and a reopened chat got only a window of snapshots with no start. `eventbus.Sink` (`events.jsonl`) applies the same rule plus a 10 s checkpoint. The chat opens through `useAssistant.openWorkspace`, which connects to the live stream once (loading a running conversation connects itself).
+The bus keeps a per-workspace/stream `recent` buffer (1000 events / 4 MiB; an automation's stream is its own, so a workspace holds at most that per automation) that a new subscriber receives before live events: it is how a reopened chat rebuilds a running turn. `reasoning` and `tool_stream` events are **full snapshots** (the text so far), so `Bus.Publish` replaces the newest buffered event when the new one supersedes it (same type and conversation, string payloads, nothing between: `assistant.SupersedesSnapshot`). Without that, a four-minute run published ~3,300 snapshots (11 MB), evicted `session_started` and the tool cycles, and a reopened chat got only a window of snapshots with no start. `eventbus.Sink` (`events.jsonl`) applies the same rule plus a 10 s checkpoint. The chat opens through `useAssistant.openWorkspace`, which connects to the live stream once (loading a running conversation connects itself).
 
 SSE reconnects may replay events. The frontend handles this via:
 

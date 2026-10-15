@@ -34,6 +34,7 @@ type testDispatcher struct {
 	registered    []string // "ws/name" for every Register call
 	unregistered  []string // "ws/name" for every Unregister call
 	nextRuns      map[string]time.Time
+	bus           *eventbus.Bus
 }
 
 func (t *testDispatcher) Persistence() *persistence.WorkspaceManager { return t.mgr }
@@ -70,7 +71,12 @@ func (t *testDispatcher) StopAutomation(ws string) error {
 func (t *testDispatcher) Metrics() *automation.DispatcherMetrics {
 	return &automation.DispatcherMetrics{}
 }
-func (t *testDispatcher) Events() *eventbus.Bus         { return nil }
+func (t *testDispatcher) Events() *eventbus.Bus {
+	if t.bus == nil {
+		t.bus = eventbus.NewBus()
+	}
+	return t.bus
+}
 func (t *testDispatcher) UnregisterWorkspace(ws string) {}
 
 func TestValidateAutomation_LoopStrategy(t *testing.T) {

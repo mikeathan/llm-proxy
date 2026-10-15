@@ -39,8 +39,8 @@ func TestFailRun_PublishesErrorPayloadForSharedRenderer(t *testing.T) {
 	d := newLaneDispatcher(t, &failingExecutor{err: connErr})
 	registerManualAutomation(t, d, "ws", "a")
 
-	events, _ := d.Events().Subscribe("ws", assistant.ChannelAutomation)
-	defer d.Events().Unsubscribe("ws", assistant.ChannelAutomation, events)
+	events, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
+	defer d.Events().Unsubscribe("ws", assistant.AutomationStream("a"), events)
 
 	if _, err := d.Trigger("ws", "a", ""); err != nil {
 		t.Fatalf("trigger: %v", err)
@@ -78,8 +78,8 @@ func TestExecute_PrepareFailureIsSurfaced(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, _ := d.Events().Subscribe("ws", assistant.ChannelAutomation)
-	defer d.Events().Unsubscribe("ws", assistant.ChannelAutomation, events)
+	events, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
+	defer d.Events().Unsubscribe("ws", assistant.AutomationStream("a"), events)
 
 	if _, err := d.Trigger("ws", "a", ""); err != nil {
 		t.Fatalf("trigger: %v", err)
@@ -145,5 +145,55 @@ func TestNewExecuteRequest_CarriesPerRunSettings(t *testing.T) {
 	}
 	if got := newExecuteRequest(entry, nil, "do it", "override").RecordingRef; got != "override" {
 		t.Errorf("an explicit override wins, got %q", got)
+	}
+}
+
+// Every event a run publishes names its automation, so the console of one
+// automation never shows another's run. Nothing may fall onto the bare
+// automation channel.
+func TestDispatcherEvents_NameTheirAutomation(t *testing.T) {
+	d := newLaneDispatcher(t, &failingExecutor{err: errors.New("boom")})
+	registerManualAutomation(t, d, "ws", "a")
+
+	own, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
+	defer d.Events().Unsubscribe("ws", assistant.AutomationStream("a"), own)
+	bare, _ := d.Events().Subscribe("ws", assistant.ChannelAutomation)
+	defer d.Events().Unsubscribe("ws", assistant.ChannelAutomation, bare)
+
+	if _, err := d.Trigger("ws", "a", ""); err != nil {
+		t.Fatalf("trigger: %v", err)
+	}
+
+	seen := map[assistant.AgentEventType]bool{}
+	deadline := time.After(2 * time.Second)
+	for !seen[assistant.EventError] {
+		select {
+		case ev := <-own:
+			if ev.Automation != "a" {
+				t.Errorf("event %s on the stream has Automation %q", ev.Type, ev.Automation)
+			}
+			seen[ev.Type] = true
+		case ev := <-bare:
+			t.Fatalf("event %s published without its automation", ev.Type)
+		case <-deadline:
+			t.Fatalf("saw only %v", seen)
+		}
+	}
+	if !seen[assistant.EventMessage] {
+		t.Error("the boot message did not reach the automation's stream")
+	}
+}
+
+// A removed automation leaves no console replay behind.
+func TestUnregister_ClearsTheAutomationsConsoleReplay(t *testing.T) {
+	d := newLaneDispatcher(t, &failingExecutor{err: errors.New("boom")})
+	registerManualAutomation(t, d, "ws", "a")
+	d.Events().Publish("ws", assistant.AgentEvent{ID: "a1", Type: assistant.EventMessage, Channel: assistant.ChannelAutomation, Automation: "a"})
+
+	if err := d.Unregister("ws", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, replay := d.Events().Subscribe("ws", assistant.AutomationStream("a")); len(replay) != 0 {
+		t.Errorf("replay still holds %d events", len(replay))
 	}
 }

@@ -159,10 +159,13 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 	h.replyToChat(connectorName, immediateReply)
 
 	resultCh := make(chan string, 1)
-	sub, _ := h.Dispatcher.Events().Subscribe(workspaceID, assistant.ChannelAutomation)
+	// Only this automation's own run: another automation finishing in the workspace
+	// must not be taken for it.
+	stream := assistant.AutomationStream(name)
+	sub, _ := h.Dispatcher.Events().Subscribe(workspaceID, stream)
 
 	safe.Go("webhook automation monitor", func() {
-		defer h.Dispatcher.Events().Unsubscribe(workspaceID, assistant.ChannelAutomation, sub)
+		defer h.Dispatcher.Events().Unsubscribe(workspaceID, stream, sub)
 		for {
 			select {
 			case ev := <-sub:

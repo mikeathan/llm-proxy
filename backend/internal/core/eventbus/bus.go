@@ -150,12 +150,16 @@ func (b *Bus) reap() {
 	}
 }
 
-// channelOf resolves the routing channel for an event, defaulting unknown
-// values to the automation channel for backward compatibility with events
-// constructed outside the agent's notify path.
+// channelOf resolves the stream an event is routed to. An automation event goes
+// to its own automation's stream, so one automation's subscribers (and its replay
+// buffer) never see another's run. Unknown channels default to the bare automation
+// channel, as for events constructed outside the agent's notify path.
 func channelOf(event assistant.AgentEvent) assistant.EventChannel {
-	if event.Channel == assistant.ChannelAssistant || event.Channel == assistant.ChannelAutomation {
+	switch {
+	case event.Channel == assistant.ChannelAssistant:
 		return event.Channel
+	case event.Automation != "":
+		return assistant.AutomationStream(event.Automation)
 	}
 	return assistant.ChannelAutomation
 }
