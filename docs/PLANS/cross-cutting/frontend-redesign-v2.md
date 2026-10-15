@@ -49,7 +49,7 @@ Rules it relaxes from the retro plan: square 2 px corners (→ 8 px), hairline p
 
 ## As built (2026-10-14)
 
-- **0 Docs** — this plan, SPEC-003 v2.11 (§II.1, II.2, II.7, III, IV, V), pitfalls 48–50, `assistant-ui-patterns`.
+- **0 Docs** — this plan, SPEC-003 v2.11 (§II.1, II.2, II.7, III, IV, V), pitfalls 49–51, `assistant-ui-patterns`.
 - **1 Themes** — `retro-midnight`, `retro-forest`, `retro-plum` (dark), `retro-paper-cool`, `retro-sand` (light); `PRESET_IDS` in `types/theme.ts`; the contrast script reads ids from `tokens.css`. Phase 1b (accent over any preset) **built later the same day**: eight swatches plus any colour, `theme/accent.ts`, proven for every preset × swatch.
 - **2 Settings tabs** — `SettingsTabs` + `ScrollStrip` (+ `useScrollEdges`); `getSettingsTabGroups`; `SettingsNav` removed. General is split into four short sections (`local`, `runs`, `memory`, `storage`) over one form: `GlobalSettings` takes a `section` and shows only its panels (all stay mounted).
 - Security (the one long page, ~1,950 px) is split the same way: `security` (Sandboxing, Effective enforcement) and `limits` (Resource limits, live terminals, Reset controls) — `SecuritySettings` takes a `section`, both stay mounted over one draft, and the Save row also shows on `limits` while there is an unsaved edit.

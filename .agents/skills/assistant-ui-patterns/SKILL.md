@@ -48,7 +48,7 @@ The conversation list has three placements, chosen by `AssistantChat`:
 
 ## The ask panel and the one-chat rule
 
-`AssistantChat variant="panel"` is the chat in the shell's ask panel (`components/layout/AskPanel.vue`) beside any page. Only **one** `AssistantChat` may be mounted: the panel never opens on the Assistant route, and the Workspaces view closes its chat when deactivated (kept-alive otherwise). Details and the test that guards it: `docs/architecture.md` pitfall 48. The panel resumes `openConversationId` (a read-only export of `useAssistant.ts` that creates no connection).
+`AssistantChat variant="panel"` is the chat in the shell's ask panel (`components/layout/AskPanel.vue`) beside any page. Only **one** `AssistantChat` may be mounted: the panel never opens on the Assistant route, and the Workspaces view closes its chat when deactivated (kept-alive otherwise). Details and the test that guards it: `docs/architecture.md` pitfall 49. The panel resumes `openConversationId` (a read-only export of `useAssistant.ts` that creates no connection).
 
 ### List contents (retro redesign, 2026-09-30)
 
