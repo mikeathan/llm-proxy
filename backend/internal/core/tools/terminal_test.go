@@ -335,7 +335,7 @@ func TestCheckBlockedPaths_AbsoluteJailPath(t *testing.T) {
 	}
 }
 
-func TestExtractBaseCommands(t *testing.T) {
+func TestShellCommandNames(t *testing.T) {
 	tests := []struct {
 		name     string
 		command  string
@@ -347,11 +347,25 @@ func TestExtractBaseCommands(t *testing.T) {
 		{"chained with |", "cat file | grep foo", []string{"cat", "grep"}},
 		{"chained with ||", "make || echo failed", []string{"make", "echo"}},
 		{"mixed chain", "mkdir -p dir && echo test > dir/file && sh dir/file", []string{"mkdir", "echo", "sh"}},
-		{"find with escaped semicolon", "find . -type f -exec ls -lh {} \\; 2>/dev/null", []string{"find"}},
+		{"find -exec names what it runs", "find . -type f -exec ls -lh {} \\; 2>/dev/null", []string{"find", "ls"}},
+		{"one command per line", "uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\"", []string{"uname", "date", "echo"}},
+		{"loop keywords are syntax", "for f in a b; do echo $f; done", []string{"echo"}},
+		{"assignment prefix is not the command", "FOO=1 ls", []string{"ls"}},
+		{"comment lines are dropped", "# Step 6\nls -la", []string{"ls"}},
+		{"heredoc body is content", "cat <<EOF\nhello\nEOF", []string{"cat"}},
+		{"command after a heredoc is found", "cat <<'EOF'\nbody\nEOF\nrm -rf /", []string{"cat", "rm"}},
+		{"tab-strip and quoted markers", "cat <<- 'EOF'\n\tbody\nEOF\nrm x", []string{"cat", "rm"}},
+		{"here-string does not hide the chain", "cat <<<\"hello\" && rm -rf /", []string{"cat", "rm"}},
+		{"command substitution", "echo $(rm y)", []string{"echo", "rm"}},
+		{"unquoted heredoc expands substitutions", "cat <<EOF\n$(rm y)\nEOF", []string{"cat", "rm"}},
+		{"quoted name is still literal", `"ls" -la`, []string{"ls"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ExtractBaseCommands(tt.command)
+			got, err := ShellCommandNames(tt.command)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if len(got) != len(tt.expected) {
 				t.Fatalf("expected %v, got %v", tt.expected, got)
 			}
@@ -643,23 +657,21 @@ func TestHasExternalAccess(t *testing.T) {
 
 func TestAssertAllowedCommand(t *testing.T) {
 	tests := []struct {
-		name     string
-		segments []string
-		allowed  []string
-		wantErr  bool
+		name    string
+		names   []string
+		allowed []string
+		wantErr bool
 	}{
-		{name: "allowed command", segments: []string{"ls -la"}, allowed: []string{"ls"}, wantErr: false},
-		{name: "disallowed command", segments: []string{"rm -rf /"}, allowed: []string{"ls"}, wantErr: true},
-		{name: "empty segment", segments: []string{""}, allowed: []string{"ls"}, wantErr: false},
-		{name: "shell comment", segments: []string{"# Step 1: list directory"}, allowed: []string{"ls"}, wantErr: false},
-		{name: "comment before command", segments: []string{"# Step 6\nls -la"}, allowed: []string{"ls"}, wantErr: false},
-		{name: "comment then disallowed", segments: []string{"# comment\nrm -rf"}, allowed: []string{"ls"}, wantErr: true},
-		{name: "mixed chain", segments: []string{"ls -la", "echo hello"}, allowed: []string{"ls", "echo"}, wantErr: false},
-		{name: "mixed chain one bad", segments: []string{"ls -la", "rm -rf"}, allowed: []string{"ls"}, wantErr: true},
+		{name: "allowed command", names: []string{"ls"}, allowed: []string{"ls"}},
+		{name: "disallowed command", names: []string{"rm"}, allowed: []string{"ls"}, wantErr: true},
+		{name: "no commands", names: nil, allowed: []string{"ls"}},
+		{name: "mixed chain", names: []string{"ls", "echo"}, allowed: []string{"ls", "echo"}},
+		{name: "mixed chain one bad", names: []string{"ls", "rm"}, allowed: []string{"ls"}, wantErr: true},
+		{name: "shell keywords are never commands to allow", names: []string{"for"}, allowed: []string{"ls"}, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := assertAllowedCommand(tt.segments, tt.allowed)
+			err := assertAllowedCommand(tt.names, tt.allowed)
 			if tt.wantErr && err == nil {
 				t.Error("expected error, got nil")
 			}
@@ -810,90 +822,21 @@ func TestCollapseWhitespacePreserveNewlines(t *testing.T) {
 	}
 }
 
-func TestSplitCommandSegments_MultiLine(t *testing.T) {
-	// A newline is a shell command separator: each line becomes its own
-	// segment so the whitelist is enforced per command, not per blob.
-	got := SplitCommandSegments("uname -a\ndate -u +%Y-%m-%dT%H:%M:%SZ\necho \"terminal-tool-works\"")
-	want := []string{"uname -a", "date -u +%Y-%m-%dT%H:%M:%SZ", `echo "terminal-tool-works"`}
-	if len(got) != len(want) {
-		t.Fatalf("expected %d segments %v, got %d %v", len(want), want, len(got), got)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("segment %d: expected %q, got %q", i, want[i], got[i])
+// TestShellCommandNames_Unreadable verifies a command the shell would reject, or
+// whose command name is not known until it runs, yields no names (fail closed).
+func TestShellCommandNames_Unreadable(t *testing.T) {
+	for _, c := range []string{
+		"echo 'oops",
+		`echo "oops`,
+		"cat <<EOF\nbody",
+		"cat << 'EOF'\nbody",
+		"fi",
+		"$CMD y",
+		"$(echo rm) y",
+	} {
+		if names, err := ShellCommandNames(c); err == nil {
+			t.Errorf("expected %q to be unreadable, got %v", c, names)
 		}
-	}
-}
-
-func TestSplitCommandSegments_HeredocStaysOneSegment(t *testing.T) {
-	got := SplitCommandSegments("cat <<EOF\nhello\nEOF")
-	if len(got) != 1 {
-		t.Fatalf("heredoc should stay a single segment, got %d: %v", len(got), got)
-	}
-	if got[0] != "cat <<EOF\nhello\nEOF" {
-		t.Errorf("unexpected heredoc segment %q", got[0])
-	}
-}
-
-// TestSplitCommandSegments_HeredocMarkerSyntaxes verifies every heredoc marker
-// form terminates the heredoc so commands after it are scanned as separate
-// segments (a non-terminated heredoc would swallow them and bypass the
-// whitelist).
-func TestSplitCommandSegments_HeredocMarkerSyntaxes(t *testing.T) {
-	cmds := []string{
-		"cat <<EOF\nbody\nEOF\nrm -rf /",
-		"cat <<-EOF\n\tbody\nEOF\nrm -rf /",
-		"cat <<'EOF'\nbody\nEOF\nrm -rf /",
-		"cat <<\"EOF\"\nbody\nEOF\nrm -rf /",
-		"cat <<\\EOF\nbody\nEOF\nrm -rf /",
-	}
-	for _, c := range cmds {
-		got := SplitCommandSegments(c)
-		if len(got) != 2 {
-			t.Errorf("expected 2 segments for %q, got %d: %v", c, len(got), got)
-			continue
-		}
-		if got[1] != "rm -rf /" {
-			t.Errorf("expected trailing command split out for %q, got %q", c, got[1])
-		}
-	}
-}
-
-// TestSplitCommandSegments_HereStringNotHeredoc verifies "<<<" (here-string)
-// does not open heredoc mode, so a chained command after it is still split.
-func TestSplitCommandSegments_HereStringNotHeredoc(t *testing.T) {
-	got := SplitCommandSegments("cat <<<\"hello\" && rm -rf /")
-	if len(got) != 2 || got[1] != "rm -rf /" {
-		t.Fatalf("expected here-string not to swallow the chain, got %v", got)
-	}
-}
-
-// TestScanCommandSegments_Balance verifies unterminated quotes and heredocs
-// are reported as unbalanced (fail-closed for the whitelist).
-func TestScanCommandSegments_Balance(t *testing.T) {
-	tests := []struct {
-		name     string
-		command  string
-		balanced bool
-	}{
-		{"plain", "ls -la", true},
-		{"balanced quotes", "echo 'a b' && echo \"c d\"", true},
-		{"unclosed single quote", "echo 'oops", false},
-		{"unclosed double quote", "echo \"oops", false},
-		{"unterminated heredoc", "cat <<EOF\nbody", false},
-		{"terminated heredoc", "cat <<EOF\nbody\nEOF", true},
-		{"unterminated heredoc with space", "cat << 'EOF'\nbody", false},
-		{"terminated heredoc with space", "cat << 'EOF'\nbody\nEOF", true},
-		{"here-string", "cat <<<\"x\" && ls", true},
-		{"backslash escaped", "find . -exec ls {} \\;", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, balanced := scanCommandSegments(tt.command)
-			if balanced != tt.balanced {
-				t.Errorf("scanCommandSegments(%q) balanced = %v, want %v", tt.command, balanced, tt.balanced)
-			}
-		})
 	}
 }
 

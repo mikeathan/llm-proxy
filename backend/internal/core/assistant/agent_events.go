@@ -140,6 +140,11 @@ type GuardrailBlockedPayload struct {
 	Reason      string `json:"reason"`
 	Category    string `json:"category"` // "terminal", "filesystem", "network", "search", "communication"
 	WorkspaceID string `json:"workspace_id"`
+	// Remember is what "Allow and remember" would change, in words (one line per
+	// change). Empty when there is nothing to remember; RememberReason then says why.
+	// Both come from the plan the save applies, so the prompt matches the save.
+	Remember       []string `json:"remember,omitempty"`
+	RememberReason string   `json:"remember_reason,omitempty"`
 }
 
 // GuardrailDecision is the user's response to a guardrail block.

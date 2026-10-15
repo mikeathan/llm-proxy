@@ -154,6 +154,11 @@ export interface GuardrailBlockedPayload {
   args: string
   reason: string
   category: string
+  // What "Allow and remember" would change, one line each; absent when there is nothing to
+  // remember, and remember_reason says why. MUST stay in sync with GuardrailBlockedPayload in
+  // backend/internal/core/assistant/agent_events.go.
+  remember?: string[]
+  remember_reason?: string
 }
 
 // UpstreamEventPayload describes a transient upstream LLM failure that is being
