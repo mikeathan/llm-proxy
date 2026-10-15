@@ -32,9 +32,9 @@ function durationMinutes(value: string): number {
 
 const RESULT_TEXT: Record<HeartbeatResult, string> = {
   quiet: 'nothing to report',
-  // Raised, and sent if a connector is set: without one there is nowhere to send it.
-  alert: 'an alert was raised',
+  alert: 'an alert was raised and sent',
   alert_not_delivered: 'an alert was raised but could not be delivered',
+  alert_no_channel: 'an alert was raised but no channel is set to send it on',
   skipped_no_checks: 'skipped, no checks defined',
   skipped_busy: 'skipped, the model was busy',
   skipped_outside_hours: 'skipped, outside the active hours',

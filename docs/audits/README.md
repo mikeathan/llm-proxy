@@ -22,4 +22,5 @@ They identify gaps, regressions, and bugs found during testing or production use
 | `2026-08-30-llm-smoke-test-incomplete-run.md` | llm-smoke-test Incomplete Run — terminal newline collapse, premature finalization on truncated ReAct scaffold, local native-tools auto-detection | complete |
 | `2026-09-30-platform-scan.md` | Platform Scan — security (no auth, guard gaps), memory, performance/leaks, assistant/automation UI; evidence ledger behind six proposed plans | reference |
 | `2026-10-09-local-prompt-cache.md` | Local prompt cache — Qwen's template dropped earlier `<think>` blocks so every chat turn re-processed the conversation; `preserve_thinking` fix and before/after timings | complete |
+| `2026-10-15-next-work-analysis.md` | Next-work analysis — plan status, memory-contract defects, typed-memory + consolidation order for an assistant that knows the user | reference |
 | `codebase-audit-report.md` | Codebase Audit Report — 88 findings (bugs, architecture/duplication, docs) + resolved backend-duplication appendix | active |

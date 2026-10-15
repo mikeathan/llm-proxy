@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { ref } from 'vue'
 import { useConfirm } from '../../../../composables/ui/useConfirm'
+import { useToast } from '../../../../composables/useToast'
 import type { MemoryEntry, MemoryInjectionPreview, OperatorNotes } from '../../../../types/memory'
 
 const mem = {
@@ -166,6 +167,16 @@ describe('MemoryPanel', () => {
     useConfirm().handleConfirm()
     await flushPromises()
     expect(mem.clearAllMemories).toHaveBeenCalledWith('ws', undefined)
+  })
+
+  it('says why nothing is cleared when All holds only user-wide facts, instead of doing nothing', async () => {
+    mem.memories.value = [entry(2, { workspace_id: 'global', memory_type: 'user_profile', title: 'Name' })]
+    const w = track(mount(MemoryPanel, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true } } }))
+    useToast().toasts.value = []
+    await byText(w, 'Clear all').trigger('click')
+    await flushPromises()
+    expect(mem.clearAllMemories).not.toHaveBeenCalled()
+    expect(useToast().toasts.value.map((t) => t.message).join(' ')).toMatch(/user-wide.*User filter/i)
   })
 
   it('marks the facts the operator protected', async () => {

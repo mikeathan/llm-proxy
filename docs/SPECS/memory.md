@@ -1,9 +1,9 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.6"
+version: "2.7"
 status: stable
-last_updated: 2026-10-08
+last_updated: 2026-10-15
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,14 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **2.7 (2026-10-15)** — `memory_update` defaults each omitted routing field on its own (§2): a model that said
+  `scope: user, mode: always` but left `keep` out used to have all three reset to workspace / on_demand / default keep,
+  so a personal preference never became global or hot. A combination that is invalid once defaults apply (an unattended
+  run asking for `always` without `keep`, which would default to `session`) is refused with the parameter error, not
+  silently demoted. Wording corrected: §5 `memory_update` has no `topic` parameter (it takes `content`, the routing
+  triple and `old_text`); `user` scope with `keep: session` is stored as `user_profile`, which the session reaper does not
+  clear; hot facts are ordered by operator priority, then newest (§4).
 
 - **2.6 (2026-10-08)** — Per-turn recall in the operator's own chat (§4.1). Measured on a deployed build: in chat the
   model never called `memory_search`, so `on_demand` facts were never used. Each chat turn now searches memory with the
@@ -68,7 +76,11 @@ Every `memory_update` call uses three parameters to determine storage:
   `"workspace"` (project-specific, stored as `workspace_id = active_ws`).
 - **`mode`**: `"always"` (sets `tags: ["hot"]` — injected every session) or `"on_demand"`
   (no hot tag — searchable but not injected).
-- **`keep`**: `"permanent"` (stored as `long_term`) or `"session"` (stored as `session`).
+- **`keep`**: `"permanent"` (stored as `long_term`) or `"session"` (stored as `session` for workspace scope; user scope
+  has no session type, so `user` + `session` is stored as `user_profile` and is never reaped).
+- **Defaults**: each omitted field defaults independently — scope `workspace`, mode `on_demand`, keep `permanent`
+  (`session` for an unattended run). What the model did state is kept. A combination that is invalid after defaulting
+  is an error.
 
 Only `mode: "always"` entries are injected. The `resolveParams()` strategy map in
 `memory_tools.go` translates the triple to store primitives.
@@ -96,7 +108,7 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   fact twice, found in a real run (`hotFactLine`).
 - Size cap = share of the model's resolved `ContextBudget` (SPEC-005 §II.3, derived from the probed
   serving window for local models): local 8%, cloud 5%, clamped to 400–6000 chars; 2000 when the
-  budget is unresolved (`hotMemoryCharBudget`). Newest first, cut on entry boundaries; the newest
+  budget is unresolved (`hotMemoryCharBudget`). Ordered by operator priority (high first), then newest; cut on entry boundaries; the newest
   fact is always kept (clipped if it alone exceeds the cap).
 - **Operator notes (MEMORY.md)** — `memory.Store.OperatorNotes/SetOperatorNotes` (`platform/memory/notes.go`):
   `<config root>/MEMORY.md` (all workspaces) and `<metadata>/<workspace>/MEMORY.md`, outside the agent's
@@ -189,7 +201,7 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 ### 5. Memory Tools
 
 - `memory_search(query, limit, scope, tags)` — FTS5 search with BM25 ranking, capped at 20 results.
-- `memory_update(topic, content, scope, mode, keep)` — Save a new memory entry with three-tier params.
+- `memory_update(content, scope, mode, keep, old_text)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it.
 - All gated by workspace ID.
 
 ### 6. Deduplication

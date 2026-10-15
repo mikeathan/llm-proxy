@@ -5,6 +5,7 @@ export type HeartbeatResult =
   | 'quiet'
   | 'alert'
   | 'alert_not_delivered'
+  | 'alert_no_channel'
   | 'skipped_no_checks'
   | 'skipped_busy'
   | 'skipped_outside_hours'

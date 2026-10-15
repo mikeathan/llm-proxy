@@ -145,6 +145,19 @@ describe('ChatInput toolbar', () => {
     expect(tool(mountInput('', false, false), /^memory$/i).attributes('disabled')).toBeDefined()
   })
 
+  it('lines the tools and the send button up in one action row under a full-width box', () => {
+    const w = mountInput('hi')
+    const row = w.get('[data-test="composer-actions"]')
+    expect(row.find('button[aria-label="Commands"]').exists()).toBe(true)
+    expect(row.find('button[aria-label="Send"]').exists()).toBe(true)
+    expect(row.classes()).toContain('items-center')
+  })
+
+  it('puts stop in the same row while a run is going', () => {
+    const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: '', canReview: false }, global: { stubs: { Icon: true, teleport: true } } })
+    expect(w.get('[data-test="composer-actions"]').find('button[aria-label="Stop the run"]').exists()).toBe(true)
+  })
+
   it('keeps the toolbar while a run is going, with commands unavailable', () => {
     const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: '', canReview: false }, global: { stubs: { Icon: true, teleport: true } } })
     expect(w.findAll('button').some((b) => /memory/i.test(b.text()))).toBe(true)

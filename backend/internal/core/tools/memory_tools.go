@@ -195,9 +195,14 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 	if args.Content == "" {
 		return "content is required", nil
 	}
-	if args.Scope == "" || args.Mode == "" || args.Keep == "" {
+	// Each omitted field takes its own default; what the model did state is kept.
+	if args.Scope == "" {
 		args.Scope = memory.ScopeWorkspace
+	}
+	if args.Mode == "" {
 		args.Mode = memory.ModeOnDemand
+	}
+	if args.Keep == "" {
 		args.Keep = defaultKeep(ctx)
 	}
 

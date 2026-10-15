@@ -2,6 +2,7 @@
 import { ref, watch, computed } from 'vue'
 import { useMemory } from '../../../composables/memory/useMemory'
 import { useConfirm } from '../../../composables/ui/useConfirm'
+import { useToast } from '../../../composables/useToast'
 import { asUtc, formatAbsoluteTime, formatRelativeTime } from '../../../utils/format/time'
 import { formatMemoryUsage } from '../../../utils/format/memoryUsage'
 import { GLOBAL_MEMORY_WORKSPACE, HOT_TAG, MEMORY_TYPE_LABEL, PRIORITY_HIGH } from '../../../constants/memory'
@@ -42,6 +43,9 @@ const {
   clearAllMemories,
 } = useMemory()
 const { confirm } = useConfirm()
+const toast = useToast()
+
+const ONLY_USER_WIDE_MESSAGE = 'Nothing to clear here: the facts listed are user-wide and stay when a workspace is cleared. Open the User filter to clear them.'
 
 const SNIPPET_CHARS = 80
 const ALL_TYPES = ''
@@ -128,7 +132,10 @@ async function handleClearAll() {
   // In All the list also shows user-wide facts, but clearing targets this
   // workspace only: say so, and count only what will really be deleted.
   const clearable = filterType.value === ALL_TYPES ? displayEntries.value.filter((e) => !isUserWide(e)) : displayEntries.value
-  if (clearable.length === 0) return
+  if (clearable.length === 0) {
+    toast.show(ONLY_USER_WIDE_MESSAGE, 'info')
+    return
+  }
   const keptNote = clearable.length < displayEntries.value.length ? ' Your user-wide facts are kept.' : ''
   const scope = filterLabel.value.toLowerCase()
   const confirmed = await confirm({
