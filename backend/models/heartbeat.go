@@ -39,8 +39,10 @@ const (
 	HeartbeatAlert HeartbeatResult = "alert"
 	// HeartbeatAlertNotDelivered: the check found something, but sending the alert failed.
 	HeartbeatAlertNotDelivered HeartbeatResult = "alert_not_delivered"
-	HeartbeatSkippedNoChecks   HeartbeatResult = "skipped_no_checks"
-	HeartbeatSkippedBusy       HeartbeatResult = "skipped_busy"
+	// HeartbeatAlertNoChannel: the check found something and no notify channel is configured to send it on.
+	HeartbeatAlertNoChannel  HeartbeatResult = "alert_no_channel"
+	HeartbeatSkippedNoChecks HeartbeatResult = "skipped_no_checks"
+	HeartbeatSkippedBusy     HeartbeatResult = "skipped_busy"
 	// HeartbeatSkippedOutsideHours: a scheduled tick fell outside ActiveHours.
 	HeartbeatSkippedOutsideHours HeartbeatResult = "skipped_outside_hours"
 	HeartbeatError               HeartbeatResult = "error"

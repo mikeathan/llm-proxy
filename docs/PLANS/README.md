@@ -109,7 +109,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | partial | Memory Improvements | Session Search tool (FTS5 `session_search`) + Skill System (procedural memory) — everything else done |
 | partial | Assistant Liveness Heartbeat & Package Restructure | §4.3/§4.4 package extractions deferred (§2, §3, §4.1 done; §4.2 rejected) |
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
-| proposed | Agent OS Sandboxing | Phases 1–6 (rlimits → FS jail → network switch → OS network deny → egress proxy → deployment hardening) |
+| complete (pending Linux-CI) | Agent OS Sandboxing | Phases 0–4 shipped (plan §10); left: Linux-CI confirmation of the Landlock probe, optional macOS Seatbelt on framework-capable hardware |
 | proposed | Tool-Call Grammar Re-enable | envelope-aware GBNF + opt-in per-model toggle, XML path only |
 | active | Search Tool Calling | implemented (Tavily/Brave/SerpAPI providers, Search settings tab, live key, hide-when-unconfigured gate; automated gates green). Open: manual end-to-end verification — Tavily was exercised live (auth fix, note 9); Brave and SerpAPI live calls and the "no key → tool hidden, no restart needed" steps are unconfirmed |
 | proposed | Assistant Conversation Package | Step 0 consolidate LLM/tool test doubles, then extract `conversation` (loop core/strategies stay — need a session facade) |

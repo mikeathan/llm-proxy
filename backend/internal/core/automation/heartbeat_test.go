@@ -127,7 +127,7 @@ func TestHeartbeat_RecordsHowTheLastCheckEnded(t *testing.T) {
 		want   models.HeartbeatResult
 	}{
 		{"nothing to report", "HEARTBEAT_OK", nil, models.HeartbeatQuiet},
-		{"an alert", "GPT-6 shipped: https://example.com/x", nil, models.HeartbeatAlert},
+		{"an alert with no channel to send it on", "GPT-6 shipped: https://example.com/x", nil, models.HeartbeatAlertNoChannel},
 		{"a failed run", "", errors.New("model unavailable"), models.HeartbeatError},
 	}
 	for _, tc := range cases {
@@ -321,11 +321,14 @@ func TestHeartbeat_AlertWhoseDeliveryFailedIsRecordedAsNotDelivered(t *testing.T
 		name    string
 		report  string
 		sendErr error
+		noChan  bool
 		want    models.HeartbeatResult
 	}{
-		{"alert delivered", "GPT-6 shipped: https://example.com/x", nil, models.HeartbeatAlert},
-		{"alert not delivered", "GPT-6 shipped: https://example.com/x", errors.New("telegram down"), models.HeartbeatAlertNotDelivered},
-		{"quiet is never sent", "HEARTBEAT_OK", errors.New("telegram down"), models.HeartbeatQuiet},
+		{"alert delivered", "GPT-6 shipped: https://example.com/x", nil, false, models.HeartbeatAlert},
+		{"alert not delivered", "GPT-6 shipped: https://example.com/x", errors.New("telegram down"), false, models.HeartbeatAlertNotDelivered},
+		{"alert with no channel configured was never sent", "GPT-6 shipped: https://example.com/x", nil, true, models.HeartbeatAlertNoChannel},
+		{"quiet is never sent", "HEARTBEAT_OK", errors.New("telegram down"), false, models.HeartbeatQuiet},
+		{"quiet with no channel stays quiet", "HEARTBEAT_OK", nil, true, models.HeartbeatQuiet},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := newLaneDispatcher(t, newRecordingExecutor(tc.report, nil))
@@ -333,7 +336,11 @@ func TestHeartbeat_AlertWhoseDeliveryFailedIsRecordedAsNotDelivered(t *testing.T
 			if err := d.persistence.WriteTaskFile("ws", models.HeartbeatFilename, "Watch: releases\n"); err != nil {
 				t.Fatal(err)
 			}
-			if err := d.Register("ws", models.HeartbeatConfig{Enabled: true, Notify: &models.NotifyConfig{Connector: "tg"}}.Automation()); err != nil {
+			cfg := models.HeartbeatConfig{Enabled: true, Notify: &models.NotifyConfig{Connector: "tg"}}
+			if tc.noChan {
+				cfg.Notify = nil
+			}
+			if err := d.Register("ws", cfg.Automation()); err != nil {
 				t.Fatal(err)
 			}
 			entry, _ := d.registry.Get("ws", models.HeartbeatAutomationName)

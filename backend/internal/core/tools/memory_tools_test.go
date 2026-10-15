@@ -739,6 +739,53 @@ func TestMemoryUpdate_UnattendedExplicitPermanentIsHonoured(t *testing.T) {
 	}
 }
 
+// Each routing field defaults on its own: a model that states scope or mode but
+// leaves keep out must not have what it stated thrown away.
+func TestMemoryUpdate_OmittedFieldsDefaultIndependently(t *testing.T) {
+	attended := models.WithWorkspaceID(context.Background(), "ws-1")
+	unattended := models.WithUnattendedRun(models.WithRunID(attended, "r1"))
+
+	tests := []struct {
+		name        string
+		ctx         context.Context
+		args        updateArgs
+		wantWS      string
+		wantType    memory.MemoryType
+		wantHot     bool
+		wantErrPart string
+	}{
+		{name: "user scope kept without keep", ctx: attended, args: updateArgs{Content: "I prefer short answers", Scope: memory.ScopeUser}, wantWS: "global", wantType: memory.UserProfile},
+		{name: "user hot kept without keep", ctx: attended, args: updateArgs{Content: "I prefer short answers", Scope: memory.ScopeUser, Mode: memory.ModeAlways}, wantWS: "global", wantType: memory.UserProfile, wantHot: true},
+		{name: "mode alone keeps workspace scope", ctx: attended, args: updateArgs{Content: "deploys go through staging", Mode: memory.ModeAlways}, wantWS: "ws-1", wantType: memory.LongTerm, wantHot: true},
+		{name: "keep alone keeps workspace on_demand", ctx: attended, args: updateArgs{Content: "scratch note for now", Keep: memory.KeepSession}, wantWS: "ws-1", wantType: memory.Session},
+		{name: "unattended user scope defaults keep to session", ctx: unattended, args: updateArgs{Content: "I prefer short answers", Scope: memory.ScopeUser}, wantWS: "global", wantType: memory.UserProfile},
+		{name: "unattended hot without keep is refused, not silently demoted", ctx: unattended, args: updateArgs{Content: "I prefer short answers", Scope: memory.ScopeUser, Mode: memory.ModeAlways}, wantErrPart: "invalid memory parameters"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newRealTestStore(t)
+			provider := NewMemoryToolProvider(store)
+			_, err := provider.Update(tt.ctx, tt.args)
+			if tt.wantErrPart != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrPart) {
+					t.Fatalf("err = %v, want it to contain %q", err, tt.wantErrPart)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Update: %v", err)
+			}
+			entries, err := store.List(context.Background(), tt.wantWS, tt.wantType, 10, 0)
+			if err != nil || len(entries) != 1 {
+				t.Fatalf("List(%s, %s) = %d entries, err %v; want exactly 1", tt.wantWS, tt.wantType, len(entries), err)
+			}
+			if got := slices.Contains(entries[0].Tags, "hot"); got != tt.wantHot {
+				t.Errorf("hot tag = %v, want %v (tags %v)", got, tt.wantHot, entries[0].Tags)
+			}
+		})
+	}
+}
+
 func searchArgs(query string) struct {
 	Query interface{}  `json:"query"`
 	Limit int          `json:"limit"`

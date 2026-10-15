@@ -125,16 +125,23 @@ func (d *Dispatcher) deliverAndRecord(ctx context.Context, entry *AutomationEntr
 		return
 	}
 	sendErr := d.deliverReport(ctx, entry, resp, ledger)
-	d.recordHeartbeat(entry, heartbeatOutcome(resp, sendErr))
+	d.recordHeartbeat(entry, heartbeatOutcome(resp, d.wantsDelivery(entry), sendErr))
 	if sendErr != nil {
 		d.recordDeliveryWarning(entry, resp.RunID, sendErr)
 	}
 }
 
-// heartbeatOutcome is a heartbeat check's result once delivery is known: an alert whose send failed is not "sent".
-func heartbeatOutcome(resp *ExecuteResponse, sendErr error) models.HeartbeatResult {
+// heartbeatOutcome is a heartbeat check's result once delivery is known: an alert is not "sent" when its send
+// failed or when no channel is configured to send it on.
+func heartbeatOutcome(resp *ExecuteResponse, wantsDelivery bool, sendErr error) models.HeartbeatResult {
 	result := heartbeatResultOf(resp)
-	if result == models.HeartbeatAlert && sendErr != nil {
+	if result != models.HeartbeatAlert {
+		return result
+	}
+	switch {
+	case !wantsDelivery:
+		return models.HeartbeatAlertNoChannel
+	case sendErr != nil:
 		return models.HeartbeatAlertNotDelivered
 	}
 	return result
