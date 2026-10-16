@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/testing/mocks"
 	"llm-proxy/models"
 )
@@ -280,6 +281,64 @@ func TestEnrichResolvesContextViaOrchestrator(t *testing.T) {
 				t.Fatalf("Metadata.Nctx = %v, want %d (meta=%+v)", req.Metadata, c.wantNctx, c.meta)
 			}
 		})
+	}
+}
+
+// A cloud model whose form carries no real context must not be given the local 8192 fallback as its
+// published window: the cloud policy reads Metadata.Nctx as a known window and, against an 8192
+// output cap, clamps max_tokens to 1 (the add-model bug found 2026-10-15).
+func TestEnrichCloudModelWithoutRealContextRecordsNoWindow(t *testing.T) {
+	cloud := func(models.ModelConfig) models.WorkloadClass { return models.WorkloadCloud }
+	cases := []struct {
+		name     string
+		metadata *models.ModelMetadata
+		meta     *models.ModelMeta
+		wantNctx int
+	}{
+		{name: "metadata without a context", metadata: &models.ModelMetadata{}, wantNctx: 0},
+		{name: "catalog meta without a context", meta: &models.ModelMeta{}, wantNctx: 0},
+		{name: "a published context is kept", meta: &models.ModelMeta{ContextLength: 131072}, wantNctx: 131072},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := &modelFormRequest{Provider: "openai", Name: "flash", Filename: "vendor/flash", Metadata: c.metadata, Meta: c.meta,
+				ProviderConfig: models.ProviderConfig{APIKeyName: "k"}}
+			req.enrichMetadataFromProviders(cloud)
+			got := 0
+			if req.Metadata != nil {
+				got = req.Metadata.Nctx
+			}
+			if got != c.wantNctx {
+				t.Fatalf("Metadata.Nctx = %d, want %d", got, c.wantNctx)
+			}
+
+			cfg := models.ModelConfig{Provider: "openai", Name: "flash", Filename: "vendor/flash", Metadata: req.Metadata,
+				MaxTokens: req.MaxTokens, ContextBudget: req.ContextBudget, WorkloadClass: models.WorkloadCloud}
+			orchestrator.ApplyMetadataDefaults(&cfg)
+			if cfg.MaxTokens < 1024 {
+				t.Errorf("derived max_tokens = %d, want a usable output cap", cfg.MaxTokens)
+			}
+		})
+	}
+}
+
+// A model whose key points at a LAN or loopback server is local once the key is hydrated. The
+// registration pipeline must derive its budget with that class: deriving it with the cloud
+// policy (as a re-classification without the key does) clamped such a model's output cap to 1.
+func TestRegisterModelDerivesBudgetWithTheHydratedWorkloadClass(t *testing.T) {
+	rt := &fakeRuntime{classify: func(models.ModelConfig) models.WorkloadClass { return models.WorkloadLocal }}
+	req := &modelFormRequest{Provider: "openai", Name: "lan-model", Filename: "vendor/lan-model", MaxTokens: 8192,
+		Metadata: &models.ModelMetadata{}, ProviderConfig: models.ProviderConfig{APIKeyName: "lan-key"}}
+
+	cfg, err := registerModelFromRequest(context.Background(), rt, &mocks.MockAdminService{}, req, "vendor/lan-model", "", nil)
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if cfg.WorkloadClass != models.WorkloadLocal {
+		t.Errorf("workload class = %q, want local", cfg.WorkloadClass)
+	}
+	if cfg.MaxTokens < 1024 {
+		t.Errorf("max_tokens = %d, want a usable output cap (not the cloud clamp to 1)", cfg.MaxTokens)
 	}
 }
 

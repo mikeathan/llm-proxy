@@ -35,6 +35,7 @@ const RESULT_TEXT: Record<HeartbeatResult, string> = {
   alert: 'an alert was raised and sent',
   alert_not_delivered: 'an alert was raised but could not be delivered',
   alert_no_channel: 'an alert was raised but no channel is set to send it on',
+  alert_already_reported: 'found something, but it was already reported, so nothing new was sent',
   skipped_no_checks: 'skipped, no checks defined',
   skipped_busy: 'skipped, the model was busy',
   skipped_outside_hours: 'skipped, outside the active hours',

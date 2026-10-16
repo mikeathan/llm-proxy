@@ -22,6 +22,8 @@ type fakeRuntime struct {
 	instance    llm.ModelInstance
 	ensureErr   error
 	ensureCalls int
+	// classify, when set, answers ClassifyModel (the runtime's hydrated classifier).
+	classify func(models.ModelConfig) models.WorkloadClass
 }
 
 func (f *fakeRuntime) ListModels() []models.ModelConfig { return f.models }
@@ -52,7 +54,12 @@ func (f *fakeRuntime) ProbeModelAvailability(context.Context, models.ModelConfig
 func (f *fakeRuntime) SelectModels() (string, string)                                   { return "", "" }
 func (f *fakeRuntime) RefreshServingFingerprints(context.Context)                       {}
 func (f *fakeRuntime) ApplyModelOverrides(map[string]models.ModelOverride)              {}
-func (f *fakeRuntime) ClassifyModel(models.ModelConfig) models.WorkloadClass            { return "" }
+func (f *fakeRuntime) ClassifyModel(cfg models.ModelConfig) models.WorkloadClass {
+	if f.classify != nil {
+		return f.classify(cfg)
+	}
+	return ""
+}
 
 func TestModelsListHandler_ServesMetadata(t *testing.T) {
 	rt := &fakeRuntime{models: []models.ModelConfig{

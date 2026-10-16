@@ -28,6 +28,7 @@ describe('heartbeatStatusText', () => {
     ['alert', /alert/i],
     ['alert_not_delivered', /could not be delivered/i],
     ['alert_no_channel', /no channel/i],
+    ['alert_already_reported', /already reported/i],
     ['skipped_no_checks', /no checks/i],
     ['skipped_busy', /busy/i],
     ['skipped_outside_hours', /active hours/i],

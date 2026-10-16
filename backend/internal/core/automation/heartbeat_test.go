@@ -315,6 +315,29 @@ func TestHeartbeat_QueuedTickRechecksActiveHoursAtDequeue(t *testing.T) {
 	}, "the dequeued tick was not recorded as skipped_outside_hours")
 }
 
+// With dedup on, a finding that was already reported is not sent again; the panel must say so, not "alert".
+func TestHeartbeat_RepeatedFindingIsRecordedAsAlreadyReported(t *testing.T) {
+	d := newLaneDispatcher(t, newRecordingExecutor("- GPT-6 shipped: https://example.com/x", nil))
+	d.notifier = &fakeNotifier{}
+	if err := d.persistence.WriteTaskFile("ws", models.HeartbeatFilename, "Watch: releases\n"); err != nil {
+		t.Fatal(err)
+	}
+	cfg := models.HeartbeatConfig{Enabled: true, Notify: &models.NotifyConfig{Connector: "tg", Dedup: true}}
+	if err := d.Register("ws", cfg.Automation()); err != nil {
+		t.Fatal(err)
+	}
+	entry, _ := d.registry.Get("ws", models.HeartbeatAutomationName)
+
+	for i, want := range []models.HeartbeatResult{models.HeartbeatAlert, models.HeartbeatAlertAlreadyReported} {
+		if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+			t.Fatal(err)
+		}
+		if s := statusOf(t, d); s == nil || s.Result != want {
+			t.Fatalf("run %d: status = %+v, want %s", i+1, s, want)
+		}
+	}
+}
+
 // The heartbeat panel must not say "an alert was sent" when the send failed.
 func TestHeartbeat_AlertWhoseDeliveryFailedIsRecordedAsNotDelivered(t *testing.T) {
 	for _, tc := range []struct {
