@@ -33,7 +33,7 @@ func TestStartMemoryJobs_FlushesPendingUsageOnShutdown(t *testing.T) {
 	entry, _ := store.Get(context.Background(), "ws-1", id)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	startMemoryJobs(ctx, func() *memory.Store { return store }, func() time.Duration { return time.Hour })
+	startMemoryJobs(ctx, func() *memory.Store { return store })
 	store.RecordInjected([]memory.MemoryEntry{*entry})
 	cancel()
 

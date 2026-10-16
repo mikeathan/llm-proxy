@@ -117,9 +117,7 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 		rundir.DefaultRunRetention,
 	).Start(ctx)
 
-	startMemoryJobs(ctx, svc.AppCtx.MemoryStore, func() time.Duration {
-		return dataMgr.Settings().Get().Memory.SessionRetention()
-	})
+	startMemoryJobs(ctx, svc.AppCtx.MemoryStore)
 
 	// Reminders: one timer loop, tethered to the app context (Constitution
 	// II.2/II.14); nil when reminders are unavailable.
@@ -177,15 +175,15 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 
 // startMemoryJobs starts the memory store's background jobs, tethered to ctx
 // (Constitution II.2/II.14):
-//   - the session reaper deletes old session-scoped entries (unattended runs
-//     write them by default; long_term and user_profile are never touched);
+//   - the expiry reaper deletes facts whose expiry has passed (session facts, which unattended runs write by default,
+//     and facts that were given a date); facts without an expiry are never deleted by age;
 //   - the usage flusher writes the in-memory use counts to the database off the
 //     run path, and once more on shutdown.
 //
 // Providers, not values: the store is replaced on factory reset and may be nil
-// when the database failed to open; retention can change while running.
-func startMemoryJobs(ctx context.Context, store func() *memory.Store, retention func() time.Duration) {
-	go memory.NewSessionReaper(store, retention, memory.DefaultSessionReaperInterval).Start(ctx)
+// when the database failed to open.
+func startMemoryJobs(ctx context.Context, store func() *memory.Store) {
+	go memory.NewExpiryReaper(store, memory.DefaultExpiryReaperInterval).Start(ctx)
 	go memory.NewUsageFlusher(store, memory.DefaultUsageFlushInterval).Start(ctx)
 }
 

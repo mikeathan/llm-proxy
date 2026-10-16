@@ -14,7 +14,7 @@ import (
 // Uses json_each for exact tag matching (not FTS5). Ordered by priority, then
 // recency: high-priority facts come first so a tight budget cuts them last.
 const searchHotSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content,
-                             m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at
+                             m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at, m.kind, m.why, m.expires_at
                       FROM memories m
                       WHERE (m.workspace_id = 'global'
                              AND EXISTS (SELECT 1 FROM json_each(m.tags) WHERE value = 'hot'))

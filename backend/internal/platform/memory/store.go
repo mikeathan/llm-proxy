@@ -65,24 +65,24 @@ END;
 const rebuildFTSIndexSQL = `INSERT INTO memories_fts(rowid, title, content, tags) SELECT id, title, content, tags FROM memories`
 
 // insertSQL inserts a new memory entry with all required fields including tags.
-const insertSQL = `INSERT INTO memories (workspace_id, memory_type, title, content, tags, source) VALUES (?, ?, ?, ?, ?, ?)`
+const insertSQL = `INSERT INTO memories (workspace_id, memory_type, title, content, tags, source, kind, why, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // searchFTSandTagsSQL performs FTS5 full-text search with optional tag filter
 // (EXISTS clause appended dynamically). Ordered by BM25 relevance (rank ASC).
-const searchFTSandTagsSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at
+const searchFTSandTagsSQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at, m.kind, m.why, m.expires_at
 FROM memories m
 JOIN memories_fts f ON m.id = f.rowid
 WHERE %s AND memories_fts MATCH ?`
 
 // searchTagsOnlySQL lists entries filtered by tag without an FTS query.
 // Used when the agent provides tags but no text query.
-const searchTagsOnlySQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at
+const searchTagsOnlySQL = `SELECT m.id, m.workspace_id, m.memory_type, m.title, m.content, m.tags, m.source, m.priority, m.injected_count, m.searched_count, m.last_used_at, m.created_at, m.updated_at, m.kind, m.why, m.expires_at
 FROM memories m
 WHERE %s`
 
 // selectColumnsSQL is the shared column projection used by list/get/find queries,
 // now including the tags column.
-const selectColumnsSQL = `SELECT id, workspace_id, memory_type, title, content, tags, source, priority, injected_count, searched_count, last_used_at, created_at, updated_at`
+const selectColumnsSQL = `SELECT id, workspace_id, memory_type, title, content, tags, source, priority, injected_count, searched_count, last_used_at, created_at, updated_at, kind, why, expires_at`
 
 // listByTypeSQL lists memories filtered by type, most recently updated first.
 const listByTypeSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND memory_type = ? ORDER BY updated_at DESC LIMIT ? OFFSET ?`
@@ -94,7 +94,7 @@ const listSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? ORDER 
 const getSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id = ? AND id = ?`
 
 // updateSQL updates the title, content, and tags of a memory entry and bumps its timestamp.
-const updateSQL = `UPDATE memories SET title = ?, content = ?, tags = ?, updated_at = datetime('now') WHERE workspace_id = ? AND id = ?`
+const updateSQL = `UPDATE memories SET title = ?, content = ?, tags = ?, kind = ?, why = ?, expires_at = ?, updated_at = datetime('now') WHERE workspace_id = ? AND id = ?`
 
 // setPrioritySQL changes priority only — no timestamp bump, so recency ordering is undisturbed.
 const setPrioritySQL = `UPDATE memories SET priority = ? WHERE workspace_id = ? AND id = ?`
@@ -115,8 +115,25 @@ const findSubstringSQL = selectColumnsSQL + ` FROM memories WHERE workspace_id =
 const deleteAllWorkspaceSQL = `DELETE FROM memories WHERE workspace_id = ?`
 const deleteByTypeWorkspaceSQL = `DELETE FROM memories WHERE workspace_id = ? AND memory_type = ?`
 
-// deleteOlderThanSQL removes memories of a given type created before a cutoff timestamp.
-const deleteOlderThanSQL = `DELETE FROM memories WHERE memory_type = ? AND created_at < ?`
+// DeleteExpired removes every fact whose expiry has passed, whatever its scope or type, and returns how many.
+func (s *Store) DeleteExpired(ctx context.Context, now time.Time) (int64, error) {
+	res, err := s.db.ExecContext(ctx, deleteExpiredSQL, now.UTC().Format(sqliteDateTimeFormat))
+	if err != nil {
+		return 0, fmt.Errorf("memory delete expired: %w", err)
+	}
+	return res.RowsAffected()
+}
+
+// deleteExpiredSQL removes facts whose expiry is at or before a timestamp (the same format as created_at).
+const deleteExpiredSQL = `DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at <= ?`
+
+// backfillSessionExpirySQL gives session facts written before expiry existed one, a default window after they were
+// created, so the reaper (which only deletes by expiry) does not leave them forever. Idempotent: it only touches rows
+// without an expiry.
+const backfillSessionExpirySQL = `UPDATE memories SET expires_at = datetime(created_at, '+' || ? || ' days') WHERE memory_type = 'session' AND expires_at IS NULL`
+
+// legacySessionRetentionDays is the window the backfill uses; it matches the default memory.retention_days.
+const legacySessionRetentionDays = 90
 
 // sqliteDateTimeFormat is the standard SQLite datetime function format.
 const sqliteDateTimeFormat = "2006-01-02 15:04:05"
@@ -142,28 +159,19 @@ func New(p db.Provider) (*Store, error) {
 	if _, err := database.Exec(migrateSQL); err != nil {
 		return nil, fmt.Errorf("memory migrate: %w", err)
 	}
-	// Idempotent migration — SQLite doesn't support IF NOT EXISTS for ALTER TABLE.
-	if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return nil, fmt.Errorf("memory migrate tags: %w", err)
-		}
-	}
-	// Priority (0–2, default normal) orders hot facts under budget pressure.
-	if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN priority INTEGER NOT NULL DEFAULT 1`); err != nil {
-		if !strings.Contains(err.Error(), "duplicate column") {
-			return nil, fmt.Errorf("memory migrate priority: %w", err)
-		}
-	}
-	// Usage counters (see usage.go): additive, existing facts start at zero.
-	for _, col := range []string{
-		`injected_count INTEGER NOT NULL DEFAULT 0`,
-		`searched_count INTEGER NOT NULL DEFAULT 0`,
-		`last_used_at DATETIME`,
+	// Idempotent additive migrations (SQLite has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS). Existing rows start with
+	// each default: tags none, normal priority, zero usage, untyped and never expiring.
+	for _, step := range []struct {
+		what string
+		cols []string
+	}{
+		{"tags", []string{`tags TEXT NOT NULL DEFAULT '[]'`}},
+		{"priority", []string{`priority INTEGER NOT NULL DEFAULT 1`}}, // orders hot facts under budget pressure
+		{"usage", []string{`injected_count INTEGER NOT NULL DEFAULT 0`, `searched_count INTEGER NOT NULL DEFAULT 0`, `last_used_at DATETIME`}},
+		{"typing", []string{`kind TEXT NOT NULL DEFAULT ''`, `why TEXT NOT NULL DEFAULT ''`, `expires_at DATETIME`}},
 	} {
-		if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN ` + col); err != nil {
-			if !strings.Contains(err.Error(), "duplicate column") {
-				return nil, fmt.Errorf("memory migrate usage: %w", err)
-			}
+		if err := addColumns(database, step.what, step.cols...); err != nil {
+			return nil, err
 		}
 	}
 	// Rebuild FTS index for entries that existed before the drop/create above.
@@ -172,7 +180,21 @@ func New(p db.Provider) (*Store, error) {
 	if _, err := database.Exec(rebuildFTSIndexSQL); err != nil {
 		return nil, fmt.Errorf("memory fts rebuild: %w", err)
 	}
+	// After the index is rebuilt: the UPDATE fires the FTS sync trigger, which needs the old row to be in the index.
+	if _, err := database.Exec(backfillSessionExpirySQL, legacySessionRetentionDays); err != nil {
+		return nil, fmt.Errorf("memory backfill session expiry: %w", err)
+	}
 	return &Store{db: database}, nil
+}
+
+// addColumns adds each column to the memories table, tolerating one that is already there.
+func addColumns(database *sql.DB, what string, cols ...string) error {
+	for _, col := range cols {
+		if _, err := database.Exec(`ALTER TABLE memories ADD COLUMN ` + col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("memory migrate %s: %w", what, err)
+		}
+	}
+	return nil
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -180,7 +202,10 @@ func New(p db.Provider) (*Store, error) {
 // ──────────────────────────────────────────────────────────────
 
 func (s *Store) Insert(ctx context.Context, e NewEntry) (int64, error) {
-	res, err := s.db.ExecContext(ctx, insertSQL, e.WorkspaceID, string(e.MemoryType), e.Title, e.Content, tagsJSON(e.Tags), e.Source)
+	if err := ValidateTyping(e.Kind, e.Why); err != nil {
+		return 0, fmt.Errorf("memory insert: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx, insertSQL, e.WorkspaceID, string(e.MemoryType), e.Title, e.Content, tagsJSON(e.Tags), e.Source, string(e.Kind), e.Why, expiryValue(e.ExpiresAt))
 	if err != nil {
 		return 0, fmt.Errorf("memory insert: %w", err)
 	}
@@ -199,6 +224,9 @@ func (s *Store) Get(ctx context.Context, workspaceID string, id int64) (*MemoryE
 }
 
 func (s *Store) Update(ctx context.Context, workspaceID string, id int64, e Edit) error {
+	if err := ValidateTyping(e.Kind, e.Why); err != nil {
+		return fmt.Errorf("memory update: %w", err)
+	}
 	normalized := normalizeTags(e.Tags)
 
 	if e.TagMode == MergeTags {
@@ -211,7 +239,7 @@ func (s *Store) Update(ctx context.Context, workspaceID string, id int64, e Edit
 		}
 	}
 
-	res, err := s.db.ExecContext(ctx, updateSQL, e.Title, e.Content, tagsJSON(normalized), workspaceID, id)
+	res, err := s.db.ExecContext(ctx, updateSQL, e.Title, e.Content, tagsJSON(normalized), string(e.Kind), e.Why, expiryValue(e.ExpiresAt), workspaceID, id)
 	if err != nil {
 		return fmt.Errorf("memory update: %w", err)
 	}
@@ -220,6 +248,14 @@ func (s *Store) Update(ctx context.Context, workspaceID string, id int64, e Edit
 		return fmt.Errorf("memory update: not found")
 	}
 	return nil
+}
+
+// expiryValue is the stored form of an expiry: NULL for none, else a UTC timestamp in the format created_at uses.
+func expiryValue(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t.UTC().Format(sqliteDateTimeFormat)
 }
 
 // ErrInvalidPriority is returned for a priority outside PriorityLow..PriorityHigh.
@@ -341,14 +377,6 @@ func (s *Store) DeleteAllByWorkspace(ctx context.Context, workspaceID string, me
 	}
 	if err != nil {
 		return 0, fmt.Errorf("memory delete all: %w", err)
-	}
-	return res.RowsAffected()
-}
-
-func (s *Store) DeleteOlderThan(ctx context.Context, memoryType MemoryType, before time.Time) (int64, error) {
-	res, err := s.db.ExecContext(ctx, deleteOlderThanSQL, string(memoryType), before.UTC().Format(sqliteDateTimeFormat))
-	if err != nil {
-		return 0, fmt.Errorf("memory delete older than: %w", err)
 	}
 	return res.RowsAffected()
 }

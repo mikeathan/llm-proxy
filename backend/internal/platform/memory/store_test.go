@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,27 +140,6 @@ func TestMemoryStore_Update(t *testing.T) {
 	}
 	if entry.Content != "new content" {
 		t.Errorf("expected 'new content', got '%s'", entry.Content)
-	}
-}
-
-func TestMemoryStore_DeleteOlderThan(t *testing.T) {
-	store := newTestStore(t)
-	ctx := context.Background()
-
-	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Daily, Title: "old", Content: "old content", Tags: nil, Source: "agent"})
-	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Daily, Title: "new", Content: "new content", Tags: nil, Source: "agent"})
-
-	n, err := store.DeleteOlderThan(ctx, Daily, time.Now().Add(-1*time.Hour))
-	if err != nil {
-		t.Fatalf("DeleteOlderThan failed: %v", err)
-	}
-	if n != 0 {
-		t.Logf("deleted %d old memories (expected 0 since all are recent)", n)
-	}
-
-	entries, _ := store.List(ctx, "ws-1", Daily, 10, 0)
-	if len(entries) != 2 {
-		t.Errorf("expected 2 entries after deleting none, got %d", len(entries))
 	}
 }
 
@@ -612,5 +592,129 @@ func TestSearch_MatchesWordFormsNotUnrelatedWords(t *testing.T) {
 				t.Errorf("query %q: got %+v, want the %q fact first", tc.query, got, tc.want)
 			}
 		})
+	}
+}
+
+// A fact carries a kind, a one-line reason and an optional expiry, and every read path returns them.
+func TestStore_InsertStoresKindWhyAndExpiry(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	exp := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	id, err := store.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Title: "t", Content: "Review requests are answered within a day.",
+		Source: "agent", Kind: KindFeedback, Why: "reviewers asked for faster turnaround", ExpiresAt: exp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plainID, _ := store.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Title: "p", Content: "A fact with no typing.", Source: "agent"})
+
+	got, _ := store.Get(ctx, "ws", id)
+	if got.Kind != KindFeedback || got.Why != "reviewers asked for faster turnaround" || got.ExpiresAt != "2030-01-02T03:04:05Z" {
+		t.Errorf("Get lost the typing: %+v", got)
+	}
+	plain, _ := store.Get(ctx, "ws", plainID)
+	if plain.Kind != "" || plain.Why != "" || plain.ExpiresAt != "" {
+		t.Errorf("an untyped fact must read back untyped: %+v", plain)
+	}
+	listed, _ := store.List(ctx, "ws", "", 10, 0)
+	found, _ := store.Search(ctx, "ws", "reviewers requests", 5)
+	for name, entries := range map[string][]MemoryEntry{"List": listed, "Search": found} {
+		ok := false
+		for _, e := range entries {
+			ok = ok || (e.ID == id && e.Kind == KindFeedback && e.Why != "" && e.ExpiresAt != "")
+		}
+		if !ok {
+			t.Errorf("%s did not return the typing: %+v", name, entries)
+		}
+	}
+}
+
+// A bad kind or reason is refused at the store, so nothing malformed is ever persisted.
+func TestStore_InsertRefusesBadTyping(t *testing.T) {
+	store := newTestStore(t)
+	for name, e := range map[string]NewEntry{
+		"unknown kind":   {Kind: "opinion"},
+		"multi-line why": {Why: "line one\nline two"},
+		"too long a why": {Why: strings.Repeat("w", MaxWhyChars+1)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e.WorkspaceID, e.MemoryType, e.Content, e.Source = "ws", LongTerm, "content", "agent"
+			if _, err := store.Insert(context.Background(), e); err == nil {
+				t.Error("Insert accepted a malformed typing")
+			}
+		})
+	}
+}
+
+// Update replaces the typing; a zero expiry clears it.
+func TestStore_UpdateReplacesTypingAndClearsExpiry(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	id, _ := store.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Title: "t", Content: "old", Source: "agent",
+		Kind: KindProject, Why: "old reason", ExpiresAt: time.Now().Add(time.Hour)})
+
+	if err := store.Update(ctx, "ws", id, Edit{Title: "t", Content: "new", Kind: KindReference, Why: "where it lives"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := store.Get(ctx, "ws", id)
+	if got.Content != "new" || got.Kind != KindReference || got.Why != "where it lives" || got.ExpiresAt != "" {
+		t.Errorf("Update must replace kind and why and clear the expiry: %+v", got)
+	}
+	if err := store.Update(ctx, "ws", id, Edit{Content: "x", Kind: "bogus"}); err == nil {
+		t.Error("Update accepted a bad kind")
+	}
+}
+
+func TestStore_DeleteExpiredCountsAndRemovesOnlyThePassed(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Content: "gone", Source: "a", ExpiresAt: now.Add(-time.Minute)})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Content: "later", Source: "a", ExpiresAt: now.Add(time.Hour)})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Content: "never", Source: "a"})
+	n, err := store.DeleteExpired(ctx, now)
+	if err != nil || n != 1 {
+		t.Fatalf("DeleteExpired = %d, %v; want 1", n, err)
+	}
+	if left, _ := store.List(ctx, "ws", "", 10, 0); len(left) != 2 {
+		t.Errorf("two facts should remain, got %d", len(left))
+	}
+}
+
+// Sessions facts written before expiry existed have no expiry; the schema migration gives them one so the reaper
+// does not leave them forever.
+func TestNew_GivesLegacySessionFactsAnExpiry(t *testing.T) {
+	f, _ := os.CreateTemp("", "memory-legacy-*.db")
+	path := f.Name()
+	f.Close()
+	t.Cleanup(func() { os.Remove(path) })
+	p, err := db.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { p.DB().Close() })
+	store, err := New(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.DB().Exec(`INSERT INTO memories (workspace_id, memory_type, title, content, source, created_at, expires_at)
+		VALUES ('ws', 'session', 't', 'legacy session fact', 'run:1', '2026-01-01 00:00:00', NULL),
+		       ('ws', 'long_term', 't2', 'legacy permanent fact', 'agent', '2026-01-01 00:00:00', NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := New(p); err != nil { // the next start runs the migration again
+		t.Fatal(err)
+	}
+	all, _ := store.List(context.Background(), "ws", "", 10, 0)
+	for _, e := range all {
+		switch e.Content {
+		case "legacy session fact":
+			if e.ExpiresAt != "2026-04-01T00:00:00Z" { // created + the 90-day default
+				t.Errorf("the legacy session fact should expire 90 days after it was created, got %q", e.ExpiresAt)
+			}
+		case "legacy permanent fact":
+			if e.ExpiresAt != "" {
+				t.Errorf("a permanent fact must stay without an expiry, got %q", e.ExpiresAt)
+			}
+		}
 	}
 }
