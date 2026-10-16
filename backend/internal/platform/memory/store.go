@@ -38,7 +38,7 @@ DROP TRIGGER IF EXISTS memories_au;
 DROP TABLE IF EXISTS memories_fts;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-    title, content, tags, tokenize='unicode61', content=memories, content_rowid='id'
+    title, content, tags, tokenize='porter unicode61', content=memories, content_rowid='id'
 );
 
 CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN

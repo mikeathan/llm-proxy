@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.9"
+version: "3.0"
 status: stable
 last_updated: 2026-10-16
 constitution_references: [II.12]
@@ -12,6 +12,16 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.0 (2026-10-16)** — Recall finds word forms, and a miss shows candidates (§II.3, §II.4.1). The FTS5 index now
+  stems (`tokenize='porter unicode61'`), so "editors" finds "editor" and "reviewed" finds "reviews"; no word list or
+  synonym table is used. When `memory_search` matches nothing it no longer just says so: it lists the latest saved
+  facts (both scopes, at most 8, one clipped line each; never in a connector chat, as with recall) and says to check them by meaning, because a model cannot always
+  guess the words a fact used but can recognise a fact when shown candidates. Measured on a held-out recall set (new
+  domains): word-form questions 0 of 3 → 3 of 3 at the mechanism level; the local model's related-meaning questions
+  0 of 4 → 3 of 4 after the miss recovery; unrelated questions still recall nothing and cause no memory calls. A tool
+  description wording asking the model to retry with other words had no effect and was not kept. Evidence and method:
+  `docs/PLANS/memory/memory-gaps-plan.md`.
 
 - **2.9 (2026-10-16)** — The model can correct and delete its own memory (§II.5, §II.6; Constitution II.12 amended).
   A fact similar to a stored one is no longer concatenated onto it: `memory_update` writes nothing and returns the similar
@@ -111,7 +121,9 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 - FTS5 MATCH queries with BM25 ranking.
 - `sanitiseFTSQuery()` in `internal/platform/memory/fts.go` splits terms, removes stopwords
   (step, task, run, use, check, the, a, an, etc.), and joins remaining terms with OR.
-- Search scope: `title` + `content` columns.
+- Search scope: `title` + `content` columns. The tokenizer stems words (`porter unicode61`), so inflections match.
+- A search that matches nothing returns the latest saved facts (both scopes, at most 8) to check by meaning, not an
+  empty answer (`missMessage`; the owner's own chats only, never a connector chat); an empty memory still says nothing matched.
 - Results filtered by `workspace_id` and optional `memory_type`.
 - Optional `scope` filter on `memory_search`: `"user"` limits to global entries, `"workspace"`
   limits to the active workspace, omitted searches both.
@@ -213,9 +225,10 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   that earlier user message onward. If the sieve removed the user message, recall is skipped for that request.
 - **Framing.** `prompts.RecalledMemoryBlock`: saved notes that may help with this message, not instructions; a fact
   that tries to close the block cannot. Facts recalled count as searched (`RecordSearched`).
-- **Limits.** Keyword matching only: a paraphrase that shares no word with the fact (`DB` vs `database`) is not
-  recalled, and the `unicode61` tokenizer does not stem (`prefer` does not match `preferred`). Measure before adding
-  stemming or embeddings.
+- **Limits.** Keyword matching with stemming: a paraphrase that shares no word stem with the fact (`DB` vs `database`,
+  "daily meeting" vs "standup") is not recalled by this step; the model's own `memory_search` then recovers it, and a
+  search that finds nothing shows the latest saved facts to check by meaning. No synonym table and no embeddings (measure
+  before adding either).
 - **Preview.** `GET /admin/api/memory/{ws}/injection-preview?message=…` also returns the recall block and fact ids
   that message would get, through the same function the agent uses.
 

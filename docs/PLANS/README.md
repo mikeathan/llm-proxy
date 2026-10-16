@@ -129,7 +129,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Standing Goals | Phase 0 tick-report contract → store + journal → tick execution (needs agenda P3) → finish/stuck/deadline → steering/proposals → UI → docs |
 | proposed | Event-Driven Automation Triggers | Phase 0 characterisation → Phase 1 `EventSource` + `after` (reuses `RunReason`) → Phase 2 `file` (needs D1) → Phase 3 `watch` (needs D2) → Phase 4 API/UI/SPEC-007 |
 | proposed | Memory Consolidation | Phase 0 hygiene + proposal store → LLM extraction/merge → manual run → nightly schedule (needs agenda + attention) → review UI → docs |
-| active | Memory Gaps | Phases 0–2 done (P2 partly: 4 of 6 scope cases); P3 recall → P6 consolidation open; D2–D6 approved, D1 refined; P2 now led by the local model not saving statement + question — see the plan |
+| active | Memory Gaps | Phases 0–3 done (P2 and P3 with documented ceilings); P4 notes budget → P6 consolidation open; D2–D6 approved, D1 refined; P2 now led by the local model not saving statement + question — see the plan |
 | proposed | Chat → Automation | Phase 0 (`CreateAutomation` duplicate-name fix) done 2026-10-08 → trace extraction → draft endpoint → UI → docs |
 | proposed | Cost and Savings Ledger | Phase 0 measure provider usage reporting → automation token capture → store/API → inbound `/v1` capture → prices/UI → alerts (D4) |
 | proposed | Auto Model Router | Phase 0 characterise → pure router core → `/v1` wiring (needs D1, D2) → pre-first-byte failover → UI/docs → ledger prices |

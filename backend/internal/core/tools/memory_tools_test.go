@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -861,6 +862,64 @@ func TestMemoryForgetTool(t *testing.T) {
 		got, _ := provider.Forget(chat, MemoryForgetArgs{Text: "port 5433"})
 		if msg, _ := got.(string); !strings.Contains(msg, "The staging database runs on port 5433.") {
 			t.Errorf("the result must echo the deleted fact: %v", got)
+		}
+	})
+}
+
+// Keyword search finds a fact by the words it was saved with. When a question is phrased differently nothing matches,
+// and a model cannot invent the right synonym, but it can recognise a fact by meaning when shown the candidates: a miss
+// therefore lists the latest saved facts (bounded) and says to check them by meaning. No word list is involved.
+func TestMemorySearchTool_AMissShowsTheLatestFactsToCheckByMeaning(t *testing.T) {
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	seed := func(t *testing.T, contents ...string) *MemoryToolProvider {
+		provider := NewMemoryToolProvider(newRealTestStore(t))
+		for i, c := range contents {
+			scope := memory.ScopeWorkspace
+			if i%2 == 1 {
+				scope = memory.ScopeUser
+			}
+			if _, err := provider.Update(ctx, MemoryUpdateArgs{Content: c, Scope: scope, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return provider
+	}
+	search := func(provider *MemoryToolProvider) string {
+		got, err := provider.Search(ctx, searchArgs("zzqxj"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(string)
+	}
+
+	t.Run("lists the saved facts of both scopes and says to check by meaning", func(t *testing.T) {
+		got := search(seed(t, "Alpha lanterns glow at dusk.", "Bravo orchards ripen in autumn."))
+		for _, want := range []string{"by meaning", "Alpha lanterns glow at dusk.", "Bravo orchards ripen in autumn."} {
+			if !strings.Contains(got, want) {
+				t.Errorf("the miss result lacks %q:\n%s", want, got)
+			}
+		}
+	})
+	t.Run("is bounded", func(t *testing.T) {
+		var facts []string
+		for i := 0; i < searchMissFactLimit+4; i++ {
+			facts = append(facts, fmt.Sprintf("Distinct%c%c subject number %d stays unique.", 'a'+i, 'k'+i, i))
+		}
+		got := search(seed(t, facts...))
+		if lines := strings.Count(got, "\n- "); lines != searchMissFactLimit {
+			t.Errorf("listed %d facts, want exactly %d:\n%s", lines, searchMissFactLimit, got)
+		}
+	})
+	t.Run("an outside sender in a connector chat is never shown the owner's facts", func(t *testing.T) {
+		provider := seed(t, "Alpha lanterns glow at dusk.")
+		got, err := provider.Search(models.WithOriginConnector(ctx, "telegram"), searchArgs("zzqxj"))
+		if err != nil || got.(string) != "no memories found matching that query" {
+			t.Errorf("a connector chat must get the plain miss, got %v, %v", got, err)
+		}
+	})
+	t.Run("an empty memory just says nothing matched", func(t *testing.T) {
+		if got := search(seed(t)); got != "no memories found matching that query" {
+			t.Errorf("got %q", got)
 		}
 	})
 }

@@ -50,6 +50,9 @@ type MemoryRoute struct {
 }
 
 const (
+	// searchMissFactLimit bounds the saved facts a search that matched nothing shows for the model to check by meaning.
+	searchMissFactLimit = 8
+
 	// globalWorkspaceID is where user-scope facts live.
 	globalWorkspaceID = "global"
 
@@ -136,7 +139,7 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 		return "", fmt.Errorf("memory search failed: %w", err)
 	}
 	if len(entries) == 0 {
-		return "no memories found matching that query", nil
+		return m.missMessage(ctx, wsID, args.Scope), nil
 	}
 	// Used = returned to the model. In-memory; the usage flusher writes it later.
 	m.store.RecordSearched(entries)
@@ -152,6 +155,41 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+const (
+	searchMissNothing  = "no memories found matching that query"
+	searchMissIntro    = "no saved fact contains those words. These are the latest saved facts; if the user phrased the question differently, one of them may answer it by meaning:"
+	searchMissFactClip = 160
+)
+
+// missMessage is the result of a search that matched nothing. Keyword search finds a fact by the words it was saved with,
+// and a model cannot always guess the words the fact used, but it can recognise a fact by meaning when shown candidates,
+// so the latest saved facts (both scopes, bounded) follow, in the owner's own chats only. An empty memory, a failed
+// listing or a connector chat just says nothing matched.
+func (m *MemoryToolProvider) missMessage(ctx context.Context, wsID string, scope memory.Scope) string {
+	if models.OriginConnector(ctx) != "" {
+		return searchMissNothing // an outside sender is never shown the owner's facts, as with recall
+	}
+	facts, err := m.listAllMemories(ctx, wsID, scope, searchMissFactLimit)
+	if err != nil || len(facts) == 0 {
+		return searchMissNothing
+	}
+	var b strings.Builder
+	b.WriteString(searchMissIntro)
+	for _, e := range facts {
+		fmt.Fprintf(&b, "\n- %s", clipFact(e.Content, searchMissFactClip))
+	}
+	return b.String()
+}
+
+// clipFact shortens a fact to one line of at most limit characters.
+func clipFact(content string, limit int) string {
+	line := []rune(strings.Join(strings.Fields(content), " "))
+	if len(line) > limit {
+		return string(line[:limit]) + "…"
+	}
+	return string(line)
 }
 
 // listAllMemories returns all entries for the given scope without an FTS5 query.

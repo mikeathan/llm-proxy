@@ -96,7 +96,7 @@ cells are stopped when decisive instead of repeated to a fixed count. Cases cann
 |---|---|---|---|
 | G1 (**mostly fixed by the save reminder, Phase 2**) | The local model **never saved when a message states a fact and also asks a question** (it saves bare statements and explicit "remember that") | Phase 0: Qwen 0/4 on D1, V1, S1–S6, E2 (0 of 24 scope-set runs); cloud 5/5 | Test interventions against the same cases (P2): guidance wording, a one-line reminder next to the user message |
 | G2 | Facts about the person might be saved as project facts | **Cloud already scopes correctly** (birthday, city, timezone → user 15/15; hosts, ports, paths → workspace 14/15). The guidance text still says workspace unless "everything"; the model follows the subject anyway. Not measurable for Qwen until G1 is fixed | Keep the labelled set as a regression guard; rewrite the guidance wording (D1) only if Qwen mis-scopes once it saves (P2) |
-| G3 | Paraphrased questions miss, and the local model rarely searches itself | R2: cloud 4/5, Qwen 1/5 (Qwen used `memory_search` in 2 of 5 runs, 0 of the last 3); FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming, search-tool wording, and (if needed) a fallback so a miss still shows the user's few facts (P3) |
+| G3 (**mostly fixed, Phase 3**) | Paraphrased questions missed, and the local model rarely searched itself | R2: cloud 4/5, Qwen 1/5 (Qwen used `memory_search` in 2 of 5 runs, 0 of the last 3); FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming, search-tool wording, and (if needed) a fallback so a miss still shows the user's few facts (P3) |
 | G4 (**fixed, Phase 1**) | The model could not correct its own memory | Only `memory_search` and `memory_update` exist; overlapping facts are concatenated (`tools/memory_tools.go` `insertFact`); `old_text` only finds facts in the route's own workspace | Tool contract: overlap returns the id, `memory_forget`, re-routing update (P1) |
 | G5 | Wasted steps when memory has no answer | R4: 6–7 tool steps on both models | Tool-description guidance + measure (P3) |
 | G6 | Hot block can be crowded out | Operator notes are "never clipped" (up to 12,000 chars with two files) against a 400–6000 char hot cap; the unit of `ContextBudget` (tokens vs chars) is unverified | Budget the notes inside the cap (P4, needs D4: it amends Constitution II.12) |
@@ -183,12 +183,23 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   a recall-hit question the model sometimes re-calls `memory_update` with the fact it just recalled (a duplicate the
   store dedups, one wasted call).
 
-### Phase 3 — Recall strength (G3, G5)
-- `memories_fts` tokenizer to `porter unicode61` (`store.go:40-41`; the schema already drops and rebuilds the index from the rows at startup, so there is no data migration and no shim);
-  `memory_search` description tells the model to try synonyms once and not to browse files for facts about the user.
-- **Acceptance:** `RecallQuery`/store tests for stemmed matches (prefer/preferred, deploy/deployment); R2 pass rate
-  ≥ 80% over ≥5 runs per model; R4 tool steps down from the baseline; no R6 noise.
-- **Not doing:** embeddings or a vector store (cost on a 16K local setup); revisit only if this phase misses.
+### Phase 3 — Recall strength (G3, G5) — DONE 2026-10-16
+- **Held-out recall set Q** (new domains; `scripts/memory-recall.py` with `RECALL_SET=Q`): word-form questions, related-
+  meaning questions that share no word, and unrelated questions. It has a deterministic half (the memory preview, no
+  model) so the mechanism is measured on its own.
+- **3a Stemming:** `memories_fts` tokenizer `porter unicode61` (`store.go`; the index is rebuilt at startup, no migration).
+  Test uses neutral English pairs plus a negative. Mechanism on set Q: pure word-form cases **0 of 3 → 3 of 3**, the
+  three unrelated questions still recall nothing.
+- **3b Tool wording (tried, not kept):** a description asking the model to retry with other words of the same meaning
+  did **nothing** for the local model (related-meaning 0 of 4, both before and after): it searches with the question's own
+  words, finds nothing and concludes there is nothing; it does not produce synonyms.
+- **3c Miss recovery (generic):** a `memory_search` that matches nothing lists the latest saved facts (both scopes, at
+  most 8, clipped) and says to check by meaning. No word list. Local model related-meaning **0 of 4 → 3 of 4**;
+  unrelated questions: no memory calls, 6 of 6. Cloud is unaffected (it already searched with its own words: 11 of 11).
+- **Not done on purpose:** synonym tables (they would be the test data in disguise), embeddings (cost on a 16K model).
+- **Acceptance (met, with a ceiling):** stemming tests; the miss recovery is bounded and tested; held-out related-meaning
+  3 of 4 on the local model rather than the 80% target, so a model that does not search at all (one run) still misses.
+  G5 (wasted tool steps when memory has no answer) was not measured separately and stays open.
 
 ### Phase 4 — Hot-block budget (G6; needs D4)
 - Verify whether `ContextBudget` is tokens or chars (`assistant/hot_memory.go`, `hotMemoryCharsPerToken`); budget
@@ -219,6 +230,6 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 - **Non-goals:** automatic LLM writes without review; memory writes from heartbeats; embeddings now.
 
 ## Remaining Work
-Phases 3–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
+Phases 4–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
 save failure. Small related items tracked elsewhere: webhook run contexts, reminders
 partial-failure retry (see `docs/audits/2026-10-15-next-work-analysis.md`).

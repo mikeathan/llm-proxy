@@ -79,7 +79,79 @@ def ask(ws, conv, msg):
     return {'error': 'timeout'}
 
 
+# Held-out recall set (RECALL_SET=Q): seeds and questions in domains the R set and the fixes never saw. Kinds: "morphology" (the
+# question shares word stems with the fact but not the exact words), "related" (shares no word at all; the model has to
+# search with its own words), "none" (an unrelated question: nothing may be recalled and no memory tool may run). The
+# deterministic half uses the injection preview, so it measures the mechanism with no model in the loop.
+Q_SEEDS = [
+    ('eval', {'content': 'The team standup is at 9:30 on weekdays.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': 'We run backups every night at 2am.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': 'The staging environment is reset every Monday.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': 'The client prefers invoices in euros.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': "I'm allergic to peanuts.", 'scope': 'user', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': 'My favourite editor is Neovim.', 'scope': 'user', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': 'The team reviews pull requests every morning.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    ('eval', {'content': 'We deploy updates every weekend.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+]
+Q_QUESTIONS = [  # (id, workspace, question, kind, word the answer or the recall must contain)
+    ('Q1', 'eval', 'Which backup jobs are running at night?', 'morphology', '2am'),
+    ('Q2', 'eval', 'When do we reset the staging environments?', 'morphology', 'monday'),
+    ('Q3', 'eval2', 'Which editors do I favour?', 'morphology', 'neovim'),
+    ('Q4', 'eval', 'Which currency does the client prefer for billing?', 'morphology', 'euro'),
+    ('Q5', 'eval', 'What time is our daily meeting?', 'related', '9:30'),
+    ('Q6', 'eval2', 'Do I have any food allergies?', 'related', 'peanut'),
+    ('Q10', 'eval', 'When is a request reviewed?', 'morphology', 'morning'),
+    ('Q11', 'eval', 'Are deployments done at weekends?', 'morphology', 'weekend'),
+    ('Q7', 'eval', 'What is the capital of Japan?', 'none', None),
+    ('Q8', 'eval', 'Explain recursion in simple terms.', 'none', None),
+    ('Q9', 'eval', 'Convert 10 km to miles.', 'none', None),
+]
+PREVIEW_ONLY = os.environ.get('RECALL_PREVIEW_ONLY') == '1'
+
+
+def preview_recall(ws, question):
+    import urllib.parse
+    st, d = call('GET', f'/admin/api/memory/{ws}/injection-preview?message=' + urllib.parse.quote(question))
+    return (d.get('recall', {}).get('block', '') if st == 200 and isinstance(d, dict) else '')
+
+
+def run_q():
+    call('POST', '/admin/api/dispatcher/workspaces', {'id': 'eval2'})
+    print(f'== {LABEL} / {MODEL}: primary ->', call('PUT', '/admin/api/config', {'primary_model': MODEL, 'fallback_model': MODEL})[0], flush=True)
+    for ws in ('eval', 'eval2', 'global'):
+        st, d = call('GET', f'/admin/api/memory/{ws}')
+        for e in (d if st == 200 and isinstance(d, list) else []):
+            call('DELETE', f'/admin/api/memory/{ws}/{e["id"]}')
+    for ws, body in Q_SEEDS:
+        call('POST', f'/admin/api/memory/{ws}', body)
+    results = []
+    for qid, ws, q, kind, word in Q_QUESTIONS:
+        if ONLY and qid not in ONLY:
+            continue
+        block = preview_recall(ws, q).lower()
+        recalled = bool(block) if word is None else word in block
+        row = {'id': qid, 'kind': kind, 'question': q, 'recalled': recalled}
+        if kind == 'none':
+            row['recall_ok'] = not block  # nothing may be recalled for an unrelated question
+        if not PREVIEW_ONLY:
+            r = ask(ws, f'{LABEL}-{qid.lower()}-{int(time.time())}', q)
+            ans = (r.get('answer') or '').lower()
+            tools = [c[0] for c in r.get('tool_calls', [])]
+            row.update(answer=ans[:200], tools=tools, steps=len(tools), seconds=r.get('seconds'), error=r.get('error'))
+            row['pass'] = (not any(t.startswith('memory') for t in tools)) if word is None else (word in ans)
+        results.append(row)
+        print(f"  {qid} {kind:10} recalled={recalled!s:5}" + ('' if PREVIEW_ONLY else f" pass={row['pass']} steps={row['steps']} memory_search={'memory_search' in row['tools']}") + f" | {q}", flush=True)
+    for ws in ('eval', 'eval2', 'global'):
+        st, d = call('GET', f'/admin/api/memory/{ws}')
+        for e in (d if st == 200 and isinstance(d, list) else []):
+            call('DELETE', f'/admin/api/memory/{ws}/{e["id"]}')
+    with open(f"{OUT}/recallQ-{LABEL}.json", 'w') as f:
+        json.dump({'label': LABEL, 'model': MODEL, 'results': results}, f, indent=1)
+
+
 def main():
+    if os.environ.get('RECALL_SET') == 'Q':
+        return run_q()
     call('POST', '/admin/api/dispatcher/workspaces', {'id': 'eval2'})
     print(f'== {LABEL} / {MODEL}: primary ->', call('PUT', '/admin/api/config', {'primary_model': MODEL, 'fallback_model': MODEL})[0], flush=True)
     for ws in ('eval', 'eval2', 'global'):
