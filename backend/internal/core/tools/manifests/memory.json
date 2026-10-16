@@ -57,7 +57,11 @@
           },
           "old_text": {
             "type": "string",
-            "description": "Unique substring of existing memory content to update (omit to create new)"
+            "description": "Unique substring of existing memory content to replace with the new content (omit to create new)"
+          },
+          "separate": {
+            "type": "boolean",
+            "description": "Set true to save this as its own fact when a similar fact exists (otherwise memory_update reports the similar fact so you can replace it with old_text)"
           }
         },
         "required": ["content", "scope", "mode", "keep"]

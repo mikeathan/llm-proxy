@@ -192,17 +192,22 @@ func mergeAndCap(a, b []memory.MemoryEntry, limit int) []memory.MemoryEntry {
 	return result
 }
 
-// Update saves a new memory or updates an existing one. Uses scope, mode, and keep
-// to control where the fact goes and how long it lasts. When old_text is provided the
-// tool first tries to find a matching entry by content substring; if none is found it
-// falls through to create a new entry rather than erroring.
-func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
+// MemoryUpdateArgs are the model-facing arguments of memory_update (docs: manifests/memory.json).
+type MemoryUpdateArgs struct {
 	Content string       `json:"content"`
 	Scope   memory.Scope `json:"scope"`
 	Mode    memory.Mode  `json:"mode"`
 	Keep    memory.Keep  `json:"keep"`
 	OldText string       `json:"old_text"`
-}) (any, error) {
+	// Separate saves the fact as its own entry even when a similar one exists (otherwise the tool reports the similar fact).
+	Separate bool `json:"separate"`
+}
+
+// Update saves a new memory or updates an existing one. Uses scope, mode, and keep
+// to control where the fact goes and how long it lasts. When old_text is provided the
+// tool first tries to find a matching entry by content substring; if none is found it
+// falls through to create a new entry rather than erroring.
+func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) (any, error) {
 	if m.store == nil {
 		return "memory is not available", nil
 	}
@@ -238,7 +243,11 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 		}
 	}
 
-	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType)})
+	policy := overlapReport
+	if args.Separate {
+		policy = overlapSeparate
+	}
+	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), onOverlap: policy})
 	if err != nil {
 		return "", err
 	}
@@ -252,6 +261,17 @@ const (
 	SaveCreated SaveOutcome = iota + 1
 	SaveUpdated
 	SaveDuplicate
+	// SaveConflict: nothing was written because a similar fact exists; the model chooses to replace or keep both.
+	SaveConflict
+)
+
+// overlapPolicy is what saving does when a similar fact already exists.
+type overlapPolicy int
+
+const (
+	overlapReport   overlapPolicy = iota // the tool reports the similar fact and writes nothing
+	overlapSeparate                      // the new fact is saved as its own entry
+	overlapReplace                       // the similar fact is replaced in place (capture and review cannot retry)
 )
 
 // SaveResult describes a save: what happened, which entry it touched (0 for an exact-content duplicate) and its type.
@@ -259,6 +279,8 @@ type SaveResult struct {
 	Outcome SaveOutcome
 	ID      int64
 	Type    memory.MemoryType
+	// Existing is the similar fact's text, set for SaveConflict.
+	Existing string
 }
 
 // message renders the result in the wording memory_update has always returned to the model.
@@ -270,6 +292,9 @@ func (r SaveResult) message() string {
 		return fmt.Sprintf("already saved — duplicate content (type: %s); do not call memory_update again", r.Type)
 	case r.Outcome == SaveUpdated:
 		return fmt.Sprintf("updated memory entry %d (type: %s)", r.ID, r.Type)
+	case r.Outcome == SaveConflict:
+		return fmt.Sprintf("not saved: a similar fact already exists (id: %d): %q. If the new content replaces it, call %s again with old_text set to a unique part of that fact. If it is a different fact, call %s again with the same content and separate set to true.",
+			r.ID, r.Existing, models.ToolMemoryUpdate, models.ToolMemoryUpdate)
 	default:
 		return fmt.Sprintf("saved to memory (id: %d, type: %s)", r.ID, r.Type)
 	}
@@ -298,7 +323,7 @@ func (m *MemoryToolProvider) SaveFact(ctx context.Context, workspaceID string, f
 		return SaveResult{}, err
 	}
 	ctx = models.WithWorkspaceID(ctx, route.WorkspaceID)
-	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source})
+	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source, onOverlap: overlapReplace})
 }
 
 // HasFact reports whether the workspace already holds this fact, exactly or as a near-duplicate.
@@ -319,9 +344,10 @@ type saveRequest struct {
 	tags        []string
 	memType     memory.MemoryType
 	source      string
+	onOverlap   overlapPolicy
 }
 
-// insertFact saves content with Jaccard similarity dedup and exact content match.
+// insertFact saves content with Jaccard similarity dedup and exact content match; req.onOverlap says what a similar fact does.
 // The title is auto-derived from content so the model doesn't need to provide one.
 func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (SaveResult, error) {
 	title := deriveTitle(req.content)
@@ -332,12 +358,17 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 			logging.Info("memory_update result", "action", "already_saved", "existing_id", existing.ID, "match", "jaccard")
 			return SaveResult{Outcome: SaveDuplicate, ID: existing.ID, Type: req.memType}, nil
 		}
-		combined := existing.Content + "\n" + req.content
-		if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, combined, req.tags, memory.MergeTags); err != nil {
-			return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
+		switch req.onOverlap {
+		case overlapReport:
+			logging.Info("memory_update result", "action", "conflict", "existing_id", existing.ID, "match", "jaccard")
+			return SaveResult{Outcome: SaveConflict, ID: existing.ID, Type: req.memType, Existing: existing.Content}, nil
+		case overlapReplace:
+			if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, req.content, req.tags, memory.MergeTags); err != nil {
+				return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
+			}
+			logging.Info("memory_update result", "action", "replaced", "existing_id", existing.ID, "match", "jaccard")
+			return SaveResult{Outcome: SaveUpdated, ID: existing.ID, Type: req.memType}, nil
 		}
-		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "jaccard")
-		return SaveResult{Outcome: SaveUpdated, ID: existing.ID, Type: req.memType}, nil
 	}
 
 	exists, err := m.store.Exists(ctx, req.workspaceID, req.content)

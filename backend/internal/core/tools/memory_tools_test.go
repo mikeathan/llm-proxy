@@ -135,13 +135,7 @@ func TestMemorySearchTool_EmptyQueryReturnsEntries(t *testing.T) {
 
 	// Save a few entries.
 	for _, content := range []string{"first entry", "second entry", "third entry"} {
-		_, err := provider.Update(ctx, struct {
-			Content string       `json:"content"`
-			Scope   memory.Scope `json:"scope"`
-			Mode    memory.Mode  `json:"mode"`
-			Keep    memory.Keep  `json:"keep"`
-			OldText string       `json:"old_text"`
-		}{Content: content, Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
+		_, err := provider.Update(ctx, MemoryUpdateArgs{Content: content, Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
 		if err != nil {
 			t.Fatalf("save %q failed: %v", content, err)
 		}
@@ -177,20 +171,8 @@ func TestMemorySearchTool_ListAllMemories(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	// Save workspace and user entries.
-	provider.Update(ctx, struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{Content: "workspace fact", Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
-	provider.Update(ctx, struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{Content: "user fact", Scope: "user", Mode: "on_demand", Keep: "permanent"})
+	provider.Update(ctx, MemoryUpdateArgs{Content: "workspace fact", Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
+	provider.Update(ctx, MemoryUpdateArgs{Content: "user fact", Scope: "user", Mode: "on_demand", Keep: "permanent"})
 
 	t.Run("workspace scope returns workspace entry", func(t *testing.T) {
 		entries, err := provider.listAllMemories(ctx, "ws-1", "workspace", 10)
@@ -253,13 +235,7 @@ func TestMergeAndCap(t *testing.T) {
 func TestMemoryUpdateTool(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "test content",
 		Scope:   "workspace",
 		Mode:    "on_demand",
@@ -279,13 +255,7 @@ func TestMemoryUpdateTool(t *testing.T) {
 func TestMemoryUpdateTool_MissingRequired(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "",
 	}
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
@@ -333,13 +303,7 @@ func TestMemoryUpdateTool_Duplicate(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "exact duplicate content",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -383,13 +347,7 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	createArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	createArgs := MemoryUpdateArgs{
 		Content: "database port is 5433",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -402,13 +360,7 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 		t.Errorf("expected 'saved to memory', got: %s", result)
 	}
 
-	updateArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	updateArgs := MemoryUpdateArgs{
 		Content: "database port is 5433 (updated)",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 		OldText: "5433",
@@ -438,13 +390,7 @@ func TestMemoryUpdateTool_UpdateByOldText_NotFound(t *testing.T) {
 	store := newRealTestStore(t)
 	provider := NewMemoryToolProvider(store)
 
-	createArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	createArgs := MemoryUpdateArgs{
 		Content: "database port is 5433",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 		OldText: "nonexistent text",
@@ -465,13 +411,7 @@ func TestMemoryUpdateTool_SeparateSaves(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "Step 1 done",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -507,13 +447,7 @@ func TestMemoryUpdateTool_OldTextBackwardCompat(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	createArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	createArgs := MemoryUpdateArgs{
 		Content: "this is entry one",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -550,13 +484,7 @@ func TestMemoryUpdateTool_SemanticDedup(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "Smoke test executed successfully",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -594,13 +522,7 @@ func TestMemoryUpdateTool_SemanticDedup_NoFalsePositive(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "this is entry one",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -639,13 +561,7 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "TypeScript 6.0.3 is installed",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -676,13 +592,7 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 	}
 }
 
-type updateArgs = struct {
-	Content string       `json:"content"`
-	Scope   memory.Scope `json:"scope"`
-	Mode    memory.Mode  `json:"mode"`
-	Keep    memory.Keep  `json:"keep"`
-	OldText string       `json:"old_text"`
-}
+type updateArgs = MemoryUpdateArgs
 
 func firstEntry(t *testing.T, store *memory.Store, memType memory.MemoryType) memory.MemoryEntry {
 	t.Helper()
@@ -784,6 +694,75 @@ func TestMemoryUpdate_OmittedFieldsDefaultIndependently(t *testing.T) {
 				t.Errorf("hot tag = %v, want %v (tags %v)", got, tt.wantHot, entries[0].Tags)
 			}
 		})
+	}
+}
+
+const (
+	deployVertex = "We always deploy through the vertex host."
+	deployNew    = "We always deploy through the new host."
+)
+
+// A fact whose topic overlaps a stored one used to be concatenated onto it, which kept a contradiction in one entry
+// ("…vertex host.\n…new host."). The tool now reports the similar fact, so the model chooses: replace it (old_text) or
+// keep both (separate).
+func TestMemoryUpdateTool_OverlapReportsTheExistingFactInsteadOfMerging(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	save := func(args MemoryUpdateArgs) string {
+		got, err := provider.Update(ctx, args)
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		return got.(string)
+	}
+	route := MemoryUpdateArgs{Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}
+
+	first := route
+	first.Content = deployVertex
+	save(first)
+
+	second := route
+	second.Content = deployNew
+	got := save(second)
+	for _, want := range []string{"already exists", deployVertex, "old_text", "separate"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the conflict message lacks %q: %s", want, got)
+		}
+	}
+	entries, _ := store.List(ctx, "ws-1", "", 10, 0)
+	if len(entries) != 1 || entries[0].Content != deployVertex {
+		t.Fatalf("the stored fact must be untouched and nothing added, got %+v", entries)
+	}
+
+	second.Separate = true
+	if got := save(second); !strings.Contains(got, "saved to memory") {
+		t.Errorf("separate: true must save it, got: %s", got)
+	}
+	if entries, _ = store.List(ctx, "ws-1", "", 10, 0); len(entries) != 2 {
+		t.Errorf("both facts should be stored separately, got %d entries", len(entries))
+	}
+}
+
+// Explicit capture and the per-chat review cannot retry with old_text, so they replace the similar fact in place:
+// "remember that we now deploy through X" must neither be dropped nor concatenated onto the old fact.
+func TestSaveFact_OverlapReplacesTheSimilarFact(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	fact := func(content string) Fact {
+		return Fact{Content: content, Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}
+	}
+	if _, err := provider.SaveFact(ctx, "ws-1", fact(deployVertex)); err != nil {
+		t.Fatal(err)
+	}
+	res, err := provider.SaveFact(ctx, "ws-1", fact(deployNew))
+	if err != nil || res.Outcome != SaveUpdated {
+		t.Fatalf("SaveFact = %+v, %v; want the similar fact updated", res, err)
+	}
+	entries, _ := store.List(ctx, "ws-1", "", 10, 0)
+	if len(entries) != 1 || entries[0].Content != deployNew {
+		t.Errorf("the old fact should be replaced, not concatenated or duplicated: %+v", entries)
 	}
 }
 

@@ -220,6 +220,11 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 - `findOverlappingEntry()` in `memory_tools.go` computes Jaccard similarity on topic words (≥0.70)
   and content (≥0.90) to prevent duplicate entries.
 - If `memory_update` returns "already saved", the fact is already stored — do not retry.
+- **A similar fact with different content is never concatenated** (it used to be glued onto the old entry, keeping a
+  contradiction in one fact). What happens depends on who saves: the `memory_update` **tool** writes nothing and reports
+  the similar fact (id and text), so the model replaces it (`old_text`) or keeps both (`separate: true`); explicit
+  **capture and the per-chat review**, which cannot retry, replace the similar fact in place (`SaveUpdated`). Exact
+  duplicates stay "already saved".
 
 ### 7. Pre-Sieve Flush
 

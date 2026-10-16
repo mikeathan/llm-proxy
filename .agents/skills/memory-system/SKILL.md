@@ -115,7 +115,7 @@ func (s Scope) Validate() error { ... }
 
 `findOverlappingEntry()` in `memory_tools.go` computes **Jaccard similarity** on normalized topic words. If J ≥ 0.70:
 - Same content → "already saved" (no-op)
-- Different content → appends to existing entry (prevents duplicates under same topic)
+- Different content → **never concatenated**. The `memory_update` tool writes nothing and returns the similar fact (id + text) so the model passes `old_text` to replace it or `separate: true` to keep both; capture and review (`SaveFact`) replace the similar fact in place (`SaveUpdated`)
 
 ## Important Gotchas
 

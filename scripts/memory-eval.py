@@ -179,7 +179,7 @@ def score_d(cid, case, memory_text):
         return not case['new_memories'] and 'hunter2' not in memory_text
     if cid == 'D4':
         return not case.get('saves')  # no repeated memory_update on a repeat
-    return 'new host' in memory_text.lower()  # D5: the stored fact now says the new host
+    return 'new host' in memory_text.lower() and '\n' not in memory_text.strip()  # D5: the stored fact now says the new host, and no fact is the old one glued to the new
 
 
 def run_model(b, label, model):
