@@ -341,6 +341,7 @@ func (m *mockAppContext) Secrets() models.SecretsStore {
 	return stubSearchSecrets{}
 }
 func (m *mockAppContext) MemoryStore() *memory.Store          { return nil }
+func (m *mockAppContext) SessionRetention() time.Duration     { return 0 }
 func (m *mockAppContext) SetSandboxProvider(sandbox.Provider) {}
 
 // HostSettings returns the LEGACY posture (sandboxing section zero → network
@@ -364,6 +365,7 @@ func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
 }
 func (m *mockAppContextWithDirs) MemoryStore() *memory.Store          { return nil }
+func (m *mockAppContextWithDirs) SessionRetention() time.Duration     { return 0 }
 func (m *mockAppContextWithDirs) SetSandboxProvider(sandbox.Provider) {}
 
 // HostSettings: legacy posture (network undecided → allowed); host gate inert.

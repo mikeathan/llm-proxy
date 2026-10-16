@@ -4,12 +4,14 @@ import { useMemory } from '../../../composables/memory/useMemory'
 import {
   MEMORY_CONTENT_MAX,
   MEMORY_KEEP_LABEL,
+  MEMORY_KIND_LABEL,
   MEMORY_PRIORITY_LABEL,
   MEMORY_RECALL_LABEL,
   MEMORY_SCOPE_LABEL,
+  MEMORY_WHY_MAX,
   PRIORITY_NORMAL,
 } from '../../../constants/memory'
-import type { MemoryKeep, MemoryPriority, MemoryRecall, MemoryScope, NewMemory } from '../../../types/memory'
+import type { MemoryKeep, MemoryKind, MemoryPriority, MemoryRecall, MemoryScope, NewMemory } from '../../../types/memory'
 import FormField from '../../common/forms/FormField.vue'
 import BaseButton from '../../common/buttons/BaseButton.vue'
 
@@ -28,6 +30,9 @@ const scope = ref<MemoryScope>('workspace')
 const mode = ref<MemoryRecall>('on_demand')
 const keep = ref<MemoryKeep>('permanent')
 const priority = ref<MemoryPriority>(PRIORITY_NORMAL)
+const kind = ref<MemoryKind | ''>('')
+const why = ref('')
+const expires = ref('')
 const saving = ref(false)
 const saveError = ref('')
 
@@ -41,6 +46,10 @@ async function submit() {
   const fact: NewMemory = { content: content.value.trim(), scope: scope.value, mode: mode.value, keep: keep.value }
   // Priority only means something for always-on facts, and the default is not sent.
   if (mode.value === 'always' && priority.value !== PRIORITY_NORMAL) fact.priority = priority.value
+  // Typing is optional: only what the operator filled in is sent.
+  if (kind.value) fact.kind = kind.value
+  if (why.value.trim()) fact.why = why.value.trim()
+  if (expires.value) fact.expires = expires.value
   const saved = await createMemory(props.workspaceId, fact)
   saving.value = false
   if (!saved) {
@@ -49,6 +58,9 @@ async function submit() {
   }
   content.value = ''
   priority.value = PRIORITY_NORMAL
+  kind.value = ''
+  why.value = ''
+  expires.value = ''
   emit('created')
 }
 </script>
@@ -94,6 +106,26 @@ async function submit() {
           <select :id="id" v-model="keep" :aria-describedby="describedBy" class="form-control">
             <option v-for="(label, value) in MEMORY_KEEP_LABEL" :key="value" :value="value">{{ label }}</option>
           </select>
+        </template>
+      </FormField>
+    </div>
+    <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-3">
+      <FormField label="What it is">
+        <template #default="{ id, describedBy }">
+          <select :id="id" v-model="kind" :aria-describedby="describedBy" class="form-control">
+            <option value="">Not set</option>
+            <option v-for="(label, value) in MEMORY_KIND_LABEL" :key="value" :value="value">{{ label }}</option>
+          </select>
+        </template>
+      </FormField>
+      <FormField label="Why it matters">
+        <template #default="{ id, describedBy }">
+          <input :id="id" v-model="why" type="text" :maxlength="MEMORY_WHY_MAX" :aria-describedby="describedBy" class="form-control" />
+        </template>
+      </FormField>
+      <FormField label="Useful until" hint="Optional. The fact is removed after this day.">
+        <template #default="{ id, describedBy }">
+          <input :id="id" v-model="expires" type="date" :aria-describedby="describedBy" class="form-control" />
         </template>
       </FormField>
     </div>

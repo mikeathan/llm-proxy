@@ -4,6 +4,9 @@ export type MemoryPriority = 0 | 1 | 2
 // Server-side views of the list: the always-sent facts, or those never used.
 export type MemoryView = 'hot' | 'unused'
 
+// What a fact is about (backend memory.Kind); '' / absent = untyped.
+export type MemoryKind = 'user' | 'feedback' | 'project' | 'reference'
+
 export type MemoryType = 'long_term' | 'daily' | 'session' | 'user_profile'
 
 export interface MemoryEntry {
@@ -18,6 +21,10 @@ export interface MemoryEntry {
   source: string
   // How long the fact survives when the budget cuts the tail (0 low, 1 normal, 2 high).
   priority?: MemoryPriority
+  // What the fact is about, a one-line reason it matters, and when it stops being useful (RFC3339; '' = never).
+  kind?: MemoryKind | ''
+  why?: string
+  expires_at?: string
   // Usage counters: runs the fact was sent in, times search returned it, and when
   // it was last used ('' = never). Counting began when tracking was added.
   injected_count?: number
@@ -54,6 +61,10 @@ export interface NewMemory {
   keep: MemoryKeep
   // Only sent for always-on facts, and only when not the default.
   priority?: MemoryPriority
+  // Optional typing; each is sent only when the operator filled it in. expires is the last useful day, YYYY-MM-DD.
+  kind?: MemoryKind
+  why?: string
+  expires?: string
 }
 
 export interface MemoryPreviewEntry {

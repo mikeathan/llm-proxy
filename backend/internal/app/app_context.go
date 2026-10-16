@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"sync"
+	"time"
 
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/orchestrator"
@@ -149,6 +150,11 @@ func (s *AppContext) Orchestrator() *orchestrator.Orchestrator {
 
 func (s *AppContext) Manager() llm.RuntimeManager {
 	return s.manager
+}
+
+// SessionRetention is how long a session fact lives, from the live memory.retention_days setting.
+func (s *AppContext) SessionRetention() time.Duration {
+	return s.GetSettings().Memory.SessionRetention()
 }
 
 func (s *AppContext) GetSettings() models.UserSettings {

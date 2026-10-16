@@ -108,6 +108,29 @@ func ValidateTyping(kind Kind, why string) error {
 	return nil
 }
 
+// ExpiryDayLayout is how a day is written wherever an expiry is typed or shown.
+const ExpiryDayLayout = "2006-01-02"
+
+// ExpiryAfterDay is the instant a fact whose last useful day is the given YYYY-MM-DD (UTC) expires: the start of the
+// next day.
+func ExpiryAfterDay(day string) (time.Time, error) {
+	d, err := time.Parse(ExpiryDayLayout, day)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expires must be a date written YYYY-MM-DD")
+	}
+	return d.AddDate(0, 0, 1), nil
+}
+
+// LastDay is the last calendar day the fact is still valid ("" and false when it never expires). An expiry stored as the
+// start of a day (a dated fact) reads as the day before it, while a mid-day instant (a session fact) reads as its own day.
+func (e MemoryEntry) LastDay() (string, bool) {
+	t, err := time.Parse(time.RFC3339, e.ExpiresAt)
+	if err != nil {
+		return "", false
+	}
+	return t.Add(-time.Second).UTC().Format(ExpiryDayLayout), true
+}
+
 // NewEntry is a fact to insert. A zero ExpiresAt means the fact never expires.
 type NewEntry struct {
 	WorkspaceID string

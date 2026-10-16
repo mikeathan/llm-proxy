@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/orchestrator"
@@ -43,6 +44,7 @@ type ModelConfigResolver func(name string) (models.ModelConfig, bool)
 type MemoryHandlers struct {
 	store        *memory.Store
 	resolveModel ModelConfigResolver
+	retention    func() time.Duration
 }
 
 func NewMemoryHandlers(store *memory.Store) *MemoryHandlers {
@@ -54,6 +56,20 @@ func NewMemoryHandlers(store *memory.Store) *MemoryHandlers {
 func (h *MemoryHandlers) WithModelResolver(resolve ModelConfigResolver) *MemoryHandlers {
 	h.resolveModel = resolve
 	return h
+}
+
+// WithSessionRetention sets where a hand-added session fact's lifetime comes from (the live memory.retention_days).
+func (h *MemoryHandlers) WithSessionRetention(retention func() time.Duration) *MemoryHandlers {
+	h.retention = retention
+	return h
+}
+
+// sessionExpiry is when a session fact saved now expires; zero (never) when no retention is wired.
+func (h *MemoryHandlers) sessionExpiry(now time.Time) time.Time {
+	if h.retention == nil {
+		return time.Time{}
+	}
+	return now.Add(h.retention())
 }
 
 func (h *MemoryHandlers) ListMemories(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +191,7 @@ func (h *MemoryHandlers) UpdateMemory(w http.ResponseWriter, r *http.Request) {
 		// Priority (0 low, 1 normal, 2 high), when present, sets how long the
 		// fact survives when the budget cuts the tail. Validated before any write.
 		Priority *int `json:"priority"`
+		typingRequest
 	}
 	if !decodeJSONBody(w, r, &req) {
 		return
@@ -193,12 +210,13 @@ func (h *MemoryHandlers) UpdateMemory(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusNotFound, "memory not found")
 		return
 	}
-	tags := existing.Tags
-	if req.Hot != nil {
-		tags = memory.WithHot(tags, *req.Hot)
+	typing, err := req.typingRequest.resolve(typedFields{kind: existing.Kind, why: existing.Why, expiresAt: parseStoredExpiry(existing.ExpiresAt)}, time.Now())
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
-	if err := h.store.Update(r.Context(), wsID, id, memory.Edit{Title: req.Title, Content: req.Content, Tags: tags, TagMode: memory.ReplaceTags}); err != nil {
+	if err := h.store.Update(r.Context(), wsID, id, editKeeping(existing, req.Title, req.Content, req.Hot, typing)); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("update failed: %v", err))
 		return
 	}
@@ -332,9 +350,12 @@ type newMemoryRequest struct {
 	Keep    memory.Keep  `json:"keep"`
 	// Priority is optional (default normal); see memory.Priority*.
 	Priority *int `json:"priority"`
+	typingRequest
 	// source attributes the stored fact; empty means the operator typed it in.
 	// Unexported, so a request body can never set it.
 	source string
+	// typing is the validated kind, reason and expiry, set by route.
+	typing typedFields
 }
 
 // route validates the request and resolves it with the agent tool's own table,
@@ -347,6 +368,10 @@ func (q *newMemoryRequest) route(wsID string) (tools.MemoryRoute, error) {
 	}
 	if q.Priority != nil && !memory.ValidPriority(*q.Priority) {
 		return tools.MemoryRoute{}, memory.ErrInvalidPriority
+	}
+	var err error
+	if q.typing, err = q.typingRequest.resolve(typedFields{}, time.Now()); err != nil {
+		return tools.MemoryRoute{}, err
 	}
 	if q.Scope == "" {
 		q.Scope = memory.ScopeWorkspace
@@ -378,7 +403,11 @@ func (h *MemoryHandlers) saveNew(ctx context.Context, route tools.MemoryRoute, r
 	if exists {
 		return nil, http.StatusConflict, errors.New("that fact is already saved")
 	}
-	id, err := h.store.Insert(ctx, memory.NewEntry{WorkspaceID: route.WorkspaceID, MemoryType: memory.MemoryType(route.MemoryType), Title: req.derivedTitle(), Content: req.Content, Tags: route.Tags, Source: cmp.Or(req.source, memorySourceOperator)})
+	if req.Keep == memory.KeepSession && req.typing.expiresAt.IsZero() {
+		req.typing.expiresAt = h.sessionExpiry(time.Now())
+	}
+	id, err := h.store.Insert(ctx, memory.NewEntry{WorkspaceID: route.WorkspaceID, MemoryType: memory.MemoryType(route.MemoryType), Title: req.derivedTitle(), Content: req.Content, Tags: route.Tags, Source: cmp.Or(req.source, memorySourceOperator),
+		Kind: req.typing.kind, Why: req.typing.why, ExpiresAt: req.typing.expiresAt})
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("create failed: %w", err)
 	}
@@ -562,7 +591,8 @@ func (h *MemoryHandlers) importFacts(ctx context.Context, wsID string, facts []m
 	result := importResult{Issues: []memory.ParseIssue{}}
 	for _, f := range facts {
 		priority := f.Priority
-		req := newMemoryRequest{Title: f.Title, Content: f.Content, Scope: f.Scope, Mode: f.Mode, Keep: f.Keep, Priority: &priority, source: memorySourceImport}
+		req := newMemoryRequest{Title: f.Title, Content: f.Content, Scope: f.Scope, Mode: f.Mode, Keep: f.Keep, Priority: &priority, source: memorySourceImport,
+			typingRequest: typingRequest{Kind: &f.Kind, Why: &f.Why, Expires: &f.Expires}}
 		route, err := req.route(wsID)
 		if err != nil {
 			result.Issues = append(result.Issues, memory.ParseIssue{Line: f.Line, Message: err.Error()})
@@ -578,4 +608,65 @@ func (h *MemoryHandlers) importFacts(ctx context.Context, wsID string, facts []m
 		}
 	}
 	return result
+}
+
+// editKeeping is the edit that rewords a fact and applies the named hot flag and typing; the tags stay as they were
+// unless hot is named, so rewording never changes whether the model sees the fact.
+func editKeeping(existing *memory.MemoryEntry, title, content string, hot *bool, typing typedFields) memory.Edit {
+	tags := existing.Tags
+	if hot != nil {
+		tags = memory.WithHot(tags, *hot)
+	}
+	return memory.Edit{Title: title, Content: content, Tags: tags, TagMode: memory.ReplaceTags,
+		Kind: typing.kind, Why: typing.why, ExpiresAt: typing.expiresAt}
+}
+
+// typedFields are a fact's kind, one-line reason and expiry (zero = never expires).
+type typedFields struct {
+	kind      memory.Kind
+	why       string
+	expiresAt time.Time
+}
+
+// typingRequest carries the optional typing fields of a create or edit body. A field the body leaves out is not
+// changed (an edit of the wording must not wipe what the model recorded); "" clears why and expires.
+type typingRequest struct {
+	Kind *memory.Kind `json:"kind"`
+	Why  *string      `json:"why"`
+	// Expires is the last day the fact is useful, YYYY-MM-DD (UTC); it expires at the end of that day.
+	Expires *string `json:"expires"`
+}
+
+// resolve applies the named fields over current and validates the result; nothing is written when it fails.
+func (q typingRequest) resolve(current typedFields, now time.Time) (typedFields, error) {
+	if q.Kind != nil {
+		current.kind = *q.Kind
+	}
+	if q.Why != nil {
+		current.why = strings.TrimSpace(*q.Why)
+	}
+	if err := memory.ValidateTyping(current.kind, current.why); err != nil {
+		return current, err
+	}
+	if q.Expires == nil {
+		return current, nil
+	}
+	if *q.Expires == "" {
+		current.expiresAt = time.Time{}
+		return current, nil
+	}
+	var err error
+	if current.expiresAt, err = memory.ExpiryAfterDay(*q.Expires); err != nil {
+		return current, err
+	}
+	if !current.expiresAt.After(now) {
+		return current, errors.New("expires must be today or later")
+	}
+	return current, nil
+}
+
+// parseStoredExpiry reads an expiry the store returned (RFC3339); an empty or unreadable value means no expiry.
+func parseStoredExpiry(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }

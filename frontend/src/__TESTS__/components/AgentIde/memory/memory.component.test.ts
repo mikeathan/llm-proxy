@@ -259,6 +259,16 @@ describe('MemoryPanel', () => {
 })
 
 describe('MemoryDetail', () => {
+  it('shows what a typed fact is, why it matters and its last useful day', () => {
+    const typed = track(mount(MemoryDetail, { props: { entry: entry(1, { kind: 'reference', why: 'on-call asks weekly', expires_at: '2027-01-02T00:00:00Z' }), workspaceId: 'ws' } }))
+    expect(typed.text()).toContain('Where to find something')
+    expect(typed.get('[data-test="memory-why"]').text()).toContain('on-call asks weekly')
+    expect(typed.get('[data-test="memory-expires"]').text()).toContain('2027-01-01')
+    const plain = track(mount(MemoryDetail, { props: { entry: entry(2), workspaceId: 'ws' } }))
+    expect(plain.find('[data-test="memory-why"]').exists()).toBe(false)
+    expect(plain.find('[data-test="memory-expires"]').exists()).toBe(false)
+  })
+
   beforeEach(() => {
     mem.updateMemory.mockReset().mockResolvedValue(undefined)
     mem.setHot.mockReset().mockResolvedValue(true)
@@ -401,6 +411,20 @@ describe('MemoryAddForm', () => {
     await flushPromises()
     expect(mem.createMemory).toHaveBeenCalledWith('ws', {
       content: 'Likes concise answers', scope: 'user', mode: 'always', keep: 'session',
+    })
+  })
+
+  it('sends kind, why and the last useful day only when they are filled in', async () => {
+    const w = addForm()
+    await field(w, 'Fact').setValue('Runbook is in the wiki')
+    await field(w, 'What it is').setValue('reference')
+    await field(w, 'Why it matters').setValue('on-call asks weekly')
+    await field(w, 'Useful until').setValue('2031-05-06')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(mem.createMemory).toHaveBeenCalledWith('ws', {
+      content: 'Runbook is in the wiki', scope: 'workspace', mode: 'on_demand', keep: 'permanent',
+      kind: 'reference', why: 'on-call asks weekly', expires: '2031-05-06',
     })
   })
 

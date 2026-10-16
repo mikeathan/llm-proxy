@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/memory"
@@ -844,5 +845,103 @@ func TestInjectionPreview_MessageShowsTheRecall(t *testing.T) {
 	}
 	if none := decodePreview(t, getPreview(h, "ws-1", "")); none.Recall != nil {
 		t.Errorf("no message, no recall section: %+v", none.Recall)
+	}
+}
+
+// ── Typed facts ─────────────────────────────────────────────────────────────
+
+// Rewording a fact in the editor must not wipe what the model recorded about it: the editor sends kind, why or expires
+// only when the operator changes them.
+func TestUpdateMemory_KeepsTypingUnlessTheBodyNamesIt(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := context.Background()
+	id, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "t", Content: "c", Source: "agent",
+		Kind: memory.KindProject, Why: "the launch depends on it", ExpiresAt: time.Date(2030, 1, 2, 0, 0, 0, 0, time.UTC)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewMemoryHandlers(store)
+
+	if rr := putMemory(t, h, "ws-1", id, `{"title":"t","content":"reworded"}`); rr.Code != http.StatusOK {
+		t.Fatalf("edit: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ := store.Get(ctx, "ws-1", id)
+	if got.Kind != memory.KindProject || got.Why != "the launch depends on it" || got.ExpiresAt != "2030-01-02T00:00:00Z" {
+		t.Errorf("a text-only edit changed the typing: %+v", got)
+	}
+
+	if rr := putMemory(t, h, "ws-1", id, `{"title":"t","content":"reworded","kind":"reference","why":"","expires":"2031-05-06"}`); rr.Code != http.StatusOK {
+		t.Fatalf("retype: %d %s", rr.Code, rr.Body.String())
+	}
+	got, _ = store.Get(ctx, "ws-1", id)
+	if got.Kind != memory.KindReference || got.Why != "" || got.ExpiresAt != "2031-05-07T00:00:00Z" {
+		t.Errorf("named fields must replace the old ones (a date lasts through its day): %+v", got)
+	}
+
+	if rr := putMemory(t, h, "ws-1", id, `{"title":"t","content":"reworded","expires":""}`); rr.Code != http.StatusOK {
+		t.Fatalf("clear expiry: %d", rr.Code)
+	}
+	if got, _ = store.Get(ctx, "ws-1", id); got.ExpiresAt != "" || got.Kind != memory.KindReference {
+		t.Errorf("an empty expires clears only the expiry: %+v", got)
+	}
+}
+
+func TestMemoryHandlers_RefuseBadTypingAndChangeNothing(t *testing.T) {
+	store := newTestMemoryStore(t)
+	ctx := context.Background()
+	id, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "t", Content: "c", Source: "agent"})
+	h := NewMemoryHandlers(store)
+	for name, fields := range map[string]string{
+		"unknown kind":     `"kind":"hobby"`,
+		"multi-line why":   `"why":"a\nb"`,
+		"bad date":         `"expires":"soon"`,
+		"date in the past": `"expires":"2001-01-01"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if rr := putMemory(t, h, "ws-1", id, `{"title":"t","content":"changed",`+fields+`}`); rr.Code != http.StatusBadRequest {
+				t.Errorf("update: expected 400, got %d: %s", rr.Code, rr.Body.String())
+			}
+			if rr := postMemory(h, "ws-1", "application/json", `{"content":"new fact",`+fields+`}`); rr.Code != http.StatusBadRequest {
+				t.Errorf("create: expected 400, got %d: %s", rr.Code, rr.Body.String())
+			}
+		})
+	}
+	if got, _ := store.Get(ctx, "ws-1", id); got.Content != "c" {
+		t.Errorf("a refused update must not apply its text, got %q", got.Content)
+	}
+}
+
+func TestCreateMemory_StoresKindWhyAndExpiry(t *testing.T) {
+	store := newTestMemoryStore(t)
+	rr := postMemory(NewMemoryHandlers(store), "ws-1", "application/json", `{"content":"Wiki holds the runbook","kind":"reference","why":"on-call asks weekly","expires":"2031-05-06"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var created memory.MemoryEntry
+	json.Unmarshal(rr.Body.Bytes(), &created)
+	if created.Kind != memory.KindReference || created.Why != "on-call asks weekly" || created.ExpiresAt != "2031-05-07T00:00:00Z" {
+		t.Errorf("typing not stored: %+v", created)
+	}
+}
+
+// A session fact added by hand must expire like one the model saves, or nothing would ever remove it.
+func TestCreateMemory_SessionFactsGetTheSessionLifetime(t *testing.T) {
+	store := newTestMemoryStore(t)
+	h := NewMemoryHandlers(store).WithSessionRetention(func() time.Duration { return 48 * time.Hour })
+	before := time.Now()
+	rr := postMemory(h, "ws-1", "application/json", `{"content":"only for this run","keep":"session"}`)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var created memory.MemoryEntry
+	json.Unmarshal(rr.Body.Bytes(), &created)
+	exp, err := time.Parse(time.RFC3339, created.ExpiresAt)
+	if err != nil || exp.Before(before.Add(47*time.Hour)) || exp.After(time.Now().Add(49*time.Hour)) {
+		t.Errorf("a session fact should expire about 48h out, got %q", created.ExpiresAt)
+	}
+	rr = postMemory(h, "ws-1", "application/json", `{"content":"permanent one"}`)
+	json.Unmarshal(rr.Body.Bytes(), &created)
+	if created.ExpiresAt != "" {
+		t.Errorf("a permanent fact never expires, got %q", created.ExpiresAt)
 	}
 }

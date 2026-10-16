@@ -80,7 +80,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore)
 
 	if store := s.AppCtx.MemoryStore(); store != nil {
-		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig)
+		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig).WithSessionRetention(s.AppCtx.SessionRetention)
 	}
 
 	if s.Reminders != nil {

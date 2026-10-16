@@ -18,8 +18,11 @@ import (
 //	<!-- scope=workspace mode=always keep=permanent priority=high -->
 //	run go build ./... to verify
 //
+// A typed fact adds kind=, expires=YYYY-MM-DD (its last day) and why=; why takes
+// the rest of the line, so it is always written last.
+//
 // Missing metadata means the safe defaults (workspace, on demand, permanent,
-// normal). Text lines that would read as structure (starting with "#", "<!--"
+// normal, untyped, no expiry). Text lines that would read as structure (starting with "#", "<!--"
 // or a backslash) are backslash-escaped on export and unescaped on import, so
 // any fact survives a round trip unchanged.
 
@@ -48,6 +51,9 @@ type Fact struct {
 	Mode     Mode
 	Keep     Keep
 	Priority int
+	Kind     Kind
+	Why      string
+	Expires  string // YYYY-MM-DD, the last day the fact is useful; "" = never
 }
 
 // ParseIssue describes an entry that could not be imported.
@@ -62,12 +68,27 @@ func FormatMarkdown(title string, entries []MemoryEntry) string {
 	fmt.Fprintf(&b, "# Memory export — %s\n\n%s\n", title, markdownFormatMarker)
 	for _, e := range entries {
 		fmt.Fprintf(&b, "\n%s%s\n", markdownHeadingPrefix, singleLine(e.Title))
-		fmt.Fprintf(&b, "%s scope=%s mode=%s keep=%s priority=%s %s\n",
-			markdownMetaOpen, factScope(e), factMode(e), factKeep(e), priorityNames[e.Priority], markdownMetaClose)
+		fmt.Fprintf(&b, "%s scope=%s mode=%s keep=%s priority=%s%s %s\n",
+			markdownMetaOpen, factScope(e), factMode(e), factKeep(e), priorityNames[e.Priority], typingMeta(e), markdownMetaClose)
 		for _, line := range strings.Split(strings.TrimRight(e.Content, "\n"), "\n") {
 			b.WriteString(escapeMarkdownLine(line))
 			b.WriteByte('\n')
 		}
+	}
+	return b.String()
+}
+
+// typingMeta is the metadata a typed fact adds, each part with its leading space ("" for an untyped fact).
+func typingMeta(e MemoryEntry) string {
+	var b strings.Builder
+	if e.Kind != "" {
+		b.WriteString(" kind=" + string(e.Kind))
+	}
+	if day, ok := e.LastDay(); ok {
+		b.WriteString(" expires=" + day)
+	}
+	if e.Why != "" {
+		b.WriteString(" why=" + singleLine(e.Why))
 	}
 	return b.String()
 }
@@ -167,7 +188,9 @@ func (p *pendingFact) build() (Fact, error) {
 	if strings.TrimSpace(f.Content) == "" {
 		return Fact{}, fmt.Errorf("empty content")
 	}
-	for _, pair := range strings.Fields(p.meta) {
+	meta, why := splitWhy(p.meta)
+	f.Why = why
+	for _, pair := range strings.Fields(meta) {
 		key, value, ok := strings.Cut(pair, "=")
 		if !ok {
 			return Fact{}, fmt.Errorf("metadata %q is not key=value", pair)
@@ -177,6 +200,20 @@ func (p *pendingFact) build() (Fact, error) {
 		}
 	}
 	return f, nil
+}
+
+// whyKey opens the reason in a metadata line; the reason runs to the end of the line.
+const whyKey = "why="
+
+// splitWhy separates the trailing why=... from the other key=value pairs.
+func splitWhy(meta string) (rest, why string) {
+	if strings.HasPrefix(meta, whyKey) {
+		return "", strings.TrimSpace(meta[len(whyKey):])
+	}
+	if i := strings.Index(meta, " "+whyKey); i >= 0 {
+		return meta[:i], strings.TrimSpace(meta[i+1+len(whyKey):])
+	}
+	return meta, ""
 }
 
 // factSetters apply one metadata key. Adding a key is one entry here.
@@ -197,6 +234,17 @@ var factSetters = map[string]func(f *Fact, value string) error{
 		if f.Keep = Keep(v); f.Keep != KeepPermanent && f.Keep != KeepSession {
 			return fmt.Errorf("unknown keep %q (permanent or session)", v)
 		}
+		return nil
+	},
+	"kind": func(f *Fact, v string) error {
+		f.Kind = Kind(v)
+		return f.Kind.Validate()
+	},
+	"expires": func(f *Fact, v string) error {
+		if _, err := ExpiryAfterDay(v); err != nil {
+			return err
+		}
+		f.Expires = v
 		return nil
 	},
 	"priority": func(f *Fact, v string) error {

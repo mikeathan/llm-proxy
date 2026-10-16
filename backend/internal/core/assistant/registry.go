@@ -180,6 +180,7 @@ type AgentStackContext interface {
 	Resolver() storage.Resolver
 	GetGuardrails() models.AgentGuardrailsConfig
 	MemoryStore() *memory.Store
+	SessionRetention() time.Duration // how long a session fact lives (settings memory.retention_days, read live)
 	HostSettings() models.HostSettings
 	SetSandboxProvider(sandbox.Provider)
 }
@@ -377,11 +378,11 @@ func initSearchTools(appCtx configSecretsReader, network *tools.NetworkTools) (*
 	return internet, func() bool { return target().ok }
 }
 
-func initMemoryTools(store *memory.Store) *tools.MemoryToolProvider {
+func initMemoryTools(store *memory.Store, retention func() time.Duration) *tools.MemoryToolProvider {
 	if store == nil {
 		return nil
 	}
-	return tools.NewMemoryToolProvider(store)
+	return tools.NewMemoryToolProvider(store).WithSessionRetention(retention)
 }
 
 func initFileSystemTools(s stackCtx) *tools.FileSystemTools {
@@ -460,7 +461,7 @@ func InitializeAgentStack(
 	grEngine.SetSearchAvailable(searchAvailable)
 	comm := initCommunicationTools(appCtx, network)
 	fsTools := initFileSystemTools(stack)
-	memTools := initMemoryTools(appCtx.MemoryStore())
+	memTools := initMemoryTools(appCtx.MemoryStore(), appCtx.SessionRetention)
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, searchTools, fsTools, network, memTools)
 	if deps.Persistence != nil {

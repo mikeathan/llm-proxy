@@ -4,7 +4,8 @@ import { useMemory } from '../../../composables/memory/useMemory'
 import { useConfirm } from '../../../composables/ui/useConfirm'
 import { asUtc, formatAbsoluteTime } from '../../../utils/format/time'
 import { formatMemoryUsage } from '../../../utils/format/memoryUsage'
-import { HOT_TAG, MEMORY_PRIORITY_LABEL, MEMORY_TYPE_LABEL, PRIORITY_NORMAL } from '../../../constants/memory'
+import { expiryLastDay } from '../../../utils/memory/expiry'
+import { HOT_TAG, MEMORY_KIND_LABEL, MEMORY_PRIORITY_LABEL, MEMORY_TYPE_LABEL, PRIORITY_NORMAL } from '../../../constants/memory'
 import type { MemoryEntry, MemoryPriority } from '../../../types/memory'
 import StatusTag from '../../common/display/StatusTag.vue'
 import CopyButton from '../../common/display/CopyButton.vue'
@@ -101,6 +102,7 @@ async function saveEdit() {
     <header class="flex flex-wrap items-center justify-between gap-2">
       <span class="flex items-center gap-2">
         <StatusTag state="neutral" :label="MEMORY_TYPE_LABEL[entry.memory_type] ?? entry.memory_type" />
+        <StatusTag v-if="entry.kind" state="neutral" :label="MEMORY_KIND_LABEL[entry.kind]" />
         <span class="font-mono text-[length:var(--text-small)] text-muted">by {{ entry.source }}</span>
       </span>
       <span class="flex items-center gap-1">
@@ -131,6 +133,7 @@ async function saveEdit() {
     <template v-if="!isEditing">
       <h2 class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">{{ entry.title || 'Untitled' }}</h2>
       <p class="m-0 whitespace-pre-wrap break-words text-secondary">{{ entry.content }}</p>
+      <p v-if="entry.why" data-test="memory-why" class="m-0 text-[length:var(--text-small)] text-muted">Why it matters: {{ entry.why }}</p>
     </template>
     <form v-else class="flex flex-col gap-2" @submit.prevent="saveEdit">
       <label class="flex flex-col gap-1.5">
@@ -151,6 +154,7 @@ async function saveEdit() {
       <span>Created {{ formatAbsoluteTime(asUtc(entry.created_at)) }}</span>
       <span v-if="entry.created_at !== entry.updated_at">Updated {{ formatAbsoluteTime(asUtc(entry.updated_at)) }}</span>
       <span data-test="memory-usage">{{ formatMemoryUsage(entry) }}</span>
+      <span v-if="entry.expires_at" data-test="memory-expires">Useful until {{ expiryLastDay(entry.expires_at) }}</span>
       <span v-if="entry.last_used_at">Last used {{ formatAbsoluteTime(asUtc(entry.last_used_at)) }}</span>
     </footer>
   </article>

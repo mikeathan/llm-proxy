@@ -5,7 +5,8 @@ import { useConfirm } from '../../../composables/ui/useConfirm'
 import { useToast } from '../../../composables/useToast'
 import { asUtc, formatAbsoluteTime, formatRelativeTime } from '../../../utils/format/time'
 import { formatMemoryUsage } from '../../../utils/format/memoryUsage'
-import { GLOBAL_MEMORY_WORKSPACE, HOT_TAG, MEMORY_TYPE_LABEL, PRIORITY_HIGH } from '../../../constants/memory'
+import { expiryLastDay } from '../../../utils/memory/expiry'
+import { GLOBAL_MEMORY_WORKSPACE, HOT_TAG, MEMORY_KIND_LABEL, MEMORY_TYPE_LABEL, PRIORITY_HIGH } from '../../../constants/memory'
 import type { MemoryEntry } from '../../../types/memory'
 import type { ChoiceOption } from '../../../types/ui'
 import SegmentedControl from '../../common/forms/SegmentedControl.vue'
@@ -102,6 +103,8 @@ function handleCreated() {
 }
 
 // An edit moves updated_at; a fact never touched since it was saved has the same value.
+const typingLine = (entry: MemoryEntry) =>
+  [entry.why && `Why: ${entry.why}`, entry.expires_at && `Until ${expiryLastDay(entry.expires_at)}`].filter(Boolean).join(' · ')
 const wasEdited = (entry: MemoryEntry) => !!entry.updated_at && entry.updated_at !== entry.created_at
 const isUserWide = (entry: MemoryEntry) => entry.workspace_id === GLOBAL_MEMORY_WORKSPACE
 const isHot = (entry: MemoryEntry) => (entry.tags ?? []).includes(HOT_TAG)
@@ -216,9 +219,11 @@ const snippet = (content: string) => (content.length > SNIPPET_CHARS ? `${conten
               <StatusTag v-if="isUserWide(entry)" state="info" label="All workspaces" />
               <StatusTag v-if="isHot(entry)" state="success" label="Always" />
               <StatusTag v-if="isHot(entry) && entry.priority === PRIORITY_HIGH" state="info" label="High priority" />
+              <StatusTag v-if="entry.kind" data-test="memory-kind" state="neutral" :label="MEMORY_KIND_LABEL[entry.kind]" />
               <span class="truncate text-primary">{{ entry.title || 'Untitled' }}</span>
             </span>
             <span class="text-[length:var(--text-small)] text-muted">{{ snippet(entry.content) }}</span>
+            <span v-if="entry.why || entry.expires_at" data-test="memory-typing" class="text-[length:var(--text-micro)] text-faint">{{ typingLine(entry) }}</span>
             <span data-test="memory-usage" class="font-mono text-[length:var(--text-micro)] text-faint">{{ formatMemoryUsage(entry) }}</span>
             <span class="font-mono text-[length:var(--text-micro)] text-faint">
               <time :datetime="asUtc(entry.created_at)" :title="formatAbsoluteTime(asUtc(entry.created_at))">Saved {{ formatRelativeTime(asUtc(entry.created_at)) }}</time>

@@ -61,7 +61,19 @@
           },
           "separate": {
             "type": "boolean",
-            "description": "Set true to save this as its own fact when a similar fact exists (otherwise memory_update reports the similar fact so you can replace it with old_text)"
+            "description": "Set true to save this as its own fact when a similar fact exists (otherwise memory_update reports the similar fact so you can replace it with old_text)"          },
+          "kind": {
+            "type": "string",
+            "enum": ["user", "feedback", "project", "reference"],
+            "description": "Optional: what the fact is. 'user' = about the person, 'feedback' = how they want you to work, 'project' = what is going on in the work, 'reference' = where to find something."
+          },
+          "why": {
+            "type": "string",
+            "description": "Optional: one line on why this matters, so it can be judged later (at most 200 characters)."
+          },
+          "expires": {
+            "type": "string",
+            "description": "Optional: the last day the fact is useful, as YYYY-MM-DD. Use it for facts that stop being true on a date."
           }
         },
         "required": ["content", "scope", "mode", "keep"]

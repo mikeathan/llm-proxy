@@ -218,11 +218,25 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 - **Ceiling:** the cut removes the tail of each file, so rules at the end of a long notes file are the ones lost; the hint
   and the panel tell the operator to shorten the notes or use a larger model.
 
-### Phase 5 — Typed facts and expiry (G7; needs D5; SPEC-004 change)
-- `kind` (user, feedback, project, reference), one-line `why` / `how_to_apply`, `expires_at` replacing the `session`
-  type, a deterministic date normalizer in capture and review. Compact hot-line rendering for small windows.
-- **Acceptance:** SPEC-004 bumped; store/tool/capture tests; the Phase 0 tables unchanged or better; user-scope
-  session facts are reaped.
+### Phase 5 — Typed facts and expiry (G7; needs D5; SPEC-004 change) — built 2026-10-16
+- Built (SPEC-004 3.2): `kind` (user, feedback, project, reference), a single one-line `why`, `expires_at`; every
+  session fact (either scope) is written with an expiry and `ExpiryReaper` deletes by it for any scope; a deterministic,
+  English-only date normalizer (`platform/datetext`) writes "tomorrow" / "next Friday" / "in 3 days" as dates when a
+  fact is saved; `memory_update`, `SaveFact`, handlers, markdown, add form, list and detail carry the typing.
+- Deliberately not done (recorded, not hidden): `why` + `how_to_apply` as two fields (one `why`); compact hot-line
+  rendering (the hot block is unchanged); `memory_type` stays as the storage class; capture and review do not set a kind
+  (they save permanent facts and only get the date normalizer); user-scope session facts saved before this change cannot
+  be told from permanent ones and stay; bare weekdays and "next week" are not rewritten.
+- **Acceptance:** SPEC-004 bumped (done); store/tool/handler/markdown/frontend tests (done, see the PR); user-scope
+  session facts are reaped (tested: `TestExpiryReaper_ReapsExpiredFactsOfAnyScopeOnly`); the Phase 0 tables unchanged
+  or better — see the evaluation line below.
+- **Evaluation (2026-10-16, scratch backend, tool files excluded so a run cannot stall on a guardrail approval).**
+  Cloud (deepseek-v4.1-flash), D/S/H/N/F sets, one run: every case passed. Local (Qwen3.5 35B A3B): D1–D5 pass on the
+  clean run; the scope set S scored 3/6 against 4/6 and 4/6 on a control build of the Phase 4 commit (same cases, same
+  backend, run back to back) — S4 fails on both builds and S3/S6 flip between runs on both, so there is no measurable
+  regression, on a sample too small to prove there is none. A first Qwen run (2/6 on S, a D1 timeout) ran while the
+  host's GPU was contended (calls took 2–3× longer) and is not counted. Typing itself is covered by the deterministic
+  tests; no model run measured whether a model *chooses* to set `kind`/`why`/`expires` (the schema marks them optional).
 
 ### Phase 6 — Learn from chats and automations (G8)
 - Execute `memory-consolidation.md` Phases 0–2 on top of Phase 5: proposal table, hygiene, extraction from chats
@@ -241,6 +255,6 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 - **Non-goals:** automatic LLM writes without review; memory writes from heartbeats; embeddings now.
 
 ## Remaining Work
-Phases 5–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
+Phase 6 (Phase 5's open items are listed above). Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
 save failure. Small related items tracked elsewhere: webhook run contexts, reminders
 partial-failure retry (see `docs/audits/2026-10-15-next-work-analysis.md`).
