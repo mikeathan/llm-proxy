@@ -37,6 +37,14 @@ describe('AdminHeader (top strip)', () => {
     }
   })
 
+  it('on a phone hides the page title visually (the tab bar shows where you are) but keeps it for screen readers', async () => {
+    const phone = await mountAt('/workspaces/ws/assistant', true)
+    expect(phone.get('nav[aria-label="Breadcrumb"]').classes()).toContain('sr-only')
+    expect(phone.get('[aria-current="page"]').text()).toBe('Assistant')
+    const desktop = await mountAt('/workspaces/ws/assistant', false)
+    expect(desktop.get('nav[aria-label="Breadcrumb"]').classes()).not.toContain('sr-only')
+  })
+
   it('leaves the brand to the rail on desktop', async () => {
     const wrapper = await mountAt('/overview', false)
     expect(wrapper.text()).not.toContain(PRODUCT_NAME)

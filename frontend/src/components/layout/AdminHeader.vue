@@ -41,9 +41,12 @@ const title = computed(() => route.meta.title ?? "")
     </template>
 
     <WorkspaceSwitcher :mobile="mobile" />
-    <nav aria-label="Breadcrumb" class="min-w-0 flex-1 truncate font-mono text-[length:var(--text-small)]">
+    <!-- On a phone the bottom bar already says where you are and the title was squeezed to "A…": it stays for
+         screen readers, and the spacer keeps the stats on the right. -->
+    <nav aria-label="Breadcrumb" :class="mobile ? 'sr-only' : 'min-w-0 flex-1 truncate font-mono text-[length:var(--text-small)]'">
       <span aria-current="page" class="text-primary">{{ title }}</span>
     </nav>
+    <span v-if="mobile" class="flex-1" aria-hidden="true" />
 
     <HostStats />
     <!-- Shell-owned controls, e.g. the run-notification bell (App.vue). -->
