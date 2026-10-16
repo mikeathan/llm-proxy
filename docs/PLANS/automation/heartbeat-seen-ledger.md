@@ -92,5 +92,5 @@ the UI and docs rather than faked with a pretend "delivered" sink.
 
 - [ ] Phase 1 contract text and docs
 - [ ] Phase 2 delivery counts in logs and run record
-- [x] Phase 3 honest heartbeat status — `alert_no_channel` (2026-10-15). Not covered: an alert whose digest came out empty after dedup records `alert` though nothing was sent
+- [x] Phase 3 honest heartbeat status — `alert_no_channel` (2026-10-15) and `alert_already_reported` for an alert whose digest came out empty after dedup (2026-10-16)
 - [ ] Live three-run evaluation, then decide phases 4 and 5

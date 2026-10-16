@@ -124,25 +124,38 @@ func (d *Dispatcher) deliverAndRecord(ctx context.Context, entry *AutomationEntr
 	if resp == nil {
 		return
 	}
-	sendErr := d.deliverReport(ctx, entry, resp, ledger)
-	d.recordHeartbeat(entry, heartbeatOutcome(resp, d.wantsDelivery(entry), sendErr))
+	state, sendErr := d.deliverReport(ctx, entry, resp, ledger)
+	d.recordHeartbeat(entry, heartbeatOutcome(resp, state))
 	if sendErr != nil {
 		d.recordDeliveryWarning(entry, resp.RunID, sendErr)
 	}
 }
 
-// heartbeatOutcome is a heartbeat check's result once delivery is known: an alert is not "sent" when its send
-// failed or when no channel is configured to send it on.
-func heartbeatOutcome(resp *ExecuteResponse, wantsDelivery bool, sendErr error) models.HeartbeatResult {
+// deliveryState is what delivering a finished run's report did.
+type deliveryState string
+
+const (
+	deliveryNoChannel deliveryState = "no_channel" // no connector is configured to send on
+	deliverySkipped   deliveryState = "skipped"    // nothing to send: no report, or a quiet heartbeat
+	deliveryRepeat    deliveryState = "repeat"     // every item had been reported before
+	deliverySent      deliveryState = "sent"
+	deliveryFailed    deliveryState = "failed"
+)
+
+// heartbeatOutcome is a heartbeat check's result once delivery is known: an alert only counts as "sent" when it
+// went out. It says so when the send failed, no channel is set, or everything in it had been reported before.
+func heartbeatOutcome(resp *ExecuteResponse, state deliveryState) models.HeartbeatResult {
 	result := heartbeatResultOf(resp)
 	if result != models.HeartbeatAlert {
 		return result
 	}
-	switch {
-	case !wantsDelivery:
+	switch state {
+	case deliveryNoChannel:
 		return models.HeartbeatAlertNoChannel
-	case sendErr != nil:
+	case deliveryFailed:
 		return models.HeartbeatAlertNotDelivered
+	case deliveryRepeat:
+		return models.HeartbeatAlertAlreadyReported
 	}
 	return result
 }
@@ -171,34 +184,34 @@ func (d *Dispatcher) recordDeliveryWarning(entry *AutomationEntry, runID string,
 // deliverReport sends a finished run's report and, only once the send has
 // succeeded, remembers the newly reported items — a failed delivery therefore
 // re-offers the same items on the next run instead of losing them. It returns
-// the send error; skipping (no delivery configured, a quiet heartbeat, nothing
-// new) is not an error.
-func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, resp *ExecuteResponse, ledger models.SeenLedger) error {
-	if !d.wantsDelivery(entry) || resp.Report == "" {
-		return nil
+// what it did and the send error; skipping (no delivery configured, a quiet
+// heartbeat, nothing new) is not an error.
+func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, resp *ExecuteResponse, ledger models.SeenLedger) (deliveryState, error) {
+	if !d.wantsDelivery(entry) {
+		return deliveryNoChannel, nil
 	}
-	if isQuietHeartbeat(resp.Report) {
-		return nil
+	if resp.Report == "" || isQuietHeartbeat(resp.Report) {
+		return deliverySkipped, nil
 	}
 	now := time.Now()
 	dg := buildDigest(resp.Report, ledger, *entry.Notify, now)
 	if dg.Message == "" {
 		d.logger.Info("automation digest empty; nothing delivered",
 			"workspace", entry.Workspace, "automation", entry.Name)
-		return nil
+		return deliveryRepeat, nil
 	}
 	if err := d.send(ctx, entry, dg.Message); err != nil {
-		return err
+		return deliveryFailed, err
 	}
 	if !entry.Notify.Dedup || len(dg.NewItems) == 0 {
-		return nil
+		return deliverySent, nil
 	}
 	merged := mergeSeen(ledger, dg.NewItems, now, entry.Notify.RetentionDays())
 	if err := d.persistence.WriteSeen(entry.Workspace, entry.Name, merged); err != nil {
 		d.logger.Warn("could not save seen ledger; items may be reported again",
 			"workspace", entry.Workspace, "automation", entry.Name, "error", err.Error())
 	}
-	return nil
+	return deliverySent, nil
 }
 
 // notifyFailure tells the operator an unattended run failed, at most once per

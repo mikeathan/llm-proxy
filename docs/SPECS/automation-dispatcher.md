@@ -161,7 +161,8 @@ external message, and is gated by network scope; delivery is not).
 - **Best-effort, but visible**: a delivery failure never changes the run's outcome (the report exists), but it is
   recorded as a warning on that run (`deliverAndRecord` → `AgentState.AddRunWarning`, history and latest run), exposed
   as `last_warnings`, and a heartbeat alert that could not be sent is `alert_not_delivered`, and one with no notify channel to
-  send it on is `alert_no_channel` (so `alert` always means it went out). Each send has
+  send it on is `alert_no_channel`, and one whose items were all reported before (dedup) is
+  `alert_already_reported` (so `alert` always means it went out). Each send has
   its own 30 s timeout derived from the lane context, not the run's own (possibly expired)
   timeout context.
 - **Chat formatting** (`digest.go`): markdown tables become bullet lists (`• Item — cell · cell` and
