@@ -82,7 +82,7 @@ Organized by subsystem:
 | [`autonomy/standing-goals.md`](autonomy/standing-goals.md) | Standing Goals — outcome-driven, self-scheduling goal ticks with journal, limits, stuck detection (M4) | proposed | 2026-10-04 | SPEC-001, SPEC-010, SPEC-007, SPEC-006, SPEC-004, SPEC-003 |
 | [`autonomy/event-driven-triggers.md`](autonomy/event-driven-triggers.md) | Event-Driven Automation Triggers (`file` drop, `watch` for change, `after` run chaining; moved from `automation/`) | proposed | 2026-10-04 | SPEC-007, SPEC-006, SPEC-003 |
 | [`memory/memory-consolidation.md`](memory/memory-consolidation.md) | Memory Consolidation — nightly "sleep": extract, merge, demote; reviewable proposals (autonomy M5) | proposed | 2026-10-04 | SPEC-004, SPEC-001, SPEC-007, SPEC-003 |
-| [`memory/memory-gaps-plan.md`](memory/memory-gaps-plan.md) | Memory Gaps — close the "knows me" loop: evaluation, tool contract, save guidance, recall, hot budget, typed facts, consolidation | proposed | 2026-10-16 | SPEC-004, SPEC-001, SPEC-005 |
+| [`memory/memory-gaps-plan.md`](memory/memory-gaps-plan.md) | Memory Gaps — close the "knows me" loop: evaluation, tool contract, save guidance, recall, hot budget, typed facts, consolidation | active | 2026-10-16 | SPEC-004, SPEC-001, SPEC-005 |
 | [`automation/chat-to-automation.md`](automation/chat-to-automation.md) | "Turn This Chat Into an Automation" (trace → least-privilege draft; Phase 0 fixes `CreateAutomation` duplicate-name bug) | proposed | 2026-10-04 | SPEC-007, SPEC-001, SPEC-003, SPEC-006 |
 | [`orchestrator/cost-and-savings-ledger.md`](orchestrator/cost-and-savings-ledger.md) | Usage, Cost and "Saved by Running Locally" Ledger (chat + automation + inbound `/v1`) | proposed | 2026-10-04 | SPEC-005, SPEC-007, SPEC-003, SPEC-001 |
 | [`orchestrator/auto-model-router.md`](orchestrator/auto-model-router.md) | `model: "auto"` — Runtime-Aware Model Router for `/v1` | proposed | 2026-10-04 | SPEC-005, SPEC-007, SPEC-003 |
@@ -129,7 +129,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | proposed | Standing Goals | Phase 0 tick-report contract → store + journal → tick execution (needs agenda P3) → finish/stuck/deadline → steering/proposals → UI → docs |
 | proposed | Event-Driven Automation Triggers | Phase 0 characterisation → Phase 1 `EventSource` + `after` (reuses `RunReason`) → Phase 2 `file` (needs D1) → Phase 3 `watch` (needs D2) → Phase 4 API/UI/SPEC-007 |
 | proposed | Memory Consolidation | Phase 0 hygiene + proposal store → LLM extraction/merge → manual run → nightly schedule (needs agenda + attention) → review UI → docs |
-| proposed | Memory Gaps | all phases (P0 repeatable evaluation → P6 consolidation); decisions D1–D6 open — see the plan |
+| active | Memory Gaps | Phase 0 done; P1 tool contract → P6 consolidation open; D2–D6 approved, D1 refined; P2 now led by the local model not saving statement + question — see the plan |
 | proposed | Chat → Automation | Phase 0 (`CreateAutomation` duplicate-name fix) done 2026-10-08 → trace extraction → draft endpoint → UI → docs |
 | proposed | Cost and Savings Ledger | Phase 0 measure provider usage reporting → automation token capture → store/API → inbound `/v1` capture → prices/UI → alerts (D4) |
 | proposed | Auto Model Router | Phase 0 characterise → pure router core → `/v1` wiring (needs D1, D2) → pre-first-byte failover → UI/docs → ledger prices |

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: active
 date: 2026-10-16
 last_reviewed: 2026-10-16
 related_specs: [SPEC-004, SPEC-001, SPEC-005]
@@ -10,7 +10,7 @@ evidence: scripts/memory-eval.py (Part D), scripts/memory-recall.py (R1-R6), the
 
 # Memory Gaps — Closing the "Assistant That Knows Me" Loop
 
-**Status:** proposed. Nothing here is built. It turns the gaps found by the 2026-10-15/16 live tests into ordered,
+**Status:** active — Phase 0 done 2026-10-16; Phases 1–6 proposed. It turns the gaps found by the 2026-10-15/16 live tests into ordered,
 verifiable phases. Each phase that changes model-facing behaviour is gated on a before/after run of the same fixed
 scripts on both models (Phase 0 makes that cheap), so no prompt or tool change ships on a hunch.
 
@@ -44,15 +44,61 @@ Caveat: the facts were seeded through the operator API, so this tests recall, no
 saves in one chat and uses the fact in another); Phase 0 adds that case. Deterministic preview (no model): the keyword recall finds "deploy" and (by the shared word "Go") the tabs fact, finds
 nothing for "ship releases", and recalls nothing for unrelated questions.
 
+## Phase 0 baseline (2026-10-16, build 9667031 + header fix; scratch backend; Qwen classified **local**, budget 43,692)
+
+Models: `deepseek-v4.1-flash` (5 runs) and `Qwen3.5 35B A3B` on the 16K reference (4 runs). A cell stops when it is
+decisive (0/4 or 5/5 needs no more runs); unclear recall cells got 3 extra runs. Driver: `scripts/memory-eval.py`
+(sets D, V, S, E) and `scripts/memory-recall.py` (R1–R6). Terminal tool excluded so no run waits on an approval.
+The recorded request confirms `MemorySaveGuidance` is in `messages[0]` (the head system message) for these chats.
+
+**Saving** (pass = what the case expects):
+
+| Case | what it checks | Cloud | Qwen |
+|---|---|---|---|
+| D1 | statement + question: facts saved before answering | 5/5 | **0/4** |
+| D2 / D3 | task / password: nothing saved, password never stored | 5/5 · 5/5 | 4/4 · 4/4 |
+| D4 | a repeat does not re-call `memory_update` | 5/5 | **0/4** (it saves again) |
+| D5 | a correction updates the stored fact | 4/5 | 4/4 |
+| V1 | statement + question (person fact) | 5/5 | **0/4** |
+| V2 | bare statement (project fact) | 5/5 | 3/4 |
+| V3 | explicit "remember that…" | 5/5 | 4/4 |
+| S1–S3 | person fact + question → user scope | 5/5 each, user | **0/4 each** (nothing saved) |
+| S4–S6 | project fact + question → workspace scope | 4/5 · 5/5 · 5/5 | **0/4 each** (nothing saved) |
+| S7 / S8 (not scored) | "I prefer tabs in Go files" without / with a project noun | user ×5 / workspace ×5 | user ×4 / workspace ×3, none ×1 |
+| E1 | explicit remember in one chat, used in a fresh chat | 5/5 | 4/4 |
+| E2 | person fact + question in one chat, asked in another workspace | 5/5 | **0/4** (never saved) |
+
+**Recall** (all recall runs combined: 5 per model for R2 and R5, 2 for the rest; R5 now means exactly one sentence):
+
+| Check | Cloud | Qwen | Notes |
+|---|---|---|---|
+| R1 keyword question | 2/2 | 2/2 | Qwen answers with no tool call (per-turn recall) |
+| R2 paraphrase | 4/5 | **1/5** | cloud searches memory every time but wanders through files first (5.8 steps); Qwen used `memory_search` in only 2 of 5 runs and in none of the last 3 |
+| R3 user fact in another workspace | 2/2 | 2/2 | |
+| R4 project fact stays in its workspace | 2/2 | 2/2 | 6–7 wasted tool steps before "I don't know" |
+| R5 hot preference ("one short sentence") | 5/5 | **2/5** | |
+| R6 unrelated question | 2/2 | 2/2 | no memory tool calls |
+
+**Reading it:** cloud already does everything the plan asks for, including person-vs-project scope (so D1 as a *prompt
+rewrite* is not needed for cloud). The local model has two separate problems. (1) It saves a bare statement or an
+explicit "remember that…" but **never saves when the message also asks a question** (0 of 24 scope-set runs, plus D1,
+V1, E2); scope therefore cannot even be measured for it yet. (2) It rarely uses `memory_search`, so a paraphrase finds
+nothing (R2 1/5), and it follows a hot preference less reliably (R5 2/5).
+
+**Speed notes (for the next phases):** a cloud run of all sets takes about 2.5 minutes, a Qwen run about 8; the poll
+interval is now 1 s (it was 4 s, which doubled a cloud chat), `EVAL_ONLY=S1,S4` / `R2,R5` runs just the unclear cells, and
+cells are stopped when decisive instead of repeated to a fixed count. Cases cannot run concurrently against one backend
+(a user-scope fact lands in the shared `global` store, so a new fact cannot be attributed to a chat).
+
 ## Gaps, evidence and the fix each gets
 
 | # | Gap | Evidence | Fix (phase) |
 |---|---|---|---|
-| G1 | Small local model under-saves when a message states preferences *and* asks a question | Part D D1: Qwen 0/3 (branch), 1/2 (baseline); cloud 2/2 | Measure first (P0), then a guidance/test-driven change only if it moves the number (P2) |
-| G2 | Facts about the person are saved as project facts (a birthday said in a project workspace would be lost everywhere else) | `MemorySaveGuidance` says "scope workspace… only if the user says it applies to everything"; runs saved "prefers tabs" at workspace scope; cloud sometimes user scope. **By design today**, so it is a decision, not a model failure | Person-vs-project rule in the guidance (P2, needs D1) |
-| G3 | Paraphrased questions miss | R2 2/4; FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming + search-tool wording (P3) |
+| G1 | The local model **never saves when a message states a fact and also asks a question** (it saves bare statements and explicit "remember that") | Phase 0: Qwen 0/4 on D1, V1, S1–S6, E2 (0 of 24 scope-set runs); cloud 5/5 | Test interventions against the same cases (P2): guidance wording, a one-line reminder next to the user message |
+| G2 | Facts about the person might be saved as project facts | **Cloud already scopes correctly** (birthday, city, timezone → user 15/15; hosts, ports, paths → workspace 14/15). The guidance text still says workspace unless "everything"; the model follows the subject anyway. Not measurable for Qwen until G1 is fixed | Keep the labelled set as a regression guard; rewrite the guidance wording (D1) only if Qwen mis-scopes once it saves (P2) |
+| G3 | Paraphrased questions miss, and the local model rarely searches itself | R2: cloud 4/5, Qwen 1/5 (Qwen used `memory_search` in 2 of 5 runs, 0 of the last 3); FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming, search-tool wording, and (if needed) a fallback so a miss still shows the user's few facts (P3) |
 | G4 | The model cannot correct its own memory | Only `memory_search` and `memory_update` exist; overlapping facts are concatenated (`tools/memory_tools.go` `insertFact`); `old_text` only finds facts in the route's own workspace | Tool contract: overlap returns the id, `memory_forget`, re-routing update (P1) |
-| G5 | Wasted steps when memory has no answer | R4: up to 9 tool calls | Tool-description guidance + measure (P3) |
+| G5 | Wasted steps when memory has no answer | R4: 6–7 tool steps on both models | Tool-description guidance + measure (P3) |
 | G6 | Hot block can be crowded out | Operator notes are "never clipped" (up to 12,000 chars with two files) against a 400–6000 char hot cap; the unit of `ContextBudget` (tokens vs chars) is unverified | Budget the notes inside the cap (P4, needs D4: it amends Constitution II.12) |
 | G7 | No kind, reason or expiry on facts; user-scope session facts are never reaped | analysis #3–#5 | Typed facts (P5, SPEC-004 change, needs D5) |
 | G8 | Automations teach it nothing | automation runs default to `session` keep (reaped at 90 days), heartbeats write none, no consolidation exists | Consolidation, review mode (P6, existing plan) |
@@ -73,7 +119,7 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 
 ## Phases
 
-### Phase 0 — Make the evaluation repeatable (de-risk everything after it)
+### Phase 0 — Make the evaluation repeatable (de-risk everything after it) — DONE 2026-10-16
 - Both drivers exist (`scripts/memory-eval.py` for D1–D5, `scripts/memory-recall.py` for R1–R6). Add D1 variants
   (statement + question, statement only, "remember that…") and one **end-to-end case: the model saves in chat A, a
   fresh chat B uses the fact**. Re-baseline Part D with Qwen classified **local**, **≥5 runs per cell** on both models.
@@ -84,8 +130,9 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   approval nobody gives; run unattended cells with `EVAL_EXCLUDE_TOOLS=execute_terminal_command` (both scripts support it).
 - **Cloud needs the user's key** in a fresh scratch home (it is deleted with the job directory): a later session must ask
   for it instead of stalling. Cloud was reached with the user's own `command-code` key, never copied from vertex.
-- **Acceptance:** one command per model produces the D and R tables; `./scripts/check-agent-harness.sh` passes; the
-  baseline (numbers, build commit, models, setup) is written into this plan; the recorded request shows the guidance.
+- **Acceptance (met):** `scripts/memory-eval.py` (D, V, S, E sets, `summarize`) and `scripts/memory-recall.py` produce
+  the tables; the harness check passes; the baseline is recorded above; the recorded request shows the guidance in
+  `messages[0]`.
 
 ### Phase 1 — Tool contract (no schema change; G4)
 - Overlap: the `memory_update` **tool** returns the similar fact instead of concatenating (D2). The shared save path
@@ -99,14 +146,16 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   reports; `go test ./... && go run ./tools/check-complexity/`; the Constitution II.12 amendment lands with
   `memory_forget`; the Phase 0 D and R tables show no regression on either model.
 
-### Phase 2 — Save guidance (prompt only; G1, G2)
-- Only after Phase 0 numbers: the subject-based scope rule (D1) and, if the data says so, a one-line nudge for the
-  statement-plus-question case. One constant (`MemorySaveGuidance`), one commit, revertable.
-- **Labelled scope set** (added to the eval script in Phase 0, each stated inside a workspace chat): person facts
-  (birthday, home city, timezone, answer style) expect `user`; project facts (a host, a path, a convention) expect
-  `workspace`; ambiguous ones (a coding preference with and without a project noun) are recorded, not scored.
-- **Acceptance:** over ≥5 runs per model, scope accuracy on the labelled set is higher than the Phase 0 baseline with no
-  person fact saved as workspace scope more often than before, D2/D3 stay at zero saves, D1 saves do not drop.
+### Phase 2 — Make the local model save (prompt/request only; G1, then G2 if needed)
+- Try the cheapest interventions in order, each measured against D1, V1, S1–S6, E2 (and D2/D3 as the do-not-save guard):
+  (a) guidance wording that names the case — "a message that states a fact and asks a question: save the fact first,
+  then answer" — with one short example; (b) a one-line save reminder appended to the user's message in the request copy
+  only (the way per-turn recall already is, `assistant/recall_memory.go`), for the operator's own chats. Stop at the
+  first that works; one constant or one injection point, one commit, revertable.
+- The labelled scope set is the regression guard for G2 (D1 as refined: classify by what the fact is about). Rewrite the
+  scope wording only if Qwen mis-scopes once it saves; cloud already scopes correctly.
+- **Acceptance:** Qwen saves on at least 5 of the 6 scope-set cases (≥ 3 of 4 runs each) with the expected scope; D2/D3
+  stay at zero saves on both models; cloud numbers do not drop; D5 and E1 unchanged.
 
 ### Phase 3 — Recall strength (G3, G5)
 - `memories_fts` tokenizer to `porter unicode61` (`store.go:40-41`; the schema already drops and rebuilds the index from the rows at startup, so there is no data migration and no shim);
@@ -144,5 +193,6 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 - **Non-goals:** automatic LLM writes without review; memory writes from heartbeats; embeddings now.
 
 ## Remaining Work
-All phases (0–6). Decisions D1–D6 are open. Small related items tracked elsewhere: webhook run contexts, reminders
+Phases 1–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
+save failure. Small related items tracked elsewhere: webhook run contexts, reminders
 partial-failure retry (see `docs/audits/2026-10-15-next-work-analysis.md`).

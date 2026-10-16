@@ -14,6 +14,8 @@ import json, os, re, sys, time, urllib.request, urllib.error
 BASE, LABEL, MODEL = sys.argv[1].rstrip('/'), sys.argv[2], sys.argv[3]
 OUT = os.path.dirname(os.path.abspath(__file__))
 EXCLUDE = [t for t in os.environ.get('EVAL_EXCLUDE_TOOLS', '').split(',') if t]
+POLL_S = float(os.environ.get('EVAL_POLL_S', '1'))
+ONLY = {c for c in os.environ.get('EVAL_ONLY', '').split(',') if c}  # run just these questions, e.g. R2,R5
 
 
 def call(method, path, body=None, timeout=60):
@@ -65,7 +67,7 @@ def ask(ws, conv, msg):
         return {'error': f'send {st} {d}'}
     t0 = time.time()
     while time.time() - t0 < 900:
-        time.sleep(4)
+        time.sleep(POLL_S)
         _, act = call('GET', f'/admin/api/workspaces/{ws}/active-runs')
         st, d = call('GET', f'/admin/api/conversation/sessions/{ws}/{conv}')
         h = d['history'] if st == 200 and isinstance(d, dict) else []
@@ -88,6 +90,8 @@ def main():
         call('POST', f'/admin/api/memory/{ws}', body)
     results = []
     for qid, ws, q, check, fn in QUESTIONS:
+        if ONLY and qid[:2] not in ONLY:
+            continue
         r = ask(ws, f'{LABEL}-{qid[:2].lower()}-{int(time.time())}', q)
         ok = (not r.get('error')) and bool(r.get('answer', '').strip()) and fn(r['answer'])
         results.append({'id': qid, 'ws': ws, 'question': q, 'check': check, 'pass': ok, **r})
