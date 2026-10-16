@@ -988,8 +988,8 @@ func searchArgs(query string) struct {
 func TestMemorySearch_RecordsTheFactsItReturned(t *testing.T) {
 	store := newRealTestStore(t)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
-	hit, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "tsc", "TypeScript version 6.0.3", nil, "agent")
-	miss, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "tea", "likes green tea", nil, "agent")
+	hit, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "tsc", Content: "TypeScript version 6.0.3", Tags: nil, Source: "agent"})
+	miss, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "tea", Content: "likes green tea", Tags: nil, Source: "agent"})
 	provider := NewMemoryToolProvider(store)
 
 	if _, err := provider.Search(ctx, searchArgs("TypeScript")); err != nil {

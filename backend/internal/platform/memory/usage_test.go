@@ -9,7 +9,7 @@ import (
 
 func insertHot(t *testing.T, s *Store, ws, title string) MemoryEntry {
 	t.Helper()
-	id, err := s.Insert(context.Background(), ws, LongTerm, title, "content of "+title, []string{HotTag}, "agent")
+	id, err := s.Insert(context.Background(), NewEntry{WorkspaceID: ws, MemoryType: LongTerm, Title: title, Content: "content of " + title, Tags: []string{HotTag}, Source: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestUsage_EditsAndPriorityDoNotCountAsUse(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	e := insertHot(t, s, "ws-1", "build")
-	s.Update(ctx, "ws-1", e.ID, "build", "reworded", []string{HotTag}, ReplaceTags)
+	s.Update(ctx, "ws-1", e.ID, Edit{Title: "build", Content: "reworded", Tags: []string{HotTag}, TagMode: ReplaceTags})
 	s.SetPriority(ctx, "ws-1", e.ID, PriorityHigh)
 	if got := reload(t, s, e); got.InjectedCount != 0 || got.SearchedCount != 0 || got.LastUsedAt != "" {
 		t.Errorf("an edit must not look like a use: %+v", got)

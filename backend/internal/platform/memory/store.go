@@ -179,8 +179,8 @@ func New(p db.Provider) (*Store, error) {
 //  CRUD
 // ──────────────────────────────────────────────────────────────
 
-func (s *Store) Insert(ctx context.Context, workspaceID string, memoryType MemoryType, title, content string, tags []string, source string) (int64, error) {
-	res, err := s.db.ExecContext(ctx, insertSQL, workspaceID, string(memoryType), title, content, tagsJSON(tags), source)
+func (s *Store) Insert(ctx context.Context, e NewEntry) (int64, error) {
+	res, err := s.db.ExecContext(ctx, insertSQL, e.WorkspaceID, string(e.MemoryType), e.Title, e.Content, tagsJSON(e.Tags), e.Source)
 	if err != nil {
 		return 0, fmt.Errorf("memory insert: %w", err)
 	}
@@ -198,10 +198,10 @@ func (s *Store) Get(ctx context.Context, workspaceID string, id int64) (*MemoryE
 	return &e, nil
 }
 
-func (s *Store) Update(ctx context.Context, workspaceID string, id int64, title, content string, tags []string, tagMode UpdateTags) error {
-	normalized := normalizeTags(tags)
+func (s *Store) Update(ctx context.Context, workspaceID string, id int64, e Edit) error {
+	normalized := normalizeTags(e.Tags)
 
-	if tagMode == MergeTags {
+	if e.TagMode == MergeTags {
 		existing, err := s.Get(ctx, workspaceID, id)
 		if err != nil {
 			return fmt.Errorf("memory update get: %w", err)
@@ -211,7 +211,7 @@ func (s *Store) Update(ctx context.Context, workspaceID string, id int64, title,
 		}
 	}
 
-	res, err := s.db.ExecContext(ctx, updateSQL, title, content, tagsJSON(normalized), workspaceID, id)
+	res, err := s.db.ExecContext(ctx, updateSQL, e.Title, e.Content, tagsJSON(normalized), workspaceID, id)
 	if err != nil {
 		return fmt.Errorf("memory update: %w", err)
 	}

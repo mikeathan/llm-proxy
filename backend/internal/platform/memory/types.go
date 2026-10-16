@@ -63,6 +63,24 @@ func (k Keep) Validate() error {
 	return nil
 }
 
+// NewEntry is a fact to insert.
+type NewEntry struct {
+	WorkspaceID string
+	MemoryType  MemoryType
+	Title       string
+	Content     string
+	Tags        []string
+	Source      string
+}
+
+// Edit is the new text and tags of an existing fact.
+type Edit struct {
+	Title   string
+	Content string
+	Tags    []string
+	TagMode UpdateTags
+}
+
 // ── Search options ────────────────────────────────────────────────────────
 
 // SearchOption carries optional filters for Store.Search(). Tags filters by

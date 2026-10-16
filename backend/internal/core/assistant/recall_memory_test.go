@@ -19,10 +19,10 @@ func recallStore(t *testing.T, hot bool) *memory.Store {
 	if hot {
 		tags = []string{"hot"}
 	}
-	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "codename", "The codename is BLUEHERON.", tags, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "codename", Content: "The codename is BLUEHERON.", Tags: tags, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "editor", "The preferred editor is Zed.", nil, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "editor", Content: "The preferred editor is Zed.", Tags: nil, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	return store

@@ -29,7 +29,7 @@ func TestStartMemoryJobs_FlushesPendingUsageOnShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, _ := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "x", []string{memory.HotTag}, "agent")
+	id, _ := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "x", Tags: []string{memory.HotTag}, Source: "agent"})
 	entry, _ := store.Get(context.Background(), "ws-1", id)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -69,7 +69,7 @@ func TestApp_FlushMemoryUsageWritesPendingCountsSynchronously(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id, _ := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "x", nil, "agent")
+	id, _ := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "x", Tags: nil, Source: "agent"})
 	entry, _ := store.Get(context.Background(), "ws-1", id)
 	store.RecordSearched([]memory.MemoryEntry{*entry})
 

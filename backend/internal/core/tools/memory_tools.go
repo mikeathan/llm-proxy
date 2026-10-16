@@ -294,7 +294,7 @@ func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryR
 	title := deriveTitle(args.Content)
 	existing, err := m.store.FindByContentSubstring(ctx, route.WorkspaceID, args.OldText)
 	if err == nil {
-		if err := m.store.Update(ctx, route.WorkspaceID, existing.ID, title, args.Content, route.Tags, memory.ReplaceTags); err != nil {
+		if err := m.store.Update(ctx, route.WorkspaceID, existing.ID, memory.Edit{Title: title, Content: args.Content, Tags: route.Tags, TagMode: memory.ReplaceTags}); err != nil {
 			return "", false, fmt.Errorf("memory update failed: %w", err)
 		}
 		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "old_text")
@@ -312,7 +312,7 @@ func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryR
 	if err != nil {
 		return "", false, nil // no match in either scope: the caller saves a new fact
 	}
-	id, err := m.store.Insert(ctx, route.WorkspaceID, memory.MemoryType(route.MemoryType), title, args.Content, route.Tags, memorySource(ctx))
+	id, err := m.store.Insert(ctx, memory.NewEntry{WorkspaceID: route.WorkspaceID, MemoryType: memory.MemoryType(route.MemoryType), Title: title, Content: args.Content, Tags: route.Tags, Source: memorySource(ctx)})
 	if err != nil {
 		return "", false, fmt.Errorf("memory update failed: %w", err)
 	}
@@ -506,7 +506,7 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 			logging.Info("memory_update result", "action", "conflict", "existing_id", existing.ID, "match", "jaccard")
 			return SaveResult{Outcome: SaveConflict, ID: existing.ID, Type: req.memType, Existing: existing.Content}, nil
 		case overlapReplace:
-			if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, req.content, req.tags, memory.MergeTags); err != nil {
+			if err := m.store.Update(ctx, req.workspaceID, existing.ID, memory.Edit{Title: title, Content: req.content, Tags: req.tags, TagMode: memory.MergeTags}); err != nil {
 				return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 			}
 			logging.Info("memory_update result", "action", "replaced", "existing_id", existing.ID, "match", "jaccard")
@@ -526,7 +526,7 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 	if source == "" {
 		source = memorySource(ctx)
 	}
-	id, err := m.store.Insert(ctx, req.workspaceID, req.memType, title, req.content, req.tags, source)
+	id, err := m.store.Insert(ctx, memory.NewEntry{WorkspaceID: req.workspaceID, MemoryType: req.memType, Title: title, Content: req.content, Tags: req.tags, Source: source})
 	if err != nil {
 		return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 	}

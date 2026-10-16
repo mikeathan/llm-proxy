@@ -41,7 +41,7 @@ func TestRecallQuery_AgainstStore(t *testing.T) {
 	}
 	ids := map[string]int64{}
 	for k, content := range seed {
-		id, err := s.Insert(ctx, "ws", LongTerm, k, content, nil, "test")
+		id, err := s.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Title: k, Content: content, Tags: nil, Source: "test"})
 		if err != nil {
 			t.Fatal(err)
 		}

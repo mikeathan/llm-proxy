@@ -198,7 +198,7 @@ func (h *MemoryHandlers) UpdateMemory(w http.ResponseWriter, r *http.Request) {
 		tags = memory.WithHot(tags, *req.Hot)
 	}
 
-	if err := h.store.Update(r.Context(), wsID, id, req.Title, req.Content, tags, memory.ReplaceTags); err != nil {
+	if err := h.store.Update(r.Context(), wsID, id, memory.Edit{Title: req.Title, Content: req.Content, Tags: tags, TagMode: memory.ReplaceTags}); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("update failed: %v", err))
 		return
 	}
@@ -378,7 +378,7 @@ func (h *MemoryHandlers) saveNew(ctx context.Context, route tools.MemoryRoute, r
 	if exists {
 		return nil, http.StatusConflict, errors.New("that fact is already saved")
 	}
-	id, err := h.store.Insert(ctx, route.WorkspaceID, memory.MemoryType(route.MemoryType), req.derivedTitle(), req.Content, route.Tags, cmp.Or(req.source, memorySourceOperator))
+	id, err := h.store.Insert(ctx, memory.NewEntry{WorkspaceID: route.WorkspaceID, MemoryType: memory.MemoryType(route.MemoryType), Title: req.derivedTitle(), Content: req.Content, Tags: route.Tags, Source: cmp.Or(req.source, memorySourceOperator)})
 	if err != nil {
 		return nil, http.StatusInternalServerError, fmt.Errorf("create failed: %w", err)
 	}

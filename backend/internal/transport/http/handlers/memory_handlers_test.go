@@ -43,9 +43,9 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 func seedMemories(t *testing.T, store *memory.Store) {
 	t.Helper()
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", memory.LongTerm, "topic-a", "content a", nil, "agent")
-	store.Insert(ctx, "ws-1", memory.Daily, "topic-b", "content b", nil, "agent")
-	store.Insert(ctx, "ws-2", memory.LongTerm, "topic-c", "content c", nil, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "topic-a", Content: "content a", Tags: nil, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.Daily, Title: "topic-b", Content: "content b", Tags: nil, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-2", MemoryType: memory.LongTerm, Title: "topic-c", Content: "content c", Tags: nil, Source: "agent"})
 }
 
 func TestClearWorkspace_All(t *testing.T) {
@@ -126,7 +126,7 @@ func putMemory(t *testing.T, h *MemoryHandlers, ws string, id int64, body string
 // tags. Before this fix an edit silently demoted a hot fact to on-demand.
 func TestUpdateMemory_EditingTextKeepsTags(t *testing.T) {
 	store := newTestMemoryStore(t)
-	id, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "run go build", []string{"hot", "ci"}, "agent")
+	id, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build", Tags: []string{"hot", "ci"}, Source: "agent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestUpdateMemory_HotFlagTogglesOnlyTheHotTag(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newTestMemoryStore(t)
-			id, _ := store.Insert(context.Background(), "ws-1", memory.LongTerm, "t", "c", tc.start, "agent")
+			id, _ := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "t", Content: "c", Tags: tc.start, Source: "agent"})
 			if rr := putMemory(t, NewMemoryHandlers(store), "ws-1", id, tc.body); rr.Code != http.StatusOK {
 				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 			}
@@ -181,7 +181,7 @@ func TestUpdateMemory_MissingEntryIs404(t *testing.T) {
 func seedHot(t *testing.T, store *memory.Store, ws string, n int) {
 	t.Helper()
 	for i := range n {
-		if _, err := store.Insert(context.Background(), ws, memory.LongTerm, fmt.Sprintf("fact-%02d", i), strings.Repeat("x", 150), []string{memory.HotTag}, "agent"); err != nil {
+		if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: ws, MemoryType: memory.LongTerm, Title: fmt.Sprintf("fact-%02d", i), Content: strings.Repeat("x", 150), Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -268,7 +268,7 @@ func TestInjectionPreview_UnknownModelIs404AndNoModelSaysUnresolved(t *testing.T
 func TestInjectionPreview_IncludesGlobalUserFacts(t *testing.T) {
 	store := newTestMemoryStore(t)
 	seedHot(t, store, "ws-1", 1)
-	if _, err := store.Insert(context.Background(), "global", memory.UserProfile, "name", "Alice", []string{memory.HotTag}, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "global", MemoryType: memory.UserProfile, Title: "name", Content: "Alice", Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	p := decodePreview(t, getPreview(NewMemoryHandlers(store), "ws-1", ""))
@@ -389,9 +389,9 @@ func TestListMemories_HotFilterUsesTheInjectionQuery(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	seedHot(t, store, "ws-1", 1)
-	store.Insert(ctx, "global", memory.UserProfile, "name", "Alice", []string{memory.HotTag}, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "global", MemoryType: memory.UserProfile, Title: "name", Content: "Alice", Tags: []string{memory.HotTag}, Source: "agent"})
 	for i := range 60 {
-		store.Insert(ctx, "ws-1", memory.LongTerm, fmt.Sprintf("cold-%d", i), "not hot", nil, "agent")
+		store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: fmt.Sprintf("cold-%d", i), Content: "not hot", Tags: nil, Source: "agent"})
 	}
 
 	req := httptest.NewRequest("GET", "/admin/api/memory/ws-1?hot=true", nil)
@@ -538,7 +538,7 @@ func TestNotes_RouteBeatsMemoryIDRoute(t *testing.T) {
 
 func TestUpdateMemory_SetsPriorityAndEditsKeepIt(t *testing.T) {
 	store := newTestMemoryStore(t)
-	id, _ := store.Insert(context.Background(), "ws-1", memory.LongTerm, "t", "c", []string{memory.HotTag}, "agent")
+	id, _ := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "t", Content: "c", Tags: []string{memory.HotTag}, Source: "agent"})
 	h := NewMemoryHandlers(store)
 
 	if rr := putMemory(t, h, "ws-1", id, `{"title":"t","content":"c","priority":2}`); rr.Code != http.StatusOK {
@@ -558,7 +558,7 @@ func TestUpdateMemory_SetsPriorityAndEditsKeepIt(t *testing.T) {
 
 func TestUpdateMemory_InvalidPriorityIs400AndChangesNothing(t *testing.T) {
 	store := newTestMemoryStore(t)
-	id, _ := store.Insert(context.Background(), "ws-1", memory.LongTerm, "t", "c", nil, "agent")
+	id, _ := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "t", Content: "c", Tags: nil, Source: "agent"})
 	rr := putMemory(t, NewMemoryHandlers(store), "ws-1", id, `{"title":"t","content":"changed","priority":7}`)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
@@ -596,8 +596,8 @@ func TestCreateMemory_AcceptsPriority(t *testing.T) {
 func TestListMemories_UnusedFilterAndCountersInTheResponse(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
-	sent, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "sent", "x", []string{memory.HotTag}, "agent")
-	store.Insert(ctx, "ws-1", memory.LongTerm, "never", "y", nil, "agent")
+	sent, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "sent", Content: "x", Tags: []string{memory.HotTag}, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "never", Content: "y", Tags: nil, Source: "agent"})
 	e, _ := store.Get(ctx, "ws-1", sent)
 	store.RecordInjected([]memory.MemoryEntry{*e})
 	store.FlushUsage(ctx)
@@ -671,9 +671,9 @@ func importMemory(h *MemoryHandlers, ws, contentType, markdown string) *httptest
 func TestExportMemory_DownloadsWorkspaceAndUserFactsAsMarkdown(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build", []string{memory.HotTag}, "agent")
-	store.Insert(ctx, "global", memory.UserProfile, "name", "Alice", nil, "agent")
-	store.Insert(ctx, "ws-2", memory.LongTerm, "other", "not mine", nil, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build", Tags: []string{memory.HotTag}, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "global", MemoryType: memory.UserProfile, Title: "name", Content: "Alice", Tags: nil, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-2", MemoryType: memory.LongTerm, Title: "other", Content: "not mine", Tags: nil, Source: "agent"})
 
 	rr := exportMemory(NewMemoryHandlers(store), "ws-1")
 	if rr.Code != http.StatusOK {
@@ -741,7 +741,7 @@ temporary
 
 func TestImportMemory_SkipsDuplicatesAndReportsBadEntries(t *testing.T) {
 	store := newTestMemoryStore(t)
-	store.Insert(context.Background(), "ws-1", memory.LongTerm, "have", "already here", nil, "agent")
+	store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "have", Content: "already here", Tags: nil, Source: "agent"})
 	doc := "### have\nalready here\n\n### bad\n<!-- priority=urgent -->\ntext\n\n### good\nnew fact\n\n### huge\n" + strings.Repeat("x", maxMemoryContentChars+1) + "\n"
 
 	rr := importMemory(NewMemoryHandlers(store), "ws-1", "application/json", doc)
@@ -786,8 +786,8 @@ func TestImportMemory_Validation(t *testing.T) {
 func TestMemoryMarkdown_ExportThenImportRoundTrips(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build\n### tricky line\n---", []string{memory.HotTag}, "agent")
-	id, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "must", "never force-push", []string{memory.HotTag}, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build\n### tricky line\n---", Tags: []string{memory.HotTag}, Source: "agent"})
+	id, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "must", Content: "never force-push", Tags: []string{memory.HotTag}, Source: "agent"})
 	store.SetPriority(ctx, "ws-1", id, memory.PriorityHigh)
 	h := NewMemoryHandlers(store)
 
@@ -832,7 +832,7 @@ func TestMemoryMarkdown_RoutesBeatTheIDRoute(t *testing.T) {
 // ?message= adds what that chat message would recall; without it the response carries no recall section.
 func TestInjectionPreview_MessageShowsTheRecall(t *testing.T) {
 	store := newTestMemoryStore(t)
-	id, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "codename", "The codename is BLUEHERON.", nil, "operator")
+	id, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "codename", Content: "The codename is BLUEHERON.", Tags: nil, Source: "operator"})
 	if err != nil {
 		t.Fatal(err)
 	}

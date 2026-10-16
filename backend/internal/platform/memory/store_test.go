@@ -36,7 +36,7 @@ func TestMemoryStore_Insert(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.Insert(ctx, "ws-1", LongTerm, "test key", "test content", nil, "agent")
+	id, err := store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "test key", Content: "test content", Tags: nil, Source: "agent"})
 	if err != nil {
 		t.Fatalf("Insert failed: %v", err)
 	}
@@ -49,8 +49,8 @@ func TestMemoryStore_Search(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "port", "The test DB port is 5433", nil, "agent")
-	store.Insert(ctx, "ws-1", LongTerm, "language", "User prefers TypeScript", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "port", Content: "The test DB port is 5433", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "language", Content: "User prefers TypeScript", Tags: nil, Source: "agent"})
 
 	entries, err := store.Search(ctx, "ws-1", "port", 5)
 	if err != nil {
@@ -75,7 +75,7 @@ func TestMemoryStore_SearchNoMatch(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "port", "5433", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "port", Content: "5433", Tags: nil, Source: "agent"})
 
 	entries, err := store.Search(ctx, "ws-1", "nonexistent", 5)
 	if err != nil {
@@ -90,8 +90,8 @@ func TestMemoryStore_WorkspaceIsolation(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "key", "ws1 content", nil, "agent")
-	store.Insert(ctx, "ws-2", LongTerm, "key", "ws2 content", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "key", Content: "ws1 content", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-2", MemoryType: LongTerm, Title: "key", Content: "ws2 content", Tags: nil, Source: "agent"})
 
 	entries, err := store.Search(ctx, "ws-1", "content", 5)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestMemoryStore_Delete(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := store.Insert(ctx, "ws-1", LongTerm, "key", "content", nil, "agent")
+	id, _ := store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "key", Content: "content", Tags: nil, Source: "agent"})
 
 	if err := store.Delete(ctx, "ws-1", id); err != nil {
 		t.Fatalf("Delete failed: %v", err)
@@ -124,9 +124,9 @@ func TestMemoryStore_Update(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := store.Insert(ctx, "ws-1", LongTerm, "old title", "old content", nil, "agent")
+	id, _ := store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "old title", Content: "old content", Tags: nil, Source: "agent"})
 
-	if err := store.Update(ctx, "ws-1", id, "new title", "new content", nil, ReplaceTags); err != nil {
+	if err := store.Update(ctx, "ws-1", id, Edit{Title: "new title", Content: "new content", Tags: nil, TagMode: ReplaceTags}); err != nil {
 		t.Fatalf("Update failed: %v", err)
 	}
 
@@ -146,8 +146,8 @@ func TestMemoryStore_DeleteOlderThan(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", Daily, "old", "old content", nil, "agent")
-	store.Insert(ctx, "ws-1", Daily, "new", "new content", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Daily, Title: "old", Content: "old content", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Daily, Title: "new", Content: "new content", Tags: nil, Source: "agent"})
 
 	n, err := store.DeleteOlderThan(ctx, Daily, time.Now().Add(-1*time.Hour))
 	if err != nil {
@@ -175,7 +175,7 @@ func TestMemoryStore_Exists(t *testing.T) {
 		t.Error("expected false for non-existent content")
 	}
 
-	store.Insert(ctx, "ws-1", LongTerm, "key", "exact content", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "key", Content: "exact content", Tags: nil, Source: "agent"})
 
 	exists, err = store.Exists(ctx, "ws-1", "exact content")
 	if err != nil {
@@ -198,8 +198,8 @@ func TestMemoryStore_FindByContentSubstring(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "port", "the database port is 5433", nil, "agent")
-	store.Insert(ctx, "ws-1", LongTerm, "host", "server hostname is prod-01", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "port", Content: "the database port is 5433", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "host", Content: "server hostname is prod-01", Tags: nil, Source: "agent"})
 
 	t.Run("exact match", func(t *testing.T) {
 		entry, err := store.FindByContentSubstring(ctx, "ws-1", "5433")
@@ -240,8 +240,8 @@ func TestMemoryStore_List(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "a", "content a", nil, "agent")
-	store.Insert(ctx, "ws-1", Daily, "b", "content b", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "a", Content: "content a", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Daily, Title: "b", Content: "content b", Tags: nil, Source: "agent"})
 
 	entries, err := store.List(ctx, "ws-1", LongTerm, 10, 0)
 	if err != nil {
@@ -256,10 +256,10 @@ func TestMemoryStore_DeleteAllByWorkspace(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "k1", "content 1", nil, "agent")
-	store.Insert(ctx, "ws-1", Daily, "k2", "content 2", nil, "agent")
-	store.Insert(ctx, "ws-1", Session, "k3", "content 3", nil, "agent")
-	store.Insert(ctx, "ws-2", LongTerm, "k4", "content 4", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "k1", Content: "content 1", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Daily, Title: "k2", Content: "content 2", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Session, Title: "k3", Content: "content 3", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-2", MemoryType: LongTerm, Title: "k4", Content: "content 4", Tags: nil, Source: "agent"})
 
 	t.Run("delete all in workspace", func(t *testing.T) {
 		n, err := store.DeleteAllByWorkspace(ctx, "ws-1", "")
@@ -282,9 +282,9 @@ func TestMemoryStore_DeleteAllByWorkspace(t *testing.T) {
 	})
 
 	t.Run("delete by type", func(t *testing.T) {
-		store.Insert(ctx, "ws-2", LongTerm, "k5", "content 5", nil, "agent")
-		store.Insert(ctx, "ws-2", Daily, "k6", "content 6", nil, "agent")
-		store.Insert(ctx, "ws-2", Daily, "k7", "content 7", nil, "agent")
+		store.Insert(ctx, NewEntry{WorkspaceID: "ws-2", MemoryType: LongTerm, Title: "k5", Content: "content 5", Tags: nil, Source: "agent"})
+		store.Insert(ctx, NewEntry{WorkspaceID: "ws-2", MemoryType: Daily, Title: "k6", Content: "content 6", Tags: nil, Source: "agent"})
+		store.Insert(ctx, NewEntry{WorkspaceID: "ws-2", MemoryType: Daily, Title: "k7", Content: "content 7", Tags: nil, Source: "agent"})
 
 		n, err := store.DeleteAllByWorkspace(ctx, "ws-2", Daily)
 		if err != nil {
@@ -320,7 +320,7 @@ func TestMemoryStore_Get(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := store.Insert(ctx, "ws-1", LongTerm, "title", "content", nil, "agent")
+	id, _ := store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "title", Content: "content", Tags: nil, Source: "agent"})
 
 	entry, err := store.Get(ctx, "ws-1", id)
 	if err != nil {
@@ -345,7 +345,7 @@ func TestSanitiseFTSQuery_OR_Keyword(t *testing.T) {
 	ctx := context.Background()
 
 	// Insert an entry so search has something to return
-	store.Insert(ctx, "ws-1", LongTerm, "tool_versions", "TypeScript version: 6.0.3 installed", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "tool_versions", Content: "TypeScript version: 6.0.3 installed", Tags: nil, Source: "agent"})
 
 	// The "OR" keyword would crash FTS5 if not properly quoted.
 	// This ensures the query doesn't produce a syntax error.
@@ -359,7 +359,7 @@ func TestSanitiseFTSQuery_AND_Keyword(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "installed_tools", "node typescript python", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "installed_tools", Content: "node typescript python", Tags: nil, Source: "agent"})
 
 	// The "AND" keyword should not cause a syntax error when properly quoted.
 	_, err := store.Search(ctx, "ws-1", "node AND typescript", 5)
@@ -372,7 +372,7 @@ func TestSanitiseFTSQuery_Underscore(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "typescript_version", "TypeScript version 6.0.3", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "typescript_version", Content: "TypeScript version 6.0.3", Tags: nil, Source: "agent"})
 
 	// Underscores are stripped and replaced with OR terms.
 	_, err := store.Search(ctx, "ws-1", "typescript_version", 5)
@@ -385,7 +385,7 @@ func TestSanitiseFTSQuery_SpecialChars(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "test", "some content for testing", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "test", Content: "some content for testing", Tags: nil, Source: "agent"})
 
 	// Special characters like parentheses should be stripped.
 	_, err := store.Search(ctx, "ws-1", "test (content)", 5)
@@ -398,7 +398,7 @@ func TestSanitiseFTSQuery_StopWordsFiltered(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "tool_versions", "TypeScript version installed: 6.0.3", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "tool_versions", Content: "TypeScript version installed: 6.0.3", Tags: nil, Source: "agent"})
 
 	// Stop words like "step" and "run" should be filtered from the query.
 	// If they aren't, the search results may still include the entry through
@@ -413,7 +413,7 @@ func TestSanitiseFTSQuery_AllStopWordsReturnsEmptyMatch(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "tool_versions", "TypeScript version installed: 6.0.3", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "tool_versions", Content: "TypeScript version installed: 6.0.3", Tags: nil, Source: "agent"})
 
 	// A query consisting entirely of stop words should not cause an error.
 	_, err := store.Search(ctx, "ws-1", "the a an", 5)
@@ -443,10 +443,10 @@ func TestSearchHot(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "build", "use go build ./...", []string{"hot"}, "agent")
-	store.Insert(ctx, "ws-1", LongTerm, "version", "TypeScript 6.0.3", []string{"hot"}, "agent")
-	store.Insert(ctx, "ws-1", LongTerm, "port", "database port is 5433", nil, "agent")
-	store.Insert(ctx, "global", UserProfile, "name", "Alice", []string{"hot"}, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "build", Content: "use go build ./...", Tags: []string{"hot"}, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "version", Content: "TypeScript 6.0.3", Tags: []string{"hot"}, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "port", Content: "database port is 5433", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "global", MemoryType: UserProfile, Title: "name", Content: "Alice", Tags: []string{"hot"}, Source: "agent"})
 
 	entries, err := store.SearchHot(ctx, "ws-1")
 	if err != nil {
@@ -479,8 +479,8 @@ func TestSearchHot_ScopeExclusion(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "local", "local hot entry", []string{"hot"}, "agent")
-	store.Insert(ctx, "ws-2", LongTerm, "other", "other workspace hot entry", []string{"hot"}, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "local", Content: "local hot entry", Tags: []string{"hot"}, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-2", MemoryType: LongTerm, Title: "other", Content: "other workspace hot entry", Tags: []string{"hot"}, Source: "agent"})
 
 	entries, err := store.SearchHot(ctx, "ws-1")
 	if err != nil {
@@ -535,7 +535,7 @@ func TestSearchHot_EmptyResult(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", LongTerm, "not-hot", "no hot tag here", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "not-hot", Content: "no hot tag here", Tags: nil, Source: "agent"})
 
 	entries, err := store.SearchHot(ctx, "ws-1")
 	if err != nil {
@@ -582,7 +582,7 @@ func TestSearch_MatchesWordFormsNotUnrelatedWords(t *testing.T) {
 	}
 	ids := map[string]int64{}
 	for k, content := range facts {
-		id, err := s.Insert(ctx, "ws", LongTerm, k, content, nil, "test")
+		id, err := s.Insert(ctx, NewEntry{WorkspaceID: "ws", MemoryType: LongTerm, Title: k, Content: content, Tags: nil, Source: "test"})
 		if err != nil {
 			t.Fatal(err)
 		}

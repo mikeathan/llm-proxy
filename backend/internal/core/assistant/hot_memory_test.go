@@ -70,7 +70,7 @@ func streamingToolRunWith(t *testing.T, store *memory.Store, opts AgentOptions, 
 // message so the prompt prefix stays byte-identical and the KV cache is reused.
 func TestHotMemory_PresentEveryTurn(t *testing.T) {
 	store := newTestMemoryStore(t)
-	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"}); err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
 
@@ -186,7 +186,7 @@ func TestHotMemory_BlockScalesWithContextWindow(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	for _, e := range manyHotEntries(60) {
-		if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{"hot"}, "agent"); err != nil {
+		if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{"hot"}, Source: "agent"}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -250,7 +250,7 @@ func TestPreviewHotMemory_MatchesWhatTheRunInjects(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	for _, e := range manyHotEntries(60) {
-		if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{"hot"}, "agent"); err != nil {
+		if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{"hot"}, Source: "agent"}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -476,7 +476,7 @@ func TestHotMemory_OperatorNotesReachEveryTurnAndMatchThePreview(t *testing.T) {
 	if err := store.SetOperatorNotes(ctx, memory.NotesWorkspace, "ws-1", "Always use tabs."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build", []string{memory.HotTag}, "agent"); err != nil {
+	if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build", Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	opts := AgentOptions{WorkspaceID: "ws-1", ContextBudget: 21848, WorkloadClass: models.WorkloadLocal}
@@ -520,7 +520,7 @@ func TestHotMemory_HighPriorityFactSurvivesTheBudgetCut(t *testing.T) {
 	ctx := context.Background()
 	var oldestID int64
 	for i, e := range manyHotEntries(60) { // inserted oldest-first, so fact-00 is the oldest
-		id, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{memory.HotTag}, "agent")
+		id, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{memory.HotTag}, Source: "agent"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -565,7 +565,7 @@ func TestHotMemory_UsageCountsOnlyFactsThatWereSentOncePerRun(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	for _, e := range manyHotEntries(60) {
-		if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{memory.HotTag}, "agent"); err != nil {
+		if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -598,7 +598,7 @@ func TestHotMemory_UsageCountsOnlyFactsThatWereSentOncePerRun(t *testing.T) {
 func TestHotMemory_PreviewDoesNotCountAsUse(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", memory.LongTerm, "a", "x", []string{memory.HotTag}, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "a", Content: "x", Tags: []string{memory.HotTag}, Source: "agent"})
 	entries, _ := store.SearchHot(ctx, "ws-1")
 
 	PreviewHotMemory(entries, memory.OperatorNotes{}, localOpts)
@@ -689,7 +689,7 @@ func TestSaveGuidance_FollowsTheMemoryBlockAndNeedsNoHotFact(t *testing.T) {
 	}
 
 	store := newTestMemoryStore(t)
-	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	head := firstRequestHead(t, store, opts)

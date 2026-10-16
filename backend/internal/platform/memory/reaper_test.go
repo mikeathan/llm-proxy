@@ -32,13 +32,13 @@ func count(t *testing.T, s *Store, memType MemoryType) int {
 func TestSessionReaper_ReapsOldSessionEntriesOnly(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", Session, "old-session", "stale run fact", nil, "run:r1")
-	store.Insert(ctx, "ws-1", LongTerm, "old-long", "permanent fact", nil, "agent")
-	store.Insert(ctx, "ws-1", UserProfile, "old-profile", "likes tea", nil, "agent")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Session, Title: "old-session", Content: "stale run fact", Tags: nil, Source: "run:r1"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "old-long", Content: "permanent fact", Tags: nil, Source: "agent"})
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: UserProfile, Title: "old-profile", Content: "likes tea", Tags: nil, Source: "agent"})
 	age(t, store, Session, 120)
 	age(t, store, LongTerm, 120)
 	age(t, store, UserProfile, 120)
-	store.Insert(ctx, "ws-1", Session, "fresh-session", "recent run fact", nil, "run:r2")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Session, Title: "fresh-session", Content: "recent run fact", Tags: nil, Source: "run:r2"})
 
 	r := NewSessionReaper(func() *Store { return store }, func() time.Duration { return 90 * 24 * time.Hour }, time.Hour)
 	if n := r.reap(ctx); n != 1 {
@@ -55,7 +55,7 @@ func TestSessionReaper_ReapsOldSessionEntriesOnly(t *testing.T) {
 func TestSessionReaper_NonPositiveRetentionReapsNothing(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", Session, "old", "stale", nil, "run:r1")
+	store.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: Session, Title: "old", Content: "stale", Tags: nil, Source: "run:r1"})
 	age(t, store, Session, 400)
 
 	r := NewSessionReaper(func() *Store { return store }, func() time.Duration { return 0 }, time.Hour)

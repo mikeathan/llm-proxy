@@ -98,7 +98,7 @@ func TestAgent_RecallsMemoryInNewSession(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", []string{"hot"}, "agent")
+	_, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build command", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"})
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
@@ -327,7 +327,7 @@ func TestAgent_ActiveMemory_NoMatch_NoInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", memory.LongTerm, "database", "port is 5433", nil, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "database", Content: "port is 5433", Tags: nil, Source: "agent"})
 
 	captured := ""
 	client := &MockClient{
@@ -371,7 +371,7 @@ func TestAgent_HotMemoryInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent")
+	_, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"})
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
@@ -427,9 +427,9 @@ func TestAgent_UserProfileInjection(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	store.Insert(ctx, "ws-1", memory.LongTerm, "build", "use go build ./...", []string{"hot"}, "agent")
-	store.Insert(ctx, "ws-1", memory.UserProfile, "name", "Alice", []string{"hot"}, "agent")
-	store.Insert(ctx, "ws-1", memory.UserProfile, "style", "concise responses", []string{"hot"}, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "use go build ./...", Tags: []string{"hot"}, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.UserProfile, Title: "name", Content: "Alice", Tags: []string{"hot"}, Source: "agent"})
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.UserProfile, Title: "style", Content: "concise responses", Tags: []string{"hot"}, Source: "agent"})
 
 	var callCount int
 	var capturedSystemPrompt string
@@ -485,11 +485,11 @@ func TestInjectActiveMemory_HotEntriesInjected(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 
-	_, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build command", "run go build ./... to verify", []string{"hot"}, "agent")
+	_, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build command", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"})
 	if err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
-	_, err = store.Insert(ctx, "ws-1", memory.LongTerm, "smoke-test-progress", "Completed Steps 1-6 of LLM Smoke Test.", nil, "agent")
+	_, err = store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "smoke-test-progress", Content: "Completed Steps 1-6 of LLM Smoke Test.", Tags: nil, Source: "agent"})
 	if err != nil {
 		t.Fatalf("seed progress memory: %v", err)
 	}
@@ -537,7 +537,7 @@ func TestInjectActiveMemory_HotOnly(t *testing.T) {
 	ctx := context.Background()
 
 	// Non-hot entry should NOT be injected
-	store.Insert(ctx, "ws-1", memory.LongTerm, "tool_versions", "TypeScript version: 6.0.3", nil, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "tool_versions", Content: "TypeScript version: 6.0.3", Tags: nil, Source: "agent"})
 
 	client := &MockClient{}
 	provider := &MockProvider{}
