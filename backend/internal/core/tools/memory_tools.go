@@ -50,6 +50,9 @@ type MemoryRoute struct {
 }
 
 const (
+	// globalWorkspaceID is where user-scope facts live.
+	globalWorkspaceID = "global"
+
 	memorySourceAgent     = "agent"
 	memorySourceRunPrefix = "run:"
 )
@@ -229,17 +232,8 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) 
 	saveWS := route.WorkspaceID
 
 	if args.OldText != "" {
-		existing, err := m.store.FindByContentSubstring(ctx, saveWS, args.OldText)
-		if err == nil {
-			title := deriveTitle(args.Content)
-			if err := m.store.Update(ctx, saveWS, existing.ID, title, args.Content, route.Tags, memory.ReplaceTags); err != nil {
-				return "", fmt.Errorf("memory update failed: %w", err)
-			}
-			logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "old_text")
-			return fmt.Sprintf("updated memory entry %d (type: %s)", existing.ID, route.MemoryType), nil
-		}
-		if !strings.Contains(err.Error(), "no memory entry matching") {
-			return "", fmt.Errorf("memory update failed: %w", err)
+		if msg, replaced, err := m.replaceByOldText(ctx, route, wsID, args); err != nil || replaced {
+			return msg, err
 		}
 	}
 
@@ -252,6 +246,43 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) 
 		return "", err
 	}
 	return res.message(), nil
+}
+
+// replaceByOldText replaces the fact that contains args.OldText with the new content. It looks in the scope the new
+// fact goes to first; failing that, in the other scope (the workspace's and the user's), and then moves the fact: a
+// fact "that actually applies to all my projects" must not leave a second copy behind. replaced is false when no fact
+// matches, so the caller saves the content as a new fact.
+func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryRoute, workspaceID string, args MemoryUpdateArgs) (msg string, replaced bool, err error) {
+	title := deriveTitle(args.Content)
+	existing, err := m.store.FindByContentSubstring(ctx, route.WorkspaceID, args.OldText)
+	if err == nil {
+		if err := m.store.Update(ctx, route.WorkspaceID, existing.ID, title, args.Content, route.Tags, memory.ReplaceTags); err != nil {
+			return "", false, fmt.Errorf("memory update failed: %w", err)
+		}
+		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "old_text")
+		return fmt.Sprintf("updated memory entry %d (type: %s)", existing.ID, route.MemoryType), true, nil
+	}
+	if !strings.Contains(err.Error(), "no memory entry matching") {
+		return "", false, fmt.Errorf("memory update failed: %w", err)
+	}
+
+	otherWS := globalWorkspaceID
+	if route.WorkspaceID == globalWorkspaceID {
+		otherWS = workspaceID
+	}
+	old, err := m.store.FindByContentSubstring(ctx, otherWS, args.OldText)
+	if err != nil {
+		return "", false, nil // no match in either scope: the caller saves a new fact
+	}
+	id, err := m.store.Insert(ctx, route.WorkspaceID, memory.MemoryType(route.MemoryType), title, args.Content, route.Tags, memorySource(ctx))
+	if err != nil {
+		return "", false, fmt.Errorf("memory update failed: %w", err)
+	}
+	if err := m.store.Delete(ctx, otherWS, old.ID); err != nil {
+		return "", false, fmt.Errorf("memory update failed: %w", err)
+	}
+	logging.Info("memory_update result", "action", "moved", "from_id", old.ID, "to_id", id, "match", "old_text")
+	return fmt.Sprintf("moved and updated memory entry %d to %d (type: %s)", old.ID, id, route.MemoryType), true, nil
 }
 
 // SaveOutcome is what saving a fact did.

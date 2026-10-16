@@ -766,6 +766,41 @@ func TestSaveFact_OverlapReplacesTheSimilarFact(t *testing.T) {
 	}
 }
 
+// old_text used to look only in the scope the new fact goes to, so "that actually applies to all my projects" could not
+// find the workspace fact it meant and left a second copy behind. It now finds the fact in either scope and moves it.
+func TestMemoryUpdateTool_OldTextMovesAFactBetweenScopes(t *testing.T) {
+	cases := []struct {
+		name               string
+		from, to           memory.Scope
+		fromWS, toWS       string
+		oldContent, newTxt string
+	}{
+		{"workspace to user", memory.ScopeWorkspace, memory.ScopeUser, "ws-1", "global", "We prefer tabs in Go files.", "I prefer tabs in Go files."},
+		{"user to workspace", memory.ScopeUser, memory.ScopeWorkspace, "global", "ws-1", "I deploy through the vertex host.", "We deploy through the vertex host."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newRealTestStore(t)
+			provider := NewMemoryToolProvider(store)
+			ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+			if _, err := provider.Update(ctx, MemoryUpdateArgs{Content: tc.oldContent, Scope: tc.from, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := provider.Update(ctx, MemoryUpdateArgs{Content: tc.newTxt, Scope: tc.to, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent, OldText: tc.oldContent[:12]})
+			if err != nil || !strings.Contains(got.(string), "moved") {
+				t.Fatalf("Update = %v, %v; want a result saying the fact moved", got, err)
+			}
+			if entries, _ := store.List(context.Background(), tc.fromWS, "", 10, 0); len(entries) != 0 {
+				t.Errorf("the old copy was left in %s: %+v", tc.fromWS, entries)
+			}
+			entries, _ := store.List(context.Background(), tc.toWS, "", 10, 0)
+			if len(entries) != 1 || entries[0].Content != tc.newTxt {
+				t.Errorf("the fact should now be in %s with the new text, got %+v", tc.toWS, entries)
+			}
+		})
+	}
+}
+
 // A secret must never be stored, whatever the model decides: the prompt says so, but only code enforces it (a small
 // model saved "User's password is hunter2." on 2026-10-16 when the save reminder was widened).
 func TestMemorySavePath_RefusesSecrets(t *testing.T) {
