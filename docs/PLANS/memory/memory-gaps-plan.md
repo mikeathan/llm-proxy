@@ -157,27 +157,31 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   the cross-scope move, and every `memory_forget` branch; `go test ./... && go run ./tools/check-complexity/`; the Phase 0 tables show no
   regression on either model.
 
-### Phase 2 — Make the local model save (request only; G1) — DONE 2026-10-16, partly met
-- **Tried, in order, each measured on D1, V1, S1–S6, E2 with D2/D3 as guards on the 16K Qwen:**
-  (a) guidance wording naming the statement-plus-question case with an example — **no effect** (S1–S5 0/5 and S1–S4 0/4,
-  V1 0/2; removed). (b) a one-line save reminder appended to the user's message in the request copy (the per-turn recall
-  mechanism) — **works**: V1, S1, S2, E2 saved 2/2 runs (baseline 0/4). (b′) the reminder widened to project details
-  (host, port, path, convention) — S5 and S6 now save, but the model **saved a password** (D3 failed), so a code screen
-  was added and the wording now ends "Never save a password, key or token."
-- **Code screen (G9, new):** only the prompt said "never save secrets"; nothing enforced it on the agent's own tool.
-  `memory_update` and `SaveFact` now refuse secret-shaped strings and statements of a credential's value
-  (`tools.ErrSecretContent`; capture's broader sensitive-word list was tried first and rejected for the agent path because
-  it would refuse ordinary facts about tokens and keys). The red test showed three secrets were stored before the fix;
-  tests also pin that "the context window is 16K tokens" and similar still save.
-- **Final build, Qwen (1 run; the same cases also ran 2× on earlier wordings):** D1, D5, V1, S1, S2, S5, S6, E2 saved with
-  the expected scope; D2 and D3 saved nothing (D3 refused by the screen); D4 made no repeated save. **Still missed:** S3
-  (timezone) and S4 (network-scan subnet), 0 in every run. Recall guards: R1, R3, R5, R6 pass; R6 makes no memory
-  calls on either model. **Cloud (1 run):** all save and scope cases pass (S1–S6 correct), D2/D3 zero saves; D5 4/5 as in
-  the baseline.
-- **Acceptance (≥ 5 of 6 scope cases saved on ≥ 3 of 4 runs) is not fully met:** 4 of 6 reliably (S1, S2, S5, S6), up from
-  0 of 6. S3/S4 are not tuned further on a six-case set (overfitting risk); they are the first cases to revisit with
-  more statements. **Watch item:** on a recall-hit question the model sometimes re-calls `memory_update` with the
-  fact it just recalled (a duplicate the store dedups, one wasted call).
+### Phase 2 — Make the local model save (request only; G1) — DONE 2026-10-16, with a generalisation audit
+- **Tried, in order:** (a) guidance wording naming the statement-plus-question case — no effect, removed. (b) a one-line
+  save reminder appended to the user's message in the request copy (the per-turn recall mechanism) — **works for the 16K
+  Qwen** (0 of 24 → person facts and bare statements save). A first widening listed examples ("a host, port, path or
+  convention") after those cases failed; that was **fitted to the test data**, and it made the model save a password, which
+  added the code-level secret screen below.
+- **Generalisation audit (2026-10-16, requested by the user: fixes must be generic, never fitted to test prompts):** a
+  held-out set H (new domains and phrasings never tuned against: 8 save/scope cases and 3 do-not-save cases) was added to
+  `scripts/memory-eval.py`. Result for the tuned wording on the local model: **6 of 11**, project facts stated with a
+  question **0 of 3**, and it saved the content of a "summarize this" task. The reminder was rewritten **in category terms
+  with no examples** (lasting things about the user; the project or environment; never the content of a task or text to
+  process; never a credential). Held-out: local model **7 of 11** (the over-save gone; personal facts 3/4; a bare project
+  statement saves), cloud **11 of 11**; earlier set: cloud 24 of 24 scored cases, local 4 of 6 (S1, S2, S3, S5). The
+  forget guidance sentence was generalised the same way (a broad request covers only the kind of fact it is about). The
+  held-out set is now spent for tuning: any further wording work needs a fresh one.
+- **What wording cannot fix (honest ceiling):** a project fact stated together with a question is not saved by the local
+  model (held-out 0 of 3) whatever the wording; the safety net for that is the per-chat memory review and consolidation
+  (Phase 6), not more prompt text.
+- **Code screen (G9):** `memory_update` and `SaveFact` refuse secret-shaped strings and statements of a credential's value
+  (`tools.ErrSecretContent`); capture's broader word list was rejected for the agent path because it would refuse ordinary
+  facts about tokens and keys. The red test showed three secrets were stored before the fix.
+- **Acceptance (partly met):** do-not-save guards hold on both models; cloud saves and scopes everything on both sets; the
+  local model saves personal facts and bare statements but not project facts stated with a question. **Watch item:** on
+  a recall-hit question the model sometimes re-calls `memory_update` with the fact it just recalled (a duplicate the
+  store dedups, one wasted call).
 
 ### Phase 3 — Recall strength (G3, G5)
 - `memories_fts` tokenizer to `porter unicode61` (`store.go:40-41`; the schema already drops and rebuilds the index from the rows at startup, so there is no data migration and no shim);

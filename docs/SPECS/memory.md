@@ -24,8 +24,10 @@ supersedes:
 - **2.8 (2026-10-16)** — Save reminder and a code-level secret screen (§II.8). A 16K local model followed the save
   guidance for a bare statement but **never** saved a fact stated in a message that also asked a question (0 of 24 runs).
   `prompts.MemorySaveReminder` is now appended beside the run's user message, in the request copy only, in the same
-  operator-chat-only cases as recall (`Agent.injectRecall`); with it that model saves personal and most project facts
-  (scope set: person facts 4/4 runs, project facts 2 of 3 cases) while the do-not-save guards hold. Widening the reminder once
+  operator-chat-only cases as recall (`Agent.injectRecall`); the wording names categories (lasting things about the user,
+  about their project or environment; never task content or credentials), not examples, and was confirmed on a held-out
+  set: the local model saves personal facts and bare statements but not a project fact stated with a question, cloud
+  saves and scopes them all. Widening the reminder once
   made the model save a password, so **every save now passes one screen in code**: `memory_update` and `SaveFact` refuse
   a secret-shaped string or a statement of a credential's value such as "the password is …" (`tools.ErrSecretContent`,
   `tools.ContainsCredentialAssignment`). It is narrower than capture's sensitive-word list on purpose: the agent saves

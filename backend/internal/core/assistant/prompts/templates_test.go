@@ -241,7 +241,7 @@ func TestMemorySaveGuidance_DefaultsToTheNarrowestSave(t *testing.T) {
 // memory_forget is only useful if the model knows when to call it, and an over-eager model deleted project facts when
 // asked to forget things about the user (2026-10-16): the guidance must name the tool and bound what it deletes.
 func TestMemorySaveGuidance_TellsWhenToForgetAndBoundsIt(t *testing.T) {
-	for _, want := range []string{"memory_forget", "only what they named", "project facts"} {
+	for _, want := range []string{"memory_forget", "only what they named", "their project or environment"} {
 		if !strings.Contains(MemorySaveGuidance, want) {
 			t.Errorf("the save guidance lost %q", want)
 		}

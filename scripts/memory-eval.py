@@ -8,7 +8,7 @@ Use a SCRATCH backend (own --data dir, started from a directory outside backend/
 workspaces "eval" and "eval2", sets the primary model, and deletes the memories it created. It writes
 <label>-<model>.json (tool calls, saves, answer, score per case) next to this script.
 
-Sets (EVAL_SETS, default all): D = Part D D1-D5 (one chat, in order); F = forget requests and look-alikes; V = D1 variants (statement + question,
+Sets (EVAL_SETS, default all): D = Part D D1-D5 (one chat, in order); H = held-out save/scope set (confirms a wording tuned on S); F = forget requests and look-alikes; V = D1 variants (statement + question,
 statement only, explicit "remember that"); S = scope set (what is stored where: person facts expect user scope,
 project facts workspace scope, ambiguous ones are recorded, not scored); E = end to end (the model saves in one chat,
 a fresh chat uses the fact). D2 is a stand-in task (pasted release notes), not the news brief.
@@ -21,7 +21,7 @@ import glob, json, os, re, sys, time, urllib.request, urllib.error
 
 OUT = os.path.dirname(os.path.abspath(__file__))
 EXCLUDE = [t for t in os.environ.get('EVAL_EXCLUDE_TOOLS', '').split(',') if t]
-SETS = set(os.environ.get('EVAL_SETS', 'D,V,S,E,F').split(','))
+SETS = set(os.environ.get('EVAL_SETS', 'D,V,S,E,F,H').split(','))
 ONLY = {c for c in os.environ.get('EVAL_ONLY', '').split(',') if c}  # run just these case ids, e.g. S1,S4,E2
 want = lambda cid: not ONLY or cid in ONLY
 WS, WS2 = 'eval', 'eval2'
@@ -56,6 +56,23 @@ S_CASES = [
     ('S7', "I prefer tabs in Go files. What is 7+7?", None),
     ('S8', "I prefer tabs in the Go files of this repo. What is 8+8?", None),
 ]
+# Held-out set (H): statements in domains and phrasings that no wording was tuned against. Wordings are chosen on S and
+# CONFIRMED on H; a result that holds only on S is overfitted. expected: 'user' | 'workspace' (saved with that scope) or
+# None (nothing may be saved: task content, a pure question, pasted data).
+H_CASES = [
+    ('H1', "I'm vegetarian, so skip meat suggestions. What should I cook tonight?", 'user'),
+    ('H2', "My manager is Priya and we sync on Thursdays. How do I write a status update?", 'user'),
+    ('H3', "I'm red-green colour blind, so avoid those colours in charts. Can you suggest a palette?", 'user'),
+    ('H4', "The CI pipeline runs on GitHub Actions and takes about 8 minutes. Why might it be slow?", 'workspace'),
+    ('H5', "This repo targets Python 3.11 and uses Poetry. How do I add a dependency?", 'workspace'),
+    ('H6', "Our API rate limit is 100 requests per minute per key. How should I handle 429 errors?", 'workspace'),
+    ('H7', "I usually work from 7 to 3 Lisbon time.", 'user'),
+    ('H8', "The nightly backup job writes to the bucket acme-backups.", 'workspace'),
+    ('N1', "Summarize this: the meeting moved to Friday and the budget was approved.", None),
+    ('N2', "What is the difference between a mutex and a semaphore?", None),
+    ('N3', "Here is the log: ERROR 500 at 12:01, db timeout. What does it mean?", None),
+]
+
 # Forget set: facts are seeded through the API, then one message is sent. gone = the seeded text that must be deleted
 # (None: nothing may be deleted). F3 and F4 are guards: the word "forget" in a statement, and a mass request.
 F_SEEDS = [
@@ -238,6 +255,16 @@ def run_model(b, label, model):
             case['expected_scope'] = expected
             case['pass'] = None if expected is None else case['scope'] == expected
             note(cid, case, f"scope={case['scope']} expected={expected} pass={case['pass']}")
+    if 'H' in SETS:
+        for cid, msg, expected in H_CASES:
+            if not want(cid):
+                continue
+            b.clear()
+            case = run_case(b, WS, f'{label}-{tag}-{cid}-{stamp}', msg)
+            case['scope'] = observed_scope(case['new_memories'])
+            case['expected_scope'] = expected
+            case['pass'] = (case['scope'] == 'none') if expected is None else (case['scope'] == expected)
+            note(cid, case, f"scope={case['scope']} expected={expected or 'nothing saved'} pass={case['pass']}")
     if 'F' in SETS:
         for cid, msg, gone, survive in F_CASES:
             if not want(cid):
@@ -280,9 +307,9 @@ def summarize(prefix):
             cs = [d['cases'][cid] for d in ds if cid in d['cases']]
             scored = [c for c in cs if c.get('pass') is not None]
             note = ''
-            if cid.startswith('S'):
+            if cid[0] in 'SH' or cid.startswith('N'):
                 note = 'scope seen: ' + ', '.join(f'{k}×{sum(1 for c in cs if c.get("scope") == k)}' for k in ('user', 'workspace', 'none', 'mixed') if any(c.get('scope') == k for c in cs))
-                note += f' (expected {cs[0].get("expected_scope") or "unscored"})'
+                note += f' (expected {cs[0].get("expected_scope") or ("nothing saved" if cid[0] in "HN" else "unscored")})'
             if cid.startswith('D'):
                 note = f'final answer intact {sum(1 for c in cs if c.get("final_ok"))}/{len(cs)}'
             print(f'| {cid} | {sum(1 for c in scored if c["pass"])}/{len(scored)} | {note} |' if scored else f'| {cid} | – | {note} |')
