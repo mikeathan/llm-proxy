@@ -49,7 +49,7 @@ nothing for "ship releases", and recalls nothing for unrelated questions.
 | # | Gap | Evidence | Fix (phase) |
 |---|---|---|---|
 | G1 | Small local model under-saves when a message states preferences *and* asks a question | Part D D1: Qwen 0/3 (branch), 1/2 (baseline); cloud 2/2 | Measure first (P0), then a guidance/test-driven change only if it moves the number (P2) |
-| G2 | Personal preferences are saved as project facts | `MemorySaveGuidance` says "scope workspace… only if the user says it applies to everything"; runs saved "prefers tabs" at workspace scope; cloud sometimes user scope. **By design today**, so it is a decision, not a model failure | Person-vs-project rule in the guidance (P2, needs D1) |
+| G2 | Facts about the person are saved as project facts (a birthday said in a project workspace would be lost everywhere else) | `MemorySaveGuidance` says "scope workspace… only if the user says it applies to everything"; runs saved "prefers tabs" at workspace scope; cloud sometimes user scope. **By design today**, so it is a decision, not a model failure | Person-vs-project rule in the guidance (P2, needs D1) |
 | G3 | Paraphrased questions miss | R2 2/4; FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming + search-tool wording (P3) |
 | G4 | The model cannot correct its own memory | Only `memory_search` and `memory_update` exist; overlapping facts are concatenated (`tools/memory_tools.go` `insertFact`); `old_text` only finds facts in the route's own workspace | Tool contract: overlap returns the id, `memory_forget`, re-routing update (P1) |
 | G5 | Wasted steps when memory has no answer | R4: up to 9 tool calls | Tool-description guidance + measure (P3) |
@@ -61,12 +61,15 @@ nothing for "ship releases", and recalls nothing for unrelated questions.
 
 | # | Decision | Recommendation |
 |---|---|---|
-| D1 | Scope rule in the save guidance | "I / my / me" statements about the person → scope user; "we / this project / our" → workspace; ship only if scope accuracy improves on both models with no regression on D2/D3 |
+| D1 | Scope rule in the save guidance | **Classify by what the fact is about, not by the pronoun** (refined with the user 2026-10-16): facts about the person (birthday, home, timezone, name, how they like answers written, general working habits) → scope user, even when said inside a project workspace; facts about this project or environment (hosts, paths, conventions, decisions) → workspace. A preference that names nothing project-specific ("I prefer tabs in Go files") → user; one that does → workspace. When genuinely unclear, workspace: a person fact saved as a project fact is only forgotten elsewhere, a project fact saved as a user fact leaks into every workspace. Ship only if scope accuracy improves on a labelled set (below) on both models with no regression on D2/D3 |
 | D2 | When `memory_update` finds an overlapping fact | Return the existing fact (id + text) and ask for `old_text` instead of concatenating; measured on D4/D5 |
 | D3 | Let the model delete? | Yes, `memory_forget`, only on an explicit user request, exactly one match required, the deleted text echoed back and shown in the chat's "saved to memory" line. **A third memory tool amends Constitution II.12**, which names `memory_search` and `memory_update` as the registered memory tools |
 | D4 | Amend Constitution II.12 so operator notes are bounded by the hot cap | Yes, with the preview and the overflow hint making any cut visible |
 | D5 | Typed facts (kind, why, expires_at) — breaking, no shim | Yes, after P1–P3 are measured |
 | D6 | Which automation runs feed consolidation | Chats first; add the news brief only after the review queue proves useful; never heartbeats |
+
+**Approved by the user 2026-10-16:** D2, D3, D4, D5, D6 as recommended; D1 as refined above (the user's example: in a
+network-scan workspace, "my birthday is …" or "I live in …" is a fact about the person, so it is global, not workspace).
 
 ## Phases
 
@@ -97,10 +100,13 @@ nothing for "ship releases", and recalls nothing for unrelated questions.
   `memory_forget`; the Phase 0 D and R tables show no regression on either model.
 
 ### Phase 2 — Save guidance (prompt only; G1, G2)
-- Only after Phase 0 numbers: the person-vs-project scope rule (D1) and, if the data says so, a one-line nudge for the
+- Only after Phase 0 numbers: the subject-based scope rule (D1) and, if the data says so, a one-line nudge for the
   statement-plus-question case. One constant (`MemorySaveGuidance`), one commit, revertable.
-- **Acceptance:** over ≥5 runs per model, personal preferences land in user scope and project facts in workspace
-  scope at a higher rate than the Phase 0 baseline, D2/D3 stay at zero saves, D1 saves do not drop.
+- **Labelled scope set** (added to the eval script in Phase 0, each stated inside a workspace chat): person facts
+  (birthday, home city, timezone, answer style) expect `user`; project facts (a host, a path, a convention) expect
+  `workspace`; ambiguous ones (a coding preference with and without a project noun) are recorded, not scored.
+- **Acceptance:** over ≥5 runs per model, scope accuracy on the labelled set is higher than the Phase 0 baseline with no
+  person fact saved as workspace scope more often than before, D2/D3 stay at zero saves, D1 saves do not drop.
 
 ### Phase 3 — Recall strength (G3, G5)
 - `memories_fts` tokenizer to `porter unicode61` (`store.go:40-41`; the schema already drops and rebuilds the index from the rows at startup, so there is no data migration and no shim);
