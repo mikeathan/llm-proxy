@@ -103,6 +103,39 @@ func TestRecall_OnlyInTheOperatorsOwnChat(t *testing.T) {
 	}
 }
 
+// The save reminder sits beside the user's message (a small model skipped the save when the message also asked a
+// question, 0 of 24 runs on 2026-10-16): in the operator's own chat only, in every request of the run, never in the
+// stored history or the head system message, and with or without recalled facts.
+func TestSaveReminder_BesideTheUserTurnInTheOperatorsChatOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		opts AgentOptions
+		want bool
+	}{
+		{"the operator's chat", operatorChat(), true},
+		{"a connector chat", AgentOptions{WorkspaceID: "ws-1", ConversationID: "wb_telegram_chat42"}, false},
+		{"an automation", AgentOptions{WorkspaceID: "ws-1", Channel: ChannelAutomation}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			requests, history := streamingToolRunWith(t, recallStore(t, false), tc.opts, "Our server runs Ubuntu 24. How do I list files?", 2)
+			for i, req := range requests {
+				if got := strings.Contains(lastUser(req), prompts.MemorySaveReminder); got != tc.want {
+					t.Errorf("request %d: reminder beside the user turn = %v, want %v", i+1, got, tc.want)
+				}
+				if strings.Contains(req[0].Content, prompts.MemorySaveReminder) {
+					t.Errorf("request %d: the reminder leaked into the head system message", i+1)
+				}
+			}
+			for _, m := range history {
+				if strings.Contains(m.Content, prompts.MemorySaveReminder) {
+					t.Fatalf("the reminder was persisted into history: %q", m.Content)
+				}
+			}
+		})
+	}
+}
+
 func TestRecall_NothingForAGenericMessage(t *testing.T) {
 	requests, _ := streamingToolRunWith(t, recallStore(t, false), operatorChat(), "Can you help me tidy up this project's README?", 0)
 	if strings.Contains(lastUser(requests[0]), prompts.RecalledMemoryOpenTag) {
@@ -149,7 +182,8 @@ func TestPreviewRecall_MatchesWhatTheRunInjects(t *testing.T) {
 	store := recallStore(t, false)
 	requests, _ := streamingToolRunWith(t, store, operatorChat(), recallQuestion, 0)
 	turn := userTurnOf(requests[0], recallQuestion)
-	injected := strings.TrimPrefix(turn, recallQuestion+"\n\n")
+	// The run also puts the fixed save reminder after the recall block; the preview shows the recall block itself.
+	injected := strings.TrimSuffix(strings.TrimPrefix(turn, recallQuestion+"\n\n"), "\n\n"+prompts.MemorySaveReminder)
 
 	hot := PreviewHotMemory(nil, memory.OperatorNotes{}, AgentOptions{})
 	preview, err := PreviewRecall(context.Background(), store, "ws-1", recallQuestion, hot, AgentOptions{})

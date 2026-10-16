@@ -722,6 +722,7 @@ func (r *LocalToolRegistry) registerMemoryTools() {
 	}
 	registerTool(r, models.CategoryMemory, models.ToolMemorySearch, r.Memory.Search)
 	registerTool(r, models.CategoryMemory, models.ToolMemoryUpdate, r.Memory.Update)
+	registerTool(r, models.CategoryMemory, models.ToolMemoryForget, r.Memory.Forget)
 }
 
 func (r *LocalToolRegistry) registerSystemTools() {

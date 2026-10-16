@@ -141,6 +141,7 @@ type promptState struct {
 	hotIDs               map[int64]bool // facts in memoryBlock, so recall does not repeat them
 	recallBlock          string         // frozen <recalled_memory> block for the run's user message (recall_memory.go)
 	recallAnchor         string         // the run's user message, which recallBlock is appended to
+	saveReminder         string         // MemorySaveReminder, appended beside the same message in the operator's own memory chats
 	prefillDisabled      bool           // runtime override to skip prefill on retry
 	lastContentWithTools string         // content saved from a turn that had both text and tool calls
 }

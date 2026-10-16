@@ -567,3 +567,50 @@ func TestSanitiseFTSQuery_Empty(t *testing.T) {
 		t.Errorf("expected 0 entries for empty query, got %d", len(entries))
 	}
 }
+
+// Search matches the forms of a word, not only its exact spelling: a question rarely repeats a stored fact's
+// inflections ("meeting" vs "meetings", "prefers" vs "preferred"). The index stems words (FTS5 porter); no word list
+// or synonym table is involved, and words that merely look alike elsewhere must not match.
+func TestSearch_MatchesWordFormsNotUnrelatedWords(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	facts := map[string]string{
+		"meetings": "Meetings are scheduled on Tuesdays.",
+		"walking":  "She prefers walking to work.",
+		"reports":  "Reports are generated nightly.",
+		"garden":   "The garden needs new tools.",
+	}
+	ids := map[string]int64{}
+	for k, content := range facts {
+		id, err := s.Insert(ctx, "ws", LongTerm, k, content, nil, "test")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[k] = id
+	}
+	for _, tc := range []struct {
+		name, query string
+		want        string // key of the fact that must be found; "" means nothing may match
+	}{
+		{"plural and participle", "meeting scheduled", "meetings"},
+		{"third person and past", "preferred walk", "walking"},
+		{"plural and verb form", "report generates", "reports"},
+		{"an unrelated word matches nothing", "database", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := s.Search(ctx, "ws", tc.query, 5, SearchOption{SearchAllWorkspaces: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.want == "" {
+				if len(got) != 0 {
+					t.Fatalf("query %q matched %d facts, want none", tc.query, len(got))
+				}
+				return
+			}
+			if len(got) == 0 || got[0].ID != ids[tc.want] {
+				t.Errorf("query %q: got %+v, want the %q fact first", tc.query, got, tc.want)
+			}
+		})
+	}
+}

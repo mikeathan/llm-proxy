@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"slices"
 	"strings"
@@ -134,13 +136,7 @@ func TestMemorySearchTool_EmptyQueryReturnsEntries(t *testing.T) {
 
 	// Save a few entries.
 	for _, content := range []string{"first entry", "second entry", "third entry"} {
-		_, err := provider.Update(ctx, struct {
-			Content string       `json:"content"`
-			Scope   memory.Scope `json:"scope"`
-			Mode    memory.Mode  `json:"mode"`
-			Keep    memory.Keep  `json:"keep"`
-			OldText string       `json:"old_text"`
-		}{Content: content, Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
+		_, err := provider.Update(ctx, MemoryUpdateArgs{Content: content, Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
 		if err != nil {
 			t.Fatalf("save %q failed: %v", content, err)
 		}
@@ -176,20 +172,8 @@ func TestMemorySearchTool_ListAllMemories(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
 	// Save workspace and user entries.
-	provider.Update(ctx, struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{Content: "workspace fact", Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
-	provider.Update(ctx, struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{Content: "user fact", Scope: "user", Mode: "on_demand", Keep: "permanent"})
+	provider.Update(ctx, MemoryUpdateArgs{Content: "workspace fact", Scope: "workspace", Mode: "on_demand", Keep: "permanent"})
+	provider.Update(ctx, MemoryUpdateArgs{Content: "user fact", Scope: "user", Mode: "on_demand", Keep: "permanent"})
 
 	t.Run("workspace scope returns workspace entry", func(t *testing.T) {
 		entries, err := provider.listAllMemories(ctx, "ws-1", "workspace", 10)
@@ -252,13 +236,7 @@ func TestMergeAndCap(t *testing.T) {
 func TestMemoryUpdateTool(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "test content",
 		Scope:   "workspace",
 		Mode:    "on_demand",
@@ -278,13 +256,7 @@ func TestMemoryUpdateTool(t *testing.T) {
 func TestMemoryUpdateTool_MissingRequired(t *testing.T) {
 	store := &mockMemoryStore{}
 	provider := NewMemoryToolProvider(store.Store)
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "",
 	}
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
@@ -332,13 +304,7 @@ func TestMemoryUpdateTool_Duplicate(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "exact duplicate content",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -382,13 +348,7 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	createArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	createArgs := MemoryUpdateArgs{
 		Content: "database port is 5433",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -401,13 +361,7 @@ func TestMemoryUpdateTool_UpdateByOldText(t *testing.T) {
 		t.Errorf("expected 'saved to memory', got: %s", result)
 	}
 
-	updateArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	updateArgs := MemoryUpdateArgs{
 		Content: "database port is 5433 (updated)",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 		OldText: "5433",
@@ -437,13 +391,7 @@ func TestMemoryUpdateTool_UpdateByOldText_NotFound(t *testing.T) {
 	store := newRealTestStore(t)
 	provider := NewMemoryToolProvider(store)
 
-	createArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	createArgs := MemoryUpdateArgs{
 		Content: "database port is 5433",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 		OldText: "nonexistent text",
@@ -464,13 +412,7 @@ func TestMemoryUpdateTool_SeparateSaves(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "Step 1 done",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -506,13 +448,7 @@ func TestMemoryUpdateTool_OldTextBackwardCompat(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	createArgs := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	createArgs := MemoryUpdateArgs{
 		Content: "this is entry one",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -549,13 +485,7 @@ func TestMemoryUpdateTool_SemanticDedup(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "Smoke test executed successfully",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -593,13 +523,7 @@ func TestMemoryUpdateTool_SemanticDedup_NoFalsePositive(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "this is entry one",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -638,13 +562,7 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 	provider := NewMemoryToolProvider(store)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
 
-	args := struct {
-		Content string       `json:"content"`
-		Scope   memory.Scope `json:"scope"`
-		Mode    memory.Mode  `json:"mode"`
-		Keep    memory.Keep  `json:"keep"`
-		OldText string       `json:"old_text"`
-	}{
+	args := MemoryUpdateArgs{
 		Content: "TypeScript 6.0.3 is installed",
 		Scope:   memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
 	}
@@ -675,13 +593,7 @@ func TestMemoryUpdateTool_JaccardDedup_ContentIdentical(t *testing.T) {
 	}
 }
 
-type updateArgs = struct {
-	Content string       `json:"content"`
-	Scope   memory.Scope `json:"scope"`
-	Mode    memory.Mode  `json:"mode"`
-	Keep    memory.Keep  `json:"keep"`
-	OldText string       `json:"old_text"`
-}
+type updateArgs = MemoryUpdateArgs
 
 func firstEntry(t *testing.T, store *memory.Store, memType memory.MemoryType) memory.MemoryEntry {
 	t.Helper()
@@ -781,6 +693,278 @@ func TestMemoryUpdate_OmittedFieldsDefaultIndependently(t *testing.T) {
 			}
 			if got := slices.Contains(entries[0].Tags, "hot"); got != tt.wantHot {
 				t.Errorf("hot tag = %v, want %v (tags %v)", got, tt.wantHot, entries[0].Tags)
+			}
+		})
+	}
+}
+
+const (
+	deployVertex = "We always deploy through the vertex host."
+	deployNew    = "We always deploy through the new host."
+)
+
+// A fact whose topic overlaps a stored one used to be concatenated onto it, which kept a contradiction in one entry
+// ("…vertex host.\n…new host."). The tool now reports the similar fact, so the model chooses: replace it (old_text) or
+// keep both (separate).
+func TestMemoryUpdateTool_OverlapReportsTheExistingFactInsteadOfMerging(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	save := func(args MemoryUpdateArgs) string {
+		got, err := provider.Update(ctx, args)
+		if err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		return got.(string)
+	}
+	route := MemoryUpdateArgs{Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}
+
+	first := route
+	first.Content = deployVertex
+	save(first)
+
+	second := route
+	second.Content = deployNew
+	got := save(second)
+	for _, want := range []string{"already exists", deployVertex, "old_text", "separate"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the conflict message lacks %q: %s", want, got)
+		}
+	}
+	entries, _ := store.List(ctx, "ws-1", "", 10, 0)
+	if len(entries) != 1 || entries[0].Content != deployVertex {
+		t.Fatalf("the stored fact must be untouched and nothing added, got %+v", entries)
+	}
+
+	second.Separate = true
+	if got := save(second); !strings.Contains(got, "saved to memory") {
+		t.Errorf("separate: true must save it, got: %s", got)
+	}
+	if entries, _ = store.List(ctx, "ws-1", "", 10, 0); len(entries) != 2 {
+		t.Errorf("both facts should be stored separately, got %d entries", len(entries))
+	}
+}
+
+// Explicit capture and the per-chat review cannot retry with old_text, so they replace the similar fact in place:
+// "remember that we now deploy through X" must neither be dropped nor concatenated onto the old fact.
+func TestSaveFact_OverlapReplacesTheSimilarFact(t *testing.T) {
+	store := newRealTestStore(t)
+	provider := NewMemoryToolProvider(store)
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	fact := func(content string) Fact {
+		return Fact{Content: content, Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}
+	}
+	if _, err := provider.SaveFact(ctx, "ws-1", fact(deployVertex)); err != nil {
+		t.Fatal(err)
+	}
+	res, err := provider.SaveFact(ctx, "ws-1", fact(deployNew))
+	if err != nil || res.Outcome != SaveUpdated {
+		t.Fatalf("SaveFact = %+v, %v; want the similar fact updated", res, err)
+	}
+	entries, _ := store.List(ctx, "ws-1", "", 10, 0)
+	if len(entries) != 1 || entries[0].Content != deployNew {
+		t.Errorf("the old fact should be replaced, not concatenated or duplicated: %+v", entries)
+	}
+}
+
+// old_text used to look only in the scope the new fact goes to, so "that actually applies to all my projects" could not
+// find the workspace fact it meant and left a second copy behind. It now finds the fact in either scope and moves it.
+func TestMemoryUpdateTool_OldTextMovesAFactBetweenScopes(t *testing.T) {
+	cases := []struct {
+		name               string
+		from, to           memory.Scope
+		fromWS, toWS       string
+		oldContent, newTxt string
+	}{
+		{"workspace to user", memory.ScopeWorkspace, memory.ScopeUser, "ws-1", "global", "We prefer tabs in Go files.", "I prefer tabs in Go files."},
+		{"user to workspace", memory.ScopeUser, memory.ScopeWorkspace, "global", "ws-1", "I deploy through the vertex host.", "We deploy through the vertex host."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newRealTestStore(t)
+			provider := NewMemoryToolProvider(store)
+			ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+			if _, err := provider.Update(ctx, MemoryUpdateArgs{Content: tc.oldContent, Scope: tc.from, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); err != nil {
+				t.Fatal(err)
+			}
+			got, err := provider.Update(ctx, MemoryUpdateArgs{Content: tc.newTxt, Scope: tc.to, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent, OldText: tc.oldContent[:12]})
+			if err != nil || !strings.Contains(got.(string), "moved") {
+				t.Fatalf("Update = %v, %v; want a result saying the fact moved", got, err)
+			}
+			if entries, _ := store.List(context.Background(), tc.fromWS, "", 10, 0); len(entries) != 0 {
+				t.Errorf("the old copy was left in %s: %+v", tc.fromWS, entries)
+			}
+			entries, _ := store.List(context.Background(), tc.toWS, "", 10, 0)
+			if len(entries) != 1 || entries[0].Content != tc.newTxt {
+				t.Errorf("the fact should now be in %s with the new text, got %+v", tc.toWS, entries)
+			}
+		})
+	}
+}
+
+// memory_forget deletes a wrong or unwanted fact, but only on an unambiguous match, only in the operator's own chat,
+// and it echoes what it deleted so the model (and the transcript) can show it.
+func TestMemoryForgetTool(t *testing.T) {
+	seed := func(t *testing.T) (*memory.Store, *MemoryToolProvider) {
+		store := newRealTestStore(t)
+		provider := NewMemoryToolProvider(store)
+		ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+		for _, a := range []MemoryUpdateArgs{
+			{Content: "We deploy through the vertex host.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent},
+			{Content: "The staging database runs on port 5433.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent},
+			{Content: "I prefer tabs in Go files.", Scope: memory.ScopeUser, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent},
+		} {
+			if _, err := provider.Update(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return store, provider
+	}
+	count := func(store *memory.Store) int {
+		a, _ := store.List(context.Background(), "ws-1", "", 20, 0)
+		b, _ := store.List(context.Background(), "global", "", 20, 0)
+		return len(a) + len(b)
+	}
+	chat := models.WithWorkspaceID(context.Background(), "ws-1")
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		text      string
+		wantInMsg string
+		wantLeft  int
+	}{
+		{"deletes the one match in the workspace", chat, "vertex host", "forgot", 2},
+		{"deletes the one match in the user scope", chat, "tabs", "forgot", 2},
+		{"says so when nothing matches", chat, "no such thing", "no saved fact", 3},
+		{"asks for more when several match", chat, "the", "more than one", 3},
+		{"needs real text", chat, "  ", "required", 3},
+		{"refused in an automation", models.WithUnattendedRun(chat), "vertex host", "operator", 3},
+		{"refused for a connector chat", models.WithOriginConnector(chat, "telegram"), "vertex host", "operator", 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store, provider := seed(t)
+			got, err := provider.Forget(tc.ctx, MemoryForgetArgs{Text: tc.text})
+			if err != nil {
+				t.Fatalf("Forget: %v", err)
+			}
+			if msg, _ := got.(string); !strings.Contains(strings.ToLower(msg), tc.wantInMsg) {
+				t.Errorf("result %q lacks %q", got, tc.wantInMsg)
+			}
+			if left := count(store); left != tc.wantLeft {
+				t.Errorf("facts left = %d, want %d", left, tc.wantLeft)
+			}
+		})
+	}
+	t.Run("echoes the deleted text", func(t *testing.T) {
+		_, provider := seed(t)
+		got, _ := provider.Forget(chat, MemoryForgetArgs{Text: "port 5433"})
+		if msg, _ := got.(string); !strings.Contains(msg, "The staging database runs on port 5433.") {
+			t.Errorf("the result must echo the deleted fact: %v", got)
+		}
+	})
+}
+
+// Keyword search finds a fact by the words it was saved with. When a question is phrased differently nothing matches,
+// and a model cannot invent the right synonym, but it can recognise a fact by meaning when shown the candidates: a miss
+// therefore lists the latest saved facts (bounded) and says to check them by meaning. No word list is involved.
+func TestMemorySearchTool_AMissShowsTheLatestFactsToCheckByMeaning(t *testing.T) {
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	seed := func(t *testing.T, contents ...string) *MemoryToolProvider {
+		provider := NewMemoryToolProvider(newRealTestStore(t))
+		for i, c := range contents {
+			scope := memory.ScopeWorkspace
+			if i%2 == 1 {
+				scope = memory.ScopeUser
+			}
+			if _, err := provider.Update(ctx, MemoryUpdateArgs{Content: c, Scope: scope, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return provider
+	}
+	search := func(provider *MemoryToolProvider) string {
+		got, err := provider.Search(ctx, searchArgs("zzqxj"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.(string)
+	}
+
+	t.Run("lists the saved facts of both scopes and says to check by meaning", func(t *testing.T) {
+		got := search(seed(t, "Alpha lanterns glow at dusk.", "Bravo orchards ripen in autumn."))
+		for _, want := range []string{"by meaning", "Alpha lanterns glow at dusk.", "Bravo orchards ripen in autumn."} {
+			if !strings.Contains(got, want) {
+				t.Errorf("the miss result lacks %q:\n%s", want, got)
+			}
+		}
+	})
+	t.Run("is bounded", func(t *testing.T) {
+		var facts []string
+		for i := 0; i < searchMissFactLimit+4; i++ {
+			facts = append(facts, fmt.Sprintf("Distinct%c%c subject number %d stays unique.", 'a'+i, 'k'+i, i))
+		}
+		got := search(seed(t, facts...))
+		if lines := strings.Count(got, "\n- "); lines != searchMissFactLimit {
+			t.Errorf("listed %d facts, want exactly %d:\n%s", lines, searchMissFactLimit, got)
+		}
+	})
+	t.Run("an outside sender in a connector chat is never shown the owner's facts", func(t *testing.T) {
+		provider := seed(t, "Alpha lanterns glow at dusk.")
+		got, err := provider.Search(models.WithOriginConnector(ctx, "telegram"), searchArgs("zzqxj"))
+		if err != nil || got.(string) != "no memories found matching that query" {
+			t.Errorf("a connector chat must get the plain miss, got %v, %v", got, err)
+		}
+	})
+	t.Run("an empty memory just says nothing matched", func(t *testing.T) {
+		if got := search(seed(t)); got != "no memories found matching that query" {
+			t.Errorf("got %q", got)
+		}
+	})
+}
+
+// A secret must never be stored, whatever the model decides: the prompt says so, but only code enforces it (a small
+// model saved "User's password is hunter2." on 2026-10-16 when the save reminder was widened).
+func TestMemorySavePath_RefusesSecrets(t *testing.T) {
+	secrets := []string{
+		"User's password is hunter2.",
+		"The staging API key is sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD.",
+		"My ssh key passphrase is correct-horse.",
+		"The deploy token is ghp_abcdefghijklmnop1234.",
+	}
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	for _, content := range secrets {
+		t.Run(content, func(t *testing.T) {
+			store := newRealTestStore(t)
+			provider := NewMemoryToolProvider(store)
+			got, err := provider.Update(ctx, updateArgs{Content: content, Scope: memory.ScopeUser, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent})
+			if err != nil || !strings.Contains(got.(string), "not saved") {
+				t.Errorf("Update = %v, %v; want a refusal that says it was not saved", got, err)
+			}
+			if _, err := provider.SaveFact(ctx, "ws-1", Fact{Content: content, Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); !errors.Is(err, ErrSecretContent) {
+				t.Errorf("SaveFact err = %v, want ErrSecretContent", err)
+			}
+			for _, ws := range []string{"ws-1", "global"} {
+				if entries, _ := store.List(context.Background(), ws, "", 10, 0); len(entries) != 0 {
+					t.Errorf("a secret was stored in %s: %+v", ws, entries)
+				}
+			}
+		})
+	}
+	// Tokens, keys and secrets are everywhere in legitimate project facts: only a stated credential value is refused.
+	for _, content := range []string{
+		"We deploy through the vertex host.",
+		"The context window is 16K tokens.",
+		"max_tokens is 8192 for this model.",
+		"The token budget is 4000 per run.",
+		"We rotate the staging API key every month.",
+		"Secrets live in secrets.json, encrypted.",
+	} {
+		t.Run("an ordinary fact still saves: "+content, func(t *testing.T) {
+			provider := NewMemoryToolProvider(newRealTestStore(t))
+			if _, err := provider.SaveFact(ctx, "ws-1", Fact{Content: content, Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); err != nil {
+				t.Errorf("SaveFact refused an ordinary fact: %v", err)
 			}
 		})
 	}

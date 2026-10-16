@@ -77,6 +77,7 @@ const (
 	// Memory
 	ToolMemorySearch = "memory_search"
 	ToolMemoryUpdate = "memory_update"
+	ToolMemoryForget = "memory_forget"
 
 	// Automation (unattended runs only)
 	ToolAutomationJournal = "automation_journal"

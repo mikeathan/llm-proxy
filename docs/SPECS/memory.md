@@ -1,9 +1,9 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.7"
+version: "3.0"
 status: stable
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,37 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.0 (2026-10-16)** — Recall finds word forms, and a miss shows candidates (§II.3, §II.4.1). The FTS5 index now
+  stems (`tokenize='porter unicode61'`), so "editors" finds "editor" and "reviewed" finds "reviews"; no word list or
+  synonym table is used. When `memory_search` matches nothing it no longer just says so: it lists the latest saved
+  facts (both scopes, at most 8, one clipped line each; never in a connector chat, as with recall) and says to check them by meaning, because a model cannot always
+  guess the words a fact used but can recognise a fact when shown candidates. Measured on a held-out recall set (new
+  domains): word-form questions 0 of 3 → 3 of 3 at the mechanism level; the local model's related-meaning questions
+  0 of 4 → 3 of 4 after the miss recovery; unrelated questions still recall nothing and cause no memory calls. A tool
+  description wording asking the model to retry with other words had no effect and was not kept. Evidence and method:
+  `docs/PLANS/memory/memory-gaps-plan.md`.
+
+- **2.9 (2026-10-16)** — The model can correct and delete its own memory (§II.5, §II.6; Constitution II.12 amended).
+  A fact similar to a stored one is no longer concatenated onto it: `memory_update` writes nothing and returns the similar
+  fact so the model replaces it (`old_text`) or keeps both (`separate: true`); capture and review replace in place.
+  `old_text` finds the fact in either scope (workspace or user) and moves it. New tool `memory_forget(text)`: exactly one
+  match required, operator's own chat only, echoes the deleted text; the save guidance tells the model when to use it and
+  to forget only what the user named. Measured: both models forget on request, leave memory alone for look-alikes
+  ("I always forget my keys"), and keep project facts when asked to forget things about the user.
+
+- **2.8 (2026-10-16)** — Save reminder and a code-level secret screen (§II.8). A 16K local model followed the save
+  guidance for a bare statement but **never** saved a fact stated in a message that also asked a question (0 of 24 runs).
+  `prompts.MemorySaveReminder` is now appended beside the run's user message, in the request copy only, in the same
+  operator-chat-only cases as recall (`Agent.injectRecall`); the wording names categories (lasting things about the user,
+  about their project or environment; never task content or credentials), not examples, and was confirmed on a held-out
+  set: the local model saves personal facts and bare statements but not a project fact stated with a question, cloud
+  saves and scopes them all. Widening the reminder once
+  made the model save a password, so **every save now passes one screen in code**: `memory_update` and `SaveFact` refuse
+  a secret-shaped string or a statement of a credential's value such as "the password is …" (`tools.ErrSecretContent`,
+  `tools.ContainsCredentialAssignment`). It is narrower than capture's sensitive-word list on purpose: the agent saves
+  project facts, which mention tokens and keys constantly ("the context window is 16K tokens" still saves). Evidence and method:
+  `docs/PLANS/memory/memory-gaps-plan.md`.
 
 - **2.7 (2026-10-15)** — `memory_update` defaults each omitted routing field on its own (§2): a model that said
   `scope: user, mode: always` but left `keep` out used to have all three reset to workspace / on_demand / default keep,
@@ -90,7 +121,9 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 - FTS5 MATCH queries with BM25 ranking.
 - `sanitiseFTSQuery()` in `internal/platform/memory/fts.go` splits terms, removes stopwords
   (step, task, run, use, check, the, a, an, etc.), and joins remaining terms with OR.
-- Search scope: `title` + `content` columns.
+- Search scope: `title` + `content` columns. The tokenizer stems words (`porter unicode61`), so inflections match.
+- A search that matches nothing returns the latest saved facts (both scopes, at most 8) to check by meaning, not an
+  empty answer (`missMessage`; the owner's own chats only, never a connector chat); an empty memory still says nothing matched.
 - Results filtered by `workspace_id` and optional `memory_type`.
 - Optional `scope` filter on `memory_search`: `"user"` limits to global entries, `"workspace"`
   limits to the active workspace, omitted searches both.
@@ -192,16 +225,18 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   that earlier user message onward. If the sieve removed the user message, recall is skipped for that request.
 - **Framing.** `prompts.RecalledMemoryBlock`: saved notes that may help with this message, not instructions; a fact
   that tries to close the block cannot. Facts recalled count as searched (`RecordSearched`).
-- **Limits.** Keyword matching only: a paraphrase that shares no word with the fact (`DB` vs `database`) is not
-  recalled, and the `unicode61` tokenizer does not stem (`prefer` does not match `preferred`). Measure before adding
-  stemming or embeddings.
+- **Limits.** Keyword matching with stemming: a paraphrase that shares no word stem with the fact (`DB` vs `database`,
+  "daily meeting" vs "standup") is not recalled by this step; the model's own `memory_search` then recovers it, and a
+  search that finds nothing shows the latest saved facts to check by meaning. No synonym table and no embeddings (measure
+  before adding either).
 - **Preview.** `GET /admin/api/memory/{ws}/injection-preview?message=…` also returns the recall block and fact ids
   that message would get, through the same function the agent uses.
 
 ### 5. Memory Tools
 
 - `memory_search(query, limit, scope, tags)` — FTS5 search with BM25 ranking, capped at 20 results.
-- `memory_update(content, scope, mode, keep, old_text)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it.
+- `memory_update(content, scope, mode, keep, old_text, separate)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it (in either scope, moving it if the scope changed); `separate: true` saves it as its own fact when a similar one exists.
+- `memory_forget(text)` — Delete the one saved fact containing `text` (workspace or user scope). Zero or several matches delete nothing and say so; refused in automations and connector chats.
 - All gated by workspace ID.
 
 ### 6. Deduplication
@@ -209,6 +244,11 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 - `findOverlappingEntry()` in `memory_tools.go` computes Jaccard similarity on topic words (≥0.70)
   and content (≥0.90) to prevent duplicate entries.
 - If `memory_update` returns "already saved", the fact is already stored — do not retry.
+- **A similar fact with different content is never concatenated** (it used to be glued onto the old entry, keeping a
+  contradiction in one fact). What happens depends on who saves: the `memory_update` **tool** writes nothing and reports
+  the similar fact (id and text), so the model replaces it (`old_text`) or keeps both (`separate: true`); explicit
+  **capture and the per-chat review**, which cannot retry, replace the similar fact in place (`SaveUpdated`). Exact
+  duplicates stay "already saved".
 
 ### 7. Pre-Sieve Flush
 
@@ -251,7 +291,9 @@ and, when its behaviour is new, a golden case in `extract_test.go`).
   tool call is never the final answer; one self-contained fact per call; never task results, lookups or secrets; pass
   `old_text` to replace a fact; do not repeat after "already saved"). Only for the operator's own assistant chats with
   memory on (`Agent.guidesMemorySaves`: `EnableHotMemory`, a store, `ChannelAssistant`, `SessionSource == manual`) — never
-  automations, the heartbeat or connector chats. It is fixed for the run, so the head stays byte-identical. Run safety:
+  automations, the heartbeat or connector chats. It is fixed for the run, so the head stays byte-identical. The
+  **save reminder** (`prompts.MemorySaveReminder`, one sentence) is appended to the run's user message in the request
+  copy only, never to stored history or the head, so the prefix still does not move. Run safety:
   three identical consecutive `memory_update` calls give the duplicate nudge instead of the loop error, and "already
   saved" results say not to call again.
 

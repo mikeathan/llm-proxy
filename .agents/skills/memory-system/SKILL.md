@@ -115,12 +115,14 @@ func (s Scope) Validate() error { ... }
 
 `findOverlappingEntry()` in `memory_tools.go` computes **Jaccard similarity** on normalized topic words. If J ≥ 0.70:
 - Same content → "already saved" (no-op)
-- Different content → appends to existing entry (prevents duplicates under same topic)
+- Different content → **never concatenated**. The `memory_update` tool writes nothing and returns the similar fact (id + text) so the model passes `old_text` to replace it or `separate: true` to keep both; capture and review (`SaveFact`) replace the similar fact in place (`SaveUpdated`)
+
+`memory_update` also takes `old_text` (replace the fact that contains it, in either scope, moving it if the scope changed) and `separate` (keep both). `memory_forget(text)` deletes the one saved fact containing the text: operator's own chat only, one match required, echoes what it deleted. Every save passes a code-level secret screen (`tools.ErrSecretContent`).
 
 ## Important Gotchas
 
 - The `<memory>` block lives in the head system message and never changes within a run (KV-cache stable). Nothing is injected before the current user turn.
-- **Per-turn recall (operator chat only, SPEC-004 §4.1):** `snapshotRecall` (`assistant/recall_memory.go`) searches the run's user message once per run (`memory.RecallQuery` strips chat stop words; no terms = no recall) and `injectRecall` appends up to 3 facts to that message in the request copy only — never the stored history or the head system message. Gated by `operatorMemoryChat()`, the same predicate as the save guidance; connector chats never get it. Hot + recall share the hot cap. `injection-preview?message=` shows it via the same `selectRecall`. Keyword-only: paraphrases without a shared word and unstemmed forms (`prefer`/`preferred`) miss.
+- **Per-turn recall (operator chat only, SPEC-004 §4.1):** `snapshotRecall` (`assistant/recall_memory.go`) searches the run's user message once per run (`memory.RecallQuery` strips chat stop words; no terms = no recall) and `injectRecall` appends up to 3 facts to that message in the request copy only — never the stored history or the head system message. Gated by `operatorMemoryChat()`, the same predicate as the save guidance; connector chats never get it. Hot + recall share the hot cap. `injection-preview?message=` shows it via the same `selectRecall`. Keyword + stemming (`porter unicode61`): word forms match (`prefer`/`preferred`), paraphrases that share no stem do not — the model then searches itself, and a `memory_search` that finds nothing returns the latest saved facts (≤ 8) to check by meaning (`missMessage`).
 - Memory is per-workspace. `workspace_id = 'global'` is reserved for cross-workspace user profile entries.
 - The `Search` method's `sanitiseFTSQuery` wraps each term in double-quotes and joins with `OR`. Without this, FTS5 crashes on consecutive `OR` operators.
 - Stop words (`step`, `task`, `run`, `use`, `check`) are filtered from the FTS5 query to prevent generic matches.

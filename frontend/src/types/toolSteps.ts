@@ -11,6 +11,7 @@ export const TOOL_KINDS = [
   'list',
   'memory-search',
   'memory-save',
+  'memory-forget',
   'network',
   'notify',
   'other',

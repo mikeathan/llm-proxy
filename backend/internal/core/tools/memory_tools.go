@@ -5,6 +5,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -26,6 +27,19 @@ func NewMemoryToolProvider(store *memory.Store) *MemoryToolProvider {
 
 // ── Three-tier route resolution ───────────────────────────────────────────
 
+// ErrSecretContent is returned when a fact that looks like a credential is offered for saving.
+var ErrSecretContent = errors.New("memory: content looks like a secret and is never stored")
+
+// memorySecretRefusal is what memory_update tells the model when it offers a secret.
+const memorySecretRefusal = "not saved: this looks like a password, key or token, and secrets are never stored in memory"
+
+// isSecretContent is the code-level screen every save passes: secret-shaped strings, and statements of a
+// credential's value. The prompt also says "never save secrets", but only this enforces it. It is narrower than
+// capture's sensitive-word list on purpose: the agent saves project facts, which mention tokens and keys constantly.
+func isSecretContent(content string) bool {
+	return ContainsSecret(content) || ContainsCredentialAssignment(content)
+}
+
 // MemoryRoute holds the store-level primitives that map from the model-facing
 // (scope, mode, keep) triple.  Only store primitives — the handler translates,
 // the store persists.
@@ -36,6 +50,12 @@ type MemoryRoute struct {
 }
 
 const (
+	// searchMissFactLimit bounds the saved facts a search that matched nothing shows for the model to check by meaning.
+	searchMissFactLimit = 8
+
+	// globalWorkspaceID is where user-scope facts live.
+	globalWorkspaceID = "global"
+
 	memorySourceAgent     = "agent"
 	memorySourceRunPrefix = "run:"
 )
@@ -119,7 +139,7 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 		return "", fmt.Errorf("memory search failed: %w", err)
 	}
 	if len(entries) == 0 {
-		return "no memories found matching that query", nil
+		return m.missMessage(ctx, wsID, args.Scope), nil
 	}
 	// Used = returned to the model. In-memory; the usage flusher writes it later.
 	m.store.RecordSearched(entries)
@@ -135,6 +155,41 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 		b.WriteString("\n")
 	}
 	return b.String(), nil
+}
+
+const (
+	searchMissNothing  = "no memories found matching that query"
+	searchMissIntro    = "no saved fact contains those words. These are the latest saved facts; if the user phrased the question differently, one of them may answer it by meaning:"
+	searchMissFactClip = 160
+)
+
+// missMessage is the result of a search that matched nothing. Keyword search finds a fact by the words it was saved with,
+// and a model cannot always guess the words the fact used, but it can recognise a fact by meaning when shown candidates,
+// so the latest saved facts (both scopes, bounded) follow, in the owner's own chats only. An empty memory, a failed
+// listing or a connector chat just says nothing matched.
+func (m *MemoryToolProvider) missMessage(ctx context.Context, wsID string, scope memory.Scope) string {
+	if models.OriginConnector(ctx) != "" {
+		return searchMissNothing // an outside sender is never shown the owner's facts, as with recall
+	}
+	facts, err := m.listAllMemories(ctx, wsID, scope, searchMissFactLimit)
+	if err != nil || len(facts) == 0 {
+		return searchMissNothing
+	}
+	var b strings.Builder
+	b.WriteString(searchMissIntro)
+	for _, e := range facts {
+		fmt.Fprintf(&b, "\n- %s", clipFact(e.Content, searchMissFactClip))
+	}
+	return b.String()
+}
+
+// clipFact shortens a fact to one line of at most limit characters.
+func clipFact(content string, limit int) string {
+	line := []rune(strings.Join(strings.Fields(content), " "))
+	if len(line) > limit {
+		return string(line[:limit]) + "…"
+	}
+	return string(line)
 }
 
 // listAllMemories returns all entries for the given scope without an FTS5 query.
@@ -178,33 +233,33 @@ func mergeAndCap(a, b []memory.MemoryEntry, limit int) []memory.MemoryEntry {
 	return result
 }
 
-// Update saves a new memory or updates an existing one. Uses scope, mode, and keep
-// to control where the fact goes and how long it lasts. When old_text is provided the
-// tool first tries to find a matching entry by content substring; if none is found it
-// falls through to create a new entry rather than erroring.
-func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
+// MemoryUpdateArgs are the model-facing arguments of memory_update (docs: manifests/memory.json).
+type MemoryUpdateArgs struct {
 	Content string       `json:"content"`
 	Scope   memory.Scope `json:"scope"`
 	Mode    memory.Mode  `json:"mode"`
 	Keep    memory.Keep  `json:"keep"`
 	OldText string       `json:"old_text"`
-}) (any, error) {
+	// Separate saves the fact as its own entry even when a similar one exists (otherwise the tool reports the similar fact).
+	Separate bool `json:"separate"`
+}
+
+// Update saves a new memory or updates an existing one. Uses scope, mode, and keep
+// to control where the fact goes and how long it lasts. When old_text is provided the
+// tool first tries to find a matching entry by content substring; if none is found it
+// falls through to create a new entry rather than erroring.
+func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) (any, error) {
 	if m.store == nil {
 		return "memory is not available", nil
 	}
 	if args.Content == "" {
 		return "content is required", nil
 	}
-	// Each omitted field takes its own default; what the model did state is kept.
-	if args.Scope == "" {
-		args.Scope = memory.ScopeWorkspace
+	if isSecretContent(args.Content) {
+		logging.Info("memory_update result", "action", "refused", "reason", "secret")
+		return memorySecretRefusal, nil
 	}
-	if args.Mode == "" {
-		args.Mode = memory.ModeOnDemand
-	}
-	if args.Keep == "" {
-		args.Keep = defaultKeep(ctx)
-	}
+	args.Scope, args.Mode, args.Keep = withRoutingDefaults(ctx, args.Scope, args.Mode, args.Keep)
 
 	wsID := models.GetWorkspaceID(ctx)
 	route, err := ResolveMemoryRoute(args.Scope, args.Mode, args.Keep, wsID)
@@ -215,25 +270,131 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 	saveWS := route.WorkspaceID
 
 	if args.OldText != "" {
-		existing, err := m.store.FindByContentSubstring(ctx, saveWS, args.OldText)
-		if err == nil {
-			title := deriveTitle(args.Content)
-			if err := m.store.Update(ctx, saveWS, existing.ID, title, args.Content, route.Tags, memory.ReplaceTags); err != nil {
-				return "", fmt.Errorf("memory update failed: %w", err)
-			}
-			logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "old_text")
-			return fmt.Sprintf("updated memory entry %d (type: %s)", existing.ID, route.MemoryType), nil
-		}
-		if !strings.Contains(err.Error(), "no memory entry matching") {
-			return "", fmt.Errorf("memory update failed: %w", err)
+		if msg, replaced, err := m.replaceByOldText(ctx, route, wsID, args); err != nil || replaced {
+			return msg, err
 		}
 	}
 
-	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType)})
+	policy := overlapReport
+	if args.Separate {
+		policy = overlapSeparate
+	}
+	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), onOverlap: policy})
 	if err != nil {
 		return "", err
 	}
 	return res.message(), nil
+}
+
+// replaceByOldText replaces the fact that contains args.OldText with the new content. It looks in the scope the new
+// fact goes to first; failing that, in the other scope (the workspace's and the user's), and then moves the fact: a
+// fact "that actually applies to all my projects" must not leave a second copy behind. replaced is false when no fact
+// matches, so the caller saves the content as a new fact.
+func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryRoute, workspaceID string, args MemoryUpdateArgs) (msg string, replaced bool, err error) {
+	title := deriveTitle(args.Content)
+	existing, err := m.store.FindByContentSubstring(ctx, route.WorkspaceID, args.OldText)
+	if err == nil {
+		if err := m.store.Update(ctx, route.WorkspaceID, existing.ID, title, args.Content, route.Tags, memory.ReplaceTags); err != nil {
+			return "", false, fmt.Errorf("memory update failed: %w", err)
+		}
+		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "old_text")
+		return fmt.Sprintf("updated memory entry %d (type: %s)", existing.ID, route.MemoryType), true, nil
+	}
+	if !strings.Contains(err.Error(), "no memory entry matching") {
+		return "", false, fmt.Errorf("memory update failed: %w", err)
+	}
+
+	otherWS := globalWorkspaceID
+	if route.WorkspaceID == globalWorkspaceID {
+		otherWS = workspaceID
+	}
+	old, err := m.store.FindByContentSubstring(ctx, otherWS, args.OldText)
+	if err != nil {
+		return "", false, nil // no match in either scope: the caller saves a new fact
+	}
+	id, err := m.store.Insert(ctx, route.WorkspaceID, memory.MemoryType(route.MemoryType), title, args.Content, route.Tags, memorySource(ctx))
+	if err != nil {
+		return "", false, fmt.Errorf("memory update failed: %w", err)
+	}
+	if err := m.store.Delete(ctx, otherWS, old.ID); err != nil {
+		return "", false, fmt.Errorf("memory update failed: %w", err)
+	}
+	logging.Info("memory_update result", "action", "moved", "from_id", old.ID, "to_id", id, "match", "old_text")
+	return fmt.Sprintf("moved and updated memory entry %d to %d (type: %s)", old.ID, id, route.MemoryType), true, nil
+}
+
+// MemoryForgetArgs are the model-facing arguments of memory_forget.
+type MemoryForgetArgs struct {
+	// Text is a unique part of the saved fact to delete.
+	Text string `json:"text"`
+}
+
+const (
+	forgetMinTextLen  = 3 // shorter text would match almost any fact
+	forgetScanLimit   = 500
+	forgetCandidates  = 5 // how many matches to show when the text is ambiguous
+	forgetOperatorMsg = "memory_forget is only available in the operator's own chat, not in automations or connector chats"
+)
+
+// Forget deletes the one saved fact that contains args.Text, in the workspace's or the user's scope. It deletes only
+// on an unambiguous match, only in the operator's own chat (an automation or an outside sender must not erase what the
+// owner saved), and says what it deleted.
+func (m *MemoryToolProvider) Forget(ctx context.Context, args MemoryForgetArgs) (any, error) {
+	if m.store == nil {
+		return "memory is not available", nil
+	}
+	if models.IsUnattendedRun(ctx) || models.OriginConnector(ctx) != "" {
+		return forgetOperatorMsg, nil
+	}
+	text := strings.ToLower(strings.TrimSpace(args.Text))
+	if len(text) < forgetMinTextLen {
+		return fmt.Sprintf("text is required: give at least %d characters from the fact to forget", forgetMinTextLen), nil
+	}
+	matches, err := m.forgetMatches(ctx, text)
+	if err != nil {
+		return "", fmt.Errorf("memory forget failed: %w", err)
+	}
+	switch len(matches) {
+	case 0:
+		return "no saved fact contains that text; nothing was forgotten", nil
+	case 1:
+		if err := m.store.Delete(ctx, matches[0].WorkspaceID, matches[0].ID); err != nil {
+			return "", fmt.Errorf("memory forget failed: %w", err)
+		}
+		logging.Info("memory_forget result", "action", "deleted", "id", matches[0].ID, "workspace", matches[0].WorkspaceID)
+		return fmt.Sprintf("forgot memory entry %d: %q", matches[0].ID, matches[0].Content), nil
+	}
+	return ambiguousForgetMessage(matches), nil
+}
+
+// forgetMatches lists the facts of the workspace and of the user whose text contains the lower-cased text.
+func (m *MemoryToolProvider) forgetMatches(ctx context.Context, text string) ([]memory.MemoryEntry, error) {
+	var matches []memory.MemoryEntry
+	for _, ws := range []string{models.GetWorkspaceID(ctx), globalWorkspaceID} {
+		entries, err := m.store.List(ctx, ws, "", forgetScanLimit, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if strings.Contains(strings.ToLower(e.Content), text) {
+				matches = append(matches, e)
+			}
+		}
+	}
+	return matches, nil
+}
+
+// ambiguousForgetMessage asks the model for more of the fact's own words, showing a few candidates.
+func ambiguousForgetMessage(matches []memory.MemoryEntry) string {
+	var b strings.Builder
+	b.WriteString("more than one saved fact contains that text; nothing was forgotten. Call memory_forget again with more of the fact's own words:")
+	for i, e := range matches {
+		if i == forgetCandidates {
+			break
+		}
+		fmt.Fprintf(&b, "\n- id %d: %q", e.ID, e.Content)
+	}
+	return b.String()
 }
 
 // SaveOutcome is what saving a fact did.
@@ -243,6 +404,17 @@ const (
 	SaveCreated SaveOutcome = iota + 1
 	SaveUpdated
 	SaveDuplicate
+	// SaveConflict: nothing was written because a similar fact exists; the model chooses to replace or keep both.
+	SaveConflict
+)
+
+// overlapPolicy is what saving does when a similar fact already exists.
+type overlapPolicy int
+
+const (
+	overlapReport   overlapPolicy = iota // the tool reports the similar fact and writes nothing
+	overlapSeparate                      // the new fact is saved as its own entry
+	overlapReplace                       // the similar fact is replaced in place (capture and review cannot retry)
 )
 
 // SaveResult describes a save: what happened, which entry it touched (0 for an exact-content duplicate) and its type.
@@ -250,6 +422,8 @@ type SaveResult struct {
 	Outcome SaveOutcome
 	ID      int64
 	Type    memory.MemoryType
+	// Existing is the similar fact's text, set for SaveConflict.
+	Existing string
 }
 
 // message renders the result in the wording memory_update has always returned to the model.
@@ -261,6 +435,9 @@ func (r SaveResult) message() string {
 		return fmt.Sprintf("already saved — duplicate content (type: %s); do not call memory_update again", r.Type)
 	case r.Outcome == SaveUpdated:
 		return fmt.Sprintf("updated memory entry %d (type: %s)", r.ID, r.Type)
+	case r.Outcome == SaveConflict:
+		return fmt.Sprintf("not saved: a similar fact already exists (id: %d): %q. If the new content replaces it, call %s again with old_text set to a unique part of that fact. If it is a different fact, call %s again with the same content and separate set to true.",
+			r.ID, r.Existing, models.ToolMemoryUpdate, models.ToolMemoryUpdate)
 	default:
 		return fmt.Sprintf("saved to memory (id: %d, type: %s)", r.ID, r.Type)
 	}
@@ -281,12 +458,15 @@ func (m *MemoryToolProvider) SaveFact(ctx context.Context, workspaceID string, f
 	if m.store == nil {
 		return SaveResult{}, fmt.Errorf("memory is not available")
 	}
+	if isSecretContent(f.Content) {
+		return SaveResult{}, ErrSecretContent
+	}
 	route, err := ResolveMemoryRoute(f.Scope, f.Mode, f.Keep, workspaceID)
 	if err != nil {
 		return SaveResult{}, err
 	}
 	ctx = models.WithWorkspaceID(ctx, route.WorkspaceID)
-	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source})
+	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source, onOverlap: overlapReplace})
 }
 
 // HasFact reports whether the workspace already holds this fact, exactly or as a near-duplicate.
@@ -307,9 +487,10 @@ type saveRequest struct {
 	tags        []string
 	memType     memory.MemoryType
 	source      string
+	onOverlap   overlapPolicy
 }
 
-// insertFact saves content with Jaccard similarity dedup and exact content match.
+// insertFact saves content with Jaccard similarity dedup and exact content match; req.onOverlap says what a similar fact does.
 // The title is auto-derived from content so the model doesn't need to provide one.
 func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (SaveResult, error) {
 	title := deriveTitle(req.content)
@@ -320,12 +501,17 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 			logging.Info("memory_update result", "action", "already_saved", "existing_id", existing.ID, "match", "jaccard")
 			return SaveResult{Outcome: SaveDuplicate, ID: existing.ID, Type: req.memType}, nil
 		}
-		combined := existing.Content + "\n" + req.content
-		if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, combined, req.tags, memory.MergeTags); err != nil {
-			return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
+		switch req.onOverlap {
+		case overlapReport:
+			logging.Info("memory_update result", "action", "conflict", "existing_id", existing.ID, "match", "jaccard")
+			return SaveResult{Outcome: SaveConflict, ID: existing.ID, Type: req.memType, Existing: existing.Content}, nil
+		case overlapReplace:
+			if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, req.content, req.tags, memory.MergeTags); err != nil {
+				return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
+			}
+			logging.Info("memory_update result", "action", "replaced", "existing_id", existing.ID, "match", "jaccard")
+			return SaveResult{Outcome: SaveUpdated, ID: existing.ID, Type: req.memType}, nil
 		}
-		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "jaccard")
-		return SaveResult{Outcome: SaveUpdated, ID: existing.ID, Type: req.memType}, nil
 	}
 
 	exists, err := m.store.Exists(ctx, req.workspaceID, req.content)
@@ -346,6 +532,20 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 	}
 	logging.Info("memory_update result", "action", "created", "id", id, "memory_type", string(req.memType))
 	return SaveResult{Outcome: SaveCreated, ID: id, Type: req.memType}, nil
+}
+
+// withRoutingDefaults fills each omitted routing field on its own; what the model did state is kept.
+func withRoutingDefaults(ctx context.Context, scope memory.Scope, mode memory.Mode, keep memory.Keep) (memory.Scope, memory.Mode, memory.Keep) {
+	if scope == "" {
+		scope = memory.ScopeWorkspace
+	}
+	if mode == "" {
+		mode = memory.ModeOnDemand
+	}
+	if keep == "" {
+		keep = defaultKeep(ctx)
+	}
+	return scope, mode, keep
 }
 
 // defaultKeep is the retention an unspecified memory_update gets. Unattended
