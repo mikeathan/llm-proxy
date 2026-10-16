@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from "vue"
 import { useModels } from "../composables/models/useModels"
 import { useMetrics } from "../composables/system/useMetrics"
-import { summariseHost } from "../domain/hostStats"
+import { MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadMeterState, summariseHost } from "../domain/hostStats"
 import { useGlobalRunActivity } from "../composables/assistant/useGlobalRunActivity"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { toAutomations, toModels } from "../router/routes"
@@ -32,7 +32,6 @@ import ErrorState from "../components/common/feedback/ErrorState.vue"
 // so it is labelled "since page load".
 
 const MB_PER_GB = 1024
-const VRAM_BUSY_PERCENT = 75
 const RECENT_RUNS = 5
 const HISTORY_CAPTION = "since page load"
 const NO_VALUE = "—"
@@ -65,6 +64,7 @@ const gpu = computed(() => {
     name: g.name,
     temperature: hasTemperature ? String(Math.round(g.temperatureC as number)) : NO_VALUE,
     temperatureCaption: hasTemperature ? undefined : "Temperature not reported",
+    corePercent: g.corePercent,
     vramPercent: g.vramPercent,
     vramText: g.vramText,
   }
@@ -132,10 +132,11 @@ const runKey = (run: AutomationRun) => run.id
           <Sparkline :values="loadHistory" label="CPU load" unit="%" state="info" />
         </StatCard>
         <StatCard v-if="memory" label="Memory" :value="memory.used" :unit="`/ ${memory.total} GB`">
-          <Meter label="Memory used" :value="memory.percent" />
+          <Meter label="Memory used" :value="memory.percent" :state="loadMeterState(memory.percent, MEMORY_THRESHOLDS)" />
         </StatCard>
         <StatCard v-if="gpu" :label="gpu.name" :value="gpu.temperature" :unit="gpu.temperatureCaption ? undefined : '°C'" :caption="gpu.temperatureCaption">
-          <Meter label="VRAM used" :value="gpu.vramPercent" :text="gpu.vramText" :state="gpu.vramPercent > VRAM_BUSY_PERCENT ? 'running' : 'info'" />
+          <Meter label="GPU load" :value="gpu.corePercent" :text="`${Math.round(gpu.corePercent)}%`" :state="loadMeterState(gpu.corePercent)" />
+          <Meter label="VRAM used" :value="gpu.vramPercent" :text="gpu.vramText" :state="loadMeterState(gpu.vramPercent, VRAM_THRESHOLDS)" />
         </StatCard>
         <StatCard v-else label="GPU" :value="NO_VALUE" :caption="metrics.gpu_error || 'No GPU detected'" />
       </div>

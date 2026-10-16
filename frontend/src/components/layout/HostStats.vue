@@ -2,7 +2,7 @@
 import { computed, ref } from "vue"
 import { useMetrics } from "../../composables/system/useMetrics"
 import { useDismissable } from "../../composables/ui/useDismissable"
-import { BUSY_PERCENT, MEMORY_THRESHOLDS, loadLevel, summariseHost } from "../../domain/hostStats"
+import { MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseHost } from "../../domain/hostStats"
 import { formatPercent, formatTokenRate } from "../../utils/format/units"
 import { toOverview } from "../../router/routes"
 import type { LoadLevel } from "../../types/metrics"
@@ -18,7 +18,6 @@ import StatCard from "../common/display/StatCard.vue"
 // reads it, so the strip costs a few text nodes per poll. Below `md` only the
 // throughput stays in the strip; the panel becomes a bottom sheet.
 
-const VRAM_BUSY_PERCENT = 75
 const NO_VALUE = "Not reported"
 const LEVEL_CLASS: Record<LoadLevel, string> = {
   ok: "text-secondary",
@@ -33,8 +32,6 @@ const tpsHistory = computed(() => history.value.map((s) => Number(formatTokenRat
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 useDismissable(root, open)
-
-const meterState = (percent: number, busyAt: number) => (percent >= busyAt ? "running" : "info")
 </script>
 
 <template>
@@ -68,19 +65,16 @@ const meterState = (percent: number, busyAt: number) => (percent >= busyAt ? "ru
     <PopoverPanel v-if="open" id="host-stats-panel" title="System stats" width="sm:w-[340px]" @close="open = false">
       <section class="flex flex-col gap-3 border-b border-hairline p-3">
         <MicroLabel>Host resources</MicroLabel>
-        <Meter label="CPU load" :value="host.cpuPercent" :text="formatPercent(host.cpuPercent)" :state="meterState(host.cpuPercent, BUSY_PERCENT)" />
-        <Meter label="Memory used" :value="host.memory.percent" :text="host.memory.text" :state="meterState(host.memory.percent, MEMORY_THRESHOLDS.busy)" />
+        <Meter label="CPU load" :value="host.cpuPercent" :text="formatPercent(host.cpuPercent)" :state="loadMeterState(host.cpuPercent)" />
+        <Meter label="Memory used" :value="host.memory.percent" :text="host.memory.text" :state="loadMeterState(host.memory.percent, MEMORY_THRESHOLDS)" />
       </section>
 
       <section class="flex flex-col gap-3 border-b border-hairline p-3">
         <MicroLabel>{{ host.gpu ? host.gpu.name : "GPU" }}</MicroLabel>
         <template v-if="host.gpu">
-          <Meter label="VRAM used" :value="host.gpu.vramPercent" :text="host.gpu.vramText" :state="meterState(host.gpu.vramPercent, VRAM_BUSY_PERCENT)" />
+          <Meter label="GPU load" :value="host.gpu.corePercent" :text="formatPercent(host.gpu.corePercent)" :state="loadMeterState(host.gpu.corePercent)" />
+          <Meter label="VRAM used" :value="host.gpu.vramPercent" :text="host.gpu.vramText" :state="loadMeterState(host.gpu.vramPercent, VRAM_THRESHOLDS)" />
           <dl class="m-0 flex flex-col gap-1.5 text-[length:var(--text-small)]">
-            <div class="flex justify-between gap-2">
-              <dt class="text-muted">Core utilization</dt>
-              <dd class="m-0 font-mono tabular-nums text-secondary">{{ formatPercent(host.gpu.corePercent) }}</dd>
-            </div>
             <div class="flex justify-between gap-2">
               <dt class="text-muted">Temperature</dt>
               <dd class="m-0 font-mono tabular-nums text-secondary">{{ host.gpu.temperatureC === null ? NO_VALUE : `${Math.round(host.gpu.temperatureC)}°C` }}</dd>

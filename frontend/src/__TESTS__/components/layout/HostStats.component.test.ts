@@ -103,7 +103,7 @@ describe('HostStats (header strip)', () => {
     const panel = panelOf(w)
     expect(panel.attributes('role')).toBe('dialog')
     expect(panel.attributes('aria-label')).toBe('System stats')
-    for (const name of ['CPU load', 'Memory used', 'VRAM used']) expect(panel.find(`[role="meter"][aria-label="${name}"]`).exists()).toBe(true)
+    for (const name of ['CPU load', 'Memory used', 'GPU load', 'VRAM used']) expect(panel.find(`[role="meter"][aria-label="${name}"]`).exists()).toBe(true)
     expect(panel.get('[role="meter"][aria-label="Memory used"]').attributes('aria-valuetext')).toBe('7.3 / 46.8 GB')
     expect(panel.get('[role="meter"][aria-label="VRAM used"]').attributes('aria-valuetext')).toBe('15.9 / 16.0 GB')
     expect(panel.text()).toContain('Apple GPU')

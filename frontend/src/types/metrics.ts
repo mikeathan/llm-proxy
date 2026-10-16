@@ -27,6 +27,9 @@ export interface MetricsSample {
 
 export type LoadLevel = 'ok' | 'busy' | 'high'
 
+/** The colour a meter takes: a load level mapped through `loadMeterState` (domain/hostStats). */
+export type MeterState = 'info' | 'running' | 'error'
+
 // One metrics sample reduced to what the header strip and Overview show.
 export interface HostSummary {
   cpuPercent: number

@@ -78,7 +78,7 @@ describe('Overview', () => {
     expect(values).toEqual(['48.6', '42', '8.0', '61'])
     expect(w.findAll('[role="img"]')).toHaveLength(2)
     const meters = w.findAll('[role="meter"]').map((m) => [m.attributes('aria-label'), m.attributes('aria-valuenow')])
-    expect(meters).toEqual([['Memory used', '50'], ['VRAM used', '75']])
+    expect(meters).toEqual([['Memory used', '50'], ['GPU load', '30'], ['VRAM used', '75']])
     expect(w.text()).toContain('since page load')
   })
 

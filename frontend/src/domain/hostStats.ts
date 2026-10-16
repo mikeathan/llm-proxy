@@ -1,4 +1,4 @@
-import type { GpuInfo, HostSummary, LoadLevel, SystemMetrics } from '../types/metrics'
+import type { GpuInfo, HostSummary, LoadLevel, MeterState, SystemMetrics } from '../types/metrics'
 import { formatMemoryUsage } from '../utils/format/units'
 
 // Pure view-model of one /admin/api/metrics sample, shared by the header strip
@@ -9,8 +9,15 @@ export const HIGH_PERCENT = 80
 // Used memory includes the OS cache, so the same load means less: a box at 70%
 // is normal, not a warning.
 export const MEMORY_THRESHOLDS = { busy: 75, high: 90 } as const
+// A model that is loaded fills VRAM on purpose, so full VRAM is busy but never an alarm.
+export const VRAM_THRESHOLDS = { busy: 75, high: Infinity } as const
 const DEFAULT_THRESHOLDS = { busy: BUSY_PERCENT, high: HIGH_PERCENT }
 const PERCENT = 100
+
+/** The colour a meter takes for a load level: one rule for the header figures and every meter. */
+const METER_STATE: Record<LoadLevel, MeterState> = { ok: 'info', busy: 'running', high: 'error' }
+export const loadMeterState = (percent: number, thresholds: { busy: number; high: number } = DEFAULT_THRESHOLDS): MeterState =>
+  METER_STATE[loadLevel(percent, thresholds)]
 
 /** How loaded a resource is: drives the colour (never the only signal — the number is always shown). */
 export function loadLevel(percent: number, thresholds: { busy: number; high: number } = DEFAULT_THRESHOLDS): LoadLevel {

@@ -5,11 +5,11 @@ import MicroLabel from "./MicroLabel.vue"
 // Ruler meter: a continuous fill over a 1-bit dithered track with a tick every
 // 10%. role="meter" with value attributes; the value is also written as text.
 const props = withDefaults(
-  defineProps<{ label: string; value: number; max?: number; state?: "info" | "running" | "success"; text?: string }>(),
+  defineProps<{ label: string; value: number; max?: number; state?: "info" | "running" | "success" | "error"; text?: string }>(),
   { max: 100, state: "info" },
 )
 
-const STATE_CLASS = { info: "text-accent-info", running: "text-state-running", success: "text-state-success" } as const
+const STATE_CLASS = { info: "text-accent-info", running: "text-state-running", success: "text-state-success", error: "text-state-error" } as const
 const PERCENT = 100
 
 const percent = computed(() => Math.min(Math.max(props.value, 0), props.max) / props.max * PERCENT)
