@@ -13,6 +13,7 @@ import json, os, re, sys, time, urllib.request, urllib.error
 BASE, LABEL, MODELS = sys.argv[1].rstrip('/'), sys.argv[2], sys.argv[3:]
 WS = 'eval'
 OUT = os.path.dirname(os.path.abspath(__file__))
+EXCLUDE = [t for t in os.environ.get('EVAL_EXCLUDE_TOOLS', '').split(',') if t]  # e.g. execute_terminal_command: stops D1 stalling on a guardrail approval
 POLL_S, RUN_TIMEOUT_S = 4, 900
 
 NEWS = ("Summarize these release notes into three bullet points, most important first:\n"
@@ -47,7 +48,10 @@ def history(conv):
 
 
 def run(conv, msg, expect_users):
-    st, d = call('POST', '/admin/api/conversation/message', {'workspace_id': WS, 'conversation_id': conv, 'message': msg})
+    payload = {'workspace_id': WS, 'conversation_id': conv, 'message': msg}
+    if EXCLUDE:
+        payload['exclude_tools'] = EXCLUDE
+    st, d = call('POST', '/admin/api/conversation/message', payload)
     if st not in (200, 202):
         return {'error': f'send {st} {d}'}
     t0, deadline = time.time(), time.time() + RUN_TIMEOUT_S
