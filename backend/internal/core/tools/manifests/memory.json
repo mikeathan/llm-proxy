@@ -66,6 +66,19 @@
         },
         "required": ["content", "scope", "mode", "keep"]
       }
+    },
+    "memory_forget": {
+      "description": "Delete one saved fact when the user asks you to forget it or says it is wrong. Give a unique part of the fact's own words. It deletes only when exactly one saved fact matches, and tells you what it deleted.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "A unique part of the saved fact to forget (at least 3 characters)"
+          }
+        },
+        "required": ["text"]
+      }
     }
   },
   "guardrails": {

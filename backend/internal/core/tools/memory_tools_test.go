@@ -801,6 +801,70 @@ func TestMemoryUpdateTool_OldTextMovesAFactBetweenScopes(t *testing.T) {
 	}
 }
 
+// memory_forget deletes a wrong or unwanted fact, but only on an unambiguous match, only in the operator's own chat,
+// and it echoes what it deleted so the model (and the transcript) can show it.
+func TestMemoryForgetTool(t *testing.T) {
+	seed := func(t *testing.T) (*memory.Store, *MemoryToolProvider) {
+		store := newRealTestStore(t)
+		provider := NewMemoryToolProvider(store)
+		ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+		for _, a := range []MemoryUpdateArgs{
+			{Content: "We deploy through the vertex host.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent},
+			{Content: "The staging database runs on port 5433.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent},
+			{Content: "I prefer tabs in Go files.", Scope: memory.ScopeUser, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent},
+		} {
+			if _, err := provider.Update(ctx, a); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return store, provider
+	}
+	count := func(store *memory.Store) int {
+		a, _ := store.List(context.Background(), "ws-1", "", 20, 0)
+		b, _ := store.List(context.Background(), "global", "", 20, 0)
+		return len(a) + len(b)
+	}
+	chat := models.WithWorkspaceID(context.Background(), "ws-1")
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		text      string
+		wantInMsg string
+		wantLeft  int
+	}{
+		{"deletes the one match in the workspace", chat, "vertex host", "forgot", 2},
+		{"deletes the one match in the user scope", chat, "tabs", "forgot", 2},
+		{"says so when nothing matches", chat, "no such thing", "no saved fact", 3},
+		{"asks for more when several match", chat, "the", "more than one", 3},
+		{"needs real text", chat, "  ", "required", 3},
+		{"refused in an automation", models.WithUnattendedRun(chat), "vertex host", "operator", 3},
+		{"refused for a connector chat", models.WithOriginConnector(chat, "telegram"), "vertex host", "operator", 3},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store, provider := seed(t)
+			got, err := provider.Forget(tc.ctx, MemoryForgetArgs{Text: tc.text})
+			if err != nil {
+				t.Fatalf("Forget: %v", err)
+			}
+			if msg, _ := got.(string); !strings.Contains(strings.ToLower(msg), tc.wantInMsg) {
+				t.Errorf("result %q lacks %q", got, tc.wantInMsg)
+			}
+			if left := count(store); left != tc.wantLeft {
+				t.Errorf("facts left = %d, want %d", left, tc.wantLeft)
+			}
+		})
+	}
+	t.Run("echoes the deleted text", func(t *testing.T) {
+		_, provider := seed(t)
+		got, _ := provider.Forget(chat, MemoryForgetArgs{Text: "port 5433"})
+		if msg, _ := got.(string); !strings.Contains(msg, "The staging database runs on port 5433.") {
+			t.Errorf("the result must echo the deleted fact: %v", got)
+		}
+	})
+}
+
 // A secret must never be stored, whatever the model decides: the prompt says so, but only code enforces it (a small
 // model saved "User's password is hunter2." on 2026-10-16 when the save reminder was widened).
 func TestMemorySavePath_RefusesSecrets(t *testing.T) {

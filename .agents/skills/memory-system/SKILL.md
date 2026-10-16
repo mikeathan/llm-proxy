@@ -117,6 +117,8 @@ func (s Scope) Validate() error { ... }
 - Same content → "already saved" (no-op)
 - Different content → **never concatenated**. The `memory_update` tool writes nothing and returns the similar fact (id + text) so the model passes `old_text` to replace it or `separate: true` to keep both; capture and review (`SaveFact`) replace the similar fact in place (`SaveUpdated`)
 
+`memory_update` also takes `old_text` (replace the fact that contains it, in either scope, moving it if the scope changed) and `separate` (keep both). `memory_forget(text)` deletes the one saved fact containing the text: operator's own chat only, one match required, echoes what it deleted. Every save passes a code-level secret screen (`tools.ErrSecretContent`).
+
 ## Important Gotchas
 
 - The `<memory>` block lives in the head system message and never changes within a run (KV-cache stable). Nothing is injected before the current user turn.

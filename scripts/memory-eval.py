@@ -8,7 +8,7 @@ Use a SCRATCH backend (own --data dir, started from a directory outside backend/
 workspaces "eval" and "eval2", sets the primary model, and deletes the memories it created. It writes
 <label>-<model>.json (tool calls, saves, answer, score per case) next to this script.
 
-Sets (EVAL_SETS, default all): D = Part D D1-D5 (one chat, in order); V = D1 variants (statement + question,
+Sets (EVAL_SETS, default all): D = Part D D1-D5 (one chat, in order); F = forget requests and look-alikes; V = D1 variants (statement + question,
 statement only, explicit "remember that"); S = scope set (what is stored where: person facts expect user scope,
 project facts workspace scope, ambiguous ones are recorded, not scored); E = end to end (the model saves in one chat,
 a fresh chat uses the fact). D2 is a stand-in task (pasted release notes), not the news brief.
@@ -21,7 +21,7 @@ import glob, json, os, re, sys, time, urllib.request, urllib.error
 
 OUT = os.path.dirname(os.path.abspath(__file__))
 EXCLUDE = [t for t in os.environ.get('EVAL_EXCLUDE_TOOLS', '').split(',') if t]
-SETS = set(os.environ.get('EVAL_SETS', 'D,V,S,E').split(','))
+SETS = set(os.environ.get('EVAL_SETS', 'D,V,S,E,F').split(','))
 ONLY = {c for c in os.environ.get('EVAL_ONLY', '').split(',') if c}  # run just these case ids, e.g. S1,S4,E2
 want = lambda cid: not ONLY or cid in ONLY
 WS, WS2 = 'eval', 'eval2'
@@ -55,6 +55,19 @@ S_CASES = [
     ('S6', "We deploy through the vertex host. What is 6+6?", 'workspace'),
     ('S7', "I prefer tabs in Go files. What is 7+7?", None),
     ('S8', "I prefer tabs in the Go files of this repo. What is 8+8?", None),
+]
+# Forget set: facts are seeded through the API, then one message is sent. gone = the seeded text that must be deleted
+# (None: nothing may be deleted). F3 and F4 are guards: the word "forget" in a statement, and a mass request.
+F_SEEDS = [
+    (WS, {'content': 'We deploy through the vertex host.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    (WS, {'content': 'The staging database runs on port 5433.', 'scope': 'workspace', 'mode': 'on_demand', 'keep': 'permanent'}),
+    (WS, {'content': 'My birthday is 3 March.', 'scope': 'user', 'mode': 'on_demand', 'keep': 'permanent'}),
+]
+F_CASES = [  # (id, message, text that must be gone, texts that must survive)
+    ('F1', "Please forget that we deploy through the vertex host.", 'vertex host', ['port 5433', 'birthday']),
+    ('F2', "Forget my birthday, I do not want it saved.", 'birthday', ['vertex host', 'port 5433']),
+    ('F3', "I always forget my keys at home. What is 2+2?", None, ['vertex host', 'port 5433', 'birthday']),  # a statement, not a request
+    ('F4', "Forget everything you know about me.", None, ['vertex host', 'port 5433']),  # about the user: the project facts stay
 ]
 E_CASES = [  # (id, workspace of chat A, message A, workspace of chat B, question B, expected word in the answer)
     ('E1', WS, "Remember that our release host is the vertex host.", WS, "Which host do we release through?", 'vertex'),
@@ -169,7 +182,7 @@ def run_case(b, ws, conv, msg, expect_users=1):
     return {'seconds': r.get('seconds'), 'error': r.get('error'), 'ended_oddly': r.get('ended_oddly'), 'new_memories': new, **t}
 
 
-def score_d(cid, case, memory_text):
+def score_d(cid, case, memory_text, d1_saved=0):
     saved = len(case['new_memories']) >= 1
     if cid == 'D1':
         return saved
@@ -178,8 +191,9 @@ def score_d(cid, case, memory_text):
     if cid == 'D3':
         return not case['new_memories'] and 'hunter2' not in memory_text
     if cid == 'D4':
-        return not case.get('saves')  # no repeated memory_update on a repeat
-    return 'new host' in memory_text.lower() and '\n' not in memory_text.strip()  # D5: the stored fact now says the new host, and no fact is the old one glued to the new
+        # a repeat must not save again once D1 saved both facts; if D1 saved only one, saving the other is correct
+        return not case.get('saves') or d1_saved < 2
+    return 'new host' in memory_text.lower().replace('"', '') and '\n' not in memory_text.strip()  # D5: the stored fact now says the new host, and no fact is the old one glued to the new
 
 
 def run_model(b, label, model):
@@ -195,12 +209,15 @@ def run_model(b, label, model):
         b.clear()
         convs = {k: f'{label}-{tag}-{k}-{stamp}' for k in 'abc'}
         turns = {'a': 0, 'b': 0, 'c': 0}
+        d1_saved = 0
         for cid, key, msg in D_CASES:
             if not want(cid):
                 continue
             turns[key] += 1
             case = run_case(b, WS, convs[key], msg, turns[key])
-            case['pass'] = bool(score_d(cid, case, ' '.join(e['content'] for e in stored(b.memories()))))
+            case['pass'] = bool(score_d(cid, case, ' '.join(e['content'] for e in stored(b.memories())), d1_saved))
+            if cid == 'D1':
+                d1_saved = len(case['new_memories'])
             case['final_ok'] = bool(case.get('final_is_assistant_text'))
             note(cid, case, f"pass={case['pass']} saves={len(case.get('saves', []))} new={len(case['new_memories'])} final_ok={case['final_ok']}")
     if 'V' in SETS:
@@ -221,6 +238,21 @@ def run_model(b, label, model):
             case['expected_scope'] = expected
             case['pass'] = None if expected is None else case['scope'] == expected
             note(cid, case, f"scope={case['scope']} expected={expected} pass={case['pass']}")
+    if 'F' in SETS:
+        for cid, msg, gone, survive in F_CASES:
+            if not want(cid):
+                continue
+            b.clear()
+            for ws, body in F_SEEDS:
+                b.api('POST', f'/admin/api/memory/{ws}', body)
+            case = run_case(b, WS, f'{label}-{tag}-{cid}-{stamp}', msg)
+            left = ' '.join(e['content'] for e in stored(b.memories())).lower()
+            n_left = len(b.memories())
+            intact = all(t in left for t in survive)  # extra saved facts do not matter; the named survivors must remain
+            case['pass'] = intact and (gone is None or gone not in left)
+            case['facts_left'] = n_left
+            case['forget_calls'] = [c for c in case.get('tool_calls', []) if c['tool'] == 'memory_forget']
+            note(cid, case, f"pass={case['pass']} facts_left={n_left} forget_calls={len(case['forget_calls'])}")
     if 'E' in SETS:
         for cid, ws_a, msg_a, ws_b, question, word in E_CASES:
             if not want(cid):

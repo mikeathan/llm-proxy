@@ -97,7 +97,7 @@ cells are stopped when decisive instead of repeated to a fixed count. Cases cann
 | G1 (**mostly fixed by the save reminder, Phase 2**) | The local model **never saved when a message states a fact and also asks a question** (it saves bare statements and explicit "remember that") | Phase 0: Qwen 0/4 on D1, V1, S1–S6, E2 (0 of 24 scope-set runs); cloud 5/5 | Test interventions against the same cases (P2): guidance wording, a one-line reminder next to the user message |
 | G2 | Facts about the person might be saved as project facts | **Cloud already scopes correctly** (birthday, city, timezone → user 15/15; hosts, ports, paths → workspace 14/15). The guidance text still says workspace unless "everything"; the model follows the subject anyway. Not measurable for Qwen until G1 is fixed | Keep the labelled set as a regression guard; rewrite the guidance wording (D1) only if Qwen mis-scopes once it saves (P2) |
 | G3 | Paraphrased questions miss, and the local model rarely searches itself | R2: cloud 4/5, Qwen 1/5 (Qwen used `memory_search` in 2 of 5 runs, 0 of the last 3); FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming, search-tool wording, and (if needed) a fallback so a miss still shows the user's few facts (P3) |
-| G4 | The model cannot correct its own memory | Only `memory_search` and `memory_update` exist; overlapping facts are concatenated (`tools/memory_tools.go` `insertFact`); `old_text` only finds facts in the route's own workspace | Tool contract: overlap returns the id, `memory_forget`, re-routing update (P1) |
+| G4 (**fixed, Phase 1**) | The model could not correct its own memory | Only `memory_search` and `memory_update` exist; overlapping facts are concatenated (`tools/memory_tools.go` `insertFact`); `old_text` only finds facts in the route's own workspace | Tool contract: overlap returns the id, `memory_forget`, re-routing update (P1) |
 | G5 | Wasted steps when memory has no answer | R4: 6–7 tool steps on both models | Tool-description guidance + measure (P3) |
 | G6 | Hot block can be crowded out | Operator notes are "never clipped" (up to 12,000 chars with two files) against a 400–6000 char hot cap; the unit of `ContextBudget` (tokens vs chars) is unverified | Budget the notes inside the cap (P4, needs D4: it amends Constitution II.12) |
 | G9 | Nothing in code stopped the agent from saving a secret (only the prompt said so) | Qwen saved "User's password is hunter2." after the reminder was widened | **Fixed (Phase 2):** one screen in the shared save path |
@@ -135,17 +135,27 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   the tables; the harness check passes; the baseline is recorded above; the recorded request shows the guidance in
   `messages[0]`.
 
-### Phase 1 — Tool contract (no schema change; G4)
-- Overlap: the `memory_update` **tool** returns the similar fact instead of concatenating (D2). The shared save path
-  (`SaveFact`/`insertFact`) is also used by explicit capture and the per-chat review, which cannot "retry with
-  `old_text`": they keep an explicit, tested behaviour of their own (a captured correction such as "remember that we now
-  deploy through X" must replace or visibly report the conflict, never silently save nothing). `memory_update` with
-  `old_text` searches the workspace and `global` and re-routes when scope/mode/keep differ. Add `memory_forget` (D3) through the file-change
-  checklist for a new tool (`docs/architecture.md`): `models/tools.go`, `manifests/memory.json`, `tools/memory_tools.go`,
-  `assistant/registry.go`, guardrail/toolpolicy effect, tests.
-- **Acceptance:** table-driven unit tests for each branch, including a capture/review correction that replaces or
-  reports; `go test ./... && go run ./tools/check-complexity/`; the Constitution II.12 amendment lands with
-  `memory_forget`; the Phase 0 D and R tables show no regression on either model.
+### Phase 1 — Tool contract (G4) — DONE 2026-10-16
+- **1a Overlap:** a fact whose topic overlaps a stored one is no longer concatenated onto it. The `memory_update` tool writes
+  nothing and returns the similar fact (id + text); the model replaces it with `old_text` or keeps both with the new
+  `separate: true`. Explicit capture and the per-chat review cannot retry, so they **replace the similar fact in place**
+  (never dropped, never glued on). `MemoryUpdateArgs` is now a named type.
+- **1b `old_text` across scopes:** it finds the fact in the workspace or the user scope and moves it when the new scope
+  differs ("moved and updated memory entry N to M"), so "that applies to all my projects" no longer leaves a second copy.
+- **1c `memory_forget(text)` (D3):** deletes the one saved fact containing the text; zero or several matches delete nothing;
+  operator's own chat only (refused in automations and connector chats); echoes the deleted text; a mutating tool, not
+  housekeeping. The step shows as "Forgot a memory" in the chat. **Constitution II.12 amended** (tool list, security
+  review, and the no-secrets rule). The save guidance gained one sentence: when to call it, forget only what the user
+  named, never delete project facts when asked to forget things about the user.
+- **Measured:** forget set F1–F4 (real request, a user-scope request, a statement containing "forget", and "forget
+  everything about me"): both models pass all four with the guidance. Without the sentence cloud **deleted all three
+  seeded facts** on the mass request (project facts included) and Qwen one, which is why the sentence bounds it. Saving
+  regression on the final build: cloud D1–D4 and S1–S6, E1, E2 pass (D5 correctly replaced the fact; the old score
+  missed `the "new" host`, fixed); Qwen D1, D2, D3, D5, S1, S2, S5, S6, E2 pass and D4 saved the *missing* half of D1
+  (correct; the score now only expects "no repeat" when D1 saved both).
+- **Acceptance (met):** table-driven unit tests for each branch including the capture correction (`TestSaveFact_OverlapReplacesTheSimilarFact`),
+  the cross-scope move, and every `memory_forget` branch; `go test ./... && go run ./tools/check-complexity/`; the Phase 0 tables show no
+  regression on either model.
 
 ### Phase 2 — Make the local model save (request only; G1) — DONE 2026-10-16, partly met
 - **Tried, in order, each measured on D1, V1, S1–S6, E2 with D2/D3 as guards on the 16K Qwen:**
@@ -205,6 +215,6 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 - **Non-goals:** automatic LLM writes without review; memory writes from heartbeats; embeddings now.
 
 ## Remaining Work
-Phases 1–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
+Phases 3–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
 save failure. Small related items tracked elsewhere: webhook run contexts, reminders
 partial-failure retry (see `docs/audits/2026-10-15-next-work-analysis.md`).

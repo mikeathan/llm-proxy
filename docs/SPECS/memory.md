@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.8"
+version: "2.9"
 status: stable
 last_updated: 2026-10-16
 constitution_references: [II.12]
@@ -12,6 +12,14 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **2.9 (2026-10-16)** — The model can correct and delete its own memory (§II.5, §II.6; Constitution II.12 amended).
+  A fact similar to a stored one is no longer concatenated onto it: `memory_update` writes nothing and returns the similar
+  fact so the model replaces it (`old_text`) or keeps both (`separate: true`); capture and review replace in place.
+  `old_text` finds the fact in either scope (workspace or user) and moves it. New tool `memory_forget(text)`: exactly one
+  match required, operator's own chat only, echoes the deleted text; the save guidance tells the model when to use it and
+  to forget only what the user named. Measured: both models forget on request, leave memory alone for look-alikes
+  ("I always forget my keys"), and keep project facts when asked to forget things about the user.
 
 - **2.8 (2026-10-16)** — Save reminder and a code-level secret screen (§II.8). A 16K local model followed the save
   guidance for a bare statement but **never** saved a fact stated in a message that also asked a question (0 of 24 runs).
@@ -212,7 +220,8 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 ### 5. Memory Tools
 
 - `memory_search(query, limit, scope, tags)` — FTS5 search with BM25 ranking, capped at 20 results.
-- `memory_update(content, scope, mode, keep, old_text)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it.
+- `memory_update(content, scope, mode, keep, old_text, separate)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it (in either scope, moving it if the scope changed); `separate: true` saves it as its own fact when a similar one exists.
+- `memory_forget(text)` — Delete the one saved fact containing `text` (workspace or user scope). Zero or several matches delete nothing and say so; refused in automations and connector chats.
 - All gated by workspace ID.
 
 ### 6. Deduplication

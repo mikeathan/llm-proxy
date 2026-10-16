@@ -285,6 +285,80 @@ func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryR
 	return fmt.Sprintf("moved and updated memory entry %d to %d (type: %s)", old.ID, id, route.MemoryType), true, nil
 }
 
+// MemoryForgetArgs are the model-facing arguments of memory_forget.
+type MemoryForgetArgs struct {
+	// Text is a unique part of the saved fact to delete.
+	Text string `json:"text"`
+}
+
+const (
+	forgetMinTextLen  = 3 // shorter text would match almost any fact
+	forgetScanLimit   = 500
+	forgetCandidates  = 5 // how many matches to show when the text is ambiguous
+	forgetOperatorMsg = "memory_forget is only available in the operator's own chat, not in automations or connector chats"
+)
+
+// Forget deletes the one saved fact that contains args.Text, in the workspace's or the user's scope. It deletes only
+// on an unambiguous match, only in the operator's own chat (an automation or an outside sender must not erase what the
+// owner saved), and says what it deleted.
+func (m *MemoryToolProvider) Forget(ctx context.Context, args MemoryForgetArgs) (any, error) {
+	if m.store == nil {
+		return "memory is not available", nil
+	}
+	if models.IsUnattendedRun(ctx) || models.OriginConnector(ctx) != "" {
+		return forgetOperatorMsg, nil
+	}
+	text := strings.ToLower(strings.TrimSpace(args.Text))
+	if len(text) < forgetMinTextLen {
+		return fmt.Sprintf("text is required: give at least %d characters from the fact to forget", forgetMinTextLen), nil
+	}
+	matches, err := m.forgetMatches(ctx, text)
+	if err != nil {
+		return "", fmt.Errorf("memory forget failed: %w", err)
+	}
+	switch len(matches) {
+	case 0:
+		return "no saved fact contains that text; nothing was forgotten", nil
+	case 1:
+		if err := m.store.Delete(ctx, matches[0].WorkspaceID, matches[0].ID); err != nil {
+			return "", fmt.Errorf("memory forget failed: %w", err)
+		}
+		logging.Info("memory_forget result", "action", "deleted", "id", matches[0].ID, "workspace", matches[0].WorkspaceID)
+		return fmt.Sprintf("forgot memory entry %d: %q", matches[0].ID, matches[0].Content), nil
+	}
+	return ambiguousForgetMessage(matches), nil
+}
+
+// forgetMatches lists the facts of the workspace and of the user whose text contains the lower-cased text.
+func (m *MemoryToolProvider) forgetMatches(ctx context.Context, text string) ([]memory.MemoryEntry, error) {
+	var matches []memory.MemoryEntry
+	for _, ws := range []string{models.GetWorkspaceID(ctx), globalWorkspaceID} {
+		entries, err := m.store.List(ctx, ws, "", forgetScanLimit, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range entries {
+			if strings.Contains(strings.ToLower(e.Content), text) {
+				matches = append(matches, e)
+			}
+		}
+	}
+	return matches, nil
+}
+
+// ambiguousForgetMessage asks the model for more of the fact's own words, showing a few candidates.
+func ambiguousForgetMessage(matches []memory.MemoryEntry) string {
+	var b strings.Builder
+	b.WriteString("more than one saved fact contains that text; nothing was forgotten. Call memory_forget again with more of the fact's own words:")
+	for i, e := range matches {
+		if i == forgetCandidates {
+			break
+		}
+		fmt.Fprintf(&b, "\n- id %d: %q", e.ID, e.Content)
+	}
+	return b.String()
+}
+
 // SaveOutcome is what saving a fact did.
 type SaveOutcome int
 
