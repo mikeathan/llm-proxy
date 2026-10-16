@@ -1,9 +1,9 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "2.7"
+version: "2.8"
 status: stable
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,17 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **2.8 (2026-10-16)** — Save reminder and a code-level secret screen (§II.8). A 16K local model followed the save
+  guidance for a bare statement but **never** saved a fact stated in a message that also asked a question (0 of 24 runs).
+  `prompts.MemorySaveReminder` is now appended beside the run's user message, in the request copy only, in the same
+  operator-chat-only cases as recall (`Agent.injectRecall`); with it that model saves personal and most project facts
+  (scope set: person facts 4/4 runs, project facts 2 of 3 cases) while the do-not-save guards hold. Widening the reminder once
+  made the model save a password, so **every save now passes one screen in code**: `memory_update` and `SaveFact` refuse
+  a secret-shaped string or a statement of a credential's value such as "the password is …" (`tools.ErrSecretContent`,
+  `tools.ContainsCredentialAssignment`). It is narrower than capture's sensitive-word list on purpose: the agent saves
+  project facts, which mention tokens and keys constantly ("the context window is 16K tokens" still saves). Evidence and method:
+  `docs/PLANS/memory/memory-gaps-plan.md`.
 
 - **2.7 (2026-10-15)** — `memory_update` defaults each omitted routing field on its own (§2): a model that said
   `scope: user, mode: always` but left `keep` out used to have all three reset to workspace / on_demand / default keep,
@@ -251,7 +262,9 @@ and, when its behaviour is new, a golden case in `extract_test.go`).
   tool call is never the final answer; one self-contained fact per call; never task results, lookups or secrets; pass
   `old_text` to replace a fact; do not repeat after "already saved"). Only for the operator's own assistant chats with
   memory on (`Agent.guidesMemorySaves`: `EnableHotMemory`, a store, `ChannelAssistant`, `SessionSource == manual`) — never
-  automations, the heartbeat or connector chats. It is fixed for the run, so the head stays byte-identical. Run safety:
+  automations, the heartbeat or connector chats. It is fixed for the run, so the head stays byte-identical. The
+  **save reminder** (`prompts.MemorySaveReminder`, one sentence) is appended to the run's user message in the request
+  copy only, never to stored history or the head, so the prefix still does not move. Run safety:
   three identical consecutive `memory_update` calls give the duplicate nudge instead of the loop error, and "already
   saved" results say not to call again.
 

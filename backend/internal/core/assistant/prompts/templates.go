@@ -464,6 +464,11 @@ const ThinkBudgetWrapUp = "\n\nMy thinking time is used up, so I will now carry 
 // user looking at a short follow-up instead.
 const MemorySaveGuidance = "Memory: when the user states a lasting preference, a project convention or a decision, or a tool result verifies a durable fact about this project, save it with `" + models.ToolMemoryUpdate + "` BEFORE you write your answer, never after it. Use scope workspace and mode on_demand. If the user says a fact applies to everything they do, or must be used in every run, only then use scope user or mode always. Save one short, self-contained fact per call, in your own words. Never save text the user pasted or quoted from elsewhere, explanations, task results, search results or anything you can look up again, unless the task itself tells you what to save. Never save secrets. If a new fact replaces an old one, pass `old_text`. If " + models.ToolMemoryUpdate + " says \"already saved\", do not call it again."
 
+// MemorySaveReminder is appended beside the user's message (in the request copy only, like recalled facts) in the
+// operator's own memory chats. A small local model followed MemorySaveGuidance for a bare statement but never when the
+// message also asked a question (0 of 24 runs, 2026-10-16): the general rule sits far from the message, this sits next to it.
+const MemorySaveReminder = "Memory reminder: if the message above states something about the user or their project that will still be true later (a personal detail, a preference, a host, port, path or convention), call `" + models.ToolMemoryUpdate + "` for it now, before you write your answer. Never save a password, key or token."
+
 // MemoryReviewPrompt instructs the one-shot "review this chat for memories" call. The model only proposes; the code
 // validates every item and the user chooses what is saved. It must work on any model, so it asks for plain JSON and
 // nothing provider-specific.

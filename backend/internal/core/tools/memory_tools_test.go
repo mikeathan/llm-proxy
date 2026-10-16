@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -781,6 +782,52 @@ func TestMemoryUpdate_OmittedFieldsDefaultIndependently(t *testing.T) {
 			}
 			if got := slices.Contains(entries[0].Tags, "hot"); got != tt.wantHot {
 				t.Errorf("hot tag = %v, want %v (tags %v)", got, tt.wantHot, entries[0].Tags)
+			}
+		})
+	}
+}
+
+// A secret must never be stored, whatever the model decides: the prompt says so, but only code enforces it (a small
+// model saved "User's password is hunter2." on 2026-10-16 when the save reminder was widened).
+func TestMemorySavePath_RefusesSecrets(t *testing.T) {
+	secrets := []string{
+		"User's password is hunter2.",
+		"The staging API key is sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD.",
+		"My ssh key passphrase is correct-horse.",
+		"The deploy token is ghp_abcdefghijklmnop1234.",
+	}
+	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
+	for _, content := range secrets {
+		t.Run(content, func(t *testing.T) {
+			store := newRealTestStore(t)
+			provider := NewMemoryToolProvider(store)
+			got, err := provider.Update(ctx, updateArgs{Content: content, Scope: memory.ScopeUser, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent})
+			if err != nil || !strings.Contains(got.(string), "not saved") {
+				t.Errorf("Update = %v, %v; want a refusal that says it was not saved", got, err)
+			}
+			if _, err := provider.SaveFact(ctx, "ws-1", Fact{Content: content, Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); !errors.Is(err, ErrSecretContent) {
+				t.Errorf("SaveFact err = %v, want ErrSecretContent", err)
+			}
+			for _, ws := range []string{"ws-1", "global"} {
+				if entries, _ := store.List(context.Background(), ws, "", 10, 0); len(entries) != 0 {
+					t.Errorf("a secret was stored in %s: %+v", ws, entries)
+				}
+			}
+		})
+	}
+	// Tokens, keys and secrets are everywhere in legitimate project facts: only a stated credential value is refused.
+	for _, content := range []string{
+		"We deploy through the vertex host.",
+		"The context window is 16K tokens.",
+		"max_tokens is 8192 for this model.",
+		"The token budget is 4000 per run.",
+		"We rotate the staging API key every month.",
+		"Secrets live in secrets.json, encrypted.",
+	} {
+		t.Run("an ordinary fact still saves: "+content, func(t *testing.T) {
+			provider := NewMemoryToolProvider(newRealTestStore(t))
+			if _, err := provider.SaveFact(ctx, "ws-1", Fact{Content: content, Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent}); err != nil {
+				t.Errorf("SaveFact refused an ordinary fact: %v", err)
 			}
 		})
 	}

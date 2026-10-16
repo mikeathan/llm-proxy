@@ -5,6 +5,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode"
@@ -25,6 +26,19 @@ func NewMemoryToolProvider(store *memory.Store) *MemoryToolProvider {
 }
 
 // ── Three-tier route resolution ───────────────────────────────────────────
+
+// ErrSecretContent is returned when a fact that looks like a credential is offered for saving.
+var ErrSecretContent = errors.New("memory: content looks like a secret and is never stored")
+
+// memorySecretRefusal is what memory_update tells the model when it offers a secret.
+const memorySecretRefusal = "not saved: this looks like a password, key or token, and secrets are never stored in memory"
+
+// isSecretContent is the code-level screen every save passes: secret-shaped strings, and statements of a
+// credential's value. The prompt also says "never save secrets", but only this enforces it. It is narrower than
+// capture's sensitive-word list on purpose: the agent saves project facts, which mention tokens and keys constantly.
+func isSecretContent(content string) bool {
+	return ContainsSecret(content) || ContainsCredentialAssignment(content)
+}
 
 // MemoryRoute holds the store-level primitives that map from the model-facing
 // (scope, mode, keep) triple.  Only store primitives — the handler translates,
@@ -195,16 +209,11 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args struct {
 	if args.Content == "" {
 		return "content is required", nil
 	}
-	// Each omitted field takes its own default; what the model did state is kept.
-	if args.Scope == "" {
-		args.Scope = memory.ScopeWorkspace
+	if isSecretContent(args.Content) {
+		logging.Info("memory_update result", "action", "refused", "reason", "secret")
+		return memorySecretRefusal, nil
 	}
-	if args.Mode == "" {
-		args.Mode = memory.ModeOnDemand
-	}
-	if args.Keep == "" {
-		args.Keep = defaultKeep(ctx)
-	}
+	args.Scope, args.Mode, args.Keep = withRoutingDefaults(ctx, args.Scope, args.Mode, args.Keep)
 
 	wsID := models.GetWorkspaceID(ctx)
 	route, err := ResolveMemoryRoute(args.Scope, args.Mode, args.Keep, wsID)
@@ -281,6 +290,9 @@ func (m *MemoryToolProvider) SaveFact(ctx context.Context, workspaceID string, f
 	if m.store == nil {
 		return SaveResult{}, fmt.Errorf("memory is not available")
 	}
+	if isSecretContent(f.Content) {
+		return SaveResult{}, ErrSecretContent
+	}
 	route, err := ResolveMemoryRoute(f.Scope, f.Mode, f.Keep, workspaceID)
 	if err != nil {
 		return SaveResult{}, err
@@ -346,6 +358,20 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 	}
 	logging.Info("memory_update result", "action", "created", "id", id, "memory_type", string(req.memType))
 	return SaveResult{Outcome: SaveCreated, ID: id, Type: req.memType}, nil
+}
+
+// withRoutingDefaults fills each omitted routing field on its own; what the model did state is kept.
+func withRoutingDefaults(ctx context.Context, scope memory.Scope, mode memory.Mode, keep memory.Keep) (memory.Scope, memory.Mode, memory.Keep) {
+	if scope == "" {
+		scope = memory.ScopeWorkspace
+	}
+	if mode == "" {
+		mode = memory.ModeOnDemand
+	}
+	if keep == "" {
+		keep = defaultKeep(ctx)
+	}
+	return scope, mode, keep
 }
 
 // defaultKeep is the retention an unspecified memory_update gets. Unattended

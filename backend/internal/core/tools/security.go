@@ -17,6 +17,24 @@ var SecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),
 }
 
+// credentialAssignments match a credential word followed by "is", "=" or ":" and a value ("the password is hunter2",
+// "api_key: abc"). A bare "token" is only a credential when its value looks like one: tokens are everywhere in
+// legitimate project facts ("the context window is 16K tokens", "max_tokens is 8192").
+var credentialAssignments = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(?:password|passwd|passphrase|secret|api[ _-]?key|access[ _-]?token|auth[ _-]?token|bearer|credentials?|private[ _-]?key)\b['"]?\s*(?:is|are|was|=|:)\s*\S`),
+	regexp.MustCompile(`(?i)\btoken\b['"]?\s*(?:is|=|:)\s*[A-Za-z0-9_.\-]{12,}`),
+}
+
+// ContainsCredentialAssignment reports whether text states a credential's value.
+func ContainsCredentialAssignment(s string) bool {
+	for _, re := range credentialAssignments {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
 // ContainsSecret reports whether text holds a secret-shaped string.
 func ContainsSecret(s string) bool {
 	for _, re := range SecretPatterns {

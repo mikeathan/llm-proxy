@@ -94,12 +94,13 @@ cells are stopped when decisive instead of repeated to a fixed count. Cases cann
 
 | # | Gap | Evidence | Fix (phase) |
 |---|---|---|---|
-| G1 | The local model **never saves when a message states a fact and also asks a question** (it saves bare statements and explicit "remember that") | Phase 0: Qwen 0/4 on D1, V1, S1–S6, E2 (0 of 24 scope-set runs); cloud 5/5 | Test interventions against the same cases (P2): guidance wording, a one-line reminder next to the user message |
+| G1 (**mostly fixed by the save reminder, Phase 2**) | The local model **never saved when a message states a fact and also asks a question** (it saves bare statements and explicit "remember that") | Phase 0: Qwen 0/4 on D1, V1, S1–S6, E2 (0 of 24 scope-set runs); cloud 5/5 | Test interventions against the same cases (P2): guidance wording, a one-line reminder next to the user message |
 | G2 | Facts about the person might be saved as project facts | **Cloud already scopes correctly** (birthday, city, timezone → user 15/15; hosts, ports, paths → workspace 14/15). The guidance text still says workspace unless "everything"; the model follows the subject anyway. Not measurable for Qwen until G1 is fixed | Keep the labelled set as a regression guard; rewrite the guidance wording (D1) only if Qwen mis-scopes once it saves (P2) |
 | G3 | Paraphrased questions miss, and the local model rarely searches itself | R2: cloud 4/5, Qwen 1/5 (Qwen used `memory_search` in 2 of 5 runs, 0 of the last 3); FTS5 `unicode61` has no stemmer (`platform/memory/store.go:40-41`); recall is keyword-only (`recall.go`) | Porter stemming, search-tool wording, and (if needed) a fallback so a miss still shows the user's few facts (P3) |
 | G4 | The model cannot correct its own memory | Only `memory_search` and `memory_update` exist; overlapping facts are concatenated (`tools/memory_tools.go` `insertFact`); `old_text` only finds facts in the route's own workspace | Tool contract: overlap returns the id, `memory_forget`, re-routing update (P1) |
 | G5 | Wasted steps when memory has no answer | R4: 6–7 tool steps on both models | Tool-description guidance + measure (P3) |
 | G6 | Hot block can be crowded out | Operator notes are "never clipped" (up to 12,000 chars with two files) against a 400–6000 char hot cap; the unit of `ContextBudget` (tokens vs chars) is unverified | Budget the notes inside the cap (P4, needs D4: it amends Constitution II.12) |
+| G9 | Nothing in code stopped the agent from saving a secret (only the prompt said so) | Qwen saved "User's password is hunter2." after the reminder was widened | **Fixed (Phase 2):** one screen in the shared save path |
 | G7 | No kind, reason or expiry on facts; user-scope session facts are never reaped | analysis #3–#5 | Typed facts (P5, SPEC-004 change, needs D5) |
 | G8 | Automations teach it nothing | automation runs default to `session` keep (reaped at 90 days), heartbeats write none, no consolidation exists | Consolidation, review mode (P6, existing plan) |
 
@@ -146,16 +147,27 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   reports; `go test ./... && go run ./tools/check-complexity/`; the Constitution II.12 amendment lands with
   `memory_forget`; the Phase 0 D and R tables show no regression on either model.
 
-### Phase 2 — Make the local model save (prompt/request only; G1, then G2 if needed)
-- Try the cheapest interventions in order, each measured against D1, V1, S1–S6, E2 (and D2/D3 as the do-not-save guard):
-  (a) guidance wording that names the case — "a message that states a fact and asks a question: save the fact first,
-  then answer" — with one short example; (b) a one-line save reminder appended to the user's message in the request copy
-  only (the way per-turn recall already is, `assistant/recall_memory.go`), for the operator's own chats. Stop at the
-  first that works; one constant or one injection point, one commit, revertable.
-- The labelled scope set is the regression guard for G2 (D1 as refined: classify by what the fact is about). Rewrite the
-  scope wording only if Qwen mis-scopes once it saves; cloud already scopes correctly.
-- **Acceptance:** Qwen saves on at least 5 of the 6 scope-set cases (≥ 3 of 4 runs each) with the expected scope; D2/D3
-  stay at zero saves on both models; cloud numbers do not drop; D5 and E1 unchanged.
+### Phase 2 — Make the local model save (request only; G1) — DONE 2026-10-16, partly met
+- **Tried, in order, each measured on D1, V1, S1–S6, E2 with D2/D3 as guards on the 16K Qwen:**
+  (a) guidance wording naming the statement-plus-question case with an example — **no effect** (S1–S5 0/5 and S1–S4 0/4,
+  V1 0/2; removed). (b) a one-line save reminder appended to the user's message in the request copy (the per-turn recall
+  mechanism) — **works**: V1, S1, S2, E2 saved 2/2 runs (baseline 0/4). (b′) the reminder widened to project details
+  (host, port, path, convention) — S5 and S6 now save, but the model **saved a password** (D3 failed), so a code screen
+  was added and the wording now ends "Never save a password, key or token."
+- **Code screen (G9, new):** only the prompt said "never save secrets"; nothing enforced it on the agent's own tool.
+  `memory_update` and `SaveFact` now refuse secret-shaped strings and statements of a credential's value
+  (`tools.ErrSecretContent`; capture's broader sensitive-word list was tried first and rejected for the agent path because
+  it would refuse ordinary facts about tokens and keys). The red test showed three secrets were stored before the fix;
+  tests also pin that "the context window is 16K tokens" and similar still save.
+- **Final build, Qwen (1 run; the same cases also ran 2× on earlier wordings):** D1, D5, V1, S1, S2, S5, S6, E2 saved with
+  the expected scope; D2 and D3 saved nothing (D3 refused by the screen); D4 made no repeated save. **Still missed:** S3
+  (timezone) and S4 (network-scan subnet), 0 in every run. Recall guards: R1, R3, R5, R6 pass; R6 makes no memory
+  calls on either model. **Cloud (1 run):** all save and scope cases pass (S1–S6 correct), D2/D3 zero saves; D5 4/5 as in
+  the baseline.
+- **Acceptance (≥ 5 of 6 scope cases saved on ≥ 3 of 4 runs) is not fully met:** 4 of 6 reliably (S1, S2, S5, S6), up from
+  0 of 6. S3/S4 are not tuned further on a six-case set (overfitting risk); they are the first cases to revisit with
+  more statements. **Watch item:** on a recall-hit question the model sometimes re-calls `memory_update` with the
+  fact it just recalled (a duplicate the store dedups, one wasted call).
 
 ### Phase 3 — Recall strength (G3, G5)
 - `memories_fts` tokenizer to `porter unicode61` (`store.go:40-41`; the schema already drops and rebuilds the index from the rows at startup, so there is no data migration and no shim);

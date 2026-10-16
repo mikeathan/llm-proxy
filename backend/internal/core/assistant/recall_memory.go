@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"strings"
 
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
@@ -109,6 +110,8 @@ func (a *Agent) snapshotRecall(ctx context.Context) {
 	if anchor == "" {
 		return
 	}
+	// The save reminder rides the same message whether or not any fact is recalled.
+	a.runS.prompt.recallAnchor, a.runS.prompt.saveReminder = anchor, prompts.MemorySaveReminder
 	budget := recallBudget(a.config.ContextBudget, a.config.WorkloadClass, a.runS.prompt.memoryBlock)
 	block, kept, err := selectRecall(ctx, a.deps.MemoryStore, a.config.WorkspaceID, anchor, a.runS.prompt.hotIDs, budget)
 	if err != nil {
@@ -120,7 +123,7 @@ func (a *Agent) snapshotRecall(ctx context.Context) {
 	if block == "" {
 		return
 	}
-	a.runS.prompt.recallBlock, a.runS.prompt.recallAnchor = block, anchor
+	a.runS.prompt.recallBlock = block
 	a.deps.MemoryStore.RecordSearched(kept)
 	if a.deps.Logger != nil {
 		a.deps.Logger.Info("memory recalled for chat turn", "workspace", a.config.WorkspaceID, "facts", len(kept), "ids", recallIDs(kept))
@@ -143,16 +146,26 @@ func runUserMessage(history []proxy.Message) string {
 	return ""
 }
 
-// injectRecall appends the frozen recall block to the run's user message in a copy of the request. It finds that
-// message by role and content (the sieve's nags are user messages too) and skips recall if the sieve dropped it.
+// injectRecall appends the frozen recall block and the save reminder to the run's user message in a copy of the
+// request. It finds that message by role and content (the sieve's nags are user messages too) and skips both if the
+// sieve dropped it.
 func (a *Agent) injectRecall(prepared []proxy.Message) []proxy.Message {
-	if a.runS == nil || a.runS.prompt.recallBlock == "" {
+	if a.runS == nil {
+		return prepared
+	}
+	var suffix []string
+	for _, part := range []string{a.runS.prompt.recallBlock, a.runS.prompt.saveReminder} {
+		if part != "" {
+			suffix = append(suffix, part)
+		}
+	}
+	if len(suffix) == 0 {
 		return prepared
 	}
 	for i := len(prepared) - 1; i >= 0; i-- {
 		if prepared[i].Role == proxy.UserRole && prepared[i].Content == a.runS.prompt.recallAnchor {
 			out := append([]proxy.Message(nil), prepared...)
-			out[i].Content += "\n\n" + a.runS.prompt.recallBlock
+			out[i].Content += "\n\n" + strings.Join(suffix, "\n\n")
 			return out
 		}
 	}
