@@ -96,7 +96,7 @@ func (s Scope) Validate() error { ... }
 - Priority (0–2, operator-only) orders hot facts before recency, so the budget cuts high-priority facts last; `SetPriority` leaves text/tags/timestamp alone
 - Markdown import/export (`markdown.go`): `### Title` + `<!-- scope= mode= keep= priority= -->`, backslash-escaped structural lines so facts round-trip; import reuses `newMemoryRequest.route` + `saveNew` (source `import`), skips duplicates, reports bad entries by line
 - Operator notes (`MEMORY.md`, `platform/memory/notes.go`): global (config root) + per-workspace (metadata folder),
-  outside the agent jail; injected FIRST in the same block, never clipped (≤ 6000 chars/file on write); facts fill
+  outside the agent jail; injected FIRST in the same block, ≤ 6000 chars/file on write, but they SHARE the cap (the block never exceeds it: facts reserve what they need up to a quarter, notes are cut at a line boundary with a hint, preview `notes_cut_chars`); facts fill
   the remaining budget. One renderer (`renderHotMemory`) serves both the agent and the preview
 - Hot memory defaults are global (`settings.yml → memory.assistant_hot` on, `memory.automation_hot` off); `MemoryMode` (`""` inherit | `on` | `off`) overrides per automation (`memory_mode`) and per workspace assistant (`assistant_memory`), resolved by `MemoryMode.Effective`. Unattended runs (`models.IsUnattendedRun`)
   default `memory_update` to `keep: session` with `source = run:<id>`; `memory.SessionReaper` (app.New) deletes

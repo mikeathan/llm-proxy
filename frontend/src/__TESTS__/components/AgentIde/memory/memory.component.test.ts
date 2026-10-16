@@ -434,7 +434,7 @@ describe('MemoryAddForm', () => {
 
 const PREVIEW: MemoryInjectionPreview = {
   block: '<memory>\n- build: run go build\n</memory>',
-  chars: 40, tokens_estimate: 10, budget_chars: 1747, context_budget_chars: 21848, operator_chars: 0, over_budget: false,
+  chars: 40, tokens_estimate: 10, budget_chars: 1747, context_budget_chars: 21848, operator_chars: 0, notes_cut_chars: 0,
   model: 'qwen', budget_resolved: true,
   included: [{ id: 1, title: 'build', chars: 24, priority: 1 }],
   cut: [{ id: 2, title: 'old fact', chars: 300, priority: 1 }],
@@ -480,11 +480,11 @@ describe('MemoryInjectionPreview (component)', () => {
     expect(w.text()).toContain('default budget')
   })
 
-  it('warns that never-cut operator notes have pushed the saved facts out', async () => {
-    mem.injectionPreview.value = { ...PREVIEW, chars: 4300, operator_chars: 4200, over_budget: true, included: [], cut: [{ id: 2, title: 'old fact', chars: 300, priority: 1 }] }
+  it('says how much of the operator notes was cut to fit the model\'s memory budget', async () => {
+    mem.injectionPreview.value = { ...PREVIEW, chars: 1700, operator_chars: 4200, notes_cut_chars: 2600 }
     const w = await mountPreview()
-    expect(w.text()).toContain('Operator notes alone')
-    expect(w.text()).toContain('never cut')
+    expect(w.text()).toContain('Part of your operator notes is not sent')
+    expect(w.text()).toContain('2,600 of 4,200')
     expect(w.text()).toContain('4,200 of those chars are your notes')
   })
 
@@ -505,9 +505,9 @@ describe('MemoryInjectionPreview (component)', () => {
   })
 
   it('does not warn when the notes fit', async () => {
-    mem.injectionPreview.value = { ...PREVIEW, operator_chars: 300, over_budget: false }
+    mem.injectionPreview.value = { ...PREVIEW, operator_chars: 300, notes_cut_chars: 0 }
     const w = await mountPreview()
-    expect(w.text()).not.toContain('Operator notes alone')
+    expect(w.text()).not.toContain('Part of your operator notes')
     expect(w.text()).toContain('300 of those chars are your notes')
   })
 

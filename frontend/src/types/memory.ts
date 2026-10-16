@@ -73,10 +73,10 @@ export interface MemoryInjectionPreview {
   context_budget_chars: number
   model: string
   budget_resolved: boolean
-  // Size of the operator notes inside the block; over_budget is true when the
-  // block exceeds the model's memory budget (notes are never cut, facts give way).
+  // Size of all the operator notes, and how much of them did not fit the model's memory
+  // budget (the notes share it with the saved facts; the block never exceeds it).
   operator_chars: number
-  over_budget: boolean
+  notes_cut_chars: number
   included: MemoryPreviewEntry[]
   cut: MemoryPreviewEntry[]
 }

@@ -495,24 +495,27 @@ func TestNotes_UnavailableIs503(t *testing.T) {
 	}
 }
 
-// Notes ride in the preview exactly as in a run, and the preview says when the
-// (never-clipped) notes alone exceed the budget.
-func TestInjectionPreview_IncludesNotesAndFlagsOverBudget(t *testing.T) {
+// Notes ride in the preview exactly as in a run, share the model's memory budget with the saved facts, and the preview
+// says how much of them did not fit.
+func TestInjectionPreview_NotesShareTheBudgetAndReportWhatWasCut(t *testing.T) {
 	store := newTestMemoryStore(t)
 	withNotes(t, store)
 	seedHot(t, store, "ws-1", 3)
-	big := strings.Repeat("Rule. ", 600)
+	big := strings.Repeat("A standing rule that goes on a little.\n", 100) // ~3,900 chars against a ~1,700-char budget
 	if err := store.SetOperatorNotes(context.Background(), memory.NotesWorkspace, "ws-1", big); err != nil {
 		t.Fatal(err)
 	}
 	h := NewMemoryHandlers(store).WithModelResolver(modelResolver(models.ModelConfig{Name: "small", ContextBudget: 21848, WorkloadClass: models.WorkloadLocal}))
 
 	p := decodePreview(t, getPreview(h, "ws-1", "?model=small"))
-	if !strings.Contains(p.Block, strings.TrimSpace(big)) || p.OperatorChars != len(strings.TrimSpace(big)) {
+	if p.OperatorChars != len(strings.TrimSpace(big)) || !strings.Contains(p.Block, "A standing rule that goes on a little.") {
 		t.Errorf("notes missing from the preview: operator_chars=%d", p.OperatorChars)
 	}
-	if !p.OverBudget {
-		t.Error("over_budget must be true when the notes alone exceed the model's memory budget")
+	if p.NotesCutChars <= 0 || p.NotesCutChars >= p.OperatorChars {
+		t.Errorf("notes_cut_chars must report a partial cut: %d of %d", p.NotesCutChars, p.OperatorChars)
+	}
+	if p.Chars > p.BudgetChars || len(p.Included) == 0 {
+		t.Errorf("the block stays within the budget and keeps room for facts: %d of %d chars, %d facts", p.Chars, p.BudgetChars, len(p.Included))
 	}
 }
 

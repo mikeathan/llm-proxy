@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "3.0"
+version: "3.1"
 status: stable
 last_updated: 2026-10-16
 constitution_references: [II.12]
@@ -12,6 +12,15 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.1 (2026-10-16)** — Operator notes share the memory cap with the saved facts (§II.4; Constitution II.12 amended). The
+  block used to charge the notes first and never clip them, so two long notes files (6,000 chars each) made a block twice the
+  cap or more and pushed every saved fact out; measured on the recorded request of a real run, both hot facts, including a
+  stated preference, were absent. Now the block never exceeds the cap: the facts reserve the room they need up to a quarter
+  of it, the notes take the rest, and notes that do not fit are cut at a line boundary (each file keeps a fair share) with a
+  hint naming the missing characters. The preview replaces `over_budget` (now meaningless) with `notes_cut_chars`. The open
+  question of tokens versus characters is settled: `ContextBudget` is characters (SPEC-005 §II.3). Same recorded request
+  after: block 5,957 of 6,000 chars, both facts present, 5,956 of 11,602 note chars cut and reported.
 
 - **3.0 (2026-10-16)** — Recall finds word forms, and a miss shows candidates (§II.3, §II.4.1). The FTS5 index now
   stems (`tokenize='porter unicode61'`), so "editors" finds "editor" and "reviewed" finds "reviews"; no word list or
@@ -149,9 +158,12 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   (`storage.WriteAtomic`, ClassData), ≤ 6000 chars per file (`ErrNotesTooLong`), blank content removes the file,
   workspace ids that could leave their folder are refused. The block becomes
   `<memory>` + operator header + notes + (`Saved facts:` + agent facts) + `</memory>`; no notes = no extra sections.
-  Notes are NEVER clipped: they are charged first and facts fill the remainder; with < 80 chars left only the
-  overflow hint is shown. `renderHotMemory` is shared with the preview, which reports `operator_chars` and
-  `over_budget`.
+  The block never exceeds the cap. The facts reserve the room they need (their lines and the `Saved facts:` header) up to
+  a quarter of the block (`factsReserve`); the notes take the rest and, when they do not fit, are cut at a line boundary
+  with each file keeping a fair share (a short file whole, two long ones half each) and a hint
+  (`prompts.HotMemoryNotesCutHint`) naming the missing characters (`fitNotes`); the facts fill what the notes leave, and
+  with < 80 chars left only the overflow hint is shown. `renderHotMemory` is shared with the preview, which reports
+  `operator_chars` (all the notes) and `notes_cut_chars` (what did not fit).
 - **Priority** (`memories.priority`, 0 low / 1 normal / 2 high, default 1; additive idempotent `ALTER TABLE`
   migration, existing rows become normal): `SearchHot` orders `priority DESC, updated_at DESC`, and the budget cuts
   from the tail, so a high-priority fact is the last to go. Only the operator sets it (`PUT`/`POST` `priority`,

@@ -201,11 +201,22 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
   3 of 4 on the local model rather than the 80% target, so a model that does not search at all (one run) still misses.
   G5 (wasted tool steps when memory has no answer) was not measured separately and stays open.
 
-### Phase 4 — Hot-block budget (G6; needs D4)
-- Verify whether `ContextBudget` is tokens or chars (`assistant/hot_memory.go`, `hotMemoryCharsPerToken`); budget
-  operator notes inside the hot cap; amend Constitution II.12 and SPEC-004.
-- **Acceptance:** a test with two 6000-char notes files on a 16K model keeps the block within its cap and leaves room
-  for facts or shows the overflow hint; `injection-preview` reports the cut.
+### Phase 4 — Hot-block budget (G6) — DONE 2026-10-16 (D4 approved; Constitution II.12 amended)
+- **Unit settled:** `ContextBudget` is **characters** (`contextShare` clamps 8%/5% of it to 400–6000 chars), not tokens, so the
+  feared tokens-vs-chars halving does not exist.
+- **The gap, measured on a real recorded request** (same operator notes and the same two hot facts, built from `main`):
+  the block was 11,783 chars against a 6,000 cap and **neither fact reached the model**, including a stated preference.
+- **The fix (generic, no content-specific rule):** the block never exceeds the cap. The facts reserve the room they need up to
+  a quarter of the block (`factsReserve`), the notes take the rest, and notes that do not fit are cut at a line boundary
+  (`fitNotes`; each file keeps a fair share, a short file stays whole) with a hint naming the missing characters. The
+  preview reports `notes_cut_chars` and the Memory panel says part of the notes is not sent; the dead `over_budget` flag
+  was removed (API, type, UI).
+- **After, same recorded request:** block 5,957 of 6,000 chars, both facts present, hint present, 5,956 of 11,602 note
+  characters cut and reported. Unit tests cover the pure fitting (whole, line-boundary cut, fair share between two files,
+  short file kept whole), the cap, the fact reserve in both directions, and the preview contract; frontend tests cover the
+  new warning.
+- **Ceiling:** the cut removes the tail of each file, so rules at the end of a long notes file are the ones lost; the hint
+  and the panel tell the operator to shorten the notes or use a larger model.
 
 ### Phase 5 — Typed facts and expiry (G7; needs D5; SPEC-004 change)
 - `kind` (user, feedback, project, reference), one-line `why` / `how_to_apply`, `expires_at` replacing the `session`
@@ -230,6 +241,6 @@ network-scan workspace, "my birthday is …" or "I live in …" is a fact about 
 - **Non-goals:** automatic LLM writes without review; memory writes from heartbeats; embeddings now.
 
 ## Remaining Work
-Phases 4–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
+Phases 5–6. Decisions D2–D6 are approved and D1 is refined (see above); Phase 2 is now led by the local model's
 save failure. Small related items tracked elsewhere: webhook run contexts, reminders
 partial-failure retry (see `docs/audits/2026-10-15-next-work-analysis.md`).
