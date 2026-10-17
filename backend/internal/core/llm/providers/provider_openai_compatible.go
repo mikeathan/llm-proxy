@@ -524,9 +524,55 @@ func (p *OpenAICompatibleProvider) probeNativeToolsOnce(ctx context.Context, end
 // doer carries the HTTP client; headers are the endpoint's auth headers (nil
 // for the local no-key server).
 func probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Header, doer HTTPDoer, modelID string, maxTokens int, timeout time.Duration) (supported bool, lengthLimited bool, err error) {
+	deadline := time.Now().Add(ProbeLoadingWait)
+	for {
+		supported, lengthLimited, err = probeNativeToolsAttempt(ctx, endpoint, headers, doer, modelID, maxTokens, timeout)
+		if !errors.Is(err, ErrEndpointLoading) || time.Now().Add(ProbeLoadingInterval).After(deadline) {
+			return supported, lengthLimited, err
+		}
+		select {
+		case <-ctx.Done():
+			return false, false, ctx.Err()
+		case <-time.After(ProbeLoadingInterval):
+		}
+	}
+}
+
+// ErrEndpointLoading is a probe answered 503: the server is up but still loading the model.
+var ErrEndpointLoading = errors.New("model endpoint is still loading")
+
+// ProbeLoadingWait bounds how long a probe waits for a loading model before giving up;
+// ProbeLoadingInterval is the pause between attempts. A cold 30B model loads in about half a minute.
+var (
+	ProbeLoadingWait     = 90 * time.Second
+	ProbeLoadingInterval = 2 * time.Second
+)
+
+// probeNativeToolsAttempt is one request of the probe; probeNativeToolsOnce repeats it while the model loads.
+func probeNativeToolsAttempt(ctx context.Context, endpoint string, headers http.Header, doer HTTPDoer, modelID string, maxTokens int, timeout time.Duration) (supported bool, lengthLimited bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	req, err := newNativeToolsProbeRequest(ctx, endpoint, headers, modelID, maxTokens)
+	if err != nil {
+		return false, false, err
+	}
+	resp, err := doer.Do(req)
+	if err != nil {
+		return false, false, fmt.Errorf("native-tools probe unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	b, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		// e.g. the deadline fired mid-body on a slow server — escalate like a
+		// request deadline so slow hardware still gets its chance.
+		return false, false, fmt.Errorf("read probe response: %w", readErr)
+	}
+	return interpretNativeToolsProbe(resp.StatusCode, b)
+}
+
+// newNativeToolsProbeRequest builds the probe: one chat request offering a single tool.
+func newNativeToolsProbeRequest(ctx context.Context, endpoint string, headers http.Header, modelID string, maxTokens int) (*http.Request, error) {
 	type probeTool struct {
 		Type     string `json:"type"`
 		Function struct {
@@ -555,11 +601,11 @@ func probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Hea
 		"max_tokens":  maxTokens,
 	})
 	if err != nil {
-		return false, false, fmt.Errorf("marshal probe request: %w", err)
+		return nil, fmt.Errorf("marshal probe request: %w", err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return false, false, fmt.Errorf("build probe request: %w", err)
+		return nil, fmt.Errorf("build probe request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, vv := range headers {
@@ -567,24 +613,21 @@ func probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Hea
 			req.Header.Add(k, v)
 		}
 	}
+	return req, nil
+}
 
-	resp, err := doer.Do(req)
-	if err != nil {
-		return false, false, fmt.Errorf("native-tools probe unreachable: %w", err)
-	}
-	defer resp.Body.Close()
-	b, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		// e.g. the deadline fired mid-body on a slow server — escalate like a
-		// request deadline so slow hardware still gets its chance.
-		return false, false, fmt.Errorf("read probe response: %w", readErr)
-	}
-	if resp.StatusCode != http.StatusOK {
+// interpretNativeToolsProbe reads the probe's answer: a 503 means the model is still loading (retried by
+// the caller), any other non-200 is a failure, and a 200 says whether the model called the tool.
+func interpretNativeToolsProbe(status int, b []byte) (supported bool, lengthLimited bool, err error) {
+	if status != http.StatusOK {
 		msg := strings.TrimSpace(string(b))
 		if msg == "" {
 			msg = "(no response body)"
 		}
-		return false, false, fmt.Errorf("native-tools probe: upstream status %d: %s", resp.StatusCode, msg)
+		if status == http.StatusServiceUnavailable {
+			return false, false, fmt.Errorf("%w: native-tools probe: upstream status %d: %s", ErrEndpointLoading, status, msg)
+		}
+		return false, false, fmt.Errorf("native-tools probe: upstream status %d: %s", status, msg)
 	}
 
 	var parsed struct {
@@ -595,11 +638,8 @@ func probeNativeToolsOnce(ctx context.Context, endpoint string, headers http.Hea
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(b, &parsed); err != nil {
+	if err := json.Unmarshal(b, &parsed); err != nil || len(parsed.Choices) == 0 {
 		return false, false, nil // unrecognizable body — treat as no native support
-	}
-	if len(parsed.Choices) == 0 {
-		return false, false, nil
 	}
 	ch := parsed.Choices[0]
 	if ch.FinishReason == "tool_calls" || len(ch.Message.ToolCalls) > 0 {

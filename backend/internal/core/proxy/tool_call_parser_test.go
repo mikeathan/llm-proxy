@@ -423,3 +423,32 @@ func TestParseNativeToolCalls_InvokeAttributes(t *testing.T) {
 		t.Errorf("call 1 args = %q", calls[1].Function.Arguments)
 	}
 }
+
+// Some models (Nemotron) end a reply right after the call's JSON and never write the closing tag.
+// A complete call is still a call; anything less stays the error it was.
+func TestParseContentToolCalls_RecoversACallWithoutItsClosingTag(t *testing.T) {
+	t.Run("a complete call", func(t *testing.T) {
+		_, calls, perr := proxy.ParseContentToolCalls("<tool_call>\n{\"tool\":\"execute_terminal_command\",\"args\":{\"command\":\"ls -la | grep '^-' | wc -l\"}}")
+		if perr != nil || len(calls) != 1 || calls[0].Function.Name != "execute_terminal_command" {
+			t.Fatalf("calls=%v err=%v, want the one call", calls, perr)
+		}
+	})
+	t.Run("trailing whitespace", func(t *testing.T) {
+		_, calls, perr := proxy.ParseContentToolCalls("<tool_call>{\"tool\":\"read_file\",\"args\":{\"path\":\"a\"}}\n  ")
+		if perr != nil || len(calls) != 1 {
+			t.Fatalf("calls=%v err=%v, want the one call", calls, perr)
+		}
+	})
+	t.Run("a truncated call stays an error", func(t *testing.T) {
+		_, calls, perr := proxy.ParseContentToolCalls("<tool_call>\n{\"tool\":\"read_file\",\"args\":{\"path\":\"a")
+		if len(calls) != 0 || perr == nil {
+			t.Fatalf("calls=%v err=%v, want no call and an error", calls, perr)
+		}
+	})
+	t.Run("prose after the JSON is not a call", func(t *testing.T) {
+		_, calls, _ := proxy.ParseContentToolCalls("<tool_call>\n{\"tool\":\"read_file\",\"args\":{}} and then some more words")
+		if len(calls) != 0 {
+			t.Fatalf("calls=%v, want none", calls)
+		}
+	})
+}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/assistant/repetition"
 	"llm-proxy/internal/core/proxy"
 )
 
@@ -189,5 +190,22 @@ func TestClassifyRunFailure(t *testing.T) {
 				t.Errorf("Error too long for UI: %d runes", n)
 			}
 		})
+	}
+}
+
+// A run stopped for repeating itself says so in plain words — never the detector's internal wording.
+func TestClassifyRunFailure_RepetitionLoopIsReadable(t *testing.T) {
+	err := fmt.Errorf("agent execution failed: %w", repetition.NewLoopError("infinite loop detected: write_file called 3+ times with identical args"))
+	info := ClassifyRunFailure(err)
+	if !strings.Contains(info.Error, "repeating") {
+		t.Errorf("Error = %q, want a plain explanation that the model kept repeating itself", info.Error)
+	}
+	for _, raw := range []string{"infinite loop detected", "identical args", "3+"} {
+		if strings.Contains(info.Error+info.Hint, raw) {
+			t.Errorf("%q leaked into %+v", raw, info)
+		}
+	}
+	if info.Hint == "" {
+		t.Error("want a next step in Hint")
 	}
 }

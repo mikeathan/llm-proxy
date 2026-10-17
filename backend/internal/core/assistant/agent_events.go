@@ -114,6 +114,10 @@ const (
 	// MsgAgentThinking is the liveness status shown before the first token of a
 	// call arrives.
 	MsgAgentThinking = "🤖 Agent is thinking..."
+	// MsgUnreadableToolCall is the final answer when the model's last reply was a
+	// tool call the assistant could not read and nothing else is worth showing.
+	MsgUnreadableToolCall = "The model replied with a tool call the assistant could not read, so this run did not finish. " +
+		"Try again, or pick another model. If it keeps happening with this model, set its tool call format to native in Settings → Models."
 	// MsgFallbackWarning is shown when the selected model cannot call tools and
 	// the run drops to fallback mode (%s = the underlying error).
 	MsgFallbackWarning = "⚠️ WARNING: The selected model does not support tool calling. Fallback mode engaged (tools disabled). %s"

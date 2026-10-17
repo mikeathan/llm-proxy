@@ -443,7 +443,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	if prefill != "" {
-		fullMsg.Content = prefill + fullMsg.Content
+		fullMsg.Content = joinPrefill(prefill, fullMsg.Content)
 	}
 
 	reasons := len(fullMsg.ReasoningContent)
@@ -1181,7 +1181,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	msg.FinishReason = resp.Choices[0].FinishReason
 	recordReportedUsage(ctx, resp.Usage)
 	if prefill != "" {
-		msg.Content = prefill + msg.Content
+		msg.Content = joinPrefill(prefill, msg.Content)
 	}
 	if t := usage.FromContext(ctx); t != nil {
 		inputTokens := historyChars(preparedHistory)
@@ -1244,6 +1244,23 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 
 	a.deps.Logger.Info("xml stream retry completed", "content_len", len(fullMsg.Content), "reasoning_len", len(fullMsg.ReasoningContent), "tool_calls", len(fullMsg.ToolCalls))
 	return fullMsg, nil
+}
+
+// joinPrefill puts the prefill back in front of the model's reply. A model that continues the
+// prefill is joined to it. One that restates the call from the start (Nemotron answers with the
+// whole <tool_call> block, or just the JSON) must not get the prefill doubled, which would make
+// the call unparseable: its own text stands, with the opening tag added when it left that out.
+func joinPrefill(prefill, content string) string {
+	tag, jsonStart, _ := strings.Cut(prefill, "\n")
+	reply := strings.TrimLeft(content, " \t\r\n")
+	jsonKey, _, _ := strings.Cut(jsonStart, ":") // `{"tool"`
+	switch {
+	case tag != "" && strings.HasPrefix(reply, tag):
+		return reply
+	case jsonKey != "" && strings.HasPrefix(reply, jsonKey):
+		return tag + "\n" + reply
+	}
+	return prefill + content
 }
 
 func (a *Agent) shouldPrefill() bool {

@@ -312,6 +312,10 @@ func (s *runSession) finalizeReport(ctx context.Context, prompt ...string) (stri
 		if fallback, fbErr := s.finalizationFallback(nil, "empty finalization turn"); fallback != "" || fbErr != nil {
 			return fallback, fbErr
 		}
+		// Nothing usable to show: say what happened rather than hand over the raw JSON.
+		if hasToolCallMarker(report) || (parseErr != nil && parseErr.XMLFound) {
+			return MsgUnreadableToolCall, nil
+		}
 	}
 	return strings.TrimSpace(report), nil
 }

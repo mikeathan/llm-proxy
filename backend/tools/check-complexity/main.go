@@ -58,7 +58,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/core/llm/manager.go:GetInstance":                                                   true,
 	"internal/core/llm/manager.go:ReconcileLocalServingContext":                                  true,
 	"internal/core/llm/providers/provider_openai_compatible.go:fetchModels":                      true,
-	"internal/core/llm/providers/provider_openai_compatible.go:probeNativeToolsOnce":             true,
 	"internal/core/llm/providers/registrar.go:Build":                                             true,
 	"internal/core/llm/providers/registrar.go:EffectiveEndpointLocked":                           true,
 	"internal/core/proxy/client.go:Stream":                                                       true,
