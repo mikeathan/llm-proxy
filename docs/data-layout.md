@@ -20,6 +20,7 @@ The single root contains:
 ```
 {root}/
 ├── settings.yml, registry.json, secrets.json, master.key(.hash), orchestrator.db
+├── profiles/           the user's own prompt profiles, one *.md each (optional; see SPEC-012)
 ├── meta/               per-workspace metadata (sessions, state, config)
 ├── runs/               automation run dirs + LLM recordings
 └── logs/               application logs

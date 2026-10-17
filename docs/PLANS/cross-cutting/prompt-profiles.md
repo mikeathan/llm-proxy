@@ -1,6 +1,6 @@
 # Prompt Profiles — a generic assistant and automation system
 
-**Status:** proposed (2026-10-17) — catalog, user-profile location and existing-workspace handling are decided (§9); General's revised wording (§5) still needs the user's OK before any build.
+**Status:** active (2026-10-17) — built: eval baseline (Phase 0), loop policy (1), profile catalog and resolver with persistence (2), layered per-turn prompt (3), the six profiles tuned on the eval (4), the run-settings control, workspace and automation fields (5), SPEC-012 (6). Remaining: repeat the eval for the other profiles and decide the open items in §9.
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-004 (Memory), SPEC-011 (Reminders); CONSTITUTION II.13 (prompts in `templates.go`); folds in [`agents-md-layering-guardrails.md`](agents-md-layering-guardrails.md) (global layer, write guardrails).
 **Origin:** a vague one-liner ("rust language") made the assistant scan the workspace, read task files and search the web while the composer was locked; a Nemotron run failed on tool-call JSON. Review by the Opus advisor is folded in (§3, §6).
 
@@ -134,17 +134,24 @@ Metrics per case and profile: tool calls, workspace scans, spurious `memory_upda
 
 ## 8. Phases
 
-| Phase | Work | Acceptance |
+| Phase | Work | Status |
 |---|---|---|
-| 0 | Eval suite + baseline on three models (no code change to behaviour). | Baseline table committed to `docs/audits/`. |
-| 1 | Characterise the first-turn-answer path; add `answer_first` policy to the loop behind tests; gate nudges and the char cap. | Tests red→green; eval "knowledge question" = 0 tools, complete. |
-| 2 | Profile model + resolver (built-ins embedded, user files in config dir, precedence function); persisted fields on workspace, automation and conversation (`config-persistence` checklist). | Resolver table-test; old configs load unchanged (no field = General/Task runner). |
-| 3 | Prompt assembly: core + profile + notes + dynamic blocks; rebuild per turn from profile id + version; new-workspace `AGENTS.md` stub; rules 7/8 leave the core. | Eval baseline met or beaten; cache prefix identical across turns (test). |
-| 4 | Iterate the profile text on the eval; finalise the six. | Eval pass table per profile; user sign-off on wording. |
-| 5 | Frontend: one "run settings" control for model + profile (phone-sized sheet, measured at 390px); workspace default; automation form field; composer stays editable during a run. | `npm test`, `npm run build`, `npm run test:visual`, 390px screenshot. |
-| 6 | Docs: SPEC-012 (profiles), SPEC-001/007 updates, `architecture.md` checklist and pitfalls, README/INDEX; fold in the layering plan's Phase 4 write guardrail. | `./scripts/check-agent-harness.sh` PASS. |
+| 0 | Eval suite (`scripts/prompt-eval.py`, shared `scripts/evallib.py`) and a baseline on three models. | done — `docs/audits/2026-10-17-prompt-profiles-eval.md` |
+| 1 | `answer_first` loop policy: completion without a prior tool result, no no-tool cap, answer-inviting nudges. | done, tested |
+| 2 | Profile model, catalog and resolver; persisted `assistant_profile`, automation `profile`, session `profile`; `GET /admin/api/profiles`; validation at the API boundary. | done, tested |
+| 3 | Layered prompt (profile, core rules, workspace notes), rebuilt every turn, no clock in it; `AGENTS.md` is workspace notes, old seeded defaults read as no notes. | done, tested |
+| 4 | Profile text tuned on the eval; the six shipped. | done for General and Task runner (eval); the others are checked for shape only |
+| 5 | Run-settings control (profile and model) in the composer, workspace default, automation form and details, composer editable during a run. | done, tested, measured at 390px |
+| 6 | SPEC-012; SPEC-001/004/007 changelogs; API, data-layout and architecture docs. | done |
 
-**Remaining work:** everything; nothing is built.
+**Deviations from the draft above.** `loop` is not a profile field (no built-in used it and it needed its own precedence);
+`effort` became `max_steps`; the local-time note on each message is always on (the `reminders` flag controls only the
+reminder tools); the system message is rebuilt from the profile id each turn, so no prompt version is stored; the
+`tools` list is by category and never hides the `system`, `security` and `automation` categories.
+
+**Remaining work:** run the eval for Research, Operator, Builder and Watcher on the three models; fold the layering
+plan's Phase 4 (block agent writes to instruction files) into the guardrails; the `GetSystemPrompt` chain of the tool
+providers has no caller and can be deleted.
 
 ## 9. Decisions
 

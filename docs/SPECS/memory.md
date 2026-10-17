@@ -1,9 +1,9 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "3.2"
+version: "3.3"
 status: stable
-last_updated: 2026-10-16
+last_updated: 2026-10-17
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,10 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.3 (2026-10-17)** — Hot memory resolves explicit setting, then the run's profile default, then the global default
+  (SPEC-012 §2.3); a profile without `memory_guidance` sends neither the save guidance nor the per-message reminder
+  (recall is unchanged). Explicit "remember that" capture still follows the resolved memory setting.
 
 - **3.2 (2026-10-16)** — Typed facts and per-fact expiry (§II.2, §II.4, §II.5). A fact may carry a `kind` (`user`,
   `feedback`, `project`, `reference`), a one-line `why` (≤ 200 chars) and an `expires_at`. `memory_update` takes

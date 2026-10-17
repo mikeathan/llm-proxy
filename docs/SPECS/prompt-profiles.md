@@ -1,0 +1,98 @@
+---
+id: SPEC-012
+title: Prompt Profiles
+version: "1.0"
+status: draft
+last_updated: 2026-10-17
+constitution_references: [II.13, II.3]
+related_specs: [SPEC-001, SPEC-004, SPEC-007, SPEC-011]
+supersedes:
+---
+
+# SPEC: Prompt Profiles
+
+## Changelog
+
+- **1.0 (2026-10-17)** — First version. A profile bundles the behaviour block of the system prompt with the loop policy
+  that must match it, is chosen per conversation, per workspace and per automation, and is rebuilt into the system
+  message on every turn. Plan: `docs/PLANS/cross-cutting/prompt-profiles.md`.
+
+## 1. Intent
+
+One system serves any input — a question, a pasted document, a file, a look-up, a reminder, a scheduled task — without
+leaning in one direction. How it behaves comes from a **profile**, not from rules fixed in code. The default for chats
+is a generic, conversational assistant; specialised behaviour is opt-in. The code keeps only a floor of rules no profile
+or file can remove.
+
+## 2. Functional requirements
+
+### 2.1 What a profile is
+
+A profile is a markdown file: YAML front matter, then the instructions (the behaviour block).
+
+| Field | Meaning |
+|---|---|
+| `name`, `summary` | Shown in pickers. `name` is required. |
+| `answer_first` | A plain text first turn is a complete answer: no prior tool result is needed (`checkTaskCompletion`), the no-tool output cap (`enforceRelaxedCap`) does not apply, and the "call a tool" nudges are replaced by ones that allow an answer. |
+| `may_ask` | The turn may end with one clarifying question. Unattended profiles leave it false. (Behaviour comes from the instructions; the flag is for pickers and tooling.) |
+| `max_steps` | Replaces the model's step budget when greater than 0 (0–200). |
+| `tools` | Tool categories exposed (`models.ToolCategories`); empty exposes all. The `system`, `security` and `automation` categories are never hidden. |
+| `memory` | `on`/`off`: the profile's default for hot memory; absent inherits the global default. |
+| `memory_guidance` | The "save lasting facts" instruction and its per-message reminder are sent (SPEC-004 §4.1). Recall is not affected. |
+| `reminders` | The reminder tools are exposed (SPEC-011). |
+
+Boolean fields left out are false. Unknown keys, an unknown tool category, `reminders: true` without the reminders
+category in a non-empty `tools`, a missing name or empty instructions make the file invalid.
+
+### 2.2 Catalog
+
+Built-in profiles are embedded files (`prompts/profiles/*.md`, CONSTITUTION II.13): **General** (default for chats),
+**Research**, **Operator**, **Builder**, **Task runner** (default for automations) and **Watcher** (the heartbeat's).
+User profiles are `*.md` files in `{data root}/profiles/` (`PathResolver.ProfilesDir`), never in a workspace, so an agent
+with file tools cannot rewrite the instructions it runs under. The file name (lowercase letters, digits, dashes, at most
+40) is the id; a user file with a built-in's id replaces it. Files are read on demand; an invalid, oversized (64 KB) or
+surplus (beyond 50) file is skipped with a warning and never stops a run.
+
+### 2.3 Resolution
+
+The profile of a chat turn is the first existing of: the one the message asked for (which the conversation then keeps,
+stored on the session), the conversation's, the workspace's `assistant_profile`, the default for chats. An automation's is
+its `profile`, else the default for automations; the heartbeat's is always Watcher. An id that no longer exists is
+skipped. Explicit settings beat the profile beneath them: hot memory is the workspace's `assistant_memory` /
+automation's `memory_mode`, else the profile's `memory`, else the global default; an automation's `allowed_tools`
+narrows the profile's tool set further (a profile can hide tools, never add one the list lacks).
+
+### 2.4 System prompt
+
+Layers, in order: the profile's instructions; the code-owned core rules (`prompts.CoreRules`: tool use, no UI
+imitation, loop protection, finalization) and boundaries (`FileSystemRules`, `InstructionBoundaryRule`); the workspace
+notes (`AGENTS.md`, comments removed) under `WORKSPACE NOTES:`. A chat wraps this with its conversation id, context
+version and timezone (the conversation's own, else the request's). The system message is **rebuilt every turn** from the
+current profile and notes and replaces the stored head, so a profile switch or an edit of a profile file applies on the
+next turn and existing conversations get fixes (notes are cached for up to 30 minutes); it contains no clock
+(the local time rides on each turn's user message, SPEC-011 §1.4), so it is identical turn after turn and the model
+server's cache holds. `AGENTS.md` seeded by older versions is recognised (`prompts.IsLegacyDefaultNotes`) and read as no
+notes; a file the operator changed is kept.
+
+### 2.5 Loop policy
+
+The profile's flags are read by the loop (SPEC-001): answer-first completion and cap, the nudge wording
+(`AnswerFirst*Nag`), memory guidance, and the tool schema. An agent built with no profile runs as `profile.Unprofiled()`
+(tool-first, guidance and reminders on, every tool), the behaviour before profiles.
+
+## 3. Data model
+
+`models.WorkspaceConfig.AssistantProfile` (`assistant_profile`), `models.Automation.Profile` (`profile`),
+`models.AssistantSession.Profile` (`profile`), `AssistantMessage.profile` on the request. All are optional ids.
+
+## 4. API
+
+- `GET /admin/api/profiles` → every profile (`id`, `name`, `summary`, `source`, the flags, `default_for`), sorted by id;
+  the instructions are not included.
+- `POST /admin/api/conversation/message` accepts `profile`; an unknown id is `400` naming the known ones.
+- The workspace config `PUT` and automation create/update validate `assistant_profile` / `profile` the same way.
+
+## 5. Error handling
+
+An unknown profile id at the API boundary is `400`. A profile that disappears later (a deleted file) is skipped and the
+next level applies. A malformed built-in is a build defect: startup panics (`profile.MustCatalog`) and a test guards it.

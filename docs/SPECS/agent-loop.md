@@ -1,9 +1,9 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.5"
+version: "1.6"
 status: stable
-last_updated: 2026-10-09
+last_updated: 2026-10-17
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -12,6 +12,17 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.6 (2026-10-17)** — The loop follows the run's prompt profile (SPEC-012). An **answer-first** profile treats a plain
+  text first turn as a complete answer: `checkTaskCompletion` no longer needs a prior tool result, `enforceRelaxedCap` (the
+  no-tool output cap, which cut a long knowledge answer mid-sentence) does not apply, and the empty-turn and reasoning-stuck
+  nudges invite an answer instead of demanding a tool call (`AnswerFirst*Nag`; the escalated one keeps the opening words the
+  chat view hides). The profile's tool set narrows the schema with `ExcludedTools`, and its `max_steps` replaces the model's.
+  An agent with no profile behaves as before (`profile.Unprofiled`). A chat's system message is rebuilt every turn and holds
+  no clock. A final turn that is only unreadable tool-call text ends with a plain explanation (`MsgUnreadableToolCall`)
+  instead of the raw JSON, and a run stopped for repeating itself reports that in words (`repetition.LoopError`). The native
+  tool probe waits out a model that answers 503 "Loading model" (`ProbeLoadingWait`), the prefill is not doubled when a model
+  restates the call, and a complete call missing its closing `</tool_call>` is accepted.
 
 - **1.5 (2026-10-09)** — A rejected credential carries a short reason for people (`models.ToolUnavailableError`,
   `models.UnavailableReason`); warnings use it instead of the provider's raw response, which stays in the tool result

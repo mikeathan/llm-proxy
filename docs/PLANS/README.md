@@ -57,7 +57,7 @@ Organized by subsystem:
 | [`cross-cutting/sandbox-runtime-invisibility.md`](cross-cutting/sandbox-runtime-invisibility.md) | Sandbox Runtime Invisibility (`.sandbox` hidden from filesystem listings + terminal output) | complete | 2026-08-25 | SPEC-006, CONSTITUTION II.3 |
 | [`cross-cutting/assistant-liveness-heartbeat-package-split.md`](cross-cutting/assistant-liveness-heartbeat-package-split.md) | Assistant Liveness Heartbeat & Package Restructure | partial | 2026-08-18 | SPEC-001, SPEC-010, SPEC-003 |
 | [`cross-cutting/agents-md-layering-guardrails.md`](cross-cutting/agents-md-layering-guardrails.md) | AGENTS.md Layering, Override-ability & Write Guardrails | proposed | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
-| [`cross-cutting/prompt-profiles.md`](cross-cutting/prompt-profiles.md) | Prompt Profiles — selectable instruction bundles for assistant and automation (generic default, loop policy flags, per-turn prompt rebuild) | proposed | 2026-10-17 | SPEC-001, SPEC-007, SPEC-004, CONSTITUTION II.13 |
+| [`cross-cutting/prompt-profiles.md`](cross-cutting/prompt-profiles.md) | Prompt Profiles — selectable instruction bundles for assistant and automation (generic default, loop policy flags, per-turn prompt rebuild) | active | 2026-10-17 | SPEC-012, SPEC-001, SPEC-007, SPEC-004, CONSTITUTION II.13 |
 | [`cross-cutting/tool-call-grammar-reenable.md`](cross-cutting/tool-call-grammar-reenable.md) | Re-enable Tool-Call Grammar Constraint (opt-in, llama.cpp-safe) | proposed | 2026-09-05 | SPEC-001, SPEC-002 |
 | [`cross-cutting/search-tool-calling.md`](cross-cutting/search-tool-calling.md) | Wire up `internet_search` tool calling (pluggable multi-provider, live key, hide-when-unconfigured) | active | 2026-09-12 | SPEC-001, SPEC-006 |
 | [`cross-cutting/tool-error-classification.md`](cross-cutting/tool-error-classification.md) | Tool Error Classification & Run-Fatality Policy (terminal tool errors, delivery-vs-essential, failure bound) | complete | 2026-09-12 | SPEC-001, SPEC-010, SPEC-006 |
@@ -101,7 +101,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| proposed | Prompt Profiles | everything: eval baseline first, then loop policy flags, profile resolver, per-turn prompt rebuild, run-settings UI; needs sign-off on catalog, General wording and decisions D1–D5 (`cross-cutting/prompt-profiles.md` §9) |
+| active | Prompt Profiles | built (Phases 0–6); left: eval the Research, Operator, Builder and Watcher profiles, fold in the layering plan's write guardrail, delete the dead `GetSystemPrompt` chain (`cross-cutting/prompt-profiles.md`) |
 | partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
 | partial | Frontend Redesign v2 | Phases 0–5 delivered 2026-10-14; left: Automations/Reminders/Models/Activity on a phone, arrow-key handling + focus trap in the new sheets, "All workspaces" scope decision, recent-chats menu in the ask panel |
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
