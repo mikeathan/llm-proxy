@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/eventbus"
@@ -847,16 +848,20 @@ func TestProfileChoicesAreValidated(t *testing.T) {
 	handlers := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger()).WithProfiles(builtinProfiles(t))
 
 	for _, id := range []string{"", "research", "task-runner"} {
-		if err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", Profile: id}); err != nil {
+		if err := handlers.validateAutomationProfile(&models.Automation{Name: "ok-name", Profile: id}, "", nil); err != nil {
 			t.Errorf("automation profile %q: %v", id, err)
 		}
 	}
-	err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", Profile: "ghost"})
+	err := handlers.validateAutomationProfile(&models.Automation{Name: "ok-name", Profile: "ghost"}, "", nil)
 	if err == nil || !strings.Contains(err.Error(), "profile") || !strings.Contains(err.Error(), "ghost") {
 		t.Errorf("an unknown automation profile is refused by name: %v", err)
 	}
 
-	for value, want := range map[string]int{`"general"`: http.StatusOK, `""`: http.StatusOK, `"ghost"`: http.StatusBadRequest} {
+	for _, tc := range []struct {
+		value string
+		want  int
+	}{{`"general"`, http.StatusOK}, {`""`, http.StatusOK}, {`"ghost"`, http.StatusBadRequest}} {
+		value, want := tc.value, tc.want
 		req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(`{"assistant_profile":`+value+`}`))
 		req.SetPathValue(models.WorkspaceIDParam, "ws")
 		rr := httptest.NewRecorder()
@@ -872,6 +877,71 @@ func TestProfileChoicesAreValidated(t *testing.T) {
 	if err != nil || saved.AssistantProfile != "" {
 		t.Errorf("the last accepted value was empty, saved = %+v, %v", saved, err)
 	}
+}
+
+// A profile file can be deleted after it was chosen. The id stays stored (SPEC-012 §5: the next level applies), and
+// every save writes the whole config back, so a missing id that is merely carried along must never block an unrelated
+// save — only an id the request newly sets is refused.
+func TestProfileChoices_AMissingStoredProfileDoesNotBlockUnrelatedSaves(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	dispatcher := &testDispatcher{mgr: mgr}
+	handlers := NewDispatcherHandlers(dispatcher, NewWorkspaceService(mgr), logging.NewNopLogger()).WithProfiles(builtinProfiles(t))
+	stored := &models.WorkspaceConfig{
+		AssistantProfile: "gone",
+		Automations:      []*models.Automation{{Name: "nightly", TaskFile: "t.md", Strategy: "isolated", Trigger: models.TriggerConfig{Type: models.TriggerManual}, Profile: "gone"}},
+	}
+	if err := mgr.WriteConfig("ws", stored); err != nil {
+		t.Fatal(err)
+	}
+	put := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("PUT", path, strings.NewReader(body))
+		req.SetPathValue(models.WorkspaceIDParam, "ws")
+		req.SetPathValue("automation", "nightly")
+		rr := httptest.NewRecorder()
+		if strings.HasSuffix(path, "/config") {
+			handlers.UpdateWorkspaceConfig(rr, req)
+		} else {
+			handlers.UpdateAutomation(rr, req)
+		}
+		return rr
+	}
+	const auto = `{"name":"nightly","task_file":"%s","strategy":"isolated","trigger":{"type":"manual"},"profile":"%s"}`
+	config := func(workspaceProfile, automationProfile, memory string) string {
+		return fmt.Sprintf(`{"assistant_profile":%q,"assistant_memory":%q,"automations":[{"name":"nightly","task_file":"t.md","strategy":"isolated","trigger":{"type":"manual"},"profile":%q}]}`,
+			workspaceProfile, memory, automationProfile)
+	}
+
+	t.Run("saving the config unchanged, or another setting of it, succeeds", func(t *testing.T) {
+		for _, body := range []string{config("gone", "gone", ""), config("gone", "gone", "on")} {
+			if rr := put("/admin/api/dispatcher/workspaces/ws/config", body); rr.Code != http.StatusOK {
+				t.Errorf("status %d: %s", rr.Code, rr.Body.String())
+			}
+		}
+	})
+	t.Run("setting a new unknown profile is refused, for the workspace and for an automation", func(t *testing.T) {
+		for _, body := range []string{config("other-ghost", "gone", ""), config("gone", "other-ghost", "")} {
+			if rr := put("/admin/api/dispatcher/workspaces/ws/config", body); rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "other-ghost") {
+				t.Errorf("status %d, want 400 naming the profile: %s", rr.Code, rr.Body.String())
+			}
+		}
+	})
+	t.Run("clearing a missing profile, or choosing a real one, succeeds", func(t *testing.T) {
+		for _, body := range []string{config("", "", ""), config("research", "builder", "")} {
+			if rr := put("/admin/api/dispatcher/workspaces/ws/config", body); rr.Code != http.StatusOK {
+				t.Errorf("status %d: %s", rr.Code, rr.Body.String())
+			}
+		}
+		_ = mgr.WriteConfig("ws", stored) // back to the stored 'gone' state for the next cases
+	})
+	t.Run("editing an automation that keeps its missing profile succeeds; moving it to another unknown id does not", func(t *testing.T) {
+		if rr := put("/admin/api/dispatcher/workspaces/ws/automations/nightly", fmt.Sprintf(auto, "other-task.md", "gone")); rr.Code != http.StatusOK {
+			t.Errorf("editing another field: status %d: %s", rr.Code, rr.Body.String())
+		}
+		if rr := put("/admin/api/dispatcher/workspaces/ws/automations/nightly", fmt.Sprintf(auto, "t.md", "other-ghost")); rr.Code != http.StatusBadRequest {
+			t.Errorf("a new unknown id: status %d, want 400: %s", rr.Code, rr.Body.String())
+		}
+	})
 }
 
 // notify is fail-fast validated: a delivery block must name a connector and

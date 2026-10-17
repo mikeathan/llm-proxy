@@ -72,6 +72,9 @@ const startProfile = computed(() => defaultProfile(profiles.value, "assistant", 
 const profileChoices = computed(() => profileOptions(profiles.value, "assistant", workspaceProfile.value));
 // A conversation whose profile no longer exists (a deleted file) shows the starting one, so the control stays usable.
 const shownProfile = computed(() => profiles.value.find((p) => p.id === conversationProfile.value) ?? startProfile.value);
+// Only a profile the catalog knows is sent: a conversation that names a deleted one is not refused (the server skips
+// an id it no longer has and applies the next level).
+const profileToSend = computed(() => (profiles.value.some((p) => p.id === conversationProfile.value) ? conversationProfile.value : ""));
 const profileChoice = computed({
   get: () => shownProfile.value?.id ?? "",
   set: (id: string) => { conversationProfile.value = id; },
@@ -147,7 +150,7 @@ async function scrollToLatest() {
 // output after the DOM updates.
 async function launchRun(text: string) {
   collapseAllInsets();
-  await sendMessage(props.workspaceId, text, { model: model.value, profile: conversationProfile.value });
+  await sendMessage(props.workspaceId, text, { model: model.value, profile: profileToSend.value });
   await scrollToLatest();
 }
 

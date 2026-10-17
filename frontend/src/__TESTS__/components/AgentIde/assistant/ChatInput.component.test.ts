@@ -174,7 +174,8 @@ describe('ChatInput toolbar', () => {
     expect(box.attributes('disabled')).toBeUndefined()
     expect(box.attributes('placeholder')).toMatch(/write your next message/i)
     await box.setValue('next question, edited')
-    expect(w.emitted('update:inputMessage')?.at(-1)).toEqual(['next question, edited'])
+    const updates = w.emitted('update:inputMessage')!
+    expect(updates[updates.length - 1]).toEqual(['next question, edited'])
     await box.trigger('keydown', { key: 'Enter' })
     expect(w.emitted('send'), 'Enter must not send while the run is going').toBeUndefined()
 

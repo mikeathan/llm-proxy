@@ -312,6 +312,16 @@ describe('AssistantChat', () => {
       expect(settingsButton(w).text()).toBe('General')
     })
 
+    it('sends no profile for a conversation whose profile no longer exists, so the message is not refused', async () => {
+      a.conversationProfile.value = 'deleted-file'
+      const { w } = mountChat()
+      await flushPromises()
+      await w.get('textarea').setValue('carry on')
+      await w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'carry on', { model: '', profile: '' })
+    })
+
     it('cannot be changed while a run is going', async () => {
       a.loading.value = true
       const { w } = mountChat()

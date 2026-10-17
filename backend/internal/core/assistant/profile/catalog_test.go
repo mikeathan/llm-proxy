@@ -127,6 +127,21 @@ func TestOversizedUserFileIsRefused(t *testing.T) {
 	}
 }
 
+// With no profiles folder at all (a mock, a bare catalog) nothing is read from the working directory.
+func TestEmptyUserDirReadsNothing(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("general.md", []byte("---\nname: Stray\n---\nnot a profile folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewCatalog("", logging.NewNopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := c.Get("general"); p.Name != "General" || p.Source != Builtin {
+		t.Errorf("an empty userDir must not read ./general.md, got %+v", p)
+	}
+}
+
 func TestMissingUserDirIsFine(t *testing.T) {
 	c, err := NewCatalog(filepath.Join(t.TempDir(), "absent"), logging.NewNopLogger())
 	if err != nil || len(c.List()) != 6 {

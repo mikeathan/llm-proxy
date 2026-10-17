@@ -162,6 +162,9 @@ func (c *Catalog) userIDs() []string {
 
 // readUser reads and validates one user file; an unreadable or invalid one is skipped with a warning.
 func (c *Catalog) readUser(id string) (Profile, bool) {
+	if c.userDir == "" {
+		return Profile{}, false // no profiles folder: filepath.Join("", ...) would read the working directory
+	}
 	path := filepath.Join(c.userDir, id+profileExt)
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
