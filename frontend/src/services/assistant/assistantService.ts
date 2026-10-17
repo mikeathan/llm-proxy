@@ -24,6 +24,7 @@ export class AssistantService {
         message: payload.message,
         timezone: payload.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         ...(payload.model ? { model: payload.model } : {}),
+        ...(payload.profile ? { profile: payload.profile } : {}),
       }),
     })
 

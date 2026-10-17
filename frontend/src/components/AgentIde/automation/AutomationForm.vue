@@ -13,6 +13,8 @@ import UnsavedTag from "../../common/display/UnsavedTag.vue";
 import { loopStrategyDescription } from "../../../utils/model/modelUtils";
 import { triggerLabel } from "../../../utils/automation/automationDisplay";
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
+import { defaultProfile, profileLabel } from "../../../utils/assistant/profileChoice";
+import { useProfiles } from "../../../composables/assistant/useProfiles";
 import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, journalLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
 import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
@@ -123,6 +125,16 @@ const NETWORK_LABEL: Record<string, string> = {
 const { automationDefaultOn } = useMemoryDefaults();
 const memoryLabel = (mode: MemoryMode) => memoryModeLabel(mode, automationDefaultOn.value);
 
+// The profile says how the run behaves; the hint reads what the chosen one (or the default) is for.
+const { profiles } = useProfiles();
+// An automation whose saved profile no longer exists keeps that value visible (and replaceable) rather than a blank select.
+const profileChoices = computed(() => {
+  const saved = form.value.profile;
+  const missing = saved && !profiles.value.some((p) => p.id === saved);
+  return [...profiles.value.map((p) => ({ value: p.id, label: p.name })), ...(missing ? [{ value: saved, label: `${saved} (not found)` }] : [])];
+});
+const profileHint = computed(() => (profiles.value.find((p) => p.id === form.value.profile) ?? defaultProfile(profiles.value, "automation"))?.summary);
+
 const loopStrategyHelper = computed(() => {
   if (!form.value.loopStrategy) {
     return "Uses the model's configured loop strategy (react by default).";
@@ -230,6 +242,7 @@ const handleSubmit = async () => {
     notify: notifyFromForm(data),
     skip_if_busy: data.triggerType !== "manual" && data.skipIfBusy,
     journal: data.journal,
+    profile: data.profile,
   };
 
   submitted.value = true;
@@ -248,6 +261,7 @@ const review = computed(() => [
   ["Name", form.value.name || "—"],
   ["Task file", writingTask.value ? (newTaskFile.value ? `${newTaskFile.value} (new file)` : "—") : form.value.taskFile || "—"],
   ["Model", form.value.model || "Workspace default"],
+  ["Profile", profileLabel(profiles.value, "automation", form.value.profile)],
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
   ["Memory", memoryLabel(form.value.memoryMode)],
@@ -313,6 +327,14 @@ const review = computed(() => [
             <select :id="id" v-model="form.model" :disabled="!selectedProviderKey" class="form-control font-mono text-[length:var(--text-small)]">
               <option value="">{{ selectedProviderKey ? "Choose a model…" : "Choose a connection first" }}</option>
               <option v-for="m in filteredModels" :key="m.name" :value="m.name">{{ m.name }}</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField label="Profile" :hint="profileHint">
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="form.profile" :aria-describedby="describedBy" class="form-control">
+              <option value="">{{ profileLabel(profiles, "automation") }}</option>
+              <option v-for="p in profileChoices" :key="p.value" :value="p.value">{{ p.label }}</option>
             </select>
           </template>
         </FormField>

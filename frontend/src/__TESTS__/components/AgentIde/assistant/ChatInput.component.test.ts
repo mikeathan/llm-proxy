@@ -29,28 +29,18 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-describe('ChatInput model picker', () => {
-  const options = [{ value: '', label: 'Default (a)' }, { value: 'a', label: 'a' }, { value: 'b', label: 'b' }]
-  const mountWith = (modelOptions: typeof options, model = '') =>
-    mount(ChatInput, {
-      props: { loading: false, paused: false, inputMessage: '', modelOptions, model },
+describe('ChatInput tools slot', () => {
+  it('shows what the owner puts in the tools group, beside Commands and Memory', () => {
+    const w = mount(ChatInput, {
+      props: { loading: false, paused: false, inputMessage: '' },
+      slots: { tools: '<button data-test="extra-tool">Settings</button>' },
       global: { stubs: { Icon: true, teleport: true } },
       attachTo: document.body,
     })
-
-  it('offers the models beside the tools and reports a pick', async () => {
-    const w = mountWith(options)
     mounted.push(w)
-    const select = w.get('select[aria-label="Model for the next message"]')
-    expect(select.findAll('option').map((o) => o.text())).toEqual(['Default (a)', 'a', 'b'])
-    await select.setValue('b')
-    expect(w.emitted('update:model')?.[0]).toEqual(['b'])
-  })
-
-  it('shows no picker when there is nothing to choose between', () => {
-    const w = mountWith(options.slice(0, 1))
-    mounted.push(w)
-    expect(w.find('select').exists()).toBe(false)
+    const row = w.get('[data-test="composer-actions"]')
+    expect(row.find('[data-test="extra-tool"]').exists()).toBe(true)
+    expect(row.text()).toContain('Commands')
   })
 })
 
@@ -176,6 +166,22 @@ describe('ChatInput toolbar', () => {
     expect(row.find('button[aria-label="Commands"]').exists()).toBe(true)
     expect(row.find('button[aria-label="Send"]').exists()).toBe(true)
     expect(row.classes()).toContain('items-center')
+  })
+
+  it('keeps the box editable while a run is going, and sends nothing until it ends', async () => {
+    const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: 'next question', canReview: false }, global: { stubs: { Icon: true, teleport: true } } })
+    const box = w.get('textarea')
+    expect(box.attributes('disabled')).toBeUndefined()
+    expect(box.attributes('placeholder')).toMatch(/write your next message/i)
+    await box.setValue('next question, edited')
+    expect(w.emitted('update:inputMessage')?.at(-1)).toEqual(['next question, edited'])
+    await box.trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('send'), 'Enter must not send while the run is going').toBeUndefined()
+
+    await w.setProps({ loading: false })
+    expect(w.get('textarea').attributes('placeholder')).toBe('Ask the workspace agent…')
+    await w.get('textarea').trigger('keydown', { key: 'Enter' })
+    expect(w.emitted('send')).toHaveLength(1)
   })
 
   it('puts stop in the same row while a run is going', () => {

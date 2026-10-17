@@ -38,7 +38,7 @@ describe('useAutomationForm', () => {
     expect(f.form.value).toEqual({
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
       strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'on',
-      notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false, journal: false,
+      notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false, journal: false, profile: '',
     })
   })
 
@@ -109,6 +109,11 @@ describe('useAutomationForm', () => {
   it('populates delivery and busy behaviour from the automation', () => {
     const f = useAutomationForm(ref({ ...AUTO, notify: { connector: 'my-tg', dedup: true, dedup_days: 14, send_empty: true }, skip_if_busy: true }), vi.fn())
     expect(f.form.value).toMatchObject({ notifyConnector: 'my-tg', notifyDedup: true, notifyDedupDays: '14', notifySendEmpty: true, skipIfBusy: true })
+  })
+
+  it('populates the profile, none chosen by default', () => {
+    expect(useAutomationForm(ref(AUTO), vi.fn()).form.value.profile).toBe('')
+    expect(useAutomationForm(ref({ ...AUTO, profile: 'research' }), vi.fn()).form.value.profile).toBe('research')
   })
 
   it('populates the learning journal flag, off by default', () => {

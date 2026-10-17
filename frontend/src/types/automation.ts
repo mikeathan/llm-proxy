@@ -36,6 +36,8 @@ export interface AutomationPayload {
   notify: NotifyConfig | null
   skip_if_busy: boolean
   journal: boolean
+  // Prompt profile id; '' runs the default for automations.
+  profile: string
 }
 
 // AutomationFormData is the editable shape of the automation form. See
@@ -58,4 +60,6 @@ export interface AutomationFormData {
   notifySendEmpty: boolean
   skipIfBusy: boolean
   journal: boolean
+  // Prompt profile id; '' runs the default for automations.
+  profile: string
 }

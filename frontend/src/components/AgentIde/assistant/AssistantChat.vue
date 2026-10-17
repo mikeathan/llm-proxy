@@ -20,6 +20,10 @@ import ChatSessionList from "./ChatSessionList.vue";
 import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
 import { useAssistantModel } from "../../../composables/assistant/useAssistantModel";
+import { useProfiles } from "../../../composables/assistant/useProfiles";
+import { useWorkspaceProfile } from "../../../composables/assistant/useWorkspaceProfile";
+import { defaultProfile, profileOptions } from "../../../utils/assistant/profileChoice";
+import RunSettings from "./RunSettings.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
 import { useConfirm } from "../../../composables/ui/useConfirm";
@@ -56,10 +60,22 @@ const {
   thinking, liveReasoning, paused, phase, modelBusy, dismissModelBusy,
   fetchSessions, loadSession, newSession, openWorkspace, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, cancel,
-  liveEvents, sseConnected,
+  liveEvents, sseConnected, conversationProfile,
 } = useAssistant();
-// The model the operator picked for the next message (empty = the default, the primary).
+// What the next message runs with. The model is remembered per browser (empty = the primary). The profile belongs to
+// the conversation: a new chat starts with the workspace's (else the default for chats) until one is picked here, and
+// nothing is sent while none was, so a conversation keeps the profile it already has.
 const { model, options: modelOptions } = useAssistantModel();
+const { profiles } = useProfiles();
+const { profile: workspaceProfile } = useWorkspaceProfile(toRef(props, "workspaceId"));
+const startProfile = computed(() => defaultProfile(profiles.value, "assistant", workspaceProfile.value));
+const profileChoices = computed(() => profileOptions(profiles.value, "assistant", workspaceProfile.value));
+// A conversation whose profile no longer exists (a deleted file) shows the starting one, so the control stays usable.
+const shownProfile = computed(() => profiles.value.find((p) => p.id === conversationProfile.value) ?? startProfile.value);
+const profileChoice = computed({
+  get: () => shownProfile.value?.id ?? "",
+  set: (id: string) => { conversationProfile.value = id; },
+});
 const { confirm } = useConfirm();
 const { forget: forgetPins } = usePinnedSessions(() => props.workspaceId);
 
@@ -131,7 +147,7 @@ async function scrollToLatest() {
 // output after the DOM updates.
 async function launchRun(text: string) {
   collapseAllInsets();
-  await sendMessage(props.workspaceId, text, model.value);
+  await sendMessage(props.workspaceId, text, { model: model.value, profile: conversationProfile.value });
   await scrollToLatest();
 }
 
@@ -418,13 +434,24 @@ const handleDeleteGroup = async (ids: string[]) => {
         :loading="loading"
         :paused="paused"
         :input-message="inputMessage"
-        v-model:model="model"
-        :model-options="modelOptions"
         @send="handleSend"
         @cancel="cancel"
         @review="startReview()"
         @update:input-message="inputMessage = $event"
-      />
+      >
+        <template #tools>
+          <RunSettings
+            v-if="shownProfile"
+            v-model:profile="profileChoice"
+            v-model:model="model"
+            :profile-options="profileChoices"
+            :model-options="modelOptions"
+            :profile-name="shownProfile.name"
+            :profile-summary="shownProfile.summary"
+            :disabled="loading"
+          />
+        </template>
+      </ChatInput>
     </div>
 
     <MemoryReviewDialog

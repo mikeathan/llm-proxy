@@ -4,7 +4,7 @@ import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../../utils/message/messageBuilder'
 import { buildSegmentsFromHistory } from '../../utils/message/turnGrouper'
 import type { SessionLifecyclePayload } from '../../types/assistant'
-import type { AssistantMessage, SessionBrief } from '../../types/assistant'
+import type { AssistantMessage, RunChoice, SessionBrief } from '../../types/assistant'
 import { LIFECYCLE_PHASES } from '../../types/dispatcher'
 import { clearRunningFlags, reconcileRunningSessions } from '../../utils/assistant/running'
 import { useAppBanner } from '../ui/useAppBanner'
@@ -16,6 +16,8 @@ const currentSessionId = ref<string | null>(null)
 const messages = ref<AssistantMessage[]>([])
 const sessions = ref<SessionBrief[]>([])
 const activeWorkspaceId = ref<string | null>(null)
+// The prompt profile the open conversation runs under ('' = it never chose: the workspace's or the default applies).
+const conversationProfile = ref('')
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
 
@@ -207,6 +209,7 @@ export function useAssistant() {
     // sse.reset() clears the dedup set so the replayed events are accepted.
     if (sessions.value.find(s => s.id === sessionId)?.running) {
       currentSessionId.value = sessionId
+      conversationProfile.value = ''
       messages.value = []
       loading.value = false
       sse.reset()
@@ -225,6 +228,7 @@ export function useAssistant() {
         return
       }
       currentSessionId.value = session.id
+      conversationProfile.value = session.profile ?? ''
       messages.value = buildSegmentsFromHistory(session.history || [])
       // Drive the (now historical) turn's bubble into its done state so the
       // result and the expandable reasoning/tool-call inset render — the same
@@ -264,6 +268,7 @@ export function useAssistant() {
 
   const newSession = () => {
     currentSessionId.value = null
+    conversationProfile.value = ''
     messages.value = []
     sse.reset()
   }
@@ -285,8 +290,9 @@ export function useAssistant() {
     connectSSE()
   }
 
-  // model names a registry model for this message; empty runs the primary.
-  const sendMessage = async (workspaceId: string, text: string, model = '') => {
+  // choice is what the operator picked for this message: a registry model (empty runs the primary) and a prompt
+  // profile (empty keeps the conversation's own). A profile picked here is the conversation's from now on.
+  const sendMessage = async (workspaceId: string, text: string, choice: RunChoice = {}) => {
     if (!text.trim()) return
 
     if (activeWorkspaceId.value !== workspaceId) {
@@ -337,7 +343,8 @@ export function useAssistant() {
         workspace_id: workspaceId,
         conversation_id: currentSessionId.value || undefined,
         message: text,
-        model: model || undefined,
+        model: choice.model || undefined,
+        profile: choice.profile || undefined,
       })
 
       if (!currentSessionId.value && response.conversation_id) {
@@ -526,6 +533,7 @@ export function useAssistant() {
     loadSession,
     newSession,
     openWorkspace,
+    conversationProfile,
     sendMessage,
     deleteSession,
     deleteAllSessions,

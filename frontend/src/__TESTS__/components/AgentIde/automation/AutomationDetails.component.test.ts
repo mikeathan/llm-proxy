@@ -6,6 +6,14 @@ import { createAppRouter } from '../../../../router'
 import { useConfirm } from '../../../../composables/ui/useConfirm'
 import type { Automation, AutomationRun } from '../../../../types/dispatcher'
 
+const profileService = vi.hoisted(() => ({
+  list: vi.fn().mockResolvedValue([
+    { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
+    { id: 'task-runner', name: 'Task runner', summary: 'Runs unattended.', source: 'builtin', answer_first: false, may_ask: false, memory_guidance: false, reminders: false, default_for: ['automation'] },
+  ]),
+}))
+vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))
+
 const connect = vi.fn()
 vi.mock('../../../../composables/automation/useLiveConsole', () => ({
   useLiveConsole: () => ({
@@ -73,6 +81,15 @@ describe('AutomationDetails', () => {
     expect(inherited.get('[data-test="console-model"]').text()).toBe('ornith')
     expect(inherited.text()).toContain('Default (ornith)')
     useModels().state.value = null
+  })
+
+  it("names the profile its runs use, or the default's name when none was chosen", async () => {
+    const chosen = await mountDetails({ automation: { ...AUTO, profile: 'research' } })
+    await flushPromises()
+    expect(chosen.text()).toMatch(/Profile\s*Research/)
+    const unchosen = await mountDetails()
+    await flushPromises()
+    expect(unchosen.text()).toMatch(/Profile\s*Default \(Task runner\)/)
   })
 
   it('shows the configuration, the last error and the last output, and connects the live console', async () => {

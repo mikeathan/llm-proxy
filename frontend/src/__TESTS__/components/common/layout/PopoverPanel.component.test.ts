@@ -22,3 +22,18 @@ describe('PopoverPanel', () => {
     expect(w.emitted('close')).toHaveLength(2)
   })
 })
+
+describe('PopoverPanel placement', () => {
+  const classes = (placement?: 'below' | 'above') =>
+    mount(PopoverPanel, { props: { id: 'p', title: 'T', ...(placement ? { placement } : {}) }, global: { stubs: { Icon: true } } }).get('[role="dialog"]').classes()
+
+  it('opens below its control by default, for a header control', () => {
+    expect(classes()).toContain('sm:top-full')
+    expect(classes()).not.toContain('sm:bottom-full')
+  })
+
+  it('opens above its control for one at the bottom of the screen', () => {
+    expect(classes('above')).toContain('sm:bottom-full')
+    expect(classes('above')).not.toContain('sm:top-full')
+  })
+})

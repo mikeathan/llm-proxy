@@ -62,10 +62,41 @@ describe('useAssistant', () => {
   it('sends the model picked for the message, and none when the default is chosen', async () => {
     sse.isConnected.value = true
     const a = await freshAssistant()
-    await a.sendMessage('ws', 'hello', 'nemotron')
+    await a.sendMessage('ws', 'hello', { model: 'nemotron' })
     expect(service.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'nemotron' }))
     await a.sendMessage('ws', 'again')
     expect(service.sendMessage.mock.lastCall![0].model).toBeUndefined()
+    expect(service.sendMessage.mock.lastCall![0].profile).toBeUndefined()
+  })
+
+  it('sends the profile picked for the message', async () => {
+    sse.isConnected.value = true
+    const a = await freshAssistant()
+    await a.sendMessage('ws', 'hello', { profile: 'research' })
+    expect(service.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ profile: 'research' }))
+  })
+
+  it("takes the open conversation's profile from the saved session, and forgets it for a new chat", async () => {
+    const a = await freshAssistant()
+    service.getSession.mockResolvedValue({ id: 's1', profile: 'builder', history: [{ role: 'user', content: 'q' }] })
+    await a.loadSession('ws', 's1')
+    expect(a.conversationProfile.value).toBe('builder')
+
+    service.getSession.mockResolvedValue({ id: 's2', history: [{ role: 'user', content: 'q' }] })
+    await a.loadSession('ws', 's2')
+    expect(a.conversationProfile.value, 'a conversation that never chose has none').toBe('')
+
+    a.conversationProfile.value = 'research'
+    a.newSession()
+    expect(a.conversationProfile.value).toBe('')
+  })
+
+  it('does not claim a profile for a conversation opened while it runs', async () => {
+    const a = await freshAssistant()
+    a.conversationProfile.value = 'research'
+    a.sessions.value = [{ id: 's1', snippet: 'x', updated_at: '', running: true }]
+    await a.loadSession('ws', 's1')
+    expect(a.conversationProfile.value, 'unknown, so nothing is sent and the conversation keeps its own').toBe('')
   })
 
   it('adopts the new conversation and lists it first, staying busy until the run completes', async () => {

@@ -39,6 +39,7 @@ export function useAutomationForm(
       notifySendEmpty: false,
       skipIfBusy: false,
       journal: false,
+      profile: "",
     }
   }
 
@@ -136,6 +137,7 @@ export function useAutomationForm(
         notifySendEmpty: !!target.notify?.send_empty,
         skipIfBusy: !!target.skip_if_busy,
         journal: !!target.journal,
+        profile: target.profile || "",
       }
     },
     { immediate: true },

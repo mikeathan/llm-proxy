@@ -13,8 +13,9 @@ import BaseButton from "../../common/buttons/BaseButton.vue";
 import LoadingState from "../../common/feedback/LoadingState.vue";
 import ErrorState from "../../common/feedback/ErrorState.vue";
 import SettingsActions from "../../settings/SettingsActions.vue";
+import WorkspaceProfileField from "./WorkspaceProfileField.vue";
 
-// Workspace · Settings: the workspace's own guardrail layer over the global
+// Workspace · Settings: the profile its chats start with (saved on its own), and the workspace's own guardrail layer over the global
 // policy. Without a layer the workspace simply uses the global policy; with one
 // the form shows each effective value and whether it is inherited, overridden
 // or an exception (the backend's merge, domain/guardrailLayers). Save writes
@@ -81,8 +82,9 @@ async function save() {
   if (!stored.value || !draft.value) return;
   saving.value = true;
   saveError.value = "";
-  const next = { ...stored.value, guardrails: copy(draft.value) };
   try {
+    // Read the config again: another setting (the assistant profile, memory) may have been saved since this page loaded.
+    const next = { ...(await DispatcherService.getWorkspaceConfig(props.workspaceId)), guardrails: copy(draft.value) };
     await DispatcherService.updateWorkspaceConfig(props.workspaceId, next);
     stored.value = next;
     savedLayer.value = copy(draft.value);
@@ -105,8 +107,8 @@ async function resetToGlobal() {
   if (!ok) return;
   resetting.value = true;
   saveError.value = "";
-  const { guardrails: _removed, ...rest } = stored.value;
   try {
+    const { guardrails: _removed, ...rest } = (await DispatcherService.getWorkspaceConfig(props.workspaceId)) as Record<string, unknown>;
     await DispatcherService.updateWorkspaceConfig(props.workspaceId, rest);
     stored.value = rest;
     savedLayer.value = null;
@@ -149,6 +151,10 @@ watch(() => props.workspaceId, load);
     </ErrorState>
 
     <template v-else>
+      <Panel title="Assistant">
+        <WorkspaceProfileField :workspace-id="workspaceId" />
+      </Panel>
+
       <Panel title="Guardrail policy">
         <template v-if="savedLayer" #actions>
           <BaseButton variant="ghost" size="sm" icon="refresh" :loading="resetting" @click="resetToGlobal">Reset to global policy</BaseButton>

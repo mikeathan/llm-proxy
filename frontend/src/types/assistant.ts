@@ -65,6 +65,14 @@ export interface AssistantSession {
   metadata?: Record<string, any>
   cancelled_indices?: number[]
   updated_at: string
+  // The prompt profile this conversation runs under; absent for one that never chose.
+  profile?: string
+}
+
+// What the operator picked for the next message: a registry model and a prompt profile ('' = no choice).
+export interface RunChoice {
+  model?: string
+  profile?: string
 }
 
 export interface ChatRequestPayload {
@@ -75,6 +83,8 @@ export interface ChatRequestPayload {
   timezone?: string
   // A registry model chosen for this message; absent runs the primary.
   model?: string
+  // A prompt profile chosen for this message, which the conversation then keeps; absent keeps the conversation's own.
+  profile?: string
 }
 
 import type { AgentEvent } from './dispatcher'

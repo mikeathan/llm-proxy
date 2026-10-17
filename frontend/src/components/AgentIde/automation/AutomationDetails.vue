@@ -6,6 +6,8 @@ import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
 import { useAutomationJournal } from "../../../composables/automation/useAutomationJournal";
 import { useConfirm } from "../../../composables/ui/useConfirm";
 import { useModels } from "../../../composables/models/useModels";
+import { useProfiles } from "../../../composables/assistant/useProfiles";
+import { profileLabel } from "../../../utils/assistant/profileChoice";
 import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
@@ -116,12 +118,14 @@ const { state: modelState } = useModels();
 const primaryModel = computed(() => modelState.value?.config?.primary_model ?? "");
 const modelLabel = computed(() => props.automation.model || (primaryModel.value ? `Default (${primaryModel.value})` : "Workspace default"));
 const runsOnModel = computed(() => props.automation.model || primaryModel.value);
+const { profiles } = useProfiles();
 
 const config = computed(() => [
   ["Runs", triggerLabel(props.automation)],
   ...(nextRunLabel(props.automation) ? [["Next run", `${nextRunLabel(props.automation)} (server time)`]] : []),
   ["Strategy", props.automation.strategy],
   ["Model", modelLabel.value],
+  ["Profile", profileLabel(profiles.value, "automation", props.automation.profile)],
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],
   ["Network", props.automation.network_grant || "Inherits the workspace"],
   ["Memory", memoryModeLabel(props.automation.memory_mode, automationDefaultOn.value)],

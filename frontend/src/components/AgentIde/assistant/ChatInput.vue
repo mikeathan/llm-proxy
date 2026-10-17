@@ -6,9 +6,7 @@ import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 import SlashHelper from './SlashHelper.vue'
 import ComposeSheet from './ComposeSheet.vue'
 import { useSlashCommands } from '../../../composables/assistant/useSlashCommands'
-import SelectInput from '../../common/forms/SelectInput.vue'
 import type { CommandInfo } from '../../../types/commands'
-import type { ChoiceOption } from '../../../types/ui'
 
 // The message box starts three lines tall and grows with its text up to a cap, then
 // scrolls; a long draft (a big paste) says how big it is and can be expanded to read
@@ -23,12 +21,12 @@ const props = defineProps<{
   compact?: boolean
   /** There is a saved conversation that can be reviewed for memories. */
   canReview?: boolean
-  /** The models to choose from, the default first; a picker shows when there is a choice. */
-  modelOptions?: ChoiceOption[]
 }>()
 
-// The model the next message runs on ("" = the default).
-const model = defineModel<string>('model', { default: '' })
+defineSlots<{
+  /** More controls in the tools group beside Commands and Memory (what the next message runs with). */
+  tools?(): unknown
+}>()
 
 const emit = defineEmits<{
   send: []
@@ -42,6 +40,9 @@ const LONG_DRAFT_LINES = 8
 const LONG_DRAFT_CHARS = 600
 const LINE_BREAK = '\n'
 const START_ROWS = 3
+// While a run is going the box stays editable: the next message can be written meanwhile, and sent once the run ends.
+const IDLE_PLACEHOLDER = 'Ask the workspace agent…'
+const WORKING_PLACEHOLDER = 'Working… you can write your next message while it finishes'
 // Primary actions grow to a 44px target on a touch screen.
 // The toolbar buttons are text buttons: they grow in height only.
 const TOOL_TOUCH = '[@media(pointer:coarse)]:h-11'
@@ -111,7 +112,7 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    emit('send')
+    if (!props.loading) emit('send')
   }
 }
 
@@ -142,11 +143,10 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
         :value="inputMessage"
         @input="emit('update:inputMessage', ($event.target as HTMLTextAreaElement).value)"
         @keydown="onKeydown"
-        placeholder="Ask the workspace agent…"
+        :placeholder="loading ? WORKING_PLACEHOLDER : IDLE_PLACEHOLDER"
         class="chat-input"
         :class="{ 'is-loading': loading, 'is-expanded': expanded }"
         :rows="START_ROWS"
-        :disabled="loading"
       ></textarea>
     </div>
     <!-- A long draft says how big it is on its own line, so it never crowds the controls below. -->
@@ -158,14 +158,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           <span aria-hidden="true">/</span><span>Commands</span>
         </BaseButton>
         <BaseButton variant="ghost" size="sm" icon="memory" title="Ask the model which facts in this conversation are worth remembering" :disabled="!canReview || loading" :class-name="TOOL_TOUCH" @click="emit('review')">Memory</BaseButton>
-        <SelectInput
-          v-if="modelOptions && modelOptions.length > 1"
-          v-model="model"
-          :options="modelOptions"
-          label="Model for the next message"
-          :disabled="loading"
-          class="model-picker"
-        />
+        <slot name="tools" />
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <BaseButton
@@ -199,11 +192,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .chat-input { @apply block w-full rounded-[var(--radius-md)] border border-control bg-canvas px-3 py-2.5 text-[length:var(--text-body)] text-primary placeholder:text-faint resize-none transition-colors focus-visible:outline-none focus-visible:ring-2; position: relative; z-index: 0; max-height: min(40vh, 18rem); overflow-y: auto; }
 /* The chat panel is 100vh - 10rem tall: leave room for its header and the latest messages. */
 .chat-input.is-expanded { max-height: min(55vh, calc(100vh - 22rem)); }
-.chat-input:disabled { @apply opacity-50 cursor-not-allowed; }
 .chat-input.is-loading { @apply border-transparent; }
-/* The picker shares the row with the tools and the send button: it shrinks and clips a long name. */
-.model-picker { @apply max-w-[9.5rem] flex-1 truncate; }
-@media (pointer: coarse) { .model-picker { @apply h-11; } }
 /* 16px on a touch screen: below that the browser zooms the page when the box is focused. */
 @media (pointer: coarse) { .chat-input { font-size: 16px; } }
 
