@@ -22,8 +22,8 @@ vi.mock('../../../../services/automation/dispatcherService', () => ({
 const { writeFileMock, listTemplatesMock, getTemplateMock, confirmMock } = vi.hoisted(() => ({ writeFileMock: vi.fn(), listTemplatesMock: vi.fn(), getTemplateMock: vi.fn(), confirmMock: vi.fn() }))
 const profileService = vi.hoisted(() => ({
   list: vi.fn().mockResolvedValue([
-    { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
-    { id: 'task-runner', name: 'Task runner', summary: 'Runs unattended.', source: 'builtin', answer_first: false, may_ask: false, memory_guidance: false, reminders: false, default_for: ['automation'] },
+    { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
+    { id: 'task-runner', name: 'Task runner', summary: 'Runs unattended.', source: 'builtin', answer_first: false, may_ask: false, memory_save: 'model', reminders: false, default_for: ['automation'] },
   ]),
 }))
 vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))

@@ -55,29 +55,29 @@ type Profile struct {
 	Tools []string `json:"tools,omitempty"`
 	// Memory is the profile's default for hot memory; an explicit workspace or automation setting still wins.
 	Memory models.MemoryMode `json:"memory,omitempty"`
-	// MemoryGuidance adds the "save lasting facts" instruction and the per-message reminder.
-	MemoryGuidance bool `json:"memory_guidance"`
+	// MemorySave is who decides what gets saved to memory (SaveMode). Reading memory is the Memory field's business.
+	MemorySave SaveMode `json:"memory_save"`
 	// Reminders exposes the reminder tools.
 	Reminders bool `json:"reminders"`
 }
 
 // frontMatter is the file header. Unknown keys are an error, so a typo in a user's file is not silently ignored.
 type frontMatter struct {
-	Name           string            `yaml:"name"`
-	Summary        string            `yaml:"summary"`
-	AnswerFirst    bool              `yaml:"answer_first"`
-	MayAsk         bool              `yaml:"may_ask"`
-	MaxSteps       int               `yaml:"max_steps"`
-	Tools          []string          `yaml:"tools"`
-	Memory         models.MemoryMode `yaml:"memory"`
-	MemoryGuidance bool              `yaml:"memory_guidance"`
-	Reminders      bool              `yaml:"reminders"`
+	Name        string            `yaml:"name"`
+	Summary     string            `yaml:"summary"`
+	AnswerFirst bool              `yaml:"answer_first"`
+	MayAsk      bool              `yaml:"may_ask"`
+	MaxSteps    int               `yaml:"max_steps"`
+	Tools       []string          `yaml:"tools"`
+	Memory      models.MemoryMode `yaml:"memory"`
+	MemorySave  SaveMode          `yaml:"memory_save"`
+	Reminders   bool              `yaml:"reminders"`
 }
 
 // Unprofiled is what an agent runs with when no profile was chosen (a direct constructor, a test): the loop as it
 // behaved before profiles existed — tool-first, with the save guidance and the reminders on and every tool exposed.
 // Runs started by a chat or an automation always carry a real profile.
-func Unprofiled() Profile { return Profile{Reminders: true, MemoryGuidance: true} }
+func Unprofiled() Profile { return Profile{Reminders: true, MemorySave: SaveModel} }
 
 // ValidID reports whether id can name a profile (and so a file).
 func ValidID(id string) bool { return idPattern.MatchString(id) }
@@ -100,7 +100,7 @@ func Parse(id string, source Source, data []byte) (Profile, error) {
 	p := Profile{
 		ID: id, Name: strings.TrimSpace(fm.Name), Summary: strings.TrimSpace(fm.Summary), Source: source,
 		Instructions: strings.TrimSpace(body), AnswerFirst: fm.AnswerFirst, MayAsk: fm.MayAsk, MaxSteps: fm.MaxSteps,
-		Tools: fm.Tools, Memory: fm.Memory, MemoryGuidance: fm.MemoryGuidance, Reminders: fm.Reminders,
+		Tools: fm.Tools, Memory: fm.Memory, MemorySave: fm.MemorySave.Effective(), Reminders: fm.Reminders,
 	}
 	if err := p.validate(); err != nil {
 		return Profile{}, fmt.Errorf("profile %s: %w", id, err)
@@ -132,7 +132,14 @@ func (p Profile) validate() error {
 		return fmt.Errorf("max_steps must be between 0 and %d", maxStepsLimit)
 	case p.Memory != models.MemoryModeInherit && !p.Memory.Valid():
 		return fmt.Errorf("memory %q: use on or off, or leave it out", p.Memory)
+	case !p.MemorySave.Valid():
+		return fmt.Errorf("memory_save %q: use %s, or leave it out", p.MemorySave, saveModeChoices)
 	}
+	return p.validateTools()
+}
+
+// validateTools checks the tool categories the profile lists and that its reminders flag can be honoured by them.
+func (p Profile) validateTools() error {
 	for _, category := range p.Tools {
 		if !models.IsToolCategory(category) {
 			return fmt.Errorf("tools: %q is not a tool category (%s)", category, strings.Join(models.ToolCategories(), ", "))
@@ -145,7 +152,8 @@ func (p Profile) validate() error {
 }
 
 // ExcludedTools names the built-in tools this profile hides: every category it does not list (none when it lists
-// none), the always-on categories excepted, and the reminder tools whenever Reminders is off.
+// none), the always-on categories excepted, the reminder tools whenever Reminders is off, and the memory write tools
+// unless the profile lets the model save.
 func (p Profile) ExcludedTools() []string {
 	var hidden []string
 	if len(p.Tools) > 0 {
@@ -158,6 +166,15 @@ func (p Profile) ExcludedTools() []string {
 	if !p.Reminders {
 		hidden = append(hidden, models.ToolsInCategory(models.CategoryReminders)...)
 	}
+	if !p.MemorySave.OffersWriteTools() {
+		hidden = append(hidden, models.ToolMemoryUpdate, models.ToolMemoryForget)
+	}
 	slices.Sort(hidden)
 	return slices.Compact(hidden)
 }
+
+// GuidesMemorySaves reports whether the profile has the model decide what to save, so the run is told when to.
+func (p Profile) GuidesMemorySaves() bool { return p.MemorySave.OffersWriteTools() }
+
+// CapturesMemory reports whether code may save what the user explicitly asks to remember.
+func (p Profile) CapturesMemory() bool { return p.MemorySave.Effective() != SaveOff }

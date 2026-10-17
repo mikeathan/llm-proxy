@@ -670,7 +670,7 @@ func TestSaveGuidance_ReachesOnlyTheOperatorsOwnChatsWithMemoryOn(t *testing.T) 
 		{"memory switched off", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: false, ConversationID: "conv_1"}, false},
 		{"an automation", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, Channel: ChannelAutomation}, false},
 		{"a connector chat", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, ConversationID: "wb_telegram_chat42"}, false},
-		{"a profile without save guidance", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, ConversationID: "conv_1", Profile: profile.Profile{ID: "quiet"}}, false},
+		{"a profile that keeps the model from saving", AgentOptions{WorkspaceID: "ws-1", EnableHotMemory: true, ConversationID: "conv_1", Profile: profile.Profile{ID: "quiet", MemorySave: profile.SaveExplicit}}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

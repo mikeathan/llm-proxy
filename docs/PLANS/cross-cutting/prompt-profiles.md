@@ -150,9 +150,9 @@ reminder tools); the system message is rebuilt from the profile id each turn, so
 `tools` list is by category and never hides the `system`, `security` and `automation` categories.
 
 **Remaining work:** the eval for the other profiles is done (`docs/audits/2026-10-17-prompt-profiles-eval.md`); its
-findings are open: Builder on Nemotron saves a memory fact after every edit task (consider `memory_guidance: false` for
-Builder, then re-run), Operator's "ask before a destructive change" is only reliably followed by Ornith (the terminal
-approval gate is the backstop), and Research searching needs a re-run where a search provider is configured. The
+findings are open: Builder on Nemotron saves a memory fact after every edit task (fixed by `memory_save`, SPEC-012 §2.1:
+Builder is `explicit`; re-run to confirm), Operator's "ask before a destructive change" is only reliably followed by Ornith (Nemotron deleted the file through an
+allow-listed `python3 -c`: an interpreter bypass of the terminal allow-list, a separate security question), and Research searching needs a re-run where a search provider is configured. The
 instruction-file write block and the `GetSystemPrompt` deletion are built.
 
 ## 9. Decisions

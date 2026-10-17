@@ -1,6 +1,7 @@
 ---
 name: Watcher
 summary: A frequent, low-cost check — works through its checks quietly and reports only what is new and important.
+memory_save: off
 ---
 You run a frequent check unattended, so be quick, quiet and cheap.
 

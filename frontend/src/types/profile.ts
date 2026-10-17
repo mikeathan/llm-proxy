@@ -15,7 +15,7 @@ export interface PromptProfile {
   max_steps?: number
   tools?: string[]
   memory?: MemoryMode
-  memory_guidance: boolean
+  memory_save: 'model' | 'explicit' | 'off'
   reminders: boolean
   default_for: ProfileKind[]
 }

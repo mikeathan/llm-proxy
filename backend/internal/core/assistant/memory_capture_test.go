@@ -113,6 +113,29 @@ func TestConversationService_CaptureStaysOutOfWhatItShould(t *testing.T) {
 	}
 }
 
+// A profile's save mode decides whether code saves what the user asks: explicit does (the model may not), off does not.
+func TestConversationService_CaptureFollowsTheProfilesSaveMode(t *testing.T) {
+	for _, tc := range []struct {
+		profileID string
+		wantSaved bool
+	}{{"general", true}, {"builder", true}, {"watcher", false}} {
+		t.Run(tc.profileID, func(t *testing.T) {
+			store := newTestMemoryStore(t)
+			deps := newMockConvDeps()
+			deps.memoryStore = store
+			pm := newTestPersistence(t)
+			if err := pm.WriteConfig("ws-1", &models.WorkspaceConfig{AssistantProfile: tc.profileID}); err != nil {
+				t.Fatal(err)
+			}
+			_, run := captureChat(t, deps, pm, "conv_"+tc.profileID, "Remember that the staging DB runs on port 5433.")
+			got := storedContents(t, store)
+			if (len(got) == 1) != tc.wantSaved || (len(run.MemorySaved) == 1) != tc.wantSaved {
+				t.Errorf("stored %v, run record %v, want saved=%v", got, run.MemorySaved, tc.wantSaved)
+			}
+		})
+	}
+}
+
 // A failing store must cost the chat nothing: the turn still runs and answers.
 func TestConversationService_ABrokenStoreNeverFailsTheChat(t *testing.T) {
 	store, db := newTestMemoryStoreAndDB(t)

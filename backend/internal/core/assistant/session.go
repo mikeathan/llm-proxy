@@ -1486,6 +1486,10 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	if s.agent.deps.MemoryStore == nil || s.prompt.memoryFlushSent || !s.agent.config.EnableHotMemory {
 		return
 	}
+	// The flush asks the model to call memory_update: a profile that does not offer it has nothing to ask.
+	if !s.agent.config.Profile.MemorySave.OffersWriteTools() {
+		return
+	}
 	// The operator's own chat already carries narrower save guidance (what to
 	// save, and to save before answering), and a playbook may govern saving; a
 	// generic "save anything important" would contradict both. Nor is it needed

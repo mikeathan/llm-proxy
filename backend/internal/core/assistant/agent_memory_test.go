@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/db"
@@ -595,6 +596,16 @@ func TestPreSieveNudge_SkippedWhenGuidedOrAlreadySaved(t *testing.T) {
 	}
 	if nudged(newSession(ChannelAssistant, "conv_20261005120000", base)) {
 		t.Error("the operator chat has save guidance: the generic nudge must be skipped")
+	}
+	// A profile that does not offer memory_update has nothing to nudge toward.
+	for _, mode := range []profile.SaveMode{profile.SaveExplicit, profile.SaveOff} {
+		agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+			MaxSteps: 5, WorkspaceID: "ws-1", MemoryStore: newTestMemoryStore(t), ContextBudget: 100,
+			EnableHotMemory: true, Channel: ChannelAutomation, Profile: profile.Profile{ID: "quiet", MemorySave: mode},
+		})
+		if nudged(newRunSession(agent, context.Background(), base)) {
+			t.Errorf("save mode %q must not be nudged to call a tool it is not offered", mode)
+		}
 	}
 	saved := append(append([]proxy.Message{}, base...), proxy.Message{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{Function: proxy.FunctionCall{Name: models.ToolMemoryUpdate}}}})
 	if nudged(newSession(ChannelAutomation, "", saved)) {

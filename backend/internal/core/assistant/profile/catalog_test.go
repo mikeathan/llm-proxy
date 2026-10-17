@@ -48,7 +48,7 @@ func TestDefaultsPerKind(t *testing.T) {
 		}
 	}
 	general := c.Resolve(KindAssistant)
-	if !general.AnswerFirst || !general.Reminders || !general.MemoryGuidance {
+	if !general.AnswerFirst || !general.Reminders || !general.GuidesMemorySaves() {
 		t.Errorf("General must be the everyday assistant (answer-first, reminders, memory), got %+v", general)
 	}
 	hidden := strings.Join(general.ExcludedTools(), ",")
@@ -154,6 +154,22 @@ func TestGetRejectsPathLikeIDs(t *testing.T) {
 	for _, id := range []string{"../etc/passwd", "a/b", "", "..", "Upper"} {
 		if _, ok := c.Get(id); ok {
 			t.Errorf("Get(%q) must not find anything", id)
+		}
+	}
+}
+
+// Each built-in states how it may save memory: the everyday assistant decides itself, task profiles save only what the
+// user asks for, and the unattended quiet check saves nothing (its "already reported" state is the code-owned ledger).
+func TestBuiltinMemorySaveModes(t *testing.T) {
+	c, _ := newCatalog(t)
+	want := map[string]SaveMode{
+		"general": SaveModel, "task-runner": SaveModel, "research": SaveExplicit, "operator": SaveExplicit,
+		"builder": SaveExplicit, "watcher": SaveOff,
+	}
+	for id, mode := range want {
+		p, ok := c.Get(id)
+		if !ok || p.MemorySave != mode {
+			t.Errorf("%s: memory_save = %q (found %v), want %q", id, p.MemorySave, ok, mode)
 		}
 	}
 }
