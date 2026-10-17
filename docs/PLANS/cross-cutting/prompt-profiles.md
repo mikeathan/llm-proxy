@@ -140,7 +140,7 @@ Metrics per case and profile: tool calls, workspace scans, spurious `memory_upda
 | 1 | `answer_first` loop policy: completion without a prior tool result, no no-tool cap, answer-inviting nudges. | done, tested |
 | 2 | Profile model, catalog and resolver; persisted `assistant_profile`, automation `profile`, session `profile`; `GET /admin/api/profiles`; validation at the API boundary. | done, tested |
 | 3 | Layered prompt (profile, core rules, workspace notes), rebuilt every turn, no clock in it; `AGENTS.md` is workspace notes, old seeded defaults read as no notes. | done, tested |
-| 4 | Profile text tuned on the eval; the six shipped. | done for General and Task runner (eval); the others are checked for shape only |
+| 4 | Profile text tuned on the eval; the six shipped. | General through the chat eval, Task runner by an automation smoke on Ornith; the others are checked for shape only |
 | 5 | Run-settings control (profile and model) in the composer, workspace default, automation form and details, composer editable during a run. | done, tested, measured at 390px |
 | 6 | SPEC-012; SPEC-001/004/007 changelogs; API, data-layout and architecture docs. | done |
 
