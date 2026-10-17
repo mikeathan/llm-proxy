@@ -6,7 +6,9 @@ import ArcOrbitLoader from '../../common/layout/ArcOrbitLoader.vue'
 import SlashHelper from './SlashHelper.vue'
 import ComposeSheet from './ComposeSheet.vue'
 import { useSlashCommands } from '../../../composables/assistant/useSlashCommands'
+import SelectInput from '../../common/forms/SelectInput.vue'
 import type { CommandInfo } from '../../../types/commands'
+import type { ChoiceOption } from '../../../types/ui'
 
 // The message box starts three lines tall and grows with its text up to a cap, then
 // scrolls; a long draft (a big paste) says how big it is and can be expanded to read
@@ -21,7 +23,12 @@ const props = defineProps<{
   compact?: boolean
   /** There is a saved conversation that can be reviewed for memories. */
   canReview?: boolean
+  /** The models to choose from, the default first; a picker shows when there is a choice. */
+  modelOptions?: ChoiceOption[]
 }>()
+
+// The model the next message runs on ("" = the default).
+const model = defineModel<string>('model', { default: '' })
 
 const emit = defineEmits<{
   send: []
@@ -151,6 +158,14 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           <span aria-hidden="true">/</span><span>Commands</span>
         </BaseButton>
         <BaseButton variant="ghost" size="sm" icon="memory" title="Ask the model which facts in this conversation are worth remembering" :disabled="!canReview || loading" :class-name="TOOL_TOUCH" @click="emit('review')">Memory</BaseButton>
+        <SelectInput
+          v-if="modelOptions && modelOptions.length > 1"
+          v-model="model"
+          :options="modelOptions"
+          label="Model for the next message"
+          :disabled="loading"
+          class="model-picker"
+        />
       </div>
       <div class="flex shrink-0 items-center gap-2">
         <BaseButton
@@ -186,6 +201,9 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .chat-input.is-expanded { max-height: min(55vh, calc(100vh - 22rem)); }
 .chat-input:disabled { @apply opacity-50 cursor-not-allowed; }
 .chat-input.is-loading { @apply border-transparent; }
+/* The picker shares the row with the tools and the send button: it shrinks and clips a long name. */
+.model-picker { @apply max-w-[9.5rem] flex-1 truncate; }
+@media (pointer: coarse) { .model-picker { @apply h-11; } }
 /* 16px on a touch screen: below that the browser zooms the page when the box is focused. */
 @media (pointer: coarse) { .chat-input { font-size: 16px; } }
 

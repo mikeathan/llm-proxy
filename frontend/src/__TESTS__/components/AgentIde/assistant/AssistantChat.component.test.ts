@@ -239,14 +239,14 @@ describe('AssistantChat', () => {
     it('sends an unknown /word to the assistant as usual', async () => {
       const { w } = mountChat()
       await send(w, '/etc/hosts is odd')
-      expect(a.sendMessage).toHaveBeenCalledWith('ws', '/etc/hosts is odd')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', '/etc/hosts is odd', '')
     })
 
     it('sends plain text to the assistant without asking the command endpoint', async () => {
       const { w } = mountChat()
       await send(w, 'remind me tomorrow')
       expect(commandService.run).not.toHaveBeenCalled()
-      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'remind me tomorrow')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'remind me tomorrow', '')
     })
   })
 })

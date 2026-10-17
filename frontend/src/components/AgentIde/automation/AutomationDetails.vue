@@ -5,6 +5,7 @@ import type { DataTableColumn } from "../../../types/ui";
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
 import { useAutomationJournal } from "../../../composables/automation/useAutomationJournal";
 import { useConfirm } from "../../../composables/ui/useConfirm";
+import { useModels } from "../../../composables/models/useModels";
 import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useTurnInset } from "../../../composables/ui/useTurnInset";
@@ -110,11 +111,17 @@ const consoleState = computed(() => {
   return "Idle";
 });
 
+// An automation with no model of its own runs on the primary model, so that is the one a run records.
+const { state: modelState } = useModels();
+const primaryModel = computed(() => modelState.value?.config?.primary_model ?? "");
+const modelLabel = computed(() => props.automation.model || (primaryModel.value ? `Default (${primaryModel.value})` : "Workspace default"));
+const runsOnModel = computed(() => props.automation.model || primaryModel.value);
+
 const config = computed(() => [
   ["Runs", triggerLabel(props.automation)],
   ...(nextRunLabel(props.automation) ? [["Next run", `${nextRunLabel(props.automation)} (server time)`]] : []),
   ["Strategy", props.automation.strategy],
-  ["Model", props.automation.model || "Workspace default"],
+  ["Model", modelLabel.value],
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],
   ["Network", props.automation.network_grant || "Inherits the workspace"],
   ["Memory", memoryModeLabel(props.automation.memory_mode, automationDefaultOn.value)],
@@ -219,6 +226,7 @@ const runKey = (run: AutomationRun) => run.id;
 
     <Panel title="Console">
       <template #actions>
+        <span v-if="runsOnModel" data-test="console-model" class="min-w-0 truncate font-mono text-[length:var(--text-micro)] text-faint" :title="`Runs on ${runsOnModel}`">{{ runsOnModel }}</span>
         <StatusTag :state="showLiveUI && isConnected ? 'running' : 'neutral'" :label="consoleState" />
       </template>
       <p v-if="showLiveUI" role="status" class="m-0 mb-3 font-mono text-[length:var(--text-small)] text-state-running">

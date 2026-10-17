@@ -285,7 +285,8 @@ export function useAssistant() {
     connectSSE()
   }
 
-  const sendMessage = async (workspaceId: string, text: string) => {
+  // model names a registry model for this message; empty runs the primary.
+  const sendMessage = async (workspaceId: string, text: string, model = '') => {
     if (!text.trim()) return
 
     if (activeWorkspaceId.value !== workspaceId) {
@@ -336,6 +337,7 @@ export function useAssistant() {
         workspace_id: workspaceId,
         conversation_id: currentSessionId.value || undefined,
         message: text,
+        model: model || undefined,
       })
 
       if (!currentSessionId.value && response.conversation_id) {

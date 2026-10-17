@@ -42,6 +42,8 @@ type MockAssistantService struct {
 	// backed by a real persistence manager.
 	GuardrailStore *assistant.GuardrailDecisionStore
 	GuardrailEng   *guardrails.GuardrailEngine
+	// ModelConfigs are the registry models ModelConfig knows; empty means none.
+	ModelConfigs map[string]models.ModelConfig
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -83,7 +85,8 @@ func (m *MockAssistantService) GetPlaybackClient(ctx context.Context, ref string
 }
 
 func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig, bool) {
-	return models.ModelConfig{}, false
+	cfg, ok := m.ModelConfigs[modelName]
+	return cfg, ok
 }
 
 func (m *MockAssistantService) EffectiveToolCallFormat(ctx context.Context, modelName string) string {

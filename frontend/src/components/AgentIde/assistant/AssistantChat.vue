@@ -19,6 +19,7 @@ import {
 import ChatSessionList from "./ChatSessionList.vue";
 import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
+import { useAssistantModel } from "../../../composables/assistant/useAssistantModel";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
 import { useConfirm } from "../../../composables/ui/useConfirm";
@@ -57,6 +58,8 @@ const {
   deleteSessionsByIds, cancelSession, cancel,
   liveEvents, sseConnected,
 } = useAssistant();
+// The model the operator picked for the next message (empty = the default, the primary).
+const { model, options: modelOptions } = useAssistantModel();
 const { confirm } = useConfirm();
 const { forget: forgetPins } = usePinnedSessions(() => props.workspaceId);
 
@@ -128,7 +131,7 @@ async function scrollToLatest() {
 // output after the DOM updates.
 async function launchRun(text: string) {
   collapseAllInsets();
-  await sendMessage(props.workspaceId, text);
+  await sendMessage(props.workspaceId, text, model.value);
   await scrollToLatest();
 }
 
@@ -415,6 +418,8 @@ const handleDeleteGroup = async (ids: string[]) => {
         :loading="loading"
         :paused="paused"
         :input-message="inputMessage"
+        v-model:model="model"
+        :model-options="modelOptions"
         @send="handleSend"
         @cancel="cancel"
         @review="startReview()"

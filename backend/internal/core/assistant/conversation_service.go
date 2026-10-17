@@ -177,7 +177,10 @@ func (s *conversationService) resolveModelConfig(ctx context.Context, workspaceI
 	procLog := s.deps.ProcessLogger(workspaceID)
 	procLog.Info("Assistant request started", "conversation", conversationID, "message", message)
 
-	modelName, _ = s.deps.SelectModels()
+	// The operator may pick the model for this one message; otherwise the primary.
+	if modelName = models.GetModelOverride(ctx); modelName == "" {
+		modelName, _ = s.deps.SelectModels()
+	}
 	// Effective format (explicit override / cloud native default / cached
 	// local capability probe) — the same resolution automations use.
 	useNativeTools = s.deps.EffectiveToolCallFormat(ctx, modelName) == "native"

@@ -29,6 +29,31 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
+describe('ChatInput model picker', () => {
+  const options = [{ value: '', label: 'Default (a)' }, { value: 'a', label: 'a' }, { value: 'b', label: 'b' }]
+  const mountWith = (modelOptions: typeof options, model = '') =>
+    mount(ChatInput, {
+      props: { loading: false, paused: false, inputMessage: '', modelOptions, model },
+      global: { stubs: { Icon: true, teleport: true } },
+      attachTo: document.body,
+    })
+
+  it('offers the models beside the tools and reports a pick', async () => {
+    const w = mountWith(options)
+    mounted.push(w)
+    const select = w.get('select[aria-label="Model for the next message"]')
+    expect(select.findAll('option').map((o) => o.text())).toEqual(['Default (a)', 'a', 'b'])
+    await select.setValue('b')
+    expect(w.emitted('update:model')?.[0]).toEqual(['b'])
+  })
+
+  it('shows no picker when there is nothing to choose between', () => {
+    const w = mountWith(options.slice(0, 1))
+    mounted.push(w)
+    expect(w.find('select').exists()).toBe(false)
+  })
+})
+
 describe('ChatInput', () => {
   it('grows with the text it holds, and shrinks back once cleared', async () => {
     const w = mountInput()

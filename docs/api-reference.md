@@ -19,9 +19,12 @@ All API endpoints are served from the server root (default `http://0.0.0.0:4001`
   "message": "Hello",
   "context_version": "",
   "timezone": "",
-  "exclude_tools": []
+  "exclude_tools": [],
+  "model": ""
 }
 ```
+
+`model` is optional: a registry model for this message. Empty runs the primary model (with the fallback if the primary cannot be reached). A named model is used as is, with no fallback, and an unknown name is refused with `400`.
 
 **Response:** `200 OK`
 

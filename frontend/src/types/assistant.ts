@@ -73,6 +73,8 @@ export interface ChatRequestPayload {
   message: string
   context_version?: string
   timezone?: string
+  // A registry model chosen for this message; absent runs the primary.
+  model?: string
 }
 
 import type { AgentEvent } from './dispatcher'

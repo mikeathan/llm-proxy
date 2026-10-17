@@ -1012,3 +1012,18 @@ func TestConversationService_RecordsToolWarningsOnTheTurn(t *testing.T) {
 		t.Fatalf("turn warnings = %v, want one 'web_lookup unavailable' warning", run.Warnings)
 	}
 }
+
+// A message may name its own model; the run, its record and its agent use that one, not the primary.
+func TestConversationService_ResolveModelConfig_HonoursTheModelOverride(t *testing.T) {
+	deps := newMockConvDeps()
+	deps.modelName = "primary"
+	svc := NewConversationService(deps, newTestPersistence(t)).(*conversationService)
+
+	if got, _ := svc.resolveModelConfig(context.Background(), "ws", "c1", "hi"); got != "primary" {
+		t.Errorf("no override: model = %q, want primary", got)
+	}
+	ctx := models.WithModelOverride(context.Background(), "other")
+	if got, _ := svc.resolveModelConfig(ctx, "ws", "c1", "hi"); got != "other" {
+		t.Errorf("override: model = %q, want other", got)
+	}
+}

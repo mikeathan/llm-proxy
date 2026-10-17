@@ -59,6 +59,15 @@ describe('useAssistant', () => {
     expect(service.sendMessage).toHaveBeenCalledWith({ workspace_id: 'ws', conversation_id: undefined, message: 'hello' })
   })
 
+  it('sends the model picked for the message, and none when the default is chosen', async () => {
+    sse.isConnected.value = true
+    const a = await freshAssistant()
+    await a.sendMessage('ws', 'hello', 'nemotron')
+    expect(service.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'nemotron' }))
+    await a.sendMessage('ws', 'again')
+    expect(service.sendMessage.mock.lastCall![0].model).toBeUndefined()
+  })
+
   it('adopts the new conversation and lists it first, staying busy until the run completes', async () => {
     sse.isConnected.value = true
     const a = await freshAssistant()

@@ -63,6 +63,18 @@ describe('AutomationDetails', () => {
     expect(await memoryLine('')).toMatch(/Memory\s*Default \(off\)/)
   })
 
+  it('names the model a run uses in the console, the automation\'s own or else the primary', async () => {
+    const own = await mountDetails()
+    expect(own.get('[data-test="console-model"]').text()).toBe('qwen')
+
+    const { useModels } = await import('../../../../composables/models/useModels')
+    useModels().state.value = { models: [], available: [], next_port: 9000, config: { primary_model: 'ornith' } } as never
+    const inherited = await mountDetails({ automation: { ...AUTO, model: '' } })
+    expect(inherited.get('[data-test="console-model"]').text()).toBe('ornith')
+    expect(inherited.text()).toContain('Default (ornith)')
+    useModels().state.value = null
+  })
+
   it('shows the configuration, the last error and the last output, and connects the live console', async () => {
     const w = await mountDetails()
     for (const text of ['Every day at 07:00', 'persistent', 'qwen', 'jobs/nightly.md', 'model timed out', 'All good']) {

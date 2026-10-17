@@ -23,6 +23,7 @@ export class AssistantService {
         conversation_id: payload.conversation_id || '',
         message: payload.message,
         timezone: payload.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+        ...(payload.model ? { model: payload.model } : {}),
       }),
     })
 
