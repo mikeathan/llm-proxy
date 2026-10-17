@@ -1,6 +1,6 @@
 # Prompt Profiles — a generic assistant and automation system
 
-**Status:** active (2026-10-17) — built: eval baseline (Phase 0), loop policy (1), profile catalog and resolver with persistence (2), layered per-turn prompt (3), the six profiles tuned on the eval (4), the run-settings control, workspace and automation fields (5), SPEC-012 (6). Remaining: repeat the eval for the other profiles and decide the open items in §9.
+**Status:** active (2026-10-17) — built: eval baseline (Phase 0), loop policy (1), profile catalog and resolver with persistence (2), layered per-turn prompt (3), the six profiles tuned on the eval (4), the run-settings control, workspace and automation fields (5), SPEC-012 (6). The eval for the other profiles is done; remaining: its findings (§8) and the open items in §9.
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-004 (Memory), SPEC-011 (Reminders); CONSTITUTION II.13 (prompts in `templates.go`); folds in [`agents-md-layering-guardrails.md`](agents-md-layering-guardrails.md) (global layer, write guardrails).
 **Origin:** a vague one-liner ("rust language") made the assistant scan the workspace, read task files and search the web while the composer was locked; a Nemotron run failed on tool-call JSON. Review by the Opus advisor is folded in (§3, §6).
 
@@ -149,9 +149,11 @@ Metrics per case and profile: tool calls, workspace scans, spurious `memory_upda
 reminder tools); the system message is rebuilt from the profile id each turn, so no prompt version is stored; the
 `tools` list is by category and never hides the `system`, `security` and `automation` categories.
 
-**Remaining work:** run the eval for Research, Operator, Builder and Watcher on the three models; fold the layering
-plan's Phase 4 (block agent writes to instruction files) into the guardrails; the `GetSystemPrompt` chain of the tool
-providers has no caller and can be deleted.
+**Remaining work:** the eval for the other profiles is done (`docs/audits/2026-10-17-prompt-profiles-eval.md`); its
+findings are open: Builder on Nemotron saves a memory fact after every edit task (consider `memory_guidance: false` for
+Builder, then re-run), Operator's "ask before a destructive change" is only reliably followed by Ornith (the terminal
+approval gate is the backstop), and Research searching needs a re-run where a search provider is configured. The
+instruction-file write block and the `GetSystemPrompt` deletion are built.
 
 ## 9. Decisions
 
