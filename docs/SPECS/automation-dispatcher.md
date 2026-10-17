@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.14"
+version: "1.15"
 status: stable
-last_updated: 2026-10-15
+last_updated: 2026-10-17
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -12,6 +12,11 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.15 (2026-10-17)** — An automation has a `profile` (SPEC-012): its behaviour block, loop policy and tool set; empty runs
+  the Task runner, the heartbeat runs Watcher. `allowed_tools` still narrows the profile's tools. The automation's system
+  prompt is the shared layered prompt, no longer the chat's persona; `AGENTS.md` is workspace notes. The list and config
+  endpoints carry `profile`, validated like `loop_strategy`.
 
 - **1.13 (2026-10-11)** — Next run (§II.1). `GET /admin/api/dispatcher/automations` carries `next_run_at` for each
   scheduled automation: the time the scheduler will really fire it (`Dispatcher.NextRuns`, read from the scheduler's

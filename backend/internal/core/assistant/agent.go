@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/assistant/toolpolicy"
@@ -20,6 +21,7 @@ import (
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -217,6 +219,8 @@ type AgentConfig struct {
 	WorkloadClass   models.WorkloadClass
 	SkipStuckCheck  bool
 	EnableHotMemory bool
+	// Profile is the run's resolved prompt profile; the loop reads its policy flags.
+	Profile profile.Profile
 	// LoopStrategy selects the agent loop archetype. Empty = provider default /
 	// react; the resolver applies the deterministic precedence.
 	LoopStrategy LoopStrategyName
@@ -322,6 +326,10 @@ type AgentOptions struct {
 	Channel EventChannel
 	// ConversationID scopes this agent's events to a specific chat session.
 	ConversationID string
+
+	// Profile is the resolved prompt profile: its policy drives the loop (answer-first completion, memory guidance,
+	// reminders, step budget) and its tool set narrows the schema. Zero means profile.Unprofiled().
+	Profile profile.Profile
 
 	// AllowedTools / ExcludedTools constrain the tool schema this agent can
 	// see. They are combined with the guardrail-derived static exclusions in
@@ -488,7 +496,18 @@ func NewGuardrailDecisionCallback(store *GuardrailDecisionStore, observer Observ
 	}
 }
 
+// excludedTools is the explicit exclusions plus the tools the profile hides.
+func (o AgentOptions) excludedTools() []string {
+	return append(slices.Clone(o.ExcludedTools), o.Profile.ExcludedTools()...)
+}
+
 func (o *AgentOptions) applyDefaults() {
+	if o.Profile.ID == "" {
+		o.Profile = profile.Unprofiled()
+	}
+	if o.Profile.MaxSteps > 0 {
+		o.MaxSteps = o.Profile.MaxSteps
+	}
 	if o.MaxSteps <= 0 {
 		o.MaxSteps = DefaultMaxSteps
 	}
@@ -622,7 +641,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     toolpolicy.ResolveForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.ExcludedTools),
+			Provider:     toolpolicy.ResolveForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.excludedTools()),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,
@@ -649,6 +668,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			WorkloadClass:            opts.WorkloadClass,
 			LoopStrategy:             opts.LoopStrategy,
 			EnableHotMemory:          opts.EnableHotMemory,
+			Profile:                  opts.Profile,
 			Channel:                  opts.Channel,
 			ConversationID:           opts.ConversationID,
 			ToolTimeout:              opts.ToolTimeout,

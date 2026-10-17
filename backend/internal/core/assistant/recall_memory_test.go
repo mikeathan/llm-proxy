@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/memory"
@@ -103,6 +104,12 @@ func TestRecall_OnlyInTheOperatorsOwnChat(t *testing.T) {
 	}
 }
 
+// withProfile is opts running under the given profile.
+func withProfile(opts AgentOptions, p profile.Profile) AgentOptions {
+	opts.Profile = p
+	return opts
+}
+
 // The save reminder sits beside the user's message (a small model skipped the save when the message also asked a
 // question, 0 of 24 runs on 2026-10-16): in the operator's own chat only, in every request of the run, never in the
 // stored history or the head system message, and with or without recalled facts.
@@ -115,6 +122,7 @@ func TestSaveReminder_BesideTheUserTurnInTheOperatorsChatOnly(t *testing.T) {
 		{"the operator's chat", operatorChat(), true},
 		{"a connector chat", AgentOptions{WorkspaceID: "ws-1", ConversationID: "wb_telegram_chat42"}, false},
 		{"an automation", AgentOptions{WorkspaceID: "ws-1", Channel: ChannelAutomation}, false},
+		{"a profile without save guidance", withProfile(operatorChat(), profile.Profile{ID: "quiet"}), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

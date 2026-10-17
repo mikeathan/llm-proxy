@@ -8,6 +8,7 @@ import type { AgentGuardrailsConfig } from '../../../../types/admin'
 vi.mock('../../../../services/automation/dispatcherService', () => ({
   DispatcherService: { getWorkspaceConfig: vi.fn(), updateWorkspaceConfig: vi.fn() },
 }))
+vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: { list: vi.fn().mockResolvedValue([]) } }))
 const toast = { success: vi.fn(), error: vi.fn(), info: vi.fn() }
 vi.mock('../../../../composables/useToast', () => ({ useToast: () => toast }))
 const confirm = vi.fn()
@@ -46,6 +47,18 @@ describe('WorkspaceSettings', () => {
   it('loads the workspace configuration', async () => {
     await mountSettings({ cron_schedule: '' })
     expect(DispatcherService.getWorkspaceConfig).toHaveBeenCalledWith('ws')
+  })
+
+  // The profile and memory settings save on their own, so a policy save must not write back the copy read at mount.
+  it("keeps a setting that was saved elsewhere while the page was open, when the policy is saved", async () => {
+    const { button } = await mountSettings({ assistant_profile: 'general' })
+    vi.mocked(DispatcherService.getWorkspaceConfig).mockResolvedValue({ assistant_profile: 'builder', assistant_memory: 'on' })
+    await button(/customise for this workspace/i)!.trigger('click')
+    await button(/^save workspace policy$/i)!.trigger('click')
+    await flushPromises()
+    expect(saved().assistant_profile).toBe('builder')
+    expect(saved().assistant_memory).toBe('on')
+    expect(saved().guardrails).toBeDefined()
   })
 
   it('says a workspace without its own policy uses the global one, and can start one', async () => {

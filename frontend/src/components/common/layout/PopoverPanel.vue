@@ -6,8 +6,14 @@ import MicroLabel from "../display/MicroLabel.vue"
 // up, a bottom sheet over a scrim below it. The owner decides when it is open
 // (v-if) and dismisses it through useDismissable; this only draws it.
 // `align` is the edge the popover hangs from: the right for a control at the end of a
-// strip (stats, runs), the left for one at its start (the workspace chip).
-const props = withDefaults(defineProps<{ id: string; title: string; width?: string; align?: "left" | "right" }>(), { width: "sm:w-[360px]", align: "right" })
+// strip (stats, runs), the left for one at its start (the workspace chip). `placement` is
+// which side of its control it opens on: below a header control, above one at the bottom
+// of the screen (the composer).
+const props = withDefaults(defineProps<{ id: string; title: string; width?: string; align?: "left" | "right"; placement?: "below" | "above" }>(), {
+  width: "sm:w-[360px]",
+  align: "right",
+  placement: "below",
+})
 
 defineEmits<{ (e: "close"): void }>()
 defineSlots<{ default(): unknown }>()
@@ -20,7 +26,8 @@ defineSlots<{ default(): unknown }>()
     role="dialog"
     :aria-label="title"
     :class="[
-      'z-30 flex flex-col border border-strong bg-surface max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[80vh] max-sm:overflow-y-auto max-sm:border-x-0 max-sm:border-b-0 sm:absolute sm:top-full sm:mt-2 sm:rounded-[var(--radius-sm)]',
+      'z-30 flex flex-col border border-strong bg-surface max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[80vh] max-sm:overflow-y-auto max-sm:border-x-0 max-sm:border-b-0 sm:absolute sm:rounded-[var(--radius-sm)]',
+      props.placement === 'above' ? 'sm:bottom-full sm:mb-2' : 'sm:top-full sm:mt-2',
       props.align === 'left' ? 'sm:left-0' : 'sm:right-0',
       props.width,
     ]"

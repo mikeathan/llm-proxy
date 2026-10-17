@@ -272,3 +272,21 @@ func TestChatTimezone_Context(t *testing.T) {
 		t.Errorf("nil ctx = %q, want empty", got)
 	}
 }
+
+// A message's model and profile choices ride the context; empty leaves the context alone.
+func TestRequestScopedChoices(t *testing.T) {
+	ctx := context.Background()
+	if GetModelOverride(ctx) != "" || GetProfileRequest(ctx) != "" {
+		t.Fatal("a bare context carries no choices")
+	}
+	if WithModelOverride(ctx, "") != ctx || WithProfileRequest(ctx, "") != ctx {
+		t.Error("an empty choice must return the context unchanged")
+	}
+	ctx = WithProfileRequest(WithModelOverride(ctx, "qwen"), "research")
+	if GetModelOverride(ctx) != "qwen" || GetProfileRequest(ctx) != "research" {
+		t.Errorf("choices = %q / %q", GetModelOverride(ctx), GetProfileRequest(ctx))
+	}
+	if GetProfileRequest(nil) != "" || GetModelOverride(nil) != "" { //nolint:staticcheck // the helpers accept a nil context like GetRunID
+		t.Error("a nil context carries no choices")
+	}
+}

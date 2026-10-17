@@ -329,6 +329,9 @@ watch(
 .bubble-inset-wrap {
   display: grid;
   grid-template-rows: 1fr;
+  /* An implicit auto column grows to the widest unbreakable line (a long URL or
+     tool target) and pushes the timeline off a phone's screen; cap it at the width. */
+  grid-template-columns: minmax(0, 1fr);
   transition: grid-template-rows 0.22s ease-out;
 }
 .bubble-inset-wrap.collapsed {

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"strings"
 
+	"llm-proxy/internal/core/assistant/repetition"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/models"
 )
@@ -75,6 +76,15 @@ func ClassifyRunFailure(err error) FailureInfo {
 	var httpErr *proxy.LLMHTTPError
 	if errors.As(err, &httpErr) {
 		return classifyHTTPFailure(httpErr)
+	}
+
+	var loop *repetition.LoopError
+	if errors.As(err, &loop) {
+		return FailureInfo{
+			Error: "The model kept repeating the same steps without making progress, so the run was stopped.",
+			Hint:  "Try again with a more specific request, or choose a different model.",
+			Kind:  failureKindInternal,
+		}
 	}
 
 	return classifyGenericFailure(err)

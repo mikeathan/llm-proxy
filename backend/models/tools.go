@@ -1,6 +1,9 @@
 package models
 
-import "errors"
+import (
+	"errors"
+	"sort"
+)
 
 // ErrToolUnavailable marks an operator-actionable tool failure: the tool cannot
 // succeed until configuration is fixed (missing or rejected credential, disabled
@@ -105,3 +108,39 @@ const (
 	ToolMissingForAppendMsg = "file does not exist: use %s first, then %s to add more content"
 	ToolMissingForEditMsg   = "file does not exist: use %s to create it, or verify the path"
 )
+
+// toolsByCategory is the one place that says which built-in tools make up a category; a prompt profile
+// exposes tools by category. The tools package's manifest test checks it against the manifests.
+var toolsByCategory = map[string][]string{
+	CategoryTerminal:      {ToolTerminalExecute},
+	CategorySearch:        {ToolInternetSearch},
+	CategoryCommunication: {ToolNotifyUser},
+	CategoryFileSystem:    {ToolFileRead, ToolFileWrite, ToolFileAppend, ToolFileEditBlock, ToolDirectoryList},
+	CategoryNetwork:       {ToolNetworkFetch, ToolNetworkScan, ToolNetworkInfo},
+	CategoryGlobal:        {ToolApplyGuardrails},
+	CategoryMemory:        {ToolMemorySearch, ToolMemoryUpdate, ToolMemoryForget},
+	CategoryReminders:     {ToolScheduleReminder, ToolListReminders, ToolCancelReminder},
+	CategoryAutomation:    {ToolAutomationJournal},
+	CategorySystem:        {ToolSystemError},
+}
+
+// ToolCategories lists every built-in tool category, sorted.
+func ToolCategories() []string {
+	out := make([]string, 0, len(toolsByCategory))
+	for category := range toolsByCategory {
+		out = append(out, category)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ToolsInCategory returns the tool names of a category (nil for an unknown one). The slice is a copy.
+func ToolsInCategory(category string) []string {
+	return append([]string(nil), toolsByCategory[category]...)
+}
+
+// IsToolCategory reports whether category names a built-in tool category.
+func IsToolCategory(category string) bool {
+	_, ok := toolsByCategory[category]
+	return ok
+}

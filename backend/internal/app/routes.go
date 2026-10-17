@@ -27,6 +27,7 @@ type HandlerSet struct {
 	Recordings *handlers.RecordingHandlers
 	Memory     *handlers.MemoryHandlers
 	Reminders  *handlers.ReminderHandlers
+	Profiles   *handlers.ProfileHandlers
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 }
@@ -72,8 +73,9 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	if disp != nil {
 		wsSvc := handlers.NewWorkspaceService(s.Persistence())
-		hs.Dispatcher = handlers.NewDispatcherHandlers(disp, wsSvc, s.logger)
+		hs.Dispatcher = handlers.NewDispatcherHandlers(disp, wsSvc, s.logger).WithProfiles(s.Profiles())
 	}
+	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -282,6 +284,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	// run holding the model) or drop it.
 	router.Post("/admin/api/queue/{queue_key}/promote", hs.ActiveRuns.ServePromoteHTTP, jsonMethodNotAllowed)
 	router.Post("/admin/api/queue/{queue_key}/cancel", hs.ActiveRuns.ServeCancelHTTP, jsonMethodNotAllowed)
+
+	router.Get("/admin/api/profiles", hs.Profiles.List, jsonMethodNotAllowed)
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)

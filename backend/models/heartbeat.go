@@ -92,6 +92,9 @@ func (h HeartbeatConfig) ActiveAt(t time.Time) bool {
 	return err != nil || window.Contains(t)
 }
 
+// HeartbeatProfile is the prompt profile every heartbeat run uses (a built-in profile id).
+const HeartbeatProfile = "watcher"
+
 // Automation compiles the heartbeat to the automation the dispatcher schedules. It never injects
 // hot memory: a check that runs all day must not pay that cost on every tick.
 func (h HeartbeatConfig) Automation() *Automation {
@@ -107,12 +110,17 @@ func (h HeartbeatConfig) Automation() *Automation {
 		Model:      h.Model,
 		Notify:     h.Notify,
 		MemoryMode: MemoryModeOff,
+		Profile:    HeartbeatProfile,
 	}
 }
 
-// HeartbeatBody is the checklist heartbeat.md actually holds: HTML comments are stripped (they explain the
-// file to the operator), outside code fences, and the rest is trimmed. Empty means there is nothing to check.
-func HeartbeatBody(content string) string {
+// HeartbeatBody is the checklist heartbeat.md actually holds: the file without the comments that explain it to the
+// operator. Empty means there is nothing to check.
+func HeartbeatBody(content string) string { return WithoutComments(content) }
+
+// WithoutComments is what the model sees of a file written for an operator: HTML comments (which explain the file to
+// them) are removed outside code fences, and the rest is trimmed. A file holding only comments reads as empty.
+func WithoutComments(content string) string {
 	var out strings.Builder
 	inFence, inComment := false, false
 	for _, line := range strings.Split(content, "\n") {

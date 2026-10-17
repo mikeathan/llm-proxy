@@ -8,8 +8,8 @@ import (
 )
 
 func TestAssembleSystemPrompt_ToolCallFormat(t *testing.T) {
-	xmlPrompt := AssembleSystemPrompt("", false)
-	nativePrompt := AssembleSystemPrompt("", true)
+	xmlPrompt := AssembleSystemPrompt(PromptParts{})
+	nativePrompt := AssembleSystemPrompt(PromptParts{Native: true})
 
 	if !strings.Contains(xmlPrompt, "<tool_call>") {
 		t.Error("XML mode prompt should contain <tool_call>")
@@ -17,28 +17,35 @@ func TestAssembleSystemPrompt_ToolCallFormat(t *testing.T) {
 	if strings.Contains(nativePrompt, "<tool_call>") {
 		t.Error("native mode prompt should NOT contain <tool_call>")
 	}
-
-	// Both should still contain the fundamental rules.
-	if !strings.Contains(xmlPrompt, "ReAct Loop") {
-		t.Error("XML mode should contain ReAct Loop instruction")
-	}
-	if !strings.Contains(nativePrompt, "ReAct Loop") {
-		t.Error("native mode should contain ReAct Loop instruction")
+	for name, p := range map[string]string{"xml": xmlPrompt, "native": nativePrompt} {
+		for _, rule := range []string{"NO UI IMITATION", "Loop protection", "Finalization", "write_file"} {
+			if !strings.Contains(p, rule) {
+				t.Errorf("%s mode lost the core rule %q", name, rule)
+			}
+		}
 	}
 }
 
-func TestAssembleSystemPrompt_WorkspaceRules(t *testing.T) {
-	withContent := AssembleSystemPrompt("CUSTOM WORKSPACE GUIDANCE", false)
-	if !strings.Contains(withContent, "WORKSPACE-SPECIFIC RULES:") {
-		t.Error("expected workspace-specific header when agents content is provided")
+// The prompt is layered: the profile's behaviour first, then the code-owned rules and boundaries, then the
+// workspace's notes. The old tool-first behaviour lines are no longer part of every run.
+func TestAssembleSystemPrompt_Layers(t *testing.T) {
+	p := AssembleSystemPrompt(PromptParts{Native: true, Profile: "PROFILE BEHAVIOUR", Notes: "CUSTOM WORKSPACE GUIDANCE"})
+	profile, rules, boundary, notes := strings.Index(p, "PROFILE BEHAVIOUR"), strings.Index(p, "RULES:"), strings.Index(p, "INSTRUCTION BOUNDARY"), strings.Index(p, "CUSTOM WORKSPACE GUIDANCE")
+	if profile != 0 || !(profile < rules && rules < boundary && boundary < notes) {
+		t.Errorf("layers out of order: profile=%d rules=%d boundary=%d notes=%d\n%s", profile, rules, boundary, notes, p)
 	}
-	if !strings.Contains(withContent, "CUSTOM WORKSPACE GUIDANCE") {
-		t.Error("expected agents file content to be appended to the prompt")
+	if !strings.Contains(p, "WORKSPACE NOTES:") {
+		t.Error("the notes carry a header")
 	}
 
-	empty := AssembleSystemPrompt("", false)
-	if strings.Contains(empty, "WORKSPACE-SPECIFIC RULES:") {
-		t.Error("expected no workspace-specific header when agents content is empty")
+	bare := AssembleSystemPrompt(PromptParts{Native: true})
+	if strings.Contains(bare, "WORKSPACE NOTES:") || strings.HasPrefix(bare, "\n") {
+		t.Errorf("with no notes and no profile there is no notes header and no leading gap: %q", bare[:40])
+	}
+	for _, gone := range []string{"BEST PRACTICE", "verifying your environment", "NO PROGRESS NARRATION", "ReAct Loop", "by using tools"} {
+		if strings.Contains(p, gone) {
+			t.Errorf("the core rules must not carry the old tool-first behaviour line %q", gone)
+		}
 	}
 }
 
@@ -147,8 +154,8 @@ func TestBuildExecutionPlanPrompt_SelfContainedCommands(t *testing.T) {
 }
 
 func TestAssembleSystemPrompt_InstructionBoundary(t *testing.T) {
-	xmlPrompt := AssembleSystemPrompt("", false)
-	nativePrompt := AssembleSystemPrompt("", true)
+	xmlPrompt := AssembleSystemPrompt(PromptParts{})
+	nativePrompt := AssembleSystemPrompt(PromptParts{Native: true})
 
 	for _, p := range []string{xmlPrompt, nativePrompt} {
 		if !strings.Contains(p, "INSTRUCTION BOUNDARY") {

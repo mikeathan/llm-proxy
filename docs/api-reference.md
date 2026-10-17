@@ -19,9 +19,15 @@ All API endpoints are served from the server root (default `http://0.0.0.0:4001`
   "message": "Hello",
   "context_version": "",
   "timezone": "",
-  "exclude_tools": []
+  "exclude_tools": [],
+  "model": "",
+  "profile": ""
 }
 ```
+
+`profile` is optional: a prompt profile id (`GET /admin/api/profiles`) for this message, which the conversation then keeps; empty keeps the conversation's own, else the workspace's, else General. An unknown id is refused with `400`.
+
+`model` is optional: a registry model for this message. Empty runs the primary model (with the fallback if the primary cannot be reached). A named model is used as is, with no fallback, and an unknown name is refused with `400`.
 
 **Response:** `200 OK`
 
@@ -75,6 +81,14 @@ Returns full admin state: active model, available models, guardrails config, pro
 | DELETE | `/admin/api/models/all?provider={provider}` | Delete all models for provider |
 | GET | `/admin/api/registry` | Full registry (models, providers, MCP servers) |
 | PUT | `/admin/api/registry` | Update registry |
+
+### Profiles
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/api/profiles` | Every prompt profile (built-in and the user's files) with its flags and what it is the default for; never its instructions (SPEC-012) |
+
+A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `profile` name a profile; an unknown id is `400`.
 
 ### Providers
 

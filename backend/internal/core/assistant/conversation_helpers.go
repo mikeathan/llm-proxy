@@ -9,6 +9,7 @@ import (
 
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/persistence"
@@ -51,43 +52,49 @@ func historyChars(history []proxy.Message) int {
 	return total
 }
 
-// LoadAgentsFile returns the workspace agent instructions from AGENTS.md,
-// falling back to the built-in DefaultAgentsMD when the file does not exist.
+// LoadAgentsFile returns the workspace's own notes from AGENTS.md, as the model should see them: comments removed.
+// It is empty when the file is missing, holds only comments (the seeded stub) or is one of the old defaults this app
+// used to seed — a persona that now lives in the profiles, which a workspace must not keep layering on top of them.
 func LoadAgentsFile(pm *persistence.WorkspaceManager, workspaceID string) string {
 	if workspaceID == "" || pm == nil {
-		return prompts.DefaultAgentsMD
+		return ""
 	}
-	content, err := agentsFileCache.Get(agentsCacheKey+workspaceID, func() (string, error) {
-		return pm.ReadTaskFile(workspaceID, models.RulesFilename)
+	notes, err := agentsFileCache.Get(agentsCacheKey+workspaceID, func() (string, error) {
+		content, err := pm.ReadTaskFile(workspaceID, models.RulesFilename)
+		if err != nil || prompts.IsLegacyDefaultNotes(content) {
+			return "", nil
+		}
+		return models.WithoutComments(content), nil
 	})
-	if err != nil || content == "" {
-		return prompts.DefaultAgentsMD
+	if err != nil {
+		return ""
 	}
-	return content
+	return notes
 }
 
-// buildInitialHistory constructs the initial session messages including system prompt and rules.
-func BuildInitialHistory(persistence *persistence.WorkspaceManager, workspaceID, conversationID, message, contextVersion, timezone string, useNativeTools bool) ([]proxy.Message, error) {
-	agentsFileContent := LoadAgentsFile(persistence, workspaceID)
+// BuildSystemPrompt layers a run's system prompt — the profile's behaviour, the core rules, the workspace's notes —
+// for the tool-call mode in use. Chat and automation both build it here.
+func BuildSystemPrompt(pm *persistence.WorkspaceManager, workspaceID string, p profile.Profile, useNativeTools bool) string {
+	return prompts.AssembleSystemPrompt(prompts.PromptParts{Native: useNativeTools, Profile: p.Instructions, Notes: LoadAgentsFile(pm, workspaceID)})
+}
 
-	systemPrompt := prompts.AssembleSystemPrompt(agentsFileContent, useNativeTools)
+// conversationSystemMessage is a conversation's system message: the layered prompt with the conversation's own facts
+// (its id and context version, and the zone it reads local times in).
+// It is rebuilt every turn from the current profile and notes (so an edit or a profile switch applies at once) and is
+// the same text turn after turn, which keeps the model server's cache.
+func conversationSystemMessage(pm *persistence.WorkspaceManager, session *models.AssistantSession, zone string, p profile.Profile, useNativeTools bool) string {
+	return prompts.BuildSystemMessage(BuildSystemPrompt(pm, session.WorkspaceID, p, useNativeTools), useNativeTools, session.ID, session.ContextVersion, zone)
+}
 
-	return []proxy.Message{
-		{
-			Role: proxy.SystemRole,
-			Content: prompts.BuildSystemMessage(
-				systemPrompt,
-				useNativeTools,
-				conversationID,
-				contextVersion,
-				timezone,
-			),
-		},
-		{
-			Role:    proxy.UserRole,
-			Content: message,
-		},
-	}, nil
+// withSystemMessage returns history led by the given system message: an existing system head is replaced, none is added.
+func withSystemMessage(history []proxy.Message, content string) []proxy.Message {
+	head := proxy.Message{Role: proxy.SystemRole, Content: content}
+	if len(history) > 0 && history[0].Role == proxy.SystemRole {
+		out := append([]proxy.Message(nil), history...)
+		out[0] = head
+		return out
+	}
+	return append([]proxy.Message{head}, history...)
 }
 
 // TruncateHistory removes oldest non-system messages when total content exceeds

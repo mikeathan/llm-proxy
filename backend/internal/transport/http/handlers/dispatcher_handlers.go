@@ -76,10 +76,17 @@ type DispatcherHandlers struct {
 	dispatcher Dispatcher
 	workspace  WorkspaceService
 	logger     logging.Logger
+	profiles   ProfileCatalog // nil: profile ids are not checked
 }
 
 func NewDispatcherHandlers(d Dispatcher, ws WorkspaceService, logger logging.Logger) *DispatcherHandlers {
 	return &DispatcherHandlers{dispatcher: d, workspace: ws, logger: logger}
+}
+
+// WithProfiles makes saved profile choices (a workspace's, an automation's) be checked against the catalog.
+func (h *DispatcherHandlers) WithProfiles(catalog ProfileCatalog) *DispatcherHandlers {
+	h.profiles = catalog
+	return h
 }
 
 func (h *DispatcherHandlers) parse(w http.ResponseWriter, r *http.Request, keys ...string) (wsID string, autoName string, ok bool) {
@@ -125,6 +132,29 @@ func (h *DispatcherHandlers) validateAutomation(auto *models.Automation) error {
 			auto.LoopStrategy, strings.Join(assistant.RegisteredLoopStrategyNames(), ", "))
 	}
 	return validateRunOptions(auto)
+}
+
+// checkProfileChange refuses an unknown profile id only when the request is setting it: the id the config already
+// stores stays acceptable even if its file has since been deleted, because the whole-document PUT carries every stored
+// value back and one missing profile must not block an unrelated save (the same rule as validateSchedulable).
+func (h *DispatcherHandlers) checkProfileChange(field, stored, proposed string) error {
+	if proposed == stored {
+		return nil
+	}
+	return validateProfileID(h.profiles, field, proposed)
+}
+
+// validateAutomationProfile checks an automation's profile against the config as stored, which may be nil.
+func (h *DispatcherHandlers) validateAutomationProfile(auto *models.Automation, storedAs string, stored *models.WorkspaceConfig) error {
+	var current string
+	if stored != nil {
+		for _, a := range stored.Automations {
+			if strings.TrimSpace(a.Name) == storedAs {
+				current = a.Profile
+			}
+		}
+	}
+	return h.checkProfileChange("profile", current, auto.Profile)
 }
 
 // validateSchedulable refuses a trigger the scheduler cannot read, using the
@@ -179,6 +209,7 @@ type AutomationInfo struct {
 	RecordingRef string `json:"recording_ref,omitempty"`
 	NetworkGrant string `json:"network_grant,omitempty"` // '' = inherit workspace scope
 	MemoryMode   string `json:"memory_mode,omitempty"`   // '' = off
+	Profile      string `json:"profile,omitempty"`       // '' = the default for automations
 	LastOutput   string `json:"last_output,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
 	// LastWarnings are the latest run's non-fatal problems, e.g. a report that could not be delivered.
@@ -231,6 +262,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			RecordingRef: entry.RecordingRef,
 			NetworkGrant: string(entry.NetworkGrant),
 			MemoryMode:   string(entry.MemoryMode),
+			Profile:      entry.Profile,
 			Notify:       entry.Notify,
 			SkipIfBusy:   entry.SkipIfBusy,
 			Journal:      entry.Journal,
@@ -377,6 +409,33 @@ func (h *DispatcherHandlers) GetWorkspaceConfig(w http.ResponseWriter, r *http.R
 	respondJSON(w, cfg)
 }
 
+// validateWorkspaceConfig checks a whole-document config before anything is persisted: the memory and profile
+// choices, the heartbeat, and every automation (this endpoint once bypassed validateAutomation, letting a crafted
+// task_file or name escape the workspace path and read arbitrary files into the LLM prompt).
+func (h *DispatcherHandlers) validateWorkspaceConfig(cfg, stored *models.WorkspaceConfig) error {
+	if err := validateMemoryMode("assistant_memory", cfg.AssistantMemory); err != nil {
+		return err
+	}
+	var storedProfile string
+	if stored != nil {
+		storedProfile = stored.AssistantProfile
+	}
+	if err := h.checkProfileChange("assistant_profile", storedProfile, cfg.AssistantProfile); err != nil {
+		return err
+	}
+	if cfg.Heartbeat != nil {
+		if err := cfg.Heartbeat.Validate(); err != nil {
+			return err
+		}
+	}
+	for _, auto := range cfg.Automations {
+		if err := errors.Join(h.validateAutomation(auto), h.validateAutomationProfile(auto, strings.TrimSpace(auto.Name), stored)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *http.Request) {
 	workspaceID, _, ok := h.parse(w, r, models.WorkspaceIDParam)
 	if !ok {
@@ -389,25 +448,10 @@ func (h *DispatcherHandlers) UpdateWorkspaceConfig(w http.ResponseWriter, r *htt
 		return
 	}
 
-	if err := validateMemoryMode("assistant_memory", cfg.AssistantMemory); err != nil {
+	stored, _ := h.workspace.GetConfig(workspaceID) // unreadable: nothing is stored to tolerate, so every id is checked
+	if err := h.validateWorkspaceConfig(&cfg, stored); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if cfg.Heartbeat != nil {
-		if err := cfg.Heartbeat.Validate(); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	// Validate before persisting: this endpoint historically bypassed
-	// validateAutomation, letting a crafted task_file/name escape the
-	// workspace path and read arbitrary files into the LLM prompt.
-	for _, auto := range cfg.Automations {
-		if err := h.validateAutomation(auto); err != nil {
-			respondError(w, http.StatusBadRequest, err.Error())
-			return
-		}
 	}
 
 	// Acquire lock, read existing, merge, write, release — handled atomically by WorkspaceService.
@@ -642,7 +686,8 @@ func (h *DispatcherHandlers) UpdateAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := errors.Join(h.validateAutomation(&auto), validateSchedulable(&auto)); err != nil {
+	stored, _ := h.workspace.GetConfig(workspaceID) // unreadable: nothing is stored to tolerate
+	if err := errors.Join(h.validateAutomation(&auto), h.validateAutomationProfile(&auto, automationName, stored), validateSchedulable(&auto)); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -695,7 +740,7 @@ func (h *DispatcherHandlers) CreateAutomation(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if err := errors.Join(h.validateAutomation(&auto), validateSchedulable(&auto)); err != nil {
+	if err := errors.Join(h.validateAutomation(&auto), h.validateAutomationProfile(&auto, "", nil), validateSchedulable(&auto)); err != nil {
 		respondError(w, http.StatusBadRequest, err.Error())
 		return
 	}

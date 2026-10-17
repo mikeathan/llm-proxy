@@ -25,6 +25,7 @@ type AutomationEntry struct {
 	Notify       *models.NotifyConfig // result delivery; nil = none
 	SkipIfBusy   bool                 // scheduled fires skip instead of queueing behind busy work
 	Journal      bool                 // the run keeps a learning journal (automation_journal tool)
+	Profile      string               // prompt profile id; "" = the default for automations
 }
 
 // AutomationRegistry manages registered automations.
@@ -69,6 +70,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		Notify:       copyNotify(auto.Notify),
 		SkipIfBusy:   auto.SkipIfBusy,
 		Journal:      auto.Journal,
+		Profile:      auto.Profile,
 	}
 
 	r.mu.Lock()

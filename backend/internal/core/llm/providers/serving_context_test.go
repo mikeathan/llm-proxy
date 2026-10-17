@@ -2,11 +2,13 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/models"
 )
@@ -158,4 +160,51 @@ func portOf(t *testing.T, rawURL string) int {
 		t.Fatalf("parse port from %q: %v", rawURL, err)
 	}
 	return p
+}
+
+// A server that answers 503 "Loading model" is alive and about to serve: the probe waits for it
+// instead of reporting "no native support", which would drop the whole turn into XML text mode.
+func TestProbeNativeTools_WaitsOutALoadingModel(t *testing.T) {
+	restoreWait, restoreEvery := ProbeLoadingWait, ProbeLoadingInterval
+	ProbeLoadingWait, ProbeLoadingInterval = 2*time.Second, time.Millisecond
+	defer func() { ProbeLoadingWait, ProbeLoadingInterval = restoreWait, restoreEvery }()
+
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls <= 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":{"message":"Loading model","type":"unavailable_error","code":503}}`))
+			return
+		}
+		w.Write([]byte(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"c","type":"function","function":{"name":"list_directory","arguments":"{}"}}]}}]}`))
+	}))
+	defer server.Close()
+
+	p := NewLocalProvider(modelConfigWithPort(portOf(t, server.URL)), "", "", "127.0.0.1")
+	ok, err := p.ProbeNativeTools(context.Background(), "m.gguf")
+	if err != nil || !ok {
+		t.Fatalf("ProbeNativeTools = (%v, %v), want (true, nil) once the model has loaded", ok, err)
+	}
+	if calls != 4 {
+		t.Errorf("probe requests = %d, want 3 loading + 1 answered", calls)
+	}
+}
+
+// A model that never finishes loading still ends the wait, and the error says why.
+func TestProbeNativeTools_GivesUpOnAModelThatNeverLoads(t *testing.T) {
+	restoreWait, restoreEvery := ProbeLoadingWait, ProbeLoadingInterval
+	ProbeLoadingWait, ProbeLoadingInterval = 20*time.Millisecond, time.Millisecond
+	defer func() { ProbeLoadingWait, ProbeLoadingInterval = restoreWait, restoreEvery }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	p := NewLocalProvider(modelConfigWithPort(portOf(t, server.URL)), "", "", "127.0.0.1")
+	if _, err := p.ProbeNativeTools(context.Background(), "m.gguf"); !errors.Is(err, ErrEndpointLoading) {
+		t.Fatalf("err = %v, want ErrEndpointLoading", err)
+	}
 }

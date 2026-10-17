@@ -15,6 +15,7 @@ import (
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
@@ -65,13 +66,15 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 }
 
 func (c *Container) BuildAppServices() *AppServices {
+	resolver := storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())
 	s := &AppServices{
 		Runtime:        c.Core.Runtime,
 		AppCtx:         c.Core.AppCtx,
 		nodeHerder:     c.Infra.NodeHerder,
 		logger:         c.Infra.Logger,
 		Clock:          c.Infra.Clock,
-		persistence:    persistence.NewWorkspaceManager(storage.NewPathResolver(c.Core.AppCtx.RootDir(), c.Core.AppCtx.WorkspacesDir(), c.Core.AppCtx.MetadataDir())),
+		persistence:    persistence.NewWorkspaceManager(resolver),
+		profiles:       profile.MustCatalog(resolver.ProfilesDir(), c.Infra.Logger),
 		limiter:        ratelimiter.NewLimiter(c.Infra.Clock),
 		RecordingStore: c.newRecordingStore(),
 	}
@@ -323,6 +326,7 @@ type AppServices struct {
 	engine                 assistantPkg.Engine
 	guardrailEngine        *guardrails.GuardrailEngine
 	persistence            *persistence.WorkspaceManager
+	profiles               *profile.Catalog
 	logger                 logging.Logger
 	Clock                  utils.Clock
 	dispatcher             *automation.Dispatcher
@@ -422,6 +426,11 @@ func (s AppServices) Orchestrator() *orchestrator.Orchestrator {
 
 func (s AppServices) Persistence() *persistence.WorkspaceManager {
 	return s.persistence
+}
+
+// Profiles is the prompt-profile catalog: the built-ins plus the user's files in the data root's profiles folder.
+func (s AppServices) Profiles() *profile.Catalog {
+	return s.profiles
 }
 
 func (s AppServices) ProcessLogger(workspaceID string) logging.Logger {

@@ -43,6 +43,17 @@ const (
 	errFmtSameTargetOsc     = "same-target oscillation detected: path %q accessed %d times by different tools in one turn"
 )
 
+// LoopError is the error of a run stopped because the model kept repeating itself. The text is for
+// the logs; failures.ClassifyRunFailure turns it into what the user reads.
+type LoopError struct{ msg string }
+
+func (e *LoopError) Error() string { return e.msg }
+
+// NewLoopError wraps a detector message as a LoopError.
+func NewLoopError(msg string) *LoopError { return &LoopError{msg: msg} }
+
+func loopError(format string, args ...any) error { return NewLoopError(fmt.Sprintf(format, args...)) }
+
 type toolKey struct {
 	name string
 	args string
@@ -82,7 +93,7 @@ func (rd *Detector) Check(logger logging.Logger, toolCalls []proxy.ToolCall) (bo
 				if key.name == models.ToolMemoryUpdate {
 					return true, prompts.AutomationDuplicateNagPrompt, nil
 				}
-				return true, "", fmt.Errorf(errFmtDuplicateLoop, key.name, DuplicateStreakThreshold)
+				return true, "", loopError(errFmtDuplicateLoop, key.name, DuplicateStreakThreshold)
 			}
 			return true, prompts.AutomationDuplicateNagPrompt, nil
 		}
@@ -124,7 +135,7 @@ func (rd *Detector) trackConsecutive(name, args string) (bool, error) {
 	rd.lastTool = ""
 	rd.recentCalls = nil
 	rd.streakArgs = nil
-	return true, fmt.Errorf(errFmtSpiral, name, SpiralStreakThreshold)
+	return true, loopError(errFmtSpiral, name, SpiralStreakThreshold)
 }
 
 // feedWindows appends a call to the bounded oscillation and cycle windows.
@@ -164,7 +175,7 @@ func (rd *Detector) CheckAlternating() (bool, error) {
 		if rd.alternatingStreak >= alternatingMinTurns {
 			rd.alternatingStreak = 0
 			rd.alternatingWindow = nil
-			return true, fmt.Errorf(errFmtAlternatingSpiral,
+			return true, loopError(errFmtAlternatingSpiral,
 				uniqueRatio*100, alternatingWindowSize, alternatingUniqueThreshold*100)
 		}
 	} else {
@@ -224,7 +235,7 @@ func (rd *Detector) CheckSequenceRepeat() (bool, error) {
 			if counts[k] >= nGramRepeatThreshold {
 				// strings.Join only on detection — not in the hot loop.
 				arrow := strings.Join(namesOf(rd.seqWindow[i:idx]), " → ")
-				return true, fmt.Errorf(errFmtSequenceRepeat,
+				return true, loopError(errFmtSequenceRepeat,
 					l, arrow, counts[k], nGramWindowSize)
 			}
 		}
@@ -273,7 +284,7 @@ func (rd *Detector) CheckSameTarget(toolCalls []proxy.ToolCall) (bool, error) {
 	for pt := range seen {
 		pathHits[pt.path]++
 		if pathHits[pt.path] >= sameTargetThreshold {
-			return true, fmt.Errorf(errFmtSameTargetOsc,
+			return true, loopError(errFmtSameTargetOsc,
 				pt.path, pathHits[pt.path])
 		}
 	}

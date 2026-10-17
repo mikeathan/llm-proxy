@@ -4,6 +4,7 @@ import (
 	"context"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
@@ -42,6 +43,10 @@ type MockAssistantService struct {
 	// backed by a real persistence manager.
 	GuardrailStore *assistant.GuardrailDecisionStore
 	GuardrailEng   *guardrails.GuardrailEngine
+	// ModelConfigs are the registry models ModelConfig knows; empty means none.
+	ModelConfigs map[string]models.ModelConfig
+	// ProfileCatalog overrides the default built-in-only catalog.
+	ProfileCatalog *profile.Catalog
 }
 
 func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
@@ -64,6 +69,14 @@ func (m *MockAssistantService) SelectModels() (string, string) {
 	return "", ""
 }
 
+// Profiles is the built-in profile catalog (no user files) unless a test set its own.
+func (m *MockAssistantService) Profiles() *profile.Catalog {
+	if m.ProfileCatalog == nil {
+		m.ProfileCatalog = profile.MustCatalog("", logging.NewNopLogger())
+	}
+	return m.ProfileCatalog
+}
+
 func (m *MockAssistantService) Lane() *runlane.Scheduler          { return nil }
 func (m *MockAssistantService) LaneKeyFor(string) runlane.LaneKey { return runlane.LaneLocal }
 
@@ -83,7 +96,8 @@ func (m *MockAssistantService) GetPlaybackClient(ctx context.Context, ref string
 }
 
 func (m *MockAssistantService) ModelConfig(modelName string) (models.ModelConfig, bool) {
-	return models.ModelConfig{}, false
+	cfg, ok := m.ModelConfigs[modelName]
+	return cfg, ok
 }
 
 func (m *MockAssistantService) EffectiveToolCallFormat(ctx context.Context, modelName string) string {

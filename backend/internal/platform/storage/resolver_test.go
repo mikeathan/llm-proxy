@@ -17,6 +17,13 @@ func TestPathResolver(t *testing.T) {
 		}
 	})
 
+	t.Run("ProfilesDir is in the data root, outside every workspace", func(t *testing.T) {
+		want := filepath.Join("/tmp/root", "profiles")
+		if got := resolver.ProfilesDir(); got != want {
+			t.Errorf("ProfilesDir() = %v, want %v", got, want)
+		}
+	})
+
 	t.Run("WorkspaceDir", func(t *testing.T) {
 		id := "test-ws"
 		want := filepath.Join(workspacesDir, id)

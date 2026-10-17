@@ -34,8 +34,16 @@ func NewPathResolver(rootDir, workspacesDir, metadataDir string) *PathResolver {
 	}
 }
 
+const profilesDirName = "profiles"
+
 func (r *PathResolver) RootDir() string {
 	return r.rootDir
+}
+
+// ProfilesDir is where the user's own prompt profiles live: in the data root, beside the settings, never in a
+// workspace — so an agent with file tools cannot rewrite the instructions it runs under.
+func (r *PathResolver) ProfilesDir() string {
+	return filepath.Join(r.rootDir, profilesDirName)
 }
 
 func (r *PathResolver) WorkspaceDir(id string) string {

@@ -53,6 +53,8 @@ export interface Automation {
   skip_if_busy?: boolean
   // The automation keeps a learning journal (read it via DispatcherService.getAutomationJournal).
   journal?: boolean
+  // Prompt profile id; empty runs the default for automations.
+  profile?: string
 }
 
 // AutomationJournal is the learning journal an automation keeps between runs.

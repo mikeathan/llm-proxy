@@ -9,6 +9,7 @@ const a = {
   messages: ref([]),
   sessions: ref<SessionBrief[]>([{ id: 's1', snippet: 'Plan the move', updated_at: new Date().toISOString() }]),
   currentSessionId: ref<string | null>(null),
+  conversationProfile: ref(''),
   pendingDecision: ref<unknown>(null),
   submitDecision: vi.fn(),
   thinking: ref(false),
@@ -38,6 +39,16 @@ vi.mock('../../../../composables/memory/useMemoryReview', () => ({ useMemoryRevi
 const confirm = vi.fn()
 vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
+const catalog = [
+  { id: 'builder', name: 'Builder', summary: 'Builds.', source: 'builtin', answer_first: false, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
+  { id: 'general', name: 'General', summary: 'Everyday assistant.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: true, default_for: ['assistant'] },
+  { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
+]
+const profileService = vi.hoisted(() => ({ list: vi.fn() }))
+vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))
+const dispatcher = vi.hoisted(() => ({ getWorkspaceConfig: vi.fn() }))
+vi.mock('../../../../services/automation/dispatcherService', () => ({ DispatcherService: dispatcher }))
+
 const commandService = vi.hoisted(() => ({ list: vi.fn(), run: vi.fn(), preview: vi.fn() }))
 vi.mock('../../../../services/commands/commandService', () => ({ CommandService: commandService }))
 
@@ -53,6 +64,9 @@ function mountChat() {
 describe('AssistantChat', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    profileService.list.mockResolvedValue(catalog)
+    dispatcher.getWorkspaceConfig.mockResolvedValue({})
+    a.conversationProfile.value = ''
     vi.stubGlobal('localStorage', memoryStorage())
     a.loading.value = false
     a.pendingDecision.value = null
@@ -239,14 +253,80 @@ describe('AssistantChat', () => {
     it('sends an unknown /word to the assistant as usual', async () => {
       const { w } = mountChat()
       await send(w, '/etc/hosts is odd')
-      expect(a.sendMessage).toHaveBeenCalledWith('ws', '/etc/hosts is odd')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', '/etc/hosts is odd', { model: '', profile: '' })
     })
 
     it('sends plain text to the assistant without asking the command endpoint', async () => {
       const { w } = mountChat()
       await send(w, 'remind me tomorrow')
       expect(commandService.run).not.toHaveBeenCalled()
-      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'remind me tomorrow')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'remind me tomorrow', { model: '', profile: '' })
+    })
+  })
+
+  // The profile a message runs under: the workspace's or the default until one is picked, then the picked one.
+  describe('run settings', () => {
+    const settingsButton = (w: ReturnType<typeof mountChat>['w']) => w.get('[data-test="run-settings"]')
+
+    it('shows the profile a new chat starts with, and marks it as the default', async () => {
+      const { w } = mountChat()
+      await flushPromises()
+      expect(settingsButton(w).text()).toBe('General')
+      await settingsButton(w).trigger('click')
+      const labels = w.findAll('select[aria-label="Profile"] option').map((o) => o.text())
+      expect(labels).toEqual(['Builder', 'General (default)', 'Research'])
+    })
+
+    it("starts from the workspace's own profile when it has one", async () => {
+      dispatcher.getWorkspaceConfig.mockResolvedValue({ assistant_profile: 'builder' })
+      const { w } = mountChat()
+      await flushPromises()
+      expect(settingsButton(w).text()).toBe('Builder')
+    })
+
+    it('sends nothing about the profile until one is picked, then sends the pick', async () => {
+      const { w } = mountChat()
+      await flushPromises()
+      await settingsButton(w).trigger('click')
+      await w.get('select[aria-label="Profile"]').setValue('research')
+      expect(a.conversationProfile.value).toBe('research')
+      expect(settingsButton(w).text()).toBe('Research')
+
+      await w.get('textarea').setValue('find me the changelog')
+      await w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'find me the changelog', { model: '', profile: 'research' })
+    })
+
+    it("shows an open conversation's own profile", async () => {
+      a.conversationProfile.value = 'builder'
+      const { w } = mountChat()
+      await flushPromises()
+      expect(settingsButton(w).text()).toBe('Builder')
+    })
+
+    it('stays usable when the conversation names a profile that no longer exists', async () => {
+      a.conversationProfile.value = 'deleted-file'
+      const { w } = mountChat()
+      await flushPromises()
+      expect(settingsButton(w).text()).toBe('General')
+    })
+
+    it('sends no profile for a conversation whose profile no longer exists, so the message is not refused', async () => {
+      a.conversationProfile.value = 'deleted-file'
+      const { w } = mountChat()
+      await flushPromises()
+      await w.get('textarea').setValue('carry on')
+      await w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'carry on', { model: '', profile: '' })
+    })
+
+    it('cannot be changed while a run is going', async () => {
+      a.loading.value = true
+      const { w } = mountChat()
+      await flushPromises()
+      expect(settingsButton(w).attributes('disabled')).toBeDefined()
     })
   })
 })

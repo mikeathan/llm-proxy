@@ -30,6 +30,11 @@ type AssistantMessage struct {
 	Message        string   `json:"message"`
 	Timezone       string   `json:"timezone,omitempty"`
 	ExcludeTools   []string `json:"exclude_tools,omitempty"`
+	// Model is a registry model chosen for this message; empty runs the primary.
+	Model string `json:"model,omitempty"`
+	// Profile is the prompt profile chosen for this message, which the conversation then keeps; empty keeps the
+	// conversation's own or the workspace's.
+	Profile string `json:"profile,omitempty"`
 }
 
 type AssistantMessageHandler struct {
@@ -175,6 +180,17 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 		return nil, nil, false
 	}
 
+	if payload.Model != "" {
+		if _, known := h.svc.ModelConfig(payload.Model); !known {
+			writeJSONError(w, http.StatusBadRequest, "unknown model: "+payload.Model)
+			return nil, nil, false
+		}
+	}
+	if err := validateProfileID(h.svc.Profiles(), "profile", payload.Profile); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return nil, nil, false
+	}
+
 	traceID := getTraceID(payload.ConversationID, r.RemoteAddr)
 	log := h.logger.With("trace", traceID)
 
@@ -233,6 +249,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		recorder = eventSink
 	}
 
+	ctx = models.WithProfileRequest(models.WithModelOverride(ctx, payload.Model), payload.Profile)
 	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, h.chatZone(payload.Timezone), payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) {
@@ -280,8 +297,11 @@ func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceI
 	return eventSink, procLog
 }
 
-// modelName extracts the model name from the assistant request.
+// modelName is the model the request runs: the one it names, else the primary.
 func modelName(payload *AssistantMessage, svc AssistantService) string {
+	if payload.Model != "" {
+		return payload.Model
+	}
 	primary, _ := svc.SelectModels()
 	return primary
 }
@@ -293,7 +313,12 @@ func modelName(payload *AssistantMessage, svc AssistantService) string {
 // restart) is waited for, bounded by models.ModelStartWaitTimeout and cancelled by Stop, with one "model is starting"
 // notice so the chat shows why it is waiting — instead of failing and losing the message.
 func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.Logger, payload *AssistantMessage) (proxy.Client, *handlerError) {
-	client, err := proxy.WaitForClient(ctx, func() (proxy.Client, error) { return h.client.GetClient(ctx) }, proxy.ModelWait{
+	// A model chosen for this message is used as is — no silent switch to the fallback.
+	acquire := func() (proxy.Client, error) { return h.client.GetClient(ctx) }
+	if payload.Model != "" {
+		acquire = func() (proxy.Client, error) { return h.client.GetClientForModel(ctx, payload.Model) }
+	}
+	client, err := proxy.WaitForClient(ctx, acquire, proxy.ModelWait{
 		ModelName:    modelName(payload, h.svc),
 		PollInterval: models.ModelStartPollInterval,
 		Timeout:      models.ModelStartWaitTimeout,
@@ -404,7 +429,7 @@ func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID
 		// The claimed model is the resolved primary/fallback (an
 		// AssistantMessage carries no model of its own). Recording it lets the
 		// model-residency gate refuse evicting this chat's model.
-		claimed, release, err := h.lane.ClaimInteractive(execCtx, h.svc.LaneKeyFor(""), workspaceID, h.chatModel())
+		claimed, release, err := h.lane.ClaimInteractive(execCtx, h.svc.LaneKeyFor(payload.Model), workspaceID, h.chatModelFor(payload.Model))
 		if err != nil {
 			// Cancelled while waiting, or the preempted automation did not
 			// stop in time: same shape as an explicit cancel — no failed-run
@@ -422,7 +447,13 @@ func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID
 // chatModel resolves the model a chat run will use — the registry primary, or
 // the fallback when no primary is configured. It mirrors the resolution
 // LaneKeyFor applies, so the lane key and the holder's model agree.
-func (h *AssistantMessageHandler) chatModel() string {
+func (h *AssistantMessageHandler) chatModel() string { return h.chatModelFor("") }
+
+// chatModelFor is chatModel for a message that may name its own model.
+func (h *AssistantMessageHandler) chatModelFor(chosen string) string {
+	if chosen != "" {
+		return chosen
+	}
 	primary, fallback := h.svc.SelectModels()
 	if primary != "" {
 		return primary

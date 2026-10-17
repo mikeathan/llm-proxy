@@ -113,6 +113,11 @@ func ParseContentToolCalls(content string) (cleanedContent string, calls []ToolC
 	cleaned, calls, parseErr := parseToolCallBlocks(content, xmlTagPattern, func(m []string, i int) (ToolCall, *ParseError) {
 		return parseSingleToolCall(strings.TrimSpace(m[1]), i)
 	})
+	if len(calls) == 0 {
+		if call, rest, ok := parseUnclosedToolCall(content); ok {
+			return rest, []ToolCall{call}, nil
+		}
+	}
 	if len(calls) == 0 && parseErr == nil {
 		parseErr = &ParseError{XMLFound: true, JSONError: ErrMsgNoValidXMLBlock}
 	}
@@ -120,6 +125,25 @@ func ParseContentToolCalls(content string) (cleanedContent string, calls []ToolC
 		parseErr = nil
 	}
 	return cleaned, calls, parseErr
+}
+
+// unclosedToolCallPattern is an opening tag followed by a JSON object that runs to the end of the
+// reply: the shape of a call whose closing tag the model never wrote.
+var unclosedToolCallPattern = regexp.MustCompile(`(?is)<tool(?:_call)?>\s*(\{.*\})\s*$`)
+
+// parseUnclosedToolCall recovers a call that ends the reply without its closing tag (some models
+// stop right after the JSON). Only a complete, valid call counts — a truncated one, or one followed
+// by more text, stays unparsed — so this never accepts anything the closed form would reject.
+func parseUnclosedToolCall(content string) (ToolCall, string, bool) {
+	m := unclosedToolCallPattern.FindStringSubmatchIndex(content)
+	if m == nil {
+		return ToolCall{}, "", false
+	}
+	call, err := parseSingleToolCall(strings.TrimSpace(content[m[2]:m[3]]), 0)
+	if err != nil {
+		return ToolCall{}, "", false
+	}
+	return call, strings.TrimSpace(content[:m[0]]), true
 }
 
 func ParseNativeToolCalls(content string) (cleanedContent string, calls []ToolCall, parseErr *ParseError) {

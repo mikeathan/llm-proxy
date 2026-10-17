@@ -415,3 +415,25 @@ func TestIsAgentControlMessage_LengthContinuationPrompt(t *testing.T) {
 		t.Error("LengthContinuationPrompt must be recognized as a control message")
 	}
 }
+
+// When the model's last reply is tool-call text and no earlier work can be summarized, the user is told
+// in plain words what happened — never shown the raw JSON as if it were the answer.
+func TestFinalizeReport_UnreadableToolCallTextBecomesAReadableMessage(t *testing.T) {
+	raw := "<tool_call>\n{\"tool\":\"<tool_call>\n{\"tool\":\"memory_update\",\"args\":{\"content\":\"x\"}}"
+	client := finalizeMockClient(raw, nil)
+	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "test_tool"}}}}
+	agent := NewAgent(client, provider, &MockEngine{Result: "ok"}, AgentOptions{MaxSteps: 5})
+	s := newRunSession(agent, context.Background(), []proxy.Message{{Role: proxy.UserRole, Content: "explain rust"}})
+	agent.runS = s
+
+	report, err := s.finalizeReport(context.Background())
+	if err != nil {
+		t.Fatalf("finalizeReport failed: %v", err)
+	}
+	if strings.Contains(report, "<tool_call>") || strings.Contains(report, `"tool"`) {
+		t.Fatalf("raw tool-call text must not become the answer, got %q", report)
+	}
+	if report != MsgUnreadableToolCall {
+		t.Errorf("report = %q, want the readable explanation", report)
+	}
+}

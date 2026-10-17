@@ -353,9 +353,9 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 		}
 	}
 
-	// Verify system prompt is still there
-	if sentMsgs[0].Role != proxy.SystemRole || sentMsgs[0].Content != "SYSTEM" {
-		t.Error("system prompt was incorrectly truncated or modified")
+	// The system message is still the head, rebuilt for this turn (the stored "SYSTEM" is replaced by the current prompt).
+	if sentMsgs[0].Role != proxy.SystemRole || !strings.Contains(sentMsgs[0].Content, "RULES:") {
+		t.Error("the system prompt was dropped by truncation or not rebuilt")
 	}
 }
 
@@ -1722,5 +1722,70 @@ func TestAssistant_GetLLMClient_WaitsForAColdModel(t *testing.T) {
 	}
 	if p, ok := notices[0].Payload.(assistant.UpstreamEventPayload); !ok || p.Reason != "model_starting" || notices[0].ConversationID != "c1" {
 		t.Errorf("notice = %+v, want reason model_starting for conversation c1", notices[0])
+	}
+}
+
+// namedProvider records which model each client request asked for.
+type namedProvider struct{ asked []string }
+
+func (p *namedProvider) GetClient(context.Context) (proxy.Client, error) {
+	p.asked = append(p.asked, "<primary>")
+	return &mocks.MockLLMClient{}, nil
+}
+
+func (p *namedProvider) GetClientForModel(_ context.Context, name string) (proxy.Client, error) {
+	p.asked = append(p.asked, name)
+	return &mocks.MockLLMClient{}, nil
+}
+
+// A message that names a model gets that model's client — never the primary or its fallback.
+func TestAssistant_GetLLMClient_UsesTheChosenModel(t *testing.T) {
+	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
+	provider := &namedProvider{}
+	service.Client = provider
+	handler := NewAssistantMessageHandler(service)
+
+	for _, chosen := range []string{"", "nemotron"} {
+		if _, herr := handler.getLLMClient(context.Background(), &noopLogger{}, &AssistantMessage{WorkspaceID: "ws", Model: chosen}); herr != nil {
+			t.Fatalf("getLLMClient(%q): %+v", chosen, herr)
+		}
+	}
+	if got := strings.Join(provider.asked, ","); got != "<primary>,nemotron" {
+		t.Errorf("clients asked for = %s, want <primary>,nemotron", got)
+	}
+	if got := handler.chatModelFor("nemotron"); got != "nemotron" {
+		t.Errorf("chatModelFor = %q, want nemotron", got)
+	}
+}
+
+// A model the registry does not know is refused before anything runs.
+func TestAssistant_PrepareRequest_RejectsAnUnknownModel(t *testing.T) {
+	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
+	service.ModelConfigs = map[string]models.ModelConfig{"known": {}}
+	handler := NewAssistantMessageHandler(service)
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"workspace_id":"ws","message":"hi","model":"ghost"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if _, _, ok := handler.prepareRequest(rec, req); ok {
+		t.Fatal("prepareRequest accepted an unknown model")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ghost") {
+		t.Errorf("response = %d %q, want 400 naming the model", rec.Code, rec.Body.String())
+	}
+}
+
+// A profile the catalog does not know is refused before anything runs, and the answer names the known ones.
+func TestAssistant_PrepareRequest_RejectsAnUnknownProfile(t *testing.T) {
+	handler := NewAssistantMessageHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"workspace_id":"ws","message":"hi","profile":"ghost"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if _, _, ok := handler.prepareRequest(rec, req); ok {
+		t.Fatal("prepareRequest accepted an unknown profile")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ghost") || !strings.Contains(rec.Body.String(), "general") {
+		t.Errorf("response = %d %q, want 400 naming the profile and the known ones", rec.Code, rec.Body.String())
 	}
 }

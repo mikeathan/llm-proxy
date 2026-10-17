@@ -138,3 +138,25 @@ func TestWorkspaceConfig_HeartbeatYAML(t *testing.T) {
 		t.Errorf("legacy config read as %+v", legacy)
 	}
 }
+
+// The heartbeat runs under the Watcher profile whatever the workspace default is.
+func TestHeartbeatAutomation_UsesTheWatcherProfile(t *testing.T) {
+	if got := (HeartbeatConfig{}).Automation().Profile; got != HeartbeatProfile {
+		t.Errorf("heartbeat profile = %q, want %q", got, HeartbeatProfile)
+	}
+}
+
+func TestWithoutComments(t *testing.T) {
+	cases := map[string]string{
+		"":                              "",
+		"<!-- only a comment -->":       "",
+		"keep <!-- drop --> this":       "keep  this",
+		"<!--\nmulti\nline\n-->\nafter": "after",
+		"```\n<!-- inside a fence stays -->\n```": "```\n<!-- inside a fence stays -->\n```",
+	}
+	for in, want := range cases {
+		if got := WithoutComments(in); got != want {
+			t.Errorf("WithoutComments(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

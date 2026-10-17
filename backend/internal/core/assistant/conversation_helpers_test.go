@@ -2,11 +2,13 @@ package assistant
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/persistence"
@@ -18,38 +20,102 @@ func TestLoadAgentsFile(t *testing.T) {
 	tmp := t.TempDir()
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
 	const wsID = "ws1"
-
-	t.Run("returns default when no file exists", func(t *testing.T) {
+	write := func(t *testing.T, content string) {
+		t.Helper()
 		agentsFileCache.Clear()
-		if got := LoadAgentsFile(mgr, wsID); got != prompts.DefaultAgentsMD {
-			t.Errorf("expected DefaultAgentsMD fallback, got %q", got)
-		}
-	})
-
-	t.Run("returns AGENTS.md content when present", func(t *testing.T) {
-		agentsFileCache.Clear()
-		custom := "# Custom\nAlways respond in French."
-		if err := mgr.WriteTaskFile(wsID, models.RulesFilename, custom); err != nil {
+		if err := mgr.WriteTaskFile(wsID, models.RulesFilename, content); err != nil {
 			t.Fatalf("write task file: %v", err)
 		}
-		if got := LoadAgentsFile(mgr, wsID); got != custom {
-			t.Errorf("expected custom AGENTS.md content, got %q", got)
+	}
+
+	t.Run("no notes when no file exists", func(t *testing.T) {
+		agentsFileCache.Clear()
+		if got := LoadAgentsFile(mgr, "no-such-workspace"); got != "" {
+			t.Errorf("got %q, want no notes", got)
 		}
 	})
 
-	t.Run("returns default when workspaceID empty", func(t *testing.T) {
-		agentsFileCache.Clear()
-		if got := LoadAgentsFile(mgr, ""); got != prompts.DefaultAgentsMD {
-			t.Errorf("expected default for empty workspaceID, got %q", got)
+	t.Run("the operator's notes, without the comments that explain the file", func(t *testing.T) {
+		write(t, "<!-- how to use this file -->\n# Mine\nAlways respond in French.\n")
+		if got := LoadAgentsFile(mgr, wsID); got != "# Mine\nAlways respond in French." {
+			t.Errorf("got %q", got)
 		}
 	})
 
-	t.Run("returns default when manager nil", func(t *testing.T) {
-		agentsFileCache.Clear()
-		if got := LoadAgentsFile(nil, wsID); got != prompts.DefaultAgentsMD {
-			t.Errorf("expected default for nil manager, got %q", got)
+	t.Run("the seeded stub adds nothing", func(t *testing.T) {
+		write(t, prompts.DefaultAgentsMD)
+		if got := LoadAgentsFile(mgr, wsID); got != "" {
+			t.Errorf("the comment-only stub must add nothing, got %q", got)
 		}
 	})
+
+	t.Run("an old seeded default is no notes: the persona now lives in the profiles", func(t *testing.T) {
+		legacy, err := os.ReadFile("prompts/legacy/agents-5b89301.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, string(legacy))
+		if got := LoadAgentsFile(mgr, wsID); got != "" {
+			t.Errorf("a workspace still holding the old default must get the profile's behaviour, got notes %q", got)
+		}
+		write(t, string(legacy)+"\n- Our host is vertex.")
+		if got := LoadAgentsFile(mgr, wsID); !strings.Contains(got, "Our host is vertex.") {
+			t.Errorf("a file the operator changed is kept as their notes, got %q", got)
+		}
+	})
+
+	t.Run("no notes without a workspace or a manager", func(t *testing.T) {
+		agentsFileCache.Clear()
+		if got := LoadAgentsFile(mgr, ""); got != "" {
+			t.Errorf("empty workspaceID: got %q", got)
+		}
+		if got := LoadAgentsFile(nil, wsID); got != "" {
+			t.Errorf("nil manager: got %q", got)
+		}
+	})
+}
+
+// The system message is rebuilt every turn from the current profile and notes; the same inputs give the same text.
+func TestConversationSystemMessage(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	agentsFileCache.Clear()
+	if err := mgr.WriteTaskFile("ws1", models.RulesFilename, "Reports go in reports/."); err != nil {
+		t.Fatal(err)
+	}
+	session := &models.AssistantSession{ID: "conv_1", WorkspaceID: "ws1", ContextVersion: "v1"} // an older session stores no zone: the caller passes the effective one
+	general := profile.Profile{ID: "general", Instructions: "GENERAL BEHAVIOUR"}
+	runner := profile.Profile{ID: "task-runner", Instructions: "RUNNER BEHAVIOUR"}
+
+	msg := conversationSystemMessage(mgr, session, "UTC", general, true)
+	for _, want := range []string{"GENERAL BEHAVIOUR", "RULES:", "Reports go in reports/.", "Conversation ID: conv_1", "Timezone: UTC"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("system message lacks %q:\n%s", want, msg)
+		}
+	}
+	if again := conversationSystemMessage(mgr, session, "UTC", general, true); again != msg {
+		t.Error("the same inputs must give the same system message (the model server's cache depends on it)")
+	}
+	if switched := conversationSystemMessage(mgr, session, "UTC", runner, true); !strings.Contains(switched, "RUNNER BEHAVIOUR") || strings.Contains(switched, "GENERAL BEHAVIOUR") {
+		t.Errorf("a profile switch changes the behaviour block:\n%s", switched)
+	}
+}
+
+func TestWithSystemMessage(t *testing.T) {
+	user := proxy.Message{Role: proxy.UserRole, Content: "hi"}
+	replaced := withSystemMessage([]proxy.Message{{Role: proxy.SystemRole, Content: "old"}, user}, "new")
+	if len(replaced) != 2 || replaced[0].Content != "new" || replaced[1].Content != user.Content {
+		t.Errorf("an existing system head is replaced: %+v", replaced)
+	}
+	added := withSystemMessage([]proxy.Message{user}, "new")
+	if len(added) != 2 || added[0].Role != proxy.SystemRole || added[0].Content != "new" {
+		t.Errorf("a missing system head is added: %+v", added)
+	}
+	original := []proxy.Message{{Role: proxy.SystemRole, Content: "old"}, user}
+	withSystemMessage(original, "new")
+	if original[0].Content != "old" {
+		t.Error("the input history must not be modified")
+	}
 }
 
 func TestBuildPartialHistory(t *testing.T) {

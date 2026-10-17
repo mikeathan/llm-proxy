@@ -20,6 +20,13 @@ vi.mock('../../../../services/automation/dispatcherService', () => ({
 }))
 // Saving a written task goes through the shared file writer; playbooks come from the template service.
 const { writeFileMock, listTemplatesMock, getTemplateMock, confirmMock } = vi.hoisted(() => ({ writeFileMock: vi.fn(), listTemplatesMock: vi.fn(), getTemplateMock: vi.fn(), confirmMock: vi.fn() }))
+const profileService = vi.hoisted(() => ({
+  list: vi.fn().mockResolvedValue([
+    { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
+    { id: 'task-runner', name: 'Task runner', summary: 'Runs unattended.', source: 'builtin', answer_first: false, may_ask: false, memory_guidance: false, reminders: false, default_for: ['automation'] },
+  ]),
+}))
+vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))
 vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../../../composables/editor/useWorkspaceFileWriter', () => ({ useWorkspaceFileWriter: () => ({ writeFile: writeFileMock }) }))
 vi.mock('../../../../services/template/templateService', () => ({ TemplateService: { listTemplates: listTemplatesMock, getTemplate: getTemplateMock } }))
@@ -98,7 +105,7 @@ describe('AutomationForm', () => {
     await w.get('form').trigger('submit')
     expect(w.emitted('create-automation')).toEqual([[
       'ws',
-      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false, journal: false },
+      { name: 'nightly', trigger: { type: 'manual', value: '' }, task_file: 'task.md', strategy: 'persistent', model: '', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false, journal: false, profile: '' },
     ]])
   })
 
@@ -360,7 +367,7 @@ describe('AutomationForm', () => {
     expect(w.emitted('update-automation')).toEqual([[
       'ws',
       'nightly',
-      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false, journal: false },
+      { name: 'nightly-v2', trigger: { type: 'interval', value: '1h' }, task_file: 'task.md', strategy: 'persistent', model: 'qwen', loop_strategy: '', network_grant: '', memory_mode: '', notify: null, skip_if_busy: false, journal: false, profile: '' },
     ]])
   })
 
@@ -484,6 +491,45 @@ describe('AutomationForm', () => {
     it('shows an automation that already keeps a journal as on', async () => {
       const w = await mountForm({ ...AUTO, journal: true })
       expect((toggle(w).element as HTMLInputElement).checked).toBe(true)
+    })
+  })
+
+  describe('profile', () => {
+    const profileField = (w: VueWrapper) => w.get('select option[value="research"]').element.closest('select') as HTMLSelectElement
+
+    it('offers the default (named) and every profile, and says what the choice is for', async () => {
+      const w = await mountForm(AUTO)
+      await flushPromises()
+      const select = profileField(w)
+      expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Default (Task runner)', 'Research', 'Task runner'])
+      expect(select.value).toBe('')
+      expect(w.text()).toContain('Runs unattended.')
+    })
+
+    it('is sent with the automation, and shows in the review', async () => {
+      const w = await mountForm(AUTO)
+      await flushPromises()
+      const select = profileField(w)
+      select.value = 'research'
+      select.dispatchEvent(new Event('change'))
+      await flushPromises()
+      expect(w.get('[data-test="review"]').text()).toContain('Research')
+      await w.get('form').trigger('submit')
+      expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({ profile: 'research' })
+    })
+
+    it('keeps a saved profile that no longer exists visible, so it can be replaced', async () => {
+      const w = await mountForm({ ...AUTO, profile: 'deleted-file' })
+      await flushPromises()
+      const select = w.get('select option[value="deleted-file"]').element.closest('select') as HTMLSelectElement
+      expect(select.value).toBe('deleted-file')
+      expect(Array.from(select.options).map((o) => o.textContent)).toContain('deleted-file (not found)')
+    })
+
+    it('shows the profile an automation already has', async () => {
+      const w = await mountForm({ ...AUTO, profile: 'research' })
+      await flushPromises()
+      expect(profileField(w).value).toBe('research')
     })
   })
 })

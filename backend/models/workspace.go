@@ -130,6 +130,9 @@ type Automation struct {
 	// the end of each run and sees at the start of the next (queries that worked,
 	// sources to skip). Off by default; see models.SanitizeJournal.
 	Journal bool `yaml:"journal,omitempty" json:"journal,omitempty"`
+	// Profile is the prompt profile this automation's runs use (a built-in's or a user file's id); empty runs the
+	// default for automations.
+	Profile string `yaml:"profile,omitempty" json:"profile,omitempty"`
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml
@@ -144,6 +147,8 @@ type WorkspaceConfig struct {
 	Heartbeat *HeartbeatConfig `yaml:"heartbeat,omitempty" json:"heartbeat,omitempty"`
 	// AssistantMemory overrides the global assistant hot-memory default for this workspace's chats; empty inherits it.
 	AssistantMemory MemoryMode `yaml:"assistant_memory,omitempty" json:"assistant_memory,omitempty"`
+	// AssistantProfile is the prompt profile this workspace's chats start with; empty uses the default for chats.
+	AssistantProfile string `yaml:"assistant_profile,omitempty" json:"assistant_profile,omitempty"`
 }
 
 // AutomationRun represents a single execution of an automation.

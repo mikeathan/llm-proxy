@@ -24,6 +24,8 @@ const (
 	OriginConnectorKey   contextKey = "origin_connector"
 	ChatTimezoneKey      contextKey = "chat_timezone"
 	JournalRunKey        contextKey = "journal_run"
+	ModelOverrideKey     contextKey = "model_override"
+	ProfileRequestKey    contextKey = "profile_request"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -100,6 +102,42 @@ func GetTaskName(ctx context.Context) string {
 // The recorder uses this to create a new file per execution run.
 func WithRunID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, RunIDKey, id)
+}
+
+// WithModelOverride names the registry model one chat run uses instead of the
+// primary. An empty name leaves the context unchanged.
+func WithModelOverride(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ModelOverrideKey, name)
+}
+
+// GetModelOverride returns the model WithModelOverride named, or "" when the run
+// uses the primary.
+func GetModelOverride(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	name, _ := ctx.Value(ModelOverrideKey).(string)
+	return name
+}
+
+// WithProfileRequest names the prompt profile one chat message asks for; an empty id leaves the context unchanged.
+func WithProfileRequest(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ProfileRequestKey, id)
+}
+
+// GetProfileRequest returns the profile WithProfileRequest named, or "" when the message named none.
+func GetProfileRequest(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(ProfileRequestKey).(string)
+	return id
 }
 
 // WithUnattendedRun marks the context as an unattended (automation) run: no
