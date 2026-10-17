@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"llm-proxy/internal/core"
@@ -488,15 +487,6 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 	return visible, nil
 }
 
-// GetSystemPrompt satisfies the ToolProvider interface: the tool list, with no behaviour of its own (that comes from
-// the run's prompt profile).
-func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
-	if len(r.toolDefinitions) == 0 {
-		return "", nil
-	}
-	return "AVAILABLE TOOLS:\n" + r.FormatToolsForPrompt(), nil
-}
-
 // UseNativeTools indicates if tools should be passed via the API.
 // Local models default to text-only to avoid confusing non-function-calling
 // models with API-level tool definitions they cannot process.  Models that
@@ -506,28 +496,6 @@ func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
 // that support native tools opt in via ModelConfig.ToolCallFormat = "native".
 func (r *LocalToolRegistry) UseNativeTools() bool {
 	return false
-}
-
-// FormatToolsForPrompt converts the tool definitions into a readable format.
-func (r *LocalToolRegistry) FormatToolsForPrompt() string {
-	var sb strings.Builder
-	for _, t := range r.toolDefinitions {
-		sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Function.Name, t.Function.Description))
-		if params, ok := t.Function.Parameters.(map[string]any); ok {
-			if props, ok := params["properties"].(map[string]any); ok {
-				sb.WriteString("  Parameters:\n")
-				for pName, pDetails := range props {
-					if details, ok := pDetails.(map[string]any); ok {
-						pType := details["type"]
-						pDesc := details["description"]
-						sb.WriteString(fmt.Sprintf("    * %s (%v): %v\n", pName, pType, pDesc))
-					}
-				}
-			}
-		}
-		sb.WriteString("\n")
-	}
-	return sb.String()
 }
 
 var ErrToolNotInternal = fmt.Errorf("tool not found in local registry")

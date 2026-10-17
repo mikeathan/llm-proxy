@@ -67,10 +67,6 @@ func (m *MockProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	return m.Tools, nil
 }
 
-func (m *MockProvider) GetSystemPrompt() (string, error) {
-	return "test prompt", nil
-}
-
 func (m *MockProvider) UseNativeTools() bool {
 	if m.UseNative == nil {
 		return true

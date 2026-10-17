@@ -20,7 +20,6 @@ import (
 // satisfy it structurally.
 type Provider interface {
 	ListTools(ctx context.Context) ([]proxy.Tool, error)
-	GetSystemPrompt() (string, error)
 	UseNativeTools() bool
 }
 
@@ -92,10 +91,6 @@ func (f *filteredProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) 
 		filtered = append(filtered, t)
 	}
 	return filtered, nil
-}
-
-func (f *filteredProvider) GetSystemPrompt() (string, error) {
-	return f.inner.GetSystemPrompt()
 }
 
 func (f *filteredProvider) UseNativeTools() bool {

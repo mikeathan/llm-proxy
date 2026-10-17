@@ -9,13 +9,11 @@ import (
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
-	"strings"
 )
 
 // ToolProvider defines how tools and prompts are discovered.
 type ToolProvider interface {
 	ListTools(ctx context.Context) ([]proxy.Tool, error)
-	GetSystemPrompt() (string, error)
 	UseNativeTools() bool
 }
 
@@ -54,24 +52,6 @@ func deduplicateTools(tools []proxy.Tool) []proxy.Tool {
 		}
 	}
 	return result
-}
-
-func (p *MultiToolProvider) GetSystemPrompt() (string, error) {
-	var fullPrompt []string
-	for _, provider := range p.Providers {
-		pStr, err := provider.GetSystemPrompt()
-		if err != nil || pStr == "" {
-			continue
-		}
-		fullPrompt = append(fullPrompt, pStr)
-	}
-
-	if len(fullPrompt) == 0 {
-		return "", nil
-	}
-
-	// Join multiple prompts if multiple providers provide them
-	return strings.Join(fullPrompt, "\n\n---\n\n"), nil
 }
 
 func (p *MultiToolProvider) UseNativeTools() bool {

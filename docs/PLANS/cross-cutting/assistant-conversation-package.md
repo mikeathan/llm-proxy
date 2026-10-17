@@ -17,7 +17,7 @@ Split out of the now-retired `assistant-package-restructure` plan. The three saf
 ## Step 0 (prerequisite) — consolidate the LLM/tool test doubles
 
 - Add an importable support package, e.g. `backend/internal/testing/assistanttest/`, holding `MockClient`, `MockProvider`, `MockEngine`.
-- It must **not** import `assistant`: the mocks satisfy the interfaces structurally (`ListTools` / `GetSystemPrompt` / `UseNativeTools`; `ExecuteTool`), and only need `proxy`. That keeps it importable from in-package `assistant` tests without a cycle. Note `internal/testing/mocks` is **not** an option — it imports `assistant` (that cycle is exactly why the registry tests already use a local `stubSearchSecrets`).
+- It must **not** import `assistant`: the mocks satisfy the interfaces structurally (`ListTools` / `UseNativeTools`; `ExecuteTool`), and only need `proxy`. That keeps it importable from in-package `assistant` tests without a cycle. Note `internal/testing/mocks` is **not** an option — it imports `assistant` (that cycle is exactly why the registry tests already use a local `stubSearchSecrets`).
 - Update the root assistant tests to use the shared doubles; behaviour stays identical.
 
 ## Then — extract `assistant/conversation/`

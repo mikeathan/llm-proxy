@@ -16,7 +16,6 @@ type stubProvider struct {
 }
 
 func (s *stubProvider) ListTools(_ context.Context) ([]proxy.Tool, error) { return s.tools, nil }
-func (s *stubProvider) GetSystemPrompt() (string, error)                  { return "system", nil }
 func (s *stubProvider) UseNativeTools() bool                              { return s.nativeTools }
 
 func toolNames(tools []proxy.Tool) map[string]bool {
@@ -173,13 +172,6 @@ func TestFilteredProvider_Delegates(t *testing.T) {
 	fp := Resolve(inner, nil, "", nil, []string{"notify_user"})
 	if !fp.UseNativeTools() {
 		t.Error("UseNativeTools should delegate to inner provider")
-	}
-	prompt, err := fp.GetSystemPrompt()
-	if err != nil {
-		t.Fatalf("GetSystemPrompt: %v", err)
-	}
-	if prompt != "system" {
-		t.Errorf("GetSystemPrompt should delegate, got %q", prompt)
 	}
 }
 

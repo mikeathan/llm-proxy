@@ -129,10 +129,6 @@ func (p *mockToolProvider) CallTool(ctx context.Context, call proxy.ToolCall) (a
 	return nil, nil
 }
 
-func (p *mockToolProvider) GetSystemPrompt() (string, error) {
-	return p.herder.GetSystemPrompt()
-}
-
 func (p *mockToolProvider) UseNativeTools() bool {
 	return true
 }
