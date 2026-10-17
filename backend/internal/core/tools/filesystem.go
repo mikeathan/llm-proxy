@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -88,6 +89,17 @@ func ValidateFileSystemPath(path string, isWrite bool, cfg models.FileSystemGuar
 	return absPath, nil
 }
 
+// ErrInstructionFileReadOnly is the refusal to write the workspace's AGENTS.md. That file holds the operator's
+// instructions for the workspace and is read into every run, so an agent able to rewrite it could plant instructions
+// (say, from a web page it read) that outlive the conversation. Reading stays allowed. It is a security boundary: the
+// agent loop never offers it for approval, and the text tells the model what to do instead.
+var ErrInstructionFileReadOnly = errors.New("path access denied: AGENTS.md holds the operator's instructions for this workspace and is read-only to the assistant; tell the user what to change and let them edit it in the Files view")
+
+// isInstructionFile reports whether path names the instruction file, in any case and at any depth.
+func isInstructionFile(path string) bool {
+	return strings.EqualFold(filepath.Base(path), models.RulesFilename)
+}
+
 // validateFilePath resolves and validates a path without checking file
 // extensions (enforced at guardrail level).  Used by the tool engine so
 // guardrail approvals for extension blocks are respected.
@@ -98,6 +110,9 @@ func validateFilePath(path string, isWrite bool, cfg models.FileSystemGuardrails
 
 	if isWrite && cfg.ReadOnly {
 		return "", fmt.Errorf("filesystem is in read-only mode")
+	}
+	if isWrite && isInstructionFile(path) {
+		return "", ErrInstructionFileReadOnly
 	}
 
 	base := filepath.Base(path)
@@ -128,6 +143,10 @@ func validateFilePath(path string, isWrite bool, cfg models.FileSystemGuardrails
 	absPath, err := IsSecurePath(path, cfg.AllowedPaths)
 	if err != nil {
 		return "", err
+	}
+	// The resolved path too: a link with another name that points at AGENTS.md is still AGENTS.md.
+	if isWrite && isInstructionFile(absPath) {
+		return "", ErrInstructionFileReadOnly
 	}
 
 	if m := blockedFilename(absPath, effectiveBlockedFilenames(cfg.BlockedFilenames)); m != nil {
@@ -268,7 +287,7 @@ func (f *FileSystemTools) AppendFile(ctx context.Context, path string, content s
 }
 
 func (f *FileSystemTools) EditFileBlock(ctx context.Context, path string, oldBlock string, newBlock string) (string, error) {
-	absPath, err := f.ValidatePath(ctx, path, false)
+	absPath, err := f.ValidatePath(ctx, path, true) // an edit rewrites the file: it is a write
 	if err != nil {
 		return "", err
 	}

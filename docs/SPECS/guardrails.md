@@ -1,9 +1,9 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.3"
+version: "1.4"
 status: stable
-last_updated: 2026-10-14
+last_updated: 2026-10-17
 constitution_references: [II.3]
 related_specs: [SPEC-001]
 supersedes:
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **1.4 (2026-10-17)** — The workspace's `AGENTS.md` is read-only to the agent (§II.8). `write_file`, `append_file` and
+  `edit_file_block` refuse it by name, in any case and at any depth, and through a link that resolves to it
+  (`tools.ErrInstructionFileReadOnly`); reading stays allowed. The agent loop treats the refusal as a security boundary:
+  it is never offered for approval and no override lifts it. `edit_file_block` is now validated like the other file
+  writes: the guardrail engine used to skip it, and the tool checked its path as a read, so the filesystem's read-only
+  mode and the extension list never applied to it. The shell is not covered (§II.8).
 - **1.1 (2026-09-06)** — OS Enforcement Layer + network default-off (new §II.7). Host
   sandboxing switches (`sandboxing.filesystem`, `sandboxing.network`) are hard gates OUTSIDE
   the override stack (§II.2): `MergeWith` may tighten, never re-enable a switch the host
@@ -244,6 +250,16 @@ Host-level OS sandboxing (plan: `docs/PLANS/cross-cutting/agent-os-sandboxing.md
 Security-boundary denials from either kind surface as guardrail *rejections* on the existing
 synchronous path (§II.3): `guardrail_violation` event, tool not executed, `stopBatch` set —
 with the model told not to retry, rephrase, or route around the block.
+
+### 8. Instruction File Is Read-Only To The Agent
+
+`AGENTS.md` holds the operator's instructions for a workspace and is read into every run, so an agent able to rewrite it
+could plant instructions (for example from a page it read) that outlive the conversation. The file tools therefore refuse
+every write to it (`validateFilePath` with `isWrite`, on the path as given and as resolved), for chats and automations
+alike, whatever the guardrail settings; the user edits it in the Files view. **Not covered:** the terminal tool. A shell
+can write a file in ways no command parser can list (a redirect, an interpreter, a script), so it is governed by its own
+allow-list and approvals (§II.5), not by this rule. A load-time scan of the file's content (the layering plan's Phase 5)
+is the second layer and is not built.
 
 ## III. Error Handling
 
