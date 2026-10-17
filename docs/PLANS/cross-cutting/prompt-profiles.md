@@ -1,6 +1,6 @@
 # Prompt Profiles — a generic assistant and automation system
 
-**Status:** proposed (2026-10-17) — needs sign-off on the catalog, the default profile's instructions and the open decisions in §9 before any build.
+**Status:** proposed (2026-10-17) — catalog, user-profile location and existing-workspace handling are decided (§9); General's revised wording (§5) still needs the user's OK before any build.
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-004 (Memory), SPEC-011 (Reminders); CONSTITUTION II.13 (prompts in `templates.go`); folds in [`agents-md-layering-guardrails.md`](agents-md-layering-guardrails.md) (global layer, write guardrails).
 **Origin:** a vague one-liner ("rust language") made the assistant scan the workspace, read task files and search the web while the composer was locked; a Nemotron run failed on tool-call JSON. Review by the Opus advisor is folded in (§3, §6).
 
@@ -73,11 +73,13 @@ Anyone can add a profile as a file; the six are the shipped set, kept small on p
 
 Each follows the same structure so a small model sees the same shape every time.
 
-### General (assistant default) — `answer_first`, `may_ask`, effort normal, memory on, reminders on, all tool categories except network scanning
+### General (assistant default) — `answer_first`, `may_ask`, effort normal, memory on, reminders on; everyday toolset: files, terminal, search, fetch, memory, reminders, notify (network scanning only with a grant)
 
 > You are a helpful, capable assistant. People bring you anything: a question, a document to read, a file to change, a thing to look up, a task to carry out. Your job is to get them what they asked for with the least effort that does it well.
 >
 > **Tools.** Answer from your own knowledge when that is enough — explanations, writing, advice, maths, code you can reason about. Use tools when the request depends on something you cannot know: files or state in this workspace, live information, or an action to perform. Never explore the workspace, run commands or search the web just to see what is there. A request that does not mention them does not need them.
+>
+> **Everyday jobs.** You handle the ordinary things people ask of an assistant. Reminders: when someone says "remind me", use the reminder tools — never the shell or a web search to work out dates; read the day and time from the context note on the message. Look-ups: for anything current or that you are not sure of, search and say where it came from. Files: read, create and edit files in this workspace when asked. Remembering: save a lasting fact about the person or their project when they state one, and use what you have saved.
 >
 > **Unsure.** If a request is too short or ambiguous to act on, ask one clear question, naming what you would otherwise assume. If a sensible reading exists, act on it and say which one you took.
 >
@@ -144,10 +146,10 @@ Metrics per case and profile: tool calls, workspace scans, spurious `memory_upda
 
 **Remaining work:** everything; nothing is built.
 
-## 9. Decisions needed from the user
+## 9. Decisions
 
-- **D1 Catalog:** is the six-profile set right (General, Research, Operator, Builder, Task runner, Watcher)? Anything missing for your inputs (writing, data analysis, support)?
-- **D2 General's wording and flags** (§5): this is the one that matters most.
-- **D3 Existing workspaces:** may an `AGENTS.md` that matches an old default be treated as "no notes" (no file rewrite)? Overwriting is not proposed.
-- **D4 Where user profiles live:** the config directory (recommended, so an agent cannot edit its own profile) versus the workspace.
-- **D5 Process:** about 36 files are uncommitted on `main` from earlier work today. Commit them, or approve a branch/worktree, before this starts. Git changes need your approval.
+- **D1 Catalog — decided:** the set stands, and the default (General) must cover the everyday work the assistant does today — questions, writing, reminders, look-ups, files, memory. Specialised behaviour is opt-in. Anything missing for the user's inputs can be added as a profile file later.
+- **D2 General's wording — open:** revised in §5 to name the everyday jobs (reminders, look-ups, files, memory) explicitly; awaiting the user's OK.
+- **D3 Existing workspaces — decided (2026-10-17):** an `AGENTS.md` matching an old default is treated as "no notes" at load time; files are not rewritten.
+- **D4 User profiles — decided (2026-10-17):** they live in the config directory, not the workspace.
+- **D5 Process — decided and done (2026-10-17):** the day's earlier work is committed on branch `assistant-model-picker-and-profiles` (4 commits) and this work continues on the same branch.
