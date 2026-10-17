@@ -11,6 +11,7 @@ import (
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/eventbus"
@@ -61,6 +62,8 @@ type ExecuteRequest struct {
 	MemoryMode models.MemoryMode
 	// Journal enables the automation_journal tool for this run.
 	Journal bool
+	// Profile is the prompt profile id; "" runs the default for automations.
+	Profile string
 }
 
 type ExecuteResponse struct {
@@ -80,6 +83,8 @@ type LLMServiceProvider interface {
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
+	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
+	Profiles() *profile.Catalog
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	Logger() logging.Logger
 	ToolProvider() assistant.ToolProvider
@@ -208,7 +213,8 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	useNativeTools := e.svc.EffectiveToolCallFormat(ctx, req.Model) == "native"
 
 	toolProvider := e.svc.ToolProvider()
-	agentOpts := e.buildAgentOptions(req, procLog, eventSink)
+	runProfile := e.svc.Profiles().Resolve(profile.KindAutomation, req.Profile)
+	agentOpts := e.buildAgentOptions(req, runProfile, procLog, eventSink)
 	// Resolve the per-run network scope ONCE (host ceiling ∩ workspace L1,
 	// overridden by the automation's L2 grant) and reuse it everywhere for this
 	// run — agent schema, run ctx stamp, shell pool key, and the run-meta audit
@@ -227,12 +233,9 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 	agent := assistant.NewAgent(client, toolProvider, e.svc.Engine(), agentOpts)
 
-	agentsFileContent := assistant.LoadAgentsFile(e.svc.Persistence(), req.WorkspaceID)
-	systemPrompt := prompts.AssembleSystemPrompt(agentsFileContent, useNativeTools)
-
 	history := []proxy.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: e.buildPrompt(req.TaskContent, req)},
+		{Role: "system", Content: assistant.BuildSystemPrompt(e.svc.Persistence(), req.WorkspaceID, runProfile, useNativeTools)},
+		{Role: "user", Content: e.buildPrompt(req.TaskContent, req, runProfile)},
 	}
 
 	finalReply, fullHistory, agErr := agent.Execute(execCtx, history)
@@ -370,7 +373,7 @@ func newRunContext(ctx context.Context, automationName, runID string) context.Co
 }
 
 // buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
-func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.Logger, eventSink *eventbus.Sink) assistant.AgentOptions {
+func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, runProfile profile.Profile, procLog logging.Logger, eventSink *eventbus.Sink) assistant.AgentOptions {
 	opts := assistant.AgentOptions{
 		Logger:       procLog,
 		MaxSteps:     assistant.DefaultMaxSteps,
@@ -395,8 +398,11 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, procLog logging.
 		// AllowedTools restricts the exposed tool schema for unattended runs
 		// (allow ∩ guardrail-disabled, resolved in NewAgent).
 		AllowedTools: allowedToolsFor(req),
+		// Profile carries the run's loop policy and hides the tools outside it (an explicit AllowedTools
+		// list narrows further: a profile can hide tools, never add one the list lacks).
+		Profile: runProfile,
 	}
-	if e.memoryActive(req) {
+	if e.memoryActive(req, runProfile) {
 		opts.MemoryStore = e.svc.MemoryStore()
 		opts.EnableHotMemory = true
 	}
@@ -592,25 +598,26 @@ func generateRunID() string {
 	return fmt.Sprintf("run_%d", time.Now().UnixNano())
 }
 
-// memoryActive reports whether this run has memory: the automation's mode resolved against the
-// global automation default, and a store to search. The prompt and the agent options share it.
-func (e *LLMTaskExecutor) memoryActive(req ExecuteRequest) bool {
-	return req.MemoryMode.Effective(e.svc.MemorySettings().AutomationHotDefault()) && e.svc.MemoryStore() != nil
+// memoryActive reports whether this run has memory: the automation's own mode, else the profile's default, else
+// the global automation default — and a store to search. The prompt and the agent options share it.
+func (e *LLMTaskExecutor) memoryActive(req ExecuteRequest, runProfile profile.Profile) bool {
+	return req.MemoryMode.Effective(runProfile.Memory.Effective(e.svc.MemorySettings().AutomationHotDefault())) && e.svc.MemoryStore() != nil
 }
 
-func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest) string {
+func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest, runProfile profile.Profile) string {
 	prompt := fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
-	if e.memoryActive(req) && toolOffered(req, models.ToolMemorySearch) {
+	if e.memoryActive(req, runProfile) && toolOffered(req, runProfile, models.ToolMemorySearch) {
 		prompt += prompts.AutomationMemoryBlock()
 	}
 	return prompt
 }
 
-// toolOffered reports whether the run's resolved allow-list includes a tool (no list means every tool).
-func toolOffered(req ExecuteRequest, name string) bool {
+// toolOffered reports whether the run exposes a tool: the resolved allow-list includes it (no list means every
+// tool) and the run's profile does not hide it.
+func toolOffered(req ExecuteRequest, runProfile profile.Profile, name string) bool {
 	allowed := allowedToolsFor(req)
-	return len(allowed) == 0 || slices.Contains(allowed, name)
+	return (len(allowed) == 0 || slices.Contains(allowed, name)) && !slices.Contains(runProfile.ExcludedTools(), name)
 }
 
 // ============================================================================

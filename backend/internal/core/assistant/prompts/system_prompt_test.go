@@ -50,10 +50,15 @@ func TestLocalTimeBlock_UnknownZoneFallsBackToUTC(t *testing.T) {
 	}
 }
 
-func TestBuildSystemMessage_HasNoClockThatCouldGoStale(t *testing.T) {
+// The system message is rebuilt every turn, so it must be the same text turn after turn (the model server reuses
+// its cache for an identical prefix): no clock in it. The local time rides on each turn's own message.
+func TestBuildSystemMessage_HasNoClock(t *testing.T) {
 	system := BuildSystemMessage("test", true, "conv-1", "v1", "Europe/London")
-	if strings.Contains(system, "Next 14 days:") {
-		t.Errorf("the local clock rides on each turn, not in the system prompt:\n%s", system)
+	if strings.Contains(system, "Next 14 days:") || strings.Contains(system, "Current Time") {
+		t.Errorf("the clock rides on each turn, not in the system prompt:\n%s", system)
+	}
+	if again := BuildSystemMessage("test", true, "conv-1", "v1", "Europe/London"); again != system {
+		t.Error("the system message must be identical on every build")
 	}
 }
 

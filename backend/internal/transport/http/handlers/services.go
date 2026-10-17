@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
@@ -239,6 +240,8 @@ type AssistantService interface {
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
 	SelectModels() (string, string)
+	// Profiles is the prompt-profile catalog: the built-ins plus the user's own files.
+	Profiles() *profile.Catalog
 	// Lane is the run scheduler every agent run (chat and automation) is
 	// admitted through; LaneKeyFor resolves a model's workload-class lane.
 	Lane() *runlane.Scheduler

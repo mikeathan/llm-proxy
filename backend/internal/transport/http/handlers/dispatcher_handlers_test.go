@@ -840,6 +840,40 @@ func TestUpdateWorkspaceConfig_RejectsBadAssistantMemory(t *testing.T) {
 	}
 }
 
+// A profile choice is checked against the catalog before anything is saved: an automation's, and a workspace's for its chats.
+func TestProfileChoicesAreValidated(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	handlers := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger()).WithProfiles(builtinProfiles(t))
+
+	for _, id := range []string{"", "research", "task-runner"} {
+		if err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", Profile: id}); err != nil {
+			t.Errorf("automation profile %q: %v", id, err)
+		}
+	}
+	err := handlers.validateAutomation(&models.Automation{Name: "ok-name", TaskFile: "task.md", Profile: "ghost"})
+	if err == nil || !strings.Contains(err.Error(), "profile") || !strings.Contains(err.Error(), "ghost") {
+		t.Errorf("an unknown automation profile is refused by name: %v", err)
+	}
+
+	for value, want := range map[string]int{`"general"`: http.StatusOK, `""`: http.StatusOK, `"ghost"`: http.StatusBadRequest} {
+		req := httptest.NewRequest("PUT", "/admin/api/dispatcher/workspaces/ws/config", strings.NewReader(`{"assistant_profile":`+value+`}`))
+		req.SetPathValue(models.WorkspaceIDParam, "ws")
+		rr := httptest.NewRecorder()
+		handlers.UpdateWorkspaceConfig(rr, req)
+		if rr.Code != want {
+			t.Errorf("assistant_profile %s: status %d, want %d: %s", value, rr.Code, want, rr.Body.String())
+		}
+		if want == http.StatusBadRequest && !strings.Contains(rr.Body.String(), "assistant_profile") {
+			t.Errorf("the error names the field: %s", rr.Body.String())
+		}
+	}
+	saved, err := mgr.ReadConfig("ws")
+	if err != nil || saved.AssistantProfile != "" {
+		t.Errorf("the last accepted value was empty, saved = %+v, %v", saved, err)
+	}
+}
+
 // notify is fail-fast validated: a delivery block must name a connector and
 // carry a sane retention.
 func TestValidateAutomation_Notify(t *testing.T) {

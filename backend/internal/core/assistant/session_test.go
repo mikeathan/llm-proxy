@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/assistant/profile"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -361,5 +363,32 @@ func TestHandleToolTurn_ReportBesideMemoryUpdateSurvivesSignOff(t *testing.T) {
 				t.Errorf("reply = %q, want %q", clip(reply, 60), clip(tt.want, 60))
 			}
 		})
+	}
+}
+
+// The nudges say what the profile wants: a tool-first run is told to call a tool, an answer-first one to answer.
+func TestNudgesFollowTheProfile(t *testing.T) {
+	newSession := func(answerFirst bool) *runSession {
+		agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{Profile: profile.Profile{ID: "p", AnswerFirst: answerFirst}})
+		return newRunSession(agent, context.Background(), nil)
+	}
+	toolFirst, answerFirst := newSession(false), newSession(true)
+
+	if got := toolFirst.emptyTurnNag(); got != prompts.AutomationNagPrompt {
+		t.Errorf("tool-first empty-turn nag = %q", got)
+	}
+	if got := answerFirst.emptyTurnNag(); got != prompts.AnswerFirstNagPrompt {
+		t.Errorf("answer-first empty-turn nag = %q", got)
+	}
+	if toolFirst.stuckNag(false) != prompts.ReasoningStuckNag || toolFirst.stuckNag(true) != prompts.ReasoningStuckEscalatedNag {
+		t.Error("tool-first stuck nags changed")
+	}
+	if answerFirst.stuckNag(false) != prompts.AnswerFirstStuckNag || answerFirst.stuckNag(true) != prompts.AnswerFirstStuckEscalatedNag {
+		t.Error("answer-first stuck nags are the answer-first ones")
+	}
+	for _, nag := range []string{prompts.AnswerFirstNagPrompt, prompts.AnswerFirstStuckNag, prompts.AnswerFirstStuckEscalatedNag} {
+		if strings.Contains(strings.ToLower(nag), "only a tool call") || strings.Contains(strings.ToLower(nag), "call a tool immediately") {
+			t.Errorf("an answer-first nudge must not demand a tool call: %q", nag)
+		}
 	}
 }

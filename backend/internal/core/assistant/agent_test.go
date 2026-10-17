@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/assistant/usage"
@@ -1722,7 +1723,7 @@ func TestCheckTaskCompletion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, done := checkTaskCompletion(tt.msg, tt.history)
+			got, done := checkTaskCompletion(tt.msg, tt.history, false)
 			if done != tt.wantDone {
 				t.Errorf("expected done=%v, got %v", tt.wantDone, done)
 			}
@@ -1730,6 +1731,26 @@ func TestCheckTaskCompletion(t *testing.T) {
 				t.Errorf("expected content=%q, got %q", tt.wantContent, got)
 			}
 		})
+	}
+}
+
+// An answer-first profile accepts a plain text first turn; a tool-first one still needs a tool result first.
+func TestCheckTaskCompletion_AnswerFirst(t *testing.T) {
+	answer := proxy.Message{Role: proxy.AssistantRole, Content: "A hash map stores values by the hash of their key."}
+	if _, done := checkTaskCompletion(answer, nil, false); done {
+		t.Error("tool-first: a first-turn text answer is premature")
+	}
+	if got, done := checkTaskCompletion(answer, nil, true); !done || got != answer.Content {
+		t.Errorf("answer-first: done=%v content=%q, want the answer", done, got)
+	}
+	for _, bad := range []proxy.Message{
+		{Role: proxy.AssistantRole, Content: "<tool_call>{\"tool\":\"read_file\"}</tool_call> and some more words to be long enough"},
+		{Role: proxy.AssistantRole, Content: "short"},
+		{Role: proxy.AssistantRole, Content: "A hash map stores values by the hash of their key.", ToolCalls: []proxy.ToolCall{{Function: proxy.FunctionCall{Name: "read_file"}}}},
+	} {
+		if _, done := checkTaskCompletion(bad, nil, true); done {
+			t.Errorf("answer-first must still refuse %+v", bad)
+		}
 	}
 }
 
@@ -1743,6 +1764,9 @@ func TestIsAgentControlMessage(t *testing.T) {
 		{"sieve warning", proxy.Message{Role: proxy.UserRole, Content: prompts.ContextSieveWarning}, true},
 		{"sieve note", proxy.Message{Role: proxy.UserRole, Content: prompts.SieveSystemNote}, true},
 		{"stuck nag", proxy.Message{Role: proxy.UserRole, Content: prompts.ReasoningStuckNag}, true},
+		{"answer-first nag", proxy.Message{Role: proxy.UserRole, Content: prompts.AnswerFirstNagPrompt}, true},
+		{"answer-first stuck nag", proxy.Message{Role: proxy.UserRole, Content: prompts.AnswerFirstStuckNag}, true},
+		{"answer-first escalated stuck nag", proxy.Message{Role: proxy.UserRole, Content: prompts.AnswerFirstStuckEscalatedNag}, true},
 		{"retry prefix", proxy.Message{Role: proxy.UserRole, Content: prompts.RetrySignal + "\n\noriginal user"}, true},
 		{"parse feedback STOP", proxy.Message{Role: proxy.UserRole, Content: "STOP writing text. Produce a tool call NOW."}, true},
 		{"parse feedback FORMAT", proxy.Message{Role: proxy.UserRole, Content: "FORMAT ERROR: bad json"}, true},
@@ -1804,7 +1828,7 @@ func TestPreviousConversationMessage(t *testing.T) {
 		msg := proxy.Message{Role: proxy.AssistantRole, Content: "# Report\nTask completed successfully."}
 		// checkTaskCompletion now takes the history directly (Phase 2b: Hermes-aligned).
 		// The tool result in history[0] satisfies the any-tool-result gate.
-		got, done := checkTaskCompletion(msg, history)
+		got, done := checkTaskCompletion(msg, history, false)
 		if !done || got != msg.Content {
 			t.Fatalf("expected completion, done=%v content=%q", done, got)
 		}
@@ -5361,4 +5385,42 @@ func TestAgent_RecordsReportedTokenUsage(t *testing.T) {
 			t.Errorf("reported usage = %d/%d, want 120/30", p, c)
 		}
 	})
+}
+
+// The profile hides the tools outside its categories, and its step budget replaces the model's.
+func TestNewAgent_ProfileNarrowsToolsAndSetsSteps(t *testing.T) {
+	tools := []proxy.Tool{}
+	for _, name := range []string{models.ToolFileRead, models.ToolInternetSearch, models.ToolScheduleReminder, models.ToolSystemError} {
+		tools = append(tools, proxy.Tool{Type: "function", Function: proxy.FunctionSchema{Name: name}})
+	}
+	p := profile.Profile{ID: "files-only", Tools: []string{models.CategoryFileSystem}, MaxSteps: 7}
+	agent := NewAgent(&MockClient{}, &MockProvider{Tools: tools}, &MockEngine{}, AgentOptions{Profile: p, MaxSteps: 30})
+
+	visible, err := agent.deps.Provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	var names []string
+	for _, tool := range visible {
+		names = append(names, tool.Function.Name)
+	}
+	if got, want := strings.Join(names, ","), models.ToolFileRead+","+models.ToolSystemError; got != want {
+		t.Errorf("visible tools = %s, want %s (search and reminders are outside the profile)", got, want)
+	}
+	if agent.config.MaxSteps != 7 {
+		t.Errorf("MaxSteps = %d, want the profile's 7", agent.config.MaxSteps)
+	}
+
+	// With no profile nothing is hidden on its account (the guardrails may still hide a tool, e.g. search with no provider).
+	plain := NewAgent(&MockClient{}, &MockProvider{Tools: tools}, &MockEngine{}, AgentOptions{})
+	all, _ := plain.deps.Provider.ListTools(context.Background())
+	var plainNames []string
+	for _, tool := range all {
+		plainNames = append(plainNames, tool.Function.Name)
+	}
+	for _, want := range []string{models.ToolFileRead, models.ToolScheduleReminder} {
+		if !strings.Contains(strings.Join(plainNames, ","), want) {
+			t.Errorf("an agent with no profile must keep %s, has %v", want, plainNames)
+		}
+	}
 }

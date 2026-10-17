@@ -67,3 +67,14 @@ func TestTerminalManifest_NoCdPersistencePromise(t *testing.T) {
 		t.Errorf("terminal description must direct chaining `cd subdir && ...`, got: %q", description)
 	}
 }
+
+// models.ToolsInCategory is checked against the manifests: each tool a category lists must load from that category's manifest.
+func TestToolCategoriesMatchManifests(t *testing.T) {
+	for _, category := range models.ToolCategories() {
+		for _, tool := range models.ToolsInCategory(category) {
+			if _, _, err := LoadManifestAsTool(category, tool); err != nil {
+				t.Errorf("category %s lists %s, but its manifest cannot load it: %v", category, tool, err)
+			}
+		}
+	}
+}

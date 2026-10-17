@@ -414,6 +414,7 @@ func newExecuteRequest(entry *AutomationEntry, state *models.AgentState, taskCon
 		NetworkGrant:   entry.NetworkGrant,
 		MemoryMode:     entry.MemoryMode,
 		Journal:        entry.Journal,
+		Profile:        entry.Profile,
 	}
 }
 

@@ -1047,6 +1047,10 @@ func (s *streamRun) enforceRelaxedCap() (stop bool) {
 	if !s.agent.config.UseNativeTools || len(s.fullMsg.ToolCalls) > 0 || len(s.fullMsg.Content) <= s.agent.config.MaxTokens {
 		return false
 	}
+	// An answer-first profile expects long text answers with no tools: only the hard cap in exceedsContentCharCap applies.
+	if s.agent.config.Profile.AnswerFirst {
+		return false
+	}
 	// Relax the cap for turns that are plausibly a genuine final answer: real
 	// work already happened (prior tool result) or no tools are configured so a
 	// pure-text answer is expected. Let the stream run to its natural stop so

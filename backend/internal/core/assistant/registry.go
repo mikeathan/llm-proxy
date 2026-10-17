@@ -14,7 +14,6 @@ import (
 
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
@@ -489,16 +488,13 @@ func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error)
 	return visible, nil
 }
 
-// GetSystemPrompt satisfies the ToolProvider interface.
+// GetSystemPrompt satisfies the ToolProvider interface: the tool list, with no behaviour of its own (that comes from
+// the run's prompt profile).
 func (r *LocalToolRegistry) GetSystemPrompt() (string, error) {
-	prompt := prompts.LocalAssistantPrompt
-
-	if len(r.toolDefinitions) > 0 {
-		prompt += "\n\nAVAILABLE TOOLS:\n"
-		prompt += r.FormatToolsForPrompt()
+	if len(r.toolDefinitions) == 0 {
+		return "", nil
 	}
-
-	return prompt, nil
+	return "AVAILABLE TOOLS:\n" + r.FormatToolsForPrompt(), nil
 }
 
 // UseNativeTools indicates if tools should be passed via the API.

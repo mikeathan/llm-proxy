@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -345,12 +346,13 @@ func TestTryExtractToolCallFromReasoning(t *testing.T) {
 func TestNoToolCap_Relaxation(t *testing.T) {
 	const maxTokens = 100
 
-	newAgent := func(useNative bool) *Agent {
+	newAgent := func(useNative, answerFirst bool) *Agent {
 		return &Agent{
 			config: AgentConfig{
 				UseNativeTools: useNative,
 				MaxTokens:      maxTokens,
 				Channel:        "test",
+				Profile:        profile.Profile{AnswerFirst: answerFirst},
 			},
 			deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()},
 		}
@@ -379,6 +381,7 @@ func TestNoToolCap_Relaxation(t *testing.T) {
 	tests := []struct {
 		name            string
 		useNative       bool
+		answerFirst     bool
 		priorToolResult bool
 		toolsAvailable  bool
 		streamLen       int // must exceed maxTokens to trigger the cap path
@@ -401,6 +404,15 @@ func TestNoToolCap_Relaxation(t *testing.T) {
 			wantTerminate:   true,
 		},
 		{
+			name:            "native, answer-first, no prior work → keep full answer (a long knowledge answer)",
+			useNative:       true,
+			answerFirst:     true,
+			priorToolResult: false,
+			toolsAvailable:  true,
+			streamLen:       maxTokens + 200,
+			wantTerminate:   false,
+		},
+		{
 			name:            "native, prior tool result → keep full answer",
 			useNative:       true,
 			priorToolResult: true,
@@ -420,7 +432,7 @@ func TestNoToolCap_Relaxation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			agent := newAgent(tt.useNative)
+			agent := newAgent(tt.useNative, tt.answerFirst)
 			var fullMsg proxy.Message
 			fullMsg.Role = proxy.AssistantRole
 			err := agent.processStream(context.Background(), feedStream(tt.streamLen), &fullMsg, tt.priorToolResult, tt.toolsAvailable)

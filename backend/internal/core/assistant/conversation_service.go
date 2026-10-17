@@ -9,6 +9,7 @@ import (
 
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/orchestrator"
@@ -25,6 +26,8 @@ import (
 type ConversationDeps interface {
 	SelectModels() (string, string)
 	ModelConfig(modelName string) (models.ModelConfig, bool)
+	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
+	Profiles() *profile.Catalog
 	// EffectiveToolCallFormat resolves the model's tool_call_format, probing
 	// local endpoints for native tool support when unset (cached).
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
@@ -67,15 +70,14 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// 2. Model config
 	modelName, useNativeTools := s.resolveModelConfig(ctx, workspaceID, conversationID, message)
 
-	// 3. Build or update history
-	if err := s.initSession(session, workspaceID, conversationID, message, contextVersion, timezone, useNativeTools, log); err != nil {
-		return ExecuteResult{}, fmt.Errorf("init session: %w", err)
-	}
+	// 3. Build or update history under the run's prompt profile
+	runProfile := s.resolveProfile(ctx, workspaceID, session)
+	s.initSession(session, workspaceID, message, conversationSystemMessage(s.persistence, session, chatZone, runProfile, useNativeTools), log)
 
 	// The turn's run record rides on its user message: set now so mid-run
 	// checkpoints carry the model and start, finished when the agent returns.
 	run := startTurnRun(session.History, modelName)
-	s.captureMemories(ctx, run, workspaceID, session.ID, message, log)
+	s.captureMemories(ctx, run, workspaceID, session.ID, message, runProfile, log)
 
 	// 4. Run setup
 	execCtx, clean := s.setupRun(ctx, session.ID, workspaceID, events)
@@ -96,7 +98,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// 5. Build agent options
 	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, recorder, log)
 
-	agent := s.buildAgent(ctx, modelName, workspaceID, session.ID, log, provider, client, engine, observer, excludeTools)
+	agent := s.buildAgent(ctx, modelName, workspaceID, session.ID, log, provider, client, engine, observer, excludeTools, runProfile)
 
 	// 6. Execute agent
 	llmHistory := withLocalTime(FilterCancelledTurns(session.History, session.CancelledIndices), time.Now(), chatZone)
@@ -187,27 +189,29 @@ func (s *conversationService) resolveModelConfig(ctx context.Context, workspaceI
 	return
 }
 
-func (s *conversationService) initSession(session *models.AssistantSession, workspaceID, conversationID, message, contextVersion, timezone string, useNativeTools bool, log logging.Logger) error {
-	if len(session.History) == 0 {
-		initial, bErr := BuildInitialHistory(s.persistence, workspaceID, conversationID, message, contextVersion, timezone, useNativeTools)
-		if bErr != nil {
-			return fmt.Errorf("build history: %w", bErr)
-		}
-		session.History = initial
-	} else {
-		session.History = append(session.History, proxy.Message{
-			Role:    proxy.UserRole,
-			Content: message,
-		})
+// resolveProfile picks the run's prompt profile: the one this message asked for (which the conversation then keeps),
+// else the conversation's, else the workspace's, else the default for chats.
+func (s *conversationService) resolveProfile(ctx context.Context, workspaceID string, session *models.AssistantSession) profile.Profile {
+	if requested := models.GetProfileRequest(ctx); requested != "" {
+		session.Profile = requested
 	}
+	var workspaceDefault string
+	if cfg, err := s.persistence.ReadConfig(workspaceID); err == nil {
+		workspaceDefault = cfg.AssistantProfile
+	}
+	return s.deps.Profiles().Resolve(profile.KindAssistant, session.Profile, workspaceDefault)
+}
 
+// initSession puts the turn's user message into the session, under the current system message, and saves it.
+func (s *conversationService) initSession(session *models.AssistantSession, workspaceID, message, system string, log logging.Logger) {
+	session.History = append(session.History, proxy.Message{Role: proxy.UserRole, Content: message})
+	session.History = withSystemMessage(session.History, system)
 	session.History = TruncateHistory(session.History, MaxHistoryChars)
 
 	// Persist early so the session appears in the conversation sidebar
 	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {
 		log.Warn("failed to persist session on user message", "error", pErr)
 	}
-	return nil
 }
 
 func (s *conversationService) setupRun(ctx context.Context, sessionID, workspaceID string, events EventPublisher) (execCtx context.Context, clean func()) {
@@ -271,26 +275,28 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 	return obs, func() []AgentEvent { return collectedEvents }
 }
 
-// hotMemoryEnabled resolves the workspace's assistant override against the global assistant default.
-func (s *conversationService) hotMemoryEnabled(workspaceID string) bool {
+// hotMemoryEnabled resolves hot memory for a chat: the workspace's override, else the profile's default, else the
+// global assistant default.
+func (s *conversationService) hotMemoryEnabled(workspaceID string, p profile.Profile) bool {
 	var override models.MemoryMode
 	if cfg, err := s.persistence.ReadConfig(workspaceID); err == nil {
 		override = cfg.AssistantMemory
 	}
-	return override.Effective(s.deps.MemorySettings().AssistantHotDefault())
+	return override.Effective(p.Memory.Effective(s.deps.MemorySettings().AssistantHotDefault()))
 }
 
-func (s *conversationService) buildAgent(ctx context.Context, modelName, workspaceID, sessionID string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, observer Observer, excludeTools []string) *Agent {
+func (s *conversationService) buildAgent(ctx context.Context, modelName, workspaceID, sessionID string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, observer Observer, excludeTools []string, runProfile profile.Profile) *Agent {
 	builder := NewAgentBuilder(s).
 		WithLogger(log).
 		WithGuardrails().
 		WithWorkspaceID(workspaceID).
 		WithExcludedTools(excludeTools).
+		WithProfile(runProfile).
 		WithModelName(modelName).
 		WithChannel(ChannelAssistant).
 		WithConversationID(sessionID).
 		WithMemoryStore().
-		WithHotMemory(s.hotMemoryEnabled(workspaceID)).
+		WithHotMemory(s.hotMemoryEnabled(workspaceID, runProfile)).
 		WithObserver(observer).
 		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer, ChannelAssistant)).
 		WithOrchestrator().

@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -57,6 +58,12 @@ func (b *AgentBuilder) WithExcludedTools(tools []string) *AgentBuilder {
 // policy in NewAgent.
 func (b *AgentBuilder) WithAllowedTools(tools []string) *AgentBuilder {
 	b.opts.AllowedTools = tools
+	return b
+}
+
+// WithProfile sets the run's resolved prompt profile: its policy drives the loop and its tool set narrows the schema.
+func (b *AgentBuilder) WithProfile(p profile.Profile) *AgentBuilder {
+	b.opts.Profile = p
 	return b
 }
 

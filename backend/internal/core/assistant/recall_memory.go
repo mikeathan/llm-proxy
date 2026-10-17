@@ -110,8 +110,11 @@ func (a *Agent) snapshotRecall(ctx context.Context) {
 	if anchor == "" {
 		return
 	}
-	// The save reminder rides the same message whether or not any fact is recalled.
-	a.runS.prompt.recallAnchor, a.runS.prompt.saveReminder = anchor, prompts.MemorySaveReminder
+	// The save reminder rides the same message whether or not any fact is recalled; a profile without save guidance sends none.
+	a.runS.prompt.recallAnchor = anchor
+	if a.guidesMemorySaves() {
+		a.runS.prompt.saveReminder = prompts.MemorySaveReminder
+	}
 	budget := recallBudget(a.config.ContextBudget, a.config.WorkloadClass, a.runS.prompt.memoryBlock)
 	block, kept, err := selectRecall(ctx, a.deps.MemoryStore, a.config.WorkspaceID, anchor, a.runS.prompt.hotIDs, budget)
 	if err != nil {

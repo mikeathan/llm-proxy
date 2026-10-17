@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -27,6 +28,14 @@ type mockConvDeps struct {
 
 	memoryStore *memory.Store // nil unless a test seeds one
 	memory      *models.MemoryConfig
+	profiles    *profile.Catalog // the built-ins unless a test sets its own
+}
+
+func (m *mockConvDeps) Profiles() *profile.Catalog {
+	if m.profiles == nil {
+		m.profiles = profile.MustCatalog("", logging.NewNopLogger())
+	}
+	return m.profiles
 }
 
 func (m *mockConvDeps) SelectModels() (string, string) { return m.modelName, "" }
@@ -1025,5 +1034,93 @@ func TestConversationService_ResolveModelConfig_HonoursTheModelOverride(t *testi
 	ctx := models.WithModelOverride(context.Background(), "other")
 	if got, _ := svc.resolveModelConfig(ctx, "ws", "c1", "hi"); got != "other" {
 		t.Errorf("override: model = %q, want other", got)
+	}
+}
+
+// chatTurns runs messages through Execute one after another on a fresh service and returns, per turn, the system
+// message the model was sent and the session's stored profile afterwards.
+type chatTurnResult struct{ system, storedProfile string }
+
+func chatTurns(t *testing.T, pm *persistence.WorkspaceManager, turns []context.Context) []chatTurnResult {
+	t.Helper()
+	svc := NewConversationService(newMockConvDeps(), pm)
+	var sent string
+	client := &MockClient{
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, errors.New("no stream")
+		},
+		ChatFunc: func(_ context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			sent = req.Messages[0].Content
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "Here is a helpful response"}}}}, nil
+		},
+	}
+	var out []chatTurnResult
+	for _, ctx := range turns {
+		if _, err := svc.Execute(ctx, "ws-1", "conv-profiles", "a question", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		session, err := pm.ReadSession("ws-1", "conv-profiles")
+		if err != nil || session == nil {
+			t.Fatalf("ReadSession: %v", err)
+		}
+		out = append(out, chatTurnResult{system: sent, storedProfile: session.Profile})
+	}
+	return out
+}
+
+// A chat starts as General, a message may ask for another profile and the conversation then keeps it, a later
+// message can switch again, and every turn is sent the current profile's behaviour.
+func TestConversationService_Execute_ProfileChoiceAndPerTurnPrompt(t *testing.T) {
+	pm := newTestPersistence(t)
+	bg := context.Background()
+	research := models.WithProfileRequest(bg, "research")
+	got := chatTurns(t, pm, []context.Context{bg, research, bg, models.WithProfileRequest(bg, "builder")})
+
+	wantMarker := []string{"helpful, capable assistant", "find out what is true", "find out what is true", "read, write and fix code"}
+	wantStored := []string{"", "research", "research", "builder"}
+	for i, turn := range got {
+		if !strings.Contains(turn.system, wantMarker[i]) {
+			t.Errorf("turn %d: the system message should carry %q:\n%s", i+1, wantMarker[i], turn.system)
+		}
+		if turn.storedProfile != wantStored[i] {
+			t.Errorf("turn %d: stored profile = %q, want %q", i+1, turn.storedProfile, wantStored[i])
+		}
+	}
+}
+
+// The workspace's profile is the start for its chats; a conversation's own choice outranks it.
+func TestConversationService_Execute_WorkspaceDefaultProfile(t *testing.T) {
+	pm := newTestPersistence(t)
+	if err := pm.WriteConfig("ws-1", &models.WorkspaceConfig{AssistantProfile: "operator"}); err != nil {
+		t.Fatal(err)
+	}
+	got := chatTurns(t, pm, []context.Context{context.Background(), models.WithProfileRequest(context.Background(), "research")})
+	if !strings.Contains(got[0].system, "machine or network") {
+		t.Errorf("turn 1 should use the workspace's Operator profile:\n%s", got[0].system)
+	}
+	if !strings.Contains(got[1].system, "find out what is true") {
+		t.Errorf("turn 2: the conversation's own choice outranks the workspace's:\n%s", got[1].system)
+	}
+}
+
+// A conversation that began before profiles carries the old persona in its stored system message; the next turn
+// replaces it, so the fix reaches existing chats.
+func TestConversationService_Execute_RefreshesAStoredSystemMessage(t *testing.T) {
+	pm := newTestPersistence(t)
+	stale := &models.AssistantSession{ID: "conv-profiles", WorkspaceID: "ws-1", History: []proxy.Message{
+		{Role: proxy.SystemRole, Content: "You are an autonomous agent... BEST PRACTICE: Always start by verifying your environment."},
+		{Role: proxy.UserRole, Content: "earlier"},
+		{Role: proxy.AssistantRole, Content: "earlier answer"},
+	}}
+	if err := pm.WriteSession("ws-1", stale); err != nil {
+		t.Fatal(err)
+	}
+	got := chatTurns(t, pm, []context.Context{context.Background()})
+	if strings.Contains(got[0].system, "verifying your environment") || !strings.Contains(got[0].system, "helpful, capable assistant") {
+		t.Errorf("the stored persona must be replaced by the current profile:\n%s", got[0].system)
+	}
+	session, _ := pm.ReadSession("ws-1", "conv-profiles")
+	if strings.Contains(session.History[0].Content, "verifying your environment") {
+		t.Error("the refreshed system message is what gets persisted")
 	}
 }

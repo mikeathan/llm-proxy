@@ -70,3 +70,39 @@ func TestUnavailableReason(t *testing.T) {
 		t.Errorf("an error without a short reason falls back to its text, got %q", got)
 	}
 }
+
+func TestToolsInCategory(t *testing.T) {
+	got := ToolsInCategory(CategoryReminders)
+	want := []string{ToolScheduleReminder, ToolListReminders, ToolCancelReminder}
+	if len(got) != len(want) {
+		t.Fatalf("ToolsInCategory(reminders) = %v, want %v", got, want)
+	}
+	got[0] = "mutated"
+	if ToolsInCategory(CategoryReminders)[0] == "mutated" {
+		t.Error("ToolsInCategory must return a copy")
+	}
+	if ToolsInCategory("nonsense") != nil || IsToolCategory("nonsense") {
+		t.Error("an unknown category has no tools and is not a category")
+	}
+}
+
+// Every built-in tool belongs to exactly one category, or a profile could not hide or show it.
+func TestEveryToolHasOneCategory(t *testing.T) {
+	seen := map[string]string{}
+	for _, category := range ToolCategories() {
+		for _, tool := range ToolsInCategory(category) {
+			if prev, dup := seen[tool]; dup {
+				t.Errorf("%s is in both %s and %s", tool, prev, category)
+			}
+			seen[tool] = category
+		}
+	}
+	for _, tool := range []string{ToolTerminalExecute, ToolInternetSearch, ToolNotifyUser, ToolScheduleReminder, ToolListReminders,
+		ToolCancelReminder, ToolFileRead, ToolFileWrite, ToolFileAppend, ToolFileEditBlock, ToolDirectoryList, ToolNetworkFetch,
+		ToolNetworkScan, ToolNetworkInfo, ToolApplyGuardrails, ToolMemorySearch, ToolMemoryUpdate, ToolMemoryForget,
+		ToolAutomationJournal, ToolSystemError} {
+		if seen[tool] == "" {
+			t.Errorf("%s is in no category", tool)
+		}
+	}
+}

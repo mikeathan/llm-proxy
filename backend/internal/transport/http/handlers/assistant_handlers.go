@@ -32,6 +32,9 @@ type AssistantMessage struct {
 	ExcludeTools   []string `json:"exclude_tools,omitempty"`
 	// Model is a registry model chosen for this message; empty runs the primary.
 	Model string `json:"model,omitempty"`
+	// Profile is the prompt profile chosen for this message, which the conversation then keeps; empty keeps the
+	// conversation's own or the workspace's.
+	Profile string `json:"profile,omitempty"`
 }
 
 type AssistantMessageHandler struct {
@@ -183,6 +186,10 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 			return nil, nil, false
 		}
 	}
+	if err := validateProfileID(h.svc.Profiles(), "profile", payload.Profile); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return nil, nil, false
+	}
 
 	traceID := getTraceID(payload.ConversationID, r.RemoteAddr)
 	log := h.logger.With("trace", traceID)
@@ -242,7 +249,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		recorder = eventSink
 	}
 
-	ctx = models.WithModelOverride(ctx, payload.Model)
+	ctx = models.WithProfileRequest(models.WithModelOverride(ctx, payload.Model), payload.Profile)
 	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, h.chatZone(payload.Timezone), payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) {

@@ -353,9 +353,9 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 		}
 	}
 
-	// Verify system prompt is still there
-	if sentMsgs[0].Role != proxy.SystemRole || sentMsgs[0].Content != "SYSTEM" {
-		t.Error("system prompt was incorrectly truncated or modified")
+	// The system message is still the head, rebuilt for this turn (the stored "SYSTEM" is replaced by the current prompt).
+	if sentMsgs[0].Role != proxy.SystemRole || !strings.Contains(sentMsgs[0].Content, "RULES:") {
+		t.Error("the system prompt was dropped by truncation or not rebuilt")
 	}
 }
 
@@ -1772,5 +1772,20 @@ func TestAssistant_PrepareRequest_RejectsAnUnknownModel(t *testing.T) {
 	}
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ghost") {
 		t.Errorf("response = %d %q, want 400 naming the model", rec.Code, rec.Body.String())
+	}
+}
+
+// A profile the catalog does not know is refused before anything runs, and the answer names the known ones.
+func TestAssistant_PrepareRequest_RejectsAnUnknownProfile(t *testing.T) {
+	handler := NewAssistantMessageHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"workspace_id":"ws","message":"hi","profile":"ghost"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if _, _, ok := handler.prepareRequest(rec, req); ok {
+		t.Fatal("prepareRequest accepted an unknown profile")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "ghost") || !strings.Contains(rec.Body.String(), "general") {
+		t.Errorf("response = %d %q, want 400 naming the profile and the known ones", rec.Code, rec.Body.String())
 	}
 }

@@ -18,6 +18,8 @@ type AssistantSession struct {
 	// (index into History).  Each cancel appends; the list survives reloads
 	// so all cancelled turns can be marked and stripped from LLM context.
 	CancelledIndices []int `json:"cancelled_indices,omitempty"`
+	// Profile is the prompt profile chosen for this conversation; empty follows the workspace's.
+	Profile string `json:"profile,omitempty"`
 }
 
 // SessionBrief provides a summary of a session for listing in the UI.

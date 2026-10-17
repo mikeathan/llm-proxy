@@ -12,6 +12,7 @@ import (
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
@@ -34,7 +35,7 @@ func TestBuildPrompt_IncludesTaskContent(t *testing.T) {
 
 	svc := &mockSvc{}
 	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
-	result := executor.buildPrompt(taskContent, req)
+	result := executor.buildPrompt(taskContent, req, taskRunner)
 
 	if !strings.Contains(result, taskContent) {
 		t.Errorf("expected buildPrompt output to contain original task content, got:\n%s", result)
@@ -65,7 +66,7 @@ func TestBuildPrompt_MemorySearchInstruction(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			executor := NewLLMTaskExecutor(tc.svc).(*LLMTaskExecutor)
-			got := executor.buildPrompt("do the thing", ExecuteRequest{WorkspaceID: "ws", TaskFile: "t.md", MemoryMode: tc.mode, AllowedTools: tc.allowed})
+			got := executor.buildPrompt("do the thing", ExecuteRequest{WorkspaceID: "ws", TaskFile: "t.md", MemoryMode: tc.mode, AllowedTools: tc.allowed}, taskRunner)
 			if has := strings.Contains(got, models.ToolMemorySearch); has != tc.want {
 				t.Errorf("prompt mentions %s = %v, want %v:\n%s", models.ToolMemorySearch, has, tc.want, got)
 			}
@@ -97,10 +98,21 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 }
 
 // mockSvc implements a minimal LLMServiceProvider for testing.
+// taskRunner is the default profile for automations, as a run without a chosen profile resolves it.
+var taskRunner = profile.MustCatalog("", logging.NewNopLogger()).Resolve(profile.KindAutomation)
+
 type mockSvc struct {
 	memoryStore *memory.Store
 	memory      *models.MemoryConfig
 	modelCfg    models.ModelConfig
+	profiles    *profile.Catalog // the built-ins unless a test sets its own
+}
+
+func (m *mockSvc) Profiles() *profile.Catalog {
+	if m.profiles == nil {
+		m.profiles = profile.MustCatalog("", logging.NewNopLogger())
+	}
+	return m.profiles
 }
 
 func (m *mockSvc) ClientProvider() proxy.LLMClientProvider { return nil }
@@ -181,7 +193,7 @@ func TestBuildAgentOptions_NativeToolFormatPropagates(t *testing.T) {
 		TaskContent:    "do the thing",
 		Model:          cfg.Name,
 	}
-	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), nil)
+	opts := executor.buildAgentOptions(req, taskRunner, logging.NewNopLogger(), nil)
 	if opts.UseNativeTools == nil || !*opts.UseNativeTools {
 		t.Fatalf("expected UseNativeTools=true after native format resolution, got %v", opts.UseNativeTools)
 	}
@@ -204,7 +216,7 @@ func TestBuildAgentOptions_ColdCacheDefaultsXML(t *testing.T) {
 	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
 
 	req := ExecuteRequest{WorkspaceID: "test-ws", Model: cfg.Name, TaskContent: "x"}
-	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), nil)
+	opts := executor.buildAgentOptions(req, taskRunner, logging.NewNopLogger(), nil)
 	if opts.UseNativeTools != nil && *opts.UseNativeTools {
 		t.Fatalf("expected UseNativeTools unset/false with no format in config, got %v", opts.UseNativeTools)
 	}
@@ -258,7 +270,7 @@ func TestBuildAgentOptions_MemoryMode(t *testing.T) {
 		t.Run(fmt.Sprintf("mode=%q/global=%v", tc.mode, tc.globalDefault), func(t *testing.T) {
 			svc := &mockSvc{memoryStore: store, memory: &models.MemoryConfig{AutomationHot: new(tc.globalDefault)}}
 			executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
-			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", MemoryMode: tc.mode}, logging.NewNopLogger(), nil)
+			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", MemoryMode: tc.mode}, taskRunner, logging.NewNopLogger(), nil)
 			if opts.EnableHotMemory != tc.wantHot {
 				t.Errorf("EnableHotMemory = %v, want %v", opts.EnableHotMemory, tc.wantHot)
 			}
@@ -266,6 +278,50 @@ func TestBuildAgentOptions_MemoryMode(t *testing.T) {
 				t.Errorf("MemoryStore set = %v, want %v", gotStore, tc.wantHot)
 			}
 		})
+	}
+}
+
+// A profile's memory setting is a default beneath the automation's own and above the global one.
+func TestBuildAgentOptions_ProfileMemoryDefault(t *testing.T) {
+	store := newTestMemoryStore(t)
+	cases := []struct {
+		name    string
+		profile models.MemoryMode
+		own     models.MemoryMode
+		global  bool
+		wantHot bool
+	}{
+		{"profile on beats a global off", models.MemoryModeOn, models.MemoryModeInherit, false, true},
+		{"profile off beats a global on", models.MemoryModeOff, models.MemoryModeInherit, true, false},
+		{"the automation's off beats the profile's on", models.MemoryModeOn, models.MemoryModeOff, true, false},
+		{"the automation's on beats the profile's off", models.MemoryModeOff, models.MemoryModeOn, false, true},
+		{"no opinion anywhere follows the global default", models.MemoryModeInherit, models.MemoryModeInherit, true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &mockSvc{memoryStore: store, memory: &models.MemoryConfig{AutomationHot: new(tc.global)}}
+			executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
+			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", MemoryMode: tc.own}, profile.Profile{ID: "p", Memory: tc.profile}, logging.NewNopLogger(), nil)
+			if opts.EnableHotMemory != tc.wantHot {
+				t.Errorf("EnableHotMemory = %v, want %v", opts.EnableHotMemory, tc.wantHot)
+			}
+		})
+	}
+}
+
+// The run's agent carries the resolved profile, and the prompt does not promise a memory tool the profile hides.
+func TestBuildAgentOptions_CarriesTheProfileAndItsToolSet(t *testing.T) {
+	store := newTestMemoryStore(t)
+	executor := NewLLMTaskExecutor(&mockSvc{memoryStore: store}).(*LLMTaskExecutor)
+	filesOnly := profile.Profile{ID: "files-only", Tools: []string{models.CategoryFileSystem}}
+
+	opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws"}, filesOnly, logging.NewNopLogger(), nil)
+	if opts.Profile.ID != "files-only" {
+		t.Errorf("agent profile = %q, want files-only", opts.Profile.ID)
+	}
+	prompt := executor.buildPrompt("do it", ExecuteRequest{WorkspaceID: "ws", TaskFile: "t.md", MemoryMode: models.MemoryModeOn}, filesOnly)
+	if strings.Contains(prompt, models.ToolMemorySearch) {
+		t.Errorf("the profile hides the memory tools, so the prompt must not tell the run to use them:\n%s", prompt)
 	}
 }
 
@@ -408,6 +464,42 @@ func TestExecute_HotMemoryReachesTheModelOnlyWhenTheAutomationOptsIn(t *testing.
 	}
 }
 
+// The text an automation run sends carries its profile's behaviour: Task runner unless it names another, and the
+// heartbeat's Watcher. The old tool-first rules are no longer in every run.
+func TestExecute_SendsTheRunsProfileBehaviour(t *testing.T) {
+	cases := []struct {
+		name, profile, wantMarker string
+	}{
+		{"default for automations", "", "You run unattended"},
+		{"a named profile", "research", "find out what is true"},
+		{"the heartbeat's profile", models.HeartbeatProfile, "frequent check unattended"},
+		{"an unknown profile falls back to the default", "deleted-profile", "You run unattended"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newExecSvc(t, nil)
+			req := ExecuteRequest{WorkspaceID: "ws", AutomationName: "nightly", TaskContent: "Do it.", Model: "m", Profile: tc.profile}
+			_, _ = NewLLMTaskExecutor(svc).Execute(context.Background(), req)
+
+			if len(svc.client.requests) == 0 {
+				t.Fatal("the model was never called")
+			}
+			head := svc.client.requests[0][0].Content
+			if !strings.Contains(head, tc.wantMarker) {
+				t.Errorf("system message lacks %q:\n%s", tc.wantMarker, head)
+			}
+			if !strings.Contains(head, "INSTRUCTION BOUNDARY") {
+				t.Error("the code-owned boundary rules are in every run")
+			}
+			for _, gone := range []string{"BEST PRACTICE", "verifying your environment"} {
+				if strings.Contains(head, gone) {
+					t.Errorf("the old tool-first line %q must be gone", gone)
+				}
+			}
+		})
+	}
+}
+
 func TestApplyPulseLogic(t *testing.T) {
 	const header = "⏱ **Duration:** 1s\n\n### Final Report\n\n"
 	cases := []struct {
@@ -476,7 +568,7 @@ func TestRunEvents_NameTheirAutomation(t *testing.T) {
 	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
 	req := ExecuteRequest{WorkspaceID: "ws", AutomationName: "daily-llm-news"}
 
-	opts := executor.buildAgentOptions(req, logging.NewNopLogger(), nil)
+	opts := executor.buildAgentOptions(req, taskRunner, logging.NewNopLogger(), nil)
 	opts.Observer(assistant.AgentEvent{Type: assistant.EventToolCall, Channel: assistant.ChannelAutomation})
 	executor.publishRunEvent(req, assistant.AgentEvent{Type: assistant.EventMessage, Channel: assistant.ChannelAutomation})
 
@@ -496,7 +588,7 @@ func TestRunEvents_NameTheirAutomation(t *testing.T) {
 func TestGuardrailPrompt_PairNamesTheAutomation(t *testing.T) {
 	svc := &publishingSvc{pub: &recordingPublisher{}, decisions: assistant.NewGuardrailDecisionStore()}
 	executor := NewLLMTaskExecutor(svc).(*LLMTaskExecutor)
-	opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", AutomationName: "daily-llm-news"}, logging.NewNopLogger(), nil)
+	opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws", AutomationName: "daily-llm-news"}, taskRunner, logging.NewNopLogger(), nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

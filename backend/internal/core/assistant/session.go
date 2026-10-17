@@ -164,6 +164,29 @@ func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *
 	}
 }
 
+// stuckNag is the nudge after a stalled analysis: tool-first profiles are told to call a tool, answer-first ones to answer.
+func (s *runSession) stuckNag(escalated bool) string {
+	answerFirst := s.agent.config.Profile.AnswerFirst
+	switch {
+	case answerFirst && escalated:
+		return prompts.AnswerFirstStuckEscalatedNag
+	case answerFirst:
+		return prompts.AnswerFirstStuckNag
+	case escalated:
+		return prompts.ReasoningStuckEscalatedNag
+	default:
+		return prompts.ReasoningStuckNag
+	}
+}
+
+// emptyTurnNag is the nudge after a turn with neither a tool call nor a usable answer.
+func (s *runSession) emptyTurnNag() string {
+	if s.agent.config.Profile.AnswerFirst {
+		return prompts.AnswerFirstNagPrompt
+	}
+	return prompts.AutomationNagPrompt
+}
+
 func (s *runSession) handleContextSizeError() error {
 	s.sieve.sieveStreak++
 	if s.sieve.sieveStreak >= sessionMaxSieveRetries {
@@ -175,7 +198,7 @@ func (s *runSession) handleContextSizeError() error {
 		s.history = s.agent.applyReactiveSieve(s.history)
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
-			Content: prompts.ReasoningStuckNag,
+			Content: s.stuckNag(false),
 		})
 	} else {
 		if len(s.history) <= sessionMinHistoryForSieve {
@@ -184,7 +207,7 @@ func (s *runSession) handleContextSizeError() error {
 		s.history = s.agent.applyAggressiveSieve(s.history)
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
-			Content: prompts.ReasoningStuckEscalatedNag,
+			Content: s.stuckNag(true),
 		})
 	}
 	return nil
@@ -692,7 +715,7 @@ func (s *runSession) hasOnlyHousekeepingTools(calls []proxy.ToolCall) bool {
 //
 // This matches Hermes Agent's proven completion model (conversation_loop.py):
 // no tool calls + substantive content = done.
-func checkTaskCompletion(msg proxy.Message, history []proxy.Message) (string, bool) {
+func checkTaskCompletion(msg proxy.Message, history []proxy.Message, answerFirst bool) (string, bool) {
 	if len(msg.ToolCalls) > 0 {
 		return "", false
 	}
@@ -716,6 +739,11 @@ func checkTaskCompletion(msg proxy.Message, history []proxy.Message) (string, bo
 	// finalizing would record an incomplete run as "completed".
 	if endsWithBareActionMarker(stripped) {
 		return "", false
+	}
+
+	// An answer-first profile accepts a plain text first turn: answering from knowledge is its normal path.
+	if answerFirst {
+		return stripped, true
 	}
 
 	// The run must have produced at least one tool result anywhere
@@ -755,6 +783,9 @@ func isAgentControlMessage(m proxy.Message) bool {
 	content := m.Content
 	switch content {
 	case prompts.AutomationNagPrompt,
+		prompts.AnswerFirstNagPrompt,
+		prompts.AnswerFirstStuckNag,
+		prompts.AnswerFirstStuckEscalatedNag,
 		prompts.AutomationFinalizePrompt,
 		prompts.AutomationReadFileNagPrompt,
 		prompts.AutomationDuplicateNagPrompt,
@@ -1007,7 +1038,7 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 	// When parseErr has XMLFound, the model attempted a tool call but failed —
 	// do not treat accompanying plan text as a final answer.
 	if parseErr == nil || !parseErr.XMLFound {
-		if content, ok := checkTaskCompletion(turnMsg, s.history); ok {
+		if content, ok := checkTaskCompletion(turnMsg, s.history, s.agent.config.Profile.AnswerFirst); ok {
 			s.history = append(s.history, turnMsg)
 			s.agent.notify(EventMessage, turnMsg)
 			// Stop-guard hook (evaluator-optimizer): a guard may refuse to let
@@ -1239,7 +1270,7 @@ func (s *runSession) handleNoToolCalls(
 		s.recovery.postToolNudgeCount++
 		s.history = append(s.history, proxy.Message{
 			Role:    proxy.UserRole,
-			Content: prompts.AutomationNagPrompt,
+			Content: s.emptyTurnNag(),
 		})
 		s.agent.deps.Logger.Warn("no tool calls - re-arming nudge",
 			"step", s.steps, "nudge", s.recovery.postToolNudgeCount)

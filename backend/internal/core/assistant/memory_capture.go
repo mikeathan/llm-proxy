@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 
+	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
@@ -62,9 +63,9 @@ func (l captureLibrary) Has(ctx context.Context, workspaceID, content string) bo
 // before the agent starts, so a standing instruction is already in that run's memory block. Only the operator's own
 // chats qualify (a connector session is an outside sender) and only while assistant memory is on. It never fails the
 // chat: a store error is logged and the turn goes on.
-func (s *conversationService) captureMemories(ctx context.Context, run *models.TurnRun, workspaceID, conversationID, message string, log logging.Logger) {
+func (s *conversationService) captureMemories(ctx context.Context, run *models.TurnRun, workspaceID, conversationID, message string, runProfile profile.Profile, log logging.Logger) {
 	store := s.deps.MemoryStore()
-	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !s.hotMemoryEnabled(workspaceID) {
+	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !s.hotMemoryEnabled(workspaceID, runProfile) {
 		return
 	}
 	res := memorycapture.Capture(ctx, s.extractor, captureLibrary{tools: tools.NewMemoryToolProvider(store)}, workspaceID, message)

@@ -331,7 +331,7 @@ func (a *Agent) memorySystemText() string {
 // serves the assistant channel, and the conversation is the operator's own — a connector chat is an outside sender
 // whose messages must not steer what gets remembered.
 func (a *Agent) guidesMemorySaves() bool {
-	return a.operatorMemoryChat()
+	return a.operatorMemoryChat() && a.config.Profile.MemoryGuidance
 }
 
 // operatorMemoryChat is the one predicate for the operator's own assistant chat with memory on and a store: it
