@@ -103,3 +103,13 @@ class Backend:
     def clear(self):
         for e in self.memories():
             self.api('DELETE', f'/admin/api/memory/{e["workspace_id"]}/{e["id"]}')
+
+    def global_memories(self):
+        st, d = self.api('GET', '/admin/api/memory/global')
+        return d if st == 200 and isinstance(d, list) else []
+
+    def forget_global_except(self, keep_ids):
+        """Delete the global memories created since keep_ids was taken: a live backend's own facts stay."""
+        for e in self.global_memories():
+            if e['id'] not in keep_ids:
+                self.api('DELETE', f'/admin/api/memory/global/{e["id"]}')
