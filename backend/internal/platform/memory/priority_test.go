@@ -26,7 +26,7 @@ func hotTitles(t *testing.T, s *Store) []string {
 func TestPriority_NewEntriesAreNormalEverywhereTheyAreRead(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	id, _ := s.Insert(ctx, "ws-1", LongTerm, "build", "run go build", []string{HotTag}, "agent")
+	id, _ := s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "build", Content: "run go build", Tags: []string{HotTag}, Source: "agent"})
 
 	got, _ := s.Get(ctx, "ws-1", id)
 	if got.Priority != PriorityNormal {
@@ -46,7 +46,7 @@ func TestPriority_NewEntriesAreNormalEverywhereTheyAreRead(t *testing.T) {
 func TestSetPriority_RoundTripsAndValidates(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	id, _ := s.Insert(ctx, "ws-1", LongTerm, "a", "x", nil, "agent")
+	id, _ := s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "a", Content: "x", Tags: nil, Source: "agent"})
 
 	if err := s.SetPriority(ctx, "ws-1", id, PriorityHigh); err != nil {
 		t.Fatal(err)
@@ -73,10 +73,10 @@ func TestSearchHot_OrdersByPriorityThenRecency(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 	hot := []string{HotTag}
-	oldHigh, _ := s.Insert(ctx, "ws-1", LongTerm, "old-high", "x", hot, "agent")
-	s.Insert(ctx, "ws-1", LongTerm, "mid-normal", "x", hot, "agent")
-	newLow, _ := s.Insert(ctx, "ws-1", LongTerm, "new-low", "x", hot, "agent")
-	s.Insert(ctx, "ws-1", LongTerm, "newest-normal", "x", hot, "agent")
+	oldHigh, _ := s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "old-high", Content: "x", Tags: hot, Source: "agent"})
+	s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "mid-normal", Content: "x", Tags: hot, Source: "agent"})
+	newLow, _ := s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "new-low", Content: "x", Tags: hot, Source: "agent"})
+	s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "newest-normal", Content: "x", Tags: hot, Source: "agent"})
 	s.SetPriority(ctx, "ws-1", oldHigh, PriorityHigh)
 	s.SetPriority(ctx, "ws-1", newLow, PriorityLow)
 	// Same-second inserts tie on updated_at; make recency explicit.
@@ -93,9 +93,9 @@ func TestSearchHot_OrdersByPriorityThenRecency(t *testing.T) {
 func TestUpdate_EditingTextKeepsPriority(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	id, _ := s.Insert(ctx, "ws-1", LongTerm, "a", "x", []string{HotTag}, "agent")
+	id, _ := s.Insert(ctx, NewEntry{WorkspaceID: "ws-1", MemoryType: LongTerm, Title: "a", Content: "x", Tags: []string{HotTag}, Source: "agent"})
 	s.SetPriority(ctx, "ws-1", id, PriorityHigh)
-	if err := s.Update(ctx, "ws-1", id, "a", "reworded", []string{HotTag}, ReplaceTags); err != nil {
+	if err := s.Update(ctx, "ws-1", id, Edit{Title: "a", Content: "reworded", Tags: []string{HotTag}, TagMode: ReplaceTags}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.Get(ctx, "ws-1", id); got.Priority != PriorityHigh {

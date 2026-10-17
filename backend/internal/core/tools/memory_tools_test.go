@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/memory"
@@ -924,6 +925,170 @@ func TestMemorySearchTool_AMissShowsTheLatestFactsToCheckByMeaning(t *testing.T)
 	})
 }
 
+// ── Typed facts and expiry ───────────────────────────────────────────────
+
+// typedProvider is a provider with a fixed clock (Wednesday 14 October 2026, noon UTC) and a 48-hour session lifetime.
+func typedProvider(t *testing.T) (*MemoryToolProvider, *memory.Store, context.Context) {
+	t.Helper()
+	store := newRealTestStore(t)
+	p := NewMemoryToolProvider(store).WithSessionRetention(func() time.Duration { return 48 * time.Hour })
+	p.now = func() time.Time { return time.Date(2026, time.October, 14, 12, 0, 0, 0, time.UTC) }
+	ctx := models.WithChatTimezone(models.WithWorkspaceID(context.Background(), "ws-1"), "UTC")
+	return p, store, ctx
+}
+
+func onlyFact(t *testing.T, store *memory.Store, ws string) memory.MemoryEntry {
+	t.Helper()
+	entries, _ := store.List(context.Background(), ws, "", 10, 0)
+	if len(entries) != 1 {
+		t.Fatalf("want exactly one fact in %s, got %d: %+v", ws, len(entries), entries)
+	}
+	return entries[0]
+}
+
+func TestMemoryUpdateTool_StoresKindWhyAndAnExpiryDate(t *testing.T) {
+	p, store, ctx := typedProvider(t)
+	got, err := p.Update(ctx, MemoryUpdateArgs{Content: "Answer review requests within a day.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
+		Kind: memory.KindFeedback, Why: "the team wants faster turnaround", Expires: "2026-11-01"})
+	if err != nil || !strings.Contains(got.(string), "saved") {
+		t.Fatalf("Update = %v, %v", got, err)
+	}
+	e := onlyFact(t, store, "ws-1")
+	// the fact lives through the whole of 1 November: it expires when 2 November starts
+	if e.Kind != memory.KindFeedback || e.Why != "the team wants faster turnaround" || e.ExpiresAt != "2026-11-02T00:00:00Z" {
+		t.Errorf("typing not stored: %+v", e)
+	}
+}
+
+func TestMemoryUpdateTool_RefusesMalformedTypingWithoutSaving(t *testing.T) {
+	for name, args := range map[string]MemoryUpdateArgs{
+		"unknown kind":          {Kind: "opinion"},
+		"multi-line why":        {Why: "one\ntwo"},
+		"over-long why":         {Why: strings.Repeat("w", memory.MaxWhyChars+1)},
+		"a secret in the why":   {Why: "the password is hunter2"},
+		"an unreadable expiry":  {Expires: "whenever"},
+		"an expiry in the past": {Expires: "2026-10-01"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, store, ctx := typedProvider(t)
+			args.Content, args.Scope, args.Mode, args.Keep = "A fact worth keeping.", memory.ScopeWorkspace, memory.ModeOnDemand, memory.KeepPermanent
+			got, err := p.Update(ctx, args)
+			if err != nil || !strings.Contains(got.(string), "not saved") {
+				t.Errorf("Update = %v, %v; want a refusal that says it was not saved", got, err)
+			}
+			if entries, _ := store.List(context.Background(), "ws-1", "", 10, 0); len(entries) != 0 {
+				t.Errorf("nothing may be stored on a refusal: %+v", entries)
+			}
+		})
+	}
+}
+
+// A saved fact is rewritten from "tomorrow" to the date it meant, so it is still right next month; a day such as
+// "next Friday" works as an expiry too.
+func TestMemoryUpdateTool_WritesAbsoluteDates(t *testing.T) {
+	p, store, ctx := typedProvider(t)
+	_, err := p.Update(ctx, MemoryUpdateArgs{Content: "The demo is tomorrow.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent, Expires: "next Friday"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := onlyFact(t, store, "ws-1")
+	if e.Content != "The demo is 2026-10-15 (Thursday)." {
+		t.Errorf("the relative date must be written out: %q", e.Content)
+	}
+	if e.ExpiresAt != "2026-10-17T00:00:00Z" { // through Friday 16 October
+		t.Errorf("expiry = %q, want the end of Friday 2026-10-16", e.ExpiresAt)
+	}
+}
+
+// keep=session now means an expiry for both scopes, so the reaper reaches a user-scope session fact too.
+func TestMemoryUpdateTool_SessionFactsExpireInEveryScope(t *testing.T) {
+	for _, tc := range []struct {
+		scope memory.Scope
+		ws    string
+	}{{memory.ScopeWorkspace, "ws-1"}, {memory.ScopeUser, "global"}} {
+		t.Run(string(tc.scope), func(t *testing.T) {
+			p, store, ctx := typedProvider(t)
+			if _, err := p.Update(ctx, MemoryUpdateArgs{Content: "A note for now.", Scope: tc.scope, Mode: memory.ModeOnDemand, Keep: memory.KeepSession}); err != nil {
+				t.Fatal(err)
+			}
+			if got := onlyFact(t, store, tc.ws).ExpiresAt; got != "2026-10-16T12:00:00Z" {
+				t.Errorf("a session fact should expire after the 48h lifetime, got %q", got)
+			}
+		})
+	}
+	t.Run("a permanent fact has none", func(t *testing.T) {
+		p, store, ctx := typedProvider(t)
+		p.Update(ctx, MemoryUpdateArgs{Content: "Lasts.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent})
+		if got := onlyFact(t, store, "ws-1").ExpiresAt; got != "" {
+			t.Errorf("a permanent fact must not expire, got %q", got)
+		}
+	})
+}
+
+// Replacing a fact keeps its kind and reason unless the model gives new ones, and follows the new keep.
+func TestMemoryUpdateTool_OldTextKeepsTypingUnlessChanged(t *testing.T) {
+	p, store, ctx := typedProvider(t)
+	route := MemoryUpdateArgs{Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand}
+	first := route
+	first.Content, first.Keep, first.Kind, first.Why = "Cache entries live for ten minutes.", memory.KeepSession, memory.KindProject, "keeps the dashboard fresh"
+	if _, err := p.Update(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := route
+	second.Content, second.Keep, second.OldText = "Cache entries live for five minutes.", memory.KeepPermanent, "ten minutes"
+	if _, err := p.Update(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	e := onlyFact(t, store, "ws-1")
+	if e.Content != "Cache entries live for five minutes." || e.Kind != memory.KindProject || e.Why != "keeps the dashboard fresh" {
+		t.Errorf("kind and why must survive a replacement that does not restate them: %+v", e)
+	}
+	if e.ExpiresAt != "" {
+		t.Errorf("replacing with keep=permanent clears the session expiry, got %q", e.ExpiresAt)
+	}
+	third := route
+	third.Content, third.Keep, third.OldText, third.Why = "Cache entries live for five minutes.", memory.KeepPermanent, "five minutes", "measured by the dashboard team"
+	p.Update(ctx, third)
+	if got := onlyFact(t, store, "ws-1").Why; got != "measured by the dashboard team" {
+		t.Errorf("a restated why replaces the old one, got %q", got)
+	}
+}
+
+func TestMemorySearchTool_ShowsKindWhyAndExpiry(t *testing.T) {
+	p, _, ctx := typedProvider(t)
+	p.Update(ctx, MemoryUpdateArgs{Content: "Releases are cut on Thursdays.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
+		Kind: memory.KindReference, Why: "the release calendar lives in the wiki", Expires: "2027-01-01"})
+	got, err := p.Search(ctx, searchArgs("releases"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[reference]", "why: the release calendar lives in the wiki", "expires 2027-01-01"} {
+		if !strings.Contains(got.(string), want) {
+			t.Errorf("the search result lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+// Capture and review save through SaveFact: it types and dates a fact the same way, and HasFact compares the dated text.
+func TestSaveFact_TypesAndDatesLikeTheTool(t *testing.T) {
+	p, store, ctx := typedProvider(t)
+	res, err := p.SaveFact(ctx, "ws-1", Fact{Content: "The audit is tomorrow.", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent,
+		Kind: memory.KindProject, Why: "the auditors set the date"})
+	if err != nil || res.Outcome != SaveCreated {
+		t.Fatalf("SaveFact = %+v, %v", res, err)
+	}
+	e := onlyFact(t, store, "ws-1")
+	if e.Content != "The audit is 2026-10-15 (Thursday)." || e.Kind != memory.KindProject || e.Why != "the auditors set the date" {
+		t.Errorf("SaveFact lost the typing or the date: %+v", e)
+	}
+	if !p.HasFact(ctx, "ws-1", "The audit is tomorrow.") {
+		t.Error("HasFact must compare the dated text, or capture saves the same fact twice")
+	}
+	if _, err := p.SaveFact(ctx, "ws-1", Fact{Content: "x fact", Scope: memory.ScopeWorkspace, Mode: memory.ModeOnDemand, Keep: memory.KeepPermanent, Kind: "bogus"}); err == nil {
+		t.Error("SaveFact accepted a bad kind")
+	}
+}
+
 // A secret must never be stored, whatever the model decides: the prompt says so, but only code enforces it (a small
 // model saved "User's password is hunter2." on 2026-10-16 when the save reminder was widened).
 func TestMemorySavePath_RefusesSecrets(t *testing.T) {
@@ -988,8 +1153,8 @@ func searchArgs(query string) struct {
 func TestMemorySearch_RecordsTheFactsItReturned(t *testing.T) {
 	store := newRealTestStore(t)
 	ctx := models.WithWorkspaceID(context.Background(), "ws-1")
-	hit, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "tsc", "TypeScript version 6.0.3", nil, "agent")
-	miss, _ := store.Insert(ctx, "ws-1", memory.LongTerm, "tea", "likes green tea", nil, "agent")
+	hit, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "tsc", Content: "TypeScript version 6.0.3", Tags: nil, Source: "agent"})
+	miss, _ := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "tea", Content: "likes green tea", Tags: nil, Source: "agent"})
 	provider := NewMemoryToolProvider(store)
 
 	if _, err := provider.Search(ctx, searchArgs("TypeScript")); err != nil {

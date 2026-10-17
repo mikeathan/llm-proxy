@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BUSY_PERCENT, HIGH_PERCENT, MEMORY_THRESHOLDS, loadLevel, summariseHost } from '../../domain/hostStats'
+import { BUSY_PERCENT, HIGH_PERCENT, MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseHost } from '../../domain/hostStats'
 import type { SystemMetrics } from '../../types/metrics'
 
 const GPU = {
@@ -23,6 +23,22 @@ describe('loadLevel', () => {
     [100, 'high'],
   ])('%d%% is %s', (percent, level) => {
     expect(loadLevel(percent)).toBe(level)
+  })
+})
+
+// The header figure and every meter colour a load from the same level, so one reading never looks different in two places.
+describe('loadMeterState', () => {
+  it.each([
+    [10, 'info'],
+    [BUSY_PERCENT, 'running'],
+    [82.7, 'error'],
+  ])('%d%% load is %s', (percent, state) => {
+    expect(loadMeterState(percent)).toBe(state)
+  })
+  it('never alarms on full VRAM, which a loaded model fills on purpose', () => {
+    expect(loadMeterState(50, VRAM_THRESHOLDS)).toBe('info')
+    expect(loadMeterState(75, VRAM_THRESHOLDS)).toBe('running')
+    expect(loadMeterState(100, VRAM_THRESHOLDS)).toBe('running')
   })
 })
 

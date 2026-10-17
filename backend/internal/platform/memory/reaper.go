@@ -7,38 +7,34 @@ import (
 	"llm-proxy/internal/platform/logging"
 )
 
-// DefaultSessionReaperInterval is the sweep cadence used when wiring the reaper.
-const DefaultSessionReaperInterval = time.Hour
+// DefaultExpiryReaperInterval is the sweep cadence used when wiring the reaper.
+const DefaultExpiryReaperInterval = time.Hour
 
-// SessionReaper deletes session-scoped memories older than the retention
-// window. Unattended runs write session entries by default
-// (memory_update, Phase 3), so without a reaper they would accumulate forever.
-// It mirrors the ledger Cleaner and run reaper: create with NewSessionReaper,
-// call Start(ctx) in a goroutine tethered to the app lifecycle.
+// ExpiryReaper deletes facts whose expiry has passed. A fact gets an expiry when it is written (a session fact, or one
+// the model or the operator dated), so the reaper needs no retention setting of its own and reaches every scope: a
+// user-scope session fact used to be stored as a user profile entry and never reaped. Facts without an expiry are
+// operator data and are never deleted by age.
 //
-// Only MemoryType Session is ever deleted — long_term and user_profile entries
-// are operator data regardless of age.
-type SessionReaper struct {
-	store     func() *Store
-	retention func() time.Duration
-	interval  time.Duration
+// It mirrors the ledger Cleaner and run reaper: create with NewExpiryReaper, call Start(ctx) in a goroutine tethered
+// to the app lifecycle.
+type ExpiryReaper struct {
+	store    func() *Store
+	interval time.Duration
 }
 
-// NewSessionReaper takes providers rather than values: the store is replaced on
-// factory reset and may be nil when the database failed to open, and the
-// retention comes from settings that can change while the server runs.
-// A non-positive retention disables reaping.
-func NewSessionReaper(store func() *Store, retention func() time.Duration, interval time.Duration) *SessionReaper {
-	return &SessionReaper{store: store, retention: retention, interval: interval}
+// NewExpiryReaper takes a provider rather than a value: the store is replaced on factory reset and may be nil when the
+// database failed to open.
+func NewExpiryReaper(store func() *Store, interval time.Duration) *ExpiryReaper {
+	return &ExpiryReaper{store: store, interval: interval}
 }
 
 // Start sweeps once immediately, then on the interval, until ctx is cancelled.
-func (r *SessionReaper) Start(ctx context.Context) {
-	logging.Info("Memory session reaper started", "interval", r.interval)
+func (r *ExpiryReaper) Start(ctx context.Context) {
+	logging.Info("Memory expiry reaper started", "interval", r.interval)
 	ticker := time.NewTicker(r.interval)
 	defer func() {
 		ticker.Stop()
-		logging.Info("Memory session reaper stopped")
+		logging.Info("Memory expiry reaper stopped")
 	}()
 
 	r.reap(ctx)
@@ -52,20 +48,19 @@ func (r *SessionReaper) Start(ctx context.Context) {
 	}
 }
 
-// reap performs one sweep and returns the number of entries deleted.
-func (r *SessionReaper) reap(ctx context.Context) int64 {
+// reap performs one sweep and returns the number of facts deleted.
+func (r *ExpiryReaper) reap(ctx context.Context) int64 {
 	store := r.store()
-	retention := r.retention()
-	if store == nil || retention <= 0 || ctx.Err() != nil {
+	if store == nil || ctx.Err() != nil {
 		return 0
 	}
-	n, err := store.DeleteOlderThan(ctx, Session, time.Now().Add(-retention))
+	n, err := store.DeleteExpired(ctx, time.Now())
 	if err != nil {
-		logging.Warn("Memory session reaper: delete failed", "error", err)
+		logging.Warn("Memory expiry reaper: delete failed", "error", err)
 		return 0
 	}
 	if n > 0 {
-		logging.Info("Memory session reaper: removed stale session entries", "count", n)
+		logging.Info("Memory expiry reaper: removed expired facts", "count", n)
 	}
 	return n
 }

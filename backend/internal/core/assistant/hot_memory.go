@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
@@ -22,6 +23,12 @@ const (
 	hotMemoryMaxChars      = 6000 // ceiling so a huge window is not flooded
 	hotMemoryFallbackChars = 2000 // used when ContextBudget is unresolved (<= 0)
 	hotMemoryMinFactRoom   = 80   // below this much room a clipped fact is noise: show only the overflow hint
+
+	// hotMemoryFactsReserve is the share of the block the saved facts may claim before the operator notes: the notes outrank
+	// the facts, but a block of notes alone would push every fact out. The facts reserve only what they need up to this
+	// share, and the notes get the rest (all of it when there are no facts).
+	hotMemoryFactsReserve = 0.25
+	notesSeparator        = "\n\n" // between the global and the workspace notes (OperatorNotes.Text)
 
 	// hotMemoryCharsPerToken is the tokenizer ratio the context budgets use
 	// (SPEC-005 §II.3), for the preview's token estimate.
@@ -78,57 +85,159 @@ func (a *Agent) snapshotHotMemory(ctx context.Context) {
 // context-derived budget in <memory> tags, or returns "" when there is nothing
 // to inject; kept is how many leading entries made it in.
 func (a *Agent) buildHotMemoryBlock(entries []memory.MemoryEntry, notes memory.OperatorNotes) (block string, kept int) {
-	return renderHotMemory(hotMemoryInput{
-		entries: entries, notes: notes.Text(),
+	r := renderHotMemory(hotMemoryInput{
+		entries: entries, notes: notes,
 		contextBudget: a.config.ContextBudget, workload: a.config.WorkloadClass,
 	})
+	return r.block, r.kept
 }
 
 // hotMemoryInput is everything that decides the injected block.
 type hotMemoryInput struct {
 	entries       []memory.MemoryEntry // newest first, as SearchHot returns them
-	notes         string               // operator notes (global then workspace), already trimmed
+	notes         memory.OperatorNotes // operator notes: global, then workspace
 	contextBudget int
 	workload      models.WorkloadClass
 }
 
+// hotMemoryRender is the rendered <memory> block: how many leading entries are in it and how much of the operator notes
+// did not fit.
+type hotMemoryRender struct {
+	block    string
+	kept     int
+	notesCut int
+}
+
 // renderHotMemory is the single code path that turns notes and hot entries into
 // the injected block: the agent and the operator preview both call it, so the
-// preview cannot drift from what a run receives. kept is how many leading
-// entries are in the block.
+// preview cannot drift from what a run receives.
 //
-// Operator notes come first and are never clipped — the operator wrote them on
-// purpose — so they are charged against the budget before the agent's facts,
-// which fill what is left (and give way entirely when the notes alone use it).
-func renderHotMemory(in hotMemoryInput) (block string, kept int) {
-	if in.notes == "" && len(in.entries) == 0 {
-		return "", 0
+// The block never exceeds the model's memory cap. Operator notes come first and outrank the saved facts, but they
+// share the cap: the facts reserve the room they need up to hotMemoryFactsReserve of it, the notes take the rest, and
+// notes that do not fit are cut with a visible hint (fitNotes). The facts fill what the notes leave.
+func renderHotMemory(in hotMemoryInput) hotMemoryRender {
+	notesText := in.notes.Text()
+	if notesText == "" && len(in.entries) == 0 {
+		return hotMemoryRender{}
 	}
 	budget := hotMemoryCharBudget(in.contextBudget, in.workload) - len(hotMemoryOpenTag) - len(hotMemoryCloseTag)
 
 	var b strings.Builder
 	b.WriteString(hotMemoryOpenTag)
-	if in.notes != "" {
-		section := prompts.HotMemoryOperatorHeader + "\n" + in.notes + "\n"
+	var r hotMemoryRender
+	if notesText != "" {
+		section, cut := renderNotesSection(in.notes, budget-factsReserve(in.entries, budget))
 		b.WriteString(section)
 		budget -= len(section)
+		r.notesCut = cut
 	}
 	if len(in.entries) > 0 {
-		if in.notes != "" {
+		if notesText != "" {
 			header := "\n" + prompts.HotMemorySavedHeader + "\n"
 			b.WriteString(header)
 			budget -= len(header)
 		}
 		var facts string
-		if in.notes != "" && budget < hotMemoryMinFactRoom {
+		if notesText != "" && budget < hotMemoryMinFactRoom {
 			facts = fmt.Sprintf(prompts.HotMemoryOverflowHint, len(in.entries))
 		} else {
-			facts, kept = buildHotInjection(in.entries, budget)
+			facts, r.kept = buildHotInjection(in.entries, budget)
 		}
 		b.WriteString(strings.TrimSuffix(facts, "\n"))
 	}
 	b.WriteString(hotMemoryCloseTag)
-	return b.String(), kept
+	r.block = b.String()
+	return r
+}
+
+// factsReserve is the room the saved facts keep before the operator notes are fitted: what the facts need (their lines
+// and the "Saved facts:" header), at most hotMemoryFactsReserve of the block. No facts, no reserve.
+func factsReserve(entries []memory.MemoryEntry, budget int) int {
+	if len(entries) == 0 {
+		return 0
+	}
+	need := len("\n" + prompts.HotMemorySavedHeader + "\n")
+	for _, e := range entries {
+		need += len(hotFactLine(e))
+	}
+	return min(need, int(float64(budget)*hotMemoryFactsReserve))
+}
+
+// renderNotesSection is the operator-notes section within budget characters (the room left for it in the block).
+func renderNotesSection(notes memory.OperatorNotes, budget int) (section string, cut int) {
+	header := prompts.HotMemoryOperatorHeader + "\n"
+	text, cut := fitNotes(notes, budget-len(header)-len("\n"))
+	return header + text + "\n", cut
+}
+
+// fitNotes fits the operator notes (global, then workspace) into room characters. Notes that fit are returned whole.
+// Otherwise each file keeps a fair share of the room (a short file is kept whole and the other gets the rest), is cut at
+// a line boundary, and a hint says how many characters are not shown; cut is that count. The result stays within room
+// unless room is smaller than the hint itself.
+func fitNotes(notes memory.OperatorNotes, room int) (text string, cut int) {
+	var parts []string
+	rawLen := 0
+	for _, t := range []string{notes.Global, notes.Workspace} {
+		if t = strings.TrimSpace(t); t != "" {
+			parts = append(parts, t)
+			rawLen += len(t)
+		}
+	}
+	whole := strings.Join(parts, notesSeparator)
+	if len(whole) <= room {
+		return whole, 0
+	}
+	hintReserve := len(fmt.Sprintf(prompts.HotMemoryNotesCutHint, 999999)) + len("\n")
+	shares := notesShares(parts, max(room-hintReserve-len(notesSeparator)*(len(parts)-1), 0))
+	var shown []string
+	shownLen := 0
+	for i, p := range parts {
+		if s := clipAtLine(p, shares[i]); s != "" {
+			shown = append(shown, s)
+			shownLen += len(s)
+		}
+	}
+	cut = rawLen - shownLen
+	hint := fmt.Sprintf(prompts.HotMemoryNotesCutHint, cut)
+	if len(shown) == 0 {
+		return hint, cut
+	}
+	return strings.Join(shown, notesSeparator) + "\n" + hint, cut
+}
+
+// notesShares splits avail characters between the notes files: a file that fits in half is kept whole and the other
+// gets the rest; two long files get half each.
+func notesShares(parts []string, avail int) []int {
+	if len(parts) < 2 {
+		return []int{avail}
+	}
+	half := avail / 2
+	switch {
+	case len(parts[0]) <= half:
+		return []int{len(parts[0]), avail - len(parts[0])}
+	case len(parts[1]) <= half:
+		return []int{avail - len(parts[1]), len(parts[1])}
+	}
+	return []int{half, avail - half}
+}
+
+// clipAtLine returns at most limit bytes of s, cut at the last line break (or, for a single long line, the last space) so
+// no line is left half-written, and never inside a multi-byte character.
+func clipAtLine(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	for limit > 0 && !utf8.RuneStart(s[limit]) {
+		limit--
+	}
+	head := s[:limit]
+	if i := strings.LastIndex(head, "\n"); i > 0 {
+		return strings.TrimRight(head[:i], " \t")
+	}
+	if i := strings.LastIndexByte(head, ' '); i > 0 {
+		return head[:i]
+	}
+	return head
 }
 
 // HotMemoryPreviewEntry is one hot fact in a preview.
@@ -146,8 +255,8 @@ type HotMemoryPreview struct {
 	TokensEstimate     int                     `json:"tokens_estimate"`
 	BudgetChars        int                     `json:"budget_chars"`         // cap for the block
 	ContextBudgetChars int                     `json:"context_budget_chars"` // the model's context budget; 0 = unresolved
-	OperatorChars      int                     `json:"operator_chars"`       // size of the operator notes in the block
-	OverBudget         bool                    `json:"over_budget"`          // the block exceeds BudgetChars (operator notes are never cut)
+	OperatorChars      int                     `json:"operator_chars"`       // size of the operator notes (all of them, shown or not)
+	NotesCutChars      int                     `json:"notes_cut_chars"`      // how much of the operator notes did not fit the budget
 	Included           []HotMemoryPreviewEntry `json:"included"`
 	Cut                []HotMemoryPreviewEntry `json:"cut"`
 }
@@ -157,10 +266,11 @@ type HotMemoryPreview struct {
 // them), and which entries made it in. Only ContextBudget and WorkloadClass of
 // opts are read.
 func PreviewHotMemory(entries []memory.MemoryEntry, notes memory.OperatorNotes, opts AgentOptions) HotMemoryPreview {
-	block, kept := renderHotMemory(hotMemoryInput{
-		entries: entries, notes: notes.Text(),
+	r := renderHotMemory(hotMemoryInput{
+		entries: entries, notes: notes,
 		contextBudget: opts.ContextBudget, workload: opts.WorkloadClass,
 	})
+	block, kept := r.block, r.kept
 	budget := hotMemoryCharBudget(opts.ContextBudget, opts.WorkloadClass)
 	p := HotMemoryPreview{
 		Block:              block,
@@ -168,7 +278,7 @@ func PreviewHotMemory(entries []memory.MemoryEntry, notes memory.OperatorNotes, 
 		TokensEstimate:     len(block) / hotMemoryCharsPerToken,
 		BudgetChars:        budget,
 		OperatorChars:      len(notes.Text()),
-		OverBudget:         len(block) > budget,
+		NotesCutChars:      r.notesCut,
 		ContextBudgetChars: max(opts.ContextBudget, 0),
 		Included:           []HotMemoryPreviewEntry{},
 		Cut:                []HotMemoryPreviewEntry{},

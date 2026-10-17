@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "3.0"
+version: "3.2"
 status: stable
 last_updated: 2026-10-16
 constitution_references: [II.12]
@@ -12,6 +12,30 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.2 (2026-10-16)** — Typed facts and per-fact expiry (§II.2, §II.4, §II.5). A fact may carry a `kind` (`user`,
+  `feedback`, `project`, `reference`), a one-line `why` (≤ 200 chars) and an `expires_at`. `memory_update` takes
+  `kind`, `why` and `expires` (a `YYYY-MM-DD` last useful day, or a relative day such as "next Friday"); a bad value is
+  refused with a "not saved" message. Relative days in a fact's own text ("tomorrow", "next Friday", "in 3 days") are
+  written as absolute dates when it is saved (`internal/platform/datetext`, English only, no model call; bare weekdays and
+  "next week" are left alone) so they stay true when read later. Replacing a fact keeps its kind and why unless restated;
+  the expiry always follows the new save. **Expiry replaces the session-type reaper:** every `keep: session` fact (user
+  scope too, which the old reaper never reached) is written with an expiry of `memory.retention_days` (default 90), a
+  dated fact expires at the end of its day, and `memory.ExpiryReaper` deletes by `expires_at` for any scope or type.
+  Startup gives existing workspace session facts an expiry from their creation date. Operator edits keep the typing unless
+  the body names it; the add form, markdown export/import (`kind=`, `expires=`, `why=` last) and the list/detail views carry
+  it. Breaking: the `memory.SessionReaper` and `Store.DeleteOlderThan` are gone. Not done: the hot block's rendering is
+  unchanged, `memory_type` stays as the storage class, and user-scope session facts saved before this version cannot be told
+  apart from permanent ones and stay.
+
+- **3.1 (2026-10-16)** — Operator notes share the memory cap with the saved facts (§II.4; Constitution II.12 amended). The
+  block used to charge the notes first and never clip them, so two long notes files (6,000 chars each) made a block twice the
+  cap or more and pushed every saved fact out; measured on the recorded request of a real run, both hot facts, including a
+  stated preference, were absent. Now the block never exceeds the cap: the facts reserve the room they need up to a quarter
+  of it, the notes take the rest, and notes that do not fit are cut at a line boundary (each file keeps a fair share) with a
+  hint naming the missing characters. The preview replaces `over_budget` (now meaningless) with `notes_cut_chars`. The open
+  question of tokens versus characters is settled: `ContextBudget` is characters (SPEC-005 §II.3). Same recorded request
+  after: block 5,957 of 6,000 chars, both facts present, 5,956 of 11,602 note chars cut and reported.
 
 - **3.0 (2026-10-16)** — Recall finds word forms, and a miss shows candidates (§II.3, §II.4.1). The FTS5 index now
   stems (`tokenize='porter unicode61'`), so "editors" finds "editor" and "reviewed" finds "reviews"; no word list or
@@ -108,7 +132,8 @@ Every `memory_update` call uses three parameters to determine storage:
 - **`mode`**: `"always"` (sets `tags: ["hot"]` — injected every session) or `"on_demand"`
   (no hot tag — searchable but not injected).
 - **`keep`**: `"permanent"` (stored as `long_term`) or `"session"` (stored as `session` for workspace scope; user scope
-  has no session type, so `user` + `session` is stored as `user_profile` and is never reaped).
+  has no session type, so `user` + `session` is stored as `user_profile`; it is still given an expiry like any session
+  fact, so the reaper removes it).
 - **Defaults**: each omitted field defaults independently — scope `workspace`, mode `on_demand`, keep `permanent`
   (`session` for an unattended run). What the model did state is kept. A combination that is invalid after defaulting
   is an error.
@@ -149,9 +174,12 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   (`storage.WriteAtomic`, ClassData), ≤ 6000 chars per file (`ErrNotesTooLong`), blank content removes the file,
   workspace ids that could leave their folder are refused. The block becomes
   `<memory>` + operator header + notes + (`Saved facts:` + agent facts) + `</memory>`; no notes = no extra sections.
-  Notes are NEVER clipped: they are charged first and facts fill the remainder; with < 80 chars left only the
-  overflow hint is shown. `renderHotMemory` is shared with the preview, which reports `operator_chars` and
-  `over_budget`.
+  The block never exceeds the cap. The facts reserve the room they need (their lines and the `Saved facts:` header) up to
+  a quarter of the block (`factsReserve`); the notes take the rest and, when they do not fit, are cut at a line boundary
+  with each file keeping a fair share (a short file whole, two long ones half each) and a hint
+  (`prompts.HotMemoryNotesCutHint`) naming the missing characters (`fitNotes`); the facts fill what the notes leave, and
+  with < 80 chars left only the overflow hint is shown. `renderHotMemory` is shared with the preview, which reports
+  `operator_chars` (all the notes) and `notes_cut_chars` (what did not fit).
 - **Priority** (`memories.priority`, 0 low / 1 normal / 2 high, default 1; additive idempotent `ALTER TABLE`
   migration, existing rows become normal): `SearchHot` orders `priority DESC, updated_at DESC`, and the budget cuts
   from the tail, so a high-priority fact is the last to go. Only the operator sets it (`PUT`/`POST` `priority`,
@@ -198,9 +226,10 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   entries with their line (typos such as `prority=` are errors, never ignored), accepts at most 200 facts, and
   requires a JSON body (415 otherwise — a cross-site form cannot plant facts). Operator notes are not part of the
   export. `daily`-type entries export as permanent workspace facts (the editor cannot create `daily`).
-- **Retention**: `memory.SessionReaper` (hourly, started in `app.New`) deletes only `session` entries
-  older than `settings.yml → memory.retention_days` (default 90; `MemoryConfig.SessionRetention()`).
-  `long_term` and `user_profile` are never reaped.
+- **Retention**: a `keep: session` fact is saved with `expires_at` = now + `settings.yml → memory.retention_days`
+  (default 90; `MemoryConfig.SessionRetention()`, read live); an explicit `expires` date overrides it. `memory.ExpiryReaper`
+  (hourly, started in `app.New`) deletes every fact whose `expires_at` has passed, whatever its scope or type. A fact with
+  no expiry is never reaped.
 
 ### 4.1 Per-turn recall (operator chat)
 
@@ -235,7 +264,7 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 ### 5. Memory Tools
 
 - `memory_search(query, limit, scope, tags)` — FTS5 search with BM25 ranking, capped at 20 results.
-- `memory_update(content, scope, mode, keep, old_text, separate)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it (in either scope, moving it if the scope changed); `separate: true` saves it as its own fact when a similar one exists.
+- `memory_update(content, scope, mode, keep, old_text, separate, kind, why, expires)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it (in either scope, moving it if the scope changed); `separate: true` saves it as its own fact when a similar one exists.
 - `memory_forget(text)` — Delete the one saved fact containing `text` (workspace or user scope). Zero or several matches delete nothing and say so; refused in automations and connector chats.
 - All gated by workspace ID.
 

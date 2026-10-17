@@ -51,9 +51,10 @@ const formatNumber = (n: number) => n.toLocaleString('en-US')
         No model is selected, so this uses a default budget rather than a model's own context window.
       </Callout>
 
-      <Callout v-if="preview.over_budget" tone="warning" title="Operator notes alone use the whole budget">
-        Operator notes alone are {{ formatNumber(preview.operator_chars) }} chars, over this model's {{ formatNumber(preview.budget_chars) }}-char
-        memory budget. They are never cut, so saved facts give way. Shorten the notes or choose a larger model.
+      <Callout v-if="preview.notes_cut_chars > 0" tone="warning" title="Part of your operator notes is not sent">
+        {{ formatNumber(preview.notes_cut_chars) }} of {{ formatNumber(preview.operator_chars) }} characters of your operator notes were cut
+        to fit this model's {{ formatNumber(preview.budget_chars) }}-char memory budget, which they share with saved facts. Shorten the notes
+        or choose a larger model.
       </Callout>
 
       <p class="m-0 font-mono text-[length:var(--text-small)] text-secondary">

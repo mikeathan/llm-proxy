@@ -492,6 +492,10 @@ const HotMemoryOperatorHeader = "Operator notes (written by the operator; they t
 // are present, so the two sources stay distinguishable.
 const HotMemorySavedHeader = "Saved facts:"
 
+// HotMemoryNotesCutHint ends the operator-notes section when the notes did not all fit the model's memory budget:
+// the model knows text is missing, and the operator learns the notes need shortening for this model.
+const HotMemoryNotesCutHint = "(+%d more characters of operator notes are not shown: they exceed this model's memory budget)"
+
 // HotMemoryOverflowHint ends the injected <memory> block when entries were cut
 // to fit the context-derived budget; %d is the number of facts left out.
 const HotMemoryOverflowHint = "(+%d more saved facts — use `" + models.ToolMemorySearch + "` to find them)"

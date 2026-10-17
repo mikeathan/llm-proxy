@@ -35,6 +35,9 @@ func TestMarkdown_RoundTripKeepsEveryFieldAndAwkwardContent(t *testing.T) {
 			e.Priority = PriorityLow
 		}),
 		entryOf("nasty", nasty, nil),
+		entryOf("runbook", "The runbook lives in the wiki.", func(e *MemoryEntry) {
+			e.Kind, e.Why, e.ExpiresAt = KindReference, "on-call asks weekly: keep=it, why=this --> fine", "2030-01-03T00:00:00Z"
+		}),
 	}
 
 	facts, issues := ParseMarkdown(FormatMarkdown("workspace-1", entries))
@@ -46,6 +49,8 @@ func TestMarkdown_RoundTripKeepsEveryFieldAndAwkwardContent(t *testing.T) {
 		{Title: "scratch", Content: "only this conversation", Scope: ScopeWorkspace, Mode: ModeOnDemand, Keep: KeepSession, Priority: PriorityNormal},
 		{Title: "name", Content: "Alice", Scope: ScopeUser, Mode: ModeAlways, Keep: KeepPermanent, Priority: PriorityLow},
 		{Title: "nasty", Content: nasty, Scope: ScopeWorkspace, Mode: ModeOnDemand, Keep: KeepPermanent, Priority: PriorityNormal},
+		{Title: "runbook", Content: "The runbook lives in the wiki.", Scope: ScopeWorkspace, Mode: ModeOnDemand, Keep: KeepPermanent, Priority: PriorityNormal,
+			Kind: KindReference, Why: "on-call asks weekly: keep=it, why=this --> fine", Expires: "2030-01-02"},
 	}
 	if !slices.Equal(withoutLines(facts), want) {
 		t.Errorf("round trip changed the facts:\n got %+v\nwant %+v", facts, want)
@@ -137,5 +142,17 @@ func TestMarkdown_WindowsLineEndingsAreAccepted(t *testing.T) {
 	facts, issues := ParseMarkdown("### a\r\n<!-- mode=always -->\r\nline1\r\nline2\r\n")
 	if len(issues) != 0 || len(facts) != 1 || facts[0].Content != "line1\nline2" || facts[0].Mode != ModeAlways {
 		t.Errorf("CRLF not handled: %+v %+v", facts, issues)
+	}
+}
+
+// A hand-edited kind or date that cannot be stored is reported with its line, never silently dropped.
+func TestMarkdown_BadTypingIsReported(t *testing.T) {
+	doc := "### a\n<!-- kind=hobby -->\ntext\n\n### b\n<!-- expires=soon -->\ntext\n\n### c\n<!-- why=ok kind=user -->\ntext\n"
+	facts, issues := ParseMarkdown(doc)
+	if len(issues) != 2 || issues[0].Line != 1 || issues[1].Line != 5 {
+		t.Errorf("want the two bad entries reported by line, got %+v", issues)
+	}
+	if len(facts) != 1 || facts[0].Why != "ok kind=user" || facts[0].Kind != "" {
+		t.Errorf("why takes the rest of the metadata line: %+v", facts)
 	}
 }

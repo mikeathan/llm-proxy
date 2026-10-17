@@ -375,7 +375,7 @@ func TestExecute_HotMemoryReachesTheModelOnlyWhenTheAutomationOptsIn(t *testing.
 		t.Run("memory_mode="+string(tc.mode), func(t *testing.T) {
 			store := newTestMemoryStore(t)
 			ctx := context.Background()
-			if _, err := store.Insert(ctx, "ws", memory.LongTerm, "codename", "The project codename is BLUEHERON-7.", []string{memory.HotTag}, "operator"); err != nil {
+			if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws", MemoryType: memory.LongTerm, Title: "codename", Content: "The project codename is BLUEHERON-7.", Tags: []string{memory.HotTag}, Source: "operator"}); err != nil {
 				t.Fatal(err)
 			}
 			svc := newExecSvc(t, store)

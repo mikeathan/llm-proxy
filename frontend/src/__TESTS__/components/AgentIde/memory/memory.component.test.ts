@@ -259,6 +259,16 @@ describe('MemoryPanel', () => {
 })
 
 describe('MemoryDetail', () => {
+  it('shows what a typed fact is, why it matters and its last useful day', () => {
+    const typed = track(mount(MemoryDetail, { props: { entry: entry(1, { kind: 'reference', why: 'on-call asks weekly', expires_at: '2027-01-02T00:00:00Z' }), workspaceId: 'ws' } }))
+    expect(typed.text()).toContain('Where to find something')
+    expect(typed.get('[data-test="memory-why"]').text()).toContain('on-call asks weekly')
+    expect(typed.get('[data-test="memory-expires"]').text()).toContain('2027-01-01')
+    const plain = track(mount(MemoryDetail, { props: { entry: entry(2), workspaceId: 'ws' } }))
+    expect(plain.find('[data-test="memory-why"]').exists()).toBe(false)
+    expect(plain.find('[data-test="memory-expires"]').exists()).toBe(false)
+  })
+
   beforeEach(() => {
     mem.updateMemory.mockReset().mockResolvedValue(undefined)
     mem.setHot.mockReset().mockResolvedValue(true)
@@ -404,6 +414,20 @@ describe('MemoryAddForm', () => {
     })
   })
 
+  it('sends kind, why and the last useful day only when they are filled in', async () => {
+    const w = addForm()
+    await field(w, 'Fact').setValue('Runbook is in the wiki')
+    await field(w, 'What it is').setValue('reference')
+    await field(w, 'Why it matters').setValue('on-call asks weekly')
+    await field(w, 'Useful until').setValue('2031-05-06')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(mem.createMemory).toHaveBeenCalledWith('ws', {
+      content: 'Runbook is in the wiki', scope: 'workspace', mode: 'on_demand', keep: 'permanent',
+      kind: 'reference', why: 'on-call asks weekly', expires: '2031-05-06',
+    })
+  })
+
   it('offers priority only for always-on facts, and sends it only when it is not the default', async () => {
     const w = addForm()
     expect(w.findAll('label').some((l) => l.text() === 'Priority')).toBe(false)
@@ -434,7 +458,7 @@ describe('MemoryAddForm', () => {
 
 const PREVIEW: MemoryInjectionPreview = {
   block: '<memory>\n- build: run go build\n</memory>',
-  chars: 40, tokens_estimate: 10, budget_chars: 1747, context_budget_chars: 21848, operator_chars: 0, over_budget: false,
+  chars: 40, tokens_estimate: 10, budget_chars: 1747, context_budget_chars: 21848, operator_chars: 0, notes_cut_chars: 0,
   model: 'qwen', budget_resolved: true,
   included: [{ id: 1, title: 'build', chars: 24, priority: 1 }],
   cut: [{ id: 2, title: 'old fact', chars: 300, priority: 1 }],
@@ -480,11 +504,11 @@ describe('MemoryInjectionPreview (component)', () => {
     expect(w.text()).toContain('default budget')
   })
 
-  it('warns that never-cut operator notes have pushed the saved facts out', async () => {
-    mem.injectionPreview.value = { ...PREVIEW, chars: 4300, operator_chars: 4200, over_budget: true, included: [], cut: [{ id: 2, title: 'old fact', chars: 300, priority: 1 }] }
+  it('says how much of the operator notes was cut to fit the model\'s memory budget', async () => {
+    mem.injectionPreview.value = { ...PREVIEW, chars: 1700, operator_chars: 4200, notes_cut_chars: 2600 }
     const w = await mountPreview()
-    expect(w.text()).toContain('Operator notes alone')
-    expect(w.text()).toContain('never cut')
+    expect(w.text()).toContain('Part of your operator notes is not sent')
+    expect(w.text()).toContain('2,600 of 4,200')
     expect(w.text()).toContain('4,200 of those chars are your notes')
   })
 
@@ -505,9 +529,9 @@ describe('MemoryInjectionPreview (component)', () => {
   })
 
   it('does not warn when the notes fit', async () => {
-    mem.injectionPreview.value = { ...PREVIEW, operator_chars: 300, over_budget: false }
+    mem.injectionPreview.value = { ...PREVIEW, operator_chars: 300, notes_cut_chars: 0 }
     const w = await mountPreview()
-    expect(w.text()).not.toContain('Operator notes alone')
+    expect(w.text()).not.toContain('Part of your operator notes')
     expect(w.text()).toContain('300 of those chars are your notes')
   })
 

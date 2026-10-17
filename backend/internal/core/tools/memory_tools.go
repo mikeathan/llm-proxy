@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
+	"llm-proxy/internal/platform/datetext"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/models"
@@ -19,10 +21,20 @@ import (
 // across conversations via the memory_search and memory_update tools.
 type MemoryToolProvider struct {
 	store *memory.Store
+	// retention is how long a session fact lives before it expires (a missing or non-positive value means the default).
+	retention func() time.Duration
+	// now is the clock; tests replace it. The tool reads it in the user's zone to date relative references.
+	now func() time.Time
 }
 
 func NewMemoryToolProvider(store *memory.Store) *MemoryToolProvider {
-	return &MemoryToolProvider{store: store}
+	return &MemoryToolProvider{store: store, now: time.Now}
+}
+
+// WithSessionRetention sets where the session-fact lifetime comes from (a setting that can change while the server runs).
+func (m *MemoryToolProvider) WithSessionRetention(retention func() time.Duration) *MemoryToolProvider {
+	m.retention = retention
+	return m
 }
 
 // ── Three-tier route resolution ───────────────────────────────────────────
@@ -150,11 +162,30 @@ func (m *MemoryToolProvider) Search(ctx context.Context, args struct {
 		if e.MemoryType != memory.LongTerm {
 			fmt.Fprintf(&b, " [%s]", e.MemoryType)
 		}
+		if e.Kind != "" {
+			fmt.Fprintf(&b, " [%s]", e.Kind)
+		}
 		b.WriteString("\n")
 		b.WriteString(e.Content)
 		b.WriteString("\n")
+		b.WriteString(typingLine(e))
 	}
 	return b.String(), nil
+}
+
+// typingLine is the line under a search result that says why the fact matters and when it expires ("" when neither).
+func typingLine(e memory.MemoryEntry) string {
+	var parts []string
+	if e.Why != "" {
+		parts = append(parts, "why: "+e.Why)
+	}
+	if last, ok := e.LastDay(); ok {
+		parts = append(parts, "expires "+last)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ") + "\n"
 }
 
 const (
@@ -242,6 +273,11 @@ type MemoryUpdateArgs struct {
 	OldText string       `json:"old_text"`
 	// Separate saves the fact as its own entry even when a similar one exists (otherwise the tool reports the similar fact).
 	Separate bool `json:"separate"`
+	// Kind types the fact (user, feedback, project or reference) and Why is the one-line reason it matters; both are
+	// optional. Expires is a date after which the fact is removed ("2026-11-01", or a day such as "next Friday").
+	Kind    memory.Kind `json:"kind"`
+	Why     string      `json:"why"`
+	Expires string      `json:"expires"`
 }
 
 // Update saves a new memory or updates an existing one. Uses scope, mode, and keep
@@ -260,6 +296,11 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) 
 		return memorySecretRefusal, nil
 	}
 	args.Scope, args.Mode, args.Keep = withRoutingDefaults(ctx, args.Scope, args.Mode, args.Keep)
+	typing, refusal := m.resolveTyping(ctx, args.Kind, args.Why, args.Expires, args.Keep)
+	if refusal != "" {
+		return refusal, nil
+	}
+	args.Content = datetext.Absolutize(args.Content, m.localNow(ctx))
 
 	wsID := models.GetWorkspaceID(ctx)
 	route, err := ResolveMemoryRoute(args.Scope, args.Mode, args.Keep, wsID)
@@ -270,7 +311,7 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) 
 	saveWS := route.WorkspaceID
 
 	if args.OldText != "" {
-		if msg, replaced, err := m.replaceByOldText(ctx, route, wsID, args); err != nil || replaced {
+		if msg, replaced, err := m.replaceByOldText(ctx, route, wsID, args, typing); err != nil || replaced {
 			return msg, err
 		}
 	}
@@ -279,7 +320,7 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) 
 	if args.Separate {
 		policy = overlapSeparate
 	}
-	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), onOverlap: policy})
+	res, err := m.insertFact(ctx, saveRequest{workspaceID: saveWS, content: args.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), typing: typing, onOverlap: policy})
 	if err != nil {
 		return "", err
 	}
@@ -290,11 +331,13 @@ func (m *MemoryToolProvider) Update(ctx context.Context, args MemoryUpdateArgs) 
 // fact goes to first; failing that, in the other scope (the workspace's and the user's), and then moves the fact: a
 // fact "that actually applies to all my projects" must not leave a second copy behind. replaced is false when no fact
 // matches, so the caller saves the content as a new fact.
-func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryRoute, workspaceID string, args MemoryUpdateArgs) (msg string, replaced bool, err error) {
+func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryRoute, workspaceID string, args MemoryUpdateArgs, typing factTyping) (msg string, replaced bool, err error) {
 	title := deriveTitle(args.Content)
 	existing, err := m.store.FindByContentSubstring(ctx, route.WorkspaceID, args.OldText)
 	if err == nil {
-		if err := m.store.Update(ctx, route.WorkspaceID, existing.ID, title, args.Content, route.Tags, memory.ReplaceTags); err != nil {
+		kept := typing.keepingOf(existing)
+		if err := m.store.Update(ctx, route.WorkspaceID, existing.ID, memory.Edit{Title: title, Content: args.Content, Tags: route.Tags, TagMode: memory.ReplaceTags,
+			Kind: kept.kind, Why: kept.why, ExpiresAt: kept.expiresAt}); err != nil {
 			return "", false, fmt.Errorf("memory update failed: %w", err)
 		}
 		logging.Info("memory_update result", "action", "updated", "existing_id", existing.ID, "match", "old_text")
@@ -312,7 +355,9 @@ func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryR
 	if err != nil {
 		return "", false, nil // no match in either scope: the caller saves a new fact
 	}
-	id, err := m.store.Insert(ctx, route.WorkspaceID, memory.MemoryType(route.MemoryType), title, args.Content, route.Tags, memorySource(ctx))
+	kept := typing.keepingOf(old)
+	id, err := m.store.Insert(ctx, memory.NewEntry{WorkspaceID: route.WorkspaceID, MemoryType: memory.MemoryType(route.MemoryType), Title: title, Content: args.Content, Tags: route.Tags, Source: memorySource(ctx),
+		Kind: kept.kind, Why: kept.why, ExpiresAt: kept.expiresAt})
 	if err != nil {
 		return "", false, fmt.Errorf("memory update failed: %w", err)
 	}
@@ -321,6 +366,112 @@ func (m *MemoryToolProvider) replaceByOldText(ctx context.Context, route MemoryR
 	}
 	logging.Info("memory_update result", "action", "moved", "from_id", old.ID, "to_id", id, "match", "old_text")
 	return fmt.Sprintf("moved and updated memory entry %d to %d (type: %s)", old.ID, id, route.MemoryType), true, nil
+}
+
+// ── Typed facts and expiry ───────────────────────────────────────────────
+
+// factTyping is a fact's kind, one-line reason and expiry once validated; a zero expiresAt means it never expires.
+type factTyping struct {
+	kind      memory.Kind
+	why       string
+	expiresAt time.Time
+}
+
+// keepingOf fills what the caller left blank from an existing fact, so replacing a fact's text does not wipe its kind or
+// reason. The expiry is never inherited: it follows the new keep (or the explicit date) the caller gave.
+func (t factTyping) keepingOf(existing *memory.MemoryEntry) factTyping {
+	if t.kind == "" {
+		t.kind = existing.Kind
+	}
+	if t.why == "" {
+		t.why = existing.Why
+	}
+	return t
+}
+
+const (
+	defaultSessionLifetime = 90 * 24 * time.Hour // when no retention setting is wired (matches the default memory.retention_days)
+	expiresHint            = `not saved: expires must be a date written YYYY-MM-DD, or a day such as "next Friday"`
+	expiredRefusal         = "not saved: that expiry date has already passed"
+	kindRefusal            = "not saved: kind must be one of user, feedback, project or reference"
+)
+
+// ErrInvalidTyping is returned by SaveFact for a bad kind or reason.
+var ErrInvalidTyping = errors.New("memory: invalid kind or why")
+
+// localNow is the current time in the user's zone (the chat's, else the server's), the clock relative dates are read from.
+func (m *MemoryToolProvider) localNow(ctx context.Context) time.Time {
+	now := time.Now
+	if m.now != nil {
+		now = m.now
+	}
+	loc := time.Local
+	if zone := models.ChatTimezone(ctx); zone != "" {
+		if l, err := time.LoadLocation(zone); err == nil {
+			loc = l
+		}
+	}
+	return now().In(loc)
+}
+
+// sessionLifetime is how long a session fact lives.
+func (m *MemoryToolProvider) sessionLifetime() time.Duration {
+	if m.retention != nil {
+		if d := m.retention(); d > 0 {
+			return d
+		}
+	}
+	return defaultSessionLifetime
+}
+
+// resolveTyping validates the kind, reason and expiry a save names and works out the expiry: an explicit date lasts
+// through that day, a session fact (keep=session, either scope) lives for the session lifetime, anything else never
+// expires. refusal is the text to tell the model when something is malformed (and nothing may be saved).
+func (m *MemoryToolProvider) resolveTyping(ctx context.Context, kind memory.Kind, why, expires string, keep memory.Keep) (t factTyping, refusal string) {
+	if kind.Validate() != nil {
+		return t, kindRefusal
+	}
+	why = strings.TrimSpace(why)
+	if memory.ValidateTyping("", why) != nil {
+		return t, fmt.Sprintf("not saved: why must be one line of at most %d characters", memory.MaxWhyChars)
+	}
+	if isSecretContent(why) {
+		return t, memorySecretRefusal
+	}
+	t = factTyping{kind: kind, why: why}
+	now := m.localNow(ctx)
+	switch {
+	case strings.TrimSpace(expires) != "":
+		end, ok := expiryEnd(expires, now)
+		if !ok {
+			return t, expiresHint
+		}
+		if !end.After(now) {
+			return t, expiredRefusal
+		}
+		t.expiresAt = end
+	case keep == memory.KeepSession:
+		t.expiresAt = now.Add(m.sessionLifetime())
+	}
+	return t, ""
+}
+
+// expiryEnd is the instant a fact dated for the given day expires: the start of the next day. The day is written
+// YYYY-MM-DD, or as a relative day datetext understands ("next Friday").
+func expiryEnd(text string, now time.Time) (time.Time, bool) {
+	text = strings.TrimSpace(text)
+	loc := now.Location()
+	day, err := time.ParseInLocation(memory.ExpiryDayLayout, text, loc)
+	if err != nil {
+		resolved := datetext.Absolutize(text, now)
+		if resolved == text || len(resolved) < len(memory.ExpiryDayLayout) {
+			return time.Time{}, false
+		}
+		if day, err = time.ParseInLocation(memory.ExpiryDayLayout, resolved[:len(memory.ExpiryDayLayout)], loc); err != nil {
+			return time.Time{}, false
+		}
+	}
+	return time.Date(day.Year(), day.Month(), day.Day()+1, 0, 0, 0, 0, loc), true
 }
 
 // MemoryForgetArgs are the model-facing arguments of memory_forget.
@@ -451,6 +602,9 @@ type Fact struct {
 	Keep    memory.Keep
 	// Source attributes the entry; empty takes the tool's rule (memorySource).
 	Source string
+	// Kind and Why type the fact, as for memory_update.
+	Kind memory.Kind
+	Why  string
 }
 
 // SaveFact saves a fact with the same routing and dedup as memory_update.
@@ -461,12 +615,17 @@ func (m *MemoryToolProvider) SaveFact(ctx context.Context, workspaceID string, f
 	if isSecretContent(f.Content) {
 		return SaveResult{}, ErrSecretContent
 	}
+	typing, refusal := m.resolveTyping(ctx, f.Kind, f.Why, "", f.Keep)
+	if refusal != "" {
+		return SaveResult{}, fmt.Errorf("%w: %s", ErrInvalidTyping, refusal)
+	}
+	f.Content = datetext.Absolutize(f.Content, m.localNow(ctx))
 	route, err := ResolveMemoryRoute(f.Scope, f.Mode, f.Keep, workspaceID)
 	if err != nil {
 		return SaveResult{}, err
 	}
 	ctx = models.WithWorkspaceID(ctx, route.WorkspaceID)
-	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source, onOverlap: overlapReplace})
+	return m.insertFact(ctx, saveRequest{workspaceID: route.WorkspaceID, content: f.Content, tags: route.Tags, memType: memory.MemoryType(route.MemoryType), source: f.Source, typing: typing, onOverlap: overlapReplace})
 }
 
 // HasFact reports whether the workspace already holds this fact, exactly or as a near-duplicate.
@@ -474,6 +633,7 @@ func (m *MemoryToolProvider) HasFact(ctx context.Context, workspaceID, content s
 	if m.store == nil {
 		return false
 	}
+	content = datetext.Absolutize(content, m.localNow(ctx)) // facts are stored with their dates written out
 	if m.findOverlappingEntry(ctx, workspaceID, deriveTitle(content), content) != nil {
 		return true
 	}
@@ -487,6 +647,7 @@ type saveRequest struct {
 	tags        []string
 	memType     memory.MemoryType
 	source      string
+	typing      factTyping
 	onOverlap   overlapPolicy
 }
 
@@ -506,7 +667,9 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 			logging.Info("memory_update result", "action", "conflict", "existing_id", existing.ID, "match", "jaccard")
 			return SaveResult{Outcome: SaveConflict, ID: existing.ID, Type: req.memType, Existing: existing.Content}, nil
 		case overlapReplace:
-			if err := m.store.Update(ctx, req.workspaceID, existing.ID, title, req.content, req.tags, memory.MergeTags); err != nil {
+			kept := req.typing.keepingOf(existing)
+			if err := m.store.Update(ctx, req.workspaceID, existing.ID, memory.Edit{Title: title, Content: req.content, Tags: req.tags, TagMode: memory.MergeTags,
+				Kind: kept.kind, Why: kept.why, ExpiresAt: kept.expiresAt}); err != nil {
 				return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 			}
 			logging.Info("memory_update result", "action", "replaced", "existing_id", existing.ID, "match", "jaccard")
@@ -526,7 +689,8 @@ func (m *MemoryToolProvider) insertFact(ctx context.Context, req saveRequest) (S
 	if source == "" {
 		source = memorySource(ctx)
 	}
-	id, err := m.store.Insert(ctx, req.workspaceID, req.memType, title, req.content, req.tags, source)
+	id, err := m.store.Insert(ctx, memory.NewEntry{WorkspaceID: req.workspaceID, MemoryType: req.memType, Title: title, Content: req.content, Tags: req.tags, Source: source,
+		Kind: req.typing.kind, Why: req.typing.why, ExpiresAt: req.typing.expiresAt})
 	if err != nil {
 		return SaveResult{}, fmt.Errorf("memory update failed: %w", err)
 	}

@@ -70,7 +70,7 @@ func streamingToolRunWith(t *testing.T, store *memory.Store, opts AgentOptions, 
 // message so the prompt prefix stays byte-identical and the KV cache is reused.
 func TestHotMemory_PresentEveryTurn(t *testing.T) {
 	store := newTestMemoryStore(t)
-	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"}); err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
 
@@ -186,7 +186,7 @@ func TestHotMemory_BlockScalesWithContextWindow(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	for _, e := range manyHotEntries(60) {
-		if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{"hot"}, "agent"); err != nil {
+		if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{"hot"}, Source: "agent"}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -250,7 +250,7 @@ func TestPreviewHotMemory_MatchesWhatTheRunInjects(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	for _, e := range manyHotEntries(60) {
-		if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{"hot"}, "agent"); err != nil {
+		if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{"hot"}, Source: "agent"}); err != nil {
 			t.Fatalf("seed: %v", err)
 		}
 	}
@@ -343,32 +343,115 @@ func TestPreviewHotMemory_BlankNotesAddNoSections(t *testing.T) {
 	}
 }
 
-// The operator wrote the notes on purpose: they are never clipped, even when
-// they alone exceed the model's memory budget. The agent's facts give way.
-func TestPreviewHotMemory_NotesAreNeverCutAndFactsGiveWay(t *testing.T) {
-	big := strings.Repeat("Rule. ", 700) // ~4,200 chars vs a ~1,747-char budget
-	notes := memory.OperatorNotes{Workspace: big}
-	p := PreviewHotMemory(manyHotEntries(5), notes, localOpts)
+// Operator notes outrank saved facts but share the model's memory budget with them: a block of two long notes files
+// used to be several times the cap and pushed every saved fact out (G6). The block stays within the cap, the notes
+// are cut at a line boundary with a visible hint, and saved facts keep room.
+func TestPreviewHotMemory_NotesShareTheCapWithFacts(t *testing.T) {
+	line := "Follow this standing rule carefully and consistently.\n"
+	notes := memory.OperatorNotes{Global: strings.Repeat("Global "+line, 110), Workspace: strings.Repeat("Workspace "+line, 110)} // ~6,000 chars each
+	p := PreviewHotMemory(manyHotEntries(20), notes, localOpts)
 
-	if !strings.Contains(p.Block, strings.TrimSpace(big)) {
-		t.Error("operator notes must appear whole")
+	if p.Chars > p.BudgetChars {
+		t.Errorf("the block must stay within the cap: %d chars of %d", p.Chars, p.BudgetChars)
 	}
-	if len(p.Included) != 0 || len(p.Cut) != 5 {
-		t.Errorf("no room is left for facts: included %d, cut %d", len(p.Included), len(p.Cut))
+	if len(p.Included) == 0 {
+		t.Error("saved facts must keep some room beside long notes")
 	}
-	if !strings.Contains(p.Block, "5 more saved facts") {
-		t.Errorf("the model must still be told facts were left out: tail %q", p.Block[max(0, len(p.Block)-120):])
+	if p.NotesCutChars <= 0 || p.NotesCutChars >= p.OperatorChars {
+		t.Errorf("the cut must be reported and partial: cut %d of %d", p.NotesCutChars, p.OperatorChars)
 	}
-	if !p.OverBudget {
-		t.Error("the preview must flag that the notes alone exceed the budget")
+	if !strings.Contains(p.Block, fmt.Sprintf(prompts.HotMemoryNotesCutHint, p.NotesCutChars)) {
+		t.Errorf("the block must say how much of the notes is missing: %q", p.Block)
 	}
+	if !strings.Contains(p.Block, "Global Follow") || !strings.Contains(p.Block, "Workspace Follow") {
+		t.Error("both notes files keep a share of the room")
+	}
+	if strings.Contains(p.Block, "\nGlobal Follow this standing rule carefully and consisten\n") {
+		t.Error("notes must be cut at a line boundary, not mid-line")
+	}
+}
+
+// Saved facts keep only the room they need (up to a reserve): when they are few and short, the notes get the rest of the
+// cap instead of leaving it unused.
+func TestPreviewHotMemory_FewShortFactsLeaveTheRestOfTheCapToTheNotes(t *testing.T) {
+	notes := memory.OperatorNotes{Workspace: strings.Repeat("A standing rule that goes on a little.\n", 120)}
+	p := PreviewHotMemory(manyHotEntries(2), notes, localOpts)
+	if len(p.Included) != 2 {
+		t.Errorf("both short facts must be included, got %d", len(p.Included))
+	}
+	if p.Chars > p.BudgetChars || p.Chars < p.BudgetChars*97/100 {
+		t.Errorf("the notes should use the room the facts do not need: %d chars of a %d cap", p.Chars, p.BudgetChars)
+	}
+}
+
+// With no saved facts to protect, notes may use the whole cap.
+func TestPreviewHotMemory_NotesAloneMayUseTheWholeCap(t *testing.T) {
+	notes := memory.OperatorNotes{Workspace: strings.Repeat("A standing rule that goes on a little.\n", 120)}
+	p := PreviewHotMemory(nil, notes, localOpts)
+	if p.Chars > p.BudgetChars {
+		t.Errorf("the block must stay within the cap: %d of %d", p.Chars, p.BudgetChars)
+	}
+	if p.Chars < p.BudgetChars*9/10 {
+		t.Errorf("notes alone should fill most of the cap, used %d of %d", p.Chars, p.BudgetChars)
+	}
+	if p.NotesCutChars <= 0 {
+		t.Error("the cut must be reported")
+	}
+}
+
+func TestFitNotes(t *testing.T) {
+	lines := func(prefix string, n int) string {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			fmt.Fprintf(&b, "%s rule %02d\n", prefix, i)
+		}
+		return strings.TrimSpace(b.String())
+	}
+	t.Run("notes that fit are returned whole", func(t *testing.T) {
+		n := memory.OperatorNotes{Global: "one", Workspace: "two"}
+		if got, cut := fitNotes(n, 1000); got != n.Text() || cut != 0 {
+			t.Errorf("got %q cut %d", got, cut)
+		}
+	})
+	t.Run("a long file is cut at a line boundary and the hint counts what is missing", func(t *testing.T) {
+		n := memory.OperatorNotes{Workspace: lines("w", 40)}
+		got, cut := fitNotes(n, 200)
+		hint := fmt.Sprintf(prompts.HotMemoryNotesCutHint, cut)
+		if len(got) > 200 || cut <= 0 || !strings.HasSuffix(got, hint) {
+			t.Fatalf("len %d (room 200), cut %d, text %q", len(got), cut, got)
+		}
+		body := strings.TrimSpace(strings.TrimSuffix(got, hint))
+		for _, l := range strings.Split(body, "\n") {
+			if len(l) != len("w rule 00") || !strings.HasPrefix(l, "w rule ") {
+				t.Errorf("a line was cut mid-way: %q", l)
+			}
+		}
+		if want := len(n.Workspace) - len(body); cut != want {
+			t.Errorf("cut %d, want the characters not shown: %d", cut, want)
+		}
+	})
+	t.Run("two long files each keep a share", func(t *testing.T) {
+		got, _ := fitNotes(memory.OperatorNotes{Global: lines("g", 40), Workspace: lines("w", 40)}, 300)
+		if !strings.Contains(got, "g rule 00") || !strings.Contains(got, "w rule 00") {
+			t.Errorf("both files must appear: %q", got)
+		}
+	})
+	t.Run("a short file is kept whole and the long one gets the rest", func(t *testing.T) {
+		got, _ := fitNotes(memory.OperatorNotes{Global: "keep this short rule", Workspace: lines("w", 60)}, 300)
+		if !strings.Contains(got, "keep this short rule") {
+			t.Errorf("the short file must be whole: %q", got)
+		}
+		if len(got) > 300 {
+			t.Errorf("over the room: %d", len(got))
+		}
+	})
 }
 
 func TestPreviewHotMemory_FactsShareTheBudgetNotesLeaveBehind(t *testing.T) {
 	notes := memory.OperatorNotes{Workspace: strings.Repeat("n", 500)}
 	p := PreviewHotMemory(manyHotEntries(30), notes, localOpts)
 
-	if p.OverBudget || p.Chars > p.BudgetChars {
+	if p.Chars > p.BudgetChars {
 		t.Errorf("small notes plus cut facts must fit the budget: %d chars of %d", p.Chars, p.BudgetChars)
 	}
 	if len(p.Included) == 0 || len(p.Cut) == 0 {
@@ -393,7 +476,7 @@ func TestHotMemory_OperatorNotesReachEveryTurnAndMatchThePreview(t *testing.T) {
 	if err := store.SetOperatorNotes(ctx, memory.NotesWorkspace, "ws-1", "Always use tabs."); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build", []string{memory.HotTag}, "agent"); err != nil {
+	if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build", Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	opts := AgentOptions{WorkspaceID: "ws-1", ContextBudget: 21848, WorkloadClass: models.WorkloadLocal}
@@ -437,7 +520,7 @@ func TestHotMemory_HighPriorityFactSurvivesTheBudgetCut(t *testing.T) {
 	ctx := context.Background()
 	var oldestID int64
 	for i, e := range manyHotEntries(60) { // inserted oldest-first, so fact-00 is the oldest
-		id, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{memory.HotTag}, "agent")
+		id, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{memory.HotTag}, Source: "agent"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -482,7 +565,7 @@ func TestHotMemory_UsageCountsOnlyFactsThatWereSentOncePerRun(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
 	for _, e := range manyHotEntries(60) {
-		if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, e.Title, e.Content, []string{memory.HotTag}, "agent"); err != nil {
+		if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: e.Title, Content: e.Content, Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -515,7 +598,7 @@ func TestHotMemory_UsageCountsOnlyFactsThatWereSentOncePerRun(t *testing.T) {
 func TestHotMemory_PreviewDoesNotCountAsUse(t *testing.T) {
 	store := newTestMemoryStore(t)
 	ctx := context.Background()
-	store.Insert(ctx, "ws-1", memory.LongTerm, "a", "x", []string{memory.HotTag}, "agent")
+	store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "a", Content: "x", Tags: []string{memory.HotTag}, Source: "agent"})
 	entries, _ := store.SearchHot(ctx, "ws-1")
 
 	PreviewHotMemory(entries, memory.OperatorNotes{}, localOpts)
@@ -531,10 +614,10 @@ func TestHotMemory_PreviewDoesNotCountAsUse(t *testing.T) {
 func TestBuildHotInjection_DoesNotRepeatAnAutoDerivedTitle(t *testing.T) {
 	long := "Installed: Node v26.0.0, npm 11.12.1. This machine runs Darwin 27.0.0 and more words follow"
 	entries := []memory.MemoryEntry{
-		{Title: "My birthday is January 1st.", Content: "My birthday is January 1st."},          // title == content
-		{Title: long[:60], Content: long},                                                          // title is a prefix of content
-		{Title: "build", Content: "run go build ./... to verify"},                                  // an explicit title is kept
-		{Title: "", Content: "no title at all"},                                                    // blank title
+		{Title: "My birthday is January 1st.", Content: "My birthday is January 1st."}, // title == content
+		{Title: long[:60], Content: long},                                              // title is a prefix of content
+		{Title: "build", Content: "run go build ./... to verify"},                      // an explicit title is kept
+		{Title: "", Content: "no title at all"},                                        // blank title
 	}
 	got := injectionText(entries, 10_000)
 	want := "- My birthday is January 1st.\n- " + long + "\n- build: run go build ./... to verify\n- no title at all\n"
@@ -606,7 +689,7 @@ func TestSaveGuidance_FollowsTheMemoryBlockAndNeedsNoHotFact(t *testing.T) {
 	}
 
 	store := newTestMemoryStore(t)
-	if _, err := store.Insert(context.Background(), "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{"hot"}, "agent"); err != nil {
+	if _, err := store.Insert(context.Background(), memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build ./... to verify", Tags: []string{"hot"}, Source: "agent"}); err != nil {
 		t.Fatal(err)
 	}
 	head := firstRequestHead(t, store, opts)

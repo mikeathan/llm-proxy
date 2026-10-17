@@ -830,7 +830,7 @@ func TestConversationService_Execute_HotMemoryFollowsOverrides(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := newTestMemoryStore(t)
 			ctx := context.Background()
-			if _, err := store.Insert(ctx, "ws-1", memory.LongTerm, "build", "run go build ./... to verify", []string{memory.HotTag}, "agent"); err != nil {
+			if _, err := store.Insert(ctx, memory.NewEntry{WorkspaceID: "ws-1", MemoryType: memory.LongTerm, Title: "build", Content: "run go build ./... to verify", Tags: []string{memory.HotTag}, Source: "agent"}); err != nil {
 				t.Fatal(err)
 			}
 			deps := newMockConvDeps()
@@ -889,7 +889,9 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 		chat func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error)
 	}{
 		{"finished", answer},
-		{"failed", func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) { return nil, errors.New("model unavailable") }},
+		{"failed", func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return nil, errors.New("model unavailable")
+		}},
 		{"cancelled", func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) { return nil, context.Canceled }},
 	}
 	for _, tc := range cases {
@@ -897,8 +899,10 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 			pm := newTestPersistence(t)
 			svc := NewConversationService(newMockConvDeps(), pm)
 			client := &MockClient{
-				StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
-				ChatFunc:   tc.chat,
+				StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+					return nil, errors.New("no stream")
+				},
+				ChatFunc: tc.chat,
 			}
 			before := time.Now()
 			_, _ = svc.Execute(context.Background(), "ws-1", "conv_run", "hello", "v1", "UTC",
@@ -922,8 +926,10 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 		pm := newTestPersistence(t)
 		svc := NewConversationService(newMockConvDeps(), pm)
 		client := &MockClient{
-			StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
-			ChatFunc:   answer,
+			StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+				return nil, errors.New("no stream")
+			},
+			ChatFunc: answer,
 		}
 		for _, msg := range []string{"first", "second"} {
 			_, _ = svc.Execute(context.Background(), "ws-1", "conv_two", msg, "v1", "UTC",
@@ -954,7 +960,9 @@ func TestConversationService_RecordsReportedTokens(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(newMockConvDeps(), pm)
 	client := &MockClient{
-		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, errors.New("no stream")
+		},
 		ChatFunc: func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			return &proxy.ChatResponse{
 				Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "Here is a helpful response"}}},
@@ -978,7 +986,9 @@ func TestConversationService_RecordsToolWarningsOnTheTurn(t *testing.T) {
 	svc := NewConversationService(newMockConvDeps(), pm)
 	calls := 0
 	client := &MockClient{
-		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, errors.New("no stream") },
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, errors.New("no stream")
+		},
 		ChatFunc: func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
 			calls++
 			if calls == 1 {

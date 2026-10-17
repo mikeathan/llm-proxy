@@ -1,4 +1,4 @@
-import type { MemoryKeep, MemoryPriority, MemoryRecall, MemoryScope, MemoryType, NotesScope } from '../types/memory'
+import type { MemoryKeep, MemoryKind, MemoryPriority, MemoryRecall, MemoryScope, MemoryType, NotesScope } from '../types/memory'
 
 // Display names for memory types (MemoryPanel, MemoryDetail).
 export const MEMORY_TYPE_LABEL: Record<MemoryType, string> = {
@@ -31,6 +31,17 @@ export const MEMORY_KEEP_LABEL: Record<MemoryKeep, string> = {
   permanent: 'Keep it',
   session: 'This conversation only',
 }
+
+// What a fact is about, in the operator's words (backend memory.Kind).
+export const MEMORY_KIND_LABEL: Record<MemoryKind, string> = {
+  user: 'About me',
+  feedback: 'How to work with me',
+  project: 'About the work',
+  reference: 'Where to find something',
+}
+
+// Backend memory.MaxWhyChars.
+export const MEMORY_WHY_MAX = 200
 
 // Backend maxMemoryContentChars: a hot fact rides in every prompt, so keep it short.
 export const MEMORY_CONTENT_MAX = 2000
