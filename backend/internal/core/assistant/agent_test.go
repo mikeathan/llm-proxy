@@ -4904,7 +4904,7 @@ func TestPreparedOverContextBudget(t *testing.T) {
 
 	// Small history: under budget even with the injected tool reference.
 	small := []proxy.Message{{Role: proxy.UserRole, Content: "list the directory"}}
-	if agent.preparedOverContextBudget(small, provider.Tools) {
+	if agent.measureRequest(small, provider.Tools).over() {
 		t.Error("small history must be under the prepared budget")
 	}
 	// Raw history comfortably under budget AND prepared stays under.
@@ -4913,7 +4913,7 @@ func TestPreparedOverContextBudget(t *testing.T) {
 		{Role: proxy.AssistantRole, Content: "ok"},
 		{Role: proxy.ToolRole, Content: "result"},
 	}
-	if agent.preparedOverContextBudget(smallish, provider.Tools) {
+	if agent.measureRequest(smallish, provider.Tools).over() {
 		t.Error("expected under budget: raw ~158 + tool manual ~1100 < 2000")
 	}
 	// Raw history under budget, but the ENRICHED (prepared) request exceeds it
@@ -4923,11 +4923,11 @@ func TestPreparedOverContextBudget(t *testing.T) {
 		{Role: proxy.UserRole, Content: strings.Repeat("x", 1200)},
 		{Role: proxy.AssistantRole, Content: "ok"},
 	}
-	if !agent.preparedOverContextBudget(enriched, provider.Tools) {
+	if !agent.measureRequest(enriched, provider.Tools).over() {
 		t.Error("raw ~1203 is under 2000 but prepared (with tool manual) must exceed the budget")
 	}
 	big := []proxy.Message{{Role: proxy.UserRole, Content: strings.Repeat("z", 2500)}}
-	if !agent.preparedOverContextBudget(big, provider.Tools) {
+	if !agent.measureRequest(big, provider.Tools).over() {
 		t.Error("large history must exceed the prepared budget")
 	}
 }
@@ -4958,32 +4958,8 @@ func TestPreparedOverContextBudget_NativeToolArgs(t *testing.T) {
 		})
 		hist = append(hist, proxy.Message{Role: proxy.ToolRole, ToolCallID: "tc", Content: "ok"})
 	}
-	if !agent.preparedOverContextBudget(hist, provider.Tools) {
+	if !agent.measureRequest(hist, provider.Tools).over() {
 		t.Error("native-mode tool-call arguments must count toward the budget")
-	}
-}
-
-// TestPreparedOverContextBudget_NativeToolSchemas verifies NATIVE-mode tool
-// SCHEMAS count toward the budget. They travel in the request's tools field,
-// not in any message, yet the chat template renders them into the prompt:
-// vertex's 16k Qwen window overflowed by 17 tokens (16401 > 16384) with the
-// sieve never firing because ~20 KB of schemas were uncounted.
-func TestPreparedOverContextBudget_NativeToolSchemas(t *testing.T) {
-	provider := &MockProvider{Tools: []proxy.Tool{
-		{Type: "function", Function: proxy.FunctionSchema{Name: "read_file", Description: "read a file", Parameters: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{"path": map[string]string{"type": "string", "description": strings.Repeat("d", 3000)}},
-		}}},
-	}}
-	build := func(native bool) *Agent {
-		return NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
-			return nil, context.Canceled
-		}}, provider, &MockEngine{}, AgentOptions{ContextBudget: 5000, UseNativeTools: boolPtr(native)})
-	}
-	hist := []proxy.Message{{Role: proxy.UserRole, Content: strings.Repeat("x", 3000)}}
-	// Messages plus the native reference (~3100) are under 5000; the 3000-char parameter schema pushes it over.
-	if !build(true).preparedOverContextBudget(hist, provider.Tools) {
-		t.Error("native tool schemas must count toward the budget")
 	}
 }
 

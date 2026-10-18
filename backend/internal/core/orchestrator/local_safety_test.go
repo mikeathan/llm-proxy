@@ -120,7 +120,7 @@ func TestLocalContextLengthOnly_Priority2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	wantBudget := int(float64(8192-2730) * localContextCharsPerToken)
+	wantBudget := int(float64(8192-2730) * LocalCharsPerToken)
 	if b.MaxTokens != 2730 || b.ContextBudget != wantBudget {
 		t.Fatalf("expected 2730/%d (local context math), got %d/%d", wantBudget, b.MaxTokens, b.ContextBudget)
 	}
@@ -147,7 +147,7 @@ func TestLocalBogusMaxTokensIgnored(t *testing.T) {
 	if cfg.MaxTokens != 8192/3 {
 		t.Fatalf("expected max_tokens %d (n_ctx math wins), got %d", 8192/3, cfg.MaxTokens)
 	}
-	if cfg.ContextBudget != int(float64(8192-8192/3)*localContextCharsPerToken) {
+	if cfg.ContextBudget != int(float64(8192-8192/3)*LocalCharsPerToken) {
 		t.Fatalf("expected local context_budget from n_ctx, got %d", cfg.ContextBudget)
 	}
 }

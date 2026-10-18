@@ -222,16 +222,40 @@ type Choice struct {
 // Chat Response
 type ChatResponse struct {
 	Choices []Choice `json:"choices"`
-	// Usage is the token count the provider reports, when it does: llama.cpp
-	// on its final stream chunk, OpenAI-style APIs on a trailing chunk with no
-	// choices (only when asked), non-stream responses always. Nil otherwise.
+	// Usage is the token count the provider reports: OpenAI-style APIs on a
+	// trailing chunk with no choices (only when asked), non-stream responses
+	// always. llama.cpp sends it on a stream only when asked; read the count
+	// through ReportedUsage, which also takes its timings.
 	Usage *TokenUsage `json:"usage,omitempty"`
+	// Timings is llama.cpp's per-call timing block on its final stream chunk.
+	Timings *Timings `json:"timings,omitempty"`
 }
 
 // TokenUsage is a provider-reported token count for one LLM call.
 type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+}
+
+// Timings is the part of llama.cpp's timing block that counts tokens: PromptN
+// the prompt tokens it processed, CacheN the ones its prompt cache already held.
+type Timings struct {
+	CacheN     int `json:"cache_n"`
+	PromptN    int `json:"prompt_n"`
+	PredictedN int `json:"predicted_n"`
+}
+
+// ReportedUsage is the call's token count when the provider reported one: the
+// usage block, else llama.cpp's timings (whose prompt count is the cached plus
+// the processed tokens). Nil when neither carries a prompt count.
+func (r *ChatResponse) ReportedUsage() *TokenUsage {
+	if r.Usage != nil {
+		return r.Usage
+	}
+	if r.Timings == nil || r.Timings.CacheN+r.Timings.PromptN == 0 {
+		return nil
+	}
+	return &TokenUsage{PromptTokens: r.Timings.CacheN + r.Timings.PromptN, CompletionTokens: r.Timings.PredictedN}
 }
 
 type Tool struct {

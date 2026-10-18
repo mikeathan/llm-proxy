@@ -164,6 +164,7 @@ type Orchestrator struct {
 	Interceptor *StreamInterceptor
 	Normalizer  *ReasoningNormalizer
 	Slots       *SlotManager
+	Ratios      *TokenRatios
 }
 
 func New(store *ledger.Store) *Orchestrator {
@@ -179,6 +180,7 @@ func New(store *ledger.Store) *Orchestrator {
 		Interceptor: interceptor,
 		Normalizer:  normalizer,
 		Slots:       slots,
+		Ratios:      NewTokenRatios(),
 	}
 }
 

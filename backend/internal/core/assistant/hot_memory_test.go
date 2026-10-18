@@ -229,11 +229,11 @@ func TestPreparedOverContextBudget_CountsHotMemory(t *testing.T) {
 	}
 	agent.config.ContextBudget = base + 100
 
-	if agent.preparedOverContextBudget(history, nil) {
+	if agent.measureRequest(history, nil).over() {
 		t.Fatal("without a memory block the request fits")
 	}
 	agent.runS.prompt.memoryBlock = "<memory>\n" + strings.Repeat("m", 500) + "\n</memory>"
-	if !agent.preparedOverContextBudget(history, nil) {
+	if !agent.measureRequest(history, nil).over() {
 		t.Error("the 500-char memory block must be counted against the budget")
 	}
 }

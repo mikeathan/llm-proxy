@@ -73,6 +73,9 @@ var (
 	ErrModelStarting = errors.New("model is starting")
 	ErrUnknownModel  = errors.New("unknown model")
 	ErrModelExists   = errors.New("model already exists")
+	// ErrPromptTooLarge ends a run whose uncuttable part (system prompt, task, tool schemas) alone is larger than the
+	// model's context window: no trimming of the conversation can make the request fit.
+	ErrPromptTooLarge = errors.New("prompt too large for the model's context window")
 )
 
 type ModelPricing struct {

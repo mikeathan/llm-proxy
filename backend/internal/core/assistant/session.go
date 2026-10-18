@@ -187,10 +187,15 @@ func (s *runSession) emptyTurnNag() string {
 	return prompts.AutomationNagPrompt
 }
 
-func (s *runSession) handleContextSizeError() error {
+func (s *runSession) handleContextSizeError(cause error) error {
 	s.sieve.sieveStreak++
 	if s.sieve.sieveStreak >= sessionMaxSieveRetries {
 		return fmt.Errorf("agent execution failed: model stuck in reasoning loop after %d sieve retries", s.sieve.sieveStreak)
+	}
+	// A rejection that says how big the request was and what window the server enforces is answered by cutting to
+	// that window in one step; anything else falls back to keeping a fixed tail of the conversation.
+	if handled, err := s.shrinkToReportedWindow(cause); handled {
+		return err
 	}
 	// First sieve uses reactive (keep 2 + 6 messages),
 	// subsequent attempts use aggressive (keep 2 + 3 messages)
@@ -912,7 +917,7 @@ func (s *runSession) handleTurnError(err error) (done bool, reply string, outErr
 		return true, "", fmt.Errorf("agent stalled: %w", err)
 	}
 	if failures.IsContextSizeError(err) {
-		if sieveErr := s.handleContextSizeError(); sieveErr != nil {
+		if sieveErr := s.handleContextSizeError(err); sieveErr != nil {
 			return true, "", sieveErr
 		}
 		return false, "", nil // continue loop
@@ -1102,8 +1107,8 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	// and let the prompt overflow the serving context (2026-08-30 smoke-test
 	// run: context grew to ~27.7 KB with the sieve never firing, then the
 	// server 400'd "context too long").
-	if over, overhead := a.preparedRequestSize(*history, toolsList); over {
-		*history = a.applyPhysicalSieve(*history, overhead)
+	if size := a.measureRequest(*history, toolsList); size.over() {
+		*history = a.applyPhysicalSieve(*history, size.overhead())
 	}
 
 	// Finalization turn: run ONE turn with tools disabled so the model is

@@ -323,7 +323,7 @@ func TestApplyMetadataDefaults_BudgetReservesResponseSpace(t *testing.T) {
 		Metadata: &models.ModelMetadata{ContextLength: 8192},
 	}
 	ApplyMetadataDefaults(cfg)
-	expectedBudget := int(float64(8192-cfg.MaxTokens) * localContextCharsPerToken)
+	expectedBudget := int(float64(8192-cfg.MaxTokens) * LocalCharsPerToken)
 	if cfg.ContextBudget != expectedBudget {
 		t.Fatalf("expected context_budget=%d (leaves %d tokens for response), got %d",
 			expectedBudget, cfg.MaxTokens, cfg.ContextBudget)
@@ -349,7 +349,7 @@ func TestApplyMetadataDefaults_ExplicitMaxTokensStillReserves(t *testing.T) {
 	if cfg.MaxTokens != 512 {
 		t.Fatalf("explicit max_tokens should not be overwritten, got %d", cfg.MaxTokens)
 	}
-	expectedBudget := int(float64(4096-512) * localContextCharsPerToken) // 14336
+	expectedBudget := int(float64(4096-512) * LocalCharsPerToken) // 14336
 	if cfg.ContextBudget != expectedBudget {
 		t.Fatalf("expected context_budget=%d (reserving %d response tokens), got %d",
 			expectedBudget, cfg.MaxTokens, cfg.ContextBudget)

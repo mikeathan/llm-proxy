@@ -5,7 +5,6 @@
 package assistant
 
 import (
-	"encoding/json"
 	"slices"
 	"strings"
 
@@ -46,7 +45,8 @@ type physicalSieve struct {
 func (p *physicalSieve) Name() string { return "physical" }
 
 func (p *physicalSieve) Sieve(history []proxy.Message) []proxy.Message {
-	return fitToBudget(p.prune(history), max(p.contextBudget-p.overhead, 0))
+	out, _ := shrinkHistory(p.prune(history), max(p.contextBudget-p.overhead, 0))
+	return out
 }
 
 // prune drops and compresses old messages.
@@ -101,39 +101,6 @@ func (p *physicalSieve) prune(history []proxy.Message) []proxy.Message {
 		p.warned = true
 	}
 	return newHistory
-}
-
-// minFitMessageChars is the least a message is cut to when fitting a budget, so
-// every kept tool result stays readable.
-const (
-	minFitMessageChars = 500
-	fitMarkerAllowance = 40 // room for the truncation marker per cut message
-)
-
-// fitToBudget guarantees the result fits budget when the locked head does: the
-// kept messages after it are cut to an equal share, head and tail around a
-// marker. Dropping messages cannot do this alone when the few that remain are
-// each large (fetched pages), which left a request over the serving window.
-func fitToBudget(history []proxy.Message, budget int) []proxy.Message {
-	total := 0
-	for _, m := range history {
-		total += messageChars(m)
-	}
-	if total <= budget || len(history) <= sieveLockedHead {
-		return history
-	}
-	head := 0
-	for _, m := range history[:sieveLockedHead] {
-		head += messageChars(m)
-	}
-	// Each cut adds a truncation marker; leave room for it.
-	share := max((budget-head)/(len(history)-sieveLockedHead)-fitMarkerAllowance, minFitMessageChars)
-	out := slices.Clone(history)
-	for i := sieveLockedHead; i < len(out); i++ {
-		out[i].Content = truncateLongContent(out[i].Content, share)
-		out[i].ReasoningContent = truncateLongContent(out[i].ReasoningContent, share/2)
-	}
-	return out
 }
 
 // sieveHistory keeps the locked head, inserts the sieve note, and retains the
@@ -229,6 +196,8 @@ const (
 	sieveAggressiveTail  = 3
 	compressContentMax   = 4000
 	compressReasoningMax = 2000
+
+	sieveTruncationMarker = "\n...[Truncated]...\n"
 )
 
 // truncateLongContent preserves head+tail around a truncation marker so the
@@ -236,7 +205,7 @@ const (
 // middle is dropped under context pressure. It delegates to the shared
 // proxy.TruncateResult with the concise marker used by the sieve layer.
 func truncateLongContent(s string, limit int) string {
-	return proxy.TruncateResult(s, limit, "\n...[Truncated]...\n")
+	return proxy.TruncateResult(s, limit, sieveTruncationMarker)
 }
 
 // applyPhysicalSieve prunes an over-budget history. The "wrap up now" warning is
@@ -245,61 +214,12 @@ func truncateLongContent(s string, limit int) string {
 // the progress ledger are refreshed each time regardless).
 func (a *Agent) applyPhysicalSieve(history []proxy.Message, overhead int) []proxy.Message {
 	warn := a.runS == nil || !a.runS.sieve.contextWarned
-	s := &physicalSieve{logger: a.deps.Logger, contextBudget: a.config.ContextBudget, overhead: overhead, ledger: a.sieveLedger(), warn: warn}
+	s := &physicalSieve{logger: a.deps.Logger, contextBudget: a.requestLimit(), overhead: overhead, ledger: a.sieveLedger(), warn: warn}
 	pruned := s.Sieve(history)
 	if s.warned && a.runS != nil {
 		a.runS.sieve.contextWarned = true
 	}
 	return pruned
-}
-
-// preparedOverContextBudget reports whether the prepared request — history
-// plus the system-prompt enrichment injected at prepare time (tool
-// reference/manual, hot memory, prefill) and the native tool schemas — exceeds
-// the model's context budget in characters. The budget must apply to the
-// request that is actually sent: measuring raw history alone under-counts the
-// prompt, so the sieve could fire too late and overflow the serving context.
-func (a *Agent) preparedOverContextBudget(history []proxy.Message, tools []proxy.Tool) bool {
-	over, _ := a.preparedRequestSize(history, tools)
-	return over
-}
-
-// preparedRequestSize is preparedOverContextBudget plus the request's overhead:
-// the characters it carries beyond the history, which the sieve subtracts from
-// its target.
-func (a *Agent) preparedRequestSize(history []proxy.Message, tools []proxy.Tool) (over bool, overhead int) {
-	if a.config.ContextBudget <= 0 {
-		return false, 0
-	}
-	llmTools := tools
-	if !a.config.UseNativeTools {
-		llmTools = nil
-	}
-	prepared, _ := a.prepareMessagesForTurn(history, tools, llmTools)
-	total := toolSchemaChars(llmTools)
-	for _, m := range prepared {
-		total += messageChars(m)
-	}
-	raw := 0
-	for _, m := range history {
-		raw += messageChars(m)
-	}
-	return total > a.config.ContextBudget, max(total-raw, 0)
-}
-
-// toolSchemaChars is the size of the tool definitions a native-tools request
-// carries in its tools field. They are in no message, yet the server's chat
-// template renders them into the prompt: with ~20 KB of schemas uncounted,
-// vertex's 16k window overflowed (16401 > 16384) before the sieve fired.
-func toolSchemaChars(tools []proxy.Tool) int {
-	if len(tools) == 0 {
-		return 0
-	}
-	b, err := json.Marshal(tools)
-	if err != nil {
-		return 0
-	}
-	return len(b)
 }
 
 func (a *Agent) applyReactiveSieve(history []proxy.Message) []proxy.Message {

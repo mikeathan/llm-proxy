@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/proxy"
 )
 
@@ -123,6 +124,9 @@ func TestIsContextSizeError(t *testing.T) {
 		{"reduce the length", fmt.Errorf("please reduce the length of the messages"), true},
 		{"too many tokens", fmt.Errorf("too many tokens for this model"), true},
 		{"token limit", fmt.Errorf("token limit reached"), false},
+		{"typed overflow", fmt.Errorf("stream: %w", &providers.ContextOverflowError{PromptTokens: 16401, WindowTokens: 16384}), true},
+		{"typed overflow without counts", &providers.ContextOverflowError{}, true},
+		{"reasoning stuck shares the recovery", fmt.Errorf("reasoning stuck: aborted"), true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

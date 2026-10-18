@@ -257,7 +257,7 @@ func (a *Agent) handlePrefillRejection(
 	if len(tools) > 0 {
 		prepared = a.injectToolInstructions(prepared, tools)
 	}
-	return a.deps.Client.Stream(ctx, a.buildXMLRequest(prepared))
+	return a.sendStream(ctx, a.buildXMLRequest(prepared))
 }
 
 // retryStreamWithoutPrefill re-issues the stream with prefill disabled when the
@@ -388,7 +388,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	// wait) before any response content arrives. Neutral status only.
 	a.notifyAgentThinking()
 
-	ch, streamErr := a.deps.Client.Stream(ctx, req)
+	ch, streamErr := a.sendStream(ctx, req)
 	a.deps.Logger.Info("stream request sent", "model", a.config.ModelName,
 		"max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice,
 		"temperature", req.Temperature)
@@ -845,8 +845,8 @@ func (s *streamRun) handleTick() (stop bool) {
 // handleChunk processes one stream chunk in the fixed guard order and reports
 // whether the stream must stop (the caller then returns nil).
 func (s *streamRun) handleChunk(ctx context.Context, resp *proxy.ChatResponse) (stop bool) {
-	if resp.Usage != nil {
-		s.reportedUsage = resp.Usage
+	if usage := resp.ReportedUsage(); usage != nil {
+		s.reportedUsage = usage
 	}
 	// A usage-only chunk (OpenAI-style) has no choices.
 	if len(resp.Choices) == 0 {
@@ -1119,7 +1119,7 @@ func (a *Agent) retryWithoutTools(ctx context.Context, history []proxy.Message) 
 	defer cancel()
 	// Sanitized like every other request: persisted UI fields (a run's error,
 	// a turn's run record) and reasoning never reach the provider (II.8).
-	return a.deps.Client.Chat(chatCtx, proxy.ChatRequest{Messages: proxy.SanitizeHistory(history), MaxTokens: a.config.MaxTokens})
+	return a.sendChat(chatCtx, proxy.ChatRequest{Messages: proxy.SanitizeHistory(history), MaxTokens: a.config.MaxTokens})
 }
 
 func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []proxy.Message, tools []proxy.Tool, toolChoice proxy.ToolChoice) (proxy.Message, error) {
@@ -1150,7 +1150,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		return waitWithHeartbeat(ctx, hb, heartbeatStart, a.notifyLifecycle, fn)
 	}
 
-	resp, err := wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
+	resp, err := wait(func() (*proxy.ChatResponse, error) { return a.sendChat(chatCtx, req) })
 	if err != nil && prefill != "" && failures.IsPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying without prefill in XML mode (non-stream)")
 		a.disablePrefill()
@@ -1165,7 +1165,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 			ToolChoice: toolChoice,
 			MaxTokens:  a.config.MaxTokens,
 		}
-		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
+		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.sendChat(chatCtx, req) })
 	}
 	if err != nil && failures.IsToolSupportError(err) {
 		a.deps.Logger.Warn("model does not support tools, retrying without them", "error", err)
@@ -1175,7 +1175,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 	if err != nil && failures.IsUnsupportedParameterError(err) {
 		a.deps.Logger.Warn("provider rejected unsupported parameter, retrying without reasoning params", "error", err)
 		proxy.ClearReasoningParams(&req)
-		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.deps.Client.Chat(chatCtx, req) })
+		resp, err = wait(func() (*proxy.ChatResponse, error) { return a.sendChat(chatCtx, req) })
 	}
 
 	if err != nil {
@@ -1188,7 +1188,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 
 	msg := resp.Choices[0].Message
 	msg.FinishReason = resp.Choices[0].FinishReason
-	recordReportedUsage(ctx, resp.Usage)
+	a.recordUsage(ctx, resp.ReportedUsage())
 	if prefill != "" {
 		msg.Content = joinPrefill(prefill, msg.Content)
 	}
@@ -1211,14 +1211,14 @@ func (a *Agent) computeNextResponseStreamXML(ctx context.Context, history []prox
 	// Neutral "working" status before the stream begins.
 	a.notifyAgentThinking()
 
-	ch, err := a.deps.Client.Stream(ctx, req)
+	ch, err := a.sendStream(ctx, req)
 
 	if err != nil && prefill != "" && failures.IsPrefillThinkingError(err) {
 		a.deps.Logger.Info("prefill rejected by server (thinking mode), retrying stream without prefill")
 		a.disablePrefill()
 		prefill = ""
 		prepared, _ = a.prepareMessagesForTurn(history, tools, nil)
-		ch, err = a.deps.Client.Stream(ctx, a.buildXMLRequest(prepared))
+		ch, err = a.sendStream(ctx, a.buildXMLRequest(prepared))
 	}
 
 	if err != nil {
@@ -1336,7 +1336,7 @@ func normalizeContent(content string) string {
 // recordReportedUsage adds the stream's provider-reported token count, if
 // any, to the run's tracker once the stream ends.
 func (s *streamRun) recordReportedUsage(ctx context.Context) {
-	recordReportedUsage(ctx, s.reportedUsage)
+	s.agent.recordUsage(ctx, s.reportedUsage)
 }
 
 // recordReportedUsage adds one call's provider-reported token count to the

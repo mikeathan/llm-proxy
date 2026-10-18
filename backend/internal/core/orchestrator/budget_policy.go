@@ -31,17 +31,20 @@ const (
 	// viable prompt reserve.  publishedCtx <= this → ErrCapabilityImpossible.
 	minViablySmallContext = 1024
 
-	// localContextCharsPerToken converts the local prompt-token reserve into a
+	// LocalCharsPerToken converts the local prompt-token reserve into a
 	// character-based sieve budget. Real LLM tokenizers average ~3.5-4.75
 	// chars/token (measured 4.75 for a mixed reasoning/JSON/code prompt on a
 	// 35B thinking model); the project's own reasoning-budget check
 	// (assistant/agent.go) and the Hermes agent both use 4.0. The old "2
 	// chars/token" under-provisioned the sieve by ~2x, pruning history when
-	// the real window was barely a third full. 4.0 deliberately UNDER-estimates
-	// the measured ratio, so the char budget maps to slightly fewer prompt
-	// tokens than the reserve — the sieve fires before the token window fills,
-	// leaving room for max_tokens of output.
-	localContextCharsPerToken = 4.0
+	// the real window was barely a third full. 4.0 is the nominal figure the
+	// persisted char budget is stated in; it fits prose (4.1 measured on
+	// Qwen3.6) but over-states dense tool output (JSON search results 2.8, raw
+	// HTML 2.7-3.4 chars/token, measured 2026-10-18), where it let a 16k window
+	// overflow. The assistant scales the budget by the ratio it learns from the
+	// server's own prompt counts (TokenRatios), so a local run is held to the
+	// token reserve whatever it contains.
+	LocalCharsPerToken = 4.0
 )
 
 // ErrCapabilityImpossible is a typed error returned when a published context
@@ -63,7 +66,7 @@ type BudgetPolicy interface {
 }
 
 // LocalBudgetPolicy is a copy of the original local math: ctx/3 for the output
-// cap and (ctx - maxTokens) × localContextCharsPerToken for the sieve budget.
+// cap and (ctx - maxTokens) × LocalCharsPerToken for the sieve budget.
 // Requires a resolved serving context; never consults providerCtxDefaults
 // (Fix 2).  Numeric-only — no typed error on the runtime path.
 type LocalBudgetPolicy struct{}
@@ -83,7 +86,7 @@ func (LocalBudgetPolicy) Derive(cfg models.ModelConfig, ctx ContextResolution) (
 	}
 	return Budget{
 		MaxTokens:     maxTokens,
-		ContextBudget: int(float64(availableCtx) * localContextCharsPerToken),
+		ContextBudget: int(float64(availableCtx) * LocalCharsPerToken),
 	}, nil
 }
 

@@ -9,8 +9,10 @@
 package failures
 
 import (
+	"errors"
 	"strings"
 
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/proxy"
 )
 
@@ -65,17 +67,18 @@ func IsJSONSyntaxError(err error) bool {
 }
 
 // IsContextSizeError reports whether the request exceeded the model's context
-// window (drives the physical-sieve recovery, not a UI message).
+// window, or the reasoning got stuck (which recovers the same way): drives the
+// sieve recovery, not a UI message. The typed overflow error is the structured
+// answer; the body markers cover errors that reach us as text.
 func IsContextSizeError(err error) bool {
 	if err == nil {
 		return false
 	}
+	if errors.Is(err, providers.ErrContextOverflow) || providers.IsContextOverflowBody(err.Error()) {
+		return true
+	}
 	low := strings.ToLower(err.Error())
-	return strings.Contains(low, "context size") ||
-		strings.Contains(low, "context_length_exceeded") ||
-		strings.Contains(low, "maximum context length") ||
-		strings.Contains(low, "reduce the length") ||
-		strings.Contains(low, "too many tokens") ||
+	return strings.Contains(low, "too many tokens") ||
 		strings.Contains(low, "reasoning stuck")
 }
 
