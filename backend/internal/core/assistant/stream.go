@@ -842,11 +842,22 @@ func (s *streamRun) handleTick() (stop bool) {
 	return false
 }
 
+// mergeReportedUsage is the later chunk's count, which wins, keeping the cache count an earlier chunk reported
+// when the later one carries none (llama.cpp's timings, then an OpenAI-style usage-only chunk).
+func mergeReportedUsage(earlier, later *proxy.TokenUsage) *proxy.TokenUsage {
+	if earlier == nil || later.CachedTokens != 0 || earlier.CachedTokens == 0 {
+		return later
+	}
+	merged := *later
+	merged.CachedTokens = earlier.CachedTokens
+	return &merged
+}
+
 // handleChunk processes one stream chunk in the fixed guard order and reports
 // whether the stream must stop (the caller then returns nil).
 func (s *streamRun) handleChunk(ctx context.Context, resp *proxy.ChatResponse) (stop bool) {
 	if usage := resp.ReportedUsage(); usage != nil {
-		s.reportedUsage = usage
+		s.reportedUsage = mergeReportedUsage(s.reportedUsage, usage)
 	}
 	// A usage-only chunk (OpenAI-style) has no choices.
 	if len(resp.Choices) == 0 {
@@ -1344,5 +1355,6 @@ func (s *streamRun) recordReportedUsage(ctx context.Context) {
 func recordReportedUsage(ctx context.Context, reported *proxy.TokenUsage) {
 	if t := usage.FromContext(ctx); t != nil && reported != nil {
 		t.AddReportedUsage(reported.PromptTokens, reported.CompletionTokens)
+		t.AddCachedTokens(reported.CachedTokens)
 	}
 }

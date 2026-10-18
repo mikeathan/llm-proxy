@@ -49,9 +49,10 @@ executor.go Execute()
 
 - `context_budget` in chars (default 8000, overridable per-model via settings.yml)
 - When total chars exceeds budget, `applyPhysicalSieve()` fires:
-  1. Keep locked head (system message + first user message)
+  1. Keep locked head (system message + first user message; never a tool call, `keptHead`)
   2. Insert sieve marker: `[System Note: History distilled...]`, then the progress ledger message (`ledger.go`; facts only, one per prune, bounded to a share of `ContextBudget`). Each prune REPLACES earlier sieve messages (`withoutSieveMessages`); the "deliver final answer NOW" warning is sent once per run
-  3. Keep priority tail (last 5-10 messages depending on stuck count)
+  3. Keep priority tail (last 5-10 messages depending on stuck count); it starts at the call that made its first result (`tailStart`), so a call is never kept without its result. `proxy.RepairToolPairing` heals a saved history once at `newRunSession`
+  4. `TokenUsage.CachedTokens` (llama.cpp `cache_n`) is summed per run and logged per call: a history rewrite shows as `cached_tokens` collapsing to ~0
   4. Before dropping, compress long `Content` (>4000 chars) and `ReasoningContent` (>2000 chars) with head+tail truncation
 
 ## Stuck Detection
@@ -61,6 +62,10 @@ executor.go Execute()
 **Reasoning-loop guard (`reasoning_repetition.go`):** while the stream is only thinking, once per 1 KB of growth the last 4 KB (whitespace collapsed, digits as written) are scanned: if ≥ half of the 64-byte windows already occurred earlier in the tail, abort into `[stuck]` recovery (`stuck_detected`, `reason: reasoning_repetition`). Judges content, not length, so loops stop in ~3K chars; on real thinking the top score was 0.06 vs the 0.5 threshold. Stays on when `SkipStuckCheck` is set. Paraphrased, count-up or long-period loops fall back to the ceiling / duration cap; digits are not normalised so drafted CSV / tables / checklists are not flagged.
 
 Note: workloads classified local (a llama.cpp server run directly, or one behind an OpenAI-style URL identified by its listing fingerprint, SPEC-005) auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec(provider, workload, …)` → `DefaultReasoningBudget`, `max_tokens/3`); the derivation is from workload and context size, never the model name.
+
+**Detector stop in chat answers instead of failing:** when `rd.Check`, `CheckAlternating`, `CheckSequenceRepeat` or `CheckSameTarget` fires on the assistant channel and the run has a tool result, `stopOnLoop` runs one tools-off finalization turn (`prompts.LoopStopFinalizePrompt`) and returns the model's answer; automations, runs with no tool work and a model that will not answer keep the `LoopError`.
+
+**Progress monitor (`progress/`, chat only):** judges read-only results by how much of them is new to the run (word 4-grams of values), stricter for a call that rewords an earlier one of the same tool; streaks are per tool; any non-read-only call resets. Two stale results of one tool append one factual `[progress note: ...]` line to the newest tool result, `StrongAfter` (MaxSteps/6, clamped 4..6) a second; each once per streak. Never replaces the sieve warning; automations are not watched. Wired in `Agent.progressNote` (`tool_exec.go`).
 
 **Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
 

@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.7"
+version: "1.8"
 status: stable
 last_updated: 2026-10-18
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -13,6 +13,42 @@ supersedes:
 
 ## Changelog
 
+- **1.8 (2026-10-18)** — The sieve no longer splits a tool call from its result, and the loop records the prompt cache. Found
+  in a 141 s run on vertex (plan `PLANS/agent-loop/run-efficiency-and-convergence.md`): the sieve kept
+  `[system, task, assistant(tool_call)]` as its locked head and dropped that call's result, so request 8 carried an orphaned
+  call and the saved conversation kept it for every later turn. (1) `keptHead` stops the locked head before the tool loop and
+  `tailStart` grows the tail back to the call that made its first result, in the physical, reactive and aggressive sieves; the
+  tail may grow by one batch of results, and `shrinkHistory` still runs after the prune, so the request still fits. (2)
+  `proxy.RepairToolPairing` runs once when a run takes its working copy of the history (`newRunSession`), native tools only,
+  and drops a call without a result and a result without an earlier call, so a conversation saved by an older build heals. A
+  guardrail approval does not start a new run (the backend waits in place on the decision channel), so no live call is
+  dropped. (3) `TokenUsage.CachedTokens` (llama.cpp `timings.cache_n`, also when the server sends `usage`; an earlier chunk's
+  count survives a later usage-only chunk) is summed per run into `TurnRun.CachedTokens` and logged per call
+  (`llm call usage`): cached near prompt when the cache works, near zero after a history rewrite. **When the sieve fires, the
+  note, the ledger and the one-time wrap-up warning are exactly as in 1.7**: a replay of the measured run's request 8 warns at
+  every history budget from 14 to 22 k chars, with no broken pair. Result-body stubbing was built and reverted in the same
+  change: it avoided the warning that ended that run, and nothing yet replaces it.
+  (4) **A chat run a repetition detector stops now answers instead of failing** (`stopOnLoop`, `session.go`): when the duplicate,
+  spiral, alternating, cycle or same-target detector fires on the assistant channel and the run has a tool result, one tools-off
+  turn (`finalizeReport` with `prompts.LoopStopFinalizePrompt`, a `SYSTEM:` control message: answer from what was found, say what
+  is missing, do not invent it) replaces the error. Only an answer the model wrote counts; a synthesized statistics summary, a
+  model that keeps calling tools with tools off, an automation (a loop is a failure it must report) and a run with no tool work
+  keep the `LoopError`. It only ever replaces a failure. Found in a 2026-10-18 local run: a 503 made the model repeat one URL,
+  the detector stopped it, and the user got an error and an empty answer.
+  (5) **Progress monitor** (`progress` package, wired in `appendToolResult` via `Agent.progressNote`; chat runs only). The
+  repetition detectors key on a call's tool and arguments, so a model that rewords its query each call is invisible to them
+  while the results repeat. The monitor judges the results: the share of a read-only result's content (word 4-grams of its
+  string and number values, so JSON field names never count) that the run has not seen. A result is *stale* below 20 % new,
+  or below 50 % new when its call's arguments overlap an earlier call of the same tool by at least 60 % of their words (a
+  reworded query). Streaks are counted per tool, so a page fetched between two searches does not reset the searches'
+  streak, and any non-read-only call (`toolpolicy.EffectReadOnly` is the test) resets every streak. At 2 stale results of one
+  tool the result carries one factual line, `[progress note: the last 2 <tool> results added nothing new to what you already
+  have (N useful results so far).]`; at `StrongAfter` (a sixth of `MaxSteps`, clamped 4..6) one more, adding `Answer from what
+  you have, and say what is missing.` Each level is raised once per streak and re-armed by progress. The line is appended to
+  the newest tool result, so the cached prefix is untouched, and it never replaces the sieve's wrap-up warning, which is
+  unchanged. Automations are not watched. Measured limit: replayed over the 2026-10-18 141 s run it stays silent, because
+  that run's searches were genuinely partly new (38 % and 64 %); the monitor catches repeats, not a search engine that never
+  holds the answer.
 - **1.7 (2026-10-18)** — The context budget measures the request the server will count, and an overflow is answered in one
   step. Found on vertex 2026-10-17: a 16,401-token prompt in a 16,384-token window on Qwen3.6, rejected twice, the run then
   idling to its deadline. `measureRequest` (`request_size.go`) sizes the prepared messages plus, for a local native-tools
@@ -98,7 +134,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 ### 2. Context Budget & Physical Sieve (Constitution II.6)
 - Default budget: 8,000 characters (overridable via `ModelConfig.ContextBudget`).
 - When exceeded, first attempt **compression**: truncate long Content (>4000 chars) and ReasoningContent (>2000 chars) in older messages to head+tail with `...[Truncated]...` marker.
-- If compression not enough: keep system message + first user message (Locked Head), insert sieve marker, keep last 10 messages (Priority Tail).
+- If compression is not enough: keep the Locked Head, insert sieve marker, keep the last 10 messages (Priority Tail). The head is the system prompt, the task and any context *before the first tool step* (at most 3 messages), and the tail starts at the call that made its first result: **a sieve never keeps a call without its result or a result without its call** (`keptHead`, `tailStart`; test `TestSieves_NeverSplitACallFromItsResult`).
 - **Progress ledger**: every sieve inserts, immediately after the byte-exact sieve note, ONE ledger message
   (`prompts.SieveLedgerHeader` + lines like `✓ write_file smoke/hello.txt`, `✓ execute_terminal_command "uname -a" → Darwin …`,
   `✗ execute_terminal_command "npx tsc" → exit status 1`). Recorded in `appendToolResult` (the single choke point for every

@@ -107,6 +107,77 @@ func NormalizeHistory(history []Message, useNativeTools bool) []Message {
 	return SanitizeHistory(merged)
 }
 
+// RepairToolPairing drops the tool calls and tool results that have no partner: a call whose result never
+// followed it, and a result whose call is not earlier in the history. A chat template that checks the pairing
+// (llama.cpp's Jinja templates, OpenAI) rejects such a request, and a model reads an orphaned call as a step
+// still in flight. An assistant message left with neither text nor calls goes too. Calls and results without an
+// id (legacy histories) are left alone. The input is not modified, and is returned as is when nothing is broken.
+func RepairToolPairing(history []Message) []Message {
+	answered := answeredCallIDs(history)
+	kept := map[string]bool{}
+	out := make([]Message, 0, len(history))
+	changed := false
+	for _, m := range history {
+		fixed, keep, edited := repairMessage(m, answered, kept)
+		changed = changed || edited
+		if keep {
+			out = append(out, fixed)
+		}
+	}
+	if !changed {
+		return history
+	}
+	return out
+}
+
+// answeredCallIDs is the ids of the calls whose result comes after them.
+func answeredCallIDs(history []Message) map[string]bool {
+	called, answered := map[string]bool{}, map[string]bool{}
+	for _, m := range history {
+		for _, c := range m.ToolCalls {
+			if c.ID != "" {
+				called[c.ID] = true
+			}
+		}
+		if m.Role == ToolRole && called[m.ToolCallID] {
+			answered[m.ToolCallID] = true
+		}
+	}
+	return answered
+}
+
+// repairMessage returns a message with only its answered calls, whether to keep it, and whether it changed. kept
+// collects the ids of the calls that stay, so a result is kept only after its call.
+func repairMessage(m Message, answered, kept map[string]bool) (fixed Message, keep, changed bool) {
+	switch {
+	case m.Role == ToolRole && m.ToolCallID != "":
+		return m, kept[m.ToolCallID], !kept[m.ToolCallID]
+	case len(m.ToolCalls) > 0:
+		calls := answeredCalls(m.ToolCalls, answered)
+		if len(calls) == 0 && strings.TrimSpace(m.Content) == "" {
+			return m, false, true
+		}
+		for _, c := range calls {
+			kept[c.ID] = true
+		}
+		changed = len(calls) != len(m.ToolCalls)
+		m.ToolCalls = calls
+		return m, true, changed
+	}
+	return m, true, false
+}
+
+// answeredCalls returns the calls that are anonymous or have a result, without touching the input slice.
+func answeredCalls(calls []ToolCall, answered map[string]bool) []ToolCall {
+	out := make([]ToolCall, 0, len(calls))
+	for _, c := range calls {
+		if c.ID == "" || answered[c.ID] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 // SanitizeHistory strips non-essential fields to minimize context overhead.
 // : Strict Token-Only Normalization.
 func SanitizeHistory(history []Message) []Message {

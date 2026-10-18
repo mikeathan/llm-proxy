@@ -65,6 +65,9 @@ type TurnRun struct {
 	// Prompt tokens re-count the context on every call of an agent loop.
 	PromptTokens     int `json:"prompt_tokens,omitempty"`
 	CompletionTokens int `json:"completion_tokens,omitempty"`
+	// CachedTokens is the part of PromptTokens the server's prompt cache already held, when it says (llama.cpp):
+	// near PromptTokens when the cache works, near zero when a rewritten history broke the prefix.
+	CachedTokens int `json:"cached_tokens,omitempty"`
 	// MemorySaved lists the facts saved from the user's message before the run started (an explicit "remember …").
 	MemorySaved []string `json:"memory_saved,omitempty"`
 	// Warnings are the turn's non-fatal problems, e.g. a tool whose credential was rejected — recorded whatever the
@@ -235,6 +238,9 @@ type ChatResponse struct {
 type TokenUsage struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
+	// CachedTokens is how many of the prompt tokens the server's prompt cache already held (llama.cpp's timings
+	// report it); zero when the provider says nothing, which is not the same as a cache miss.
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 // Timings is the part of llama.cpp's timing block that counts tokens: PromptN
@@ -247,15 +253,20 @@ type Timings struct {
 
 // ReportedUsage is the call's token count when the provider reported one: the
 // usage block, else llama.cpp's timings (whose prompt count is the cached plus
-// the processed tokens). Nil when neither carries a prompt count.
+// the processed tokens). Either way the cached count comes from the timings when
+// they carry one. Nil when neither carries a prompt count.
 func (r *ChatResponse) ReportedUsage() *TokenUsage {
 	if r.Usage != nil {
-		return r.Usage
+		reported := *r.Usage
+		if reported.CachedTokens == 0 && r.Timings != nil {
+			reported.CachedTokens = r.Timings.CacheN
+		}
+		return &reported
 	}
 	if r.Timings == nil || r.Timings.CacheN+r.Timings.PromptN == 0 {
 		return nil
 	}
-	return &TokenUsage{PromptTokens: r.Timings.CacheN + r.Timings.PromptN, CompletionTokens: r.Timings.PredictedN}
+	return &TokenUsage{PromptTokens: r.Timings.CacheN + r.Timings.PromptN, CompletionTokens: r.Timings.PredictedN, CachedTokens: r.Timings.CacheN}
 }
 
 type Tool struct {

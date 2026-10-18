@@ -374,6 +374,12 @@ const ToolCallNotExecuted = "Not executed: an earlier tool call in the same step
 // as a synthetic control message (see isAgentControlMessage).
 const AutomationFinalizePrompt = "SYSTEM: You have completed all tool work for this task. Produce your FINAL REPORT now as a plain-text assistant message. Do NOT call any tools. Summarize the actual results of the work you performed."
 
+// LoopStopFinalizePrompt is the finalization instruction of a chat run a repetition detector stopped: tools are off,
+// and the model answers from what it already found, saying what is missing rather than inventing it. It only ever
+// replaces a failed run, never a working one. It starts with "SYSTEM:" so the chat UI hides it, and it is a
+// synthetic control message (see isAgentControlMessage).
+const LoopStopFinalizePrompt = "SYSTEM: You were repeating the same steps, so tools are now switched off. Answer the user's question now as plain text, using only what you have already found. If it is not enough, say plainly what is missing. Do not invent it."
+
 // LengthContinuationPrompt is injected after a final answer was cut off by the
 // output-token cap (finish_reason="length"). It mirrors Hermes Agent's
 // _LENGTH_CONTINUATION_OUTPUT_LIMIT (agent/conversation_loop.py): the model is

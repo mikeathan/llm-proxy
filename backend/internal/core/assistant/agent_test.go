@@ -5398,6 +5398,49 @@ func TestAgent_ToolSupportFallback_SendsSanitizedHistory(t *testing.T) {
 	}
 }
 
+// llama.cpp's timings say how much of the prompt its cache already held. The run keeps that count beside the
+// prompt tokens: a cache that is hit shows as cached ≈ prompt, a prefix broken by a history rewrite as cached ≈ 0.
+func TestAgent_RecordsCachedPromptTokens(t *testing.T) {
+	const answer = "Here is the complete answer to your question."
+	client := &MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		ch := make(chan *proxy.ChatResponse, 2)
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: answer}}}}
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{FinishReason: "stop"}}, Timings: &models.Timings{CacheN: 90, PromptN: 30, PredictedN: 30}}
+		close(ch)
+		return ch, nil
+	}}
+	ctx := usage.WithTracker(context.Background())
+	if _, _, err := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 2}).Execute(ctx, []proxy.Message{{Role: "user", Content: "Hi"}}); err != nil {
+		t.Fatal(err)
+	}
+	tr := usage.FromContext(ctx)
+	if p, c := tr.ReportedUsage(); p != 120 || c != 30 {
+		t.Errorf("reported usage = %d/%d, want 120/30", p, c)
+	}
+	if got := tr.ReportedCached(); got != 90 {
+		t.Errorf("cached prompt tokens = %d, want 90", got)
+	}
+}
+
+// A server that sends timings and then a usage-only chunk must not lose the cache count to the later chunk.
+func TestAgent_KeepsCachedTokensAcrossChunks(t *testing.T) {
+	client := &MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		ch := make(chan *proxy.ChatResponse, 3)
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Here is the complete answer to your question."}}}}
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{FinishReason: "stop"}}, Timings: &models.Timings{CacheN: 90, PromptN: 30, PredictedN: 30}}
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{}, Usage: &proxy.TokenUsage{PromptTokens: 120, CompletionTokens: 30}}
+		close(ch)
+		return ch, nil
+	}}
+	ctx := usage.WithTracker(context.Background())
+	if _, _, err := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 2}).Execute(ctx, []proxy.Message{{Role: "user", Content: "Hi"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := usage.FromContext(ctx).ReportedCached(); got != 90 {
+		t.Errorf("cached prompt tokens = %d, want 90 from the timings chunk", got)
+	}
+}
+
 // Token counts are taken only from what the provider reports (no request
 // option asks for them): llama.cpp puts `usage` on its final chunk, OpenAI-style
 // APIs send a trailing usage-only chunk with no choices. Either way the run's

@@ -89,10 +89,11 @@ func (p *physicalSieve) prune(history []proxy.Message) []proxy.Message {
 		return history
 	}
 
+	head := keptHead(clean)
 	newHistory := make([]proxy.Message, 0, len(clean))
-	newHistory = append(newHistory, clean[:sieveLockedHead]...)
+	newHistory = append(newHistory, head...)
 	newHistory = appendNoteAndLedger(newHistory, p.ledger)
-	newHistory = append(newHistory, clean[len(clean)-sievePhysicalTail:]...)
+	newHistory = append(newHistory, clean[tailStart(clean, len(head), sievePhysicalTail):]...)
 	if p.warn {
 		newHistory = append(newHistory, proxy.Message{
 			Role:    proxy.UserRole,
@@ -111,10 +112,42 @@ func sieveHistory(history []proxy.Message, tail int, ledger *proxy.Message) []pr
 	if len(history) < tail+sieveLockedHead {
 		tail = len(history) - sieveLockedHead
 	}
+	head := keptHead(history)
 	sieved := make([]proxy.Message, 0, len(history))
-	sieved = append(sieved, history[:sieveLockedHead]...)
+	sieved = append(sieved, head...)
 	sieved = appendNoteAndLedger(sieved, ledger)
-	return append(sieved, history[len(history)-tail:]...)
+	return append(sieved, history[tailStart(history, len(head), tail):]...)
+}
+
+// keptHead is the leading part of a history a sieve never drops: the system prompt, the task and any context
+// before the first step, up to sieveLockedHead messages. It stops short of the tool loop: a call kept here
+// without its result (dropped with the middle) is an orphan, so the first step is dropped, whole, with the rest
+// and the progress ledger answers for it.
+func keptHead(history []proxy.Message) []proxy.Message {
+	end := min(sieveLockedHead, len(history))
+	for end > sieveMinHead && inToolLoop(history[end-1]) {
+		end--
+	}
+	return history[:end]
+}
+
+// tailStart is where the kept tail of a history begins: n messages from the end, never inside the head, and never
+// between a call and its results. A tail that would open on a result starts at the call that made it instead,
+// so the newest step is whole; a result whose call lies in the head cannot be completed and is skipped.
+func tailStart(history []proxy.Message, headEnd, n int) int {
+	start := max(len(history)-n, headEnd)
+	for start > headEnd && history[start].Role == proxy.ToolRole {
+		start--
+	}
+	for start < len(history) && history[start].Role == proxy.ToolRole {
+		start++
+	}
+	return start
+}
+
+// inToolLoop reports whether a message belongs to a tool step: a call or a result.
+func inToolLoop(m proxy.Message) bool {
+	return m.Role == proxy.ToolRole || len(m.ToolCalls) > 0
 }
 
 // appendNoteAndLedger appends the byte-exact sieve note followed by the
@@ -191,6 +224,7 @@ func (a *aggressiveSieve) Sieve(history []proxy.Message) []proxy.Message {
 // Must be ≥3 to keep: [0]=system prompt, [1]=user task, [2]=any additional context.
 const (
 	sieveLockedHead      = 3
+	sieveMinHead         = 2 // the system prompt and the task
 	sievePhysicalTail    = 10
 	sieveReactiveTail    = 6
 	sieveAggressiveTail  = 3
