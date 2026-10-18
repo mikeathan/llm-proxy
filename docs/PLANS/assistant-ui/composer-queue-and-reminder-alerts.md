@@ -1,6 +1,6 @@
 # Composer message queue and live reminder alerts
 
-**Status:** complete (2026-10-18) — built and checked live on the `queue-and-reminder-alerts` branch (stacked on this plan's PR).
+**Status:** complete (2026-10-18) — built and checked live (PR #91; the plan itself merged as #90).
 **Related:** SPEC-003 (web UI), SPEC-011 (Reminders), SPEC-001 (Agent Loop, run replacement).
 
 ## 1. Problem
