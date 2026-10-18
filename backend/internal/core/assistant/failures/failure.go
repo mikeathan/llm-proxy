@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"llm-proxy/internal/core/assistant/repetition"
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/models"
 )
@@ -125,7 +126,7 @@ func classifyHTTPFailure(httpErr *proxy.LLMHTTPError) FailureInfo {
 			Status: httpErr.StatusCode,
 			Kind:   kind,
 		}
-	case isContextOverflowBody(lower):
+	case providers.IsContextOverflowBody(lower):
 		return FailureInfo{
 			Error:  summary,
 			Hint:   "The request exceeds the model's serving context. Check the model's context window (ctx-size / model metadata) or start a fresh conversation.",
@@ -243,29 +244,6 @@ func residencyAnswer(statusCode int, body string) string {
 	default:
 		return ""
 	}
-}
-
-// isContextOverflowBody reports whether a lowercased upstream body indicates a
-// context-window overflow (400/413 from llama.cpp and most gateways).
-func isContextOverflowBody(lower string) bool {
-	markers := []string{
-		"context length",
-		"context window",
-		"context is too long",
-		"too large to fit in the context",
-		"exceeds the context",
-		"maximum context",
-		"n_ctx",
-		"prompt is too long",
-		"reduce the length",
-		"ctx_size",
-	}
-	for _, m := range markers {
-		if strings.Contains(lower, m) {
-			return true
-		}
-	}
-	return false
 }
 
 // bound truncates s to at most n runes, appending an ellipsis when truncated.

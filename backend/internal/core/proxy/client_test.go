@@ -770,6 +770,45 @@ func TestLLMClient_ReasoningField(t *testing.T) {
 	}
 }
 
+// A prompt larger than the model's window is rejected with a 400 that names both token counts. The client turns it
+// into the typed ContextOverflowError (still an LLMHTTPError, so the failure hint keeps working) and never retries it:
+// the same prompt would be rejected again.
+func TestLLMClient_ContextOverflow400_TypedError(t *testing.T) {
+	const body = `{"error":{"code":400,"message":"request (16401 tokens) exceeds the available context size (16384 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":16401,"n_ctx":16384}}`
+	for _, kind := range []string{"chat", "stream"} {
+		t.Run(kind, func(t *testing.T) {
+			calls := 0
+			httpClient := &http.Client{
+				Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+					calls++
+					return newTestResponse(http.StatusBadRequest, body), nil
+				}),
+			}
+			client := NewLLMClient("http://example.test", "test-model", httpClient, nil)
+			var err error
+			if kind == "chat" {
+				_, err = client.Chat(context.Background(), ChatRequest{Model: "test"})
+			} else {
+				_, err = client.Stream(context.Background(), ChatRequest{Model: "test"})
+			}
+			var oe *providers.ContextOverflowError
+			if !errors.As(err, &oe) {
+				t.Fatalf("expected *ContextOverflowError, got %T: %v", err, err)
+			}
+			if oe.PromptTokens != 16401 || oe.WindowTokens != 16384 {
+				t.Errorf("counts = (%d, %d), want (16401, 16384)", oe.PromptTokens, oe.WindowTokens)
+			}
+			var httpErr *LLMHTTPError
+			if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusBadRequest {
+				t.Errorf("must stay an LLMHTTPError 400, got %v", err)
+			}
+			if calls != 1 {
+				t.Errorf("an overflow must not be retried, got %d calls", calls)
+			}
+		})
+	}
+}
+
 // TestLLMClient_OutputCap400_TypedError verifies §2.6/§5: a 400 carrying an
 // output-cap phrasing is converted to the typed OutputCapError (never retried,
 // never a raw string), while an unrelated 400 stays an LLMHTTPError.

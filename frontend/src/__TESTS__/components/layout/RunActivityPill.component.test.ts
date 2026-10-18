@@ -102,6 +102,8 @@ describe('RunActivityPill', () => {
     expect(pill.attributes('data-state')).toBe('running')
     expect(pill.text()).toContain('1 running')
     expect(pill.text()).toContain('1 queued')
+    // On a phone only the counts show; the words stay for screen readers so the pill never widens the page.
+    expect(pill.findAll('.max-sm\\:sr-only').map((el) => el.text())).toEqual(['running', 'queued'])
     expect(pill.attributes('aria-expanded')).toBe('false')
     expect(panelOf(w).exists()).toBe(false)
 

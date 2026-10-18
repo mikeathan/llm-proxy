@@ -78,3 +78,30 @@ func TestChatRequest_TemperatureOmittedWhenZero(t *testing.T) {
 		t.Errorf("explicit temperature must be sent, got %s", raw)
 	}
 }
+
+// llama.cpp sends token counts on a stream's final chunk as timings (prompt_n counts only the tokens it had to
+// process, cache_n the ones its prompt cache held) and adds usage only when the request asks for it.
+func TestChatResponseUsage_FromTimings(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want *TokenUsage
+	}{
+		{"timings only", `{"choices":[],"timings":{"cache_n":7,"prompt_n":4,"predicted_n":8}}`, &TokenUsage{PromptTokens: 11, CompletionTokens: 8}},
+		{"usage wins", `{"choices":[],"usage":{"prompt_tokens":31,"completion_tokens":2},"timings":{"cache_n":7,"prompt_n":4,"predicted_n":8}}`, &TokenUsage{PromptTokens: 31, CompletionTokens: 2}},
+		{"neither", `{"choices":[]}`, nil},
+		{"empty timings", `{"choices":[],"timings":{"cache_n":0,"prompt_n":0}}`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var r ChatResponse
+			if err := json.Unmarshal([]byte(tc.body), &r); err != nil {
+				t.Fatal(err)
+			}
+			got := r.ReportedUsage()
+			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+				t.Errorf("ReportedUsage() = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}

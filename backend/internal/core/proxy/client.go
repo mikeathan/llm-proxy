@@ -567,6 +567,11 @@ func (c *LLMClient) doRequest(ctx context.Context, kind, url string, headers htt
 				oe.Requested = reqMaxTokens(body)
 				return nil, oe
 			}
+			// A prompt larger than the window is just as deterministic. Keep the
+			// HTTP error beside the typed one so the failure hint still reads it.
+			if oe := providers.ParseContextOverflowError(httpErr.Body); oe != nil {
+				return nil, fmt.Errorf("%w: %w", oe, httpErr)
+			}
 		}
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

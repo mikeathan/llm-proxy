@@ -27,7 +27,7 @@ const title = computed(() => route.meta.title ?? "")
 </script>
 
 <template>
-  <header class="sticky top-0 z-40 flex h-12 flex-none items-center gap-3 bg-canvas px-3 lg:px-6">
+  <header class="sticky top-0 z-40 flex h-12 flex-none items-center gap-2 bg-canvas px-3 sm:gap-3 lg:px-6">
     <template v-if="mobile">
       <RouterLink
         :to="home"

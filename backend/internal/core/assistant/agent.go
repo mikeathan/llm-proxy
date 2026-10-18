@@ -271,6 +271,8 @@ type Agent struct {
 	// thinking: the next request turns thinking off so it cannot loop in thinking
 	// again. One-shot (consumed by applyRequestConfig); never set for cloud.
 	answerWithoutThinking atomic.Bool
+	// sentChars is the size of the local request last sent (see request_size.go), for matching it to the server's count.
+	sentChars atomic.Int64
 
 	cachedToolManual    string // cached BuildToolManual output
 	cachedToolReference string // cached BuildNativeToolReference output

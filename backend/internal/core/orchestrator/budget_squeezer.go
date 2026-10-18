@@ -130,9 +130,9 @@ func ComputeICUWeightFromPricing(pricing *models.ModelPricing) float64 {
 // Rules:
 //
 //	max_tokens       = context / 3                  (local — leave 2/3 for prompt + history)
-//	context_budget   = (context - maxTokens) * localContextCharsPerToken
+//	context_budget   = (context - maxTokens) * LocalCharsPerToken
 //	                 = (context - maxTokens) * 4    (local — chars at ~4 chars/token, the real
-//	                                                  tokenizer ratio; see localContextCharsPerToken)
+//	                                                  tokenizer ratio; see LocalCharsPerToken)
 //	tool_call_format = "native" when empty for cloud; local workloads stay "" (XML)
 //
 // Reasoning enablement is NOT derived here. The think-token budget for local

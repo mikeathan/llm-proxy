@@ -1,9 +1,9 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.6"
+version: "1.7"
 status: stable
-last_updated: 2026-10-17
+last_updated: 2026-10-18
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -12,6 +12,24 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.7 (2026-10-18)** — The context budget measures the request the server will count, and an overflow is answered in one
+  step. Found on vertex 2026-10-17: a 16,401-token prompt in a 16,384-token window on Qwen3.6, rejected twice, the run then
+  idling to its deadline. `measureRequest` (`request_size.go`) sizes the prepared messages plus, for a local native-tools
+  request, the tool schemas (they ride in the `tools` field and the server renders them into the prompt; about 6 KB, 1.8k
+  tokens, for the twelve built-in tools). On a **local** model `ContextBudget` is derived from the window (window minus the
+  output reserve, stated at 4 chars a token), so the limit is scaled by the model's measured chars per token
+  (`orchestrator.TokenRatios`, learned from the server's own prompt counts, default 3.0 before the first): dense tool output
+  costs 2.7 to 3.4 chars a token (JSON search results, raw HTML) against 4.1 for prose. On a **cloud** model `ContextBudget`
+  is a history allowance chosen for cost, not a window, and is used as given, measured by messages alone. The physical sieve
+  prunes to the limit less the request's overhead and then `shrinkHistory` cuts oldest first to a floor (the head, the
+  sieve's own messages and tool-call arguments are never cut; the newest message last). A rejection of a local model's
+  request is a typed `providers.ContextOverflowError` (llama.cpp's `n_prompt_tokens`/`n_ctx`, or the counts in OpenAI,
+  Anthropic and Gemini prose); the recovery cuts to that window in one step, teaches the ratio, and ends the run with
+  `models.ErrPromptTooLarge` when the part that cannot be cut already fills the window. A context-size rejection of the
+  stream no longer falls back to re-sending the same prompt non-streaming. llama.cpp's final stream chunk carries
+  `timings` (prompt plus cached tokens) rather than `usage`; `ChatResponse.ReportedUsage` reads either, so local runs now
+  record prompt tokens too. Plan: `docs/PLANS/agent-loop/request-size-estimator.md`.
 
 - **1.6 (2026-10-17)** — The loop follows the run's prompt profile (SPEC-012). An **answer-first** profile treats a plain
   text first turn as a complete answer: `checkTaskCompletion` no longer needs a prior tool result, `enforceRelaxedCap` (the
@@ -92,12 +110,9 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   sieve note, progress ledger and context warning. On a small window the physical sieve fires on every turn after
   the first prune (the 10-message tail alone can exceed the budget); before this, up to four copies of the warning
   accumulated in one request.
-- **The budget covers the whole request** (2026-10-18): `preparedRequestSize` counts the prepared messages plus the
-  serialized native tool schemas (`toolSchemaChars`; they ride in the `tools` field, not in any message), and the
-  physical sieve prunes history to `ContextBudget` minus that overhead, then `fitToBudget` cuts the kept messages to an
-  equal share (a stopgap; the token estimator plan replaces it, see `docs/PLANS/agent-loop/request-size-estimator.md`). A context-size rejection of the stream goes
-  straight to the sieve recovery; it no longer re-sends the same prompt non-streaming. Found on vertex, 2026-10-17: a
-  16401-token prompt in a 16384 window.
+- **The budget covers the request, scaled for the model** (2026-10-18): see 1.7 above. Sizing lives in `request_size.go`
+  (`measureRequest`, `requestLimit`, `shrinkHistory`, `shrinkToReportedWindow`); `sieve.go` keeps the message-dropping
+  sieves and calls `shrinkHistory` last.
 - **One-time wrap-up warning**: `ContextSieveWarning` ("deliver your final answer NOW …") is appended by the first
   physical prune of a run only (`runSession.sieve.contextWarned`, decision 2026-10-01); later prunes add the note and
   ledger but no warning, so a run that keeps working is not told to stop each turn. The reactive and aggressive

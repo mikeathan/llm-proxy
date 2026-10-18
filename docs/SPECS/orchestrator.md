@@ -1,9 +1,9 @@
 ---
 id: SPEC-005
 title: Orchestrator / Budget
-version: "1.3"
+version: "1.4"
 status: stable
-last_updated: 2026-10-05
+last_updated: 2026-10-18
 constitution_references: [VI]
 related_specs: [SPEC-001]
 supersedes:
@@ -12,6 +12,13 @@ supersedes:
 # SPEC: Orchestrator / Budget
 
 ## Changelog
+
+- **1.4 (2026-10-18)** — `TokenRatios` (on `Orchestrator.Ratios`) learns, per model, how many characters of a request cost
+  one prompt token, from the server's own count (default 3.0, blended 50/50, clamped 1.5 to 6.0, at most 256 models,
+  nil-safe, `sync.Mutex`). A local run's character limit is its persisted `ContextBudget` times learned ÷ 4.0
+  (`LocalCharsPerToken`, now exported): the budget stays stated at the nominal 4 chars a token and holds the run to the
+  token reserve whatever it contains. A cloud `ContextBudget` is a history allowance for cost and is not scaled. Nothing
+  persisted or shown changed unit. SPEC-001 1.7.
 
 - **1.3 (2026-10-05)** — Remote llama.cpp behind an OpenAI-style URL is classified **local** from the
   model's own listing entry. `ModelMeta.Serving` / `ModelMetadata.Serving` (`"llamacpp"`) is set per entry
