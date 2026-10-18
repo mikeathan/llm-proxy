@@ -17,18 +17,18 @@ import AppBanner from './components/ui/AppBanner.vue'
 import { useConfirm } from './composables/ui/useConfirm'
 import { useActiveWorkspace } from './composables/ui/useActiveWorkspace'
 import { useRunNotifications } from './composables/assistant/useRunNotifications'
-import RunNotifications from './components/common/display/RunNotifications.vue'
+import NotificationBell from './components/common/display/NotificationBell.vue'
 import { badgeTarget } from './utils/navigation'
 import type { NavId } from './types/routes'
-import type { RunEndItem } from './types/notifications'
+import type { NotificationItem } from './types/notifications'
 
 const { isOpen, options, handleConfirm, handleCancel } = useConfirm()
 const { recompute: recomputeModelBanner } = useModelBanner()
 
 const route = useRoute()
 
-// Run notifications (plan Phase 4): the bell lives in the top strip and each
-// destination owning unread runs gets a badge. Opening a run clears it.
+// Notifications (plan Phase 4): the bell lives in the top strip and each
+// destination owning unread runs or reminders gets a badge. Opening one clears it.
 const runNotifications = useRunNotifications()
 const navBadges = computed(() => {
   const counts: Partial<Record<NavId, number>> = {}
@@ -40,7 +40,7 @@ const navBadges = computed(() => {
   }
   return counts
 })
-const openRun = (item: RunEndItem) => runNotifications.dismissItem(item.id)
+const openNotification = (item: NotificationItem) => runNotifications.dismissItem(item.id)
 const { isMobile } = useResponsiveLayout()
 
 // Keep-alive is opt-in by route meta (plan D19): once a `keepAlive` route has
@@ -90,9 +90,9 @@ onMounted(() => {
       <AdminHeader :mobile="isMobile">
         <template #actions>
           <AskField :mobile="isMobile" />
-          <RunNotifications
+          <NotificationBell
             :notifications="runNotifications.notifications.value"
-            @open="openRun"
+            @open="openNotification"
             @dismiss="runNotifications.dismiss"
             @clear="runNotifications.clear"
           />

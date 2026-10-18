@@ -726,3 +726,80 @@ func TestRun_FailsOnlyWhenEveryConnectorFails(t *testing.T) {
 		return err == nil && got.Attempts == 1 && got.Status == StatusScheduled
 	})
 }
+
+// Each final outcome is saved on the reminder with the time it happened; a retry that is still pending saves none,
+// so one reminder never reports three failures.
+func TestRun_SavesTheOutcomeOnTheReminder(t *testing.T) {
+	eventOf := func(r *rig, id int64) Reminder {
+		got, err := r.store.Get(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	t.Run("delivered on time", func(t *testing.T) {
+		r := newRig(t)
+		rem := r.create(t, "call bank", time.Hour, "")
+		r.start(t)
+		eventually(t, "timer armed", r.clock.armed)
+		r.clock.Advance(time.Hour)
+		eventually(t, "event saved", func() bool { return eventOf(r, rem.ID).Event == EventDue })
+		if at := eventOf(r, rem.ID).EventAt; !at.Equal(r.clock.Now()) {
+			t.Errorf("event time = %v, want the delivery time %v", at, r.clock.Now())
+		}
+	})
+	t.Run("delivered late", func(t *testing.T) {
+		r := newRig(t)
+		rem := r.create(t, "water plants", time.Hour, "")
+		r.clock.Advance(4 * time.Hour)
+		r.start(t)
+		eventually(t, "event saved", func() bool { return eventOf(r, rem.ID).Event == EventLate })
+	})
+	t.Run("missed", func(t *testing.T) {
+		r := newRig(t)
+		rem := r.create(t, "old", time.Hour, "")
+		r.clock.Advance(14 * time.Hour)
+		r.start(t)
+		eventually(t, "event saved", func() bool { return eventOf(r, rem.ID).Event == EventMissed })
+	})
+	t.Run("failed only when out of attempts", func(t *testing.T) {
+		r := newRig(t)
+		r.del.err = errors.New("connector down")
+		rem := r.create(t, "flaky", time.Hour, "")
+		r.start(t)
+		for i := range 3 {
+			eventually(t, "timer armed", r.clock.armed)
+			r.clock.Advance(time.Hour)
+			time.Sleep(30 * time.Millisecond)
+			if i < 2 && eventOf(r, rem.ID).Event != "" {
+				t.Fatalf("attempt %d saved an event while a retry was pending", i+1)
+			}
+		}
+		eventually(t, "event saved", func() bool { return eventOf(r, rem.ID).Event == EventFailed })
+	})
+}
+
+// A client asks "what happened after the newest event I have seen", so event times must only ever go up: two outcomes
+// in the same millisecond, or a clock that stands still, must not be given the same time, or the later one is skipped.
+func TestRun_EventTimesOnlyGoUp(t *testing.T) {
+	r := newRig(t)
+	a := r.create(t, "a", time.Hour, "")
+	b := r.create(t, "b", time.Hour, "")
+	r.start(t)
+	eventually(t, "timer armed", r.clock.armed)
+	r.clock.Advance(time.Hour) // the clock does not move between the two deliveries
+	eventually(t, "both delivered", func() bool {
+		ga, _ := r.store.Get(context.Background(), a.ID)
+		gb, _ := r.store.Get(context.Background(), b.ID)
+		return ga.Event != "" && gb.Event != ""
+	})
+	ga, _ := r.store.Get(context.Background(), a.ID)
+	gb, _ := r.store.Get(context.Background(), b.ID)
+	first, second := ga.EventAt, gb.EventAt
+	if second.Before(first) {
+		first, second = second, first
+	}
+	if !second.After(first) {
+		t.Errorf("both events are at %v: the later one could be skipped by a cursor", first)
+	}
+}

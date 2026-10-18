@@ -79,3 +79,16 @@ func (p ChannelPolicy) ValidateNamed(named string) error {
 func (p ChannelPolicy) configured(connector string) bool {
 	return slices.Contains(p.Connectors(), connector)
 }
+
+// AlertsWebUI reports whether the web UI should be told about the reminder's last outcome. A failure or a miss always
+// is: the web UI is the only place those are reported. A delivery is only when the web UI was one of the places it went,
+// which is the default and the in-app choice, not a reminder sent to one named connector.
+func (r Reminder) AlertsWebUI() bool {
+	switch r.Event {
+	case "":
+		return false
+	case EventFailed, EventMissed:
+		return true
+	}
+	return r.Connector == "" || r.Connector == InAppChannel
+}

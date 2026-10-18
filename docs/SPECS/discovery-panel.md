@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.11"
+version: "2.12"
 status: stable
-last_updated: 2026-10-14
+last_updated: 2026-10-18
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -12,6 +12,20 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.12 (2026-10-18)** — One bell for runs and reminders, and a message queue in the composer. (a) The bell
+  (`NotificationBell`, formerly `RunNotifications`) lists runs that ended **and reminders that fired or failed**
+  (`NotificationItem` = `RunEndItem | ReminderAlertItem`); a reminder also gets a toast and a badge on the Reminders tab.
+  Reminders ride the same global run poll (`useReminderAlerts`, no new timer): the first good poll only learns where "now"
+  is, the cursor (the newest event time seen) is kept in `usePersistedState` so what fired while the app was closed is
+  announced on return and a reload replays nothing; a poll that fails keeps the cursor. On a phone the panel spans the
+  screen under the header (anchored to the bell it was cut off at the left edge). (b) While a chat run is live the composer
+  accepts a message and **queues** it (one at a time, with Remove; a second asks before replacing). It is sent once, only
+  when that run ended as **completed** (`useAssistant.runEnd`, per run token: an error is `failed` even though a completed
+  event follows, a stop is recorded when asked, `loading` is not used because fetching sessions toggles it) and the server
+  shows no live chat run (checked up to 10 times over 5 s, since it records the end a moment later); in every other case
+  (failed, stopped, another conversation or workspace, the chat was not on screen) the text returns to the box as a draft
+  with a toast, and is never sent late. Enter and a Queue button beside Stop do this; sending never cancels the run.
 
 - **2.11 (2026-10-14)** — Redesign v2 (plan `cross-cutting/frontend-redesign-v2.md`). The shell is assistant-first:
   **Assistant** leads the navigation, **Workspaces** leaves the sidebar for a single **Workspace** entry (Files, Memory,
@@ -193,6 +207,8 @@ account model, and makes no network request outside the proxy's own origin.
   file closes the file.
 
 ### 4. Run notifications
+- The bell also lists reminders that fired or failed (SPEC-011 §Changelog 1.6; Changelog 2.12 here); the rules below are
+  for runs.
 - Only **terminal** transitions notify: a run ending or an automation
   failing. Starting a run updates the pill, not the bell.
 - The lane snapshot cannot tell success from failure, so an assistant run is

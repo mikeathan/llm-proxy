@@ -270,3 +270,56 @@ func TestStore_TransitionOnlyFromTheExpectedStates(t *testing.T) {
 		t.Fatalf("status = %q", got.Status)
 	}
 }
+
+// What a delivery did to a reminder (due, late, partial, failed, missed) is saved with the outcome, in the same write,
+// so the web UI can be told about it after the fact: by a poll, after a reload, or when it was closed at the time.
+func TestStore_EventIsSavedWithTheOutcomeAndQueriedByCursor(t *testing.T) {
+	s, ctx := newTestStore(t), context.Background()
+	at := base.Add(time.Hour)
+	fire := func(msg, event string, offset time.Duration) int64 {
+		id, _ := s.Add(ctx, Reminder{Message: msg, FireAt: base})
+		r, _ := s.Get(ctx, id)
+		r.Status, r.Event, r.EventAt = StatusDone, event, at.Add(offset)
+		if err := s.Update(ctx, r); err != nil {
+			t.Fatalf("Update: %v", err)
+		}
+		return id
+	}
+	first := fire("first", EventDue, 0)
+	second := fire("second", EventFailed, time.Minute)
+	third := fire("third", EventLate, 2*time.Minute)
+	_, _ = s.Add(ctx, Reminder{Message: "never fired", FireAt: base})
+
+	got, err := s.Get(ctx, first)
+	if err != nil || got.Event != EventDue || !got.EventAt.Equal(at) {
+		t.Fatalf("round trip: event %q at %v, err %v", got.Event, got.EventAt, err)
+	}
+	if got.EventAt.Sub(at) != 0 || got.EventAt.UnixMilli() != at.UnixMilli() {
+		t.Errorf("the event time keeps millisecond precision")
+	}
+
+	after, err := s.EventsAfter(ctx, at, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != 2 || after[0].ID != third || after[1].ID != second {
+		t.Fatalf("want the two later events newest first, got %+v", after)
+	}
+	if latest, _ := s.EventsAfter(ctx, at.Add(2*time.Minute), 10); len(latest) != 0 {
+		t.Errorf("nothing is after the newest event, got %d", len(latest))
+	}
+	if capped, _ := s.EventsAfter(ctx, time.Time{}, 1); len(capped) != 1 || capped[0].ID != third {
+		t.Errorf("the page is capped and newest first, got %+v", capped)
+	}
+	newest, err := s.LatestEventAt(ctx)
+	if err != nil || !newest.Equal(at.Add(2*time.Minute)) {
+		t.Errorf("LatestEventAt = %v, %v", newest, err)
+	}
+}
+
+func TestStore_LatestEventAtIsZeroWithoutEvents(t *testing.T) {
+	s := newTestStore(t)
+	if got, err := s.LatestEventAt(context.Background()); err != nil || !got.IsZero() {
+		t.Errorf("got %v, %v", got, err)
+	}
+}

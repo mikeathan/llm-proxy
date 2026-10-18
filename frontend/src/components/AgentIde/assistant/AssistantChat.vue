@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, nextTick, onMounted, toRef } from "vue";
 import { useAssistant } from "../../../composables/assistant/useAssistant";
+import { useMessageQueue } from "../../../composables/assistant/useMessageQueue";
 import { useMemoryReview } from "../../../composables/memory/useMemoryReview";
 import { useToast } from "../../../composables/useToast";
 import MemoryReviewDialog from "../memory/MemoryReviewDialog.vue";
@@ -56,7 +57,7 @@ const isMobile = computed(() => breakpoint.value === "base");
 const compact = computed(() => props.variant === "panel" || isMobile.value);
 
 const {
-  loading, messages, sessions, currentSessionId, pendingDecision, submitDecision,
+  loading, runToken, runEnd, messages, sessions, currentSessionId, pendingDecision, submitDecision,
   thinking, liveReasoning, paused, phase, modelBusy, dismissModelBusy,
   fetchSessions, loadSession, newSession, openWorkspace, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, cancel,
@@ -104,6 +105,21 @@ const status = computed<{ state: StatusState; label: string }>(() => {
 });
 
 const inputMessage = ref("");
+// Text given back to the box (a queued message that could not be sent, a refused command); a draft already in the box
+// is kept, with the returned text after it.
+const restoreDraft = (text: string) => {
+  inputMessage.value = inputMessage.value.trim() ? `${inputMessage.value}\n\n${text}` : text;
+};
+// A message written while a run is going waits behind it (useMessageQueue) and goes back to the box as a draft when it
+// cannot be sent.
+const messageQueue = useMessageQueue({
+  runToken, runEnd, loading,
+  conversation: currentSessionId,
+  workspaceId: () => props.workspaceId,
+  send: (text) => submitText(text),
+  restoreDraft,
+});
+const queuedText = computed(() => messageQueue.queued.value?.text ?? null);
 // Whether the conversation list is open is a per-browser preference on a roomy
 // screen (closed until the operator opens it); on a phone it is a drawer that always
 // starts closed.
@@ -185,7 +201,10 @@ const turns = computed(() => {
 const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets, resetInsets } = useTurnInset(phase, turns);
 const { expandedSegments, isSegExpanded, toggleSegment } = useExpandedSegments();
 
-onMounted(() => { if (props.workspaceId) initWorkspace(); });
+onMounted(() => {
+  messageQueue.reclaim();
+  if (props.workspaceId) void initWorkspace().then(() => messageQueue.reclaim());
+});
 watch(() => props.workspaceId, () => initWorkspace());
 
 const initWorkspace = async () => {
@@ -221,29 +240,53 @@ const confirmDelete = (title: string, message: string) =>
 
   // A slash command is answered by the backend without the assistant. Text that is not a command (or an unknown
   // /word) goes to the assistant as usual; a refused command keeps its text so it can be corrected.
-  const runCommand = async (text: string): Promise<boolean> => {
+  type CommandOutcome = "done" | "refused" | "none";
+  const runCommand = async (text: string): Promise<CommandOutcome> => {
     let result;
     try {
       result = await CommandService.run(text);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The command could not be run");
-      return true;
+      return "refused";
     }
-    if (!result.handled) return false;
-    if (result.failed) toast.error(result.reply);
-    else {
-      toast.success(result.reply);
-      inputMessage.value = "";
+    if (!result.handled) return "none";
+    if (result.failed) {
+      toast.error(result.reply);
+      return "refused";
     }
-    return true;
+    toast.success(result.reply);
+    return "done";
   };
+
+  // The one way a written message is acted on: a command is answered by the backend, anything else starts a run. A
+  // refused command is given back to the box so it can be corrected.
+  async function submitText(text: string) {
+    const command = text.startsWith("/") ? await runCommand(text) : "none";
+    if (command === "refused") restoreDraft(text);
+    else if (command === "none") await launchRun(text);
+  }
 
   const handleSend = async () => {
     const text = inputMessage.value.trim();
-    if (!text || loading.value) return;
-    if (text.startsWith("/") && await runCommand(text)) return;
+    if (!text) return;
+    if (loading.value) {
+      await queueBehindRun(text);
+      return;
+    }
     inputMessage.value = "";
-    await launchRun(text);
+    await submitText(text);
+  };
+
+  // Sending would replace the live run, so the message is queued behind it. One message waits: a second asks first.
+  const queueBehindRun = async (text: string) => {
+    if (queuedText.value !== null && !(await confirm({ title: "Replace the queued message?", message: `“${queuedText.value}” has not been sent yet.`, type: "warning", confirmText: "Replace" }))) return;
+    if (messageQueue.enqueue(text)) {
+      inputMessage.value = "";
+      return;
+    }
+    // The run ended while asking: there is nothing to wait behind.
+    inputMessage.value = "";
+    await submitText(text);
   };
 
 const handleRetry = (text: string) => {
@@ -437,7 +480,9 @@ const handleDeleteGroup = async (ids: string[]) => {
         :loading="loading"
         :paused="paused"
         :input-message="inputMessage"
+        :queued="queuedText"
         @send="handleSend"
+        @unqueue="messageQueue.remove()"
         @cancel="cancel"
         @review="startReview()"
         @update:input-message="inputMessage = $event"

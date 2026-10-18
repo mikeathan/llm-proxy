@@ -1,6 +1,6 @@
 # Composer message queue and live reminder alerts
 
-**Status:** proposed (2026-10-18) — two findings from the owner's phone testing, planned together as one frontend follow-up; no code yet.
+**Status:** complete (2026-10-18) — built and checked live (PR #91; the plan itself merged as #90).
 **Related:** SPEC-003 (web UI), SPEC-011 (Reminders), SPEC-001 (Agent Loop, run replacement).
 
 ## 1. Problem
@@ -38,12 +38,25 @@ Both: the notice is raised for **every** delivery outcome that reaches the user 
 - Visual check at 320 to 390 px that the queued line and toast do not widen the page (the sideways-scroll fix in PR #89 must keep holding).
 - SPEC-003 and SPEC-011 updated; this plan's row moved to complete.
 
-## 4. Open questions for the owner
+## 4. Decisions taken (the owner did not answer; the recommended defaults were used)
 
-- Poll (recommended) or push for reminder alerts?
-- Browser notifications for a hidden tab: wanted now, or later?
-- Queue depth: one message (recommended) or several?
+- **Poll, not push**, for reminder alerts, but on the existing run poll rather than a new endpoint timer: no second timer.
+- **Browser notifications for a hidden tab: not built** (a separate switch for later).
+- **Queue depth: one**, with a confirmation before a second replaces it.
+- The "fired" record is saved on the reminder row (`event`, `event_at` in milliseconds) in the same write as the outcome, not
+  derived from the list, because a recurring reminder stays scheduled after it fires and `Recent` only lists finished ones.
+
+## 5. Verified live (scratch backend, Chromium at 320 to 390 px, a real model on vertex)
+
+- A web-UI-only reminder: one toast and bell entry within one poll of its due time, the Reminders tab badge, no replay after a
+  reload, and what fired while the app was closed announced on return.
+- Queue: queued behind a live Qwen run and sent once when it completed; after Stop it returned to the box and was not sent.
+  Two real races were found and fixed this way: the server's completed event can precede the stop response (a stopped run
+  read as completed), and the server records the run as over a moment after it completes (a short bounded wait).
+- The notification panel was cut off at the left edge on a phone (existing CSS); it now spans the screen under the header.
+- Not tested live: web UI plus Telegram on vertex, because it would send the owner a real Telegram message. The filter that
+  decides which deliveries alert the web UI is covered by backend tests (`TestReminder_AlertsWebUI`, handler tests).
 
 ## Remaining Work
 
-All of it.
+None for this plan. Follow-ups: browser notifications for a hidden tab; web UI plus Telegram on vertex once the owner is ready for the message.
