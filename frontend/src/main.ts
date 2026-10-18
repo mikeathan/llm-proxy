@@ -5,6 +5,7 @@ import { createAppRouter } from './router'
 import { installStaleChunkReload } from './router/staleChunkReload'
 import { useTheme } from './composables/ui/useTheme'
 import { startRunNotifications } from './composables/assistant/useRunNotifications'
+import { startReminderAlerts } from './composables/reminders/useReminderAlerts'
 import { documentTitle } from './utils/documentTitle'
 
 // App bootstrap: the one place app-level lifecycle is wired. theme-boot.js has
@@ -18,6 +19,8 @@ installStaleChunkReload(router)
 
 // Run notifications ride the existing global run poll (plan D5): started once here.
 const runNotifications = startRunNotifications(router)
+// Reminders that fire (or fail to) join the same bell, on the same poll.
+startReminderAlerts(runNotifications)
 
 // Page title + unread run count, e.g. "(2) Activity · <app>" (D20, D25).
 const pageTitle = ref<string | undefined>()

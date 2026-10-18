@@ -193,6 +193,26 @@ export interface LaneSummary {
 
 import type { LifecyclePhase } from './dispatcher'
 
+// How a chat run ended. `completed` is only an answer that arrived: a run that raised an error is `failed` (the server
+// still sends the completed lifecycle after it) and one the user stopped is `stopped`.
+export type ChatRunOutcome = 'completed' | 'failed' | 'stopped'
+
+export interface RunEnd {
+  /** The run's token (useAssistant's runToken when it started). */
+  token: number
+  outcome: ChatRunOutcome
+}
+
+// The message the user wrote while a run was live: it waits behind that run (its token) in that conversation, and is sent
+// only when the run ended as completed. One at a time.
+export interface QueuedMessage {
+  text: string
+  workspaceId: string
+  /** The conversation it was written in; null for a first message whose conversation has no id yet. */
+  conversationId: string | null
+  runToken: number
+}
+
 // SessionLifecyclePayload is the parsed payload of a session lifecycle SSE
 // event (session_started / session_progress / session_completed), used to
 // drive UI session state without a full re-fetch.

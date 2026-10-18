@@ -168,21 +168,43 @@ describe('ChatInput toolbar', () => {
     expect(row.classes()).toContain('items-center')
   })
 
-  it('keeps the box editable while a run is going, and sends nothing until it ends', async () => {
+  it('keeps the box editable while a run is going, and Enter queues the message instead of being ignored', async () => {
     const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: 'next question', canReview: false }, global: { stubs: { Icon: true, teleport: true } } })
     const box = w.get('textarea')
     expect(box.attributes('disabled')).toBeUndefined()
-    expect(box.attributes('placeholder')).toMatch(/write your next message/i)
+    expect(box.attributes('placeholder')).toMatch(/goes next/i)
     await box.setValue('next question, edited')
     const updates = w.emitted('update:inputMessage')!
     expect(updates[updates.length - 1]).toEqual(['next question, edited'])
     await box.trigger('keydown', { key: 'Enter' })
-    expect(w.emitted('send'), 'Enter must not send while the run is going').toBeUndefined()
+    expect(w.emitted('send'), 'the owner decides: a live run queues it').toHaveLength(1)
 
     await w.setProps({ loading: false })
     expect(w.get('textarea').attributes('placeholder')).toBe('Ask the workspace agent…')
-    await w.get('textarea').trigger('keydown', { key: 'Enter' })
+  })
+
+  it('offers to queue beside stop while a run is going, and only when something is written', async () => {
+    const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: '', canReview: false }, global: { stubs: { Icon: true, teleport: true } } })
+    const row = w.get('[data-test="composer-actions"]')
+    const queue = row.get('button[aria-label="Queue message to send when the run finishes"]')
+    expect(queue.attributes('disabled')).toBeDefined()
+    expect(row.find('button[aria-label="Stop the run"]').exists()).toBe(true)
+    expect(row.find('button[aria-label="Send"]').exists()).toBe(false)
+    await w.setProps({ inputMessage: 'next' })
+    expect(w.get('button[aria-label="Queue message to send when the run finishes"]').attributes('disabled')).toBeUndefined()
+    await w.get('button[aria-label="Queue message to send when the run finishes"]').trigger('click')
     expect(w.emitted('send')).toHaveLength(1)
+  })
+
+  it('shows the queued message under the box and lets it be removed', async () => {
+    const w = mount(ChatInput, { props: { loading: true, paused: false, inputMessage: '', canReview: false, queued: 'what about Leeds' }, global: { stubs: { Icon: true, teleport: true } } })
+    const line = w.get('[data-test="queued-message"]')
+    expect(line.text()).toContain('Queued')
+    expect(line.text()).toContain('what about Leeds')
+    await line.get('button').trigger('click')
+    expect(w.emitted('unqueue')).toHaveLength(1)
+    await w.setProps({ queued: null })
+    expect(w.find('[data-test="queued-message"]').exists()).toBe(false)
   })
 
   it('puts stop in the same row while a run is going', () => {

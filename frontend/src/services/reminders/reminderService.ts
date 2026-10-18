@@ -1,4 +1,5 @@
 import type { ReminderEdit, ReminderItem, ReminderList } from '../../types/reminders'
+import type { ReminderEvents } from '../../types/notifications'
 
 // The backend answers errors as {"error": "…"}; show the reason, not the JSON.
 async function failureReason(res: Response, what: string): Promise<Error> {
@@ -16,6 +17,17 @@ export class ReminderService {
   static async list(): Promise<ReminderList> {
     const res = await fetch('/admin/api/reminders')
     if (!res.ok) throw await failureReason(res, 'list reminders')
+    return res.json()
+  }
+
+  /**
+   * What reminders did after the given time (unix milliseconds), newest first. With no time it returns no items, only the
+   * newest event time, as the place to start watching from.
+   */
+  static async events(after?: number): Promise<ReminderEvents> {
+    const query = after === undefined ? '' : `?after=${after}`
+    const res = await fetch(`/admin/api/reminders/events${query}`)
+    if (!res.ok) throw await failureReason(res, 'read reminder events')
     return res.json()
   }
 

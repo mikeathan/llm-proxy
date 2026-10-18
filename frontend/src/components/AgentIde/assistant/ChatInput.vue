@@ -21,6 +21,8 @@ const props = defineProps<{
   compact?: boolean
   /** There is a saved conversation that can be reviewed for memories. */
   canReview?: boolean
+  /** The message waiting behind the live run, if any. */
+  queued?: string | null
 }>()
 
 defineSlots<{
@@ -32,6 +34,7 @@ const emit = defineEmits<{
   send: []
   cancel: []
   review: []
+  unqueue: []
   'update:inputMessage': [value: string]
 }>()
 
@@ -40,9 +43,9 @@ const LONG_DRAFT_LINES = 8
 const LONG_DRAFT_CHARS = 600
 const LINE_BREAK = '\n'
 const START_ROWS = 3
-// While a run is going the box stays editable: the next message can be written meanwhile, and sent once the run ends.
+// While a run is going the box stays editable: a message written meanwhile is queued and sent once the run completes.
 const IDLE_PLACEHOLDER = 'Ask the workspace agent…'
-const WORKING_PLACEHOLDER = 'Working… you can write your next message while it finishes'
+const WORKING_PLACEHOLDER = 'Working… send a message and it goes next, when this run finishes'
 // Primary actions grow to a 44px target on a touch screen.
 // The toolbar buttons are text buttons: they grow in height only.
 const TOOL_TOUCH = '[@media(pointer:coarse)]:h-11'
@@ -112,7 +115,7 @@ function onKeydown(e: KeyboardEvent) {
   }
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
-    if (!props.loading) emit('send')
+    emit('send')
   }
 }
 
@@ -151,6 +154,11 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
     </div>
     <!-- A long draft says how big it is on its own line, so it never crowds the controls below. -->
     <span v-if="isLongDraft" data-test="draft-size" class="self-end font-mono text-[length:var(--text-micro)] tabular-nums text-muted">{{ draftSize }}</span>
+    <div v-if="queued" data-test="queued-message" class="flex min-w-0 items-center gap-2 font-mono text-[length:var(--text-small)] text-muted">
+      <span class="flex-none uppercase tracking-[var(--tracking-micro)]">Queued</span>
+      <span class="min-w-0 flex-1 truncate text-secondary">{{ queued }}</span>
+      <BaseButton variant="ghost" size="sm" :class-name="TOOL_TOUCH" @click="emit('unqueue')">Remove</BaseButton>
+    </div>
     <!-- One action row under the box, every control centred on it: the tools (start a command, review the conversation for memories) on the left; a long draft's expand, then send or stop, on the right. -->
     <div data-test="composer-actions" class="flex items-center justify-between gap-2">
       <div class="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
@@ -171,6 +179,17 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           :aria-pressed="compact ? undefined : expanded"
           :class-name="TOUCH_TARGET"
           @click="toggleExpand"
+        />
+        <BaseButton
+          v-if="loading"
+          variant="primary"
+          size="lg"
+          icon="send"
+          icon-only
+          label="Queue message to send when the run finishes"
+          :class-name="TOUCH_TARGET"
+          :disabled="!inputMessage.trim()"
+          @click="emit('send')"
         />
         <BaseButton v-if="loading" variant="danger" size="lg" icon="stop" icon-only label="Stop the run" :class-name="TOUCH_TARGET" @click="emit('cancel')" />
         <BaseButton v-else variant="primary" size="lg" icon="send" icon-only label="Send" :class-name="TOUCH_TARGET" :disabled="!inputMessage.trim()" @click="emit('send')" />

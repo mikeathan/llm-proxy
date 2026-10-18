@@ -1,10 +1,10 @@
-import { ref, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
+import { ref, shallowRef, computed, watch, getCurrentScope, onScopeDispose } from 'vue'
 import { AssistantService } from '../../services/assistant/assistantService'
 import { useAssistantSSE } from './useAssistantSSE'
 import { useMessageBuilder } from '../../utils/message/messageBuilder'
 import { buildSegmentsFromHistory } from '../../utils/message/turnGrouper'
 import type { SessionLifecyclePayload } from '../../types/assistant'
-import type { AssistantMessage, RunChoice, SessionBrief } from '../../types/assistant'
+import type { AssistantMessage, RunChoice, RunEnd, ChatRunOutcome, SessionBrief } from '../../types/assistant'
 import { LIFECYCLE_PHASES } from '../../types/dispatcher'
 import { clearRunningFlags, reconcileRunningSessions } from '../../utils/assistant/running'
 import { useAppBanner } from '../ui/useAppBanner'
@@ -20,6 +20,21 @@ const activeWorkspaceId = ref<string | null>(null)
 const conversationProfile = ref('')
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
+
+// Which chat run is the latest and how it ended. `loading` cannot say: it is toggled by fetching sessions and deleting
+// them while a run is still live. A queued message waits on a token and is sent only when that run ended as completed.
+const runToken = ref(0)
+const runEnd = shallowRef<RunEnd | null>(null)
+
+function startRun() {
+  runToken.value++
+}
+
+// The first ending of a run wins: an error is followed by a completed lifecycle, which must not turn it into a success.
+function endRun(outcome: ChatRunOutcome) {
+  if (runEnd.value?.token === runToken.value) return
+  runEnd.value = { token: runToken.value, outcome }
+}
 
 /**
  * The open conversation's id, read-only. For a caller that only needs to know what is
@@ -91,6 +106,7 @@ export function useAssistant() {
       // that sendMessage() set, otherwise the UI hangs on a spinner forever.
       if (ev.type === 'error') {
         loading.value = false
+        endRun('failed')
       }
       builder.handleEvent(ev)
     },
@@ -139,6 +155,9 @@ export function useAssistant() {
   const cancel = async () => {
     const ws = activeWorkspaceId.value
     if (!ws) return
+    // Recorded the moment the user asks, not when the request returns: the server's completed event can arrive before its
+    // answer, and a stopped run must never read as a completed one (a queued message would then be sent).
+    endRun('stopped')
     // Cancel by workspace — conversation_id is optional.  When the user
     // stops the first send before the response returns a session_id, we
     // still need the cancel signal to reach the backend.  The cancel
@@ -307,6 +326,7 @@ export function useAssistant() {
 
     messages.value.push({ role: 'user', content: text })
 
+    startRun()
     loading.value = true
     clearBanner()
 
@@ -392,6 +412,7 @@ export function useAssistant() {
         console.error(err)
         // Clear loading here because no session_completed will arrive.
         loading.value = false
+        endRun('failed')
       }
       sse.disconnect()
       builder.reset()
@@ -466,6 +487,7 @@ export function useAssistant() {
         currentSessionId.value = cid
         builder.reset()
         builder.resetPauseTimer()
+        startRun()
         loading.value = true
         messages.value = []
         messages.value.push({ role: 'user', content: p.snippet })
@@ -500,6 +522,7 @@ export function useAssistant() {
       }
       if (cid === currentSessionId.value) {
         loading.value = false
+        endRun('completed')
       }
     }
   }
@@ -514,6 +537,8 @@ export function useAssistant() {
 
   return {
     loading,
+    runToken,
+    runEnd,
     currentSessionId,
     messages,
     sessions,

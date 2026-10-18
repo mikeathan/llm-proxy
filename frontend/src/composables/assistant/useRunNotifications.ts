@@ -2,7 +2,8 @@ import { computed, ref, watch, type Ref } from "vue"
 import type { Router } from "vue-router"
 import type { GlobalRunTick, LaneHolder } from "../../types/assistant"
 import type { AutomationRun } from "../../types/dispatcher"
-import type { RunEndItem, RunEndOutcome, RunNotification } from "../../types/notifications"
+import type { NotificationItem, ReminderAlertItem, RunEndItem, RunEndOutcome, RunNotification } from "../../types/notifications"
+import { summarizeBatch } from "../../utils/notifications/present"
 import { ROUTE_NAMES } from "../../types/routes"
 import { endedRuns, runIdentity } from "../../utils/runs/runTransitions"
 import { toAutomation, toWorkspace, toWorkspaceAssistant } from "../../router/routes"
@@ -13,7 +14,9 @@ import { useToast } from "../useToast"
 
 // Global run notifications (plan Phase 4, D5/D20): terminal transitions only,
 // detected from the existing global lane poll — no new timer. The ledger of
-// automation runs is read only after an observed end, once per batch.
+// automation runs is read only after an observed end, once per batch. The same
+// list also carries reminders that fired (publishReminders, fed by
+// useReminderAlerts): one bell, one cap, one badge count.
 
 const DEFAULT_CAP = 20
 // Remembered run identities, so a run is announced at most once. Bounded.
@@ -25,8 +28,8 @@ interface Deps {
   lastTick: Readonly<Ref<GlobalRunTick | null>>
   /** The automation run ledger (read only after an observed end). */
   fetchLedger: () => Promise<AutomationRun[]>
-  /** Whether the user is already looking at this run's page. */
-  isShowing: (item: RunEndItem) => boolean
+  /** Whether the user is already looking at this item's page. */
+  isShowing: (item: NotificationItem) => boolean
   /** The running conversation id known for a workspace, if any. */
   conversationFor: (workspace: string) => string | null
   /** Transient announcement of a new batch (a toast). */
@@ -56,16 +59,6 @@ function automationItem(holder: LaneHolder, record: AutomationRun | undefined): 
     target: toAutomation(holder.key),
     destination: "automations",
   }
-}
-
-export function summarize(items: RunEndItem[]): string {
-  if (items.length === 1) {
-    const [item] = items as [RunEndItem]
-    const what = item.kind === "assistant" ? `Assistant run in ${item.workspace}` : `Automation ${item.label}`
-    return `${what} ${item.outcome}`
-  }
-  const failed = items.filter((item) => item.outcome === "failed").length
-  return failed ? `${items.length} runs ended, ${failed} failed` : `${items.length} runs ended`
 }
 
 export function createRunNotifications(deps: Deps) {
@@ -121,10 +114,10 @@ export function createRunNotifications(deps: Deps) {
     return items
   }
 
-  function publish(items: RunEndItem[]) {
+  function show(items: NotificationItem[]) {
     const visible = items.filter((item) => !deps.isShowing(item))
     if (!visible.length) return
-    const batch: RunNotification = { id: `run-batch-${++batchSeq}`, createdAt: Date.now(), items: visible }
+    const batch: RunNotification = { id: `batch-${++batchSeq}`, createdAt: Date.now(), items: visible }
     const next = [...notifications.value, batch]
     // Bounded by runs, oldest first out.
     let total = next.reduce((n, b) => n + b.items.length, 0)
@@ -140,7 +133,12 @@ export function createRunNotifications(deps: Deps) {
       }
     }
     notifications.value = next
-    deps.announce(summarize(visible))
+    deps.announce(summarizeBatch(visible))
+  }
+
+  /** Reminders that fired (or failed to), put on the same list as the runs that ended. */
+  function publishReminders(items: ReminderAlertItem[]) {
+    show(items)
   }
 
   async function processTick(tick: GlobalRunTick) {
@@ -153,7 +151,7 @@ export function createRunNotifications(deps: Deps) {
     baseline = tick.holders
     const assistants = ended.filter((holder) => holder.kind === INTERACTIVE_KIND).map(assistantItem)
     const automations = await resolveAutomations(ended.filter((holder) => holder.kind === AUTOMATION_KIND))
-    publish([...assistants, ...automations])
+    show([...assistants, ...automations])
   }
 
   const stop = watch(deps.lastTick, (tick) => {
@@ -183,15 +181,16 @@ export function createRunNotifications(deps: Deps) {
     notifications.value = []
   }
 
-  return { notifications, unreadCount, dismiss, dismissItem, clearShown, clear, stop, settled: () => queue }
+  return { notifications, unreadCount, publishReminders, dismiss, dismissItem, clearShown, clear, stop, settled: () => queue }
 }
 
 type RunNotifications = ReturnType<typeof createRunNotifications>
 let instance: RunNotifications | null = null
 
-/** Whether the current route already shows this run (its automation or workspace chat). */
-function routeShows(router: Router, item: RunEndItem): boolean {
+/** Whether the current route already shows this item (a run's automation or workspace chat, or the Reminders page). */
+function routeShows(router: Router, item: NotificationItem): boolean {
   const route = router.currentRoute.value
+  if (item.kind === "reminder") return route.name === ROUTE_NAMES.reminders
   if (item.kind === "automation") return route.name === ROUTE_NAMES.automation && route.params.id === item.automationId
   return route.name === ROUTE_NAMES.workspaceAssistant && route.params.ws === item.workspace
 }

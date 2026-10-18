@@ -205,4 +205,74 @@ describe('useAssistantSSE', () => {
     expect(s.liveEvents.value).toHaveLength(1000)
     expect(s.liveEvents.value[0]!.id).toBe('e5')
   })
+
+  // A queued message waits for a particular run and is sent only when that run ended as completed, so the composable says
+  // how each run ended. `loading` is not that signal: fetchSessions and a delete toggle it while a run is still live.
+  describe('how a run ended', () => {
+    const errorEvent = () => ({ type: 'error', channel: 'assistant', payload: { message: 'boom' } }) as unknown as AgentEvent
+
+    async function startedRun() {
+      sse.isConnected.value = true
+      const a = await freshAssistant()
+      await a.sendMessage('ws', 'hello')
+      sse.onMessage!(lifecycle('session_started', 'c1'))
+      return a
+    }
+
+    it('gives each run its own token and reports no ending while it is live', async () => {
+      const a = await startedRun()
+      const first = a.runToken.value
+      expect(a.runEnd.value).toBeNull()
+      sse.onMessage!(lifecycle('session_completed', 'c1'))
+      await a.sendMessage('ws', 'again')
+      expect(a.runToken.value).toBeGreaterThan(first)
+    })
+
+    it('reports a run that finished as completed', async () => {
+      const a = await startedRun()
+      const token = a.runToken.value
+      sse.onMessage!(lifecycle('session_completed', 'c1'))
+      expect(a.runEnd.value).toEqual({ token, outcome: 'completed' })
+    })
+
+    it('reports a run that raised an error as failed, even though a completed event follows it', async () => {
+      const a = await startedRun()
+      const token = a.runToken.value
+      sse.onMessage!(errorEvent())
+      sse.onMessage!(lifecycle('session_completed', 'c1'))
+      expect(a.runEnd.value).toEqual({ token, outcome: 'failed' })
+    })
+
+    it('reports a run the user stopped as stopped', async () => {
+      const a = await startedRun()
+      const token = a.runToken.value
+      await a.cancel()
+      expect(a.runEnd.value).toEqual({ token, outcome: 'stopped' })
+    })
+
+    it('reports stopped even when the completed event arrives before the stop request returns', async () => {
+      const a = await startedRun()
+      const token = a.runToken.value
+      let answerStop: (value: { conversation_id: string }) => void = () => {}
+      service.cancelAgent.mockReturnValueOnce(new Promise((resolve) => { answerStop = resolve }))
+      const stopping = a.cancel()
+      sse.onMessage!(lifecycle('session_completed', 'c1')) // the server says it is over before it answers the request
+      answerStop({ conversation_id: 'c1' })
+      await stopping
+      expect(a.runEnd.value).toEqual({ token, outcome: 'stopped' })
+    })
+
+    it('does not read a refresh of the session list as the run ending, although it toggles loading', async () => {
+      const a = await startedRun()
+      await a.fetchSessions('ws')
+      expect(a.loading.value).toBe(false)
+      expect(a.runEnd.value).toBeNull()
+    })
+
+    it('ignores another conversation finishing', async () => {
+      const a = await startedRun()
+      sse.onMessage!(lifecycle('session_completed', 'someone-else'))
+      expect(a.runEnd.value).toBeNull()
+    })
+  })
 })

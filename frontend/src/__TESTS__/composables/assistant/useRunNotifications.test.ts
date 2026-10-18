@@ -1,17 +1,17 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, shallowRef } from 'vue'
 import { createRunNotifications } from '../../../composables/assistant/useRunNotifications'
-import { toAutomation, toWorkspace, toWorkspaceAssistant } from '../../../router/routes'
+import { toAutomation, toReminders, toWorkspace, toWorkspaceAssistant } from '../../../router/routes'
 import type { GlobalRunTick, LaneHolder } from '../../../types/assistant'
 import type { AutomationRun } from '../../../types/dispatcher'
-import type { RunEndItem } from '../../../types/notifications'
+import type { NotificationItem, ReminderAlertItem, RunEndItem } from '../../../types/notifications'
 
 const chat = (ws: string, since: string): LaneHolder => ({ key: `chat:${ws}`, kind: 'interactive', workspace_id: ws, label: ws, since })
 const auto = (ws: string, name: string, since: string): LaneHolder => ({ key: `${ws}/${name}`, kind: 'automation', workspace_id: ws, automation: name, label: `${ws}/${name}`, since })
 const record = (ws: string, name: string, timestamp: string, error = ''): AutomationRun =>
   ({ id: `r-${name}-${timestamp}`, workspace_id: ws, automation_name: name, timestamp, error, output: '', duration_ms: 1, model: 'm' })
 
-function setup(opts: { ledger?: AutomationRun[][]; showing?: (item: RunEndItem) => boolean; conversation?: Record<string, string>; cap?: number } = {}) {
+function setup(opts: { ledger?: AutomationRun[][]; showing?: (item: NotificationItem) => boolean; conversation?: Record<string, string>; cap?: number } = {}) {
   const tick = shallowRef<GlobalRunTick | null>(null)
   const ledgers = [...(opts.ledger ?? [])]
   const fetchLedger = vi.fn(async () => ledgers.shift() ?? [])
@@ -33,7 +33,9 @@ function setup(opts: { ledger?: AutomationRun[][]; showing?: (item: RunEndItem) 
   return { n, push, fetchLedger, announce }
 }
 
-const items = (n: ReturnType<typeof createRunNotifications>) => n.notifications.value.flatMap((b) => b.items)
+const allItems = (n: ReturnType<typeof createRunNotifications>) => n.notifications.value.flatMap((b) => b.items)
+// The runs on the list: what the run tests below look at.
+const items = (n: ReturnType<typeof createRunNotifications>): RunEndItem[] => allItems(n).filter((i): i is RunEndItem => i.kind !== 'reminder')
 
 describe('run notifications', () => {
   it('takes the first good tick as the baseline: runs finished before load never notify', async () => {
@@ -78,7 +80,7 @@ describe('run notifications', () => {
   })
 
   it('does not notify what the user is already looking at', async () => {
-    const { n, push } = setup({ showing: (item) => item.workspace === 'ws' })
+    const { n, push } = setup({ showing: (item) => item.kind !== 'reminder' && item.workspace === 'ws' })
     await push([chat('ws', 't1'), chat('other', 't1')])
     await push([])
     expect(items(n).map((i) => i.workspace)).toEqual(['other'])
@@ -141,7 +143,7 @@ describe('run notifications', () => {
 
   it('counts unread runs and clears the ones now on screen', async () => {
     let showing = ''
-    const { n, push } = setup({ showing: (item) => item.workspace === showing })
+    const { n, push } = setup({ showing: (item) => item.kind !== 'reminder' && item.workspace === showing })
     await push([chat('a', 't'), chat('b', 't')])
     await push([])
     expect(n.unreadCount.value).toBe(2)
@@ -168,5 +170,50 @@ describe('run notifications over a long session', () => {
       await push([])
     }
     expect(items(n).length).toBeLessThanOrEqual(20)
+  })
+})
+
+describe('reminder alerts on the bell', () => {
+  const alert = (id: number, event: ReminderAlertItem['event'] = 'due'): ReminderAlertItem =>
+    ({ id: `reminder-${id}-1`, kind: 'reminder', message: `reminder ${id}`, event, channel: 'in-app', target: toReminders(), destination: 'reminders' })
+
+  it('lists a reminder that fired beside runs, counts it and announces it', async () => {
+    const { n, push, announce } = setup()
+    await push([chat('ws', 't1')])
+    await push([])
+    n.publishReminders([alert(1)])
+    expect(allItems(n).map((i) => i.kind)).toEqual(['assistant', 'reminder'])
+    expect(n.unreadCount.value).toBe(2)
+    expect(announce).toHaveBeenLastCalledWith('Reminder: reminder 1')
+  })
+
+  it('shares the cap with runs, oldest out first', async () => {
+    const { n } = setup({ cap: 2 })
+    n.publishReminders([alert(1)])
+    n.publishReminders([alert(2), alert(3)])
+    expect(allItems(n).map((i) => i.id)).toEqual(['reminder-2-1', 'reminder-3-1'])
+  })
+
+  it('clears a reminder when the Reminders page is on screen, and leaves runs alone', async () => {
+    const { n, push } = setup({ showing: (item) => item.kind === 'reminder' })
+    await push([chat('ws', 't1')])
+    await push([])
+    n.publishReminders([alert(1)])
+    n.clearShown()
+    expect(allItems(n).map((i) => i.kind)).toEqual(['assistant'])
+  })
+
+  it('announces nothing for a reminder the user is already looking at', () => {
+    const { n, announce } = setup({ showing: (item) => item.kind === 'reminder' })
+    n.publishReminders([alert(1)])
+    expect(allItems(n)).toEqual([])
+    expect(announce).not.toHaveBeenCalled()
+  })
+
+  it('dismisses one reminder out of a batch', () => {
+    const { n } = setup()
+    n.publishReminders([alert(1), alert(2)])
+    n.dismissItem('reminder-1-1')
+    expect(allItems(n).map((i) => i.id)).toEqual(['reminder-2-1'])
   })
 })

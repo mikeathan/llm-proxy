@@ -1,11 +1,14 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
-import { ref } from 'vue'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { ref, shallowRef } from 'vue'
 import { memoryStorage } from '../../../helpers/memoryStorage'
-import type { SessionBrief } from '../../../../types/assistant'
+import type { RunEnd, SessionBrief } from '../../../../types/assistant'
+import { AssistantService } from '../../../../services/assistant/assistantService'
 
 const a = {
   loading: ref(false),
+  runToken: ref(0),
+  runEnd: shallowRef<RunEnd | null>(null),
   messages: ref([]),
   sessions: ref<SessionBrief[]>([{ id: 's1', snippet: 'Plan the move', updated_at: new Date().toISOString() }]),
   currentSessionId: ref<string | null>(null),
@@ -54,14 +57,30 @@ vi.mock('../../../../services/commands/commandService', () => ({ CommandService:
 
 import AssistantChat from '../../../../components/AgentIde/assistant/AssistantChat.vue'
 
+// Every chat mounted by a test, so it can be taken down: the queued message is shared by the whole app, and a chat left
+// mounted would go on handling the next test's run endings.
+const mounted: Array<Pick<VueWrapper, 'find' | 'unmount'>> = []
+function track<W extends Pick<VueWrapper, 'find' | 'unmount'>>(wrapper: W): W {
+  mounted.push(wrapper)
+  return wrapper
+}
+
 function mountChat() {
-  const w = mount(AssistantChat, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } } })
+  const w = track(mount(AssistantChat, { props: { workspaceId: 'ws' }, global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } } }))
   const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? '') || name.test(b.text()))
   const status = () => w.get('[data-test="chat-status"]').text()
   return { w, button, status }
 }
 
 describe('AssistantChat', () => {
+  afterEach(async () => {
+    for (const w of mounted.splice(0)) {
+      const remove = w.find('[data-test="queued-message"] button')
+      if (remove.exists()) await remove.trigger('click')
+      w.unmount()
+    }
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     profileService.list.mockResolvedValue(catalog)
@@ -143,10 +162,10 @@ describe('AssistantChat', () => {
 
   describe('as the ask panel', () => {
     function mountPanel() {
-      const w = mount(AssistantChat, {
+      const w = track(mount(AssistantChat, {
         props: { workspaceId: 'ws', variant: 'panel' },
         global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
-      })
+      }))
       const button = (name: RegExp) => w.findAll('button').find((b) => name.test(b.attributes('aria-label') ?? '') || name.test(b.text()))
       return { w, button }
     }
@@ -175,11 +194,11 @@ describe('AssistantChat', () => {
     })
 
     it('puts the cursor in the message on request', async () => {
-      const w = mount(AssistantChat, {
+      const w = track(mount(AssistantChat, {
         props: { workspaceId: 'ws', variant: 'panel' },
         global: { stubs: { Icon: true, teleport: true, ChatMessages: { template: '<div />', methods: { scrollToBottom() {} } }, GuardrailBanner: true } },
         attachTo: document.body,
-      })
+      }))
       ;(w.vm as unknown as { focusInput: () => void }).focusInput()
       expect(document.activeElement).toBe(w.get('textarea').element)
       w.unmount()
@@ -327,6 +346,83 @@ describe('AssistantChat', () => {
       const { w } = mountChat()
       await flushPromises()
       expect(settingsButton(w).attributes('disabled')).toBeDefined()
+    })
+  })
+
+  describe('a message written while a run is going', () => {
+    async function queued(text = 'what about Leeds') {
+      a.loading.value = true
+      a.runToken.value = 1
+      const m = mountChat()
+      await flushPromises()
+      await m.w.get('textarea').setValue(text)
+      await m.w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      return m
+    }
+    const endRun = async (outcome: RunEnd['outcome']) => {
+      a.runEnd.value = { token: 1, outcome }
+      // The ending is handled on a promise chain, then the box re-renders: two turns.
+      await flushPromises()
+      await flushPromises()
+    }
+
+    beforeEach(() => {
+      a.runEnd.value = null
+      a.runToken.value = 0
+      vi.spyOn(AssistantService, 'getActiveRuns').mockResolvedValue({ assistant_running: false, automation_running: false, assistant_conversation_id: '' })
+    })
+
+    it('is queued under the box instead of being sent, and does not cancel the run', async () => {
+      const { w } = await queued()
+      expect(a.sendMessage).not.toHaveBeenCalled()
+      expect(a.cancel).not.toHaveBeenCalled()
+      expect(w.get('[data-test="queued-message"]').text()).toContain('what about Leeds')
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    })
+
+    it('is sent once when the run completed', async () => {
+      await queued()
+      a.loading.value = false
+      await endRun('completed')
+      expect(a.sendMessage).toHaveBeenCalledExactlyOnceWith('ws', 'what about Leeds', { model: '', profile: '' })
+    })
+
+    it('goes back to the box, unsent, when the run failed', async () => {
+      const { w } = await queued()
+      a.loading.value = false
+      await endRun('failed')
+      expect(a.sendMessage).not.toHaveBeenCalled()
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('what about Leeds')
+      expect(w.find('[data-test="queued-message"]').exists()).toBe(false)
+    })
+
+    it('is not sent if the server still has a run live, even though loading went false', async () => {
+      await queued()
+      vi.mocked(AssistantService.getActiveRuns).mockResolvedValue({ assistant_running: true, automation_running: false, assistant_conversation_id: 'c1' })
+      a.loading.value = false
+      await endRun('completed')
+      expect(a.sendMessage).not.toHaveBeenCalled()
+    })
+
+    it('can be removed, which puts the text back in the box', async () => {
+      const { w } = await queued()
+      await w.get('[data-test="queued-message"] button').trigger('click')
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('what about Leeds')
+      expect(w.find('[data-test="queued-message"]').exists()).toBe(false)
+    })
+
+    it('asks before a second message replaces the queued one', async () => {
+      const { w } = await queued('first')
+      confirm.mockResolvedValueOnce(false)
+      await w.get('textarea').setValue('second')
+      await w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(w.get('[data-test="queued-message"]').text()).toContain('first')
+      confirm.mockResolvedValueOnce(true)
+      await w.get('textarea').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+      expect(w.get('[data-test="queued-message"]').text()).toContain('second')
     })
   })
 })

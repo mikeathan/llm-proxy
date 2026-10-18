@@ -2,7 +2,7 @@ import type { RouteLocationNamedRaw } from 'vue-router'
 import { toActivity, toAutomations, toModels, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
 import type { Destination, NavId, NavItem } from '../types/routes'
-import type { RunEndItem } from '../types/notifications'
+import type { NotificationItem } from '../types/notifications'
 
 // The shell's destinations (plan frontend-redesign-v2, V1/V6), built once for both
 // navigations: the sidebar and the phone's bottom bar. Assistant leads; Workspace is
@@ -66,9 +66,9 @@ export function buildNavigation(ctx: NavContext): NavItem[] {
   }))
 }
 
-// Which entry an unread run badges: an assistant run the Assistant, anything else the
-// destination that owns it (Workspaces' own destination is the Workspace entry).
-export function badgeTarget(item: Pick<RunEndItem, 'kind' | 'destination'>): NavId {
+// Which entry an unread item badges: an assistant run the Assistant, anything else the
+// destination that owns it (a reminder, Reminders) (Workspaces' own destination is the Workspace entry).
+export function badgeTarget(item: Pick<NotificationItem, 'kind' | 'destination'>): NavId {
   if (item.kind === 'assistant') return 'assistant'
   return item.destination === 'workspaces' ? 'workspace' : item.destination
 }
