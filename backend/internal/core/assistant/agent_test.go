@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -3055,7 +3056,7 @@ func TestAgent_SieveCompressionRange(t *testing.T) {
 	}
 
 	agent := &Agent{config: AgentConfig{ContextBudget: 36000}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
-	got := agent.applyPhysicalSieve(history)
+	got := agent.applyPhysicalSieve(history, 0)
 
 	// Total before compression: ~40K chars → exceeds 36K budget.
 	// After compression: middle 8 drop from 5K to 4K each → saves 8K → total ~32K → under budget, no drop.
@@ -3100,7 +3101,7 @@ func TestAgent_SieveCompressionAvoidsDrop(t *testing.T) {
 	}
 
 	agent := &Agent{config: AgentConfig{ContextBudget: 33000}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
-	got := agent.applyPhysicalSieve(history)
+	got := agent.applyPhysicalSieve(history, 0)
 
 	for _, m := range got {
 		if strings.Contains(m.Content, prompts.ContextSieveWarning) {
@@ -3123,7 +3124,7 @@ func TestAgent_SieveDropAfterCompressionExhausted(t *testing.T) {
 	}
 
 	agent := &Agent{config: AgentConfig{ContextBudget: 500}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
-	got := agent.applyPhysicalSieve(history)
+	got := agent.applyPhysicalSieve(history, 0)
 
 	foundWarning := false
 	for _, m := range got {
@@ -3161,7 +3162,7 @@ func TestAgent_SieveSafeEmptyRange(t *testing.T) {
 				history[i] = proxy.Message{Role: proxy.UserRole, Content: strings.Repeat("x", 10000)}
 			}
 			agent := &Agent{config: AgentConfig{ContextBudget: 100}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
-			got := agent.applyPhysicalSieve(history)
+			got := agent.applyPhysicalSieve(history, 0)
 			if got == nil {
 				t.Fatal("sieve should never return nil")
 			}
@@ -3218,7 +3219,7 @@ func TestAgent_SieveKeepsTaskAtLockedHead_AfterPlanStateInjection(t *testing.T) 
 	}
 
 	agent := &Agent{config: AgentConfig{ContextBudget: 500}, deps: AgentRuntimeDeps{Logger: logging.NewNopLogger()}}
-	got := agent.applyPhysicalSieve(history)
+	got := agent.applyPhysicalSieve(history, 0)
 
 	// Locked head contents must survive: system prompt, PlanState, and user task.
 	if len(got) < 3 || got[0].Content != "You are an autonomous agent..." {
@@ -4861,6 +4862,30 @@ func TestAgent_TransportError_SurfacesClassAndHint(t *testing.T) {
 	}
 }
 
+// TestComputeNextResponse_ContextOverflowSkipsNonStreamFallback verifies a
+// context-size rejection of the stream goes straight to the sieve recovery. The
+// non-streaming fallback re-sends the identical prompt and gets the identical
+// 400 (vertex 2026-10-17: a stream 400 and a chat 400 one second apart).
+func TestComputeNextResponse_ContextOverflowSkipsNonStreamFallback(t *testing.T) {
+	chatCalls := 0
+	overflow := errors.New(`LLM stream error 400: {"error":{"message":"request (16401 tokens) exceeds the available context size (16384 tokens), try increasing it","type":"exceed_context_size_error"}}`)
+	client := &MockClient{
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) { return nil, overflow },
+		ChatFunc: func(context.Context, proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			chatCalls++
+			return nil, overflow
+		},
+	}
+	agent := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{ProviderType: "openai"})
+	_, err := agent.computeNextResponse(context.Background(), []proxy.Message{{Role: proxy.UserRole, Content: "hi"}}, nil, "")
+	if !failures.IsContextSizeError(err) {
+		t.Fatalf("want the context-size error returned, got %v", err)
+	}
+	if chatCalls != 0 {
+		t.Errorf("non-streaming fallback re-sent the same oversized prompt %d time(s)", chatCalls)
+	}
+}
+
 // TestPreparedOverContextBudget verifies the physical sieve's decision uses the
 // PREPARED request size (history + system-prompt enrichment) rather than raw
 // history — the fix for the 2026-08-30 smoke-test run, where the sieve never
@@ -4935,6 +4960,70 @@ func TestPreparedOverContextBudget_NativeToolArgs(t *testing.T) {
 	}
 	if !agent.preparedOverContextBudget(hist, provider.Tools) {
 		t.Error("native-mode tool-call arguments must count toward the budget")
+	}
+}
+
+// TestPreparedOverContextBudget_NativeToolSchemas verifies NATIVE-mode tool
+// SCHEMAS count toward the budget. They travel in the request's tools field,
+// not in any message, yet the chat template renders them into the prompt:
+// vertex's 16k Qwen window overflowed by 17 tokens (16401 > 16384) with the
+// sieve never firing because ~20 KB of schemas were uncounted.
+func TestPreparedOverContextBudget_NativeToolSchemas(t *testing.T) {
+	provider := &MockProvider{Tools: []proxy.Tool{
+		{Type: "function", Function: proxy.FunctionSchema{Name: "read_file", Description: "read a file", Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"path": map[string]string{"type": "string", "description": strings.Repeat("d", 3000)}},
+		}}},
+	}}
+	build := func(native bool) *Agent {
+		return NewAgent(&MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, context.Canceled
+		}}, provider, &MockEngine{}, AgentOptions{ContextBudget: 5000, UseNativeTools: boolPtr(native)})
+	}
+	hist := []proxy.Message{{Role: proxy.UserRole, Content: strings.Repeat("x", 3000)}}
+	// Messages plus the native reference (~3100) are under 5000; the 3000-char parameter schema pushes it over.
+	if !build(true).preparedOverContextBudget(hist, provider.Tools) {
+		t.Error("native tool schemas must count toward the budget")
+	}
+}
+
+// TestApplyPhysicalSieve_SubtractsRequestOverhead verifies the sieve prunes
+// against the budget left AFTER the request's fixed overhead (system
+// enrichment, tool schemas). Judged against the whole budget, a history that
+// fit alone was returned untouched while the request overflowed the window.
+func TestApplyPhysicalSieve_SubtractsRequestOverhead(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{ContextBudget: 10000})
+	build := func() []proxy.Message {
+		h := []proxy.Message{{Role: proxy.SystemRole, Content: "s"}, {Role: proxy.UserRole, Content: "task"}, {Role: proxy.UserRole, Content: "ctx"}}
+		for i := 0; i < 20; i++ {
+			h = append(h, proxy.Message{Role: proxy.ToolRole, ToolCallID: "t", Content: strings.Repeat("r", 300)})
+		}
+		return h
+	}
+	if got := agent.applyPhysicalSieve(build(), 0); len(got) != len(build()) {
+		t.Fatalf("history (~6000) fits the 10000 budget alone: must be untouched, got %d messages", len(got))
+	}
+	if got := agent.applyPhysicalSieve(build(), 8000); len(got) >= len(build()) {
+		t.Errorf("with 8000 chars of overhead only ~2000 remain for history: must prune, got %d messages", len(got))
+	}
+}
+
+// TestApplyPhysicalSieve_FitsWhenTailAloneIsOverBudget verifies the sieve's
+// result fits the budget even when the kept tail (a few fetch results) is
+// bigger than the history's share — it used to return such a history as is.
+func TestApplyPhysicalSieve_FitsWhenTailAloneIsOverBudget(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{ContextBudget: 12000})
+	h := []proxy.Message{{Role: proxy.SystemRole, Content: "s"}, {Role: proxy.UserRole, Content: "task"}, {Role: proxy.UserRole, Content: "ctx"}}
+	for i := 0; i < 8; i++ { // too few messages to drop any
+		h = append(h, proxy.Message{Role: proxy.ToolRole, ToolCallID: "t", Content: strings.Repeat("f", 6000)})
+	}
+	got := agent.applyPhysicalSieve(h, 6000)
+	total := 0
+	for _, m := range got {
+		total += messageChars(m)
+	}
+	if total > 12000-6000 {
+		t.Errorf("sieved history is %d chars, want <= %d", total, 12000-6000)
 	}
 }
 

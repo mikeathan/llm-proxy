@@ -417,6 +417,11 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 		if isUserCanceled(streamErr) {
 			return proxy.Message{}, streamErr
 		}
+		if failures.IsContextSizeError(streamErr) {
+			// The prompt itself is too big: the non-streaming fallback would send
+			// the same prompt and get the same 400. Hand it to the sieve recovery.
+			return proxy.Message{}, streamErr
+		}
 		if streamErr != nil {
 			// Distinguish transport failures from genuine "streaming not
 			// supported" rejections so the operator knows WHY the stream died:

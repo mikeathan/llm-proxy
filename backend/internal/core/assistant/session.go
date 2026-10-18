@@ -1102,8 +1102,8 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	// and let the prompt overflow the serving context (2026-08-30 smoke-test
 	// run: context grew to ~27.7 KB with the sieve never firing, then the
 	// server 400'd "context too long").
-	if a.preparedOverContextBudget(*history, toolsList) {
-		*history = a.applyPhysicalSieve(*history)
+	if over, overhead := a.preparedRequestSize(*history, toolsList); over {
+		*history = a.applyPhysicalSieve(*history, overhead)
 	}
 
 	// Finalization turn: run ONE turn with tools disabled so the model is
