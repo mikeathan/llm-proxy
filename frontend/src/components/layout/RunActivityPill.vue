@@ -158,9 +158,10 @@ const dismiss = (entry: QueuedRun) => runQueueAction(entry.key, AssistantService
       <span v-if="state === 'unavailable'">{{ UNAVAILABLE_TEXT }}</span>
       <span v-else-if="state === 'idle'" class="max-sm:sr-only">Idle</span>
       <span v-else>
-        <span v-if="runningCount > 0"><span class="tabular-nums">{{ runningCount }}</span> running</span>
+        <!-- On a phone only the counts show: the words widened the pill past the screen, and the dot and numbers say it. -->
+        <span v-if="runningCount > 0"><span class="tabular-nums">{{ runningCount }}</span><span class="max-sm:sr-only"> running</span></span>
         <span v-if="runningCount > 0 && queuedCount > 0" aria-hidden="true"> · </span>
-        <span v-if="queuedCount > 0"><span class="tabular-nums">{{ queuedCount }}</span> queued</span>
+        <span v-if="queuedCount > 0"><span class="tabular-nums">{{ queuedCount }}</span><span class="max-sm:sr-only"> queued</span></span>
       </span>
     </button>
 

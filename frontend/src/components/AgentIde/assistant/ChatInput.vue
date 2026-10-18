@@ -153,7 +153,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
     <span v-if="isLongDraft" data-test="draft-size" class="self-end font-mono text-[length:var(--text-micro)] tabular-nums text-muted">{{ draftSize }}</span>
     <!-- One action row under the box, every control centred on it: the tools (start a command, review the conversation for memories) on the left; a long draft's expand, then send or stop, on the right. -->
     <div data-test="composer-actions" class="flex items-center justify-between gap-2">
-      <div class="flex min-w-0 items-center gap-1">
+      <div class="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
         <BaseButton variant="ghost" size="sm" aria-label="Commands" title="Start a command, such as /remind" :disabled="!canStartCommand || loading" :class-name="TOOL_TOUCH" @click="startCommand">
           <span aria-hidden="true">/</span><span>Commands</span>
         </BaseButton>

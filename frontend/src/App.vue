@@ -82,7 +82,7 @@ onMounted(() => {
 
 <template>
   <RouterView v-if="route.meta.bare" />
-  <div v-else class="flex min-h-screen bg-canvas font-sans text-secondary">
+  <div v-else class="flex min-h-screen overflow-x-clip bg-canvas font-sans text-secondary">
     <SkipLink target="content" />
     <AppSidebar v-if="!isMobile" :badges="navBadges" />
 
