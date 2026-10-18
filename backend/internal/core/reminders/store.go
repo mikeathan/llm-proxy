@@ -63,6 +63,10 @@ type Reminder struct {
 	LastError string
 	CreatedBy string
 	CreatedAt time.Time
+	// Event is what the last delivery outcome was (an Event constant), and EventAt when, saved in the same write as the
+	// outcome so a client that was closed at the time can still be told. Empty and zero until the first outcome.
+	Event   string
+	EventAt time.Time
 }
 
 const migrateSQL = `
@@ -83,7 +87,7 @@ CREATE TABLE IF NOT EXISTS reminders (
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, fire_at);
 `
 
-const columns = `id, message, fire_at, cron, until_at, timezone, connector, status, rev, attempts, last_error, created_by, created_at`
+const columns = `id, message, fire_at, cron, until_at, timezone, connector, status, rev, attempts, last_error, created_by, created_at, event, event_at`
 
 // Store persists reminders in the shared SQLite database. Times are stored as
 // UTC unix seconds.
@@ -100,6 +104,14 @@ func NewStore(p db.Provider) (*Store, error) {
 	// Additive and idempotent: SQLite has no ADD COLUMN IF NOT EXISTS.
 	if _, err := database.Exec(`ALTER TABLE reminders ADD COLUMN rev INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return nil, fmt.Errorf("reminders migrate rev: %w", err)
+	}
+	for _, column := range []string{
+		`event TEXT NOT NULL DEFAULT ''`,
+		`event_at INTEGER NOT NULL DEFAULT 0`, // unix milliseconds: several outcomes can land inside one second
+	} {
+		if _, err := database.Exec(`ALTER TABLE reminders ADD COLUMN ` + column); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("reminders migrate %s: %w", column, err)
+		}
 	}
 	return &Store{db: database}, nil
 }
@@ -167,14 +179,41 @@ func (s *Store) Recent(ctx context.Context, limit int) ([]Reminder, error) {
 	return s.query(ctx, `SELECT `+columns+` FROM reminders WHERE status IN ('done','missed','failed') ORDER BY fire_at DESC, id DESC LIMIT ?`, limit)
 }
 
+// eventMillis is the stored form of an event time: 0 when there is none.
+func eventMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+// EventsAfter returns the reminders whose last outcome came after the given time (zero means from the start), newest
+// first and at most limit: what the web UI has not yet been told about.
+func (s *Store) EventsAfter(ctx context.Context, after time.Time, limit int) ([]Reminder, error) {
+	return s.query(ctx, `SELECT `+columns+` FROM reminders WHERE event != '' AND event_at > ? ORDER BY event_at DESC, id DESC LIMIT ?`, eventMillis(after), limit)
+}
+
+// LatestEventAt is the time of the newest outcome saved on any reminder, zero when there is none: the baseline a
+// client starts from so it announces only what happens after it began watching.
+func (s *Store) LatestEventAt(ctx context.Context) (time.Time, error) {
+	var millis int64
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(event_at), 0) FROM reminders`).Scan(&millis); err != nil {
+		return time.Time{}, fmt.Errorf("reminders latest event: %w", err)
+	}
+	if millis <= 0 {
+		return time.Time{}, nil
+	}
+	return time.UnixMilli(millis).UTC(), nil
+}
+
 // Update writes the result of a delivery attempt back to a reminder that is still
 // scheduled and has not been edited since it was read (same Rev). ErrNotFound
 // means a cancel, delete or edit got there first: the user's change wins and the
 // stale result is dropped.
 func (s *Store) Update(ctx context.Context, r Reminder) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ? WHERE id = ? AND status = 'scheduled' AND rev = ?`,
-		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID, r.Rev)
+		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ?, event = ?, event_at = ? WHERE id = ? AND status = 'scheduled' AND rev = ?`,
+		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.Event, eventMillis(r.EventAt), r.ID, r.Rev)
 	if err != nil {
 		return fmt.Errorf("reminders update: %w", err)
 	}
@@ -274,12 +313,16 @@ func scan(row scanner) (Reminder, error) {
 	var (
 		r                 Reminder
 		fireAt, createdAt int64
+		eventAt           int64
 		until             sql.NullInt64
 		status            string
 	)
 	if err := row.Scan(&r.ID, &r.Message, &fireAt, &r.Cron, &until, &r.Timezone, &r.Connector,
-		&status, &r.Rev, &r.Attempts, &r.LastError, &r.CreatedBy, &createdAt); err != nil {
+		&status, &r.Rev, &r.Attempts, &r.LastError, &r.CreatedBy, &createdAt, &r.Event, &eventAt); err != nil {
 		return Reminder{}, err
+	}
+	if eventAt > 0 {
+		r.EventAt = time.UnixMilli(eventAt).UTC()
 	}
 	r.FireAt = time.Unix(fireAt, 0).UTC()
 	r.CreatedAt = time.Unix(createdAt, 0).UTC()

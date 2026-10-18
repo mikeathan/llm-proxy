@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 
 type fakeReminderLister struct {
 	open, recent []reminders.Reminder
+	events       []reminders.Reminder // newest first, as the store returns them
+	eventsAfter  time.Time            // what EventsAfter was last asked for
 	edited       *reminders.Reminder
 	editID       int64
 	editErr      error
@@ -68,6 +71,24 @@ func (f *fakeReminderLister) Remove(_ context.Context, id int64) error {
 	}
 	f.removed = append(f.removed, id)
 	return nil
+}
+
+func (f *fakeReminderLister) EventsAfter(_ context.Context, after time.Time, limit int) ([]reminders.Reminder, error) {
+	f.eventsAfter = after
+	var out []reminders.Reminder
+	for _, r := range f.events {
+		if r.EventAt.After(after) && len(out) < limit {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeReminderLister) LatestEventAt(context.Context) (time.Time, error) {
+	if len(f.events) == 0 {
+		return time.Time{}, nil
+	}
+	return f.events[0].EventAt, nil
 }
 
 func (f *fakeReminderLister) List(context.Context) ([]reminders.Reminder, error) { return f.open, nil }
@@ -297,4 +318,72 @@ func TestReminderHandlers_PauseResumeSkip(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("bad id status = %d", rec.Code)
 	}
+}
+
+type eventsBody struct {
+	Cursor int64 `json:"cursor"`
+	Items  []struct {
+		ID      int64  `json:"id"`
+		Message string `json:"message"`
+		Event   string `json:"event"`
+		At      int64  `json:"at"`
+		Channel string `json:"channel"`
+	} `json:"items"`
+}
+
+func getEvents(t *testing.T, h *ReminderHandlers, query string) eventsBody {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.Events(rec, httptest.NewRequest(http.MethodGet, "/admin/api/reminders/events"+query, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	var body eventsBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+// The web UI asks what happened after the newest event it has seen. With no cursor it gets nothing but the baseline to
+// start from, so opening the app announces only what fires from then on; a later call returns what came after, newest
+// first, and only what the web UI should be told.
+func TestReminderHandlers_EventsAreFetchedByCursor(t *testing.T) {
+	at := time.Date(2026, 10, 18, 9, 30, 0, 0, time.UTC)
+	h := NewReminderHandlers(testZone, &fakeReminderLister{events: []reminders.Reminder{
+		{ID: 3, Message: "stand up", Event: reminders.EventFailed, EventAt: at.Add(2 * time.Minute), Connector: "telegram"},
+		{ID: 2, Message: "to telegram only", Event: reminders.EventDue, EventAt: at.Add(time.Minute), Connector: "telegram"},
+		{ID: 1, Message: "call bank", Event: reminders.EventDue, EventAt: at},
+	}})
+
+	baseline := getEvents(t, h, "")
+	if len(baseline.Items) != 0 || baseline.Cursor != at.Add(2*time.Minute).UnixMilli() {
+		t.Fatalf("baseline = %+v, want no items and the newest event time", baseline)
+	}
+	t.Run("what came after the cursor, newest first, without a delivery that went elsewhere", func(t *testing.T) {
+		got := getEvents(t, h, "?after="+strconv.FormatInt(at.Add(-time.Second).UnixMilli(), 10))
+		if len(got.Items) != 2 || got.Items[0].ID != 3 || got.Items[1].ID != 1 {
+			t.Fatalf("items = %+v, want the failure (3) then the web UI delivery (1); 2 went to telegram only", got.Items)
+		}
+		if got.Items[0].Event != "failed" || got.Items[0].At != at.Add(2*time.Minute).UnixMilli() || got.Items[0].Message != "stand up" {
+			t.Errorf("item = %+v", got.Items[0])
+		}
+		if got.Cursor != at.Add(2*time.Minute).UnixMilli() {
+			t.Errorf("cursor = %d, want the newest event time", got.Cursor)
+		}
+	})
+	t.Run("nothing after the newest event keeps the cursor", func(t *testing.T) {
+		newest := at.Add(2 * time.Minute).UnixMilli()
+		got := getEvents(t, h, "?after="+strconv.FormatInt(newest, 10))
+		if len(got.Items) != 0 || got.Cursor != newest {
+			t.Errorf("got %+v", got)
+		}
+	})
+	t.Run("a cursor that is not a number is refused", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.Events(rec, httptest.NewRequest(http.MethodGet, "/admin/api/reminders/events?after=soon", nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", rec.Code)
+		}
+	})
 }

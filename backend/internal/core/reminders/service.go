@@ -80,6 +80,8 @@ type Service struct {
 	// held maps a reminder whose state could not be saved to the time before which
 	// it is not retried. Touched only by the Run goroutine.
 	held map[int64]time.Time
+	// lastEventAt is the time the newest outcome was saved under (see nextEventTime).
+	lastEventAt time.Time
 }
 
 // NewService builds the service; call Run once from the app bootstrap layer.
@@ -231,6 +233,16 @@ func (s *Service) Recent(ctx context.Context, limit int) ([]Reminder, error) {
 	return s.store.Recent(ctx, limit)
 }
 
+// EventsAfter returns the reminders whose last outcome came after the given time, newest first and at most limit.
+func (s *Service) EventsAfter(ctx context.Context, after time.Time, limit int) ([]Reminder, error) {
+	return s.store.EventsAfter(ctx, after, limit)
+}
+
+// LatestEventAt is the time of the newest outcome saved on any reminder, zero when there is none.
+func (s *Service) LatestEventAt(ctx context.Context) (time.Time, error) {
+	return s.store.LatestEventAt(ctx)
+}
+
 func (s *Service) poke() {
 	select {
 	case s.wake <- struct{}{}:
@@ -330,6 +342,7 @@ func (s *Service) handle(ctx context.Context, r Reminder, now time.Time) {
 	}
 	step := s.cfg.Policy.Advance(r, outcome, now)
 	if step.Event != "" {
+		step.Next.Event, step.Next.EventAt = step.Event, s.nextEventTime()
 		s.notice.Notify(ctx, step.Next, step.Event)
 	}
 	s.save(ctx, step.Next, now)
@@ -368,6 +381,18 @@ func (s *Service) deliverTo(ctx context.Context, channel, msg string) error {
 
 // save writes the new state. A cancel that won the race (ErrNotFound) is not an
 // error; any other failure holds the reminder back instead of retrying at once.
+// nextEventTime is the time to save an outcome under: the clock now, but always after the previous outcome's, because
+// a client asks for what came after the newest it has seen and an event at an equal or older time would be skipped.
+// Only the delivery loop calls it, so it needs no lock.
+func (s *Service) nextEventTime() time.Time {
+	at := s.clock.Now()
+	if !at.After(s.lastEventAt) {
+		at = s.lastEventAt.Add(time.Millisecond)
+	}
+	s.lastEventAt = at
+	return at
+}
+
 func (s *Service) save(ctx context.Context, r Reminder, now time.Time) {
 	err := s.store.Update(ctx, r)
 	if err == nil || errors.Is(err, ErrNotFound) || ctx.Err() != nil {

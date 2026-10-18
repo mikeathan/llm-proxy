@@ -76,3 +76,31 @@ func TestChannelPolicy_ValidateNamed(t *testing.T) {
 		t.Error("an unconfigured connector must be refused")
 	}
 }
+
+// The web UI is told about a delivery only when it is one of the places the reminder went; a failure or a miss is
+// always shown, because the web UI is the only place those are ever reported.
+func TestReminder_AlertsWebUI(t *testing.T) {
+	cases := []struct {
+		name      string
+		connector string
+		event     string
+		want      bool
+	}{
+		{"default channel, delivered", "", EventDue, true},
+		{"default channel, late", "", EventLate, true},
+		{"default channel, partly delivered", "", EventPartial, true},
+		{"in-app only, delivered", InAppChannel, EventDue, true},
+		{"one named connector, delivered", "telegram", EventDue, false},
+		{"one named connector, late", "telegram", EventLate, false},
+		{"one named connector, failed", "telegram", EventFailed, true},
+		{"one named connector, missed", "telegram", EventMissed, true},
+		{"no event yet", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := (Reminder{Connector: tc.connector, Event: tc.event}).AlertsWebUI(); got != tc.want {
+				t.Errorf("AlertsWebUI() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

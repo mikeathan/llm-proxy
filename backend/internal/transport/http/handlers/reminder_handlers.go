@@ -16,10 +16,15 @@ import (
 // recentReminderLimit bounds the finished-reminder list shown in the UI.
 const recentReminderLimit = 20
 
+// reminderEventsLimit bounds one page of reminder events: what fired while the UI was closed is capped to the newest.
+const reminderEventsLimit = 20
+
 // ReminderManager is what the reminder endpoints use of the service.
 type ReminderManager interface {
 	List(ctx context.Context) ([]reminders.Reminder, error)
 	Recent(ctx context.Context, limit int) ([]reminders.Reminder, error)
+	EventsAfter(ctx context.Context, after time.Time, limit int) ([]reminders.Reminder, error)
+	LatestEventAt(ctx context.Context) (time.Time, error)
 	Channel(connector string) string
 	Create(ctx context.Context, in reminders.Reminder) (reminders.Reminder, error)
 	Edit(ctx context.Context, id int64, in reminders.Reminder) (reminders.Reminder, error)
@@ -74,6 +79,53 @@ func (h *ReminderHandlers) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, map[string][]reminderView{"open": h.views(open), "recent": h.views(recent)})
+}
+
+// reminderEventView is one outcome the web UI is told about: a reminder was delivered, was late, failed or was missed.
+type reminderEventView struct {
+	ID      int64  `json:"id"`
+	Message string `json:"message"`
+	Event   string `json:"event"`
+	// At is when the outcome was saved, in unix milliseconds: the cursor a client sends back.
+	At      int64  `json:"at"`
+	Channel string `json:"channel"`
+}
+
+// Events handles GET /admin/api/reminders/events?after=<ms>: the outcomes saved after that time that the web UI should
+// be told about, newest first, and the cursor to ask from next (always the server's own newest event time, so a client
+// holding a stale one after a reset or a clock change recovers). With no cursor it returns no items, only the newest
+// event time, so a client that has just opened announces what happens from then on and not the history.
+func (h *ReminderHandlers) Events(w http.ResponseWriter, r *http.Request) {
+	latest, err := h.svc.LatestEventAt(r.Context())
+	if err != nil {
+		logging.Warn("reminder events failed", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "failed to read reminder events")
+		return
+	}
+	cursor := latest.UnixMilli()
+	if latest.IsZero() {
+		cursor = 0
+	}
+	items := []reminderEventView{}
+	if raw := r.URL.Query().Get("after"); raw != "" {
+		after, perr := strconv.ParseInt(raw, 10, 64)
+		if perr != nil || after < 0 {
+			writeJSONError(w, http.StatusBadRequest, "after must be a time in unix milliseconds")
+			return
+		}
+		found, ferr := h.svc.EventsAfter(r.Context(), time.UnixMilli(after).UTC(), reminderEventsLimit)
+		if ferr != nil {
+			logging.Warn("reminder events failed", "error", ferr)
+			writeJSONError(w, http.StatusInternalServerError, "failed to read reminder events")
+			return
+		}
+		for _, rem := range found {
+			if rem.AlertsWebUI() {
+				items = append(items, reminderEventView{ID: rem.ID, Message: rem.Message, Event: rem.Event, At: rem.EventAt.UnixMilli(), Channel: h.svc.Channel(rem.Connector)})
+			}
+		}
+	}
+	respondJSON(w, map[string]any{"cursor": cursor, "items": items})
 }
 
 func (h *ReminderHandlers) views(rs []reminders.Reminder) []reminderView {

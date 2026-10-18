@@ -1,9 +1,9 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.5"
+version: "1.6"
 status: stable
-last_updated: 2026-10-13
+last_updated: 2026-10-18
 constitution_references: [II.2, II.14, V]
 related_specs: [SPEC-009, SPEC-001]
 supersedes:
@@ -12,6 +12,18 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.6 (2026-10-18)** — The web UI is told when a reminder fires. Until now the "in-app notice" was only the saved row,
+  read when the Reminders page was opened, so a reminder that went to Telegram (or to the web UI alone) gave the open web UI
+  no signal. Each final outcome (`due`, `late`, `partial`, `failed`, `missed`) is now saved on the reminder in the same
+  write as the state change (`event`, `event_at` in unix milliseconds, `Update` only: a retry still pending saves none, so
+  one reminder never reports three failures), under a time that only ever goes up (`Service.nextEventTime`) so a cursor
+  cannot skip an event. `GET /admin/api/reminders/events?after=<ms>` returns the events after a cursor, newest first, at
+  most 20, plus the cursor (always the server's newest event time); with no `after` it returns no items, only the cursor,
+  so a client that has just opened announces what happens from then on. Which events the web UI is told about
+  (`Reminder.AlertsWebUI`): a failure or a miss always, because the web UI is the only place those are reported; a
+  delivery only when the web UI was one of its places: the default and the in-app choice, not a reminder sent to one named
+  connector. The web UI shows them on the notification bell, the Reminders tab badge and a toast (SPEC-003 2.12).
 
 - **1.5 (2026-10-13)** — Several channels. A reminder that names no channel goes to the **web UI and to every enabled
   connector the owner has not ticked off**, so enabling Telegram is enough for reminders to reach it and a connector
@@ -123,13 +135,14 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 
 Table `reminders` in the shared SQLite database (`core/reminders/store.go`): `id, message, fire_at (UTC unix),
 cron, until_at, timezone, connector, status (scheduled|paused|done|cancelled|missed|failed), rev, attempts, last_error, created_by,
-created_at`. Settings (`settings.yml`, `reminders:`): `skip_connectors` (list), `timezone`; both optional, saved whole,
+created_at, event, event_at (unix milliseconds)`. Settings (`settings.yml`, `reminders:`): `skip_connectors` (list), `timezone`; both optional, saved whole,
 timezone validated at save (400).
 
 ## 4. API
 
 `GET /admin/api/reminders` → `{open: [...], recent: [...]}` (open includes paused), `POST /admin/api/reminders` (create),
 `PUT /admin/api/reminders/{id}` (edit / reschedule), `POST /admin/api/reminders/{id}/pause|resume|skip` and
+`GET /admin/api/reminders/events?after=<ms>` (the outcomes after a cursor, §Changelog 1.6) and
 `DELETE /admin/api/reminders/{id}` (see [api-reference](../api-reference.md#reminders-api)). The Settings page edits
 `reminders` through `PUT /admin/api/config`; the Overview page summarises the list and the Reminders page manages it.
 
