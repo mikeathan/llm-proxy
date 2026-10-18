@@ -241,7 +241,7 @@ func (e *GuardrailEngine) validateCategory(ctx context.Context, call proxy.ToolC
 		return e.validateSearch(call, cfg.Search)
 	case models.ToolNotifyUser:
 		return e.validateCommunication(call, cfg.Communication)
-	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend:
+	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend, models.ToolFileEditBlock:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
 	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
 		// An explicitly stamped run scope (automation grant) replaces the
@@ -363,7 +363,7 @@ func (e *GuardrailEngine) validateFileSystem(call proxy.ToolCall, cfg models.Fil
 		cfg.AllowedPaths = append([]string{wsPath}, cfg.AllowedPaths...)
 	}
 
-	isWrite := call.Function.Name == models.ToolFileWrite || call.Function.Name == models.ToolFileAppend
+	isWrite := call.Function.Name == models.ToolFileWrite || call.Function.Name == models.ToolFileAppend || call.Function.Name == models.ToolFileEditBlock
 	_, err := tools.ValidateFileSystemPath(args.Path, isWrite, cfg)
 	return err
 }

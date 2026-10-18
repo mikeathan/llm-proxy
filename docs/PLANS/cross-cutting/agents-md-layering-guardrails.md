@@ -1,6 +1,6 @@
 # AGENTS.md Layering, Override-ability & Write Guardrails
 
-**Status:** proposed (2026-08-04)
+**Status:** partial (2026-10-17) — Phase 4 (write block) built, see SPEC-006 §II.8; the global AGENTS.md layer (Phases 1–3) was superseded by prompt profiles (SPEC-012); Phase 5 (load-time scan) is open
 **Related:** SPEC-001 (Agent Loop), CONSTITUTION II.13 (prompts SSOT), CONSTITUTION II.10 (guardrails)
 **Reference implementation studied:** [Hermes](https://github.com/NousResearch/hermes-agent) (`agent/system_prompt.py`, `agent/prompt_builder.py`, `hermes_cli/`)
 

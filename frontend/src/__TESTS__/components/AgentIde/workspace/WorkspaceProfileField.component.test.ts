@@ -2,8 +2,8 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
 const catalog = [
-  { id: 'builder', name: 'Builder', summary: 'Builds.', source: 'builtin', answer_first: false, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
-  { id: 'general', name: 'General', summary: 'Everyday assistant.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: true, default_for: ['assistant'] },
+  { id: 'builder', name: 'Builder', summary: 'Builds.', source: 'builtin', answer_first: false, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
+  { id: 'general', name: 'General', summary: 'Everyday assistant.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: true, default_for: ['assistant'] },
 ]
 const profileService = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))

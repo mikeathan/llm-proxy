@@ -1,6 +1,6 @@
 # Prompt Profiles — a generic assistant and automation system
 
-**Status:** active (2026-10-17) — built: eval baseline (Phase 0), loop policy (1), profile catalog and resolver with persistence (2), layered per-turn prompt (3), the six profiles tuned on the eval (4), the run-settings control, workspace and automation fields (5), SPEC-012 (6). Remaining: repeat the eval for the other profiles and decide the open items in §9.
+**Status:** active (2026-10-17) — built: eval baseline (Phase 0), loop policy (1), profile catalog and resolver with persistence (2), layered per-turn prompt (3), the six profiles tuned on the eval (4), the run-settings control, workspace and automation fields (5), SPEC-012 (6). The eval for the other profiles is done; remaining: its findings (§8) and the open items in §9.
 **Related:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-004 (Memory), SPEC-011 (Reminders); CONSTITUTION II.13 (prompts in `templates.go`); folds in [`agents-md-layering-guardrails.md`](agents-md-layering-guardrails.md) (global layer, write guardrails).
 **Origin:** a vague one-liner ("rust language") made the assistant scan the workspace, read task files and search the web while the composer was locked; a Nemotron run failed on tool-call JSON. Review by the Opus advisor is folded in (§3, §6).
 
@@ -17,7 +17,7 @@ One system that handles any input — a question, a pasted document, a file, a U
 | 3 | Always-on direction: `MemorySaveGuidance` (system) and `MemorySaveReminder` (every user message) make small models call `memory_update` first, even for "explain rust" or a file listing; the reminders tool schema (2.7 KB) and a 14-day calendar note ride on every chat; all ten tool manifests (~15 KB, ~3.8k tokens) go to every chat, including terminal and network scanning. Fixed overhead is roughly 5.5–6k tokens (estimate) against an 8k window; the stored Vertex conversation shows a sieve "Progress ledger" at step ~7. | `templates.go`, `hot_memory.go`, `conversation_helpers.go` `withLocalTime`, `core/tools/manifests/*.json` |
 | 4 | The system prompt is frozen in `history[0]` when a conversation starts; the workspace `AGENTS.md` is copied once from `DefaultAgentsMD` and never refreshed. A prompt fix reaches neither existing chats nor existing workspaces; Vertex's workspace-1 holds the old text. | `conversation_helpers.go` `BuildInitialHistory`, `dispatcher_handlers.go` default task files |
 | 5 | The composer textarea is disabled while a run is live and `handleSend` returns while loading; a second message would cancel the run (`replaceRun`). | `ChatInput.vue`, `AssistantChat.vue`, `assistant_handlers.go` |
-| 6 | Not a problem: `LocalToolRegistry.GetSystemPrompt` (the second rules source) has no consumer in chat or automation, and `IsAutomationTask`/`AutomationMarker` have no consumer outside `templates.go`; both can change freely. | grep, 2026-10-17 |
+| 6 | Not a problem, and now removed: the tool providers' `GetSystemPrompt` chain (the second rules source) had no consumer in chat or automation. (`IsAutomationTask`/`AutomationMarker` have none outside `templates.go` either.) | grep, 2026-10-17 |
 
 ## 3. Design
 
@@ -149,9 +149,11 @@ Metrics per case and profile: tool calls, workspace scans, spurious `memory_upda
 reminder tools); the system message is rebuilt from the profile id each turn, so no prompt version is stored; the
 `tools` list is by category and never hides the `system`, `security` and `automation` categories.
 
-**Remaining work:** run the eval for Research, Operator, Builder and Watcher on the three models; fold the layering
-plan's Phase 4 (block agent writes to instruction files) into the guardrails; the `GetSystemPrompt` chain of the tool
-providers has no caller and can be deleted.
+**Remaining work:** the eval for the other profiles is done (`docs/audits/2026-10-17-prompt-profiles-eval.md`); its
+findings are open: Builder on Nemotron saves a memory fact after every edit task (fixed by `memory_save`, SPEC-012 §2.1:
+Builder is `explicit`; re-run to confirm), Operator's "ask before a destructive change" is only reliably followed by Ornith (Nemotron deleted the file through an
+allow-listed `python3 -c`: an interpreter bypass of the terminal allow-list, a separate security question), and Research searching needs a re-run where a search provider is configured. The
+instruction-file write block and the `GetSystemPrompt` deletion are built.
 
 ## 9. Decisions
 

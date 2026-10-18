@@ -40,9 +40,9 @@ const confirm = vi.fn()
 vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
 const catalog = [
-  { id: 'builder', name: 'Builder', summary: 'Builds.', source: 'builtin', answer_first: false, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
-  { id: 'general', name: 'General', summary: 'Everyday assistant.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: true, default_for: ['assistant'] },
-  { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: false, default_for: [] },
+  { id: 'builder', name: 'Builder', summary: 'Builds.', source: 'builtin', answer_first: false, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
+  { id: 'general', name: 'General', summary: 'Everyday assistant.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: true, default_for: ['assistant'] },
+  { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
 ]
 const profileService = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))

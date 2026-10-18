@@ -4,7 +4,7 @@ import type { PromptProfile } from '../../../types/profile'
 const service = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('../../../services/profile/profileService', () => ({ ProfileService: service }))
 
-const general: PromptProfile = { id: 'general', name: 'General', summary: 's', source: 'builtin', answer_first: true, may_ask: true, memory_guidance: true, reminders: true, default_for: ['assistant'] }
+const general: PromptProfile = { id: 'general', name: 'General', summary: 's', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: true, default_for: ['assistant'] }
 
 async function fresh() {
   vi.resetModules()

@@ -15,7 +15,7 @@ may_ask: true
 max_steps: 6
 tools: [filesystem, memory]
 memory: on
-memory_guidance: true
+memory_save: explicit
 reminders: false
 ---
 Write things down.
@@ -29,10 +29,10 @@ func TestParse(t *testing.T) {
 	want := Profile{
 		ID: "notes", Name: "Notes", Summary: "Takes notes", Source: Builtin,
 		Instructions: "Write things down.", AnswerFirst: true, MayAsk: true, MaxSteps: 6,
-		Tools: []string{"filesystem", "memory"}, Memory: models.MemoryModeOn, MemoryGuidance: true,
+		Tools: []string{"filesystem", "memory"}, Memory: models.MemoryModeOn, MemorySave: SaveExplicit,
 	}
 	if p.ID != want.ID || p.Name != want.Name || p.Summary != want.Summary || p.Instructions != want.Instructions ||
-		!p.AnswerFirst || !p.MayAsk || p.MaxSteps != 6 || p.Memory != want.Memory || !p.MemoryGuidance || p.Reminders ||
+		!p.AnswerFirst || !p.MayAsk || p.MaxSteps != 6 || p.Memory != want.Memory || p.MemorySave != want.MemorySave || p.Reminders ||
 		strings.Join(p.Tools, ",") != "filesystem,memory" || p.Source != Builtin {
 		t.Errorf("Parse = %+v, want %+v", p, want)
 	}
@@ -48,6 +48,8 @@ func TestParseRejects(t *testing.T) {
 		{"missing name", "x", "---\nsummary: s\n---\nbody", "name"},
 		{"empty instructions", "x", "---\nname: X\n---\n  \n", "instructions"},
 		{"unknown tool category", "x", "---\nname: X\ntools: [telepathy]\n---\nbody", "telepathy"},
+		{"bad memory_save", "x", "---\nname: X\nmemory_save: always\n---\nbody", "memory_save"},
+		{"the retired memory_guidance key", "x", "---\nname: X\nmemory_guidance: true\n---\nbody", "memory_guidance"},
 		{"bad memory", "x", "---\nname: X\nmemory: maybe\n---\nbody", "memory"},
 		{"steps out of range", "x", "---\nname: X\nmax_steps: 500\n---\nbody", "max_steps"},
 		{"bad id", "Bad Id", "---\nname: X\n---\nbody", "id"},
@@ -84,5 +86,31 @@ func TestExcludedToolsHidesRemindersWhenTheProfileTurnsThemOff(t *testing.T) {
 	p := Profile{Reminders: false, Tools: []string{models.CategoryReminders}}
 	if !strings.Contains(strings.Join(p.ExcludedTools(), ","), models.ToolScheduleReminder) {
 		t.Error("reminders: false hides the reminder tools even when the category is listed")
+	}
+}
+
+func TestSaveModeSetsWhatTheRunMayDo(t *testing.T) {
+	tests := []struct {
+		mode                          SaveMode
+		guides, captures, offersWrite bool
+	}{
+		{SaveModel, true, true, true},
+		{"", true, true, true}, // a profile that says nothing keeps today's behaviour
+		{SaveExplicit, false, true, false},
+		{SaveOff, false, false, false},
+	}
+	for _, tt := range tests {
+		p := Profile{MemorySave: tt.mode, Reminders: true}
+		if p.GuidesMemorySaves() != tt.guides || p.CapturesMemory() != tt.captures {
+			t.Errorf("%q: guides=%v captures=%v, want %v %v", tt.mode, p.GuidesMemorySaves(), p.CapturesMemory(), tt.guides, tt.captures)
+		}
+		hidden := strings.Join(p.ExcludedTools(), ",")
+		writes := strings.Contains(hidden, models.ToolMemoryUpdate) || strings.Contains(hidden, models.ToolMemoryForget)
+		if writes == tt.offersWrite {
+			t.Errorf("%q: hidden = %q, the memory write tools should be offered=%v", tt.mode, hidden, tt.offersWrite)
+		}
+		if strings.Contains(hidden, models.ToolMemorySearch) {
+			t.Errorf("%q: reading memory is recall, not a save, and must stay offered; hidden = %q", tt.mode, hidden)
+		}
 	}
 }

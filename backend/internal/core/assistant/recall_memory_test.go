@@ -122,7 +122,7 @@ func TestSaveReminder_BesideTheUserTurnInTheOperatorsChatOnly(t *testing.T) {
 		{"the operator's chat", operatorChat(), true},
 		{"a connector chat", AgentOptions{WorkspaceID: "ws-1", ConversationID: "wb_telegram_chat42"}, false},
 		{"an automation", AgentOptions{WorkspaceID: "ws-1", Channel: ChannelAutomation}, false},
-		{"a profile without save guidance", withProfile(operatorChat(), profile.Profile{ID: "quiet"}), false},
+		{"a profile that keeps the model from saving", withProfile(operatorChat(), profile.Profile{ID: "quiet", MemorySave: profile.SaveExplicit}), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

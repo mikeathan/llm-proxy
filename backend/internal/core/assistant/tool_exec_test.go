@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
@@ -437,6 +438,9 @@ func TestIsGuardrailSecurityBoundary_HostNetworkDenial(t *testing.T) {
 		t.Error("wrapped sentinel must classify via errors.Is")
 	}
 	// Legacy string-based classification must keep working.
+	if !isGuardrailSecurityBoundary(fmt.Errorf("guardrail: %w", tools.ErrInstructionFileReadOnly)) {
+		t.Error("a write to the instruction file is a security boundary: never offered for approval")
+	}
 	if !isGuardrailSecurityBoundary(errors.New("security violation: path access denied")) {
 		t.Error("legacy string classification regressed")
 	}

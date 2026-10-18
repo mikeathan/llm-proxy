@@ -3,7 +3,7 @@ import { defaultProfile, profileLabel, profileOptions } from '../../../utils/ass
 import type { PromptProfile } from '../../../types/profile'
 
 const profile = (id: string, name: string, default_for: PromptProfile['default_for'] = []): PromptProfile => ({
-  id, name, summary: `${name} summary`, source: 'builtin', answer_first: false, may_ask: false, memory_guidance: false, reminders: false, default_for,
+  id, name, summary: `${name} summary`, source: 'builtin', answer_first: false, may_ask: false, memory_save: 'model', reminders: false, default_for,
 })
 const PROFILES = [profile('builder', 'Builder'), profile('general', 'General', ['assistant']), profile('task-runner', 'Task runner', ['automation'])]
 

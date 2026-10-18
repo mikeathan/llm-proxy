@@ -1102,8 +1102,8 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	// and let the prompt overflow the serving context (2026-08-30 smoke-test
 	// run: context grew to ~27.7 KB with the sieve never firing, then the
 	// server 400'd "context too long").
-	if a.preparedOverContextBudget(*history, toolsList) {
-		*history = a.applyPhysicalSieve(*history)
+	if over, overhead := a.preparedRequestSize(*history, toolsList); over {
+		*history = a.applyPhysicalSieve(*history, overhead)
 	}
 
 	// Finalization turn: run ONE turn with tools disabled so the model is
@@ -1484,6 +1484,10 @@ func historySavedMemory(history []proxy.Message) bool {
 
 func (s *runSession) maybeFlushMemoryBeforeTurn() {
 	if s.agent.deps.MemoryStore == nil || s.prompt.memoryFlushSent || !s.agent.config.EnableHotMemory {
+		return
+	}
+	// The flush asks the model to call memory_update: a profile that does not offer it has nothing to ask.
+	if !s.agent.config.Profile.MemorySave.OffersWriteTools() {
 		return
 	}
 	// The operator's own chat already carries narrower save guidance (what to

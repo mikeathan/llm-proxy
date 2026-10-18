@@ -1,7 +1,7 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.0"
+version: "1.1"
 status: draft
 last_updated: 2026-10-17
 constitution_references: [II.13, II.3]
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **1.1 (2026-10-17)** — `memory_guidance` is replaced by `memory_save: model|explicit|off`, the one switch for who
+  may save to memory in a run (§2.1). `explicit` and `off` do not offer `memory_update` and `memory_forget`, send no
+  save guidance and no pre-compaction nudge; `off` also stops the capture of "remember that…". The built-ins set it:
+  General and Task runner `model`, Research, Operator and Builder `explicit`, Watcher `off`. A file that still has
+  `memory_guidance` is invalid (unknown key). Motivation: the evaluation (`docs/audits/2026-10-17-prompt-profiles-eval.md`)
+  showed a model logging its own edits as memory facts when it was told to save.
 - **1.0 (2026-10-17)** — First version. A profile bundles the behaviour block of the system prompt with the loop policy
   that must match it, is chosen per conversation, per workspace and per automation, and is rebuilt into the system
   message on every turn. Plan: `docs/PLANS/cross-cutting/prompt-profiles.md`.
@@ -38,7 +44,7 @@ A profile is a markdown file: YAML front matter, then the instructions (the beha
 | `max_steps` | Replaces the model's step budget when greater than 0 (0–200). |
 | `tools` | Tool categories exposed (`models.ToolCategories`); empty exposes all. The `system`, `security` and `automation` categories are never hidden. |
 | `memory` | `on`/`off`: the profile's default for hot memory; absent inherits the global default. |
-| `memory_guidance` | The "save lasting facts" instruction and its per-message reminder are sent (SPEC-004 §4.1). Recall is not affected. |
+| `memory_save` | Who may save to memory in a run. `model` (default when left out): the write tools are offered and, in the operator's own chats, the save guidance and reminder are sent (SPEC-004 §4.1). `explicit`: `memory_update` and `memory_forget` are not offered, no guidance or flush is sent, and code saves what the user explicitly asks to remember. `off`: nothing is saved, not even an explicit request. Reading memory (`memory`, `memory_search`) is not affected. |
 | `reminders` | The reminder tools are exposed (SPEC-011). |
 
 Boolean fields left out are false. Unknown keys, an unknown tool category, `reminders: true` without the reminders

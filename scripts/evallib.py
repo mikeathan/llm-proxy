@@ -5,7 +5,7 @@ Always point a driver at a SCRATCH backend (own --data dir, started from a direc
 import json, os, time, urllib.request, urllib.error
 
 POLL_S = float(os.environ.get('EVAL_POLL_S', '1'))
-RUN_TIMEOUT_S = 900
+RUN_TIMEOUT_S = float(os.environ.get('EVAL_RUN_TIMEOUT_S', '900'))  # a run that loops is a fail; cap it to keep a suite short
 FINAL_CHARS = 4000  # how much of the final answer is kept: enough to judge whether it ends cleanly
 EXCLUDE = [t for t in os.environ.get('EVAL_EXCLUDE_TOOLS', '').split(',') if t]  # e.g. execute_terminal_command: a run stalls on a guardrail approval
 
@@ -103,3 +103,13 @@ class Backend:
     def clear(self):
         for e in self.memories():
             self.api('DELETE', f'/admin/api/memory/{e["workspace_id"]}/{e["id"]}')
+
+    def global_memories(self):
+        st, d = self.api('GET', '/admin/api/memory/global')
+        return d if st == 200 and isinstance(d, list) else []
+
+    def forget_global_except(self, keep_ids):
+        """Delete the global memories created since keep_ids was taken: a live backend's own facts stay."""
+        for e in self.global_memories():
+            if e['id'] not in keep_ids:
+                self.api('DELETE', f'/admin/api/memory/global/{e["id"]}')

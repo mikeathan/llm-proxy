@@ -353,8 +353,7 @@ type probeTools struct{}
 func (probeTools) ListTools(context.Context) ([]proxy.Tool, error) {
 	return []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "probe_tool"}}}, nil
 }
-func (probeTools) GetSystemPrompt() (string, error) { return "", nil }
-func (probeTools) UseNativeTools() bool             { return true }
+func (probeTools) UseNativeTools() bool { return true }
 
 type probeEngine struct{}
 

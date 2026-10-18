@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 	"path/filepath"
@@ -328,6 +329,35 @@ func TestGuardrailEngine_FileSystem_DynamicWorkspace(t *testing.T) {
 				t.Errorf("%s: ValidateToolCall() error = %v, wantErr %v", tt.name, err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// The guardrail engine judges every file tool the way the tools do: edit_file_block is a write like write_file and
+// append_file, so the jail applies to it, and the workspace's AGENTS.md is read-only to all three (reading is fine).
+func TestGuardrailEngine_FileWritesAndTheInstructionFile(t *testing.T) {
+	root := t.TempDir()
+	engine := NewGuardrailEngine(func() models.AgentGuardrailsConfig {
+		return models.AgentGuardrailsConfig{FileSystem: models.FileSystemGuardrailsConfig{Enabled: true}}
+	}, storage.NewPathResolver(root, root, root), nil, nil)
+
+	call := func(tool, path string) error {
+		return engine.ValidateToolCall(context.Background(), proxy.ToolCall{Function: proxy.FunctionCall{Name: tool, Arguments: `{"path": "` + path + `"}`}}, "ws")
+	}
+	for _, tool := range []string{models.ToolFileWrite, models.ToolFileAppend, models.ToolFileEditBlock} {
+		for _, path := range []string{"AGENTS.md", "agents.md", "docs/AGENTS.md"} {
+			if err := call(tool, path); !errors.Is(err, tools.ErrInstructionFileReadOnly) {
+				t.Errorf("%s %s: err = %v, want ErrInstructionFileReadOnly", tool, path, err)
+			}
+		}
+		if err := call(tool, "notes.md"); err != nil {
+			t.Errorf("%s notes.md must be allowed: %v", tool, err)
+		}
+		if err := call(tool, "../other-ws/notes.md"); err == nil {
+			t.Errorf("%s must stay inside the workspace", tool)
+		}
+	}
+	if err := call(models.ToolFileRead, "AGENTS.md"); err != nil {
+		t.Errorf("reading AGENTS.md stays allowed: %v", err)
 	}
 }
 

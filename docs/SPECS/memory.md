@@ -1,7 +1,7 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "3.3"
+version: "3.4"
 status: stable
 last_updated: 2026-10-17
 constitution_references: [II.12]
@@ -12,6 +12,11 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.4 (2026-10-17)** — A profile's `memory_save` (SPEC-012 §2.1) replaces `memory_guidance` and is the single answer
+  to who may save in a run. `model` offers `memory_update`/`memory_forget` and sends the save guidance, the
+  per-message reminder and the pre-compaction nudge; `explicit` and `off` offer neither tool and send none of that
+  text (recall is unchanged); the capture of "remember that…" runs under `model` and `explicit`, not `off`.
 
 - **3.3 (2026-10-17)** — Hot memory resolves explicit setting, then the run's profile default, then the global default
   (SPEC-012 §2.3); a profile without `memory_guidance` sends neither the save guidance nor the per-message reminder

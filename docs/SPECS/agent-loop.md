@@ -92,6 +92,12 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   sieve note, progress ledger and context warning. On a small window the physical sieve fires on every turn after
   the first prune (the 10-message tail alone can exceed the budget); before this, up to four copies of the warning
   accumulated in one request.
+- **The budget covers the whole request** (2026-10-18): `preparedRequestSize` counts the prepared messages plus the
+  serialized native tool schemas (`toolSchemaChars`; they ride in the `tools` field, not in any message), and the
+  physical sieve prunes history to `ContextBudget` minus that overhead, then `fitToBudget` cuts the kept messages to an
+  equal share (a stopgap; the token estimator plan replaces it, see `docs/PLANS/agent-loop/request-size-estimator.md`). A context-size rejection of the stream goes
+  straight to the sieve recovery; it no longer re-sends the same prompt non-streaming. Found on vertex, 2026-10-17: a
+  16401-token prompt in a 16384 window.
 - **One-time wrap-up warning**: `ContextSieveWarning` ("deliver your final answer NOW …") is appended by the first
   physical prune of a run only (`runSession.sieve.contextWarned`, decision 2026-10-01); later prunes add the note and
   ledger but no warning, so a run that keeps working is not told to stop each turn. The reactive and aggressive
