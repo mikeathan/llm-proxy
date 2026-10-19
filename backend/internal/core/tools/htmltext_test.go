@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -172,7 +173,7 @@ func TestHTMLToText_LeadsWithThePagesOwnSummary(t *testing.T) {
 <meta content='A second description' name='description'>
 <script type="application/ld+json">{"headline":"Sheffield, England","description":"a \"big\" city"}</script></head><body>` + proseBody + `</body></html>`
 	lines := strings.Split(htmlToText(page), "\n")
-	want := []string{"Sheffield", "Summary: City in South Yorkshire & steel town", "Summary: A second description", "Summary: Sheffield, England", `Summary: a "big" city`}
+	want := []string{"Sheffield", "Summary: City in South Yorkshire & steel town", "Summary: A second description", "Summary: Sheffield, England"}
 	for i, w := range want {
 		if i >= len(lines) || lines[i] != w {
 			t.Fatalf("line %d: got %q, want %q (all: %q)", i, lines[min(i, len(lines)-1)], w, lines)
@@ -196,9 +197,69 @@ func TestPageHead_CutsAtTheEndOnARuneBoundary(t *testing.T) {
 	if short := "short text"; pageHead(short) != short {
 		t.Error("short text must be unchanged")
 	}
-	long := strings.Repeat("é", pageHeadChars)
+	long := strings.Repeat("é", proxy.MaxReturnChars)
 	got := pageHead(long)
-	if !utf8.ValidString(got) || !strings.HasSuffix(got, "the rest was cut]") || len(got) > pageHeadChars+60 {
-		t.Errorf("bad cut: valid=%v len=%d", utf8.ValidString(got), len(got))
+	if !utf8.ValidString(got) || !strings.HasSuffix(got, "the rest was cut]") || encodedLen(got) > proxy.MaxReturnChars {
+		t.Errorf("bad cut: valid=%v encoded=%d", utf8.ValidString(got), encodedLen(got))
+	}
+}
+
+func TestHTMLToText_SummaryIsBoundedAndIgnoresOtherScripts(t *testing.T) {
+	var state strings.Builder
+	for i := 0; i < 20; i++ {
+		state.WriteString(`{"description":"state blob entry ` + strings.Repeat("x", 40) + string(rune('a'+i)) + `"},`)
+	}
+	ld := `<script type="application/ld+json">{"headline":"Real headline","description":"Real description"}</script>`
+	page := `<html><head><title>T</title><script>window.S=[` + state.String() + `]</script>` + ld + `</head><body>` + proseBody + `</body></html>`
+
+	got := htmlToText(page)
+	if strings.Contains(got, "state blob") {
+		t.Errorf("non-ld+json script read as a summary:\n%s", got)
+	}
+	if n := strings.Count(got, "Summary:"); n != 2 {
+		t.Errorf("got %d summary lines, want the 2 from the ld+json script:\n%s", n, got)
+	}
+
+	many := strings.Repeat(`<meta name="description" content="d`, 0)
+	for i := 0; i < 20; i++ {
+		many += `<meta name="description" content="distinct description number ` + string(rune('a'+i)) + `">`
+	}
+	got = pageHead(htmlToText("<html><head><title>T</title>" + many + "</head><body>" + proseBody + "</body></html>"))
+	if n := strings.Count(got, "Summary:"); n > summaryLines {
+		t.Errorf("%d summary lines, cap is %d", n, summaryLines)
+	}
+	if !strings.Contains(got, "light rain with a high of 12 degrees") {
+		t.Errorf("summaries pushed the page content out of the head:\n%s", got)
+	}
+}
+
+func TestFetchedText_FitsTheResultCapAfterJSONEscaping(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<main>")
+	for i := 0; i < 400; i++ {
+		b.WriteString(`<p>Tom &amp; "Jerry" <b>&lt;x&gt;</b> row ` + strings.Repeat("y", i%7) + `</p>`)
+	}
+	b.WriteString("</main>")
+	encoded, err := json.Marshal(fetchedText("text/html", []byte(b.String()), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > proxy.MaxReturnChars {
+		t.Errorf("encoded result is %d characters, over the %d cap that would cut it again", len(encoded), proxy.MaxReturnChars)
+	}
+}
+
+func TestPageHead_ShortTextThatGrowsWhenEncodedDoesNotPanic(t *testing.T) {
+	text := strings.Repeat(`"<&>"`, 580) // 2900 characters, about 5500 once JSON-encoded
+	got := pageHead(text)
+	if encodedLen(got) > proxy.MaxReturnChars || !strings.HasSuffix(got, "the rest was cut]") {
+		t.Errorf("bad cut: encoded=%d", encodedLen(got))
+	}
+}
+
+func TestHTMLToText_DecodesJSONEscapesInStructuredData(t *testing.T) {
+	page := `<html><head><script type="application/ld+json">{"headline":"City in Tyne \u0026 Wear, \"England\""}</script></head><body>` + proseBody + `</body></html>`
+	if got := htmlToText(page); !strings.Contains(got, `Summary: City in Tyne & Wear, "England"`) {
+		t.Errorf("escapes not decoded:\n%s", got)
 	}
 }

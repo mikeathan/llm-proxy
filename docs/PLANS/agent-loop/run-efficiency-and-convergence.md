@@ -172,16 +172,17 @@ stripping scripts removed. The model, finding no article, tried the mobile site 
 this time (stale 2 and 4). The follow-up, all in `tools/htmltext.go` and measured offline first against 5 Wikipedia pages and 7 weather
 pages the model had actually fetched (bar: never worse than the pre-step-1 raw cut):
 
-- the page's own summary first (`<meta name=description>`, `og:description`, JSON-LD `headline`/`description`), which restores the
-  line the raw cut had;
+- the page's own summary first (`<meta name=description>`, `og:description`, and `headline`/`description` read only from
+  `application/ld+json` scripts), at most 3 lines of 300 characters, which restores the line the raw cut had;
 - scope to `<main>` when it holds real text (else the whole page); skip `<select>` dropdowns; drop runs of 8+ short link-only
   lines (language lists, menus) and long link clouds, only when the page has other prose, so an index of links is kept;
-- keep the **start** of the text (2600 characters, under the cap by the room JSON escaping takes, because `appendToolResult`
-  cuts the JSON-encoded result again) instead of head+tail: the tail of a page is references and footers.
+- keep the **start** of the text instead of head+tail (the tail of a page is references and footers), cut to fit the cap
+  *as JSON-encoded* (`pageHead`), because `appendToolResult` cuts the JSON-encoded result again and quotes, `&`, `<` and
+  newlines grow when encoded; a test pins this.
 
 Offline: all five city pages now carry their opening sentence in the text the model sees (it was absent before); BBC, weather25
 and Times of India go from 0–2 temperature figures to 14–106; the Met Office page (built by script) and the bot-wall/404 pages are
-no worse than raw. Not measured offline: how often a `<main>`-less page loses content to the head-only cut.
+no worse than raw (replayed both cut at 1 MiB and uncut: each city page gets one summary line). Not measured offline: how often a `<main>`-less page loses content to the head-only cut.
 
 ### M2. Shape results before they are capped (est. −10…−30 s, plus answer quality)
 

@@ -1,11 +1,14 @@
 package tools
 
 import (
+	"encoding/json"
 	"html"
 	"net/http"
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"llm-proxy/internal/core/proxy"
 )
 
 // A fetched web page is mostly markup. The result cap is a few thousand characters, so cutting the raw page keeps
@@ -51,7 +54,8 @@ const (
 	cloudMinChars  = 200 // a line this long that is almost all links, in many links, is a link cloud (a town list)
 	cloudMinLinks  = 10
 	minMainChars   = 200 // <main> is trusted as the page's content only when it holds this much text
-	summaryMaxChar = 500
+	summaryLines   = 3   // at most this many summary lines lead a page
+	summaryMaxChar = 300 // each shortened to this many characters
 )
 
 var markerStripper = strings.NewReplacer(string(linkOpen), "", string(linkClose), "")
@@ -61,7 +65,7 @@ var markerStripper = strings.NewReplacer(string(linkOpen), "", string(linkClose)
 // chrome are left out, long runs of link-only menu lines are dropped, and entities are decoded.
 func htmlToText(src string) string {
 	src = markerStripper.Replace(src)
-	lines := contentLines(contentScope(src))
+	lines := mainLines(src)
 	head := []string{}
 	if title := pageTitle(src); title != "" {
 		head = append(head, title)
@@ -70,21 +74,17 @@ func htmlToText(src string) string {
 	return strings.Join(append(head, lines...), "\n")
 }
 
-// contentScope narrows a page to its <main> element when that holds real text, else keeps the whole page (a page
-// without <main>, or a script-built shell with an empty one).
-func contentScope(src string) string {
-	open := indexFold(src, "<main", 0)
-	if open < 0 {
-		return src
+// mainLines returns the page's content lines, from its <main> element when that holds real text, else from the whole
+// page (a page without <main>, or a script-built shell with an empty one).
+func mainLines(src string) []string {
+	if open := indexFold(src, "<main", 0); open >= 0 {
+		if end := indexFold(src, "</main", open); end >= 0 {
+			if lines := contentLines(src[open:end]); len(strings.Join(lines, "")) >= minMainChars {
+				return lines
+			}
+		}
 	}
-	end := indexFold(src, "</main", open)
-	if end < 0 {
-		return src
-	}
-	if len(strings.Join(contentLines(src[open:end]), "")) < minMainChars {
-		return src
-	}
-	return src[open:end]
+	return contentLines(src)
 }
 
 // contentLines walks markup into text lines, then drops menu runs when the page has prose besides.
@@ -101,21 +101,37 @@ func contentLines(src string) []string {
 	return dropMenus(readableLines(html.UnescapeString(body.String())))
 }
 
-// pageHeadChars is how much of a page's text is kept. It is under the 3000-character result cap by the room JSON
-// escaping takes (the cap is applied again to the JSON-encoded result), so the page's opening is never re-cut.
-const pageHeadChars = 2600
+const pageCutNote = "\n... [page text continues; the rest was cut]"
 
 // pageHead keeps the start of a page's text. A web page leads with what it is about; its tail is references,
-// categories and footers, so unlike other output it is cut at the end, not in the middle.
+// categories and footers, so unlike other output it is cut at the end, not in the middle. The result cap is applied
+// again to the JSON-encoded result (quotes, "&", "<" and newlines grow when encoded), so the cut is sized by the
+// encoded length: the opening is then never re-cut.
 func pageHead(text string) string {
-	if len(text) <= pageHeadChars {
+	if encodedLen(text) <= proxy.MaxReturnChars {
 		return text
 	}
-	cut := pageHeadChars
-	for cut > 0 && !utf8.RuneStart(text[cut]) {
-		cut--
+	cut := min(len(text), proxy.MaxReturnChars)
+	for cut > 0 {
+		for cut > 0 && cut < len(text) && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		over := encodedLen(text[:cut]+pageCutNote) - proxy.MaxReturnChars
+		if over <= 0 {
+			break
+		}
+		cut -= max(over/2, 1)
 	}
-	return text[:cut] + "\n... [page text continues; the rest was cut]"
+	return text[:max(cut, 0)] + pageCutNote
+}
+
+// encodedLen is the length of s as a JSON string, which is how a tool result is capped.
+func encodedLen(s string) int {
+	encoded, err := json.Marshal(s)
+	if err != nil {
+		return len(s)
+	}
+	return len(encoded)
 }
 
 // startsMarkup tells a tag, comment or declaration from a stray "<" in text such as "1 < 2".
@@ -315,11 +331,13 @@ var (
 	metaTagRe     = regexp.MustCompile(`(?is)<meta\b[^>]*>`)
 	metaKeyRe     = regexp.MustCompile(`(?is)\b(?:name|property)\s*=\s*["'](description|og:description)["']`)
 	metaContentRe = regexp.MustCompile(`(?is)\bcontent\s*=\s*"([^"]*)"|\bcontent\s*=\s*'([^']*)'`)
+	ldScriptRe    = regexp.MustCompile(`(?is)<script\b[^>]*application/ld\+json[^>]*>(.*?)</script`)
 	ldFieldRe     = regexp.MustCompile(`"(?:headline|description)"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 )
 
 // pageSummary returns what the page says about itself: its description meta tags and the headline or description in
-// its structured data. Short, and often the one line that answers "what is this page".
+// its structured data (ld+json scripts only), at most summaryLines of them. Short, and often the one line that
+// answers "what is this page".
 func pageSummary(src string) []string {
 	var found []string
 	for _, tag := range metaTagRe.FindAllString(src, -1) {
@@ -329,10 +347,22 @@ func pageSummary(src string) []string {
 			}
 		}
 	}
-	for _, m := range ldFieldRe.FindAllStringSubmatch(src, -1) {
-		found = append(found, strings.NewReplacer(`\"`, `"`, `\n`, " ", `\\`, `\`).Replace(m[1]))
+	for _, script := range ldScriptRe.FindAllStringSubmatch(src, -1) {
+		for _, m := range ldFieldRe.FindAllStringSubmatch(script[1], -1) {
+			found = append(found, jsonStringValue(m[1]))
+		}
 	}
 	return distinctSummaries(found)
+}
+
+// jsonStringValue decodes the inside of a JSON string literal (escapes such as \u0026 and \"); it returns the text as it
+// is when it does not decode.
+func jsonStringValue(inside string) string {
+	var decoded string
+	if err := json.Unmarshal([]byte(`"`+inside+`"`), &decoded); err != nil {
+		return inside
+	}
+	return decoded
 }
 
 // distinctSummaries tidies, shortens and de-duplicates summary lines.
@@ -347,6 +377,9 @@ func distinctSummaries(found []string) []string {
 		if line != "" && !seen[line] {
 			seen[line] = true
 			out = append(out, "Summary: "+line)
+		}
+		if len(out) == summaryLines {
+			break
 		}
 	}
 	return out
