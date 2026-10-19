@@ -87,8 +87,8 @@ func TestChatResponseUsage_FromTimings(t *testing.T) {
 		body string
 		want *TokenUsage
 	}{
-		{"timings only", `{"choices":[],"timings":{"cache_n":7,"prompt_n":4,"predicted_n":8}}`, &TokenUsage{PromptTokens: 11, CompletionTokens: 8}},
-		{"usage wins", `{"choices":[],"usage":{"prompt_tokens":31,"completion_tokens":2},"timings":{"cache_n":7,"prompt_n":4,"predicted_n":8}}`, &TokenUsage{PromptTokens: 31, CompletionTokens: 2}},
+		{"timings only", `{"choices":[],"timings":{"cache_n":7,"prompt_n":4,"predicted_n":8}}`, &TokenUsage{PromptTokens: 11, CompletionTokens: 8, CachedTokens: 7}},
+		{"usage wins", `{"choices":[],"usage":{"prompt_tokens":31,"completion_tokens":2},"timings":{"cache_n":7,"prompt_n":4,"predicted_n":8}}`, &TokenUsage{PromptTokens: 31, CompletionTokens: 2, CachedTokens: 7}},
 		{"neither", `{"choices":[]}`, nil},
 		{"empty timings", `{"choices":[],"timings":{"cache_n":0,"prompt_n":0}}`, nil},
 	}

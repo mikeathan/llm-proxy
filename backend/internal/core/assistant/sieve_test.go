@@ -262,3 +262,83 @@ func TestPhysicalSieve_WarnFlagControlsTheWarning(t *testing.T) {
 		}
 	}
 }
+
+// pairedHistory is a system prompt, a task and turns tool calls, each answered. A turn with batch > 1 calls
+// that many tools in one assistant message, answered one by one.
+func pairedHistory(turns, batch int) []proxy.Message {
+	h := []proxy.Message{{Role: proxy.SystemRole, Content: "sys"}, {Role: proxy.UserRole, Content: "task"}}
+	for i := range turns {
+		var calls []proxy.ToolCall
+		for j := range batch {
+			calls = append(calls, proxy.ToolCall{ID: fmt.Sprintf("call_%d_%d", i, j), Type: "function", Function: proxy.FunctionCall{Name: "probe_tool", Arguments: "{}"}})
+		}
+		h = append(h, proxy.Message{Role: proxy.AssistantRole, ToolCalls: calls})
+		for _, c := range calls {
+			h = append(h, proxy.Message{Role: proxy.ToolRole, ToolCallID: c.ID, Content: "result of " + c.ID})
+		}
+	}
+	return h
+}
+
+// pairingProblems lists every tool result without an earlier call and every call without a result.
+func pairingProblems(msgs []proxy.Message) []string {
+	called, answered := map[string]bool{}, map[string]bool{}
+	var problems []string
+	for _, m := range msgs {
+		for _, c := range m.ToolCalls {
+			called[c.ID] = true
+		}
+		if m.Role == proxy.ToolRole {
+			answered[m.ToolCallID] = true
+			if !called[m.ToolCallID] {
+				problems = append(problems, "result without a call: "+m.ToolCallID)
+			}
+		}
+	}
+	for id := range called {
+		if !answered[id] {
+			problems = append(problems, "call without a result: "+id)
+		}
+	}
+	return problems
+}
+
+// A sieve drops the middle of the history; whatever it keeps must still pair every call with its result. A
+// kept call whose result was dropped (a 2026-10-18 run's locked head) leaves the model an orphaned call and a
+// strict chat template an error.
+func TestSieves_NeverSplitACallFromItsResult(t *testing.T) {
+	logger := logging.NewNopLogger()
+	sieves := map[string]func() HistorySieve{
+		"physical":   func() HistorySieve { return &physicalSieve{logger: logger, contextBudget: 10} },
+		"reactive":   func() HistorySieve { return &reactiveSieve{logger: logger} },
+		"aggressive": func() HistorySieve { return &aggressiveSieve{logger: logger} },
+	}
+	for name, newSieve := range sieves {
+		for _, batch := range []int{1, 2, 3} {
+			for turns := 1; turns <= 14; turns++ {
+				got := newSieve().Sieve(pairedHistory(turns, batch))
+				if problems := pairingProblems(got); len(problems) > 0 {
+					t.Errorf("%s sieve, %d turns of %d calls: %v", name, turns, batch, problems)
+				}
+				if got[0].Role != proxy.SystemRole || got[1].Content != "task" {
+					t.Errorf("%s sieve, %d turns: the system prompt and the task must stay first", name, turns)
+				}
+			}
+		}
+	}
+}
+
+// A conversation the sieve already damaged (saved before the pairing fix) must not resend its orphaned call: the
+// run starts from a repaired copy, so what it measures and saves is clean too.
+func TestNewRunSession_RepairsASavedOrphan(t *testing.T) {
+	history := pairedHistory(3, 1)
+	damaged := append([]proxy.Message{history[0], history[1], history[2]}, history[4:]...) // call_0_0's result gone
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5, ContextBudget: 21848, UseNativeTools: new(true)})
+	s := newRunSession(agent, context.Background(), damaged)
+	if problems := pairingProblems(s.history); len(problems) > 0 {
+		t.Errorf("the run's history still carries a broken pair: %v", problems)
+	}
+	if len(damaged) != len(history)-1 {
+		t.Error("the caller's history must not be modified")
+	}
+}

@@ -7,10 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"llm-proxy/internal/core/assistant/failures"
+	"llm-proxy/internal/core/assistant/progress"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/repetition"
 	"llm-proxy/internal/core/assistant/toolpolicy"
@@ -78,7 +80,8 @@ type runSession struct {
 	guardrail guardrailState
 	finalize  finalizeState
 	sieve     sieveState
-	ledger    runLedger // deterministic record of finished tool calls, rendered by the sieves
+	ledger    runLedger         // deterministic record of finished tool calls, rendered by the sieves
+	progress  *progress.Monitor // notices read-only results that add nothing; nil outside a chat run
 	prompt    promptState
 	stopGuard stopGuardState
 }
@@ -156,12 +159,24 @@ type stopGuardState struct {
 	attempts int
 }
 
+// newRunSession takes the run's working copy of the history. A call or result without its partner — a sieve cut
+// from an older build, saved with the conversation — is dropped here, once, so the run, its size measurements and
+// the conversation it saves all see the same clean history (proxy.RepairToolPairing). The sieves keep it clean
+// from then on.
 func newRunSession(agent *Agent, ctx context.Context, history []proxy.Message) *runSession {
-	return &runSession{
+	if agent.config.UseNativeTools {
+		history = proxy.RepairToolPairing(history)
+	}
+	s := &runSession{
 		agent:   agent,
 		ctx:     ctx,
 		history: append([]proxy.Message{}, history...),
 	}
+	// Only a chat run is watched: an automation is unattended, and its behaviour is not changed by this monitor.
+	if agent.config.Channel == ChannelAssistant {
+		s.progress = progress.New(progress.ForSteps(agent.config.MaxSteps))
+	}
+	return s
 }
 
 // stuckNag is the nudge after a stalled analysis: tool-first profiles are told to call a tool, answer-first ones to answer.
@@ -792,6 +807,7 @@ func isAgentControlMessage(m proxy.Message) bool {
 		prompts.AnswerFirstStuckNag,
 		prompts.AnswerFirstStuckEscalatedNag,
 		prompts.AutomationFinalizePrompt,
+		prompts.LoopStopFinalizePrompt,
 		prompts.AutomationReadFileNagPrompt,
 		prompts.AutomationDuplicateNagPrompt,
 		prompts.ToolErrorNagPrompt,
@@ -960,6 +976,31 @@ func (s *runSession) noteContentWithTools(turnMsg proxy.Message) {
 	s.prompt.lastContentWithTools = stripped
 }
 
+// stopOnLoop ends a run a repetition detector stopped. A chat run that already did tool work answers from it: one
+// tools-off turn (finalizeReport, with its own fallbacks) in place of an error and nothing for the user to read. An
+// automation (nobody reads it live; a loop is a failure it must report), a run with no tool work, and a
+// finalization that yields no answer from the model all keep the detector's error. It only ever replaces a failure, so a run that
+// would have succeeded is never changed.
+func (s *runSession) stopOnLoop(loopErr error) (done bool, reply string, err error) {
+	if s.agent.config.Channel != ChannelAssistant || s.finalize.finalizeAttempts > 0 || !s.hasToolResults() {
+		return true, "", loopErr
+	}
+	s.agent.deps.Logger.Warn("repetition detector stopped the run; answering from what it found", "error", loopErr)
+	report, finErr := s.finalizeReport(s.ctx, prompts.LoopStopFinalizePrompt)
+	// Only an answer the model wrote counts: finalizeReport's last resort, a summary synthesized from tool
+	// counts, is no better for a chat user than the error that says the model kept repeating itself.
+	if finErr != nil || strings.TrimSpace(report) == "" || strings.TrimSpace(report) != strings.TrimSpace(s.bestAvailableAnswer()) {
+		return true, "", loopErr
+	}
+	reply, _, completeErr := s.completeWith(report)
+	return true, reply, completeErr
+}
+
+// hasToolResults reports whether the run has a tool result to answer from.
+func (s *runSession) hasToolResults() bool {
+	return slices.ContainsFunc(s.history, func(m proxy.Message) bool { return m.Role == proxy.ToolRole })
+}
+
 // handleToolTurn runs duplicate detection, tool execution, and salvage completion.
 // done=true means return from run(); done=false means continue the loop.
 func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Tool) (done bool, reply string, err error) {
@@ -967,7 +1008,7 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 
 	isDuplicate, nagPrompt, dupErr := s.rd.Check(s.agent.deps.Logger, turnMsg.ToolCalls)
 	if dupErr != nil {
-		return true, "", dupErr
+		return s.stopOnLoop(dupErr)
 	}
 	if isDuplicate {
 		nag := nagPrompt
@@ -984,13 +1025,13 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 	}
 
 	if isAlternating, altErr := s.rd.CheckAlternating(); isAlternating {
-		return true, "", altErr
+		return s.stopOnLoop(altErr)
 	}
 	if isCycle, cycleErr := s.rd.CheckSequenceRepeat(); isCycle {
-		return true, "", cycleErr
+		return s.stopOnLoop(cycleErr)
 	}
 	if isSameTarget, tgtErr := s.rd.CheckSameTarget(turnMsg.ToolCalls); isSameTarget {
-		return true, "", tgtErr
+		return s.stopOnLoop(tgtErr)
 	}
 
 	s.trimLargeWriteContent(&turnMsg)

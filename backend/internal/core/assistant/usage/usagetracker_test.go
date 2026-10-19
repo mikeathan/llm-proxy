@@ -104,3 +104,17 @@ func TestTracker_CumulativeMetrics(t *testing.T) {
 		t.Errorf("expected 7 total reasoning tokens, got %d", tracker.ReasoningTokens)
 	}
 }
+
+func TestTracker_ReportedCachedTokens(t *testing.T) {
+	tr := &Tracker{}
+	tr.AddReportedUsage(100, 10)
+	tr.AddCachedTokens(60)
+	tr.AddCachedTokens(0)
+	tr.AddCachedTokens(25)
+	if got := tr.ReportedCached(); got != 85 {
+		t.Errorf("ReportedCached() = %d, want 85", got)
+	}
+	if p, c := tr.ReportedUsage(); p != 100 || c != 10 {
+		t.Errorf("ReportedUsage() = %d/%d, want 100/10: the cache count must not change them", p, c)
+	}
+}

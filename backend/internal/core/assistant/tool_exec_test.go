@@ -1610,3 +1610,73 @@ func TestToolPolicy_ChatWarningUsesTheShortReason(t *testing.T) {
 		t.Error("the model's tool result keeps the full detail")
 	}
 }
+
+const progressNoteMarker = "[progress note"
+
+// progressAgent is an agent on the given channel with a run session, as appendToolResult sees it mid-run.
+func progressAgent(t *testing.T, channel EventChannel) *Agent {
+	t.Helper()
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 25, Channel: channel})
+	agent.runS = newRunSession(agent, context.Background(), nil)
+	return agent
+}
+
+// recordSame appends n results of tool, each from a different URL but with the same content, and returns the stored
+// contents in order.
+func recordSame(agent *Agent, tool string, n int) []string {
+	var history []proxy.Message
+	var contents []string
+	for i := 1; i <= n; i++ {
+		tc := proxy.ToolCall{ID: fmt.Sprintf("c%d", i), Function: proxy.FunctionCall{Name: tool, Arguments: fmt.Sprintf(`{"url":"https://example.test/page%d"}`, i)}}
+		contents = append(contents, agent.appendToolResult(&history, tc, "Sheffield: sunny, 8C"))
+		if history[len(history)-1].Content != contents[len(contents)-1] {
+			panic("the returned content must be the stored content")
+		}
+	}
+	return contents
+}
+
+// In a chat, results that keep repeating what the run already has make the second repeat carry one factual note,
+// and the fourth a stronger one — each once, on that result only, so the prefix the model's server has cached is
+// untouched.
+func TestAppendToolResult_ChatRepeatsGetOneProgressNote(t *testing.T) {
+	contents := recordSame(progressAgent(t, ChannelAssistant), models.ToolNetworkFetch, 5)
+	for i, c := range contents {
+		// result 1 is new; 2 is stale (1); 3 is stale (2: the notice); 4 is stale (3: already announced);
+		// 5 is stale (4: the strong note, once)
+		if has, want := strings.Contains(c, progressNoteMarker), i == 2 || i == 4; has != want {
+			t.Errorf("result %d: note present = %v, want %v (%q)", i+1, has, want, c)
+		}
+	}
+	if !strings.HasPrefix(contents[2], `"Sheffield: sunny, 8C"`) {
+		t.Errorf("the note goes after the result, never inside it: %q", contents[2])
+	}
+}
+
+// An automation is unattended and its behaviour is unchanged by this monitor.
+func TestAppendToolResult_AutomationGetsNoProgressNote(t *testing.T) {
+	for _, c := range recordSame(progressAgent(t, ChannelAutomation), models.ToolNetworkFetch, 5) {
+		if strings.Contains(c, progressNoteMarker) {
+			t.Fatalf("an automation's results must not change: %q", c)
+		}
+	}
+}
+
+// A command or a write is progress by itself, however alike its output.
+func TestAppendToolResult_MutatingToolsGetNoProgressNote(t *testing.T) {
+	for _, c := range recordSame(progressAgent(t, ChannelAssistant), models.ToolTerminalExecute, 5) {
+		if strings.Contains(c, progressNoteMarker) {
+			t.Fatalf("a mutating tool's results must not carry the note: %q", c)
+		}
+	}
+}
+
+// The monitor is per run: a second run starts from nothing.
+func TestAppendToolResult_ProgressIsPerRun(t *testing.T) {
+	recordSame(progressAgent(t, ChannelAssistant), models.ToolNetworkFetch, 5)
+	for _, c := range recordSame(progressAgent(t, ChannelAssistant), models.ToolNetworkFetch, 2) {
+		if strings.Contains(c, progressNoteMarker) {
+			t.Fatalf("a new run must not inherit another run's results: %q", c)
+		}
+	}
+}

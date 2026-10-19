@@ -113,6 +113,11 @@ func (a *Agent) noteSent(req proxy.ChatRequest) {
 // recordUsage adds a call's reported tokens to the run's tracker and learns the model's token ratio from them.
 func (a *Agent) recordUsage(ctx context.Context, usage *proxy.TokenUsage) {
 	recordReportedUsage(ctx, usage)
+	if usage != nil {
+		// One line per call: a history rewrite shows as cached collapsing to ~0 on the call after it.
+		a.deps.Logger.Info("llm call usage", "model", a.config.ModelName, "prompt_tokens", usage.PromptTokens,
+			"cached_tokens", usage.CachedTokens, "completion_tokens", usage.CompletionTokens)
+	}
 	a.learnTokenRatio(int(a.sentChars.Load()), usage)
 }
 

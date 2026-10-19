@@ -140,6 +140,7 @@ func finishTurnRun(run *models.TurnRun, tracker *usage.Tracker, warnings []strin
 	run.Warnings = warnings
 	if tracker != nil {
 		run.PromptTokens, run.CompletionTokens = tracker.ReportedUsage()
+		run.CachedTokens = tracker.ReportedCached()
 	}
 }
 

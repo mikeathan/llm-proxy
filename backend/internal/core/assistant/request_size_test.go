@@ -187,8 +187,11 @@ func textStream(text string) <-chan *proxy.ChatResponse {
 
 func bulkyHistory(results, size int) []proxy.Message {
 	h := []proxy.Message{{Role: proxy.SystemRole, Content: "system prompt"}, {Role: proxy.UserRole, Content: "task: summarise the pages"}}
-	for range results {
-		h = append(h, proxy.Message{Role: proxy.ToolRole, ToolCallID: "t", Content: strings.Repeat("r", size)})
+	for i := range results {
+		id := fmt.Sprintf("t%d", i)
+		h = append(h,
+			proxy.Message{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{ID: id, Type: "function", Function: proxy.FunctionCall{Name: "read_file", Arguments: "{}"}}}},
+			proxy.Message{Role: proxy.ToolRole, ToolCallID: id, Content: strings.Repeat("r", size)})
 	}
 	return h
 }

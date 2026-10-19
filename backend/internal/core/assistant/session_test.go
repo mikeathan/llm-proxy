@@ -5,9 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/repetition"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -390,5 +392,88 @@ func TestNudgesFollowTheProfile(t *testing.T) {
 		if strings.Contains(strings.ToLower(nag), "only a tool call") || strings.Contains(strings.ToLower(nag), "call a tool immediately") {
 			t.Errorf("an answer-first nudge must not demand a tool call: %q", nag)
 		}
+	}
+}
+
+// repeatingModel calls the same tool with the same arguments on every turn that offers tools, and answers in plain
+// text on a turn that does not (the finalization turn).
+func repeatingModel(answer string) *MockClient {
+	return &MockClient{StreamFunc: func(_ context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		ch := make(chan *proxy.ChatResponse, 1)
+		if req.ToolChoice == proxy.ToolChoiceNone || len(req.Tools) == 0 {
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: answer}}}}
+		} else {
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
+				ID: "c", Type: "function", Function: proxy.FunctionCall{Name: "probe_tool", Arguments: `{"url":"https://example.test/x"}`},
+			}}}}}}
+		}
+		close(ch)
+		return ch, nil
+	}}
+}
+
+func runRepeating(t *testing.T, channel EventChannel, answer string) (string, []proxy.Message, error) {
+	t.Helper()
+	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "probe_tool"}}}}
+	agent := NewAgent(repeatingModel(answer), provider, &MockEngine{Result: "partial data"}, AgentOptions{MaxSteps: 20, Channel: channel, GlobalTimeout: 10 * time.Second})
+	return agent.Execute(context.Background(), []proxy.Message{{Role: proxy.SystemRole, Content: "sys"}, {Role: proxy.UserRole, Content: "look it up"}})
+}
+
+// When a chat run is stopped for repeating itself, the user gets an answer from what the run already found — a
+// tools-off turn — instead of an error and nothing, as the 2026-10-18 local run did after a 503.
+func TestRun_ChatLoopStopAnswersFromWhatItFound(t *testing.T) {
+	const answer = "Here is what I found: it is sunny and 8°C. I could not get tomorrow's forecast."
+	reply, history, err := runRepeating(t, ChannelAssistant, answer)
+	if err != nil {
+		t.Fatalf("a loop-stopped chat run must answer, got error: %v", err)
+	}
+	if !strings.Contains(reply, "sunny and 8°C") {
+		t.Errorf("reply = %q, want the finalization answer", reply)
+	}
+	if countContent(history, prompts.LoopStopFinalizePrompt) != 1 {
+		t.Error("the finalization instruction must be in the history once, as a control message")
+	}
+	if !isAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.LoopStopFinalizePrompt}) {
+		t.Error("the finalization instruction must be a control message, so it is never mistaken for user text")
+	}
+}
+
+// An automation has nobody reading it live: a loop is a failure it must report, not paper over with an answer.
+func TestRun_AutomationLoopStopStillFails(t *testing.T) {
+	_, _, err := runRepeating(t, ChannelAutomation, "an answer")
+	var loopErr *repetition.LoopError
+	if !errors.As(err, &loopErr) {
+		t.Fatalf("an automation stopped for looping must keep its LoopError, got %v", err)
+	}
+}
+
+// With no tool work to answer from there is nothing honest to say: the loop error stands.
+func TestStopOnLoop_WithoutToolWorkKeepsTheError(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 5, Channel: ChannelAssistant})
+	s := newRunSession(agent, context.Background(), []proxy.Message{{Role: proxy.SystemRole, Content: "sys"}, {Role: proxy.UserRole, Content: "hi"}})
+	loopErr := repetition.NewLoopError("loop")
+	done, reply, err := s.stopOnLoop(loopErr)
+	if !done || reply != "" || !errors.Is(err, loopErr) {
+		t.Errorf("stopOnLoop = %v, %q, %v; want done with the original error", done, reply, err)
+	}
+}
+
+// A model that keeps calling tools even when they are off gives the finalization nothing to show: the loop error
+// stands rather than a statistics summary dressed up as an answer.
+func TestRun_ChatLoopStopKeepsTheErrorWhenTheModelWillNotAnswer(t *testing.T) {
+	client := &MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		ch := make(chan *proxy.ChatResponse, 1)
+		ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
+			ID: "c", Type: "function", Function: proxy.FunctionCall{Name: "probe_tool", Arguments: `{"url":"https://example.test/x"}`},
+		}}}}}}
+		close(ch)
+		return ch, nil
+	}}
+	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "probe_tool"}}}}
+	agent := NewAgent(client, provider, &MockEngine{Result: "partial data"}, AgentOptions{MaxSteps: 20, GlobalTimeout: 10 * time.Second})
+	_, _, err := agent.Execute(context.Background(), []proxy.Message{{Role: proxy.SystemRole, Content: "sys"}, {Role: proxy.UserRole, Content: "look it up"}})
+	var loopErr *repetition.LoopError
+	if !errors.As(err, &loopErr) {
+		t.Fatalf("want the LoopError when the model will not answer, got %v", err)
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant/progress"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/toolpolicy"
 	"llm-proxy/internal/core/assistant/usage"
@@ -1312,7 +1313,7 @@ func sanitizeToolArgs(raw string, originalErr error) string {
 // callers can reuse it (e.g. for logging) without re-marshaling (O5).
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) string {
 	raw, _ := json.Marshal(result)
-	strContent := proxy.TruncateResultDefault(string(raw))
+	strContent := proxy.TruncateResultDefault(string(raw)) + a.progressNote(tc, raw)
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
 		Content:    strContent,
@@ -1321,6 +1322,24 @@ func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, re
 	a.trackGuardrailOutcome(tc, strContent)
 	a.recordLedger(tc, raw)
 	return strContent
+}
+
+// progressNote is the factual line to append to a tool result when the run's results have stopped adding anything
+// new (progress.Monitor), or "" — nearly always. It rides on the newest result, the only part of the history that
+// is not yet cached by the model's server, and only in a chat run: an automation is not watched.
+func (a *Agent) progressNote(tc proxy.ToolCall, raw []byte) string {
+	if a.runS == nil || a.runS.progress == nil {
+		return ""
+	}
+	d := a.runS.progress.Observe(progress.Call{
+		Tool:     tc.Function.Name,
+		Args:     tc.Function.Arguments,
+		ReadOnly: toolpolicy.EffectFor(tc.Function.Name) == toolpolicy.EffectReadOnly,
+	}, raw)
+	if d.Changed {
+		a.deps.Logger.Info("progress monitor: results added nothing new", "tool", d.Tool, "stale", d.Stale, "level", int(d.Level), "useful", d.Distinct)
+	}
+	return d.Note()
 }
 
 // guardrailBlockStreakLimit is the number of CONSECUTIVE guardrail-denied tool

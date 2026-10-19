@@ -24,6 +24,7 @@ type Tracker struct {
 	// run. InputTokens/OutputTokens above are local size counts, not tokens.
 	reportedPrompt     int
 	reportedCompletion int
+	reportedCached     int
 	mu                 sync.Mutex
 }
 
@@ -58,6 +59,20 @@ func (t *Tracker) AddReportedUsage(promptTokens, completionTokens int) {
 	defer t.mu.Unlock()
 	t.reportedPrompt += promptTokens
 	t.reportedCompletion += completionTokens
+}
+
+// AddCachedTokens adds how many of one LLM call's prompt tokens the server's prompt cache already held.
+func (t *Tracker) AddCachedTokens(n int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.reportedCached += n
+}
+
+// ReportedCached returns the cached prompt tokens summed over the run (0 when the provider reported none).
+func (t *Tracker) ReportedCached() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reportedCached
 }
 
 // ReportedUsage returns the provider-reported prompt and completion tokens

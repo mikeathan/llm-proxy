@@ -304,3 +304,59 @@ func TestNormalizeHistory_UIOnlyFieldsNeverReachTheWire(t *testing.T) {
 		}
 	}
 }
+
+func call(id string) ToolCall {
+	return ToolCall{ID: id, Type: "function", Function: FunctionCall{Name: "t", Arguments: "{}"}}
+}
+
+func TestRepairToolPairing_LeavesAPairedHistoryAlone(t *testing.T) {
+	history := []Message{
+		{Role: SystemRole, Content: "sys"},
+		{Role: UserRole, Content: "task"},
+		{Role: AssistantRole, ToolCalls: []ToolCall{call("a"), call("b")}},
+		{Role: ToolRole, ToolCallID: "a", Content: "ra"},
+		{Role: ToolRole, ToolCallID: "b", Content: "rb"},
+	}
+	got := RepairToolPairing(history)
+	if len(got) != len(history) {
+		t.Fatalf("a paired history must come back whole, got %d of %d messages", len(got), len(history))
+	}
+}
+
+func TestRepairToolPairing_DropsWhatHasNoPartner(t *testing.T) {
+	history := []Message{
+		{Role: SystemRole, Content: "sys"},
+		{Role: UserRole, Content: "task"},
+		{Role: AssistantRole, ToolCalls: []ToolCall{call("gone")}},                                // result never came: the whole message goes
+		{Role: AssistantRole, Content: "text", ToolCalls: []ToolCall{call("kept"), call("lost")}}, // one of two answered: text and the kept call stay
+		{Role: ToolRole, ToolCallID: "kept", Content: "rk"},
+		{Role: ToolRole, ToolCallID: "orphan", Content: "ro"}, // its call is gone
+		{Role: ToolRole, Content: "legacy result without an id"},
+	}
+	got := RepairToolPairing(history)
+	want := []string{"sys", "task", "text", "rk", "legacy result without an id"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d messages %+v, want %d", len(got), got, len(want))
+	}
+	for i, m := range got {
+		if m.Content != want[i] {
+			t.Errorf("message %d = %q, want %q", i, m.Content, want[i])
+		}
+	}
+	if calls := got[2].ToolCalls; len(calls) != 1 || calls[0].ID != "kept" {
+		t.Errorf("the assistant message must keep only the answered call, got %+v", calls)
+	}
+	if len(history[3].ToolCalls) != 2 {
+		t.Error("the caller's history must not be modified")
+	}
+}
+
+func TestRepairToolPairing_ResultMustFollowItsCall(t *testing.T) {
+	history := []Message{
+		{Role: ToolRole, ToolCallID: "early", Content: "before its call"},
+		{Role: AssistantRole, ToolCalls: []ToolCall{call("early")}},
+	}
+	if got := RepairToolPairing(history); len(got) != 0 {
+		t.Errorf("a result before its call and the call it never reached both go, got %+v", got)
+	}
+}
