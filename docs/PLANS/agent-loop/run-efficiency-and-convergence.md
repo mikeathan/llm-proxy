@@ -165,6 +165,24 @@ Replay of five real Wikipedia city pages (1 MiB each, as the fetch guardrail rea
   raw or shaped: the monitor stayed silent on all five. The live pages had been cut by the size guardrail
   ("content truncated by network guardrails"). Not claimed as fixed.
 
+**Live result of step 1 on Vertex (Qwen 16k, 2026-10-19), and the follow-up it forced.** Weather runs were unchanged (66–75 s,
+same call counts). The five-city Wikipedia task got worse: 15 `fetch_url` calls instead of 6 (118 s vs 109 s). The shaped text
+began with page menus, and the raw cut had accidentally kept a useful line, the JSON-LD `"headline"` in the page tail, which
+stripping scripts removed. The model, finding no article, tried the mobile site and the REST API. The progress monitor was right
+this time (stale 2 and 4). The follow-up, all in `tools/htmltext.go` and measured offline first against 5 Wikipedia pages and 7 weather
+pages the model had actually fetched (bar: never worse than the pre-step-1 raw cut):
+
+- the page's own summary first (`<meta name=description>`, `og:description`, JSON-LD `headline`/`description`), which restores the
+  line the raw cut had;
+- scope to `<main>` when it holds real text (else the whole page); skip `<select>` dropdowns; drop runs of 8+ short link-only
+  lines (language lists, menus) and long link clouds, only when the page has other prose, so an index of links is kept;
+- keep the **start** of the text (2600 characters, under the cap by the room JSON escaping takes, because `appendToolResult`
+  cuts the JSON-encoded result again) instead of head+tail: the tail of a page is references and footers.
+
+Offline: all five city pages now carry their opening sentence in the text the model sees (it was absent before); BBC, weather25
+and Times of India go from 0–2 temperature figures to 14–106; the Met Office page (built by script) and the bot-wall/404 pages are
+no worse than raw. Not measured offline: how often a `<main>`-less page loses content to the head-only cut.
+
 ### M2. Shape results before they are capped (est. −10…−30 s, plus answer quality)
 
 - A **post-execute stage** at the one chokepoint (`appendToolResult`, `tool_exec.go:1313`), like DeepSeek's

@@ -172,7 +172,7 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 func fetchedText(contentType string, data []byte, cutShort bool) string {
 	text := string(data)
 	if isHTML(contentType, data) {
-		text = htmlToText(text)
+		text = pageHead(htmlToText(text))
 	}
 	if cutShort {
 		text += "\n... (content truncated by network guardrails)"
