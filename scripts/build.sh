@@ -55,9 +55,13 @@ if [[ "${BUILD_SKIP_TAG_FETCH:-0}" != 1 ]]; then
     git fetch --tags --quiet 2>/dev/null || ui_warn "could not fetch tags; using the local ones"
 fi
 # The nearest release tag reachable from HEAD: exactly "v0.8.0" for a tagged
-# commit, "v0.8.0-2-gabc1234" for a commit after it — a build never claims a
-# release it is not. Only v<digit> tags count (the repo has other tags).
+# commit, "v0.8.0+2" for a commit 2 after it (semver build metadata; git's own
+# "v0.8.0-2-gabc1234" is rewritten, the commit is stamped separately) — a build
+# never claims a release it is not. Only v<digit> tags count (the repo has other tags).
 VERSION=$(git describe --tags --match 'v[0-9]*' 2>/dev/null || true)
+if [[ "$VERSION" =~ ^(v[0-9][^-]*)-([0-9]+)-g[0-9a-f]+$ ]]; then
+  VERSION="${BASH_REMATCH[1]}+${BASH_REMATCH[2]}"
+fi
 [[ -n "$VERSION" ]] || VERSION="dev"
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
