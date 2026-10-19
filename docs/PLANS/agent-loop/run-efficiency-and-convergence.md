@@ -116,6 +116,7 @@ DeepSeek Harness (`/Users/mikeathan/dev/deepseek-harness`):
 3. **M2, result shaping at `appendToolResult`** (E6, E8): per-item caps for lists of hits instead of a head-and-tail cut of
    JSON, HTML to text before the cap, items already shown in the run replaced by a reference, oversize output saved under
    the workspace with a path the model can `read_file`. Fix the stale "caps at ~8KB" comment (the cap is 3000).
+   **Step 1 built (HTML to text, in `FetchURL` before the cap)**; the rest below is still open.
 4. **M4, let independent reads batch** (E9): check what the local server does with `parallel_tool_calls` unset; resolve the
    rule conflict in `NativeToolReference` ("batch" vs "verify results before proceeding").
 5. **Per-run toolsets** from the prompt profile, chosen once at run start (the 18 tool schemas are 12.3 k of the 22 k chars of
@@ -145,6 +146,24 @@ sanctioned cache break.
 - Test: table tests asserting every assistant `tool_calls` id has a matching tool message and roles never repeat
   user/user, over random histories and both sieves; replay request 8 from the recording as a fixture.
 - Defaults: both run kinds.
+
+### M2 step 1 — built: HTML to readable text in `fetch_url`
+
+`FetchURL` (`tools/network.go`, `fetchedText`) turns an HTML response into its title plus body text (`tools/htmltext.go`,
+stdlib only: drops `<head>`, scripts, styles, `<nav>`, `<footer>`, `<aside>`, `<svg>`, comments; decodes entities) *before*
+the 3000-character cap. Other content types are byte-for-byte unchanged. One place fixes both what the model reads and what the
+progress monitor measures, because the monitor sees the capped text.
+
+Replay of five real Wikipedia city pages (1 MiB each, as the fetch guardrail reads them), found after building it:
+
+- Raw: the 3000 characters are the `<html class=…>` start and the page tail, no readable text at all. Shaped: readable text.
+- **Not enough for long articles.** The capped text is the page's menu (a 107-language list, "Jump to content / Donate / Log in")
+  and the references list; the lede is in the cut middle. Ideas, in order of cost: a head-weighted cap for shaped text (the
+  tail of a web page is rarely the answer); dropping runs of very short menu-like lines; choosing passages by the user's
+  question (needs the question passed to the tool, a public-interface change, so a separate decision).
+- **The monitor false positive seen live (5 different city pages, "added nothing new") did not reproduce** in this replay,
+  raw or shaped: the monitor stayed silent on all five. The live pages had been cut by the size guardrail
+  ("content truncated by network guardrails"). Not claimed as fixed.
 
 ### M2. Shape results before they are capped (est. −10…−30 s, plus answer quality)
 

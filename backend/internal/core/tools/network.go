@@ -163,12 +163,21 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 		return "", err
 	}
 
-	result := string(data)
-	if lr.N <= 0 {
-		result += "\n... (content truncated by network guardrails)"
-	}
+	return proxy.TruncateResultDefault(fetchedText(resp.Header.Get("Content-Type"), data, lr.N <= 0)), nil
+}
 
-	return proxy.TruncateResultDefault(result), nil
+// fetchedText is what the model reads of a response: an HTML page as its readable text (the result cap would
+// otherwise spend itself on the page's markup), anything else as it came. cutShort marks a body the size
+// guardrail stopped reading.
+func fetchedText(contentType string, data []byte, cutShort bool) string {
+	text := string(data)
+	if isHTML(contentType, data) {
+		text = htmlToText(text)
+	}
+	if cutShort {
+		text += "\n... (content truncated by network guardrails)"
+	}
+	return text
 }
 
 // resolveAndQueueTargets handles the expansion and validation of comma-separated targets.

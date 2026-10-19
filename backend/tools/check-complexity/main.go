@@ -67,7 +67,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/core/tools/filesystem.go:validateFilePath":                                         true,
 	"internal/core/tools/manifests.go:LoadManifestAsTool":                                        true,
 	"internal/core/tools/memory_tools.go:Search":                                                 true,
-	"internal/core/tools/network.go:FetchURL":                                                    true,
 	"internal/core/tools/network.go:ScanLocalNetwork":                                            true,
 	"internal/core/tools/network.go:resolveAndQueueTargets":                                      true,
 	"internal/core/tools/terminal.go:checkPathSecurity":                                          true,
