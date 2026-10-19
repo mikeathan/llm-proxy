@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"llm-proxy/internal/core/proxy"
 )
@@ -109,5 +111,155 @@ func TestFetchedText_LeavesNonHTMLAlone(t *testing.T) {
 	}
 	if got := fetchedText("text/plain", []byte("x"), true); !strings.HasSuffix(got, "(content truncated by network guardrails)") {
 		t.Errorf("size-guardrail note missing: %q", got)
+	}
+}
+
+func linkList(n int) string {
+	var b strings.Builder
+	b.WriteString("<ul>")
+	for i := 0; i < n; i++ {
+		b.WriteString(`<li><a href="/l">Lang` + strings.Repeat("x", i%3) + `</a></li>`)
+	}
+	return b.String() + "</ul>"
+}
+
+const proseBody = `<p>The forecast for Sheffield tomorrow is light rain with a high of 12 degrees and a low of 8 degrees, and a gentle breeze from the west all day long.</p>` +
+	`<p>Further out, the week stays unsettled with showers on most days and temperatures staying close to the seasonal average for the region.</p>` +
+	`<p>Rainfall totals are expected to stay modest, though the hills to the west will see more than the city centre itself on Thursday and Friday.</p>` +
+	`<p>Overnight lows will dip towards the freezing mark in sheltered rural spots, so anyone travelling early on Saturday should expect some patches of ice on untreated roads.</p>`
+
+func TestHTMLToText_DropsALongMenuButKeepsProse(t *testing.T) {
+	got := htmlToText(linkList(30) + proseBody)
+	if strings.Contains(got, "Lang") {
+		t.Errorf("menu kept:\n%s", got)
+	}
+	if !strings.Contains(got, "light rain with a high of 12 degrees") {
+		t.Errorf("prose lost:\n%s", got)
+	}
+}
+
+func TestHTMLToText_KeepsAShortListAndALinkIndex(t *testing.T) {
+	if got := htmlToText(linkList(5) + proseBody); !strings.Contains(got, "Lang") {
+		t.Errorf("a short list of links is content, not a menu:\n%s", got)
+	}
+	if got := htmlToText(linkList(30)); strings.Count(got, "Lang") != 30 {
+		t.Errorf("a page that is only links must keep them:\n%s", got)
+	}
+}
+
+func TestHTMLToText_KeepsLinkedHeadlines(t *testing.T) {
+	var b strings.Builder
+	for i := 0; i < 10; i++ {
+		b.WriteString(`<p><a href="/n">A headline that is longer than any menu entry could be, number ` + string(rune('a'+i)) + `</a></p>`)
+	}
+	if got := htmlToText(b.String() + proseBody); strings.Count(got, "A headline") != 10 {
+		t.Errorf("linked headlines are content:\n%s", got)
+	}
+}
+
+func TestHTMLToText_DropsADropdownAndALinkCloud(t *testing.T) {
+	cloud := strings.Repeat(`<a href="/t">Townname</a>`, 40)
+	opts := "<select>" + strings.Repeat("<option>Optiontown</option>", 40) + "</select>"
+	got := htmlToText("<p>" + cloud + "</p>" + opts + proseBody)
+	if strings.Contains(got, "Townname") || strings.Contains(got, "Optiontown") {
+		t.Errorf("dropdown or link cloud kept:\n%s", got)
+	}
+}
+
+func TestHTMLToText_LeadsWithThePagesOwnSummary(t *testing.T) {
+	page := `<html><head><title>Sheffield</title>
+<meta name="description" content="City in South Yorkshire &amp; steel town">
+<meta property="og:description" content="City in South Yorkshire &amp; steel town">
+<meta content='A second description' name='description'>
+<script type="application/ld+json">{"headline":"Sheffield, England","description":"a \"big\" city"}</script></head><body>` + proseBody + `</body></html>`
+	lines := strings.Split(htmlToText(page), "\n")
+	want := []string{"Sheffield", "Summary: City in South Yorkshire & steel town", "Summary: A second description", "Summary: Sheffield, England"}
+	for i, w := range want {
+		if i >= len(lines) || lines[i] != w {
+			t.Fatalf("line %d: got %q, want %q (all: %q)", i, lines[min(i, len(lines)-1)], w, lines)
+		}
+	}
+}
+
+func TestHTMLToText_ScopesToMainWhenItHoldsText(t *testing.T) {
+	outside := `<div>` + strings.Repeat("Site banner words. ", 30) + `</div>`
+	got := htmlToText(outside + "<main>" + proseBody + "</main>")
+	if strings.Contains(got, "Site banner") || !strings.Contains(got, "light rain") {
+		t.Errorf("not scoped to main:\n%s", got)
+	}
+	shell := htmlToText(outside + "<main><div id=app></div></main>")
+	if !strings.Contains(shell, "Site banner") {
+		t.Errorf("an empty <main> must fall back to the whole page:\n%s", shell)
+	}
+}
+
+func TestPageHead_CutsAtTheEndOnARuneBoundary(t *testing.T) {
+	if short := "short text"; pageHead(short) != short {
+		t.Error("short text must be unchanged")
+	}
+	long := strings.Repeat("é", proxy.MaxReturnChars)
+	got := pageHead(long)
+	if !utf8.ValidString(got) || !strings.HasSuffix(got, "the rest was cut]") || encodedLen(got) > proxy.MaxReturnChars {
+		t.Errorf("bad cut: valid=%v encoded=%d", utf8.ValidString(got), encodedLen(got))
+	}
+}
+
+func TestHTMLToText_SummaryIsBoundedAndIgnoresOtherScripts(t *testing.T) {
+	var state strings.Builder
+	for i := 0; i < 20; i++ {
+		state.WriteString(`{"description":"state blob entry ` + strings.Repeat("x", 40) + string(rune('a'+i)) + `"},`)
+	}
+	ld := `<script type="application/ld+json">{"headline":"Real headline","description":"Real description"}</script>`
+	page := `<html><head><title>T</title><script>window.S=[` + state.String() + `]</script>` + ld + `</head><body>` + proseBody + `</body></html>`
+
+	got := htmlToText(page)
+	if strings.Contains(got, "state blob") {
+		t.Errorf("non-ld+json script read as a summary:\n%s", got)
+	}
+	if n := strings.Count(got, "Summary:"); n != 2 {
+		t.Errorf("got %d summary lines, want the 2 from the ld+json script:\n%s", n, got)
+	}
+
+	many := strings.Repeat(`<meta name="description" content="d`, 0)
+	for i := 0; i < 20; i++ {
+		many += `<meta name="description" content="distinct description number ` + string(rune('a'+i)) + `">`
+	}
+	got = pageHead(htmlToText("<html><head><title>T</title>" + many + "</head><body>" + proseBody + "</body></html>"))
+	if n := strings.Count(got, "Summary:"); n > summaryLines {
+		t.Errorf("%d summary lines, cap is %d", n, summaryLines)
+	}
+	if !strings.Contains(got, "light rain with a high of 12 degrees") {
+		t.Errorf("summaries pushed the page content out of the head:\n%s", got)
+	}
+}
+
+func TestFetchedText_FitsTheResultCapAfterJSONEscaping(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<main>")
+	for i := 0; i < 400; i++ {
+		b.WriteString(`<p>Tom &amp; "Jerry" <b>&lt;x&gt;</b> row ` + strings.Repeat("y", i%7) + `</p>`)
+	}
+	b.WriteString("</main>")
+	encoded, err := json.Marshal(fetchedText("text/html", []byte(b.String()), false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > proxy.MaxReturnChars {
+		t.Errorf("encoded result is %d characters, over the %d cap that would cut it again", len(encoded), proxy.MaxReturnChars)
+	}
+}
+
+func TestPageHead_ShortTextThatGrowsWhenEncodedDoesNotPanic(t *testing.T) {
+	text := strings.Repeat(`"<&>"`, 580) // 2900 characters, about 5500 once JSON-encoded
+	got := pageHead(text)
+	if encodedLen(got) > proxy.MaxReturnChars || !strings.HasSuffix(got, "the rest was cut]") {
+		t.Errorf("bad cut: encoded=%d", encodedLen(got))
+	}
+}
+
+func TestHTMLToText_DecodesJSONEscapesInStructuredData(t *testing.T) {
+	page := `<html><head><script type="application/ld+json">{"headline":"City in Tyne \u0026 Wear, \"England\""}</script></head><body>` + proseBody + `</body></html>`
+	if got := htmlToText(page); !strings.Contains(got, `Summary: City in Tyne & Wear, "England"`) {
+		t.Errorf("escapes not decoded:\n%s", got)
 	}
 }
