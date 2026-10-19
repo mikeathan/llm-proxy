@@ -73,6 +73,31 @@ describe('ChatInput', () => {
     expect(mountInput().get('textarea').attributes('rows')).toBe('3')
   })
 
+  it('starts one line tall on a phone, leaving the room to the stream', () => {
+    expect(mountInput('', true).get('textarea').attributes('rows')).toBe('1')
+  })
+
+  it('drops the tools row on a phone while a run streams, and keeps send/stop', () => {
+    const w = mount(ChatInput, {
+      props: { loading: true, paused: false, inputMessage: '', compact: true },
+      global: { stubs: { Icon: true, teleport: true } },
+      attachTo: document.body,
+    })
+    mounted.push(w)
+    expect(w.find('[data-test="composer-tools"]').exists()).toBe(false)
+    expect(w.find('[aria-label="Stop the run"]').exists()).toBe(true)
+  })
+
+  it('keeps the tools row on a roomy screen while a run streams', () => {
+    const w = mount(ChatInput, {
+      props: { loading: true, paused: false, inputMessage: '', compact: false },
+      global: { stubs: { Icon: true, teleport: true } },
+      attachTo: document.body,
+    })
+    mounted.push(w)
+    expect(w.find('[data-test="composer-tools"]').exists()).toBe(true)
+  })
+
   it('keeps a short message compact, without a size note or an expand control', () => {
     const w = mountInput('hello')
     expect(w.find('[data-test="draft-size"]').exists()).toBe(false)

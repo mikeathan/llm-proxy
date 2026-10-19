@@ -316,6 +316,12 @@ watch(
 .activity-chevron { @apply flex flex-none text-faint transition-transform duration-fast; }
 .activity-chevron :deep(svg) { @apply h-3 w-3; }
 .activity-chevron.is-open { transform: rotate(90deg); }
+/* Touch: a 44px-high line with a 16px chevron, as the step rows below it. */
+@media (pointer: coarse) {
+  .activity-line { @apply min-h-11 gap-2.5; }
+  .activity-chevron { @apply text-muted; }
+  .activity-chevron :deep(svg) { @apply h-4 w-4; }
+}
 .activity-mark { @apply h-1.5 w-1.5 flex-none rounded-full bg-text-faint; }
 .activity-mark.is-live { background: rgb(var(--state-live)); }
 .activity-mark.is-failed { background: rgb(var(--state-error)); }

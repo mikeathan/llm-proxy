@@ -165,5 +165,7 @@ defineExpose({
 .chat-empty-eyebrow { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }
 .chat-empty-title { @apply m-0 text-[length:var(--text-heading)] font-semibold text-primary; }
 .chat-empty-hint { @apply font-mono text-[length:var(--text-micro)] text-faint; }
+/* Keyboard shortcuts mean nothing on a touch screen. */
+@media (pointer: coarse) { .chat-empty-hint { display: none; } }
 :deep(.scroll-to-bottom) { @apply sticky bottom-0 ml-auto z-10 bg-surface; }
 </style>

@@ -41,6 +41,21 @@ describe('RunSettings', () => {
     expect(w.find('[role="dialog"]').exists()).toBe(false)
   })
 
+  it('opens as a sheet on <body>, above the tab bar, and a press inside it does not dismiss it', async () => {
+    const w = mountSettings({ sheet: true })
+    await w.get('[data-test="run-settings"]').trigger('click')
+    expect(w.find('[role="dialog"]').exists()).toBe(false)
+    const dialog = document.body.querySelector('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
+    expect(dialog.parentElement?.className).toContain('z-50')
+    dialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await w.vm.$nextTick()
+    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
+    document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    await w.vm.$nextTick()
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
   it('reports a profile pick and a model pick', async () => {
     const w = mountSettings()
     await w.get('[data-test="run-settings"]').trigger('click')
