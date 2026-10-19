@@ -135,6 +135,14 @@ function onClick() {
 .step-chevron { @apply flex flex-none text-faint transition-transform duration-fast; }
 .step-chevron :deep(svg) { @apply h-3 w-3; }
 .step-chevron.is-open { transform: rotate(90deg); }
+/* Touch: the whole row is the control, so it is a 44px target, and its chevron is a visible 16px mark at the
+   row's right edge — the one column that says "this opens" — not a faint 12px glyph beside the status. */
+@media (pointer: coarse) {
+  .step-header { @apply min-h-11; }
+  .step-status { @apply mr-0.5; }
+  .step-chevron { @apply h-7 w-7 items-center justify-center rounded-full text-muted; }
+  .step-chevron :deep(svg) { @apply h-4 w-4; }
+}
 
 .step-detail { @apply mb-1 ml-1.5 mt-1 flex flex-col gap-2.5 rounded-[var(--radius-sm)] border border-hairline bg-canvas p-3; }
 .step-args { @apply m-0 grid gap-x-3 gap-y-1; grid-template-columns: max-content minmax(0, 1fr); }

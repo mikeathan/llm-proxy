@@ -8,6 +8,8 @@ import ComposeSheet from './ComposeSheet.vue'
 import { useSlashCommands } from '../../../composables/assistant/useSlashCommands'
 import type { CommandInfo } from '../../../types/commands'
 
+// On a phone the stream is the point: the box starts one line tall, sits in one row with send/stop, and the
+// tools row (all disabled during a run anyway) is dropped while a run streams, so the composer takes ~70px.
 // The message box starts three lines tall and grows with its text up to a cap, then
 // scrolls; a long draft (a big paste) says how big it is and can be expanded to read
 // it before sending — in place on a roomy screen, in a full-screen editor on a
@@ -43,9 +45,12 @@ const LONG_DRAFT_LINES = 8
 const LONG_DRAFT_CHARS = 600
 const LINE_BREAK = '\n'
 const START_ROWS = 3
+const COMPACT_START_ROWS = 1
 // While a run is going the box stays editable: a message written meanwhile is queued and sent once the run completes.
 const IDLE_PLACEHOLDER = 'Ask the workspace agent…'
 const WORKING_PLACEHOLDER = 'Working… send a message and it goes next, when this run finishes'
+// The one-line box on a phone has no room for the long one.
+const COMPACT_WORKING_PLACEHOLDER = 'Queue the next message…'
 // Primary actions grow to a 44px target on a touch screen.
 // The toolbar buttons are text buttons: they grow in height only.
 const TOOL_TOUCH = '[@media(pointer:coarse)]:h-11'
@@ -136,7 +141,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 </script>
 
 <template>
-  <div class="input-area">
+  <div class="input-area" :class="{ 'is-compact': compact }">
     <SlashHelper :suggestions="suggestions" :active="active" :preview="preview" @pick="pickCommand" @example="pickExample" />
     <div class="input-wrap">
       <ArcOrbitLoader :active="loading && paused" :thickness="1" />
@@ -146,10 +151,10 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
         :value="inputMessage"
         @input="emit('update:inputMessage', ($event.target as HTMLTextAreaElement).value)"
         @keydown="onKeydown"
-        :placeholder="loading ? WORKING_PLACEHOLDER : IDLE_PLACEHOLDER"
+        :placeholder="loading ? (compact ? COMPACT_WORKING_PLACEHOLDER : WORKING_PLACEHOLDER) : IDLE_PLACEHOLDER"
         class="chat-input"
         :class="{ 'is-loading': loading, 'is-expanded': expanded }"
-        :rows="START_ROWS"
+        :rows="compact ? COMPACT_START_ROWS : START_ROWS"
       ></textarea>
     </div>
     <!-- A long draft says how big it is on its own line, so it never crowds the controls below. -->
@@ -161,14 +166,14 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
     </div>
     <!-- One action row under the box, every control centred on it: the tools (start a command, review the conversation for memories) on the left; a long draft's expand, then send or stop, on the right. -->
     <div data-test="composer-actions" class="flex items-center justify-between gap-2">
-      <div class="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
+      <div v-if="!(compact && loading)" data-test="composer-tools" class="composer-tools flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5">
         <BaseButton variant="ghost" size="sm" aria-label="Commands" title="Start a command, such as /remind" :disabled="!canStartCommand || loading" :class-name="TOOL_TOUCH" @click="startCommand">
           <span aria-hidden="true">/</span><span>Commands</span>
         </BaseButton>
         <BaseButton variant="ghost" size="sm" icon="memory" title="Ask the model which facts in this conversation are worth remembering" :disabled="!canReview || loading" :class-name="TOOL_TOUCH" @click="emit('review')">Memory</BaseButton>
         <slot name="tools" />
       </div>
-      <div class="flex shrink-0 items-center gap-2">
+      <div class="composer-buttons flex shrink-0 items-center gap-2">
         <BaseButton
           v-if="isLongDraft"
           variant="ghost"
@@ -206,6 +211,17 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 </template>
 
 <style scoped>
+/* A phone: the box and its send/stop buttons share one row (the action row's two groups become grid items); the
+   command menu, draft size, queued line and tools take the full width above and below. */
+.input-area.is-compact { @apply grid items-end gap-x-2 gap-y-1.5 p-2; grid-template-columns: minmax(0, 1fr) auto; }
+.input-area.is-compact > :not(.input-wrap):not([data-test='composer-actions']) { grid-column: 1 / -1; }
+.input-area.is-compact > [data-test='composer-actions'] { display: contents; }
+.input-area.is-compact .input-wrap { order: 0; }
+.input-area.is-compact .composer-buttons { order: 1; }
+.input-area.is-compact > [data-test='draft-size'], .input-area.is-compact > [data-test='queued-message'] { order: 2; }
+.input-area.is-compact .composer-tools { order: 3; grid-column: 1 / -1; }
+.input-area.is-compact > [data-test='slash-helper'] { order: -1; }
+.input-area.is-compact .chat-input { max-height: min(30vh, 9rem); }
 .input-area { @apply p-3 sm:p-4 bg-canvas flex min-w-0 flex-col gap-1.5 shrink-0; }
 .input-wrap { @apply relative; isolation: isolate; }
 .chat-input { @apply block w-full rounded-[var(--radius-md)] border border-control bg-canvas px-3 py-2.5 text-[length:var(--text-body)] text-primary placeholder:text-faint resize-none transition-colors focus-visible:outline-none focus-visible:ring-2; position: relative; z-index: 0; max-height: min(40vh, 18rem); overflow-y: auto; }

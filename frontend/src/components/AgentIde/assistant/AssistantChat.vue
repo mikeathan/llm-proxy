@@ -497,6 +497,7 @@ const handleDeleteGroup = async (ids: string[]) => {
             :profile-name="shownProfile.name"
             :profile-summary="shownProfile.summary"
             :disabled="loading"
+            :sheet="isMobile"
           />
         </template>
       </ChatInput>

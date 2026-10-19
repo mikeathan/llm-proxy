@@ -9,6 +9,8 @@ import PopoverPanel from "../../common/layout/PopoverPanel.vue"
 
 // What the next message runs with, in one control beside the composer's tools: the profile (how the assistant
 // behaves) and the model. One button, so the composer row fits a phone; the choices open above it.
+// On a phone the sheet is teleported to <body>: the chat box is a stacking context, so a sheet left inside it
+// is clipped to the box and the tab bar paints over its lower half (the same reason ComposeSheet teleports).
 const props = defineProps<{
   profileOptions: ChoiceOption[]
   modelOptions: ChoiceOption[]
@@ -16,6 +18,8 @@ const props = defineProps<{
   profileName: string
   profileSummary: string
   disabled?: boolean
+  /** A phone: the choices open as a bottom sheet over the whole screen instead of a popover above the button. */
+  sheet?: boolean
 }>()
 
 const profile = defineModel<string>("profile", { required: true })
@@ -23,8 +27,9 @@ const model = defineModel<string>("model", { default: "" })
 
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
+const panel = ref<HTMLElement | null>(null)
 const panelId = useId()
-useDismissable(root, open)
+useDismissable(root, open, panel)
 
 const modelLabel = computed(() => props.modelOptions.find((o) => o.value === model.value)?.label ?? "")
 const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${modelLabel.value ? `, ${modelLabel.value}` : ""}. Change`)
@@ -47,7 +52,9 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${
       <Icon name="chevron-up" size="xs" class-name="flex-none" />
     </button>
 
-    <PopoverPanel v-if="open" :id="panelId" title="Run settings" placement="above" align="left" width="sm:w-[340px]" @close="open = false">
+    <Teleport to="body" :disabled="!sheet">
+    <div v-if="open" ref="panel" :class="{ 'relative z-50': sheet }">
+    <PopoverPanel :id="panelId" title="Run settings" placement="above" align="left" width="sm:w-[340px]" @close="open = false">
       <div class="flex flex-col gap-3 p-3">
         <FormField label="Profile" :hint="profileSummary">
           <template #default="{ id, describedBy }">
@@ -61,6 +68,8 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${
         </FormField>
       </div>
     </PopoverPanel>
+    </div>
+    </Teleport>
   </div>
 </template>
 
