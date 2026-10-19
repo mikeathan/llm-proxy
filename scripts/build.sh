@@ -49,10 +49,25 @@ ui_info "Retrieving version from Git tags..."
 # Release tags are pushed by GitHub Actions a few seconds after a merge, so a
 # deploy that pulls straight away can miss the new tag: fetch tags first. Best
 # effort and non-interactive — an offline build keeps the tags it already has.
-# Set BUILD_SKIP_TAG_FETCH=1 to skip it.
-if [[ "${BUILD_SKIP_TAG_FETCH:-0}" != 1 ]]; then
+# Set BUILD_SKIP_TAG_FETCH=1 to skip it (and the wait below).
+fetch_tags() {
   GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" \
-    git fetch --tags --quiet 2>/dev/null || ui_warn "could not fetch tags; using the local ones"
+    git fetch --tags --quiet 2>/dev/null
+}
+if [[ "${BUILD_SKIP_TAG_FETCH:-0}" != 1 ]]; then
+  fetch_tags || ui_warn "could not fetch tags; using the local ones"
+  # HEAD is the tip of origin/main but not yet tagged: it is a merge whose release tag is still on its way, so
+  # wait for it (up to ~30 s) rather than stamp the previous release plus a commit count. Any other commit
+  # (a feature branch, local work) is never tagged by CI and builds straight away.
+  if [[ "$(git rev-parse HEAD 2>/dev/null)" == "$(git rev-parse -q --verify refs/remotes/origin/main 2>/dev/null)" ]] \
+    && ! git describe --tags --exact-match --match 'v[0-9]*' >/dev/null 2>&1; then
+    ui_info "Waiting for this merge's release tag..."
+    for _ in 1 2 3 4 5 6; do
+      sleep 5
+      fetch_tags || break
+      git describe --tags --exact-match --match 'v[0-9]*' >/dev/null 2>&1 && break
+    done
+  fi
 fi
 # The nearest release tag reachable from HEAD: exactly "v0.8.0" for a tagged
 # commit, "v0.8.0-2-gabc1234" for a commit after it — a build never claims a

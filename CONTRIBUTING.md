@@ -71,7 +71,8 @@ Merging a PR to `main` automatically tags a release — no deployment, no artifa
 - The **git tags are the release record**; the `VERSION` file is only a floor for the next release.
 - `scripts/build.sh` stamps the binary with `git describe --tags` (nearest `v*` tag: exactly
   `v0.8.0` on a tagged commit, `v0.8.0-2-gabc1234` after it), fetching tags first because the
-  release tag lands a few seconds after the merge. Binary artifacts attached to releases are not
+  release tag lands a few seconds after the merge (when HEAD is that merge and still untagged, it waits up to ~30 s for
+  the tag). Binary artifacts attached to releases are not
   produced yet (see `docs/PLANS/cross-cutting/ci-github-actions-and-versioning.md` §3.4).
 
 ## Git Hooks (secret scanning + agent harness + CRAP scores)
