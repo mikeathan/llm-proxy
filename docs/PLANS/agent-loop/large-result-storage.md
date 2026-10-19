@@ -6,6 +6,11 @@ related_specs: [SPEC-001, SPEC-003, SPEC-004, SPEC-006, SPEC-007]
 
 # Plan: Keep large tool results instead of cutting them (saved reports)
 
+**Constitution refs:** §I network security (fetched content is untrusted input), §II resource management (bounded disk, bounded
+results), §III data (secrets are never persisted unmasked), §IV code standards (one wiring point, small functions).
+**Specs touched (SPEC-first):** SPEC-006 (guardrails: a new system write into `reports/`, the `read_file` interface change),
+SPEC-007 (automation task shows its saved reports), SPEC-003 (UI), `docs/data-layout.md` (the `reports/` folder and the manifest).
+
 Follows [`run-efficiency-and-convergence.md`](run-efficiency-and-convergence.md) (M2, "spill"). That plan shaped what the model
 sees; this one makes sure the part that does not fit is **kept and readable**, not lost.
 
@@ -42,7 +47,8 @@ Rule for every phase: **additive, proven offline first, then live**, as with the
 | The workspace has file endpoints and a Files page with nested paths. | `app/routes.go:244-246` (GET/PUT/DELETE `.../files/{file...}`), `handlers.isUnsafeFileParam`; `frontend/src/router/routes.ts` `toWorkspaceFile`. The read endpoint returns the whole file as one JSON string, no range. |
 | A folder delete helper exists. | `workspaceService.DeleteTaskTree` (`handlers/services.go`). |
 | An automation's final report is stored as `AutomationRun.Output` in `state.json` history. | `models/workspace.go` (`AutomationRun.Output`), `automation/executor.go:506,579`. |
-| Memory has a search-only mode and an expiry reaper; every save passes a secrets screen. | `docs/SPECS/memory.md` (`on_demand`, `expires_at`, "every save now passes one screen in code"). |
+| Memory has a search-only mode and an expiry reaper. Its secrets screen is a **yes/no refusal, not a redactor**: `isSecretContent` makes `memory_update` refuse the whole save. | `docs/SPECS/memory.md` (`on_demand`, `expires_at`); `tools/memory_tools.go:42-51` (`ErrSecretContent`, `isSecretContent`). |
+| A read-only filesystem guardrail blocks writes. | `validateFilePath`: `isWrite && cfg.ReadOnly`. |
 | Workspaces pages are `keepAlive` by route. | `frontend/src/router/index.ts:20` (`WORKSPACES_META`). |
 
 **Not verified, to be checked inside the phase that depends on it:** whether the Files page handles a 1 MiB text file;
@@ -77,23 +83,33 @@ The note is written **only when the run can read the file back** (R1).
 
 ### 3.2 Where it is saved
 
-- **Automation:** `{workspace}/reports/<automation>/<date>-<tool>-<n>.txt`. Lives and dies with the workspace; no reaper touches it.
+- **Automation:** `{workspace}/reports/<automation>/<date>-<tool>-<run-id>-<n>.txt` (the run id keeps names unique when a chat and an automation write at once). Lives and dies with the workspace; no reaper touches it.
 - **Chat:** open decision (§4). Recommended: `{workspace}/reports/chat/<conversation-id>/…`, deleted with the conversation.
 - **Manifest:** `meta/{ws}/reports-manifest.json` (outside the workspace tree; deleted with the workspace). It records
   every system-saved file (path, tool, run, time, size, pinned) so a purge removes only what the system created.
 
 ### 3.3 Rules
 
-- **R1 — never point at a file the run cannot open.** Save and note only if filesystem tools are enabled, the path is under
-  `AllowedPaths`, the extension is allowed, and the run's toolset includes `read_file`. Otherwise today's cut stays.
-- **R2 — redact before writing.** Reuse the memory secrets screen; do not write a second one. Measure it on 1 MiB first.
+- **R1 — never point at a file the run cannot open, and decide it in the agent, not the tool.** Whether filesystem tools
+  are enabled, `read_file` is in this run's toolset, the extension is allowed, the path is under `AllowedPaths`, the
+  filesystem guardrail is not `ReadOnly` (§4) and the channel is one we spill for are all known to the **agent** at run start.
+  When all hold, the agent puts a **save target** into the run context (workspace root, folder, run id). `FetchURL` writes
+  to it if present and does nothing otherwise, so the tool stays unaware of policy and the decision lives in one place.
+- **R2 — redact before writing, and make the redaction real.** The memory screen only refuses; on a 1 MiB page one
+  token-like string would block the whole save and silently fall back to the cut. Phase 1 must either extend that
+  matcher into a redactor (replace the match with a marker) or take Hermes's spill redaction as the model, and measure it on
+  1 MiB. Any section map or offset is computed **after** redaction, or it points at the wrong text.
 - **R3 — what is saved.** The shaped text for HTML, the raw text otherwise. `fetch_url` reads at most `MaxFetchSizeKB` (1 MiB
   default), so "full" means up to that.
 - **R4 — a size warning, not eviction.** Eviction is how reports get lost. The warning threshold comes from the measured
   growth per fetch (Wikipedia and weather fixtures), not a guess.
 - **R5 — scope.** `fetch_url` only at first; terminal and search output later, each measured.
-- **R6 — one wiring point.** `FetchURL` gets a small writer interface injected where the tools are constructed
-  (AGENTS.md centralisation), not a filesystem call inside the tool.
+- **R6 — one wiring point.** The save target (R1) and a small writer interface are wired where the tools are constructed
+  (AGENTS.md centralisation); the tool never calls the filesystem directly.
+- **R7 — deterministic discovery.** A later run must learn the file exists without relying on the model to list the
+  folder. The manifest feeds a short list of **this automation's** saved reports (path, date, title, summary line, capped
+  count) into the task text, the way journal notes are shown. This is how "check older findings" works; memory (Phase 5) is
+  then only an extra, not a requirement.
 
 ## 4. Open decisions (need the user)
 
@@ -103,13 +119,18 @@ The note is written **only when the run can read the file back** (R1).
 2. **Do final reports join `reports/`?** `AutomationRun.Output` is stored in `state.json` history. Whether a very long final
    report is cut or purged is unverified (Phase 1, step 1 reads it).
 3. **"Clear runtime data" and factory reset.** Recommendation: clear chat reports with the sessions; keep automation reports.
-4. **Size-warning default** — set from the measured number, then confirm.
+4. **Read-only workspaces.** The filesystem guardrail has a `ReadOnly` mode that blocks the model's writes. Should the system
+   save into a workspace the operator marked read-only? Recommendation: no — keep today's cut and say why in the log.
+5. **Size-warning default** — set from the measured number, then confirm.
 
 ## 5. Phases (riskiest first; each ends in a check)
 
 ### Phase 0 — ranged `read_file` (ships on its own)
 
-- Add `offset` and `limit` (characters) to `read_file`; size each chunk by **encoded length**, as `pageHead` does, so
+- This is a **tool interface change** (`read_file` gains arguments): update SPEC-006's tool list and `tools/manifests/filesystem.json`,
+  and `docs/architecture.md`'s tool checklist. Offsets and limits count **bytes**, because `ReadFile` cuts by bytes today and the
+  section map (`@4200`) uses the same unit; a chunk never splits a UTF-8 character.
+- Add `offset` and `limit` to `read_file`; size each chunk by **encoded length**, as `pageHead` does, so
   `appendToolResult` does not re-cut it. Replace the truncation message with a true one.
 - Fold in the open flaw: the size-limit note in `fetchedText` is appended after `pageHead` and can push a result over the cap.
 - Acceptance: a 200,000-character file is read end to end in chunks with no chunk re-cut; the message names only tools that exist.
@@ -118,10 +139,13 @@ The note is written **only when the run can read the file back** (R1).
 
 - Step 1 (read-only): check `AutomationRun.Output` storage/caps and the reaper's effect on `state.json` history; check the
   shipped task templates for `reports/` collisions.
-- Build: the writer interface, `reports/<automation>/`, the manifest, R1–R3, the first-line note (§3.1), the optional section map.
+- Build: the save target and writer interface (R1, R6), `reports/<automation>/`, the manifest (written with the existing
+  `WorkspaceManager` atomic-write and locking pattern), R2–R3, R7 (the task's list of saved reports), the first-line note (§3.1),
+  the optional section map. Update `docs/data-layout.md` and SPEC-006/007 in this phase.
 - Acceptance (offline): replay the saved Wikipedia and weather fixtures; the note fits in the sieve's kept head; nothing is
   saved for a result under the cap.
-- Acceptance (live): an automation run twice on a copy of workspace-1; run 2 reads a middle section of run 1's report.
+- Acceptance (live): an automation run twice on a copy of workspace-1; run 2 is **told** run 1's report exists (R7) and reads a
+  middle section of it with the ranged `read_file`.
 
 ### Phase 2 — chat spill
 
@@ -147,7 +171,7 @@ The note is written **only when the run can read the file back** (R1).
 
 ### Phase 5 — optional memory index
 
-- A system-written `on_demand` memory record per saved result (URL or query, time, title, summary line, hash of the shaped
+- Optional, because R7 already gives the guarantee. A system-written `on_demand` memory record per saved result (URL or query, time, title, summary line, hash of the shaped
   text) so "seen before / changed since" works without the model. Verify first that a system write path exists
   (`memorycapture`) and that automations get the memory tools.
 
