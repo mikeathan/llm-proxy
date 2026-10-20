@@ -111,17 +111,15 @@ The note is written **only when the run can read the file back** (R1).
   count) into the task text, the way journal notes are shown. This is how "check older findings" works; memory (Phase 5) is
   then only an extra, not a requirement.
 
-## 4. Open decisions (need the user)
+## 4. Decisions (user agreed with every recommendation, 2026-10-20)
 
-1. **Chat location.** `reports/chat/<conversation-id>/` (one read path, one link target, one purge UI; clutters the workspace
-   a little, deleted with the conversation), versus the run folder (cleaner workspace, but the model and the Files page
-   cannot open it). Recommendation: the workspace.
-2. **Do final reports join `reports/`?** `AutomationRun.Output` is stored in `state.json` history. Whether a very long final
-   report is cut or purged is unverified (Phase 1, step 1 reads it).
-3. **"Clear runtime data" and factory reset.** Recommendation: clear chat reports with the sessions; keep automation reports.
-4. **Read-only workspaces.** The filesystem guardrail has a `ReadOnly` mode that blocks the model's writes. Should the system
-   save into a workspace the operator marked read-only? Recommendation: no — keep today's cut and say why in the log.
-5. **Size-warning default** — set from the measured number, then confirm.
+1. **Chat location: the workspace**, `reports/chat/<conversation-id>/`, deleted with the conversation (one read path, one link
+   target, one purge UI). The run folder is rejected: neither the model nor the Files page can open it.
+2. **Final reports:** still open in fact, not in policy. `AutomationRun.Output` is stored in `state.json` history; whether a very
+   long final report is cut or purged is unverified and is read in Phase 1, step 1. If it can be lost, it joins `reports/`.
+3. **"Clear runtime data" and factory reset:** clear chat reports with the sessions; keep automation reports.
+4. **Read-only workspaces:** no saving when the filesystem guardrail is `ReadOnly`; keep today's cut and log why.
+5. **Size-warning default:** set from the measured growth per fetch (Wikipedia and weather fixtures), then confirmed.
 
 ## 5. Phases (riskiest first; each ends in a check)
 
@@ -185,4 +183,4 @@ The note is written **only when the run can read the file back** (R1).
 
 ## Remaining Work
 
-Everything. Start with Phase 0 (a standalone fix) and Phase 1 step 1 (read-only checks), then ask for the §4 decisions.
+Everything. Decisions in §4 are made. Start with Phase 0 (a standalone fix) and Phase 1 step 1 (read-only checks).
