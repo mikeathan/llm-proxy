@@ -228,16 +228,25 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 		return "", fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
 
-	//  Phase 3: Structural Truncation for ReadFile (3000 chars)
-	raw := string(content)
-	if len(raw) <= 3000 {
-		return raw, nil
-	}
+	return truncatedFileRead(string(content)), nil
+}
 
-	head := raw[:1500]
-	tail := raw[len(raw)-1500:]
-	return fmt.Sprintf("%s\n\n... [SYSTEM: File truncated (%d bytes total). Use read_file with offset and limit (bytes) to read the rest in pieces] ...\n\n%s",
-		head, len(raw), tail), nil
+// fileNoteReserve is the room, in the encoded result, kept for the note that opens a truncated read and the line that
+// marks the omitted middle.
+const fileNoteReserve = 260
+
+// truncatedFileRead is what a read with no range returns: the whole file when it fits the result cap once encoded,
+// else a note, the start and the end of the file. The note comes first and the whole result is sized to the cap, so
+// the second cut at appendToolResult (which drops the middle of an over-long result) cannot remove it.
+func truncatedFileRead(raw string) string {
+	if encodedLen(raw) <= proxy.MaxReturnChars {
+		return raw
+	}
+	half := (proxy.MaxReturnChars - fileNoteReserve) / 2
+	head := raw[:fittingPrefix(raw, half)]
+	tail := raw[len(raw)-fittingSuffix(raw[len(head):], half):]
+	return fmt.Sprintf("[SYSTEM: File truncated (%d bytes total). This is its start and its end; read the rest with read_file offset=%d limit=<bytes> (bytes).]\n%s\n... [middle omitted] ...\n%s",
+		len(raw), len(head), head, tail)
 }
 
 // defaultRangeBytes is how much a ranged read returns when it names no limit; rangeNoteReserve leaves room, in the

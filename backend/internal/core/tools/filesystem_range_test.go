@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -279,5 +280,72 @@ func TestValidateFileSystemPath_ExtensionPolicy(t *testing.T) {
 	}
 	if _, err := ValidateFileSystemPath("../escape.md", false, cfg); err == nil {
 		t.Error("path rules still apply before the extension check")
+	}
+}
+
+// The model only learns it can read the rest of a long file from the note in a default read. That note used to sit in
+// the middle of head+tail output that was longer than the result cap, so appendToolResult's second cut removed it.
+func TestReadFile_LongFileNoteSurvivesTheResultCap(t *testing.T) {
+	var b strings.Builder
+	for i := 0; b.Len() < 9000; i++ {
+		b.WriteString("row \"" + strconv.Itoa(i) + "\" <x> & text\n")
+	}
+	fs, path := rangeTestFS(t, b.String())
+
+	got, err := fs.ReadFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := encodedLen(got); n > proxy.MaxReturnChars {
+		t.Fatalf("encodes to %d, over the %d cap, so the note in the middle would be cut off", n, proxy.MaxReturnChars)
+	}
+	encoded, _ := json.Marshal(got)
+	if recut := proxy.TruncateResultDefault(string(encoded)); recut != string(encoded) || strings.Contains(recut, "SYSTEM TRUNCATED") {
+		t.Error("appendToolResult would cut this result again")
+	}
+	if !strings.HasPrefix(got, "[SYSTEM: File truncated (") || !strings.Contains(got[:300], "read_file") || !strings.Contains(got[:300], "offset=") {
+		t.Errorf("the note must come first and say how to read more: %.300q", got)
+	}
+	if !strings.HasPrefix(got[strings.Index(got, "\n")+1:], "row \"0\"") {
+		t.Error("the start of the file must follow the note")
+	}
+	if !strings.HasSuffix(got, "text\n") || !strings.Contains(got, "row \"") {
+		t.Error("the end of the file must be kept")
+	}
+	if !utf8.ValidString(got) {
+		t.Error("not valid UTF-8")
+	}
+}
+
+func TestReadFile_LongFileNoteOffersWhereTheStartEnded(t *testing.T) {
+	fs, path := rangeTestFS(t, strings.Repeat("abcdefghij", 1000))
+	got, _ := fs.ReadFile(context.Background(), path)
+	m := regexp.MustCompile(`offset=(\d+)`).FindStringSubmatch(got)
+	if m == nil {
+		t.Fatalf("no offset in the note: %.200q", got)
+	}
+	offset, _ := strconv.Atoi(m[1])
+	piece, err := fs.ReadFileRange(context.Background(), path, intp(offset), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _, _ := chunkBody(t, piece)
+	if !strings.HasPrefix(got[strings.Index(got, "\n")+1:], "abcdefghij") || body == "" {
+		t.Errorf("the offered offset %d does not continue the file", offset)
+	}
+}
+
+func TestFittingSuffix(t *testing.T) {
+	for _, s := range []string{strings.Repeat("a", 500), strings.Repeat(`"`, 500), strings.Repeat("日", 200), "short"} {
+		n := fittingSuffix(s, 100)
+		if !utf8.ValidString(s[len(s)-n:]) || encodedLen(s[len(s)-n:]) > 100 {
+			t.Errorf("suffix of %d bytes of %.10q is invalid or too long", n, s)
+		}
+		if n < len(s) {
+			_, size := utf8.DecodeLastRuneInString(s[:len(s)-n])
+			if encodedLen(s[len(s)-n-size:]) <= 100 {
+				t.Errorf("%.10q: not the longest suffix", s)
+			}
+		}
 	}
 }
