@@ -8,6 +8,7 @@ import (
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
 
 	mcp_sdk "github.com/mark3labs/mcp-go/mcp"
 )
@@ -60,6 +61,7 @@ func (n *MCPNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 		var schemaMap map[string]any
 		b, _ := json.Marshal(t.InputSchema)
 		_ = json.Unmarshal(b, &schemaMap)
+		schemaRequiredFirst(schemaMap)
 
 		tools = append(tools, proxy.Tool{
 			Type: "function",
@@ -118,4 +120,23 @@ func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[stri
 
 func (n *MCPNodeHerder) UseNativeTools() bool {
 	return true
+}
+
+// schemaRequiredFirst puts a tool schema's required arguments first in its properties (see models.OrderedByRequired),
+// because the schema reaches us already decoded into a map and a map has no order of its own. A schema without a
+// properties object, or whose required list is not a list of names, is left as it is.
+func schemaRequiredFirst(schema map[string]any) {
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return
+	}
+	var required []string
+	if list, ok := schema["required"].([]any); ok {
+		for _, item := range list {
+			if name, ok := item.(string); ok {
+				required = append(required, name)
+			}
+		}
+	}
+	schema["properties"] = models.OrderedByRequired(props, required)
 }

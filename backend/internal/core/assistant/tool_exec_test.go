@@ -1680,3 +1680,23 @@ func TestAppendToolResult_ProgressIsPerRun(t *testing.T) {
 		}
 	}
 }
+
+// A result over the cap is cut, and the cut was silent. The log line is the data for sizing the cap from a run's budget:
+// which tools are cut, how often, how much was lost. Nothing is logged for a result that fits.
+func TestAppendToolResult_LogsWhenAResultIsCut(t *testing.T) {
+	logs := newCaptureLogger(64 * 1024)
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{MaxSteps: 25, Logger: logs})
+	var history []proxy.Message
+
+	agent.appendToolResult(&history, proxy.ToolCall{ID: "c1", Function: proxy.FunctionCall{Name: "internet_search"}}, strings.Repeat("hit ", 3000))
+	got := logs.buf.String()
+	if !strings.Contains(got, "tool result cut") || !strings.Contains(got, "internet_search") || !strings.Contains(got, "12002") {
+		t.Errorf("a cut result must be logged with its tool and its size: %q", got)
+	}
+
+	logs.buf.Clear()
+	agent.appendToolResult(&history, proxy.ToolCall{ID: "c2", Function: proxy.FunctionCall{Name: "fetch_url"}}, "short")
+	if strings.Contains(logs.buf.String(), "tool result cut") {
+		t.Errorf("a result that fits must not be logged: %q", logs.buf.String())
+	}
+}

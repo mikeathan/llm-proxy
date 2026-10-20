@@ -477,3 +477,41 @@ func TestRun_ChatLoopStopKeepsTheErrorWhenTheModelWillNotAnswer(t *testing.T) {
 		t.Fatalf("want the LoopError when the model will not answer, got %v", err)
 	}
 }
+
+// A read_file the model repeats right after a result that said part of the file was NOT SHOWN is not a pointless
+// repeat: the model is trying to read the rest and left out the arguments. The nag written for code tasks ("compile
+// and run it, do not read the same file again") told such a run that further reads were disabled (seen live, Qwen 16k).
+func TestReadFileRepeatNag_PointsAtTheMarkerWhenTheLastResultHadAGap(t *testing.T) {
+	gap := proxy.Message{Role: proxy.ToolRole, Content: "\"start of file\\n[NOT SHOWN: bytes 1363-5635, 4272 bytes, 60% of the file. Call read_file with offset=1363 and limit=2800 to read it.]\\nend\""}
+	whole := proxy.Message{Role: proxy.ToolRole, Content: "\"a whole small file\""}
+	call := proxy.Message{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{ID: "c1", Function: proxy.FunctionCall{Name: models.ToolFileRead}}}}
+
+	if got := readFileRepeatNag([]proxy.Message{call, gap}); got != prompts.ReadFileRepeatedGapNagPrompt {
+		t.Errorf("after a gap result: %q", got)
+	}
+	if got := readFileRepeatNag([]proxy.Message{call, whole}); got != prompts.AutomationReadFileNagPrompt {
+		t.Errorf("after a whole-file result the old nag stays: %q", got)
+	}
+	if got := readFileRepeatNag([]proxy.Message{gap, call, whole}); got != prompts.AutomationReadFileNagPrompt {
+		t.Errorf("only the most recent result counts: %q", got)
+	}
+	if got := readFileRepeatNag(nil); got != prompts.AutomationReadFileNagPrompt {
+		t.Errorf("no history: %q", got)
+	}
+}
+
+func TestReadFileRepeatedGapNag_IsAControlMessageAndTellsTheModelWhatToDo(t *testing.T) {
+	if !isAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.ReadFileRepeatedGapNagPrompt}) {
+		t.Error("the nag must be hidden from the conversation like the other control prompts")
+	}
+	n := prompts.ReadFileRepeatedGapNagPrompt
+	if !strings.HasPrefix(n, "SYSTEM:") || !strings.Contains(n, "offset") || !strings.Contains(n, "NOT SHOWN") {
+		t.Errorf("nag: %q", n)
+	}
+	if strings.ContainsAny(n, "<>&") {
+		t.Error("a nag the model reads must hold no characters that are escaped when encoded")
+	}
+	if !strings.Contains(prompts.FileGapMarker, prompts.FileGapMarkerLead) {
+		t.Error("the helper detects the marker by its lead, which must be what the marker starts with")
+	}
+}

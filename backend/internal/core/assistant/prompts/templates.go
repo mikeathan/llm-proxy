@@ -314,7 +314,17 @@ const GuardrailBlockedNagPrompt = "SYSTEM: %s is blocked by the security policy 
 // (not before the text), with the missing byte range and a real call, it made a 16k local model read the missing part in
 // 8 of 8 trials; a header note was ignored and the model answered from the two ends. Verbs: from, to, bytes missing,
 // percent missing, offset, limit. It must hold no "<", ">" or "&": those grow when the result is JSON-encoded.
-const FileGapMarker = "\n[NOT SHOWN: bytes %d-%d, %d bytes, %d%% of the file. Call read_file with offset=%d and limit=%d to read it.]\n"
+const FileGapMarker = "\n" + FileGapMarkerLead + "%d-%d, %d bytes, %d%% of the file. Call read_file with offset=%d and limit=%d to read it.]\n"
+
+// FileGapMarkerLead is how FileGapMarker begins; the agent loop recognises a result that left part of a file out by it.
+const FileGapMarkerLead = "[NOT SHOWN: bytes "
+
+// ReadFileRepeatedGapNagPrompt answers a read_file the model repeats right after a result that left part of the file
+// out. The nag for code tasks (AutomationReadFileNagPrompt: compile it, do not read it again) told a run that was only
+// trying to read the rest that further reads were disabled.
+const ReadFileRepeatedGapNagPrompt = "SYSTEM: That read_file call is the same as the last one and returns the same text. " +
+	"The last result said part of the file was NOT SHOWN. To read that part, call read_file again with the offset and limit " +
+	"that result names, not the same call. If you have all you need, answer now."
 
 // FileMoreNote ends a ranged read_file result that stopped before the end of the file. Verb: the offset to continue from.
 const FileMoreNote = "\n[more: read_file offset=%d]"

@@ -1313,6 +1313,10 @@ func sanitizeToolArgs(raw string, originalErr error) string {
 // callers can reuse it (e.g. for logging) without re-marshaling (O5).
 func (a *Agent) appendToolResult(history *[]proxy.Message, tc proxy.ToolCall, result any) string {
 	raw, _ := json.Marshal(result)
+	if len(raw) > proxy.MaxReturnChars {
+		// The cut is final for the run, so how often and how much it drops is the data for sizing the cap from a run's budget.
+		a.deps.Logger.Info("tool result cut", "tool", tc.Function.Name, "chars", len(raw), "kept", proxy.MaxReturnChars)
+	}
 	strContent := proxy.TruncateResultDefault(string(raw)) + a.progressNote(tc, raw)
 	*history = append(*history, proxy.Message{
 		Role:       proxy.ToolRole,
