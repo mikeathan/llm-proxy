@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"sync"
+	"time"
 
 	"llm-proxy/internal/recordings"
 )
@@ -13,10 +15,29 @@ type RecordingHandlers struct {
 	store *recordings.RecordingStore
 	// recordDir is the --record directory, "" when the flag is off. The store lists run recordings either way.
 	recordDir string
+	// now and the refresh time bound how often an unknown id makes the store walk the runs directory again.
+	now         func() time.Time
+	mu          sync.Mutex
+	refreshedAt time.Time
 }
 
 func NewRecordingHandlers(store *recordings.RecordingStore, recordDir string) *RecordingHandlers {
-	return &RecordingHandlers{store: store, recordDir: recordDir}
+	return &RecordingHandlers{store: store, recordDir: recordDir, now: time.Now}
+}
+
+// recordingRefreshEvery is the shortest time between index refreshes caused by unknown ids: a run may have written its
+// recording since the store last looked, but a stream of unknown ids must not walk the runs directory on each request.
+const recordingRefreshEvery = 2 * time.Second
+
+// refreshIfDue re-reads the runs directory unless it did so within recordingRefreshEvery; it reports whether it did.
+func (h *RecordingHandlers) refreshIfDue() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if now := h.now(); now.Sub(h.refreshedAt) >= recordingRefreshEvery {
+		h.refreshedAt = now
+		return h.store.Refresh() == nil
+	}
+	return false
 }
 
 func (h *RecordingHandlers) List(w http.ResponseWriter, r *http.Request) {
@@ -106,10 +127,8 @@ func (h *RecordingHandlers) Content(w http.ResponseWriter, r *http.Request) {
 	}
 	id := filepath.FromSlash(r.PathValue("id"))
 	meta, found := h.store.Get(id)
-	if !found {
-		if err := h.store.Refresh(); err == nil { // a run may have written its recording after the store last looked
-			meta, found = h.store.Get(id)
-		}
+	if !found && h.refreshIfDue() { // a run may have written its recording after the store last looked
+		meta, found = h.store.Get(id)
 	}
 	if !found {
 		respondError(w, http.StatusNotFound, "recording not found")

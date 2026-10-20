@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/recordings"
 )
@@ -135,5 +136,29 @@ func TestRecordingStatus_EnabledIsTheFlagAndRunRecordingsAreSeparate(t *testing.
 	none := status(NewRecordingHandlers(nil, ""))
 	if none["enabled"] != false || none["run_recordings"] != false {
 		t.Errorf("no store: %v", none)
+	}
+}
+
+// An unknown id used to walk the whole runs directory on every request; the index is now refreshed at most once per window.
+func TestRecordingContent_RefreshesTheIndexAtMostOncePerWindow(t *testing.T) {
+	root := t.TempDir()
+	store, _ := recordings.NewRecordingStore(root)
+	h := NewRecordingHandlers(store, "")
+	now := time.Now()
+	h.now = func() time.Time { return now }
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /admin/api/recordings/content/{id...}", h.Content)
+
+	idA := writeRun(t, root, "20261020T190000Z_a", `{"type":"request","n":1}`)
+	if rec := getContent(mux, "/admin/api/recordings/content/"+idA); rec.Code != http.StatusOK {
+		t.Fatalf("the first miss refreshes and finds the new recording: %d", rec.Code)
+	}
+	idB := writeRun(t, root, "20261020T190100Z_b", `{"type":"request","n":2}`)
+	if rec := getContent(mux, "/admin/api/recordings/content/"+idB); rec.Code != http.StatusNotFound {
+		t.Errorf("a second miss inside the window must not refresh again: %d", rec.Code)
+	}
+	now = now.Add(recordingRefreshEvery + time.Second)
+	if rec := getContent(mux, "/admin/api/recordings/content/"+idB); rec.Code != http.StatusOK {
+		t.Errorf("after the window the index refreshes: %d", rec.Code)
 	}
 }
