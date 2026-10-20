@@ -27,9 +27,11 @@ repo needs:
 4. **Phase 3 — purge, operator-only.** One file, one automation, the whole folder, by age; pins; manifest.
 5. **Phase 4 — UI.** A link from the step or run to the file, a side sheet, a Back link on the Files page.
 6. **Phase 5 — optional memory index** (search-only record and a content hash).
+7. **Phase 6 — demote old tool results under context pressure** to one-line stubs that point at the saved file, so the sieve
+   can free room without losing anything. Adaptive, model-agnostic, and strictly additive (§6).
 
 Only a result the cut would shorten is saved. A result that fits is untouched and nothing extra is stored.
-Rule for every phase: **additive, proven offline first, then live**, as with the sieve and the progress monitor.
+Rule for every phase (and every model, local or cloud): **additive, proven offline first, then live**, as with the sieve and the progress monitor.
 
 ## 1. What was verified (and where)
 
@@ -173,6 +175,65 @@ The note is written **only when the run can read the file back** (R1).
   text) so "seen before / changed since" works without the model. Verify first that a system write path exists
   (`memorycapture`) and that automations get the memory tools.
 
+### Phase 6 — demote old tool results under pressure (adaptive, model-agnostic, resilient)
+
+**Why.** Today a result is cut at entry whatever the pressure, and the history sieve later shrinks old results to head+tail with no way
+back. DeepSeek and Hermes do the opposite (see the research note in §7): nothing is trimmed below pressure; under pressure old tool
+output is replaced first, with a pointer to the preserved original, and only then is anything summarised or dropped. The stubbing built
+and reverted earlier in `run-efficiency-and-convergence.md` failed because nothing could be recovered and because it edited history in
+place. The saved files from Phases 1–2 supply the recovery path; this phase supplies the policy.
+
+**Where.** In the existing pressure path: `session.go` measures the real request each turn (`measureRequest`, `size.over()`) before
+`applyPhysicalSieve`. The demotion pass runs **first** on that same trigger, re-measures, and the physical sieve runs only if the request
+is still over.
+
+**Design rules**
+
+- **One measure, no new thresholds.** The trigger and the target are `measureRequest` against `requestLimit()` — already scaled per model by
+  `ContextBudget` and the server-learned token ratio for a local model, and the message-only allowance for a cloud model. Nothing is keyed on
+  a model, provider or tool name; local and cloud differ only through that measure.
+- **Eligibility by shape, not name.** A tool-result message is eligible when it is outside the newest rounds, longer than a minimum, and
+  **carries a recovery handle** (the `[full text saved: …]` first line from §3.1). No handle, no demotion: that message is left to the
+  existing sieve, so behaviour without Phases 1–2 is exactly today's.
+- **Protected tail sized by budget.** The newest results stay whole until they total a fraction of the request limit (starting at 30%,
+  tuned from the replay), never a fixed message count, so a 4k window, a 16k window and a 128k window all behave sensibly.
+- **Just enough.** Demote oldest-first only until the request is under the limit (with a small margin), not everything eligible.
+- **Stable prefix.** A demoted result stays demoted on every later turn of the run (a latched set of call ids), and the stub text is a pure
+  function of the original (tool, size, handle). The same input gives the same request, so the server's prefix cache is rebuilt once after
+  the pass and then holds, instead of being broken again each turn.
+- **A projection, not an edit.** The pass builds the request copy; the saved conversation and the run's persisted history are untouched.
+- **Pairing by construction.** Only the content of a tool message changes; no message is added or removed, and the call/result pairing
+  helper from `sieve_test.go` is run over every output in tests.
+- **Short stub.** One line, under ~150 characters, tool name, original size and the read call, so it survives a later head+tail cut.
+- **Fail safe.** Any error, or a run where the pass would not get under the limit, logs one line and falls through to the existing sieve.
+  A setting turns the pass off. No path makes a request larger or an answer worse than today.
+- **Shadow first.** The first release only logs what it would demote and the tokens it would free; it is switched on after the live data
+  shows it helps.
+
+**Steps**
+
+1. Pure function over (history, limit, measure) returning the demoted copy and a report; table tests over several budgets and tool shapes.
+2. Wire it before `applyPhysicalSieve` in shadow mode: one log line per pass (`would demote N results, free X tokens`).
+3. Replay recorded histories (including the 141 s run's request 8) offline across budgets 4k, 16k and 128k.
+4. Live on Vertex in shadow mode, then enabled, comparing steps, time, answer, `cached_tokens` and whether the sieve still fires against a
+   20-run baseline (the bar used for the progress monitor).
+
+**Acceptance**
+
+- Idempotent and deterministic: running the pass twice, or on consecutive turns, gives byte-identical stubs and requests.
+- No handle means unchanged output; the existing sieve tests stay byte-for-byte unchanged and green.
+- Pairing intact on every generated history; the saved conversation is not modified.
+- Adaptivity: the same history at 4k, 16k and 128k demotes progressively fewer results, never more than needed.
+- Live: no run answers worse, no run takes more steps, and the cache hit rate after the first pass is within 10 points of before it.
+
+**Open risks specific to this phase**
+
+- The sieve's one-time "wrap up now" warning ended a measured loop. If demotion keeps a run under the limit, that warning no longer
+  fires. The loop detectors and the progress monitor still apply; the live comparison must confirm no run gets longer.
+- A cloud provider that does not report cached tokens cannot be measured for the cache effect; the design does not depend on it.
+- Demoting the oldest results moves the point where the prefix cache breaks to the front of the history. Mitigated by the stable prefix
+  rule and measured live.
+
 ## 6. Risks
 
 - **Clutter and disk growth** — mitigated by R4 and the purge; no automatic eviction by design.
@@ -181,6 +242,18 @@ The note is written **only when the run can read the file back** (R1).
   `sieve.go` constants.
 - **Operators who rely on the old cut** — nothing changes for results under the cap, and when R1 fails the old cut is kept.
 
+## 7. Research note (existing harnesses, checked 2026-10-19)
+
+- **DeepSeek harness** (`docs/subsystems/compaction.md`, `compaction-tool-result-pruner`): compaction runs at `agent/pre-step` only on
+  `pressure` or `context-overflow`; it trims oversized tool results first (default over 8,192 chars to the first 4,096 plus the last 1,024,
+  no model call), re-measures, and summarises an older range only if still over. Originals stay in the session log; tool call/result
+  pairing is checked before and after.
+- **Hermes** (`agent/context_compressor*.py`, `micro_compaction.py`, `context_compressor_tail.py`): compresses at a threshold percent of the
+  window scaled by model; prunes old tool output first, then a cheap auxiliary model summarises the middle with head and tail protected; old
+  results become one-line recovery stubs naming the preserved original. Rolling micro-compaction is off by default because every rewrite
+  breaks the prompt cache. Not read in full: the 5,800-line compressor.
+- **Claude Code** (from behaviour, not source): clears old tool results before summarising, keeps the recent part, large output goes to a file.
+
 ## Remaining Work
 
-Everything. Decisions in §4 are made. Start with Phase 0 (a standalone fix) and Phase 1 step 1 (read-only checks).
+Everything. Decisions in §4 are made. Start with Phase 0 (a standalone fix) and Phase 1 step 1 (read-only checks). Phase 6 waits for Phases 1–2.

@@ -115,7 +115,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | partial | Agent Improvements | re-scoped 2026-09-05: only Phase 4 (tool dedup), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent wrap) still valid — see re-scope note in plan |
 | partial | Memory Improvements | Session Search tool (FTS5 `session_search`) + Skill System (procedural memory) — everything else done |
 | partial | Assistant Liveness Heartbeat & Package Restructure | §4.3/§4.4 package extractions deferred (§2, §3, §4.1 done; §4.2 rejected) |
-| proposed | Large Result Storage | Phase 0 ranged `read_file` (standalone bug fix: the model cannot read the middle of a long file), Phase 1 step 1 read-only checks; §4 decisions made 2026-10-20 (chat reports in the workspace, clear-runtime-data keeps automation reports, no saving into read-only workspaces); then spill, purge, UI |
+| proposed | Large Result Storage | Phase 0 ranged `read_file` (standalone bug fix: the model cannot read the middle of a long file), Phase 1 step 1 read-only checks; §4 decisions made 2026-10-20 (chat reports in the workspace, clear-runtime-data keeps automation reports, no saving into read-only workspaces); then spill, purge, UI; Phase 6 (demote old results to recoverable stubs under pressure) after Phases 1–2 |
 | proposed | AGENTS.md Layering & Guardrails | design acceptance + implementation |
 | complete (pending Linux-CI) | Agent OS Sandboxing | Phases 0–4 shipped (plan §10); left: Linux-CI confirmation of the Landlock probe, optional macOS Seatbelt on framework-capable hardware |
 | proposed | Tool-Call Grammar Re-enable | envelope-aware GBNF + opt-in per-model toggle, XML path only |
