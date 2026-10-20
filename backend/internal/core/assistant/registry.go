@@ -583,9 +583,11 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 	})
 
 	registerTool(r, "filesystem", models.ToolFileRead, func(ctx context.Context, args struct {
-		Path string `json:"path"`
+		Path   string         `json:"path"`
+		Offset *tools.FlexInt `json:"offset"`
+		Limit  *tools.FlexInt `json:"limit"`
 	}) (any, error) {
-		return r.FileSystem.ReadFile(ctx, args.Path)
+		return r.FileSystem.ReadFileRange(ctx, args.Path, args.Offset.IntPtr(), args.Limit.IntPtr())
 	})
 
 	registerTool(r, "filesystem", models.ToolFileWrite, func(ctx context.Context, args struct {

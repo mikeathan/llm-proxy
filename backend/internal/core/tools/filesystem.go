@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync/atomic"
 
 	"llm-proxy/internal/core/proxy"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/sync/semaphore"
 )
@@ -234,8 +236,130 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 
 	head := raw[:1500]
 	tail := raw[len(raw)-1500:]
-	return fmt.Sprintf("%s\n\n... [SYSTEM: File truncated (%d bytes total). Use 'read_range' or 'grep' to access the middle] ...\n\n%s",
+	return fmt.Sprintf("%s\n\n... [SYSTEM: File truncated (%d bytes total). Use read_file with offset and limit (bytes) to read the rest in pieces] ...\n\n%s",
 		head, len(raw), tail), nil
+}
+
+// defaultRangeBytes is how much a ranged read returns when it names no limit; rangeNoteReserve leaves room, in the
+// encoded result, for the header and the trailing note; rangeReadCap bounds what one piece reads from disk, however
+// large the file or the limit asked for (a piece never shows more than the result cap anyway).
+const (
+	defaultRangeBytes = proxy.MaxReturnChars
+	rangeNoteReserve  = 120
+	rangeReadCap      = 4 * proxy.MaxReturnChars
+)
+
+// ReadFileRange reads a file in pieces: up to limit bytes from byte offset (offset 0 and the default limit when
+// either is omitted). With neither it is ReadFile. The piece is cut on character boundaries and sized so the result,
+// once JSON-encoded, fits the result cap, so it is not cut again; the note at its end says where to continue. Only the
+// piece is read from disk, not the whole file.
+func (f *FileSystemTools) ReadFileRange(ctx context.Context, path string, offset, limit *int) (string, error) {
+	if offset == nil && limit == nil {
+		return f.ReadFile(ctx, path)
+	}
+	start, want := 0, defaultRangeBytes
+	if offset != nil {
+		start = *offset
+	}
+	if limit != nil {
+		want = *limit
+	}
+	if start < 0 {
+		return "", fmt.Errorf("offset must not be negative")
+	}
+	if want <= 0 {
+		return "", fmt.Errorf("limit must be greater than zero")
+	}
+	absPath, err := f.ValidatePath(ctx, path, false)
+	if err != nil {
+		return "", err
+	}
+	w, err := readWindow(ctx, absPath, start, min(want, rangeReadCap))
+	if err != nil {
+		return "", fmt.Errorf("failed to read file '%s': %w", path, err)
+	}
+	return w.render(want), nil
+}
+
+// fileWindow is a piece of a file: data holds the bytes that start at byte start of a file total bytes long.
+type fileWindow struct {
+	total, start int
+	data         string
+}
+
+// readWindow reads up to want bytes at start, plus the few bytes that finish a character cut by want. It is
+// readFileWithTimeout for a piece: same semaphore, same early return when ctx ends.
+func readWindow(ctx context.Context, path string, start, want int) (fileWindow, error) {
+	if err := readFileSem.Acquire(ctx, 1); err != nil {
+		return fileWindow{}, err
+	}
+	defer readFileSem.Release(1)
+
+	type result struct {
+		w   fileWindow
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		w, err := readWindowAt(path, start, want)
+		ch <- result{w, err}
+	}()
+	select {
+	case <-ctx.Done():
+		leakedFileReads.Add(1)
+		return fileWindow{}, ctx.Err()
+	case r := <-ch:
+		return r.w, r.err
+	}
+}
+
+func readWindowAt(path string, start, want int) (fileWindow, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return fileWindow{}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return fileWindow{}, err
+	}
+	w := fileWindow{total: int(info.Size()), start: start}
+	if start >= w.total {
+		return w, nil
+	}
+	buf := make([]byte, min(want+utf8.UTFMax, w.total-start))
+	n, err := file.ReadAt(buf, int64(start))
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fileWindow{}, err
+	}
+	w.data = string(buf[:n])
+	return w, nil
+}
+
+// render is the piece as the model sees it: a header with the real byte range, the text (start moved forward to a
+// character start, end cut back to one, and shortened to fit the result cap once encoded), and a note saying where
+// to continue or that the file ended. want is the limit asked for.
+func (w fileWindow) render(want int) string {
+	if w.total > 0 && w.start >= w.total {
+		return fmt.Sprintf("[offset %d is past the end: the file has %d bytes]", w.start, w.total)
+	}
+	skip := 0
+	for skip < len(w.data) && !utf8.RuneStart(w.data[skip]) {
+		skip++
+	}
+	start, data := w.start+skip, w.data[skip:]
+	text := data[:charStart(data, min(len(data), min(want, rangeReadCap)))]
+	if text == "" && data != "" { // the limit is smaller than one character: give that character
+		_, size := utf8.DecodeRuneInString(data)
+		text = data[:size]
+	}
+	text = text[:fittingPrefix(text, proxy.MaxReturnChars-rangeNoteReserve)]
+	end := start + len(text)
+	note := "\n[end of file]"
+	if end < w.total {
+		note = fmt.Sprintf("\n[more: read_file offset=%d]", end)
+	}
+	return fmt.Sprintf("[bytes %d-%d of %d]\n%s%s", start, end, w.total, text, note)
 }
 
 func (f *FileSystemTools) WriteFile(ctx context.Context, path string, content string) error {
