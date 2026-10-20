@@ -747,6 +747,13 @@ func TestLocalToolRegistry_ReadFileInPieces(t *testing.T) {
 		if !strings.Contains(string(schema), `"offset"`) || !strings.Contains(string(schema), `"limit"`) {
 			t.Errorf("read_file schema does not offer offset and limit: %s", schema)
 		}
+		// What the model is sent lists the arguments as the manifest does: with path last (alphabetical) a 16k local model
+		// left offset out 9 times in 10.
+		wire, _ := json.Marshal(tl)
+		text := string(wire)
+		if !(strings.Index(text, `"path"`) < strings.Index(text, `"offset"`) && strings.Index(text, `"offset"`) < strings.Index(text, `"limit"`)) {
+			t.Errorf("read_file arguments are not in manifest order on the wire: %s", text)
+		}
 		return
 	}
 	t.Error("read_file is not listed")

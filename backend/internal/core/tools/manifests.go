@@ -109,6 +109,7 @@ func LoadManifestAsTool(toolKey string, toolName string) (map[string]any, string
 						return nil, "", fmt.Errorf("failed to parse %s runtime parameters: %w", toolName, err)
 					}
 					// If we found specific runtime parameters, return early
+					withAuthoredOrder(params, toolCfg.Parameters)
 					return params, description, nil
 				}
 			}
@@ -125,8 +126,22 @@ func LoadManifestAsTool(toolKey string, toolName string) (map[string]any, string
 	if params == nil {
 		params = make(map[string]any)
 	}
+	withAuthoredOrder(params, m.Parameters)
 
 	return params, description, nil
+}
+
+// withAuthoredOrder replaces the schema's "properties" with the same properties in the order the manifest lists them,
+// so the arguments reach the model as the author wrote them and not alphabetically (see models.OrderedProperties). A
+// schema without properties, or whose properties cannot be read in order, is left as it is.
+func withAuthoredOrder(params map[string]any, raw json.RawMessage) {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) != nil || len(top["properties"]) == 0 {
+		return
+	}
+	if ordered, err := models.ParseOrderedProperties(top["properties"]); err == nil {
+		params["properties"] = ordered
+	}
 }
 
 var (

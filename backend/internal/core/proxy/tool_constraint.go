@@ -3,6 +3,8 @@ package proxy
 import (
 	"fmt"
 	"strings"
+
+	"llm-proxy/models"
 )
 
 // RequestConstraint applies a provider-specific output constraint to a
@@ -64,7 +66,7 @@ func buildGBNF(tools []Tool) string {
 // GBNF prevents structural errors (invalid JSON); missing fields trigger
 // system_error tool recovery (existing behaviour).
 func buildObjectGBNF(schema map[string]any) string {
-	props, _ := schema["properties"].(map[string]any)
+	props, _ := models.SchemaProperties(schema)
 	if len(props) == 0 {
 		return ""
 	}
