@@ -10,11 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/recordings"
+	api "llm-proxy/internal/transport/http"
 )
 
 func recordingsMux(store *recordings.RecordingStore) *http.ServeMux {
-	h := NewRecordingHandlers(store, "")
+	h := NewRecordingHandlers(store, "", nil)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/api/recordings/content/{id...}", h.Content)
 	return mux
@@ -125,15 +127,15 @@ func TestRecordingStatus_EnabledIsTheFlagAndRunRecordingsAreSeparate(t *testing.
 		return got
 	}
 
-	off := status(NewRecordingHandlers(store, ""))
+	off := status(NewRecordingHandlers(store, "", nil))
 	if off["enabled"] != false || off["dir"] != "" || off["run_recordings"] != true {
 		t.Errorf("flag off, store on: %v", off)
 	}
-	on := status(NewRecordingHandlers(store, "/data/runs"))
+	on := status(NewRecordingHandlers(store, "/data/runs", nil))
 	if on["enabled"] != true || on["dir"] != "/data/runs" || on["run_recordings"] != true {
 		t.Errorf("flag on: %v", on)
 	}
-	none := status(NewRecordingHandlers(nil, ""))
+	none := status(NewRecordingHandlers(nil, "", nil))
 	if none["enabled"] != false || none["run_recordings"] != false {
 		t.Errorf("no store: %v", none)
 	}
@@ -143,7 +145,7 @@ func TestRecordingStatus_EnabledIsTheFlagAndRunRecordingsAreSeparate(t *testing.
 func TestRecordingContent_RefreshesTheIndexAtMostOncePerWindow(t *testing.T) {
 	root := t.TempDir()
 	store, _ := recordings.NewRecordingStore(root)
-	h := NewRecordingHandlers(store, "")
+	h := NewRecordingHandlers(store, "", nil)
 	now := time.Now()
 	h.now = func() time.Time { return now }
 	mux := http.NewServeMux()
@@ -160,5 +162,38 @@ func TestRecordingContent_RefreshesTheIndexAtMostOncePerWindow(t *testing.T) {
 	now = now.Add(recordingRefreshEvery + time.Second)
 	if rec := getContent(mux, "/admin/api/recordings/content/"+idB); rec.Code != http.StatusOK {
 		t.Errorf("after the window the index refreshes: %d", rec.Code)
+	}
+}
+
+// A recording written before masking existed holds a raw key. It is served masked, through the router the server uses and
+// at a path like a real run's: the model name has spaces ("Qwen3.6 35B A3B") and the id has several segments.
+func TestRecordingContent_ServesOldRecordingsMaskedThroughTheServersRouter(t *testing.T) {
+	root := t.TempDir()
+	key := "sk-" + strings.Repeat("a1", 20)
+	dir := filepath.Join(root, "workspace-1", "Qwen3.6 35B A3B", "conv_20261020191742", "20261020T191742Z_abc123")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"request","messages":[{"role":"user","content":"my key is ` + key + `"}],"tools":[{"function":{"name":"read_file"}}]}`
+	if err := os.WriteFile(filepath.Join(dir, "recording.jsonl"), []byte(line+"\n"+`{"type":"done"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, _ := recordings.NewRecordingStore(root)
+	h := NewRecordingHandlers(store, "", tools.RedactForRecording)
+	router := api.NewRouter()
+	router.Get("/admin/api/recordings/content/{id...}", h.Content)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
+		"/admin/api/recordings/content/workspace-1/Qwen3.6%2035B%20A3B/conv_20261020191742/20261020T191742Z_abc123/recording.jsonl?type=request&last=1", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a spaced, nested id must be found through the router: %d %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, key) || !strings.Contains(body, "[REDACTED]") {
+		t.Errorf("the old recording must be served masked: %s", body)
+	}
+	if !strings.Contains(body, `"read_file"`) || strings.Count(body, "\n") != 1 {
+		t.Errorf("the request must come back whole and alone: %s", body)
 	}
 }

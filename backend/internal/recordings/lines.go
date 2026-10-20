@@ -3,6 +3,7 @@ package recordings
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -94,4 +95,63 @@ func fit(lines [][]byte, maxBytes int) ([]byte, bool, error) {
 		return out.Bytes()[:maxBytes], true, nil
 	}
 	return out.Bytes(), truncated, nil
+}
+
+// RedactJSONLines returns JSON-lines data with every string value masked by redact. Recordings written before masking
+// existed hold raw secrets, so what is read back is masked as well as what is written. Each line is decoded, its string
+// values masked and the line written back (keys come out sorted, numbers keep their text, nothing is HTML-escaped); a
+// line that is not one whole JSON value (cut short by the size cap, or not JSON) is masked as plain text instead.
+func RedactJSONLines(data []byte, redact func(string) string) []byte {
+	if redact == nil || len(data) == 0 {
+		return data
+	}
+	var out bytes.Buffer
+	for len(data) > 0 {
+		line, rest, hadNewline := data, []byte(nil), false
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			line, rest, hadNewline = data[:i], data[i+1:], true
+		}
+		out.Write(redactJSONLine(line, redact))
+		if hadNewline {
+			out.WriteByte('\n')
+		}
+		data = rest
+	}
+	return out.Bytes()
+}
+
+func redactJSONLine(line []byte, redact func(string) string) []byte {
+	if len(bytes.TrimSpace(line)) == 0 {
+		return line
+	}
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+	var value any
+	if err := dec.Decode(&value); err != nil || dec.More() {
+		return []byte(redact(string(line)))
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(redactStrings(value, redact)); err != nil {
+		return []byte(redact(string(line)))
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n")
+}
+
+// redactStrings masks every string value inside a decoded JSON value.
+func redactStrings(value any, redact func(string) string) any {
+	switch v := value.(type) {
+	case string:
+		return redact(v)
+	case []any:
+		for i := range v {
+			v[i] = redactStrings(v[i], redact)
+		}
+	case map[string]any:
+		for k := range v {
+			v[k] = redactStrings(v[k], redact)
+		}
+	}
+	return value
 }

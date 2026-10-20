@@ -78,7 +78,8 @@ An older install may still have a `templates/` directory (and a `.shipped.json` 
   recordings for replay tests and turns on the Recordings page; it is not needed to record a run.
 - Reading a recording: `GET /admin/api/recordings` lists them (the store covers `runs/` even without `--record`);
   `GET /admin/api/recordings/content/{id}?type=request&last=1` returns the last request of a run as JSON lines
-  (`?max_bytes=` bounds it, default 1 MiB; `X-Recording-Truncated` says when it cut anything).
+  (`?max_bytes=` bounds it, default 1 MiB; `X-Recording-Truncated` says when it cut anything). Strings are masked as they
+  are served, so a recording written before masking existed is not readable raw through the API.
   `GET /admin/api/recordings/status` reports `enabled` (the `--record` flag) and `run_recordings` (listing available).
   `events.jsonl` keeps the newest snapshot of each reasoning / content stream (plus a checkpoint every
   10 s of a long stream), not every streamed chunk; nothing in the app reads it back.

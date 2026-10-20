@@ -15,14 +15,16 @@ type RecordingHandlers struct {
 	store *recordings.RecordingStore
 	// recordDir is the --record directory, "" when the flag is off. The store lists run recordings either way.
 	recordDir string
+	// redact masks credentials in what Content serves: recordings written before masking existed hold raw secrets.
+	redact func(string) string
 	// now and the refresh time bound how often an unknown id makes the store walk the runs directory again.
 	now         func() time.Time
 	mu          sync.Mutex
 	refreshedAt time.Time
 }
 
-func NewRecordingHandlers(store *recordings.RecordingStore, recordDir string) *RecordingHandlers {
-	return &RecordingHandlers{store: store, recordDir: recordDir, now: time.Now}
+func NewRecordingHandlers(store *recordings.RecordingStore, recordDir string, redact func(string) string) *RecordingHandlers {
+	return &RecordingHandlers{store: store, recordDir: recordDir, redact: redact, now: time.Now}
 }
 
 // recordingRefreshEvery is the shortest time between index refreshes caused by unknown ids: a run may have written its
@@ -114,7 +116,8 @@ var recordingLineType = regexp.MustCompile(`^[a-z_]{1,32}$`)
 
 // Content returns lines of one recording as JSON lines, so the exact request a model received can be read without access
 // to the machine: ?type=request&last=1 is the last request, ?max_bytes bounds the response (default 1 MiB, at most
-// 16 MiB) and X-Recording-Truncated says when it cut anything. The recording is found by its listed id, never by joining
+// 16 MiB) and X-Recording-Truncated says when it cut anything. Every string is masked as it is served (credential-shaped
+// values), whatever the file holds. The recording is found by its listed id, never by joining
 // the id to a path.
 func (h *RecordingHandlers) Content(w http.ResponseWriter, r *http.Request) {
 	if h.store == nil {
@@ -139,6 +142,7 @@ func (h *RecordingHandlers) Content(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "could not read the recording")
 		return
 	}
+	data = recordings.RedactJSONLines(data, h.redact)
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	if truncated {
 		w.Header().Set("X-Recording-Truncated", "true")

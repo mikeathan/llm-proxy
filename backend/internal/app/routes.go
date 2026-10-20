@@ -5,6 +5,7 @@ import (
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
 	handlers "llm-proxy/internal/transport/http/handlers"
@@ -79,7 +80,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
-	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore, s.RecordDir())
+	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore, s.RecordDir(), tools.RedactForRecording)
 
 	if store := s.AppCtx.MemoryStore(); store != nil {
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig).WithSessionRetention(s.AppCtx.SessionRetention)

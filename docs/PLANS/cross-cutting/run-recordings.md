@@ -29,7 +29,8 @@ or UI control. Reading the code showed the picture was different from what the p
 2. **The store covers `runs/`** whenever run recordings exist; `AppServices.RecordDir()` and the status `enabled` keep meaning the
    `--record` flag, so the Recordings page and replay references do not change. Status adds `run_recordings`.
 3. **`GET /admin/api/recordings/content/{id}`** with `type`, `last` and `max_bytes`: `?type=request&last=1` is the last request,
-   exactly as sent, bounded and flagged when cut.
+   bounded and flagged when cut. Every string is masked as it is served (`recordings.RedactJSONLines`), so recordings written before
+   masking existed are not readable raw; keys come out sorted and numbers keep their text.
 4. **The Settings text** says what the toggle records, that secrets are masked and the 30-day retention.
 
 ## 3. Acceptance
@@ -41,6 +42,6 @@ or UI control. Reading the code showed the picture was different from what the p
 
 ## Remaining Work
 
-- Existing recordings on disk were written unmasked and age out with the 30-day run reaper (not configurable today).
+- Existing recordings on disk were written unmasked and age out with the 30-day run reaper (not configurable today). The content endpoint masks every string it serves, so they are not readable raw through the API, but the files themselves stay raw until the reaper removes them or they are deleted.
 - A secret split across two streamed chunks can survive the per-chunk masking.
 - The content endpoint is as open as the rest of the admin API (see the admin-authentication plan).
