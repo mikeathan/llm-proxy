@@ -310,6 +310,15 @@ const GuardrailBlockedNagPrompt = "SYSTEM: %s is blocked by the security policy 
 	"Do NOT call it again and do NOT try to achieve the same outcome via a different path. " +
 	"Use a different available tool or deliver your final answer now."
 
+// FileGapMarker stands in a read_file result at the place where the middle of a long file was left out. Placed at the gap
+// (not before the text), with the missing byte range and a real call, it made a 16k local model read the missing part in
+// 8 of 8 trials; a header note was ignored and the model answered from the two ends. Verbs: from, to, bytes missing,
+// percent missing, offset, limit. It must hold no "<", ">" or "&": those grow when the result is JSON-encoded.
+const FileGapMarker = "\n[NOT SHOWN: bytes %d-%d, %d bytes, %d%% of the file. Call read_file with offset=%d and limit=%d to read it.]\n"
+
+// FileMoreNote ends a ranged read_file result that stopped before the end of the file. Verb: the offset to continue from.
+const FileMoreNote = "\n[more: read_file offset=%d]"
+
 // AutomationReadFileNagPrompt is injected when the model reads the same file
 // multiple times. The model already has the content — it needs to decide what
 // to do next (compile, overwrite, or edit), not re-read.

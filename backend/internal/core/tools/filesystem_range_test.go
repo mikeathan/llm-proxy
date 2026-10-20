@@ -168,13 +168,13 @@ func TestReadFile_LargeFileDefaultKeepsHeadAndTailAndNamesRealTools(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "[SYSTEM: File truncated (4000 bytes total)") || len(got) > 3200 {
+	if !strings.Contains(got, "[NOT SHOWN: bytes ") || !strings.Contains(got, "of the file.") || len(got) > 3200 {
 		t.Errorf("default behaviour changed: %.120q (%d)", got, len(got))
 	}
 	if strings.Contains(got, "read_range") || strings.Contains(got, "grep") {
 		t.Errorf("message names a tool that does not exist: %q", got)
 	}
-	if !strings.Contains(got, "read_file") || !strings.Contains(got, "offset") {
+	if !strings.Contains(got, "read_file with offset=") {
 		t.Errorf("message should say how to read the rest: %q", got)
 	}
 }
@@ -283,55 +283,71 @@ func TestValidateFileSystemPath_ExtensionPolicy(t *testing.T) {
 	}
 }
 
-// The model only learns it can read the rest of a long file from the note in a default read. That note used to sit in
-// the middle of head+tail output that was longer than the result cap, so appendToolResult's second cut removed it.
-func TestReadFile_LongFileNoteSurvivesTheResultCap(t *testing.T) {
+var notShownRe = regexp.MustCompile(`\n\[NOT SHOWN: bytes (\d+)-(\d+), (\d+) bytes, (\d+)% of the file\. Call read_file with offset=(\d+) and limit=(\d+) to read it\.\]\n`)
+
+// The model only learns it can read the rest of a long file from the marker in a default read. A marker that sat in the
+// middle of an over-cap result was removed by appendToolResult's second cut; one that opens the result and reads as a
+// header was ignored by the model, which answered from the two ends. So the marker sits at the gap, says how much is
+// missing and gives a real call, and the whole result fits the cap.
+func TestReadFile_LongFileMarkerSitsAtTheGapAndSurvivesTheResultCap(t *testing.T) {
 	var b strings.Builder
 	for i := 0; b.Len() < 9000; i++ {
 		b.WriteString("row \"" + strconv.Itoa(i) + "\" <x> & text\n")
 	}
-	fs, path := rangeTestFS(t, b.String())
+	raw := b.String()
+	fs, path := rangeTestFS(t, raw)
 
 	got, err := fs.ReadFile(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n := encodedLen(got); n > proxy.MaxReturnChars {
-		t.Fatalf("encodes to %d, over the %d cap, so the note in the middle would be cut off", n, proxy.MaxReturnChars)
+		t.Fatalf("encodes to %d, over the %d cap, so the marker would be cut off", n, proxy.MaxReturnChars)
 	}
 	encoded, _ := json.Marshal(got)
 	if recut := proxy.TruncateResultDefault(string(encoded)); recut != string(encoded) || strings.Contains(recut, "SYSTEM TRUNCATED") {
 		t.Error("appendToolResult would cut this result again")
 	}
-	if !strings.HasPrefix(got, "[SYSTEM: File truncated (") || !strings.Contains(got[:300], "read_file") || !strings.Contains(got[:300], "offset=") {
-		t.Errorf("the note must come first and say how to read more: %.300q", got)
+	loc := notShownRe.FindStringSubmatchIndex(got)
+	if loc == nil {
+		t.Fatalf("no marker at the gap: %.300q", got)
 	}
-	if !strings.HasPrefix(got[strings.Index(got, "\n")+1:], "row \"0\"") {
-		t.Error("the start of the file must follow the note")
+	m := notShownRe.FindStringSubmatch(got)
+	from, _ := strconv.Atoi(m[1])
+	to, _ := strconv.Atoi(m[2])
+	missing, _ := strconv.Atoi(m[3])
+	offset, _ := strconv.Atoi(m[5])
+	if got[:loc[0]] != raw[:from] || got[loc[1]:] != raw[to:] {
+		t.Error("the text before the marker must be the start of the file and the text after it the end")
 	}
-	if !strings.HasSuffix(got, "text\n") || !strings.Contains(got, "row \"") {
-		t.Error("the end of the file must be kept")
+	if missing != to-from || offset != from || from <= 0 || to >= len(raw) {
+		t.Errorf("marker numbers do not describe the gap: %v (file %d bytes)", m[1:], len(raw))
+	}
+	if strings.ContainsAny(got[loc[0]:loc[1]], "<>&") {
+		t.Error("the marker must not contain characters that are escaped when the result is encoded")
 	}
 	if !utf8.ValidString(got) {
 		t.Error("not valid UTF-8")
 	}
 }
 
-func TestReadFile_LongFileNoteOffersWhereTheStartEnded(t *testing.T) {
-	fs, path := rangeTestFS(t, strings.Repeat("abcdefghij", 1000))
+func TestReadFile_LongFileMarkerOffsetContinuesTheFile(t *testing.T) {
+	raw := strings.Repeat("abcdefghij", 1000)
+	fs, path := rangeTestFS(t, raw)
 	got, _ := fs.ReadFile(context.Background(), path)
-	m := regexp.MustCompile(`offset=(\d+)`).FindStringSubmatch(got)
+	m := notShownRe.FindStringSubmatch(got)
 	if m == nil {
-		t.Fatalf("no offset in the note: %.200q", got)
+		t.Fatalf("no marker: %.200q", got)
 	}
-	offset, _ := strconv.Atoi(m[1])
-	piece, err := fs.ReadFileRange(context.Background(), path, intp(offset), nil)
+	offset, _ := strconv.Atoi(m[5])
+	limit, _ := strconv.Atoi(m[6])
+	piece, err := fs.ReadFileRange(context.Background(), path, intp(offset), intp(limit))
 	if err != nil {
 		t.Fatal(err)
 	}
 	body, _, _ := chunkBody(t, piece)
-	if !strings.HasPrefix(got[strings.Index(got, "\n")+1:], "abcdefghij") || body == "" {
-		t.Errorf("the offered offset %d does not continue the file", offset)
+	if !strings.HasPrefix(raw[offset:], body) || body == "" {
+		t.Errorf("the offered call (offset %d limit %d) does not continue the file", offset, limit)
 	}
 }
 
