@@ -43,3 +43,29 @@ func charStart(s string, i int) int {
 	}
 	return i
 }
+
+// fittingSuffix is fittingPrefix for the end of s: the length in bytes of the longest suffix, starting on a character
+// boundary, whose JSON encoding is at most budget characters.
+func fittingSuffix(s string, budget int) int {
+	if encodedLen(s) <= budget {
+		return len(s)
+	}
+	lo, hi := 0, min(len(s), budget)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if encodedLen(s[nextCharStart(s, len(s)-mid):]) <= budget {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return len(s) - nextCharStart(s, len(s)-lo)
+}
+
+// nextCharStart moves i forward to the start of the next character (i itself when it is one).
+func nextCharStart(s string, i int) int {
+	for i < len(s) && !utf8.RuneStart(s[i]) {
+		i++
+	}
+	return i
+}
