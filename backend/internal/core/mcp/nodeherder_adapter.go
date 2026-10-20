@@ -80,7 +80,13 @@ func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[stri
 	if err != nil {
 		return nil, fmt.Errorf("tool call failed: %w", err)
 	}
+	return toolResultToAny(result)
+}
 
+// toolResultToAny turns an MCP tool result into what the assistant handler expects: a tool error becomes an error that
+// carries the server's message; the first content block is the primary response, returned as a structured object when
+// its text is JSON, as text otherwise, and as it is when it is not text (an image, say).
+func toolResultToAny(result *mcp_sdk.CallToolResult) (any, error) {
 	if result.IsError {
 		errMsg := "unknown tool error"
 		if len(result.Content) > 0 {
@@ -90,32 +96,18 @@ func (n *MCPNodeHerder) CallTool(ctx context.Context, name string, args map[stri
 		}
 		return errMsg, fmt.Errorf("tool execution error: %s", errMsg)
 	}
-
 	if len(result.Content) == 0 {
 		return nil, fmt.Errorf("empty tool result")
 	}
-
-	// Extract content. MCP supports list of content (text/image/embedded).
-	// For LLM Proxy, we assume the first content block is the primary JSON response or Text.
-	// We handle TextContent primarily.
-	content := result.Content[0]
-	var textStr string
-	if textContent, ok := content.(mcp_sdk.TextContent); ok {
-		textStr = textContent.Text
-	} else {
-		// Just marshal whatever it is (e.g. image?)
-		return content, nil
+	textContent, ok := result.Content[0].(mcp_sdk.TextContent)
+	if !ok {
+		return result.Content[0], nil
 	}
-
-	// Try to unmarshal as JSON to return a structured object if possible,
-	// because assistant handler expects 'any' which it can marshal back to JSON or inspect.
 	var structured any
-	if err := json.Unmarshal([]byte(textStr), &structured); err == nil {
+	if err := json.Unmarshal([]byte(textContent.Text), &structured); err == nil {
 		return structured, nil
 	}
-
-	// Return raw text if not JSON
-	return textStr, nil
+	return textContent.Text, nil
 }
 
 func (n *MCPNodeHerder) UseNativeTools() bool {

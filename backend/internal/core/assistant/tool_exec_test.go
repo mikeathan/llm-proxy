@@ -1700,3 +1700,30 @@ func TestAppendToolResult_LogsWhenAResultIsCut(t *testing.T) {
 		t.Errorf("a result that fits must not be logged: %q", logs.buf.String())
 	}
 }
+
+// A model that writes a JSON string argument with an unescaped quote ("say "hi" now") fails to parse; the loop repairs it
+// when the repair parses, and leaves anything it cannot repair, or that was cut off, to the failure path.
+func TestSanitizeToolArgs(t *testing.T) {
+	parseErr := fmt.Errorf("invalid character 'h' after object key:value pair")
+	cases := []struct {
+		name, raw string
+		err       error
+		want      string
+	}{
+		{"empty", "", parseErr, ""},
+		{"a cut-off call is not repaired", `{"content":"abc`, fmt.Errorf("unexpected end of JSON input"), ""},
+		{"already valid", `{"path":"a.txt"}`, parseErr, ""},
+		{"an embedded quote is escaped", `{"content":"say "hi" now"}`, parseErr, `{"content":"say \"hi\" now"}`},
+		{"two embedded quotes", `{"content":"a "b" c "d" e","path":"x"}`, parseErr, `{"content":"a \"b\" c \"d\" e","path":"x"}`},
+		{"a quote before a closing brace stays structural", `{"a":"b" }`, parseErr, ""},
+		{"existing escapes are kept", `{"content":"line\n\"q\" "x" end"}`, parseErr, `{"content":"line\n\"q\" \"x\" end"}`},
+		{"a nested object", `{"o":{"k":"v "w" z"},"p":"q"}`, parseErr, `{"o":{"k":"v \"w\" z"},"p":"q"}`},
+		{"an array element is not repaired (it reads as a key)", `{"l":["a "b" c","d"]}`, parseErr, ""},
+		{"a repair that still does not parse is dropped", `{"content":"say "hi" now"`, parseErr, ""},
+	}
+	for _, c := range cases {
+		if got := sanitizeToolArgs(c.raw, c.err); got != c.want {
+			t.Errorf("%s:\n got  %q\n want %q", c.name, got, c.want)
+		}
+	}
+}
