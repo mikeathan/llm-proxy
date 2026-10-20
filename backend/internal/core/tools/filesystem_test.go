@@ -591,7 +591,7 @@ func TestReadFile_Truncation(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(result, "[SYSTEM: File truncated") {
+	if !strings.Contains(result, "[NOT SHOWN: bytes ") {
 		t.Errorf("expected truncation notice, got: %s", result[:200])
 	}
 	if len(result) > 3200 {

@@ -22,6 +22,7 @@ spill package uses (full text saved, the model gets a locator and a read hint), 
 repo needs:
 
 1. **Phase 0 — make a file readable in pieces (built, PR #99).** The model could not read the middle of a long file. This was a bug on its own.
+1b. **Phase A — size the result cap from the run's context budget** (before Phase 1). A 7 KB file or a search result should not be cut at all on a model whose budget is ~44k characters; the marker, saving and demotion then apply only to what truly does not fit. See §5, Phase A.
 2. **Phase 1 — automations save an oversized result to the workspace, `reports/<automation>/`.** Not purged by the run reaper.
 3. **Phase 2 — chat.** Same mechanism, location per the open decision in §4.
 4. **Phase 3 — purge, operator-only.** One file, one automation, the whole folder, by age; pins; manifest.
@@ -127,7 +128,7 @@ The note is written **only when the run can read the file back** (R1).
 
 ### Phase 0 — ranged `read_file` (ships on its own) — BUILT in PR #99
 
-Built: `read_file` takes `offset`/`limit` (bytes; numbers or numeric text via `tools.FlexInt`), reads only the requested window, and sizes each piece by encoded length (`tools/result_fit.go`: `fittingPrefix`, `encodedLen`); `fetchedText` reserves room for the size-limit note. SPEC-006 is 1.5; architecture pitfall 56. Acceptance met offline: a 200,000-character file is read end to end in chunks with no chunk re-cut. **First live check (Vertex, Qwen 16k, 2026-10-20) found a flaw in the default path:** the note telling the model about `offset`/`limit` sat in the middle of an over-cap result and was removed by the second cut, so none of three runs used the new arguments (they fell back to terminal `grep`/`sed`, one waited on an approval). Fixed in a follow-up (`truncatedFileRead`: note first, whole result sized to the cap). **Still to check live:** that models then use `offset`/`limit`.
+Built: `read_file` takes `offset`/`limit` (bytes; numbers or numeric text via `tools.FlexInt`), reads only the requested window, and sizes each piece by encoded length (`tools/result_fit.go`: `fittingPrefix`, `encodedLen`); `fetchedText` reserves room for the size-limit note. SPEC-006 is 1.5; architecture pitfall 56. Acceptance met offline: a 200,000-character file is read end to end in chunks with no chunk re-cut. **First live check (Vertex, Qwen 16k, 2026-10-20) found a flaw in the default path:** the note telling the model about `offset`/`limit` sat in the middle of an over-cap result and was removed by the second cut, so none of three runs used the new arguments (they fell back to terminal `grep`/`sed`, one waited on an approval). A first follow-up (#100: note first, whole result sized to the cap) made it worse: the note was visible and the model ignored it, answering "no Budget section" in 3 of 3. Tested against the real model offline (same history, only the tool result swapped, `/v1/chat/completions`, 5 tries per variant): the current note read the missing range 3 of 5; a loud marker at the gap with the missing range, its share and a real call read it 5 of 5, and so did the same plus a map of the headings in the missing part (5 of 5); the old generic truncation marker 3 of 5. The marker at the gap is built (`prompts.FileGapMarker`; 8 of 8 on the exact output). The heading map stays an option. **Still to check live:** the same three questions after deploy.
 
 - This is a **tool interface change** (`read_file` gains arguments): update SPEC-006's tool list and `tools/manifests/filesystem.json`,
   and `docs/architecture.md`'s tool checklist. Offsets and limits count **bytes**, because `ReadFile` cuts by bytes today and the
@@ -136,6 +137,47 @@ Built: `read_file` takes `offset`/`limit` (bytes; numbers or numeric text via `t
   `appendToolResult` does not re-cut it. Replace the truncation message with a true one.
 - Fold in the open flaw: the size-limit note in `fetchedText` is appended after `pageHead` and can push a result over the cap.
 - Acceptance: a 200,000-character file is read end to end in chunks with no chunk re-cut; the message names only tools that exist.
+
+### Phase A — size the result cap from the run's context budget (before Phase 1)
+
+**Why (the real fix).** Phase 0 and its two follow-ups make a cut result readable, but the cut itself is the root cause: a fixed 3000-character
+`proxy.MaxReturnChars` forces paging and makes a small model work around it. Measured on 27 sessions on Vertex (2026-10-20; stored results are
+post-cut, so "at the cap" means cut): **`internet_search` 42 of 42 results hit the cap**, `fetch_url` 33% (59 results; another 14 had already been
+shrunk to ~275 characters by the sieve), `execute_terminal_command` 1 of 4, `read_file` 7 of 7 (a deliberate test file). DeepSeek trims only above
+8,192 characters and only under pressure; Hermes scales its budgets to the window; Claude Code returns whole files up to a line limit.
+
+**Design**
+
+- **One cap per run, one source.** Computed once at run start from `requestLimit()` (already scaled per model by `ContextBudget` and, for a local
+  model, the server-learned token ratio) as a share of the request limit, with a floor of `MaxReturnChars` (3000) and a ceiling chosen from the
+  replay below. Put in the run context. `FetchURL` (`pageHead`), `ReadFile`/`truncatedFileRead`/`ReadFileRange` (including the marker's `limit=`),
+  `appendToolResult` and the sieve all read this one value; if any keeps the constant, the double cut of pitfall 56 returns.
+- **No budget, no change.** When `ContextBudget` is 0 (a model that never reaches the pressure trigger), the cap is 3000: today's behaviour.
+- **Agnostic and adaptive.** The cap depends on the window and the model's measured ratio only, never on a model, provider or tool name. A 4k
+  window, a 16k window and a 128k window get different caps from the same rule.
+- **Interaction with the sieve.** Bigger results fill the window sooner, so the sieve and its wrap-up warning fire earlier. The share must leave
+  room for several results (a share of the limit, not of what is left) and must be measured, not assumed.
+- **Additive and off by default** until the live comparison passes (setting follows `config-persistence`; SPEC-001 §2 changes).
+
+**Steps**
+
+1. Offline replay (read-only): the real size distribution before the cut. Stored results are already cut, so measure the producers: shaped
+   fetched pages (the saved Wikipedia and weather fixtures), `internet_search` output as the provider returns it (5 hits at ~1 KB each in the
+   measured runs, so ~5–6 KB), workspace files, terminal output. For each candidate share (10%, 15%, 20%, 25%) and ceiling, count how many would be
+   cut and what the request would look like on 4k, 16k and 128k windows.
+2. Pure function `resultCap(limit int) int` with table tests across windows; the run context carries it.
+3. Wire the readers above to it, behind the setting, with a log line per cut (`result cut at N of M`).
+4. Live on Vertex (Qwen 16k) against the 20-run baseline medians and worst case: the five-city task, the weather runs and the Budget question;
+   compare steps, time, answers, `cached_tokens` and how often the sieve fires.
+
+**Acceptance**
+
+- With the setting off, byte-identical results to today. With it on and no budget, 3000.
+- On Qwen 16k: no run answers worse; median steps and time not higher and the worst run not worse than the baseline's; a search result is no longer
+  cut; the sieve does not fire more often than the baseline by more than the window explains.
+- **Method note for every model-facing comparison:** build the request from the real tools array and descriptions (the recorded request or
+  `ListTools`), not a shortened copy. The offline comparison for the gap marker used 3 hand-written tools and was kinder than production (the
+  old note read the missing range 3 of 5 offline, 0 of 3 live).
 
 ### Phase 1 — automation spill
 
@@ -252,4 +294,4 @@ without any extra latching) and the persisted result is the stub. Nothing is los
 
 ## Remaining Work
 
-Phases 1–6. Phase 0 is built (PR #99); the live check of model behaviour is open. Decisions in §4 are made. Next: Phase 1 step 1 (read-only checks). Phase 6 waits for Phases 1–2.
+Phase A (adaptive cap, before Phase 1) and Phases 1–6. Phase 0 is built (#99, #100, #101); the live check of the gap marker is open. Decisions in §4 are made. Next: Phase 1 step 1 (read-only checks). Phase 6 waits for Phases 1–2.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"sync/atomic"
 
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/storage"
@@ -231,22 +232,28 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 	return truncatedFileRead(string(content)), nil
 }
 
-// fileNoteReserve is the room, in the encoded result, kept for the note that opens a truncated read and the line that
-// marks the omitted middle.
-const fileNoteReserve = 260
+// fileMarkerReserve is the room, in the encoded result, kept for the marker that stands where a long read leaves the
+// middle of the file out.
+const fileMarkerReserve = 200
+
+// suggestedReadLimit is the limit the marker proposes: about what one piece can carry within the result cap.
+const suggestedReadLimit = 2800
 
 // truncatedFileRead is what a read with no range returns: the whole file when it fits the result cap once encoded,
-// else a note, the start and the end of the file. The note comes first and the whole result is sized to the cap, so
-// the second cut at appendToolResult (which drops the middle of an over-long result) cannot remove it.
+// else its start and its end with a marker where the middle is left out. The marker sits at the gap, says how much is
+// missing and gives a real call, because a note placed before the text reads as metadata and a model then answers from
+// the two ends as if it had the whole file (seen live, Qwen 16k, where a header note was ignored in 3 runs of 3 and
+// this wording read the missing part in 5 of 5). The whole result is sized to the cap once encoded, so appendToolResult's
+// second cut, which drops the middle of an over-long result, cannot remove the marker; it holds no "<", ">" or "&".
 func truncatedFileRead(raw string) string {
 	if encodedLen(raw) <= proxy.MaxReturnChars {
 		return raw
 	}
-	half := (proxy.MaxReturnChars - fileNoteReserve) / 2
+	half := (proxy.MaxReturnChars - fileMarkerReserve) / 2
 	head := raw[:fittingPrefix(raw, half)]
 	tail := raw[len(raw)-fittingSuffix(raw[len(head):], half):]
-	return fmt.Sprintf("[SYSTEM: File truncated (%d bytes total). This is its start and its end; read the rest with read_file offset=%d limit=<bytes> (bytes).]\n%s\n... [middle omitted] ...\n%s",
-		len(raw), len(head), head, tail)
+	missing := len(raw) - len(head) - len(tail)
+	return head + fmt.Sprintf(prompts.FileGapMarker, len(head), len(raw)-len(tail), missing, missing*100/len(raw), len(head), suggestedReadLimit) + tail
 }
 
 // defaultRangeBytes is how much a ranged read returns when it names no limit; rangeNoteReserve leaves room, in the
@@ -366,7 +373,7 @@ func (w fileWindow) render(want int) string {
 	end := start + len(text)
 	note := "\n[end of file]"
 	if end < w.total {
-		note = fmt.Sprintf("\n[more: read_file offset=%d]", end)
+		note = fmt.Sprintf(prompts.FileMoreNote, end)
 	}
 	return fmt.Sprintf("[bytes %d-%d of %d]\n%s%s", start, end, w.total, text, note)
 }
