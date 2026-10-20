@@ -79,7 +79,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
-	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore)
+	hs.Recordings = handlers.NewRecordingHandlers(s.RecordingStore, s.RecordDir())
 
 	if store := s.AppCtx.MemoryStore(); store != nil {
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig).WithSessionRetention(s.AppCtx.SessionRetention)
@@ -118,26 +118,28 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 	// state while any assistant run or automation is executing (Phase 10). The
 	// checker fails closed if workspaces cannot be enumerated.
 	if disp != nil {
-		s.AppCtx.SetActiveWorkChecker(func() bool {
-			workspaces, err := s.Persistence().ListWorkspaces()
-			if err != nil {
-				return true
-			}
-			for _, ws := range workspaces {
-				if hs.Assistant.RunningExists(ws.ID) || hs.Assistant.RunningQueued(ws.ID) || disp.IsAutomationRunning(ws.ID) {
-					return true
+		s.AppCtx.SetActiveWorkChecker(activeWorkChecker(workProbe{
+			listWorkspaces: func() ([]string, error) {
+				workspaces, err := s.Persistence().ListWorkspaces()
+				ids := make([]string, 0, len(workspaces))
+				for _, ws := range workspaces {
+					ids = append(ids, ws.ID)
 				}
-			}
-			// Queued lane entries are active work too: the lanes are
-			// in-memory, so clearing runtime data with a queued run would
-			// silently drop it.
-			for _, lane := range disp.LaneSnapshot().Lanes {
-				if len(lane.Queued) > 0 {
-					return true
+				return ids, err
+			},
+			assistantBusy:  func(id string) bool { return hs.Assistant.RunningExists(id) || hs.Assistant.RunningQueued(id) },
+			automationBusy: disp.IsAutomationRunning,
+			// Queued lane entries are active work too: the lanes are in-memory, so clearing runtime data with a
+			// queued run would silently drop it.
+			laneQueued: func() bool {
+				for _, lane := range disp.LaneSnapshot().Lanes {
+					if len(lane.Queued) > 0 {
+						return true
+					}
 				}
-			}
-			return false
-		})
+				return false
+			},
+		}))
 	}
 
 	return buildRouter(hs)
@@ -218,6 +220,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	if hs.Recordings != nil {
 		router.Get("/admin/api/recordings", hs.Recordings.List, jsonMethodNotAllowed)
 		router.Get("/admin/api/recordings/status", hs.Recordings.Status, jsonMethodNotAllowed)
+		router.Get("/admin/api/recordings/content/{id...}", hs.Recordings.Content, jsonMethodNotAllowed)
 		router.Get("/admin/api/recordings/{id}", hs.Recordings.Get, jsonMethodNotAllowed)
 		router.Delete("/admin/api/recordings/{id}", hs.Recordings.Delete, jsonMethodNotAllowed)
 	}
@@ -324,4 +327,29 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	}
 
 	return router
+}
+
+// workProbe is how the runtime-data guard asks what is running; it is narrow so the guard can be tested without handlers.
+type workProbe struct {
+	listWorkspaces func() ([]string, error)
+	assistantBusy  func(workspaceID string) bool
+	automationBusy func(workspaceID string) bool
+	laneQueued     func() bool
+}
+
+// activeWorkChecker reports whether any assistant run or automation is executing or queued, and fails closed (busy) when
+// the workspaces cannot be listed.
+func activeWorkChecker(p workProbe) func() bool {
+	return func() bool {
+		ids, err := p.listWorkspaces()
+		if err != nil {
+			return true
+		}
+		for _, id := range ids {
+			if p.assistantBusy(id) || p.automationBusy(id) {
+				return true
+			}
+		}
+		return p.laneQueued()
+	}
 }

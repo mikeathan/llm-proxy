@@ -53,6 +53,21 @@ describe('GlobalSettings sections', () => {
   })
 })
 
+// The toggle was labelled as if it kept only logs, so an operator looking for the exact request a model received did not
+// know it was already there (recording.jsonl in each run's folder). It also says what is masked and how long it is kept.
+describe('GlobalSettings run logging', () => {
+  it('says it records the requests sent to the model, that secrets are masked and how long it is kept', () => {
+    const { w } = mountGlobal({}, 'storage')
+    const text = w.text()
+    expect(text).toContain('Record run logs and model requests')
+    expect(text).toContain('every request sent to the model')
+    expect(text).toContain('recording.jsonl')
+    expect(text).toMatch(/masked/i)
+    expect(text).toContain('30 days')
+    expect(text).toContain('/admin/api/recordings')
+  })
+})
+
 describe('GlobalSettings', () => {
   it('offers every configured model for primary and fallback routing', () => {
     const { w } = mountGlobal()

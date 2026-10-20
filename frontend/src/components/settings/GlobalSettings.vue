@@ -259,9 +259,12 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
             <input :id="id" v-model="workspacesDir" :aria-describedby="describedBy" type="text" class="form-control font-mono" autocomplete="off" />
           </template>
         </FormField>
-        <FormField label="Run logging" hint="Per-run logs, execution history and event streams inside each workspace.">
+        <FormField
+          label="Run logging"
+          hint="Each run gets a folder with its event stream and execution history, plus recording.jsonl: every request sent to the model and every reply, with credential-shaped values masked. Runs are kept 30 days. Read a recording at /admin/api/recordings."
+        >
           <template #default="{ id, describedBy }">
-            <BaseToggle :id="id" v-model="runLoggingEnabled" :described-by="describedBy" label="Record workspace run logs" />
+            <BaseToggle :id="id" v-model="runLoggingEnabled" :described-by="describedBy" label="Record run logs and model requests" />
           </template>
         </FormField>
       </div>

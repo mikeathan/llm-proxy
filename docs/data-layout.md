@@ -70,7 +70,16 @@ An older install may still have a `templates/` directory (and a `.shipped.json` 
 - Produced per automation execution when run logging is enabled
   (`--enable-runs` / `--record`), or via the recording client.
 - A single run directory contains: `events.jsonl`, `run-meta.json`,
-  `final-report.md`, and (when `--record` is active) `recording.jsonl`.
+  `final-report.md`, and `recording.jsonl`: every request sent to the model and every reply, one JSON object per line
+  (`type` is `request`, `chunk`, `response`, `done` or `error`; a request carries the whole conversation and the tools).
+  It is written **whenever run logging is on** (Settings → Storage & logging), not only with `--record`: the model client
+  is always wrapped in a recorder and each run's directory is handed to it. Credential-shaped values are masked before
+  they are written (`tools.RedactForRecording`). `--record` is a separate process flag that also writes top-level
+  recordings for replay tests and turns on the Recordings page; it is not needed to record a run.
+- Reading a recording: `GET /admin/api/recordings` lists them (the store covers `runs/` even without `--record`);
+  `GET /admin/api/recordings/content/{id}?type=request&last=1` returns the last request of a run as JSON lines
+  (`?max_bytes=` bounds it, default 1 MiB; `X-Recording-Truncated` says when it cut anything).
+  `GET /admin/api/recordings/status` reports `enabled` (the `--record` flag) and `run_recordings` (listing available).
   `events.jsonl` keeps the newest snapshot of each reasoning / content stream (plus a checkpoint every
   10 s of a long stream), not every streamed chunk; nothing in the app reads it back.
 - Cleanup surfaces:
