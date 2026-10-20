@@ -17,13 +17,21 @@
       }
     },
     "read_file": {
-      "description": "Read the content of a file in the workspace.",
+      "description": "Read the content of a file in the workspace. A long file is cut to its start and end; to read all of it, call again with offset and limit (in bytes) to get it piece by piece. Each piece ends with the offset to continue from.",
       "parameters": {
         "type": "object",
         "properties": {
           "path": {
             "type": "string",
             "description": "Single path to read. Paths are automatically resolved relative to your workspace root. This tool does NOT support native batching; for multiple files, emit multiple tool call tags."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Optional. Byte position to start reading from (default 0). Use the offset a previous piece ended with."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Optional. Most bytes to return (default and maximum about 2800; a piece is shortened to fit)."
           }
         },
         "required": ["path"]

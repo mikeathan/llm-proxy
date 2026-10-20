@@ -1,9 +1,9 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.4"
+version: "1.5"
 status: stable
-last_updated: 2026-10-17
+last_updated: 2026-10-20
 constitution_references: [II.3]
 related_specs: [SPEC-001]
 supersedes:
@@ -13,6 +13,10 @@ supersedes:
 
 ## Changelog
 
+- **1.5 (2026-10-20)** — `read_file` can read a long file in pieces: optional `offset` and `limit` (bytes, numbers or numeric text),
+  each piece ending with the offset to continue from and sized so that, JSON-encoded, it fits the result cap and is not cut
+  again. Without them a long file is still returned as its start and end, and the message now names the real way to read the
+  rest. Path validation, extension, jail and read-only rules apply to every piece exactly as to a whole read.
 - **1.4 (2026-10-17)** — The workspace's `AGENTS.md` is read-only to the agent (§II.8). `write_file`, `append_file` and
   `edit_file_block` refuse it by name, in any case and at any depth, and through a link that resolves to it
   (`tools.ErrInstructionFileReadOnly`); reading stays allowed. The agent loop treats the refusal as a security boundary:
@@ -79,7 +83,8 @@ Tool calls are validated in order:
 3. **Filesystem** — Path validation, extension whitelist, filename blocking (user
    `blocked_filenames` merged with internal invariant paths), read-only enforcement, path
    jail. Directory listings hide the same merged blocked set — an internal path (`.sandbox`)
-   must not even appear as an entry.
+   must not even appear as an entry. `read_file` takes optional `offset`/`limit` (bytes) to read a long file in pieces; the
+   same validation applies to each piece.
 
 Internal invariant paths (currently `.sandbox`, the sandbox runtime directory) are defined
 once in `tools/security.go` (`internalBlockedPaths`) and enforced uniformly across every

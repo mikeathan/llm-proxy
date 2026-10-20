@@ -194,11 +194,11 @@ func TestHTMLToText_ScopesToMainWhenItHoldsText(t *testing.T) {
 }
 
 func TestPageHead_CutsAtTheEndOnARuneBoundary(t *testing.T) {
-	if short := "short text"; pageHead(short) != short {
+	if short := "short text"; pageHead(short, 0) != short {
 		t.Error("short text must be unchanged")
 	}
 	long := strings.Repeat("é", proxy.MaxReturnChars)
-	got := pageHead(long)
+	got := pageHead(long, 0)
 	if !utf8.ValidString(got) || !strings.HasSuffix(got, "the rest was cut]") || encodedLen(got) > proxy.MaxReturnChars {
 		t.Errorf("bad cut: valid=%v encoded=%d", utf8.ValidString(got), encodedLen(got))
 	}
@@ -224,7 +224,7 @@ func TestHTMLToText_SummaryIsBoundedAndIgnoresOtherScripts(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		many += `<meta name="description" content="distinct description number ` + string(rune('a'+i)) + `">`
 	}
-	got = pageHead(htmlToText("<html><head><title>T</title>" + many + "</head><body>" + proseBody + "</body></html>"))
+	got = pageHead(htmlToText("<html><head><title>T</title>"+many+"</head><body>"+proseBody+"</body></html>"), 0)
 	if n := strings.Count(got, "Summary:"); n > summaryLines {
 		t.Errorf("%d summary lines, cap is %d", n, summaryLines)
 	}
@@ -251,7 +251,7 @@ func TestFetchedText_FitsTheResultCapAfterJSONEscaping(t *testing.T) {
 
 func TestPageHead_ShortTextThatGrowsWhenEncodedDoesNotPanic(t *testing.T) {
 	text := strings.Repeat(`"<&>"`, 580) // 2900 characters, about 5500 once JSON-encoded
-	got := pageHead(text)
+	got := pageHead(text, 0)
 	if encodedLen(got) > proxy.MaxReturnChars || !strings.HasSuffix(got, "the rest was cut]") {
 		t.Errorf("bad cut: encoded=%d", encodedLen(got))
 	}
@@ -261,5 +261,21 @@ func TestHTMLToText_DecodesJSONEscapesInStructuredData(t *testing.T) {
 	page := `<html><head><script type="application/ld+json">{"headline":"City in Tyne \u0026 Wear, \"England\""}</script></head><body>` + proseBody + `</body></html>`
 	if got := htmlToText(page); !strings.Contains(got, `Summary: City in Tyne & Wear, "England"`) {
 		t.Errorf("escapes not decoded:\n%s", got)
+	}
+}
+
+func TestFetchedText_SizeLimitNoteKeepsTheResultUnderTheCap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<main>")
+	for i := 0; i < 300; i++ {
+		b.WriteString(`<p>Paragraph "number" <b>&amp;</b> text ` + strings.Repeat("w", i%9) + `</p>`)
+	}
+	b.WriteString("</main>")
+	got := fetchedText("text/html", []byte(b.String()), true)
+	if !strings.HasSuffix(got, "(content truncated by network guardrails)") {
+		t.Fatalf("the size-limit note is missing: %q", got[len(got)-80:])
+	}
+	if n := encodedLen(got); n > proxy.MaxReturnChars {
+		t.Errorf("encodes to %d, over the %d cap, so the page opening would be cut again", n, proxy.MaxReturnChars)
 	}
 }

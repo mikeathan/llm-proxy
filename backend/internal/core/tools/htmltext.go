@@ -105,33 +105,14 @@ const pageCutNote = "\n... [page text continues; the rest was cut]"
 
 // pageHead keeps the start of a page's text. A web page leads with what it is about; its tail is references,
 // categories and footers, so unlike other output it is cut at the end, not in the middle. The result cap is applied
-// again to the JSON-encoded result (quotes, "&", "<" and newlines grow when encoded), so the cut is sized by the
-// encoded length: the opening is then never re-cut.
-func pageHead(text string) string {
-	if encodedLen(text) <= proxy.MaxReturnChars {
+// again to the JSON-encoded result (see fittingPrefix), so the cut is sized by the encoded length: the opening is then
+// never re-cut. reserve is the encoded length of text the caller appends afterwards.
+func pageHead(text string, reserve int) string {
+	if encodedLen(text)+reserve <= proxy.MaxReturnChars {
 		return text
 	}
-	cut := min(len(text), proxy.MaxReturnChars)
-	for cut > 0 {
-		for cut > 0 && cut < len(text) && !utf8.RuneStart(text[cut]) {
-			cut--
-		}
-		over := encodedLen(text[:cut]+pageCutNote) - proxy.MaxReturnChars
-		if over <= 0 {
-			break
-		}
-		cut -= max(over/2, 1)
-	}
-	return text[:max(cut, 0)] + pageCutNote
-}
-
-// encodedLen is the length of s as a JSON string, which is how a tool result is capped.
-func encodedLen(s string) int {
-	encoded, err := json.Marshal(s)
-	if err != nil {
-		return len(s)
-	}
-	return len(encoded)
+	n := fittingPrefix(text, proxy.MaxReturnChars-reserve-encodedLen(pageCutNote))
+	return text[:n] + pageCutNote
 }
 
 // startsMarkup tells a tag, comment or declaration from a stray "<" in text such as "1 < 2".

@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -708,4 +709,45 @@ func TestLocalToolRegistry_ReminderToolsHiddenFromUnattendedRuns(t *testing.T) {
 	if !slices.Contains(listedToolNames(t, r, context.Background()), models.ToolScheduleReminder) {
 		t.Error("an attended chat must still see the tool")
 	}
+}
+
+// The model reaches the rest of a long file through read_file's offset and limit; models differ in whether they send
+// those as numbers or as text, and the schema the model is shown must offer them.
+func TestLocalToolRegistry_ReadFileInPieces(t *testing.T) {
+	wsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wsDir, "doc.txt"), []byte("0123456789abcdefghij"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := NewLocalToolRegistry(nil, nil, nil, tools.NewFileSystemTools(func(ctx context.Context) models.FileSystemGuardrailsConfig {
+		return models.FileSystemGuardrailsConfig{Enabled: true, AllowedPaths: []string{wsDir}}
+	}), nil, nil)
+
+	for _, args := range []string{
+		`{"path":"doc.txt","offset":5,"limit":10}`,
+		`{"path":"doc.txt","offset":"5","limit":"10"}`,
+	} {
+		got, err := r.ExecuteTool(context.Background(), proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolFileRead, Arguments: args}})
+		if err != nil {
+			t.Fatalf("%s: %v", args, err)
+		}
+		if text, _ := got.(string); !strings.HasPrefix(text, "[bytes 5-15 of 20]\n56789abcde") {
+			t.Errorf("%s: got %q", args, got)
+		}
+	}
+
+	toolsList, err := r.ListTools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range toolsList {
+		if tl.Function.Name != models.ToolFileRead {
+			continue
+		}
+		schema, _ := json.Marshal(tl.Function.Parameters)
+		if !strings.Contains(string(schema), `"offset"`) || !strings.Contains(string(schema), `"limit"`) {
+			t.Errorf("read_file schema does not offer offset and limit: %s", schema)
+		}
+		return
+	}
+	t.Error("read_file is not listed")
 }
