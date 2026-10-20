@@ -8,7 +8,7 @@ related_specs: [SPEC-001, SPEC-003, SPEC-004, SPEC-006, SPEC-007]
 
 **Constitution refs:** §I network security (fetched content is untrusted input), §II resource management (bounded disk, bounded
 results), §III data (secrets are never persisted unmasked), §IV code standards (one wiring point, small functions).
-**Specs touched (SPEC-first):** SPEC-006 (guardrails: a new system write into `reports/`, the `read_file` interface change),
+**Specs touched (SPEC-first):** SPEC-001 §2 (Phase 6 changes the sieve's compression stage), SPEC-006 (guardrails: a new system write into `reports/`, the `read_file` interface change),
 SPEC-007 (automation task shows its saved reports), SPEC-003 (UI), `docs/data-layout.md` (the `reports/` folder and the manifest).
 
 Follows [`run-efficiency-and-convergence.md`](run-efficiency-and-convergence.md) (M2, "spill"). That plan shaped what the model
@@ -183,37 +183,28 @@ output is replaced first, with a pointer to the preserved original, and only the
 and reverted earlier in `run-efficiency-and-convergence.md` failed because nothing could be recovered and because it edited history in
 place. The saved files from Phases 1–2 supply the recovery path; this phase supplies the policy.
 
-**Where.** In the existing pressure path: `session.go` measures the real request each turn (`measureRequest`, `size.over()`) before
-`applyPhysicalSieve`. The demotion pass runs **first** on that same trigger, re-measures, and the physical sieve runs only if the request
-is still over.
+**Where (SPEC-001 §2).** The physical sieve already has a first stage, "compression": older messages longer than 4,000 characters (reasoning
+2,000) are cut to head+tail around `...[Truncated]...`, and only if that is not enough does it drop messages down to the locked head and a
+priority tail. Phase 6 **upgrades that first stage**; it does not add a stage before the sieve. For an old tool result that carries a
+recovery handle, the stage writes the one-line stub instead of head+tail; for everything else it behaves exactly as today. The sieve's
+note, ledger and one-time warning, the locked head and the tail rules are unchanged.
 
-**Design rules**
+**Two triggers, as DeepSeek has (`pressure` and `context-overflow`).**
+1. *Pressure:* `measureRequest` against `requestLimit()` at `session.go:1152`, before `applyPhysicalSieve`. Needs `ContextBudget > 0`.
+2. *Overflow:* in `handleContextSizeError`, the stub-first compression runs before the reactive and aggressive sieves, and the request is
+   retried only if it freed enough. This covers a model whose `ContextBudget` resolves to 0 (`measureRequest` returns an empty size, so the
+   pressure trigger never fires). Check in the first step which registered models resolve to 0, so the plan names who relies on this path.
 
-- **One measure, no new thresholds.** The trigger and the target are `measureRequest` against `requestLimit()` — already scaled per model by
-  `ContextBudget` and the server-learned token ratio for a local model, and the message-only allowance for a cloud model. Nothing is keyed on
-  a model, provider or tool name; local and cloud differ only through that measure.
-- **Eligibility by shape, not name.** A tool-result message is eligible when it is outside the newest rounds, longer than a minimum, and
-  **carries a recovery handle** (the `[full text saved: …]` first line from §3.1). No handle, no demotion: that message is left to the
-  existing sieve, so behaviour without Phases 1–2 is exactly today's.
-- **Protected tail sized by budget.** The newest results stay whole until they total a fraction of the request limit (starting at 30%,
-  tuned from the replay), never a fixed message count, so a 4k window, a 16k window and a 128k window all behave sensibly.
-- **Just enough.** Demote oldest-first only until the request is under the limit (with a small margin), not everything eligible.
-- **Stable prefix.** A demoted result stays demoted on every later turn of the run (a latched set of call ids), and the stub text is a pure
-  function of the original (tool, size, handle). The same input gives the same request, so the server's prefix cache is rebuilt once after
-  the pass and then holds, instead of being broken again each turn.
-- **A projection, not an edit.** The pass builds the request copy; the saved conversation and the run's persisted history are untouched.
-- **Pairing by construction.** Only the content of a tool message changes; no message is added or removed, and the call/result pairing
-  helper from `sieve_test.go` is run over every output in tests.
-- **Short stub.** One line, under ~150 characters, tool name, original size and the read call, so it survives a later head+tail cut.
-- **Fail safe.** Any error, or a run where the pass would not get under the limit, logs one line and falls through to the existing sieve.
-  A setting turns the pass off. No path makes a request larger or an answer worse than today.
-- **Shadow first.** The first release only logs what it would demote and the tokens it would free; it is switched on after the live data
-  shows it helps.
+**Which history it edits.** The sieve rewrites the run's working history in place (`*history = a.applyPhysicalSieve(...)`), and the
+`RepairToolPairing` fix in #92 exists because sieve-made orphans reached saved conversations, which suggests the working history is what is
+persisted. To confirm in the first step: trace `s.history` to the session file (`finishTurnRun`, `conversation_service.go`). The plan
+follows the sieve: demotion edits the working history in place, so a demoted result stays demoted on every later turn (the prefix is stable
+without any extra latching) and the persisted result is the stub. Nothing is lost because the stub names the saved file.
 
 **Steps**
 
 1. Pure function over (history, limit, measure) returning the demoted copy and a report; table tests over several budgets and tool shapes.
-2. Wire it before `applyPhysicalSieve` in shadow mode: one log line per pass (`would demote N results, free X tokens`).
+2. Wire it into the sieve's compression stage, on both triggers, in shadow mode: one log line per pass (`would demote N results, free X tokens`).
 3. Replay recorded histories (including the 141 s run's request 8) offline across budgets 4k, 16k and 128k.
 4. Live on Vertex in shadow mode, then enabled, comparing steps, time, answer, `cached_tokens` and whether the sieve still fires against a
    20-run baseline (the bar used for the progress monitor).
@@ -221,10 +212,13 @@ is still over.
 **Acceptance**
 
 - Idempotent and deterministic: running the pass twice, or on consecutive turns, gives byte-identical stubs and requests.
+- Docs updated in the same change: SPEC-001 §2, `.agents/skills/agent-loop/SKILL.md`, this plan, and `docs/architecture.md` if a pitfall is added.
 - No handle means unchanged output; the existing sieve tests stay byte-for-byte unchanged and green.
-- Pairing intact on every generated history; the saved conversation is not modified.
+- Pairing intact on every generated history; the persisted conversation holds stubs, never a call without its result.
 - Adaptivity: the same history at 4k, 16k and 128k demotes progressively fewer results, never more than needed.
-- Live: no run answers worse, no run takes more steps, and the cache hit rate after the first pass is within 10 points of before it.
+- Live, against a 20-run baseline on the same build and model: no run answers worse; median steps and time not higher, and the worst run
+  not worse than the baseline's worst (the same build varies by a few calls); the cache hit rate after the first pass is within 10 points
+  of before it.
 
 **Open risks specific to this phase**
 
