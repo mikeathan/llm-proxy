@@ -78,3 +78,98 @@ func TestToolCategoriesMatchManifests(t *testing.T) {
 		}
 	}
 }
+
+// A model writes a tool call in the order the schema lists the arguments: with read_file's properties sorted
+// alphabetically (limit, offset, path) a 16k local model left out offset 9 times in 10; listed as authored (path,
+// offset, limit) it used it 10 times in 10. Go marshals map keys sorted, so the order the manifest author wrote is
+// carried in an ordered type and must reach the wire for every tool.
+func TestLoadManifestAsTool_PropertiesReachTheWireInManifestOrder(t *testing.T) {
+	files, _ := filepath.Glob("manifests/*.json")
+	checked := 0
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m struct {
+			ToolName   string                     `json:"tool_name"`
+			Runtime    map[string]json.RawMessage `json:"runtime"`
+			Parameters json.RawMessage            `json:"parameters"`
+		}
+		if err := json.Unmarshal(data, &m); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		key := strings.TrimSuffix(filepath.Base(file), ".json")
+		tools := map[string]json.RawMessage{}
+		if len(m.Parameters) > 0 {
+			tools[m.ToolName] = m.Parameters
+		}
+		for name, raw := range m.Runtime {
+			var rt struct {
+				Parameters json.RawMessage `json:"parameters"`
+			}
+			if json.Unmarshal(raw, &rt) == nil && len(rt.Parameters) > 0 { // a runtime entry that is a setting, not a tool, has none
+				tools[name] = rt.Parameters
+			}
+		}
+		for name, raw := range tools {
+			want := marshaledPropertyOrder(t, raw)
+			if len(want) < 2 {
+				continue
+			}
+			params, _, err := LoadManifestAsTool(key, name)
+			if err != nil {
+				t.Fatalf("%s/%s: %v", key, name, err)
+			}
+			wire, _ := json.Marshal(params)
+			if got := marshaledPropertyOrder(t, wire); strings.Join(got, ",") != strings.Join(want, ",") {
+				t.Errorf("%s/%s: wire order %v, manifest order %v", key, name, got, want)
+			}
+			checked++
+		}
+	}
+	if checked < 5 {
+		t.Errorf("only %d multi-argument tools were checked; the manifests moved?", checked)
+	}
+}
+
+func TestLoadManifestAsTool_ReadFileListsPathBeforeOffsetAndLimit(t *testing.T) {
+	params, _, err := LoadManifestAsTool("filesystem", models.ToolFileRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, _ := json.Marshal(params)
+	if got := marshaledPropertyOrder(t, wire); strings.Join(got, ",") != "path,offset,limit" {
+		t.Errorf("read_file properties on the wire: %v", got)
+	}
+}
+
+// marshaledPropertyOrder reads the "properties" object of a schema's JSON and returns its keys in document order.
+func marshaledPropertyOrder(t *testing.T, schemaJSON []byte) []string {
+	t.Helper()
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(schemaJSON, &top); err != nil {
+		t.Fatal(err)
+	}
+	props, ok := top["properties"]
+	if !ok {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(string(props)))
+	if _, err := dec.Token(); err != nil { // opening brace
+		t.Fatal(err)
+	}
+	var keys []string
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, tok.(string))
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return keys
+}

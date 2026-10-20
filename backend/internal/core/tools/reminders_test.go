@@ -165,7 +165,7 @@ func TestReminderManifest_LoadsEveryTool(t *testing.T) {
 		}
 	}
 	params, _, _ := LoadManifestAsTool("reminders", "schedule_reminder")
-	if _, ok := params["properties"].(map[string]any)["when"]; !ok {
+	if props, _ := models.SchemaProperties(params); props["when"] == nil {
 		t.Error("schedule_reminder must declare 'when'")
 	}
 }

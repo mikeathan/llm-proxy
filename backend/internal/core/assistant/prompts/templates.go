@@ -663,7 +663,7 @@ func formatToolParameters(params any) string {
 	if !ok {
 		return ""
 	}
-	props, ok := schema["properties"].(map[string]any)
+	props, ok := models.SchemaProperties(schema)
 	if !ok || len(props) == 0 {
 		return ""
 	}
