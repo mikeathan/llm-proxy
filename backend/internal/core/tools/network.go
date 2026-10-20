@@ -191,56 +191,66 @@ func (n *NetworkTools) resolveAndQueueTargets(ctx context.Context, targetStr str
 		if target == "" {
 			continue
 		}
-
+		queue := n.queueHost
 		if strings.Contains(target, "/") {
-			// Subnet expansion (Safe IP arithmetic)
-			ip, ipnet, err := net.ParseCIDR(target)
-			if err != nil {
-				continue
-			}
-
-			// Safety: Iterate through the usable range of the subnet, but cap at 1024 IPs
-			// to prevent accidental hangs on massive CIDR ranges (/16, etc.)
-			count := 0
-			const maxIPs = 1024
-			for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
-				if count > maxIPs {
-					n.logger.Warn("Network scan capped to prevent hang", "target", target, "limit", maxIPs)
-					break
-				}
-
-				// Skip the network and broadcast addresses (heuristic for /24-like subnets)
-				// For larger subnets, we just scan everything in the range.
-				if ip.Equal(ipnet.IP) {
-					continue
-				}
-
-				targetIP := ip.String()
-				count++
-				if err := n.validateIP(ip, cfg); err != nil {
-					continue
-				}
-				select {
-				case jobs <- targetIP:
-				case <-ctx.Done():
-					return
-				}
-			}
-		} else {
-			// Single IP/Host
-			if ip := net.ParseIP(target); ip != nil {
-				if err := n.validateIP(ip, cfg); err != nil {
-					continue
-				}
-			} else if err := n.validateAddress(ctx, target, cfg); err != nil {
-				continue
-			}
-			select {
-			case jobs <- target:
-			case <-ctx.Done():
-				return
-			}
+			queue = n.queueSubnet
 		}
+		if !queue(ctx, target, cfg, jobs) {
+			return
+		}
+	}
+}
+
+// maxScanSubnetIPs caps how many addresses of one subnet are queued, so a /16 cannot hang a scan.
+const maxScanSubnetIPs = 1024
+
+// queueSubnet queues the allowed addresses of a CIDR range, without its network address. It returns false once ctx has
+// ended, which stops the whole scan; an unparsable range queues nothing and the scan goes on.
+func (n *NetworkTools) queueSubnet(ctx context.Context, target string, cfg models.NetworkGuardrailsConfig, jobs chan<- string) bool {
+	ip, ipnet, err := net.ParseCIDR(target)
+	if err != nil {
+		return true
+	}
+	count := 0
+	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
+		if count > maxScanSubnetIPs {
+			n.logger.Warn("Network scan capped to prevent hang", "target", target, "limit", maxScanSubnetIPs)
+			break
+		}
+		// Skip the network address (heuristic for /24-like subnets). For larger subnets everything else is scanned.
+		if ip.Equal(ipnet.IP) {
+			continue
+		}
+		count++
+		if n.validateIP(ip, cfg) != nil {
+			continue
+		}
+		if !sendScanJob(ctx, jobs, ip.String()) {
+			return false
+		}
+	}
+	return true
+}
+
+// queueHost queues one IP or host name if the guardrails allow it. It returns false once ctx has ended.
+func (n *NetworkTools) queueHost(ctx context.Context, target string, cfg models.NetworkGuardrailsConfig, jobs chan<- string) bool {
+	if ip := net.ParseIP(target); ip != nil {
+		if n.validateIP(ip, cfg) != nil {
+			return true
+		}
+	} else if n.validateAddress(ctx, target, cfg) != nil {
+		return true
+	}
+	return sendScanJob(ctx, jobs, target)
+}
+
+// sendScanJob hands one address to the workers; false means ctx ended first.
+func sendScanJob(ctx context.Context, jobs chan<- string, job string) bool {
+	select {
+	case jobs <- job:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -353,111 +363,42 @@ func (n *NetworkTools) GetNetworkInfo(ctx context.Context) (string, error) {
 	return fmt.Sprintf("Local IP: %s\nSubnet Mask: %s\nSubnet CIDR: %s", ip, subnet.Mask.String(), subnet.String()), nil
 }
 
+// scanPlan is what a scan does with each address: which ports, how long to wait, and whether to report every open port.
+type scanPlan struct {
+	ports   []int
+	timeout time.Duration
+	dialer  *net.Dialer
+	deep    bool
+}
+
 // ScanLocalNetwork performs a concurrent discovery or audit scan.
 func (n *NetworkTools) ScanLocalNetwork(ctx context.Context, args ScanArgs) (string, error) {
 	cfg := n.configProvider(ctx)
 	if !cfg.Enabled || !cfg.AllowLanAccess {
 		return "", fmt.Errorf("network scanning is disabled or LAN access is blocked")
 	}
-
-	// 1. Determine Target Range (Handle aliases and pluralization)
-	var base string
-	target := args.Targets
-	if target == "" {
-		if args.Target != "" {
-			target = args.Target
-		} else if args.IP != "" {
-			target = args.IP
-		} else if args.CIDR != "" {
-			target = args.CIDR
-		}
+	base, err := n.scanRange(args)
+	if err != nil {
+		return "", err
 	}
+	timeout := scanTimeout(args)
+	plan := scanPlan{ports: scanPorts(args), timeout: timeout, dialer: &net.Dialer{Timeout: timeout}, deep: args.Mode == "deep"}
 
-	if target != "" {
-		if err := ValidateScanTargets(target); err != nil {
-			return "", err
-		}
-		base = target
-	} else {
-		// Auto-detect local
-		_, subnet, err := n.getLocalSubnet()
-		if err != nil {
-			return "", fmt.Errorf("failed to detect local subnet: %w", err)
-		}
-		base = subnet.String()
-	}
-
-	// 2. Select Ports
-	ports := args.Ports
-	if len(ports) == 0 {
-		if args.Mode == "deep" {
-			// Top 20 common ports
-			ports = []int{21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080}
-		} else {
-			// Top 5 discovery ports
-			ports = []int{22, 80, 443, 8080, 3000}
-		}
-	}
-
-	timeout := 500 * time.Millisecond
-	if args.TimeoutMs > 0 {
-		timeout = time.Duration(args.TimeoutMs) * time.Millisecond
-	} else if args.Timeout > 0 {
-		timeout = time.Duration(args.Timeout) * time.Millisecond
-	}
-
-	dialer := &net.Dialer{Timeout: timeout}
 	results := make(chan string, 1000)
 	jobs := make(chan string, 256) // Sized for a /24 subnet
 
-	// 3. Worker Pool for concurrent scanning
-	// Increase worker pool to 50 to handle larger scans efficiently while maintaining goroutine bound (NET-L1)
+	// Worker pool for concurrent scanning. 50 workers handle larger scans efficiently while keeping the goroutines bounded (NET-L1).
 	const numWorkers = 50
 	var wg sync.WaitGroup
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for ip := range jobs {
-				for _, port := range ports {
-					// Check context for early termination
-					select {
-					case <-ctx.Done():
-						return
-					default:
-					}
-
-					addr := net.JoinHostPort(ip, fmt.Sprintf("%d", port))
-					conn, err := dialer.DialContext(ctx, "tcp", addr)
-					if err == nil {
-						// Banner Grabbing
-						conn.SetReadDeadline(time.Now().Add(timeout))
-						banner := make([]byte, 256)
-						bytesRead, _ := conn.Read(banner)
-
-						serviceInfo := "Active Service"
-						if bytesRead > 0 {
-							serviceInfo = strings.TrimSpace(string(banner[:bytesRead]))
-							serviceInfo = strings.ReplaceAll(serviceInfo, "\n", " ")
-							if len(serviceInfo) > 64 {
-								serviceInfo = serviceInfo[:61] + "..."
-							}
-						} else {
-							serviceInfo = n.probeHTTP(ctx, ip, port)
-						}
-
-						conn.Close()
-						results <- fmt.Sprintf("- %s:%d [%s]", ip, port, serviceInfo)
-						if args.Mode != "deep" {
-							break // Only report first port in discovery mode per IP
-						}
-					}
-				}
-			}
+			n.scanWorker(ctx, plan, jobs, results)
 		}()
 	}
 
-	// 4. Feed jobs to workers
+	// Feed jobs to the workers, then close up once they are done.
 	go func() {
 		n.resolveAndQueueTargets(ctx, base, cfg, jobs)
 		close(jobs)
@@ -467,18 +408,106 @@ func (n *NetworkTools) ScanLocalNetwork(ctx context.Context, args ScanArgs) (str
 
 	var output strings.Builder
 	fmt.Fprintf(&output, "Network Scan (%s) of %s completed:\n", args.Mode, base)
-
 	found := 0
 	for r := range results {
 		fmt.Fprintln(&output, r)
 		found++
 	}
-
 	if found == 0 {
 		output.WriteString("No active services identified.")
 	}
-
 	return output.String(), nil
+}
+
+// scanRange is the range to scan: the target the model named (under any of its aliases, validated), else the local subnet.
+func (n *NetworkTools) scanRange(args ScanArgs) (string, error) {
+	if target := scanTargetOf(args); target != "" {
+		if err := ValidateScanTargets(target); err != nil {
+			return "", err
+		}
+		return target, nil
+	}
+	_, subnet, err := n.getLocalSubnet()
+	if err != nil {
+		return "", fmt.Errorf("failed to detect local subnet: %w", err)
+	}
+	return subnet.String(), nil
+}
+
+// scanTargetOf is the first of the target field and its aliases (singular, "ip", "cidr") that the model filled in.
+func scanTargetOf(args ScanArgs) string {
+	for _, t := range []string{args.Targets, args.Target, args.IP, args.CIDR} {
+		if t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// scanPorts is the ports the model named, else 20 common ones in deep mode and 5 discovery ports otherwise.
+func scanPorts(args ScanArgs) []int {
+	if len(args.Ports) > 0 {
+		return args.Ports
+	}
+	if args.Mode == "deep" {
+		return []int{21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1723, 3306, 3389, 5900, 8080}
+	}
+	return []int{22, 80, 443, 8080, 3000}
+}
+
+// scanTimeout is the per-address wait: timeout_ms, else its alias "timeout", else half a second.
+func scanTimeout(args ScanArgs) time.Duration {
+	switch {
+	case args.TimeoutMs > 0:
+		return time.Duration(args.TimeoutMs) * time.Millisecond
+	case args.Timeout > 0:
+		return time.Duration(args.Timeout) * time.Millisecond
+	}
+	return 500 * time.Millisecond
+}
+
+// scanWorker probes the ports of each address it is given until jobs closes or ctx ends. Outside deep mode it reports
+// only the first open port per address.
+func (n *NetworkTools) scanWorker(ctx context.Context, plan scanPlan, jobs <-chan string, results chan<- string) {
+	for ip := range jobs {
+		for _, port := range plan.ports {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			if info, open := n.probePort(ctx, plan, ip, port); open {
+				results <- fmt.Sprintf("- %s:%d [%s]", ip, port, info)
+				if !plan.deep {
+					break
+				}
+			}
+		}
+	}
+}
+
+// probePort connects to one port and describes the service: its banner if it sends one, else the HTTP Server header.
+func (n *NetworkTools) probePort(ctx context.Context, plan scanPlan, ip string, port int) (string, bool) {
+	conn, err := plan.dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip, fmt.Sprintf("%d", port)))
+	if err != nil {
+		return "", false
+	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(plan.timeout))
+	banner := make([]byte, 256)
+	if bytesRead, _ := conn.Read(banner); bytesRead > 0 {
+		return serviceBanner(banner[:bytesRead]), true
+	}
+	return n.probeHTTP(ctx, ip, port), true
+}
+
+// serviceBanner is a service's greeting on one line, at most 64 characters.
+func serviceBanner(raw []byte) string {
+	info := strings.ReplaceAll(strings.TrimSpace(string(raw)), "\n", " ")
+	if len(info) > 64 {
+		info = info[:61] + "..."
+	}
+	return info
 }
 
 // probeHTTP tries to grab the 'Server' header for HTTP ports

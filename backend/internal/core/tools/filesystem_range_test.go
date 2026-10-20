@@ -242,3 +242,42 @@ func TestReadFileRange_AHugeFileIsReadByWindowAndAnEmptyFileIsFine(t *testing.T)
 		t.Errorf("empty file: %q, %v", got, err)
 	}
 }
+
+func TestValidateFileSystemPath_ExtensionPolicy(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfg := models.FileSystemGuardrailsConfig{Enabled: true, AllowedPaths: []string{dir}, AllowedExtensions: []string{".md", ".TXT"}}
+
+	cases := []struct {
+		name    string
+		path    string
+		write   bool
+		wantErr string
+	}{
+		{"allowed extension", "notes.md", false, ""},
+		{"extension case is ignored", "notes.txt", true, ""},
+		{"disallowed extension", "run.sh", false, "not allowed"},
+		{"a directory is not judged by extension", "sub", true, ""},
+		{"reading a file with no extension is allowed", "Makefile", false, ""},
+		{"writing a file with no extension is not", "Makefile", true, "not allowed"},
+	}
+	for _, c := range cases {
+		_, err := ValidateFileSystemPath(c.path, c.write, cfg)
+		if c.wantErr == "" && err != nil {
+			t.Errorf("%s: %v", c.name, err)
+		}
+		if c.wantErr != "" && (err == nil || !strings.Contains(err.Error(), c.wantErr)) {
+			t.Errorf("%s: got %v, want an error containing %q", c.name, err, c.wantErr)
+		}
+	}
+
+	open := models.FileSystemGuardrailsConfig{Enabled: true, AllowedPaths: []string{dir}}
+	if _, err := ValidateFileSystemPath("anything.exe", true, open); err != nil {
+		t.Errorf("with no extension list every extension is allowed: %v", err)
+	}
+	if _, err := ValidateFileSystemPath("../escape.md", false, cfg); err == nil {
+		t.Error("path rules still apply before the extension check")
+	}
+}
