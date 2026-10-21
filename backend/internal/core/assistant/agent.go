@@ -568,6 +568,16 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) {
 	if cfg.WorkloadClass != "" {
 		o.WorkloadClass = cfg.WorkloadClass
 	}
+	if cfg.LoopStrategy != "" {
+		o.LoopStrategy = ParseLoopStrategy(cfg.LoopStrategy)
+	}
+	o.applyGenerationConfig(cfg)
+	o.applyTimeoutConfig(cfg)
+	o.applyPlanAndGuardrailConfig(cfg)
+}
+
+// applyGenerationConfig copies the step, context, token and sampling overrides.
+func (o *AgentOptions) applyGenerationConfig(cfg models.ModelConfig) {
 	if cfg.MaxSteps > 0 {
 		o.MaxSteps = cfg.MaxSteps
 	}
@@ -593,6 +603,10 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) {
 	if cfg.Prefill != nil && *cfg.Prefill {
 		o.UsePrefill = true
 	}
+}
+
+// applyTimeoutConfig copies the run and tool timeout overrides.
+func (o *AgentOptions) applyTimeoutConfig(cfg models.ModelConfig) {
 	if cfg.TimeoutMinutes > 0 {
 		o.GlobalTimeout = time.Duration(cfg.TimeoutMinutes) * time.Minute
 	}
@@ -602,6 +616,10 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) {
 	if cfg.FilesystemToolTimeoutSeconds > 0 {
 		o.FilesystemToolTimeout = time.Duration(cfg.FilesystemToolTimeoutSeconds) * time.Second
 	}
+}
+
+// applyPlanAndGuardrailConfig copies the plan limit and guardrail overrides.
+func (o *AgentOptions) applyPlanAndGuardrailConfig(cfg models.ModelConfig) {
 	if cfg.MaxPlanDurationMinutes > 0 {
 		o.MaxPlanDuration = time.Duration(cfg.MaxPlanDurationMinutes) * time.Minute
 	}
@@ -616,9 +634,6 @@ func (o *AgentOptions) ApplyModelConfig(cfg models.ModelConfig) {
 	}
 	if cfg.GuardrailApprovalTimeoutSecs > 0 {
 		o.GuardrailApprovalTimeout = time.Duration(cfg.GuardrailApprovalTimeoutSecs) * time.Second
-	}
-	if cfg.LoopStrategy != "" {
-		o.LoopStrategy = ParseLoopStrategy(cfg.LoopStrategy)
 	}
 }
 

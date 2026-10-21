@@ -88,16 +88,7 @@ func (h *SystemHandlers) AdminSystemPutHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	if err := h.admin.ApplySystemUpdate(r.Context(), req); err != nil {
-		var notFound *models.ModelNotFoundError
-		if errors.As(err, &notFound) {
-			writeJSONError(w, http.StatusBadRequest, notFound.Error())
-			return
-		}
-		if models.IsSchedulerConfigError(err) || models.IsRemindersConfigError(err) {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err.Error())
+		writeSystemUpdateError(w, err)
 		return
 	}
 
@@ -110,25 +101,26 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err2 := h.admin.ApplySystemUpdate(r.Context(), req); err2 != nil {
-		var notFound *models.ModelNotFoundError
-		if errors.As(err2, &notFound) {
-			writeJSONError(w, http.StatusBadRequest, notFound.Error())
-			return
-		}
-		if models.IsSearchConfigError(err2) {
-			writeJSONError(w, http.StatusBadRequest, err2.Error())
-			return
-		}
-		if models.IsSchedulerConfigError(err2) || models.IsRemindersConfigError(err2) {
-			writeJSONError(w, http.StatusBadRequest, err2.Error())
-			return
-		}
-		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err2.Error())
+	if err := h.admin.ApplySystemUpdate(r.Context(), req); err != nil {
+		writeSystemUpdateError(w, err)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeSystemUpdateError answers a failed system update: a bad model name or an invalid search, scheduler or
+// reminders block is the caller's mistake (400); anything else is a server error (500).
+func writeSystemUpdateError(w http.ResponseWriter, err error) {
+	var notFound *models.ModelNotFoundError
+	switch {
+	case errors.As(err, &notFound):
+		writeJSONError(w, http.StatusBadRequest, notFound.Error())
+	case models.IsSearchConfigError(err) || models.IsSchedulerConfigError(err) || models.IsRemindersConfigError(err):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	default:
+		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err.Error())
+	}
 }
 
 // AdminRestartHandler handles POST /admin/api/system/restart
