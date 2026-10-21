@@ -90,6 +90,9 @@ async function mountChat(assistant: Awaited<ReturnType<typeof visit>>['assistant
 const userAnchors = (a: Awaited<ReturnType<typeof visit>>['assistant']) =>
   a.messages.value.filter((m) => m.role === 'user' && m.content === 'do the long task').length
 
+const toolCalls = (a: Awaited<ReturnType<typeof visit>>['assistant'], path: string) =>
+  a.messages.value.flatMap((m) => m.segments ?? []).filter((seg) => seg.kind === 'tool_call' && String(seg.args).includes(path)).length
+
 describe('returning to a chat whose run is still going', () => {
   beforeEach(async () => {
     vi.resetModules()
@@ -115,9 +118,6 @@ describe('returning to a chat whose run is still going', () => {
     await mountChat(second.assistant)
     expect(connections.filter((c) => c.open)).toHaveLength(1)
   })
-
-  const toolCalls = (a: Awaited<ReturnType<typeof visit>>['assistant'], path: string) =>
-    a.messages.value.flatMap((m) => m.segments ?? []).filter((seg) => seg.kind === 'tool_call' && String(seg.args).includes(path)).length
 
   it('shows each step of the running turn exactly once after leaving and opening it from the history list', async () => {
     const first = await visit()
@@ -228,9 +228,6 @@ describe('opening the chat panel while a run is going', () => {
 describe('a run the app has not been told about yet', () => {
   const running = { assistant_running: true, automation_running: false, assistant_conversation_id: 'run-1' }
   const onDisk = { id: 'run-1', history: [{ role: 'user', content: 'do the long task' }] }
-  const toolCalls = (a: Awaited<ReturnType<typeof visit>>['assistant'], path: string) =>
-    a.messages.value.flatMap((m) => m.segments ?? []).filter((seg) => seg.kind === 'tool_call' && String(seg.args).includes(path)).length
-
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()

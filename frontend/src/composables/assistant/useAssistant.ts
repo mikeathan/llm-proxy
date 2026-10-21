@@ -241,9 +241,15 @@ export function useAssistant() {
     // rebuild the turn — followed by live events. `loading` starts false so the
     // replayed session_started sets it (and would otherwise skip the anchor);
     // sse.reset() clears the dedup set so the replayed events are accepted.
-    const flaggedRunning = sessions.value.find(s => s.id === sessionId)?.running
-    if (flaggedRunning || await isRunningNow(workspaceId, sessionId)) {
-      reconcileRunningConversation(sessionId)
+    let runningNow = !!sessions.value.find(s => s.id === sessionId)?.running
+    if (!runningNow) {
+      loading.value = true // the check below is a request: the screen is busy, not showing a stale conversation as settled
+      if (await isRunningNow(workspaceId, sessionId)) {
+        reconcileRunningConversation(sessionId)
+        runningNow = true
+      }
+    }
+    if (runningNow) {
       currentSessionId.value = sessionId
       conversationProfile.value = ''
       messages.value = []

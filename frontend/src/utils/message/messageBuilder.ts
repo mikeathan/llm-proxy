@@ -325,6 +325,7 @@ export function useMessageBuilder(
         return
       case 'tool_call':
         if (phase.value === 'thinking' || phase.value === 'idle') setPhase('working')
+        resolvePendingNotices() // a retry that goes straight to a tool call has recovered too
         handleToolCall(getToolCallPayload(ev))
         streaming.value = false
         thinking.value = false
@@ -509,6 +510,7 @@ export function useMessageBuilder(
     paused.value = false
     liveReasoning.value = ''
     modelBusy.value = null
+    resolvePendingNotices() // a finished turn has nothing left to retry
     const m = assistantMessage()
     if (m) {
       m.content = reasoningCommitted

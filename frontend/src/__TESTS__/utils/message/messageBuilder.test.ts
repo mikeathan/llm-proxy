@@ -359,6 +359,21 @@ describe('useMessageBuilder stuck_detected lifecycle', () => {
     expect(order.indexOf('reasoning')).toBeLessThan(order.indexOf('notice'))
   })
 
+  it('resolves the notice when the restart goes straight to a tool call, or the turn ends', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.handleEvent(reasoning('thinking'))
+    builder.handleEvent(stuck())
+    builder.handleEvent({ type: 'tool_call', payload: { id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{}' } } as unknown as AgentEvent['payload'] })
+    const notice = segmentsOf(messages).find((s) => s.kind === 'notice')
+    expect(notice?.kind === 'notice' && notice.status).toBe('resolved')
+
+    builder.handleEvent(stuck())
+    builder.finalize('answer')
+    const pending = segmentsOf(messages).filter((s) => s.kind === 'notice' && s.status === 'pending')
+    expect(pending).toHaveLength(0)
+  })
+
   it('does nothing visible on a turn that already finished', () => {
     const messages = ref<AssistantMessage[]>([])
     const builder = useMessageBuilder(messages)
