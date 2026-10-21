@@ -665,3 +665,33 @@ func TestScheduler(t *testing.T) {
 		}
 	})
 }
+
+// Close must stop each lane admitting work before it cancels the running jobs. A job that finishes in between frees
+// its slot, and a lane that is still open then grants that slot to a queued claim: the claim holds a slot nobody is
+// going to release, the lane never drains, and Close waits for it for ever. The root context is therefore cancelled
+// only after every lane is closed (a timing-dependent hang seen on CI: Close, scheduler.go, under -race).
+func TestScheduler_CloseClosesTheLanesBeforeCancellingTheRootContext(t *testing.T) {
+	s := New(Limits{Local: 1, Cloud: 1}, false)
+	s.Start(t.Context())
+
+	s.mu.Lock()
+	cancelRoot := s.rootCancel
+	s.rootCancel = func() {
+		for key, l := range s.lanes {
+			l.mu.Lock()
+			closed := l.closed
+			l.mu.Unlock()
+			if !closed {
+				t.Errorf("lane %s is still open when the root context is cancelled", key)
+			}
+		}
+		cancelRoot()
+	}
+	s.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.Close(ctx); err != nil {
+		t.Fatalf("Close = %v", err)
+	}
+}

@@ -185,15 +185,19 @@ func (s *Scheduler) Close(ctx context.Context) error {
 	// instead of telling it the scheduler is shutting down (ErrClosed).
 	s.closeModelGate()
 
+	// Close every lane before cancelling the root context, for the same reason: a job that finishes in between frees
+	// its slot, and a lane still open would grant that slot to a queued claim, which nobody releases, so the lane
+	// would never drain and Close would wait for it for ever. A closed lane admits nothing and also cancels what runs.
+	for _, key := range s.order {
+		s.lanes[key].close()
+	}
+
 	s.mu.Lock()
 	if s.rootCancel != nil {
 		s.rootCancel()
 	}
 	s.mu.Unlock()
 
-	for _, key := range s.order {
-		s.lanes[key].close()
-	}
 	for _, key := range s.order {
 		select {
 		case <-s.lanes[key].drained:
