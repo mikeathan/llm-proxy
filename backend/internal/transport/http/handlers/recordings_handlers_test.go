@@ -174,7 +174,7 @@ func TestRecordingContent_ServesOldRecordingsMaskedThroughTheServersRouter(t *te
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"type":"request","messages":[{"role":"user","content":"my key is ` + key + `"}],"tools":[{"function":{"name":"read_file"}}]}`
+	line := `{"type":"request","messages":[{"role":"user","content":"my key is ` + key + `"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"type":"object"}}}]}`
 	if err := os.WriteFile(filepath.Join(dir, "recording.jsonl"), []byte(line+"\n"+`{"type":"done"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -195,5 +195,12 @@ func TestRecordingContent_ServesOldRecordingsMaskedThroughTheServersRouter(t *te
 	}
 	if !strings.Contains(body, `"read_file"`) || strings.Count(body, "\n") != 1 {
 		t.Errorf("the request must come back whole and alone: %s", body)
+	}
+	// What was sent is what is shown: the arguments are in the order the tool lists them, not sorted.
+	if !(strings.Index(body, `"path"`) < strings.Index(body, `"offset"`) && strings.Index(body, `"offset"`) < strings.Index(body, `"limit"`)) {
+		t.Errorf("the recording must keep the tool's argument order: %s", body)
+	}
+	if !strings.HasPrefix(body, `{"type":"request","messages"`) {
+		t.Errorf("top-level keys must keep the order they were written in: %.80s", body)
 	}
 }

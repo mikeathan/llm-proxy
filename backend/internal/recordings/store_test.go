@@ -118,3 +118,36 @@ func TestRecordingStore_Refresh(t *testing.T) {
 		t.Fatalf("expected 1 entry after refresh, got %d", len(list))
 	}
 }
+
+// A run folder holds events.jsonl (the event stream, tens of MB for a long run) next to recording.jsonl; only the latter is
+// a recording, and listing both doubled every run in the API.
+func TestRecordingStore_ListsRecordingsAndNotEventStreams(t *testing.T) {
+	root := t.TempDir()
+	run := filepath.Join(root, "ws", "model-a", "conv_1", "20261020T190000Z_abc")
+	if err := os.MkdirAll(run, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"recording.jsonl", "events.jsonl", "run-meta.json"} {
+		if err := os.WriteFile(filepath.Join(run, name), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFixture(t, root, "model-b", "task", "20261020T180000Z_run_def.jsonl")
+
+	store, err := NewRecordingStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, m := range store.List() {
+		names = append(names, filepath.Base(m.FilePath))
+	}
+	if len(names) != 2 {
+		t.Fatalf("want the nested recording and the flat one, got %v", names)
+	}
+	for _, n := range names {
+		if n == "events.jsonl" {
+			t.Errorf("an event stream is not a recording: %v", names)
+		}
+	}
+}

@@ -101,8 +101,8 @@ func TestRedactJSONLines_MasksEveryStringAndKeepsTheStructure(t *testing.T) {
 	if !strings.Contains(got, `"n":12.50`) {
 		t.Errorf("numbers must keep their text: %s", got)
 	}
-	if !strings.Contains(got, `{"total_chunks":3,"type":"done"}`) {
-		t.Errorf("a line with nothing to mask keeps its content: %s", got)
+	if !strings.Contains(got, `{"type":"done","total_chunks":3}`) {
+		t.Errorf("a line with nothing to mask comes back as it was, key order included: %s", got)
 	}
 	if strings.Count(got, "\n") != 2 {
 		t.Errorf("every line keeps its newline: %q", got)
@@ -139,5 +139,31 @@ func TestRedactJSONLines_EdgeCases(t *testing.T) {
 	html := RedactJSONLines([]byte(`{"a":"x <tag> & y"}`+"\n"), maskSecret)
 	if !strings.Contains(string(html), `<tag> &`) {
 		t.Errorf("text is not HTML-escaped when written back: %q", html)
+	}
+}
+
+// The point of the endpoint is to show what was sent, and a model writes a call in the order a schema lists its arguments
+// (the order of tool properties decided whether read_file's offset was used), so masking must not reorder anything.
+func TestRedactJSONLines_PreservesKeyOrderAndNumberText(t *testing.T) {
+	line := `{"type":"request","model":"m","messages":[{"role":"user","content":"hi SECRET-123"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"],"type":"object"}}}],"temperature":0.10,"n":1e3,"z":{"b":1,"a":2}}`
+	got := string(RedactJSONLines([]byte(line+"\n"), maskSecret))
+	want := strings.Replace(line, "SECRET-123", "[REDACTED]", 1) + "\n"
+	if got != want {
+		t.Errorf("only the secret may change:\n got  %s\n want %s", got, want)
+	}
+}
+
+func TestRedactJSONLines_KeepsEscapesAndUnicodeReadable(t *testing.T) {
+	line := `{"a":"line1\nline2 \"q\" \\ tab\t caf\u00e9 日本","b":"<x> & y"}`
+	got := string(RedactJSONLines([]byte(line), maskSecret))
+	var v map[string]string
+	if err := json.Unmarshal([]byte(got), &v); err != nil {
+		t.Fatalf("still JSON: %v: %s", err, got)
+	}
+	if v["a"] != "line1\nline2 \"q\" \\ tab\t café 日本" || v["b"] != "<x> & y" {
+		t.Errorf("values changed: %q", v)
+	}
+	if !strings.Contains(got, `<x> & y`) {
+		t.Errorf("text is not HTML-escaped when written back: %s", got)
 	}
 }
