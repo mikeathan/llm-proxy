@@ -1,9 +1,9 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.5"
+version: "1.6"
 status: stable
-last_updated: 2026-10-20
+last_updated: 2026-10-22
 constitution_references: [II.3]
 related_specs: [SPEC-001]
 supersedes:
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **1.6 (2026-10-22)** — An approval covers the call the user was shown, not the tool. "Allow once" (and an "Allow and
+  remember" with nothing to remember) used to mark the whole tool for 30 minutes: every other command, path or query in
+  that workspace then skipped the guardrails, the secret check included. `MarkApproved` now records the tool with the
+  exact arguments (a SHA-256 of them, compared byte for byte), so a different call is asked about again. The tool-level
+  mark remains only as the schema-visibility signal for a policy-disabled tool (`DisabledToolNames`), where it grants
+  no call. Allow and remember still saves the rule to the workspace config as before.
 - **1.5 (2026-10-20)** — `read_file` can read a long file in pieces: optional `offset` and `limit` (bytes, numbers or numeric text),
   each piece ending with the offset to continue from and sized so that, JSON-encoded, it fits the result cap and is not cut
   again. Without them a long file is still returned as its start and end, and the message now names the real way to read the
@@ -117,7 +123,7 @@ When a tool call is blocked:
 2. `onGuardrail` callback registers a channel in `GuardrailDecisionStore` + publishes SSE event. The event is stamped with the **producer's channel** (`ChannelAssistant` for chat, `ChannelAutomation` for runs): the event bus partitions by channel and defaults empty to `automation`, so an assistant approval without a channel never reaches the assistant SSE and the chat shows no banner while the backend waits the full timeout.
 3. Agent blocks on channel for up to `GuardrailApprovalTimeout` (default 5 min, per-model configurable via `guardrail_approval_timeout_seconds`) waiting for user decision.
 4. User approves/denies via `POST /admin/api/conversation/guardrail-decision` (the `GuardrailBanner` component posts directly; the assistant chat wires `@allow/@deny` to `submitDecision`, mirroring the automation console).
-5. If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`.
+5. If approved with `persist: true` → `PersistOverride()` writes to workspace `config.yaml`. Either way the approved call (tool + exact arguments) passes for 30 minutes in that workspace (`MarkApproved`); no other call does.
 6. Agent continues or fails based on decision.
 
 **Automation runs never wait for approval** (Constitution II.10): the

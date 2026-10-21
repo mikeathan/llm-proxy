@@ -2,6 +2,8 @@ package guardrails
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core"
@@ -196,9 +198,10 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 		return err
 	}
 
-	// Fast path: check in-memory override cache first — avoids the file I/O race
-	// between PersistOverride writing and this function reading the updated config.
-	if workspaceID != "" && e.hasOverride(workspaceID, call.Function.Name) {
+	// Fast path: a call the user approved just now passes without waiting for the config file write (the file I/O
+	// race between PersistOverride and this function). It matches the exact call, never the tool: "allow once" must
+	// not leave every other command or path open for the TTL.
+	if workspaceID != "" && e.hasApproval(workspaceID, call) {
 		return nil
 	}
 
@@ -511,18 +514,35 @@ func containsString(list []string, want string) bool {
 	return false
 }
 
-// hasOverride checks the in-memory override cache for a (workspaceID, toolName) pair.
-// Uses toolName (e.g. "notify_user") as the key suffix so ValidateToolCall can check
-// without needing to derive the category.
+// hasOverride checks the in-memory override cache for a (workspaceID, toolName) pair. It answers only whether the tool
+// stays visible in the schema (DisabledToolNames); whether a call may run is hasApproval.
 func (e *GuardrailEngine) hasOverride(workspaceID, toolName string) bool {
 	return e.overrideCache.Contains(workspaceID + "/" + toolName)
 }
 
-// MarkOverride stores an in-memory guardrail approval for the given
-// (workspaceID, toolName) so subsequent tool calls in the same session
-// skip the guardrail check without waiting for the config file write.
-// Uses toolName (not category) to match the key format in hasOverride.
+// MarkOverride keeps a policy-disabled tool in the schema a run sees for the override TTL. It does not let any call
+// through the guardrails: that is MarkApproved.
 func (e *GuardrailEngine) MarkOverride(workspaceID, toolName string) {
 	e.ensureReaper()
 	e.overrideCache.Put(workspaceID+"/"+toolName, struct{}{})
+}
+
+// MarkApproved records the user's approval of one call: this tool with these exact arguments, in this workspace, for
+// the override TTL, so the retry of the step they approved passes before a config write lands. It also keeps the tool
+// visible (MarkOverride). A different command, path or query is a different call and is asked about again.
+func (e *GuardrailEngine) MarkApproved(workspaceID string, call proxy.ToolCall) {
+	e.MarkOverride(workspaceID, call.Function.Name)
+	e.overrideCache.Put(approvalKey(workspaceID, call), struct{}{})
+}
+
+func (e *GuardrailEngine) hasApproval(workspaceID string, call proxy.ToolCall) bool {
+	return e.overrideCache.Contains(approvalKey(workspaceID, call))
+}
+
+// approvalKey names one approved call. The arguments are hashed (they can be a whole file body) and compared
+// byte for byte, so a retry with reformatted arguments is a new call and is asked about again. The "#" cannot appear
+// in a tool name, so a call key never equals a visibility key.
+func approvalKey(workspaceID string, call proxy.ToolCall) string {
+	sum := sha256.Sum256([]byte(call.Function.Arguments))
+	return workspaceID + "/" + call.Function.Name + "#" + hex.EncodeToString(sum[:])
 }
