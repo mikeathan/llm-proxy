@@ -123,6 +123,8 @@ The note is written **only when the run can read the file back** (R1).
 3. **"Clear runtime data" and factory reset:** clear chat reports with the sessions; keep automation reports.
 4. **Read-only workspaces:** no saving when the filesystem guardrail is `ReadOnly`; keep today's cut and log why.
 5. **Size-warning default:** set from the measured growth per fetch (Wikipedia and weather fixtures), then confirmed.
+6. **Open (2026-10-21): folder name.** `reports/` collides with the user's own convention (see Phase 1, step 1). Options: keep
+   `reports/<automation>/` and accept the mix, or use a distinct name such as `saved/<automation>/`.
 
 ## 5. Phases (riskiest first; each ends in a check)
 
@@ -172,10 +174,31 @@ correct; five-city no worse than 60 s and 5 fetches; weather and news answers an
 `internet_search` mostly gone, `cached_tokens`, and how often the sieve fires; the next nightly `daily-llm-news` run compared with its
 history.
 
+**Live acceptance result (Vertex v0.8.39, Qwen3.6 16k, 2026-10-21).** Whole-file question 8 of 8 complete, each in one read and 2 model
+calls (4 of 8 before); Budget question 3 of 3; five-city 57.5 s and 57.7 s with 5 fetches (60 s before); weather 42–48 s with 2 calls
+(51–64 s, 4–8 calls before; part of that may be model variation); news 154 s and 191 s, both answered (no earlier baseline for this
+question). `tool result cut` lines: 17, **all `internet_search`**, 5.4–7.3 KB results kept at 3000 (13 of 17) or 4124–4360 (4 of 17), so
+the "mostly gone" expectation did not hold for search on a 16k model; the whole-file fix comes from `read_file`. `fetch_url` cuts are
+**not** in that count (the tool cuts its own output before `appendToolResult` logs). `cached_tokens` were 44% of prompt tokens over 42 calls
+(no earlier figure). The sieve fired 5 times across the window (not attributed per run). Still open: the next nightly `daily-llm-news` run.
+
 ### Phase 1 — automation spill
 
-- Step 1 (read-only): check `AutomationRun.Output` storage/caps and the reaper's effect on `state.json` history; check the
-  shipped task templates for `reports/` collisions.
+- Step 1 (read-only) — **done 2026-10-21**:
+  - `AutomationRun.Output` is the full final report with a short header (`executor.go:508-510`), not cut. It is stored in
+    `state.json`, where `AgentState.History` keeps only the last `MaxStateHistory = 30` runs (`models/workspace.go`), and
+    `LastRuns[automation]` holds only the latest run of each automation. A run's older report is therefore lost when the
+    same automation runs again and, for a frequent automation (a heartbeat), from `History` within a day. The run folder
+    also keeps `final-report.md` (`rundir.WriteFinalReport`), but only when run logging is on and only for the 30-day reaper's
+    window. So the answer to §4.2 is **yes, a final report can be lost**; keeping final reports is a separate need from saving
+    cut tool results and is not solved by this phase unless the scope says so.
+  - **Name collision:** `reports/` is already a user convention. `prompts/AGENTS.md:5` gives "reports go in reports/" as the example
+    of a workspace preference, and tests use `reports/scan.txt`. Saved raw pages next to a user's own reports would mix two kinds
+    of file; the manifest protects deletion but not the listing. Decide the folder name before building (open decision 6).
+  - The journal (`tools/automation_journal.go`) is the existing cross-run channel: its text is capped and sanitised
+    (`models.SanitizeJournal`). R7 should reuse that injection point, not add a second one.
+  - Not checked yet: whether a real automation's toolset (e.g. `daily-llm-news`) includes `fetch_url` and `read_file`, which
+    decides whether R1 would ever allow saving there.
 - Build: the save target and writer interface (R1, R6), `reports/<automation>/`, the manifest (written with the existing
   `WorkspaceManager` atomic-write and locking pattern), R2–R3, R7 (the task's list of saved reports), the first-line note (§3.1),
   the optional section map. Update `docs/data-layout.md` and SPEC-006/007 in this phase.
@@ -287,4 +310,4 @@ without any extra latching) and the persisted result is the stub. Nothing is los
 
 ## Remaining Work
 
-Phase A (adaptive cap, before Phase 1) and Phases 1–6. Phase 0 is built (#99, #100, #101); the live check of the gap marker is open. Decisions in §4 are made. Next: Phase 1 step 1 (read-only checks). Phase 6 waits for Phases 1–2.
+Phases 1–6. Phase 0 is built and live-checked (#99–#102); Phase A is built (#106) and passed its live acceptance (above), except the next nightly `daily-llm-news` comparison. Phase 1 step 1 is done (findings above); decisions in §4 are made except item 6 (folder name). Next: decide item 6, check a real automation's toolset for R1, then build Phase 1. Phase 6 waits for Phases 1–2.
