@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.15"
+version: "1.16"
 status: stable
-last_updated: 2026-10-17
+last_updated: 2026-10-21
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -12,6 +12,11 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.16 (2026-10-21)** — Saved final reports (§II.5). A finished run that produced a report keeps it as a file in the workspace,
+  `reports/<automation>/<start time>-<run id>.md`, so the next run of the same automation no longer replaces it and the
+  30-run history no longer drops it. A quiet heartbeat and a run with no reply save nothing. Credential-shaped text is
+  masked first. No reaper touches these files.
 
 - **1.15 (2026-10-17)** — An automation has a `profile` (SPEC-012): its behaviour block, loop policy and tool set; empty runs
   the Task runner, the heartbeat runs Watcher. `allowed_tools` still narrows the profile's tools. The automation's system
@@ -151,6 +156,17 @@ Each run produces:
   In-RAM capture per run is bounded to the most recent 500 events (the full stream lives in
   `events.jsonl`); `recordRun` drops the older slice to bound memory under concurrent long runs.
 - `recording.jsonl` — LLM request/response recordings (when `--record` is active).
+
+**Saved final report.** Besides the run folder (which the 30-day reaper clears and which exists only with run logging on),
+a run that ends with a report writes it to the workspace: `reports/<automation>/<UTC start time>-<run id>.md`
+(`persistence.WorkspaceManager.WriteReport`, called from `handleAgentSuccess`). The file holds the report as the UI shows
+it (a reply wrapped whole in a code fence is unwrapped; no run header) after `tools.RedactForRecording`. The folder is
+inside the workspace, so the Files page and the agent's `read_file` open it like any file; the automation name and run id
+are reduced to one safe path segment. Not saved: a failed run, a run with no reply, a quiet heartbeat. A write failure is
+logged and does not fail the run. Reports are never overwritten by a later run and nothing deletes them
+automatically; deleting an automation or its runs leaves them (operator purge is planned, see
+`docs/PLANS/agent-loop/large-result-storage.md`). They are model output derived from web content and a later run can read
+them, so treat them as untrusted data, like the journal.
 
 ### 6. Result Delivery (`notify`)
 

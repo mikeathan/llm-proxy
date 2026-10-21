@@ -1217,6 +1217,26 @@ func TestListAutomations_ExposesLastWarnings(t *testing.T) {
 	}
 }
 
+// The saved report of the latest run is exposed beside last_output, so the UI can link to the file.
+func TestListAutomations_ExposesLastReportPath(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	entry := &automation.AutomationEntry{ID: "ws/nightly", Workspace: "ws", Name: "nightly", TaskFile: "task.md"}
+	entry.Trigger, _ = automation.New(models.TriggerConfig{Type: models.TriggerManual})
+	entry.Strategy = &automation.IsolatedStrategy{}
+	handlers := NewDispatcherHandlers(&listDispatcher{testDispatcher: &testDispatcher{mgr: mgr}, entries: []*automation.AutomationEntry{entry}},
+		NewWorkspaceService(mgr), logging.NewNopLogger())
+	last := &models.AutomationRun{ID: "run_1", AutomationName: "nightly", Output: "report", ReportPath: "reports/nightly/20261021T070000Z-run_1.md"}
+	if err := mgr.WriteState("ws", &models.AgentState{LastRuns: map[string]*models.AutomationRun{"nightly": last}}); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	handlers.ListAutomations(rr, httptest.NewRequest("GET", "/admin/api/dispatcher/automations", nil))
+	if !strings.Contains(rr.Body.String(), `"last_report_path":"reports/nightly/20261021T070000Z-run_1.md"`) {
+		t.Fatalf("last_report_path missing: %s", rr.Body.String())
+	}
+}
+
 // A trigger the scheduler cannot read must be refused before anything is
 // saved: a stored bad trigger fails every later re-registration of its
 // workspace and keeps the automations after it from being scheduled.

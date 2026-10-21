@@ -47,6 +47,9 @@ An older install may still have a `templates/` directory (and a `.shipped.json` 
   files the agent creates. They are kept **outside** the data root so they never
   sit beside `master.key`/`secrets.json`, and `wipeout`/`factory-reset`/
   `clear-runtime-data` never touch them.
+- `reports/{automation}/{start time}-{run id}.md` — the final report of each finished automation run, written by the
+  system (not the agent) so it outlives the 30-run history in `state.json` and the 30-day `runs/` reaper. Quiet heartbeats
+  and runs with no reply write nothing. Nothing removes these files automatically.
 - The per-workspace `meta/` (config, state, lock, process.log, heartbeat-status.json) and `sessions/`
   still live under `{root}/meta/{workspaceID}/`, separate from these files.
 

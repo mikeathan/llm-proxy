@@ -61,6 +61,17 @@ describe('AutomationDetails', () => {
     document.body.innerHTML = ''
   })
 
+  it('links the last result to its saved report file', async () => {
+    const w = await mountDetails({ automation: { ...AUTO, last_report_path: 'reports/nightly/20261021T070000Z-run_1.md' } })
+    const link = w.get('a[aria-label="Open saved report"]')
+    expect(decodeURIComponent(link.attributes('href')!)).toBe('/workspaces/ws/files/reports/nightly/20261021T070000Z-run_1.md')
+  })
+
+  it('shows no saved-report link when the last run kept none', async () => {
+    const w = await mountDetails()
+    expect(w.find('a[aria-label="Open saved report"]').exists()).toBe(false)
+  })
+
   it('says what memory the runs get: an override as itself, an inherited value as the default', async () => {
     const memoryLine = async (memory_mode: Automation['memory_mode']) => {
       const w = await mountDetails({ automation: { ...AUTO, memory_mode } })

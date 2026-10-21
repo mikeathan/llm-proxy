@@ -13,6 +13,7 @@ import CopyButton from "../../common/display/CopyButton.vue";
 import MicroLabel from "../../common/display/MicroLabel.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import ExecutionAuditTrail from "./ExecutionAuditTrail.vue";
+import SavedReportLink from "./SavedReportLink.vue";
 
 // One finished automation run: outcome, the event trail, its error and its
 // report. Shown in a drawer (Activity, Automations) or a page panel
@@ -121,6 +122,9 @@ async function handleClearRuns() {
         <MicroLabel>Final report</MicroLabel>
         <CopyButton :text="run.output" title="Copy report" />
       </span>
+      <p v-if="run.report_path && run.workspace_id" class="m-0 flex flex-wrap items-baseline gap-2 text-[length:var(--text-small)] text-muted">
+        Saved as <SavedReportLink :workspace-id="run.workspace_id" :path="run.report_path" />
+      </p>
       <div class="border border-hairline bg-canvas p-3">
         <MarkdownViewer :content="run.output" />
       </div>

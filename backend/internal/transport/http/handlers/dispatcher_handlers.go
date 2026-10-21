@@ -214,6 +214,8 @@ type AutomationInfo struct {
 	LastError    string `json:"last_error,omitempty"`
 	// LastWarnings are the latest run's non-fatal problems, e.g. a report that could not be delivered.
 	LastWarnings []string `json:"last_warnings,omitempty"`
+	// LastReportPath is the workspace path of the latest run's saved final report, for a link to the file.
+	LastReportPath string `json:"last_report_path,omitempty"`
 	// NextRunAt is when the scheduler will next fire it (server clock, RFC 3339); absent for a manual automation.
 	NextRunAt time.Time `json:"next_run_at,omitzero"`
 	IsRunning bool      `json:"is_running"`
@@ -284,6 +286,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 				info.LastOutput = last.Output
 				info.LastError = last.Error
 				info.LastWarnings = last.Warnings
+				info.LastReportPath = last.ReportPath
 			}
 			info.IsRunning = state.ActiveAutomation == entry.Name
 		}

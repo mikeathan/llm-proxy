@@ -17,6 +17,7 @@ import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
 import { toWorkspaceFile } from "../../../router/routes";
+import SavedReportLink from "./SavedReportLink.vue";
 import Panel from "../../common/layout/Panel.vue";
 import DataTable from "../../common/display/DataTable.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
@@ -209,8 +210,11 @@ const runKey = (run: AutomationRun) => run.id;
         <pre class="m-0 whitespace-pre-wrap break-words font-mono text-[length:var(--text-small)] text-state-error">{{ automation.last_error }}</pre>
       </div>
       <div v-if="automation.last_output" class="flex flex-col gap-1">
-        <span class="flex justify-end">
-          <CopyButton :text="automation.last_output" title="Copy last output" />
+        <span class="flex items-baseline justify-between gap-2">
+          <span v-if="automation.last_report_path" class="flex min-w-0 flex-wrap items-baseline gap-2 text-[length:var(--text-small)] text-muted">
+            Saved as <SavedReportLink :workspace-id="automation.workspace" :path="automation.last_report_path" />
+          </span>
+          <CopyButton :text="automation.last_output" title="Copy last output" class="ml-auto" />
         </span>
         <MarkdownViewer :content="automation.last_output" />
       </div>
