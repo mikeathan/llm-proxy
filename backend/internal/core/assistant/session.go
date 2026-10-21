@@ -42,6 +42,9 @@ const (
 	// model immediately after a tool result before forcing a tools-disabled
 	// finalization turn. Re-armed on every successful tool turn.
 	postToolNudgeMax = 2
+	// loopCutNagMax is how many reasoning-loop cuts per stretch of progress go straight to the nag recovery, with the
+	// native tools offered, before the retry chain (XML retry, non-streaming call) is used as it always was.
+	loopCutNagMax = 1
 
 	// lengthContinuationMax bounds how many times a finish_reason="length"
 	// final answer is nudged to continue where it left off before the partial
@@ -101,6 +104,11 @@ type recoveryState struct {
 	// a model that emits empty responses after running tools is nudged
 	// repeatedly until it produces a report.
 	postToolNudgeCount int
+	// intentNudges counts the nudges sent after a turn that only announced its next action (unfulfilledIntentMax);
+	// it re-arms with every successful tool turn like the other recovery counters.
+	intentNudges int
+	// loopCutNags counts the loop cuts routed to the nag recovery instead of the retry chain (loopCutNagMax).
+	loopCutNags int
 }
 
 // reset clears the recovery streaks. hardCapTriggered lives outside this
@@ -1104,6 +1112,16 @@ func (s *runSession) handleTextTurn(turnMsg proxy.Message, parseErr *proxy.Parse
 	// When parseErr has XMLFound, the model attempted a tool call but failed —
 	// do not treat accompanying plan text as a final answer.
 	if parseErr == nil || !parseErr.XMLFound {
+		// A turn that ends by announcing an action it did not take ("Let me fetch the pricing page") is not a report:
+		// keep it, and nudge the model to make the call, or to finish if it already has what it needs.
+		if s.intentGuardApplies() && endsWithUnfulfilledIntent(stripThinkBlocks(turnMsg.Content)) && len(turnMsg.ToolCalls) == 0 {
+			s.recovery.intentNudges++
+			s.agent.deps.Logger.Warn("turn ended on an announced action with no tool call, nudging", "nudge", s.recovery.intentNudges)
+			s.history = append(s.history, turnMsg)
+			s.agent.notify(EventMessage, turnMsg)
+			s.history = append(s.history, proxy.Message{Role: proxy.UserRole, Content: prompts.UnfulfilledIntentNudge})
+			return false, "", nil
+		}
 		if content, ok := checkTaskCompletion(turnMsg, s.history, s.agent.config.Profile.AnswerFirst); ok {
 			s.history = append(s.history, turnMsg)
 			s.agent.notify(EventMessage, turnMsg)
