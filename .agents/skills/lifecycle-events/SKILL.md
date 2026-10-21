@@ -75,6 +75,13 @@ Published periodically on the heartbeat cadence (`streamHeartbeatInterval` / `no
 - **Sender:** `core.Heartbeat` (see `core/heartbeat.go`), consumed in `processStream` (stream) and `computeNextResponseNonStreaming` (non-stream `wait` wrapper) in `stream.go`
 - **Purpose:** keeps the UI bubble alive (shows `· Ns` elapsed) during a long provider TTFT or silent stall, so the user never sees a dead/blank bubble. Status-only like `agent_thinking` — carries no content. Frontend treats it like `agent_thinking` but idempotent from `idle` ONLY (a completed turn must not re-enter thinking).
 
+### `stuck_detected`
+
+Published when the backend aborts a stream that is looping in its thinking (`reasoning_chars`, `empty_tool_calls`) and asks the model again (`stream.go`, `abortStreamAsStuck`).
+
+- **Payload:** `phase`, `reasoning_chars`, `empty_tool_calls` (the repetition guard sends its own `extra`)
+- **Purpose:** the frontend (`handleStuckRestart` in `messageBuilder.ts`) keeps the reasoning that already streamed and shows a pending "The model got stuck thinking — trying again" notice, resolved when the restarted stream resumes. Without it the turn emptied with no explanation.
+
 ## Upstream Retry Notices
 
 `type: upstream` events surface a transient upstream LLM failure that is being retried, so the UI shows why a turn is paused instead of a silent multi-minute stall. Observational only — the retry/backoff policy is unchanged.

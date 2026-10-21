@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.17"
+version: "1.18"
 status: stable
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -13,6 +13,11 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.18 (2026-10-22)** — Saved reports are bounded (§II.5). `WriteReport` keeps an automation's newest
+  `MaxSavedReports` (200, the same figure the list shows) and removes the older ones after each write; only files
+  `WriteReport` could have made are ever removed (a user's note, a sub-folder or an oddly named file stays), and a failed
+  prune is logged and never fails the run. A count rather than an age bounds the folder for any schedule. Deleting an
+  automation or clearing its runs still leaves its saved reports: they are deliverables, not run history.
 - **1.17 (2026-10-21)** — Saved reports in the UI (§II.5). A run's history entry carries `report_path`; the automation list
   carries `last_report_path`; `GET /admin/api/dispatcher/workspaces/{ws}/automations/{automation}/reports` lists the
   saved reports (`{reports: [{path, run_id, started_at, size_bytes}], truncated}`, newest first, at most 200). The
@@ -21,7 +26,7 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 - **1.16 (2026-10-21)** — Saved final reports (§II.5). A finished run that produced a report keeps it as a file in the workspace,
   `reports/<automation>/<start time>-<run id>.md`, so the next run of the same automation no longer replaces it and the
   30-run history no longer drops it. A quiet heartbeat and a run with no reply save nothing. Credential-shaped text is
-  masked first. No reaper touches these files.
+  masked first. No reaper touches these files (1.18: an automation keeps its newest 200 reports).
 
 - **1.15 (2026-10-17)** — An automation has a `profile` (SPEC-012): its behaviour block, loop policy and tool set; empty runs
   the Task runner, the heartbeat runs Watcher. `allowed_tools` still narrows the profile's tools. The automation's system
@@ -168,10 +173,10 @@ a run that ends with a report writes it to the workspace: `reports/<automation>/
 it (a reply wrapped whole in a code fence is unwrapped; no run header) after `tools.RedactForRecording`. The folder is
 inside the workspace, so the Files page and the agent's `read_file` open it like any file; the automation name and run id
 are reduced to one safe path segment. Not saved: a failed run, a run with no reply, a quiet heartbeat. A write failure is
-logged and does not fail the run. Reports are never overwritten by a later run and nothing deletes them
-automatically; deleting an automation or its runs leaves them (operator purge is planned, see
-`docs/PLANS/agent-loop/large-result-storage.md`). They are model output derived from web content and a later run can read
-them, so treat them as untrusted data, like the journal.
+logged and does not fail the run. A later run never overwrites an earlier report; writing one
+removes the automation's reports beyond the newest `MaxSavedReports` (200) and nothing else deletes them. Deleting an
+automation or its runs leaves them (an operator removes the rest from the Files page). They are model output derived from
+web content and a later run can read them, so treat them as untrusted data, like the journal.
 
 **Listing and reading** (`WorkspaceManager.ListReports`): the list holds only files `WriteReport` could have made (a note a
 user dropped in the folder, a sub-folder, or a badly named file is skipped), newest first by the start time in the file name,

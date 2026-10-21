@@ -44,6 +44,7 @@ const service = {
   deleteSession: vi.fn(),
   cancelAgent: vi.fn(),
   submitGuardrailDecision: vi.fn(),
+  getActiveRuns: vi.fn(),
 }
 vi.mock('../../../services/assistant/assistantService', () => ({ AssistantService: service }))
 const banner = { show: vi.fn(), clear: vi.fn() }
@@ -89,6 +90,9 @@ async function mountChat(assistant: Awaited<ReturnType<typeof visit>>['assistant
 const userAnchors = (a: Awaited<ReturnType<typeof visit>>['assistant']) =>
   a.messages.value.filter((m) => m.role === 'user' && m.content === 'do the long task').length
 
+const toolCalls = (a: Awaited<ReturnType<typeof visit>>['assistant'], path: string) =>
+  a.messages.value.flatMap((m) => m.segments ?? []).filter((seg) => seg.kind === 'tool_call' && String(seg.args).includes(path)).length
+
 describe('returning to a chat whose run is still going', () => {
   beforeEach(async () => {
     vi.resetModules()
@@ -98,6 +102,7 @@ describe('returning to a chat whose run is still going', () => {
     recent = runSoFar()
     service.listSessions.mockResolvedValue([{ id: 'run-1', snippet: 'do the long task', updated_at: '2026-10-01T10:00:00Z' }])
     service.getSession.mockResolvedValue(null) // not on disk yet: a first turn that is still running
+    service.getActiveRuns.mockResolvedValue({ assistant_running: false, automation_running: false, assistant_conversation_id: '' })
   })
 
   it('stops the first visit listening when the chat unmounts, so only one live connection remains', async () => {
@@ -113,9 +118,6 @@ describe('returning to a chat whose run is still going', () => {
     await mountChat(second.assistant)
     expect(connections.filter((c) => c.open)).toHaveLength(1)
   })
-
-  const toolCalls = (a: Awaited<ReturnType<typeof visit>>['assistant'], path: string) =>
-    a.messages.value.flatMap((m) => m.segments ?? []).filter((seg) => seg.kind === 'tool_call' && String(seg.args).includes(path)).length
 
   it('shows each step of the running turn exactly once after leaving and opening it from the history list', async () => {
     const first = await visit()
@@ -217,5 +219,70 @@ describe('opening the chat panel while a run is going', () => {
     expect(service.getSession).toHaveBeenCalledWith('ws', 'done-1')
     expect(assistant.messages.value.length).toBeGreaterThan(0)
     expect(replays()).toBe(0)
+  })
+})
+
+// The app learns which conversation is running from the 10 s /active-runs poll. Anything that happens before the first
+// answer must not decide "not running": that opened the live run from disk (phase done, nothing streaming) and let a
+// session-list refresh clear the flag session_started had just set.
+describe('a run the app has not been told about yet', () => {
+  const running = { assistant_running: true, automation_running: false, assistant_conversation_id: 'run-1' }
+  const onDisk = { id: 'run-1', history: [{ role: 'user', content: 'do the long task' }] }
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    connections.length = 0
+    nextId = 0
+    recent = runSoFar()
+    service.listSessions.mockResolvedValue([{ id: 'run-1', snippet: 'do the long task', updated_at: '2026-10-01T10:00:00Z' }])
+    service.getSession.mockResolvedValue(onDisk)
+    service.getActiveRuns.mockResolvedValue(running)
+  })
+
+  it('a deep link to it streams the run, not the disk snapshot, before the poll has answered', async () => {
+    const { assistant } = await visit()
+    await assistant.openWorkspace('ws', 'run-1') // no reconcileRunningConversation: the poll has not answered
+
+    expect(connections.filter((c) => c.open), 'the live stream must be connected').toHaveLength(1)
+    expect(toolCalls(assistant, 'a.txt'), 'the replayed step is shown once').toBe(1)
+    expect(assistant.phase.value).not.toBe('done')
+  })
+
+  it('clicking it in the history list streams it even when the list does not flag it running', async () => {
+    const { assistant } = await visit()
+    await mountChat(assistant)
+    await assistant.loadSession('ws', 'run-1')
+
+    expect(connections.filter((c) => c.open)).toHaveLength(1)
+    expect(toolCalls(assistant, 'a.txt')).toBe(1)
+    expect(assistant.sessions.value.find((s) => s.id === 'run-1')?.running).toBe(true)
+  })
+
+  it('a conversation that is not running still opens from disk and asks once', async () => {
+    service.getActiveRuns.mockResolvedValue({ assistant_running: false, automation_running: false, assistant_conversation_id: '' })
+    const { assistant } = await visit()
+    await assistant.openWorkspace('ws', 'run-1')
+
+    expect(service.getSession).toHaveBeenCalledWith('ws', 'run-1')
+    expect(connections.reduce((n, c) => n + (c.connects ?? 0), 0)).toBe(0)
+    expect(assistant.phase.value).toBe('done')
+  })
+
+  it('an unreachable /active-runs falls back to the disk snapshot instead of failing the open', async () => {
+    service.getActiveRuns.mockRejectedValue(new Error('offline'))
+    const { assistant } = await visit()
+    await assistant.openWorkspace('ws', 'run-1')
+
+    expect(service.getSession).toHaveBeenCalledWith('ws', 'run-1')
+    expect(assistant.messages.value.length).toBeGreaterThan(0)
+  })
+
+  it('a session-list refresh in the first seconds keeps the running flag session_started set', async () => {
+    const { assistant } = await visit()
+    await mountChat(assistant) // connects: the replay's session_started flags run-1 running
+    expect(assistant.sessions.value.find((s) => s.id === 'run-1')?.running).toBe(true)
+
+    await assistant.fetchSessions('ws') // before any /active-runs answer
+    expect(assistant.sessions.value.find((s) => s.id === 'run-1')?.running, 'the flag must survive the refresh').toBe(true)
   })
 })

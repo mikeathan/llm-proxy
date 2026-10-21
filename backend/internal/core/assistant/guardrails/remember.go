@@ -63,7 +63,7 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 	if plan := e.planRemember(workspaceID, category, args); plan.apply != nil {
 		plan.apply(cfg)
 	}
-	e.MarkOverride(workspaceID, toolName)
+	e.MarkApproved(workspaceID, proxy.ToolCall{Function: proxy.FunctionCall{Name: toolName, Arguments: args}})
 	return e.persistence.WriteConfig(workspaceID, cfg)
 }
 

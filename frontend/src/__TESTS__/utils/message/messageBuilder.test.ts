@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { ref } from 'vue'
 import { MODEL_BUSY_NOTICE, MODEL_STARTING_NOTICE } from '../../../constants/labels'
 import { useMessageBuilder } from '../../../utils/message/messageBuilder'
@@ -318,5 +318,67 @@ describe('useMessageBuilder lifecycle completed markup guard', () => {
 
     expect(messages.value.some((m) => m.role === 'assistant' && m.content === 'The report is ready.')).toBe(true)
     expect(builder.phase.value).toBe('done')
+  })
+})
+
+// A stream the backend cuts for looping in its thinking is restarted. The text already streamed must stay on screen
+// and the restart must say why it paused, instead of the turn emptying with no explanation.
+describe('useMessageBuilder stuck_detected lifecycle', () => {
+  const stuck = (): AgentEvent => ({ type: 'lifecycle', payload: { phase: 'stuck_detected', reasoning_chars: 9000 } as unknown as AgentEvent['payload'] })
+  const reasoning = (text: string): AgentEvent => ({ type: 'reasoning', payload: text as unknown as AgentEvent['payload'] })
+  const segmentsOf = (messages: { value: AssistantMessage[] }) => (messages.value[0]?.segments ?? []) as Segment[]
+
+  it('keeps the streamed reasoning and shows a pending notice', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.handleEvent(reasoning('first I will check the page'))
+    builder.handleEvent(stuck())
+
+    const segments = segmentsOf(messages)
+    expect(segments.some((s) => s.kind === 'reasoning' && s.text.includes('check the page'))).toBe(true)
+    const notice = segments.find((s) => s.kind === 'notice')
+    expect(notice?.kind === 'notice' && notice.status).toBe('pending')
+    expect(builder.liveReasoning.value).toBe('')
+  })
+
+  it('resolves the notice when the restarted stream resumes, and keeps the old reasoning before the new', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.handleEvent(reasoning('first attempt'))
+    builder.handleEvent(stuck())
+    vi.useFakeTimers()
+    builder.handleEvent(reasoning('second attempt'))
+    vi.advanceTimersByTime(1000) // the live text is flushed on a timer
+    vi.useRealTimers()
+
+    const segments = segmentsOf(messages)
+    const notice = segments.find((s) => s.kind === 'notice')
+    expect(notice?.kind === 'notice' && notice.status).toBe('resolved')
+    expect(builder.liveReasoning.value).toContain('second attempt')
+    const order = segments.map((s) => s.kind)
+    expect(order.indexOf('reasoning')).toBeLessThan(order.indexOf('notice'))
+  })
+
+  it('resolves the notice when the restart goes straight to a tool call, or the turn ends', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.handleEvent(reasoning('thinking'))
+    builder.handleEvent(stuck())
+    builder.handleEvent({ type: 'tool_call', payload: { id: 'c1', type: 'function', function: { name: 'read_file', arguments: '{}' } } as unknown as AgentEvent['payload'] })
+    const notice = segmentsOf(messages).find((s) => s.kind === 'notice')
+    expect(notice?.kind === 'notice' && notice.status).toBe('resolved')
+
+    builder.handleEvent(stuck())
+    builder.finalize('answer')
+    const pending = segmentsOf(messages).filter((s) => s.kind === 'notice' && s.status === 'pending')
+    expect(pending).toHaveLength(0)
+  })
+
+  it('does nothing visible on a turn that already finished', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.finalize('done')
+    builder.handleEvent(stuck())
+    expect(segmentsOf(messages).some((s) => s.kind === 'notice')).toBe(false)
   })
 })

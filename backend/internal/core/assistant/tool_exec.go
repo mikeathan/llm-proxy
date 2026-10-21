@@ -764,7 +764,7 @@ func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, e
 			a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
 		}
 	} else {
-		a.deps.Guardrails.MarkOverride(a.config.WorkspaceID, tc.Function.Name)
+		a.deps.Guardrails.MarkApproved(a.config.WorkspaceID, tc)
 	}
 	return true, false, true
 }

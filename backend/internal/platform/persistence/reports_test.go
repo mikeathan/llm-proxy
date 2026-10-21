@@ -154,13 +154,21 @@ func TestListReports_SkipsWhatTheSystemDidNotWrite(t *testing.T) {
 	}
 }
 
-// The list is bounded: past MaxListedReports the newest are kept and the list says it was cut.
+// The list is bounded: past MaxListedReports the newest are kept and the list says it was cut. WriteReport keeps the
+// folder within MaxSavedReports, so the extra files are put there by hand (an older, larger folder).
 func TestListReports_IsBoundedToTheNewest(t *testing.T) {
-	mgr, _ := newReportsManager(t)
+	mgr, tmp := newReportsManager(t)
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	total := MaxListedReports + 5
+	folder := filepath.Join(tmp, "ws", "reports", "busy")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < total; i++ {
-		writeReportAt(t, mgr, "busy", fmt.Sprintf("run_%d", i), start.Add(time.Duration(i)*time.Hour), "x")
+		name := start.Add(time.Duration(i)*time.Hour).Format(reportStampLayout) + fmt.Sprintf("-run_%d.md", i)
+		if err := os.WriteFile(filepath.Join(folder, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	list, err := mgr.ListReports("ws", "busy")
 	if err != nil || !list.Truncated || len(list.Reports) != MaxListedReports {
@@ -168,5 +176,86 @@ func TestListReports_IsBoundedToTheNewest(t *testing.T) {
 	}
 	if want := start.Add(time.Duration(total-1) * time.Hour); !list.Reports[0].StartedAt.Equal(want) {
 		t.Errorf("first is %v, want the newest %v", list.Reports[0].StartedAt, want)
+	}
+}
+
+func writeReports(t *testing.T, mgr *WorkspaceManager, automation string, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		at := reportTime.Add(time.Duration(i) * time.Minute)
+		if _, err := mgr.WriteReport("ws", automation, fmt.Sprintf("run_%03d", i), at, "body"); err != nil {
+			t.Fatalf("WriteReport %d: %v", i, err)
+		}
+	}
+}
+
+// An automation keeps its newest MaxSavedReports reports: writing one more removes the oldest, so a frequent schedule
+// cannot fill the workspace, and what is kept is exactly what the list shows.
+func TestWriteReport_KeepsTheNewestAndRemovesTheOldest(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	writeReports(t, mgr, "daily-news", MaxSavedReports+5)
+
+	list, err := mgr.ListReports("ws", "daily-news")
+	if err != nil {
+		t.Fatalf("ListReports: %v", err)
+	}
+	if len(list.Reports) != MaxSavedReports || list.Truncated {
+		t.Fatalf("kept %d reports (truncated=%v), want %d and not truncated", len(list.Reports), list.Truncated, MaxSavedReports)
+	}
+	if got := list.Reports[0].RunID; got != fmt.Sprintf("run_%03d", MaxSavedReports+4) {
+		t.Errorf("newest report is %s, want the last one written", got)
+	}
+	if got := list.Reports[len(list.Reports)-1].RunID; got != "run_005" {
+		t.Errorf("oldest kept is %s, want run_005 (run_000..run_004 removed)", got)
+	}
+}
+
+// Pruning deletes only what WriteReport wrote, and only in the automation's own folder: a user's note, a sub-folder,
+// an oddly named file and another automation's reports all survive.
+func TestPruneReports_TouchesOnlyReportFilesInItsFolder(t *testing.T) {
+	mgr, tmp := newReportsManager(t)
+	writeReports(t, mgr, "daily-news", 6)
+	writeReports(t, mgr, "other", 6)
+	folder := filepath.Join(tmp, "ws", "reports", "daily-news")
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", folder, err)
+	}
+	keepers := []string{"notes.md", "20200101T000000Z.md", "bad-stamp-run_9.md"}
+	for _, f := range keepers {
+		if err := os.WriteFile(filepath.Join(folder, f), []byte("mine"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", f, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(folder, "20200101T000000Z-run_sub.md"), 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+
+	if err := mgr.pruneReports("ws", "reports/daily-news", 2); err != nil {
+		t.Fatalf("pruneReports: %v", err)
+	}
+
+	list, _ := mgr.ListReports("ws", "daily-news")
+	if len(list.Reports) != 2 {
+		t.Fatalf("kept %d reports, want 2", len(list.Reports))
+	}
+	for _, f := range keepers {
+		if _, err := os.Stat(filepath.Join(folder, f)); err != nil {
+			t.Errorf("%s must survive pruning: %v", f, err)
+		}
+	}
+	if st, err := os.Stat(filepath.Join(folder, "20200101T000000Z-run_sub.md")); err != nil || !st.IsDir() {
+		t.Errorf("a folder named like a report must survive: %v", err)
+	}
+	if other, _ := mgr.ListReports("ws", "other"); len(other.Reports) != 6 {
+		t.Errorf("another automation's reports changed: %d left, want 6", len(other.Reports))
+	}
+}
+
+// A folder that is not there (nothing to prune) is not an error.
+func TestPruneReports_MissingFolderIsFine(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	writeReports(t, mgr, "other", 1) // the workspace exists, the automation's folder does not
+	if err := mgr.pruneReports("ws", "reports/none", 2); err != nil {
+		t.Fatalf("pruneReports: %v", err)
 	}
 }
