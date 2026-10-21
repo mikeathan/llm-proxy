@@ -704,7 +704,7 @@ type ModelConfig struct {
 	MaxSteps         int          `json:"max_steps,omitempty"`
 	ContextBudget    int          `json:"context_budget,omitempty"`
 	MaxTokens        int          `json:"max_tokens,omitempty"`
-	Temperature      float64      `json:"temperature,omitempty"`      // overrides the 0.1 automation default
+	Temperature      float64      `json:"temperature,omitempty"`      // 0 = unset: the request omits it and the provider's or server's own default applies
 	ToolCallFormat   string       `json:"tool_call_format,omitempty"` // "xml" or "native"
 	Prefill          *bool        `json:"prefill,omitempty"`
 	ReasoningEnabled *bool        `json:"reasoning_enabled,omitempty"` // provider-native reasoning toggle

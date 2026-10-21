@@ -38,13 +38,12 @@ const (
 	// "no provider info" default, not a provider's preferred cap.  Do not
 	// collapse the two: unifying them would change cloud cap clamps or the
 	// unconfigured-model behaviour (stuck-detection sensitivity).
-	DefaultMaxTokens             = 3072
-	DefaultAutomationTemperature = 0.1  // low temperature for deterministic automation tasks
-	MinReasoningStuckThreshold   = 2000 // chars; floor for stuck detection even at small max_tokens
-	DefaultStarvationLimit       = 15
-	AgentGlobalTimeout           = 30 * time.Minute // total wall-clock for one Execute call
-	AgentTurnTimeout             = 10 * time.Minute // per-LLM-call timeout (stream or Chat)
-	AgentRetryTimeout            = 5 * time.Minute  // tool-support-fallback retry timeout
+	DefaultMaxTokens           = 3072
+	MinReasoningStuckThreshold = 2000 // chars; floor for stuck detection even at small max_tokens
+	DefaultStarvationLimit     = 15
+	AgentGlobalTimeout         = 30 * time.Minute // total wall-clock for one Execute call
+	AgentTurnTimeout           = 10 * time.Minute // per-LLM-call timeout (stream or Chat)
+	AgentRetryTimeout          = 5 * time.Minute  // tool-support-fallback retry timeout
 
 	// Safety timeout defaults (all configurable per-model via AgentOptions / ModelConfig)
 	DefaultToolTimeout              = 2 * time.Minute  // per-tool execution timeout
