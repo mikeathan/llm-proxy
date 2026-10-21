@@ -1,4 +1,4 @@
-import type { Automation, AutomationJournal, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../../types/dispatcher'
+import type { Automation, AutomationJournal, SavedReports, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse, RecordingMeta, RecordingStatus } from '../../types/dispatcher'
 import type { WorkspaceTree } from '../../types/workspace'
 import type { HeartbeatConfig, HeartbeatState } from '../../types/heartbeat'
 import type { AutomationPayload, TriggerType } from '../../types/automation'
@@ -24,6 +24,10 @@ export const DispatcherService = {
 
   async getAutomationJournal(workspace: string, automation: string): Promise<AutomationJournal> {
     return get<AutomationJournal>(`${BASE_URL}/workspaces/${workspace}/automations/${automation}/journal`)
+  },
+
+  async getAutomationReports(workspace: string, automation: string): Promise<SavedReports> {
+    return get<SavedReports>(`${BASE_URL}/workspaces/${workspace}/automations/${automation}/reports`)
   },
 
   async clearAutomationJournal(workspace: string, automation: string): Promise<void> {

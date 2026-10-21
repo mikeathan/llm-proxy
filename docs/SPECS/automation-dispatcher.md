@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.16"
+version: "1.17"
 status: stable
 last_updated: 2026-10-21
 constitution_references: []
@@ -12,6 +12,11 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.17 (2026-10-21)** — Saved reports in the UI (§II.5). A run's history entry carries `report_path`; the automation list
+  carries `last_report_path`; `GET /admin/api/dispatcher/workspaces/{ws}/automations/{automation}/reports` lists the
+  saved reports (`{reports: [{path, run_id, started_at, size_bytes}], truncated}`, newest first, at most 200). The
+  automation page shows a link on the last result and a "Saved reports" panel that opens an older report in place.
 
 - **1.16 (2026-10-21)** — Saved final reports (§II.5). A finished run that produced a report keeps it as a file in the workspace,
   `reports/<automation>/<start time>-<run id>.md`, so the next run of the same automation no longer replaces it and the
@@ -167,6 +172,12 @@ logged and does not fail the run. Reports are never overwritten by a later run a
 automatically; deleting an automation or its runs leaves them (operator purge is planned, see
 `docs/PLANS/agent-loop/large-result-storage.md`). They are model output derived from web content and a later run can read
 them, so treat them as untrusted data, like the journal.
+
+**Listing and reading** (`WorkspaceManager.ListReports`): the list holds only files `WriteReport` could have made (a note a
+user dropped in the folder, a sub-folder, or a badly named file is skipped), newest first by the start time in the file name,
+bounded to `MaxListedReports` (200) with `truncated` set when older ones are left out. A report's text is read through the
+existing workspace file endpoint. Each run's history entry records `report_path`, and the automation list exposes the latest
+as `last_report_path`.
 
 ### 6. Result Delivery (`notify`)
 

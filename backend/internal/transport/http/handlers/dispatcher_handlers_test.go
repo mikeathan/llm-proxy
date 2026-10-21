@@ -1024,6 +1024,50 @@ func TestAutomationJournalHandlers(t *testing.T) {
 	})
 }
 
+func TestGetAutomationReports(t *testing.T) {
+	tmp := t.TempDir()
+	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	h := NewDispatcherHandlers(&testDispatcher{mgr: mgr}, NewWorkspaceService(mgr), logging.NewNopLogger())
+	call := func(ws, name string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/admin/api/dispatcher/workspaces/"+ws+"/automations/"+name+"/reports", nil)
+		req.SetPathValue(models.WorkspaceIDParam, ws)
+		req.SetPathValue("automation", name)
+		rr := httptest.NewRecorder()
+		h.GetAutomationReports(rr, req)
+		return rr
+	}
+	day := time.Date(2026, 10, 21, 7, 0, 0, 0, time.UTC)
+
+	t.Run("lists the saved reports newest first", func(t *testing.T) {
+		for i, id := range []string{"run_1", "run_2"} {
+			if _, err := mgr.WriteReport("ws", "nightly", id, day.Add(time.Duration(i)*time.Hour), "body"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		rr := call("ws", "nightly")
+		var got models.SavedReports
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || rr.Code != http.StatusOK {
+			t.Fatalf("status %d body %s err %v", rr.Code, rr.Body.String(), err)
+		}
+		if len(got.Reports) != 2 || got.Reports[0].RunID != "run_2" || got.Reports[1].RunID != "run_1" || got.Truncated {
+			t.Fatalf("got %+v", got)
+		}
+	})
+
+	t.Run("an automation with no reports has an empty list", func(t *testing.T) {
+		rr := call("ws", "never-ran")
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"reports":[]`) {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("rejects unsafe identifiers", func(t *testing.T) {
+		if rr := call("ws", ".."); rr.Code != http.StatusBadRequest {
+			t.Errorf("status %d for a traversing automation name, want 400", rr.Code)
+		}
+	})
+}
+
 func TestListAutomations_ExposesJournalFlag(t *testing.T) {
 	tmp := t.TempDir()
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
@@ -1363,4 +1407,62 @@ func TestListAutomations_ReportsTheNextRun(t *testing.T) {
 	if _, ok := byName["by-hand"]["next_run_at"]; ok {
 		t.Errorf("a manual automation must not report next_run_at: %v", byName["by-hand"])
 	}
+}
+
+func TestDeleteAutomation(t *testing.T) {
+	setup := func(t *testing.T) (*DispatcherHandlers, *testDispatcher, *persistence.WorkspaceManager) {
+		t.Helper()
+		tmp := t.TempDir()
+		mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+		cfg := &models.WorkspaceConfig{Automations: []*models.Automation{{Name: "keep"}, {Name: "nightly"}}}
+		if err := mgr.WriteConfig("ws", cfg); err != nil {
+			t.Fatal(err)
+		}
+		td := &testDispatcher{mgr: mgr}
+		return NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger()), td, mgr
+	}
+	call := func(h *DispatcherHandlers, ws, name string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("DELETE", "/admin/api/dispatcher/workspaces/"+ws+"/automations/"+name, nil)
+		req.SetPathValue(models.WorkspaceIDParam, ws)
+		req.SetPathValue("automation", name)
+		rr := httptest.NewRecorder()
+		h.DeleteAutomation(rr, req)
+		return rr
+	}
+
+	t.Run("removes the automation from the config and unregisters it", func(t *testing.T) {
+		h, td, mgr := setup(t)
+		rr := call(h, "ws", "nightly")
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"status":"deleted"`) {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+		cfg, err := mgr.ReadConfig("ws")
+		if err != nil || len(cfg.Automations) != 1 || cfg.Automations[0].Name != "keep" {
+			t.Fatalf("config after delete: %+v, %v", cfg, err)
+		}
+		if len(td.unregistered) != 1 || td.unregistered[0] != "ws/nightly" {
+			t.Errorf("unregistered %v", td.unregistered)
+		}
+	})
+
+	t.Run("a ghost entry missing from the config is still cleaned up", func(t *testing.T) {
+		h, td, mgr := setup(t)
+		rr := call(h, "ws", "ghost")
+		if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `"status":"deleted/cleaned"`) {
+			t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+		}
+		if cfg, _ := mgr.ReadConfig("ws"); len(cfg.Automations) != 2 {
+			t.Errorf("a ghost delete changed the config: %+v", cfg.Automations)
+		}
+		if len(td.unregistered) != 1 || td.unregistered[0] != "ws/ghost" {
+			t.Errorf("unregistered %v", td.unregistered)
+		}
+	})
+
+	t.Run("rejects unsafe identifiers", func(t *testing.T) {
+		h, td, _ := setup(t)
+		if rr := call(h, "ws", ".."); rr.Code != http.StatusBadRequest || len(td.unregistered) != 0 {
+			t.Errorf("status %d, unregistered %v", rr.Code, td.unregistered)
+		}
+	})
 }

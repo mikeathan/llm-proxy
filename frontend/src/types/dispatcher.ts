@@ -199,3 +199,17 @@ export interface AgentEvent {
   timestamp?: string
 }
 
+
+// One saved final report of an automation run (reports/<automation>/<start time>-<run id>.md).
+export interface SavedReport {
+  path: string
+  run_id: string
+  started_at: string
+  size_bytes: number
+}
+
+// An automation's saved reports, newest first; truncated when older ones were left out.
+export interface SavedReports {
+  reports: SavedReport[]
+  truncated: boolean
+}

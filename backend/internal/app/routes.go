@@ -243,6 +243,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}", hs.Dispatcher.DeleteAutomation, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}/journal", hs.Dispatcher.GetAutomationJournal, jsonMethodNotAllowed)
 		router.Delete("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}/journal", hs.Dispatcher.ClearAutomationJournal, jsonMethodNotAllowed)
+		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/automations/{automation}/reports", hs.Dispatcher.GetAutomationReports, jsonMethodNotAllowed)
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/tree", hs.Dispatcher.ListWorkspaceTree, jsonMethodNotAllowed)
 		// {file...} matches nested workspace-relative paths (plan D4).
 		router.Get("/admin/api/dispatcher/workspaces/{"+models.WorkspaceIDParam+"}/files/{file...}", hs.Dispatcher.ReadWorkspaceFile, jsonMethodNotAllowed)

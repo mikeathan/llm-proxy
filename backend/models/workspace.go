@@ -52,6 +52,20 @@ type TreeEntry struct {
 	Collapsed bool          `json:"collapsed,omitempty"`
 }
 
+// SavedReport is one saved final report of an automation run (reports/<automation>/<start time>-<run id>.md).
+type SavedReport struct {
+	Path      string    `json:"path"` // workspace-relative, slash-separated
+	RunID     string    `json:"run_id"`
+	StartedAt time.Time `json:"started_at"`
+	SizeBytes int64     `json:"size_bytes"`
+}
+
+// SavedReports lists an automation's saved reports, newest first. Truncated is set when older ones were left out.
+type SavedReports struct {
+	Reports   []SavedReport `json:"reports"`
+	Truncated bool          `json:"truncated"`
+}
+
 // WorkspaceTree is a bounded recursive listing of a workspace, sorted by path.
 // Truncated reports that the entry cap cut off deeper entries.
 type WorkspaceTree struct {

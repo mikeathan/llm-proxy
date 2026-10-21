@@ -907,9 +907,21 @@ func (h *DispatcherHandlers) DeleteRun(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, map[string]string{"status": "deleted"})
 }
 
-// DeleteAutomationRuns removes every run directory for an automation across all
-// model subdirs and purges the matching history from state.json, so a user can
-// clear an automation's entire runs folder from the UI.
+// GetAutomationReports lists the automation's saved final reports, newest first; an automation that never saved one has
+// an empty list. The report text is read through the workspace file endpoint.
+func (h *DispatcherHandlers) GetAutomationReports(w http.ResponseWriter, r *http.Request) {
+	workspaceID, automation, ok := h.parse(w, r, models.WorkspaceIDParam, "automation")
+	if !ok {
+		return
+	}
+	reports, err := h.workspace.ListReports(workspaceID, automation)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, reports)
+}
+
 // GetAutomationJournal returns the automation's learning journal; an automation
 // that never wrote one has an empty journal.
 func (h *DispatcherHandlers) GetAutomationJournal(w http.ResponseWriter, r *http.Request) {
@@ -939,6 +951,9 @@ func (h *DispatcherHandlers) ClearAutomationJournal(w http.ResponseWriter, r *ht
 	respondJSON(w, map[string]string{"status": "cleared"})
 }
 
+// DeleteAutomationRuns removes every run directory for an automation across all
+// model subdirs and purges the matching history from state.json, so a user can
+// clear an automation's entire runs folder from the UI.
 func (h *DispatcherHandlers) DeleteAutomationRuns(w http.ResponseWriter, r *http.Request) {
 	workspaceID := r.PathValue(models.WorkspaceIDParam)
 	automation := r.PathValue("automation")
