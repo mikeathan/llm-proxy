@@ -1061,3 +1061,90 @@ func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdm
 	}
 	return handlers.NewAdminHandlers(runtime, admin, logger, &buildinfo.Info{Version: "v1", Commit: "c1", BuildDate: "d1"}, nil)
 }
+
+// The webhook endpoint refuses a request before it reaches Telegram: no name, a connector that is not there, one that
+// is not a Telegram bot, a bot with no stored token, a create with no url, and an unknown action.
+func TestAdminConnectorWebhookHandler_RejectsBadRequests(t *testing.T) {
+	registry := models.RegistryData{}
+	registry.Communication.Connectors = map[string]models.ConnectorConfig{
+		"bot":   {Type: models.ConnectorTypeTelegram},
+		"other": {Type: "email"},
+		"blank": {Type: models.ConnectorTypeTelegram},
+	}
+	secrets := &mocks.MockSecretsStore{GetSecretFunc: func(category, name string) string {
+		if name == "bot" {
+			return "stored-bot-token"
+		}
+		return ""
+	}}
+	admin := &mocks.MockAdminService{
+		GetRegistryFunc: func() models.RegistryData { return registry },
+		SecretsFunc:     func() models.SecretsStore { return secrets },
+	}
+	h := newAdminHandlers(&mocks.MockManager{}, admin)
+
+	cases := []struct {
+		name, connector, body string
+		want                  int
+	}{
+		{"no name", "", `{"action":"verify"}`, http.StatusBadRequest},
+		{"bad json", "bot", `{bad`, http.StatusBadRequest},
+		{"unknown connector", "ghost", `{"action":"verify"}`, http.StatusNotFound},
+		{"not telegram", "other", `{"action":"verify"}`, http.StatusBadRequest},
+		{"no token", "blank", `{"action":"verify"}`, http.StatusBadRequest},
+		{"create without url", "bot", `{"action":"create"}`, http.StatusBadRequest},
+		{"unknown action", "bot", `{"action":"explode"}`, http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/admin/api/connectors/x/webhook", strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		req.SetPathValue("name", tc.connector)
+		rr := httptest.NewRecorder()
+		h.AdminConnectorWebhookHandler(rr, req)
+		if rr.Code != tc.want {
+			t.Errorf("%s: status %d, want %d (%s)", tc.name, rr.Code, tc.want, rr.Body.String())
+		}
+	}
+}
+
+// A failed system update is the caller's mistake (400) when the payload names a missing model or carries an invalid
+// search, scheduler or reminders block, and a server error (500) otherwise: PUT /system and PUT /config answer the same.
+func TestSystemUpdateHandlers_MapErrorsToStatus(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"missing model", &models.ModelNotFoundError{Role: "primary", ModelName: "ghost"}, http.StatusBadRequest},
+		{"bad search", fmt.Errorf("save: %w", models.ErrInvalidSearchProvider), http.StatusBadRequest},
+		{"bad reminders", fmt.Errorf("save: %w", models.ErrRemindersConfigInvalid), http.StatusBadRequest},
+		{"disk failure", errors.New("disk full"), http.StatusInternalServerError},
+	}
+	for _, tc := range cases {
+		admin := &mocks.MockAdminService{ApplySystemUpdateFunc: func(context.Context, models.SystemUpdatePayload) error { return tc.err }}
+		h := newSystemHandlers(admin)
+		for route, call := range map[string]http.HandlerFunc{"system": h.AdminSystemPutHandler, "config": h.AdminConfigUpdateHandler} {
+			req := httptest.NewRequest(http.MethodPut, "/admin/api/"+route, strings.NewReader(`{}`))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			call(rr, req)
+			if rr.Code != tc.want {
+				t.Errorf("%s via %s: status %d, want %d", tc.name, route, rr.Code, tc.want)
+			}
+		}
+	}
+}
+
+func TestAdminSystemPutHandler_ReturnsTheSavedSystem(t *testing.T) {
+	admin := &mocks.MockAdminService{
+		ApplySystemUpdateFunc: func(context.Context, models.SystemUpdatePayload) error { return nil },
+		GetSystemFunc:         func() models.SystemConfig { return models.SystemConfig{WorkspacesDir: "/w"} },
+	}
+	req := httptest.NewRequest(http.MethodPut, "/admin/api/system", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	newSystemHandlers(admin).AdminSystemPutHandler(rr, req)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "/w") {
+		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
+	}
+}

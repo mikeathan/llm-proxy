@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -497,53 +498,15 @@ func (h *AdminHandlers) AdminConnectorWebhookHandler(w http.ResponseWriter, r *h
 		return
 	}
 
-	reg := h.admin.GetRegistry()
-	cfg, ok := reg.Communication.Connectors[name]
+	tg, webhookSecret, ok := h.telegramForConnector(w, name)
 	if !ok {
-		writeJSONError(w, http.StatusNotFound, "connector not found")
 		return
 	}
-	if cfg.Type != models.ConnectorTypeTelegram {
-		writeJSONError(w, http.StatusBadRequest, "unsupported connector type")
-		return
-	}
-
-	token := h.admin.Secrets().GetSecret("connector", name)
-	if token == "" {
-		writeJSONError(w, http.StatusBadRequest, "no bot token stored for connector")
-		return
-	}
-
-	chatID := cfg.Settings["chat_id"]
-	webhookSecret := cfg.Settings["webhook_token"]
-	// Operator/admin Telegram webhook actions are infrastructure (Constitution
-	// I.2 carve-out), not agent egress: ride the shared pooled transport rather
-	// than a raw client (I.1). No agent-tool guardrails apply here.
-	client := &http.Client{Transport: network.SharedTransport, Timeout: 15 * time.Second}
-	tg := notifiers.NewTelegramNotifier(token, chatID, client)
 
 	ctx := r.Context()
 	switch req.Action {
 	case "create":
-		if req.URL == "" {
-			writeJSONError(w, http.StatusBadRequest, "url required")
-			return
-		}
-		if err := tg.RegisterWebhook(ctx, req.URL, webhookSecret); err != nil {
-			h.logger.Warn("telegram setWebhook failed", "connector", name, "error", err)
-			writeJSONError(w, http.StatusBadGateway, "telegram rejected webhook registration: "+err.Error())
-			return
-		}
-		if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
-			if c, ok := reg.Communication.Connectors[name]; ok {
-				c.WebhookURL = req.URL
-				reg.Communication.Connectors[name] = c
-			}
-		}); err != nil {
-			h.logger.Warn("failed to persist webhook URL", "connector", name, "error", err)
-		}
-		respondJSON(w, map[string]string{"status": "ok", "url": req.URL})
-
+		h.createConnectorWebhook(ctx, w, tg, name, req.URL, webhookSecret)
 	case "verify":
 		info, err := tg.GetWebhookInfo(ctx)
 		if err != nil {
@@ -552,24 +515,76 @@ func (h *AdminHandlers) AdminConnectorWebhookHandler(w http.ResponseWriter, r *h
 			return
 		}
 		respondJSON(w, info)
-
 	case "delete":
-		if err := tg.DeleteWebhook(ctx); err != nil {
-			h.logger.Warn("telegram deleteWebhook failed", "connector", name, "error", err)
-			writeJSONError(w, http.StatusBadGateway, "telegram rejected webhook deletion: "+err.Error())
-			return
-		}
-		if err := h.admin.UpdateRegistry(func(reg *models.RegistryData) {
-			if c, ok := reg.Communication.Connectors[name]; ok {
-				c.WebhookURL = ""
-				reg.Communication.Connectors[name] = c
-			}
-		}); err != nil {
-			h.logger.Warn("failed to clear webhook URL", "connector", name, "error", err)
-		}
-		respondJSON(w, map[string]string{"status": "deleted"})
-
+		h.deleteConnectorWebhook(ctx, w, tg, name)
 	default:
 		writeJSONError(w, http.StatusBadRequest, "unknown action; use create, verify, or delete")
 	}
+}
+
+// telegramForConnector resolves the named Telegram connector and builds its notifier, with the webhook secret.
+// It writes the error response and returns false when the connector is missing, not Telegram, or has no token.
+func (h *AdminHandlers) telegramForConnector(w http.ResponseWriter, name string) (*notifiers.TelegramNotifier, string, bool) {
+	reg := h.admin.GetRegistry()
+	cfg, ok := reg.Communication.Connectors[name]
+	if !ok {
+		writeJSONError(w, http.StatusNotFound, "connector not found")
+		return nil, "", false
+	}
+	if cfg.Type != models.ConnectorTypeTelegram {
+		writeJSONError(w, http.StatusBadRequest, "unsupported connector type")
+		return nil, "", false
+	}
+
+	token := h.admin.Secrets().GetSecret("connector", name)
+	if token == "" {
+		writeJSONError(w, http.StatusBadRequest, "no bot token stored for connector")
+		return nil, "", false
+	}
+
+	// Operator/admin Telegram webhook actions are infrastructure (Constitution
+	// I.2 carve-out), not agent egress: ride the shared pooled transport rather
+	// than a raw client (I.1). No agent-tool guardrails apply here.
+	client := &http.Client{Transport: network.SharedTransport, Timeout: 15 * time.Second}
+	return notifiers.NewTelegramNotifier(token, cfg.Settings["chat_id"], client), cfg.Settings["webhook_token"], true
+}
+
+// createConnectorWebhook registers url with Telegram and remembers it on the connector.
+func (h *AdminHandlers) createConnectorWebhook(ctx context.Context, w http.ResponseWriter, tg *notifiers.TelegramNotifier, name, url, secret string) {
+	if url == "" {
+		writeJSONError(w, http.StatusBadRequest, "url required")
+		return
+	}
+	if err := tg.RegisterWebhook(ctx, url, secret); err != nil {
+		h.logger.Warn("telegram setWebhook failed", "connector", name, "error", err)
+		writeJSONError(w, http.StatusBadGateway, "telegram rejected webhook registration: "+err.Error())
+		return
+	}
+	if err := h.setConnectorWebhookURL(name, url); err != nil {
+		h.logger.Warn("failed to persist webhook URL", "connector", name, "error", err)
+	}
+	respondJSON(w, map[string]string{"status": "ok", "url": url})
+}
+
+// deleteConnectorWebhook removes the Telegram webhook and clears it from the connector.
+func (h *AdminHandlers) deleteConnectorWebhook(ctx context.Context, w http.ResponseWriter, tg *notifiers.TelegramNotifier, name string) {
+	if err := tg.DeleteWebhook(ctx); err != nil {
+		h.logger.Warn("telegram deleteWebhook failed", "connector", name, "error", err)
+		writeJSONError(w, http.StatusBadGateway, "telegram rejected webhook deletion: "+err.Error())
+		return
+	}
+	if err := h.setConnectorWebhookURL(name, ""); err != nil {
+		h.logger.Warn("failed to clear webhook URL", "connector", name, "error", err)
+	}
+	respondJSON(w, map[string]string{"status": "deleted"})
+}
+
+// setConnectorWebhookURL stores url as the connector's webhook URL ("" clears it).
+func (h *AdminHandlers) setConnectorWebhookURL(name, url string) error {
+	return h.admin.UpdateRegistry(func(reg *models.RegistryData) {
+		if c, ok := reg.Communication.Connectors[name]; ok {
+			c.WebhookURL = url
+			reg.Communication.Connectors[name] = c
+		}
+	})
 }
