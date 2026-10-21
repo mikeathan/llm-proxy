@@ -22,9 +22,13 @@ vi.mock('../../../../composables/automation/useLiveConsole', () => ({
   }),
 }))
 
-const { getJournal, clearJournal } = vi.hoisted(() => ({ getJournal: vi.fn(), clearJournal: vi.fn() }))
+const { getJournal, clearJournal, getReports } = vi.hoisted(() => ({
+  getJournal: vi.fn(),
+  clearJournal: vi.fn(),
+  getReports: vi.fn().mockResolvedValue({ reports: [], truncated: false }),
+}))
 vi.mock('../../../../services/automation/dispatcherService', () => ({
-  DispatcherService: { getAutomationJournal: getJournal, clearAutomationJournal: clearJournal },
+  DispatcherService: { getAutomationJournal: getJournal, clearAutomationJournal: clearJournal, getAutomationReports: getReports, readWorkspaceFile: vi.fn() },
 }))
 
 import AutomationDetails from '../../../../components/AgentIde/automation/AutomationDetails.vue'
@@ -59,6 +63,14 @@ describe('AutomationDetails', () => {
   afterEach(() => {
     mounted.splice(0).forEach((w) => w.unmount())
     document.body.innerHTML = ''
+  })
+
+  it('lists the automation\'s saved reports, loaded for that automation', async () => {
+    getReports.mockResolvedValueOnce({ reports: [{ path: 'reports/nightly/20261021T070000Z-run_2.md', run_id: 'run_2', started_at: '2026-10-21T07:00:00Z', size_bytes: 512 }], truncated: false })
+    const w = await mountDetails()
+    expect(getReports).toHaveBeenCalledWith('ws', 'nightly')
+    expect(w.text()).toContain('Saved reports')
+    expect(w.text()).toContain('run_2')
   })
 
   it('links the last result to its saved report file', async () => {

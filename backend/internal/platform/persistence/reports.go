@@ -1,10 +1,16 @@
 package persistence
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"path"
+	"sort"
 	"strings"
 	"time"
+
+	"llm-proxy/models"
 )
 
 // reportsDirName is the workspace folder holding each automation's saved final reports. It sits inside the workspace,
@@ -29,10 +35,74 @@ func reportPathPart(name string) string {
 // root; writing the same run again replaces it. Nothing here deletes a report: a later run never overwrites an
 // earlier one, and only an operator removes them.
 func (m *WorkspaceManager) WriteReport(workspaceID, automation, runID string, at time.Time, content string) (string, error) {
-	name := at.UTC().Format(reportStampLayout) + "-" + reportPathPart(runID) + ".md"
+	name := at.UTC().Format(reportStampLayout) + "-" + reportPathPart(runID) + reportFileSuffix
 	rel := path.Join(reportsDirName, reportPathPart(automation), name)
 	if err := m.WriteTaskFile(workspaceID, rel, content); err != nil {
 		return "", fmt.Errorf("failed to save report: %w", err)
 	}
 	return rel, nil
+}
+
+// MaxListedReports bounds ListReports so a long-running automation cannot make the list unbounded; the newest are kept.
+const MaxListedReports = 200
+
+// reportFileSuffix ends every file WriteReport makes.
+const reportFileSuffix = ".md"
+
+// ListReports lists an automation's saved reports, newest first, at most MaxListedReports. Only files WriteReport
+// could have made are listed: a note a user put in the folder, a sub-folder or a file with a malformed name is skipped.
+// An automation with no reports (or a workspace that does not exist) has an empty, non-nil list.
+func (m *WorkspaceManager) ListReports(workspaceID, automation string) (models.SavedReports, error) {
+	list := models.SavedReports{Reports: []models.SavedReport{}}
+	dir := path.Join(reportsDirName, reportPathPart(automation))
+	err := m.withWorkspaceRoot(workspaceID, false, func(root *os.Root) error {
+		entries, readErr := fs.ReadDir(root.FS(), dir)
+		if readErr != nil {
+			return readErr
+		}
+		for _, entry := range entries {
+			if report, ok := reportFromEntry(dir, entry); ok {
+				list.Reports = append(list.Reports, report)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return list, nil
+		}
+		return list, fmt.Errorf("failed to list reports: %w", err)
+	}
+	sort.Slice(list.Reports, func(i, j int) bool {
+		if !list.Reports[i].StartedAt.Equal(list.Reports[j].StartedAt) {
+			return list.Reports[i].StartedAt.After(list.Reports[j].StartedAt)
+		}
+		return list.Reports[i].Path > list.Reports[j].Path
+	})
+	if len(list.Reports) > MaxListedReports {
+		list.Reports, list.Truncated = list.Reports[:MaxListedReports], true
+	}
+	return list, nil
+}
+
+// reportFromEntry reads a report's run id and start time back from its file name; it reports false for anything
+// WriteReport did not write.
+func reportFromEntry(dir string, entry fs.DirEntry) (models.SavedReport, bool) {
+	name := entry.Name()
+	if entry.IsDir() || !strings.HasSuffix(name, reportFileSuffix) {
+		return models.SavedReport{}, false
+	}
+	stamp, runID, found := strings.Cut(strings.TrimSuffix(name, reportFileSuffix), "-")
+	if !found || runID == "" {
+		return models.SavedReport{}, false
+	}
+	startedAt, err := time.Parse(reportStampLayout, stamp)
+	if err != nil {
+		return models.SavedReport{}, false
+	}
+	info, err := entry.Info()
+	if err != nil || !info.Mode().IsRegular() {
+		return models.SavedReport{}, false
+	}
+	return models.SavedReport{Path: path.Join(dir, name), RunID: runID, StartedAt: startedAt, SizeBytes: info.Size()}, true
 }

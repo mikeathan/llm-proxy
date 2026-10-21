@@ -18,6 +18,7 @@ import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automatio
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
 import { toWorkspaceFile } from "../../../router/routes";
 import SavedReportLink from "./SavedReportLink.vue";
+import SavedReportsPanel from "./SavedReportsPanel.vue";
 import Panel from "../../common/layout/Panel.vue";
 import DataTable from "../../common/display/DataTable.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
@@ -219,6 +220,8 @@ const runKey = (run: AutomationRun) => run.id;
         <MarkdownViewer :content="automation.last_output" />
       </div>
     </Panel>
+
+    <SavedReportsPanel :workspace-id="automation.workspace" :automation="automation.name" :latest="automation.last_report_path ?? ''" />
 
     <Panel v-if="automation.journal" title="Journal">
       <template v-if="journal.journal.value" #actions>

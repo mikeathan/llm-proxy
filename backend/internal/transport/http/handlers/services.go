@@ -124,6 +124,7 @@ type WorkspaceService interface {
 	DeleteAutomationRuns(workspaceID, automation string) error
 	ReadJournal(workspaceID, automation string) (string, error)
 	DeleteJournal(workspaceID, automation string) error
+	ListReports(workspaceID, automation string) (models.SavedReports, error)
 	DeleteRunByID(workspaceID, runID string) error
 	RecentRuns(ctx context.Context) ([]models.AutomationRun, error)
 }
@@ -220,6 +221,10 @@ func (s *workspaceService) DeleteAutomationRuns(workspaceID, automation string) 
 
 func (s *workspaceService) ReadJournal(workspaceID, automation string) (string, error) {
 	return s.mgr.ReadJournal(workspaceID, automation)
+}
+
+func (s *workspaceService) ListReports(workspaceID, automation string) (models.SavedReports, error) {
+	return s.mgr.ListReports(workspaceID, automation)
 }
 
 func (s *workspaceService) DeleteJournal(workspaceID, automation string) error {

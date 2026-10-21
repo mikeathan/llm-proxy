@@ -322,4 +322,4 @@ without any extra latching) and the persisted result is the stub. Nothing is los
 
 ## Remaining Work
 
-Saved final reports (PR #109, needs a live check after deploy). Parked until measured: saving cut tool results (the rest of Phase 1), Phases 2–6. Phase 0 is built and live-checked (#99–#102); Phase A is built (#106) and passed its live acceptance (above), except the next nightly `daily-llm-news` comparison. Phase 1 step 1 is done (findings above). Next: live-check #109 on Vertex, then measure `fetch_url` cuts before deciding whether to build the parked work. Phase 6 waits for Phases 1–2.
+Saved final reports (#109, #110 merged and live-checked 2026-10-21; the "Saved reports" history panel is built in a follow-up PR, SPEC-007 1.17). Parked until measured: saving cut tool results (the rest of Phase 1), Phases 2–6. Phase 0 is built and live-checked (#99–#102); Phase A is built (#106) and passed its live acceptance (above), except the next nightly `daily-llm-news` comparison. Phase 1 step 1 is done (findings above). Next: live-check #109 on Vertex, then measure `fetch_url` cuts before deciding whether to build the parked work. Phase 6 waits for Phases 1–2.
