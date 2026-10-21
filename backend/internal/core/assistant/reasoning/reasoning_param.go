@@ -10,6 +10,7 @@ package reasoning
 
 import (
 	"fmt"
+	"strings"
 
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/models"
@@ -194,6 +195,79 @@ func DisableThinking(req *models.ChatRequest) {
 	req.ChatTemplateKwargs = &models.ChatTemplateKwargs{EnableThinking: new(false)}
 	req.ThinkingBudgetTokens = 0
 	req.ReasoningBudgetMessage = ""
+}
+
+// lowered is the effort one notch below e. The lowest level and "none" have nothing below them: a step never turns
+// reasoning off, it only asks for less of it.
+func (e ReasoningEffort) lowered() (ReasoningEffort, bool) {
+	switch e {
+	case EffortHigh:
+		return EffortMedium, true
+	case EffortMedium:
+		return EffortLow, true
+	default:
+		return e, false
+	}
+}
+
+// StepDown lowers one request's reasoning by one conservative step, for the turn after a stream looped in its
+// reasoning, and reports whether anything changed. It is the one place that knows what "less reasoning" means for each
+// wire mechanism: a local think-token budget is switched off (DisableThinking, the recovery local runs have always
+// had), an effort level goes down one notch and never to none, an object's effort goes down and it stays enabled, and a
+// plain on/off toggle has no lower level, so it is left as it was: switching a cloud model's reasoning off is not ours
+// to do. spec is the spec req was built from.
+func StepDown(req *models.ChatRequest, spec ReasoningSpec) bool {
+	switch spec.Mode {
+	case ModeThinkTokens:
+		DisableThinking(req)
+		return true
+	case ModeEffort:
+		lowered, ok := spec.Effort.lowered()
+		if !ok {
+			return false
+		}
+		spec.Effort = lowered
+		resolverEffort.Apply(req, spec)
+		return true
+	case ModeObject:
+		lowered, ok := spec.Effort.lowered()
+		if !ok {
+			return false
+		}
+		spec.Effort = lowered
+		resolverObject.Apply(req, spec)
+		return true
+	default:
+		return false
+	}
+}
+
+// Describe names the reasoning control req carries, for the request log: the think-token budget, the effort, the
+// reasoning object or the on/off toggle, whichever the resolver set, or "none". The request's legacy reasoning_budget
+// field is not reported: the think-token resolver always clears it, so a log line built on it reads 0 for a request that
+// carries a real budget.
+func Describe(req *models.ChatRequest) string {
+	var parts []string
+	if req.ThinkingBudgetTokens > 0 {
+		parts = append(parts, fmt.Sprintf("thinking_budget_tokens=%d", req.ThinkingBudgetTokens))
+	}
+	if req.ReasoningEffort != "" {
+		parts = append(parts, "reasoning_effort="+req.ReasoningEffort)
+	}
+	if r := req.Reasoning; r != nil {
+		enabled := "default"
+		if r.Enabled != nil {
+			enabled = fmt.Sprintf("%t", *r.Enabled)
+		}
+		parts = append(parts, fmt.Sprintf("reasoning{effort=%s,enabled=%s}", r.Effort, enabled))
+	}
+	if k := req.ChatTemplateKwargs; k != nil && k.EnableThinking != nil {
+		parts = append(parts, fmt.Sprintf("enable_thinking=%t", *k.EnableThinking))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, ",")
 }
 
 type noopResolver struct{}

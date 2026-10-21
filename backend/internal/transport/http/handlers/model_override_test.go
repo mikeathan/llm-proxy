@@ -120,34 +120,27 @@ func TestWriteModelOverridesPersistsExplicitFalseReasoning(t *testing.T) {
 	}
 }
 
-// TestConvertProviderTiers_TemperatureDefaults pins the provider temperature
-// policy: cloud tiers carry 0 ("unset" — the provider's own default applies,
-// the wire field is omitempty) while the local tier keeps the 0.1 automation
-// default.
+// TestConvertProviderTiers_TemperatureDefaults pins the temperature policy: no provider tier carries a temperature.
+// 0 means "unset" (the wire field is omitempty), so the provider's, or the local server's, own default applies. The
+// runtime sends a temperature only when a model's own config sets one, so a non-zero tier default would only ever be a
+// value the new-model form pre-fills and then persists as if it were a choice: local models all ended up at 0.1 while
+// their llama-server's own default (0.6 for Qwen3.6, read from /props) was never in force.
 func TestConvertProviderTiers_TemperatureDefaults(t *testing.T) {
 	out := convertProviderTiers(assistant.ProviderTiers())
 	if len(out) == 0 {
 		t.Fatal("expected provider tiers")
 	}
 	for provider, d := range out {
-		want := 0.0
-		if provider == models.ProviderLocal {
-			want = assistant.DefaultAutomationTemperature
+		if d.Temperature != 0 {
+			t.Errorf("%s: temperature = %v, want 0 (unset)", provider, d.Temperature)
 		}
-		if d.Temperature != want {
-			t.Errorf("%s: temperature = %v, want %v", provider, d.Temperature, want)
-		}
-	}
-	if out[models.ProviderLocal].Temperature != 0.1 {
-		t.Errorf("local temperature = %v, want 0.1", out[models.ProviderLocal].Temperature)
 	}
 }
 
-// TestBaseAdminTuningDefaults_KeepsGlobalTemperature documents that the global
-// agent_defaults fallback is unchanged (0.1); only provider tiers diverge.
-func TestBaseAdminTuningDefaults_KeepsGlobalTemperature(t *testing.T) {
-	if got := baseAdminTuningDefaults().Temperature; got != assistant.DefaultAutomationTemperature {
-		t.Errorf("base temperature = %v, want %v", got, assistant.DefaultAutomationTemperature)
+// TestBaseAdminTuningDefaults_NoTemperature: the global agent_defaults fallback is unset too.
+func TestBaseAdminTuningDefaults_NoTemperature(t *testing.T) {
+	if got := baseAdminTuningDefaults().Temperature; got != 0 {
+		t.Errorf("base temperature = %v, want 0 (unset)", got)
 	}
 }
 

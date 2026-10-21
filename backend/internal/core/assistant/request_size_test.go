@@ -320,3 +320,50 @@ func TestAgent_ContextOverflowAdoptsTheReportedWindow(t *testing.T) {
 		}
 	})
 }
+
+// The think budget is derived from the output cap, so when the overflow lowers the cap to the real window the budget is
+// lowered with it: a run that started from the training window's 87381 tokens (a 29127-token thinking budget, no bound
+// at all on a 16384-token window) ends up with the 1820 the window gives. A budget that was set by hand is the
+// operator's and stays, and a budget already below the derived one is not raised.
+func TestAgent_ContextOverflowRederivesTheThinkBudget(t *testing.T) {
+	run := func(t *testing.T, opts AgentOptions) *Agent {
+		t.Helper()
+		calls := 0
+		client := &MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			calls++
+			if calls == 1 {
+				return nil, fmt.Errorf("stream: %w", &providers.ContextOverflowError{PromptTokens: 17155, WindowTokens: 16384})
+			}
+			return textStream("done"), nil
+		}}
+		opts.MaxSteps, opts.ModelName, opts.WorkloadClass = 5, "m", models.WorkloadLocal
+		opts.Orchestrator = &orchestrator.Orchestrator{Ratios: orchestrator.NewTokenRatios()}
+		agent := NewAgent(client, &MockProvider{}, &MockEngine{}, opts)
+		if _, _, err := agent.Execute(context.Background(), bulkyHistory(10, 6000)); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		return agent
+	}
+
+	t.Run("a budget derived from a stale output cap follows the window", func(t *testing.T) {
+		agent := run(t, AgentOptions{ContextBudget: 699052, MaxResponseTokens: 87381})
+		if agent.config.ReasoningSpec.Budget != 1820 {
+			t.Errorf("think budget %d, want 1820 (a 5461-token output cap)", agent.config.ReasoningSpec.Budget)
+		}
+		if agent.config.ReasoningBudget != 1820 || agent.interceptorReasoningBudget() != 1820*interceptorReasoningFactor {
+			t.Errorf("the numeric budget (%d) and the interceptor's cut (%d) must follow the spec", agent.config.ReasoningBudget, agent.interceptorReasoningBudget())
+		}
+	})
+	t.Run("a budget set by hand stays", func(t *testing.T) {
+		agent := run(t, AgentOptions{ContextBudget: 699052, MaxResponseTokens: 87381, ReasoningBudget: 6000})
+		if agent.config.ReasoningSpec.Budget != 6000 {
+			t.Errorf("think budget %d, want the configured 6000", agent.config.ReasoningSpec.Budget)
+		}
+	})
+	t.Run("a budget already below the derived one is not raised", func(t *testing.T) {
+		agent := run(t, AgentOptions{ContextBudget: 30000, MaxResponseTokens: 2000})
+		if agent.config.ReasoningSpec.Budget != 666 {
+			t.Errorf("think budget %d, want 666 (2000/3), unchanged", agent.config.ReasoningSpec.Budget)
+		}
+	})
+}

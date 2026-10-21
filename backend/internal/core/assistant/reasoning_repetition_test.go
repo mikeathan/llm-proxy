@@ -352,7 +352,7 @@ func TestProcessStream_ClientReasoningCutIsABackstop(t *testing.T) {
 		if msg.Content != "answer" {
 			t.Errorf("content = %q, reasoning %d chars: the stream was cut before the answer", msg.Content, len(msg.ReasoningContent))
 		}
-		if a.answerWithoutThinking.Load() {
+		if a.reasoningStepDown.Load() {
 			t.Error("no recovery should be armed for a stream that finished")
 		}
 	})
@@ -367,7 +367,7 @@ func TestProcessStream_ClientReasoningCutIsABackstop(t *testing.T) {
 		if len(msg.ReasoningContent) >= 30000 {
 			t.Error("a runaway stream was not cut")
 		}
-		if !a.answerWithoutThinking.Load() {
+		if !a.reasoningStepDown.Load() {
 			t.Error("the cut must arm the answer-without-thinking retry")
 		}
 	})

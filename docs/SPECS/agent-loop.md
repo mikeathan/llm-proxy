@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.10"
+version: "1.11"
 status: stable
 last_updated: 2026-10-21
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -12,6 +12,23 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.11 (2026-10-21)** — The recovery after a stream is cut as a reasoning loop is now provider-neutral (`reasoning.StepDown`,
+  armed by `noteStuckThinking` for every workload): the next request asks for less reasoning through whichever control the provider
+  uses. A local think-token model answers without thinking (as before); an effort model drops one level and never to none; an
+  object model lowers its effort and stays enabled; an on/off model is left alone (switching a cloud model's reasoning off is not
+  ours to do). One request, then back to normal. **Reach:** the loop guard and the stuck ceiling read only `reasoning_content`
+  (llama.cpp, Qwen, NVIDIA, and OpenAI-compatible endpoints that stream it, such as DeepSeek), so the step fires for local models
+  and for effort-mode endpoints that expose that field. OpenRouter's `reasoning` field (object mode) and OpenAI/Gemini's opaque
+  effort reasoning are not read, so their step-down is built and tested at the resolver but dormant until the guard reads their
+  text; NVIDIA's toggle has no lower level. A local run's think budget follows its output cap: when a context overflow
+  reports the server's window, the budget derived from the stale cap is re-derived from the lowered one (the numeric
+  `ReasoningBudget`, which the stream interceptor cuts at 3x, with it); a budget the operator configured never moves. The
+  request log lines carry `reasoning=<control>` (the control the resolver actually set; the legacy `reasoning_budget` they
+  printed was always 0 for a think-token request), and `fetch_url` logs its own cut as `tool result cut | tool fetch_url`.
+  `fetch_url` also sizes a non-HTML page by encoded length (`fitHeadTail`): `proxy.TruncateResult` counts raw characters and
+  always adds its marker, so such a result was over the cap before escaping and was cut a second time by the agent.
+  The default temperature is unset for every provider (see §Temperature).
 
 - **1.10 (2026-10-21)** — Two guards for a run that ends on a line of prose after its model looped. (1) A text-only turn that
   ends by announcing an action it did not take ("I found several items. Let me fetch the pricing page to confirm.") is not a
@@ -291,7 +308,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   counts (messages / characters), not tokens.
 
 ### 13. Per-Model Temperature and Timeout Overrides
-- `ModelConfig.Temperature` (float64) is sent as the request temperature when > 0. 0 = unset: the field is omitted (`omitempty`) so the provider's own default applies. The admin view returns the stored value verbatim (0 stays 0, never a fabricated default); `DefaultAutomationTemperature` (0.1) is only prefilled into the local-tier Add form, so a new local model saves 0.1 explicitly; cloud provider tiers default to 0.
+- `ModelConfig.Temperature` (float64) is sent as the request temperature when > 0. 0 = unset: the field is omitted (`omitempty`) so the provider's own default applies. The admin view returns the stored value verbatim (0 stays 0, never a fabricated default); No provider tier carries a temperature default (`agent_defaults` and `provider_defaults` report 0), so the new-model form starts blank and the server's or provider's own default applies; the runtime has no temperature default of its own. (Until 2026-10-21 the local tier pre-filled 0.1, which the form then saved: every local model carried 0.1 although llama-server's own default for Qwen3.6, read from `/props`, is 0.6. Stored values are not touched. A replay of the looping request showed temperature is not what makes a thinking model loop: 9 of 10 loops at 0.1 and at the server default; the unbounded think budget was.)
 - `ModelConfig.TimeoutMinutes` (int) overrides `AgentGlobalTimeout` (30 min) per execution. 0 = use default.
 - Both are stored in `settings.yml` under `model_overrides.<name>`. Persisted via `writeModelOverrides()` in `registry_handlers.go`.
 - Applied in `executor.go` `buildAgentOptions()`: `cfg.Temperature` → `opts.Temperature`, `cfg.TimeoutMinutes` → `opts.GlobalTimeout`.

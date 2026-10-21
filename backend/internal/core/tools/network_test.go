@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 	"net"
@@ -428,5 +429,75 @@ func TestNetworkTools_FetchURL_ProxiedRedirectToLANIsBlocked(t *testing.T) {
 	case <-lanHit:
 		t.Fatal("the LAN host was fetched through the proxy")
 	default:
+	}
+}
+
+// infoLogger records Info lines so a test can see what a tool reported.
+type infoLogger struct {
+	mockLogger
+	lines []string
+}
+
+func (l *infoLogger) Info(msg string, args ...any) {
+	l.lines = append(l.lines, strings.TrimSpace(fmt.Sprintln(append([]any{msg}, args...)...)))
+}
+func (l *infoLogger) With(...any) logging.Logger { return l }
+
+// fetch_url cuts its own output before the agent's generic cut sees it, so the agent's "tool result cut" line never
+// counted it. The tool now reports its own cut in the same format (what the page held, what was kept), once per fetch,
+// and nothing when the page fits.
+func TestNetworkTools_FetchURL_ReportsItsOwnCut(t *testing.T) {
+	big := strings.Repeat("A paragraph of readable page text that goes on. ", 400) // ~19 KB
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/html":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, "<html><body><p>%s</p></body></html>", big)
+		case "/text":
+			w.Header().Set("Content-Type", "text/plain")
+			fmt.Fprint(w, big)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, "<html><body><p>A short page.</p></body></html>")
+		}
+	}))
+	defer srv.Close()
+	pu, err := url.Parse(srv.URL) // the server is the egress proxy double: it answers every proxied request itself
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fetch := func(path string) []string {
+		log := &infoLogger{}
+		n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+			return models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+		}, log)
+		n.SetProxy(pu)
+		out, err := n.FetchURL(models.WithResultCap(context.Background(), 3000), "http://1.2.3.4"+path)
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		// The result must fit the cap once JSON-encoded, or the agent cuts it a second time and logs a second line.
+		if encodedLen(out) > 3000 {
+			t.Errorf("%s: the result is %d characters encoded, over the 3000 cap", path, encodedLen(out))
+		}
+		return log.lines
+	}
+
+	for _, path := range []string{"/html", "/text"} {
+		lines := fetch(path)
+		if len(lines) != 1 || !strings.HasPrefix(lines[0], "tool result cut") || !strings.Contains(lines[0], "fetch_url") {
+			t.Fatalf("%s: want one 'tool result cut' line for fetch_url, got %q", path, lines)
+		}
+		var chars, kept int
+		if _, err := fmt.Sscanf(lines[0][strings.Index(lines[0], "chars"):], "chars %d kept %d", &chars, &kept); err != nil {
+			t.Fatalf("%s: cannot read sizes from %q: %v", path, lines[0], err)
+		}
+		if chars < 19000 || kept <= 0 || kept > 3000 || chars <= kept {
+			t.Errorf("%s: chars %d kept %d: want the page's size (~19000) and what was kept (within the 3000 cap)", path, chars, kept)
+		}
+	}
+	if lines := fetch("/short"); len(lines) != 0 {
+		t.Errorf("a page that fits must report nothing, got %q", lines)
 	}
 }

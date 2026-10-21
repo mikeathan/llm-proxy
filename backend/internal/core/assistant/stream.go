@@ -149,8 +149,10 @@ func (a *Agent) applyRequestConfig(req *proxy.ChatRequest) {
 		resolver := reasoning.NewReasoningResolver(a.config.WorkloadClass, a.config.ProviderType, a.config.ReasoningBudget)
 		resolver.Apply(req, a.config.ReasoningSpec)
 	}
-	if a.answerWithoutThinking.Swap(false) {
-		reasoning.DisableThinking(req)
+	if a.reasoningStepDown.Swap(false) {
+		if reasoning.StepDown(req, a.config.ReasoningSpec) && a.deps.Logger != nil {
+			a.deps.Logger.Info("reasoning stepped down for this request after a loop cut", "reasoning", reasoning.Describe(req))
+		}
 	}
 	if a.deps.Logger != nil {
 		a.deps.Logger.Debug("reasoning resolver applied",
@@ -391,7 +393,7 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	ch, streamErr := a.sendStream(ctx, req)
 	a.deps.Logger.Info("stream request sent", "model", a.config.ModelName,
 		"max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice,
-		"temperature", req.Temperature)
+		"temperature", req.Temperature, "reasoning", reasoning.Describe(&req))
 
 	if a.deps.Orchestrator != nil && a.deps.Orchestrator.Budget != nil && txnID != "" {
 		defer func() {
@@ -991,13 +993,12 @@ func (s *streamRun) markFirstDelta(choice proxy.Choice, chunk proxy.Message) {
 	}
 }
 
-// noteStuckThinking arms the recovery for a local workload whose stream got
-// stuck thinking: the retry that follows answers without thinking. Cloud
-// providers are left alone (their reasoning is not ours to switch off).
+// noteStuckThinking arms the recovery for a stream that got stuck thinking: the request that follows asks for less
+// reasoning, through whichever control the model's provider uses (reasoning.StepDown). That is conservative everywhere: a
+// local model answers without thinking, an effort model drops one level and never to none, and a provider that only
+// offers an on/off toggle is left alone, because switching a cloud model's reasoning off is not ours to do.
 func (a *Agent) noteStuckThinking() {
-	if a.config.WorkloadClass == models.WorkloadLocal {
-		a.answerWithoutThinking.Store(true)
-	}
+	a.reasoningStepDown.Store(true)
 }
 
 // accumulate appends the chunk's content, reasoning and tool-call deltas to
@@ -1163,7 +1164,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		a.deps.Logger.Debug("Outgoing LLM Non-Stream Request", "payload", string(rawReq))
 	}
 
-	a.deps.Logger.Info("non-stream request sent", "model", a.config.ModelName, "max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning_budget", req.ReasoningBudget)
+	a.deps.Logger.Info("non-stream request sent", "model", a.config.ModelName, "max_tokens", a.config.MaxTokens, "tool_choice", req.ToolChoice, "temperature", req.Temperature, "reasoning", reasoning.Describe(&req))
 
 	// Neutral "working" status before the (single) response arrives.
 	a.notifyAgentThinking()

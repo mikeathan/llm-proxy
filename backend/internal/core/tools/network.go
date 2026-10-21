@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"llm-proxy/internal/core/proxy"
-
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/network"
 	"llm-proxy/internal/platform/units"
@@ -164,7 +162,19 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 	}
 
 	capChars := resultCapOf(ctx)
-	return proxy.TruncateResult(fetchedText(resp.Header.Get("Content-Type"), data, lr.N <= 0, capChars), capChars, ""), nil
+	shown, full := fetchedText(resp.Header.Get("Content-Type"), data, lr.N <= 0, capChars)
+	out := fitHeadTail(shown, capChars)
+	n.reportCut(full, capChars, out)
+	return out, nil
+}
+
+// reportCut logs a fetch whose page exceeded the cap, in the format of the agent's own "tool result cut" line: what the
+// page held and what was kept, both JSON-encoded, once per fetch. The tool cuts its output before the agent's generic cut
+// sees it, so that cut never counted this one.
+func (n *NetworkTools) reportCut(full, capChars int, kept string) {
+	if full > capChars {
+		n.logger.Info("tool result cut", "tool", "fetch_url", "chars", full, "kept", encodedLen(kept))
+	}
 }
 
 // guardrailCutNote follows a body the size guardrail stopped reading.
@@ -173,16 +183,20 @@ const guardrailCutNote = "\n... (content truncated by network guardrails)"
 // fetchedText is what the model reads of a response: an HTML page as its readable text (the result cap would
 // otherwise spend itself on the page's markup), anything else as it came. cutShort marks a body the size
 // guardrail stopped reading.
-func fetchedText(contentType string, data []byte, cutShort bool, capChars int) string {
+func fetchedText(contentType string, data []byte, cutShort bool, capChars int) (shown string, full int) {
 	text := string(data)
 	note := ""
 	if cutShort {
 		note = guardrailCutNote
 	}
 	if isHTML(contentType, data) {
-		text = pageHead(htmlToText(text), encodedLen(note), capChars)
+		text = htmlToText(text)
+		full = encodedLen(text) + encodedLen(note)
+		text = pageHead(text, encodedLen(note), capChars)
+	} else {
+		full = encodedLen(text) + encodedLen(note)
 	}
-	return text + note
+	return text + note, full
 }
 
 // resolveAndQueueTargets handles the expansion and validation of comma-separated targets.

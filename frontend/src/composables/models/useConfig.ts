@@ -51,7 +51,7 @@ export const DEFAULT_CONFIG: GlobalConfig = {
     max_steps: 25,
     context_budget: 8000,
     max_tokens: 2048,
-    temperature: 0.1,
+    temperature: 0,
     reasoning_budget: 0,
     timeout_minutes: 30,
     tool_call_format: '',
