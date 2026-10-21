@@ -59,6 +59,7 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 		RunLogging:    &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		Memory:        settings.Memory.HotDefaults(),
 		Reminders:     settings.Reminders.Effective(),
+		Agent:         settings.Agent.Effective(),
 	}
 	respondJSON(w, cfg)
 }

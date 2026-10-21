@@ -163,7 +163,8 @@ func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, 
 		return "", err
 	}
 
-	return proxy.TruncateResultDefault(fetchedText(resp.Header.Get("Content-Type"), data, lr.N <= 0)), nil
+	capChars := resultCapOf(ctx)
+	return proxy.TruncateResult(fetchedText(resp.Header.Get("Content-Type"), data, lr.N <= 0, capChars), capChars, ""), nil
 }
 
 // guardrailCutNote follows a body the size guardrail stopped reading.
@@ -172,14 +173,14 @@ const guardrailCutNote = "\n... (content truncated by network guardrails)"
 // fetchedText is what the model reads of a response: an HTML page as its readable text (the result cap would
 // otherwise spend itself on the page's markup), anything else as it came. cutShort marks a body the size
 // guardrail stopped reading.
-func fetchedText(contentType string, data []byte, cutShort bool) string {
+func fetchedText(contentType string, data []byte, cutShort bool, capChars int) string {
 	text := string(data)
 	note := ""
 	if cutShort {
 		note = guardrailCutNote
 	}
 	if isHTML(contentType, data) {
-		text = pageHead(htmlToText(text), encodedLen(note))
+		text = pageHead(htmlToText(text), encodedLen(note), capChars)
 	}
 	return text + note
 }

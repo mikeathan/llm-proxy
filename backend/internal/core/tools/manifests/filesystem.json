@@ -31,7 +31,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Optional. Most bytes to return (default and maximum about 2800; a piece is shortened to fit)."
+            "description": "Optional. Most bytes to return. A piece is shortened to fit the result limit, so a long file is read by calling again with the offset the previous piece ended with."
           }
         },
         "required": ["path"]

@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
-
-	"llm-proxy/internal/core/proxy"
 )
 
 // A fetched web page is mostly markup. The result cap is a few thousand characters, so cutting the raw page keeps
@@ -106,12 +104,12 @@ const pageCutNote = "\n... [page text continues; the rest was cut]"
 // pageHead keeps the start of a page's text. A web page leads with what it is about; its tail is references,
 // categories and footers, so unlike other output it is cut at the end, not in the middle. The result cap is applied
 // again to the JSON-encoded result (see fittingPrefix), so the cut is sized by the encoded length: the opening is then
-// never re-cut. reserve is the encoded length of text the caller appends afterwards.
-func pageHead(text string, reserve int) string {
-	if encodedLen(text)+reserve <= proxy.MaxReturnChars {
+// never re-cut. reserve is the encoded length of text the caller appends afterwards, and capChars the cap for this call.
+func pageHead(text string, reserve, capChars int) string {
+	if encodedLen(text)+reserve <= capChars {
 		return text
 	}
-	n := fittingPrefix(text, proxy.MaxReturnChars-reserve-encodedLen(pageCutNote))
+	n := fittingPrefix(text, capChars-reserve-encodedLen(pageCutNote))
 	return text[:n] + pageCutNote
 }
 

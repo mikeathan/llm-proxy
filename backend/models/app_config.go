@@ -15,6 +15,7 @@ type AppConfig struct {
 	Memory         *MemoryConfig            `yaml:"memory,omitempty" json:"memory,omitempty"`
 	Scheduler      *SchedulerConfig         `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	Reminders      *RemindersConfig         `yaml:"reminders,omitempty" json:"reminders,omitempty"`
+	Agent          *AgentConfig             `yaml:"agent,omitempty" json:"agent,omitempty"`
 	RunLogging     *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 }
 

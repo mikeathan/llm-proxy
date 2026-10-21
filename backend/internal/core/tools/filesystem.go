@@ -229,15 +229,12 @@ func (f *FileSystemTools) ReadFile(ctx context.Context, path string) (string, er
 		return "", fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
 
-	return truncatedFileRead(string(content)), nil
+	return truncatedFileRead(string(content), resultCapOf(ctx)), nil
 }
 
 // fileMarkerReserve is the room, in the encoded result, kept for the marker that stands where a long read leaves the
 // middle of the file out.
 const fileMarkerReserve = 200
-
-// suggestedReadLimit is the limit the marker proposes: about what one piece can carry within the result cap.
-const suggestedReadLimit = 2800
 
 // truncatedFileRead is what a read with no range returns: the whole file when it fits the result cap once encoded,
 // else its start and its end with a marker where the middle is left out. The marker sits at the gap, says how much is
@@ -245,24 +242,23 @@ const suggestedReadLimit = 2800
 // the two ends as if it had the whole file (seen live, Qwen 16k, where a header note was ignored in 3 runs of 3 and
 // this wording read the missing part in 5 of 5). The whole result is sized to the cap once encoded, so appendToolResult's
 // second cut, which drops the middle of an over-long result, cannot remove the marker; it holds no "<", ">" or "&".
-func truncatedFileRead(raw string) string {
-	if encodedLen(raw) <= proxy.MaxReturnChars {
+func truncatedFileRead(raw string, capChars int) string {
+	if encodedLen(raw) <= capChars {
 		return raw
 	}
-	half := (proxy.MaxReturnChars - fileMarkerReserve) / 2
+	half := (capChars - fileMarkerReserve) / 2
 	head := raw[:fittingPrefix(raw, half)]
 	tail := raw[len(raw)-fittingSuffix(raw[len(head):], half):]
 	missing := len(raw) - len(head) - len(tail)
-	return head + fmt.Sprintf(prompts.FileGapMarker, len(head), len(raw)-len(tail), missing, missing*100/len(raw), len(head), suggestedReadLimit) + tail
+	return head + fmt.Sprintf(prompts.FileGapMarker, len(head), len(raw)-len(tail), missing, missing*100/len(raw), len(head), capChars-fileMarkerReserve) + tail
 }
 
-// defaultRangeBytes is how much a ranged read returns when it names no limit; rangeNoteReserve leaves room, in the
-// encoded result, for the header and the trailing note; rangeReadCap bounds what one piece reads from disk, however
-// large the file or the limit asked for (a piece never shows more than the result cap anyway).
+// rangeNoteReserve leaves room, in the encoded result, for the header and the trailing note of a ranged read. A piece is
+// sized to the call's cap (resultCapOf): that many characters when it names no limit, and never more than rangeReadFactor
+// times the cap read from disk, however large the file or the limit asked for.
 const (
-	defaultRangeBytes = proxy.MaxReturnChars
-	rangeNoteReserve  = 120
-	rangeReadCap      = 4 * proxy.MaxReturnChars
+	rangeNoteReserve = 120
+	rangeReadFactor  = 4
 )
 
 // ReadFileRange reads a file in pieces: up to limit bytes from byte offset (offset 0 and the default limit when
@@ -273,7 +269,8 @@ func (f *FileSystemTools) ReadFileRange(ctx context.Context, path string, offset
 	if offset == nil && limit == nil {
 		return f.ReadFile(ctx, path)
 	}
-	start, want := 0, defaultRangeBytes
+	capChars := resultCapOf(ctx)
+	start, want := 0, capChars
 	if offset != nil {
 		start = *offset
 	}
@@ -290,11 +287,11 @@ func (f *FileSystemTools) ReadFileRange(ctx context.Context, path string, offset
 	if err != nil {
 		return "", err
 	}
-	w, err := readWindow(ctx, absPath, start, min(want, rangeReadCap))
+	w, err := readWindow(ctx, absPath, start, min(want, rangeReadFactor*capChars))
 	if err != nil {
 		return "", fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
-	return w.render(want), nil
+	return w.render(want, capChars), nil
 }
 
 // fileWindow is a piece of a file: data holds the bytes that start at byte start of a file total bytes long.
@@ -353,9 +350,9 @@ func readWindowAt(path string, start, want int) (fileWindow, error) {
 }
 
 // render is the piece as the model sees it: a header with the real byte range, the text (start moved forward to a
-// character start, end cut back to one, and shortened to fit the result cap once encoded), and a note saying where
+// character start, end cut back to one, and shortened to fit the call's result cap once encoded), and a note saying where
 // to continue or that the file ended. want is the limit asked for.
-func (w fileWindow) render(want int) string {
+func (w fileWindow) render(want, capChars int) string {
 	if w.total > 0 && w.start >= w.total {
 		return fmt.Sprintf("[offset %d is past the end: the file has %d bytes]", w.start, w.total)
 	}
@@ -364,12 +361,12 @@ func (w fileWindow) render(want int) string {
 		skip++
 	}
 	start, data := w.start+skip, w.data[skip:]
-	text := data[:charStart(data, min(len(data), min(want, rangeReadCap)))]
+	text := data[:charStart(data, min(len(data), min(want, rangeReadFactor*capChars)))]
 	if text == "" && data != "" { // the limit is smaller than one character: give that character
 		_, size := utf8.DecodeRuneInString(data)
 		text = data[:size]
 	}
-	text = text[:fittingPrefix(text, proxy.MaxReturnChars-rangeNoteReserve)]
+	text = text[:fittingPrefix(text, capChars-rangeNoteReserve)]
 	end := start + len(text)
 	note := "\n[end of file]"
 	if end < w.total {

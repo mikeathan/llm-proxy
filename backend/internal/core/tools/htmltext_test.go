@@ -99,17 +99,17 @@ func TestFetchedText_ArticleSurvivesTheResultCap(t *testing.T) {
 	if strings.Contains(capped(page), "Leeds is a city in West Yorkshire.") {
 		t.Fatal("fixture should push the article out of the raw cap, or this test proves nothing")
 	}
-	if got := capped(fetchedText("text/html", []byte(page), false)); !strings.Contains(got, "Leeds is a city in West Yorkshire.") {
+	if got := capped(fetchedText("text/html", []byte(page), false, proxy.MaxReturnChars)); !strings.Contains(got, "Leeds is a city in West Yorkshire.") {
 		t.Errorf("article lost to the cap: %q", got)
 	}
 }
 
 func TestFetchedText_LeavesNonHTMLAlone(t *testing.T) {
 	body := `{"a":"<p>x</p>"}`
-	if got := fetchedText("application/json", []byte(body), false); got != body {
+	if got := fetchedText("application/json", []byte(body), false, proxy.MaxReturnChars); got != body {
 		t.Errorf("json changed: %q", got)
 	}
-	if got := fetchedText("text/plain", []byte("x"), true); !strings.HasSuffix(got, "(content truncated by network guardrails)") {
+	if got := fetchedText("text/plain", []byte("x"), true, proxy.MaxReturnChars); !strings.HasSuffix(got, "(content truncated by network guardrails)") {
 		t.Errorf("size-guardrail note missing: %q", got)
 	}
 }
@@ -194,11 +194,11 @@ func TestHTMLToText_ScopesToMainWhenItHoldsText(t *testing.T) {
 }
 
 func TestPageHead_CutsAtTheEndOnARuneBoundary(t *testing.T) {
-	if short := "short text"; pageHead(short, 0) != short {
+	if short := "short text"; pageHead(short, 0, proxy.MaxReturnChars) != short {
 		t.Error("short text must be unchanged")
 	}
 	long := strings.Repeat("é", proxy.MaxReturnChars)
-	got := pageHead(long, 0)
+	got := pageHead(long, 0, proxy.MaxReturnChars)
 	if !utf8.ValidString(got) || !strings.HasSuffix(got, "the rest was cut]") || encodedLen(got) > proxy.MaxReturnChars {
 		t.Errorf("bad cut: valid=%v encoded=%d", utf8.ValidString(got), encodedLen(got))
 	}
@@ -224,7 +224,7 @@ func TestHTMLToText_SummaryIsBoundedAndIgnoresOtherScripts(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		many += `<meta name="description" content="distinct description number ` + string(rune('a'+i)) + `">`
 	}
-	got = pageHead(htmlToText("<html><head><title>T</title>"+many+"</head><body>"+proseBody+"</body></html>"), 0)
+	got = pageHead(htmlToText("<html><head><title>T</title>"+many+"</head><body>"+proseBody+"</body></html>"), 0, proxy.MaxReturnChars)
 	if n := strings.Count(got, "Summary:"); n > summaryLines {
 		t.Errorf("%d summary lines, cap is %d", n, summaryLines)
 	}
@@ -240,7 +240,7 @@ func TestFetchedText_FitsTheResultCapAfterJSONEscaping(t *testing.T) {
 		b.WriteString(`<p>Tom &amp; "Jerry" <b>&lt;x&gt;</b> row ` + strings.Repeat("y", i%7) + `</p>`)
 	}
 	b.WriteString("</main>")
-	encoded, err := json.Marshal(fetchedText("text/html", []byte(b.String()), false))
+	encoded, err := json.Marshal(fetchedText("text/html", []byte(b.String()), false, proxy.MaxReturnChars))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestFetchedText_FitsTheResultCapAfterJSONEscaping(t *testing.T) {
 
 func TestPageHead_ShortTextThatGrowsWhenEncodedDoesNotPanic(t *testing.T) {
 	text := strings.Repeat(`"<&>"`, 580) // 2900 characters, about 5500 once JSON-encoded
-	got := pageHead(text, 0)
+	got := pageHead(text, 0, proxy.MaxReturnChars)
 	if encodedLen(got) > proxy.MaxReturnChars || !strings.HasSuffix(got, "the rest was cut]") {
 		t.Errorf("bad cut: encoded=%d", encodedLen(got))
 	}
@@ -271,11 +271,39 @@ func TestFetchedText_SizeLimitNoteKeepsTheResultUnderTheCap(t *testing.T) {
 		b.WriteString(`<p>Paragraph "number" <b>&amp;</b> text ` + strings.Repeat("w", i%9) + `</p>`)
 	}
 	b.WriteString("</main>")
-	got := fetchedText("text/html", []byte(b.String()), true)
+	got := fetchedText("text/html", []byte(b.String()), true, proxy.MaxReturnChars)
 	if !strings.HasSuffix(got, "(content truncated by network guardrails)") {
 		t.Fatalf("the size-limit note is missing: %q", got[len(got)-80:])
 	}
 	if n := encodedLen(got); n > proxy.MaxReturnChars {
 		t.Errorf("encodes to %d, over the %d cap, so the page opening would be cut again", n, proxy.MaxReturnChars)
+	}
+}
+
+func TestFetchedText_PageHeadFollowsTheCallsCap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("<main>")
+	for i := 0; i < 400; i++ {
+		b.WriteString(`<p>Paragraph "number" <b>&amp;</b> text ` + strings.Repeat("w", i%9) + `</p>`)
+	}
+	b.WriteString("</main>")
+	page := []byte(b.String())
+
+	small := fetchedText("text/html", page, false, proxy.MaxReturnChars)
+	big := fetchedText("text/html", page, false, 8650)
+	if len(big) <= len(small)+3000 {
+		t.Errorf("a larger cap must carry more of the page: %d vs %d", len(big), len(small))
+	}
+	for _, c := range []struct {
+		text string
+		cap  int
+	}{{small, proxy.MaxReturnChars}, {big, 8650}} {
+		if n := encodedLen(c.text); n > c.cap {
+			t.Errorf("encodes to %d, over its cap of %d", n, c.cap)
+		}
+	}
+	withNote := fetchedText("text/html", page, true, 8650)
+	if n := encodedLen(withNote); n > 8650 || !strings.HasSuffix(withNote, "(content truncated by network guardrails)") {
+		t.Errorf("the size-limit note stays inside a larger cap: %d", n)
 	}
 }

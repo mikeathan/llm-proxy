@@ -97,6 +97,7 @@ type LLMServiceProvider interface {
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
 	MemorySettings() *models.MemoryConfig
+	AgentSettings() *models.AgentConfig
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 	RecordDir() string
 	RootDir() string
@@ -401,6 +402,8 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, runProfile profi
 		// Profile carries the run's loop policy and hides the tools outside it (an explicit AllowedTools
 		// list narrows further: a profile can hide tools, never add one the list lacks).
 		Profile: runProfile,
+		// The same adaptive result cap as a chat: an unattended run reads the same files and pages.
+		AdaptiveResultCap: e.svc.AgentSettings().AdaptiveResultCapEnabled(),
 	}
 	if e.memoryActive(req, runProfile) {
 		opts.MemoryStore = e.svc.MemoryStore()

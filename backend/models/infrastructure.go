@@ -80,6 +80,7 @@ type UserSettings struct {
 	Scheduler      *SchedulerConfig         `yaml:"scheduler,omitempty" json:"scheduler,omitempty"`
 	RunOutput      *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 	Reminders      *RemindersConfig         `yaml:"reminders,omitempty" json:"reminders,omitempty"`
+	Agent          *AgentConfig             `yaml:"agent,omitempty" json:"agent,omitempty"`
 }
 
 // RemindersConfig is where reminders go and which timezone they use when the
@@ -132,6 +133,31 @@ type RunLoggingConfig struct {
 // fresh installs must keep producing per-run events.jsonl and final reports.
 func DefaultRunLoggingConfig() RunLoggingConfig {
 	return RunLoggingConfig{Enabled: true}
+}
+
+// AgentConfig holds agent-loop behaviour that applies to every run, chat and automation alike.
+//
+// AdaptiveResultCap is a pointer because a settings.yml that already has an `agent:` block is not backfilled per field, and
+// an absent field must read as the default (on), not as an explicit false.
+type AgentConfig struct {
+	// AdaptiveResultCap sizes the cap on one tool result from the room left in the request (never below 3000 characters),
+	// so a 7 KB file or a search result arrives whole on a window that has the room. Off keeps a fixed 3000.
+	AdaptiveResultCap *bool `yaml:"adaptive_result_cap,omitempty" json:"adaptive_result_cap,omitempty"`
+}
+
+const defaultAdaptiveResultCap = true
+
+// AdaptiveResultCapEnabled is the effective setting; nil-safe, unset means on.
+func (c *AgentConfig) AdaptiveResultCapEnabled() bool {
+	if c == nil || c.AdaptiveResultCap == nil {
+		return defaultAdaptiveResultCap
+	}
+	return *c.AdaptiveResultCap
+}
+
+// Effective is the block with every default filled in, as the admin API shows it; nil-safe.
+func (c *AgentConfig) Effective() AgentConfig {
+	return AgentConfig{AdaptiveResultCap: new(c.AdaptiveResultCapEnabled())}
 }
 
 const (
@@ -356,4 +382,5 @@ type SystemUpdatePayload struct {
 	Scheduler            *SchedulerConfig        `json:"scheduler,omitempty"`
 	Memory               *MemoryHotDefaults      `json:"memory,omitempty"`
 	Reminders            *RemindersConfig        `json:"reminders,omitempty"`
+	Agent                *AgentConfig            `json:"agent,omitempty"`
 }

@@ -1,8 +1,12 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"unicode/utf8"
+
+	"llm-proxy/internal/core/proxy"
+	"llm-proxy/models"
 )
 
 // A tool result is capped twice: by the tool, and again by appendToolResult on the JSON-encoded string, where quotes,
@@ -68,4 +72,14 @@ func nextCharStart(s string, i int) int {
 		i++
 	}
 	return i
+}
+
+// resultCapOf is how many characters of result the agent will keep for this call. A tool that cuts its own output sizes
+// the cut to it, so the agent's own cut leaves the result alone; without a cap on the context it is the default
+// (proxy.MaxReturnChars), and a cap below the default is raised to it.
+func resultCapOf(ctx context.Context) int {
+	if n, ok := models.ResultCapFrom(ctx); ok {
+		return max(n, proxy.MaxReturnChars)
+	}
+	return proxy.MaxReturnChars
 }

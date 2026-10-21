@@ -172,6 +172,9 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 		if req.Reminders != nil {
 			set.Reminders = req.Reminders
 		}
+		if req.Agent != nil {
+			set.Agent = req.Agent
+		}
 		if req.Memory != nil {
 			if set.Memory == nil {
 				set.Memory = new(models.DefaultMemoryConfig())

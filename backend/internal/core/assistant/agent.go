@@ -219,6 +219,9 @@ type AgentConfig struct {
 	WorkloadClass   models.WorkloadClass
 	SkipStuckCheck  bool
 	EnableHotMemory bool
+	// AdaptiveResultCap sizes the cap on one tool result from the room left in the request (see resultCapFor); off keeps
+	// the fixed proxy.MaxReturnChars.
+	AdaptiveResultCap bool
 	// Profile is the run's resolved prompt profile; the loop reads its policy flags.
 	Profile profile.Profile
 	// LoopStrategy selects the agent loop archetype. Empty = provider default /
@@ -300,6 +303,8 @@ func (a *Agent) setPrefillDisabled(v bool) {
 }
 
 type AgentOptions struct {
+	// AdaptiveResultCap: see AgentConfig.
+	AdaptiveResultCap        bool
 	MaxSteps                 int
 	ContextBudget            int
 	MaxResponseTokens        int
@@ -653,6 +658,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			OnGuardrail:  opts.GuardrailDecisionHandler,
 		},
 		config: AgentConfig{
+			AdaptiveResultCap:        opts.AdaptiveResultCap,
 			MaxSteps:                 opts.MaxSteps,
 			ContextBudget:            opts.ContextBudget,
 			MaxTokens:                opts.MaxResponseTokens,

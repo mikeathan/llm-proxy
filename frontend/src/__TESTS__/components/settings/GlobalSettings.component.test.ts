@@ -68,6 +68,32 @@ describe('GlobalSettings run logging', () => {
   })
 })
 
+// A tool result (a file, a page, search hits) keeps more text when the window has room, and never less than 3000 characters:
+// the switch is on unless the saved config says otherwise, and turning it off is saved as an explicit false.
+describe('GlobalSettings tool result size', () => {
+  const toggle = (w: ReturnType<typeof mountGlobal>['w']) =>
+    w.findAll('input[type="checkbox"]').find((t) => /tool results/i.test(t.element.closest('label')?.textContent ?? ''))!
+
+  it('is on when the config says nothing', () => {
+    const { w } = mountGlobal({}, 'runs')
+    expect((toggle(w).element as HTMLInputElement).checked).toBe(true)
+    expect(w.text()).toContain('never less than 3000 characters')
+  })
+
+  it('reflects a saved off', () => {
+    const { w } = mountGlobal({ agent: { adaptive_result_cap: false } }, 'runs')
+    expect((toggle(w).element as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('saves an explicit false and an explicit true', async () => {
+    const { w, last } = mountGlobal({}, 'runs')
+    await toggle(w).setValue(false)
+    expect(last().agent).toEqual({ adaptive_result_cap: false })
+    await toggle(w).setValue(true)
+    expect(last().agent).toEqual({ adaptive_result_cap: true })
+  })
+})
+
 describe('GlobalSettings', () => {
   it('offers every configured model for primary and fallback routing', () => {
     const { w } = mountGlobal()

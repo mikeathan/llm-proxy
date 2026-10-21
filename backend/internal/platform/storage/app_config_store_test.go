@@ -390,3 +390,33 @@ func TestGetProjected_DeepCopiesProjection(t *testing.T) {
 		t.Error("GetProjected returned a value aliasing the live doc")
 	}
 }
+
+// The agent block rides the settings projection both ways: an explicit off survives a save and a reload, and settings that
+// never mention it leave it absent (which reads as on).
+func TestUserSettingsView_AgentBlockRoundTrips(t *testing.T) {
+	mgr, _ := resetTestManager(t)
+	if got := mgr.Settings().Get().Agent; got != nil {
+		t.Fatalf("a fresh install has no agent block: %+v", got)
+	}
+	if !mgr.Settings().Get().Agent.AdaptiveResultCapEnabled() {
+		t.Error("no block means on")
+	}
+
+	off := false
+	if err := mgr.Settings().Update(func(s *models.UserSettings) error {
+		s.Agent = &models.AgentConfig{AdaptiveResultCap: &off}
+		return nil
+	}); err != nil {
+		t.Fatalf("Settings().Update: %v", err)
+	}
+	got := mgr.Settings().Get().Agent
+	if got == nil || got.AdaptiveResultCapEnabled() {
+		t.Errorf("the explicit off must read back: %+v", got)
+	}
+	if err := mgr.Settings().Update(func(s *models.UserSettings) error { s.Local.ModelDir = "/m"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if mgr.Settings().Get().Agent.AdaptiveResultCapEnabled() {
+		t.Error("saving an unrelated field must not reset the agent block")
+	}
+}

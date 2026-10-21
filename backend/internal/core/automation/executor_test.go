@@ -102,6 +102,7 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 var taskRunner = profile.MustCatalog("", logging.NewNopLogger()).Resolve(profile.KindAutomation)
 
 type mockSvc struct {
+	agent       *models.AgentConfig // nil: the adaptive result cap defaults to on
 	memoryStore *memory.Store
 	memory      *models.MemoryConfig
 	modelCfg    models.ModelConfig
@@ -137,6 +138,7 @@ func (m *mockSvc) Events() assistant.EventPublisher                             
 func (m *mockSvc) Orchestrator() *orchestrator.Orchestrator                             { return nil }
 func (m *mockSvc) MemoryStore() *memory.Store                                           { return m.memoryStore }
 func (m *mockSvc) MemorySettings() *models.MemoryConfig                                 { return m.memory }
+func (m *mockSvc) AgentSettings() *models.AgentConfig                                   { return m.agent }
 func (m *mockSvc) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
 	return nil, fmt.Errorf("not implemented")
 }
@@ -602,5 +604,24 @@ func TestGuardrailPrompt_PairNamesTheAutomation(t *testing.T) {
 	}
 	if !types[assistant.EventGuardrailBlocked] || !types[assistant.EventGuardrailInvalidated] {
 		t.Errorf("published %v, want a blocked and an invalidated event", types)
+	}
+}
+
+// An unattended run reads the same files and pages as a chat, so it follows the same adaptive-result-cap setting.
+func TestBuildAgentOptions_AdaptiveResultCapFollowsTheSetting(t *testing.T) {
+	for name, agent := range map[string]*models.AgentConfig{
+		"unset is on":       nil,
+		"explicit on":       {AdaptiveResultCap: new(true)},
+		"explicit off":      {AdaptiveResultCap: new(false)},
+		"empty block is on": {},
+	} {
+		want := agent == nil || agent.AdaptiveResultCap == nil || *agent.AdaptiveResultCap
+		t.Run(name, func(t *testing.T) {
+			executor := NewLLMTaskExecutor(&mockSvc{agent: agent}).(*LLMTaskExecutor)
+			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws"}, taskRunner, logging.NewNopLogger(), nil)
+			if opts.AdaptiveResultCap != want {
+				t.Errorf("AdaptiveResultCap = %v, want %v", opts.AdaptiveResultCap, want)
+			}
+		})
 	}
 }

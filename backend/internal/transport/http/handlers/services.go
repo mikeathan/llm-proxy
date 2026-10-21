@@ -264,6 +264,7 @@ type AssistantService interface {
 	Events() assistant.EventPublisher
 	MemoryStore() *memory.Store
 	MemorySettings() *models.MemoryConfig
+	AgentSettings() *models.AgentConfig
 	RecordDir() string
 	RunLoggingEnabled() bool
 }

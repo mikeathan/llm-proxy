@@ -207,6 +207,7 @@ type adminConfigView struct {
 	Scheduler            *models.SchedulerConfig        `json:"scheduler,omitempty"`
 	Memory               models.MemoryHotDefaults       `json:"memory"`
 	Reminders            models.RemindersConfig         `json:"reminders"`
+	Agent                models.AgentConfig             `json:"agent"`
 }
 
 type adminSystemView struct {
@@ -356,6 +357,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			Scheduler:       settings.Scheduler,
 			Memory:          settings.Memory.HotDefaults(),
 			Reminders:       settings.Reminders.Effective(),
+			Agent:           settings.Agent.Effective(),
 			RunLogging:      &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		},
 	}

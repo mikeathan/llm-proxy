@@ -175,6 +175,12 @@ const inboundWaitByDefault = schedulerField("inbound_wait_by_default");
 const inboundMaxQueued = schedulerField("inbound_max_queued", wholeAtLeast(1, 1));
 const inboundPreempt = schedulerField("inbound_preempt");
 
+// The adaptive result cap is on unless the saved config says otherwise; turning it off is saved as an explicit false.
+const adaptiveResultCap = computed({
+  get: () => props.editConfig.agent?.adaptive_result_cap ?? true,
+  set: (adaptive_result_cap: boolean) => replaceConfig({ agent: { ...props.editConfig.agent, adaptive_result_cap } }),
+})
+
 const runLoggingEnabled = computed({
   get: () => props.editConfig.run_logging?.enabled ?? false,
   set: (enabled: boolean) => replaceConfig({ run_logging: { ...props.editConfig.run_logging, enabled } }),
@@ -325,6 +331,14 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
         <FormField label="Chat priority" hint="A chat message pauses a running automation instead of waiting behind it.">
           <template #default="{ id, describedBy }">
             <BaseToggle :id="id" v-model="preemptAutomations" :described-by="describedBy" label="Chat preempts running automations" />
+          </template>
+        </FormField>
+        <FormField
+          label="Tool results"
+          hint="A file, a page or search hits keep more of their text when the model's window has room for it, and never less than 3000 characters. Off keeps a fixed 3000 characters for every result. Applies to the next run."
+        >
+          <template #default="{ id, describedBy }">
+            <BaseToggle :id="id" v-model="adaptiveResultCap" :described-by="describedBy" label="Size tool results to the room in the window" />
           </template>
         </FormField>
       </div>

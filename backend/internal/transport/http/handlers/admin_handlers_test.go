@@ -208,6 +208,36 @@ func TestAdminConfigHandler_ReturnsMemoryHotDefaults(t *testing.T) {
 	}
 }
 
+// The config view carries the resolved agent settings, so the UI shows the adaptive result cap as on when nothing is saved.
+func TestAdminConfigHandler_ReturnsAgentSettings(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings models.UserSettings
+		want     bool
+	}{
+		{"unset resolves to on", models.UserSettings{}, true},
+		{"an explicit off is returned", models.UserSettings{Agent: &models.AgentConfig{AdaptiveResultCap: new(false)}}, false},
+		{"an explicit on is returned", models.UserSettings{Agent: &models.AgentConfig{AdaptiveResultCap: new(true)}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := newSystemHandlers(&mocks.MockAdminService{GetSettingsFunc: func() models.UserSettings { return tc.settings }})
+			rr := httptest.NewRecorder()
+			handler.AdminConfigHandler(rr, httptest.NewRequest(http.MethodGet, "/admin/api/config", nil))
+			var resp struct {
+				Agent struct {
+					AdaptiveResultCap *bool `json:"adaptive_result_cap"`
+				} `json:"agent"`
+			}
+			if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if resp.Agent.AdaptiveResultCap == nil || *resp.Agent.AdaptiveResultCap != tc.want {
+				t.Errorf("agent.adaptive_result_cap = %v, want %v", resp.Agent.AdaptiveResultCap, tc.want)
+			}
+		})
+	}
+}
+
 func TestAdminConfigHandler_ReturnsGPUMetrics(t *testing.T) {
 	admin := &mocks.MockAdminService{}
 	admin.GetSystemFunc = func() models.SystemConfig {
