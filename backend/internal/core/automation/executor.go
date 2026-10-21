@@ -308,17 +308,8 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 }
 
 func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*rundir.RunDir, *eventbus.Sink, bool) {
-	if !e.svc.RunLoggingEnabled() {
-		return nil, nil, false
-	}
-	rootDir := e.svc.RootDir()
-	if rootDir == "" || req.Model == "" {
-		return nil, nil, false
-	}
-	parent := filepath.Join(rootDir, "runs")
-	runDir, rErr := rundir.NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
-	if rErr != nil {
-		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
+	runDir := e.createRunDir(req, procLog)
+	if runDir == nil {
 		return nil, nil, false
 	}
 	eventSink, esErr := eventbus.NewSink(runDir.EventsPath())
@@ -326,15 +317,39 @@ func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, 
 		procLog.Warn("failed to create event sink, continuing without", "error", esErr)
 		return runDir, nil, false
 	}
-	hasRecording := false
+	return runDir, eventSink, attachRecording(ctx, client, runDir)
+}
+
+// createRunDir makes the run's output folder, or returns nil when run logging is off, there is no root or model,
+// or the folder cannot be made (the run then continues without per-run output).
+func (e *LLMTaskExecutor) createRunDir(req ExecuteRequest, procLog logging.Logger) *rundir.RunDir {
+	if !e.svc.RunLoggingEnabled() {
+		return nil
+	}
+	rootDir := e.svc.RootDir()
+	if rootDir == "" || req.Model == "" {
+		return nil
+	}
+	parent := filepath.Join(rootDir, "runs")
+	runDir, rErr := rundir.NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
+	if rErr != nil {
+		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
+		return nil
+	}
+	return runDir
+}
+
+// attachRecording points a recording client at the run folder and reports whether the client records.
+func attachRecording(ctx context.Context, client proxy.Client, runDir *rundir.RunDir) bool {
 	if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
 		rcl.SetDirForRun(models.GetRunID(ctx), runDir.Root)
-		hasRecording = true
-	} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
-		rcl.SetDir(runDir.Root)
-		hasRecording = true
+		return true
 	}
-	return runDir, eventSink, hasRecording
+	if rcl, ok := client.(interface{ SetDir(string) }); ok {
+		rcl.SetDir(runDir.Root)
+		return true
+	}
+	return false
 }
 
 // runNetworkScope resolves the effective per-run network scope (host ∩ merged
