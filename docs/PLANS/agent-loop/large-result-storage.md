@@ -123,8 +123,7 @@ The note is written **only when the run can read the file back** (R1).
 3. **"Clear runtime data" and factory reset:** clear chat reports with the sessions; keep automation reports.
 4. **Read-only workspaces:** no saving when the filesystem guardrail is `ReadOnly`; keep today's cut and log why.
 5. **Size-warning default:** set from the measured growth per fetch (Wikipedia and weather fixtures), then confirmed.
-6. **Open (2026-10-21): folder name.** `reports/` collides with the user's own convention (see Phase 1, step 1). Options: keep
-   `reports/<automation>/` and accept the mix, or use a distinct name such as `saved/<automation>/`.
+6. **Decided (2026-10-21): final reports go in `reports/<automation>/`** (the name matches what they are). Saved cut tool results, if ever built, get a different folder.
 
 ## 5. Phases (riskiest first; each ends in a check)
 
@@ -182,7 +181,20 @@ the "mostly gone" expectation did not hold for search on a 16k model; the whole-
 **not** in that count (the tool cuts its own output before `appendToolResult` logs). `cached_tokens` were 44% of prompt tokens over 42 calls
 (no earlier figure). The sieve fired 5 times across the window (not attributed per run). Still open: the next nightly `daily-llm-news` run.
 
-### Phase 1 — automation spill
+### Phase 1 — decision 2026-10-21: keep the final report first, park saving cut results
+
+The user's need is that a run's **final report is not lost**. That is built separately and is small: **Phase 1-lite — saved final reports
+(PR #109)**. A finished run writes `reports/<automation>/<UTC start time>-<run id>.md` into the workspace
+(`WorkspaceManager.WriteReport`, `automation/executor.go` `saveFinalReport`); quiet heartbeats and runs with no reply write nothing;
+credential-shaped text is masked; a write failure is logged; nothing purges them (Phase 3 stays the operator purge). SPEC-007 1.16,
+`docs/data-layout.md`.
+
+**Saving cut tool results (everything below in this phase, R1–R7 and the manifest) is parked.** Build it only if a measurement shows it
+helps: how often a real run cuts a `fetch_url` page (the `tool result cut` log does not count these, because the tool cuts its own
+output first) and whether the answer suffers. Folder for it, if ever built: not `reports/` (the final reports and the user's own
+convention live there); open decision 6 is answered for final reports as `reports/<automation>/`.
+
+### Phase 1 (parked) — automation spill of cut tool results
 
 - Step 1 (read-only) — **done 2026-10-21**:
   - `AutomationRun.Output` is the full final report with a short header (`executor.go:508-510`), not cut. It is stored in
@@ -310,4 +322,4 @@ without any extra latching) and the persisted result is the stub. Nothing is los
 
 ## Remaining Work
 
-Phases 1–6. Phase 0 is built and live-checked (#99–#102); Phase A is built (#106) and passed its live acceptance (above), except the next nightly `daily-llm-news` comparison. Phase 1 step 1 is done (findings above); decisions in §4 are made except item 6 (folder name). Next: decide item 6, check a real automation's toolset for R1, then build Phase 1. Phase 6 waits for Phases 1–2.
+Saved final reports (PR #109, needs a live check after deploy). Parked until measured: saving cut tool results (the rest of Phase 1), Phases 2–6. Phase 0 is built and live-checked (#99–#102); Phase A is built (#106) and passed its live acceptance (above), except the next nightly `daily-llm-news` comparison. Phase 1 step 1 is done (findings above). Next: live-check #109 on Vertex, then measure `fetch_url` cuts before deciding whether to build the parked work. Phase 6 waits for Phases 1–2.
