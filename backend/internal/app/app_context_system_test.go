@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"errors"
+	"os"
 	"reflect"
 	"testing"
 
@@ -141,5 +143,112 @@ func TestAppServices_AgentSettingsReadsTheLiveSettings(t *testing.T) {
 	_ = srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Agent: &models.AgentConfig{AdaptiveResultCap: &off}})
 	if services.AgentSettings().AdaptiveResultCapEnabled() {
 		t.Error("a change applies to the next run without a restart")
+	}
+}
+
+// One update carries the server, GPU, local-provider and registry fields to where each is stored.
+func TestApplySystemUpdate_StoresEachSection(t *testing.T) {
+	srv := newSystemTestServer(t)
+	if err := srv.dataMgr.Registry().Update(func(reg *models.RegistryData) error {
+		reg.Catalogue = append(reg.Catalogue, models.ModelRegistryEntry{Name: "alpha"}, models.ModelRegistryEntry{Name: "beta"})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	idle, gpuIndex := -1, 2
+	err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{
+		Bind: "127.0.0.1:9", ModelHost: "10.0.0.5", IdleTimeoutSecs: &idle, Environment: map[string]string{"A": "1"},
+		GPUProvider: "nvidia", GPUBinary: "nvidia-smi", GPUIndex: &gpuIndex, GPUSysfsPath: "/sys/gpu",
+		GPUSampleIntervalSec: 5, GPUSmoothingAlpha: 0.5,
+		DefaultArgs: []string{"--flash-attn"},
+		Providers: map[string]models.ProviderItem{
+			"local":  {LlamaServerBinary: "/bin/llama", ModelDir: "/models"},
+			"openai": {Type: "openai", BaseURL: "https://api.example"},
+		},
+		PrimaryModel: "alpha", FallbackModel: "beta",
+	})
+	if err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+
+	sys := srv.GetSystem()
+	if sys.Server.Bind != "127.0.0.1:9" || sys.Server.ModelHost != "10.0.0.5" || sys.Server.IdleTimeoutSecs != -1 || sys.Server.Environment["A"] != "1" {
+		t.Errorf("server section: %+v", sys.Server)
+	}
+	gpu := sys.Metrics.GPU
+	if gpu.Provider != "nvidia" || gpu.Binary != "nvidia-smi" || gpu.Index != 2 || gpu.SysfsPath != "/sys/gpu" ||
+		sys.Metrics.GPUSampleIntervalSec != 5 || sys.Metrics.GPUSmoothingAlpha != 0.5 {
+		t.Errorf("gpu section: %+v %+v", gpu, sys.Metrics)
+	}
+	set := srv.GetSettings()
+	if set.Local.LlamaServerBinary != "/bin/llama" || set.Local.ModelDir != "/models" || !reflect.DeepEqual(set.Local.DefaultArgs, []string{"--flash-attn"}) {
+		t.Errorf("local settings: %+v", set.Local)
+	}
+	reg := srv.GetRegistry()
+	if reg.PrimaryModel != "alpha" || reg.FallbackModel != "beta" {
+		t.Errorf("models: primary %q fallback %q", reg.PrimaryModel, reg.FallbackModel)
+	}
+	if got := reg.Providers["openai"]; got.Type != "openai" || got.BaseURL != "https://api.example" {
+		t.Errorf("provider: %+v", got)
+	}
+	if _, ok := reg.Providers["local"]; ok {
+		t.Error("the local provider is infrastructure and must not land in the registry")
+	}
+}
+
+// A primary or fallback model that is not in the catalogue is refused with the typed error the API maps to 400,
+// whether or not providers travel in the same update.
+func TestApplySystemUpdate_RefusesAnUnknownModel(t *testing.T) {
+	srv := newSystemTestServer(t)
+	for _, req := range []models.SystemUpdatePayload{
+		{PrimaryModel: "ghost"},
+		{FallbackModel: "ghost"},
+		{PrimaryModel: "ghost", Providers: map[string]models.ProviderItem{"openai": {Type: "openai"}}},
+	} {
+		var notFound *models.ModelNotFoundError
+		if err := srv.ApplySystemUpdate(context.Background(), req); !errors.As(err, &notFound) {
+			t.Errorf("%+v: got %v, want a ModelNotFoundError", req, err)
+		}
+	}
+}
+
+func TestApplySystemUpdate_SavesCommunicationAndSearchWithoutProviders(t *testing.T) {
+	srv := newSystemTestServer(t)
+	comm := models.CommunicationConfig{Connectors: map[string]models.ConnectorConfig{"bot": {Type: models.ConnectorTypeTelegram}}}
+	search := models.DefaultSearchConfig()
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Communication: &comm, Search: &search}); err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+	reg := srv.GetRegistry()
+	if _, ok := reg.Communication.Connectors["bot"]; !ok {
+		t.Errorf("communication not saved: %+v", reg.Communication)
+	}
+	if reg.Search != search {
+		t.Errorf("search not saved: %+v", reg.Search)
+	}
+}
+
+func TestApplySystemUpdate_RejectsAnInvalidSearchBeforeSavingAnything(t *testing.T) {
+	srv := newSystemTestServer(t)
+	bad := models.SearchConfig{Provider: "no-such-engine"}
+	err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Search: &bad, Bind: "0.0.0.0:1"})
+	if !models.IsSearchConfigError(err) {
+		t.Fatalf("got %v, want a search config error", err)
+	}
+	if srv.GetSystem().Server.Bind == "0.0.0.0:1" {
+		t.Error("a rejected update must not save the fields that came with it")
+	}
+}
+
+func TestApplySystemUpdate_ExportsServiceCredentials(t *testing.T) {
+	srv := newSystemTestServer(t)
+	t.Setenv("SERVICE_CLIENT_ID", "")
+	t.Setenv("SERVICE_CLIENT_SECRET", "")
+	secret := "s-" + "e" + "cret"
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{ServiceClientID: "cid", ServiceClientSecret: secret}); err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+	if os.Getenv("SERVICE_CLIENT_ID") != "cid" || os.Getenv("SERVICE_CLIENT_SECRET") != secret {
+		t.Error("credentials not exported to the process")
 	}
 }

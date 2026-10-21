@@ -35,9 +35,7 @@ const defaultThreshold = 12
 // keyed "internal/path/file.go:FuncName". Do NOT add new entries: refactor the
 // function instead (repo rule: complexity ≤ 12).
 var knownComplexityExceptions = map[string]bool{
-	"internal/app/app_context_system.go:ApplySystemUpdate":                                       true,
 	"internal/app/playback_bridge.go:Stream":                                                     true,
-	"internal/core/assistant/agent.go:ApplyModelConfig":                                          true,
 	"internal/core/assistant/agent.go:applyDefaults":                                             true,
 	"internal/core/assistant/conversation_helpers.go:TruncateHistory":                            true,
 	"internal/core/assistant/conversation_helpers.go:buildPartialHistory":                        true,
@@ -80,7 +78,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/shell/terminal.go:Execute":                                                         true,
 	"internal/shell/terminal.go:prepareShellEnv":                                                 true,
 	"internal/testing/llmprofiles/profiles.go:parseFixture":                                      true,
-	"internal/transport/http/handlers/admin_handlers.go:AdminConnectorWebhookHandler":            true,
 	"internal/transport/http/handlers/admin_view.go:getModelsView":                               true,
 	"internal/transport/http/handlers/model_handlers.go:enrichMetadataFromProviders":             true,
 	"internal/transport/http/handlers/model_handlers.go:handleAddModel":                          true,
