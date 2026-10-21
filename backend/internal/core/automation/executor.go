@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
@@ -543,8 +544,46 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		outcome.runDir.WriteMeta(meta)
 	}
 
+	if finalReply != "" {
+		e.keepFinalReport(outcome, output)
+	}
+
 	e.recordRun(outcome, runResult, runError, time.Since(outcome.startTime))
 	return outcome.resp, nil
+}
+
+// reportWriter saves a run's final report in the workspace and returns the path it used.
+// *persistence.WorkspaceManager satisfies it.
+type reportWriter interface {
+	WriteReport(workspaceID, automation, runID string, at time.Time, content string) (string, error)
+}
+
+// saveFinalReport keeps a run's final report as a file in the workspace, so the next run of the same automation does not
+// replace it and the 30-run history does not push it out. It returns the saved path, or "" when there is nothing worth
+// keeping: no reply from the agent, or a heartbeat that found nothing to report. Credential-shaped text is masked first,
+// as the report becomes a new file the agent can read in a later run.
+func saveFinalReport(w reportWriter, outcome runOutcome, report string) (string, error) {
+	if strings.TrimSpace(report) == "" || isQuietResponse(outcome.resp) {
+		return "", nil
+	}
+	return w.WriteReport(outcome.req.WorkspaceID, outcome.req.AutomationName, outcome.runID, outcome.startTime, tools.RedactForRecording(report))
+}
+
+// keepFinalReport saves the report of a finished run and logs where it went. A failure to save is logged, never
+// fatal: the run itself succeeded and its report is still in the run history.
+func (e *LLMTaskExecutor) keepFinalReport(outcome runOutcome, report string) {
+	store := e.svc.Persistence()
+	if store == nil {
+		return
+	}
+	log := e.svc.ProcessLogger(outcome.req.WorkspaceID)
+	path, err := saveFinalReport(store, outcome, report)
+	switch {
+	case err != nil:
+		log.Warn("failed to save the final report", "automation", outcome.req.AutomationName, "error", err)
+	case path != "":
+		log.Info("Final report saved", "automation", outcome.req.AutomationName, "path", path)
+	}
 }
 
 func formatDuration(d time.Duration) string {
