@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strconv"
 )
 
 // ReadLines returns the lines of a recording file whose "type" is lineType ("" for every line): all of them, or only the
@@ -98,9 +99,10 @@ func fit(lines [][]byte, maxBytes int) ([]byte, bool, error) {
 }
 
 // RedactJSONLines returns JSON-lines data with every string value masked by redact. Recordings written before masking
-// existed hold raw secrets, so what is read back is masked as well as what is written. Each line is decoded, its string
-// values masked and the line written back (keys come out sorted, numbers keep their text, nothing is HTML-escaped); a
-// line that is not one whole JSON value (cut short by the size cap, or not JSON) is masked as plain text instead.
+// existed hold raw secrets, so what is read back is masked as well as what is written. Each line is walked token by
+// token and written back with only its string values changed (key order and number text are kept, nothing is
+// HTML-escaped); a line that is not one whole JSON value (cut short by the size cap, or not JSON) is masked as plain
+// text instead.
 func RedactJSONLines(data []byte, redact func(string) string) []byte {
 	if redact == nil || len(data) == 0 {
 		return data
@@ -126,32 +128,80 @@ func redactJSONLine(line []byte, redact func(string) string) []byte {
 	}
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.UseNumber()
-	var value any
-	if err := dec.Decode(&value); err != nil || dec.More() {
+	var out bytes.Buffer
+	if err := redactValue(dec, &out, redact); err != nil || dec.More() {
 		return []byte(redact(string(line)))
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(redactStrings(value, redact)); err != nil {
-		return []byte(redact(string(line)))
-	}
-	return bytes.TrimRight(buf.Bytes(), "\n")
+	return out.Bytes()
 }
 
-// redactStrings masks every string value inside a decoded JSON value.
-func redactStrings(value any, redact func(string) string) any {
-	switch v := value.(type) {
+// redactValue copies the next JSON value from dec to out with every string value masked. It walks the tokens, so keys
+// stay in the order they were written and numbers keep their text: a model writes a call in the order a schema lists its
+// arguments, and what a recording shows must be what was sent. Object keys are copied as they are.
+func redactValue(dec *json.Decoder, out *bytes.Buffer, redact func(string) string) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	switch t := tok.(type) {
+	case json.Delim:
+		return redactContainer(dec, out, redact, t)
 	case string:
-		return redact(v)
-	case []any:
-		for i := range v {
-			v[i] = redactStrings(v[i], redact)
+		return writeJSONString(out, redact(t))
+	case json.Number:
+		out.WriteString(t.String())
+	case bool:
+		out.WriteString(strconv.FormatBool(t))
+	case nil:
+		out.WriteString("null")
+	}
+	return nil
+}
+
+// redactContainer copies an object or array whose opening delimiter has just been read.
+func redactContainer(dec *json.Decoder, out *bytes.Buffer, redact func(string) string, open json.Delim) error {
+	object := open == '{'
+	if object {
+		out.WriteByte('{')
+	} else {
+		out.WriteByte('[')
+	}
+	for first := true; dec.More(); first = false {
+		if !first {
+			out.WriteByte(',')
 		}
-	case map[string]any:
-		for k := range v {
-			v[k] = redactStrings(v[k], redact)
+		if object {
+			key, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			if err := writeJSONString(out, key.(string)); err != nil {
+				return err
+			}
+			out.WriteByte(':')
+		}
+		if err := redactValue(dec, out, redact); err != nil {
+			return err
 		}
 	}
-	return value
+	if _, err := dec.Token(); err != nil { // the closing delimiter
+		return err
+	}
+	if object {
+		out.WriteByte('}')
+	} else {
+		out.WriteByte(']')
+	}
+	return nil
+}
+
+// writeJSONString writes s as a JSON string without HTML escaping, so text stays readable.
+func writeJSONString(out *bytes.Buffer, s string) error {
+	enc := json.NewEncoder(out)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
+		return err
+	}
+	out.Truncate(out.Len() - 1) // Encode adds a newline
+	return nil
 }

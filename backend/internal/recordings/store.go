@@ -98,6 +98,9 @@ func (s *RecordingStore) Delete(id string) error {
 	return nil
 }
 
+// eventStreamName is the run's event stream, which sits beside its recording.jsonl in the run folder and is not a recording.
+const eventStreamName = "events.jsonl"
+
 func (s *RecordingStore) Refresh() error {
 	entries := make(map[string]RecordingMeta)
 
@@ -105,7 +108,7 @@ func (s *RecordingStore) Refresh() error {
 		if err != nil {
 			return nil
 		}
-		if d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") {
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".jsonl") || d.Name() == eventStreamName {
 			return nil
 		}
 

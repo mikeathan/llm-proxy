@@ -30,7 +30,7 @@ or UI control. Reading the code showed the picture was different from what the p
    `--record` flag, so the Recordings page and replay references do not change. Status adds `run_recordings`.
 3. **`GET /admin/api/recordings/content/{id}`** with `type`, `last` and `max_bytes`: `?type=request&last=1` is the last request,
    bounded and flagged when cut. Every string is masked as it is served (`recordings.RedactJSONLines`), so recordings written before
-   masking existed are not readable raw; keys come out sorted and numbers keep their text.
+   masking existed are not readable raw. Masking walks the JSON, so key order (the order a tool lists its arguments) and number text are kept and the line is otherwise as it was written. The store lists `recording.jsonl` files and not `events.jsonl`.
 4. **The Settings text** says what the toggle records, that secrets are masked and the 30-day retention.
 
 ## 3. Acceptance
