@@ -166,6 +166,9 @@ type AutomationRun struct {
 	// (data/runs/{workspace}/{model}/{automation}/{RunDirName}), used by the UI
 	// to prune individual run artifacts. Empty when run logging is disabled.
 	RunDirName string `json:"run_dir_name,omitempty"`
+	// ReportPath is the workspace-relative path of the run's saved final report (reports/<automation>/...),
+	// empty when none was saved: a failed run, no reply, or a quiet heartbeat.
+	ReportPath string `json:"report_path,omitempty"`
 	Events     []any  `json:"events"` // Full event log for "Live Console" reconstruction
 	// Warnings records non-fatal tool failures (e.g. a delivery connector being
 	// down). A run with warnings but an empty Error is still a success — the

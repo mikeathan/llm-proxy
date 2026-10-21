@@ -52,6 +52,16 @@ describe('HistoricalRunDetails', () => {
     expect(w.get('a[aria-label="Open workspace ws"]').attributes('href')).toBe('/workspaces/ws')
   })
 
+  it('links to the saved report file when the run kept one', () => {
+    const w = mountRun({ run: { ...RUN, report_path: 'reports/nightly/20261021T070000Z-run_1.md' } })
+    const link = w.get('a[aria-label="Open saved report"]')
+    expect(decodeURIComponent(link.attributes('href')!)).toBe('/workspaces/ws/files/reports/nightly/20261021T070000Z-run_1.md')
+  })
+
+  it('shows no saved-report link for a run that kept none', () => {
+    expect(mountRun().find('a[aria-label="Open saved report"]').exists()).toBe(false)
+  })
+
   it('copies the final report and the final error', () => {
     const copies = mountRun().findAllComponents({ name: 'CopyButton' })
     expect(copies.map((c) => [c.props('title'), c.props('text')])).toEqual([
