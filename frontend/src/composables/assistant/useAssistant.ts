@@ -82,6 +82,19 @@ function reconcileRunningConversation(conversationId: string) {
   if (next !== sessions.value) sessions.value = next
 }
 
+// isRunningNow asks the backend whether this conversation is the workspace's running assistant run. The session list's
+// running flag comes from the /active-runs poll (every POLL_INTERVAL_MS) and from session_started, so right after a page
+// load or a click it can still say "not running" for a run that is: opening that from disk shows a finished turn with
+// nothing streaming. An unreachable endpoint reads as "no": the disk snapshot is the safe fallback.
+async function isRunningNow(workspaceId: string, sessionId: string): Promise<boolean> {
+  try {
+    const runs = await AssistantService.getActiveRuns(workspaceId)
+    return runs.assistant_running && runs.assistant_conversation_id === sessionId
+  } catch {
+    return false
+  }
+}
+
 export function useAssistant() {
   // finalizeOn:'lifecycle' mirrors automation: the builder finalizes from the
   // SSE lifecycle{completed} event (which carries the full answer), so chat and
@@ -204,8 +217,10 @@ export function useAssistant() {
       // Mark the backend-reported running conversation (if any) so a page
       // refresh immediately shows the correct session as running — the
       // per-session flag is not persisted, so this restores it from the
-      // authoritative /active-runs source without waiting for the poll.
-      reconcileRunningConversation(lastRunningConversationId)
+      // authoritative /active-runs source without waiting for the poll. Before the
+      // poll has answered there is nothing to restore: an unknown id must not clear
+      // the flag session_started just set (the poll clears a finished run's flag).
+      if (lastRunningConversationId) reconcileRunningConversation(lastRunningConversationId)
     } catch (err) {
       showBanner({ severity: 'error', message: err instanceof Error ? err.message : 'Failed to fetch sessions' })
       console.error(err)
@@ -226,7 +241,9 @@ export function useAssistant() {
     // rebuild the turn — followed by live events. `loading` starts false so the
     // replayed session_started sets it (and would otherwise skip the anchor);
     // sse.reset() clears the dedup set so the replayed events are accepted.
-    if (sessions.value.find(s => s.id === sessionId)?.running) {
+    const flaggedRunning = sessions.value.find(s => s.id === sessionId)?.running
+    if (flaggedRunning || await isRunningNow(workspaceId, sessionId)) {
+      reconcileRunningConversation(sessionId)
       currentSessionId.value = sessionId
       conversationProfile.value = ''
       messages.value = []

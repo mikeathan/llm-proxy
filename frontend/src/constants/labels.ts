@@ -39,6 +39,7 @@ export function tokenUsageLabel(promptTokens: number, completionTokens: number):
 // Upstream-retry notice copy — event-driven, surfaced as an inline notice
 // while a transient upstream failure is being retried.
 export const UPSTREAM_RETRYING_TEMPLATE = 'Upstream retrying ({attempt}/{max}) — {reason}'
+export const STUCK_RESTART_NOTICE = 'The model got stuck thinking — trying again'
 export const MODEL_STARTING_NOTICE = 'Model is starting — waiting for it to become ready'
 // A remote proxy refused to serve this request because a run is using the model
 // it would have to stop. Not a fault: the run is protected on purpose.

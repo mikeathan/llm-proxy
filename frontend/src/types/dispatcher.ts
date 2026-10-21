@@ -122,6 +122,7 @@ export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_resu
 export const LIFECYCLE_PHASES = {
   agentThinking: 'agent_thinking',
   stillThinking: 'still_thinking',
+  stuckDetected: 'stuck_detected',
   sessionStarted: 'session_started',
   sessionProgress: 'session_progress',
   sessionCompleted: 'session_completed',

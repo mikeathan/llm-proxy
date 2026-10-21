@@ -4,7 +4,7 @@ import { LIFECYCLE_PHASES, type AgentEvent, type UpstreamEventPayload } from '..
 import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../dispatcher'
 import type { InsetPhase } from '../../types/inset'
 import type { MessageBuilderOptions } from '../../types/message'
-import { MODEL_BUSY_NOTICE, MODEL_STARTING_NOTICE, TRANSPORT_ERROR_LABEL, UPSTREAM_RETRYING_TEMPLATE } from '../../constants/labels'
+import { MODEL_BUSY_NOTICE, MODEL_STARTING_NOTICE, STUCK_RESTART_NOTICE, TRANSPORT_ERROR_LABEL, UPSTREAM_RETRYING_TEMPLATE } from '../../constants/labels'
 
 // Tool-call markup patterns, hoisted to module scope: stripToolCallXml runs on
 // every stream event (10–100/sec during a stream) and the finalize guard on
@@ -269,6 +269,22 @@ export function useMessageBuilder(
     forceUpdate()
   }
 
+  // The backend cut a stream that was looping in its thinking and is asking again. Keep what already streamed (it is
+  // part of the record, and the retry would otherwise replace it with no explanation) and say why the turn paused. The
+  // notice resolves when the restarted stream resumes, like an upstream retry's. Nothing to say once the turn is done.
+  function handleStuckRestart() {
+    if (finalized) return
+    ensureAssistant()
+    commitReasoning()
+    lastClean = ''
+    const segments = getSegments()
+    const last = segments[segments.length - 1]
+    if (!(last && last.kind === 'notice' && last.status === 'pending')) {
+      segments.push({ kind: 'notice', message: STUCK_RESTART_NOTICE, status: 'pending' })
+    }
+    forceUpdate()
+  }
+
   // Render a terminal run failure as a visible error segment and clear the
   // transient streaming flags. Terminal: the run ended before any
   // lifecycle{completed} will fire, so drive the bubble to 'done' and let the
@@ -374,6 +390,10 @@ export function useMessageBuilder(
           } else if (p?.phase === LIFECYCLE_PHASES.agentThinking && phase.value === 'done') {
             thinking.value = true
           }
+          return
+        }
+        if (p?.phase === LIFECYCLE_PHASES.stuckDetected) {
+          handleStuckRestart()
           return
         }
         if (opts.finalizeOn === 'lifecycle' && p?.phase === LIFECYCLE_PHASES.completed && !finalized) {

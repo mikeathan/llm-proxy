@@ -10,6 +10,7 @@ describe('LIFECYCLE_PHASES wire values', () => {
     expect(LIFECYCLE_PHASES).toEqual({
       agentThinking: 'agent_thinking',
       stillThinking: 'still_thinking',
+      stuckDetected: 'stuck_detected',
       sessionStarted: 'session_started',
       sessionProgress: 'session_progress',
       sessionCompleted: 'session_completed',
