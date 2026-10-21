@@ -98,7 +98,7 @@ The note is written **only when the run can read the file back** (R1).
   filesystem guardrail is not `ReadOnly` (§4) and the channel is one we spill for are all known to the **agent** at run start.
   When all hold, the agent puts a **save target** into the run context (workspace root, folder, run id). `FetchURL` writes
   to it if present and does nothing otherwise, so the tool stays unaware of policy and the decision lives in one place.
-- **R2 — redact before writing, and make the redaction real.** The memory screen only refuses; on a 1 MiB page one
+- **R2 — redact before writing, and make the redaction real.** (`tools.RedactForRecording`, built for run recordings, is the redactor to reuse here: it masks, it does not just refuse, and it skips text with nothing to mask.) The memory screen only refuses; on a 1 MiB page one
   token-like string would block the whole save and silently fall back to the cut. Phase 1 must either extend that
   matcher into a redactor (replace the match with a marker) or take Hermes's spill redaction as the model, and measure it on
   1 MiB. Any section map or offset is computed **after** redaction, or it points at the wrong text.

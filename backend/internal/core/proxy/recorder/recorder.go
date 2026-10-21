@@ -32,6 +32,18 @@ type RecordingClient struct {
 	syncRunning bool
 	stop        chan struct{}
 	stopOnce    sync.Once
+	redact      func(string) string // masks credentials in what is written; nil writes as is
+	syncEvery   time.Duration       // how often open recordings are fsynced; recordingSyncInterval unless a test shortens it
+}
+
+// Option configures a RecordingClient.
+type Option func(*RecordingClient)
+
+// WithRedactor masks the text of every line written to a recording (messages, replies, tool-call arguments, errors).
+// What the model and the agent send and receive is never changed, only what is written. It is injected so the recorder
+// does not depend on the package that knows what a secret looks like.
+func WithRedactor(redact func(string) string) Option {
+	return func(rc *RecordingClient) { rc.redact = redact }
 }
 
 // recordingSyncInterval is how often open recording files are fsynced. Chunks
@@ -40,15 +52,20 @@ type RecordingClient struct {
 // one interval without the hot-path cost.
 const recordingSyncInterval = time.Second
 
-func New(underlying proxy.Client, recordDir string, modelName string) *RecordingClient {
-	return &RecordingClient{
+func New(underlying proxy.Client, recordDir string, modelName string, opts ...Option) *RecordingClient {
+	rc := &RecordingClient{
 		underlying: underlying,
 		recordDir:  recordDir,
 		modelName:  modelName,
 		states:     make(map[string]*runState),
 		dirs:       make(map[string]string),
 		stop:       make(chan struct{}),
+		syncEvery:  recordingSyncInterval,
 	}
+	for _, opt := range opts {
+		opt(rc)
+	}
+	return rc
 }
 
 // startSyncLoopIfNeeded lazily launches the periodic sync goroutine. It is
@@ -69,34 +86,38 @@ func (rc *RecordingClient) startSyncLoopIfNeeded() {
 // syncLoop periodically fsyncs all open recording files and exits once no run
 // states remain.
 func (rc *RecordingClient) syncLoop() {
-	ticker := time.NewTicker(recordingSyncInterval)
+	ticker := time.NewTicker(rc.syncEvery)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			rc.mu.Lock()
-			empty := len(rc.states) == 0
-			if !empty {
-				for _, state := range rc.states {
-					if state.writer != nil {
-						_ = state.writer.Flush()
-					}
-					if state.file != nil {
-						_ = state.file.Sync()
-					}
-				}
-			}
-			rc.mu.Unlock()
-			if empty {
-				rc.mu.Lock()
-				rc.syncRunning = false
-				rc.mu.Unlock()
+			if rc.syncOnce() {
 				return
 			}
 		case <-rc.stop:
 			return
 		}
 	}
+}
+
+// syncOnce flushes and fsyncs every open recording. It reports true when none is open, and then clears syncRunning so a
+// later recording can start the loop again.
+func (rc *RecordingClient) syncOnce() (idle bool) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if len(rc.states) == 0 {
+		rc.syncRunning = false
+		return true
+	}
+	for _, state := range rc.states {
+		if state.writer != nil {
+			_ = state.writer.Flush()
+		}
+		if state.file != nil {
+			_ = state.file.Sync()
+		}
+	}
+	return false
 }
 
 // Stop terminates the periodic sync goroutine. Safe to call multiple times.
@@ -325,6 +346,7 @@ func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<
 }
 
 func (rc *RecordingClient) writeLine(ctx context.Context, line recordLine) {
+	line = rc.redactLine(line)
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	runID := models.GetRunID(ctx)
@@ -354,4 +376,57 @@ func generateSessionID() string {
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
+}
+
+// redactLine returns the line with its text masked, leaving the caller's messages and choices untouched: it copies what
+// it changes, because the request is still being sent and the reply is still being read by the agent.
+func (rc *RecordingClient) redactLine(line recordLine) recordLine {
+	if rc.redact == nil {
+		return line
+	}
+	line.Messages = redactMessages(line.Messages, rc.redact)
+	if line.Choices != nil {
+		choices := make([]proxy.Choice, len(line.Choices))
+		for i, c := range line.Choices {
+			choices[i] = proxy.Choice{Message: redactMessage(c.Message, rc.redact), Delta: redactMessage(c.Delta, rc.redact), FinishReason: c.FinishReason}
+		}
+		line.Choices = choices
+	}
+	line.Message = rc.redact(line.Message)
+	return line
+}
+
+func redactMessages(messages []proxy.Message, redact func(string) string) []proxy.Message {
+	if messages == nil {
+		return nil
+	}
+	out := make([]proxy.Message, len(messages))
+	for i, m := range messages {
+		out[i] = redactMessage(m, redact)
+	}
+	return out
+}
+
+func redactMessage(m proxy.Message, redact func(string) string) proxy.Message {
+	m.Content = redact(m.Content)
+	m.ReasoningContent = redact(m.ReasoningContent)
+	m.Reasoning = redact(m.Reasoning)
+	m.Error = redact(m.Error)
+	if m.ReasoningDetails != nil {
+		details := make([]models.ReasoningDetail, len(m.ReasoningDetails))
+		for i, d := range m.ReasoningDetails {
+			d.Text = redact(d.Text)
+			details[i] = d
+		}
+		m.ReasoningDetails = details
+	}
+	if m.ToolCalls != nil {
+		calls := make([]proxy.ToolCall, len(m.ToolCalls))
+		for i, tc := range m.ToolCalls {
+			tc.Function.Arguments = redact(tc.Function.Arguments)
+			calls[i] = tc
+		}
+		m.ToolCalls = calls
+	}
+	return m
 }

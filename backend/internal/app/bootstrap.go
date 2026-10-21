@@ -77,6 +77,7 @@ func (c *Container) BuildAppServices() *AppServices {
 		profiles:       profile.MustCatalog(resolver.ProfilesDir(), c.Infra.Logger),
 		limiter:        ratelimiter.NewLimiter(c.Infra.Clock),
 		RecordingStore: c.newRecordingStore(),
+		recordDir:      c.RecordDir,
 	}
 	// One "is this workload local?" authority (model host + cached local
 	// interface IPs), shared by the client factory and the reasoning wire.
@@ -130,15 +131,22 @@ func (c *Container) watchConnectorConfig(s *AppServices) {
 	dataMgr.EncryptedSecretStore().OnChange(func(models.EncryptedSecretData) { comm.Reload() })
 }
 
-// newRecordingStore opens the per-run recording store, or nil when recording is
-// disabled (a store that cannot be prepared must not block startup).
+// runsDir is where each run's folder lives, and in it the run's recording.jsonl.
+func (c *Container) runsDir() string {
+	return filepath.Join(c.Core.AppCtx.RootDir(), "runs")
+}
+
+// newRecordingStore opens the store of recordings. With --record it covers the record directory; without it, the runs
+// directory, because the client is always wrapped in a recorder and, while run logging is on, each run's folder gets a
+// recording.jsonl of its requests and replies even without the flag. The store is what lists them.
 func (c *Container) newRecordingStore() *recordings.RecordingStore {
-	if c.RecordDir == "" {
-		return nil
+	dir := c.RecordDir
+	if dir == "" {
+		dir = c.runsDir()
 	}
-	store, err := recordings.NewRecordingStore(c.RecordDir)
+	store, err := recordings.NewRecordingStore(dir)
 	if err != nil {
-		logging.Warn("Failed to init recording store", "dir", c.RecordDir, "error", err)
+		logging.Warn("Failed to init recording store", "dir", dir, "error", err)
 		return nil
 	}
 	return store
@@ -197,7 +205,8 @@ func (c *Container) newClientFactory(classifier models.WorkloadClassifier) func(
 		}
 		// Always wrap in RecordingClient so a run-specific recording.jsonl is
 		// supported; the dir is only set when recording is globally enabled.
-		client = recorder.New(client, c.RecordDir, model)
+		// A recording is every prompt of a run, so what is written is masked; what the model and agent see is not.
+		client = recorder.New(client, c.RecordDir, model, recorder.WithRedactor(tools.RedactForRecording))
 		if c.RecordDir != "" {
 			logging.Debug("recording LLM responses", "model", model, "dir", c.RecordDir)
 		}
@@ -335,6 +344,7 @@ type AppServices struct {
 	limiter                ratelimiter.Limiter
 	guardrailDecisionStore *assistantPkg.GuardrailDecisionStore
 	RecordingStore         *recordings.RecordingStore
+	recordDir              string             // the --record directory; empty when the flag is off, whatever the store lists
 	egressCancel           context.CancelFunc // stops the agent egress proxy (Phase 1c)
 	// Reminders delivers stored reminders; nil when the database or the connector
 	// registry is unavailable. Its Run loop is started by the app lifecycle.
@@ -460,11 +470,10 @@ func (s AppServices) MemoryStore() *memory.Store {
 	return s.AppCtx.MemoryStore()
 }
 
+// RecordDir is the directory --record writes to, "" without the flag. Run recordings written while run logging is on
+// are not under it, so an automation's recording reference is only set when the flag is on, as before.
 func (s AppServices) RecordDir() string {
-	if s.RecordingStore != nil {
-		return s.RecordingStore.RecordDir()
-	}
-	return ""
+	return s.recordDir
 }
 
 func (s AppServices) MemorySettings() *models.MemoryConfig {

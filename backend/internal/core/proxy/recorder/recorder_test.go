@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type mockClient struct {
@@ -514,4 +515,158 @@ func TestRecordingClient_Disabled(t *testing.T) {
 	if resp.Choices[0].Message.Content != "ok" {
 		t.Fatalf("unexpected content: %s", resp.Choices[0].Message.Content)
 	}
+}
+
+func maskKeys(s string) string { return strings.ReplaceAll(s, "SECRET-123", "[REDACTED]") }
+
+// A recording is every prompt of a run, kept on disk and readable through the admin API, so what is written is masked
+// while what the model and the agent see is not.
+func TestRecordingClient_RedactsWhatItWritesAndNotWhatItReturns(t *testing.T) {
+	dir := t.TempDir()
+	underlying := &mockClient{
+		chatFn: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{
+				Message: proxy.Message{Role: "assistant", Content: "the key is SECRET-123", ReasoningContent: "thinking about SECRET-123",
+					ReasoningDetails: []models.ReasoningDetail{{Type: "reasoning.text", Text: "SECRET-123 again"}},
+					ToolCalls:        []proxy.ToolCall{{ID: "c1", Function: proxy.FunctionCall{Name: "write_file", Arguments: `{"content":"SECRET-123"}`}}}},
+			}}}, nil
+		},
+	}
+	rc := New(underlying, dir, "m", WithRedactor(maskKeys))
+	messages := []proxy.Message{
+		{Role: "system", Content: "memory: the token is SECRET-123"},
+		{Role: "assistant", ToolCalls: []proxy.ToolCall{{ID: "c0", Function: proxy.FunctionCall{Name: "fetch_url", Arguments: `{"url":"https://x.test/?k=SECRET-123"}`}}}},
+		{Role: "tool", ToolCallID: "c0", Content: "page says SECRET-123"},
+	}
+	resp, err := rc.Chat(context.Background(), proxy.ChatRequest{Messages: messages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := resp.Choices[0].Message.Content; got != "the key is SECRET-123" {
+		t.Errorf("the caller must get the unmasked reply, got %q", got)
+	}
+	if messages[0].Content != "memory: the token is SECRET-123" || messages[1].ToolCalls[0].Function.Arguments != `{"url":"https://x.test/?k=SECRET-123"}` {
+		t.Error("the request the caller passed in must not be modified")
+	}
+
+	entries, _ := os.ReadDir(filepath.Join(dir, "m"))
+	raw, err := os.ReadFile(filepath.Join(dir, "m", entries[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "SECRET-123") {
+		t.Errorf("a secret reached the recording file:\n%s", raw)
+	}
+	if got := strings.Count(string(raw), "[REDACTED]"); got < 7 {
+		t.Errorf("expected the request messages, tool arguments and the reply to be masked, found %d markers", got)
+	}
+}
+
+func TestRecordingClient_RedactsStreamedChunksAndErrors(t *testing.T) {
+	dir := t.TempDir()
+	underlying := &mockClient{
+		streamFn: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			ch := make(chan *proxy.ChatResponse, 2)
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "leaked SECRET-123"}}}}
+			close(ch)
+			return ch, nil
+		},
+	}
+	rc := New(underlying, dir, "m", WithRedactor(maskKeys))
+	out, err := rc.Stream(context.Background(), proxy.ChatRequest{Messages: []proxy.Message{{Role: "user", Content: "SECRET-123"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	for chunk := range out {
+		got += chunk.Choices[0].Delta.Content
+	}
+	if got != "leaked SECRET-123" {
+		t.Errorf("the caller must get the unmasked stream, got %q", got)
+	}
+	entries, _ := os.ReadDir(filepath.Join(dir, "m"))
+	raw, _ := os.ReadFile(filepath.Join(dir, "m", entries[0].Name()))
+	if strings.Contains(string(raw), "SECRET-123") {
+		t.Errorf("a secret reached the recording file:\n%s", raw)
+	}
+
+	failing := &mockClient{streamFn: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		return nil, fmt.Errorf("upstream rejected key SECRET-123")
+	}}
+	dir2 := t.TempDir()
+	rc2 := New(failing, dir2, "m", WithRedactor(maskKeys))
+	_, _ = rc2.Stream(context.Background(), proxy.ChatRequest{})
+	entries2, _ := os.ReadDir(filepath.Join(dir2, "m"))
+	raw2, _ := os.ReadFile(filepath.Join(dir2, "m", entries2[0].Name()))
+	if strings.Contains(string(raw2), "SECRET-123") {
+		t.Errorf("an error line must be masked too:\n%s", raw2)
+	}
+}
+
+func TestRecordingClient_WithoutARedactorRecordsAsBefore(t *testing.T) {
+	dir := t.TempDir()
+	underlying := &mockClient{chatFn: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		return &proxy.ChatResponse{}, nil
+	}}
+	rc := New(underlying, dir, "m")
+	_, _ = rc.Chat(context.Background(), proxy.ChatRequest{Messages: []proxy.Message{{Role: "user", Content: "SECRET-123"}}})
+	entries, _ := os.ReadDir(filepath.Join(dir, "m"))
+	raw, _ := os.ReadFile(filepath.Join(dir, "m", entries[0].Name()))
+	if !strings.Contains(string(raw), "SECRET-123") {
+		t.Error("with no redactor the recording must be unchanged (replay tests rely on it)")
+	}
+}
+
+func TestSyncOnce_FlushesOpenRecordingsAndSaysWhenNoneRemain(t *testing.T) {
+	dir := t.TempDir()
+	rc := New(&mockClient{chatFn: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		return &proxy.ChatResponse{}, nil
+	}}, dir, "m")
+
+	if !rc.syncOnce() {
+		t.Error("with no recording open the sync pass reports idle")
+	}
+	if rc.syncRunning {
+		t.Error("an idle pass must clear syncRunning so the loop can start again later")
+	}
+
+	_, _ = rc.Chat(context.Background(), proxy.ChatRequest{Messages: []proxy.Message{{Role: "user", Content: "hi"}}})
+	if rc.syncOnce() {
+		t.Error("with a recording open the pass is not idle")
+	}
+	rc.Stop()
+}
+
+func TestSyncLoop_ExitsWhenIdleAndWhenStopped(t *testing.T) {
+	idle := New(&mockClient{}, t.TempDir(), "m")
+	idle.syncEvery = 5 * time.Millisecond
+	idle.startSyncLoopIfNeeded()
+	waitFor(t, func() bool { idle.mu.Lock(); defer idle.mu.Unlock(); return !idle.syncRunning }, "an idle loop to end itself")
+
+	busy := New(&mockClient{chatFn: func(ctx context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+		return &proxy.ChatResponse{}, nil
+	}}, t.TempDir(), "m")
+	busy.syncEvery = 5 * time.Millisecond
+	_, _ = busy.Chat(context.Background(), proxy.ChatRequest{})
+	time.Sleep(30 * time.Millisecond) // several passes with a recording open
+	busy.mu.Lock()
+	running := busy.syncRunning
+	busy.mu.Unlock()
+	if !running {
+		t.Error("the loop must keep running while a recording is open")
+	}
+	busy.Stop()
+	waitFor(t, func() bool { busy.Stop(); return true }, "Stop to be safe to repeat")
+}
+
+func waitFor(t *testing.T, ok func() bool, what string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ok() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", what)
 }

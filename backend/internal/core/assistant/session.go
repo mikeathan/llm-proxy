@@ -809,6 +809,7 @@ func isAgentControlMessage(m proxy.Message) bool {
 		prompts.AutomationFinalizePrompt,
 		prompts.LoopStopFinalizePrompt,
 		prompts.AutomationReadFileNagPrompt,
+		prompts.ReadFileRepeatedGapNagPrompt,
 		prompts.AutomationDuplicateNagPrompt,
 		prompts.ToolErrorNagPrompt,
 		prompts.ReasoningStuckNag,
@@ -1002,6 +1003,21 @@ func (s *runSession) hasToolResults() bool {
 }
 
 // handleToolTurn runs duplicate detection, tool execution, and salvage completion.
+// readFileRepeatNag is the nag for a read_file call the model repeats. When the most recent tool result left part of
+// a file out (it carries the NOT SHOWN marker), the repeat is the model trying to read the rest and the nag says how;
+// otherwise the model already has the file and the code-task nag applies.
+func readFileRepeatNag(history []proxy.Message) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == proxy.ToolRole {
+			if strings.Contains(history[i].Content, prompts.FileGapMarkerLead) {
+				return prompts.ReadFileRepeatedGapNagPrompt
+			}
+			break
+		}
+	}
+	return prompts.AutomationReadFileNagPrompt
+}
+
 // done=true means return from run(); done=false means continue the loop.
 func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Tool) (done bool, reply string, err error) {
 	s.resetParseErrorState()
@@ -1013,7 +1029,7 @@ func (s *runSession) handleToolTurn(turnMsg proxy.Message, toolsList []proxy.Too
 	if isDuplicate {
 		nag := nagPrompt
 		if len(turnMsg.ToolCalls) > 0 && turnMsg.ToolCalls[0].Function.Name == models.ToolFileRead {
-			nag = prompts.AutomationReadFileNagPrompt
+			nag = readFileRepeatNag(s.history)
 		}
 		s.history = append(s.history, turnMsg)
 		s.agent.notify(EventMessage, turnMsg)

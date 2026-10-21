@@ -64,3 +64,27 @@ func TestParseOrderedProperties_RejectsWhatIsNotAnObject(t *testing.T) {
 		t.Errorf("empty object: %v %v", empty, err)
 	}
 }
+
+func TestOrderedByRequired_PutsRequiredFirstThenTheRestAlphabetically(t *testing.T) {
+	props := map[string]any{
+		"limit":  map[string]any{"type": "integer"},
+		"offset": map[string]any{"type": "integer"},
+		"path":   map[string]any{"type": "string"},
+		"mode":   map[string]any{"type": "string"},
+	}
+	got := OrderedByRequired(props, []string{"path", "missing", "path"})
+	want := []string{"path", "limit", "mode", "offset"}
+	if keys := got.Keys(); strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Errorf("order %v, want %v", keys, want)
+	}
+	wire, _ := json.Marshal(map[string]any{"properties": got})
+	if !strings.HasPrefix(string(wire), `{"properties":{"path":`) {
+		t.Errorf("wire: %s", wire)
+	}
+	if len(got.Map()) != 4 {
+		t.Errorf("no property may be lost: %v", got.Map())
+	}
+	if keys := OrderedByRequired(props, nil).Keys(); strings.Join(keys, ",") != "limit,mode,offset,path" {
+		t.Errorf("with nothing required the order is alphabetical: %v", keys)
+	}
+}

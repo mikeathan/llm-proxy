@@ -3,8 +3,12 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -252,4 +256,145 @@ func eventuallyConnector(t *testing.T, comm interface {
 	}
 	t.Fatal(msg)
 	return nil
+}
+
+// Run logging writes each run's recording.jsonl into its run folder whether or not --record is on, but the store that lists
+// recordings used to exist only with the flag, so the API said "enabled: false" and listed nothing. The store now covers
+// the runs directory, while RecordDir (what the executor uses for recording references) stays the flag's.
+func TestBuildAppServices_ListsRunRecordingsWithoutTheRecordFlag(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	dir := t.TempDir()
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, dir))
+	appCtx := NewServer(nil, dataMgr)
+	settings := appCtx.HostSettings()
+	settings.Sandboxing.Enabled = true
+	_ = appCtx.UpdateHostSettings(settings)
+
+	runDir := filepath.Join(appCtx.RootDir(), "runs", "workspace-1", "model-a", "conv_1", "20261020T190000Z_abc123")
+	if err := os.MkdirAll(runDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runDir, "recording.jsonl"), []byte(`{"type":"request"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &Container{Core: Core{AppCtx: appCtx}, Infra: Infra{Logger: &mocks.MockLogger{}, Clock: realutils.NewRealClock()}}
+	services := c.BuildAppServices()
+
+	if services.RecordingStore == nil {
+		t.Fatal("the recordings store must exist without --record")
+	}
+	if got := services.RecordingStore.RecordDir(); got != filepath.Join(appCtx.RootDir(), "runs") {
+		t.Errorf("store directory = %q, want the runs directory", got)
+	}
+	if list := services.RecordingStore.List(); len(list) != 1 || filepath.Base(list[0].FilePath) != "recording.jsonl" {
+		t.Errorf("the run's recording must be listed: %+v", list)
+	}
+	if got := services.RecordDir(); got != "" {
+		t.Errorf("RecordDir is the --record directory and must stay empty without the flag, got %q", got)
+	}
+}
+
+func TestBuildAppServices_RecordDirIsTheFlagsDirectory(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	dir := t.TempDir()
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, dir))
+	appCtx := NewServer(nil, dataMgr)
+	settings := appCtx.HostSettings()
+	settings.Sandboxing.Enabled = true
+	_ = appCtx.UpdateHostSettings(settings)
+
+	recordDir := t.TempDir()
+	c := &Container{Core: Core{AppCtx: appCtx}, Infra: Infra{Logger: &mocks.MockLogger{}, Clock: realutils.NewRealClock()}, RecordDir: recordDir}
+	services := c.BuildAppServices()
+	if services.RecordDir() != recordDir || services.RecordingStore.RecordDir() != recordDir {
+		t.Errorf("with the flag both must be the record directory: %q / %q", services.RecordDir(), services.RecordingStore.RecordDir())
+	}
+}
+
+// What the client factory builds is the one place a recorder is created, so it is where masking must be wired.
+func TestClientFactory_MasksSecretsInTheRecording(t *testing.T) {
+	recordDir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer server.Close()
+
+	c := &Container{RecordDir: recordDir}
+	client := c.newClientFactory(models.NewWorkloadClassifier("", nil))(server.URL, "model-a", nil, true)
+
+	secret := "sk-" + strings.Repeat("a1", 20)
+	if _, err := client.Chat(context.Background(), proxy.ChatRequest{Model: "model-a", Messages: []proxy.Message{{Role: "user", Content: "my key is " + secret}}}); err != nil {
+		t.Fatal(err)
+	}
+	if closer, ok := client.(interface{ Stop() }); ok {
+		closer.Stop()
+	}
+	var found bool
+	_ = filepath.WalkDir(recordDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		found = true
+		raw, _ := os.ReadFile(path)
+		if strings.Contains(string(raw), secret) {
+			t.Errorf("the key reached the recording: %s", raw)
+		}
+		if !strings.Contains(string(raw), "[REDACTED]") {
+			t.Errorf("expected a mask in the recording: %s", raw)
+		}
+		return nil
+	})
+	if !found {
+		t.Error("no recording was written")
+	}
+}
+
+func egressServices(t *testing.T, port int) *AppServices {
+	t.Helper()
+	utils.SetRequiredEnv(t)
+	dataMgr, _ := storage.NewDataManager(seededPaths(t, t.TempDir()))
+	appCtx := NewServer(nil, dataMgr)
+	settings := appCtx.HostSettings()
+	settings.Sandboxing.Enabled = true
+	settings.Sandboxing.EgressProxy = port
+	_ = appCtx.UpdateHostSettings(settings)
+	return &AppServices{AppCtx: appCtx}
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("no loopback listener")
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port
+}
+
+func TestStartEgressProxy_DisabledInvalidAndEnabled(t *testing.T) {
+	if u, env, err := startEgressProxy(egressServices(t, 0)); u != nil || env != nil || err != nil {
+		t.Errorf("port 0 means disabled: url=%v env set=%v err=%v", u, env != nil, err)
+	}
+	if _, _, err := startEgressProxy(egressServices(t, 70000)); err == nil || !strings.Contains(err.Error(), "invalid egress_proxy port") {
+		t.Errorf("a port past 65535 must be refused: %v", err)
+	}
+
+	s := egressServices(t, freePort(t))
+	u, env, err := startEgressProxy(s)
+	if err != nil || u == nil || env == nil {
+		t.Fatalf("enabled: url=%v env set=%v err=%v", u, env != nil, err)
+	}
+	defer s.egressCancel()
+	token, _ := u.User.Password()
+	if u.Hostname() != "127.0.0.1" || u.User.Username() != egressProxyUser || token == "" {
+		t.Errorf("the proxy is loopback-only and carries the shared secret: %v", u)
+	}
+	joined := strings.Join(env(), "\n")
+	for _, want := range []string{"HTTP_PROXY=http://" + egressProxyUser + ":" + token + "@", "https_proxy=", "NO_PROXY=127.0.0.1,localhost,::1"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("env missing %q:\n%s", want, joined)
+		}
+	}
 }

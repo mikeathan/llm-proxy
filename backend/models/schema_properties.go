@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 )
 
 // OrderedProperties is a tool schema's "properties" object that keeps the order its author wrote. Go marshals a map's
@@ -91,4 +92,32 @@ func SchemaProperties(schema map[string]any) (map[string]any, bool) {
 		return props.Map(), true
 	}
 	return nil, false
+}
+
+// OrderedByRequired orders a schema's properties for a schema that carries no authored order (one decoded from an MCP
+// server's JSON into a map): the required names first, in the order the schema lists them, then the rest
+// alphabetically. Required-first matters for the same reason authored order does: against the real 16k model with
+// read_file's properties, alphabetical order (limit, offset, path) used the optional offset 1 time in 10, required
+// first (path, limit, offset) 10 in 10. Names listed as required but absent are ignored.
+func OrderedByRequired(props map[string]any, required []string) OrderedProperties {
+	ordered := OrderedProperties{values: make(map[string]any, len(props))}
+	for k, v := range props {
+		ordered.values[k] = v
+	}
+	seen := make(map[string]bool, len(required))
+	for _, name := range required {
+		if _, ok := props[name]; ok && !seen[name] {
+			ordered.keys = append(ordered.keys, name)
+			seen[name] = true
+		}
+	}
+	rest := make([]string, 0, len(props))
+	for name := range props {
+		if !seen[name] {
+			rest = append(rest, name)
+		}
+	}
+	sort.Strings(rest)
+	ordered.keys = append(ordered.keys, rest...)
+	return ordered
 }

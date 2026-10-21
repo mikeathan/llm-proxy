@@ -73,8 +73,11 @@ export interface RecordingMeta {
 }
 
 export interface RecordingStatus {
+  /** The --record flag: writes top-level recordings and turns on the Recordings page. */
   enabled: boolean
   dir: string
+  /** Run recordings (written while run logging is on) can be listed and read. */
+  run_recordings?: boolean
 }
 
 
