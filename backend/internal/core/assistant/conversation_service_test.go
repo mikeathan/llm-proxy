@@ -20,6 +20,7 @@ import (
 )
 
 type mockConvDeps struct {
+	agent     *models.AgentConfig // nil: the adaptive result cap defaults to on
 	modelName string
 	guardrail *guardrails.GuardrailEngine
 	store     *GuardrailDecisionStore
@@ -49,6 +50,7 @@ func (m *mockConvDeps) GuardrailDecisionStore() *GuardrailDecisionStore        {
 func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator               { return nil }
 func (m *mockConvDeps) MemoryStore() *memory.Store                             { return m.memoryStore }
 func (m *mockConvDeps) MemorySettings() *models.MemoryConfig                   { return m.memory }
+func (m *mockConvDeps) AgentSettings() *models.AgentConfig                     { return m.agent }
 func (m *mockConvDeps) Events() EventPublisher                                 { return m.events }
 func (m *mockConvDeps) RunLoggingEnabled() bool                                { return false }
 func (m *mockConvDeps) RootDir() string                                        { return "" }

@@ -476,6 +476,11 @@ func (s AppServices) RecordDir() string {
 	return s.recordDir
 }
 
+// AgentSettings are the agent-loop settings, read each time so a change applies to the next run without a restart.
+func (s AppServices) AgentSettings() *models.AgentConfig {
+	return s.AppCtx.GetSettings().Agent
+}
+
 func (s AppServices) MemorySettings() *models.MemoryConfig {
 	return s.AppCtx.GetSettings().Memory
 }

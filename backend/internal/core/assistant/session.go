@@ -82,8 +82,12 @@ type runSession struct {
 	sieve     sieveState
 	ledger    runLedger         // deterministic record of finished tool calls, rendered by the sieves
 	progress  *progress.Monitor // notices read-only results that add nothing; nil outside a chat run
-	prompt    promptState
-	stopGuard stopGuardState
+	// requestSize is the size of the request the last turn sent, and toolCap the cap on each result of the tool turn in
+	// progress (0 outside one): see resultCapFor.
+	requestSize requestSize
+	toolCap     int
+	prompt      promptState
+	stopGuard   stopGuardState
 }
 
 // recoveryState tracks the parse-error / empty-turn recovery ladder.
@@ -1164,7 +1168,9 @@ func (a *Agent) executeTurn(ctx context.Context, history *[]proxy.Message) (prox
 	// and let the prompt overflow the serving context (2026-08-30 smoke-test
 	// run: context grew to ~27.7 KB with the sieve never firing, then the
 	// server 400'd "context too long").
-	if size := a.measureRequest(*history, toolsList); size.over() {
+	size := a.measureRequest(*history, toolsList)
+	a.noteRequestSize(size)
+	if size.over() {
 		*history = a.applyPhysicalSieve(*history, size.overhead())
 	}
 

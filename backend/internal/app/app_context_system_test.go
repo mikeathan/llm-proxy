@@ -98,3 +98,48 @@ func TestApplySystemUpdate_RemindersSettings(t *testing.T) {
 		t.Errorf("reset left %+v", got)
 	}
 }
+
+// Agent settings: saved as a unit, absent by default (which reads as on), and untouched by updates that omit them.
+func TestApplySystemUpdate_AgentSettings(t *testing.T) {
+	srv := newSystemTestServer(t)
+	if got := srv.GetSettings().Agent; got != nil {
+		t.Fatalf("shipped default is no block, got %+v", got)
+	}
+	if !srv.GetSettings().Agent.AdaptiveResultCapEnabled() {
+		t.Error("no block means the adaptive result cap is on")
+	}
+
+	off := false
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Agent: &models.AgentConfig{AdaptiveResultCap: &off}}); err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+	if srv.GetSettings().Agent.AdaptiveResultCapEnabled() {
+		t.Fatal("an explicit off must be saved")
+	}
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{}); err != nil {
+		t.Fatal(err)
+	}
+	if srv.GetSettings().Agent.AdaptiveResultCapEnabled() {
+		t.Error("an update that omits the agent block changed it")
+	}
+	on := true
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Agent: &models.AgentConfig{AdaptiveResultCap: &on}}); err != nil {
+		t.Fatal(err)
+	}
+	if !srv.GetSettings().Agent.AdaptiveResultCapEnabled() {
+		t.Error("turning it back on must be saved")
+	}
+}
+
+func TestAppServices_AgentSettingsReadsTheLiveSettings(t *testing.T) {
+	srv := newSystemTestServer(t)
+	services := AppServices{AppCtx: srv}
+	if !services.AgentSettings().AdaptiveResultCapEnabled() {
+		t.Error("default on")
+	}
+	off := false
+	_ = srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Agent: &models.AgentConfig{AdaptiveResultCap: &off}})
+	if services.AgentSettings().AdaptiveResultCapEnabled() {
+		t.Error("a change applies to the next run without a restart")
+	}
+}

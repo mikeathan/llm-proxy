@@ -37,6 +37,7 @@ type ConversationDeps interface {
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
 	MemorySettings() *models.MemoryConfig
+	AgentSettings() *models.AgentConfig
 	Events() EventPublisher
 	RunLoggingEnabled() bool
 }
@@ -298,6 +299,7 @@ func (s *conversationService) buildAgent(ctx context.Context, modelName, workspa
 		WithConversationID(sessionID).
 		WithMemoryStore().
 		WithHotMemory(s.hotMemoryEnabled(workspaceID, runProfile)).
+		WithAdaptiveResultCap(s.deps.AgentSettings().AdaptiveResultCapEnabled()).
 		WithObserver(observer).
 		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer, ChannelAssistant)).
 		WithOrchestrator().

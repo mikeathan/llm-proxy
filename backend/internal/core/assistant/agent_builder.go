@@ -118,6 +118,12 @@ func (b *AgentBuilder) WithHotMemory(enabled bool) *AgentBuilder {
 	return b
 }
 
+// WithAdaptiveResultCap sets whether the cap on one tool result is sized from the room left in the request.
+func (b *AgentBuilder) WithAdaptiveResultCap(enabled bool) *AgentBuilder {
+	b.opts.AdaptiveResultCap = enabled
+	return b
+}
+
 func (b *AgentBuilder) WithModelConfig(modelName string) *AgentBuilder {
 	cfg, ok := b.svc.ModelConfig(modelName)
 	if !ok {

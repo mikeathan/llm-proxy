@@ -18,6 +18,7 @@ const (
 	WorkspaceIDKey       contextKey = "workspace_id"
 	GuardrailApprovedKey contextKey = "guardrail_approved"
 	TaskNameKey          contextKey = "task_name"
+	ResultCapKey         contextKey = "result_cap"
 	RunIDKey             contextKey = "run_id"
 	RunNetworkScopeKey   contextKey = "run_network_scope"
 	UnattendedRunKey     contextKey = "unattended_run"
@@ -96,6 +97,25 @@ func GetTaskName(ctx context.Context) string {
 		return name
 	}
 	return ""
+}
+
+// WithResultCap tells a tool how many characters of result the agent will keep for this call (see the agent's
+// resultCapFor), so a tool that cuts its own output sizes the cut to it and the agent's own cut leaves it alone. A cap
+// of zero or less sets nothing.
+func WithResultCap(ctx context.Context, chars int) context.Context {
+	if chars <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, ResultCapKey, chars)
+}
+
+// ResultCapFrom returns the result cap set on the context, and false when none is set (the tool keeps its default).
+func ResultCapFrom(ctx context.Context) (int, bool) {
+	if ctx == nil {
+		return 0, false
+	}
+	n, ok := ctx.Value(ResultCapKey).(int)
+	return n, ok && n > 0
 }
 
 // WithRunID injects a unique execution run ID into the context.

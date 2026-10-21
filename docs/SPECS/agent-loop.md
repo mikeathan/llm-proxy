@@ -1,9 +1,9 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.8"
+version: "1.9"
 status: stable
-last_updated: 2026-10-18
+last_updated: 2026-10-21
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -13,6 +13,15 @@ supersedes:
 
 ## Changelog
 
+- **1.9 (2026-10-21)** — The cap on one tool result is sized per tool turn from the room left in the request, no longer a fixed
+  3000 characters. Found on a 16k local model (plan `PLANS/agent-loop/large-result-storage.md`, Phase A): every `internet_search`
+  result (5.5 to 7.4 KB, 42 of 42 in recent sessions) was cut to under half, and a 7 KB file took three reads that the model
+  sometimes stopped after two (4 of 8 complete; with the whole file in front of it, 8 of 8). `resultCapFor(size, calls)`
+  (`assistant/result_cap.go`): `clamp(3000, 12000, 0.5 × (requestLimit − request size) ÷ calls in the turn)`, computed once before
+  the turn's tools run and used by the tool (through `models.WithResultCap`) and by `appendToolResult`. The 3000 floor is today's
+  behaviour, a model with no budget keeps it, and each result takes half of what is left, so the caps shrink as the request
+  fills and cannot push a run past its window. Switch: `agent.adaptive_result_cap` (default on; Settings, Runs; chat and
+  automations; applies to the next run). Long runs reach the sieve's limit one or two results earlier than a fixed 3000.
 - **1.8 (2026-10-18)** — The sieve no longer splits a tool call from its result, and the loop records the prompt cache. Found
   in a 141 s run on vertex (plan `PLANS/agent-loop/run-efficiency-and-convergence.md`): the sieve kept
   `[system, task, assistant(tool_call)]` as its locked head and dropped that call's result, so request 8 carried an orphaned

@@ -259,6 +259,8 @@ export interface GlobalConfig {
   provider_defaults?: Record<string, AgentDefaults>
   loop_strategy_options?: string[]
   run_logging?: { enabled: boolean }
+  // Agent-loop behaviour for every run; an absent field means its default (adaptive result cap on).
+  agent?: AgentConfig
   // Run scheduler admission limits (global-run-lane plan).
   scheduler?: SchedulerConfig
   // Global hot-memory defaults; an automation or a workspace's assistant may override them.
@@ -277,6 +279,12 @@ export interface RemindersConfig {
 export interface MemoryHotDefaults {
   assistant_hot: boolean
   automation_hot: boolean
+}
+
+/** Agent-loop settings that apply to every run, chat and automation alike. */
+export interface AgentConfig {
+  /** Size one tool result from the room left in the model's window (never below 3000 characters); off keeps a fixed 3000. */
+  adaptive_result_cap?: boolean
 }
 
 export interface SchedulerConfig {

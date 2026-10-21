@@ -365,3 +365,78 @@ func TestFittingSuffix(t *testing.T) {
 		}
 	}
 }
+
+// With room to spare the agent gives a tool a larger cap for the call. A 7 KB file that took three reads at the default
+// (and was listed in full by a 16k model in 4 runs of 8) then comes back whole (8 of 8).
+func TestReadFile_WholeFileWhenTheCallsCapAllowsIt(t *testing.T) {
+	var b strings.Builder
+	for b.Len() < 7000 {
+		b.WriteString("### Heading " + strconv.Itoa(b.Len()) + "\nA plain line of the file, with `code` and a \"quote\".\n")
+	}
+	raw := b.String()
+	fs, path := rangeTestFS(t, raw)
+
+	small, _ := fs.ReadFile(context.Background(), path)
+	if !strings.Contains(small, "[NOT SHOWN: bytes ") {
+		t.Fatal("at the default cap a 7 KB file is still cut with a marker")
+	}
+	ctx := models.WithResultCap(context.Background(), 8650)
+	whole, err := fs.ReadFile(ctx, path)
+	if err != nil || whole != raw {
+		t.Errorf("with a cap of 8650 the whole file must come back unchanged: %v (len %d vs %d)", err, len(whole), len(raw))
+	}
+	if n := encodedLen(whole); n > 8650 {
+		t.Errorf("encodes to %d, over the cap", n)
+	}
+}
+
+func TestReadFile_LongerThanTheCallsCapKeepsTheMarkerSizedToIt(t *testing.T) {
+	raw := strings.Repeat("0123456789abcdef\n", 3000) // 51 KB
+	fs, path := rangeTestFS(t, raw)
+	const capChars = 8650
+	got, err := fs.ReadFile(models.WithResultCap(context.Background(), capChars), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := encodedLen(got); n > capChars {
+		t.Errorf("encodes to %d, over the cap of %d, so it would be cut again", n, capChars)
+	}
+	m := notShownRe.FindStringSubmatch(got)
+	if m == nil {
+		t.Fatalf("no marker: %.200q", got)
+	}
+	if limit, _ := strconv.Atoi(m[6]); limit != capChars-fileMarkerReserve {
+		t.Errorf("the marker must suggest a piece the cap can carry: limit %d, want %d", limit, capChars-fileMarkerReserve)
+	}
+	if len(got) < 7000 {
+		t.Errorf("a bigger cap must show more of the file: %d bytes", len(got))
+	}
+}
+
+func TestReadFileRange_PieceSizeFollowsTheCallsCap(t *testing.T) {
+	raw := strings.Repeat("abcdefghij", 3000) // 30 KB
+	fs, path := rangeTestFS(t, raw)
+	ctx := models.WithResultCap(context.Background(), 8650)
+
+	piece, err := fs.ReadFileRange(ctx, path, intp(0), intp(6000))
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, next, more := chunkBody(t, piece)
+	if len(body) != 6000 || !more || next != 6000 {
+		t.Errorf("a 6000-byte piece fits a cap of 8650: len %d next %d more %v", len(body), next, more)
+	}
+	def, _ := fs.ReadFileRange(ctx, path, intp(0), nil)
+	defBody, _, _ := chunkBody(t, def)
+	if len(defBody) < 8000 {
+		t.Errorf("with no limit the piece fills the cap, got %d bytes", len(defBody))
+	}
+	if n := encodedLen(def); n > 8650 {
+		t.Errorf("encodes to %d, over the cap", n)
+	}
+	// without a cap on the context the piece is today's
+	plain, _ := fs.ReadFileRange(context.Background(), path, intp(0), intp(6000))
+	if pb, _, _ := chunkBody(t, plain); len(pb) > proxy.MaxReturnChars {
+		t.Errorf("at the default cap a piece never exceeds it: %d", len(pb))
+	}
+}
