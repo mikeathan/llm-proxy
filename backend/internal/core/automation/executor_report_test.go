@@ -220,3 +220,32 @@ func findReport(t *testing.T, store *persistence.WorkspaceManager) string {
 	t.Fatalf("no report saved: %+v", tree.Entries)
 	return ""
 }
+
+// The run's history entry names its saved report, so the UI can link to the file; a run without one names nothing.
+func TestHandleAgentSuccess_RecordsTheReportPathOnTheRun(t *testing.T) {
+	tmp := t.TempDir()
+	store := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	e := &LLMTaskExecutor{svc: &reportSvc{store: store}}
+
+	state := &models.AgentState{}
+	outcome := reportOutcome()
+	outcome.resp = &ExecuteResponse{State: state}
+	if _, err := e.handleAgentSuccess(context.Background(), outcome, "# Body", nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "reports/daily-news/20261021T070000Z-run_7.md"
+	if got := state.History[0].ReportPath; got != want {
+		t.Errorf("report path %q, want %q", got, want)
+	}
+	if got := state.LastRuns["daily-news"].ReportPath; got != want {
+		t.Errorf("latest run report path %q, want %q", got, want)
+	}
+
+	outcome.resp = &ExecuteResponse{State: state}
+	if _, err := e.handleAgentSuccess(context.Background(), outcome, "", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := state.History[1].ReportPath; got != "" {
+		t.Errorf("a run with no reply names a report: %q", got)
+	}
+}

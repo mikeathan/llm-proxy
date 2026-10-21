@@ -444,6 +444,8 @@ type runOutcome struct {
 	// warnings holds non-fatal tool failures from the agent (e.g. a delivery
 	// connector being down), persisted into run-meta and the run ledger.
 	warnings []string
+	// reportPath is where the run's final report was saved in the workspace; empty when none was.
+	reportPath string
 }
 
 // handleAgentError writes run-meta and records the failed run.
@@ -545,7 +547,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 	}
 
 	if finalReply != "" {
-		e.keepFinalReport(outcome, output)
+		outcome.reportPath = e.keepFinalReport(outcome, output)
 	}
 
 	e.recordRun(outcome, runResult, runError, time.Since(outcome.startTime))
@@ -569,21 +571,23 @@ func saveFinalReport(w reportWriter, outcome runOutcome, report string) (string,
 	return w.WriteReport(outcome.req.WorkspaceID, outcome.req.AutomationName, outcome.runID, outcome.startTime, tools.RedactForRecording(report))
 }
 
-// keepFinalReport saves the report of a finished run and logs where it went. A failure to save is logged, never
-// fatal: the run itself succeeded and its report is still in the run history.
-func (e *LLMTaskExecutor) keepFinalReport(outcome runOutcome, report string) {
+// keepFinalReport saves the report of a finished run, logs where it went and returns that path ("" when nothing was
+// saved). A failure to save is logged, never fatal: the run itself succeeded and its report is still in the run history.
+func (e *LLMTaskExecutor) keepFinalReport(outcome runOutcome, report string) string {
 	store := e.svc.Persistence()
 	if store == nil {
-		return
+		return ""
 	}
 	log := e.svc.ProcessLogger(outcome.req.WorkspaceID)
 	path, err := saveFinalReport(store, outcome, report)
-	switch {
-	case err != nil:
+	if err != nil {
 		log.Warn("failed to save the final report", "automation", outcome.req.AutomationName, "error", err)
-	case path != "":
+		return ""
+	}
+	if path != "" {
 		log.Info("Final report saved", "automation", outcome.req.AutomationName, "path", path)
 	}
+	return path
 }
 
 func formatDuration(d time.Duration) string {
@@ -624,6 +628,7 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 		Model:          req.Model,
 		RecordingRef:   req.RecordingRef,
 		RunDirName:     runDirName(outcome.runDir),
+		ReportPath:     outcome.reportPath,
 		Events:         nil, // events live in the run dir, not in state.json
 		Warnings:       outcome.warnings,
 	}

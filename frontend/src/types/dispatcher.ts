@@ -14,6 +14,8 @@ export interface AutomationRun {
   model: string
   recording_ref?: string
   run_dir_name?: string
+  // Workspace path of the run's saved final report; absent when none was saved.
+  report_path?: string
   events?: AgentEvent[]
   // Non-fatal problems, e.g. a report that could not be delivered; the run still completed.
   warnings?: string[]
@@ -40,6 +42,8 @@ export interface Automation {
   last_output?: string
   last_error?: string
   last_warnings?: string[]
+  // Workspace path of the latest run's saved final report.
+  last_report_path?: string
   is_running?: boolean
   // Queued in the run scheduler waiting for a lane slot; queue_position is
   // 1-based. Both are empty while the run executes or sits idle. Serialized by
