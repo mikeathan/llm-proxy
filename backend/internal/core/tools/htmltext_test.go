@@ -99,17 +99,17 @@ func TestFetchedText_ArticleSurvivesTheResultCap(t *testing.T) {
 	if strings.Contains(capped(page), "Leeds is a city in West Yorkshire.") {
 		t.Fatal("fixture should push the article out of the raw cap, or this test proves nothing")
 	}
-	if got := capped(fetchedText("text/html", []byte(page), false, proxy.MaxReturnChars)); !strings.Contains(got, "Leeds is a city in West Yorkshire.") {
+	if got := capped(shown("text/html", []byte(page), false, proxy.MaxReturnChars)); !strings.Contains(got, "Leeds is a city in West Yorkshire.") {
 		t.Errorf("article lost to the cap: %q", got)
 	}
 }
 
 func TestFetchedText_LeavesNonHTMLAlone(t *testing.T) {
 	body := `{"a":"<p>x</p>"}`
-	if got := fetchedText("application/json", []byte(body), false, proxy.MaxReturnChars); got != body {
+	if got := shown("application/json", []byte(body), false, proxy.MaxReturnChars); got != body {
 		t.Errorf("json changed: %q", got)
 	}
-	if got := fetchedText("text/plain", []byte("x"), true, proxy.MaxReturnChars); !strings.HasSuffix(got, "(content truncated by network guardrails)") {
+	if got := shown("text/plain", []byte("x"), true, proxy.MaxReturnChars); !strings.HasSuffix(got, "(content truncated by network guardrails)") {
 		t.Errorf("size-guardrail note missing: %q", got)
 	}
 }
@@ -240,7 +240,7 @@ func TestFetchedText_FitsTheResultCapAfterJSONEscaping(t *testing.T) {
 		b.WriteString(`<p>Tom &amp; "Jerry" <b>&lt;x&gt;</b> row ` + strings.Repeat("y", i%7) + `</p>`)
 	}
 	b.WriteString("</main>")
-	encoded, err := json.Marshal(fetchedText("text/html", []byte(b.String()), false, proxy.MaxReturnChars))
+	encoded, err := json.Marshal(shown("text/html", []byte(b.String()), false, proxy.MaxReturnChars))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestFetchedText_SizeLimitNoteKeepsTheResultUnderTheCap(t *testing.T) {
 		b.WriteString(`<p>Paragraph "number" <b>&amp;</b> text ` + strings.Repeat("w", i%9) + `</p>`)
 	}
 	b.WriteString("</main>")
-	got := fetchedText("text/html", []byte(b.String()), true, proxy.MaxReturnChars)
+	got := shown("text/html", []byte(b.String()), true, proxy.MaxReturnChars)
 	if !strings.HasSuffix(got, "(content truncated by network guardrails)") {
 		t.Fatalf("the size-limit note is missing: %q", got[len(got)-80:])
 	}
@@ -289,8 +289,8 @@ func TestFetchedText_PageHeadFollowsTheCallsCap(t *testing.T) {
 	b.WriteString("</main>")
 	page := []byte(b.String())
 
-	small := fetchedText("text/html", page, false, proxy.MaxReturnChars)
-	big := fetchedText("text/html", page, false, 8650)
+	small := shown("text/html", page, false, proxy.MaxReturnChars)
+	big := shown("text/html", page, false, 8650)
 	if len(big) <= len(small)+3000 {
 		t.Errorf("a larger cap must carry more of the page: %d vs %d", len(big), len(small))
 	}
@@ -302,8 +302,14 @@ func TestFetchedText_PageHeadFollowsTheCallsCap(t *testing.T) {
 			t.Errorf("encodes to %d, over its cap of %d", n, c.cap)
 		}
 	}
-	withNote := fetchedText("text/html", page, true, 8650)
+	withNote := shown("text/html", page, true, 8650)
 	if n := encodedLen(withNote); n > 8650 || !strings.HasSuffix(withNote, "(content truncated by network guardrails)") {
 		t.Errorf("the size-limit note stays inside a larger cap: %d", n)
 	}
+}
+
+// shown is what the model reads of a response: fetchedText without the size it reports for logging.
+func shown(contentType string, data []byte, cutShort bool, capChars int) string {
+	text, _ := fetchedText(contentType, data, cutShort, capChars)
+	return text
 }

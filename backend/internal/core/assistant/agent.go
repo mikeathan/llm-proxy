@@ -207,6 +207,11 @@ type AgentConfig struct {
 	MaxTokens       int
 	ReasoningSpec   reasoning.ReasoningSpec
 	ReasoningBudget int // local think-token budget (ModeThinkTokens); 0 for effort/object/enabled modes
+
+	// ReasoningBudgetConfigured is true when the operator set the think budget; a derived one follows the output cap
+	// (lowerThinkBudgetToOutputCap), a configured one never moves.
+	ReasoningBudgetConfigured bool
+
 	Temperature     float64
 	ICUWeight       float64
 	GlobalTimeout   time.Duration
@@ -269,10 +274,10 @@ type Agent struct {
 
 	runS *runSession // current execution session; nil outside Execute
 
-	// answerWithoutThinking is the recovery step after a local stream got stuck
-	// thinking: the next request turns thinking off so it cannot loop in thinking
-	// again. One-shot (consumed by applyRequestConfig); never set for cloud.
-	answerWithoutThinking atomic.Bool
+	// reasoningStepDown is the recovery step after a stream got stuck thinking: the next request asks for less
+	// reasoning (reasoning.StepDown: a local model answers without thinking, an effort model drops one level, an
+	// on/off model is left alone) so it cannot loop in its thinking again. One-shot, consumed by applyRequestConfig.
+	reasoningStepDown atomic.Bool
 	// sentChars is the size of the local request last sent (see request_size.go), for matching it to the server's count.
 	sentChars atomic.Int64
 
@@ -708,6 +713,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	// ReasoningBudgetExceeded stuck-check, interceptor budget) use the derived
 	// value rather than the raw config (which is 0 when auto-derived). The spec
 	// remains the single source of truth; this field is its numeric projection.
+	a.config.ReasoningBudgetConfigured = opts.ReasoningBudget > 0 // what the projection below must not be mistaken for
 	if a.config.ReasoningSpec.Mode == reasoning.ModeThinkTokens {
 		a.config.ReasoningBudget = a.config.ReasoningSpec.Budget
 	}
@@ -733,7 +739,7 @@ func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, [
 
 	execCtx = usage.WithTracker(execCtx)
 	a.toolFailure.reset()
-	a.answerWithoutThinking.Store(false) // a recovery armed by an earlier run must not leak into this one
+	a.reasoningStepDown.Store(false) // a recovery armed by an earlier run must not leak into this one
 	execCtx = proxy.WithRetryObserver(execCtx, func(info proxy.RetryInfo) { a.notifyUpstream(info) })
 
 	// Stamp the resolved run network scope so the guardrail engine, network

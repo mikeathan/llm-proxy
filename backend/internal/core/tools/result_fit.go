@@ -83,3 +83,27 @@ func resultCapOf(ctx context.Context) int {
 	}
 	return proxy.MaxReturnChars
 }
+
+// fitHeadTail returns text as it is when its JSON encoding fits capChars, and otherwise its start and end around a cut
+// marker, sized so the encoded result fits. proxy.TruncateResult counts raw characters and always adds its marker, so its
+// output is over the cap before any escaping (each quote or newline is two characters once encoded); the agent then cut
+// the result a second time. The raw budget is scaled down by how far over the cap the encoded result was (a text whose
+// characters each take two when encoded needs about half the raw budget), until it fits.
+func fitHeadTail(text string, capChars int) string {
+	if encodedLen(text) <= capChars {
+		return text
+	}
+	limit := capChars
+	for range 12 {
+		out := proxy.TruncateResult(text, limit, "")
+		encoded := encodedLen(out)
+		if encoded <= capChars {
+			return out
+		}
+		limit = limit * capChars / encoded * 98 / 100
+		if limit <= 0 {
+			break
+		}
+	}
+	return text[:fittingPrefix(text, capChars)]
+}

@@ -8,6 +8,7 @@ import (
 	"math"
 	"slices"
 
+	"llm-proxy/internal/core/assistant/reasoning"
 	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
@@ -216,5 +217,23 @@ func (a *Agent) adoptReportedWindow(windowTokens int) {
 	}
 	if budget.MaxTokens > 0 && a.config.MaxTokens > budget.MaxTokens {
 		a.config.MaxTokens = budget.MaxTokens
+	}
+	a.lowerThinkBudgetToOutputCap()
+}
+
+// lowerThinkBudgetToOutputCap re-derives the local think-token budget from the (lowered) output cap, the same way it was
+// derived at build (DefaultReasoningBudget): a budget taken from a stale cap bounds nothing (87381 tokens gives 29127,
+// more than a 16384-token window holds). It only lowers it, and a budget the operator configured is left alone. The
+// numeric ReasoningBudget (the spec's projection, which the stream interceptor and the stuck check read) moves with the
+// spec, so the cut that stops a runaway stream is lowered too.
+func (a *Agent) lowerThinkBudgetToOutputCap() {
+	spec := &a.config.ReasoningSpec
+	if spec.Mode != reasoning.ModeThinkTokens || a.config.ReasoningBudgetConfigured {
+		return
+	}
+	if derived := DefaultReasoningBudget(a.config.MaxTokens); derived > 0 && derived < spec.Budget {
+		a.deps.Logger.Warn("think budget lowered to the window the server reported", "from", spec.Budget, "to", derived)
+		spec.Budget = derived
+		a.config.ReasoningBudget = derived
 	}
 }

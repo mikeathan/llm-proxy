@@ -30,7 +30,10 @@ func TestEnrichLocalIgnoresBudgetFields(t *testing.T) {
 				Filename:      "Qwen3.5-9B-UD-Q4_K_XL.gguf",
 				MaxTokens:     9999,
 				ContextBudget: 99999,
-				Pricing:       &models.ModelPricing{Prompt: "0.0000025", Completion: "0.00001"},
+				// the think budget the form shows for a model whose stored window is stale (87381 / 3): saving it
+				// must not store it as the operator's own, or the budget derived from the real window never applies
+				ReasoningBudget: 29127,
+				Pricing:         &models.ModelPricing{Prompt: "0.0000025", Completion: "0.00001"},
 			},
 			wantLocalClear: true,
 		},
@@ -41,6 +44,7 @@ func TestEnrichLocalIgnoresBudgetFields(t *testing.T) {
 				Name:          "llama-alias",
 				MaxTokens:     9999,
 				ContextBudget: 99999,
+				ReasoningBudget: 29127,
 				ProviderConfig: models.ProviderConfig{BaseURL: "http://127.0.0.1:8080"},
 				Pricing:       &models.ModelPricing{Prompt: "0.0000025", Completion: "0.00001"},
 			},
@@ -65,7 +69,7 @@ func TestEnrichLocalIgnoresBudgetFields(t *testing.T) {
 			req.enrichMetadataFromProviders(nil)
 			if tt.wantLocalClear {
 				if req.MaxTokens != 0 || req.ContextBudget != 0 || req.ReasoningBudget != 0 {
-					t.Fatalf("local workload must clear submitted budget fields, got max_tokens=%d ctx_budget=%d", req.MaxTokens, req.ContextBudget)
+					t.Fatalf("local workload must clear submitted budget fields, got max_tokens=%d ctx_budget=%d reasoning=%d", req.MaxTokens, req.ContextBudget, req.ReasoningBudget)
 				}
 				if req.ProviderConfig.InternalCreditWeight != 0 {
 					t.Fatalf("local workload must not receive pricing-derived ICU weight, got %f", req.ProviderConfig.InternalCreditWeight)

@@ -1,7 +1,7 @@
 ---
 id: SPEC-005
 title: Orchestrator / Budget
-version: "1.5"
+version: "1.6"
 status: stable
 last_updated: 2026-10-21
 constitution_references: [VI]
@@ -12,6 +12,14 @@ supersedes:
 # SPEC: Orchestrator / Budget
 
 ## Changelog
+
+- **1.6 (2026-10-21)** — The think-token budget is only as good as the output cap it is derived from (`max_tokens / 3`): on the
+  incident run the stale cap (87,381, from the 262k training window) gave a 29,127-token budget on a 16,384-token window, so the
+  stream interceptor's cut (3x the budget) never fired and a 16k-character reasoning loop ran. Replaying the looping request with
+  the corrected budget (1,820 tokens, sent with the wrap-up message) gave 10 of 10 tool calls against 1 of 10 without it, and the
+  server enforces it (reasoning stops near the budget). The overflow recovery (`adoptReportedWindow`) now re-derives the budget
+  and its numeric projection from the lowered cap, only lowering and never touching a configured one. No temperature default is
+  reported (SPEC-001 1.11).
 
 - **1.5 (2026-10-21)** — A local model is handed out only once its server has answered its window. llama-server opens its
   port while it is still reading the weights and answers 503 until it has, so the once-per-start serving-context probe failed
