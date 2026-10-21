@@ -133,6 +133,11 @@ type LLMRuntimeManager struct {
 	// re-introduced stale metadata) and on model stop.
 	servingCtxSynced map[string]bool
 
+	// servingCtxSilentSince records when a local model's server first failed to answer the serving-context probe
+	// since it was started, so GetInstance holds the model back as "starting" for at most ServingContextGrace.
+	// Cleared with servingCtxSynced, and once the server answers.
+	servingCtxSilentSince map[string]time.Time
+
 	// overrides is the last settings.yml per-model tuning applied, kept so a
 	// model whose workload class changes at runtime can have it re-applied.
 	overrides map[string]models.ModelOverride
@@ -425,8 +430,13 @@ func (m *LLMRuntimeManager) GetInstance(ctx context.Context, name string) (Model
 				// stale.
 				if cfg.Provider == "" || cfg.Provider == models.ProviderLocal {
 					m.mu.Unlock()
-					m.ReconcileLocalServingContext(ctx, name)
+					settled := m.ReconcileLocalServingContext(ctx, name)
 					m.mu.Lock()
+					if !settled {
+						// The port is open but the server is still loading: report "starting" so the caller waits
+						// and builds its budgets from the window the server will report, not stale metadata.
+						return ModelInstance{}, models.ErrModelStarting
+					}
 					// The model may have stopped while we probed — re-check
 					// before handing out the instance.
 					if inst2, ok := m.readyInstanceLocked(name, cfg); ok {
@@ -608,6 +618,13 @@ func (m *LLMRuntimeManager) readyInstanceLocked(name string, cfg models.ModelCon
 // model's serving context from its running server (metadata endpoints only).
 const servingCtxReconcileTimeout = 5 * time.Second
 
+// ServingContextGrace is how long GetInstance holds a manager-launched local model back (as models.ErrModelStarting)
+// while its server answers no serving-context probe. llama-server opens its port while it is still reading the
+// weights and answers 503 "Loading model" until it has; handing the model out then would build a run's budgets from
+// the stale metadata for the whole run. A server that never answers is used as it is once the grace has passed. A
+// variable, like models.ModelStartPollInterval, so tests can shorten it.
+var ServingContextGrace = 2 * time.Minute
+
 // servingContextProber is implemented by providers that can report the serving
 // context window their running server actually serves (llama.cpp /slots, then
 // /v1/models meta).
@@ -631,33 +648,36 @@ type nativeToolsProber interface {
 // — e.g. 262144 stored while the launch serves 16384 — which inflates
 // max_tokens/reasoning budgets and disables reasoning-stuck detection. The
 // running server's reported window is the authoritative input the local budget
-// must key on (SPEC-005). Best-effort: no-op when the model is not local, its
-// server is unreachable, or the metadata already matches. Marked synced on a
-// successful probe so it runs once per server start (flag cleared on Sync and
-// model stop). Runs off-lock.
-func (m *LLMRuntimeManager) ReconcileLocalServingContext(ctx context.Context, name string) {
+// must key on (SPEC-005). Best-effort: no-op when the model is not local or
+// the metadata already matches. Marked synced on a successful probe so it runs
+// once per server start (flag cleared on Sync and model stop). Runs off-lock.
+//
+// It reports whether the model may be used now. False only while the server
+// answers no window yet and ServingContextGrace has not passed since the first
+// silent probe: GetInstance then reports the model as still starting.
+func (m *LLMRuntimeManager) ReconcileLocalServingContext(ctx context.Context, name string) (settled bool) {
 	m.mu.Lock()
 	cfg, ok := m.models[name]
 	synced := m.servingCtxSynced != nil && m.servingCtxSynced[name]
 	m.mu.Unlock()
 	if !ok || synced || (cfg.Provider != "" && cfg.Provider != models.ProviderLocal) {
-		return
+		return true
 	}
 
 	p, err := m.registrar.Build(cfg)
 	if err != nil {
-		return
+		return true
 	}
 	prober, ok := p.(servingContextProber)
 	if !ok {
-		return
+		return true
 	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, servingCtxReconcileTimeout)
 	defer cancel()
 	serving := prober.ServingContext(probeCtx)
 	if serving <= 0 {
-		return // server not answering yet — retried on the next GetInstance
+		return m.servingProbeGraceExpired(name) // server not answering yet — retried on the next GetInstance
 	}
 
 	m.mu.Lock()
@@ -666,13 +686,14 @@ func (m *LLMRuntimeManager) ReconcileLocalServingContext(ctx context.Context, na
 		m.servingCtxSynced = make(map[string]bool)
 	}
 	m.servingCtxSynced[name] = true
+	delete(m.servingCtxSilentSince, name)
 
 	cur, ok := m.models[name]
 	if !ok {
-		return
+		return true
 	}
 	if cur.Metadata != nil && cur.Metadata.Nctx == serving {
-		return // already in sync
+		return true // already in sync
 	}
 	if cur.Metadata == nil {
 		cur.Metadata = &models.ModelMetadata{}
@@ -689,6 +710,28 @@ func (m *LLMRuntimeManager) ReconcileLocalServingContext(ctx context.Context, na
 	m.models[name] = cur
 	logging.Warn("reconciled local model serving context from running server (stale metadata corrected)",
 		"model", name, "serving_ctx", serving, "max_tokens", cur.MaxTokens, "context_budget", cur.ContextBudget)
+	return true
+}
+
+// servingProbeGraceExpired notes a silent probe and reports whether the model has been silent for longer than
+// ServingContextGrace (so it should be used with the metadata it has). The first silent probe starts the clock.
+func (m *LLMRuntimeManager) servingProbeGraceExpired(name string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.servingCtxSilentSince == nil {
+		m.servingCtxSilentSince = make(map[string]time.Time)
+	}
+	since, ok := m.servingCtxSilentSince[name]
+	if !ok {
+		m.servingCtxSilentSince[name] = time.Now()
+		return false
+	}
+	if time.Since(since) <= ServingContextGrace {
+		return false
+	}
+	logging.Warn("local model server answered no serving-context probe within the grace; using its stored metadata",
+		"model", name, "grace", ServingContextGrace)
+	return true
 }
 
 func (m *LLMRuntimeManager) activePortLocked() int {
@@ -810,6 +853,7 @@ func (m *LLMRuntimeManager) Sync() {
 		if m.servingCtxSynced != nil {
 			delete(m.servingCtxSynced, name)
 		}
+		delete(m.servingCtxSilentSince, name)
 		orchestrator.ApplyMetadataDefaults(&cfg)
 		logging.Info("Sync: model metadata applied", "model", name, "max_tokens", cfg.MaxTokens, "context_budget", cfg.ContextBudget, "reasoning_budget", cfg.ReasoningBudget, "provider", cfg.Provider, "workload", cfg.WorkloadClass)
 		m.models[name] = cfg

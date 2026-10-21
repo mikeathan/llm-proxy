@@ -536,3 +536,148 @@ func TestReconcileLocalServingContext(t *testing.T) {
 		t.Errorf("metadata drifted on second reconcile: n_ctx=%d max_tokens=%d", cfg2.Metadata.Nctx, cfg2.MaxTokens)
 	}
 }
+
+// loadingServer is a llama-server that answers its window only once it has finished loading: until then /slots and
+// /v1/models answer 503 "Loading model", as the real server does while it reads the weights.
+type loadingServer struct {
+	*httptest.Server
+	loaded atomic.Bool
+}
+
+func newLoadingServer(t *testing.T, window int) *loadingServer {
+	t.Helper()
+	ls := &loadingServer{}
+	ls.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ls.loaded.Load() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte(`{"error":{"code":503,"message":"Loading model","type":"unavailable_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/slots":
+			w.Write([]byte(`[{"id":0,"n_ctx":` + strconv.Itoa(window) + `}]`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(ls.Close)
+	return ls
+}
+
+func (ls *loadingServer) port(t *testing.T) int {
+	t.Helper()
+	port, err := strconv.Atoi(strings.TrimPrefix(ls.URL, "http://127.0.0.1:"))
+	if err != nil {
+		t.Fatalf("parse httptest port: %v", err)
+	}
+	return port
+}
+
+func staleQwen(port int) models.ModelConfig {
+	return models.ModelConfig{
+		Name: "qwen", Provider: models.ProviderLocal, Filename: "q.gguf", Path: "/models/q.gguf", Port: port,
+		Metadata: &models.ModelMetadata{Nctx: 262144, ContextLength: 262144},
+	}
+}
+
+// A server that has opened its port but is still loading answers no window yet: reconcile says it is not settled
+// (and leaves the stale metadata alone), then settles and corrects the budgets once the server answers.
+func TestReconcileLocalServingContext_NotSettledWhileTheServerLoads(t *testing.T) {
+	ls := newLoadingServer(t, 16384)
+	m := llm.NewWithReapInterval(nil, "127.0.0.1", time.Minute, time.Hour)
+	if err := m.AddModel(staleQwen(ls.port(t))); err != nil {
+		t.Fatal(err)
+	}
+
+	if m.ReconcileLocalServingContext(context.Background(), "qwen") {
+		t.Fatal("settled while the server was still loading")
+	}
+	if cfg := findModel(t, m, "qwen"); cfg.Metadata.Nctx != 262144 {
+		t.Fatalf("metadata changed before the server answered: %+v", cfg.Metadata)
+	}
+
+	ls.loaded.Store(true)
+	if !m.ReconcileLocalServingContext(context.Background(), "qwen") {
+		t.Fatal("not settled after the server answered")
+	}
+	if cfg := findModel(t, m, "qwen"); cfg.Metadata.Nctx != 16384 || cfg.MaxTokens != 16384/3 {
+		t.Fatalf("budgets not corrected: n_ctx %d max_tokens %d", cfg.Metadata.Nctx, cfg.MaxTokens)
+	}
+}
+
+// A server that never answers the probe is held back only for the grace period; after it the model is used with the
+// metadata it has, so a server without these endpoints is never locked out.
+func TestReconcileLocalServingContext_GivesUpAfterTheGrace(t *testing.T) {
+	old := llm.ServingContextGrace
+	llm.ServingContextGrace = 40 * time.Millisecond
+	defer func() { llm.ServingContextGrace = old }()
+
+	ls := newLoadingServer(t, 16384) // never finishes loading
+	m := llm.NewWithReapInterval(nil, "127.0.0.1", time.Minute, time.Hour)
+	if err := m.AddModel(staleQwen(ls.port(t))); err != nil {
+		t.Fatal(err)
+	}
+
+	if m.ReconcileLocalServingContext(context.Background(), "qwen") {
+		t.Fatal("settled on the first silent probe")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if !m.ReconcileLocalServingContext(context.Background(), "qwen") {
+		t.Fatal("still holding the model back after the grace")
+	}
+	if cfg := findModel(t, m, "qwen"); cfg.Metadata.Nctx != 262144 {
+		t.Errorf("metadata was changed without an answer: %+v", cfg.Metadata)
+	}
+}
+
+// A model that is not a manager-launched local one has nothing to wait for.
+func TestReconcileLocalServingContext_SettledWhenThereIsNothingToWaitFor(t *testing.T) {
+	m := llm.NewWithReapInterval(nil, "127.0.0.1", time.Minute, time.Hour)
+	if !m.ReconcileLocalServingContext(context.Background(), "no-such-model") {
+		t.Error("an unknown model must not be held back")
+	}
+	if err := m.AddModel(models.ModelConfig{Name: "cloud", Provider: "openai", Filename: "gpt"}); err != nil {
+		t.Fatal(err)
+	}
+	if !m.ReconcileLocalServingContext(context.Background(), "cloud") {
+		t.Error("a cloud model must not be held back")
+	}
+}
+
+// GetInstance holds a local model back as "starting" while its server is loading, so a caller that waits for the model
+// (chat and automations do) builds its agent from the corrected window, not the stale one.
+func TestGetInstance_ReportsStartingUntilTheServerAnswersItsWindow(t *testing.T) {
+	ls := newLoadingServer(t, 16384)
+	var portOpen atomic.Bool // the port opens once the model has been launched, before the weights are loaded
+	restorePort := utils.SetPortReady(func(port int) bool { return portOpen.Load() })
+	defer restorePort()
+	restoreExec := utils.SetExecCommandContext(fakeCmd())
+	defer restoreExec()
+
+	setupModelFile(t, "q.gguf")
+	cfg := staleQwen(ls.port(t))
+	cfg.Path = "q.gguf"
+	m := llm.NewWithReapInterval(nil, "127.0.0.1", time.Minute, time.Hour)
+	defer m.Shutdown()
+	if err := m.AddModel(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.GetInstance(context.Background(), "qwen"); !errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("launching: %v", err) // the first call launches the model
+	}
+	portOpen.Store(true)
+	if _, err := m.GetInstance(context.Background(), "qwen"); !errors.Is(err, models.ErrModelStarting) {
+		t.Fatalf("a model whose server is still loading was handed out: %v", err)
+	}
+
+	ls.loaded.Store(true)
+	inst, err := m.GetInstance(context.Background(), "qwen")
+	if err != nil || inst.Name != "qwen" {
+		t.Fatalf("after loading: %+v, %v", inst, err)
+	}
+	if got := findModel(t, m, "qwen"); got.Metadata.Nctx != 16384 {
+		t.Errorf("budgets not corrected before the instance was handed out: %+v", got.Metadata)
+	}
+}
