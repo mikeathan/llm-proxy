@@ -44,6 +44,7 @@ func (m *LLMRuntimeManager) signalStopLocked() func() {
 	// A new server process will start next time — its serving context must be
 	// reconciled again (the flag is otherwise cleared by Sync).
 	delete(m.servingCtxSynced, name)
+	delete(m.servingCtxSilentSince, name)
 
 	if model.Cancel != nil {
 		model.Cancel()

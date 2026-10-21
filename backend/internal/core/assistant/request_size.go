@@ -193,5 +193,28 @@ func (s *runSession) shrinkToReportedWindow(cause error) (handled bool, err erro
 			models.ErrPromptTooLarge, overflow.WindowTokens, overflow.PromptTokens)
 	}
 	s.history = shrunk
+	a.adoptReportedWindow(overflow.WindowTokens)
 	return true, nil
+}
+
+// adoptReportedWindow lowers the run's output cap and context budget to what a window the server reported allows, with
+// the same local budget math the model's own metadata is turned into. An overflow that names a window smaller than the
+// budget was sized for means the run started from stale metadata (a model whose stored window fell back to its training
+// window): the turns after the recovery are then sized to the real window and the next large result does not overflow it
+// again. It only ever lowers a value.
+func (a *Agent) adoptReportedWindow(windowTokens int) {
+	budget, err := orchestrator.LocalBudgetPolicy{}.Derive(models.ModelConfig{}, orchestrator.ContextResolution{ServingContext: windowTokens})
+	if err != nil || budget.ContextBudget <= 0 {
+		return
+	}
+	if a.config.ContextBudget > budget.ContextBudget || (a.config.MaxTokens > budget.MaxTokens && budget.MaxTokens > 0) {
+		a.deps.Logger.Warn("context overflow: using the window the server reported",
+			"window_tokens", windowTokens, "context_budget", a.config.ContextBudget, "to_context_budget", budget.ContextBudget)
+	}
+	if a.config.ContextBudget > budget.ContextBudget {
+		a.config.ContextBudget = budget.ContextBudget
+	}
+	if budget.MaxTokens > 0 && a.config.MaxTokens > budget.MaxTokens {
+		a.config.MaxTokens = budget.MaxTokens
+	}
 }

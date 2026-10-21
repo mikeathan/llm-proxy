@@ -282,3 +282,41 @@ func TestApplyPhysicalSieve_UsesTheScaledLimit(t *testing.T) {
 		t.Errorf("history is %d characters, want at most the scaled limit of 5000", total)
 	}
 }
+
+// An overflow that reports the server's window shows the run started with a stale budget (a model whose metadata fell
+// back to the training window); the run lowers its budget to that window, so the turns after the recovery are sized to
+// it and the next large result does not overflow it again. It never raises a budget.
+func TestAgent_ContextOverflowAdoptsTheReportedWindow(t *testing.T) {
+	run := func(t *testing.T, budget, maxTokens int) *Agent {
+		t.Helper()
+		calls := 0
+		client := &MockClient{StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			calls++
+			if calls == 1 {
+				return nil, fmt.Errorf("stream: %w", &providers.ContextOverflowError{PromptTokens: 17155, WindowTokens: 16384})
+			}
+			return textStream("done"), nil
+		}}
+		o := &orchestrator.Orchestrator{Ratios: orchestrator.NewTokenRatios()}
+		agent := NewAgent(client, &MockProvider{}, &MockEngine{}, AgentOptions{
+			MaxSteps: 5, ModelName: "m", WorkloadClass: models.WorkloadLocal, ContextBudget: budget, MaxResponseTokens: maxTokens, Orchestrator: o,
+		})
+		if _, _, err := agent.Execute(context.Background(), bulkyHistory(10, 6000)); err != nil {
+			t.Fatalf("Execute: %v", err)
+		}
+		return agent
+	}
+
+	t.Run("a budget from the training window is lowered to the server's", func(t *testing.T) {
+		agent := run(t, 699052, 87381) // what a 262144-token training window gives, against a 16384-token server
+		if agent.config.ContextBudget != 43692 || agent.config.MaxTokens != 5461 {
+			t.Errorf("budget %d, max tokens %d; want 43692 and 5461 (a 16384-token window)", agent.config.ContextBudget, agent.config.MaxTokens)
+		}
+	})
+	t.Run("a budget already inside the window is left alone", func(t *testing.T) {
+		agent := run(t, 30000, 2000)
+		if agent.config.ContextBudget != 30000 || agent.config.MaxTokens != 2000 {
+			t.Errorf("budget %d, max tokens %d; want them unchanged", agent.config.ContextBudget, agent.config.MaxTokens)
+		}
+	})
+}

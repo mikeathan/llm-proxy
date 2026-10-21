@@ -1,9 +1,9 @@
 ---
 id: SPEC-005
 title: Orchestrator / Budget
-version: "1.4"
+version: "1.5"
 status: stable
-last_updated: 2026-10-18
+last_updated: 2026-10-21
 constitution_references: [VI]
 related_specs: [SPEC-001]
 supersedes:
@@ -12,6 +12,16 @@ supersedes:
 # SPEC: Orchestrator / Budget
 
 ## Changelog
+
+- **1.5 (2026-10-21)** — A local model is handed out only once its server has answered its window. llama-server opens its
+  port while it is still reading the weights and answers 503 until it has, so the once-per-start serving-context probe failed
+  on a cold start and the run that triggered the start used the stored metadata (the training window, 262144 tokens, where the
+  server serves 16384) for all its turns: a 699,052-character budget, a result cap at its ceiling, and a request that overflowed
+  the real window. `ReconcileLocalServingContext` now reports whether the model may be used; while the server is silent
+  `GetInstance` returns `ErrModelStarting` (callers already wait on it, chat with a "model is starting" notice), for at most
+  `llm.ServingContextGrace` (2 minutes, from the first silent probe since the start), after which the model is used with the
+  metadata it has. A context overflow that reports the server's window also lowers the run's output cap and context budget to
+  what that window allows (`adoptReportedWindow`; only ever lowers). SPEC-001 §2 unchanged.
 
 - **1.4 (2026-10-18)** — `TokenRatios` (on `Orchestrator.Ratios`) learns, per model, how many characters of a request cost
   one prompt token, from the server's own count (default 3.0, blended 50/50, clamped 1.5 to 6.0, at most 256 models,
