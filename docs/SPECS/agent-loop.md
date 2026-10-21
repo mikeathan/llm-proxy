@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.9"
+version: "1.10"
 status: stable
 last_updated: 2026-10-21
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -12,6 +12,15 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.10 (2026-10-21)** — Two guards for a run that ends on a line of prose after its model looped. (1) A text-only turn that
+  ends by announcing an action it did not take ("I found several items. Let me fetch the pricing page to confirm.") is not a
+  final report once the run has used a tool: it is kept in the history and the model is nudged (`UnfulfilledIntentNudge`:
+  call the tool, or write the final report), at most `unfulfilledIntentMax` (2) times per stretch of progress, after which the
+  text is accepted as before (`endsWithUnfulfilledIntent`, `handleTextTurn`). (2) A stream the repetition guard cuts as a
+  reasoning loop, in a run that has already used tools, goes to the nag recovery with the native tools offered, once per stretch
+  of progress (`loopCutNagMax`), instead of the XML-mode retry that drops the tools; a second cut in a row, an empty stream and a
+  loop on the first turn keep the retry chain.
 
 - **1.9 (2026-10-21)** — The cap on one tool result is sized per tool turn from the room left in the request, no longer a fixed
   3000 characters. Found on a 16k local model (plan `PLANS/agent-loop/large-result-storage.md`, Phase A): every `internet_search`
@@ -189,6 +198,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Premature termination guard: empty output or 3 consecutive identical assistant messages without tool calls.
 - Content-with-tools fallback: when the model writes visible text AND calls tools in the same turn, and every call is housekeeping (`toolpolicy.EffectHousekeeping`: `memory_update`, `automation_journal`), the text is saved. If the next turn is empty, the saved text is used as the final answer; a natural-completion turn at least 2x shorter is a sign-off and the saved text is kept (`keepReportOverSignOff`). A later turn with any other tool clears the saved text; a later housekeeping turn replaces it only when its text is not at least 2x shorter (`noteContentWithTools`).
 - **Output-cap truncation guard** (`finish_reason="length"`): the stream layer surfaces the upstream `finish_reason` on the turn message (choice-level JSON, `models.Message.FinishReason`; never serialized into replayed history because strict providers reject unknown message keys). A content-only turn whose generation hit the output-token cap (`finish_reason == "length"`) is a **truncated final answer, not a complete one** — `checkTaskCompletion` must not finalize a cut-off report. Both `handleTextTurn` (natural completion) and `finalizeReport` (deterministic finalization turn) instead keep the partial, inject the bounded continuation nudge `LengthContinuationPrompt` ("Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly." — mirrors Hermes's `_LENGTH_CONTINUATION_OUTPUT_LIMIT`), and run the next turn with the partial in history. Fragments accumulate in `truncatedParts` and are stitched at completion by `joinTruncatedParts` (newline glue where two fragments would join without whitespace, port of Hermes `_join_truncated_parts`), bounded per run by `lengthContinuationMax` (2). A clean `finish_reason="stop"` is untouched — this guard only fires on genuine output-cap truncation, never on a model choosing to stop. See `docs/audits/2026-08-30-llm-smoke-test-incomplete-run.md` (Resolution section).
+- **Unfulfilled-intent guard** (`endsWithUnfulfilledIntent`, `intent.go`): the last sentence of the last prose line announces an action ("Let me fetch…", "I'll search…", "Next, I need to verify…" — a closed verb list, so "Let me know" and "I'll need your decision" do not match; a table row or code fence is not prose). It is a hint that triggers one bounded nudge, never a verdict that discards the text; it applies only after the run has used a tool, and the count re-arms with each successful tool turn. Measured on the 11 final reports in a real run history: one match, the incident's one-line "report".
 - **Truncated ReAct scaffold guard** (`endsWithBareActionMarker`): a turn whose **last non-empty line is a bare `Action:` marker** — the delimiter the system prompt's own `Thought -> Action` contract places on its own line before every tool call — is a truncated tool-call attempt, never a final report. Matching the full line (not a word suffix) means a report that merely ends with "...the action:" is still a valid completion. Enforced uniformly at every completion surface so all loop strategies behave identically: `checkTaskCompletion` + the parse-error trust branch (react / evaluator-optimizer), `finalizeReport` (plan-execute + the react recovery ladder), and `bestAvailableAnswer` (fallback answers must never surface a scaffold). It is rejected by `checkTaskCompletion` **and** by the parse-error trust branch (`handleParseErrorFeedback`), which previously re-accepted any non-empty XMLFound=false content as a completion — the back door that let the llm-smoke-test run finalize as "completed" after the model stopped mid-`Action:`. The turn then flows into the recovery ladder (format feedback / nag) so the run continues. See `docs/audits/2026-08-30-llm-smoke-test-incomplete-run.md`.
 
 **Chat mode (additional):**

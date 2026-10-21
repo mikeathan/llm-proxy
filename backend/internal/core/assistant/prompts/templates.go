@@ -428,6 +428,12 @@ const AutomationNagPrompt = "SYSTEM: Continue the task correctly.\n\n" +
 	"assistant message and stop — do not call more tools.\n\n" +
 	automationNagFormatExample
 
+// UnfulfilledIntentNudge answers a turn that ended on an announced action ("Let me fetch…") with no tool call.
+// Dual-path like AutomationNagPrompt: the announced step needs a call; finished work needs the final report.
+const UnfulfilledIntentNudge = "SYSTEM: Your last message said what you would do next, but you did not call a tool.\n\n" +
+	"If you still need that information, respond with ONLY the tool call now.\n" +
+	"If you already have enough, write your final report now as a normal assistant message and stop — do not announce further steps."
+
 // AutomationContentTooLongPrompt is sent when a write_file call fails because the
 // content argument was too large, causing the server JSON parser to reject it.
 const AutomationContentTooLongPrompt = "TOO LONG: The content you tried to save exceeded the response limit.\n\n" +

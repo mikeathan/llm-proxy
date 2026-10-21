@@ -469,10 +469,30 @@ func (a *Agent) computeNextResponse(ctx context.Context, history []proxy.Message
 	}
 
 	if fullMsg.Content == "" && len(fullMsg.ToolCalls) == 0 {
+		// A stream the repetition guard cut as a degenerate loop, in a run that has already used tools, is not a format
+		// problem: the model is deliberating, not failing to speak the tool format. Retrying it in XML mode drops the
+		// native tools and could end the run on a line of prose ("Let me fetch…", the incident of 2026-10-21), so it goes
+		// straight to the nag recovery with the tools still offered. That is tried once per stretch of progress: a model
+		// the nag did not stop, an empty stream, and a loop on the first turn keep the retry chain (XML retry, then a
+		// non-streaming call).
+		if isStuckPlaceholder(fullMsg) && hasToolResult(history) && a.nagOnLoopCut() {
+			a.deps.Logger.Info("reasoning loop cut after tool use, returning stuck signal for nag recovery")
+			return fullMsg, nil
+		}
 		return a.handleEmptyStream(ctx, history, tools, llmTools, toolChoice)
 	}
 
 	return fullMsg, nil
+}
+
+// nagOnLoopCut reports whether a loop cut should go to the nag recovery rather than the retry chain, and counts it. The
+// count lives with the run's other recovery counters, so it re-arms after every successful tool turn.
+func (a *Agent) nagOnLoopCut() bool {
+	if a.runS == nil || a.runS.recovery.loopCutNags >= loopCutNagMax {
+		return false
+	}
+	a.runS.recovery.loopCutNags++
+	return true
 }
 
 func injectRetryContext(history []proxy.Message) []proxy.Message {
