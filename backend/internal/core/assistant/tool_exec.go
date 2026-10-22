@@ -1168,21 +1168,7 @@ func validateToolArgs(tc proxy.ToolCall, tools []proxy.Tool) error {
 	if !ok {
 		return nil
 	}
-	requiredRaw, ok := params["required"]
-	if !ok {
-		return nil
-	}
-	var required []string
-	switch r := requiredRaw.(type) {
-	case []any:
-		for _, v := range r {
-			if s, ok := v.(string); ok {
-				required = append(required, s)
-			}
-		}
-	case []string:
-		required = r
-	}
+	required := requiredFields(params)
 	if len(required) == 0 {
 		return nil
 	}
@@ -1204,13 +1190,22 @@ validated:
 	for _, field := range required {
 		val, ok := args[field]
 		if !ok {
-			return fmt.Errorf("missing required parameter '%s'", field)
+			return withExpectedShape(fmt.Errorf("missing required parameter '%s'", field), params)
 		}
 		if s, ok := val.(string); ok && strings.TrimSpace(s) == "" {
-			return fmt.Errorf("parameter '%s' cannot be empty", field)
+			return withExpectedShape(fmt.Errorf("parameter '%s' cannot be empty", field), params)
 		}
 	}
 	return nil
+}
+
+// withExpectedShape adds the call's expected shape to a validation error so the model can correct it in one try.
+func withExpectedShape(err error, params map[string]any) error {
+	shape := argumentShape(params)
+	if shape == "" {
+		return err
+	}
+	return fmt.Errorf("%w; expected arguments: %s", err, shape)
 }
 
 // sanitizeToolArgs attempts to fix common JSON syntax issues in model-produced
