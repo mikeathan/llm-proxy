@@ -109,14 +109,14 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// writeSystemUpdateError answers a failed system update: a bad model name or an invalid search, scheduler or
+// writeSystemUpdateError answers a failed system update: a bad model name or an invalid search, scheduler, agent or
 // reminders block is the caller's mistake (400); anything else is a server error (500).
 func writeSystemUpdateError(w http.ResponseWriter, err error) {
 	var notFound *models.ModelNotFoundError
 	switch {
 	case errors.As(err, &notFound):
 		writeJSONError(w, http.StatusBadRequest, notFound.Error())
-	case models.IsSearchConfigError(err) || models.IsSchedulerConfigError(err) || models.IsRemindersConfigError(err):
+	case models.IsSearchConfigError(err) || models.IsSchedulerConfigError(err) || models.IsAgentConfigError(err) || models.IsRemindersConfigError(err):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 	default:
 		writeJSONError(w, http.StatusInternalServerError, "failed to update config: "+err.Error())

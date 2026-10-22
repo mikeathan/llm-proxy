@@ -382,3 +382,29 @@ describe('useMessageBuilder stuck_detected lifecycle', () => {
     expect(segmentsOf(messages).some((s) => s.kind === 'notice')).toBe(false)
   })
 })
+
+describe('useMessageBuilder sub-agent progress', () => {
+  const sub = (payload: Record<string, unknown>): AgentEvent => ({ type: 'subagent', payload: payload as unknown as AgentEvent['payload'] })
+
+  it('nests each helper under the running delegate step, follows its steps, and keeps the timeline flat', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.handleEvent({ type: 'tool_call', payload: { id: 'c1', type: 'function', function: { name: 'delegate_task', arguments: '{"tasks":[{"agent":"web-researcher","task":"Rust news"}]}' } } as unknown as AgentEvent['payload'] })
+    builder.handleEvent(sub({ run_id: 'r1', agent: 'web-researcher', kind: 'started', detail: 'Rust news' }))
+    builder.handleEvent(sub({ run_id: 'r1', agent: 'web-researcher', kind: 'tool_call', tool: 'internet_search', detail: '{"query":"rust 2026"}' }))
+    builder.handleEvent(sub({ run_id: 'r1', agent: 'web-researcher', kind: 'done', detail: 'done' }))
+
+    const segments = (messages.value[messages.value.length - 1]?.segments ?? []) as Segment[]
+    expect(segments).toHaveLength(1)
+    const step = segments[0]
+    if (step?.kind !== 'tool_call') throw new Error('want the delegate step')
+    expect(step.helpers).toEqual([{ runId: 'r1', agent: 'web-researcher', task: 'Rust news', steps: 1, lastStep: 'Searched the web rust 2026', status: 'done' }])
+  })
+
+  it('ignores progress with no delegate step to attach to', () => {
+    const messages = ref<AssistantMessage[]>([])
+    const builder = useMessageBuilder(messages)
+    builder.handleEvent(sub({ run_id: 'r1', agent: 'web-researcher', kind: 'started', detail: 'x' }))
+    expect(messages.value[messages.value.length - 1]?.segments ?? []).toHaveLength(0)
+  })
+})

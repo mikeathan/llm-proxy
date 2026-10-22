@@ -1,9 +1,9 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.11"
+version: "1.12"
 status: stable
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -12,6 +12,23 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.12 (2026-10-22)** — **Delegation (§15).** A run whose profile names helpers (`delegates`, SPEC-012) gets the
+  `delegate_task` tool while a cloud sub-agent model is set (`agent.subagent_model`).
+  - One call carries 1–3 tasks. They run at the same time as child runs through the `assistant.SubRunner` port,
+    implemented by `internal/core/delegation`.
+  - The parent reads back one summary per task. Each is cut to its share of the parent's result cap, never the child's
+    history.
+  - A child runs on the cloud model only (refused if the lane classifier says local or cannot tell), has the web tools
+    only (`internet_search`, `fetch_url`), no approval handler (a blocked call fails at once, II.10), no memory and no
+    delegate tool. It is unattended, in its own run ID and tracker, inside the parent's network scope.
+  - Children take a separate pool, beside the run lanes (SPEC-007 §V). It is depth 1 by construction: the runner's own
+    services have no runner.
+  - Progress reaches the parent's stream as coarse `subagent` events, which are never checkpointed into the parent's
+    session or counted as its steps. Each task's record lands in `TurnRun.Subagents`.
+  - The delegate call has no per-tool timeout. The child's step limit, stuck detection and run timeout bound it, and
+    the parent's run timeout bounds the call.
+  - **Also:** a chat and an automation resolve their options through one function, `assistant.ResolveRunOptions`.
 
 - **1.11 (2026-10-21)** — The recovery after a stream is cut as a reasoning loop is now provider-neutral (`reasoning.StepDown`,
   armed by `noteStuckThinking` for every workload): the next request asks for less reasoning through whichever control the provider
@@ -325,6 +342,38 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - **Schema validation:** each step's args are validated against the tool manifest schema exactly like the react loop (`validateToolArgs`): required parameters must be present and non-empty. A step that guesses a parameter name (e.g. `file_path` instead of `path`) fails fast with `plan step N: invalid tool call: …` before any tool executes — it never falls through to an empty-value write.
 - **Config flow:** `MaxPlanSteps` and `MaxPlanDuration` flow through `AgentOptions ← ModelConfig ← adminTuningDefaults` so users can tune every limit per-model.
 
+### 15. Delegation (sub-agents)
+
+- **Offered** when `AgentOptions.SubRunner` is set and `Enabled()` (a cloud sub-agent model is named), and the run's
+  profile lists `delegates`. `delegatingProvider` adds the schema from `manifests/delegation.json`; the profile's
+  `ExcludedTools` hides it otherwise. Chats and automations get the app's runner from `RunOptionDeps.SubRunner()`;
+  `profile.KindSubagent` runs never do.
+- **Call checks** (`delegate.go`), errors the model can correct:
+  - 1–3 tasks (`maxDelegateTasks`);
+  - each task has a question;
+  - each agent is one the profile lists;
+  - at most `maxSubagentsPerRun` (6) tasks per run.
+- **Results are text, never an error for the parent.** A busy pool, a refused model and a failed child each appear as
+  that task's note (`prompts.Subagent*`), so one helper cannot end the parent's run. Each summary is cut at a
+  line/sentence boundary, never inside a character, to its share of the parent's result cap. The share is measured
+  JSON-encoded, as `appendToolResult` caps it: a newline or quote counts two characters and markup six.
+- **Child options** (`subagentOptions`): resolved as an unattended run, then with no `GuardrailDecisionHandler`, no
+  `MemoryStore`, hot memory off and no `SubRunner`. The runner sets the allow list to `internet_search` and
+  `fetch_url`, memory off, and `RunNetworkScope` from the parent's context.
+- **Child context**: derived from the parent's (cancellation follows), with a fresh run ID, a fresh `usage` tracker
+  (`WithNewTracker`) and the unattended stamp. The recording client's state is closed by run ID afterwards.
+- **Pool** (`delegation/pool.go`): `agent.subagent_concurrency` slots (default 3, max 10, read live). A task waits at
+  most 2 min for a slot, then reports busy; a cancelled parent reports stopped.
+- **Events**: `EventSubagent` carries `SubagentEvent{run_id, agent, kind: started|tool_call|done, tool, detail≤160}`,
+  emitted through the parent's `notify` and serialised across children. Tool results, reasoning and streamed text stay
+  in the child, which keeps up to six children within the replay buffer. The chat observer neither checkpoints nor
+  counts it.
+- **Prompt**: the child's system message is the core rules plus the helper profile (`prompts.AssembleSystemPrompt`),
+  **without the workspace's notes** (AGENTS.md). Its user message is the task plus the context the parent wrote. Nothing
+  else from the machine reaches the cloud model.
+- **Record**: `TurnRun.Subagents []SubagentRun{agent, model, status, duration_ms, prompt_tokens, completion_tokens}`.
+  Its tokens are not in the turn's own counts.
+
 ## III. Technical Architecture
 
 ### Component Map
@@ -332,6 +381,9 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 automation/executor.go          — task dispatch; its RunSpec → assistant.ResolveRunOptions
 assistant/run_options.go        — the one resolver: run choice → profile → model config → global default
 run/recording.go                — a run's folder, event file and request recording (chat and automation)
+assistant/delegate.go           — the delegate tool: schema, call checks, parallel tasks, summaries, nested events
+assistant/subrun.go             — the SubRunner port and its request/result/event types
+delegation/runner.go, pool.go   — runs a task as a cloud child run; the sub-agent pool beside the run lanes
 assistant/agent.go              — Execute loop, sieve, tool processing
 assistant/registry.go           — wires LocalToolRegistry + MCP → provider/engine
 assistant/tool_provider.go      — MultiToolProvider, CompositeEngine, ToolProvider interface

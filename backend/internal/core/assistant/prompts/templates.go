@@ -830,3 +830,25 @@ const (
 	LocalCalendarLine   = "Next %d days: %s"
 	LocalCalendarDays   = 14
 )
+
+// The constants below are the delegate tool's words: the task a helper receives, and what the parent reads back.
+const (
+	// SubagentTaskPrompt is a helper's first user message; it knows nothing else about the parent's conversation.
+	SubagentTaskPrompt = "Task from the agent that asked you:\n%s"
+	// SubagentContextBlock follows the task when the parent gave context.
+	SubagentContextBlock = "\n\nWhat it told you to know:\n%s"
+	// SubagentResultHeader opens one helper's part of the delegate tool's result.
+	SubagentResultHeader = "## %s: %s\n"
+	// SubagentSummaryCut ends a helper's answer that was cut to fit the result.
+	SubagentSummaryCut = "\n[cut to fit; the helper's answer was longer]"
+	SubagentBusy       = "[Not done: every sub-agent slot was busy. Answer this part yourself, or try again later.]"
+	SubagentRefused    = "[Not done: %s]"
+	SubagentFailed     = "[The helper failed: %s. Answer this part yourself if you can.]"
+	SubagentStopped    = "[Stopped before it finished.]"
+	SubagentNoAnswer   = "[The helper finished without an answer.]"
+	// The errors below answer a malformed delegate call, so the model can correct it.
+	SubagentErrNoTasks       = "delegate_task needs 1 to %d tasks, got %d"
+	SubagentErrUnknownHelper = "unknown helper %q: this conversation can delegate to %s"
+	SubagentErrEmptyTask     = "task %d has no question"
+	SubagentErrRunLimit      = "this conversation has already delegated %d tasks in this turn, the most allowed; finish with what you have"
+)

@@ -181,6 +181,7 @@ func (m *MockAssistantService) Orchestrator() *orchestrator.Orchestrator {
 func (m *MockAssistantService) RecordDir() string                    { return "" }
 func (m *MockAssistantService) MemorySettings() *models.MemoryConfig { return nil }
 func (m *MockAssistantService) AgentSettings() *models.AgentConfig   { return nil }
+func (m *MockAssistantService) SubRunner() assistant.SubRunner       { return nil }
 func (m *MockAssistantService) RunLoggingEnabled() bool              { return true }
 
 func NewMockAssistantService(

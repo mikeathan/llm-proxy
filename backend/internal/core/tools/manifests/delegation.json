@@ -1,0 +1,35 @@
+{
+  "tool_name": "delegate_task",
+  "version": "1.0",
+  "description": "Hand up to 3 research questions to helper agents that search and read the web in parallel, each in its own fresh context, and return a short summary with sources. A helper knows nothing about this conversation: put everything it needs in task and context, including decisions shared between tasks (time range, output format). Use it for questions that need several searches or long pages, not for one quick lookup.",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "tasks": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 3,
+        "description": "One entry per independent question; they run at the same time.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "description": "The helper to use, one of the helpers this conversation offers."
+            },
+            "task": {
+              "type": "string",
+              "description": "The question to answer, self-contained."
+            },
+            "context": {
+              "type": "string",
+              "description": "Facts and decisions the helper needs: names, dates, the time range, what to leave out, how to format the answer."
+            }
+          },
+          "required": ["agent", "task"]
+        }
+      }
+    },
+    "required": ["tasks"]
+  }
+}

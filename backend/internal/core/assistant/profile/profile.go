@@ -59,6 +59,9 @@ type Profile struct {
 	MemorySave SaveMode `json:"memory_save"`
 	// Reminders exposes the reminder tools.
 	Reminders bool `json:"reminders"`
+	// Delegates lists the profiles this one may hand tasks to as sub-agents; the delegate tool exists only when it is
+	// not empty. A helper's own delegates are never used: delegation is one level deep.
+	Delegates []string `json:"delegates,omitempty"`
 }
 
 // frontMatter is the file header. Unknown keys are an error, so a typo in a user's file is not silently ignored.
@@ -72,6 +75,7 @@ type frontMatter struct {
 	Memory      models.MemoryMode `yaml:"memory"`
 	MemorySave  SaveMode          `yaml:"memory_save"`
 	Reminders   bool              `yaml:"reminders"`
+	Delegates   []string          `yaml:"delegates"`
 }
 
 // Unprofiled is what an agent runs with when no profile was chosen (a direct constructor, a test): the loop as it
@@ -101,6 +105,7 @@ func Parse(id string, source Source, data []byte) (Profile, error) {
 		ID: id, Name: strings.TrimSpace(fm.Name), Summary: strings.TrimSpace(fm.Summary), Source: source,
 		Instructions: strings.TrimSpace(body), AnswerFirst: fm.AnswerFirst, MayAsk: fm.MayAsk, MaxSteps: fm.MaxSteps,
 		Tools: fm.Tools, Memory: fm.Memory, MemorySave: fm.MemorySave.Effective(), Reminders: fm.Reminders,
+		Delegates: fm.Delegates,
 	}
 	if err := p.validate(); err != nil {
 		return Profile{}, fmt.Errorf("profile %s: %w", id, err)
@@ -135,12 +140,31 @@ func (p Profile) validate() error {
 	case !p.MemorySave.Valid():
 		return fmt.Errorf("memory_save %q: use %s, or leave it out", p.MemorySave, saveModeChoices)
 	}
-	return p.validateTools()
+	if err := p.validateTools(); err != nil {
+		return err
+	}
+	return p.validateDelegates()
+}
+
+// validateDelegates checks the helper ids: each must be able to name a profile, and never this one.
+func (p Profile) validateDelegates() error {
+	for _, id := range p.Delegates {
+		if !ValidID(id) {
+			return fmt.Errorf("delegates: %q is not a profile id (lowercase letters, digits and dashes)", id)
+		}
+		if id == p.ID {
+			return fmt.Errorf("delegates: %q is this profile itself", id)
+		}
+	}
+	return nil
 }
 
 // validateTools checks the tool categories the profile lists and that its reminders flag can be honoured by them.
 func (p Profile) validateTools() error {
 	for _, category := range p.Tools {
+		if category == models.CategoryDelegation {
+			return errors.New("tools: delegation is not listed here; name the helpers under delegates instead")
+		}
 		if !models.IsToolCategory(category) {
 			return fmt.Errorf("tools: %q is not a tool category (%s)", category, strings.Join(models.ToolCategories(), ", "))
 		}
@@ -152,13 +176,16 @@ func (p Profile) validateTools() error {
 }
 
 // ExcludedTools names the built-in tools this profile hides: every category it does not list (none when it lists
-// none), the always-on categories excepted, the reminder tools whenever Reminders is off, and the memory write tools
-// unless the profile lets the model save.
+// none), the always-on categories excepted, the reminder tools whenever Reminders is off, the memory write tools
+// unless the profile lets the model save, and the delegate tool unless it names helpers.
 func (p Profile) ExcludedTools() []string {
 	var hidden []string
+	if len(p.Delegates) == 0 {
+		hidden = append(hidden, models.ToolsInCategory(models.CategoryDelegation)...)
+	}
 	if len(p.Tools) > 0 {
 		for _, category := range models.ToolCategories() {
-			if !slices.Contains(p.Tools, category) && !slices.Contains(alwaysOnCategories, category) {
+			if category != models.CategoryDelegation && !slices.Contains(p.Tools, category) && !slices.Contains(alwaysOnCategories, category) {
 				hidden = append(hidden, models.ToolsInCategory(category)...)
 			}
 		}

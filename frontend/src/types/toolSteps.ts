@@ -14,6 +14,7 @@ export const TOOL_KINDS = [
   'memory-forget',
   'network',
   'notify',
+  'delegate',
   'other',
 ] as const
 export type ToolKind = (typeof TOOL_KINDS)[number]

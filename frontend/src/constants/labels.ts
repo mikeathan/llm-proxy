@@ -4,9 +4,20 @@
 // referenced by name — never inline in templates or composables. This keeps a
 // single source of truth for copy so wording, casing and punctuation stay
 // consistent and searchable. (Symbols/emojis live in constants/icons.ts.)
+import type { HelperProgress, SubagentRun } from '../types/assistant'
 import type { InsetPhase } from '../types/inset'
 import { formatElapsedSeconds } from '../utils/format/time'
 import { formatTokenCount } from '../utils/format/units'
+
+// HELPER_STATUS_LABEL says how a delegated helper stands when it has no step to show (ToolCallSegment).
+export const HELPER_STATUS_LABEL: Record<HelperProgress['status'], string> = {
+  running: 'Starting',
+  done: 'Done',
+  busy: 'Not run: every helper slot was busy',
+  refused: 'Not run',
+  failed: 'Failed',
+  stopped: 'Stopped',
+}
 
 // activityLabel is the one-line summary above an assistant answer
 // (ChatBubble): what a live run is doing, or what a finished one did. `steps`
@@ -34,6 +45,18 @@ export function activityLabel(phase: InsetPhase, steps: number, seconds: number)
 export function tokenUsageLabel(promptTokens: number, completionTokens: number): { text: string; title: string } {
   const generated = `${formatTokenCount(completionTokens)} tokens`
   return { text: generated, title: `${generated} generated · ${formatTokenCount(promptTokens)} prompt tokens processed` }
+}
+
+// The helpers (delegated sub-agents) a turn used: counted in the footer, with each one's model, outcome and tokens in
+// the tooltip — they are not in the turn's own token count.
+const HELPERS_TITLE_SEPARATOR = '\n'
+export function helpersLabel(runs: SubagentRun[]): { text: string; title: string } {
+  const lines = runs.map((r) => {
+    const who = r.model ? `${r.agent} on ${r.model}` : r.agent
+    const tokens = r.completion_tokens ? ` · ${tokenUsageLabel(r.prompt_tokens ?? 0, r.completion_tokens).title}` : ''
+    return `${who}: ${r.status}${tokens}`
+  })
+  return { text: plural(runs.length, 'helper'), title: lines.join(HELPERS_TITLE_SEPARATOR) }
 }
 
 // Upstream-retry notice copy — event-driven, surfaced as an inline notice

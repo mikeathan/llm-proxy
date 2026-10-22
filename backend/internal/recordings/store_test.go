@@ -151,3 +151,34 @@ func TestRecordingStore_ListsRecordingsAndNotEventStreams(t *testing.T) {
 		}
 	}
 }
+
+// A run folder is runs/{workspace}/{model}/{task}/{ts}_{sid}/recording.jsonl: its recording is labelled with that
+// workspace, model and automation, so the Recordings panel (which filters by automation) lists it. It was once read
+// as {model}/{task}/..., which named the workspace as the model and the model as the automation.
+func TestRecordingStore_RunFolderLabels(t *testing.T) {
+	root := t.TempDir()
+	run := filepath.Join(root, "workspace-1", "Qwen3.6 35B A3B", "daily-news", "20261022T110826Z_376a7052")
+	if err := os.MkdirAll(run, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(run, "recording.jsonl"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, root, "gemma4", "daily-sync", "20260524T120000Z_run_abc.jsonl")
+
+	store, err := NewRecordingStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := store.ListByAutomation("daily-news")
+	if len(got) != 1 {
+		t.Fatalf("daily-news recordings = %+v, want the run folder's", got)
+	}
+	if m := got[0]; m.WorkspaceID != "workspace-1" || m.Model != "Qwen3.6 35B A3B" || m.SessionID != "376a7052" {
+		t.Errorf("run folder labels = %+v", m)
+	}
+	flat := store.ListByAutomation("daily-sync")
+	if len(flat) != 1 || flat[0].Model != "gemma4" || flat[0].WorkspaceID != "" {
+		t.Errorf("a flat --record file keeps its {model}/{task} labels and no workspace: %+v", flat)
+	}
+}

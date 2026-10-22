@@ -15,7 +15,7 @@ import {
 import { LOG_LEVELS } from "../../constants/api";
 import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig, SettingsTab } from "../../types/admin";
 import type { GeneralPanel } from "../../types/admin";
-import { GENERAL_PANEL_SECTION } from "../../constants/settings";
+import { GENERAL_PANEL_SECTION, SUBAGENT_DEFAULT_CONCURRENCY, SUBAGENT_MAX_CONCURRENCY } from "../../constants/settings";
 import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
 import { DELIVER_TO_HINT, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR, WEB_UI_LABEL } from "../../constants/reminders";
 import { defaultConnectorTypes, deliveryLabel, enabledConnectorTypes, withConnectorSkipped } from "../../utils/reminders/channels";
@@ -181,6 +181,17 @@ const adaptiveResultCap = computed({
   set: (adaptive_result_cap: boolean) => replaceConfig({ agent: { ...props.editConfig.agent, adaptive_result_cap } }),
 })
 
+// Helpers (delegated sub-agents) run on a cloud model only: a local one would take the GPU from the parent run.
+const cloudModels = computed(() => props.models.filter((m) => m.workload_class === 'cloud'))
+const subagentModel = computed({
+  get: () => props.editConfig.agent?.subagent_model ?? '',
+  set: (subagent_model: string) => replaceConfig({ agent: { ...props.editConfig.agent, subagent_model } }),
+})
+const subagentConcurrency = computed({
+  get: () => props.editConfig.agent?.subagent_concurrency ?? SUBAGENT_DEFAULT_CONCURRENCY,
+  set: (subagent_concurrency: number) => replaceConfig({ agent: { ...props.editConfig.agent, subagent_concurrency } }),
+})
+
 const runLoggingEnabled = computed({
   get: () => props.editConfig.run_logging?.enabled ?? false,
   set: (enabled: boolean) => replaceConfig({ run_logging: { ...props.editConfig.run_logging, enabled } }),
@@ -339,6 +350,22 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
         >
           <template #default="{ id, describedBy }">
             <BaseToggle :id="id" v-model="adaptiveResultCap" :described-by="describedBy" label="Size tool results to the room in the window" />
+          </template>
+        </FormField>
+        <FormField
+          label="Helper model"
+          hint="A research chat can hand questions to helpers that search the web in parallel and send back a short answer. They run on this cloud model; Off turns helpers off."
+        >
+          <template #default="{ id, describedBy }">
+            <select :id="id" v-model="subagentModel" :aria-describedby="describedBy" class="form-control">
+              <option value="">Off — no helpers</option>
+              <option v-for="m in cloudModels" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField label="Helpers at once" hint="Across the app, beside the run lanes. 1 to 10.">
+          <template #default="{ id, describedBy }">
+            <input :id="id" v-model.number="subagentConcurrency" :aria-describedby="describedBy" type="number" :min="1" :max="SUBAGENT_MAX_CONCURRENCY" step="1" class="form-control font-mono tabular-nums" />
           </template>
         </FormField>
       </div>

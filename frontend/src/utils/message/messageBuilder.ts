@@ -1,6 +1,7 @@
 import { ref, type Ref } from 'vue'
-import type { AssistantMessage, Segment } from '../../types/assistant'
-import { LIFECYCLE_PHASES, type AgentEvent, type UpstreamEventPayload } from '../../types/dispatcher'
+import type { AssistantMessage, HelperProgress, Segment } from '../../types/assistant'
+import { LIFECYCLE_PHASES, type AgentEvent, type SubagentEvent, type UpstreamEventPayload } from '../../types/dispatcher'
+import { describeToolStep } from '../assistant/toolSteps'
 import { getToolCallPayload, getToolResPayload, getViolationPayload } from '../dispatcher'
 import type { InsetPhase } from '../../types/inset'
 import type { MessageBuilderOptions } from '../../types/message'
@@ -12,6 +13,10 @@ import { MODEL_BUSY_NOTICE, MODEL_STARTING_NOTICE, STUCK_RESTART_NOTICE, TRANSPO
 const EMPTY_TOOL_CALL_RE = /<tool_call>\s*<\/tool_call>/gi
 const EMPTY_TOOL_RESULT_RE = /<tool_result>\s*<\/tool_result>/gi
 const TOOL_CALL_MARKUP_RE = /<tool_call|\[TOOL_CALLS\]/i
+
+// The tool whose step a sub-agent's progress nests under.
+const DELEGATE_TOOL = 'delegate_task'
+const HELPER_END_STATUSES: readonly HelperProgress['status'][] = ['done', 'busy', 'refused', 'failed', 'stopped']
 
 // A content-only message whose content is tool-call markup — a malformed or
 // failed <tool_call> attempt streamed as visible text (the backend cuts this
@@ -335,6 +340,10 @@ export function useMessageBuilder(
         streaming.value = false
         thinking.value = false
         return
+      case 'subagent':
+        // Progress inside a delegate step: it changes no phase and no pause timer, like tool_result.
+        handleSubagent(ev.payload as unknown as SubagentEvent)
+        return
       case 'guardrail_violation':
         handleGuardrailViolation(getViolationPayload(ev))
         streaming.value = false
@@ -469,6 +478,36 @@ export function useMessageBuilder(
         break
       }
     }
+  }
+
+  // The delegate step children report into: the newest one still running.
+  function runningDelegateStep(segments: Segment[]): Extract<Segment, { kind: 'tool_call' }> | null {
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const s = segments[i]
+      if (s && s.kind === 'tool_call' && s.name === DELEGATE_TOOL && s.status === 'running') return s
+    }
+    return null
+  }
+
+  // A delegated sub-agent's progress: one helper entry per child run, on the running delegate step.
+  function handleSubagent(ev: SubagentEvent) {
+    const step = runningDelegateStep(getSegments())
+    if (!step) return
+    const helpers = (step.helpers ??= [])
+    let helper = helpers.find((h: HelperProgress) => h.runId === ev.run_id)
+    if (!helper) {
+      helper = { runId: ev.run_id, agent: ev.agent, task: ev.kind === 'started' ? ev.detail ?? '' : '', steps: 0, lastStep: '', status: 'running' }
+      helpers.push(helper)
+    }
+    if (ev.kind === 'tool_call') {
+      const view = describeToolStep(ev.tool ?? '', ev.detail ?? '')
+      helper.steps++
+      helper.lastStep = view.target ? `${view.verb} ${view.target}` : view.verb
+    } else if (ev.kind === 'done') {
+      const status = ev.detail as HelperProgress['status']
+      helper.status = HELPER_END_STATUSES.includes(status) ? status : 'failed'
+    }
+    forceUpdate()
   }
 
   // Synchronous guardrail rejections (e.g. path/workspace boundary) are emitted

@@ -100,7 +100,7 @@ func TestEveryToolHasOneCategory(t *testing.T) {
 	for _, tool := range []string{ToolTerminalExecute, ToolInternetSearch, ToolNotifyUser, ToolScheduleReminder, ToolListReminders,
 		ToolCancelReminder, ToolFileRead, ToolFileWrite, ToolFileAppend, ToolFileEditBlock, ToolDirectoryList, ToolNetworkFetch,
 		ToolNetworkScan, ToolNetworkInfo, ToolApplyGuardrails, ToolMemorySearch, ToolMemoryUpdate, ToolMemoryForget,
-		ToolAutomationJournal, ToolSystemError} {
+		ToolAutomationJournal, ToolSystemError, ToolDelegate} {
 		if seen[tool] == "" {
 			t.Errorf("%s is in no category", tool)
 		}

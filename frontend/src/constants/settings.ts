@@ -45,3 +45,7 @@ export const SETTINGS_GROUP_SECTIONS: Record<SettingsGroupId, readonly SettingsT
   appearance: ["appearance"],
   system: ["processes"],
 }
+
+// Helpers (delegated sub-agents): the pool's default and ceiling, as the backend's models.AgentConfig sets them.
+export const SUBAGENT_DEFAULT_CONCURRENCY = 3
+export const SUBAGENT_MAX_CONCURRENCY = 10

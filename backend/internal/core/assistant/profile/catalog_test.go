@@ -26,7 +26,10 @@ func writeUser(t *testing.T, dir, id, content string) {
 	}
 }
 
-func TestBuiltinsAreTheShippedSix(t *testing.T) {
+// shippedBuiltins is how many profiles are built in.
+const shippedBuiltins = 7
+
+func TestBuiltinsAreTheShippedSeven(t *testing.T) {
 	c, _ := newCatalog(t)
 	var ids []string
 	for _, p := range c.List() {
@@ -35,7 +38,7 @@ func TestBuiltinsAreTheShippedSix(t *testing.T) {
 			t.Errorf("built-in %s is incomplete: %+v", p.ID, p)
 		}
 	}
-	if got, want := strings.Join(ids, ","), "builder,general,operator,research,task-runner,watcher"; got != want {
+	if got, want := strings.Join(ids, ","), "builder,general,operator,research,task-runner,watcher,web-researcher"; got != want {
 		t.Errorf("built-ins = %s, want %s", got, want)
 	}
 }
@@ -99,8 +102,8 @@ func TestUserProfilesAddAndOverride(t *testing.T) {
 	if p := c.Resolve(KindAssistant, "general"); p.Name != "My General" || p.Source != User {
 		t.Errorf("a user file with a built-in's id replaces it, got %+v", p)
 	}
-	if n := len(c.List()); n != 7 {
-		t.Errorf("List has %d profiles, want 6 built-ins (one replaced) + 1 new = 7", n)
+	if n := len(c.List()); n != shippedBuiltins+1 {
+		t.Errorf("List has %d profiles, want %d built-ins (one replaced) + 1 new", n, shippedBuiltins)
 	}
 }
 
@@ -114,8 +117,8 @@ func TestInvalidUserFilesAreSkippedNotFatal(t *testing.T) {
 	if _, ok := c.Get("broken"); ok {
 		t.Error("an invalid file must not become a profile")
 	}
-	if n := len(c.List()); n != 6 {
-		t.Errorf("List has %d profiles, want the 6 built-ins", n)
+	if n := len(c.List()); n != shippedBuiltins {
+		t.Errorf("List has %d profiles, want the %d built-ins", n, shippedBuiltins)
 	}
 }
 
@@ -144,7 +147,7 @@ func TestEmptyUserDirReadsNothing(t *testing.T) {
 
 func TestMissingUserDirIsFine(t *testing.T) {
 	c, err := NewCatalog(filepath.Join(t.TempDir(), "absent"), logging.NewNopLogger())
-	if err != nil || len(c.List()) != 6 {
+	if err != nil || len(c.List()) != shippedBuiltins {
 		t.Fatalf("NewCatalog with no profiles dir: %v, %d profiles", err, len(c.List()))
 	}
 }

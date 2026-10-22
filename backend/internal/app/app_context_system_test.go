@@ -133,6 +133,25 @@ func TestApplySystemUpdate_AgentSettings(t *testing.T) {
 	}
 }
 
+// The sub-agent settings ride in the agent block: saved, read back, and a pool out of range is refused before anything
+// is saved.
+func TestApplySystemUpdate_SubagentSettings(t *testing.T) {
+	srv := newSystemTestServer(t)
+	if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Agent: &models.AgentConfig{SubagentModel: "cloud-m", SubagentConcurrency: 2}}); err != nil {
+		t.Fatalf("ApplySystemUpdate: %v", err)
+	}
+	if got := srv.GetSettings().Agent; got.SubagentModelName() != "cloud-m" || got.SubagentLimit() != 2 {
+		t.Errorf("saved %+v", got)
+	}
+	err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Agent: &models.AgentConfig{SubagentConcurrency: 99}, Bind: "0.0.0.0:1"})
+	if !models.IsAgentConfigError(err) {
+		t.Fatalf("got %v, want an agent config error", err)
+	}
+	if srv.GetSystem().Server.Bind == "0.0.0.0:1" || srv.GetSettings().Agent.SubagentLimit() != 2 {
+		t.Error("a rejected update must not save anything")
+	}
+}
+
 func TestAppServices_AgentSettingsReadsTheLiveSettings(t *testing.T) {
 	srv := newSystemTestServer(t)
 	services := AppServices{AppCtx: srv}

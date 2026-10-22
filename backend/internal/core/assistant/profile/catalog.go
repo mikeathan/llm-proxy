@@ -18,6 +18,7 @@ type Kind string
 const (
 	KindAssistant  Kind = "assistant"  // an interactive chat
 	KindAutomation Kind = "automation" // a scheduled or manual task run (the heartbeat names its own profile)
+	KindSubagent   Kind = "subagent"   // a delegated task; it always names its helper profile, so it has no default
 )
 
 // defaultIDs is the built-in profile each kind starts with.
@@ -72,7 +73,7 @@ func NewCatalog(userDir string, log logging.Logger) (*Catalog, error) {
 }
 
 // MustCatalog is NewCatalog for startup: the only way it fails is a malformed embedded profile, a build defect that
-// TestBuiltinsAreTheShippedSix catches, so a failure here stops the program rather than being handled.
+// TestBuiltinsAreTheShippedSeven catches, so a failure here stops the program rather than being handled.
 func MustCatalog(userDir string, log logging.Logger) *Catalog {
 	c, err := NewCatalog(userDir, log)
 	if err != nil {

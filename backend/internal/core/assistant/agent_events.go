@@ -33,6 +33,9 @@ const (
 	EventToolStream           AgentEventType = "tool_stream"
 	EventLifecycle            AgentEventType = "lifecycle"
 	EventUpstream             AgentEventType = "upstream"
+	// EventSubagent is one coarse step of a delegated sub-agent (SubagentEvent), nested under the parent's turn. It is
+	// none of the types a chat checkpoints or counts as a step, so a child never lands in the parent's saved history.
+	EventSubagent AgentEventType = "subagent"
 )
 
 // IsSnapshot reports whether events of this type carry the full text streamed

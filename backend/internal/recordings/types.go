@@ -7,6 +7,7 @@ import (
 
 type RecordingMeta struct {
 	ID             string    `json:"id"`
+	WorkspaceID    string    `json:"workspace_id,omitempty"` // empty for a flat --record file, which has no workspace
 	Model          string    `json:"model"`
 	AutomationName string    `json:"automation_name"`
 	Timestamp      time.Time `json:"timestamp"`

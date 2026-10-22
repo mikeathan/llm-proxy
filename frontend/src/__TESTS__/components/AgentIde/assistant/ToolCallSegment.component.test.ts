@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ToolCallSegment from '../../../../components/AgentIde/assistant/ToolCallSegment.vue'
 import { TOOL_RESULT_PREVIEW_CHARS } from '../../../../utils/assistant/toolSteps'
+import { HELPER_STATUS_LABEL } from '../../../../constants/labels'
 
-type Seg = { kind: 'tool_call'; name: string; args: string; status: string; result?: string; error?: string }
+import type { HelperProgress } from '../../../../types/assistant'
+
+type Seg = { kind: 'tool_call'; name: string; args: string; status: string; result?: string; error?: string; helpers?: HelperProgress[] }
 const seg = (over: Partial<Seg> = {}): Seg => ({ kind: 'tool_call', name: 'read_file', args: '{"path":"notes/a.md"}', status: 'success', ...over })
 
 function mountStep(segment: Seg) {
@@ -63,5 +66,19 @@ describe('ToolCallSegment', () => {
     const w = mountStep(seg({ status: 'error', error: 'no such file' }))
     await open(w)
     expect(w.get('.step-output--error').text()).toBe('no such file')
+  })
+
+  it('lists each helper of a delegate step under it, with how far it got, without opening the step', () => {
+    const helpers: HelperProgress[] = [
+      { runId: 'r1', agent: 'web-researcher', task: 'Rust news', steps: 2, lastStep: 'Read a web page https://blog.rust-lang.org', status: 'running' },
+      { runId: 'r2', agent: 'web-researcher', task: 'Go news', steps: 0, lastStep: '', status: 'busy' },
+    ]
+    const w = mountStep(seg({ name: 'delegate_task', args: '{"tasks":[{"task":"Rust news"},{"task":"Go news"}]}', status: 'running', helpers }))
+    const rows = w.findAll('.step-helper')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.text()).toContain('Rust news')
+    expect(rows[0]!.text()).toContain('Read a web page')
+    expect(rows[1]!.text()).toContain('Go news')
+    expect(rows[1]!.text()).toContain(HELPER_STATUS_LABEL.busy)
   })
 })

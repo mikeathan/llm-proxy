@@ -265,6 +265,8 @@ type AgentRuntimeDeps struct {
 	MemoryStore  *memory.Store
 
 	OnGuardrail GuardrailDecisionCallback
+	// SubRunner runs delegated tasks; nil when the run cannot delegate (a sub-agent itself, or none is wired).
+	SubRunner SubRunner
 }
 
 // Agent drives the assistant loop: prompt, execute, repeat.
@@ -289,6 +291,9 @@ type Agent struct {
 	// (tool-error-classification). Grouped as one cohesive value rather than
 	// loose fields; reset at the start of each Execute.
 	toolFailure toolFailureState
+
+	// subagentsUsed counts the tasks this run has delegated (maxSubagentsPerRun bounds it). An agent runs one run.
+	subagentsUsed int
 }
 
 // prefillDisabled returns whether prefill has been disabled at runtime.
@@ -332,6 +337,8 @@ type AgentOptions struct {
 	MemoryStore              *memory.Store // nil when memory is disabled
 
 	EnableHotMemory bool // inject hot memory at session start
+	// SubRunner runs the delegate tool's tasks; nil turns the tool off for this run.
+	SubRunner SubRunner
 	// Channel is the event stream this agent publishes to. Defaults to
 	// ChannelAssistant; automation sets ChannelAutomation.
 	Channel EventChannel
@@ -667,7 +674,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     toolpolicy.ResolveForScope(provider, gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.excludedTools()),
+			Provider:     toolpolicy.ResolveForScope(withDelegateTool(provider, opts.SubRunner), gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.excludedTools()),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,
@@ -675,6 +682,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 			Orchestrator: opts.Orchestrator,
 			MemoryStore:  opts.MemoryStore,
 			OnGuardrail:  opts.GuardrailDecisionHandler,
+			SubRunner:    opts.SubRunner,
 		},
 		config: AgentConfig{
 			AdaptiveResultCap:        opts.AdaptiveResultCap,

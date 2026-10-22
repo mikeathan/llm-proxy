@@ -1,6 +1,6 @@
 # Multi-Agent Delegation — one run pipeline, then cloud sub-agents
 
-**Status:** active (2026-10-22). R0 and Part A (A0–A2) done. Part B next.
+**Status:** active (2026-10-22). R0, Part A and Part B (B0–B6, B8) built; B7, the live eval, is open.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher, §V run scheduler), SPEC-012 (Prompt
 Profiles), SPEC-006 (Guardrails), SPEC-004 (Memory).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow; automations never wait),
@@ -164,6 +164,49 @@ Decisions from the research report §9:
   instance (port 4002, own `--data`, vertex `Qwen3.6 35B A3B`), a chat turn listed files and recorded its run, and a
   manual automation produced a hex run ID, recording, events, final report and saved report.
 
+## Part B results (2026-10-22, branch `fix-recordings-list-labels`, with the recordings-list fix)
+
+- **B0.** No new table: the child's tools are an explicit allow list (`internet_search`, `fetch_url`).
+  `toolpolicy.EffectFor` calls `read_file` and the LAN scanner read-only too, so "read-only" is not a safe scope.
+- **B1.**
+  - `delegates` on profiles (validated; the `delegation` category cannot be named in `tools`).
+  - `web-researcher` built-in; Research delegates to it.
+  - The full schema endpoint for the editor stays in Part C. `GET /admin/api/profiles` already returns `delegates`.
+- **B2.**
+  - `assistant/subrun.go`: the port.
+  - `assistant/delegate.go`: the agent owns the tool (`delegatingProvider` adds the schema; `executeTool` intercepts).
+    The tool has 1–3 parallel tasks per call and 6 per run; results are text, never parent errors; summaries are cut to
+    the parent's cap.
+  - The tool has no per-tool timeout.
+- **B3.** `internal/core/delegation`:
+  - `Runner` refuses unless the lane classifier says cloud.
+  - The child has a fresh run ID and tracker, is unattended, and stays inside the parent's network scope.
+  - `pool.go` is live-sized, with a 2 min wait, then busy.
+  - The resolver's `profile.KindSubagent` removes the approval handler, memory and runner.
+- **B4.** `EventSubagent` carries coarse `started` / `tool_call` / `tool_result` / `done` events, serialised across
+  children. `TurnRun.Subagents` holds the records. Child tokens never mix with the parent's.
+- **B5.** The settings are `agent.subagent_model` (empty = off) and `agent.subagent_concurrency` (default 3, 1–10,
+  validated, 400). They sit in the existing `agent:` block, not under `scheduler`, so no new section plumbing was
+  needed. Bootstrap sets `subRunner` after copying the services, so the runner's own copy has none (depth 1).
+- **B6.**
+  - Settings → Runs: Helper model (cloud models only, Off by default) and Helpers at once.
+  - Chat: helper lines under the delegate step, a "N helpers" footer with per-helper tokens in the tooltip, and the
+    "Asked helpers" step wording.
+- **B8.** SPEC-001 1.12 §15, SPEC-012 1.2, SPEC-007 1.19 §V, architecture map + pitfall 60.
+- **Verified.**
+  - `go build`, `go vet` and `go test ./...` pass; `-race` passes on assistant and delegation; complexity has no new
+    violations.
+  - `npm test` (1823), `npm run lint`, `npm run build` and `npm run test:visual` (24) pass.
+- **Review fixes (same day):**
+  - The child's prompt leaves out the workspace's AGENTS.md (it was going to the cloud through `BuildSystemPrompt`).
+  - Summaries are sized on their JSON-encoded length.
+  - Cuts never split a character.
+  - Child tool results are no longer forwarded (they were unused by the UI and doubled the event volume).
+- **Not yet verified live.** No real cloud model has run a delegate call; that is B7.
+
 ## Remaining Work
 
-B0–B8, Part C.
+- **B7:** a live smoke on the dev backend (the user named it), then the eval: research prompts with and without
+  delegation, LLM-judge quality, peak parent context, wall time, tokens. It needs `agent.subagent_model` set to a cloud
+  model and a search key there.
+- **Part C.**

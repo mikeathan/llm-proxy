@@ -270,6 +270,7 @@ type AssistantService interface {
 	MemoryStore() *memory.Store
 	MemorySettings() *models.MemoryConfig
 	AgentSettings() *models.AgentConfig
+	SubRunner() assistant.SubRunner
 	RecordDir() string
 	RunLoggingEnabled() bool
 }

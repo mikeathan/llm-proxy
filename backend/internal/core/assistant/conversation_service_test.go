@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ type mockConvDeps struct {
 	memory      *models.MemoryConfig
 	profiles    *profile.Catalog    // the built-ins unless a test sets its own
 	modelCfg    *models.ModelConfig // nil: a small fixed config
+	subRunner   SubRunner           // nil: no delegation
 }
 
 func (m *mockConvDeps) Profiles() *profile.Catalog {
@@ -56,6 +58,7 @@ func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator               {
 func (m *mockConvDeps) MemoryStore() *memory.Store                             { return m.memoryStore }
 func (m *mockConvDeps) MemorySettings() *models.MemoryConfig                   { return m.memory }
 func (m *mockConvDeps) AgentSettings() *models.AgentConfig                     { return m.agent }
+func (m *mockConvDeps) SubRunner() SubRunner                                   { return m.subRunner }
 func (m *mockConvDeps) Events() EventPublisher                                 { return m.events }
 func (m *mockConvDeps) RunLoggingEnabled() bool                                { return false }
 func (m *mockConvDeps) RootDir() string                                        { return "" }
@@ -1251,5 +1254,113 @@ func TestChatAgentOptions_Characterisation(t *testing.T) {
 				t.Errorf("resolved options changed\n got: %#v\nwant: %#v", got, want)
 			}
 		})
+	}
+}
+
+// fakeSubRunner stands in for the delegation package: it records each task, reports progress like a child run and
+// answers with a summary.
+type fakeSubRunner struct {
+	mu            sync.Mutex
+	requests      []SubRunRequest
+	shortDeadline bool // a task ran under the per-tool timeout, which a multi-minute child would hit
+}
+
+func (f *fakeSubRunner) Enabled() bool { return true }
+
+func (f *fakeSubRunner) Run(ctx context.Context, req SubRunRequest) SubRunResult {
+	f.mu.Lock()
+	f.requests = append(f.requests, req)
+	if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= DefaultToolTimeout {
+		f.shortDeadline = true
+	}
+	f.mu.Unlock()
+	child := "child-" + req.Task
+	req.Emit(SubagentEvent{RunID: child, Agent: req.Agent, Kind: SubagentStarted})
+	req.Emit(SubagentEvent{RunID: child, Agent: req.Agent, Kind: SubagentToolCall, Tool: models.ToolInternetSearch, Detail: req.Task})
+	req.Emit(SubagentEvent{RunID: child, Agent: req.Agent, Kind: SubagentDone})
+	return SubRunResult{RunID: child, Model: "cloud-m", Status: SubRunDone, Summary: "Answer for " + req.Task + " https://example.com/" + req.Task,
+		DurationMs: 1200, PromptTokens: 900, CompletionTokens: 120}
+}
+
+// A research chat hands two questions to helpers in one delegate call. The parent gets both summaries; the saved
+// conversation holds only the parent's own messages and steps; the helpers' records ride on the turn's run record;
+// their progress reaches the stream as nested sub-agent events; and no per-tool timeout cuts the helpers short.
+func TestConversationService_DelegatesToSubAgents(t *testing.T) {
+	runner := &fakeSubRunner{}
+	deps := newMockConvDeps()
+	deps.subRunner = runner
+	pm := newTestPersistence(t)
+	svc := NewConversationService(deps, pm)
+
+	var requests []proxy.ChatRequest
+	client := &MockClient{StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+		requests = append(requests, req)
+		ch := make(chan *proxy.ChatResponse, 1)
+		if len(requests) == 1 {
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{ToolCalls: []proxy.ToolCall{{
+				ID: "call_1", Type: "function", Function: proxy.FunctionCall{Name: models.ToolDelegate,
+					Arguments: `{"tasks":[{"agent":"web-researcher","task":"A","context":"last month"},{"agent":"web-researcher","task":"B"}]}`},
+			}}}}}}
+		} else {
+			ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "A and B compared: both are fine."}}}}
+		}
+		close(ch)
+		return ch, nil
+	}}
+	events := &mockEventPublisher{}
+	ctx := models.WithProfileRequest(context.Background(), "research")
+	result, err := svc.Execute(ctx, "ws-1", "conv-d", "compare A and B", "v1", "UTC", nil, logging.NewNopLogger(),
+		&MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolInternetSearch}}}},
+		client, &MockEngine{Result: "ok"}, events, nil)
+	if err != nil || !strings.Contains(result.Reply, "both are fine") {
+		t.Fatalf("Execute = %q, %v", result.Reply, err)
+	}
+	offered := false
+	for _, tool := range requests[0].Tools {
+		offered = offered || tool.Function.Name == models.ToolDelegate
+	}
+	if !offered {
+		t.Errorf("a research chat offers %s", models.ToolDelegate)
+	}
+	if len(runner.requests) != 2 || runner.shortDeadline {
+		t.Fatalf("runner got %d tasks (short deadline: %v), want 2 without the per-tool timeout", len(runner.requests), runner.shortDeadline)
+	}
+	for _, req := range runner.requests {
+		if req.Agent != "web-researcher" || req.WorkspaceID != "ws-1" {
+			t.Errorf("task %+v", req)
+		}
+	}
+	last := requests[len(requests)-1].Messages
+	if toolMsg := last[len(last)-1].Content; !strings.Contains(toolMsg, "Answer for A") || !strings.Contains(toolMsg, "Answer for B") {
+		t.Errorf("the parent's next request carries both summaries, got %q", toolMsg)
+	}
+
+	saved, err := pm.ReadSession("ws-1", "conv-d")
+	if err != nil || saved == nil {
+		t.Fatalf("read session: %v", err)
+	}
+	var roles []string
+	for _, m := range saved.History {
+		roles = append(roles, string(m.Role))
+	}
+	if got := strings.Join(roles, ","); got != "system,user,assistant,tool,assistant" {
+		t.Errorf("saved roles = %s, want only the parent's turn", got)
+	}
+	run := saved.History[1].Run
+	if run == nil || len(run.Subagents) != 2 || run.Subagents[0].Status != string(SubRunDone) || run.Subagents[0].PromptTokens != 900 {
+		t.Errorf("turn record = %+v, want two done sub-agent records", run)
+	}
+
+	nested, steps := 0, 0
+	for _, ev := range events.Published {
+		if ev.Type == EventSubagent {
+			nested++
+		}
+		if ev.Type == EventLifecycle && strings.Contains(fmt.Sprint(ev.Payload), "Step ") {
+			steps++
+		}
+	}
+	if nested != 6 || steps != 1 {
+		t.Errorf("events: %d sub-agent, %d parent steps; want 6 nested and 1 step", nested, steps)
 	}
 }

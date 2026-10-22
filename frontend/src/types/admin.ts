@@ -285,6 +285,10 @@ export interface MemoryHotDefaults {
 export interface AgentConfig {
   /** Size one tool result from the room left in the model's window (never below 3000 characters); off keeps a fixed 3000. */
   adaptive_result_cap?: boolean
+  /** The cloud model helpers (delegated sub-agents) run on; empty turns delegation off. */
+  subagent_model?: string
+  /** How many helpers may run at once across the app; 0 or absent means the default (3). */
+  subagent_concurrency?: number
 }
 
 export interface SchedulerConfig {
