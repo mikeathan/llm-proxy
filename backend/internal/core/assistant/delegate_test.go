@@ -2,8 +2,10 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/proxy"
@@ -126,18 +128,29 @@ func TestRunDelegate_UnfinishedTasksAreResults(t *testing.T) {
 	}
 }
 
-// Each summary is cut to its share of the parent's result cap, so the whole result arrives intact.
+// Each summary is cut to its share of the parent's result cap, measured as the parent measures it — the JSON-encoded
+// result — so newlines, quotes and markup in a summary cannot push the whole past the cap and get it cut mid-sentence.
 func TestRunDelegate_SummariesFitTheParentsCap(t *testing.T) {
-	long := strings.Repeat("A finding with its source https://example.com/x. ", 400)
+	long := strings.Repeat("- A \"finding\" <b>with</b> its source https://example.com/x?a=1&b=2\n", 400)
 	runner := &scriptedSubRunner{enabled: true, answer: func(SubRunRequest) SubRunResult { return SubRunResult{Status: SubRunDone, Summary: long} }}
 	a := delegateAgent(runner, leadProfile())
 	out, _ := a.runDelegate(context.Background(), proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolDelegate,
 		Arguments: `{"tasks":[{"agent":"web-researcher","task":"a"},{"agent":"web-researcher","task":"b"}]}`}})
-	text := out.(string)
-	if len(text) > a.currentResultCap()+len("\n\n") {
-		t.Errorf("result is %d chars, over the parent's cap %d", len(text), a.currentResultCap())
+	encoded, _ := json.Marshal(out)
+	if len(encoded) > a.currentResultCap() {
+		t.Errorf("encoded result is %d chars, over the parent's cap %d: the parent would cut it", len(encoded), a.currentResultCap())
 	}
-	if strings.Count(text, "cut to fit") != 2 {
-		t.Errorf("both summaries should say they were cut:\n%s", text[:200])
+	if text := out.(string); strings.Count(text, "cut to fit") != 2 || !utf8.ValidString(text) {
+		t.Errorf("both summaries should say they were cut, as valid text:\n%.300s", text)
+	}
+}
+
+// A cut never splits a character.
+func TestCutAtBoundary_KeepsWholeCharacters(t *testing.T) {
+	text := strings.Repeat("é", 500)
+	for limit := 50; limit < 120; limit++ {
+		if got := cutAtBoundary(text, limit); !utf8.ValidString(got) || len(got) > limit {
+			t.Fatalf("limit %d: %d bytes, valid %v", limit, len(got), utf8.ValidString(got))
+		}
 	}
 }

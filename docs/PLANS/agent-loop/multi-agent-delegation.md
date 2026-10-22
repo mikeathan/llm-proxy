@@ -197,6 +197,11 @@ Decisions from the research report §9:
   - `go build`, `go vet` and `go test ./...` pass; `-race` passes on assistant and delegation; complexity has no new
     violations.
   - `npm test` (1823), `npm run lint`, `npm run build` and `npm run test:visual` (24) pass.
+- **Review fixes (same day):**
+  - The child's prompt leaves out the workspace's AGENTS.md (it was going to the cloud through `BuildSystemPrompt`).
+  - Summaries are sized on their JSON-encoded length.
+  - Cuts never split a character.
+  - Child tool results are no longer forwarded (they were unused by the UI and doubled the event volume).
 - **Not yet verified live.** No real cloud model has run a delegate call; that is B7.
 
 ## Remaining Work

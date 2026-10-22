@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/profile"
@@ -16,7 +17,6 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
 
@@ -39,7 +39,6 @@ type Deps interface {
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
-	Persistence() *persistence.WorkspaceManager
 	LaneKeyFor(model string) runlane.LaneKey
 	ProcessLogger(workspaceID string) logging.Logger
 }
@@ -130,7 +129,8 @@ func (r *Runner) runChild(ctx context.Context, req assistant.SubRunRequest, help
 	opts.RunNetworkScope = scope
 	agent := assistant.NewAgent(client, r.deps.ToolProvider(), r.deps.Engine(), opts)
 	reply, _, err := agent.Execute(childCtx, []proxy.Message{
-		{Role: proxy.SystemRole, Content: assistant.BuildSystemPrompt(r.deps.Persistence(), req.WorkspaceID, helper, native)},
+		// The core rules and the helper's profile only: the workspace's own notes (AGENTS.md) stay on this machine.
+		{Role: proxy.SystemRole, Content: prompts.AssembleSystemPrompt(prompts.PromptParts{Native: native, Profile: helper.Instructions})},
 		{Role: proxy.UserRole, Content: taskPrompt(req)},
 	})
 	if t := usage.FromContext(childCtx); t != nil {
@@ -153,20 +153,12 @@ func taskPrompt(req assistant.SubRunRequest) string {
 	return text
 }
 
-// progress turns a child's tool calls and results into coarse events for the parent; reasoning, streamed text and
+// progress turns a child's tool calls into coarse events for the parent; results, reasoning, streamed text and
 // lifecycle noise stay in the child.
 func progress(req assistant.SubRunRequest, runID string) assistant.Observer {
 	return func(ev assistant.AgentEvent) {
-		switch ev.Type {
-		case assistant.EventToolCall:
-			if tc, ok := ev.Payload.(proxy.ToolCall); ok {
-				emit(req, runID, assistant.SubagentToolCall, tc.Function.Name, tc.Function.Arguments)
-			}
-		case assistant.EventToolResult:
-			if m, ok := ev.Payload.(map[string]any); ok {
-				name, _ := m["name"].(string)
-				emit(req, runID, assistant.SubagentToolResult, name, fmt.Sprint(m["result"]))
-			}
+		if tc, ok := ev.Payload.(proxy.ToolCall); ok && ev.Type == assistant.EventToolCall {
+			emit(req, runID, assistant.SubagentToolCall, tc.Function.Name, tc.Function.Arguments)
 		}
 	}
 }
@@ -176,7 +168,11 @@ func emit(req assistant.SubRunRequest, runID string, kind assistant.SubagentEven
 		return
 	}
 	if len(detail) > eventDetailChars {
-		detail = detail[:eventDetailChars]
+		cut := eventDetailChars
+		for cut > 0 && !utf8.RuneStart(detail[cut]) {
+			cut-- // never split a character
+		}
+		detail = detail[:cut]
 	}
 	req.Emit(assistant.SubagentEvent{RunID: runID, Agent: req.Agent, Kind: kind, Tool: tool, Detail: detail})
 }

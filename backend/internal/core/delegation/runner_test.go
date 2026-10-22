@@ -101,6 +101,7 @@ func newStubDeps(t *testing.T) *stubDeps {
 func (d *stubDeps) ModelConfig(name string) (models.ModelConfig, bool) {
 	return models.ModelConfig{Name: name}, true
 }
+
 // GuardrailEngine allows web search and page fetch, as a configured app does.
 func (d *stubDeps) GuardrailEngine() *guardrails.GuardrailEngine {
 	return guardrails.NewGuardrailEngine(func() models.AgentGuardrailsConfig {
@@ -120,11 +121,10 @@ func (d *stubDeps) GetClientForModel(context.Context, string) (proxy.Client, err
 	return d.client, nil
 }
 func (d *stubDeps) EffectiveToolCallFormat(context.Context, string) string { return "native" }
-func (d *stubDeps) ToolProvider() assistant.ToolProvider                  { return allTools{} }
-func (d *stubDeps) Engine() assistant.Engine                              { return d.engine }
-func (d *stubDeps) Persistence() *persistence.WorkspaceManager            { return d.pm }
-func (d *stubDeps) LaneKeyFor(model string) runlane.LaneKey               { return d.lanes[model] }
-func (d *stubDeps) ProcessLogger(string) logging.Logger                   { return logging.NewNopLogger() }
+func (d *stubDeps) ToolProvider() assistant.ToolProvider                   { return allTools{} }
+func (d *stubDeps) Engine() assistant.Engine                               { return d.engine }
+func (d *stubDeps) LaneKeyFor(model string) runlane.LaneKey                { return d.lanes[model] }
+func (d *stubDeps) ProcessLogger(string) logging.Logger                    { return logging.NewNopLogger() }
 
 func task(agent string, events *[]assistant.SubagentEvent) assistant.SubRunRequest {
 	var mu sync.Mutex
@@ -166,11 +166,29 @@ func TestRunner_RunsAHelperWithWebToolsOnly(t *testing.T) {
 	for _, ev := range events {
 		kinds = append(kinds, string(ev.Kind))
 	}
-	if strings.Join(kinds, ",") != "started,tool_call,tool_result,done" {
+	if strings.Join(kinds, ",") != "started,tool_call,done" {
 		t.Errorf("progress = %v", kinds)
 	}
 	if p, c := usage.FromContext(parentCtx).ReportedUsage(); p != 0 || c != 0 {
 		t.Errorf("the child's tokens reached the parent's tracker: %d, %d", p, c)
+	}
+}
+
+// Only what the parent wrote into the call leaves the machine: the workspace's own notes (AGENTS.md) are not in a
+// cloud helper's prompt.
+func TestRunner_SendsNoWorkspaceNotes(t *testing.T) {
+	deps := newStubDeps(t)
+	if err := deps.pm.WriteTaskFile("ws-1", models.RulesFilename, "PRIVATE-NOTE-7781: the deploy host is vertex"); err != nil {
+		t.Fatal(err)
+	}
+	var events []assistant.SubagentEvent
+	if res := New(deps).Run(context.Background(), task("web-researcher", &events)); res.Status != assistant.SubRunDone {
+		t.Fatalf("result = %+v", res)
+	}
+	for _, m := range deps.client.requests[0].Messages {
+		if strings.Contains(m.Content, "PRIVATE-NOTE-7781") {
+			t.Fatalf("the workspace notes reached the cloud helper in its %s message", m.Role)
+		}
 	}
 }
 

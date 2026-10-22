@@ -355,7 +355,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   - at most `maxSubagentsPerRun` (6) tasks per run.
 - **Results are text, never an error for the parent.** A busy pool, a refused model and a failed child each appear as
   that task's note (`prompts.Subagent*`), so one helper cannot end the parent's run. Each summary is cut at a
-  line/sentence boundary to `max(600, resultCap / tasks)` characters.
+  line/sentence boundary, never inside a character, to its share of the parent's result cap. The share is measured
+  JSON-encoded, as `appendToolResult` caps it: a newline or quote counts two characters and markup six.
 - **Child options** (`subagentOptions`): resolved as an unattended run, then with no `GuardrailDecisionHandler`, no
   `MemoryStore`, hot memory off and no `SubRunner`. The runner sets the allow list to `internet_search` and
   `fetch_url`, memory off, and `RunNetworkScope` from the parent's context.
@@ -363,9 +364,13 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   (`WithNewTracker`) and the unattended stamp. The recording client's state is closed by run ID afterwards.
 - **Pool** (`delegation/pool.go`): `agent.subagent_concurrency` slots (default 3, max 10, read live). A task waits at
   most 2 min for a slot, then reports busy; a cancelled parent reports stopped.
-- **Events**: `EventSubagent` carries `SubagentEvent{run_id, agent, kind: started|tool_call|tool_result|done, tool,
-  detail≤160}`, emitted through the parent's `notify` and serialised across children. The chat observer neither
-  checkpoints nor counts it.
+- **Events**: `EventSubagent` carries `SubagentEvent{run_id, agent, kind: started|tool_call|done, tool, detail≤160}`,
+  emitted through the parent's `notify` and serialised across children. Tool results, reasoning and streamed text stay
+  in the child, which keeps up to six children within the replay buffer. The chat observer neither checkpoints nor
+  counts it.
+- **Prompt**: the child's system message is the core rules plus the helper profile (`prompts.AssembleSystemPrompt`),
+  **without the workspace's notes** (AGENTS.md). Its user message is the task plus the context the parent wrote. Nothing
+  else from the machine reaches the cloud model.
 - **Record**: `TurnRun.Subagents []SubagentRun{agent, model, status, duration_ms, prompt_tokens, completion_tokens}`.
   Its tokens are not in the turn's own counts.
 

@@ -46,14 +46,15 @@ type SubRunResult struct {
 	CompletionTokens int
 }
 
-// SubagentEventKind is the coarse step a child reports to its parent; reasoning and streamed text are never forwarded.
+// SubagentEventKind is the coarse step a child reports to its parent: that it started, each tool it calls, and how it
+// ended. Tool results, reasoning and streamed text stay in the child — up to six children report into one replay
+// buffer, which a flood of events would overrun.
 type SubagentEventKind string
 
 const (
-	SubagentStarted    SubagentEventKind = "started"
-	SubagentToolCall   SubagentEventKind = "tool_call"
-	SubagentToolResult SubagentEventKind = "tool_result"
-	SubagentDone       SubagentEventKind = "done"
+	SubagentStarted  SubagentEventKind = "started"
+	SubagentToolCall SubagentEventKind = "tool_call"
+	SubagentDone     SubagentEventKind = "done"
 )
 
 // SubagentEvent is the payload of an EventSubagent: one coarse step of one child, nested under the parent's turn.

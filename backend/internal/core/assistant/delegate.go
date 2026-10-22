@@ -5,10 +5,12 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/usage"
@@ -146,17 +148,41 @@ func recordSubagents(ctx context.Context, tasks []delegateTask, results []SubRun
 }
 
 // delegateResult is the text the parent reads: one part per task, each cut to a share of the parent's result cap so
-// the whole fits without the parent's own truncation cutting a summary in the middle.
+// the whole fits without the parent's own truncation cutting a summary in the middle. The parent caps the result as
+// JSON (appendToolResult), where a newline or a quote takes two characters and markup six, so each share is measured
+// encoded.
 func (a *Agent) delegateResult(tasks []delegateTask, results []SubRunResult) string {
-	share := max(minSummaryChars, a.currentResultCap()/len(tasks))
-	var sb strings.Builder
+	share := max(minSummaryChars, (a.currentResultCap()-jsonQuotes)/len(tasks))
+	parts := make([]string, len(results))
 	for i, res := range results {
 		header := fmt.Sprintf(prompts.SubagentResultHeader, tasks[i].Agent, cutAtBoundary(tasks[i].Task, taskLabelChars))
-		sb.WriteString(header)
-		sb.WriteString(cutAtBoundary(subagentText(res), share-len(header)))
-		sb.WriteString("\n\n")
+		parts[i] = header + fitEncoded(subagentText(res), share-encodedLen(header)-encodedLen(partSeparator))
 	}
-	return strings.TrimSpace(sb.String())
+	return strings.Join(parts, partSeparator)
+}
+
+const (
+	partSeparator = "\n\n"
+	jsonQuotes    = 2 // the quotes around a JSON-encoded string
+)
+
+// encodedLen is how long text is inside a JSON string, the way the parent's result cap counts it.
+func encodedLen(text string) int {
+	raw, _ := json.Marshal(text)
+	return len(raw) - jsonQuotes
+}
+
+// fitEncoded cuts text, at a boundary, until its JSON-encoded length is within limit.
+func fitEncoded(text string, limit int) string {
+	out := text
+	for over := encodedLen(out) - limit; over > 0; over = encodedLen(out) - limit {
+		keep := len(out) - over
+		if keep <= len(prompts.SubagentSummaryCut) {
+			return prompts.SubagentSummaryCut
+		}
+		out = cutAtBoundary(text, keep)
+	}
+	return out
 }
 
 // subagentText is a task's answer, or a note saying why there is none.
@@ -185,6 +211,9 @@ func cutAtBoundary(text string, limit int) string {
 		return text
 	}
 	keep := max(0, limit-len(prompts.SubagentSummaryCut))
+	for keep > 0 && !utf8.RuneStart(text[keep]) {
+		keep-- // never split a character
+	}
 	cut := text[:keep]
 	if i := strings.LastIndexAny(cut, "\n."); i > keep/2 {
 		cut = cut[:i+1]

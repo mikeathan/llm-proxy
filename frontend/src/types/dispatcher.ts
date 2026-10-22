@@ -117,7 +117,7 @@ export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_resu
 
 // One coarse step of a delegated sub-agent, nested under the delegate_task step that started it
 // (backend assistant.SubagentEvent). Kind values mirror SubagentEventKind.
-export type SubagentEventKind = 'started' | 'tool_call' | 'tool_result' | 'done'
+export type SubagentEventKind = 'started' | 'tool_call' | 'done'
 export interface SubagentEvent {
   run_id: string
   agent: string
