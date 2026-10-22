@@ -1,6 +1,6 @@
 # Use Helpers — a composer control that makes a research chat delegate
 
-**Status:** active (2026-10-22): built, not yet deployed. Decisions D1–D3 taken as recommended; P0–P2 done, P3 (live on vertex) open.
+**Status:** complete (2026-10-22): built, deployed and checked live on vertex. Decisions D1–D3 taken as recommended; P0–P3 done.
 **Related Specs:** SPEC-001 (Agent Loop, §15 Delegation), SPEC-003 (UI), SPEC-012 (Prompt Profiles).
 **Constitution refs:** II.13 (prompt text only in `templates.go`), II.3 (nothing leaves the machine unintended — see §4).
 **Follows:** [`multi-agent-delegation.md`](multi-agent-delegation.md) (B7 first findings), PR #119 (the helper list in the tool schema).
@@ -155,7 +155,19 @@ not used" (a possible later addition once P3 shows how often it happens).
   reason, and no row for General. A first screenshot showed the button cut to "Research · helpe…"; it now has room.
 - **Docs:** SPEC-001 1.14 §15, SPEC-003 2.13, SPEC-012 1.3.
 
+## P3 results (2026-10-22, live on vertex, throwaway workspace, Research profile, switch on)
+
+Question: compare the latest stable llama.cpp, Ollama and vLLM releases, with sources.
+
+| Parent model | Result |
+|---|---|
+| `Qwen3.6 35B A3B` (local, 16k) | One `delegate_task` call, right shape first time, three `web-researcher` tasks; 74 s, 9,439 prompt tokens in the parent; helpers ran together on `deepseek-v4.1-flash` (about 14 s each, about 64k prompt tokens between them); cited answer |
+| `nemotron-3.5-super-vl:free` (cloud) | Delegated and answered (160 s), but sent `agent`/`task` at the top level twice (`missing required parameter 'tasks'`) before the third call was right. Fixed in #123: a missing-field error now ends with the expected shape |
+
+The run record lists each helper's model, time and tokens. Not checked: that a model uses the new hint to correct
+itself (no run since has made the mistake).
+
 ## Remaining Work
 
-P3: after the user deploys, ask the Go question as a second question with the switch on and check the helpers run, the
-window is not hit, and the footer shows the helpers.
+None for this plan. Helpers that start without the switch (a `/research` command) and the delegation eval belong to
+[`multi-agent-delegation.md`](multi-agent-delegation.md).

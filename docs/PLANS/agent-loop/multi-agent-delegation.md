@@ -1,6 +1,6 @@
 # Multi-Agent Delegation — one run pipeline, then cloud sub-agents
 
-**Status:** active (2026-10-22). R0, Part A and Part B (B0–B6, B8) built; B7, the live eval, is open.
+**Status:** active (2026-10-22). R0, Part A and Part B (B0–B6, B8) built; B7's live smoke is done (2026-10-22), its eval is open.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher, §V run scheduler), SPEC-012 (Prompt
 Profiles), SPEC-006 (Guardrails), SPEC-004 (Memory).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow; automations never wait),
@@ -202,7 +202,7 @@ Decisions from the research report §9:
   - Summaries are sized on their JSON-encoded length.
   - Cuts never split a character.
   - Child tool results are no longer forwarded (they were unused by the UI and doubled the event volume).
-- **Not yet verified live.** No real cloud model has run a delegate call; that is B7.
+- **Live smoke done (2026-10-22).** A real cloud helper model ran delegate calls from a local Qwen parent and from a cloud parent on vertex; results in [`use-helpers-control.md`](use-helpers-control.md) (P3). The eval is still open.
 
 ## B7 first findings (2026-10-22, live on vertex, local Qwen 16k)
 
@@ -231,7 +231,6 @@ the first reply (`delegate_task` or not):
 
 ## Remaining Work
 
-- **B7:** a live smoke on the dev backend (the user named it), then the eval: research prompts with and without
-  delegation, LLM-judge quality, peak parent context, wall time, tokens. It needs `agent.subagent_model` set to a cloud
-  model and a search key there.
+- **B7:** the eval (the live smoke is done): research prompts with and without delegation, LLM-judge quality, peak
+  parent context, wall time, tokens. It needs `agent.subagent_model` set to a cloud model and a search key there.
 - **Part C.**
