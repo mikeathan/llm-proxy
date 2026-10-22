@@ -89,7 +89,7 @@ func (s *RecordingStore) Delete(id string) error {
 	// live inside a run directory that also holds events.jsonl, run-meta.json
 	// and final-report.md. Removing only the .jsonl would orphan those siblings,
 	// so delete the whole run directory when applicable.
-	if filepath.Base(m.FilePath) == "recording.jsonl" {
+	if filepath.Base(m.FilePath) == runRecordingName {
 		runDir := filepath.Dir(m.FilePath)
 		if err := storage.RemoveScopedDir(s.recordDir, runDir); err != nil {
 			return err
@@ -117,44 +117,13 @@ func (s *RecordingStore) Refresh() error {
 			return nil
 		}
 
-		// Support two layouts:
-		//   Old flat: {model}/{task}/{timestamp}_{session}.jsonl
-		//   New nested: {model}/{task}/{timestamp}_{session}/recording.jsonl
-		parts := strings.SplitN(rel, string(filepath.Separator), 3)
-		model := ""
-		automation := ""
-		if len(parts) >= 1 {
-			model = parts[0]
-		}
-		if len(parts) >= 2 {
-			automation = parts[1]
-		}
-
 		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-
-		var ts time.Time
-		var sessionID string
-		if d.Name() == "recording.jsonl" && len(parts) >= 3 {
-			// Nested: extract timestamp and session from parent directory name.
-			parentDir := filepath.Base(filepath.Dir(path))
-			ts, sessionID = parseRecordingFilename(parentDir + ".jsonl")
-		} else {
-			ts, sessionID = parseRecordingFilename(d.Name())
-		}
-
-		id := rel
-		entries[id] = RecordingMeta{
-			ID:             id,
-			Model:          model,
-			AutomationName: automation,
-			Timestamp:      ts,
-			FilePath:       path,
-			FileSize:       info.Size(),
-			SessionID:      sessionID,
-		}
+		meta := recordingLabels(rel)
+		meta.ID, meta.FilePath, meta.FileSize = rel, path, info.Size()
+		entries[rel] = meta
 		return nil
 	})
 	if err != nil {
@@ -165,6 +134,31 @@ func (s *RecordingStore) Refresh() error {
 	s.entries = entries
 	s.mu.Unlock()
 	return nil
+}
+
+// runRecordingName is the recording inside a run folder.
+const runRecordingName = "recording.jsonl"
+
+// recordingLabels reads a recording's labels from its path under the store root. Two layouts are written today:
+//
+//	run folder (run logging): {workspace}/{model}/{task}/{timestamp}_{session}/recording.jsonl
+//	flat file (--record, a run without a folder): {model}/{task}/{timestamp}_{session}.jsonl
+func recordingLabels(rel string) RecordingMeta {
+	parts := strings.Split(rel, string(filepath.Separator))
+	var meta RecordingMeta
+	if n := len(parts); n == 5 && parts[n-1] == runRecordingName {
+		meta.WorkspaceID, meta.Model, meta.AutomationName = parts[0], parts[1], parts[2]
+		meta.Timestamp, meta.SessionID = parseRecordingFilename(parts[3] + ".jsonl")
+		return meta
+	}
+	if len(parts) >= 1 {
+		meta.Model = parts[0]
+	}
+	if len(parts) >= 2 {
+		meta.AutomationName = parts[1]
+	}
+	meta.Timestamp, meta.SessionID = parseRecordingFilename(parts[len(parts)-1])
+	return meta
 }
 
 func parseRecordingFilename(name string) (time.Time, string) {
