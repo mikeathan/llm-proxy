@@ -10,16 +10,14 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant"
-	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/eventbus"
-	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/run"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/internal/shell"
@@ -81,24 +79,18 @@ type ExecuteResponse struct {
 // LLMServiceProvider is the minimal interface needed by LLMTaskExecutor.
 // It avoids an import cycle by not depending on the api or nodeherder packages.
 type LLMServiceProvider interface {
+	assistant.RunOptionDeps
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
-	ModelConfig(modelName string) (models.ModelConfig, bool)
 	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
 	Profiles() *profile.Catalog
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	Logger() logging.Logger
 	ToolProvider() assistant.ToolProvider
 	Engine() assistant.Engine
-	GuardrailEngine() *guardrails.GuardrailEngine
-	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	ProcessLogger(workspaceID string) logging.Logger
 	Persistence() *persistence.WorkspaceManager
 	Events() assistant.EventPublisher
-	Orchestrator() *orchestrator.Orchestrator
-	MemoryStore() *memory.Store
-	MemorySettings() *models.MemoryConfig
-	AgentSettings() *models.AgentConfig
 	GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error)
 	RecordDir() string
 	RootDir() string
@@ -194,9 +186,10 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	}
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
-	execCtx := usage.WithTracker(runContextFor(ctx, req, generateRunID()))
+	execCtx := usage.WithTracker(runContextFor(ctx, req, models.NewRunID()))
 
-	runDir, eventSink, _ := e.setupRunDir(execCtx, client, req, procLog)
+	rec := e.recording(execCtx, client, req, procLog)
+	runDir, eventSink := rec.Dir, rec.Events
 
 	// Resolve the effective tool-call format (explicit override, cloud native
 	// default, or a cached endpoint capability probe for local models) BEFORE
@@ -308,49 +301,13 @@ func (e *LLMTaskExecutor) getLLMClient(ctx context.Context, req ExecuteRequest, 
 	return client, nil
 }
 
-func (e *LLMTaskExecutor) setupRunDir(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) (*rundir.RunDir, *eventbus.Sink, bool) {
-	runDir := e.createRunDir(req, procLog)
-	if runDir == nil {
-		return nil, nil, false
-	}
-	eventSink, esErr := eventbus.NewSink(runDir.EventsPath())
-	if esErr != nil {
-		procLog.Warn("failed to create event sink, continuing without", "error", esErr)
-		return runDir, nil, false
-	}
-	return runDir, eventSink, attachRecording(ctx, client, runDir)
-}
-
-// createRunDir makes the run's output folder, or returns nil when run logging is off, there is no root or model,
-// or the folder cannot be made (the run then continues without per-run output).
-func (e *LLMTaskExecutor) createRunDir(req ExecuteRequest, procLog logging.Logger) *rundir.RunDir {
-	if !e.svc.RunLoggingEnabled() {
-		return nil
-	}
-	rootDir := e.svc.RootDir()
-	if rootDir == "" || req.Model == "" {
-		return nil
-	}
-	parent := filepath.Join(rootDir, "runs")
-	runDir, rErr := rundir.NewRunDir(parent, req.WorkspaceID, req.AutomationName, req.Model)
-	if rErr != nil {
-		procLog.Warn("failed to create run dir, continuing without per-run output", "error", rErr)
-		return nil
-	}
-	return runDir
-}
-
-// attachRecording points a recording client at the run folder and reports whether the client records.
-func attachRecording(ctx context.Context, client proxy.Client, runDir *rundir.RunDir) bool {
-	if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
-		rcl.SetDirForRun(models.GetRunID(ctx), runDir.Root)
-		return true
-	}
-	if rcl, ok := client.(interface{ SetDir(string) }); ok {
-		rcl.SetDir(runDir.Root)
-		return true
-	}
-	return false
+// recording opens the run's recording: its folder, event file and the client's request log (all empty when run
+// logging is off or the run has no model).
+func (e *LLMTaskExecutor) recording(ctx context.Context, client proxy.Client, req ExecuteRequest, procLog logging.Logger) run.Recording {
+	return run.OpenRecording(client, run.RecordingSpec{
+		Enabled: e.svc.RunLoggingEnabled(), Root: e.svc.RootDir(), WorkspaceID: req.WorkspaceID,
+		Task: req.AutomationName, Model: req.Model, RunID: models.GetRunID(ctx), Log: procLog,
+	})
 }
 
 // runNetworkScope resolves the effective per-run network scope (host ∩ merged
@@ -389,59 +346,35 @@ func newRunContext(ctx context.Context, automationName, runID string) context.Co
 	return models.WithUnattendedRun(ctx)
 }
 
-// buildAgentOptions constructs AgentOptions with model overrides and wires the observer.
+// buildAgentOptions resolves the run's agent options (the one resolver chat uses too) and wires the observer.
 func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, runProfile profile.Profile, procLog logging.Logger, eventSink *eventbus.Sink) assistant.AgentOptions {
-	opts := assistant.AgentOptions{
-		Logger:       procLog,
-		MaxSteps:     assistant.DefaultMaxSteps,
-		Guardrails:   e.svc.GuardrailEngine(),
-		WorkspaceID:  req.WorkspaceID,
-		Channel:      assistant.ChannelAutomation,
-		Orchestrator: e.svc.Orchestrator(),
-		ModelName:    req.Model,
-		Observer: func(ev assistant.AgentEvent) {
-			// The full event stream already lives in the run-dir events.jsonl;
-			// this observer only fans out to live subscribers and the sink.
-			e.publishRunEvent(req, ev)
-			if eventSink != nil {
-				eventSink.Write(ev)
-			}
+	spec := runSpec(req, runProfile)
+	spec.Logger = procLog
+	spec.Observer = func(ev assistant.AgentEvent) {
+		// The full event stream already lives in the run-dir events.jsonl;
+		// this observer only fans out to live subscribers and the sink.
+		e.publishRunEvent(req, ev)
+		if eventSink != nil {
+			eventSink.Write(ev)
+		}
+	}
+	// Approval events go to live subscribers only, not the run's event file.
+	spec.DecisionEvents = func(ev assistant.AgentEvent) { e.publishRunEvent(req, ev) }
+	return assistant.ResolveRunOptions(e.svc, spec)
+}
+
+// runSpec is the automation's choices for its run: its model, profile, loop, allowed tools and memory mode. The
+// allow list restricts the exposed tool schema for unattended runs (allow ∩ guardrail-disabled, resolved in
+// NewAgent); a profile can hide tools, never add one the list lacks.
+func runSpec(req ExecuteRequest, runProfile profile.Profile) assistant.RunSpec {
+	return assistant.RunSpec{
+		Kind: profile.KindAutomation, WorkspaceID: req.WorkspaceID, Model: req.Model, Profile: runProfile,
+		Overrides: assistant.RunOverrides{
+			LoopStrategy: assistant.LoopStrategyName(req.LoopStrategy),
+			AllowedTools: allowedToolsFor(req),
+			Memory:       req.MemoryMode,
 		},
-		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(
-			e.svc.GuardrailDecisionStore(),
-			func(ev assistant.AgentEvent) { e.publishRunEvent(req, ev) },
-			assistant.ChannelAutomation,
-		),
-		// AllowedTools restricts the exposed tool schema for unattended runs
-		// (allow ∩ guardrail-disabled, resolved in NewAgent).
-		AllowedTools: allowedToolsFor(req),
-		// Profile carries the run's loop policy and hides the tools outside it (an explicit AllowedTools
-		// list narrows further: a profile can hide tools, never add one the list lacks).
-		Profile: runProfile,
-		// The same adaptive result cap as a chat: an unattended run reads the same files and pages.
-		AdaptiveResultCap: e.svc.AgentSettings().AdaptiveResultCapEnabled(),
 	}
-	if e.memoryActive(req, runProfile) {
-		opts.MemoryStore = e.svc.MemoryStore()
-		opts.EnableHotMemory = true
-	}
-	if req.Model == "" {
-		return opts
-	}
-	cfg, ok := e.svc.ModelConfig(req.Model)
-	if !ok {
-		return opts
-	}
-	opts.ApplyModelConfig(cfg)
-	// Per-run loop-strategy override: applied AFTER the model config so the
-	// automation wins for this run only. Unknown non-empty values are rejected
-	// at the automation/template handler boundary (400); ParseLoopStrategy is
-	// defense-in-depth here.
-	if req.LoopStrategy != "" {
-		opts.LoopStrategy = assistant.ParseLoopStrategy(assistant.LoopStrategyName(req.LoopStrategy))
-	}
-	procLog.Info("ModelConfig loaded", "model", req.Model, "max_tokens", cfg.MaxTokens, "reasoning_budget", cfg.ReasoningBudget, "context_budget", cfg.ContextBudget, "provider", cfg.Provider)
-	return opts
 }
 
 // runOutcome is the per-run state the terminal writers (error/success) need.
@@ -630,7 +563,7 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 
 	runID := outcome.runID
 	if runID == "" {
-		runID = generateRunID() // runs that failed before their context was built
+		runID = models.NewRunID() // runs that failed before their context was built
 	}
 	run := models.AutomationRun{
 		ID:             runID,
@@ -652,24 +585,10 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 	outcome.resp.RunID = runID
 }
 
-func generateRunID() string {
-	// Simple unique-ish ID without importing full UUID package if not strictly needed
-	// but I checked go.mod and it's there.
-	// For now, use timestamp + nano for simplicity if I want to avoid adding the import
-	// but let's just use UUID if I can.
-	return fmt.Sprintf("run_%d", time.Now().UnixNano())
-}
-
-// memoryActive reports whether this run has memory: the automation's own mode, else the profile's default, else
-// the global automation default — and a store to search. The prompt and the agent options share it.
-func (e *LLMTaskExecutor) memoryActive(req ExecuteRequest, runProfile profile.Profile) bool {
-	return req.MemoryMode.Effective(runProfile.Memory.Effective(e.svc.MemorySettings().AutomationHotDefault())) && e.svc.MemoryStore() != nil
-}
-
 func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest, runProfile profile.Profile) string {
 	prompt := fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
-	if e.memoryActive(req, runProfile) && toolOffered(req, runProfile, models.ToolMemorySearch) {
+	if assistant.HotMemoryActive(e.svc, runSpec(req, runProfile)) && toolOffered(req, runProfile, models.ToolMemorySearch) {
 		prompt += prompts.AutomationMemoryBlock()
 	}
 	return prompt

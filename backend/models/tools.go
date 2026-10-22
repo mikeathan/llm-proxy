@@ -101,6 +101,8 @@ const (
 	CategoryReminders     = "reminders"
 	CategoryAutomation    = "automation"
 	CategorySystem        = "system"
+	// CategoryGeneral labels a tool outside the built-in table (an MCP tool); it is not a category a profile can name.
+	CategoryGeneral = "general"
 )
 
 // Tool error message format strings (use with ToolFileWrite / ToolFileAppend via fmt.Sprintf).
@@ -122,6 +124,25 @@ var toolsByCategory = map[string][]string{
 	CategoryReminders:     {ToolScheduleReminder, ToolListReminders, ToolCancelReminder},
 	CategoryAutomation:    {ToolAutomationJournal},
 	CategorySystem:        {ToolSystemError},
+}
+
+// categoryByTool is toolsByCategory turned around, so a tool's category is looked up, never written down twice.
+var categoryByTool = func() map[string]string {
+	out := make(map[string]string)
+	for category, names := range toolsByCategory {
+		for _, name := range names {
+			out[name] = category
+		}
+	}
+	return out
+}()
+
+// CategoryOf returns the category a tool belongs to, or CategoryGeneral for a tool outside the built-in table.
+func CategoryOf(toolName string) string {
+	if category, ok := categoryByTool[toolName]; ok {
+		return category
+	}
+	return CategoryGeneral
 }
 
 // ToolCategories lists every built-in tool category, sorted.

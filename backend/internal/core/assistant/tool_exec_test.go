@@ -1727,3 +1727,19 @@ func TestSanitizeToolArgs(t *testing.T) {
 		}
 	}
 }
+
+// The agent takes a tool's category from the one table in models (models.CategoryOf): the approval prompt,
+// "Allow and remember" and the timeout all read it. edit_file_block was once missing from a second, hand-written
+// copy, so it got the general timeout and remembering an approval for it saved nothing.
+func TestToolCtxWithTimeout_EditFileBlockUsesFilesystemTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
+	toolCtx, cancel := agent.toolCtxWithTimeout(context.Background(), models.ToolFileEditBlock)
+	defer cancel()
+	deadline, ok := toolCtx.Deadline()
+	if !ok || time.Until(deadline) > 30*time.Second+50*time.Millisecond {
+		t.Errorf("edit_file_block timeout should be the 30s filesystem one (deadline set: %v)", ok)
+	}
+}

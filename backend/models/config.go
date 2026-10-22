@@ -6,6 +6,8 @@ package models
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 
@@ -116,6 +118,17 @@ func ResultCapFrom(ctx context.Context) (int, bool) {
 	}
 	n, ok := ctx.Value(ResultCapKey).(int)
 	return n, ok && n > 0
+}
+
+// runIDHexLen is the length of a run id: 8 random bytes in hex.
+const runIDHexLen = 16
+
+// NewRunID returns a new run id, the one generator for every kind of run (chat turns, automations, sub-agents).
+// It is opaque: nothing parses it.
+func NewRunID() string {
+	b := make([]byte, runIDHexLen/2)
+	_, _ = rand.Read(b) // never returns an error; it crashes the program instead
+	return hex.EncodeToString(b)
 }
 
 // WithRunID injects a unique execution run ID into the context.

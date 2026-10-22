@@ -1,8 +1,6 @@
 package assistant
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -162,15 +160,6 @@ func TruncateHistory(history []proxy.Message, maxChars int) []proxy.Message {
 	}
 
 	return history
-}
-
-// GenerateRunID returns a short unique identifier for a recording session.
-func GenerateRunID() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("%x", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(b)
 }
 
 // FormatCollectedEvents converts agent events into the wire format for the API response.

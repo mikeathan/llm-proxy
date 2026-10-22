@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/models"
 )
 
 const (
@@ -71,7 +72,10 @@ func (h *AssistantMessageHandler) ReviewMemories(w http.ResponseWriter, r *http.
 		ctx = claimed
 	}
 
-	client, err := h.svc.GetClientForModel(ctx, model)
+	// A cold local model is waited for, like a chat's; the review's own time limit still bounds the wait.
+	client, err := proxy.WaitForClient(ctx, func() (proxy.Client, error) { return h.svc.GetClientForModel(ctx, model) }, proxy.ModelWait{
+		ModelName: model, PollInterval: models.ModelStartPollInterval, Timeout: models.ModelStartWaitTimeout,
+	})
 	if err != nil {
 		h.logger.Warn("memory review: no model client", "model", model, "error", err)
 		writeJSONError(w, http.StatusBadGateway, msgReviewFailed)

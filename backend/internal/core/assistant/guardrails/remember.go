@@ -70,15 +70,15 @@ func (e *GuardrailEngine) PersistOverride(workspaceID, category, toolName, args 
 func (e *GuardrailEngine) planRemember(workspaceID, category, args string) rememberPlan {
 	effective := e.mergedCfg(workspaceID)
 	switch category {
-	case "terminal":
+	case models.CategoryTerminal:
 		return planTerminal(args, effective)
-	case "filesystem":
+	case models.CategoryFileSystem:
 		return planFilesystem(args, effective)
-	case "network":
+	case models.CategoryNetwork:
 		return planNetwork(args, effective, e.workspaceLayer(workspaceID))
-	case "search":
+	case models.CategorySearch:
 		return planSearch(effective)
-	case "communication":
+	case models.CategoryCommunication:
 		return planCommunication(effective)
 	}
 	return nothingToRemember(reasonNothingToRemember)

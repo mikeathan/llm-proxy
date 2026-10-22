@@ -84,6 +84,18 @@ func TestPreviewRemember_OtherStepsHaveNothingToRemember(t *testing.T) {
 	}
 }
 
+// Every file tool remembers its path; the category comes from models' one table. edit_file_block was once labelled
+// "general" by a hand-written copy, so remembering its approval saved nothing.
+func TestPreviewRemember_EveryFileToolRemembersItsPath(t *testing.T) {
+	e := rememberEngine(t, models.AgentGuardrailsConfig{}, &models.WorkspaceConfig{})
+	for _, tool := range models.ToolsInCategory(models.CategoryFileSystem) {
+		got := e.PreviewRemember("ws", models.CategoryOf(tool), `{"path":"notes/plan.md"}`)
+		if !slices.Contains(got.Lines, "Allow the path: notes/plan.md") {
+			t.Errorf("%s: lines = %v, want the path remembered", tool, got.Lines)
+		}
+	}
+}
+
 func TestPersistOverride_SavesExactlyWhatWasPreviewed(t *testing.T) {
 	global := models.AgentGuardrailsConfig{Terminal: models.TerminalGuardrailsConfig{Enabled: true, AllowedCommands: []string{"ls"}}}
 	ws := &models.WorkspaceConfig{}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 )
 
@@ -149,11 +150,12 @@ func TestCurrentResultCap_DefaultOutsideATurn(t *testing.T) {
 	}
 }
 
-func TestAgentBuilder_AdaptiveResultCapReachesTheAgent(t *testing.T) {
+func TestResolveRunOptions_AdaptiveResultCapReachesTheAgent(t *testing.T) {
 	for _, enabled := range []bool{true, false} {
-		a := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, (&AgentBuilder{}).WithAdaptiveResultCap(enabled).opts)
+		deps := &runOptionDepsStub{agent: &models.AgentConfig{AdaptiveResultCap: new(enabled)}}
+		a := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, ResolveRunOptions(deps, RunSpec{Logger: logging.NewNopLogger()}))
 		if a.config.AdaptiveResultCap != enabled {
-			t.Errorf("builder %v -> agent %v", enabled, a.config.AdaptiveResultCap)
+			t.Errorf("setting %v -> agent %v", enabled, a.config.AdaptiveResultCap)
 		}
 	}
 }

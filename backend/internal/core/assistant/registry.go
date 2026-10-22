@@ -96,9 +96,10 @@ func getEffectiveConfig[T any](
 	return getSpecific(&defaults)
 }
 
-// registerTool simplifies the addition of a local tool and its handler to the registry.
-func registerTool[T any](r *LocalToolRegistry, category, toolName string, fn func(context.Context, T) (any, error)) {
-	r.addTool(category, toolName)
+// registerTool simplifies the addition of a local tool and its handler to the registry. The tool's manifest is the
+// file named after its category, taken from the one table in models.
+func registerTool[T any](r *LocalToolRegistry, toolName string, fn func(context.Context, T) (any, error)) {
+	r.addTool(models.CategoryOf(toolName), toolName)
 	r.handlers[toolName] = func(ctx context.Context, rawArgs string) (any, error) {
 		var args T
 		if err := decodeArgs(rawArgs, &args); err != nil {
@@ -537,7 +538,7 @@ func (r *LocalToolRegistry) registerAll() {
 }
 
 func (r *LocalToolRegistry) registerTerminalTools() {
-	registerTool(r, "terminal", models.ToolTerminalExecute, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolTerminalExecute, func(ctx context.Context, args struct {
 		Command string `json:"command"`
 		Cwd     string `json:"cwd"`
 	}) (any, error) {
@@ -546,7 +547,7 @@ func (r *LocalToolRegistry) registerTerminalTools() {
 }
 
 func (r *LocalToolRegistry) registerCommunicationTools() {
-	registerTool(r, "communication", models.ToolNotifyUser, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolNotifyUser, func(ctx context.Context, args struct {
 		Message   string `json:"message"`
 		Connector string `json:"connector"` // optional — empty sends to all connectors
 	}) (any, error) {
@@ -561,7 +562,7 @@ func (r *LocalToolRegistry) registerCommunicationTools() {
 }
 
 func (r *LocalToolRegistry) registerSearchTools() {
-	registerTool(r, "search", models.ToolInternetSearch, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolInternetSearch, func(ctx context.Context, args struct {
 		Query     string `json:"query"`
 		TimeRange string `json:"time_range"`
 	}) (any, error) {
@@ -576,13 +577,13 @@ func (r *LocalToolRegistry) registerSearchTools() {
 }
 
 func (r *LocalToolRegistry) registerFileSystemTools() {
-	registerTool(r, "filesystem", models.ToolDirectoryList, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolDirectoryList, func(ctx context.Context, args struct {
 		Path string `json:"path"`
 	}) (any, error) {
 		return r.FileSystem.ListDirectory(ctx, args.Path)
 	})
 
-	registerTool(r, "filesystem", models.ToolFileRead, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolFileRead, func(ctx context.Context, args struct {
 		Path   string         `json:"path"`
 		Offset *tools.FlexInt `json:"offset"`
 		Limit  *tools.FlexInt `json:"limit"`
@@ -590,7 +591,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		return r.FileSystem.ReadFileRange(ctx, args.Path, args.Offset.IntPtr(), args.Limit.IntPtr())
 	})
 
-	registerTool(r, "filesystem", models.ToolFileWrite, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolFileWrite, func(ctx context.Context, args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}) (any, error) {
@@ -600,7 +601,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		return "File written successfully", nil
 	})
 
-	registerTool(r, "filesystem", models.ToolFileAppend, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolFileAppend, func(ctx context.Context, args struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}) (any, error) {
@@ -610,7 +611,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 		return "Content appended successfully", nil
 	})
 
-	registerTool(r, "filesystem", models.ToolFileEditBlock, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolFileEditBlock, func(ctx context.Context, args struct {
 		Path     string `json:"path"`
 		OldBlock string `json:"old_block"`
 		NewBlock string `json:"new_block"`
@@ -620,7 +621,7 @@ func (r *LocalToolRegistry) registerFileSystemTools() {
 }
 
 func (r *LocalToolRegistry) registerNetworkTools() {
-	registerTool(r, "network", models.ToolNetworkFetch, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolNetworkFetch, func(ctx context.Context, args struct {
 		URL string `json:"url"`
 	}) (any, error) {
 		if r.Network == nil {
@@ -629,14 +630,14 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 		return r.Network.FetchURL(ctx, args.URL)
 	})
 
-	registerTool(r, "network", models.ToolNetworkScan, func(ctx context.Context, args tools.ScanArgs) (any, error) {
+	registerTool(r, models.ToolNetworkScan, func(ctx context.Context, args tools.ScanArgs) (any, error) {
 		if r.Network == nil {
 			return nil, fmt.Errorf("network tools not configured")
 		}
 		return r.Network.ScanLocalNetwork(ctx, args)
 	})
 
-	registerTool(r, "network", models.ToolNetworkInfo, func(ctx context.Context, args struct{}) (any, error) {
+	registerTool(r, models.ToolNetworkInfo, func(ctx context.Context, args struct{}) (any, error) {
 		if r.Network == nil {
 			return nil, fmt.Errorf("network tools not configured")
 		}
@@ -647,12 +648,12 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 // registerScopedTool registers a tool that exists only for runs whose context
 // satisfies available: it is left out of ListTools (so out of the schema, the
 // tool manual and argument validation) and its handler refuses other contexts.
-func registerScopedTool[T any](r *LocalToolRegistry, category, toolName string, available func(context.Context) bool, fn func(context.Context, T) (any, error)) {
+func registerScopedTool[T any](r *LocalToolRegistry, toolName string, available func(context.Context) bool, fn func(context.Context, T) (any, error)) {
 	if r.scoped == nil {
 		r.scoped = make(map[string]func(context.Context) bool)
 	}
 	r.scoped[toolName] = available
-	registerTool(r, category, toolName, func(ctx context.Context, args T) (any, error) {
+	registerTool(r, toolName, func(ctx context.Context, args T) (any, error) {
 		if !available(ctx) {
 			return nil, ErrToolNotInternal
 		}
@@ -665,7 +666,7 @@ func registerScopedTool[T any](r *LocalToolRegistry, category, toolName string, 
 // construction so the constructor's signature does not grow.
 func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegistry {
 	r.Journal = tools.NewAutomationJournalTools(store)
-	registerScopedTool(r, models.CategoryAutomation, models.ToolAutomationJournal, models.IsJournalRun, r.Journal.Write)
+	registerScopedTool(r, models.ToolAutomationJournal, models.IsJournalRun, r.Journal.Write)
 	return r
 }
 
@@ -677,9 +678,9 @@ func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegi
 func (r *LocalToolRegistry) WithReminders(svc tools.ReminderService) *LocalToolRegistry {
 	r.Reminders = tools.NewReminderTools(svc)
 	attended := func(ctx context.Context) bool { return !models.IsUnattendedRun(ctx) }
-	registerScopedTool(r, models.CategoryReminders, models.ToolScheduleReminder, attended, r.Reminders.Schedule)
-	registerScopedTool(r, models.CategoryReminders, models.ToolListReminders, attended, r.Reminders.List)
-	registerScopedTool(r, models.CategoryReminders, models.ToolCancelReminder, attended, r.Reminders.Cancel)
+	registerScopedTool(r, models.ToolScheduleReminder, attended, r.Reminders.Schedule)
+	registerScopedTool(r, models.ToolListReminders, attended, r.Reminders.List)
+	registerScopedTool(r, models.ToolCancelReminder, attended, r.Reminders.Cancel)
 	return r
 }
 
@@ -687,13 +688,13 @@ func (r *LocalToolRegistry) registerMemoryTools() {
 	if r.Memory == nil {
 		return
 	}
-	registerTool(r, models.CategoryMemory, models.ToolMemorySearch, r.Memory.Search)
-	registerTool(r, models.CategoryMemory, models.ToolMemoryUpdate, r.Memory.Update)
-	registerTool(r, models.CategoryMemory, models.ToolMemoryForget, r.Memory.Forget)
+	registerTool(r, models.ToolMemorySearch, r.Memory.Search)
+	registerTool(r, models.ToolMemoryUpdate, r.Memory.Update)
+	registerTool(r, models.ToolMemoryForget, r.Memory.Forget)
 }
 
 func (r *LocalToolRegistry) registerSystemTools() {
-	registerTool(r, models.CategorySystem, models.ToolSystemError, func(ctx context.Context, args struct {
+	registerTool(r, models.ToolSystemError, func(ctx context.Context, args struct {
 		Error string `json:"error"`
 	}) (any, error) {
 		// This tool allows the system to send error feedback back to the agent

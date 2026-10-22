@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,8 @@ type mockConvDeps struct {
 
 	memoryStore *memory.Store // nil unless a test seeds one
 	memory      *models.MemoryConfig
-	profiles    *profile.Catalog // the built-ins unless a test sets its own
+	profiles    *profile.Catalog    // the built-ins unless a test sets its own
+	modelCfg    *models.ModelConfig // nil: a small fixed config
 }
 
 func (m *mockConvDeps) Profiles() *profile.Catalog {
@@ -41,6 +43,9 @@ func (m *mockConvDeps) Profiles() *profile.Catalog {
 
 func (m *mockConvDeps) SelectModels() (string, string) { return m.modelName, "" }
 func (m *mockConvDeps) ModelConfig(string) (models.ModelConfig, bool) {
+	if m.modelCfg != nil {
+		return *m.modelCfg, true
+	}
 	return models.ModelConfig{MaxSteps: 2, MaxTokens: 100}, true
 }
 func (m *mockConvDeps) EffectiveToolCallFormat(context.Context, string) string { return "" }
@@ -1124,5 +1129,127 @@ func TestConversationService_Execute_RefreshesAStoredSystemMessage(t *testing.T)
 	session, _ := pm.ReadSession("ws-1", "conv-profiles")
 	if strings.Contains(session.History[0].Content, "verifying your environment") {
 		t.Error("the refreshed system message is what gets persisted")
+	}
+}
+
+// optionsView is the part of AgentOptions a run's settings decide, in a comparable form: pointers and functions are
+// reduced to whether they are set. The characterisation tests below record what each kind of run resolves today, so
+// a refactor of how options are built has to keep them.
+type optionsView struct {
+	MaxSteps, ContextBudget, MaxResponseTokens, ReasoningBudget, MaxPlanSteps int
+	ReasoningEnabled, UseNativeTools                                          string
+	Temperature                                                               float64
+	WorkspaceID, ModelName, ProviderType, ConversationID, ProfileID           string
+	GuardrailTimeoutBehavior                                                  string
+	WorkloadClass                                                             models.WorkloadClass
+	LoopStrategy                                                              LoopStrategyName
+	Channel                                                                   EventChannel
+	RunNetworkScope                                                           models.NetworkScope
+	UsePrefill, EnableHotMemory, AdaptiveResultCap                            bool
+	HasMemoryStore, HasGuardrails, HasObserver, HasDecisionHandler            bool
+	HasLogger, HasOrchestrator                                                bool
+	AllowedTools, ExcludedTools                                               []string
+	GlobalTimeout, ToolTimeout, FilesystemToolTimeout, MaxPlanDuration        time.Duration
+	GuardrailTimeout, GuardrailApprovalTimeout                                time.Duration
+}
+
+func boolView(b *bool) string {
+	if b == nil {
+		return "unset"
+	}
+	return fmt.Sprint(*b)
+}
+
+func viewOptions(o AgentOptions) optionsView {
+	return optionsView{
+		MaxSteps: o.MaxSteps, ContextBudget: o.ContextBudget, MaxResponseTokens: o.MaxResponseTokens,
+		ReasoningBudget: o.ReasoningBudget, MaxPlanSteps: o.MaxPlanSteps,
+		ReasoningEnabled: boolView(o.ReasoningEnabled), UseNativeTools: boolView(o.UseNativeTools),
+		Temperature: o.Temperature, WorkspaceID: o.WorkspaceID, ModelName: o.ModelName, ProviderType: o.ProviderType,
+		ConversationID: o.ConversationID, ProfileID: o.Profile.ID, GuardrailTimeoutBehavior: o.GuardrailTimeoutBehavior,
+		WorkloadClass: o.WorkloadClass, LoopStrategy: o.LoopStrategy, Channel: o.Channel, RunNetworkScope: o.RunNetworkScope,
+		UsePrefill: o.UsePrefill, EnableHotMemory: o.EnableHotMemory, AdaptiveResultCap: o.AdaptiveResultCap,
+		HasMemoryStore: o.MemoryStore != nil, HasGuardrails: o.Guardrails != nil, HasObserver: o.Observer != nil,
+		HasDecisionHandler: o.GuardrailDecisionHandler != nil, HasLogger: o.Logger != nil, HasOrchestrator: o.Orchestrator != nil,
+		AllowedTools: o.AllowedTools, ExcludedTools: o.ExcludedTools,
+		GlobalTimeout: o.GlobalTimeout, ToolTimeout: o.ToolTimeout, FilesystemToolTimeout: o.FilesystemToolTimeout,
+		MaxPlanDuration: o.MaxPlanDuration, GuardrailTimeout: o.GuardrailTimeout, GuardrailApprovalTimeout: o.GuardrailApprovalTimeout,
+	}
+}
+
+// fullModelConfig sets every field ApplyModelConfig reads, so a resolver that drops one shows up.
+func fullModelConfig(name string) models.ModelConfig {
+	return models.ModelConfig{
+		Name: name, Provider: "openai", WorkloadClass: models.WorkloadCloud, LoopStrategy: models.LoopStrategyPlanExecute,
+		MaxSteps: 21, ContextBudget: 9000, MaxTokens: 1500, ReasoningBudget: 700, ReasoningEnabled: new(true),
+		Temperature: 0.3, ToolCallFormat: "native", Prefill: new(true), TimeoutMinutes: 7, ToolTimeoutSeconds: 40,
+		FilesystemToolTimeoutSeconds: 9, MaxPlanDurationMinutes: 11, MaxPlanSteps: 13, GuardrailTimeoutSeconds: 3,
+		GuardrailTimeoutBehavior: "fail-closed", GuardrailApprovalTimeoutSecs: 90,
+	}
+}
+
+// fullModelView is what fullModelConfig resolves to in any kind of run.
+func fullModelView(v optionsView) optionsView {
+	v.MaxSteps, v.ContextBudget, v.MaxResponseTokens, v.ReasoningBudget, v.MaxPlanSteps = 21, 9000, 1500, 700, 13
+	v.ReasoningEnabled, v.UseNativeTools, v.Temperature, v.UsePrefill = "true", "true", 0.3, true
+	v.ProviderType, v.WorkloadClass, v.LoopStrategy, v.GuardrailTimeoutBehavior = "openai", models.WorkloadCloud, LoopPlanExecute, "fail-closed"
+	v.GlobalTimeout, v.ToolTimeout, v.FilesystemToolTimeout = 7*time.Minute, 40*time.Second, 9*time.Second
+	v.MaxPlanDuration, v.GuardrailTimeout, v.GuardrailApprovalTimeout = 11*time.Minute, 3*time.Second, 90*time.Second
+	return v
+}
+
+// A chat turn always carries the memory store (memory_search needs it even with hot memory off), its conversation
+// id, a deny list and no network scope of its own.
+func TestChatAgentOptions_Characterisation(t *testing.T) {
+	research := profile.MustCatalog("", logging.NewNopLogger()).Resolve(profile.KindAssistant, "research")
+	general := profile.MustCatalog("", logging.NewNopLogger()).Resolve(profile.KindAssistant)
+	full := fullModelConfig("cloud-m")
+	base := optionsView{
+		MaxSteps: 2, MaxResponseTokens: 100, ReasoningEnabled: "unset", UseNativeTools: "unset",
+		WorkspaceID: "ws-1", ModelName: "cloud-m", ConversationID: "conv-1", ProfileID: "general", Channel: ChannelAssistant,
+		EnableHotMemory: true, AdaptiveResultCap: true, HasMemoryStore: true, HasGuardrails: true, HasObserver: true,
+		HasDecisionHandler: true, HasLogger: true,
+	}
+	cases := []struct {
+		name      string
+		modelCfg  *models.ModelConfig
+		memory    *models.MemoryConfig
+		agent     *models.AgentConfig
+		workspace models.MemoryMode
+		profile   profile.Profile
+		exclude   []string
+		want      func(optionsView) optionsView
+	}{
+		{name: "defaults", profile: general, want: func(v optionsView) optionsView { return v }},
+		{name: "full model config", modelCfg: &full, profile: general, want: fullModelView},
+		{name: "research profile, workspace memory off", profile: research, workspace: models.MemoryModeOff, exclude: []string{models.ToolTerminalExecute},
+			want: func(v optionsView) optionsView {
+				v.ProfileID, v.EnableHotMemory, v.ExcludedTools = "research", false, []string{models.ToolTerminalExecute}
+				return v
+			}},
+		{name: "global memory off, result cap off", profile: general, memory: &models.MemoryConfig{AssistantHot: new(false)}, agent: &models.AgentConfig{AdaptiveResultCap: new(false)},
+			want: func(v optionsView) optionsView {
+				v.EnableHotMemory, v.AdaptiveResultCap = false, false
+				return v
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := newMockConvDeps()
+			deps.modelCfg, deps.memory, deps.agent = tc.modelCfg, tc.memory, tc.agent
+			deps.memoryStore = newTestMemoryStore(t)
+			pm := newTestPersistence(t)
+			if err := pm.WriteConfig("ws-1", &models.WorkspaceConfig{AssistantMemory: tc.workspace}); err != nil {
+				t.Fatal(err)
+			}
+			svc := NewConversationService(deps, pm).(*conversationService)
+			got := viewOptions(svc.agentOptions(chatAgentRun{
+				modelName: "cloud-m", workspaceID: "ws-1", sessionID: "conv-1", log: logging.NewNopLogger(),
+				observer: func(AgentEvent) {}, excludeTools: tc.exclude, profile: tc.profile,
+			}))
+			if want := tc.want(base); !reflect.DeepEqual(got, want) {
+				t.Errorf("resolved options changed\n got: %#v\nwant: %#v", got, want)
+			}
+		})
 	}
 }

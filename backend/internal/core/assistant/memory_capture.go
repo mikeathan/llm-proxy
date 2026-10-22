@@ -65,7 +65,9 @@ func (l captureLibrary) Has(ctx context.Context, workspaceID, content string) bo
 // chat: a store error is logged and the turn goes on.
 func (s *conversationService) captureMemories(ctx context.Context, run *models.TurnRun, workspaceID, conversationID, message string, runProfile profile.Profile, log logging.Logger) {
 	store := s.deps.MemoryStore()
-	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !runProfile.CapturesMemory() || !s.hotMemoryEnabled(workspaceID, runProfile) {
+	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !runProfile.CapturesMemory() || !HotMemoryActive(s.deps, RunSpec{
+		Kind: profile.KindAssistant, Profile: runProfile, Overrides: RunOverrides{Memory: s.workspaceMemory(workspaceID)},
+	}) {
 		return
 	}
 	res := memorycapture.Capture(ctx, s.extractor, captureLibrary{tools: tools.NewMemoryToolProvider(store)}, workspaceID, message)
