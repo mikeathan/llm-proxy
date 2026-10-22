@@ -87,6 +87,9 @@ const (
 
 	// System
 	ToolSystemError = "system_error"
+
+	// Delegation: hand questions to sub-agents that run on a cloud model and return a summary
+	ToolDelegate = "delegate_task"
 )
 
 // Tool Categories
@@ -101,6 +104,8 @@ const (
 	CategoryReminders     = "reminders"
 	CategoryAutomation    = "automation"
 	CategorySystem        = "system"
+	// CategoryDelegation is governed by a profile's delegates list, not by its tools list.
+	CategoryDelegation = "delegation"
 	// CategoryGeneral labels a tool outside the built-in table (an MCP tool); it is not a category a profile can name.
 	CategoryGeneral = "general"
 )
@@ -124,6 +129,7 @@ var toolsByCategory = map[string][]string{
 	CategoryReminders:     {ToolScheduleReminder, ToolListReminders, ToolCancelReminder},
 	CategoryAutomation:    {ToolAutomationJournal},
 	CategorySystem:        {ToolSystemError},
+	CategoryDelegation:    {ToolDelegate},
 }
 
 // categoryByTool is toolsByCategory turned around, so a tool's category is looked up, never written down twice.

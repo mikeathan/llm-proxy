@@ -53,6 +53,9 @@ func TestParseRejects(t *testing.T) {
 		{"bad memory", "x", "---\nname: X\nmemory: maybe\n---\nbody", "memory"},
 		{"steps out of range", "x", "---\nname: X\nmax_steps: 500\n---\nbody", "max_steps"},
 		{"bad id", "Bad Id", "---\nname: X\n---\nbody", "id"},
+		{"delegation named as a tool category", "x", "---\nname: X\ntools: [delegation]\n---\nbody", "delegates"},
+		{"a bad helper id", "x", "---\nname: X\ndelegates: [Web Researcher]\n---\nbody", "delegates"},
+		{"a profile that delegates to itself", "x", "---\nname: X\ndelegates: [x]\n---\nbody", "itself"},
 		{"reminders without their category", "x", "---\nname: X\nreminders: true\ntools: [filesystem]\n---\nbody", "reminders"},
 	}
 	for _, tt := range tests {
@@ -65,8 +68,8 @@ func TestParseRejects(t *testing.T) {
 
 func TestExcludedTools(t *testing.T) {
 	all := Profile{Reminders: true}
-	if got := all.ExcludedTools(); len(got) != 0 {
-		t.Errorf("a profile that lists no categories hides nothing, got %v", got)
+	if got := all.ExcludedTools(); len(got) != 1 || got[0] != models.ToolDelegate {
+		t.Errorf("a profile that lists no categories hides only the delegate tool (it names no helpers), got %v", got)
 	}
 	p := Profile{Reminders: false, Tools: []string{models.CategoryFileSystem}}
 	hidden := strings.Join(p.ExcludedTools(), ",")
@@ -79,6 +82,20 @@ func TestExcludedTools(t *testing.T) {
 		if strings.Contains(hidden, tool) {
 			t.Errorf("%s must stay visible (listed or always on), hidden = %s", tool, hidden)
 		}
+	}
+}
+
+// The delegate tool exists only for a profile that names helpers; its tools list does not govern it.
+func TestExcludedToolsShowsTheDelegateToolOnlyWithHelpers(t *testing.T) {
+	p, err := Parse("lead", User, []byte("---\nname: Lead\ntools: [search]\ndelegates: [web-researcher]\n---\nLead.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(p.Delegates, ",") != "web-researcher" || strings.Contains(strings.Join(p.ExcludedTools(), ","), models.ToolDelegate) {
+		t.Errorf("a profile with helpers offers the delegate tool: delegates %v, hidden %v", p.Delegates, p.ExcludedTools())
+	}
+	if !strings.Contains(strings.Join((Profile{Tools: []string{models.CategorySearch}}).ExcludedTools(), ","), models.ToolDelegate) {
+		t.Error("a profile without helpers hides the delegate tool")
 	}
 }
 

@@ -11,10 +11,31 @@ export interface ToolCall {
 
 export type Segment =
   | { kind: 'reasoning', text: string }
-  | { kind: 'tool_call', name: string, args: string, status: 'running' | 'success' | 'error', result?: string, error?: string }
+  | { kind: 'tool_call', name: string, args: string, status: 'running' | 'success' | 'error', result?: string, error?: string, helpers?: HelperProgress[] }
   | { kind: 'guardrail', tool: string, error: string }
   | { kind: 'error', message: string }
   | { kind: 'notice', message: string, status?: 'pending' | 'resolved' }
+
+// A delegated sub-agent's live progress inside its delegate_task step: what it was asked, how far it got, how it
+// ended. Built from 'subagent' events; not stored, so a reloaded chat shows the step's result instead.
+export interface HelperProgress {
+  runId: string
+  agent: string
+  task: string
+  steps: number
+  lastStep: string
+  status: 'running' | 'done' | 'busy' | 'refused' | 'failed' | 'stopped'
+}
+
+// How one delegated task ran (backend models.SubagentRun); its tokens are not in the turn's own counts.
+export interface SubagentRun {
+  agent: string
+  model?: string
+  status: string
+  duration_ms?: number
+  prompt_tokens?: number
+  completion_tokens?: number
+}
 
 // How a chat turn ran, stored by the backend on the turn's user message
 // (models.TurnRun). Old sessions have none; every field is optional. Token
@@ -29,6 +50,8 @@ export interface TurnRun {
   memory_saved?: string[]
   // Non-fatal problems in the turn, e.g. a tool whose credential was rejected.
   warnings?: string[]
+  // The tasks the turn delegated to sub-agents.
+  subagents?: SubagentRun[]
 }
 
 export interface AssistantMessage {

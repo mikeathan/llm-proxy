@@ -26,7 +26,11 @@ const TOOLS: Record<string, ToolDef> = {
   scan_local_network: { kind: 'network', verb: 'Scanned the local network' },
   get_network_info: { kind: 'network', verb: 'Read network settings' },
   notify_user: { kind: 'notify', verb: 'Sent a notification', argKey: 'message' },
+  delegate_task: { kind: 'delegate', verb: 'Asked helpers' },
 }
+
+const DELEGATE_TOOL = 'delegate_task'
+const DELEGATE_TASK_SEPARATOR = ' · '
 
 /** The icon each kind of step shows (names in assets/svg). */
 export const TOOL_KIND_ICON: Record<ToolKind, string> = {
@@ -42,6 +46,7 @@ export const TOOL_KIND_ICON: Record<ToolKind, string> = {
   'memory-forget': 'trash',
   network: 'radio',
   notify: 'bell',
+  delegate: 'chat',
   other: 'tool',
 }
 
@@ -68,8 +73,18 @@ export function describeToolStep(name: string, rawArgs: string): ToolStepView {
   const args = parseObject(rawArgs) ?? {}
   const def = TOOLS[name]
   if (!def) return { kind: 'other', verb: `${OTHER_VERB_PREFIX}${name}`, target: firstText(args) }
+  if (name === DELEGATE_TOOL) return { kind: def.kind, verb: def.verb, target: delegatedTasks(args) }
   const value = def.argKey ? args[def.argKey] : undefined
   return { kind: def.kind, verb: def.verb, target: typeof value === 'string' ? value : '' }
+}
+
+/** A delegate call's questions, as its step's target. */
+function delegatedTasks(args: Record<string, unknown>): string {
+  if (!Array.isArray(args.tasks)) return ''
+  return args.tasks
+    .map((t: unknown) => (t && typeof t === 'object' && typeof (t as Record<string, unknown>).task === 'string' ? String((t as Record<string, unknown>).task) : ''))
+    .filter(Boolean)
+    .join(DELEGATE_TASK_SEPARATOR)
 }
 
 /** A call's arguments as key/value rows: text as-is, anything else as JSON. */

@@ -8,7 +8,7 @@ import Icon from '../../icons/Icon.vue'
 import ToolCallSegment from './ToolCallSegment.vue'
 import { useElapsedTimer } from '../../../composables/useElapsedTimer'
 import { useAutoScroll } from '../../../composables/ui/useAutoScroll'
-import { activityLabel, tokenUsageLabel } from '../../../constants/labels'
+import { activityLabel, helpersLabel, tokenUsageLabel } from '../../../constants/labels'
 import { formatElapsedSeconds } from '../../../utils/format/time'
 import { isFinishedPhase, isStreamingPhase, type InsetPhase } from '../../../types/inset'
 
@@ -98,7 +98,8 @@ const runMeta = computed(() => {
   const run = props.turn.run
   if (!run || live.value) return null
   const tokens = run.completion_tokens ? tokenUsageLabel(run.prompt_tokens ?? 0, run.completion_tokens) : null
-  return run.model || tokens ? { model: run.model ?? '', tokens } : null
+  const helpers = run.subagents?.length ? helpersLabel(run.subagents) : null
+  return run.model || tokens || helpers ? { model: run.model ?? '', tokens, helpers } : null
 })
 // Facts the backend saved from this message before the run, recorded on the turn so they persist across reloads.
 const memorySaved = computed(() => props.turn.run?.memory_saved ?? [])
@@ -281,6 +282,8 @@ watch(
         <span v-if="runMeta.model">{{ runMeta.model }}</span>
         <span v-if="runMeta.model && runMeta.tokens" aria-hidden="true">·</span>
         <span v-if="runMeta.tokens" :title="runMeta.tokens.title">{{ runMeta.tokens.text }}</span>
+        <span v-if="runMeta.helpers && (runMeta.model || runMeta.tokens)" aria-hidden="true">·</span>
+        <span v-if="runMeta.helpers" :title="runMeta.helpers.title">{{ runMeta.helpers.text }}</span>
       </span>
     </div>
 

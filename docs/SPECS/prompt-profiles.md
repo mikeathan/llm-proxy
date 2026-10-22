@@ -1,9 +1,9 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.1"
+version: "1.2"
 status: draft
-last_updated: 2026-10-17
+last_updated: 2026-10-22
 constitution_references: [II.13, II.3]
 related_specs: [SPEC-001, SPEC-004, SPEC-007, SPEC-011]
 supersedes:
@@ -12,6 +12,13 @@ supersedes:
 # SPEC: Prompt Profiles
 
 ## Changelog
+
+- **1.2 (2026-10-22)** — `delegates: [ids]` lists the helper profiles a profile may hand tasks to (SPEC-001 §15).
+  - The `delegate_task` tool exists only for a profile that lists helpers. Its `delegation` category cannot be named
+    in `tools`.
+  - Ids must be valid and never the profile's own.
+  - A seventh built-in, **Web researcher** (`web-researcher`): web tools only, memory off, 15 steps. Research lists it
+    as its helper. It also shows in the chat picker, where it works as a plain web-only chat profile.
 
 - **1.1 (2026-10-17)** — `memory_guidance` is replaced by `memory_save: model|explicit|off`, the one switch for who
   may save to memory in a run (§2.1). `explicit` and `off` do not offer `memory_update` and `memory_forget`, send no
@@ -46,14 +53,17 @@ A profile is a markdown file: YAML front matter, then the instructions (the beha
 | `memory` | `on`/`off`: the profile's default for hot memory; absent inherits the global default. |
 | `memory_save` | Who may save to memory in a run. `model` (default when left out): the write tools are offered and, in the operator's own chats, the save guidance and reminder are sent (SPEC-004 §4.1). `explicit`: `memory_update` and `memory_forget` are not offered, no guidance or flush is sent, and code saves what the user explicitly asks to remember. `off`: nothing is saved, not even an explicit request. Reading memory (`memory`, `memory_search`) is not affected. |
 | `reminders` | The reminder tools are exposed (SPEC-011). |
+| `delegates` | Helper profile ids this profile may delegate to; the `delegate_task` tool is offered only when it is not empty (and a cloud sub-agent model is set). A helper's own `delegates` are never used: delegation is one level deep. |
 
 Boolean fields left out are false. Unknown keys, an unknown tool category, `reminders: true` without the reminders
-category in a non-empty `tools`, a missing name or empty instructions make the file invalid.
+category in a non-empty `tools`, `delegation` named in `tools`, an invalid or self-referencing `delegates` id, a
+missing name or empty instructions make the file invalid.
 
 ### 2.2 Catalog
 
 Built-in profiles are embedded files (`prompts/profiles/*.md`, CONSTITUTION II.13): **General** (default for chats),
-**Research**, **Operator**, **Builder**, **Task runner** (default for automations) and **Watcher** (the heartbeat's).
+**Research**, **Operator**, **Builder**, **Task runner** (default for automations), **Watcher** (the heartbeat's) and
+**Web researcher** (Research's helper; SPEC-001 §15).
 User profiles are `*.md` files in `{data root}/profiles/` (`PathResolver.ProfilesDir`), never in a workspace, so an agent
 with file tools cannot rewrite the instructions it runs under. The file name (lowercase letters, digits, dashes, at most
 40) is the id; a user file with a built-in's id replaces it. Files are read on demand; an invalid, oversized (64 KB) or

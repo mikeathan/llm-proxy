@@ -4,8 +4,11 @@ package usage
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
+
+	"llm-proxy/models"
 )
 
 type usageKeyType struct{}
@@ -25,6 +28,7 @@ type Tracker struct {
 	reportedPrompt     int
 	reportedCompletion int
 	reportedCached     int
+	subagents          []models.SubagentRun
 	mu                 sync.Mutex
 }
 
@@ -33,6 +37,12 @@ func WithTracker(ctx context.Context) context.Context {
 	if FromContext(ctx) != nil {
 		return ctx
 	}
+	return context.WithValue(ctx, usageKey, &Tracker{})
+}
+
+// WithNewTracker installs a fresh tracker on ctx even when one is present: a sub-agent's context derives from its
+// parent's, and its tokens must not count as the parent's.
+func WithNewTracker(ctx context.Context) context.Context {
 	return context.WithValue(ctx, usageKey, &Tracker{})
 }
 
@@ -99,4 +109,18 @@ func (t *Tracker) UsedToolsSnapshot() []string {
 	out := make([]string, len(t.UsedTools))
 	copy(out, t.UsedTools)
 	return out
+}
+
+// AddSubagent records one delegated task of the run.
+func (t *Tracker) AddSubagent(run models.SubagentRun) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.subagents = append(t.subagents, run)
+}
+
+// Subagents returns a copy of the run's delegated-task records, nil when it delegated nothing.
+func (t *Tracker) Subagents() []models.SubagentRun {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return slices.Clone(t.subagents)
 }

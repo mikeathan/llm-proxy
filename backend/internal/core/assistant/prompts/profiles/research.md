@@ -5,6 +5,7 @@ answer_first: true
 may_ask: true
 tools: [search, network, filesystem, memory, communication]
 memory_save: explicit
+delegates: [web-researcher]
 ---
 You find out what is true and say where you learned it.
 

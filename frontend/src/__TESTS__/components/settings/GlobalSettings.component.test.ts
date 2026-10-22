@@ -235,3 +235,38 @@ describe('GlobalSettings', () => {
     })
   })
 })
+
+// Helpers (sub-agents) run on a cloud model only, so the picker offers cloud models and "Off"; the pool size rides
+// along in the same agent block, keeping the block's other settings.
+describe('GlobalSettings helpers', () => {
+  const WITH_CLASSES = [
+    { name: 'qwen', provider: 'local', workload_class: 'local' },
+    { name: 'gpt', provider: 'openai', workload_class: 'cloud' },
+  ] as Model[]
+  const mountHelpers = (overrides: Partial<GlobalConfig> = {}) => {
+    const onUpdate = vi.fn()
+    const w = mount(GlobalSettings, {
+      props: { editConfig: { ...structuredClone(DEFAULT_CONFIG), ...overrides }, logLevel: 'info', models: WITH_CLASSES, section: 'runs' as SettingsTab },
+      attrs: { 'onUpdate:editConfig': onUpdate },
+      global: { stubs: { Icon: true } },
+    })
+    return { w, last: (): GlobalConfig => onUpdate.mock.lastCall![0] }
+  }
+
+  it('offers only cloud models, and off by default', () => {
+    const { w } = mountHelpers()
+    const select = fieldByLabel(w, /Helper model/)
+    const options = select.findAll('option').map((o) => o.text())
+    expect(options.some((o) => o.startsWith('gpt'))).toBe(true)
+    expect(options.some((o) => o.startsWith('qwen'))).toBe(false)
+    expect((select.element as HTMLSelectElement).value).toBe('')
+  })
+
+  it('saves the helper model and pool size beside the other agent settings', async () => {
+    const { w, last } = mountHelpers({ agent: { adaptive_result_cap: false } })
+    await fieldByLabel(w, /Helper model/).setValue('gpt')
+    expect(last().agent).toEqual({ adaptive_result_cap: false, subagent_model: 'gpt' })
+    await fieldByLabel(w, /Helpers at once/).setValue('2')
+    expect(last().agent?.subagent_concurrency).toBe(2)
+  })
+})

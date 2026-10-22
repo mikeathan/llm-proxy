@@ -17,6 +17,7 @@ type runOptionDepsStub struct {
 	store  *memory.Store
 	memory *models.MemoryConfig
 	agent  *models.AgentConfig
+	runner SubRunner
 }
 
 func (d *runOptionDepsStub) ModelConfig(name string) (models.ModelConfig, bool) {
@@ -30,6 +31,7 @@ func (d *runOptionDepsStub) Orchestrator() *orchestrator.Orchestrator { return n
 func (d *runOptionDepsStub) MemoryStore() *memory.Store               { return d.store }
 func (d *runOptionDepsStub) MemorySettings() *models.MemoryConfig     { return d.memory }
 func (d *runOptionDepsStub) AgentSettings() *models.AgentConfig       { return d.agent }
+func (d *runOptionDepsStub) SubRunner() SubRunner                     { return d.runner }
 
 // One precedence chain for every kind of run: the run's own choice, then the profile, then the model config, then
 // the global default.
@@ -79,8 +81,24 @@ func TestResolveRunOptions(t *testing.T) {
 				t.Errorf("loop = %q, channel = %q; want %q, %q", got.LoopStrategy, got.Channel, tc.loop, tc.channel)
 			}
 			if got.GuardrailDecisionHandler == nil || got.MaxSteps == 0 {
-				t.Errorf("every run gets a decision handler and a step budget: %+v", got)
+				t.Errorf("every chat and automation gets a decision handler and a step budget: %+v", got)
 			}
 		})
+	}
+}
+
+// A sub-agent asks no one for approval (a blocked call fails at once, Constitution II.10), has no memory, cannot
+// delegate in turn, and runs unattended.
+func TestResolveRunOptions_SubagentRules(t *testing.T) {
+	deps := &runOptionDepsStub{store: newTestMemoryStore(t), memory: &models.MemoryConfig{AssistantHot: new(true), AutomationHot: new(true)},
+		runner: &scriptedSubRunner{enabled: true}}
+	got := ResolveRunOptions(deps, RunSpec{Kind: profile.KindSubagent, Logger: logging.NewNopLogger(),
+		Profile: profile.Profile{ID: "web-researcher", Memory: models.MemoryModeOn, Delegates: []string{"other"}}})
+	if got.GuardrailDecisionHandler != nil || got.MemoryStore != nil || got.EnableHotMemory || got.SubRunner != nil {
+		t.Errorf("sub-agent options: handler %v, store %v, hot %v, runner %v; want none of them",
+			got.GuardrailDecisionHandler != nil, got.MemoryStore != nil, got.EnableHotMemory, got.SubRunner != nil)
+	}
+	if lead := ResolveRunOptions(deps, RunSpec{Kind: profile.KindAssistant, Logger: logging.NewNopLogger()}); lead.SubRunner == nil {
+		t.Error("a chat gets the app's sub-runner")
 	}
 }

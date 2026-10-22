@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/delegation"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
@@ -114,6 +115,9 @@ func (c *Container) BuildAppServices() *AppServices {
 	)
 	c.watchConnectorConfig(s)
 	c.initReminders(s)
+	// The sub-agent runner gets a copy of the services taken now, before it is set: a child run's own services have
+	// no runner, so delegation is one level deep by construction.
+	s.subRunner = delegation.New(*s)
 
 	return s
 }
@@ -349,6 +353,9 @@ type AppServices struct {
 	// Reminders delivers stored reminders; nil when the database or the connector
 	// registry is unavailable. Its Run loop is started by the app lifecycle.
 	Reminders *reminders.Service
+	// subRunner runs delegated tasks. The runner keeps its own copy of these services taken before this is set, so a
+	// child run has none: delegation is one level deep by construction.
+	subRunner assistantPkg.SubRunner
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {
@@ -480,6 +487,9 @@ func (s AppServices) RecordDir() string {
 func (s AppServices) AgentSettings() *models.AgentConfig {
 	return s.AppCtx.GetSettings().Agent
 }
+
+// SubRunner runs delegated tasks; nil before it is wired and inside a sub-agent's own services.
+func (s AppServices) SubRunner() assistantPkg.SubRunner { return s.subRunner }
 
 func (s AppServices) MemorySettings() *models.MemoryConfig {
 	return s.AppCtx.GetSettings().Memory

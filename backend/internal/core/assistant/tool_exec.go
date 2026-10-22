@@ -487,7 +487,7 @@ func (a *Agent) executeSingleToolStep(
 	toolCtx, cancel := a.toolCtxWithTimeout(toolCtx, tc.Function.Name)
 	defer cancel()
 
-	result, err := a.deps.Engine.ExecuteTool(toolCtx, tc)
+	result, err := a.executeTool(toolCtx, tc)
 
 	mu.Lock()
 	var finalResult any
@@ -905,11 +905,24 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 	return "[Plan execution complete]", currentHistory, nil
 }
 
+// executeTool runs one tool call: the delegate tool here, every other tool through the engine.
+func (a *Agent) executeTool(ctx context.Context, tc proxy.ToolCall) (any, error) {
+	if tc.Function.Name == models.ToolDelegate && a.deps.SubRunner != nil {
+		return a.runDelegate(ctx, tc)
+	}
+	return a.deps.Engine.ExecuteTool(ctx, tc)
+}
+
 // toolCtxWithTimeout wraps ctx with the per-tool timeout derived from
 // the tool's category (models.CategoryOf) and AgentConfig. Returns ctx unchanged when the timeout is 0
 // (disabled). Filesystem tools use FilesystemToolTimeout; all others use
 // ToolTimeout.
 func (a *Agent) toolCtxWithTimeout(ctx context.Context, toolName string) (context.Context, context.CancelFunc) {
+	if toolName == models.ToolDelegate {
+		// A delegated task is a whole child run, minutes on a slow cloud model; its own step limit, stuck detection and
+		// run timeout bound it, and the parent's run timeout bounds the call.
+		return ctx, func() {}
+	}
 	timeout := a.config.ToolTimeout
 	if models.CategoryOf(toolName) == models.CategoryFileSystem && a.config.FilesystemToolTimeout > 0 {
 		timeout = a.config.FilesystemToolTimeout

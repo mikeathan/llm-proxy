@@ -140,6 +140,7 @@ func (m *mockSvc) Orchestrator() *orchestrator.Orchestrator                     
 func (m *mockSvc) MemoryStore() *memory.Store                                           { return m.memoryStore }
 func (m *mockSvc) MemorySettings() *models.MemoryConfig                                 { return m.memory }
 func (m *mockSvc) AgentSettings() *models.AgentConfig                                   { return m.agent }
+func (m *mockSvc) SubRunner() assistant.SubRunner                                       { return nil }
 func (m *mockSvc) GetPlaybackClient(ctx context.Context, ref string) (proxy.Client, error) {
 	return nil, fmt.Errorf("not implemented")
 }

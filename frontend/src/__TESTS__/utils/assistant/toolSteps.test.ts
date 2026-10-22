@@ -16,6 +16,8 @@ describe('describeToolStep', () => {
     ['memory_forget', '{"text":"vertex host"}', { kind: 'memory-forget', verb: 'Forgot a memory', target: 'vertex host' }],
     ['scan_local_network', '{}', { kind: 'network', verb: 'Scanned the local network', target: '' }],
     ['notify_user', '{"message":"done"}', { kind: 'notify', verb: 'Sent a notification', target: 'done' }],
+    ['delegate_task', '{"tasks":[{"agent":"web-researcher","task":"Rust news"},{"agent":"web-researcher","task":"Go news"}]}',
+      { kind: 'delegate', verb: 'Asked helpers', target: 'Rust news · Go news' }],
   ])('%s reads as a plain step', (name, args, expected) => {
     expect(describeToolStep(name, args)).toEqual(expected)
   })

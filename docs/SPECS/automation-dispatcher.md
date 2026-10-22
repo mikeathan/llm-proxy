@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.18"
+version: "1.19"
 status: stable
 last_updated: 2026-10-22
 constitution_references: []
@@ -12,6 +12,9 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 # SPEC: Automation Dispatcher
 
 ## Changelog
+
+- **1.19 (2026-10-22)** — §V: sub-agents (SPEC-001 §15) have their own pool and are never admitted through the run
+  lanes or the model gate.
 
 - **1.18 (2026-10-22)** — Saved reports are bounded (§II.5). `WriteReport` keeps an automation's newest
   `MaxSavedReports` (200, the same figure the list shows) and removes the older ones after each write; only files
@@ -357,6 +360,10 @@ Every agent run — chat and automation — is admitted through the
   the run is recorded skipped, its failed tail history entry dropped, and an
   informational event published — never `EventError`). Scheduled runs re-queue
   at the front; manual runs are dropped.
+- **Sub-agents are not admitted here.** A delegated task (SPEC-001 §15) runs inside its parent's run, in a pool of its
+  own (`agent.subagent_concurrency`, default 3). It never claims a lane slot or waits on the model gate: a child
+  claiming the local lane would wait forever on a chat parent that holds the only slot, and would pre-empt and cancel
+  an automation parent. Sub-agent models must be cloud models, so local fan-out cannot evict the parent's model.
 - **Skip-if-busy** — an automation with `skip_if_busy: true` is *disposable*: a scheduled (cron /
   interval) fire that cannot start immediately (the lane is full, a chat is waiting, or the
   residency gate holds starts) is dropped, not queued (`runlane.DispositionSkipped`,

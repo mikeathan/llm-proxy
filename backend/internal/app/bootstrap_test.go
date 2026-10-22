@@ -37,6 +37,19 @@ func TestBuildAppServices_UsesRuntimeProvider(t *testing.T) {
 	}
 }
 
+// The app's services carry the sub-agent runner, which stays off until a sub-agent model is named.
+func TestBuildAppServices_WiresTheSubRunner(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	container := bootstrap(minimalDataManager(t), &mocks.MockLogger{}, false, false)
+	services := container.BuildAppServices()
+	if services.SubRunner() == nil {
+		t.Fatal("AppServices.SubRunner() is nil: chats could never delegate")
+	}
+	if services.SubRunner().Enabled() {
+		t.Error("delegation must be off while no sub-agent model is set")
+	}
+}
+
 // The run scheduler must reach AppServices.Lane(): the assistant handler takes
 // its lane from there, and a nil lane silently disables chat admission. Chat
 // runs would then never record a lane holder — so the header run indicator

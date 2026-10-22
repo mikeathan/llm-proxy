@@ -3,6 +3,7 @@ package models
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -143,9 +144,49 @@ type AgentConfig struct {
 	// AdaptiveResultCap sizes the cap on one tool result from the room left in the request (never below 3000 characters),
 	// so a 7 KB file or a search result arrives whole on a window that has the room. Off keeps a fixed 3000.
 	AdaptiveResultCap *bool `yaml:"adaptive_result_cap,omitempty" json:"adaptive_result_cap,omitempty"`
+	// SubagentModel is the cloud model delegated sub-agents run on; empty turns delegation off. A local model is
+	// refused at run time: a child must never take the parent's local model (one model per local run).
+	SubagentModel string `yaml:"subagent_model,omitempty" json:"subagent_model,omitempty"`
+	// SubagentConcurrency is how many sub-agents may run at once across the app, in their own pool beside the run
+	// lanes (a child never claims a lane slot, so it cannot wait on its own parent). 0 means the default.
+	SubagentConcurrency int `yaml:"subagent_concurrency,omitempty" json:"subagent_concurrency,omitempty"`
 }
 
-const defaultAdaptiveResultCap = true
+const (
+	defaultAdaptiveResultCap   = true
+	defaultSubagentConcurrency = 3
+	maxSubagentConcurrency     = 10
+)
+
+// ErrSubagentConcurrency rejects a sub-agent pool outside 0..maxSubagentConcurrency.
+var ErrSubagentConcurrency = errors.New("agent.subagent_concurrency is out of range")
+
+// IsAgentConfigError classifies an agent block the caller got wrong.
+func IsAgentConfigError(err error) bool { return errors.Is(err, ErrSubagentConcurrency) }
+
+// SubagentModelName is the configured sub-agent model, trimmed; "" when delegation is off. Nil-safe.
+func (c *AgentConfig) SubagentModelName() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.SubagentModel)
+}
+
+// SubagentLimit is the effective sub-agent pool size; nil-safe, unset means the default.
+func (c *AgentConfig) SubagentLimit() int {
+	if c == nil || c.SubagentConcurrency <= 0 {
+		return defaultSubagentConcurrency
+	}
+	return c.SubagentConcurrency
+}
+
+// Validate rejects a sub-agent pool outside 0..maxSubagentConcurrency (0 means the default).
+func (c *AgentConfig) Validate() error {
+	if c != nil && (c.SubagentConcurrency < 0 || c.SubagentConcurrency > maxSubagentConcurrency) {
+		return fmt.Errorf("%w: %d (use 1 to %d, or 0 for the default %d)", ErrSubagentConcurrency, c.SubagentConcurrency, maxSubagentConcurrency, defaultSubagentConcurrency)
+	}
+	return nil
+}
 
 // AdaptiveResultCapEnabled is the effective setting; nil-safe, unset means on.
 func (c *AgentConfig) AdaptiveResultCapEnabled() bool {
@@ -157,7 +198,7 @@ func (c *AgentConfig) AdaptiveResultCapEnabled() bool {
 
 // Effective is the block with every default filled in, as the admin API shows it; nil-safe.
 func (c *AgentConfig) Effective() AgentConfig {
-	return AgentConfig{AdaptiveResultCap: new(c.AdaptiveResultCapEnabled())}
+	return AgentConfig{AdaptiveResultCap: new(c.AdaptiveResultCapEnabled()), SubagentModel: c.SubagentModelName(), SubagentConcurrency: c.SubagentLimit()}
 }
 
 const (

@@ -135,3 +135,27 @@ func TestMemoryConfig_HotDefaults(t *testing.T) {
 		})
 	}
 }
+
+// Sub-agents are off until a model is named; the pool defaults to three and the effective view keeps both.
+func TestAgentConfig_Subagents(t *testing.T) {
+	var none *AgentConfig
+	if none.SubagentModelName() != "" || none.SubagentLimit() != defaultSubagentConcurrency {
+		t.Errorf("an absent block: model %q, limit %d", none.SubagentModelName(), none.SubagentLimit())
+	}
+	set := &AgentConfig{SubagentModel: " cloud-m ", SubagentConcurrency: 5}
+	if set.SubagentModelName() != "cloud-m" || set.SubagentLimit() != 5 {
+		t.Errorf("set: model %q, limit %d", set.SubagentModelName(), set.SubagentLimit())
+	}
+	if got := set.Effective(); got.SubagentModel != "cloud-m" || got.SubagentConcurrency != 5 {
+		t.Errorf("the effective view keeps the sub-agent settings: %+v", got)
+	}
+	if got := none.Effective(); got.SubagentConcurrency != defaultSubagentConcurrency {
+		t.Errorf("the effective view shows the default limit: %+v", got)
+	}
+	if err := (&AgentConfig{SubagentConcurrency: maxSubagentConcurrency + 1}).Validate(); err == nil {
+		t.Error("a pool above the ceiling is rejected")
+	}
+	if err := (&AgentConfig{SubagentConcurrency: -1}).Validate(); err == nil {
+		t.Error("a negative pool is rejected")
+	}
+}

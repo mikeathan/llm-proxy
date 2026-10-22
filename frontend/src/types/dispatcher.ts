@@ -113,7 +113,18 @@ export interface TriggerResponse {
   automation: string
 }
 
-export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream' | 'reasoning' | 'lifecycle' | 'upstream'
+export type AgentEventType = 'step_start' | 'message' | 'tool_call' | 'tool_result' | 'guardrail_violation' | 'guardrail_blocked' | 'guardrail_invalidated' | 'error' | 'tool_stream' | 'reasoning' | 'lifecycle' | 'upstream' | 'subagent'
+
+// One coarse step of a delegated sub-agent, nested under the delegate_task step that started it
+// (backend assistant.SubagentEvent). Kind values mirror SubagentEventKind.
+export type SubagentEventKind = 'started' | 'tool_call' | 'tool_result' | 'done'
+export interface SubagentEvent {
+  run_id: string
+  agent: string
+  kind: SubagentEventKind
+  tool?: string
+  detail?: string
+}
 
 // Lifecycle phase vocabulary (SSOT). These string VALUES are sent verbatim by
 // the Go backend over SSE and MUST stay in sync with the Phase* constants in

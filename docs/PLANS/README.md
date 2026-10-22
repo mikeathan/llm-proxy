@@ -107,7 +107,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| active | Multi-Agent Delegation | R0 + Part A done (tool categories from one table; `ResolveRunOptions` for chat and automation; one run ID; `run.OpenRecording`); next Part B: B0–B8 cloud research sub-agents + eval; Part C later (handler lifecycle, package moves, reviewer, editor) (`agent-loop/multi-agent-delegation.md`) |
+| active | Multi-Agent Delegation | R0 + Part A done; Part B built (cloud web-research sub-agents: `delegate_task`, `delegation.Runner`, pool, profile `delegates`, Settings + chat UI) — left: B7 live smoke + eval on the dev backend; Part C later (handler lifecycle, package moves, reviewer, editor) (`agent-loop/multi-agent-delegation.md`) |
 | active | Prompt Profiles | built (Phases 0–6); left: eval the Research, Operator, Builder and Watcher profiles, fold in the layering plan's write guardrail, delete the dead `GetSystemPrompt` chain (`cross-cutting/prompt-profiles.md`) |
 | partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
 | partial | Frontend Redesign v2 | Phases 0–5 delivered 2026-10-14; left: Automations/Reminders/Models/Activity on a phone, arrow-key handling + focus trap in the new sheets, "All workspaces" scope decision, recent-chats menu in the ask panel |

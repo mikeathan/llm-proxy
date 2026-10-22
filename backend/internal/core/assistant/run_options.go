@@ -21,6 +21,8 @@ type RunOptionDeps interface {
 	MemoryStore() *memory.Store
 	MemorySettings() *models.MemoryConfig
 	AgentSettings() *models.AgentConfig
+	// SubRunner runs delegated tasks; nil when the app has none.
+	SubRunner() SubRunner
 }
 
 // RunOverrides are the choices made for one run, above its profile: an automation's own fields, a workspace's
@@ -53,6 +55,9 @@ func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
 	if decisionEvents == nil {
 		decisionEvents = spec.Observer
 	}
+	if spec.Kind == profile.KindSubagent {
+		return subagentOptions(deps, spec, channel)
+	}
 	hot := HotMemoryActive(deps, spec)
 	opts := AgentOptions{
 		Logger:                   spec.Logger,
@@ -70,6 +75,7 @@ func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
 		Profile:                  spec.Profile,
 		AdaptiveResultCap:        deps.AgentSettings().AdaptiveResultCapEnabled(),
 		EnableHotMemory:          hot,
+		SubRunner:                deps.SubRunner(),
 	}
 	// A chat keeps the store with hot memory off: memory_search reads it. An automation has memory only when on.
 	if hot || spec.Kind == profile.KindAssistant {
@@ -86,6 +92,19 @@ func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
 	if spec.Overrides.LoopStrategy != "" {
 		opts.LoopStrategy = ParseLoopStrategy(spec.Overrides.LoopStrategy)
 	}
+	return opts
+}
+
+// subagentOptions are a delegated task's options: the same resolution with the child's rules on top. It asks no one
+// for approval (a nil handler fails a blocked call at once, II.10), has no memory, and cannot delegate in turn.
+func subagentOptions(deps RunOptionDeps, spec RunSpec, channel EventChannel) AgentOptions {
+	spec.Kind = profile.KindAutomation // resolve as an unattended run, then remove what a child must not have
+	opts := ResolveRunOptions(deps, spec)
+	opts.Channel = channel
+	opts.GuardrailDecisionHandler = nil
+	opts.MemoryStore = nil
+	opts.EnableHotMemory = false
+	opts.SubRunner = nil
 	return opts
 }
 

@@ -56,6 +56,17 @@ type Message struct {
 
 // TurnRun is the run record of one chat turn (Message.Run). Old sessions have
 // none; every field is optional so a partial record still reads.
+// SubagentRun is how one delegated task ran: the helper, the cloud model, how it ended, how long and the tokens the
+// provider reported.
+type SubagentRun struct {
+	Agent            string `json:"agent"`
+	Model            string `json:"model,omitempty"`
+	Status           string `json:"status"`
+	DurationMs       int64  `json:"duration_ms,omitempty"`
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`
+	CompletionTokens int    `json:"completion_tokens,omitempty"`
+}
+
 type TurnRun struct {
 	Model      string    `json:"model,omitempty"`
 	StartedAt  time.Time `json:"started_at,omitzero"`
@@ -70,6 +81,8 @@ type TurnRun struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
 	// MemorySaved lists the facts saved from the user's message before the run started (an explicit "remember …").
 	MemorySaved []string `json:"memory_saved,omitempty"`
+	// Subagents are the tasks the turn delegated, one record each; their tokens are not in the counts above.
+	Subagents []SubagentRun `json:"subagents,omitempty"`
 	// Warnings are the turn's non-fatal problems, e.g. a tool whose credential was rejected — recorded whatever the
 	// model's answer says, so the operator sees them.
 	Warnings []string `json:"warnings,omitempty"`

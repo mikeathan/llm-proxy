@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"llm-proxy/models"
 )
 
 func TestTracker_AddLLMCall(t *testing.T) {
@@ -116,5 +118,28 @@ func TestTracker_ReportedCachedTokens(t *testing.T) {
 	}
 	if p, c := tr.ReportedUsage(); p != 100 || c != 10 {
 		t.Errorf("ReportedUsage() = %d/%d, want 100/10: the cache count must not change them", p, c)
+	}
+}
+
+// A sub-agent counts into a tracker of its own; the parent keeps only a record of each delegated task.
+func TestTracker_SubagentsAndAFreshTrackerForAChild(t *testing.T) {
+	parentCtx := WithTracker(context.Background())
+	parent := FromContext(parentCtx)
+	child := FromContext(WithNewTracker(parentCtx))
+	if child == nil || child == parent {
+		t.Fatal("a child run gets a tracker of its own")
+	}
+	child.AddReportedUsage(500, 50)
+	if p, c := parent.ReportedUsage(); p != 0 || c != 0 {
+		t.Errorf("the child's tokens reached the parent: %d, %d", p, c)
+	}
+	parent.AddSubagent(models.SubagentRun{Agent: "web-researcher", Status: "done", PromptTokens: 500})
+	got := parent.Subagents()
+	if len(got) != 1 || got[0].PromptTokens != 500 {
+		t.Errorf("subagents = %+v", got)
+	}
+	got[0].Agent = "changed"
+	if parent.Subagents()[0].Agent != "web-researcher" {
+		t.Error("Subagents returns a copy")
 	}
 }

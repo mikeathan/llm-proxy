@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import Icon from '../../icons/Icon.vue'
 import { describeToolStep, formatToolArguments, formatToolResult, TOOL_KIND_ICON } from '../../../utils/assistant/toolSteps'
+import { HELPER_STATUS_LABEL } from '../../../constants/labels'
+import type { HelperProgress } from '../../../types/assistant'
 
 // One tool call in the assistant's step timeline (ChatBubble): an icon for its
 // kind, a plain verb, the target it acted on and its outcome in words. Opened,
@@ -16,6 +18,7 @@ interface ToolCallSeg {
   status: string
   result?: string
   error?: string
+  helpers?: HelperProgress[]
 }
 
 const props = defineProps<{
@@ -32,6 +35,9 @@ const emit = defineEmits<{
 
 const STATUS_TEXT: Record<string, string> = { running: 'Running', success: 'Done', error: 'Failed' }
 const STATUS_ICON: Record<string, string> = { running: 'spinner', success: 'check', error: 'close' }
+const HELPER_ICON: Record<HelperProgress['status'], string> = {
+  running: 'spinner', done: 'check', busy: 'close', refused: 'close', failed: 'close', stopped: 'close',
+}
 
 // In compact mode the row is collapsed by default; clicking toggles a local
 // inline expansion. In non-compact mode the `expanded` prop drives detail.
@@ -82,6 +88,14 @@ function onClick() {
         </span>
         <span class="step-chevron" :class="{ 'is-open': showDetail }" aria-hidden="true"><Icon name="chevron-right" size="xs" /></span>
       </button>
+
+      <ul v-if="segment.helpers?.length" class="step-helpers" aria-label="Helpers">
+        <li v-for="h in segment.helpers" :key="h.runId" class="step-helper" :class="`step-helper--${h.status}`">
+          <Icon :name="HELPER_ICON[h.status]" size="xs" />
+          <span class="step-helper-task" :title="h.task">{{ h.task || h.agent }}</span>
+          <span class="step-helper-last" :title="h.lastStep">{{ h.status === 'running' && h.lastStep ? h.lastStep : HELPER_STATUS_LABEL[h.status] }}</span>
+        </li>
+      </ul>
 
       <div v-if="showDetail" class="step-detail">
         <dl v-if="args.length" class="step-args">
@@ -143,6 +157,15 @@ function onClick() {
   .step-chevron { @apply h-7 w-7 items-center justify-center rounded-full text-muted; }
   .step-chevron :deep(svg) { @apply h-4 w-4; }
 }
+
+.step-helpers { @apply m-0 ml-1.5 flex list-none flex-col gap-0.5 p-0 pl-1.5; }
+.step-helper { @apply flex min-w-0 items-center gap-1.5 text-[length:var(--text-small)] text-muted; }
+.step-helper :deep(svg) { @apply h-3 w-3 flex-none; }
+.step-helper--running { @apply text-state-running; }
+.step-helper--done { @apply text-state-success; }
+.step-helper--busy, .step-helper--refused, .step-helper--failed, .step-helper--stopped { @apply text-state-error; }
+.step-helper-task { @apply min-w-0 max-w-[45%] flex-none truncate text-secondary; }
+.step-helper-last { @apply min-w-0 flex-1 truncate font-mono text-[11.5px]; }
 
 .step-detail { @apply mb-1 ml-1.5 mt-1 flex flex-col gap-2.5 rounded-[var(--radius-sm)] border border-hairline bg-canvas p-3; }
 .step-args { @apply m-0 grid gap-x-3 gap-y-1; grid-template-columns: max-content minmax(0, 1fr); }

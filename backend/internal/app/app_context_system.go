@@ -139,8 +139,11 @@ func (s *AppContext) ApplySystemUpdate(ctx context.Context, req models.SystemUpd
 	return nil
 }
 
-// validateSystemUpdate rejects an invalid search, scheduler or reminders block.
+// validateSystemUpdate rejects an invalid search, scheduler, agent or reminders block.
 func validateSystemUpdate(req models.SystemUpdatePayload) error {
+	if err := req.Agent.Validate(); err != nil {
+		return err
+	}
 	if req.Search != nil {
 		if err := req.Search.Validate(); err != nil {
 			return err
