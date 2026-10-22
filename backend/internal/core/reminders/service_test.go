@@ -435,6 +435,11 @@ func TestRun_RecurringSurvivesFailedDelivery(t *testing.T) {
 		time.Sleep(30 * time.Millisecond)
 	}
 	eventually(t, "failure noticed", func() bool { return len(r.notes.all()) > 0 })
+	// The announcement comes before the new occurrence is saved: wait for the save, not for the notice alone.
+	eventually(t, "moved on", func() bool {
+		saved, _ := r.store.Get(context.Background(), rem.ID)
+		return saved.FireAt.After(r.clock.Now())
+	})
 	got, _ := r.store.Get(context.Background(), rem.ID)
 	if got.Status != StatusScheduled || !got.FireAt.After(r.clock.Now()) {
 		t.Fatalf("status=%q fireAt=%v: a recurring reminder must move on to its next occurrence after a failed one", got.Status, got.FireAt)
@@ -699,6 +704,9 @@ func TestRun_PartialDeliveryIsReportedNotRetried(t *testing.T) {
 	eventually(t, "timer armed", r.clock.armed)
 	r.clock.Advance(time.Hour)
 	eventually(t, "partial event", func() bool { return slices.Contains(r.notes.all(), "partial:call the bank") })
+	// The service announces the event before it saves the new status, so the announcement can be heard while the store
+	// still says "scheduled": wait for the saved status instead of reading it at once.
+	eventually(t, "status saved", func() bool { return r.statusOf(t, 1) == StatusDone })
 	got, err := r.store.Get(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
