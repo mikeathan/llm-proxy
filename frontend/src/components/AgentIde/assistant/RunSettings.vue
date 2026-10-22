@@ -7,7 +7,9 @@ import FormField from "../../common/forms/FormField.vue"
 import SelectInput from "../../common/forms/SelectInput.vue"
 import PopoverPanel from "../../common/layout/PopoverPanel.vue"
 import BaseToggle from "../../common/buttons/BaseToggle.vue"
-import { HELPERS_FIELD_LABEL, HELPERS_ON_SUFFIX, HELPERS_TOGGLE_LABEL, HELPERS_UNAVAILABLE_HINT, helpersHint } from "../../../constants/labels"
+import { HELPERS_FIELD_LABEL, HELPERS_ON_SUFFIX, HELPERS_TOGGLE_LABEL, helpersHelp } from "../../../constants/labels"
+import { toSettings } from "../../../router/routes"
+import type { HelpersProblem } from "../../../types/helpers"
 
 // What the next message runs with, in one control beside the composer's tools: the profile (how the assistant
 // behaves) and the model. One button, so the composer row fits a phone; the choices open above it.
@@ -25,6 +27,8 @@ const props = defineProps<{
   helpersAvailable?: boolean
   /** The helper model, named in the row's help text. */
   helpersModel?: string
+  /** Why helpers cannot run, so the help text names the fix; empty when they can. */
+  helpersProblem?: HelpersProblem
   disabled?: boolean
   /** A phone: the choices open as a bottom sheet over the whole screen instead of a popover above the button. */
   sheet?: boolean
@@ -43,6 +47,8 @@ useDismissable(root, open, panel)
 
 const modelLabel = computed(() => props.modelOptions.find((o) => o.value === model.value)?.label ?? "")
 // Helpers count as on only when they will be used: the profile names them and the server can run them.
+// With no problem given but helpers unavailable, the model was simply never chosen.
+const helpersHelpText = computed(() => helpersHelp(props.helpersAvailable ? "" : (props.helpersProblem || "unset"), props.helpersModel ?? ""))
 const helpersOn = computed(() => helpers.value && !!props.helpersShown && !!props.helpersAvailable)
 const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${modelLabel.value ? `, ${modelLabel.value}` : ""}${helpersOn.value ? ", helpers on" : ""}. Change`)
 </script>
@@ -79,15 +85,12 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${
             <SelectInput :id="id" v-model="model" :options="modelOptions" label="Model" :aria-describedby="describedBy" />
           </template>
         </FormField>
-        <FormField
-          v-if="helpersShown"
-          :label="HELPERS_FIELD_LABEL"
-          :hint="helpersAvailable ? helpersHint(helpersModel ?? '') : HELPERS_UNAVAILABLE_HINT"
-        >
+        <FormField v-if="helpersShown" :label="HELPERS_FIELD_LABEL" :hint="helpersHelpText.hint">
           <template #default="{ id, describedBy }">
             <BaseToggle :id="id" v-model="helpers" :described-by="describedBy" :label="HELPERS_TOGGLE_LABEL" :disabled="!helpersAvailable" />
           </template>
         </FormField>
+        <RouterLink v-if="helpersShown" :to="toSettings('runs')" class="helpers-link">{{ helpersHelpText.link }}</RouterLink>
       </div>
     </PopoverPanel>
     </div>
@@ -99,6 +102,7 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${
 .trigger {
   @apply inline-flex h-8 max-w-[10rem] items-center gap-1.5 rounded-[var(--radius-md)] px-2 font-mono text-[length:var(--text-small)] text-muted transition-colors hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60;
 }
+.helpers-link { @apply -mt-1.5 w-fit text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2; }
 /* "Research · helpers" is longer than a profile name alone: room for the whole word. */
 .trigger--helpers { @apply max-w-[14rem]; }
 @media (pointer: coarse) { .trigger { @apply h-11; } }

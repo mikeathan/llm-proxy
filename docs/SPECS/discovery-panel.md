@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.13"
+version: "2.14"
 status: stable
 last_updated: 2026-10-22
 constitution_references: []
@@ -12,6 +12,13 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.14 (2026-10-22)** — The Helpers row in Run settings links to **Settings → Runs**, where the Helper model is
+  chosen, and says what is wrong when helpers cannot run, by `GET /admin/api/helpers`'s `problem`: no model chosen
+  (`unset`), the chosen one **removed from the models** (`missing`), or one that is not a cloud model (`not_cloud`).
+  The link text follows ("Pick another in Settings → Runs"). In Settings, a helper model that is no longer available
+  still shows, flagged "(not available)", instead of a blank dropdown. Nothing else changes when the model is gone:
+  helpers switch themselves off, the delegate tool is not offered and the switch is ignored.
 
 - **2.13 (2026-10-22)** — The composer's Run settings gain **Use helpers** (`RunSettings.vue`).
   - **When it shows:** a row under Profile and Model, shown when the selected profile names `delegates`. It is enabled

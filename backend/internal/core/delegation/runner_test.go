@@ -98,8 +98,10 @@ func newStubDeps(t *testing.T) *stubDeps {
 	}
 }
 
+// ModelConfig knows the models in lanes only: a name outside it was removed from the models.
 func (d *stubDeps) ModelConfig(name string) (models.ModelConfig, bool) {
-	return models.ModelConfig{Name: name}, true
+	_, known := d.lanes[name]
+	return models.ModelConfig{Name: name}, known
 }
 
 // GuardrailEngine allows web search and page fetch, as a configured app does.
@@ -192,14 +194,53 @@ func TestRunner_SendsNoWorkspaceNotes(t *testing.T) {
 	}
 }
 
+// Why helpers cannot run is said in terms of what is wrong, so the page and the model's note can tell the user how to
+// fix it: no model named, the named one removed from the models, or the named one not a cloud model.
+func TestRunner_ProblemSaysWhyHelpersCannotRun(t *testing.T) {
+	cases := []struct {
+		name, model string
+		want        assistant.HelperProblem
+	}{
+		{"a cloud model", "cloud-m", assistant.HelperNone},
+		{"no model named", "", assistant.HelperUnset},
+		{"a model removed from the models", "gone-m", assistant.HelperMissing},
+		{"a local model", "local-m", assistant.HelperNotCloud},
+	}
+	for _, tc := range cases {
+		deps := newStubDeps(t)
+		deps.settings.SubagentModel = tc.model
+		r := New(deps)
+		if got := r.Problem(); got != tc.want {
+			t.Errorf("%s: Problem() = %q, want %q", tc.name, got, tc.want)
+		}
+		if r.Enabled() != (tc.want == assistant.HelperNone) {
+			t.Errorf("%s: Enabled() = %v", tc.name, r.Enabled())
+		}
+	}
+}
+
+// A task for a helper model that was removed is refused in words that name the fix, never a crash.
+func TestRunner_RemovedHelperModelIsRefusedClearly(t *testing.T) {
+	deps := newStubDeps(t)
+	deps.settings.SubagentModel = "gone-m"
+	var events []assistant.SubagentEvent
+	res := New(deps).Run(context.Background(), task("web-researcher", &events))
+	if res.Status != assistant.SubRunRefused || !strings.Contains(res.Error, "gone-m") || !strings.Contains(res.Error, "no longer in your models") {
+		t.Errorf("result = %+v", res)
+	}
+	if len(deps.client.requests) != 0 {
+		t.Error("a removed model must not be called")
+	}
+}
+
 // Without a cloud model, or for an unknown helper, nothing runs.
 func TestRunner_Refuses(t *testing.T) {
 	cases := []struct {
 		name, model, agent, want string
 	}{
-		{"no model set", "", "web-researcher", "no sub-agent model"},
+		{"no model set", "", "web-researcher", "no helper model"},
 		{"a local model", "local-m", "web-researcher", "not a cloud model"},
-		{"a model the classifier cannot place", "mystery-m", "web-researcher", "not a cloud model"},
+		{"a model removed from the models", "mystery-m", "web-researcher", "no longer in your models"},
 		{"an unknown helper", "cloud-m", "nobody", "no helper profile"},
 	}
 	for _, tc := range cases {

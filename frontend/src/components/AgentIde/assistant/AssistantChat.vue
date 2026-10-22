@@ -503,6 +503,7 @@ const handleDeleteGroup = async (ids: string[]) => {
             :helpers-shown="helpersShown"
             :helpers-available="helpersStatus.available"
             :helpers-model="helpersStatus.model"
+            :helpers-problem="helpersStatus.problem"
             :profile-options="profileChoices"
             :model-options="modelOptions"
             :profile-name="shownProfile.name"

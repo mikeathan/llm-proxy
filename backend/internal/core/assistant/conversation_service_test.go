@@ -1266,7 +1266,8 @@ type fakeSubRunner struct {
 	shortDeadline bool // a task ran under the per-tool timeout, which a multi-minute child would hit
 }
 
-func (f *fakeSubRunner) Enabled() bool { return true }
+func (f *fakeSubRunner) Enabled() bool          { return true }
+func (f *fakeSubRunner) Problem() HelperProblem { return HelperNone }
 
 func (f *fakeSubRunner) Run(ctx context.Context, req SubRunRequest) SubRunResult {
 	f.mu.Lock()

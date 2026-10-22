@@ -5,6 +5,7 @@
 // single source of truth for copy so wording, casing and punctuation stay
 // consistent and searchable. (Symbols/emojis live in constants/icons.ts.)
 import type { HelperProgress, SubagentRun } from '../types/assistant'
+import type { HelpersProblem } from '../types/helpers'
 import type { InsetPhase } from '../types/inset'
 import { formatElapsedSeconds } from '../utils/format/time'
 import { formatTokenCount } from '../utils/format/units'
@@ -14,10 +15,20 @@ import { formatTokenCount } from '../utils/format/units'
 export const HELPERS_FIELD_LABEL = 'Helpers'
 export const HELPERS_TOGGLE_LABEL = 'Use helpers for this chat'
 export const HELPERS_ON_SUFFIX = 'helpers'
-export const HELPERS_UNAVAILABLE_HINT = 'Pick a Helper model in Settings → Runs to use helpers.'
 export function helpersHint(model: string): string {
   return `Splits the question into parts and hands each to a helper on ${model}, which searches the web in parallel. Only what your assistant writes into the tasks leaves this machine.`
 }
+// The row's help text and its link to Settings → Runs, by what is wrong with the helper model (or nothing: it can run).
+// A model removed from the models is told apart from one that is not a cloud model, so the fix named is the right one.
+export function helpersHelp(problem: HelpersProblem, model: string): { hint: string; link: string } {
+  switch (problem) {
+    case 'missing': return { hint: `The Helper model ${model} is no longer in your models.`, link: 'Pick another in Settings → Runs' }
+    case 'not_cloud': return { hint: `The Helper model ${model} is not a cloud model, so it cannot run helpers.`, link: 'Pick a cloud model in Settings → Runs' }
+    case 'unset': return { hint: 'Helpers run on a cloud model, and none is chosen yet.', link: 'Pick a Helper model in Settings → Runs' }
+    default: return { hint: helpersHint(model), link: 'Change the Helper model in Settings → Runs' }
+  }
+}
+export const HELPER_MODEL_UNAVAILABLE_SUFFIX = ' (not available)'
 
 // HELPER_STATUS_LABEL says how a delegated helper stands when it has no step to show (ToolCallSegment).
 export const HELPER_STATUS_LABEL: Record<HelperProgress['status'], string> = {

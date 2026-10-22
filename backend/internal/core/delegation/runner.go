@@ -57,23 +57,43 @@ func New(deps Deps) *Runner {
 
 var _ assistant.SubRunner = (*Runner)(nil)
 
-// Enabled reports whether a sub-agent model is named and it is a cloud model.
-func (r *Runner) Enabled() bool {
-	_, err := r.model()
-	return err == nil
+// Enabled reports whether a sub-agent model is named, still among the models, and a cloud model.
+func (r *Runner) Enabled() bool { return r.Problem() == assistant.HelperNone }
+
+// Problem says why helpers cannot run. A model removed from the models is told apart from one that is not a cloud
+// model (the lane classifier calls an unknown model local), so the fix named is the right one.
+func (r *Runner) Problem() assistant.HelperProblem {
+	name := r.deps.AgentSettings().SubagentModelName()
+	switch {
+	case name == "":
+		return assistant.HelperUnset
+	case !r.knows(name):
+		return assistant.HelperMissing
+	case r.deps.LaneKeyFor(name) != runlane.LaneCloud:
+		return assistant.HelperNotCloud
+	}
+	return assistant.HelperNone
 }
 
-// model is the configured sub-agent model, refused unless the lane classifier says cloud. A model it cannot resolve
-// counts as local, so a child never lands on the GPU a local parent holds.
+func (r *Runner) knows(model string) bool {
+	_, ok := r.deps.ModelConfig(model)
+	return ok
+}
+
+// model is the configured sub-agent model, or an error that says what is wrong with it. A child never lands on the
+// GPU a local parent holds, so anything but a cloud model is refused.
 func (r *Runner) model() (string, error) {
 	name := r.deps.AgentSettings().SubagentModelName()
-	if name == "" {
-		return "", errors.New("no sub-agent model is set (Settings → agent.subagent_model)")
+	switch r.Problem() {
+	case assistant.HelperNone:
+		return name, nil
+	case assistant.HelperUnset:
+		return "", errors.New("no helper model is set (Settings → Runs)")
+	case assistant.HelperMissing:
+		return "", fmt.Errorf("the helper model %q is no longer in your models (change it in Settings → Runs)", name)
+	default:
+		return "", fmt.Errorf("the helper model %q is not a cloud model (change it in Settings → Runs)", name)
 	}
-	if r.deps.LaneKeyFor(name) != runlane.LaneCloud {
-		return "", fmt.Errorf("the sub-agent model %q is not a cloud model", name)
-	}
-	return name, nil
 }
 
 // Run runs one task to its end. Every outcome is a status: a busy pool, a refused model or a failed child never

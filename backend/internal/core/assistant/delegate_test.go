@@ -21,6 +21,12 @@ type scriptedSubRunner struct {
 }
 
 func (s *scriptedSubRunner) Enabled() bool { return s.enabled }
+func (s *scriptedSubRunner) Problem() HelperProblem {
+	if s.enabled {
+		return HelperNone
+	}
+	return HelperNotCloud
+}
 func (s *scriptedSubRunner) Run(_ context.Context, req SubRunRequest) SubRunResult {
 	return s.answer(req)
 }

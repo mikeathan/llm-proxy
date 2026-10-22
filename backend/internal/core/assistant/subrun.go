@@ -5,10 +5,22 @@ package assistant
 
 import "context"
 
+// HelperProblem says why delegation cannot run; HelperNone means it can.
+type HelperProblem string
+
+const (
+	HelperNone     HelperProblem = ""          // a cloud helper model is set up
+	HelperUnset    HelperProblem = "unset"     // no helper model is named
+	HelperMissing  HelperProblem = "missing"   // the named model was removed from the models
+	HelperNotCloud HelperProblem = "not_cloud" // the named model is not a cloud model
+)
+
 // SubRunner runs one delegated task as a sub-agent.
 type SubRunner interface {
 	// Enabled reports whether delegation is set up (a cloud model is named); the delegate tool is offered only then.
 	Enabled() bool
+	// Problem says why Enabled is false, so a page can name the fix; HelperNone when it is true.
+	Problem() HelperProblem
 	// Run runs the task to the end and reports how it went; it never returns an error, a failure is a status.
 	Run(ctx context.Context, req SubRunRequest) SubRunResult
 }
