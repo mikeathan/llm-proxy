@@ -16,6 +16,7 @@ import { LOG_LEVELS } from "../../constants/api";
 import type { GlobalConfig, MemoryHotDefaults, ProviderItem, SchedulerConfig, SettingsTab } from "../../types/admin";
 import type { GeneralPanel } from "../../types/admin";
 import { GENERAL_PANEL_SECTION, SUBAGENT_DEFAULT_CONCURRENCY, SUBAGENT_MAX_CONCURRENCY } from "../../constants/settings";
+import { HELPER_MODEL_UNAVAILABLE_SUFFIX } from "../../constants/labels";
 import { SHIPPED_MEMORY_DEFAULTS } from "../../constants/memory";
 import { DELIVER_TO_HINT, TIMEZONE_HINT, UNKNOWN_TIMEZONE_ERROR, WEB_UI_LABEL } from "../../constants/reminders";
 import { defaultConnectorTypes, deliveryLabel, enabledConnectorTypes, withConnectorSkipped } from "../../utils/reminders/channels";
@@ -187,6 +188,9 @@ const subagentModel = computed({
   get: () => props.editConfig.agent?.subagent_model ?? '',
   set: (subagent_model: string) => replaceConfig({ agent: { ...props.editConfig.agent, subagent_model } }),
 })
+// A helper model that was removed from the models (or is not a cloud model) is still what is saved: it shows, flagged,
+// so the user sees what is set and can change it, not a blank box.
+const subagentModelUnavailable = computed(() => !!subagentModel.value && !cloudModels.value.some((m) => m.name === subagentModel.value))
 const subagentConcurrency = computed({
   get: () => props.editConfig.agent?.subagent_concurrency ?? SUBAGENT_DEFAULT_CONCURRENCY,
   set: (subagent_concurrency: number) => replaceConfig({ agent: { ...props.editConfig.agent, subagent_concurrency } }),
@@ -359,6 +363,7 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
           <template #default="{ id, describedBy }">
             <select :id="id" v-model="subagentModel" :aria-describedby="describedBy" class="form-control">
               <option value="">Off — no helpers</option>
+              <option v-if="subagentModelUnavailable" :value="subagentModel">{{ subagentModel }}{{ HELPER_MODEL_UNAVAILABLE_SUFFIX }}</option>
               <option v-for="m in cloudModels" :key="m.name" :value="m.name">{{ m.name }} ({{ m.provider }})</option>
             </select>
           </template>

@@ -21,15 +21,21 @@ func NewHelpersHandlers(svc HelpersService) *HelpersHandlers { return &HelpersHa
 type helpersStatus struct {
 	// Available is true when a cloud helper model is set up, so a chat's "Use helpers" can work.
 	Available bool `json:"available"`
-	// Model is the helper model Settings names ("" when none), even when it is not usable, so the page can say why.
+	// Model is the helper model Settings names ("" when none), even when it is not usable, so the page can say which.
 	Model string `json:"model"`
+	// Problem says why helpers cannot run ("unset", "missing" when the model was removed, "not_cloud"); empty when they can.
+	Problem assistant.HelperProblem `json:"problem,omitempty"`
 }
 
 // Status answers GET /admin/api/helpers.
 func (h *HelpersHandlers) Status(w http.ResponseWriter, _ *http.Request) {
-	runner := h.svc.SubRunner()
+	problem := assistant.HelperUnset // no runner wired: helpers are not set up
+	if runner := h.svc.SubRunner(); runner != nil {
+		problem = runner.Problem()
+	}
 	respondJSON(w, helpersStatus{
-		Available: runner != nil && runner.Enabled(),
+		Available: problem == assistant.HelperNone,
 		Model:     h.svc.AgentSettings().SubagentModelName(),
+		Problem:   problem,
 	})
 }

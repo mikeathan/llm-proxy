@@ -1,7 +1,7 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.3"
+version: "1.4"
 status: draft
 last_updated: 2026-10-22
 constitution_references: [II.13, II.3]
@@ -12,6 +12,9 @@ supersedes:
 # SPEC: Prompt Profiles
 
 ## Changelog
+
+- **1.4 (2026-10-22)** — `GET /admin/api/helpers` adds `problem` (`""` when helpers can run, else `unset`, `missing`
+  when the Helper model was removed from the models, or `not_cloud`).
 
 - **1.3 (2026-10-22)** — The chat request accepts `use_helpers` and `GET /admin/api/helpers` reports whether helpers can
   run (§4). A profile's `delegates` is what makes the switch appear in the composer.
@@ -111,7 +114,7 @@ The profile's flags are read by the loop (SPEC-001): answer-first completion and
 - `POST /admin/api/conversation/message` accepts `profile`; an unknown id is `400` naming the known ones. It also
   accepts `use_helpers: true`: the message asks the assistant to hand its independent parts to helpers (SPEC-001 §15).
   It is ignored, never an error, when the run's profile names no `delegates` or helpers are not set up.
-- `GET /admin/api/helpers` → `{available, model}`: `available` is true when a cloud helper model is set up (the
+- `GET /admin/api/helpers` → `{available, model, problem}`: `available` is true when a cloud helper model is set up (the
   sub-runner's `Enabled()`), `model` is the Helper model Settings names (`agent.subagent_model`), `""` when none, even
   when it is not usable, so the page can say why.
 - The workspace config `PUT` and automation create/update validate `assistant_profile` / `profile` the same way.

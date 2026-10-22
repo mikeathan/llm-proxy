@@ -262,6 +262,21 @@ describe('GlobalSettings helpers', () => {
     expect((select.element as HTMLSelectElement).value).toBe('')
   })
 
+  // A Helper model removed from the models (or one that is not a cloud model) still shows, flagged, so the user sees
+  // what is set and what to change, not a blank box.
+  it('shows a helper model that is no longer available, flagged, and keeps it selected', () => {
+    const { w } = mountHelpers({ agent: { subagent_model: 'gone-m' } })
+    const select = fieldByLabel(w, /Helper model/)
+    const options = select.findAll('option').map((o) => o.text())
+    expect(options).toContain('gone-m (not available)')
+    expect((select.element as HTMLSelectElement).value).toBe('gone-m')
+  })
+
+  it('shows no flagged option when the helper model is available or off', () => {
+    expect(fieldByLabel(mountHelpers({ agent: { subagent_model: 'gpt' } }).w, /Helper model/).findAll('option').map((o) => o.text()).join('|')).not.toContain('not available')
+    expect(fieldByLabel(mountHelpers().w, /Helper model/).findAll('option').map((o) => o.text()).join('|')).not.toContain('not available')
+  })
+
   it('saves the helper model and pool size beside the other agent settings', async () => {
     const { w, last } = mountHelpers({ agent: { adaptive_result_cap: false } })
     await fieldByLabel(w, /Helper model/).setValue('gpt')

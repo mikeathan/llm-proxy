@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { mount, RouterLinkStub, type VueWrapper } from '@vue/test-utils'
 import RunSettings from '../../../../components/AgentIde/assistant/RunSettings.vue'
+import { toSettings } from '../../../../router/routes'
 
 const PROFILE_OPTIONS = [{ value: 'general', label: 'General (default)' }, { value: 'research', label: 'Research' }]
 const MODEL_OPTIONS = [{ value: '', label: 'Default (a)' }, { value: 'b', label: 'b' }]
@@ -9,7 +10,7 @@ const mounted: VueWrapper[] = []
 function mountSettings(over: Record<string, unknown> = {}) {
   const w = mount(RunSettings, {
     props: { profile: 'general', model: '', profileOptions: PROFILE_OPTIONS, modelOptions: MODEL_OPTIONS, profileName: 'General', profileSummary: 'Everyday assistant.', ...over },
-    global: { stubs: { Icon: true } },
+    global: { stubs: { Icon: true, RouterLink: RouterLinkStub } },
     attachTo: document.body,
   })
   mounted.push(w)
@@ -103,7 +104,35 @@ describe('RunSettings', () => {
     it('shows the switch disabled, with the reason, when no helper model is set up', async () => {
       const w = await openIt({ ...HELPERS, helpersAvailable: false, helpersModel: '' })
       expect((w.get('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(true)
-      expect(w.text()).toContain('Settings → Runs')
+      expect(w.text()).toContain('Pick a Helper model')
+    })
+
+    // The Helper model is chosen on Settings → Runs, so both states link straight to it.
+    it.each([
+      ['when helpers are set up', {}, 'Change the Helper model'],
+      ['when no helper model is set up', { helpersAvailable: false, helpersModel: '' }, 'Pick a Helper model'],
+    ])('links to the Helper model in Settings %s', async (_name, over, text) => {
+      const w = await openIt({ ...HELPERS, ...over })
+      const link = w.getComponent(RouterLinkStub)
+      expect(link.props('to')).toEqual(toSettings('runs'))
+      expect(link.text()).toContain(text)
+    })
+
+    // Why helpers cannot run is said as what is wrong, so the fix is the one the link leads to.
+    it.each([
+      ['unset', 'none is chosen', 'Pick a Helper model'],
+      ['missing', 'gone-m is no longer in your models', 'Pick another'],
+      ['not_cloud', 'qwen is not a cloud model', 'Pick a cloud model'],
+    ])('names the problem when the helper model is %s', async (problem, hint, link) => {
+      const w = await openIt({ ...HELPERS, helpersAvailable: false, helpersProblem: problem, helpersModel: problem === 'unset' ? '' : problem === 'missing' ? 'gone-m' : 'qwen' })
+      expect((w.get('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(true)
+      expect(w.text()).toContain(hint)
+      expect(w.getComponent(RouterLinkStub).text()).toContain(link)
+    })
+
+    it('has no link when there is no helpers row', async () => {
+      const w = await openIt({ helpersShown: false })
+      expect(w.findComponent(RouterLinkStub).exists()).toBe(false)
     })
 
     it('says helpers are on in the button, and only when they will be used', () => {

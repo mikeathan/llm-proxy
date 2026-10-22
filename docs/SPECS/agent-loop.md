@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.14"
+version: "1.15"
 status: stable
 last_updated: 2026-10-22
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -12,6 +12,11 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.15 (2026-10-22)** — The sub-runner port says why helpers cannot run (`SubRunner.Problem()`: unset, missing,
+  not_cloud). A helper model removed from the models is `missing`, not "not a cloud model" (the lane classifier calls an
+  unknown model local), so the refusal and the page name the right fix. Nothing breaks when the model is gone: the
+  delegate tool is not offered, `use_helpers` is ignored and a task that still arrives is refused in words.
 
 - **1.14 (2026-10-22)** — "Use helpers" (§15). A chat message can ask for helpers (`use_helpers`): the model's copy of
   the message gets `prompts.HelpersNote`, a context note in the form of the local-time note, so what is stored and
