@@ -18,6 +18,9 @@ const sessions = ref<SessionBrief[]>([])
 const activeWorkspaceId = ref<string | null>(null)
 // The prompt profile the open conversation runs under ('' = it never chose: the workspace's or the default applies).
 const conversationProfile = ref('')
+// Whether the composer's "Use helpers" switch is on. It lasts for the open conversation (a follow-up question keeps
+// it) and is off for any other: a new chat, or one opened from the list.
+const helpersOn = ref(false)
 
 const runningSessions = computed(() => sessions.value.filter((s) => s.running))
 
@@ -252,6 +255,7 @@ export function useAssistant() {
     if (runningNow) {
       currentSessionId.value = sessionId
       conversationProfile.value = ''
+      helpersOn.value = false
       messages.value = []
       loading.value = false
       sse.reset()
@@ -271,6 +275,7 @@ export function useAssistant() {
       }
       currentSessionId.value = session.id
       conversationProfile.value = session.profile ?? ''
+      helpersOn.value = false
       messages.value = buildSegmentsFromHistory(session.history || [])
       // Drive the (now historical) turn's bubble into its done state so the
       // result and the expandable reasoning/tool-call inset render — the same
@@ -311,6 +316,7 @@ export function useAssistant() {
   const newSession = () => {
     currentSessionId.value = null
     conversationProfile.value = ''
+    helpersOn.value = false
     messages.value = []
     sse.reset()
   }
@@ -388,6 +394,7 @@ export function useAssistant() {
         message: text,
         model: choice.model || undefined,
         profile: choice.profile || undefined,
+        use_helpers: choice.useHelpers || undefined,
       })
 
       if (!currentSessionId.value && response.conversation_id) {
@@ -582,6 +589,7 @@ export function useAssistant() {
     newSession,
     openWorkspace,
     conversationProfile,
+    helpersOn,
     sendMessage,
     deleteSession,
     deleteAllSessions,

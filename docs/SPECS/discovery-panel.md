@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.12"
+version: "2.13"
 status: stable
-last_updated: 2026-10-18
+last_updated: 2026-10-22
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -12,6 +12,17 @@ supersedes:
 # SPEC: Admin UI
 
 ## Changelog
+
+- **2.13 (2026-10-22)** — The composer's Run settings gain **Use helpers** (`RunSettings.vue`).
+  - **When it shows:** a row under Profile and Model, shown when the selected profile names `delegates`. It is enabled
+    when `GET /admin/api/helpers` says helpers are available; otherwise it is shown disabled with "Pick a Helper model
+    in Settings → Runs". It is hidden for a profile that names none.
+  - **State:** the switch is off for a new conversation, stays on through follow-ups in the open one, and is off for a
+    conversation opened from the list (`useAssistant.helpersOn`). When on, the Run settings button reads
+    "Research · helpers".
+  - **Send:** `use_helpers` is sent only when the switch is on, the profile names helpers and they are available.
+  - **Settings:** it relies on Settings → Runs → Helper model (cloud models only) and Helpers at once.
+  - **Reads:** the chat re-reads the helpers status whenever it opens (`useHelpers().refresh`).
 
 - **2.12 (2026-10-18)** — One bell for runs and reminders, and a message queue in the composer. (a) The bell
   (`NotificationBell`, formerly `RunNotifications`) lists runs that ended **and reminders that fired or failed**

@@ -76,6 +76,27 @@ describe('useAssistant', () => {
     expect(service.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ profile: 'research' }))
   })
 
+  it('sends use_helpers only when the message asked for helpers', async () => {
+    sse.isConnected.value = true
+    const a = await freshAssistant()
+    await a.sendMessage('ws', 'hello', { useHelpers: true })
+    expect(service.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ use_helpers: true }))
+    await a.sendMessage('ws', 'again', { useHelpers: false })
+    expect(service.sendMessage.mock.lastCall![0].use_helpers).toBeUndefined()
+  })
+
+  it('keeps the helpers switch for the open conversation and clears it for another or a new one', async () => {
+    const a = await freshAssistant()
+    a.helpersOn.value = true
+    service.getSession.mockResolvedValue({ id: 's1', history: [{ role: 'user', content: 'q' }] })
+    await a.loadSession('ws', 's1')
+    expect(a.helpersOn.value, 'a conversation opened from the list starts with helpers off').toBe(false)
+
+    a.helpersOn.value = true
+    a.newSession()
+    expect(a.helpersOn.value, 'so does a new chat').toBe(false)
+  })
+
   it("takes the open conversation's profile from the saved session, and forgets it for a new chat", async () => {
     const a = await freshAssistant()
     service.getSession.mockResolvedValue({ id: 's1', profile: 'builder', history: [{ role: 'user', content: 'q' }] })

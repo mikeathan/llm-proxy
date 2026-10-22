@@ -13,6 +13,7 @@ const a = {
   sessions: ref<SessionBrief[]>([{ id: 's1', snippet: 'Plan the move', updated_at: new Date().toISOString() }]),
   currentSessionId: ref<string | null>(null),
   conversationProfile: ref(''),
+  helpersOn: ref(false),
   pendingDecision: ref<unknown>(null),
   submitDecision: vi.fn(),
   thinking: ref(false),
@@ -45,10 +46,12 @@ vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ c
 const catalog = [
   { id: 'builder', name: 'Builder', summary: 'Builds.', source: 'builtin', answer_first: false, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
   { id: 'general', name: 'General', summary: 'Everyday assistant.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: true, default_for: ['assistant'] },
-  { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
+  { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: false, delegates: ['web-researcher'], default_for: [] },
 ]
 const profileService = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))
+const helpersService = vi.hoisted(() => ({ status: vi.fn() }))
+vi.mock('../../../../services/helpers/helpersService', () => ({ HelpersService: helpersService }))
 const dispatcher = vi.hoisted(() => ({ getWorkspaceConfig: vi.fn() }))
 vi.mock('../../../../services/automation/dispatcherService', () => ({ DispatcherService: dispatcher }))
 
@@ -84,8 +87,10 @@ describe('AssistantChat', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     profileService.list.mockResolvedValue(catalog)
+    helpersService.status.mockResolvedValue({ available: true, model: 'deepseek-v4.1-flash' })
     dispatcher.getWorkspaceConfig.mockResolvedValue({})
     a.conversationProfile.value = ''
+    a.helpersOn.value = false
     vi.stubGlobal('localStorage', memoryStorage())
     a.loading.value = false
     a.pendingDecision.value = null
@@ -315,6 +320,48 @@ describe('AssistantChat', () => {
       await w.get('textarea').trigger('keydown', { key: 'Enter' })
       await flushPromises()
       expect(a.sendMessage).toHaveBeenCalledWith('ws', 'find me the changelog', { model: '', profile: 'research' })
+    })
+
+    // "Use helpers": sent only when the switch is on, the profile names helpers and the server says they can run.
+    describe('helpers', () => {
+      const sendWith = async (profile: string, helpers: { available: boolean; model: string }) => {
+        helpersService.status.mockResolvedValue(helpers)
+        a.conversationProfile.value = profile
+        a.helpersOn.value = true
+        const { w } = mountChat()
+        await flushPromises()
+        await w.get('textarea').setValue('compare A and B')
+        await w.get('textarea').trigger('keydown', { key: 'Enter' })
+        await flushPromises()
+        return w
+      }
+
+      it('sends the request when on, for a profile with helpers that can run', async () => {
+        await sendWith('research', { available: true, model: 'deepseek-v4.1-flash' })
+        expect(a.sendMessage).toHaveBeenCalledWith('ws', 'compare A and B', { model: '', profile: 'research', useHelpers: true })
+      })
+
+      it('sends nothing about helpers when none can run', async () => {
+        await sendWith('research', { available: false, model: '' })
+        expect(a.sendMessage).toHaveBeenCalledWith('ws', 'compare A and B', { model: '', profile: 'research' })
+      })
+
+      it('sends nothing about helpers for a profile that names none, even with the switch left on', async () => {
+        await sendWith('builder', { available: true, model: 'deepseek-v4.1-flash' })
+        expect(a.sendMessage).toHaveBeenCalledWith('ws', 'compare A and B', { model: '', profile: 'builder' })
+      })
+
+      it('offers the switch in Run settings only for a profile that names helpers', async () => {
+        helpersService.status.mockResolvedValue({ available: true, model: 'deepseek-v4.1-flash' })
+        a.conversationProfile.value = 'research'
+        const { w } = mountChat()
+        await flushPromises()
+        await settingsButton(w).trigger('click')
+        expect(w.text()).toContain('Use helpers for this chat')
+        expect(w.text()).toContain('deepseek-v4.1-flash')
+        await w.get('select[aria-label="Profile"]').setValue('builder')
+        expect(w.text()).not.toContain('Use helpers for this chat')
+      })
     })
 
     it("shows an open conversation's own profile", async () => {

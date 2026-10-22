@@ -33,6 +33,8 @@ type AssistantMessage struct {
 	// Profile is the prompt profile chosen for this message, which the conversation then keeps; empty keeps the
 	// conversation's own or the workspace's.
 	Profile string `json:"profile,omitempty"`
+	// UseHelpers asks the assistant to hand the independent parts of this message to helpers (sub-agents).
+	UseHelpers bool `json:"use_helpers,omitempty"`
 }
 
 type AssistantMessageHandler struct {
@@ -251,7 +253,7 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 		recorder = eventSink
 	}
 
-	ctx = models.WithProfileRequest(models.WithModelOverride(ctx, payload.Model), payload.Profile)
+	ctx = models.WithHelpersRequest(models.WithProfileRequest(models.WithModelOverride(ctx, payload.Model), payload.Profile), payload.UseHelpers)
 	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, h.chatZone(payload.Timezone), payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
 	if execErr != nil {
 		if errors.Is(execErr, context.Canceled) {

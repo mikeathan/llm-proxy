@@ -12,6 +12,7 @@ import (
 
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
+	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -1362,5 +1363,56 @@ func TestConversationService_DelegatesToSubAgents(t *testing.T) {
 	}
 	if nested != 6 || steps != 1 {
 		t.Errorf("events: %d sub-agent, %d parent steps; want 6 nested and 1 step", nested, steps)
+	}
+}
+
+// A message that asks for helpers reaches the model with a note saying so, on the model's copy only: what is stored and
+// shown is what the user typed. Nothing is added when the run cannot delegate.
+func TestConversationService_HelpersNote(t *testing.T) {
+	cases := []struct {
+		name     string
+		runner   SubRunner
+		profile  string
+		asked    bool
+		wantNote bool
+	}{
+		{"asked, a research chat with helpers on", &fakeSubRunner{}, "research", true, true},
+		{"not asked", &fakeSubRunner{}, "research", false, false},
+		{"asked, but the profile names no helpers", &fakeSubRunner{}, "general", true, false},
+		{"asked, but helpers are off", &scriptedSubRunner{enabled: false}, "research", true, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := newMockConvDeps()
+			deps.subRunner = tc.runner
+			pm := newTestPersistence(t)
+			svc := NewConversationService(deps, pm)
+			var lastUser string
+			client := &MockClient{StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+				for _, m := range req.Messages {
+					if m.Role == proxy.UserRole {
+						lastUser = m.Content
+					}
+				}
+				ch := make(chan *proxy.ChatResponse, 1)
+				ch <- &proxy.ChatResponse{Choices: []proxy.Choice{{Delta: proxy.Message{Content: "Here is a helpful response"}}}}
+				close(ch)
+				return ch, nil
+			}}
+			ctx := models.WithHelpersRequest(models.WithProfileRequest(context.Background(), tc.profile), tc.asked)
+			if _, err := svc.Execute(ctx, "ws-1", "conv-h", "compare A and B", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			if got := strings.Contains(lastUser, prompts.HelpersNote); got != tc.wantNote {
+				t.Errorf("the model's message has the helpers note = %v, want %v:\n%s", got, tc.wantNote, lastUser)
+			}
+			saved, err := pm.ReadSession("ws-1", "conv-h")
+			if err != nil || saved == nil {
+				t.Fatalf("read session: %v", err)
+			}
+			if strings.Contains(saved.History[1].Content, prompts.HelpersNote) || saved.History[1].Content != "compare A and B" {
+				t.Errorf("the stored message is not what the user typed: %q", saved.History[1].Content)
+			}
+		})
 	}
 }

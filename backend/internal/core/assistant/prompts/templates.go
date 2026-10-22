@@ -852,3 +852,7 @@ const (
 	SubagentErrEmptyTask     = "task %d has no question"
 	SubagentErrRunLimit      = "this conversation has already delegated %d tasks in this turn, the most allowed; finish with what you have"
 )
+
+// HelpersNote is added to the model's copy of a message whose user switched on helpers (the composer's "Use helpers"),
+// in the same form as the local-time note: context, not something the user wrote.
+const HelpersNote = "[Context for this message, not written by the user. The user switched on helpers for this message: hand each independent part of the task to a helper with delegate_task, one task per part, each written to stand alone, then answer from their summaries.]"
