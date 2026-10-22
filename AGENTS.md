@@ -20,8 +20,8 @@ only when the conflict cannot be resolved safely.
 
 ## Commands
 
-Full reference: [CONTRIBUTING.md → Quick Start](CONTRIBUTING.md#quick-start). Go 1.26.2 · no Makefile/lint
-· gitleaks pre-commit hook (enable once with `./scripts/setup-gitleaks.sh`).
+Full reference: [CONTRIBUTING.md → Quick Start](CONTRIBUTING.md#quick-start). Go 1.26.2 · no Makefile; frontend
+lint runs inside `npm run build` · gitleaks pre-commit hook (enable once with `./scripts/setup-gitleaks.sh`).
 
 ```bash
 cd backend && go build ./... && go test ./...            # build + test

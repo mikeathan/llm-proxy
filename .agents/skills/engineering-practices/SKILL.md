@@ -20,7 +20,7 @@ last_reviewed: 2026-10-04
 ### Comments
 - No comments unless the WHY is non-obvious. Well-named identifiers document the WHAT.
 - Never remove existing comments unless they are stale (referencing removed code, outdated behavior, or incorrect logic).
-- Single-line only. No multi-line docstrings or comment blocks.
+- Keep comments short. A multi-line comment is fine when the WHY needs it; no docstring-style blocks that restate the code.
 
 ### Error Handling
 - Validate at system boundaries (user input, external APIs) — trust internal code.
@@ -36,7 +36,7 @@ last_reviewed: 2026-10-04
 
 ### Cyclomatic Complexity & Readability
 - Max 80 lines per function. If it grows larger, extract helpers.
-- Cyclomatic complexity under 10 per function.
+- Cyclomatic complexity ≤12 per function (`go run ./tools/check-complexity/` is the gate).
 - Max 3 levels of nesting. Use early returns and guard clauses.
 - Encapsulate transient loop/session state in temporary structs instead of passing multiple `*int`, `*bool` pointers.
 
