@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -621,6 +622,106 @@ func TestBuildAgentOptions_AdaptiveResultCapFollowsTheSetting(t *testing.T) {
 			opts := executor.buildAgentOptions(ExecuteRequest{WorkspaceID: "ws"}, taskRunner, logging.NewNopLogger(), nil)
 			if opts.AdaptiveResultCap != want {
 				t.Errorf("AdaptiveResultCap = %v, want %v", opts.AdaptiveResultCap, want)
+			}
+		})
+	}
+}
+
+// autoOptionsView mirrors assistant's optionsView (test helpers cannot cross packages): the part of AgentOptions a
+// run's settings decide, with pointers and functions reduced to whether they are set.
+type autoOptionsView struct {
+	MaxSteps, ContextBudget, MaxResponseTokens, ReasoningBudget, MaxPlanSteps int
+	ReasoningEnabled, UseNativeTools                                          string
+	Temperature                                                               float64
+	WorkspaceID, ModelName, ProviderType, ConversationID, ProfileID           string
+	GuardrailTimeoutBehavior                                                  string
+	WorkloadClass                                                             models.WorkloadClass
+	LoopStrategy                                                              assistant.LoopStrategyName
+	Channel                                                                   assistant.EventChannel
+	RunNetworkScope                                                           models.NetworkScope
+	UsePrefill, EnableHotMemory, AdaptiveResultCap                            bool
+	HasMemoryStore, HasGuardrails, HasObserver, HasDecisionHandler            bool
+	HasLogger, HasOrchestrator                                                bool
+	AllowedTools, ExcludedTools                                               []string
+	GlobalTimeout, ToolTimeout, FilesystemToolTimeout, MaxPlanDuration        time.Duration
+	GuardrailTimeout, GuardrailApprovalTimeout                                time.Duration
+}
+
+func autoBoolView(b *bool) string {
+	if b == nil {
+		return "unset"
+	}
+	return fmt.Sprint(*b)
+}
+
+func viewAutoOptions(o assistant.AgentOptions) autoOptionsView {
+	return autoOptionsView{
+		MaxSteps: o.MaxSteps, ContextBudget: o.ContextBudget, MaxResponseTokens: o.MaxResponseTokens,
+		ReasoningBudget: o.ReasoningBudget, MaxPlanSteps: o.MaxPlanSteps,
+		ReasoningEnabled: autoBoolView(o.ReasoningEnabled), UseNativeTools: autoBoolView(o.UseNativeTools),
+		Temperature: o.Temperature, WorkspaceID: o.WorkspaceID, ModelName: o.ModelName, ProviderType: o.ProviderType,
+		ConversationID: o.ConversationID, ProfileID: o.Profile.ID, GuardrailTimeoutBehavior: o.GuardrailTimeoutBehavior,
+		WorkloadClass: o.WorkloadClass, LoopStrategy: o.LoopStrategy, Channel: o.Channel, RunNetworkScope: o.RunNetworkScope,
+		UsePrefill: o.UsePrefill, EnableHotMemory: o.EnableHotMemory, AdaptiveResultCap: o.AdaptiveResultCap,
+		HasMemoryStore: o.MemoryStore != nil, HasGuardrails: o.Guardrails != nil, HasObserver: o.Observer != nil,
+		HasDecisionHandler: o.GuardrailDecisionHandler != nil, HasLogger: o.Logger != nil, HasOrchestrator: o.Orchestrator != nil,
+		AllowedTools: o.AllowedTools, ExcludedTools: o.ExcludedTools,
+		GlobalTimeout: o.GlobalTimeout, ToolTimeout: o.ToolTimeout, FilesystemToolTimeout: o.FilesystemToolTimeout,
+		MaxPlanDuration: o.MaxPlanDuration, GuardrailTimeout: o.GuardrailTimeout, GuardrailApprovalTimeout: o.GuardrailApprovalTimeout,
+	}
+}
+
+// An automation sets the default step budget itself, attaches the memory store only when its memory is on, carries an
+// allow list and no conversation id. (The network scope is resolved later, in Execute.)
+func TestAutomationAgentOptions_Characterisation(t *testing.T) {
+	store := newTestMemoryStore(t)
+	full := models.ModelConfig{
+		Name: "cloud-m", Provider: "openai", WorkloadClass: models.WorkloadCloud, LoopStrategy: models.LoopStrategyPlanExecute,
+		MaxSteps: 21, ContextBudget: 9000, MaxTokens: 1500, ReasoningBudget: 700, ReasoningEnabled: new(true),
+		Temperature: 0.3, ToolCallFormat: "native", Prefill: new(true), TimeoutMinutes: 7, ToolTimeoutSeconds: 40,
+		FilesystemToolTimeoutSeconds: 9, MaxPlanDurationMinutes: 11, MaxPlanSteps: 13, GuardrailTimeoutSeconds: 3,
+		GuardrailTimeoutBehavior: "fail-closed", GuardrailApprovalTimeoutSecs: 90,
+	}
+	research := profile.MustCatalog("", logging.NewNopLogger()).Resolve(profile.KindAutomation, "research")
+	base := autoOptionsView{
+		MaxSteps: assistant.DefaultMaxSteps, ReasoningEnabled: "unset", UseNativeTools: "unset", WorkspaceID: "ws",
+		ProfileID: "task-runner", Channel: assistant.ChannelAutomation, AdaptiveResultCap: true,
+		HasObserver: true, HasDecisionHandler: true, HasLogger: true,
+	}
+	cases := []struct {
+		name    string
+		svc     *mockSvc
+		req     ExecuteRequest
+		profile profile.Profile
+		want    func(autoOptionsView) autoOptionsView
+	}{
+		{name: "defaults, no model", svc: &mockSvc{memoryStore: store}, req: ExecuteRequest{WorkspaceID: "ws"}, profile: taskRunner,
+			want: func(v autoOptionsView) autoOptionsView { return v }},
+		{name: "full model config, loop override", svc: &mockSvc{memoryStore: store, modelCfg: full},
+			req: ExecuteRequest{WorkspaceID: "ws", Model: "cloud-m", LoopStrategy: string(models.LoopStrategyReact)}, profile: taskRunner,
+			want: func(v autoOptionsView) autoOptionsView {
+				v.MaxSteps, v.ContextBudget, v.MaxResponseTokens, v.ReasoningBudget, v.MaxPlanSteps = 21, 9000, 1500, 700, 13
+				v.ReasoningEnabled, v.UseNativeTools, v.Temperature, v.UsePrefill = "true", "true", 0.3, true
+				v.ModelName, v.ProviderType, v.WorkloadClass, v.GuardrailTimeoutBehavior = "cloud-m", "openai", models.WorkloadCloud, "fail-closed"
+				v.LoopStrategy = assistant.LoopReact // the automation's own choice beats the model's plan_execute
+				v.GlobalTimeout, v.ToolTimeout, v.FilesystemToolTimeout = 7*time.Minute, 40*time.Second, 9*time.Second
+				v.MaxPlanDuration, v.GuardrailTimeout, v.GuardrailApprovalTimeout = 11*time.Minute, 3*time.Second, 90*time.Second
+				return v
+			}},
+		{name: "allowed tools, memory on, research profile", svc: &mockSvc{memoryStore: store, agent: &models.AgentConfig{AdaptiveResultCap: new(false)}},
+			req: ExecuteRequest{WorkspaceID: "ws", AllowedTools: []string{models.ToolFileRead}, MemoryMode: models.MemoryModeOn}, profile: research,
+			want: func(v autoOptionsView) autoOptionsView {
+				v.ProfileID, v.AllowedTools, v.AdaptiveResultCap = "research", []string{models.ToolFileRead}, false
+				v.EnableHotMemory, v.HasMemoryStore = true, true
+				return v
+			}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := NewLLMTaskExecutor(tc.svc).(*LLMTaskExecutor)
+			got := viewAutoOptions(executor.buildAgentOptions(tc.req, tc.profile, logging.NewNopLogger(), nil))
+			if want := tc.want(base); !reflect.DeepEqual(got, want) {
+				t.Errorf("resolved options changed\n got: %#v\nwant: %#v", got, want)
 			}
 		})
 	}

@@ -106,3 +106,17 @@ func TestEveryToolHasOneCategory(t *testing.T) {
 		}
 	}
 }
+
+// CategoryOf is the reverse of ToolsInCategory: every built-in tool maps back to its one category.
+func TestCategoryOf(t *testing.T) {
+	for _, category := range ToolCategories() {
+		for _, tool := range ToolsInCategory(category) {
+			if got := CategoryOf(tool); got != category {
+				t.Errorf("CategoryOf(%s) = %q, want %q", tool, got, category)
+			}
+		}
+	}
+	if got := CategoryOf("mcp_some_tool"); got != CategoryGeneral {
+		t.Errorf("a tool outside the built-in table is %q, want %q", got, CategoryGeneral)
+	}
+}

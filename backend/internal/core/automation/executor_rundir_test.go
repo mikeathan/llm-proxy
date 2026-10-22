@@ -8,7 +8,6 @@ import (
 
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/models"
 )
 
@@ -32,14 +31,7 @@ type dirForRunClient struct {
 
 func (c *dirForRunClient) SetDirForRun(runID, dir string) { c.runID, c.dir = runID, dir }
 
-type dirClient struct {
-	fakeClient
-	dir string
-}
-
-func (c *dirClient) SetDir(dir string) { c.dir = dir }
-
-func TestSetupRunDir_NeedsLoggingARootAndAModel(t *testing.T) {
+func TestRecording_NeedsLoggingARootAndAModel(t *testing.T) {
 	req := ExecuteRequest{WorkspaceID: "w", AutomationName: "daily", Model: "m"}
 	cases := []struct {
 		name string
@@ -52,43 +44,29 @@ func TestSetupRunDir_NeedsLoggingARootAndAModel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		e := &LLMTaskExecutor{svc: tc.svc}
-		dir, sink, rec := e.setupRunDir(context.Background(), &fakeClient{}, tc.req, logging.NewNopLogger())
-		if dir != nil || sink != nil || rec {
+		rec := e.recording(context.Background(), &fakeClient{}, tc.req, logging.NewNopLogger())
+		if rec.Dir != nil || rec.Events != nil || rec.ClientRecords {
 			t.Errorf("%s: got a run dir, sink or recording", tc.name)
 		}
 	}
 }
 
-func TestSetupRunDir_CreatesTheFolderAndTheEventLog(t *testing.T) {
+func TestRecording_CreatesTheFolderAndTheEventLog(t *testing.T) {
 	root := t.TempDir()
 	e := &LLMTaskExecutor{svc: &runDirSvc{root: root, logging: true}}
-	dir, sink, rec := e.setupRunDir(context.Background(), &fakeClient{}, ExecuteRequest{WorkspaceID: "w", AutomationName: "daily", Model: "m"}, logging.NewNopLogger())
+	rec := e.recording(models.WithRunID(context.Background(), "run-7"), &dirForRunClient{}, ExecuteRequest{WorkspaceID: "w", AutomationName: "daily", Model: "m"}, logging.NewNopLogger())
+	dir, sink := rec.Dir, rec.Events
 	if dir == nil || sink == nil {
 		t.Fatal("expected a run dir and an event sink")
 	}
-	if rec {
-		t.Error("a client that cannot record must not report a recording")
+	defer sink.Close()
+	if !rec.ClientRecords {
+		t.Error("a recording client must record the run")
 	}
 	if rel, err := filepath.Rel(filepath.Join(root, "runs"), dir.Root); err != nil || rel == "" || rel[0] == '.' {
 		t.Errorf("run folder %s is not under %s/runs", dir.Root, root)
 	}
 	if _, err := os.Stat(dir.Root); err != nil {
 		t.Errorf("run folder missing: %v", err)
-	}
-}
-
-func TestAttachRecording(t *testing.T) {
-	runDir := t.TempDir()
-	ctx := models.WithRunID(context.Background(), "run-7")
-	rd := &dirForRunClient{}
-	if !attachRecording(ctx, rd, &rundir.RunDir{Root: runDir}) || rd.runID != "run-7" || rd.dir != runDir {
-		t.Errorf("SetDirForRun client: runID=%q dir=%q", rd.runID, rd.dir)
-	}
-	d := &dirClient{}
-	if !attachRecording(ctx, d, &rundir.RunDir{Root: runDir}) || d.dir != runDir {
-		t.Errorf("SetDir client: dir=%q", d.dir)
-	}
-	if attachRecording(ctx, &fakeClient{}, &rundir.RunDir{Root: runDir}) {
-		t.Error("a client that cannot record must report false")
 	}
 }

@@ -127,3 +127,21 @@ func TestReviewMemories_ABusyModelIsReported(t *testing.T) {
 		t.Errorf("status = %d: %s (calls %d)", rr.Code, rr.Body.String(), f.client.Calls)
 	}
 }
+
+// A review right after the local model unloaded waits for it to load, like a chat, instead of failing.
+func TestReviewMemories_WaitsForAColdModel(t *testing.T) {
+	restore := models.ModelStartPollInterval
+	models.ModelStartPollInterval = time.Millisecond
+	defer func() { models.ModelStartPollInterval = restore }()
+
+	f := newReviewFixture(t, reviewReply, nil)
+	provider := &startingProvider{starting: 2, ready: f.client}
+	f.handler.svc.(*mocks.MockAssistantService).Client = provider
+	rr := postReview(f.handler, "ws", "conv_1")
+	if rr.Code != http.StatusOK || len(suggestionsOf(t, rr)) != 2 {
+		t.Fatalf("status = %d: %s; want the review once the model has loaded", rr.Code, rr.Body.String())
+	}
+	if provider.calls != 3 {
+		t.Errorf("calls = %d, want 2 starting + 1 ready", provider.calls)
+	}
+}

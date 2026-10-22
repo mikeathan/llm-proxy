@@ -290,3 +290,15 @@ func TestRequestScopedChoices(t *testing.T) {
 		t.Error("a nil context carries no choices")
 	}
 }
+
+// Every kind of run takes its id from one generator: unique, opaque, the same shape for chats and automations.
+func TestNewRunID(t *testing.T) {
+	seen := map[string]bool{}
+	for range 100 {
+		id := NewRunID()
+		if len(id) != runIDHexLen || seen[id] {
+			t.Fatalf("run id %q: want %d hex characters, unique", id, runIDHexLen)
+		}
+		seen[id] = true
+	}
+}

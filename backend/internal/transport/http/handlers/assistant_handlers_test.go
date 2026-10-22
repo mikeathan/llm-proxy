@@ -1667,16 +1667,20 @@ func TestAssistant_RunningQueued(t *testing.T) {
 	}
 }
 
-// startingProvider reports a cold model for the first `starting` calls, then a ready client.
+// startingProvider reports a cold model for the first `starting` calls, then a ready client (ready, or an empty one).
 type startingProvider struct {
 	starting int
 	calls    int
+	ready    proxy.Client
 }
 
 func (p *startingProvider) GetClient(context.Context) (proxy.Client, error) {
 	p.calls++
 	if p.calls <= p.starting {
 		return nil, models.ErrModelStarting
+	}
+	if p.ready != nil {
+		return p.ready, nil
 	}
 	return &mocks.MockLLMClient{}, nil
 }

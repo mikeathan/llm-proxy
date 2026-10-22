@@ -2338,37 +2338,6 @@ func TestAgent_Execute_ToolExecutionErrorFeedback(t *testing.T) {
 	}
 }
 
-func TestToolCategory_AllCases(t *testing.T) {
-	tests := []struct {
-		toolName string
-		expect   string
-	}{
-		{models.ToolTerminalExecute, "terminal"},
-		{models.ToolDirectoryList, "filesystem"},
-		{models.ToolFileRead, "filesystem"},
-		{models.ToolFileWrite, "filesystem"},
-		{models.ToolFileAppend, "filesystem"},
-		{models.ToolNetworkFetch, "network"},
-		{models.ToolNetworkScan, "network"},
-		{models.ToolNetworkInfo, "network"},
-		{models.ToolInternetSearch, "search"},
-		{models.ToolNotifyUser, "communication"},
-		{models.ToolApplyGuardrails, "general"},
-		{"read_file", "filesystem"},
-		{models.ToolSystemError, "general"},
-		{"unknown_tool", "general"},
-		{"", "general"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.toolName, func(t *testing.T) {
-			got := toolCategory(tc.toolName)
-			if got != tc.expect {
-				t.Errorf("toolCategory(%q) = %q, want %q", tc.toolName, got, tc.expect)
-			}
-		})
-	}
-}
-
 func TestInjectToolInstructions_NoSystemMessage(t *testing.T) {
 	history := []proxy.Message{
 		{Role: proxy.UserRole, Content: "hello"},

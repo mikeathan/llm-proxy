@@ -8,15 +8,12 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/assistant/failures"
-	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/memorycapture"
-	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
@@ -24,20 +21,14 @@ import (
 // ConversationDeps provides the external dependencies for ConversationService.
 // Implemented by the HTTP handler layer.
 type ConversationDeps interface {
+	RunOptionDeps
 	SelectModels() (string, string)
-	ModelConfig(modelName string) (models.ModelConfig, bool)
 	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
 	Profiles() *profile.Catalog
 	// EffectiveToolCallFormat resolves the model's tool_call_format, probing
 	// local endpoints for native tool support when unset (cached).
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	ProcessLogger(workspaceID string) logging.Logger
-	GuardrailEngine() *guardrails.GuardrailEngine
-	GuardrailDecisionStore() *GuardrailDecisionStore
-	Orchestrator() *orchestrator.Orchestrator
-	MemoryStore() *memory.Store
-	MemorySettings() *models.MemoryConfig
-	AgentSettings() *models.AgentConfig
 	Events() EventPublisher
 	RunLoggingEnabled() bool
 }
@@ -99,7 +90,10 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// 5. Build agent options
 	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, recorder, log)
 
-	agent := s.buildAgent(ctx, modelName, workspaceID, session.ID, log, provider, client, engine, observer, excludeTools, runProfile)
+	agent := NewAgent(client, provider, engine, s.agentOptions(chatAgentRun{
+		modelName: modelName, workspaceID: workspaceID, sessionID: session.ID, log: log,
+		observer: observer, excludeTools: excludeTools, profile: runProfile,
+	}))
 
 	// 6. Execute agent
 	llmHistory := withLocalTime(FilterCancelledTurns(session.History, session.CancelledIndices), time.Now(), chatZone)
@@ -224,7 +218,7 @@ func (s *conversationService) setupRun(ctx context.Context, sessionID, workspace
 	// written under the service-generated ID).
 	runID := models.GetRunID(ctx)
 	if runID == "" {
-		runID = GenerateRunID()
+		runID = models.NewRunID()
 	}
 	execCtx = models.WithTaskName(ctx, sessionID)
 	execCtx = models.WithRunID(execCtx, runID)
@@ -277,35 +271,31 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 	return obs, func() []AgentEvent { return collectedEvents }
 }
 
-// hotMemoryEnabled resolves hot memory for a chat: the workspace's override, else the profile's default, else the
-// global assistant default.
-func (s *conversationService) hotMemoryEnabled(workspaceID string, p profile.Profile) bool {
-	var override models.MemoryMode
-	if cfg, err := s.persistence.ReadConfig(workspaceID); err == nil {
-		override = cfg.AssistantMemory
-	}
-	return override.Effective(p.Memory.Effective(s.deps.MemorySettings().AssistantHotDefault()))
+// chatAgentRun is what one chat turn's agent is built from.
+type chatAgentRun struct {
+	modelName, workspaceID, sessionID string
+	log                               logging.Logger
+	observer                          Observer
+	excludeTools                      []string
+	profile                           profile.Profile
 }
 
-func (s *conversationService) buildAgent(ctx context.Context, modelName, workspaceID, sessionID string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, observer Observer, excludeTools []string, runProfile profile.Profile) *Agent {
-	builder := NewAgentBuilder(s).
-		WithLogger(log).
-		WithGuardrails().
-		WithWorkspaceID(workspaceID).
-		WithExcludedTools(excludeTools).
-		WithProfile(runProfile).
-		WithModelName(modelName).
-		WithChannel(ChannelAssistant).
-		WithConversationID(sessionID).
-		WithMemoryStore().
-		WithHotMemory(s.hotMemoryEnabled(workspaceID, runProfile)).
-		WithAdaptiveResultCap(s.deps.AgentSettings().AdaptiveResultCapEnabled()).
-		WithObserver(observer).
-		WithGuardrailDecisionHandler(NewGuardrailDecisionCallback(s.deps.GuardrailDecisionStore(), observer, ChannelAssistant)).
-		WithOrchestrator().
-		WithModelConfig(modelName)
+// agentOptions resolves the options a chat turn's agent runs with; the workspace's memory setting is the turn's own
+// choice, above the profile's.
+func (s *conversationService) agentOptions(r chatAgentRun) AgentOptions {
+	return ResolveRunOptions(s.deps, RunSpec{
+		Kind: profile.KindAssistant, WorkspaceID: r.workspaceID, ConversationID: r.sessionID, Model: r.modelName,
+		Profile: r.profile, Logger: r.log, Observer: r.observer,
+		Overrides: RunOverrides{ExcludedTools: r.excludeTools, Memory: s.workspaceMemory(r.workspaceID)},
+	})
+}
 
-	return builder.Build(client, provider, engine)
+// workspaceMemory is the workspace's hot-memory setting for its chats (inherit when it has none).
+func (s *conversationService) workspaceMemory(workspaceID string) models.MemoryMode {
+	if cfg, err := s.persistence.ReadConfig(workspaceID); err == nil {
+		return cfg.AssistantMemory
+	}
+	return models.MemoryModeInherit
 }
 
 func (s *conversationService) handleCancelResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events EventPublisher, collected []AgentEvent, log logging.Logger, cancelErr error) ExecuteResult {
@@ -466,31 +456,4 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 func endAssistantRun(events EventPublisher, workspaceID, sessionID string) {
 	PublishSessionLifecycle(events, workspaceID, sessionID, "", PhaseSessionCompleted)
 	events.Clear(workspaceID, ChannelAssistant)
-}
-
-// compile-time check: ServiceProvider interface is implemented by *conversationService
-var _ ServiceProvider = (*conversationService)(nil)
-
-func (s *conversationService) ModelConfig(modelName string) (models.ModelConfig, bool) {
-	return s.deps.ModelConfig(modelName)
-}
-
-func (s *conversationService) GuardrailEngine() *guardrails.GuardrailEngine {
-	return s.deps.GuardrailEngine()
-}
-
-func (s *conversationService) GuardrailDecisionStore() *GuardrailDecisionStore {
-	return s.deps.GuardrailDecisionStore()
-}
-
-func (s *conversationService) Orchestrator() *orchestrator.Orchestrator {
-	return s.deps.Orchestrator()
-}
-
-func (s *conversationService) MemoryStore() *memory.Store {
-	return s.deps.MemoryStore()
-}
-
-func (s *conversationService) Events() EventPublisher {
-	return s.deps.Events()
 }

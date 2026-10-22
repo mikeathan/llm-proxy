@@ -5,21 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/reminders"
+	"llm-proxy/internal/core/run"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
-	"llm-proxy/internal/platform/rundir"
 	"llm-proxy/models"
 )
 
@@ -228,13 +226,17 @@ func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *
 
 	// Set up recording infrastructure (run directory, event sink). The workspace
 	// process log is used directly; no per-run duplicate log is written.
-	runID := assistantPkg.GenerateRunID()
+	runID := models.NewRunID()
 	// Thread the run ID into the context so the service's setupRun reuses it
 	// instead of generating a second one: a mismatched ID left a recording file
 	// + fd + sync goroutine open forever (CloseRun never found the orphaned
 	// state under the service-generated ID).
 	ctx = models.WithRunID(ctx, runID)
-	eventSink, procLog := h.setupRecording(client, payload.WorkspaceID, conversationID, modelName(payload, h.svc), runID)
+	procLog := h.svc.ProcessLogger(payload.WorkspaceID)
+	eventSink := run.OpenRecording(client, run.RecordingSpec{
+		Enabled: h.svc.RunLoggingEnabled(), Root: h.svc.RootDir(), WorkspaceID: payload.WorkspaceID,
+		Task: conversationID, Model: modelName(payload, h.svc), RunID: runID, Log: procLog,
+	}).Events
 	defer func() {
 		if eventSink != nil {
 			eventSink.Close()
@@ -267,34 +269,6 @@ func (h *AssistantMessageHandler) chatZone(browser string) string {
 		owner = h.OwnerTimezone()
 	}
 	return reminders.ChatZone(owner, browser)
-}
-
-// setupRecording creates the run directory and event sink for recording
-// infrastructure. The workspace process logger is returned for execution; no
-// per-run duplicate log is created. Returns zero values when recording is
-// disabled.
-func (h *AssistantMessageHandler) setupRecording(client proxy.Client, workspaceID, conversationID, modelName, runID string) (*eventbus.Sink, logging.Logger) {
-	procLog := h.svc.ProcessLogger(workspaceID)
-	if !h.svc.RunLoggingEnabled() || modelName == "" {
-		return nil, procLog
-	}
-	parent := filepath.Join(h.svc.RootDir(), "runs")
-	rd, rErr := rundir.NewRunDir(parent, workspaceID, conversationID, modelName)
-	if rErr != nil {
-		h.logger.Error("failed to create run dir", "error", rErr)
-		return nil, procLog
-	}
-	es, esErr := eventbus.NewSink(rd.EventsPath())
-	var eventSink *eventbus.Sink
-	if esErr == nil {
-		eventSink = es
-	}
-	if rcl, ok := client.(interface{ SetDirForRun(string, string) }); ok {
-		rcl.SetDirForRun(runID, rd.Root)
-	} else if rcl, ok := client.(interface{ SetDir(string) }); ok {
-		rcl.SetDir(rd.Root)
-	}
-	return eventSink, procLog
 }
 
 // modelName is the model the request runs: the one it names, else the primary.

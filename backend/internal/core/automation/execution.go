@@ -168,7 +168,7 @@ func (d *Dispatcher) recordPrepareFailure(entry *AutomationEntry, runErr error, 
 		return
 	}
 	run := models.AutomationRun{
-		ID:             fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		ID:             models.NewRunID(),
 		WorkspaceID:    entry.Workspace,
 		AutomationName: entry.Name,
 		Timestamp:      time.Now(),

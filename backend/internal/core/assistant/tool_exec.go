@@ -736,7 +736,7 @@ func (a *Agent) rememberPreview(category, args string) guardrails.RememberPrevie
 func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, err error, denial *guardrailDenialReason) (approved, stopBatch, decided bool) {
 	approvalCtx, approvalCancel := context.WithTimeout(ctx, a.config.GuardrailApprovalTimeout)
 	defer approvalCancel()
-	category := toolCategory(tc.Function.Name)
+	category := models.CategoryOf(tc.Function.Name)
 	remember := a.rememberPreview(category, tc.Function.Arguments)
 	decision, decErr := a.deps.OnGuardrail(approvalCtx, GuardrailBlockedPayload{
 		DecisionID:     fmt.Sprintf("gr_%d", time.Now().UnixNano()),
@@ -760,7 +760,7 @@ func (a *Agent) awaitGuardrailApproval(ctx context.Context, tc proxy.ToolCall, e
 		return false, false, false
 	}
 	if decision.Persist {
-		if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, toolCategory(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
+		if pErr := a.deps.Guardrails.PersistOverride(a.config.WorkspaceID, models.CategoryOf(tc.Function.Name), tc.Function.Name, tc.Function.Arguments); pErr != nil {
 			a.deps.Logger.Warn("failed to persist guardrail override", "error", pErr)
 		}
 	} else {
@@ -905,30 +905,13 @@ func (a *Agent) executePlan(ctx context.Context, history []proxy.Message, plan *
 	return "[Plan execution complete]", currentHistory, nil
 }
 
-func toolCategory(toolName string) string {
-	switch toolName {
-	case models.ToolTerminalExecute:
-		return "terminal"
-	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend:
-		return "filesystem"
-	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
-		return "network"
-	case models.ToolInternetSearch:
-		return "search"
-	case models.ToolNotifyUser:
-		return "communication"
-	default:
-		return "general"
-	}
-}
-
 // toolCtxWithTimeout wraps ctx with the per-tool timeout derived from
-// toolCategory and AgentConfig. Returns ctx unchanged when the timeout is 0
+// the tool's category (models.CategoryOf) and AgentConfig. Returns ctx unchanged when the timeout is 0
 // (disabled). Filesystem tools use FilesystemToolTimeout; all others use
 // ToolTimeout.
 func (a *Agent) toolCtxWithTimeout(ctx context.Context, toolName string) (context.Context, context.CancelFunc) {
 	timeout := a.config.ToolTimeout
-	if toolCategory(toolName) == "filesystem" && a.config.FilesystemToolTimeout > 0 {
+	if models.CategoryOf(toolName) == models.CategoryFileSystem && a.config.FilesystemToolTimeout > 0 {
 		timeout = a.config.FilesystemToolTimeout
 	}
 	if timeout > 0 {
