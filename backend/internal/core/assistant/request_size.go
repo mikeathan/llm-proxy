@@ -133,7 +133,8 @@ func (a *Agent) learnTokenRatio(sentChars int, usage *proxy.TokenUsage) {
 
 // shrinkHistory cuts a history down to target characters, oldest first, and reports whether it fits. The locked head
 // is never cut, nor are the sieve's own note, ledger and warning, and the newest message is cut last, only when
-// nothing older can give: the model is about to read it. Messages are cut to a floor, head and tail around a marker; tool-call arguments count towards the size but are never
+// nothing older can give: the model is about to read it. The question being worked on (taskIndex) is cut after
+// every other message, for the same reason. Messages are cut to a floor, head and tail around a marker; tool-call arguments count towards the size but are never
 // cut, so they stay valid JSON. The caller's slice is not modified.
 func shrinkHistory(history []proxy.Message, target int) ([]proxy.Message, bool) {
 	total := historyMessagesChars(history)
@@ -142,10 +143,14 @@ func shrinkHistory(history []proxy.Message, target int) ([]proxy.Message, bool) 
 	}
 	out := slices.Clone(history)
 	last := len(out) - 1
+	task := taskIndex(out)
 	for i := sieveLockedHead; i <= last && total > target; i++ {
-		if !isSieveMessage(out[i]) {
+		if !isSieveMessage(out[i]) && i != task {
 			total -= cutMessage(&out[i], total-target)
 		}
+	}
+	if task >= sieveLockedHead && total > target {
+		total -= cutMessage(&out[task], total-target) // only when nothing else can give
 	}
 	return out, total <= target
 }

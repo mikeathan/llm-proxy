@@ -49,7 +49,7 @@ executor.go Execute()
 
 - `context_budget` in chars (default 8000, overridable per-model via settings.yml)
 - When total chars exceeds budget, `applyPhysicalSieve()` fires:
-  1. Keep locked head (system message + first user message; never a tool call, `keptHead`)
+  1. Keep locked head (system message + first user message; never a tool call, `keptHead`) and, in a later turn of a conversation, the current question between it and the note (`keptQuestion`)
   2. Insert sieve marker: `[System Note: History distilled...]`, then the progress ledger message (`ledger.go`; facts only, one per prune, bounded to a share of `ContextBudget`). Each prune REPLACES earlier sieve messages (`withoutSieveMessages`); the "deliver final answer NOW" warning is sent once per run
   3. Keep priority tail (last 5-10 messages depending on stuck count); it starts at the call that made its first result (`tailStart`), so a call is never kept without its result. `proxy.RepairToolPairing` heals a saved history once at `newRunSession`
   4. `TokenUsage.CachedTokens` (llama.cpp `cache_n`) is summed per run and logged per call: a history rewrite shows as `cached_tokens` collapsing to ~0

@@ -67,8 +67,12 @@ func (p *physicalSieve) prune(history []proxy.Message) []proxy.Message {
 
 	compressStart := sieveLockedHead
 	compressEnd := len(history) - sievePhysicalTail
+	task := taskIndex(history)
 	if compressStart < compressEnd {
 		for i := compressStart; i < compressEnd; i++ {
+			if i == task {
+				continue // the question being worked on is not log
+			}
 			history[i].Content = truncateLongContent(history[i].Content, compressContentMax)
 			history[i].ReasoningContent = truncateLongContent(history[i].ReasoningContent, compressReasoningMax)
 		}
@@ -90,10 +94,12 @@ func (p *physicalSieve) prune(history []proxy.Message) []proxy.Message {
 	}
 
 	head := keptHead(clean)
+	from := tailStart(clean, len(head), sievePhysicalTail)
 	newHistory := make([]proxy.Message, 0, len(clean))
 	newHistory = append(newHistory, head...)
+	newHistory = append(newHistory, keptQuestion(clean, len(head), from)...)
 	newHistory = appendNoteAndLedger(newHistory, p.ledger)
-	newHistory = append(newHistory, clean[tailStart(clean, len(head), sievePhysicalTail):]...)
+	newHistory = append(newHistory, clean[from:]...)
 	if p.warn {
 		newHistory = append(newHistory, proxy.Message{
 			Role:    proxy.UserRole,
@@ -113,10 +119,12 @@ func sieveHistory(history []proxy.Message, tail int, ledger *proxy.Message) []pr
 		tail = len(history) - sieveLockedHead
 	}
 	head := keptHead(history)
+	from := tailStart(history, len(head), tail)
 	sieved := make([]proxy.Message, 0, len(history))
 	sieved = append(sieved, head...)
+	sieved = append(sieved, keptQuestion(history, len(head), from)...)
 	sieved = appendNoteAndLedger(sieved, ledger)
-	return append(sieved, history[tailStart(history, len(head), tail):]...)
+	return append(sieved, history[from:]...)
 }
 
 // keptHead is the leading part of a history a sieve never drops: the system prompt, the task and any context
@@ -129,6 +137,29 @@ func keptHead(history []proxy.Message) []proxy.Message {
 		end--
 	}
 	return history[:end]
+}
+
+// taskIndex is where the question being worked on sits: the newest user message that is the user's own, not a nag,
+// a sieve note or a ledger the agent injected. In a first question that is inside the locked head; in a later turn
+// of a conversation the head holds the first turns instead, so the question sits in the middle a sieve drops. -1
+// when there is none.
+func taskIndex(history []proxy.Message) int {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == proxy.UserRole && !isAgentControlMessage(history[i]) {
+			return i
+		}
+	}
+	return -1
+}
+
+// keptQuestion is the question being worked on, as the one message a sieve keeps between the head and its note when
+// it would otherwise be dropped (it lies after the head and before the kept tail). Nil when the head or the tail
+// already holds it, so a first question is never kept twice.
+func keptQuestion(history []proxy.Message, headEnd, tailFrom int) []proxy.Message {
+	if i := taskIndex(history); i >= headEnd && i < tailFrom {
+		return history[i : i+1]
+	}
+	return nil
 }
 
 // tailStart is where the kept tail of a history begins: n messages from the end, never inside the head, and never

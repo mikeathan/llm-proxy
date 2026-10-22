@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.12"
+version: "1.13"
 status: stable
 last_updated: 2026-10-22
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **1.13 (2026-10-22)** — A sieve keeps the question being worked on (§2). In a later turn of a conversation the locked
+  head holds the conversation's *first* turns, and the new question sat in the middle a long tool loop makes a sieve
+  drop: a research chat's second question was lost after four steps and the model went back to answering the first.
+  The newest real user message (`taskIndex`: not a nag, sieve note or ledger) is now kept between the head and the
+  sieve note whenever it would otherwise be dropped (`keptQuestion`), is not compressed by the physical sieve, and is
+  cut last by `shrinkHistory`. A first question is already in the head and is not kept twice.
 - **1.12 (2026-10-22)** — **Delegation (§15).** A run whose profile names helpers (`delegates`, SPEC-012) gets the
   `delegate_task` tool while a cloud sub-agent model is set (`agent.subagent_model`).
   - One call carries 1–3 tasks. They run at the same time as child runs through the `assistant.SubRunner` port,
@@ -186,7 +192,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 ### 2. Context Budget & Physical Sieve (Constitution II.6)
 - Default budget: 8,000 characters (overridable via `ModelConfig.ContextBudget`).
 - When exceeded, first attempt **compression**: truncate long Content (>4000 chars) and ReasoningContent (>2000 chars) in older messages to head+tail with `...[Truncated]...` marker.
-- If compression is not enough: keep the Locked Head, insert sieve marker, keep the last 10 messages (Priority Tail). The head is the system prompt, the task and any context *before the first tool step* (at most 3 messages), and the tail starts at the call that made its first result: **a sieve never keeps a call without its result or a result without its call** (`keptHead`, `tailStart`; test `TestSieves_NeverSplitACallFromItsResult`).
+- If compression is not enough: keep the Locked Head, insert sieve marker, keep the last 10 messages (Priority Tail). The head is the system prompt, the task and any context *before the first tool step* (at most 3 messages), and the tail starts at the call that made its first result: **a sieve never keeps a call without its result or a result without its call** (`keptHead`, `tailStart`; test `TestSieves_NeverSplitACallFromItsResult`). **The question being worked on is kept too**: in a later turn of a conversation it lies after the head, so the sieve keeps that one message between the head and the note when it would be dropped (`taskIndex`, `keptQuestion`; tests `TestSieves_KeepTheCurrentQuestion`, `TestPhysicalSieve_DoesNotCompressTheCurrentQuestion`).
 - **Progress ledger**: every sieve inserts, immediately after the byte-exact sieve note, ONE ledger message
   (`prompts.SieveLedgerHeader` + lines like `✓ write_file smoke/hello.txt`, `✓ execute_terminal_command "uname -a" → Darwin …`,
   `✗ execute_terminal_command "npx tsc" → exit status 1`). Recorded in `appendToolResult` (the single choke point for every

@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -341,4 +342,80 @@ func TestNewRunSession_RepairsASavedOrphan(t *testing.T) {
 	if len(damaged) != len(history)-1 {
 		t.Error("the caller's history must not be modified")
 	}
+}
+
+// laterTurnHistory is a conversation whose earlier question was answered after a tool call, then a new question
+// (question) and turns tool calls working on it, each answered. The sieve's locked head holds the first turns of a
+// conversation, so the new question lies in the middle that a long tool loop makes it drop.
+func laterTurnHistory(question string, turns int) []proxy.Message {
+	h := []proxy.Message{
+		{Role: proxy.SystemRole, Content: "sys"},
+		{Role: proxy.UserRole, Content: "first question"},
+		{Role: proxy.AssistantRole, ToolCalls: []proxy.ToolCall{{ID: "old_call", Type: "function", Function: proxy.FunctionCall{Name: "probe_tool", Arguments: "{}"}}}},
+		{Role: proxy.ToolRole, ToolCallID: "old_call", Content: "old result"},
+		{Role: proxy.AssistantRole, Content: "first answer"},
+		{Role: proxy.UserRole, Content: question},
+	}
+	return append(h, pairedHistory(turns, 1)[2:]...)
+}
+
+// The question being worked on survives every sieve, however long the tool loop is. A 2026-10-22 chat's second
+// question ("research how to build an agent harness in Go") was dropped in the middle after four steps, and the model
+// went back to answering the first question, the only one it could still see.
+func TestSieves_KeepTheCurrentQuestion(t *testing.T) {
+	const question = "second question: research how to build an agent harness in Go"
+	logger := logging.NewNopLogger()
+	sieves := map[string]func() HistorySieve{
+		"physical":   func() HistorySieve { return &physicalSieve{logger: logger, contextBudget: 10} },
+		"reactive":   func() HistorySieve { return &reactiveSieve{logger: logger} },
+		"aggressive": func() HistorySieve { return &aggressiveSieve{logger: logger} },
+	}
+	for name, newSieve := range sieves {
+		for turns := 1; turns <= 14; turns++ {
+			got := newSieve().Sieve(laterTurnHistory(question, turns))
+			if n := countContent(got, question); n != 1 {
+				t.Errorf("%s sieve, %d turns: the current question appears %d times, want once", name, turns, n)
+			}
+			if problems := pairingProblems(got); len(problems) > 0 {
+				t.Errorf("%s sieve, %d turns: %v", name, turns, problems)
+			}
+			if got[0].Role != proxy.SystemRole || got[1].Content != "first question" {
+				t.Errorf("%s sieve, %d turns: the system prompt and the first question stay first", name, turns)
+			}
+			note := slices.IndexFunc(got, isSieveMessage)
+			asked := slices.IndexFunc(got, func(m proxy.Message) bool { return m.Content == question })
+			if note >= 0 && asked > note && turns > 4 {
+				t.Errorf("%s sieve, %d turns: the question comes after the sieve note, the model reads it as a log line", name, turns)
+			}
+		}
+	}
+}
+
+// A sieve changes nothing about a first question: it is already in the locked head, so it is not kept twice.
+func TestSieves_FirstQuestionIsNotDuplicated(t *testing.T) {
+	logger := logging.NewNopLogger()
+	for turns := 1; turns <= 14; turns++ {
+		got := (&physicalSieve{logger: logger, contextBudget: 10}).Sieve(pairedHistory(turns, 1))
+		if n := countContent(got, "task"); n != 1 {
+			t.Errorf("%d turns: the task appears %d times", turns, n)
+		}
+	}
+}
+
+// A long question is the task, not log: the physical sieve's compression of old messages leaves it whole.
+func TestPhysicalSieve_DoesNotCompressTheCurrentQuestion(t *testing.T) {
+	question := "summarise this document: " + strings.Repeat("a long pasted paragraph. ", 400)
+	history := laterTurnHistory(question, 8)
+	got := (&physicalSieve{logger: logging.NewNopLogger(), contextBudget: len(question) + 3000}).Sieve(history)
+	if countContent(got, question) != 1 {
+		t.Errorf("the long question was cut or lost (kept %d bytes of %d)", len(strings.Join(contents(got), "")), len(question))
+	}
+}
+
+func contents(msgs []proxy.Message) []string {
+	out := make([]string, len(msgs))
+	for i, m := range msgs {
+		out[i] = m.Content
+	}
+	return out
 }
