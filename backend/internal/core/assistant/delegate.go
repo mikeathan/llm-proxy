@@ -39,14 +39,15 @@ var delegateToolSchema = sync.OnceValues(func() (proxy.Tool, error) {
 // its profile's business: a profile that names no helpers hides it, like any tool it does not offer.
 type delegatingProvider struct {
 	ToolProvider
-	runner SubRunner
+	runner  SubRunner
+	helpers []string // the profile's delegates: the only values the agent field of a task may take
 }
 
-func withDelegateTool(provider ToolProvider, runner SubRunner) ToolProvider {
+func withDelegateTool(provider ToolProvider, runner SubRunner, helpers []string) ToolProvider {
 	if runner == nil {
 		return provider
 	}
-	return delegatingProvider{ToolProvider: provider, runner: runner}
+	return delegatingProvider{ToolProvider: provider, runner: runner, helpers: helpers}
 }
 
 func (p delegatingProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
@@ -54,11 +55,48 @@ func (p delegatingProvider) ListTools(ctx context.Context) ([]proxy.Tool, error)
 	if err != nil || !p.runner.Enabled() {
 		return list, err
 	}
-	tool, err := delegateToolSchema()
+	tool, err := delegateToolFor(p.helpers)
 	if err != nil {
 		return list, nil // a broken manifest is a build defect the manifest tests catch; the run goes on without it
 	}
 	return append(slices.Clone(list), tool), nil
+}
+
+// delegateToolFor is the delegate tool as one run is shown it: its own copy of the schema, with the agent field of a
+// task limited to the run's helpers. Told only to name "one of the helpers this conversation offers", a model has no
+// way to know their names, and a small one invents one (2026-10-22: "general-purpose-reasoner").
+func delegateToolFor(helpers []string) (proxy.Tool, error) {
+	base, err := delegateToolSchema()
+	if err != nil {
+		return proxy.Tool{}, err
+	}
+	raw, err := json.Marshal(base.Function.Parameters)
+	if err != nil {
+		return proxy.Tool{}, fmt.Errorf("copy the delegate tool schema: %w", err)
+	}
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return proxy.Tool{}, fmt.Errorf("copy the delegate tool schema: %w", err)
+	}
+	if agent, ok := agentProperty(params); ok {
+		agent["enum"] = slices.Clone(helpers)
+	}
+	tool := base
+	tool.Function.Parameters = params
+	return tool, nil
+}
+
+// agentProperty is the agent field of a task in the delegate tool's schema.
+func agentProperty(params map[string]any) (map[string]any, bool) {
+	node := params
+	for _, key := range []string{"properties", "tasks", "items", "properties", "agent"} {
+		next, ok := node[key].(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		node = next
+	}
+	return node, true
 }
 
 type delegateArgs struct {

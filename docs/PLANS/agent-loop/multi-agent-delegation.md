@@ -204,6 +204,31 @@ Decisions from the research report §9:
   - Child tool results are no longer forwarded (they were unused by the UI and doubled the event volume).
 - **Not yet verified live.** No real cloud model has run a delegate call; that is B7.
 
+## B7 first findings (2026-10-22, live on vertex, local Qwen 16k)
+
+A user's research chat on Qwen never delegated, and its second question was lost to the sieve (fixed separately,
+#118). The recorded first request of that turn was replayed against vertex's Qwen, five trials per variant, observing
+the first reply (`delegate_task` or not):
+
+| Variant | Delegated |
+|---|---|
+| As deployed | 0/5 |
+| + a DELEGATE paragraph in `research.md` | 0/5 |
+| + the same, firmer wording | 0/5 |
+| + the helper listed in the tool schema (`enum`) | 0/5 |
+| + both | 1/5 |
+| The user asks for it ("Use delegate_task to hand the angles to helpers") | 5/5 |
+
+- **Profile text does not make Qwen delegate**, so none was shipped (it would only cost prompt tokens on a 16k
+  window). Its reasoning shows it already splits a broad topic into angles, then runs the angles as three parallel
+  searches itself.
+- **The mechanism works with a real model**: asked, it writes well-formed nested `delegate_task` calls.
+- **The helper list in the schema is required**: without it all five calls used an invented helper name
+  (`general-purpose-reasoner`, ...). Fixed: `delegateToolFor` limits `agent` to the profile's `delegates`.
+- **Open:** how a research chat gets helpers without the user asking for them. Candidates: a visible "use helpers"
+  choice in the composer that adds the request to the message, a `/research` command, or the delegate step being the
+  required first step of a profile. None is built.
+
 ## Remaining Work
 
 - **B7:** a live smoke on the dev backend (the user named it), then the eval: research prompts with and without
