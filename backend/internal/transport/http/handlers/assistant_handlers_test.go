@@ -1793,3 +1793,40 @@ func TestAssistant_PrepareRequest_RejectsAnUnknownProfile(t *testing.T) {
 		t.Errorf("response = %d %q, want 400 naming the profile and the known ones", rec.Code, rec.Body.String())
 	}
 }
+
+// ctxService is a ConversationService that records whether the run's context says the message asked for helpers.
+type ctxService struct{ asked bool }
+
+func (s *ctxService) Execute(ctx context.Context, _, _, _, _, _ string, _ []string, _ logging.Logger, _ assistant.ToolProvider, _ proxy.Client, _ assistant.Engine, _ assistant.EventPublisher, _ assistant.EventRecorder) (assistant.ExecuteResult, error) {
+	s.asked = models.HelpersRequested(ctx)
+	return assistant.ExecuteResult{}, nil
+}
+
+// "use_helpers" in the request body reaches the run: the page sent it, the handler decodes it into the run's context.
+// A body that does not ask leaves the context asking for nothing.
+func TestAssistant_UseHelpersReachesTheRun(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		want       bool
+	}{
+		{"asked", `{"workspace_id":"ws","message":"compare A and B","use_helpers":true}`, true},
+		{"not asked", `{"workspace_id":"ws","message":"compare A and B"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := mocks.NewMockAssistantService(&mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}, nil, nil, nil)
+			handler := NewAssistantMessageHandler(service)
+			capture := &ctxService{}
+			handler.service = capture
+			var payload AssistantMessage
+			if err := json.Unmarshal([]byte(tc.body), &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, herr := handler.handleAssistant(context.Background(), &payload, &noopLogger{}); herr != nil {
+				t.Fatalf("handleAssistant: %+v", herr)
+			}
+			if capture.asked != tc.want {
+				t.Errorf("the run's context asks for helpers = %v, want %v", capture.asked, tc.want)
+			}
+		})
+	}
+}
