@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -65,6 +66,54 @@ func TestDelegateTool_Offered(t *testing.T) {
 		if got := offersDelegate(t, delegateAgent(tc.runner, tc.p)); got != tc.want {
 			t.Errorf("%s: offered = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// helperEnum is the helpers the delegate tool's schema lists for the agent field of its tasks.
+func helperEnum(t *testing.T, a *Agent) []string {
+	t.Helper()
+	list, err := a.deps.Provider.ListTools(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list {
+		if tool.Function.Name != models.ToolDelegate {
+			continue
+		}
+		raw, _ := json.Marshal(tool.Function.Parameters)
+		var schema struct {
+			Properties struct {
+				Tasks struct {
+					Items struct {
+						Properties struct {
+							Agent struct {
+								Enum []string `json:"enum"`
+							} `json:"agent"`
+						} `json:"properties"`
+					} `json:"items"`
+				} `json:"tasks"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		return schema.Properties.Tasks.Items.Properties.Agent.Enum
+	}
+	t.Fatal("the delegate tool is not offered")
+	return nil
+}
+
+// The schema names the helpers the run may use, so the model picks one instead of inventing a name: on 2026-10-22
+// a local Qwen asked to delegate called its helper "general-purpose-reasoner". Each run's schema is its own copy.
+func TestDelegateTool_SchemaListsTheRunsHelpers(t *testing.T) {
+	runner := &scriptedSubRunner{enabled: true}
+	two := delegateAgent(runner, profile.Profile{ID: "lead", Delegates: []string{"web-researcher", "reviewer"}})
+	one := delegateAgent(runner, leadProfile())
+	if got := helperEnum(t, two); !slices.Equal(got, []string{"web-researcher", "reviewer"}) {
+		t.Errorf("two helpers: enum = %v", got)
+	}
+	if got := helperEnum(t, one); !slices.Equal(got, []string{"web-researcher"}) {
+		t.Errorf("one helper: enum = %v (the schema was shared with the first run)", got)
 	}
 }
 

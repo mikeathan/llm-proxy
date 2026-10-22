@@ -674,7 +674,7 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 	a := &Agent{
 		deps: AgentRuntimeDeps{
 			Client:       client,
-			Provider:     toolpolicy.ResolveForScope(withDelegateTool(provider, opts.SubRunner), gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.excludedTools()),
+			Provider:     toolpolicy.ResolveForScope(withDelegateTool(provider, opts.SubRunner, opts.Profile.Delegates), gr, opts.WorkspaceID, opts.RunNetworkScope, opts.AllowedTools, opts.excludedTools()),
 			Engine:       engine,
 			Guardrails:   gr,
 			Logger:       opts.Logger,

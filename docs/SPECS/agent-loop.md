@@ -354,6 +354,11 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
   profile lists `delegates`. `delegatingProvider` adds the schema from `manifests/delegation.json`; the profile's
   `ExcludedTools` hides it otherwise. Chats and automations get the app's runner from `RunOptionDeps.SubRunner()`;
   `profile.KindSubagent` runs never do.
+- **The schema names the helpers.** Each run is shown its own copy of the tool (`delegateToolFor`) whose `agent` field is
+  limited, as an `enum`, to the profile's `delegates`. Told only to use "one of the helpers this conversation offers",
+  a model cannot know a name, and a small one invents it: asked to delegate, a local Qwen called its helper
+  `general-purpose-reasoner` or `general-purpose-researcher` in 5 of 5 replays, each of which the call check would
+  have refused; with the list it chose `web-researcher` every time.
 - **Call checks** (`delegate.go`), errors the model can correct:
   - 1–3 tasks (`maxDelegateTasks`);
   - each task has a question;
