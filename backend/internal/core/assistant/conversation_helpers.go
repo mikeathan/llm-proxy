@@ -412,6 +412,19 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 	return history
 }
 
+// withHelpersNote returns history with the helpers note appended to the last user message, for the model only, like the
+// local time: what is stored and shown stays what the user typed.
+func withHelpersNote(history []proxy.Message) []proxy.Message {
+	last := len(history) - 1
+	if last < 0 || history[last].Role != proxy.UserRole {
+		return history
+	}
+	out := make([]proxy.Message, len(history))
+	copy(out, history)
+	out[last].Content += "\n\n" + prompts.HelpersNote
+	return out
+}
+
 // withLocalTime returns history with the user's local time appended to the last
 // user message, for the model only: the stored session is not touched, so the
 // note is current on every turn however long the conversation has been open.

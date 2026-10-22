@@ -1,6 +1,6 @@
 # Use Helpers — a composer control that makes a research chat delegate
 
-**Status:** proposed (2026-10-22). Awaiting the user's sign-off on the decisions in §6; nothing is built.
+**Status:** active (2026-10-22): built, not yet deployed. Decisions D1–D3 taken as recommended; P0–P2 done, P3 (live on vertex) open.
 **Related Specs:** SPEC-001 (Agent Loop, §15 Delegation), SPEC-003 (UI), SPEC-012 (Prompt Profiles).
 **Constitution refs:** II.13 (prompt text only in `templates.go`), II.3 (nothing leaves the machine unintended — see §4).
 **Follows:** [`multi-agent-delegation.md`](multi-agent-delegation.md) (B7 first findings), PR #119 (the helper list in the tool schema).
@@ -48,9 +48,9 @@ and nothing is guessed about their intent.
 
 The frontend must not re-derive "is a cloud helper model set". The backend answers:
 
-- New `GET /admin/api/helpers` → `{ "available": bool, "model": "deepseek-v4.1-flash", "agents": [{id, name, summary}] }`.
-  `available` is the runner's `Enabled()` (a cloud model is named and the lane classifier agrees). It is the
-  endpoint the later Settings → Agents editor needs too.
+- New `GET /admin/api/helpers` → `{ "available": bool, "model": "deepseek-v4.1-flash" }`. `available` is the runner's
+  `Enabled()` (a cloud model is named and the lane classifier agrees). The `agents` list first planned was dropped: the
+  page already has the selected profile's `delegates` and the profile names.
 - The profile list already returns each profile's `delegates` (the handler embeds `profile.Profile`); the frontend type
   `PromptProfile` just lacks the field.
 
@@ -102,6 +102,22 @@ The frontend must not re-derive "is a cloud helper model set". The backend answe
   so, and names the model. Workspace notes (AGENTS.md) are not sent (shipped in #117).
 - Helper tokens are on the turn's run record and the "N helpers" footer, not in the turn's own count.
 
+## 4a. P0 results (2026-10-22, vertex's Qwen3.6 35B A3B, 16k, the recorded Go research turn)
+
+| Variant | Delegated |
+|---|---|
+| Go question, no note (baseline) | 0/5 |
+| **Go question + the note** | **9/10** (4/5, then 5/5) |
+| Go question + a firmer note ("do not search yourself first") | 8/10 |
+| "what is 2+2?" + the note | 0/5, answered directly |
+| "what is the latest stable version of Go?" + the note | 0/5, one search |
+| firmer note on the two small questions | 0/10 |
+
+- The softer wording is kept: the firmer one did no better and the note must not push silly delegation.
+- The second model could not be tested: vertex's `/v1` returns 403 for a cloud model, and switching vertex's local model
+  would evict the user's Qwen. Every helper call named `web-researcher`.
+- Forcing `tool_choice` (D3 option b) was not needed.
+
 ## 5. Phases
 
 | Phase | What | Accept |
@@ -127,6 +143,19 @@ The frontend must not re-derive "is a cloud helper model set". The backend answe
 Choosing which helper (there is one), a Settings → Agents editor (Part C), pipelines, and showing "helpers were on but
 not used" (a possible later addition once P3 shows how often it happens).
 
+## Built (2026-10-22)
+
+- **Backend:** `use_helpers` on the chat request → `models.WithHelpersRequest` → `conversationService.helpersAsked` →
+  `withHelpersNote` (`prompts.HelpersNote`) on the model's copy of the last user message; `GET /admin/api/helpers`
+  (`helpers_handlers.go`).
+- **Frontend:** `PromptProfile.delegates`; `HelpersService` and `useHelpers` (read on every chat open);
+  `useAssistant.helpersOn` (off for a new or listed conversation); the third row and the "Research · helpers" button in
+  `RunSettings.vue`; `use_helpers` sent only when on, the profile names helpers and they are available.
+- **Checked by screenshot** (mocked API, paper and dark themes, desktop and phone): on, off-and-disabled with the
+  reason, and no row for General. A first screenshot showed the button cut to "Research · helpe…"; it now has room.
+- **Docs:** SPEC-001 1.14 §15, SPEC-003 2.13, SPEC-012 1.3.
+
 ## Remaining Work
 
-P0–P3, after the decisions in §6.
+P3: after the user deploys, ask the Go question as a second question with the switch on and check the helpers run, the
+window is not hit, and the footer shows the helpers.

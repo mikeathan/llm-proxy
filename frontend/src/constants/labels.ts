@@ -9,6 +9,16 @@ import type { InsetPhase } from '../types/inset'
 import { formatElapsedSeconds } from '../utils/format/time'
 import { formatTokenCount } from '../utils/format/units'
 
+// The composer's "Use helpers" row (RunSettings). The model is named because helpers run on a cloud model: what the
+// assistant writes into each task goes there, and nothing else from this machine.
+export const HELPERS_FIELD_LABEL = 'Helpers'
+export const HELPERS_TOGGLE_LABEL = 'Use helpers for this chat'
+export const HELPERS_ON_SUFFIX = 'helpers'
+export const HELPERS_UNAVAILABLE_HINT = 'Pick a Helper model in Settings → Runs to use helpers.'
+export function helpersHint(model: string): string {
+  return `Splits the question into parts and hands each to a helper on ${model}, which searches the web in parallel. Only what your assistant writes into the tasks leaves this machine.`
+}
+
 // HELPER_STATUS_LABEL says how a delegated helper stands when it has no step to show (ToolCallSegment).
 export const HELPER_STATUS_LABEL: Record<HelperProgress['status'], string> = {
   running: 'Starting',

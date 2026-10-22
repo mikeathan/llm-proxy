@@ -75,4 +75,42 @@ describe('RunSettings', () => {
   it('cannot be opened while a run is going', () => {
     expect(mountSettings({ disabled: true }).get('[data-test="run-settings"]').attributes('disabled')).toBeDefined()
   })
+
+  // The "Use helpers" row: shown when the profile names helpers, enabled when the server says they can run.
+  describe('helpers', () => {
+    const HELPERS = { helpersShown: true, helpersAvailable: true, helpersModel: 'deepseek-v4.1-flash' }
+    const openIt = async (over: Record<string, unknown>) => {
+      const w = mountSettings({ profile: 'research', ...over })
+      await w.get('[data-test="run-settings"]').trigger('click')
+      return w
+    }
+
+    it('has no helpers row for a profile that names no helpers', async () => {
+      const w = await openIt({ helpersShown: false })
+      expect(w.text()).not.toContain('Use helpers')
+    })
+
+    it('offers the switch, names the helper model and what leaves the machine, and reports a toggle', async () => {
+      const w = await openIt(HELPERS)
+      const toggle = w.get('input[type="checkbox"]')
+      expect((toggle.element as HTMLInputElement).disabled).toBe(false)
+      expect(w.text()).toContain('deepseek-v4.1-flash')
+      expect(w.text()).toContain('leaves this machine')
+      await toggle.setValue(true)
+      expect(w.emitted('update:helpers')?.[0]).toEqual([true])
+    })
+
+    it('shows the switch disabled, with the reason, when no helper model is set up', async () => {
+      const w = await openIt({ ...HELPERS, helpersAvailable: false, helpersModel: '' })
+      expect((w.get('input[type="checkbox"]').element as HTMLInputElement).disabled).toBe(true)
+      expect(w.text()).toContain('Settings → Runs')
+    })
+
+    it('says helpers are on in the button, and only when they will be used', () => {
+      expect(mountSettings({ ...HELPERS, helpers: true }).get('[data-test="run-settings"]').text()).toContain('helpers')
+      expect(mountSettings({ ...HELPERS, helpers: false }).get('[data-test="run-settings"]').text()).not.toContain('helpers')
+      expect(mountSettings({ ...HELPERS, helpers: true, helpersAvailable: false }).get('[data-test="run-settings"]').text()).not.toContain('helpers')
+      expect(mountSettings({ ...HELPERS, helpers: true }).get('[data-test="run-settings"]').attributes('aria-label')).toContain('helpers on')
+    })
+  })
 })

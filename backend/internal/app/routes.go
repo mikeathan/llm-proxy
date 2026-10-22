@@ -29,6 +29,7 @@ type HandlerSet struct {
 	Memory     *handlers.MemoryHandlers
 	Reminders  *handlers.ReminderHandlers
 	Profiles   *handlers.ProfileHandlers
+	Helpers    *handlers.HelpersHandlers
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 }
@@ -77,6 +78,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		hs.Dispatcher = handlers.NewDispatcherHandlers(disp, wsSvc, s.logger).WithProfiles(s.Profiles())
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
+	hs.Helpers = handlers.NewHelpersHandlers(s)
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -291,6 +293,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/queue/{queue_key}/cancel", hs.ActiveRuns.ServeCancelHTTP, jsonMethodNotAllowed)
 
 	router.Get("/admin/api/profiles", hs.Profiles.List, jsonMethodNotAllowed)
+	router.Get("/admin/api/helpers", hs.Helpers.Status, jsonMethodNotAllowed)
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)

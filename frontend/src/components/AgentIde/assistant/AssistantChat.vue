@@ -22,6 +22,7 @@ import ChatMessages from "./ChatMessages.vue";
 import ChatInput from "./ChatInput.vue";
 import { useAssistantModel } from "../../../composables/assistant/useAssistantModel";
 import { useProfiles } from "../../../composables/assistant/useProfiles";
+import { useHelpers } from "../../../composables/assistant/useHelpers";
 import { useWorkspaceProfile } from "../../../composables/assistant/useWorkspaceProfile";
 import { defaultProfile, profileOptions } from "../../../utils/assistant/profileChoice";
 import RunSettings from "./RunSettings.vue";
@@ -61,7 +62,7 @@ const {
   thinking, liveReasoning, paused, phase, modelBusy, dismissModelBusy,
   fetchSessions, loadSession, newSession, openWorkspace, sendMessage, deleteSession,
   deleteSessionsByIds, cancelSession, cancel,
-  liveEvents, sseConnected, conversationProfile,
+  liveEvents, sseConnected, conversationProfile, helpersOn,
 } = useAssistant();
 // What the next message runs with. The model is remembered per browser (empty = the primary). The profile belongs to
 // the conversation: a new chat starts with the workspace's (else the default for chats) until one is picked here, and
@@ -80,6 +81,11 @@ const profileChoice = computed({
   get: () => shownProfile.value?.id ?? "",
   set: (id: string) => { conversationProfile.value = id; },
 });
+// "Use helpers": offered for a profile that names helpers, and asked of the server only when the switch is on and the
+// server says helpers can run (a cloud helper model is set up). The switch lasts for the open conversation.
+const { status: helpersStatus, refresh: refreshHelpers } = useHelpers();
+const helpersShown = computed(() => (shownProfile.value?.delegates?.length ?? 0) > 0);
+const helpersToSend = computed(() => helpersOn.value && helpersShown.value && helpersStatus.value.available);
 const { confirm } = useConfirm();
 const { forget: forgetPins } = usePinnedSessions(() => props.workspaceId);
 
@@ -166,7 +172,7 @@ async function scrollToLatest() {
 // output after the DOM updates.
 async function launchRun(text: string) {
   collapseAllInsets();
-  await sendMessage(props.workspaceId, text, { model: model.value, profile: profileToSend.value });
+  await sendMessage(props.workspaceId, text, { model: model.value, profile: profileToSend.value, ...(helpersToSend.value && { useHelpers: true }) });
   await scrollToLatest();
 }
 
@@ -202,6 +208,7 @@ const { insetCollapsed, isInsetCollapsed, toggleInset, collapseAllInsets, resetI
 const { expandedSegments, isSegExpanded, toggleSegment } = useExpandedSegments();
 
 onMounted(() => {
+  void refreshHelpers(); // the Helper model may have been changed in Settings since the chat was last open
   messageQueue.reclaim();
   if (props.workspaceId) void initWorkspace().then(() => messageQueue.reclaim());
 });
@@ -492,6 +499,10 @@ const handleDeleteGroup = async (ids: string[]) => {
             v-if="shownProfile"
             v-model:profile="profileChoice"
             v-model:model="model"
+            v-model:helpers="helpersOn"
+            :helpers-shown="helpersShown"
+            :helpers-available="helpersStatus.available"
+            :helpers-model="helpersStatus.model"
             :profile-options="profileChoices"
             :model-options="modelOptions"
             :profile-name="shownProfile.name"

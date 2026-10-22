@@ -1,7 +1,7 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.2"
+version: "1.3"
 status: draft
 last_updated: 2026-10-22
 constitution_references: [II.13, II.3]
@@ -12,6 +12,9 @@ supersedes:
 # SPEC: Prompt Profiles
 
 ## Changelog
+
+- **1.3 (2026-10-22)** — The chat request accepts `use_helpers` and `GET /admin/api/helpers` reports whether helpers can
+  run (§4). A profile's `delegates` is what makes the switch appear in the composer.
 
 - **1.2 (2026-10-22)** — `delegates: [ids]` lists the helper profiles a profile may hand tasks to (SPEC-001 §15).
   - The `delegate_task` tool exists only for a profile that lists helpers. Its `delegation` category cannot be named
@@ -105,7 +108,12 @@ The profile's flags are read by the loop (SPEC-001): answer-first completion and
 
 - `GET /admin/api/profiles` → every profile (`id`, `name`, `summary`, `source`, the flags, `default_for`), sorted by id;
   the instructions are not included.
-- `POST /admin/api/conversation/message` accepts `profile`; an unknown id is `400` naming the known ones.
+- `POST /admin/api/conversation/message` accepts `profile`; an unknown id is `400` naming the known ones. It also
+  accepts `use_helpers: true`: the message asks the assistant to hand its independent parts to helpers (SPEC-001 §15).
+  It is ignored, never an error, when the run's profile names no `delegates` or helpers are not set up.
+- `GET /admin/api/helpers` → `{available, model}`: `available` is true when a cloud helper model is set up (the
+  sub-runner's `Enabled()`), `model` is the Helper model Settings names (`agent.subagent_model`), `""` when none, even
+  when it is not usable, so the page can say why.
 - The workspace config `PUT` and automation create/update validate `assistant_profile` / `profile` the same way.
 
 ## 5. Error handling

@@ -97,6 +97,9 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 
 	// 6. Execute agent
 	llmHistory := withLocalTime(FilterCancelledTurns(session.History, session.CancelledIndices), time.Now(), chatZone)
+	if s.helpersAsked(ctx, runProfile) {
+		llmHistory = withHelpersNote(llmHistory)
+	}
 	reply, updatedHistory, agErr := agent.Execute(execCtx, llmHistory)
 	finishTurnRun(run, usage.FromContext(execCtx), agent.ToolWarnings())
 
@@ -457,4 +460,14 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 func endAssistantRun(events EventPublisher, workspaceID, sessionID string) {
 	PublishSessionLifecycle(events, workspaceID, sessionID, "", PhaseSessionCompleted)
 	events.Clear(workspaceID, ChannelAssistant)
+}
+
+// helpersAsked reports whether this message asked for helpers and the run can use them: its profile names helpers and
+// the sub-runner is set up. Otherwise the request is ignored, never an error.
+func (s *conversationService) helpersAsked(ctx context.Context, p profile.Profile) bool {
+	if !models.HelpersRequested(ctx) || len(p.Delegates) == 0 {
+		return false
+	}
+	runner := s.deps.SubRunner()
+	return runner != nil && runner.Enabled()
 }

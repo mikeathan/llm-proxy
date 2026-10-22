@@ -17,5 +17,7 @@ export interface PromptProfile {
   memory?: MemoryMode
   memory_save: 'model' | 'explicit' | 'off'
   reminders: boolean
+  /** Helper profiles this one may hand tasks to (sub-agents); empty or absent means it never delegates. */
+  delegates?: string[]
   default_for: ProfileKind[]
 }

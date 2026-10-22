@@ -29,6 +29,7 @@ const (
 	JournalRunKey        contextKey = "journal_run"
 	ModelOverrideKey     contextKey = "model_override"
 	ProfileRequestKey    contextKey = "profile_request"
+	HelpersRequestKey    contextKey = "helpers_request"
 )
 
 // GetWorkspaceID retrieves the workspace ID from the context.
@@ -171,6 +172,23 @@ func GetProfileRequest(ctx context.Context) string {
 	}
 	id, _ := ctx.Value(ProfileRequestKey).(string)
 	return id
+}
+
+// WithHelpersRequest records whether one chat message asks for helpers (sub-agents); false leaves the context unchanged.
+func WithHelpersRequest(ctx context.Context, asked bool) context.Context {
+	if !asked {
+		return ctx
+	}
+	return context.WithValue(ctx, HelpersRequestKey, true)
+}
+
+// HelpersRequested reports whether the message being run asked for helpers.
+func HelpersRequested(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	asked, _ := ctx.Value(HelpersRequestKey).(bool)
+	return asked
 }
 
 // WithUnattendedRun marks the context as an unattended (automation) run: no

@@ -302,3 +302,16 @@ func TestNewRunID(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// A message can ask for helpers; the context says so, and a context that never asked says no.
+func TestHelpersRequest(t *testing.T) {
+	if HelpersRequested(context.Background()) || HelpersRequested(WithHelpersRequest(context.Background(), false)) {
+		t.Error("a context that did not ask is not asking")
+	}
+	if !HelpersRequested(WithHelpersRequest(context.Background(), true)) {
+		t.Error("a message that asked is asking")
+	}
+	if HelpersRequested(nil) { //nolint:staticcheck // the helpers accept a nil context like GetRunID
+		t.Error("a nil context asks for nothing")
+	}
+}

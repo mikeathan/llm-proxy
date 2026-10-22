@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.13"
+version: "1.14"
 status: stable
 last_updated: 2026-10-22
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -12,6 +12,12 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.14 (2026-10-22)** — "Use helpers" (§15). A chat message can ask for helpers (`use_helpers`): the model's copy of
+  the message gets `prompts.HelpersNote`, a context note in the form of the local-time note, so what is stored and
+  shown stays as typed. A local Qwen never delegated on its own (0 of 5 replays, with or without profile guidance) and
+  delegated 9 of 10 times with the note, but 0 of 10 on a trivial question or a one-line lookup, which it answered or
+  searched itself.
 
 - **1.13 (2026-10-22)** — A sieve keeps the question being worked on (§2). In a later turn of a conversation the locked
   head holds the conversation's *first* turns, and the new question sat in the middle a long tool loop makes a sieve
@@ -382,6 +388,10 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - **Prompt**: the child's system message is the core rules plus the helper profile (`prompts.AssembleSystemPrompt`),
   **without the workspace's notes** (AGENTS.md). Its user message is the task plus the context the parent wrote. Nothing
   else from the machine reaches the cloud model.
+- **Use helpers**: when the request sets `use_helpers`, the run's profile names `delegates` and the sub-runner is
+  enabled (`conversationService.helpersAsked`), `withHelpersNote` appends `prompts.HelpersNote` to the last user message
+  of the model's copy of the history, after the local-time note. Nothing is stored or shown; otherwise nothing is added
+  and nothing fails. Tests `TestConversationService_HelpersNote`.
 - **Record**: `TurnRun.Subagents []SubagentRun{agent, model, status, duration_ms, prompt_tokens, completion_tokens}`.
   Its tokens are not in the turn's own counts.
 
