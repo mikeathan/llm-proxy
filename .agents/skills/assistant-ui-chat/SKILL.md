@@ -141,7 +141,7 @@ Call `forceUpdate()` after every mutation that must be reflected in the template
 
 **Streaming renders via the `liveReasoning` ref only; committed turns stay frozen.** `handleToolStream()` buffers streamed text in `pendingText` and flushes `liveReasoning.value` at most once per 100ms (`scheduleFlush()`). The flush does NOT replace the message object — no `forceUpdate()`. This keeps the `turns` computed frozen during text streaming, so historical turns never re-render and their `MarkdownViewer` computeds never re-run (the memoized-list pattern ChatGPT/Gemini use). `forceUpdate()` runs only on segment mutations (`tool_call`/`tool_result`/`commitReasoning`/`guardrail`), where the turn genuinely changes. `clearPendingFlush()` runs in `commitReasoning()`/`finalize()`/`reset()` so committed or finished text is never re-flashed as live.
 
-**Live reasoning renders with full markdown via the `liveReasoning` ref (restored 2026-08-28).** The plain-text experiment (Phase B Round 1) was GPU-neutral — `marked()` is main-thread CPU and the adaptive 100–250ms flush cadence bounds the re-parse — so `ChatBubble.vue` renders the live block through `MarkdownViewer` again, matching committed reasoning. Do NOT re-remove markdown: the GPU residual was never attributed to it. An incremental text-node append experiment (Round 5) was attempted and reverted — it produced no GPU win and caused a rendering regression (content leaking out of the capped inset).
+**Live reasoning renders with full markdown via the `liveReasoning` ref.** `marked()` is main-thread CPU and the adaptive 100–250ms flush cadence bounds the re-parse, so `ChatBubble.vue` renders the live block through `MarkdownViewer`, matching committed reasoning. Do NOT replace it with plain text: the GPU residual was never attributed to markdown. Do NOT switch to incremental text-node appends either: they gave no GPU win and let content leak out of the capped inset.
 
 **The inset keeps its 320px cap + internal scroller.** Long reasoning stays bounded inside the bubble and scrolls internally (the inset follows the newest line via the throttled inset auto-scroll, gated to the last turn). Do NOT suspend the cap or set `overflow-y: visible` on `.bubble-inset` — combined with the `grid-template-rows: 1fr/0fr` collapse wrapper and `min-height: 0`, visible overflow lets the streaming text leak outside the panel.
 
@@ -256,21 +256,16 @@ forward-looking `docs/PLANS/gpu-performance.md`):**
 - **Never leave a CSS animation running on a hidden/invisible element.** CSS animations run even at `opacity: 0` / `visibility: hidden`. Every animation is gated to its visible state — the arc-orbit animation lives on `.arc-orbit-loader.is-active::before`, and the thinking-gap dots animate only under `.bubble-paused:not(.bubble-paused--hidden)`.
 - **`content-visibility: auto` on non-live turns** (`.message-wrapper--virtualized`, applied when `!(loading && isLastTurn)`) skips paint/composite of offscreen history so a growing session doesn't re-composite the whole pane. `contain-intrinsic-size: auto 120px` keeps scroll heights stable.
 - **Avoid `backdrop-blur` on always-visible elements** — each layer is a constant macOS compositing cost. Always-visible chrome (the sidebar rail, the top strip) uses solid token backgrounds (`bg-canvas`) instead.
-- The live reasoning box renders via `MarkdownViewer` (restored 2026-08-28 — GPU-neutral),
-  throttled 100ms flush / 250ms outer auto-scroll; the inset keeps its 320px cap + internal
-  scroll. Parity check (2026-08-05): same browser, Gemini ≈3% GPU vs llm-proxy ≈30% — the
-  residual is NOT a platform floor, but the Round-5 append/uncap experiment was reverted (no
-  GPU win + rendering regression). Root cause of the residual still open; profile with Chrome
-  DevTools Performance before more changes (`?perf=1` telemetry was removed — its rAF loop
-  was itself a GPU confound). 2026-08-28 shipped: double-scroll redundancy removed (the inset
-  scrolls only when overflowing; outer `scrollHeight` read throttled ≤4x/sec), always-on
-  pulse dots removed, `isolation: isolate` → `z-index: 0` on the bubble. **The arc-orbit
-  loader has NO animation** (since 2026-08-28): the `--arc-angle` per-frame gradient repaint
-  measured as the dominant during-run GPU cost (~11 points), and a transform-based spin is
-  impossible without distorting the rounded-rectangle ring (only a circle can rotate without
-  shape change) — so it is a static accent ring and the thinking dots carry the affordance.
-  Do NOT re-add an animated conic-gradient loader without a compositor-safe (circular)
-  design and a re-measurement.
+- The live reasoning box renders via `MarkdownViewer`, throttled to a 100ms flush and 250ms outer
+  auto-scroll; the inset keeps its 320px cap + internal scroll and scrolls only when it overflows
+  (the outer `scrollHeight` read is throttled to ≤4x/sec). The bubble uses `z-index: 0`, not
+  `isolation: isolate`. The remaining GPU cost during a run has no known root cause: profile with
+  Chrome DevTools Performance before changing more. **The arc-orbit loader has NO animation**: its
+  per-frame `--arc-angle` gradient repaint was the dominant during-run GPU cost (~11 points), and
+  a transform-based spin would distort the rounded-rectangle ring (only a circle rotates without
+  changing shape), so it is a static accent ring and the thinking dots carry the affordance.
+  Do NOT re-add an animated conic-gradient loader without a compositor-safe (circular) design
+  and a re-measurement.
 
 ### Empty inset suppression
 
