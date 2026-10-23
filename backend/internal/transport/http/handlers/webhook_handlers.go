@@ -120,28 +120,41 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Logger.Info("webhook: routing message", "connector", connectorName, "workspace", workspaceID, "chat_id", chatID)
 
-	// Route: slash commands are answered in code, /run goes to the dispatcher,
-	// everything else goes to the agent.
+	// Route: slash commands are answered in code (a turn command starts its turn),
+	// /run goes to the dispatcher, everything else goes to the agent.
+	in := inbound{workspaceID: workspaceID, connectorName: connectorName, connectorType: cfg.Type, chatID: chatID}
 	switch {
-	case h.handleCommand(connectorName, cfg.Type, message):
+	case h.handleCommand(in, message):
 	case strings.HasPrefix(message, "/run "):
 		h.handleAutomation(workspaceID, connectorName, cfg.Type, message)
 	default:
-		h.handleAgentMessage(workspaceID, connectorName, cfg.Type, message, chatID)
+		h.handleAgentMessage(in, message)
 	}
 
 	h.Logger.Info("webhook: processed successfully", "connector", connectorName)
 	respondJSON(w, map[string]string{"status": "ok"})
 }
 
+// inbound is where a connector message came from: the workspace its connector serves, the connector, and the chat.
+type inbound struct {
+	workspaceID, connectorName, connectorType, chatID string
+}
+
 // handleCommand answers a registered slash command in the chat it came from and
-// reports whether the message was one.
-func (h *WebhookHandler) handleCommand(connectorName, connectorType, message string) bool {
-	reply, handled := h.Commands.Execute(agentRunContext(connectorType), message, commands.Env{Zone: h.agentTimezone()})
-	if handled {
-		h.replyPlainToChat(connectorName, reply.Text)
+// reports whether the message was one. A turn command's turn then runs the way
+// any message does, its answer sent back to the chat.
+func (h *WebhookHandler) handleCommand(in inbound, message string) bool {
+	reply, handled := h.Commands.Execute(agentRunContext(in.connectorType), message, commands.Env{Zone: h.agentTimezone()})
+	if !handled {
+		return false
 	}
-	return handled
+	if reply.Text != "" {
+		h.replyPlainToChat(in.connectorName, reply.Text)
+	}
+	if reply.Turn != nil && !reply.Failed {
+		h.startAgentTurn(in, *reply.Turn)
+	}
+	return true
 }
 
 // handleAutomation triggers an automation by name and sends result back.
@@ -205,29 +218,36 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 	}
 }
 
-// handleAgentMessage runs the agent for an inbound message in a goroutine.
-// Each message gets a fresh conversation via webhookSessionKey so the agent
-// never inherits prior run history.  The webhook HTTP response is sent
-// immediately so Telegram does not timeout; the reply is delivered via the
-// connector's sendMessage API when execution completes.
-func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connectorType, message string, chatID string) {
-	h.Logger.Info("webhook agent request", "workspace", workspaceID, "connector", connectorName)
+// handleAgentMessage runs the agent for an inbound message.
+func (h *WebhookHandler) handleAgentMessage(in inbound, message string) {
+	h.startAgentTurn(in, commands.TurnSpec{Message: message})
+}
 
-	payload := &chat.Request{
-		WorkspaceID:    workspaceID,
-		ConversationID: webhookSessionKey(connectorType, chatID),
-		Message:        message,
+// startAgentTurn runs a turn for an inbound message in a goroutine. Each message
+// gets a fresh conversation via webhookSessionKey so the agent never inherits
+// prior run history. The webhook HTTP response is sent immediately so Telegram
+// does not timeout; the reply is delivered via the connector's sendMessage API
+// when execution completes.
+func (h *WebhookHandler) startAgentTurn(in inbound, turn commands.TurnSpec) {
+	h.Logger.Info("webhook agent request", "workspace", in.workspaceID, "connector", in.connectorName, "agent", turn.Agent)
+	payload := h.agentRequest(in, turn)
+	safe.Go("webhook agent reply", func() { h.runAgentReply(in.connectorName, in.connectorType, payload) })
+}
+
+// agentRequest is the chat turn of an inbound message: the turn's message, agent and helpers, in a fresh conversation.
+func (h *WebhookHandler) agentRequest(in inbound, turn commands.TurnSpec) *chat.Request {
+	return &chat.Request{
+		WorkspaceID:    in.workspaceID,
+		ConversationID: webhookSessionKey(in.connectorType, in.chatID),
+		Message:        turn.Message,
 		Timezone:       h.agentTimezone(),
+		Agent:          turn.Agent,
+		UseHelpers:     turn.UseHelpers,
 		// No hardcoded ExcludeTools here — the exposed tool schema is derived
 		// from guardrail policy (DisabledToolNames) at the agent narrow waist,
 		// so a statically-disabled tool (e.g. notify_user with Communication
 		// disabled) is never advertised regardless of channel.
 	}
-
-	// Run agent in a goroutine — the webhook response to Telegram is sent
-	// immediately to avoid timeouts.  The agent's reply is delivered via
-	// the connector's sendMessage API when execution completes.
-	safe.Go("webhook agent reply", func() { h.runAgentReply(connectorName, connectorType, payload) })
 }
 
 // agentRunContext is the context of a connector-originated run: it records which

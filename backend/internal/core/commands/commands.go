@@ -1,8 +1,10 @@
 // Package commands holds the slash commands a person can type instead of asking
 // the assistant ("/remind tomorrow 9am call the bank"). A command is plain code:
-// it runs without a model, so it is instant and costs nothing. The registry is
-// independent of the channel; the web chat and every connector call the same
-// Match/Execute/Preview.
+// it runs without a model, so it is instant and costs nothing. A turn command
+// ("/research <question>") shapes a chat turn instead of answering: it says what
+// the assistant is asked and how the turn runs, and the channel starts that turn
+// the way it starts any message. The registry is independent of the channel; the
+// web chat and every connector call the same Match/Execute/Preview.
 package commands
 
 import (
@@ -26,7 +28,8 @@ type Request struct {
 }
 
 // Command is one slash command. Preview says what Run would do without doing it;
-// both return an error whose text is meant to be shown to the person.
+// both return an error whose text is meant to be shown to the person. A turn
+// command sets Turn instead of Run (and needs no Preview: its TurnStart says).
 type Command struct {
 	Name     string
 	Usage    string
@@ -34,6 +37,24 @@ type Command struct {
 	Examples []string
 	Preview  func(ctx context.Context, req Request) (string, error)
 	Run      func(ctx context.Context, req Request) (string, error)
+	Turn     func(ctx context.Context, req Request) (TurnStart, error)
+}
+
+// TurnSpec is the chat turn a turn command asks for: the message the assistant is
+// asked (without the command), the agent (a profile id) it runs under for this
+// message only, and whether it hands work to helpers.
+type TurnSpec struct {
+	Message    string `json:"message"`
+	Agent      string `json:"agent,omitempty"`
+	UseHelpers bool   `json:"use_helpers,omitempty"`
+}
+
+// TurnStart is what a turn command decided: the turn, a note to show the person
+// first ("" for none) and the one line a preview shows.
+type TurnStart struct {
+	Spec    TurnSpec
+	Note    string
+	Preview string
 }
 
 // Info describes a command to a UI that offers it.
@@ -101,10 +122,12 @@ func (e Env) request(args string) Request {
 }
 
 // Reply is what a command answers: Text to show, and Failed when the command was
-// refused (Text then carries the reason and the usage).
+// refused (Text then carries the reason and the usage). Turn is set by a turn
+// command: the channel starts that turn, after showing Text when there is one.
 type Reply struct {
 	Text   string
 	Failed bool
+	Turn   *TurnSpec
 }
 
 // Execute runs the message if it is a command and returns the reply to show;
@@ -114,11 +137,23 @@ func (r *Registry) Execute(ctx context.Context, message string, env Env) (reply 
 	if !ok {
 		return Reply{}, false
 	}
+	if cmd.Turn != nil {
+		start, err := cmd.Turn(ctx, env.request(args))
+		if err != nil {
+			return refused(cmd, err), true
+		}
+		return Reply{Text: start.Note, Turn: &start.Spec}, true
+	}
 	text, err := cmd.Run(ctx, env.request(args))
 	if err != nil {
-		return Reply{Text: fmt.Sprintf("%s\nUsage: %s", err, cmd.Usage), Failed: true}, true
+		return refused(cmd, err), true
 	}
 	return Reply{Text: text}, true
+}
+
+// refused is the reply of a command that would not run: why, and how to use it.
+func refused(cmd Command, err error) Reply {
+	return Reply{Text: fmt.Sprintf("%s\nUsage: %s", err, cmd.Usage), Failed: true}
 }
 
 // Preview says what the message would do, for a UI that shows it while typing.
@@ -128,10 +163,17 @@ func (r *Registry) Preview(ctx context.Context, message string, env Env) (Previe
 		return Preview{}, false
 	}
 	p := Preview{Command: cmd.Name}
-	if cmd.Preview == nil {
+	preview := cmd.Preview
+	if preview == nil && cmd.Turn != nil {
+		preview = func(ctx context.Context, req Request) (string, error) {
+			start, err := cmd.Turn(ctx, req)
+			return start.Preview, err
+		}
+	}
+	if preview == nil {
 		return p, true
 	}
-	text, err := cmd.Preview(ctx, env.request(args))
+	text, err := preview(ctx, env.request(args))
 	if err != nil {
 		p.Error = err.Error()
 		return p, true

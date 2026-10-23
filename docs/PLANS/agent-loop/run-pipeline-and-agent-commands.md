@@ -1,7 +1,7 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. PR 1 is done: C0, C1, C2, C4, C5 (#129, #130) and C6; next is C3, the
-commands (PR 2).
+**Status:** approved (2026-10-23). D1–D3 decided. PR 1 is done: C0, C1, C2, C4, C5 (#129, #130) and C6; C3, the
+commands (PR 2), is built, waiting for its live check; `/run` into the registry is deferred (C3 results).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -44,8 +44,8 @@ it is what makes a command that shapes a turn a small change instead of a second
   - The web chat runs commands through `POST /admin/api/commands/run`: `handled: false` sends the text on as a normal
     message. A turn command extends that answer with the `TurnSpec`, and the composer sends the message with those
     run choices once.
-  - `/run <automation>` is a second command path, a `switch` in the webhook handler outside the registry. It joins the
-    registry in the commands PR, so there is one place that knows the commands.
+  - `/run <automation>` is a second command path, a `switch` in the webhook handler outside the registry. It was to
+    join the registry in the commands PR; deferred (C3 results).
   - Long replies are already split: Telegram `Send` cuts a message over 4000 UTF-16 units on line boundaries
     (`tools/notifiers/telegram.go:51,60`, SPEC-009 1.2), so a research answer longer than Telegram's 4096 cap arrives
     as several messages. Checked 2026-10-23 (C6).
@@ -108,7 +108,7 @@ that each pass the tests; PR 2 is the commands, C3, after PR 1 is merged (D2: re
 | C0 | **Safety net and dead code — done.** `internal/testing/assistanttest` holds the loop's doubles (the root tests alias them). The chat turn lifecycle already has characterisation tests in `handlers/assistant_handlers_test.go` (replace, cancel, running and queued state, cold-model wait, use_helpers, errors); they move with the code in C2. Bucket A was already gone (a search finds none of the 13); two stale comments corrected | `go test ./...` green; no Bucket A symbol exists |
 | C1 | **Read the connector path** (done, §2) | Findings written into this plan, no code |
 | C2 | **Chat service — done.** `core/chat` (`chat.Service`, `chat.Request`) holds the turn lifecycle; the handler and the webhook call it; `Execute` takes one `ExecuteRequest`; the chat handlers depend on a 11-method `AssistantHandlerDeps`, not the 26-method `AssistantService` (the automation side still uses that one; C4). The lifecycle tests moved with the code (22 tests) | Characterisation tests unchanged; handlers contain no lifecycle; complexity has no new violations |
-| C3 | **Turn commands (PR 2).** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, `/run` into the registry, long-reply handling; docs in SPEC-009 and SPEC-003 | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
+| C3 | **Turn commands (PR 2) — built, see C3 results.** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, long-reply handling (already done by the connector); docs in SPEC-009, SPEC-012 and SPEC-003. `/run` into the registry deferred | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
 | C4 | **Merge duplicates — done, see C4 results.** Memory review on the shared admission; the others were looked at and left | Tests green; complexity has no new violations |
 | C5 | **Package moves — done, see C5 results.** The conversation service is in `chat` (#129); the resolver is `run.ResolveOptions`; the heartbeat's quiet signal is in `automation/heartbeat.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
 | C6 | **Close out — done, see C6 results.** SPECs, `architecture.md`, skills, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
@@ -205,6 +205,28 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 - Found, not changed: `ExecuteResult.Events` is filled on every turn but no caller reads it (the web handler answers
   202, the webhook reads `Reply`). Removing it is a code change for C3 or its own clean-up.
 
+### C3 results (2026-10-23)
+
+- **Commands** (`core/commands/agent.go`): `/research <question>` and `/agent <agent> <question>` are **turn commands**:
+  `Command.Turn` returns a `TurnStart` (the `TurnSpec`, a note, the preview line), and `Registry.Execute` answers with
+  `Reply.Turn`. They read the profile catalog and a "why helpers cannot run" function (`app/commands.go`, the same words
+  as the chat's settings), so `commands` imports neither `chat` nor `assistant` for them. `/agent` accepts every
+  catalog id, the rule the chat's picker and `profile` use; `/agent <agent>` alone is refused (D3).
+- **One-message agent** (`chat.Request.Agent` → `ExecuteRequest.Agent` → `resolveProfile`): it outranks `profile` and
+  the session's profile for that turn and is never stored, which is what "one message only" needs — `profile` is
+  stored on the session. Checked at the boundary like `profile` (`prepareRequest`, 400).
+- **Channels:** `POST /admin/api/commands/run` answers with `turn`, and the composer sends `turn.message` with the
+  agent and helpers (a queued message takes the same path). The webhook routes an inbound message through an `inbound`
+  struct, so a turn command's turn runs like any message (`startAgentTurn`), after its note.
+- **Not done here, on purpose:** `/run` into the registry. Its reply is asynchronous and connector-only (a monitor
+  goroutine with 30 s fallbacks), so it does not fit a command that returns its answer, and the connector path cannot
+  be checked on vertex; moving it would change behaviour in the one channel nobody can test, for no gain to C3. The
+  run record does not say which agent answered (`TurnRun` has no profile field); not added. So **Retry** on a turn
+  command's answer reruns the stored question under the conversation's own agent, without helpers.
+- **Corrected while documenting:** `api-reference.md` still showed the message endpoint answering `200` with the
+  reply and events; it answers `202 {status, conversation_id}` and the turn runs detached.
+- Verified: `go test ./...`, the complexity check, `npm test`, `npm run build`. Live check pending a deploy.
+
 ## 6. Risks
 
 - C2 and C5 touch the busiest path in the product. The characterisation tests in C0 are what make them safe; if they
@@ -226,5 +248,7 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 - The connector turn on a real Telegram chat (C2's reply fix), once vertex has a reachable webhook.
 - An idle timeout for an upstream stream that stalls (seen in the smoke; separate fix).
-- C3, the turn commands (PR 2).
+- C3's live check on vertex after deploy: `/research` through `commands/run`, the turn with helpers, the session's
+  profile unchanged afterwards.
+- `/run` into the command registry (deferred, C3 results).
 - `ExecuteResult.Events`: filled, never read (C6 results).

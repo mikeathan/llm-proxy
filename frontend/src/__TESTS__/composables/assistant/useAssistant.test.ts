@@ -85,6 +85,15 @@ describe('useAssistant', () => {
     expect(service.sendMessage.mock.lastCall![0].use_helpers).toBeUndefined()
   })
 
+  it('sends a one-message agent only when one is chosen', async () => {
+    sse.isConnected.value = true
+    const a = await freshAssistant()
+    await a.sendMessage('ws', 'hello', { agent: 'research' })
+    expect(service.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ agent: 'research' }))
+    await a.sendMessage('ws', 'again', {})
+    expect(service.sendMessage.mock.lastCall![0].agent).toBeUndefined()
+  })
+
   it('keeps the helpers switch for the open conversation and clears it for another or a new one', async () => {
     const a = await freshAssistant()
     a.helpersOn.value = true

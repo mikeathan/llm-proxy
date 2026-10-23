@@ -67,7 +67,7 @@ func (s *conversationService) Execute(ctx context.Context, req ExecuteRequest) (
 	modelName, useNativeTools := s.resolveModelConfig(ctx, workspaceID, conversationID, message)
 
 	// 3. Build or update history under the run's prompt profile
-	runProfile := s.resolveProfile(ctx, workspaceID, session)
+	runProfile := s.resolveProfile(ctx, workspaceID, session, req.Agent)
 	s.initSession(session, workspaceID, message, conversationSystemMessage(s.persistence, session, chatZone, runProfile, useNativeTools), log)
 
 	// The turn's run record rides on its user message: set now so mid-run
@@ -196,7 +196,7 @@ func (s *conversationService) resolveModelConfig(ctx context.Context, workspaceI
 
 // resolveProfile picks the run's prompt profile: the one this message asked for (which the conversation then keeps),
 // else the conversation's, else the workspace's, else the default for chats.
-func (s *conversationService) resolveProfile(ctx context.Context, workspaceID string, session *models.AssistantSession) profile.Profile {
+func (s *conversationService) resolveProfile(ctx context.Context, workspaceID string, session *models.AssistantSession, agent string) profile.Profile {
 	if requested := models.GetProfileRequest(ctx); requested != "" {
 		session.Profile = requested
 	}
@@ -204,7 +204,8 @@ func (s *conversationService) resolveProfile(ctx context.Context, workspaceID st
 	if cfg, err := s.persistence.ReadConfig(workspaceID); err == nil {
 		workspaceDefault = cfg.AssistantProfile
 	}
-	return s.deps.Profiles().Resolve(profile.KindAssistant, session.Profile, workspaceDefault)
+	// A one-message agent outranks the conversation's profile for this turn only; it is never stored.
+	return s.deps.Profiles().Resolve(profile.KindAssistant, agent, session.Profile, workspaceDefault)
 }
 
 // initSession puts the turn's user message into the session, under the current system message, and saves it.

@@ -1237,5 +1237,20 @@ func TestAssistant_PrepareRequest_RejectsAnUnknownProfile(t *testing.T) {
 	}
 }
 
+// A one-message agent (a turn command's) is checked against the catalog the same way: an unknown id is refused.
+func TestAssistant_PrepareRequest_RejectsAnUnknownAgent(t *testing.T) {
+	handler := newTestHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
+
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"workspace_id":"ws","message":"hi","agent":"ghost"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	if _, _, ok := handler.prepareRequest(rec, req); ok {
+		t.Fatal("prepareRequest accepted an unknown agent")
+	}
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `agent \"ghost\"`) {
+		t.Errorf("response = %d %q, want 400 naming the agent", rec.Code, rec.Body.String())
+	}
+}
+
 // "use_helpers" in the request body reaches the run: the page sent it, the handler decodes it into the run's context.
 // A body that does not ask leaves the context asking for nothing.

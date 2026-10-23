@@ -7,6 +7,7 @@ import { useToast } from "../../../composables/useToast";
 import MemoryReviewDialog from "../memory/MemoryReviewDialog.vue";
 import { AssistantService } from "../../../services/assistant/assistantService";
 import { CommandService } from "../../../services/commands/commandService";
+import type { CommandTurn } from "../../../types/commands";
 import { groupTurns } from "../../../utils/message/turnGrouper";
 import { useResponsiveLayout } from "../../../composables/ui/useResponsiveLayout";
 import GuardrailBanner from "../../../components/common/chat/GuardrailBanner.vue";
@@ -169,10 +170,14 @@ async function scrollToLatest() {
 // the retry button (handleRetry): collapse every turn's work section (so a
 // stale errored/cancelled bubble from a previous run cannot stay expanded and
 // bleed the new run's live reasoning into it), send, then scroll to the new
-// output after the DOM updates.
-async function launchRun(text: string) {
+// output after the DOM updates. A turn command's turn brings its own agent and
+// helpers, for this message only; the model and the conversation's profile stay.
+async function launchRun(text: string, turn?: CommandTurn) {
   collapseAllInsets();
-  await sendMessage(props.workspaceId, text, { model: model.value, profile: profileToSend.value, ...(helpersToSend.value && { useHelpers: true }) });
+  const helpers = turn ? turn.use_helpers === true : helpersToSend.value;
+  await sendMessage(props.workspaceId, text, {
+    model: model.value, profile: profileToSend.value, ...(turn?.agent ? { agent: turn.agent } : {}), ...(helpers && { useHelpers: true }),
+  });
   await scrollToLatest();
 }
 
@@ -246,31 +251,37 @@ const confirmDelete = (title: string, message: string) =>
   };
 
   // A slash command is answered by the backend without the assistant. Text that is not a command (or an unknown
-  // /word) goes to the assistant as usual; a refused command keeps its text so it can be corrected.
-  type CommandOutcome = "done" | "refused" | "none";
+  // /word) goes to the assistant as usual; a refused command keeps its text so it can be corrected. A turn command
+  // (/research, /agent) answers with the turn to send instead, after its note when it has one.
+  type CommandOutcome = { kind: "done" | "refused" | "none" } | { kind: "turn"; turn: CommandTurn };
   const runCommand = async (text: string): Promise<CommandOutcome> => {
     let result;
     try {
       result = await CommandService.run(text);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The command could not be run");
-      return "refused";
+      return { kind: "refused" };
     }
-    if (!result.handled) return "none";
+    if (!result.handled) return { kind: "none" };
     if (result.failed) {
       toast.error(result.reply);
-      return "refused";
+      return { kind: "refused" };
+    }
+    if (result.turn) {
+      if (result.reply) toast.warn(result.reply);
+      return { kind: "turn", turn: result.turn };
     }
     toast.success(result.reply);
-    return "done";
+    return { kind: "done" };
   };
 
   // The one way a written message is acted on: a command is answered by the backend, anything else starts a run. A
   // refused command is given back to the box so it can be corrected.
   async function submitText(text: string) {
-    const command = text.startsWith("/") ? await runCommand(text) : "none";
-    if (command === "refused") restoreDraft(text);
-    else if (command === "none") await launchRun(text);
+    const command: CommandOutcome = text.startsWith("/") ? await runCommand(text) : { kind: "none" };
+    if (command.kind === "refused") restoreDraft(text);
+    else if (command.kind === "turn") await launchRun(command.turn.message, command.turn);
+    else if (command.kind === "none") await launchRun(text);
   }
 
   const handleSend = async () => {

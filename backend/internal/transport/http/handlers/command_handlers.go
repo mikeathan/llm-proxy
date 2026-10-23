@@ -29,6 +29,9 @@ type commandRunResponse struct {
 	Reply   string `json:"reply,omitempty"`
 	// Failed is true when the command was refused; Reply then says why.
 	Failed bool `json:"failed,omitempty"`
+	// Turn is set by a turn command (/research, /agent): the chat sends Turn.Message with these run choices, for
+	// this message only, after showing Reply when there is one.
+	Turn *commands.TurnSpec `json:"turn,omitempty"`
 }
 
 type commandPreviewResponse struct {
@@ -50,14 +53,15 @@ func (h *CommandHandlers) List(w http.ResponseWriter, _ *http.Request) {
 }
 
 // Run handles POST /admin/api/commands/run. handled is false for text that is not
-// a command, which the chat then sends to the assistant as usual.
+// a command, which the chat then sends to the assistant as usual; a turn command
+// answers with the turn to send instead.
 func (h *CommandHandlers) Run(w http.ResponseWriter, r *http.Request) {
 	var req commandRequest
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	reply, handled := h.registry.Execute(r.Context(), req.Message, h.env(req))
-	respondJSON(w, commandRunResponse{Handled: handled, Reply: reply.Text, Failed: reply.Failed})
+	respondJSON(w, commandRunResponse{Handled: handled, Reply: reply.Text, Failed: reply.Failed, Turn: reply.Turn})
 }
 
 // Preview handles POST /admin/api/commands/preview.

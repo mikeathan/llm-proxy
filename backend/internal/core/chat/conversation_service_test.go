@@ -1019,7 +1019,22 @@ func TestConversationService_ResolveModelConfig_HonoursTheModelOverride(t *testi
 // message the model was sent and the session's stored profile afterwards.
 type chatTurnResult struct{ system, storedProfile string }
 
+// chatTurnSpec is one turn of chatTurnsWith: its context (a profile request) and its one-message agent.
+type chatTurnSpec struct {
+	ctx   context.Context
+	agent string
+}
+
 func chatTurns(t *testing.T, pm *persistence.WorkspaceManager, turns []context.Context) []chatTurnResult {
+	t.Helper()
+	specs := make([]chatTurnSpec, len(turns))
+	for i, ctx := range turns {
+		specs[i] = chatTurnSpec{ctx: ctx}
+	}
+	return chatTurnsWith(t, pm, specs)
+}
+
+func chatTurnsWith(t *testing.T, pm *persistence.WorkspaceManager, turns []chatTurnSpec) []chatTurnResult {
 	t.Helper()
 	svc := NewConversationService(newMockConvDeps(), pm)
 	var sent string
@@ -1033,8 +1048,8 @@ func chatTurns(t *testing.T, pm *persistence.WorkspaceManager, turns []context.C
 		},
 	}
 	var out []chatTurnResult
-	for _, ctx := range turns {
-		if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-profiles", Message: "a question", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
+	for _, turn := range turns {
+		if _, err := svc.Execute(turn.ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-profiles", Message: "a question", ContextVersion: "v1", Timezone: "UTC", Agent: turn.agent, ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
 		session, err := pm.ReadSession("ws-1", "conv-profiles")
@@ -1056,6 +1071,32 @@ func TestConversationService_Execute_ProfileChoiceAndPerTurnPrompt(t *testing.T)
 
 	wantMarker := []string{"helpful, capable assistant", "find out what is true", "find out what is true", "read, write and fix code"}
 	wantStored := []string{"", "research", "research", "builder"}
+	for i, turn := range got {
+		if !strings.Contains(turn.system, wantMarker[i]) {
+			t.Errorf("turn %d: the system message should carry %q:\n%s", i+1, wantMarker[i], turn.system)
+		}
+		if turn.storedProfile != wantStored[i] {
+			t.Errorf("turn %d: stored profile = %q, want %q", i+1, turn.storedProfile, wantStored[i])
+		}
+	}
+}
+
+// A one-message agent (a turn command such as /research) runs that turn under its profile and leaves the
+// conversation's own profile as it was, so the next plain message runs under the conversation's choice again.
+func TestConversationService_Execute_OneMessageAgent(t *testing.T) {
+	pm := newTestPersistence(t)
+	bg := context.Background()
+	got := chatTurnsWith(t, pm, []chatTurnSpec{
+		{ctx: bg},
+		{ctx: bg, agent: "research"},
+		{ctx: bg},
+		{ctx: models.WithProfileRequest(bg, "builder")},
+		{ctx: bg, agent: "research"},
+		{ctx: bg},
+	})
+	wantMarker := []string{"helpful, capable assistant", "find out what is true", "helpful, capable assistant",
+		"read, write and fix code", "find out what is true", "read, write and fix code"}
+	wantStored := []string{"", "", "", "builder", "builder", "builder"}
 	for i, turn := range got {
 		if !strings.Contains(turn.system, wantMarker[i]) {
 			t.Errorf("turn %d: the system message should carry %q:\n%s", i+1, wantMarker[i], turn.system)

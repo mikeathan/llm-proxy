@@ -6,12 +6,21 @@ export interface CommandInfo {
   examples: string[]
 }
 
+// The chat turn a turn command (/research, /agent) asks for: send message under agent, with helpers when set.
+export interface CommandTurn {
+  message: string
+  agent?: string
+  use_helpers?: boolean
+}
+
 export interface CommandRunResult {
   // False for text that is not a command: send it to the assistant as usual.
   handled: boolean
   reply: string
   // True when the command was refused; the reply says why.
   failed: boolean
+  // Set by a turn command: the chat sends this turn instead of answering with the reply alone.
+  turn?: CommandTurn
 }
 
 export interface CommandPreview {

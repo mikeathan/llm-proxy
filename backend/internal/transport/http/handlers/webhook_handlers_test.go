@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/commands"
@@ -55,34 +57,112 @@ func TestAgentRunContext_CarriesTheConnectorType(t *testing.T) {
 
 func TestWebhookHandler_PlainTextIsNotACommand(t *testing.T) {
 	h := &WebhookHandler{Commands: commands.New(zoneEcho())}
-	if h.handleCommand("tg", "telegram", "what is the weather") {
+	in := inbound{workspaceID: "ws", connectorName: "tg", connectorType: "telegram", chatID: "42"}
+	if h.handleCommand(in, "what is the weather") {
 		t.Error("plain text must go to the assistant")
 	}
-	if (&WebhookHandler{}).handleCommand("tg", "telegram", "/remind x") {
+	if (&WebhookHandler{}).handleCommand(in, "/remind x") {
 		t.Error("a handler with no registry handles nothing")
 	}
 }
 
-// fakeTurns answers a connector message with a fixed turn result and records the request it was given.
+// fakeTurns answers a connector message with a fixed turn result and records the request it was given. ran, when
+// set, is closed once a turn ran (a command's turn runs in a goroutine).
 type fakeTurns struct {
 	result chat.ExecuteResult
 	err    error
 	got    *chat.Request
 	origin string
+	ran    chan struct{}
 }
 
 func (f *fakeTurns) Run(ctx context.Context, req *chat.Request, _ logging.Logger) (chat.ExecuteResult, error) {
 	f.got = req
 	f.origin = models.OriginConnector(ctx)
+	if f.ran != nil {
+		close(f.ran)
+	}
 	return f.result, f.err
 }
 
-// sentTo is a connector that records what it was asked to send.
-type sentTo struct{ sent []string }
+// turnCommand is a turn command that asks the "research" agent, with helpers, and says so first.
+func turnCommand() commands.Command {
+	return commands.Command{
+		Name: "research", Usage: "/research <question>",
+		Turn: func(_ context.Context, r commands.Request) (commands.TurnStart, error) {
+			if r.Args == "" {
+				return commands.TurnStart{}, errors.New("ask a question after /research")
+			}
+			return commands.TurnStart{Spec: commands.TurnSpec{Message: r.Args, Agent: "research", UseHelpers: true}, Note: "a note"}, nil
+		},
+	}
+}
+
+// A turn command from a connector starts its turn the way any message does: the agent and helpers ride on the
+// request, the note goes to the chat first and the answer after.
+func TestWebhookHandler_TurnCommandRunsItsTurn(t *testing.T) {
+	turns := &fakeTurns{result: chat.ExecuteResult{Reply: "the answer"}, ran: make(chan struct{})}
+	conn := &sentTo{}
+	comm := tools.NewCommunicationTools()
+	comm.AddConnector("tg", "telegram", conn)
+	h := &WebhookHandler{Commands: commands.New(turnCommand()), Turns: turns, CommTools: comm, Logger: logging.NewNopLogger()}
+
+	if !h.handleCommand(inbound{workspaceID: "ws", connectorName: "tg", connectorType: "telegram", chatID: "42"}, "/research compare Go and Rust") {
+		t.Fatal("a turn command is a command")
+	}
+	select {
+	case <-turns.ran:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the turn never ran")
+	}
+	got := turns.got
+	if got.Message != "compare Go and Rust" || got.Agent != "research" || !got.UseHelpers || got.WorkspaceID != "ws" || got.ConversationID == "" {
+		t.Errorf("turn request = %+v", got)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for len(conn.sentMessages()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if sent := conn.sentMessages(); len(sent) != 2 || sent[0] != "a note" || sent[1] != "the answer" {
+		t.Errorf("connector was sent %q, want the note then the answer", sent)
+	}
+}
+
+// A refused turn command answers why and starts nothing.
+func TestWebhookHandler_RefusedTurnCommandStartsNothing(t *testing.T) {
+	turns := &fakeTurns{}
+	conn := &sentTo{}
+	comm := tools.NewCommunicationTools()
+	comm.AddConnector("tg", "telegram", conn)
+	h := &WebhookHandler{Commands: commands.New(turnCommand()), Turns: turns, CommTools: comm, Logger: logging.NewNopLogger()}
+
+	h.handleCommand(inbound{workspaceID: "ws", connectorName: "tg", connectorType: "telegram"}, "/research")
+	if sent := conn.sentMessages(); len(sent) != 1 || !strings.Contains(sent[0], "ask a question") {
+		t.Errorf("connector was sent %q, want the refusal", sent)
+	}
+	if turns.got != nil {
+		t.Errorf("a refused command started a turn: %+v", turns.got)
+	}
+}
+
+// sentTo is a connector that records what it was asked to send. A command's turn sends from a goroutine, so reads go
+// through sentMessages.
+type sentTo struct {
+	mu   sync.Mutex
+	sent []string
+}
 
 func (s *sentTo) Send(_ context.Context, message string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.sent = append(s.sent, message)
 	return nil
+}
+
+func (s *sentTo) sentMessages() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.sent...)
 }
 func (s *sentTo) Name() string { return "recorder" }
 

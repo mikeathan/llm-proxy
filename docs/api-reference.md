@@ -21,26 +21,24 @@ All API endpoints are served from the server root (default `http://0.0.0.0:4001`
   "timezone": "",
   "exclude_tools": [],
   "model": "",
-  "profile": ""
+  "profile": "",
+  "agent": "",
+  "use_helpers": false
 }
 ```
 
 `profile` is optional: a prompt profile id (`GET /admin/api/profiles`) for this message, which the conversation then keeps; empty keeps the conversation's own, else the workspace's, else General. An unknown id is refused with `400`.
 
+`agent` is optional: a profile for **this message only** (a turn command's, `/research` or `/agent`); it outranks `profile` and the conversation's for that turn and is never stored. An unknown id is refused with `400`.
+
+`use_helpers` is optional: ask the assistant to hand the independent parts of the message to helpers; ignored when the turn's profile names none or helpers are not set up (`GET /admin/api/helpers`).
+
 `model` is optional: a registry model for this message. Empty runs the primary model (with the fallback if the primary cannot be reached). A named model is used as is, with no fallback, and an unknown name is refused with `400`.
 
-**Response:** `200 OK`
+**Response:** `202 Accepted` — the turn runs detached from the request (a refresh or a closed tab does not stop it; `POST /admin/api/conversation/cancel` does) and is observed over the SSE event bus (`/admin/api/dispatcher/workspaces/{workspace}/live?channel=assistant`). The answer is in the session afterwards.
 
 ```json
-{
-  "reply": "Hello! How can I help you?",
-  "conversation_id": "conv_20260101120000",
-  "workspace_id": "default",
-  "events": [
-    { "type": "tool_call", "payload": { "name": "notify_user", ... } },
-    { "type": "tool_result", "payload": { "name": "notify_user", ... } }
-  ]
-}
+{ "status": "running", "conversation_id": "conv_20260101120000" }
 ```
 
 ### Cancel
@@ -278,12 +276,12 @@ Each item also carries `connector` (the channel as chosen: `""` automatic, `in-a
 
 ## Commands API
 
-Slash commands (`/remind`, SPEC-011 §2.11) answered in code, without the assistant. The zone is the owner's `reminders.timezone`, else the request's `timezone` (the browser's), else UTC. Always registered; the list is empty when reminders are unavailable.
+Slash commands (`/remind`, SPEC-011 §2.11; `/research`, `/agent`, SPEC-012) answered in code, without the assistant. The zone is the owner's `reminders.timezone`, else the request's `timezone` (the browser's), else UTC. Always registered; the list is empty when reminders are unavailable.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/admin/api/commands` | `{commands: [{name, usage, summary, examples[]}]}` for the chat's command menu |
-| POST | `/admin/api/commands/run` | `{message, timezone?}` → `{handled, reply?, failed?}`. `handled: false` for text that is not a registered command (send it to the assistant). `failed: true` when the command was refused; `reply` then carries the reason and usage |
+| POST | `/admin/api/commands/run` | `{message, timezone?}` → `{handled, reply?, failed?, turn?}`. `handled: false` for text that is not a registered command (send it to the assistant). `failed: true` when the command was refused; `reply` then carries the reason and usage. A turn command (`/research`, `/agent`, SPEC-012) answers with `turn: {message, agent?, use_helpers?}`: send `message` to the assistant with those choices for that message only (`agent` in the chat request), after showing `reply` when there is one |
 | POST | `/admin/api/commands/preview` | `{message, timezone?}` → `{matched, command?, text?, error?}`: what the command would do with the text typed so far (nothing is stored), or why it would be refused |
 
 ## Memory API
