@@ -1,8 +1,9 @@
-package assistant
+package chat
 
 import (
 	"context"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
@@ -26,7 +27,7 @@ func NewCaptureLibrary(store *memory.Store) memorycapture.Library {
 func ReviewTurns(history []proxy.Message) []memorycapture.Turn {
 	var turns []memorycapture.Turn
 	for _, m := range history {
-		if (m.Role != proxy.UserRole && m.Role != proxy.AssistantRole) || len(m.ToolCalls) > 0 || isAgentControlMessage(m) {
+		if (m.Role != proxy.UserRole && m.Role != proxy.AssistantRole) || len(m.ToolCalls) > 0 || assistant.IsAgentControlMessage(m) {
 			continue
 		}
 		turns = append(turns, memorycapture.Turn{Role: string(m.Role), Text: m.Content})
@@ -65,8 +66,8 @@ func (l captureLibrary) Has(ctx context.Context, workspaceID, content string) bo
 // chat: a store error is logged and the turn goes on.
 func (s *conversationService) captureMemories(ctx context.Context, run *models.TurnRun, workspaceID, conversationID, message string, runProfile profile.Profile, log logging.Logger) {
 	store := s.deps.MemoryStore()
-	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !runProfile.CapturesMemory() || !HotMemoryActive(s.deps, RunSpec{
-		Kind: profile.KindAssistant, Profile: runProfile, Overrides: RunOverrides{Memory: s.workspaceMemory(workspaceID)},
+	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !runProfile.CapturesMemory() || !assistant.HotMemoryActive(s.deps, assistant.RunSpec{
+		Kind: profile.KindAssistant, Profile: runProfile, Overrides: assistant.RunOverrides{Memory: s.workspaceMemory(workspaceID)},
 	}) {
 		return
 	}

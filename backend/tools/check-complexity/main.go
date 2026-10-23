@@ -37,8 +37,6 @@ const defaultThreshold = 12
 var knownComplexityExceptions = map[string]bool{
 	"internal/app/playback_bridge.go:Stream":                                                     true,
 	"internal/core/assistant/agent.go:applyDefaults":                                             true,
-	"internal/core/assistant/conversation_helpers.go:TruncateHistory":                            true,
-	"internal/core/assistant/conversation_helpers.go:buildPartialHistory":                        true,
 	"internal/core/assistant/failures/failure.go:classifyHTTPFailure":                            true,
 	"internal/core/assistant/prompts/templates.go:formatToolParameters":                          true,
 	"internal/core/assistant/react_strategy.go:Run":                                              true,
@@ -52,6 +50,8 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/core/assistant/tool_exec.go:generatePlanContent":                                   true,
 	"internal/core/assistant/tool_exec.go:sanitizeToolArgs":                                      true,
 	"internal/core/assistant/tool_exec.go:validateToolArgs":                                      true,
+	"internal/core/chat/conversation_helpers.go:TruncateHistory":                                 true,
+	"internal/core/chat/conversation_helpers.go:buildPartialHistory":                             true,
 	"internal/core/eventbus/bus.go:Publish":                                                      true,
 	"internal/core/llm/manager.go:GetInstance":                                                   true,
 	"internal/core/llm/manager.go:ReconcileLocalServingContext":                                  true,

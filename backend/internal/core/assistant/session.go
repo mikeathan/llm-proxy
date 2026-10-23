@@ -805,10 +805,10 @@ func hasToolResult(history []proxy.Message) bool {
 	return false
 }
 
-// isAgentControlMessage reports messages the agent injects for recovery, sieve,
+// IsAgentControlMessage reports messages the agent injects for recovery, sieve,
 // or format correction. Closed allowlist only — never match real user/task text
 // by open-ended keyword heuristics. When adding a new inject site, register it here.
-func isAgentControlMessage(m proxy.Message) bool {
+func IsAgentControlMessage(m proxy.Message) bool {
 	if isStuckPlaceholder(m) {
 		return true
 	}
@@ -871,7 +871,7 @@ func isStuckPlaceholder(m proxy.Message) bool {
 func previousConversationMessage(history []proxy.Message) *proxy.Message {
 	limit := sessionControlWalkCap
 	for i := len(history) - 1; i >= 0 && limit > 0; i-- {
-		if isAgentControlMessage(history[i]) {
+		if IsAgentControlMessage(history[i]) {
 			limit--
 			continue
 		}
@@ -1587,7 +1587,7 @@ func (s *runSession) maybeFlushMemoryBeforeTurn() {
 		return
 	}
 
-	totalChars := historyChars(s.history)
+	totalChars := HistoryChars(s.history)
 	if totalChars == 0 || s.agent.config.ContextBudget == 0 {
 		return
 	}

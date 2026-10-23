@@ -1,30 +1,16 @@
-package assistant
+package chat
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
-	"llm-proxy/internal/core"
-	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
-
-const (
-	agentsCacheKey            = "agents:"
-	agentsFileCacheMaxEntries = 100              // per-workspace cache bound (PL-6)
-	agentsFileCacheTTL        = 30 * time.Minute // stale entries evicted lazily on Get
-)
-
-// agentsFileCache memoizes AGENTS.md reads per workspace, bounded at
-// agentsFileCacheMaxEntries to prevent unbounded growth for long-lived servers.
-// Entries expire after agentsFileCacheTTL (lazy eviction on Get) so edits to
-// AGENTS.md are picked up without a restart.
-var agentsFileCache = core.NewTTLCache[string, string](agentsFileCacheMaxEntries, agentsFileCacheTTL, nil)
 
 // MaxHistoryChars bounds the initial system + first-user base history (a small
 // fixed seed). It is NOT used for the persisted session file.
@@ -38,50 +24,12 @@ const MaxHistoryChars = 12 * 1024
 // keeping the PL-1 disk-usage hardening intent without losing normal-run data.
 const MaxPersistedHistoryChars = 256 * 1024
 
-// historyChars sums the content length of every message — the request-size
-// proxy shared by history truncation, the ICU pre-flight check, token
-// accounting and the memory-flush budget. It counts raw Content only (not
-// reasoning or tool-call arguments), matching every caller's existing basis.
-func historyChars(history []proxy.Message) int {
-	total := 0
-	for _, m := range history {
-		total += len(m.Content)
-	}
-	return total
-}
-
-// LoadAgentsFile returns the workspace's own notes from AGENTS.md, as the model should see them: comments removed.
-// It is empty when the file is missing, holds only comments (the seeded stub) or is one of the old defaults this app
-// used to seed — a persona that now lives in the profiles, which a workspace must not keep layering on top of them.
-func LoadAgentsFile(pm *persistence.WorkspaceManager, workspaceID string) string {
-	if workspaceID == "" || pm == nil {
-		return ""
-	}
-	notes, err := agentsFileCache.Get(agentsCacheKey+workspaceID, func() (string, error) {
-		content, err := pm.ReadTaskFile(workspaceID, models.RulesFilename)
-		if err != nil || prompts.IsLegacyDefaultNotes(content) {
-			return "", nil
-		}
-		return models.WithoutComments(content), nil
-	})
-	if err != nil {
-		return ""
-	}
-	return notes
-}
-
-// BuildSystemPrompt layers a run's system prompt — the profile's behaviour, the core rules, the workspace's notes —
-// for the tool-call mode in use. Chat and automation both build it here.
-func BuildSystemPrompt(pm *persistence.WorkspaceManager, workspaceID string, p profile.Profile, useNativeTools bool) string {
-	return prompts.AssembleSystemPrompt(prompts.PromptParts{Native: useNativeTools, Profile: p.Instructions, Notes: LoadAgentsFile(pm, workspaceID)})
-}
-
 // conversationSystemMessage is a conversation's system message: the layered prompt with the conversation's own facts
 // (its id and context version, and the zone it reads local times in).
 // It is rebuilt every turn from the current profile and notes (so an edit or a profile switch applies at once) and is
 // the same text turn after turn, which keeps the model server's cache.
 func conversationSystemMessage(pm *persistence.WorkspaceManager, session *models.AssistantSession, zone string, p profile.Profile, useNativeTools bool) string {
-	return prompts.BuildSystemMessage(BuildSystemPrompt(pm, session.WorkspaceID, p, useNativeTools), useNativeTools, session.ID, session.ContextVersion, zone)
+	return prompts.BuildSystemMessage(assistant.BuildSystemPrompt(pm, session.WorkspaceID, p, useNativeTools), useNativeTools, session.ID, session.ContextVersion, zone)
 }
 
 // withSystemMessage returns history led by the given system message: an existing system head is replaced, none is added.
@@ -105,7 +53,7 @@ func TruncateHistory(history []proxy.Message, maxChars int) []proxy.Message {
 		return history
 	}
 
-	totalChars := historyChars(history)
+	totalChars := assistant.HistoryChars(history)
 
 	if totalChars <= maxChars {
 		return history
@@ -163,7 +111,7 @@ func TruncateHistory(history []proxy.Message, maxChars int) []proxy.Message {
 }
 
 // FormatCollectedEvents converts agent events into the wire format for the API response.
-func FormatCollectedEvents(events []AgentEvent) []map[string]any {
+func FormatCollectedEvents(events []assistant.AgentEvent) []map[string]any {
 	out := make([]map[string]any, 0, len(events))
 	for _, ev := range events {
 		out = append(out, map[string]any{
@@ -237,81 +185,15 @@ func FilterCancelledTurns(history []proxy.Message, cancelledIndices []int) []pro
 	return result
 }
 
-// NeutralizeStaleToolFailures rewrites replayed terminal "tool unavailable"
-// results once the tool is available again, and reports how many it changed.
-//
-// A missing/rejected credential is a run-scoped condition, but its tool result
-// is persisted and replayed into every later run in the conversation. That
-// result carries the literal instruction "Do NOT retry it", so after an operator
-// reconfigures the credential the model still refuses to call a tool that now
-// works — it reports the capability as broken instead. Rewriting those stale
-// results at replay time removes the obsolete instruction without touching
-// still-broken tools or the run that originally hit the failure.
-func NeutralizeStaleToolFailures(history []proxy.Message, gr *guardrails.GuardrailEngine, workspaceID string) int {
-	if gr == nil || len(history) == 0 {
-		return 0
-	}
-	available := currentToolAvailability(gr, workspaceID, history)
-	if len(available) == 0 {
-		return 0
-	}
-
-	neutralized := 0
-	for i := range history {
-		if history[i].Role != proxy.ToolRole {
-			continue
-		}
-		tool, ok := staleToolUnavailable(history[i].Content)
-		if !ok || !available[tool] {
-			continue
-		}
-		history[i].Content = fmt.Sprintf(prompts.ToolUnavailableRetryPrompt, tool, tool)
-		neutralized++
-	}
-	return neutralized
-}
-
-// currentToolAvailability maps each tool named in a replayed tool call to
-// whether it is runnable now. It reuses the guardrail engine's denied-tool set —
-// the same rule that decides schema visibility — so availability can never drift
-// from what the model is actually offered.
-func currentToolAvailability(gr *guardrails.GuardrailEngine, workspaceID string, history []proxy.Message) map[string]bool {
-	denied := make(map[string]bool)
-	for _, name := range gr.DisabledToolNames(workspaceID) {
-		denied[name] = true
-	}
-	available := make(map[string]bool)
-	for _, m := range history {
-		for _, tc := range m.ToolCalls {
-			available[tc.Function.Name] = !denied[tc.Function.Name]
-		}
-	}
-	return available
-}
-
-// staleToolUnavailable reports whether a replayed tool result is the terminal
-// "tool unavailable" notice, and which tool it names.
-func staleToolUnavailable(content string) (string, bool) {
-	if !strings.HasPrefix(content, prompts.ToolUnavailablePrefix) {
-		return "", false
-	}
-	rest := content[len(prompts.ToolUnavailablePrefix):]
-	tool, _, found := strings.Cut(rest, " — ")
-	if !found || tool == "" {
-		return "", false
-	}
-	return tool, true
-}
-
 // PublishSessionLifecycle publishes a lifecycle event to the workspace event bus.
-func PublishSessionLifecycle(events EventPublisher, workspaceID, conversationID, snippet, phase string) {
+func PublishSessionLifecycle(events assistant.EventPublisher, workspaceID, conversationID, snippet, phase string) {
 	if workspaceID == "" || conversationID == "" {
 		return
 	}
-	events.Publish(workspaceID, AgentEvent{
+	events.Publish(workspaceID, assistant.AgentEvent{
 		ID:             fmt.Sprintf("sse_%d", time.Now().UnixNano()),
-		Type:           EventLifecycle,
-		Channel:        ChannelAssistant,
+		Type:           assistant.EventLifecycle,
+		Channel:        assistant.ChannelAssistant,
 		ConversationID: conversationID,
 		Payload: map[string]any{
 			"phase":           phase,
@@ -328,16 +210,16 @@ func PublishSessionLifecycle(events EventPublisher, workspaceID, conversationID,
 // (user message + system prompt) and the collected agent events.  Streaming
 // events supply both Content and ReasoningContent for tool-call assistant
 // messages, parallel tool calls are grouped into a single message, and
-// EventMessage with tool calls is skipped (already represented by the
-// EventToolCall + EventToolResult chain).  The result matches the agent's
+// assistant.EventMessage with tool calls is skipped (already represented by the
+// assistant.EventToolCall + assistant.EventToolResult chain).  The result matches the agent's
 // actual updatedHistory structure from a completed execution.
-func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Message {
+func buildPartialHistory(base []proxy.Message, events []assistant.AgentEvent) []proxy.Message {
 	history := make([]proxy.Message, len(base))
 	copy(history, base)
 
 	var (
-		streamingContent   string // visible text from EventToolStream
-		streamingReasoning string // thinking text from EventReasoning
+		streamingContent   string // visible text from assistant.EventToolStream
+		streamingReasoning string // thinking text from assistant.EventReasoning
 		pending            []proxy.ToolCall
 		turnContent        string // snapshot of streamingContent at first call
 		turnReasoning      string // snapshot of streamingReasoning at first call
@@ -360,15 +242,15 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 
 	for _, ev := range events {
 		switch ev.Type {
-		case EventToolStream:
+		case assistant.EventToolStream:
 			if text, ok := ev.Payload.(string); ok {
 				streamingContent = text
 			}
-		case EventReasoning:
+		case assistant.EventReasoning:
 			if text, ok := ev.Payload.(string); ok {
 				streamingReasoning = text
 			}
-		case EventToolCall:
+		case assistant.EventToolCall:
 			tc, ok := ev.Payload.(proxy.ToolCall)
 			if !ok {
 				continue
@@ -378,7 +260,7 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 				turnReasoning = streamingReasoning
 			}
 			pending = append(pending, tc)
-		case EventToolResult:
+		case assistant.EventToolResult:
 			flushPendingGroup()
 			payload, ok := ev.Payload.(map[string]any)
 			if !ok {
@@ -394,15 +276,15 @@ func buildPartialHistory(base []proxy.Message, events []AgentEvent) []proxy.Mess
 				Content:    content,
 				ToolCallID: id,
 			})
-		case EventMessage:
+		case assistant.EventMessage:
 			flushPendingGroup()
 			msg, ok := ev.Payload.(proxy.Message)
 			if !ok {
 				continue
 			}
-			// EventMessage with tool calls duplicates the assistant
+			// assistant.EventMessage with tool calls duplicates the assistant
 			// message already built by flushPendingGroup from the
-			// EventToolCall events — skip it.
+			// assistant.EventToolCall events — skip it.
 			if len(msg.ToolCalls) > 0 {
 				continue
 			}

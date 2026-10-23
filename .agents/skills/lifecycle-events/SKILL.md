@@ -39,7 +39,7 @@ Two lifecycle families exist:
 Published immediately after the user message is written to disk (`WriteSession`), before the agent starts executing.
 
 - **Payload:** `conversation_id`, `workspace_id`, `snippet` (user message, truncated to 80 chars)
-- **Sender:** `handleAssistant` in `assistant_handlers.go`
+- **Sender:** `conversationService.Execute` in `core/chat/conversation_service.go`
 - **Purpose:** Frontend adds the session to the sidebar with `running: true`
 
 ### `session_progress`
@@ -47,7 +47,7 @@ Published immediately after the user message is written to disk (`WriteSession`)
 Published each time the agent fires a `tool_call` event during execution.
 
 - **Payload:** `conversation_id`, `workspace_id`, `snippet` (e.g. "Step 3: query_device")
-- **Sender:** `publishObs` callback in `handleAssistant`
+- **Sender:** the observer `conversationService.buildObserver` builds
 - **Purpose:** Frontend updates the sidebar snippet and confirms the session is still running
 
 ### `session_completed`
@@ -55,7 +55,7 @@ Published each time the agent fires a `tool_call` event during execution.
 Published after the final `WriteSession` on the success path, or after `WriteSession` on the cancel path.
 
 - **Payload:** `conversation_id`, `workspace_id`, `snippet` (empty — the disk file has the full history)
-- **Sender:** `handleAssistant` in both success and cancel paths
+- **Sender:** `conversationService` in both success and cancel paths
 - **Purpose:** Frontend sets `running: false` on the session
 
 ### `agent_thinking`

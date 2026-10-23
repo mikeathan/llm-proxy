@@ -57,7 +57,7 @@ func TestIsAgentControlMessage_RecognisesLedger(t *testing.T) {
 	if !ok {
 		t.Fatal("expected a ledger message")
 	}
-	if !isAgentControlMessage(msg) {
+	if !IsAgentControlMessage(msg) {
 		t.Error("the ledger is injected by the agent and must not be mistaken for user text")
 	}
 }

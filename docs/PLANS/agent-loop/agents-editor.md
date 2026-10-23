@@ -1,7 +1,7 @@
 # Agents editor — create and edit profiles (and helpers) in Settings
 
-**Status:** active (2026-10-23). D1–D4 decided as recommended (the user also asked for a good phone layout and a full
-desktop one). E0–E3 built; E4 (live check) and E5 (docs) left.
+**Status:** complete (2026-10-23). D1–D4 decided as recommended (the user also asked for a good phone layout and a full
+desktop one). E0–E5 done; PR #128, checked live on vertex (v0.11.7).
 **Related Specs:** SPEC-012 (Prompt Profiles), SPEC-001 (§15 Delegation), SPEC-003 (UI).
 **Constitution refs:** II.13 (prompt text only in code, user instructions are data), II.3 (nothing leaves the machine
 unintended), IV.4 (no dead code).
@@ -109,7 +109,19 @@ pipelines, import/export of profiles, and a profile history.
 - **Checked by screenshot** (mocked API, paper and dark themes, desktop and phone): the list, a built-in, an edit, a new
   agent and the sticky save row above the phone's bottom bar.
 
+## Live check (E4, 2026-10-23, vertex v0.11.7, through the API in a throwaway workspace)
+
+- Saved a helper (`live-helper`, tools search + network) and a parent (`live-research`, `delegates: [live-helper]`).
+- `PUT` over the built-in `research` was `409`; a save naming a helper that does not exist was `400` with
+  `field: delegates`.
+- A Go / Rust / Zig comparison with the switch on made one `delegate_task` call; three helpers ran as `live-helper` on
+  `deepseek-v4.1-flash` (16 to 21 s each) and the run answered in 76 s with sources.
+- Deleting the helper while the parent still listed it returned `delegating_to: ["live-research"]`; deleting a
+  built-in was `409`. Both test agents and the workspace were removed afterwards.
+- Not exercised: the Settings screen itself on vertex (checked by screenshot against a mocked API only).
+
 ## Remaining Work
 
-- E4: live check on vertex after the user deploys: duplicate Research, add a helper profile, list it under Helpers, and
-  run a chat that delegates to it.
+None. Ideas outside this plan: an agent's `model` field (a helper still runs on `agent.subagent_model`), showing which
+workspaces and automations use an agent, and choosing an agent from a connector chat (see the slash-command note in
+`multi-agent-delegation.md`).

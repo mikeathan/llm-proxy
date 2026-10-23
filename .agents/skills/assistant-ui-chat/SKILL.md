@@ -285,7 +285,7 @@ The `groupTurns()` function converts the flat `messages[]` array into structured
 
 ### Agent control messages (contract test)
 
-The backend injects control messages as `role: "user"` (nags, format/retry feedback, the context sieve's `[System Note: …]` and `[Progress ledger …]`, length continuation) plus an empty `[stuck]` assistant placeholder. `isInternalMessage()` hides them and keeps them from starting a turn — when it missed the sieve note and ledger (2026-10-01) they showed as the operator's own messages and split one run into fake turns with a lone "Thought:" as the answer. `CONTROL_PREFIXES` mirrors `isAgentControlMessage` (`backend/internal/core/assistant/session.go`); `__TESTS__/utils/message/controlMessages.contract.test.ts` reads that Go function and `prompts/templates.go` and fails for any control prompt the UI does not hide. **Adding a control prompt in Go → add its prefix here.**
+The backend injects control messages as `role: "user"` (nags, format/retry feedback, the context sieve's `[System Note: …]` and `[Progress ledger …]`, length continuation) plus an empty `[stuck]` assistant placeholder. `isInternalMessage()` hides them and keeps them from starting a turn — when it missed the sieve note and ledger (2026-10-01) they showed as the operator's own messages and split one run into fake turns with a lone "Thought:" as the answer. `CONTROL_PREFIXES` mirrors `IsAgentControlMessage` (`backend/internal/core/assistant/session.go`); `__TESTS__/utils/message/controlMessages.contract.test.ts` reads that Go function and `prompts/templates.go` and fails for any control prompt the UI does not hide. **Adding a control prompt in Go → add its prefix here.**
 
 ### Single-message turn edge case
 

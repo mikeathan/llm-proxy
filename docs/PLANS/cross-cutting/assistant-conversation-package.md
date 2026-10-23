@@ -1,6 +1,8 @@
 # Assistant conversation package (deferred extraction)
 
-**Status:** proposed
+**Status:** superseded (2026-10-23) — done as C5 of [`../agent-loop/run-pipeline-and-agent-commands.md`](../agent-loop/run-pipeline-and-agent-commands.md):
+the conversation service moved into `core/chat`, not `assistant/conversation`; Step 0 (shared test doubles) is
+`internal/testing/assistanttest` (C0).
 **Date:** 2026-09-12
 **Related Specs:** SPEC-001 (Agent Loop)
 

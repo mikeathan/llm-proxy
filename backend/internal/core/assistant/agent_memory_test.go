@@ -4,15 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/memory"
+	"llm-proxy/internal/testing/assistanttest"
 	"llm-proxy/models"
 )
 
@@ -26,25 +25,7 @@ func newTestMemoryStore(t *testing.T) *memory.Store {
 // backdate timestamps (same-second inserts tie on updated_at).
 func newTestMemoryStoreAndDB(t *testing.T) (*memory.Store, *sql.DB) {
 	t.Helper()
-	f, err := os.CreateTemp("", "agent-memory-test-*.db")
-	if err != nil {
-		t.Fatalf("create temp db: %v", err)
-	}
-	path := f.Name()
-	f.Close()
-	t.Cleanup(func() { os.Remove(path) })
-
-	p, err := db.Open(path)
-	if err != nil {
-		t.Fatalf("db.Open: %v", err)
-	}
-	t.Cleanup(func() { p.DB().Close() })
-
-	memStore, err := memory.New(p)
-	if err != nil {
-		t.Fatalf("memory.New: %v", err)
-	}
-	return memStore, p.DB()
+	return assistanttest.NewMemoryStoreAndDB(t)
 }
 
 func TestBuildHotInjection(t *testing.T) {

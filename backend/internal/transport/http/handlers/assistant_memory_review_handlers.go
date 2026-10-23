@@ -4,16 +4,15 @@ import (
 	"context"
 	"errors"
 	"llm-proxy/internal/core/assistant/reasoning"
+	"llm-proxy/internal/core/chat"
 	"net/http"
 	"strings"
 	"time"
 
-	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
-	"llm-proxy/models"
 )
 
 const (
@@ -60,29 +59,20 @@ func (h *AssistantMessageHandler) ReviewMemories(w http.ResponseWriter, r *http.
 
 	ctx, cancel := context.WithTimeout(r.Context(), h.reviewTimeoutOrDefault())
 	defer cancel()
-	model := h.chatModel()
-	if h.lane != nil {
-		claimed, release, err := h.lane.ClaimInteractive(ctx, h.svc.LaneKeyFor(""), workspaceID, model)
-		if err != nil {
+	ctx, client, model, release, err := h.turns.Lease(ctx, workspaceID)
+	if err != nil {
+		if errors.Is(err, chat.ErrNotAdmitted) {
 			h.logger.Info("memory review not admitted to the run lane", "workspace", workspaceID, "error", err)
 			writeJSONError(w, http.StatusServiceUnavailable, msgReviewBusy)
 			return
 		}
-		defer release()
-		ctx = claimed
-	}
-
-	// A cold local model is waited for, like a chat's; the review's own time limit still bounds the wait.
-	client, err := proxy.WaitForClient(ctx, func() (proxy.Client, error) { return h.svc.GetClientForModel(ctx, model) }, proxy.ModelWait{
-		ModelName: model, PollInterval: models.ModelStartPollInterval, Timeout: models.ModelStartWaitTimeout,
-	})
-	if err != nil {
 		h.logger.Warn("memory review: no model client", "model", model, "error", err)
 		writeJSONError(w, http.StatusBadGateway, msgReviewFailed)
 		return
 	}
-	reviewer := memorycapture.NewReviewer(chatCompleter{client: client, model: model}, assistantPkg.NewCaptureLibrary(h.svc.MemoryStore()), prompts.MemoryReviewPrompt, tools.ContainsSecret)
-	suggestions, err := reviewer.Review(ctx, workspaceID, assistantPkg.ReviewTurns(session.History))
+	defer release()
+	reviewer := memorycapture.NewReviewer(chatCompleter{client: client, model: model}, chat.NewCaptureLibrary(h.svc.MemoryStore()), prompts.MemoryReviewPrompt, tools.ContainsSecret)
+	suggestions, err := reviewer.Review(ctx, workspaceID, chat.ReviewTurns(session.History))
 	if err != nil {
 		h.logger.Warn("memory review failed", "workspace", workspaceID, "session", sessionID, "error", err)
 		writeJSONError(w, http.StatusBadGateway, msgReviewFailed)

@@ -105,7 +105,7 @@ sees its own thinking text in conversation history and reuses it on subsequent
 turns, wasting tokens and producing duplicated output.
 
 Recovery messages (nags, sieve notes, parse feedback, stuck placeholders) are
-**control plane** — `isAgentControlMessage` identifies them so they are never
+**control plane** — `IsAgentControlMessage` identifies them so they are never
 confused with real conversation. See `checkTaskCompletion` in `session.go`.
 
 **Content-with-tools fallback:** When the model writes visible text AND calls

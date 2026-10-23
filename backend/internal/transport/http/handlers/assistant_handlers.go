@@ -1,80 +1,53 @@
 package handlers
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/http"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
-	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/core/reminders"
-	"llm-proxy/internal/core/run"
-	"llm-proxy/internal/core/runlane"
+	"llm-proxy/internal/core/assistant/profile"
+	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/models"
 )
 
-type AssistantMessage struct {
-	WorkspaceID    string   `json:"workspace_id"`
-	ConversationID string   `json:"conversation_id"`
-	ContextVersion string   `json:"context_version,omitempty"`
-	Message        string   `json:"message"`
-	Timezone       string   `json:"timezone,omitempty"`
-	ExcludeTools   []string `json:"exclude_tools,omitempty"`
-	// Model is a registry model chosen for this message; empty runs the primary.
-	Model string `json:"model,omitempty"`
-	// Profile is the prompt profile chosen for this message, which the conversation then keeps; empty keeps the
-	// conversation's own or the workspace's.
-	Profile string `json:"profile,omitempty"`
-	// UseHelpers asks the assistant to hand the independent parts of this message to helpers (sub-agents).
-	UseHelpers bool `json:"use_helpers,omitempty"`
+// AssistantHandlerDeps is what the chat handlers use of the app; the turn lifecycle's own needs are chat.Deps.
+type AssistantHandlerDeps interface {
+	Limiter() ratelimiter.Limiter
+	Logger() logging.Logger
+	Persistence() *persistence.WorkspaceManager
+	ModelConfig(modelName string) (models.ModelConfig, bool)
+	Profiles() *profile.Catalog
+	GuardrailEngine() *guardrails.GuardrailEngine
+	GuardrailDecisionStore() *assistantPkg.GuardrailDecisionStore
+	MemoryStore() *memory.Store
 }
 
+// AssistantMessageHandler serves the chat endpoints: it decodes and validates a message, starts its turn through the
+// chat service and answers at once; the turn itself (admission, cold-model wait, recording, cancel and replace) is the
+// chat service's.
 type AssistantMessageHandler struct {
-	provider    assistantPkg.ToolProvider
-	client      proxy.LLMClientProvider
 	limiter     ratelimiter.Limiter
 	logger      logging.Logger
-	engine      assistantPkg.Engine
-	guardrails  *guardrails.GuardrailEngine
 	persistence *persistence.WorkspaceManager
-	svc         AssistantService
-	service     assistantPkg.ConversationService
-	running     sync.Map
-	lane        *runlane.Scheduler
-	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset; it
-	// outranks the zone a browser reports (reminders.ChatZone).
-	OwnerTimezone func() string
+	svc         AssistantHandlerDeps
+	turns       *chat.Service
 	// reviewTimeout bounds a memory review's wait plus model call; zero means memoryReviewTimeout.
 	reviewTimeout time.Duration
 }
 
-type runningAgent struct {
-	cancel         context.CancelFunc
-	done           chan struct{}
-	conversationID string
-	granted        atomic.Bool // true once the run lane admitted the run
-}
-
-func NewAssistantMessageHandler(service AssistantService) *AssistantMessageHandler {
+func NewAssistantMessageHandler(service AssistantHandlerDeps, turns *chat.Service) *AssistantMessageHandler {
 	return &AssistantMessageHandler{
-		provider:    service.ToolProvider(),
-		client:      service.ClientProvider(),
 		limiter:     service.Limiter(),
 		logger:      service.Logger(),
-		engine:      service.Engine(),
-		guardrails:  service.GuardrailEngine(),
 		persistence: service.Persistence(),
 		svc:         service,
-		service:     assistantPkg.NewConversationService(service, service.Persistence()),
-		lane:        service.Lane(),
+		turns:       turns,
 	}
 }
 
@@ -90,9 +63,11 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
+	conversationID := chat.NormalizeConversationID(payload.ConversationID)
 	go func() {
-		_, _ = h.RunWithCancel(r.Context(), payload.WorkspaceID, payload, log)
+		if _, err := h.turns.Run(r.Context(), payload, log); err != nil {
+			log.Error("assistant run failed", "workspace", payload.WorkspaceID, "error", err)
+		}
 	}()
 
 	w.WriteHeader(http.StatusAccepted)
@@ -106,70 +81,8 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-// runExitWait bounds how long a cancel waits for the cancelled run to publish its
-// last events and exit before giving up.
-const runExitWait = 2 * time.Second
-
-// stopRun cancels a run that has already been removed from the running map and
-// waits (bounded) for it to exit, so none of its events can interleave with
-// whatever starts next on the same workspace. Idempotent.
-func (h *AssistantMessageHandler) stopRun(workspaceID string, ra *runningAgent, log logging.Logger) {
-	ra.cancel()
-	select {
-	case <-ra.done:
-	case <-time.After(runExitWait):
-		log.Warn("assistant run did not exit after cancel; proceeding anyway", "workspace", workspaceID, "wait", runExitWait)
-	}
-}
-
-// replaceRun registers ra as the workspace's running agent and stops whatever it
-// replaced. Registration is one atomic Swap, so two runs starting at once cannot
-// both miss each other: exactly one stays registered and the other is cancelled
-// and waited for (stopRun) before the new run proceeds.
-func (h *AssistantMessageHandler) replaceRun(workspaceID string, ra *runningAgent, log logging.Logger) {
-	prev, loaded := h.running.Swap(workspaceID, ra)
-	if !loaded {
-		return
-	}
-	log.Info("canceled prior in-flight assistant request for workspace", "workspace", workspaceID)
-	h.stopRun(workspaceID, prev.(*runningAgent), log)
-}
-
-// CancelAgent stops the running agent for the given workspace and returns once
-// it has exited (bounded by runExitWait), so a message sent right after Stop
-// never shares the event stream with the cancelled run's stale output. Returns
-// true if a running agent was found, false otherwise.
-func (h *AssistantMessageHandler) CancelAgent(workspaceID, conversationID string) bool {
-	if workspaceID == "" {
-		return false
-	}
-	v, ok := h.running.LoadAndDelete(workspaceID)
-	if !ok {
-		return false
-	}
-	h.stopRun(workspaceID, v.(*runningAgent), h.logger)
-	return true
-}
-
-// finishRun ends a run's registration. It removes the workspace entry only if it
-// still belongs to this run: a newer run may already have replaced it, and must
-// stay cancellable and visible as running.
-func (h *AssistantMessageHandler) finishRun(workspaceID string, ra *runningAgent) {
-	h.running.CompareAndDelete(workspaceID, ra)
-	ra.cancel()
-	close(ra.done)
-}
-
-// RunningExists reports whether an agent is currently running for the workspace.
-// Unlike CancelAgent it does NOT remove or cancel the entry — it is a read-only
-// check that can be used in tests or observability without side-effects.
-func (h *AssistantMessageHandler) RunningExists(workspaceID string) bool {
-	_, ok := h.running.Load(workspaceID)
-	return ok
-}
-
-func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.Request) (*AssistantMessage, logging.Logger, bool) {
-	var payload AssistantMessage
+func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.Request) (*chat.Request, logging.Logger, bool) {
+	var payload chat.Request
 	if err := decodeJSON(w, r, &payload); err != nil {
 		if errors.Is(err, ErrUnsupportedContentType) {
 			writeJSONError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json")
@@ -208,261 +121,6 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 	)
 
 	return &payload, log, true
-}
-
-func (h *AssistantMessageHandler) handleAssistant(ctx context.Context, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	client, herr := h.getLLMClient(ctx, log, payload)
-	if herr != nil {
-		// Surface on the SSE bus so the client renders a visible error instead of hanging.
-		h.publishRunError(payload, herr.Message)
-		return nil, herr
-	}
-
-	// Resolve the conversation ID up front: a brand-new conversation carries an
-	// empty ID, and the recording run directory must be created under a
-	// well-formed {model}/{conversation} path (an empty ID would otherwise
-	// collapse the task segment in NewRunDir, orphaning the directory directly
-	// beneath the model). Passing the resolved ID through to Execute also
-	// ensures the session uses the same ID.
-	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
-
-	// Set up recording infrastructure (run directory, event sink). The workspace
-	// process log is used directly; no per-run duplicate log is written.
-	runID := models.NewRunID()
-	// Thread the run ID into the context so the service's setupRun reuses it
-	// instead of generating a second one: a mismatched ID left a recording file
-	// + fd + sync goroutine open forever (CloseRun never found the orphaned
-	// state under the service-generated ID).
-	ctx = models.WithRunID(ctx, runID)
-	procLog := h.svc.ProcessLogger(payload.WorkspaceID)
-	eventSink := run.OpenRecording(client, run.RecordingSpec{
-		Enabled: h.svc.RunLoggingEnabled(), Root: h.svc.RootDir(), WorkspaceID: payload.WorkspaceID,
-		Task: conversationID, Model: modelName(payload, h.svc), RunID: runID, Log: procLog,
-	}).Events
-	defer func() {
-		if eventSink != nil {
-			eventSink.Close()
-		}
-		if rcl, ok := client.(interface{ CloseRun(string) }); ok {
-			rcl.CloseRun(runID)
-		}
-	}()
-
-	var recorder assistantPkg.EventRecorder
-	if eventSink != nil {
-		recorder = eventSink
-	}
-
-	ctx = models.WithHelpersRequest(models.WithProfileRequest(models.WithModelOverride(ctx, payload.Model), payload.Profile), payload.UseHelpers)
-	result, execErr := h.service.Execute(ctx, payload.WorkspaceID, conversationID, payload.Message, payload.ContextVersion, h.chatZone(payload.Timezone), payload.ExcludeTools, procLog, h.provider, client, h.engine, h.svc.Events(), recorder)
-	if execErr != nil {
-		if errors.Is(execErr, context.Canceled) {
-			return result, nil
-		}
-		return nil, &handlerError{Status: http.StatusInternalServerError, Message: execErr.Error()}
-	}
-	return result, nil
-}
-
-// chatZone is the timezone this run reports to the agent for a browser-reported zone.
-func (h *AssistantMessageHandler) chatZone(browser string) string {
-	owner := ""
-	if h.OwnerTimezone != nil {
-		owner = h.OwnerTimezone()
-	}
-	return reminders.ChatZone(owner, browser)
-}
-
-// modelName is the model the request runs: the one it names, else the primary.
-func modelName(payload *AssistantMessage, svc AssistantService) string {
-	if payload.Model != "" {
-		return payload.Model
-	}
-	primary, _ := svc.SelectModels()
-	return primary
-}
-
-// Logic fix for appendToolResult structure:
-// Refactoring processToolCall to first append the assistant message.
-
-// getLLMClient returns the chat's model client. A local model that is still loading (after an idle unload or a
-// restart) is waited for, bounded by models.ModelStartWaitTimeout and cancelled by Stop, with one "model is starting"
-// notice so the chat shows why it is waiting — instead of failing and losing the message.
-func (h *AssistantMessageHandler) getLLMClient(ctx context.Context, log logging.Logger, payload *AssistantMessage) (proxy.Client, *handlerError) {
-	// A model chosen for this message is used as is — no silent switch to the fallback.
-	acquire := func() (proxy.Client, error) { return h.client.GetClient(ctx) }
-	if payload.Model != "" {
-		acquire = func() (proxy.Client, error) { return h.client.GetClientForModel(ctx, payload.Model) }
-	}
-	client, err := proxy.WaitForClient(ctx, acquire, proxy.ModelWait{
-		ModelName:    modelName(payload, h.svc),
-		PollInterval: models.ModelStartPollInterval,
-		Timeout:      models.ModelStartWaitTimeout,
-		OnStarting:   func() { h.publishModelStarting(payload) },
-	})
-	if err != nil {
-		if errors.Is(err, models.ErrModelStarting) {
-			return nil, &handlerError{
-				Status:  http.StatusServiceUnavailable,
-				Message: fmt.Sprintf("the model did not finish loading within %v; try again", models.ModelStartWaitTimeout),
-			}
-		}
-		log.Error("get LLM client failed", "error", err)
-		// Actionable message when no model is selected, so the user gets a clear next step instead of a silent failure.
-		if primary, _ := h.svc.SelectModels(); primary == "" {
-			return nil, &handlerError{
-				Status:  http.StatusInternalServerError,
-				Message: "No primary model is configured. Add and select a model in Settings → Providers, then retry.",
-			}
-		}
-		return nil, &handlerError{
-			Status:  http.StatusInternalServerError,
-			Message: "failed to get LLM client",
-		}
-	}
-	return client, nil
-}
-
-// publishRunError emits an SSE error event for the conversation. Early client-acquisition failures occur before h.service.Execute (where run events are normally published), so they must be surfaced here to avoid a silent hang.
-//
-// The event is published on the workspace channel alone: the SSE stream is
-// workspace-scoped, so we only require WorkspaceID (always present from the
-// request routing). RunWithCancel resolves the conversation ID up front, so
-// ConversationID may already be populated here; it is preserved when present
-// and never a delivery prerequisite.
-// publishModelStarting tells the chat its model is loading, with the same upstream notice the UI already renders
-// for a model that is starting.
-func (h *AssistantMessageHandler) publishModelStarting(payload *AssistantMessage) {
-	if payload.WorkspaceID == "" {
-		return
-	}
-	h.svc.Events().Publish(payload.WorkspaceID, assistantPkg.AgentEvent{
-		ID:             fmt.Sprintf("model_starting_%d", time.Now().UnixNano()),
-		Type:           assistantPkg.EventUpstream,
-		Channel:        assistantPkg.ChannelAssistant,
-		ConversationID: payload.ConversationID,
-		Payload:        assistantPkg.UpstreamEventPayload{Event: assistantPkg.UpstreamEventRetry, Reason: assistantPkg.UpstreamReasonModelStarting},
-		Timestamp:      time.Now(),
-	})
-}
-
-func (h *AssistantMessageHandler) publishRunError(payload *AssistantMessage, message string) {
-	if payload.WorkspaceID == "" {
-		return
-	}
-	h.svc.Events().Publish(payload.WorkspaceID, assistantPkg.AgentEvent{
-		ID:             fmt.Sprintf("run_err_%d", time.Now().UnixNano()),
-		Type:           assistantPkg.EventError,
-		Channel:        assistantPkg.ChannelAssistant,
-		ConversationID: payload.ConversationID,
-		Payload:        map[string]any{"error": message},
-		Timestamp:      time.Now(),
-	})
-}
-
-// Session Management Handlers
-
-// RunWithCancel registers the workspace in the running map (so the
-// /assistant/cancel endpoint can cancel this invocation), cancels any prior
-// in-flight agent for the same workspace, admits the run to the run scheduler
-// (preempting a running automation in the same workload lane, or queueing
-// behind other work), executes handleAssistant, then cleans up the running
-// map entry.
-//
-// The execution context is derived from context.Background(), NOT the caller's
-// context. This is intentional: a client disconnect (page refresh / tab close /
-// aborted fetch) must NOT kill an in-flight assistant run. The run outlives the
-// triggering HTTP request and is observed via the SSE event bus instead. The
-// only way to stop a run is the explicit /assistant/cancel endpoint, which
-// calls the stored cancel func. This mirrors the automation subsystem, which
-// already runs detached via context.Background().
-//
-// The ctx parameter is retained for signature stability and is only used for
-// request-scoped logging/values; it does not cancel the run.
-func (h *AssistantMessageHandler) RunWithCancel(ctx context.Context, workspaceID string, payload *AssistantMessage, log logging.Logger) (any, *handlerError) {
-	// Resolve the conversation ID up front so the running agent can report it
-	// (e.g. to /active-runs for the UI to mark the session as running after a
-	// refresh). NormalizeConversationID is idempotent, so handleAssistant
-	// re-resolving the same value is a no-op.
-	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
-	payload.ConversationID = conversationID
-
-	execCtx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	ra := &runningAgent{cancel: cancel, done: done, conversationID: conversationID}
-	h.replaceRun(workspaceID, ra, log)
-	defer h.finishRun(workspaceID, ra)
-
-	runCtx := execCtx
-	if h.lane != nil {
-		// Every run is admitted through the scheduler: an interactive chat
-		// preempts a running automation in its lane, or queues FIFO behind
-		// other chats. The claim derives from execCtx so ra.cancel (the
-		// /assistant/cancel path and replaceRun) still reaches
-		// the run while it waits or runs. The wait happens in this detached
-		// goroutine — ServeHTTP already returned 202.
-		//
-		// The claimed model is the resolved primary/fallback (an
-		// AssistantMessage carries no model of its own). Recording it lets the
-		// model-residency gate refuse evicting this chat's model.
-		claimed, release, err := h.lane.ClaimInteractive(execCtx, h.svc.LaneKeyFor(payload.Model), workspaceID, h.chatModelFor(payload.Model))
-		if err != nil {
-			// Cancelled while waiting, or the preempted automation did not
-			// stop in time: same shape as an explicit cancel — no failed-run
-			// artifacts.
-			log.Info("assistant run not admitted to the run lane", "workspace", workspaceID, "error", err)
-			return nil, nil
-		}
-		defer release()
-		ra.granted.Store(true)
-		runCtx = claimed
-	}
-	return h.handleAssistant(runCtx, payload, log)
-}
-
-// chatModel resolves the model a chat run will use — the registry primary, or
-// the fallback when no primary is configured. It mirrors the resolution
-// LaneKeyFor applies, so the lane key and the holder's model agree.
-func (h *AssistantMessageHandler) chatModel() string { return h.chatModelFor("") }
-
-// chatModelFor is chatModel for a message that may name its own model.
-func (h *AssistantMessageHandler) chatModelFor(chosen string) string {
-	if chosen != "" {
-		return chosen
-	}
-	primary, fallback := h.svc.SelectModels()
-	if primary != "" {
-		return primary
-	}
-	return fallback
-}
-
-// RunningQueued reports whether the workspace has an agent run registered but
-// not yet admitted to the run lane, so the UI can show "waiting" instead of a
-// running glow (assistant_running stays true while waiting).
-func (h *AssistantMessageHandler) RunningQueued(workspaceID string) bool {
-	if h.lane == nil {
-		return false
-	}
-	if v, ok := h.running.Load(workspaceID); ok {
-		if ra, ok := v.(*runningAgent); ok {
-			return !ra.granted.Load()
-		}
-	}
-	return false
-}
-
-// RunningConversationID reports the conversation ID of the agent currently
-// running for the workspace, or "" when none is running. It backs the
-// /active-runs endpoint so the UI can reconcile per-session running state
-// after a refresh without trusting client-side flags.
-func (h *AssistantMessageHandler) RunningConversationID(workspaceID string) string {
-	if v, ok := h.running.Load(workspaceID); ok {
-		if ra, ok := v.(*runningAgent); ok {
-			return ra.conversationID
-		}
-	}
-	return ""
 }
 
 func (h *AssistantMessageHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
@@ -605,7 +263,7 @@ func (h *AssistantMessageHandler) CancelAssistantHandler(w http.ResponseWriter, 
 		return
 	}
 
-	canceled := h.CancelAgent(req.WorkspaceID, req.ConversationID)
+	canceled := h.turns.Cancel(req.WorkspaceID, h.logger)
 	h.logger.Info("assistant cancel requested",
 		"workspace", req.WorkspaceID,
 		"conversation", req.ConversationID,

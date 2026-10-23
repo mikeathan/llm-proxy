@@ -1,4 +1,4 @@
-package assistant
+package chat
 
 import (
 	"cmp"
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/failures"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/usage"
@@ -21,7 +22,7 @@ import (
 // ConversationDeps provides the external dependencies for ConversationService.
 // Implemented by the HTTP handler layer.
 type ConversationDeps interface {
-	RunOptionDeps
+	assistant.RunOptionDeps
 	SelectModels() (string, string)
 	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
 	Profiles() *profile.Catalog
@@ -29,7 +30,7 @@ type ConversationDeps interface {
 	// local endpoints for native tool support when unset (cached).
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
 	ProcessLogger(workspaceID string) logging.Logger
-	Events() EventPublisher
+	Events() assistant.EventPublisher
 	RunLoggingEnabled() bool
 }
 
@@ -43,13 +44,15 @@ func NewConversationService(deps ConversationDeps, persistence *persistence.Work
 	return &conversationService{deps: deps, persistence: persistence, extractor: memorycapture.NewExtractor(tools.ContainsSecret)}
 }
 
-func (s *conversationService) Execute(ctx context.Context, workspaceID, conversationID, message, contextVersion, timezone string, excludeTools []string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, events EventPublisher, recorder EventRecorder) (ExecuteResult, error) {
+func (s *conversationService) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
+	workspaceID, conversationID, message, timezone := req.WorkspaceID, req.ConversationID, req.Message, req.Timezone
+	log, events := req.Log, req.Events
 	if workspaceID == "" {
 		workspaceID = "default"
 	}
 
 	// 1. Resolve or create session
-	session, err := s.resolveSession(workspaceID, conversationID, contextVersion, timezone, log)
+	session, err := s.resolveSession(workspaceID, conversationID, req.ContextVersion, timezone, log)
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("resolve session: %w", err)
 	}
@@ -80,7 +83,7 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	// reconstructs the running turn from the replay, anchored by this
 	// session_started and the user-message snippet it carries — without it the
 	// frontend has no user anchor and cannot render the reconstructed turn.
-	PublishSessionLifecycle(events, workspaceID, session.ID, message, PhaseSessionStarted)
+	PublishSessionLifecycle(events, workspaceID, session.ID, message, assistant.PhaseSessionStarted)
 
 	// Snapshot the session after the user message is appended — used as the
 	// base for mid-execution checkpoint rebuilding.
@@ -88,11 +91,11 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	copy(baseHistory, session.History)
 
 	// 5. Build agent options
-	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, recorder, log)
+	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, req.Recorder, log)
 
-	agent := NewAgent(client, provider, engine, s.agentOptions(chatAgentRun{
+	agent := assistant.NewAgent(req.Client, req.Provider, req.Engine, s.agentOptions(chatAgentRun{
 		modelName: modelName, workspaceID: workspaceID, sessionID: session.ID, log: log,
-		observer: observer, excludeTools: excludeTools, profile: runProfile,
+		observer: observer, excludeTools: req.ExcludeTools, profile: runProfile,
 	}))
 
 	// 6. Execute agent
@@ -215,7 +218,7 @@ func (s *conversationService) initSession(session *models.AssistantSession, work
 	}
 }
 
-func (s *conversationService) setupRun(ctx context.Context, sessionID, workspaceID string, events EventPublisher) (execCtx context.Context, clean func()) {
+func (s *conversationService) setupRun(ctx context.Context, sessionID, workspaceID string, events assistant.EventPublisher) (execCtx context.Context, clean func()) {
 	// Reuse a run ID already threaded into the context (the HTTP handler sets
 	// it so the recorder's SetDirForRun/CloseRun keys match the agent's
 	// recording file). A mismatched ID orphaned the recording file + fd + sync
@@ -229,22 +232,22 @@ func (s *conversationService) setupRun(ctx context.Context, sessionID, workspace
 	execCtx = models.WithRunID(execCtx, runID)
 	execCtx = usage.WithTracker(execCtx)
 
-	events.Clear(workspaceID, ChannelAssistant)
+	events.Clear(workspaceID, assistant.ChannelAssistant)
 	// Clear stale events from previous runs so new SSE connection doesn't replay old events
-	clean = func() { events.Clear(workspaceID, ChannelAssistant) }
+	clean = func() { events.Clear(workspaceID, assistant.ChannelAssistant) }
 	return
 }
 
-func (s *conversationService) buildObserver(baseHistory []proxy.Message, session *models.AssistantSession, workspaceID string, events EventPublisher, recorder EventRecorder, log logging.Logger) (Observer, func() []AgentEvent) {
-	var collectedEvents []AgentEvent
+func (s *conversationService) buildObserver(baseHistory []proxy.Message, session *models.AssistantSession, workspaceID string, events assistant.EventPublisher, recorder assistant.EventRecorder, log logging.Logger) (assistant.Observer, func() []assistant.AgentEvent) {
+	var collectedEvents []assistant.AgentEvent
 	sessionStep := 0
 
-	obs := func(ev AgentEvent) {
+	obs := func(ev assistant.AgentEvent) {
 		// Keep the newest snapshot of a stream only: reasoning and tool_stream
 		// carry the text so far, and buildPartialHistory rescans this log on every
 		// tool result, so keeping each one cost ~11 MB and a quadratic rescan on
 		// a four-minute run.
-		if n := len(collectedEvents); n > 0 && SupersedesSnapshot(collectedEvents[n-1], ev) {
+		if n := len(collectedEvents); n > 0 && assistant.SupersedesSnapshot(collectedEvents[n-1], ev) {
 			collectedEvents = collectedEvents[:n-1]
 		}
 		collectedEvents = append(collectedEvents, ev)
@@ -260,38 +263,38 @@ func (s *conversationService) buildObserver(baseHistory []proxy.Message, session
 		// contract (session-source-backend-driven.md) is unconditional, no
 		// throttling. The copy is shallow: the original session.History is never
 		// mutated mid-run, so the final success/cancel paths append cleanly.
-		if ev.Type == EventToolResult || ev.Type == EventMessage {
+		if ev.Type == assistant.EventToolResult || ev.Type == assistant.EventMessage {
 			cp := *session
 			cp.History = buildPartialHistory(baseHistory, collectedEvents)
 			if err := s.persistence.WriteSession(workspaceID, &cp); err != nil {
 				log.Warn("checkpoint persist failed", "error", err, "session", session.ID)
 			}
 		}
-		if ev.Type == EventToolCall {
+		if ev.Type == assistant.EventToolCall {
 			sessionStep++
-			PublishSessionLifecycle(events, workspaceID, session.ID, fmt.Sprintf("Step %d: %s", sessionStep, ev.Payload), PhaseSessionProgress)
+			PublishSessionLifecycle(events, workspaceID, session.ID, fmt.Sprintf("Step %d: %s", sessionStep, ev.Payload), assistant.PhaseSessionProgress)
 		}
 	}
 
-	return obs, func() []AgentEvent { return collectedEvents }
+	return obs, func() []assistant.AgentEvent { return collectedEvents }
 }
 
 // chatAgentRun is what one chat turn's agent is built from.
 type chatAgentRun struct {
 	modelName, workspaceID, sessionID string
 	log                               logging.Logger
-	observer                          Observer
+	observer                          assistant.Observer
 	excludeTools                      []string
 	profile                           profile.Profile
 }
 
 // agentOptions resolves the options a chat turn's agent runs with; the workspace's memory setting is the turn's own
 // choice, above the profile's.
-func (s *conversationService) agentOptions(r chatAgentRun) AgentOptions {
-	return ResolveRunOptions(s.deps, RunSpec{
+func (s *conversationService) agentOptions(r chatAgentRun) assistant.AgentOptions {
+	return assistant.ResolveRunOptions(s.deps, assistant.RunSpec{
 		Kind: profile.KindAssistant, WorkspaceID: r.workspaceID, ConversationID: r.sessionID, Model: r.modelName,
 		Profile: r.profile, Logger: r.log, Observer: r.observer,
-		Overrides: RunOverrides{ExcludedTools: r.excludeTools, Memory: s.workspaceMemory(r.workspaceID)},
+		Overrides: assistant.RunOverrides{ExcludedTools: r.excludeTools, Memory: s.workspaceMemory(r.workspaceID)},
 	})
 }
 
@@ -303,7 +306,7 @@ func (s *conversationService) workspaceMemory(workspaceID string) models.MemoryM
 	return models.MemoryModeInherit
 }
 
-func (s *conversationService) handleCancelResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events EventPublisher, collected []AgentEvent, log logging.Logger, cancelErr error) ExecuteResult {
+func (s *conversationService) handleCancelResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, collected []assistant.AgentEvent, log logging.Logger, cancelErr error) ExecuteResult {
 	log.Info("assistant execution canceled by user", "error", cancelErr)
 
 	if len(updatedHistory) >= len(llmHistory) {
@@ -350,16 +353,16 @@ func (s *conversationService) handleCancelResult(session *models.AssistantSessio
 // provider error text). Used by the cancel path to preserve why the run was
 // interrupted so a reloaded session renders the error instead of a bare
 // "Response interrupted" banner.
-func lastRunFailureText(collected []AgentEvent) string {
+func lastRunFailureText(collected []assistant.AgentEvent) string {
 	for i := len(collected) - 1; i >= 0; i-- {
 		ev := collected[i]
 		switch ev.Type {
-		case EventError:
+		case assistant.EventError:
 			if m, ok := ev.Payload.(map[string]string); ok && m["error"] != "" {
 				return m["error"]
 			}
-		case EventUpstream:
-			if p, ok := ev.Payload.(UpstreamEventPayload); ok && p.Error != "" {
+		case assistant.EventUpstream:
+			if p, ok := ev.Payload.(assistant.UpstreamEventPayload); ok && p.Error != "" {
 				return p.Error
 			}
 		}
@@ -367,7 +370,7 @@ func lastRunFailureText(collected []AgentEvent) string {
 	return ""
 }
 
-func (s *conversationService) handleSuccessResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events EventPublisher, collected []AgentEvent, log logging.Logger) ExecuteResult {
+func (s *conversationService) handleSuccessResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, collected []assistant.AgentEvent, log logging.Logger) ExecuteResult {
 	if len(updatedHistory) >= len(llmHistory) {
 		newMessages := updatedHistory[len(llmHistory):]
 		session.History = append(session.History, newMessages...)
@@ -396,7 +399,7 @@ func (s *conversationService) handleSuccessResult(session *models.AssistantSessi
 // reload instead of leaving a session that shows only the user prompt. The
 // error event + session_completed lifecycle are still published so a live
 // client sees the failure and the sidebar stops marking the session running.
-func (s *conversationService) handleErrorResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events EventPublisher, collected []AgentEvent, log logging.Logger, runErr error) (ExecuteResult, error) {
+func (s *conversationService) handleErrorResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, collected []assistant.AgentEvent, log logging.Logger, runErr error) (ExecuteResult, error) {
 	// Persist any partial assistant output the agent produced before failing.
 	if len(updatedHistory) >= len(llmHistory) {
 		newMessages := updatedHistory[len(llmHistory):]
@@ -433,10 +436,10 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 	if fi.Hint != "" {
 		payload["hint"] = fi.Hint
 	}
-	events.Publish(workspaceID, AgentEvent{
+	events.Publish(workspaceID, assistant.AgentEvent{
 		ID:             fmt.Sprintf("sse_err_%d", time.Now().UnixNano()),
-		Type:           EventError,
-		Channel:        ChannelAssistant,
+		Type:           assistant.EventError,
+		Channel:        assistant.ChannelAssistant,
 		ConversationID: session.ID,
 		Payload:        payload,
 		Timestamp:      time.Now(),
@@ -458,9 +461,9 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 // at the next run's setupRun — stops a finished run's events (stale "model is
 // starting" notices, assistant messages) from replaying into a fresh/empty
 // conversation view after a reconnect or new send.
-func endAssistantRun(events EventPublisher, workspaceID, sessionID string) {
-	PublishSessionLifecycle(events, workspaceID, sessionID, "", PhaseSessionCompleted)
-	events.Clear(workspaceID, ChannelAssistant)
+func endAssistantRun(events assistant.EventPublisher, workspaceID, sessionID string) {
+	PublishSessionLifecycle(events, workspaceID, sessionID, "", assistant.PhaseSessionCompleted)
+	events.Clear(workspaceID, assistant.ChannelAssistant)
 }
 
 // helpersAsked reports whether this message asked for helpers and the run can use them: its profile names helpers and

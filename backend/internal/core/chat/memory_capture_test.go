@@ -1,7 +1,8 @@
-package assistant
+package chat
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/testing/assistanttest"
 	"llm-proxy/models"
 )
 
@@ -19,7 +21,7 @@ import (
 func captureChat(t *testing.T, deps *mockConvDeps, pm *persistence.WorkspaceManager, conversationID, message string) (head string, run *models.TurnRun) {
 	t.Helper()
 	svc := NewConversationService(deps, pm)
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			if head == "" && len(req.Messages) > 0 {
 				head = req.Messages[0].Content
@@ -30,7 +32,7 @@ func captureChat(t *testing.T, deps *mockConvDeps, pm *persistence.WorkspaceMana
 			return ch, nil
 		},
 	}
-	if _, err := svc.Execute(context.Background(), "ws-1", conversationID, message, "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{Tools: []proxy.Tool{}}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+	if _, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: conversationID, Message: message, ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{Tools: []proxy.Tool{}}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	session, err := pm.ReadSession("ws-1", conversationID)
@@ -189,4 +191,15 @@ func TestReviewTurns_KeepsOnlyWhatThePeopleSaid(t *testing.T) {
 			t.Errorf("turn %d = %+v, want %+v", i, got[i], want[i])
 		}
 	}
+}
+
+func newTestMemoryStore(t *testing.T) *memory.Store {
+	t.Helper()
+	store, _ := newTestMemoryStoreAndDB(t)
+	return store
+}
+
+func newTestMemoryStoreAndDB(t *testing.T) (*memory.Store, *sql.DB) {
+	t.Helper()
+	return assistanttest.NewMemoryStoreAndDB(t)
 }

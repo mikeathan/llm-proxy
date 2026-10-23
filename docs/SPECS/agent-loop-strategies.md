@@ -161,7 +161,7 @@ of finishing prematurely. Prompt-based self-critique only; no verification-evide
 - User-facing assistant status copy lives in the `Msg*` const block in
   `agent_events.go` and is emitted through `notifySystem` (plain) or
   `notifySystemf` (a `Msg*` const plus arguments). Never inline a status string.
-- Evaluator nudge messages are registered in `isAgentControlMessage` so completion
+- Evaluator nudge messages are registered in `IsAgentControlMessage` so completion
   detection never mistakes them for user text.
 
 ## VI. Error Handling

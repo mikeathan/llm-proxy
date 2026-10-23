@@ -5,7 +5,7 @@ import type { Turn } from '../../types/message'
 // format feedback, the context sieve's note and progress ledger, length
 // continuation). They use role:"user" so the model reads them as feedback, but
 // they must not create turn boundaries — or appear at all — in the UI. The
-// list mirrors isAgentControlMessage (backend/internal/core/assistant/
+// list mirrors IsAgentControlMessage (backend/internal/core/assistant/
 // session.go); controlMessages.contract.test.ts reads that function and fails
 // when a prompt there is not matched here. Prompts the backend compares whole
 // are matched on their distinctive opening, not a bare tag, so an operator

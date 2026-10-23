@@ -45,6 +45,8 @@ type MockAssistantService struct {
 	GuardrailEng   *guardrails.GuardrailEngine
 	// ModelConfigs are the registry models ModelConfig knows; empty means none.
 	ModelConfigs map[string]models.ModelConfig
+	// LaneRef is the run scheduler Lane returns; nil admits everything at once.
+	LaneRef *runlane.Scheduler
 	// ProfileCatalog overrides the default built-in-only catalog.
 	ProfileCatalog *profile.Catalog
 }
@@ -77,7 +79,7 @@ func (m *MockAssistantService) Profiles() *profile.Catalog {
 	return m.ProfileCatalog
 }
 
-func (m *MockAssistantService) Lane() *runlane.Scheduler          { return nil }
+func (m *MockAssistantService) Lane() *runlane.Scheduler          { return m.LaneRef }
 func (m *MockAssistantService) LaneKeyFor(string) runlane.LaneKey { return runlane.LaneLocal }
 
 func (m *MockAssistantService) Engine() assistant.Engine {

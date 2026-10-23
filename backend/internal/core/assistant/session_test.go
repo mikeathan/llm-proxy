@@ -433,7 +433,7 @@ func TestRun_ChatLoopStopAnswersFromWhatItFound(t *testing.T) {
 	if countContent(history, prompts.LoopStopFinalizePrompt) != 1 {
 		t.Error("the finalization instruction must be in the history once, as a control message")
 	}
-	if !isAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.LoopStopFinalizePrompt}) {
+	if !IsAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.LoopStopFinalizePrompt}) {
 		t.Error("the finalization instruction must be a control message, so it is never mistaken for user text")
 	}
 }
@@ -501,7 +501,7 @@ func TestReadFileRepeatNag_PointsAtTheMarkerWhenTheLastResultHadAGap(t *testing.
 }
 
 func TestReadFileRepeatedGapNag_IsAControlMessageAndTellsTheModelWhatToDo(t *testing.T) {
-	if !isAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.ReadFileRepeatedGapNagPrompt}) {
+	if !IsAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.ReadFileRepeatedGapNagPrompt}) {
 		t.Error("the nag must be hidden from the conversation like the other control prompts")
 	}
 	n := prompts.ReadFileRepeatedGapNagPrompt
