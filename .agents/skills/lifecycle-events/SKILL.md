@@ -39,7 +39,7 @@ Two lifecycle families exist:
 Published immediately after the user message is written to disk (`WriteSession`), before the agent starts executing.
 
 - **Payload:** `conversation_id`, `workspace_id`, `snippet` (user message, truncated to 80 chars)
-- **Sender:** `conversationService.Execute` in `core/assistant/conversation_service.go`
+- **Sender:** `conversationService.Execute` in `core/chat/conversation_service.go`
 - **Purpose:** Frontend adds the session to the sidebar with `running: true`
 
 ### `session_progress`

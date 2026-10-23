@@ -411,7 +411,7 @@ func TestFinalizeReport_LengthContinuationBounded(t *testing.T) {
 // nudge is registered as a synthetic control message so completion detection
 // never mistakes it for real user text.
 func TestIsAgentControlMessage_LengthContinuationPrompt(t *testing.T) {
-	if !isAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.LengthContinuationPrompt}) {
+	if !IsAgentControlMessage(proxy.Message{Role: proxy.UserRole, Content: prompts.LengthContinuationPrompt}) {
 		t.Error("LengthContinuationPrompt must be recognized as a control message")
 	}
 }

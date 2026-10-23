@@ -1,5 +1,6 @@
-// Package assistanttest holds the test doubles the agent loop's tests drive it with. It imports only proxy, so a test
-// in package assistant (or any package assistant imports) can use it without an import cycle.
+// Package assistanttest holds the test doubles the agent loop's tests drive it with. It imports only proxy and the
+// platform memory store, so a test in package assistant (or any package assistant imports) can use it without an
+// import cycle.
 package assistanttest
 
 import (

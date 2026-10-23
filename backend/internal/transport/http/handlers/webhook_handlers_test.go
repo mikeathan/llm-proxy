@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/commands"
 	"llm-proxy/internal/core/tools"
@@ -66,13 +65,13 @@ func TestWebhookHandler_PlainTextIsNotACommand(t *testing.T) {
 
 // fakeTurns answers a connector message with a fixed turn result and records the request it was given.
 type fakeTurns struct {
-	result assistant.ExecuteResult
+	result chat.ExecuteResult
 	err    error
 	got    *chat.Request
 	origin string
 }
 
-func (f *fakeTurns) Run(ctx context.Context, req *chat.Request, _ logging.Logger) (assistant.ExecuteResult, error) {
+func (f *fakeTurns) Run(ctx context.Context, req *chat.Request, _ logging.Logger) (chat.ExecuteResult, error) {
 	f.got = req
 	f.origin = models.OriginConnector(ctx)
 	return f.result, f.err
@@ -91,7 +90,7 @@ func (s *sentTo) Name() string { return "recorder" }
 // connector it came from. Before this was tested, the reply was read from a map the typed result never was, so a
 // connector's agent answers were dropped.
 func TestWebhookHandler_AgentAnswerGoesBackToTheConnector(t *testing.T) {
-	turns := &fakeTurns{result: assistant.ExecuteResult{Reply: "Go 1.27.3, released 2026-10-19."}}
+	turns := &fakeTurns{result: chat.ExecuteResult{Reply: "Go 1.27.3, released 2026-10-19."}}
 	conn := &sentTo{}
 	comm := tools.NewCommunicationTools()
 	comm.AddConnector("tg", "telegram", conn)

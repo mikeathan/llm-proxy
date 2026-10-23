@@ -390,13 +390,13 @@ const ToolCallNotExecuted = "Not executed: an earlier tool call in the same step
 // AutomationFinalizePrompt is injected as a user message during the deterministic
 // finalization turn (tools disabled) to force the model to deliver its final
 // report as plain text. It never carries real user/task text, so it is registered
-// as a synthetic control message (see isAgentControlMessage).
+// as a synthetic control message (see IsAgentControlMessage).
 const AutomationFinalizePrompt = "SYSTEM: You have completed all tool work for this task. Produce your FINAL REPORT now as a plain-text assistant message. Do NOT call any tools. Summarize the actual results of the work you performed."
 
 // LoopStopFinalizePrompt is the finalization instruction of a chat run a repetition detector stopped: tools are off,
 // and the model answers from what it already found, saying what is missing rather than inventing it. It only ever
 // replaces a failed run, never a working one. It starts with "SYSTEM:" so the chat UI hides it, and it is a
-// synthetic control message (see isAgentControlMessage).
+// synthetic control message (see IsAgentControlMessage).
 const LoopStopFinalizePrompt = "SYSTEM: You were repeating the same steps, so tools are now switched off. Answer the user's question now as plain text, using only what you have already found. If it is not enough, say plainly what is missing. Do not invent it."
 
 // LengthContinuationPrompt is injected after a final answer was cut off by the
@@ -404,13 +404,13 @@ const LoopStopFinalizePrompt = "SYSTEM: You were repeating the same steps, so to
 // _LENGTH_CONTINUATION_OUTPUT_LIMIT (agent/conversation_loop.py): the model is
 // asked to continue exactly where it left off, not restart. Registered as a
 // synthetic control message so completion detection never mistakes it for user
-// text (see isAgentControlMessage).
+// text (see IsAgentControlMessage).
 const LengthContinuationPrompt = "[System: Your previous response was truncated by the output length limit. Continue exactly where you left off. Do not restart or repeat prior text. Finish the answer directly.]"
 
 // EvaluatorReviewPrompt is the evaluator-optimizer stop-guard nudge: before the
 // run finalizes, the model is asked to self-review — verify/fix the work, then
 // summarize. It is a synthetic control message (registered in
-// isAgentControlMessage) so completion detection never mistakes it for user
+// IsAgentControlMessage) so completion detection never mistakes it for user
 // text. Prompt-based self-critique only (no verification-evidence ledger).
 const EvaluatorReviewPrompt = "SYSTEM: Before you deliver your final answer, review the work you have done so far.\n\n" +
 	"1. Check your results against the original request — is anything missing, wrong, or unverified?\n" +
@@ -501,7 +501,7 @@ const ReasoningStuckEscalatedNag = "CRITICAL: You are stuck in an analysis loop 
 // AutomationTaskPrompt is the user-facing task message for autonomous agents.
 // SieveLedgerHeader opens the progress-ledger message a sieve inserts after
 // SieveSystemNote. It states facts only — the physical sieve's ContextSieveWarning
-// carries the instruction. It is also the owned prefix isAgentControlMessage
+// carries the instruction. It is also the owned prefix IsAgentControlMessage
 // matches, so it must stay the first line of the message.
 const SieveLedgerHeader = "[Progress ledger — recorded by the system, not by you. Already done in this run:]"
 

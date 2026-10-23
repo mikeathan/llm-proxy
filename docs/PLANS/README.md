@@ -70,7 +70,7 @@ Organized by subsystem:
 | [`cross-cutting/tool-call-grammar-reenable.md`](cross-cutting/tool-call-grammar-reenable.md) | Re-enable Tool-Call Grammar Constraint (opt-in, llama.cpp-safe) | proposed | 2026-09-05 | SPEC-001, SPEC-002 |
 | [`cross-cutting/search-tool-calling.md`](cross-cutting/search-tool-calling.md) | Wire up `internet_search` tool calling (pluggable multi-provider, live key, hide-when-unconfigured) | active | 2026-09-12 | SPEC-001, SPEC-006 |
 | [`cross-cutting/tool-error-classification.md`](cross-cutting/tool-error-classification.md) | Tool Error Classification & Run-Fatality Policy (terminal tool errors, delivery-vs-essential, failure bound) | complete | 2026-09-12 | SPEC-001, SPEC-010, SPEC-006 |
-| [`cross-cutting/assistant-conversation-package.md`](cross-cutting/assistant-conversation-package.md) | Assistant Conversation Package (deferred extraction; Step 0 consolidates the LLM/tool test doubles) | proposed | 2026-09-12 | SPEC-001 |
+| [`cross-cutting/assistant-conversation-package.md`](cross-cutting/assistant-conversation-package.md) | Assistant Conversation Package (deferred extraction; done instead as C5 of the run-pipeline plan, into `core/chat`) | superseded | 2026-10-23 | SPEC-001 |
 | [`cross-cutting/persist-assistant-run-state-for-reload.md`](cross-cutting/persist-assistant-run-state-for-reload.md) | Persist assistant run state (errors/cancels/running) for reliable reload | complete | 2026-08-20 | SPEC-001, SPEC-003 |
 | [`cross-cutting/sqlite-session-storage.md`](cross-cutting/sqlite-session-storage.md) | SQLite session storage (future work, proposed) | proposed | 2026-08-20 | SPEC-001 |
 | [`cross-cutting/xdg-config-data-relocation.md`](cross-cutting/xdg-config-data-relocation.md) | XDG Config/Data Relocation + Storage Cleanup + Reset Controls (Phases 0–7, 9–12 complete; Phase 8 removed; reset/clear-runtime-data hardened) | complete | 2026-08-07 | CONSTITUTION III.2/III.4/III.6 |
@@ -110,7 +110,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| approved | Run pipeline cleanup and agent commands | C0 and C1 done; PR 1 refactor C2/C4/C5/C6, then PR 2 commands C3; D1–D3 decided (`agent-loop/run-pipeline-and-agent-commands.md`) |
+| approved | Run pipeline cleanup and agent commands | C0, C1, C2, C4 done; C5 part done (conversation service in `chat`); left: rest of C5, vertex smoke, C6, then PR 2 commands C3; D1–D3 decided (`agent-loop/run-pipeline-and-agent-commands.md`) |
 | active | Multi-Agent Delegation | R0 + Part A done; Part B built (cloud web-research sub-agents: `delegate_task`, `delegation.Runner`, pool, profile `delegates`, Settings + chat UI) — B7 eval done 2026-10-23 (helpers kept); overflow count recorded (#126), Agents editor built (#128); left: Part C planned (handler lifecycle, package moves, reviewer, pipelines) (`agent-loop/multi-agent-delegation.md`) |
 | active | Prompt Profiles | built (Phases 0–6); left: eval the Research, Operator, Builder and Watcher profiles, fold in the layering plan's write guardrail, delete the dead `GetSystemPrompt` chain (`cross-cutting/prompt-profiles.md`) |
 | partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |
@@ -127,7 +127,6 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | complete (pending Linux-CI) | Agent OS Sandboxing | Phases 0–4 shipped (plan §10); left: Linux-CI confirmation of the Landlock probe, optional macOS Seatbelt on framework-capable hardware |
 | proposed | Tool-Call Grammar Re-enable | envelope-aware GBNF + opt-in per-model toggle, XML path only |
 | active | Search Tool Calling | implemented (Tavily/Brave/SerpAPI providers, Search settings tab, live key, hide-when-unconfigured gate; automated gates green). Open: manual end-to-end verification — Tavily was exercised live (auth fix, note 9); Brave and SerpAPI live calls and the "no key → tool hidden, no restart needed" steps are unconfirmed |
-| proposed | Assistant Conversation Package | Step 0 consolidate LLM/tool test doubles, then extract `conversation` (loop core/strategies stay — need a session facade) |
 | proposed | SQLite Session Storage | JSON → SQLite migration (deliberately deferred, future work) |
 | proposed | Admin / API Authentication | Phase 0 (route-classification + exploit-shaped tests, prove/kill key-exfil via base URL) → Phase 1 zero-config hardening (Host/Origin, drop `ACAO: *`, PID-stop ownership, mandatory webhook secret) → Phases 2–4 need user decisions A1–A7 |
 | proposed | Sandbox and Egress Residuals | Phase 1 (guard fix, proxy dial guard, `freePort` ownership) done 2026-10-08 → Phase 2 shell→loopback decision → Phase 3 optional platform items |

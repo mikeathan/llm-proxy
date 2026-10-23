@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
@@ -72,8 +71,8 @@ func (h *AssistantMessageHandler) ReviewMemories(w http.ResponseWriter, r *http.
 		return
 	}
 	defer release()
-	reviewer := memorycapture.NewReviewer(chatCompleter{client: client, model: model}, assistantPkg.NewCaptureLibrary(h.svc.MemoryStore()), prompts.MemoryReviewPrompt, tools.ContainsSecret)
-	suggestions, err := reviewer.Review(ctx, workspaceID, assistantPkg.ReviewTurns(session.History))
+	reviewer := memorycapture.NewReviewer(chatCompleter{client: client, model: model}, chat.NewCaptureLibrary(h.svc.MemoryStore()), prompts.MemoryReviewPrompt, tools.ContainsSecret)
+	suggestions, err := reviewer.Review(ctx, workspaceID, chat.ReviewTurns(session.History))
 	if err != nil {
 		h.logger.Warn("memory review failed", "workspace", workspaceID, "session", sessionID, "error", err)
 		writeJSONError(w, http.StatusBadGateway, msgReviewFailed)

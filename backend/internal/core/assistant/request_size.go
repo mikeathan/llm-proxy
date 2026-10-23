@@ -242,3 +242,15 @@ func (a *Agent) lowerThinkBudgetToOutputCap() {
 		a.config.ReasoningBudget = derived
 	}
 }
+
+// HistoryChars sums the content length of every message — the request-size
+// proxy shared by history truncation, the ICU pre-flight check, token
+// accounting and the memory-flush budget. It counts raw Content only (not
+// reasoning or tool-call arguments), matching every caller's existing basis.
+func HistoryChars(history []proxy.Message) int {
+	total := 0
+	for _, m := range history {
+		total += len(m.Content)
+	}
+	return total
+}

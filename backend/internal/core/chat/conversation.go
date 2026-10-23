@@ -1,24 +1,12 @@
-package assistant
+package chat
 
 import (
 	"context"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
 )
-
-// EventPublisher is the minimal interface for publishing agent events.
-// This avoids a cyclic dependency with the automation package.
-type EventPublisher interface {
-	Publish(workspaceID string, event AgentEvent)
-	Clear(workspaceID string, channel EventChannel)
-}
-
-// EventRecorder writes agent events to persistent storage (recording files).
-// Nil-safe — the service skips recording when no recorder is provided.
-type EventRecorder interface {
-	Write(event AgentEvent) error
-}
 
 // ExecuteResult is the typed return value from ConversationService.Execute.
 type ExecuteResult struct {
@@ -38,11 +26,11 @@ type ExecuteRequest struct {
 	Timezone       string
 	ExcludeTools   []string
 	Log            logging.Logger
-	Provider       ToolProvider
+	Provider       assistant.ToolProvider
 	Client         proxy.Client
-	Engine         Engine
-	Events         EventPublisher
-	Recorder       EventRecorder // nil: the turn is not recorded
+	Engine         assistant.Engine
+	Events         assistant.EventPublisher
+	Recorder       assistant.EventRecorder // nil: the turn is not recorded
 }
 
 // ConversationService encapsulates the stateful agent turn execution.

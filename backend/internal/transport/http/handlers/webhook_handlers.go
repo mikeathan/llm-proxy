@@ -29,7 +29,7 @@ const webhookRateLimitInterval = time.Second
 
 // AgentTurns runs one chat message as a turn: the part of the chat service a connector uses.
 type AgentTurns interface {
-	Run(ctx context.Context, req *chat.Request, log logging.Logger) (assistant.ExecuteResult, error)
+	Run(ctx context.Context, req *chat.Request, log logging.Logger) (chat.ExecuteResult, error)
 }
 
 // WebhookHandler receives inbound messages from external platforms (Telegram,

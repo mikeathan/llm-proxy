@@ -644,9 +644,9 @@ func (c *blockingLLMClient) ReasoningField() string { return proxy.ReasoningFiel
 // ctxService is a ConversationService that records whether the run's context says the message asked for helpers.
 type ctxService struct{ asked bool }
 
-func (s *ctxService) Execute(ctx context.Context, _ assistant.ExecuteRequest) (assistant.ExecuteResult, error) {
+func (s *ctxService) Execute(ctx context.Context, _ ExecuteRequest) (ExecuteResult, error) {
 	s.asked = models.HelpersRequested(ctx)
-	return assistant.ExecuteResult{}, nil
+	return ExecuteResult{}, nil
 }
 
 // namedProvider records which model each client request asked for.

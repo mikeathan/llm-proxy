@@ -1,4 +1,4 @@
-package assistant
+package chat
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
@@ -20,6 +21,7 @@ import (
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/internal/testing/assistanttest"
 	"llm-proxy/models"
 )
 
@@ -27,15 +29,15 @@ type mockConvDeps struct {
 	agent     *models.AgentConfig // nil: the adaptive result cap defaults to on
 	modelName string
 	guardrail *guardrails.GuardrailEngine
-	store     *GuardrailDecisionStore
-	events    EventPublisher
+	store     *assistant.GuardrailDecisionStore
+	events    assistant.EventPublisher
 	log       logging.Logger
 
 	memoryStore *memory.Store // nil unless a test seeds one
 	memory      *models.MemoryConfig
 	profiles    *profile.Catalog    // the built-ins unless a test sets its own
 	modelCfg    *models.ModelConfig // nil: a small fixed config
-	subRunner   SubRunner           // nil: no delegation
+	subRunner   assistant.SubRunner // nil: no delegation
 }
 
 func (m *mockConvDeps) Profiles() *profile.Catalog {
@@ -52,28 +54,28 @@ func (m *mockConvDeps) ModelConfig(string) (models.ModelConfig, bool) {
 	}
 	return models.ModelConfig{MaxSteps: 2, MaxTokens: 100}, true
 }
-func (m *mockConvDeps) EffectiveToolCallFormat(context.Context, string) string { return "" }
-func (m *mockConvDeps) ProcessLogger(string) logging.Logger                    { return m.log }
-func (m *mockConvDeps) GuardrailEngine() *guardrails.GuardrailEngine           { return m.guardrail }
-func (m *mockConvDeps) GuardrailDecisionStore() *GuardrailDecisionStore        { return m.store }
-func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator               { return nil }
-func (m *mockConvDeps) MemoryStore() *memory.Store                             { return m.memoryStore }
-func (m *mockConvDeps) MemorySettings() *models.MemoryConfig                   { return m.memory }
-func (m *mockConvDeps) AgentSettings() *models.AgentConfig                     { return m.agent }
-func (m *mockConvDeps) SubRunner() SubRunner                                   { return m.subRunner }
-func (m *mockConvDeps) Events() EventPublisher                                 { return m.events }
-func (m *mockConvDeps) RunLoggingEnabled() bool                                { return false }
-func (m *mockConvDeps) RootDir() string                                        { return "" }
+func (m *mockConvDeps) EffectiveToolCallFormat(context.Context, string) string    { return "" }
+func (m *mockConvDeps) ProcessLogger(string) logging.Logger                       { return m.log }
+func (m *mockConvDeps) GuardrailEngine() *guardrails.GuardrailEngine              { return m.guardrail }
+func (m *mockConvDeps) GuardrailDecisionStore() *assistant.GuardrailDecisionStore { return m.store }
+func (m *mockConvDeps) Orchestrator() *orchestrator.Orchestrator                  { return nil }
+func (m *mockConvDeps) MemoryStore() *memory.Store                                { return m.memoryStore }
+func (m *mockConvDeps) MemorySettings() *models.MemoryConfig                      { return m.memory }
+func (m *mockConvDeps) AgentSettings() *models.AgentConfig                        { return m.agent }
+func (m *mockConvDeps) SubRunner() assistant.SubRunner                            { return m.subRunner }
+func (m *mockConvDeps) Events() assistant.EventPublisher                          { return m.events }
+func (m *mockConvDeps) RunLoggingEnabled() bool                                   { return false }
+func (m *mockConvDeps) RootDir() string                                           { return "" }
 
 type mockEventPublisher struct {
-	Published []AgentEvent
+	Published []assistant.AgentEvent
 	Cleared   []string
 }
 
-func (m *mockEventPublisher) Publish(workspaceID string, event AgentEvent) {
+func (m *mockEventPublisher) Publish(workspaceID string, event assistant.AgentEvent) {
 	m.Published = append(m.Published, event)
 }
-func (m *mockEventPublisher) Clear(workspaceID string, channel EventChannel) {
+func (m *mockEventPublisher) Clear(workspaceID string, channel assistant.EventChannel) {
 	m.Cleared = append(m.Cleared, workspaceID)
 }
 
@@ -83,7 +85,7 @@ func (m *mockEventPublisher) Clear(workspaceID string, channel EventChannel) {
 func (m *mockEventPublisher) latestConversationID() string {
 	for i := len(m.Published) - 1; i >= 0; i-- {
 		ev := m.Published[i]
-		if ev.Type != EventLifecycle {
+		if ev.Type != assistant.EventLifecycle {
 			continue
 		}
 		if p, ok := ev.Payload.(map[string]any); ok {
@@ -105,7 +107,7 @@ func newMockConvDeps() *mockConvDeps {
 	return &mockConvDeps{
 		modelName: "test-model",
 		guardrail: guardrailEngine,
-		store:     NewGuardrailDecisionStore(),
+		store:     assistant.NewGuardrailDecisionStore(),
 		events:    &mockEventPublisher{},
 		log:       logging.NewNopLogger(),
 	}
@@ -122,7 +124,7 @@ func TestConversationService_Execute_NewSession(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(deps, pm)
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -137,8 +139,8 @@ func TestConversationService_Execute_NewSession(t *testing.T) {
 			}, nil
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -185,7 +187,7 @@ func TestConversationService_Execute_EmptyWorkspaceID(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(deps, pm)
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -200,8 +202,8 @@ func TestConversationService_Execute_EmptyWorkspaceID(t *testing.T) {
 			}, nil
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -220,7 +222,7 @@ func TestConversationService_Execute_Canceled(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(deps, pm)
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -228,8 +230,8 @@ func TestConversationService_Execute_Canceled(t *testing.T) {
 			return nil, context.Canceled
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -269,7 +271,7 @@ func TestConversationService_Execute_Canceled(t *testing.T) {
 func TestLastRunFailureText(t *testing.T) {
 	cases := []struct {
 		name      string
-		collected []AgentEvent
+		collected []assistant.AgentEvent
 		want      string
 	}{
 		{
@@ -279,31 +281,31 @@ func TestLastRunFailureText(t *testing.T) {
 		},
 		{
 			name: "empty upstream has no failure",
-			collected: []AgentEvent{
-				{Type: EventUpstream, Payload: UpstreamEventPayload{Event: "retry", Attempt: 1, MaxAttempts: 3}},
+			collected: []assistant.AgentEvent{
+				{Type: assistant.EventUpstream, Payload: assistant.UpstreamEventPayload{Event: "retry", Attempt: 1, MaxAttempts: 3}},
 			},
 			want: "",
 		},
 		{
 			name: "upstream transport error surfaces",
-			collected: []AgentEvent{
-				{Type: EventUpstream, Payload: UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3, Error: `Post "http://llama:8082": connection refused`, ErrClass: "connection-refused"}},
+			collected: []assistant.AgentEvent{
+				{Type: assistant.EventUpstream, Payload: assistant.UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3, Error: `Post "http://llama:8082": connection refused`, ErrClass: "connection-refused"}},
 			},
 			want: `Post "http://llama:8082": connection refused`,
 		},
 		{
 			name: "terminal error wins over earlier upstream",
-			collected: []AgentEvent{
-				{Type: EventUpstream, Payload: UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3, Error: "retry text"}},
-				{Type: EventError, Payload: map[string]string{"error": "final failure"}},
+			collected: []assistant.AgentEvent{
+				{Type: assistant.EventUpstream, Payload: assistant.UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3, Error: "retry text"}},
+				{Type: assistant.EventError, Payload: map[string]string{"error": "final failure"}},
 			},
 			want: "final failure",
 		},
 		{
 			name: "most recent upstream wins over earlier ones",
-			collected: []AgentEvent{
-				{Type: EventUpstream, Payload: UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3, Error: "first"}},
-				{Type: EventUpstream, Payload: UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 2, MaxAttempts: 3, Error: "second"}},
+			collected: []assistant.AgentEvent{
+				{Type: assistant.EventUpstream, Payload: assistant.UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3, Error: "first"}},
+				{Type: assistant.EventUpstream, Payload: assistant.UpstreamEventPayload{Event: "retry", Reason: "transport", Attempt: 2, MaxAttempts: 3, Error: "second"}},
 			},
 			want: "second",
 		},
@@ -339,8 +341,8 @@ func TestConversationService_CancelPersistsFailure(t *testing.T) {
 		t.Fatalf("seed session: %v", err)
 	}
 
-	collected := []AgentEvent{
-		{Type: EventUpstream, Payload: UpstreamEventPayload{
+	collected := []assistant.AgentEvent{
+		{Type: assistant.EventUpstream, Payload: assistant.UpstreamEventPayload{
 			Event: "retry", Reason: "transport", Attempt: 1, MaxAttempts: 3,
 			Error:    `Post "http://192.168.50.60:8082/v1/chat/completions": dial tcp: connect: connection refused`,
 			ErrClass: "connection-refused",
@@ -399,7 +401,7 @@ func TestConversationService_Execute_AgentError(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(deps, pm)
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -407,8 +409,8 @@ func TestConversationService_Execute_AgentError(t *testing.T) {
 			return nil, errors.New("model unavailable")
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -423,14 +425,14 @@ func TestConversationService_Execute_AgentError(t *testing.T) {
 	var gotErr bool
 	var gotCompleted bool
 	for _, ev := range pub.Published {
-		if ev.Type == EventError {
+		if ev.Type == assistant.EventError {
 			gotErr = true
 			if _, ok := ev.Payload.(map[string]string); !ok {
 				t.Errorf("error event payload should be map[string]string, got %T", ev.Payload)
 			}
 		}
-		if ev.Type == EventLifecycle {
-			if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == PhaseSessionCompleted {
+		if ev.Type == assistant.EventLifecycle {
+			if p, ok := ev.Payload.(map[string]any); ok && p["phase"] == assistant.PhaseSessionCompleted {
 				gotCompleted = true
 			}
 		}
@@ -487,7 +489,7 @@ func TestConversationService_Execute_ExistingSession(t *testing.T) {
 	}
 
 	callCount := 0
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -507,8 +509,8 @@ func TestConversationService_Execute_ExistingSession(t *testing.T) {
 			return nil, errors.New("unexpected call")
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -539,7 +541,7 @@ func TestConversationService_Execute_ExcludeTools(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(deps, pm)
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -554,8 +556,8 @@ func TestConversationService_Execute_ExcludeTools(t *testing.T) {
 			}, nil
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -573,7 +575,7 @@ func TestConversationService_Execute_SessionPersisted(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(deps, pm)
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -588,8 +590,8 @@ func TestConversationService_Execute_SessionPersisted(t *testing.T) {
 			}, nil
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -643,8 +645,8 @@ func TestBuildObserver_CheckpointsEveryToolResult(t *testing.T) {
 	obs, _ := svc.buildObserver(base, session, "ws-checkpoint", pub, nil, logging.NewNopLogger())
 
 	for i := 1; i <= 3; i++ {
-		obs(AgentEvent{
-			Type: EventToolResult,
+		obs(assistant.AgentEvent{
+			Type: assistant.EventToolResult,
 			Payload: map[string]any{
 				"id":     fmt.Sprintf("tool-%d", i),
 				"result": fmt.Sprintf("result-%d", i),
@@ -680,10 +682,10 @@ func TestBuildObserver_KeepsNewestSnapshotPerStream(t *testing.T) {
 
 	obs, collected := svc.buildObserver(base, session, "ws-snap", &mockEventPublisher{}, nil, logging.NewNopLogger())
 	for i := 1; i <= 1000; i++ {
-		obs(AgentEvent{Type: EventReasoning, ConversationID: "conv-snap", Payload: strings.Repeat("r", i)})
+		obs(assistant.AgentEvent{Type: assistant.EventReasoning, ConversationID: "conv-snap", Payload: strings.Repeat("r", i)})
 	}
-	obs(AgentEvent{Type: EventStepStart, ConversationID: "conv-snap", Payload: map[string]int{"step": 2}})
-	obs(AgentEvent{Type: EventReasoning, ConversationID: "conv-snap", Payload: "second request"})
+	obs(assistant.AgentEvent{Type: assistant.EventStepStart, ConversationID: "conv-snap", Payload: map[string]int{"step": 2}})
+	obs(assistant.AgentEvent{Type: assistant.EventReasoning, ConversationID: "conv-snap", Payload: "second request"})
 
 	events := collected()
 	if len(events) != 3 {
@@ -695,25 +697,25 @@ func TestBuildObserver_KeepsNewestSnapshotPerStream(t *testing.T) {
 }
 
 func TestSupersedesSnapshot(t *testing.T) {
-	text := func(typ AgentEventType, conv string) AgentEvent {
-		return AgentEvent{Type: typ, ConversationID: conv, Payload: "so far"}
+	text := func(typ assistant.AgentEventType, conv string) assistant.AgentEvent {
+		return assistant.AgentEvent{Type: typ, ConversationID: conv, Payload: "so far"}
 	}
 	tests := []struct {
 		name       string
-		prev, next AgentEvent
+		prev, next assistant.AgentEvent
 		want       bool
 	}{
-		{"same stream", text(EventReasoning, "c1"), text(EventReasoning, "c1"), true},
-		{"content stream", text(EventToolStream, "c1"), text(EventToolStream, "c1"), true},
-		{"other conversation", text(EventReasoning, "c1"), text(EventReasoning, "c2"), false},
-		{"no conversation id", text(EventReasoning, ""), text(EventReasoning, ""), false},
-		{"other type", text(EventReasoning, "c1"), text(EventToolStream, "c1"), false},
-		{"not a snapshot type", text(EventMessage, "c1"), text(EventMessage, "c1"), false},
-		{"structured payload", AgentEvent{Type: EventToolStream, ConversationID: "c1", Payload: map[string]any{"a": 1}}, text(EventToolStream, "c1"), false},
+		{"same stream", text(assistant.EventReasoning, "c1"), text(assistant.EventReasoning, "c1"), true},
+		{"content stream", text(assistant.EventToolStream, "c1"), text(assistant.EventToolStream, "c1"), true},
+		{"other conversation", text(assistant.EventReasoning, "c1"), text(assistant.EventReasoning, "c2"), false},
+		{"no conversation id", text(assistant.EventReasoning, ""), text(assistant.EventReasoning, ""), false},
+		{"other type", text(assistant.EventReasoning, "c1"), text(assistant.EventToolStream, "c1"), false},
+		{"not a snapshot type", text(assistant.EventMessage, "c1"), text(assistant.EventMessage, "c1"), false},
+		{"structured payload", assistant.AgentEvent{Type: assistant.EventToolStream, ConversationID: "c1", Payload: map[string]any{"a": 1}}, text(assistant.EventToolStream, "c1"), false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := SupersedesSnapshot(tc.prev, tc.next); got != tc.want {
+			if got := assistant.SupersedesSnapshot(tc.prev, tc.next); got != tc.want {
 				t.Errorf("SupersedesSnapshot = %v, want %v", got, tc.want)
 			}
 		})
@@ -727,13 +729,13 @@ func TestSupersedesSnapshot(t *testing.T) {
 // create an import cycle from the assistant test package).
 type orderedEventPublisher struct {
 	ops       []string
-	published []AgentEvent
+	published []assistant.AgentEvent
 }
 
-func (o *orderedEventPublisher) Publish(workspaceID string, event AgentEvent) {
+func (o *orderedEventPublisher) Publish(workspaceID string, event assistant.AgentEvent) {
 	o.published = append(o.published, event)
-	if event.Type == EventLifecycle {
-		if p, ok := event.Payload.(map[string]any); ok && p["phase"] == PhaseSessionStarted {
+	if event.Type == assistant.EventLifecycle {
+		if p, ok := event.Payload.(map[string]any); ok && p["phase"] == assistant.PhaseSessionStarted {
 			o.ops = append(o.ops, "publish:session_started")
 			return
 		}
@@ -741,7 +743,7 @@ func (o *orderedEventPublisher) Publish(workspaceID string, event AgentEvent) {
 	o.ops = append(o.ops, "publish")
 }
 
-func (o *orderedEventPublisher) Clear(workspaceID string, channel EventChannel) {
+func (o *orderedEventPublisher) Clear(workspaceID string, channel assistant.EventChannel) {
 	o.ops = append(o.ops, "clear")
 }
 
@@ -755,7 +757,7 @@ func TestExecute_SessionStartedPublishedAfterClear(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := &conversationService{deps: deps, persistence: pm}
 
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -767,8 +769,8 @@ func TestExecute_SessionStartedPublishedAfterClear(t *testing.T) {
 			}, nil
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{}}
-	engine := &MockEngine{Result: "ok"}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{}}
+	engine := &assistanttest.MockEngine{Result: "ok"}
 	pub := &orderedEventPublisher{}
 	log := logging.NewNopLogger()
 
@@ -832,7 +834,7 @@ func TestConversationService_Execute_HotMemoryFollowsOverrides(t *testing.T) {
 			svc := NewConversationService(deps, pm)
 
 			var head string
-			client := &MockClient{
+			client := &assistanttest.MockClient{
 				StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 					if head == "" && len(req.Messages) > 0 {
 						head = req.Messages[0].Content
@@ -843,7 +845,7 @@ func TestConversationService_Execute_HotMemoryFollowsOverrides(t *testing.T) {
 					return ch, nil
 				},
 			}
-			if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "how do I build?", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{Tools: []proxy.Tool{}}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
+			if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "how do I build?", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{Tools: []proxy.Tool{}}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 				t.Fatalf("Execute failed: %v", err)
 			}
 
@@ -887,14 +889,14 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pm := newTestPersistence(t)
 			svc := NewConversationService(newMockConvDeps(), pm)
-			client := &MockClient{
+			client := &assistanttest.MockClient{
 				StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 					return nil, errors.New("no stream")
 				},
 				ChatFunc: tc.chat,
 			}
 			before := time.Now()
-			_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_run", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
+			_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_run", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
 
 			session, err := pm.ReadSession("ws-1", "conv_run")
 			if err != nil || session == nil {
@@ -913,14 +915,14 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 	t.Run("an earlier turn keeps its record", func(t *testing.T) {
 		pm := newTestPersistence(t)
 		svc := NewConversationService(newMockConvDeps(), pm)
-		client := &MockClient{
+		client := &assistanttest.MockClient{
 			StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 				return nil, errors.New("no stream")
 			},
 			ChatFunc: answer,
 		}
 		for _, msg := range []string{"first", "second"} {
-			_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_two", Message: msg, ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
+			_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_two", Message: msg, ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
 		}
 		session, _ := pm.ReadSession("ws-1", "conv_two")
 		turnRunOf(t, session.History, "first")
@@ -946,7 +948,7 @@ func turnRunOf(t *testing.T, history []proxy.Message, userText string) *models.T
 func TestConversationService_RecordsReportedTokens(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(newMockConvDeps(), pm)
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -957,7 +959,7 @@ func TestConversationService_RecordsReportedTokens(t *testing.T) {
 			}, nil
 		},
 	}
-	_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_tok", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
+	_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_tok", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
 	session, _ := pm.ReadSession("ws-1", "conv_tok")
 	run := turnRunOf(t, session.History, "hello")
 	if run.PromptTokens != 1200 || run.CompletionTokens != 85 {
@@ -971,7 +973,7 @@ func TestConversationService_RecordsToolWarningsOnTheTurn(t *testing.T) {
 	pm := newTestPersistence(t)
 	svc := NewConversationService(newMockConvDeps(), pm)
 	calls := 0
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -984,8 +986,8 @@ func TestConversationService_RecordsToolWarningsOnTheTurn(t *testing.T) {
 			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "Here is what I found."}}}}, nil
 		},
 	}
-	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "web_lookup"}}}}
-	engine := &MockEngine{Err: fmt.Errorf("key rejected: %w", models.ErrToolUnavailable)}
+	provider := &assistanttest.MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "web_lookup"}}}}
+	engine := &assistanttest.MockEngine{Err: fmt.Errorf("key rejected: %w", models.ErrToolUnavailable)}
 	_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_warn", Message: "look it up", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: provider, Client: client, Engine: engine, Events: &mockEventPublisher{}, Recorder: nil})
 
 	session, err := pm.ReadSession("ws-1", "conv_warn")
@@ -1021,7 +1023,7 @@ func chatTurns(t *testing.T, pm *persistence.WorkspaceManager, turns []context.C
 	t.Helper()
 	svc := NewConversationService(newMockConvDeps(), pm)
 	var sent string
-	client := &MockClient{
+	client := &assistanttest.MockClient{
 		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 			return nil, errors.New("no stream")
 		},
@@ -1032,7 +1034,7 @@ func chatTurns(t *testing.T, pm *persistence.WorkspaceManager, turns []context.C
 	}
 	var out []chatTurnResult
 	for _, ctx := range turns {
-		if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-profiles", Message: "a question", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
+		if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-profiles", Message: "a question", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
 		session, err := pm.ReadSession("ws-1", "conv-profiles")
@@ -1111,8 +1113,8 @@ type optionsView struct {
 	WorkspaceID, ModelName, ProviderType, ConversationID, ProfileID           string
 	GuardrailTimeoutBehavior                                                  string
 	WorkloadClass                                                             models.WorkloadClass
-	LoopStrategy                                                              LoopStrategyName
-	Channel                                                                   EventChannel
+	LoopStrategy                                                              assistant.LoopStrategyName
+	Channel                                                                   assistant.EventChannel
 	RunNetworkScope                                                           models.NetworkScope
 	UsePrefill, EnableHotMemory, AdaptiveResultCap                            bool
 	HasMemoryStore, HasGuardrails, HasObserver, HasDecisionHandler            bool
@@ -1129,7 +1131,7 @@ func boolView(b *bool) string {
 	return fmt.Sprint(*b)
 }
 
-func viewOptions(o AgentOptions) optionsView {
+func viewOptions(o assistant.AgentOptions) optionsView {
 	return optionsView{
 		MaxSteps: o.MaxSteps, ContextBudget: o.ContextBudget, MaxResponseTokens: o.MaxResponseTokens,
 		ReasoningBudget: o.ReasoningBudget, MaxPlanSteps: o.MaxPlanSteps,
@@ -1161,7 +1163,7 @@ func fullModelConfig(name string) models.ModelConfig {
 func fullModelView(v optionsView) optionsView {
 	v.MaxSteps, v.ContextBudget, v.MaxResponseTokens, v.ReasoningBudget, v.MaxPlanSteps = 21, 9000, 1500, 700, 13
 	v.ReasoningEnabled, v.UseNativeTools, v.Temperature, v.UsePrefill = "true", "true", 0.3, true
-	v.ProviderType, v.WorkloadClass, v.LoopStrategy, v.GuardrailTimeoutBehavior = "openai", models.WorkloadCloud, LoopPlanExecute, "fail-closed"
+	v.ProviderType, v.WorkloadClass, v.LoopStrategy, v.GuardrailTimeoutBehavior = "openai", models.WorkloadCloud, assistant.LoopPlanExecute, "fail-closed"
 	v.GlobalTimeout, v.ToolTimeout, v.FilesystemToolTimeout = 7*time.Minute, 40*time.Second, 9*time.Second
 	v.MaxPlanDuration, v.GuardrailTimeout, v.GuardrailApprovalTimeout = 11*time.Minute, 3*time.Second, 90*time.Second
 	return v
@@ -1175,7 +1177,7 @@ func TestChatAgentOptions_Characterisation(t *testing.T) {
 	full := fullModelConfig("cloud-m")
 	base := optionsView{
 		MaxSteps: 2, MaxResponseTokens: 100, ReasoningEnabled: "unset", UseNativeTools: "unset",
-		WorkspaceID: "ws-1", ModelName: "cloud-m", ConversationID: "conv-1", ProfileID: "general", Channel: ChannelAssistant,
+		WorkspaceID: "ws-1", ModelName: "cloud-m", ConversationID: "conv-1", ProfileID: "general", Channel: assistant.ChannelAssistant,
 		EnableHotMemory: true, AdaptiveResultCap: true, HasMemoryStore: true, HasGuardrails: true, HasObserver: true,
 		HasDecisionHandler: true, HasLogger: true,
 	}
@@ -1214,7 +1216,7 @@ func TestChatAgentOptions_Characterisation(t *testing.T) {
 			svc := NewConversationService(deps, pm).(*conversationService)
 			got := viewOptions(svc.agentOptions(chatAgentRun{
 				modelName: "cloud-m", workspaceID: "ws-1", sessionID: "conv-1", log: logging.NewNopLogger(),
-				observer: func(AgentEvent) {}, excludeTools: tc.exclude, profile: tc.profile,
+				observer: func(assistant.AgentEvent) {}, excludeTools: tc.exclude, profile: tc.profile,
 			}))
 			if want := tc.want(base); !reflect.DeepEqual(got, want) {
 				t.Errorf("resolved options changed\n got: %#v\nwant: %#v", got, want)
@@ -1223,29 +1225,38 @@ func TestChatAgentOptions_Characterisation(t *testing.T) {
 	}
 }
 
+// offSubRunner is a delegation package whose helpers are off.
+type offSubRunner struct{}
+
+func (offSubRunner) Enabled() bool                    { return false }
+func (offSubRunner) Problem() assistant.HelperProblem { return assistant.HelperNotCloud }
+func (offSubRunner) Run(context.Context, assistant.SubRunRequest) assistant.SubRunResult {
+	return assistant.SubRunResult{}
+}
+
 // fakeSubRunner stands in for the delegation package: it records each task, reports progress like a child run and
 // answers with a summary.
 type fakeSubRunner struct {
 	mu            sync.Mutex
-	requests      []SubRunRequest
+	requests      []assistant.SubRunRequest
 	shortDeadline bool // a task ran under the per-tool timeout, which a multi-minute child would hit
 }
 
-func (f *fakeSubRunner) Enabled() bool          { return true }
-func (f *fakeSubRunner) Problem() HelperProblem { return HelperNone }
+func (f *fakeSubRunner) Enabled() bool                    { return true }
+func (f *fakeSubRunner) Problem() assistant.HelperProblem { return assistant.HelperNone }
 
-func (f *fakeSubRunner) Run(ctx context.Context, req SubRunRequest) SubRunResult {
+func (f *fakeSubRunner) Run(ctx context.Context, req assistant.SubRunRequest) assistant.SubRunResult {
 	f.mu.Lock()
 	f.requests = append(f.requests, req)
-	if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= DefaultToolTimeout {
+	if dl, ok := ctx.Deadline(); ok && time.Until(dl) <= assistant.DefaultToolTimeout {
 		f.shortDeadline = true
 	}
 	f.mu.Unlock()
 	child := "child-" + req.Task
-	req.Emit(SubagentEvent{RunID: child, Agent: req.Agent, Kind: SubagentStarted})
-	req.Emit(SubagentEvent{RunID: child, Agent: req.Agent, Kind: SubagentToolCall, Tool: models.ToolInternetSearch, Detail: req.Task})
-	req.Emit(SubagentEvent{RunID: child, Agent: req.Agent, Kind: SubagentDone})
-	return SubRunResult{RunID: child, Model: "cloud-m", Status: SubRunDone, Summary: "Answer for " + req.Task + " https://example.com/" + req.Task,
+	req.Emit(assistant.SubagentEvent{RunID: child, Agent: req.Agent, Kind: assistant.SubagentStarted})
+	req.Emit(assistant.SubagentEvent{RunID: child, Agent: req.Agent, Kind: assistant.SubagentToolCall, Tool: models.ToolInternetSearch, Detail: req.Task})
+	req.Emit(assistant.SubagentEvent{RunID: child, Agent: req.Agent, Kind: assistant.SubagentDone})
+	return assistant.SubRunResult{RunID: child, Model: "cloud-m", Status: assistant.SubRunDone, Summary: "Answer for " + req.Task + " https://example.com/" + req.Task,
 		DurationMs: 1200, PromptTokens: 900, CompletionTokens: 120}
 }
 
@@ -1260,7 +1271,7 @@ func TestConversationService_DelegatesToSubAgents(t *testing.T) {
 	svc := NewConversationService(deps, pm)
 
 	var requests []proxy.ChatRequest
-	client := &MockClient{StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	client := &assistanttest.MockClient{StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 		requests = append(requests, req)
 		ch := make(chan *proxy.ChatResponse, 1)
 		if len(requests) == 1 {
@@ -1276,7 +1287,7 @@ func TestConversationService_DelegatesToSubAgents(t *testing.T) {
 	}}
 	events := &mockEventPublisher{}
 	ctx := models.WithProfileRequest(context.Background(), "research")
-	result, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-d", Message: "compare A and B", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolInternetSearch}}}}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: events, Recorder: nil})
+	result, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-d", Message: "compare A and B", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolInternetSearch}}}}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: events, Recorder: nil})
 	if err != nil || !strings.Contains(result.Reply, "both are fine") {
 		t.Fatalf("Execute = %q, %v", result.Reply, err)
 	}
@@ -1312,16 +1323,16 @@ func TestConversationService_DelegatesToSubAgents(t *testing.T) {
 		t.Errorf("saved roles = %s, want only the parent's turn", got)
 	}
 	run := saved.History[1].Run
-	if run == nil || len(run.Subagents) != 2 || run.Subagents[0].Status != string(SubRunDone) || run.Subagents[0].PromptTokens != 900 {
+	if run == nil || len(run.Subagents) != 2 || run.Subagents[0].Status != string(assistant.SubRunDone) || run.Subagents[0].PromptTokens != 900 {
 		t.Errorf("turn record = %+v, want two done sub-agent records", run)
 	}
 
 	nested, steps := 0, 0
 	for _, ev := range events.Published {
-		if ev.Type == EventSubagent {
+		if ev.Type == assistant.EventSubagent {
 			nested++
 		}
-		if ev.Type == EventLifecycle && strings.Contains(fmt.Sprint(ev.Payload), "Step ") {
+		if ev.Type == assistant.EventLifecycle && strings.Contains(fmt.Sprint(ev.Payload), "Step ") {
 			steps++
 		}
 	}
@@ -1335,7 +1346,7 @@ func TestConversationService_DelegatesToSubAgents(t *testing.T) {
 func TestConversationService_HelpersNote(t *testing.T) {
 	cases := []struct {
 		name     string
-		runner   SubRunner
+		runner   assistant.SubRunner
 		profile  string
 		asked    bool
 		wantNote bool
@@ -1343,7 +1354,7 @@ func TestConversationService_HelpersNote(t *testing.T) {
 		{"asked, a research chat with helpers on", &fakeSubRunner{}, "research", true, true},
 		{"not asked", &fakeSubRunner{}, "research", false, false},
 		{"asked, but the profile names no helpers", &fakeSubRunner{}, "general", true, false},
-		{"asked, but helpers are off", &scriptedSubRunner{enabled: false}, "research", true, false},
+		{"asked, but helpers are off", &offSubRunner{}, "research", true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1352,7 +1363,7 @@ func TestConversationService_HelpersNote(t *testing.T) {
 			pm := newTestPersistence(t)
 			svc := NewConversationService(deps, pm)
 			var lastUser string
-			client := &MockClient{StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			client := &assistanttest.MockClient{StreamFunc: func(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 				for _, m := range req.Messages {
 					if m.Role == proxy.UserRole {
 						lastUser = m.Content
@@ -1364,7 +1375,7 @@ func TestConversationService_HelpersNote(t *testing.T) {
 				return ch, nil
 			}}
 			ctx := models.WithHelpersRequest(models.WithProfileRequest(context.Background(), tc.profile), tc.asked)
-			if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-h", Message: "compare A and B", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
+			if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-h", Message: "compare A and B", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
 			if got := strings.Contains(lastUser, prompts.HelpersNote); got != tc.wantNote {

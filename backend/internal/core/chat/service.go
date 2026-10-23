@@ -24,7 +24,7 @@ import (
 // Deps is what a turn needs from the app: the conversation service's own needs, and the model clients, the run lane and
 // the tool plumbing the lifecycle hands to it.
 type Deps interface {
-	assistant.ConversationDeps
+	ConversationDeps
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	Lane() *runlane.Scheduler
@@ -38,7 +38,7 @@ type Deps interface {
 // Service is the chat turn lifecycle.
 type Service struct {
 	deps    Deps
-	exec    assistant.ConversationService
+	exec    ConversationService
 	lane    *runlane.Scheduler
 	running sync.Map // workspace id -> *runningTurn
 	// ownerZone returns the owner's configured IANA zone, or "" when unset; it outranks the zone a browser reports.
@@ -56,7 +56,7 @@ type runningTurn struct {
 // New returns the lifecycle over the app's services. ownerZone may be nil.
 func New(deps Deps, ownerZone func() string) *Service {
 	return &Service{
-		deps: deps, exec: assistant.NewConversationService(deps, deps.Persistence()), lane: deps.Lane(), ownerZone: ownerZone,
+		deps: deps, exec: NewConversationService(deps, deps.Persistence()), lane: deps.Lane(), ownerZone: ownerZone,
 	}
 }
 
@@ -70,10 +70,10 @@ const runExitWait = 2 * time.Second
 // aborted fetch) must not kill an in-flight turn. It outlives the request and is observed over the event bus; only
 // Cancel stops it. ctx is kept for request-scoped values and does not cancel the turn. A turn that was cancelled
 // returns its partial result and no error.
-func (s *Service) Run(ctx context.Context, req *Request, log logging.Logger) (assistant.ExecuteResult, error) {
+func (s *Service) Run(ctx context.Context, req *Request, log logging.Logger) (ExecuteResult, error) {
 	// Resolve the conversation id up front so Running can report it (the UI marks the session as running after a
 	// refresh); resolving it again later is a no-op.
-	req.ConversationID = assistant.NormalizeConversationID(req.ConversationID)
+	req.ConversationID = NormalizeConversationID(req.ConversationID)
 
 	execCtx, cancel := context.WithCancel(context.Background())
 	turn := &runningTurn{cancel: cancel, done: make(chan struct{}), conversationID: req.ConversationID}
@@ -91,7 +91,7 @@ func (s *Service) Run(ctx context.Context, req *Request, log logging.Logger) (as
 			// Cancelled while waiting, or the preempted automation did not stop in time: the same as an explicit
 			// cancel, with no failed-run artifacts.
 			log.Info("assistant run not admitted to the run lane", "workspace", req.WorkspaceID, "error", err)
-			return assistant.ExecuteResult{}, nil
+			return ExecuteResult{}, nil
 		}
 		defer release()
 		turn.granted.Store(true)
@@ -203,12 +203,12 @@ func (s *Service) RunningConversation(workspaceID string) string {
 	return ""
 }
 
-func (s *Service) execute(ctx context.Context, req *Request, log logging.Logger) (assistant.ExecuteResult, error) {
+func (s *Service) execute(ctx context.Context, req *Request, log logging.Logger) (ExecuteResult, error) {
 	client, err := s.acquireClient(ctx, log, req)
 	if err != nil {
 		// Surface on the event bus so the client renders a visible error instead of hanging.
 		s.publishRunError(req, err.Error())
-		return assistant.ExecuteResult{}, err
+		return ExecuteResult{}, err
 	}
 
 	// The conversation id is already resolved (Run did it), so the recording's run directory is created under a
@@ -238,7 +238,7 @@ func (s *Service) execute(ctx context.Context, req *Request, log logging.Logger)
 	}
 
 	ctx = models.WithHelpersRequest(models.WithProfileRequest(models.WithModelOverride(ctx, req.Model), req.Profile), req.UseHelpers)
-	result, execErr := s.exec.Execute(ctx, assistant.ExecuteRequest{
+	result, execErr := s.exec.Execute(ctx, ExecuteRequest{
 		WorkspaceID: req.WorkspaceID, ConversationID: req.ConversationID, Message: req.Message, ContextVersion: req.ContextVersion,
 		Timezone: s.zone(req.Timezone), ExcludeTools: req.ExcludeTools, Log: procLog, Provider: s.deps.ToolProvider(),
 		Client: client, Engine: s.deps.Engine(), Events: s.deps.Events(), Recorder: recorder,
@@ -247,7 +247,7 @@ func (s *Service) execute(ctx context.Context, req *Request, log logging.Logger)
 		if errors.Is(execErr, context.Canceled) {
 			return result, nil
 		}
-		return assistant.ExecuteResult{}, execErr
+		return ExecuteResult{}, execErr
 	}
 	return result, nil
 }

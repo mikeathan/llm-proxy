@@ -63,7 +63,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	conversationID := assistantPkg.NormalizeConversationID(payload.ConversationID)
+	conversationID := chat.NormalizeConversationID(payload.ConversationID)
 	go func() {
 		if _, err := h.turns.Run(r.Context(), payload, log); err != nil {
 			log.Error("assistant run failed", "workspace", payload.WorkspaceID, "error", err)

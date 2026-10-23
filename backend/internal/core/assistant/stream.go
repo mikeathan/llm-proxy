@@ -200,7 +200,7 @@ func (a *Agent) doPreflightCheck(
 	if a.deps.Orchestrator == nil || a.deps.Orchestrator.Budget == nil {
 		return "", nil
 	}
-	totalChars := historyChars(history)
+	totalChars := HistoryChars(history)
 	preflight, pfErr := a.deps.Orchestrator.Budget.PreFlightCheck(ctx, a.config.WorkspaceID,
 		orchestrator.PreFlightRequest{
 			ModelName:       a.config.ModelName,
@@ -1225,7 +1225,7 @@ func (a *Agent) computeNextResponseNonStreaming(ctx context.Context, history []p
 		msg.Content = joinPrefill(prefill, msg.Content)
 	}
 	if t := usage.FromContext(ctx); t != nil {
-		inputTokens := historyChars(preparedHistory)
+		inputTokens := HistoryChars(preparedHistory)
 		t.AddLLMCall(inputTokens, len(msg.Content), len(msg.ReasoningContent))
 	}
 	return msg, nil

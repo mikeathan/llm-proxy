@@ -145,7 +145,7 @@ func keptHead(history []proxy.Message) []proxy.Message {
 // when there is none.
 func taskIndex(history []proxy.Message) int {
 	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == proxy.UserRole && !isAgentControlMessage(history[i]) {
+		if history[i].Role == proxy.UserRole && !IsAgentControlMessage(history[i]) {
 			return i
 		}
 	}

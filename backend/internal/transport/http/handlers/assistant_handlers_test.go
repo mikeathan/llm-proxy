@@ -628,7 +628,7 @@ func TestComputeCancelIndices_CancelDuringThinking(t *testing.T) {
 		{Role: proxy.UserRole, Content: "second question"},
 	}
 
-	canceledIdx, canceledUserIdx := assistant.ComputeCancelIndices(history)
+	canceledIdx, canceledUserIdx := chat.ComputeCancelIndices(history)
 
 	if canceledIdx != -1 {
 		t.Errorf("expected canceledIdx=-1 (no assistant content in current turn), got %d", canceledIdx)
@@ -648,7 +648,7 @@ func TestComputeCancelIndices_CancelMidStream(t *testing.T) {
 		{Role: proxy.AssistantRole, Content: "partial response..."},
 	}
 
-	canceledIdx, canceledUserIdx := assistant.ComputeCancelIndices(history)
+	canceledIdx, canceledUserIdx := chat.ComputeCancelIndices(history)
 
 	if canceledIdx != 3 {
 		t.Errorf("expected canceledIdx=3 (current turn's assistant message), got %d", canceledIdx)
@@ -669,7 +669,7 @@ func TestComputeCancelIndices_NoLeakIntoPriorTurn(t *testing.T) {
 		{Role: proxy.UserRole, Content: "second question"},
 	}
 
-	canceledIdx, _ := assistant.ComputeCancelIndices(history)
+	canceledIdx, _ := chat.ComputeCancelIndices(history)
 
 	if canceledIdx == 1 {
 		t.Error("REGRESSION: cancel during thinking leaked into prior turn's assistant message (index 1)")
@@ -689,7 +689,7 @@ func TestFilterCancelledTurns_StripsCancelledTurn(t *testing.T) {
 		{Role: proxy.UserRole, Content: "list files"},
 	}
 
-	filtered := assistant.FilterCancelledTurns(history, []int{2})
+	filtered := chat.FilterCancelledTurns(history, []int{2})
 
 	// The cancelled turn's user message and assistant message should be gone.
 	// The new "list files" user message should remain.
@@ -712,7 +712,7 @@ func TestFilterCancelledTurns_NoCancelMarkerReturnsUnchanged(t *testing.T) {
 		{Role: proxy.UserRole, Content: "q1"},
 		{Role: proxy.AssistantRole, Content: "a1"},
 	}
-	filtered := assistant.FilterCancelledTurns(history, nil)
+	filtered := chat.FilterCancelledTurns(history, nil)
 
 	if len(filtered) != 2 {
 		t.Errorf("expected unfiltered history when no cancel marker, got %d messages", len(filtered))
@@ -731,7 +731,7 @@ func TestFilterCancelledTurns_DoesNotLeakPriorTurns(t *testing.T) {
 		{Role: proxy.AssistantRole, Content: "partial a3"},
 	}
 
-	filtered := assistant.FilterCancelledTurns(history, []int{4})
+	filtered := chat.FilterCancelledTurns(history, []int{4})
 
 	if len(filtered) != 4 {
 		t.Fatalf("expected 4 messages (q1, a1, q2, a2), got %d: %+v", len(filtered), filtered)
@@ -755,7 +755,7 @@ func TestFilterCancelledTurns_StripsAllCancelledTurns(t *testing.T) {
 		{Role: proxy.UserRole, Content: "q4"},
 	}
 
-	filtered := assistant.FilterCancelledTurns(history, []int{0, 4})
+	filtered := chat.FilterCancelledTurns(history, []int{0, 4})
 
 	if len(filtered) != 3 {
 		t.Fatalf("expected 3 messages (q2, a2, q4), got %d: %+v", len(filtered), filtered)
@@ -778,7 +778,7 @@ func TestFilterCancelledTurns_IgnoresInvalidIndices(t *testing.T) {
 		{Role: proxy.AssistantRole, Content: "a1"},
 		{Role: proxy.UserRole, Content: "q2"},
 	}
-	filtered := assistant.FilterCancelledTurns(history, []int{-1, 5, 99})
+	filtered := chat.FilterCancelledTurns(history, []int{-1, 5, 99})
 
 	if len(filtered) != 3 {
 		t.Errorf("expected history unchanged for invalid indices, got %d messages", len(filtered))
@@ -902,8 +902,8 @@ func TestPublishSessionLifecycle_SkipsEmptyIDs(t *testing.T) {
 	ch, _ := eventBus.Subscribe("any-ws", assistant.ChannelAssistant)
 
 	// Empty workspace should skip publishing
-	assistant.PublishSessionLifecycle(eventBus, "", "conv1", "hello", assistant.PhaseSessionStarted)
-	assistant.PublishSessionLifecycle(eventBus, "ws1", "", "hello", assistant.PhaseSessionStarted)
+	chat.PublishSessionLifecycle(eventBus, "", "conv1", "hello", assistant.PhaseSessionStarted)
+	chat.PublishSessionLifecycle(eventBus, "ws1", "", "hello", assistant.PhaseSessionStarted)
 
 	// Verify nothing was published
 	select {
@@ -921,7 +921,7 @@ func TestPublishSessionLifecycle_PublishesWithCorrectPayload(t *testing.T) {
 
 	ch, _ := eventBus.Subscribe("ws1", assistant.ChannelAssistant)
 
-	assistant.PublishSessionLifecycle(eventBus, "ws1", "conv1", "hello world", assistant.PhaseSessionProgress)
+	chat.PublishSessionLifecycle(eventBus, "ws1", "conv1", "hello world", assistant.PhaseSessionProgress)
 
 	select {
 	case ev := <-ch:

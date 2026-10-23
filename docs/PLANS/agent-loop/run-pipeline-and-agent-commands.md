@@ -1,6 +1,7 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. C0, C1, C2 and C4 done; C5 not started.
+**Status:** approved (2026-10-23). D1–D3 decided. C0, C1, C2 and C4 done; C5 part done (the conversation service is in
+`chat`; `ResolveRunOptions` and heartbeat not moved).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -108,7 +109,7 @@ that each pass the tests; PR 2 is the commands, C3, after PR 1 is merged (D2: re
 | C2 | **Chat service — done.** `core/chat` (`chat.Service`, `chat.Request`) holds the turn lifecycle; the handler and the webhook call it; `Execute` takes one `ExecuteRequest`; the chat handlers depend on a 11-method `AssistantHandlerDeps`, not the 26-method `AssistantService` (the automation side still uses that one; C4). The lifecycle tests moved with the code (22 tests) | Characterisation tests unchanged; handlers contain no lifecycle; complexity has no new violations |
 | C3 | **Turn commands (PR 2).** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, `/run` into the registry, long-reply handling; docs in SPEC-009 and SPEC-003 | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
 | C4 | **Merge duplicates — done, see C4 results.** Memory review on the shared admission; the others were looked at and left | Tests green; complexity has no new violations |
-| C5 | **Package moves — not started.** Moving the conversation service out of `assistant` needs ~50 symbols moved or exported (the loop shares helpers with it), so it is a large mechanical change with no behaviour gain; recommended as its own PR after C2 has had a live smoke on vertex. Scope: the conversation service into `chat`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
+| C5 | **Package moves — part done, see C5 results.** The conversation service is in `chat`. Left: `ResolveRunOptions` into `run/`, heartbeat out of `executor.go`. Not yet smoked on vertex (C2 neither) | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
 | C6 | **Close out.** SPECs, `architecture.md`, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
 
 Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap.
@@ -139,6 +140,24 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   - The handler helper split from the codebase audit (`writeJSONError`, `requirePathParams`) already exists.
 - The automation side's wide interfaces (`automation.LLMServiceProvider`, `handlers.AssistantService`) are unchanged.
 
+### C5 results (2026-10-23, uncommitted)
+
+- **Moved to `chat`:** `conversation.go` (`ExecuteRequest`, `ExecuteResult`, `ConversationService`),
+  `conversation_service.go`, `conversation_helpers.go` (history truncation, cancel filtering, partial history, local
+  time) and `memory_capture.go`, with their tests (40 test functions; the set of test names across `assistant` and
+  `chat` is unchanged). `chat` imports `assistant`; `assistant` does not import `chat`.
+- **Stayed in `assistant`, split out of the moved files:** `event_ports.go` (`EventPublisher`, `EventRecorder`),
+  `system_prompt.go` (`LoadAgentsFile`, `BuildSystemPrompt`, the AGENTS.md cache; automation uses them too) and
+  `tool_history.go` (`NeutralizeStaleToolFailures`; it reads the guardrail engine), with their tests.
+- **Exported for `chat`:** `assistant.HistoryChars` and `assistant.IsAgentControlMessage`, one definition each.
+- Far smaller than the ~50 symbols estimated: only those two helpers had to be exported; everything else
+  was already exported and is qualified.
+- Test support: the temporary memory store helper is `assistanttest.NewMemoryStoreAndDB` (both packages use it).
+  `TestConversationSystemMessage` uses its own workspace id instead of clearing `assistant`'s AGENTS.md cache.
+- The complexity baseline keys for `TruncateHistory` and `buildPartialHistory` follow the file to `chat/` (same
+  functions, unchanged).
+- Verified: `go build ./...`, `go vet ./...`, `go test ./...`, the complexity check. Not run on vertex.
+
 ## 6. Risks
 
 - C2 and C5 touch the busiest path in the product. The characterisation tests in C0 are what make them safe; if they
@@ -158,4 +177,6 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 ## Remaining Work
 
-All phases.
+- C5: `ResolveRunOptions` into `run/`; heartbeat out of `executor.go`.
+- A live smoke on vertex of C2 + C5 (a web chat turn, a connector turn, a cancel) before PR 1 is opened.
+- C6 close-out, then C3 (PR 2).
