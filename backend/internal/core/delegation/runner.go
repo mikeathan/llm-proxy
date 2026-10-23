@@ -23,6 +23,9 @@ import (
 const (
 	// slotWait is how long a task waits for a sub-agent slot before it is reported busy.
 	slotWait = 2 * time.Minute
+	// helperTimeout is how long one helper may run: a step limit alone lets a helper that keeps fetching pages hold the
+	// parent for as long as it likes.
+	helperTimeout = 5 * time.Minute
 	// eventDetailChars bounds what one progress event carries of a tool's arguments or result.
 	eventDetailChars = 160
 )
@@ -48,11 +51,12 @@ type Runner struct {
 	deps     Deps
 	pool     *pool
 	slotWait time.Duration
+	timeout  time.Duration
 }
 
 // New returns a runner over the app's services; the pool size is read from the settings on every task.
 func New(deps Deps) *Runner {
-	return &Runner{deps: deps, pool: newPool(func() int { return deps.AgentSettings().SubagentLimit() }), slotWait: slotWait}
+	return &Runner{deps: deps, pool: newPool(func() int { return deps.AgentSettings().SubagentLimit() }), slotWait: slotWait, timeout: helperTimeout}
 }
 
 var _ assistant.SubRunner = (*Runner)(nil)
@@ -120,7 +124,12 @@ func (r *Runner) Run(ctx context.Context, req assistant.SubRunRequest) assistant
 	defer release()
 
 	emit(req, res.RunID, assistant.SubagentStarted, "", req.Task)
-	r.runChild(ctx, req, helper, &res)
+	runCtx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	r.runChild(runCtx, req, helper, &res)
+	if res.Status == assistant.SubRunStopped && ctx.Err() == nil {
+		res.Status, res.Error = assistant.SubRunFailed, fmt.Sprintf("the helper ran longer than %s and was stopped", r.timeout)
+	}
 	emit(req, res.RunID, assistant.SubagentDone, "", string(res.Status))
 	res.DurationMs = time.Since(start).Milliseconds()
 	return res

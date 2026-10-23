@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -165,4 +166,25 @@ func TestNewTavilyProvider_RejectsBadConfig(t *testing.T) {
 			t.Fatal("expected an error for a missing API key")
 		}
 	})
+}
+
+func TestTavilyProvider_Search_UsageLimitIsTerminal(t *testing.T) {
+	for _, status := range []int{402, 432, 433} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+			io.WriteString(w, `{"detail":{"error":"This request exceeds your plan's set usage limit."}}`)
+		}))
+		p, err := newTavilyProvider(tools.SearchProviderConfig{APIKey: "k", Client: newTestClient(srv)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = p.Search(context.Background(), "q", "")
+		srv.Close()
+		if !errors.Is(err, models.ErrToolUnavailable) {
+			t.Errorf("status %d must be classified terminal (models.ErrToolUnavailable), got %v", status, err)
+		}
+		if want := fmt.Sprintf("tavily usage limit reached (HTTP %d)", status); models.UnavailableReason(err) != want {
+			t.Errorf("status %d: reason = %q, want %q", status, models.UnavailableReason(err), want)
+		}
+	}
 }

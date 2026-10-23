@@ -47,13 +47,31 @@ func isAuthStatus(code int) bool {
 	return code == http.StatusUnauthorized || code == http.StatusForbidden
 }
 
+// isQuotaStatus reports whether an HTTP status means the account's usage limit is used up (402 payment required; 432
+// and 433 are Tavily's plan and pay-as-you-go limits). Waiting does not help, unlike a 429 rate limit.
+func isQuotaStatus(code int) bool {
+	return code == http.StatusPaymentRequired || code == statusPlanLimit || code == statusPayAsYouGoLimit
+}
+
+const (
+	statusPlanLimit       = 432
+	statusPayAsYouGoLimit = 433
+	quotaExhaustedReason  = "%s usage limit reached (HTTP %d)"
+)
+
 // providerStatusError builds the error for a non-2xx provider response. Auth
-// failures additionally wrap models.ErrToolUnavailable so the agent loop
-// classifies them as terminal (do not retry), while other statuses stay plain
-// (transient/input — model-actionable).
+// and usage-limit failures additionally wrap models.ErrToolUnavailable so the
+// agent loop classifies them as terminal (do not retry), while other statuses
+// stay plain (transient/input — model-actionable).
 func providerStatusError(provider string, code int, body []byte) error {
-	if isAuthStatus(code) {
+	switch {
+	case isAuthStatus(code):
 		return credentialRejectedError(provider, code, body)
+	case isQuotaStatus(code):
+		return &models.ToolUnavailableError{
+			Reason: fmt.Sprintf(quotaExhaustedReason, provider, code),
+			Cause:  plainStatusError(provider, code, body),
+		}
 	}
 	return plainStatusError(provider, code, body)
 }

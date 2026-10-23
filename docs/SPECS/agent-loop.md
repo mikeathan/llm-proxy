@@ -1,9 +1,9 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.15"
+version: "1.16"
 status: stable
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
 related_specs: [SPEC-002, SPEC-004, SPEC-005]
 supersedes:
@@ -12,6 +12,12 @@ supersedes:
 # SPEC: Agent Loop
 
 ## Changelog
+
+- **1.16 (2026-10-23)** — A search provider's used-up usage limit (HTTP 402, and Tavily's 432 and 433) is a terminal tool
+  error, like a rejected key: the loop stops calling the tool and the operator sees "tavily usage limit reached (HTTP
+  432)". A 429 stays transient. A helper is also stopped after `helperTimeout` (5 minutes, `internal/core/delegation`)
+  and reported failed ("the helper ran longer than 5m0s and was stopped"); a cancelled parent still reports stopped.
+  Found live: with Tavily out of quota, a research run took 736 s because the model and its helpers kept retrying.
 
 - **1.15 (2026-10-22)** — The sub-runner port says why helpers cannot run (`SubRunner.Problem()`: unset, missing,
   not_cloud). A helper model removed from the models is `missing`, not "not a cloud model" (the lane classifier calls an
@@ -44,7 +50,7 @@ supersedes:
   - Progress reaches the parent's stream as coarse `subagent` events, which are never checkpointed into the parent's
     session or counted as its steps. Each task's record lands in `TurnRun.Subagents`.
   - The delegate call has no per-tool timeout. The child's step limit, stuck detection and run timeout bound it, and
-    the parent's run timeout bounds the call.
+    the parent's run timeout bounds the call. (1.16 adds a 5-minute limit per helper.)
   - **Also:** a chat and an automation resolve their options through one function, `assistant.ResolveRunOptions`.
 
 - **1.11 (2026-10-21)** — The recovery after a stream is cut as a reasoning loop is now provider-neutral (`reasoning.StepDown`,
@@ -265,7 +271,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - Tool validation failure: treat as parse error, clear invalid tool calls, inject feedback.
 - Content too long (write exceeds server JSON parse limit): inject `AutomationContentTooLongPrompt` — instructs the model to use `write_file` for the first chunk, then `append_file` for subsequent chunks.
 - Write file content size is NOT enforced by the Go handler. The manifest `maxLength` was removed entirely — server-side grammar constraints were causing silent truncation at exactly `maxLength` chars. The model's own `max_tokens` is the only output cap. If content exceeds server JSON parse limits, the natural JSON parse error triggers recovery.
-- **Tool error classification** (`docs/PLANS/cross-cutting/tool-error-classification.md`). Errors are classified by *who can fix them*: **terminal** (operator-actionable — missing/rejected credential, disabled integration) is marked by the tool wrapping `models.ErrToolUnavailable` with `%w`; **transient** (timeout/429/5xx) and **input/content** (404, bad URL, blocked filename) stay plain and are model-actionable; **security-boundary** denials keep their existing synchronous, non-approvable path. Only a *marked* error changes loop behaviour:
+- **Tool error classification** (`docs/PLANS/cross-cutting/tool-error-classification.md`). Errors are classified by *who can fix them*: **terminal** (operator-actionable — missing/rejected credential, used-up usage limit, disabled integration) is marked by the tool wrapping `models.ErrToolUnavailable` with `%w`; **transient** (timeout/429/5xx) and **input/content** (404, bad URL, blocked filename) stay plain and are model-actionable; **security-boundary** denials keep their existing synchronous, non-approvable path. Only a *marked* error changes loop behaviour:
   - the failing tool is **disabled for the remainder of the run** (the run's `toolFailureState`) — a re-call is short-circuited with a directive tool-result instead of executing (no network);
   - the tool result is an actionable directive (`prompts.ToolUnavailablePrompt`), never the raw provider error;
   - **delivery/side-effect tools** (`toolpolicy.FailurePolicyFor(tool) == WarnOnTerminalError`, currently `notify_user`) are non-fatal in **every** channel: the failure is recorded as a warning (`Agent.ToolWarnings()` → run-meta/ledger `warnings`) and the run continues, because the work product still exists offline;
