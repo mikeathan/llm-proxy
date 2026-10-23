@@ -51,7 +51,7 @@ supersedes:
     session or counted as its steps. Each task's record lands in `TurnRun.Subagents`.
   - The delegate call has no per-tool timeout. The child's step limit, stuck detection and run timeout bound it, and
     the parent's run timeout bounds the call. (1.16 adds a 5-minute limit per helper.)
-  - **Also:** a chat and an automation resolve their options through one function, `assistant.ResolveRunOptions`.
+  - **Also:** a chat and an automation resolve their options through one function, `run.ResolveOptions`.
 
 - **1.11 (2026-10-21)** — The recovery after a stream is cut as a reasoning loop is now provider-neutral (`reasoning.StepDown`,
   armed by `noteStuckThinking` for every workload): the next request asks for less reasoning through whichever control the provider
@@ -351,7 +351,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 - `ModelConfig.Temperature` (float64) is sent as the request temperature when > 0. 0 = unset: the field is omitted (`omitempty`) so the provider's own default applies. The admin view returns the stored value verbatim (0 stays 0, never a fabricated default); No provider tier carries a temperature default (`agent_defaults` and `provider_defaults` report 0), so the new-model form starts blank and the server's or provider's own default applies; the runtime has no temperature default of its own. (Until 2026-10-21 the local tier pre-filled 0.1, which the form then saved: every local model carried 0.1 although llama-server's own default for Qwen3.6, read from `/props`, is 0.6. Stored values are not touched. A replay of the looping request showed temperature is not what makes a thinking model loop: 9 of 10 loops at 0.1 and at the server default; the unbounded think budget was.)
 - `ModelConfig.TimeoutMinutes` (int) overrides `AgentGlobalTimeout` (30 min) per execution. 0 = use default.
 - Both are stored in `settings.yml` under `model_overrides.<name>`. Persisted via `writeModelOverrides()` in `registry_handlers.go`.
-- Applied by `assistant.ResolveRunOptions` (`run_options.go`, the one resolver for chat turns and automations) through `AgentOptions.ApplyModelConfig`: `cfg.Temperature` → `opts.Temperature`, `cfg.TimeoutMinutes` → `opts.GlobalTimeout`.
+- Applied by `run.ResolveOptions` (`run/options.go`, the one resolver for chat turns, automations and helpers) through `AgentOptions.ApplyModelConfig`: `cfg.Temperature` → `opts.Temperature`, `cfg.TimeoutMinutes` → `opts.GlobalTimeout`.
 - At the LLM request level: `buildChatRequest()` uses `a.temperature` if set (>0), else omits it (no runtime fallback). Recovery temperature escalation only runs when the base temperature is > 0, so it does not run for cloud models left at 0. Llama.cpp server-level `--repeat-penalty`, `--frequency-penalty`, and `--presence-penalty` are set server-side (not in ChatRequest).
 - Frontend exposes these as number inputs in the Agent Tuning grid with `title`-attribute tooltips and input constraints (min/max/step).
 
@@ -369,7 +369,7 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 - **Offered** when `AgentOptions.SubRunner` is set and `Enabled()` (a cloud sub-agent model is named), and the run's
   profile lists `delegates`. `delegatingProvider` adds the schema from `manifests/delegation.json`; the profile's
-  `ExcludedTools` hides it otherwise. Chats and automations get the app's runner from `RunOptionDeps.SubRunner()`;
+  `ExcludedTools` hides it otherwise. Chats and automations get the app's runner from `run.OptionDeps.SubRunner()`;
   `profile.KindSubagent` runs never do.
 - **The schema names the helpers.** Each run is shown its own copy of the tool (`delegateToolFor`) whose `agent` field is
   limited, as an `enum`, to the profile's `delegates`. Told only to use "one of the helpers this conversation offers",
@@ -410,8 +410,8 @@ The agent loop (`assistant/agent.go`) executes multi-turn tool-augmented convers
 
 ### Component Map
 ```
-automation/executor.go          — task dispatch; its RunSpec → assistant.ResolveRunOptions
-assistant/run_options.go        — the one resolver: run choice → profile → model config → global default
+automation/executor.go          — task dispatch; its run.Spec → run.ResolveOptions
+run/options.go                  — the one resolver: run choice → profile → model config → global default
 run/recording.go                — a run's folder, event file and request recording (chat and automation)
 assistant/delegate.go           — the delegate tool: schema, call checks, parallel tasks, summaries, nested events
 assistant/subrun.go             — the SubRunner port and its request/result/event types

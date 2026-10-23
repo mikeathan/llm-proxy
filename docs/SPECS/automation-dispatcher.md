@@ -223,7 +223,7 @@ external message, and is gated by network scope; delivery is not).
   written atomically, pruned to the retention window on write, outside the agent's workspace jail.
   An undecodable file is renamed `*.corrupt` and the run continues with an empty ledger. Deleting
   an automation removes its ledger (`DeleteAutomationRuns`); renaming one starts a fresh ledger.
-- **Heartbeat**: a report that starts with `HEARTBEAT_OK` (`isQuietHeartbeat`, `executor.go`;
+- **Heartbeat**: a report that starts with `HEARTBEAT_OK` (`isQuietHeartbeat`, `heartbeat.go`;
   leading markdown emphasis such as `**` is ignored) is hidden by the UI smart skip, not
   delivered and not recorded as seen — a quiet check is silent. The workspace heartbeat is a
   config object (`WorkspaceConfig.heartbeat`: `enabled` (default off), `every` (1m–24h, default

@@ -213,7 +213,7 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   (`MemorySettings()`), so a Settings change applies to the next run. Why these defaults: cost is prefill on every
   run and the benefit for small models is unproven (`docs/PLANS/memory/small-context-memory.md`), so only the
   interactive surface is on. Automation path: `AutomationEntry.MemoryMode` →
-  `ExecuteRequest.MemoryMode` → `RunOverrides.Memory` → `assistant.ResolveRunOptions` sets `MemoryStore` + `EnableHotMemory` when effective (`HotMemoryActive`; a chat keeps the store with hot memory off, for `memory_search`). Same frozen
+  `ExecuteRequest.MemoryMode` → `run.Overrides.Memory` → `run.ResolveOptions` sets `MemoryStore` + `EnableHotMemory` when effective (`run.HotMemoryActive`; a chat keeps the store with hot memory off, for `memory_search`). Same frozen
   head-system block as chats. `hot+hints` is not shipped (needs a scoreboard win; see the plan).
   History: `docs/audits/memory-injection-investigation.md` (the old end-of-history placement is what failed).
 - **Unattended write discipline**: runs stamped `models.WithUnattendedRun` default an unspecified

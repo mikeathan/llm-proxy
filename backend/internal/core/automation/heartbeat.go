@@ -1,9 +1,12 @@
 // heartbeat.go — the run-time rules of the workspace heartbeat (models.HeartbeatConfig): a tick with no
-// checks or outside the active hours never reaches the model, skip-if-busy follows the model's lane, and each check's outcome is recorded.
+// checks or outside the active hours never reaches the model, skip-if-busy follows the model's lane, each check's outcome is recorded,
+// and a report that starts with HEARTBEAT_OK is the quiet "nothing to report" signal (Pulse Logic).
 package automation
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/models"
@@ -100,4 +103,49 @@ func (d *Dispatcher) HeartbeatState(workspaceID string) (models.HeartbeatState, 
 		state.Status = status
 	}
 	return state, nil
+}
+
+// ============================================================================
+// Pulse Logic (Smart Skip)
+// ============================================================================
+
+const (
+	heartbeatOKMarker = "HEARTBEAT_OK"
+	// heartbeatMarkupChars are markdown emphasis characters a model may wrap
+	// around the marker (**HEARTBEAT_OK**, `HEARTBEAT_OK`).
+	heartbeatMarkupChars = "*_`# \t\r\n"
+)
+
+// isQuietHeartbeat reports whether a report is the "nothing to report" signal:
+// it must START with the marker (ignoring markdown emphasis), so a real alert
+// that merely mentions the marker is never swallowed. The UI's smart skip and
+// connector delivery share this one definition.
+func isQuietHeartbeat(report string) bool {
+	return strings.HasPrefix(strings.TrimLeft(report, heartbeatMarkupChars), heartbeatOKMarker)
+}
+
+// isQuietResponse judges the agent's report alone when there is one — Output
+// carries a run header and would match a marker mentioned anywhere. A response
+// without a Report (legacy executors) falls back to scanning Output.
+func isQuietResponse(resp *ExecuteResponse) bool {
+	if resp.Report != "" {
+		return isQuietHeartbeat(resp.Report)
+	}
+	return strings.Contains(resp.Output, heartbeatOKMarker)
+}
+
+// heartbeatResultOf classifies a finished heartbeat check by its report.
+func heartbeatResultOf(resp *ExecuteResponse) models.HeartbeatResult {
+	if isQuietResponse(resp) {
+		return models.HeartbeatQuiet
+	}
+	return models.HeartbeatAlert
+}
+
+// ApplyPulseLogic applies the Smart Skip logic to suppress noisy heartbeat output.
+func ApplyPulseLogic(resp *ExecuteResponse) {
+	if isQuietResponse(resp) {
+		resp.Output = ""
+		resp.State.LastPulse = time.Now()
+	}
 }

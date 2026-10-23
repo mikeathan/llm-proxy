@@ -1,9 +1,10 @@
-// run_options.go — the one place a run's agent options are resolved, for every kind of run (a chat turn, an
-// automation). The precedence is the same for each setting: the run's own choice, then its profile, then the model's
+// options.go — the one place a run's agent options are resolved, for every kind of run (a chat turn, an automation, a
+// helper's task). The precedence is the same for each setting: the run's own choice, then its profile, then the model's
 // config, then the global default.
-package assistant
+package run
 
 import (
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/orchestrator"
@@ -12,44 +13,44 @@ import (
 	"llm-proxy/models"
 )
 
-// RunOptionDeps is what resolving a run's options reads: the model's config, the shared engines and the settings.
-type RunOptionDeps interface {
+// OptionDeps is what resolving a run's options reads: the model's config, the shared engines and the settings.
+type OptionDeps interface {
 	ModelConfig(modelName string) (models.ModelConfig, bool)
 	GuardrailEngine() *guardrails.GuardrailEngine
-	GuardrailDecisionStore() *GuardrailDecisionStore
+	GuardrailDecisionStore() *assistant.GuardrailDecisionStore
 	Orchestrator() *orchestrator.Orchestrator
 	MemoryStore() *memory.Store
 	MemorySettings() *models.MemoryConfig
 	AgentSettings() *models.AgentConfig
 	// SubRunner runs delegated tasks; nil when the app has none.
-	SubRunner() SubRunner
+	SubRunner() assistant.SubRunner
 }
 
-// RunOverrides are the choices made for one run, above its profile: an automation's own fields, a workspace's
+// Overrides are the choices made for one run, above its profile: an automation's own fields, a workspace's
 // setting for its chats. Zero values defer to the profile and the defaults.
-type RunOverrides struct {
-	LoopStrategy  LoopStrategyName
+type Overrides struct {
+	LoopStrategy  assistant.LoopStrategyName
 	AllowedTools  []string // an allow list narrows the tools (unattended runs)
 	ExcludedTools []string // a deny list removes tools (the chat's UI)
 	Memory        models.MemoryMode
 }
 
-// RunSpec describes one run to resolve options for.
-type RunSpec struct {
+// Spec describes one run to resolve options for.
+type Spec struct {
 	Kind           profile.Kind
 	WorkspaceID    string
 	ConversationID string // a chat's conversation; empty for an automation
 	Model          string
 	Profile        profile.Profile
-	Overrides      RunOverrides
+	Overrides      Overrides
 	Logger         logging.Logger
-	Observer       Observer
+	Observer       assistant.Observer
 	// DecisionEvents publishes guardrail approval events; nil publishes them through Observer.
-	DecisionEvents Observer
+	DecisionEvents assistant.Observer
 }
 
-// ResolveRunOptions returns the agent options for one run.
-func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
+// ResolveOptions returns the agent options for one run.
+func ResolveOptions(deps OptionDeps, spec Spec) assistant.AgentOptions {
 	channel := channelFor(spec.Kind)
 	decisionEvents := spec.DecisionEvents
 	if decisionEvents == nil {
@@ -59,9 +60,9 @@ func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
 		return subagentOptions(deps, spec, channel)
 	}
 	hot := HotMemoryActive(deps, spec)
-	opts := AgentOptions{
+	opts := assistant.AgentOptions{
 		Logger:                   spec.Logger,
-		MaxSteps:                 DefaultMaxSteps,
+		MaxSteps:                 assistant.DefaultMaxSteps,
 		Guardrails:               deps.GuardrailEngine(),
 		WorkspaceID:              spec.WorkspaceID,
 		ConversationID:           spec.ConversationID,
@@ -69,7 +70,7 @@ func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
 		Orchestrator:             deps.Orchestrator(),
 		ModelName:                spec.Model,
 		Observer:                 spec.Observer,
-		GuardrailDecisionHandler: NewGuardrailDecisionCallback(deps.GuardrailDecisionStore(), decisionEvents, channel),
+		GuardrailDecisionHandler: assistant.NewGuardrailDecisionCallback(deps.GuardrailDecisionStore(), decisionEvents, channel),
 		AllowedTools:             spec.Overrides.AllowedTools,
 		ExcludedTools:            spec.Overrides.ExcludedTools,
 		Profile:                  spec.Profile,
@@ -90,16 +91,16 @@ func ResolveRunOptions(deps RunOptionDeps, spec RunSpec) AgentOptions {
 	// The run's own loop beats the model's. Unknown values are rejected at the HTTP boundary (400); parsing here is
 	// defense-in-depth.
 	if spec.Overrides.LoopStrategy != "" {
-		opts.LoopStrategy = ParseLoopStrategy(spec.Overrides.LoopStrategy)
+		opts.LoopStrategy = assistant.ParseLoopStrategy(spec.Overrides.LoopStrategy)
 	}
 	return opts
 }
 
 // subagentOptions are a delegated task's options: the same resolution with the child's rules on top. It asks no one
 // for approval (a nil handler fails a blocked call at once, II.10), has no memory, and cannot delegate in turn.
-func subagentOptions(deps RunOptionDeps, spec RunSpec, channel EventChannel) AgentOptions {
+func subagentOptions(deps OptionDeps, spec Spec, channel assistant.EventChannel) assistant.AgentOptions {
 	spec.Kind = profile.KindAutomation // resolve as an unattended run, then remove what a child must not have
-	opts := ResolveRunOptions(deps, spec)
+	opts := ResolveOptions(deps, spec)
 	opts.Channel = channel
 	opts.GuardrailDecisionHandler = nil
 	opts.MemoryStore = nil
@@ -110,7 +111,7 @@ func subagentOptions(deps RunOptionDeps, spec RunSpec, channel EventChannel) Age
 
 // HotMemoryActive reports whether the run gets hot memory: its own choice, else its profile's, else the global
 // default for its kind — and a store to read. A prompt that mentions memory asks the same question.
-func HotMemoryActive(deps RunOptionDeps, spec RunSpec) bool {
+func HotMemoryActive(deps OptionDeps, spec Spec) bool {
 	settings := deps.MemorySettings()
 	globalDefault := settings.AssistantHotDefault()
 	if spec.Kind == profile.KindAutomation {
@@ -120,9 +121,9 @@ func HotMemoryActive(deps RunOptionDeps, spec RunSpec) bool {
 }
 
 // channelFor is the event stream a kind of run publishes on.
-func channelFor(kind profile.Kind) EventChannel {
+func channelFor(kind profile.Kind) assistant.EventChannel {
 	if kind == profile.KindAutomation {
-		return ChannelAutomation
+		return assistant.ChannelAutomation
 	}
-	return ChannelAssistant
+	return assistant.ChannelAssistant
 }
