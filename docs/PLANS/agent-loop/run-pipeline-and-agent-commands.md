@@ -1,7 +1,7 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
 **Status:** approved (2026-10-23). D1–D3 decided. PR 1 is done: C0, C1, C2, C4, C5 (#129, #130) and C6; C3, the
-commands (PR 2), is built, waiting for its live check; `/run` into the registry is deferred (C3 results).
+commands (PR 2, #132), is merged and checked live on the web path; `/run` into the registry is deferred (C3 results).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -225,7 +225,20 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   command's answer reruns the stored question under the conversation's own agent, without helpers.
 - **Corrected while documenting:** `api-reference.md` still showed the message endpoint answering `200` with the
   reply and events; it answers `202 {status, conversation_id}` and the turn runs detached.
-- Verified: `go test ./...`, the complexity check, `npm test`, `npm run build`. Live check pending a deploy.
+- Verified: `go test ./...`, the complexity check, `npm test`, `npm run build`.
+- **Live on vertex (2026-10-23, `v0.11.11`):** `GET /admin/api/commands` lists `research` and `agent`; the preview reads
+  "Runs under Research with helpers" (and "ask a question after the agent (Research)" for `/agent research`);
+  `/commands/run` returns `turn: {message, agent: research, use_helpers: true}`, refuses `/research` alone and an unknown
+  agent with the known ids; a message with `agent: ghost` is a 400. In a three-turn chat (Builder, then the command's
+  turn, then plain) the Research turn delegated to helpers (`delegate_task`, two children in the process log), the
+  stored profile stayed `builder` and the third turn ran under Builder's prompt. The connector path is not checked (no
+  connector token given yet).
+- **Found by that check, not caused by C3:** the chat service cut the stored history to 12 KB at the start of every
+  turn (`initSession`, since #31), so a chat past 12 KB kept only its first question and newest exchange; the check's
+  second question and first answer were dropped by the third turn. Fixed separately (SPEC-001 1.17, pitfall 63): the
+  stored-history ceiling is 256 KB on every path, and `shrinkHistory` may cut the head's messages as a last resort
+  (decided with the user, 2026-10-23). The run record of a delegated turn (`subagents`) is to be re-checked after that
+  fix is deployed, with a local 16k model as well.
 
 ## 6. Risks
 
@@ -248,7 +261,8 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 - The connector turn on a real Telegram chat (C2's reply fix), once vertex has a reachable webhook.
 - An idle timeout for an upstream stream that stalls (seen in the smoke; separate fix).
-- C3's live check on vertex after deploy: `/research` through `commands/run`, the turn with helpers, the session's
-  profile unchanged afterwards.
+- After the history fix is deployed: a 3–4 turn chat with long answers on the local 16k model and on a cloud model
+  (every turn answers the newest question, the stored history is complete), and a delegated turn's `subagents` record.
+- The connector path on a real Telegram chat (a Telegram-shaped POST from the LAN works; needs the connector's token).
 - `/run` into the command registry (deferred, C3 results).
 - `ExecuteResult.Events`: filled, never read (C6 results).

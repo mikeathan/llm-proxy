@@ -324,14 +324,15 @@ func TestWithLocalTime_LeavesAHistoryWithoutAUserTailAlone(t *testing.T) {
 // oversized history must never drop the original user task, or the persisted
 // session renders blank on reopen.
 func TestTruncateHistory_PreservesFirstUserMessage(t *testing.T) {
-	big := strings.Repeat("x", MaxHistoryChars) // exceeds budget alone
+	const budget = 12 * 1024
+	big := strings.Repeat("x", budget) // exceeds budget alone
 	history := []proxy.Message{
 		{Role: proxy.SystemRole, Content: "system prompt"},
 		{Role: proxy.UserRole, Content: "list all files and report"},
 		{Role: proxy.AssistantRole, Content: big},
 		{Role: proxy.ToolRole, Content: "result"},
 	}
-	out := TruncateHistory(history, MaxHistoryChars)
+	out := TruncateHistory(history, budget)
 
 	foundUser := false
 	for _, m := range out {
@@ -346,7 +347,7 @@ func TestTruncateHistory_PreservesFirstUserMessage(t *testing.T) {
 
 // TestTruncateHistory_PersistedCeilingPreservesToolCalls verifies the Bug 2 fix:
 // the persisted-session ceiling is MaxPersistedHistoryChars (256KB), not the
-// small MaxHistoryChars (12KB). A multi-tool history that exceeds the OLD 12KB
+// old 12KB cap (since removed). A multi-tool history that exceeds the OLD 12KB
 // bound but stays under the new ceiling must be persisted in full — every tool
 // call/result retained — so a reload shows the complete reasoning trail instead
 // of dropping earlier tool calls.

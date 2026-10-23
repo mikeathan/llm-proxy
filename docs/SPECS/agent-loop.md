@@ -1,7 +1,7 @@
 ---
 id: SPEC-001
 title: Agent Loop
-version: "1.16"
+version: "1.17"
 status: stable
 last_updated: 2026-10-23
 constitution_references: [II.4, II.5, II.6, II.7, II.8, II.10]
@@ -13,6 +13,15 @@ supersedes:
 
 ## Changelog
 
+- **1.17 (2026-10-23)** — **A chat keeps its whole conversation.** The chat service cut the stored history to 12 KB at
+  the start of every turn (`initSession`), which kept the system prompt and the first question and dropped the oldest
+  messages after it, so a chat past 12 KB kept only its first question and its newest exchange: the model lost the
+  conversation and a reload showed messages missing (since #31). Every path now uses the stored file's last-resort
+  ceiling (256 KB), and the model's request is bounded by the sieve. `shrinkHistory` may now cut the locked head's
+  messages, as a last resort after every later message is at its floor and before the newest one (a long paste in an
+  earlier question, a long first answer: nothing else bounded them). The system prompt is never cut, nothing is
+  dropped, and the question being worked on is not cut while it is still in the head, so a question too big alone
+  still ends the run with `ErrPromptTooLarge`.
 - **1.16 (2026-10-23)** — A search provider's used-up usage limit (HTTP 402, and Tavily's 432 and 433) is a terminal tool
   error, like a rejected key: the loop stops calling the tool and the operator sees "tavily usage limit reached (HTTP
   432)". A 429 stays transient. A helper is also stopped after `helperTimeout` (5 minutes, `internal/core/delegation`)
@@ -133,8 +142,9 @@ supersedes:
   (`orchestrator.TokenRatios`, learned from the server's own prompt counts, default 3.0 before the first): dense tool output
   costs 2.7 to 3.4 chars a token (JSON search results, raw HTML) against 4.1 for prose. On a **cloud** model `ContextBudget`
   is a history allowance chosen for cost, not a window, and is used as given, measured by messages alone. The physical sieve
-  prunes to the limit less the request's overhead and then `shrinkHistory` cuts oldest first to a floor (the head, the
-  sieve's own messages and tool-call arguments are never cut; the newest message last). A rejection of a local model's
+  prunes to the limit less the request's overhead and then `shrinkHistory` cuts oldest first to a floor (after the locked head
+  oldest first, then the head's own messages, then the newest message, then the question being worked on unless it is
+  still in the head; the system prompt, the sieve's own messages and tool-call arguments are never cut). A rejection of a local model's
   request is a typed `providers.ContextOverflowError` (llama.cpp's `n_prompt_tokens`/`n_ctx`, or the counts in OpenAI,
   Anthropic and Gemini prose); the recovery cuts to that window in one step, teaches the ratio, and ends the run with
   `models.ErrPromptTooLarge` when the part that cannot be cut already fills the window. A context-size rejection of the

@@ -131,28 +131,53 @@ func (a *Agent) learnTokenRatio(sentChars int, usage *proxy.TokenUsage) {
 	a.deps.Orchestrator.Ratios.Observe(a.config.ModelName, sentChars, usage.PromptTokens)
 }
 
-// shrinkHistory cuts a history down to target characters, oldest first, and reports whether it fits. The locked head
-// is never cut, nor are the sieve's own note, ledger and warning, and the newest message is cut last, only when
-// nothing older can give: the model is about to read it. The question being worked on (taskIndex) is cut after
-// every other message, for the same reason. Messages are cut to a floor, head and tail around a marker; tool-call arguments count towards the size but are never
-// cut, so they stay valid JSON. The caller's slice is not modified.
+// shrinkHistory cuts a history down to target characters and reports whether it fits. It cuts the messages after the
+// locked head oldest first, then the head's own messages (a long paste in the first question, a long first answer:
+// nothing else bounds them, and the stored conversation keeps them whole), then the newest message, which the model
+// is about to read, and last the question being worked on (taskIndex), unless it is still in the head. The system
+// prompt and the sieve's own note, ledger and warning are never cut, and nothing is dropped. Messages are cut to a floor, head and tail around a
+// marker; tool-call arguments count towards the size but are never cut, so they stay valid JSON. The caller's slice is
+// not modified.
 func shrinkHistory(history []proxy.Message, target int) ([]proxy.Message, bool) {
 	total := historyMessagesChars(history)
 	if total <= target {
 		return history, true
 	}
 	out := slices.Clone(history)
-	last := len(out) - 1
-	task := taskIndex(out)
-	for i := sieveLockedHead; i <= last && total > target; i++ {
-		if !isSieveMessage(out[i]) && i != task {
+	for _, i := range cutOrder(len(out), taskIndex(out)) {
+		if total <= target {
+			break
+		}
+		if out[i].Role != proxy.SystemRole && !isSieveMessage(out[i]) {
 			total -= cutMessage(&out[i], total-target)
 		}
 	}
-	if task >= sieveLockedHead && total > target {
-		total -= cutMessage(&out[task], total-target) // only when nothing else can give
-	}
 	return out, total <= target
+}
+
+// cutOrder is the order shrinkHistory cuts a history of n messages in: after the locked head oldest first, then the
+// head, then the newest, and last the question being worked on (task, -1 when none). A question still in the head is
+// never cut: when it alone is too big the run says so (ErrPromptTooLarge) instead of answering a shortened one.
+func cutOrder(n, task int) []int {
+	order := make([]int, 0, n)
+	add := func(i int) {
+		if i != task {
+			order = append(order, i)
+		}
+	}
+	for i := sieveLockedHead; i < n-1; i++ {
+		add(i)
+	}
+	for i := 0; i < min(sieveLockedHead, n-1); i++ {
+		add(i)
+	}
+	if n > 0 {
+		add(n - 1)
+	}
+	if task >= sieveLockedHead && task < n {
+		order = append(order, task)
+	}
+	return order
 }
 
 // cutMessage removes about want characters from a message's content, then its reasoning, never below the floor, and

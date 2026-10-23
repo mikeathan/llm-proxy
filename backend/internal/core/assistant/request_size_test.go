@@ -124,6 +124,30 @@ func TestShrinkHistory(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a giant head message is cut once everything after it is at its floor, the system prompt never", func(t *testing.T) {
+		paste := msg(proxy.UserRole, 200*1024) // a long paste in an earlier question; the newest question is the task
+		h := []proxy.Message{msg(proxy.SystemRole, 100), paste, msg(proxy.AssistantRole, 100), msg(proxy.ToolRole, 3000), msg(proxy.UserRole, 50)}
+		got, fits := shrinkHistory(h, 8000)
+		if !fits || total(got) > 8000 {
+			t.Fatalf("fits=%v total=%d, want <= 8000", fits, total(got))
+		}
+		if got[0].Content != h[0].Content {
+			t.Error("the system prompt must never be cut")
+		}
+		if len(got[1].Content) >= len(paste.Content) || !strings.Contains(got[1].Content, strings.TrimSpace(sieveTruncationMarker)) {
+			t.Errorf("the giant head message was not cut: %d chars", len(got[1].Content))
+		}
+		if len(got) != len(h) {
+			t.Errorf("nothing is dropped: %d messages, want %d", len(got), len(h))
+		}
+	})
+	t.Run("the head gives before the newest message", func(t *testing.T) {
+		h := []proxy.Message{msg(proxy.SystemRole, 100), msg(proxy.UserRole, 100), msg(proxy.AssistantRole, 20000), msg(proxy.ToolRole, 3000)}
+		got, fits := shrinkHistory(h, 6000)
+		if !fits || len(got[3].Content) != 3000 {
+			t.Errorf("fits=%v; the newest result was cut to %d while the head could give", fits, len(got[3].Content))
+		}
+	})
 	t.Run("the newest is cut only when everything older is at its floor", func(t *testing.T) {
 		h := append(slicesClone(head), msg(proxy.ToolRole, 3000), msg(proxy.ToolRole, 9000))
 		got, fits := shrinkHistory(h, 3000)
@@ -132,6 +156,13 @@ func TestShrinkHistory(t *testing.T) {
 		}
 		if len(got[len(got)-1].Content) >= 9000 {
 			t.Error("the newest must be cut when nothing else can give")
+		}
+	})
+	t.Run("the question being worked on is not cut while it is in the head", func(t *testing.T) {
+		h := []proxy.Message{msg(proxy.SystemRole, 100), msg(proxy.UserRole, 20000)}
+		got, fits := shrinkHistory(h, 6000)
+		if fits || len(got[1].Content) != 20000 {
+			t.Errorf("fits=%v, question cut to %d; a question too big alone must stay whole and not fit", fits, len(got[1].Content))
 		}
 	})
 	t.Run("a history that cannot fit says so", func(t *testing.T) {
