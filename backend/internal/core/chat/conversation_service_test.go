@@ -1107,6 +1107,66 @@ func TestConversationService_Execute_OneMessageAgent(t *testing.T) {
 	}
 }
 
+// longChat runs the messages as turns of one conversation, answering each with the matching answer, and returns what
+// the model was sent on the last turn and the stored session.
+func longChat(t *testing.T, messages, answers []string) ([]proxy.Message, *models.AssistantSession) {
+	t.Helper()
+	pm := newTestPersistence(t)
+	svc := NewConversationService(newMockConvDeps(), pm)
+	var sent []proxy.Message
+	turn := 0
+	client := &assistanttest.MockClient{
+		StreamFunc: func(context.Context, proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+			return nil, errors.New("no stream")
+		},
+		ChatFunc: func(_ context.Context, req proxy.ChatRequest) (*proxy.ChatResponse, error) {
+			sent = req.Messages
+			return &proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: answers[turn]}}}}, nil
+		},
+	}
+	for i, msg := range messages {
+		turn = i
+		if _, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "long", Message: msg, Timezone: "UTC",
+			Log: logging.NewNopLogger(), Provider: &assistanttest.MockProvider{}, Client: client, Engine: &assistanttest.MockEngine{Result: "ok"}, Events: &mockEventPublisher{}}); err != nil {
+			t.Fatalf("turn %d: %v", i+1, err)
+		}
+	}
+	session, err := pm.ReadSession("ws-1", "long")
+	if err != nil || session == nil {
+		t.Fatalf("ReadSession: %v", err)
+	}
+	return sent, session
+}
+
+func contents(history []proxy.Message) []string {
+	out := make([]string, 0, len(history))
+	for _, m := range history {
+		if m.Role != proxy.SystemRole {
+			out = append(out, m.Content)
+		}
+	}
+	return out
+}
+
+// A conversation past 12 KB keeps every message. A 12 KB cap applied at the start of each turn used to drop the oldest
+// messages after the first question, so a chat kept only its first question and its newest exchange: the model lost
+// the conversation and a reload showed messages missing. The model's prompt is bounded by the sieve, not the store.
+func TestConversationService_Execute_ALongChatKeepsItsHistory(t *testing.T) {
+	long := strings.Repeat("a long answer ", 1500) // ~21 KB
+	sent, session := longChat(t, []string{"first question", "second question", "third question"}, []string{long, "second answer", "third answer"})
+
+	want := []string{"first question", long, "second question", "second answer", "third question", "third answer"}
+	if got := contents(session.History); !reflect.DeepEqual(got, want) {
+		t.Errorf("stored history lost messages: %d stored, want %d", len(got), len(want))
+	}
+	sentText := strings.Join(contents(sent), "\n")
+	for _, m := range []string{"first question", "a long answer", "second question", "second answer", "third question"} {
+		if !strings.Contains(sentText, m) {
+			t.Errorf("the model was not sent %q on the third turn", m)
+		}
+	}
+}
+
 // The workspace's profile is the start for its chats; a conversation's own choice outranks it.
 func TestConversationService_Execute_WorkspaceDefaultProfile(t *testing.T) {
 	pm := newTestPersistence(t)

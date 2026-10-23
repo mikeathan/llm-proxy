@@ -212,7 +212,9 @@ func (s *conversationService) resolveProfile(ctx context.Context, workspaceID st
 func (s *conversationService) initSession(session *models.AssistantSession, workspaceID, message, system string, log logging.Logger) {
 	session.History = append(session.History, proxy.Message{Role: proxy.UserRole, Content: message})
 	session.History = withSystemMessage(session.History, system)
-	session.History = TruncateHistory(session.History, MaxHistoryChars)
+	// Only the stored file's last-resort ceiling: the model's prompt is bounded by the sieve (context_budget), so a
+	// smaller cap here would drop the conversation itself (it once kept only the first question and the newest turn).
+	session.History = TruncateHistory(session.History, MaxPersistedHistoryChars)
 
 	// Persist early so the session appears in the conversation sidebar
 	if pErr := s.persistence.WriteSession(workspaceID, session); pErr != nil {

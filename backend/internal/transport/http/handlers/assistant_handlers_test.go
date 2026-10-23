@@ -343,8 +343,8 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 		{Choices: []proxy.Choice{{Message: proxy.Message{Role: proxy.AssistantRole, Content: "# Response\nThis is a long enough response to avoid premature termination check."}}}},
 	}
 
-	// Create a very long history that should trigger truncation
-	// maxHistoryChars is 128KB. Let's create 200KB of history.
+	// A 200 KB first message, far over the model's context budget: the stored conversation keeps it, and the sieve
+	// shortens it (head and tail around a marker) in what the model is sent, since it is no longer the question.
 	longContent := strings.Repeat("a", 200*1024)
 	history := []proxy.Message{
 		{Role: proxy.SystemRole, Content: "SYSTEM"},

@@ -12,10 +12,6 @@ import (
 	"llm-proxy/models"
 )
 
-// MaxHistoryChars bounds the initial system + first-user base history (a small
-// fixed seed). It is NOT used for the persisted session file.
-const MaxHistoryChars = 12 * 1024
-
 // MaxPersistedHistoryChars is the last-resort ceiling for persisted session
 // history. Normal runs persist full (untruncated) history so a reload shows the
 // complete tool-call/reasoning/output trail (the 12KB whole-message cap used to
@@ -44,10 +40,9 @@ func withSystemMessage(history []proxy.Message, content string) []proxy.Message 
 }
 
 // TruncateHistory removes oldest non-system messages when total content exceeds
-// maxChars. Callers pass the appropriate bound: the small MaxHistoryChars for
-// the initial base history, or the high MaxPersistedHistoryChars for the
-// persisted session file (so normal runs persist full and only pathological runs
-// are bounded).
+// maxChars. The conversation service passes MaxPersistedHistoryChars, the stored
+// session's last-resort ceiling, so normal chats keep everything and only
+// pathological runs are bounded; what the model is sent is the sieve's business.
 func TruncateHistory(history []proxy.Message, maxChars int) []proxy.Message {
 	if len(history) <= 1 {
 		return history
