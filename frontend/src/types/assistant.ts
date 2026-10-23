@@ -120,8 +120,6 @@ export interface ChatRequestPayload {
   use_helpers?: boolean
 }
 
-import type { AgentEvent } from './dispatcher'
-
 // ChatResponsePayload is the response to POST /conversation/message. The
 // backend starts a detached background run and returns immediately with
 // status:"running"; the run is observed live over SSE. `reply` is only
@@ -132,7 +130,6 @@ export interface ChatResponsePayload {
   status?: string
   reply?: string
   conversation_id: string
-  events?: AgentEvent[]
   canceled?: boolean
 }
 

@@ -208,8 +208,9 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   message endpoint answers 202 and the turn runs detached, so the events reach the client over SSE only. The
   handler's own comment still named `RunWithCancel`; it names `chat.Service.Run`.
 - `multi-agent-delegation.md` Part C: A3 and A5 are done here.
-- Found, not changed: `ExecuteResult.Events` is filled on every turn but no caller reads it (the web handler answers
-  202, the webhook reads `Reply`). Removing it is a code change for C3 or its own clean-up.
+- Found: `ExecuteResult.Events` was filled on every turn but no caller read it (the web handler answers 202, the
+  webhook reads `Reply`). Removed in the wrap-up, with `FormatCollectedEvents` and the frontend's never-sent `events`
+  on the chat response type.
 
 ### C3 results (2026-10-23)
 
@@ -277,4 +278,3 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   `{"status":"ok"}` and the replies should arrive in the connector's chat. The connector needs a workspace set.
   Postponed by the user (2026-10-23).
 - `/run` into the command registry (deferred, C3 results).
-- `ExecuteResult.Events`: filled, never read (C6 results).

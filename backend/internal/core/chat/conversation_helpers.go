@@ -105,18 +105,6 @@ func TruncateHistory(history []proxy.Message, maxChars int) []proxy.Message {
 	return history
 }
 
-// FormatCollectedEvents converts agent events into the wire format for the API response.
-func FormatCollectedEvents(events []assistant.AgentEvent) []map[string]any {
-	out := make([]map[string]any, 0, len(events))
-	for _, ev := range events {
-		out = append(out, map[string]any{
-			"type":    ev.Type,
-			"payload": ev.Payload,
-		})
-	}
-	return out
-}
-
 // ComputeCancelIndices determines the cancel marker scope for a session history at cancel time.
 func ComputeCancelIndices(history []proxy.Message) (canceledIdx, canceledUserIdx int) {
 	lastUserIdx, lastAssistantIdx := -1, -1

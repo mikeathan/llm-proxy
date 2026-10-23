@@ -113,11 +113,11 @@ func (s *conversationService) Execute(ctx context.Context, req ExecuteRequest) (
 			return s.handleCancelResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log, agErr), nil
 		}
 		log.Error("assistant execution failed", "error", agErr)
-		return s.handleErrorResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log, agErr)
+		return s.handleErrorResult(session, workspaceID, reply, updatedHistory, llmHistory, events, log, agErr)
 	}
 
 	// 9. Persist final history
-	return s.handleSuccessResult(session, workspaceID, reply, updatedHistory, llmHistory, events, collected(), log), nil
+	return s.handleSuccessResult(session, workspaceID, reply, updatedHistory, llmHistory, events, log), nil
 }
 
 // startTurnRun attaches a run record to the turn's user message — the last
@@ -346,7 +346,6 @@ func (s *conversationService) handleCancelResult(session *models.AssistantSessio
 		Reply:          reply,
 		ConversationID: session.ID,
 		WorkspaceID:    session.WorkspaceID,
-		Events:         FormatCollectedEvents(collected),
 		Canceled:       true,
 	}
 }
@@ -374,7 +373,7 @@ func lastRunFailureText(collected []assistant.AgentEvent) string {
 	return ""
 }
 
-func (s *conversationService) handleSuccessResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, collected []assistant.AgentEvent, log logging.Logger) ExecuteResult {
+func (s *conversationService) handleSuccessResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, log logging.Logger) ExecuteResult {
 	if len(updatedHistory) >= len(llmHistory) {
 		newMessages := updatedHistory[len(llmHistory):]
 		session.History = append(session.History, newMessages...)
@@ -392,7 +391,6 @@ func (s *conversationService) handleSuccessResult(session *models.AssistantSessi
 		Reply:          reply,
 		ConversationID: session.ID,
 		WorkspaceID:    session.WorkspaceID,
-		Events:         FormatCollectedEvents(collected),
 	}
 }
 
@@ -403,7 +401,7 @@ func (s *conversationService) handleSuccessResult(session *models.AssistantSessi
 // reload instead of leaving a session that shows only the user prompt. The
 // error event + session_completed lifecycle are still published so a live
 // client sees the failure and the sidebar stops marking the session running.
-func (s *conversationService) handleErrorResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, collected []assistant.AgentEvent, log logging.Logger, runErr error) (ExecuteResult, error) {
+func (s *conversationService) handleErrorResult(session *models.AssistantSession, workspaceID, reply string, updatedHistory, llmHistory []proxy.Message, events assistant.EventPublisher, log logging.Logger, runErr error) (ExecuteResult, error) {
 	// Persist any partial assistant output the agent produced before failing.
 	if len(updatedHistory) >= len(llmHistory) {
 		newMessages := updatedHistory[len(llmHistory):]
@@ -453,7 +451,6 @@ func (s *conversationService) handleErrorResult(session *models.AssistantSession
 	return ExecuteResult{
 		ConversationID: session.ID,
 		WorkspaceID:    session.WorkspaceID,
-		Events:         FormatCollectedEvents(collected),
 	}, fmt.Errorf("assistant execution failed: %w", runErr)
 }
 

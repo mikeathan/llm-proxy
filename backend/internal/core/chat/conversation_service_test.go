@@ -161,9 +161,6 @@ func TestConversationService_Execute_NewSession(t *testing.T) {
 	if result.Canceled {
 		t.Error("Canceled should be false")
 	}
-	if len(result.Events) == 0 {
-		t.Error("Events should not be empty")
-	}
 }
 
 func TestNormalizeConversationID(t *testing.T) {

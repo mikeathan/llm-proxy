@@ -76,8 +76,8 @@ agent := NewAgent(..., AgentOptions{
 A chat turn's events reach the client over SSE only: `POST /admin/api/conversation/message` answers `202 Accepted`
 at once and the turn runs detached (`chat.Service.Run`), so nothing comes back in the HTTP body. The chat observer
 (`buildObserver` in `core/chat/conversation_service.go`) still keeps the events it publishes: they rebuild the
-session's partial history for the disk checkpoint on every `tool_result` / `message`, and end up in
-`ExecuteResult.Events`. It keeps only the newest snapshot of a stream (`assistant.SupersedesSnapshot`), because
+session's partial history for the disk checkpoint on every `tool_result` / `message`, and the cancel path reads the
+last failure from them (`lastRunFailureText`). It keeps only the newest snapshot of a stream (`assistant.SupersedesSnapshot`), because
 `buildPartialHistory` rescans the log on every tool result.
 
 ```go
