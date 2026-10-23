@@ -1,7 +1,7 @@
 ---
 name: assistant-ui-chat
 description: "Assistant chat UI architecture: event handlers, the segment system, inactivity timer, SSE timing, scroll behavior, and common pitfalls. Use when changing the chat view or its SSE handling."
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-23
 ---
 
 # Assistant UI Chat Architecture

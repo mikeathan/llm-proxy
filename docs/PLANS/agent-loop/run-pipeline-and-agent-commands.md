@@ -1,7 +1,7 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. C0, C1, C2, C4 and C5 done (C0–C5 part merged as #129); C6 next, then
-C3 (PR 2).
+**Status:** approved (2026-10-23). D1–D3 decided. PR 1 is done: C0, C1, C2, C4, C5 (#129, #130) and C6; next is C3, the
+commands (PR 2).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -46,8 +46,9 @@ it is what makes a command that shapes a turn a small change instead of a second
     run choices once.
   - `/run <automation>` is a second command path, a `switch` in the webhook handler outside the registry. It joins the
     registry in the commands PR, so there is one place that knows the commands.
-  - Open for the commands PR: Telegram caps a message at 4096 characters and a research answer can be longer; whether
-    the connector splits long replies is not checked yet.
+  - Long replies are already split: Telegram `Send` cuts a message over 4000 UTF-16 units on line boundaries
+    (`tools/notifiers/telegram.go:51,60`, SPEC-009 1.2), so a research answer longer than Telegram's 4096 cap arrives
+    as several messages. Checked 2026-10-23 (C6).
 
 ## 3. Goal
 
@@ -110,7 +111,7 @@ that each pass the tests; PR 2 is the commands, C3, after PR 1 is merged (D2: re
 | C3 | **Turn commands (PR 2).** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, `/run` into the registry, long-reply handling; docs in SPEC-009 and SPEC-003 | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
 | C4 | **Merge duplicates — done, see C4 results.** Memory review on the shared admission; the others were looked at and left | Tests green; complexity has no new violations |
 | C5 | **Package moves — done, see C5 results.** The conversation service is in `chat` (#129); the resolver is `run.ResolveOptions`; the heartbeat's quiet signal is in `automation/heartbeat.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
-| C6 | **Close out.** SPECs, `architecture.md`, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
+| C6 | **Close out — done, see C6 results.** SPECs, `architecture.md`, skills, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
 
 Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap.
 
@@ -184,6 +185,26 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 - **Seen, not caused by this work:** the free model returned 502s, then held a stream open for four minutes with no
   output; nothing ended it until a new message replaced the turn. There is no idle timeout on an upstream stream.
 
+### Live smoke of #130 on vertex (2026-10-23, `v0.11.9`, throwaway workspaces, deleted afterwards)
+
+- **Passed:** a manual automation run (the executor through `run.ResolveOptions`) wrote its report in 3.4 s; a
+  Research turn with `use_helpers` (the delegation runner through `run.ResolveOptions`) made one `delegate_task` call,
+  three `web-researcher` children finished on `deepseek-v4.1-flash`, and the answer cited its sources (95 s); replace,
+  cancel and a new turn after a cancel passed again.
+
+### C6 results (2026-10-23)
+
+- The docs were swept for the old locations: SPEC-001, SPEC-004 (memory) and SPEC-007 (dispatcher) name
+  `run.ResolveOptions` and `heartbeat.go`; `architecture.md` maps `core/chat` and `core/run`; the
+  `lifecycle-events`, `event-streaming-patterns`, `agent-loop` and `assistant-ui-chat` skills point at `core/chat`
+  (`last_reviewed` bumped). SPEC-009 needed no change: C2's connector fix makes the code do what it already says.
+- **Corrected while sweeping:** `event-streaming-patterns` said a chat turn's events come back in the HTTP body; the
+  message endpoint answers 202 and the turn runs detached, so the events reach the client over SSE only. The
+  handler's own comment still named `RunWithCancel`; it names `chat.Service.Run`.
+- `multi-agent-delegation.md` Part C: A3 and A5 are done here.
+- Found, not changed: `ExecuteResult.Events` is filled on every turn but no caller reads it (the web handler answers
+  202, the webhook reads `Reply`). Removing it is a code change for C3 or its own clean-up.
+
 ## 6. Risks
 
 - C2 and C5 touch the busiest path in the product. The characterisation tests in C0 are what make them safe; if they
@@ -205,4 +226,5 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 - The connector turn on a real Telegram chat (C2's reply fix), once vertex has a reachable webhook.
 - An idle timeout for an upstream stream that stalls (seen in the smoke; separate fix).
-- C6 close-out, then C3 (PR 2).
+- C3, the turn commands (PR 2).
+- `ExecuteResult.Events`: filled, never read (C6 results).

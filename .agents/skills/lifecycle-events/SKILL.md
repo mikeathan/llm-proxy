@@ -1,12 +1,12 @@
 ---
 name: lifecycle-events
 description: "Session lifecycle: phases, SSE contract, frontend handler, and testing. Use when changing session phases or refresh/resume handling."
-last_reviewed: 2026-07-11
+last_reviewed: 2026-10-23
 ---
 
 # Session Lifecycle Events
 
-**Source:** `backend/internal/core/assistant/agent_events.go` (phase constants), `backend/internal/transport/http/handlers/assistant_handlers.go` (publishing)
+**Source:** `backend/internal/core/assistant/agent_events.go` (phase constants), `backend/internal/core/chat/` (publishing: `service.go` for the turn lifecycle, `conversation_service.go` for the session phases)
 
 ---
 
@@ -118,7 +118,7 @@ Previously this failure only reached the terminal logs, leaving the bubble stuck
 
 The `SessionBrief` returned by `ListSessions` has no `running` field — the per-session running flag is client-side and lost on refresh. The authoritative source is `GET /workspaces/{id}/active-runs`, which now also returns `assistant_conversation_id` (the conversation ID of the agent currently running, or `""`):
 
-- **Backend:** `assistant_handlers.go` stores the resolved conversation ID on the running agent (`runningAgent.conversationID`), exposed via `RunningConversationID` and threaded through `ActiveRunsHandler` into the `ActiveRunsResponse`.
+- **Backend:** `chat.Service` (`core/chat/service.go`) stores the resolved conversation ID on the workspace's running turn (`runningTurn.conversationID`), exposed via `RunningConversation` and threaded through `ActiveRunsHandler` into the `ActiveRunsResponse`.
 - **Frontend:** `useRunningActivity` surfaces `assistantConversationId`; `useAssistant.reconcileRunningConversation` / `markRunningConversation` (utils/assistant/running.ts) flag exactly the matching session as running. `fetchSessions` re-applies it so a refresh marks the correct history row immediately.
 
 ## Reconstructing a Running Session After Refresh
@@ -224,7 +224,7 @@ When a Telegram (or other connector) webhook triggers the agent, the flow is:
 The `notify_user` tool is excluded from the agent in webhook context via the guardrail-derived tool schema (`DisabledToolNames` → `communication.enabled: false` manifest **default**, resolved at the agent's `resolveToolProvider` narrow waist), so with the default policy the model cannot call it. This prevents double-sends — the single reply path through `replyToChat` is the only mechanism. ⚠️ The exclusion is policy-conditional: if an operator enables Communication guardrails (or grants an override), `notify_user` is advertised to webhook sessions too, so the double-send guard no longer holds — the webhook channel has no structural `notify_user` exclusion anymore.
 
 **Key files:**
-- `RunWithCancel` in `assistant_handlers.go` — registers/unregisters in the shared `running` map
+- `chat.Service.Run` in `core/chat/service.go` — registers/unregisters the workspace's turn in its `running` map (the web handler and the webhook both call it)
 - `handleAgentMessage` / `runAgentReply` in `webhook_handlers.go` — async agent execution
 - `replyToChat` in `webhook_handlers.go` — sends via connector's `Send()` method
 - `toolpolicy/tool_availability.go` — wraps `ToolProvider` to exclude tools per context / guardrail policy
