@@ -83,6 +83,7 @@ type stubDeps struct {
 	engine   *recordingEngine
 	pm       *persistence.WorkspaceManager
 	catalog  *profile.Catalog
+	blocked  proxy.Client
 }
 
 func newStubDeps(t *testing.T) *stubDeps {
@@ -120,6 +121,9 @@ func (d *stubDeps) AgentSettings() *models.AgentConfig       { return d.settings
 func (d *stubDeps) SubRunner() assistant.SubRunner           { return nil }
 func (d *stubDeps) Profiles() *profile.Catalog               { return d.catalog }
 func (d *stubDeps) GetClientForModel(context.Context, string) (proxy.Client, error) {
+	if d.blocked != nil {
+		return d.blocked, nil
+	}
 	return d.client, nil
 }
 func (d *stubDeps) EffectiveToolCallFormat(context.Context, string) string { return "native" }
@@ -277,5 +281,27 @@ func TestRunner_BusyAndStopped(t *testing.T) {
 	cancel()
 	if res := r.Run(ctx, task("web-researcher", &events)); res.Status != assistant.SubRunStopped {
 		t.Errorf("a cancelled parent: %+v", res)
+	}
+}
+
+// blockingClient never answers: its stream stays open until the request is cancelled.
+type blockingClient struct{ scriptedClient }
+
+func (c *blockingClient) Stream(ctx context.Context, _ proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
+	ch := make(chan *proxy.ChatResponse)
+	go func() { <-ctx.Done(); close(ch) }()
+	return ch, nil
+}
+
+// A helper that runs past its time limit is stopped and reported failed, not stopped: the parent was not cancelled.
+func TestRunner_StopsAHelperThatRunsTooLong(t *testing.T) {
+	deps := newStubDeps(t)
+	deps.blocked = &blockingClient{}
+	r := New(deps)
+	r.timeout = 50 * time.Millisecond
+	var events []assistant.SubagentEvent
+	res := r.Run(context.Background(), task("web-researcher", &events))
+	if res.Status != assistant.SubRunFailed || !strings.Contains(res.Error, "ran longer than") {
+		t.Errorf("a helper past its limit: %+v", res)
 	}
 }
