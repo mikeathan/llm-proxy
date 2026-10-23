@@ -2,6 +2,7 @@ package app
 
 import (
 	"llm-proxy/internal/core/chat"
+	"llm-proxy/internal/core/eventbus"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
@@ -96,18 +97,22 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 
 	commTools := communicationTools(s.ToolProvider())
 
-	registry := buildCommands(s)
+	registry := buildCommands(s, disp)
 	hs.Commands = handlers.NewCommandHandlers(registry, ownerZone)
+	var automationEvents *eventbus.Bus
+	if disp != nil {
+		automationEvents = disp.Events()
+	}
 	hs.Webhook = &handlers.WebhookHandler{
-		Commands:    registry,
-		Registry:    s.AppCtx.GetRegistry,
-		Persistence: s.Persistence(),
-		Events:      s.Events(),
-		CommTools:   commTools,
-		Dispatcher:  disp,
-		Turns:       hs.Turns,
-		Logger:      s.Logger(),
-		Limiter:     ratelimiter.NewLimiter(utils.NewRealClock()),
+		Commands:         registry,
+		Registry:         s.AppCtx.GetRegistry,
+		Persistence:      s.Persistence(),
+		Events:           s.Events(),
+		CommTools:        commTools,
+		AutomationEvents: automationEvents,
+		Turns:            hs.Turns,
+		Logger:           s.Logger(),
+		Limiter:          ratelimiter.NewLimiter(utils.NewRealClock()),
 		// Connector messages carry no browser timezone; the owner's configured zone
 		// keeps "tomorrow morning" meaning the owner's morning.
 		OwnerTimezone: ownerZone,

@@ -22,6 +22,8 @@ func NewCommandHandlers(registry *commands.Registry, ownerZone func() string) *C
 type commandRequest struct {
 	Message  string `json:"message"`
 	Timezone string `json:"timezone"`
+	// WorkspaceID is the chat's workspace, where /run starts an automation.
+	WorkspaceID string `json:"workspace_id"`
 }
 
 type commandRunResponse struct {
@@ -32,6 +34,8 @@ type commandRunResponse struct {
 	// Turn is set by a turn command (/research, /agent): the chat sends Turn.Message with these run choices, for
 	// this message only, after showing Reply when there is one.
 	Turn *commands.TurnSpec `json:"turn,omitempty"`
+	// Automation names the automation a command started (/run); its result is on the Automations page.
+	Automation string `json:"automation,omitempty"`
 }
 
 type commandPreviewResponse struct {
@@ -44,7 +48,7 @@ func (h *CommandHandlers) env(r commandRequest) commands.Env {
 	if h.ownerZone != nil {
 		owner = h.ownerZone()
 	}
-	return commands.Env{Zone: reminders.ChatZone(owner, r.Timezone)}
+	return commands.Env{Zone: reminders.ChatZone(owner, r.Timezone), WorkspaceID: r.WorkspaceID}
 }
 
 // List handles GET /admin/api/commands.
@@ -61,7 +65,7 @@ func (h *CommandHandlers) Run(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reply, handled := h.registry.Execute(r.Context(), req.Message, h.env(req))
-	respondJSON(w, commandRunResponse{Handled: handled, Reply: reply.Text, Failed: reply.Failed, Turn: reply.Turn})
+	respondJSON(w, commandRunResponse{Handled: handled, Reply: reply.Text, Failed: reply.Failed, Turn: reply.Turn, Automation: reply.Automation})
 }
 
 // Preview handles POST /admin/api/commands/preview.

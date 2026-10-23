@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.16"
+version: "2.17"
 status: stable
 last_updated: 2026-10-23
 constitution_references: []
@@ -13,6 +13,9 @@ supersedes:
 
 ## Changelog
 
+- **2.17 (2026-10-23)** — The chat sends its workspace with every command (`workspace_id` on
+  `/admin/api/commands/run` and `/preview`), so **`/run <automation>`** works in the web chat: the preview reads
+  "Runs 'x' now", and sending it starts the automation and shows its start line as a toast.
 - **2.16 (2026-10-23)** — **Turn commands in the composer** (SPEC-012 1.6). Sending `/research <question>` or
   `/agent <agent> <question>` asks `POST /admin/api/commands/run`; when it answers with a `turn`, the composer sends
   `turn.message` with `turn.agent` and `turn.use_helpers` for that message only (the model and the conversation's agent

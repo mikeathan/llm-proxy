@@ -25,6 +25,8 @@ const props = defineProps<{
   canReview?: boolean
   /** The message waiting behind the live run, if any. */
   queued?: string | null
+  /** The chat's workspace: a command's preview names what it would do there (/run). */
+  workspaceId?: string
 }>()
 
 defineSlots<{
@@ -61,7 +63,7 @@ const expanded = ref(false)
 const sheetOpen = ref(false)
 
 // "/" opens the command menu; once a command is named it shows its usage and a live preview.
-const { suggestions, active, preview, completion, withExample } = useSlashCommands(toRef(props, 'inputMessage'))
+const { suggestions, active, preview, completion, withExample } = useSlashCommands(toRef(props, 'inputMessage'), toRef(props, 'workspaceId'))
 
 function fill(text: string) {
   emit('update:inputMessage', text)

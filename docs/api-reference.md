@@ -281,7 +281,7 @@ Slash commands (`/remind`, SPEC-011 §2.11; `/research`, `/agent`, SPEC-012) ans
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/admin/api/commands` | `{commands: [{name, usage, summary, examples[]}]}` for the chat's command menu |
-| POST | `/admin/api/commands/run` | `{message, timezone?}` → `{handled, reply?, failed?, turn?}`. `handled: false` for text that is not a registered command (send it to the assistant). `failed: true` when the command was refused; `reply` then carries the reason and usage. A turn command (`/research`, `/agent`, SPEC-012) answers with `turn: {message, agent?, use_helpers?}`: send `message` to the assistant with those choices for that message only (`agent` in the chat request), after showing `reply` when there is one |
+| POST | `/admin/api/commands/run` | `{message, timezone?, workspace_id?}` → `{handled, reply?, failed?, turn?, automation?}`. `workspace_id` is the chat's workspace, where `/run <automation>` starts the automation (`automation` names it; its result is on the Automations page). `handled: false` for text that is not a registered command (send it to the assistant). `failed: true` when the command was refused; `reply` then carries the reason and usage. A turn command (`/research`, `/agent`, SPEC-012) answers with `turn: {message, agent?, use_helpers?}`: send `message` to the assistant with those choices for that message only (`agent` in the chat request), after showing `reply` when there is one |
 | POST | `/admin/api/commands/preview` | `{message, timezone?}` → `{matched, command?, text?, error?}`: what the command would do with the text typed so far (nothing is stored), or why it would be refused |
 
 ## Memory API

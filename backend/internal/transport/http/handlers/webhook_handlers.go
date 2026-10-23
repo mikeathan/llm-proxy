@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"llm-proxy/internal/core/assistant"
-	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/commands"
+	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/tools"
@@ -34,17 +34,19 @@ type AgentTurns interface {
 
 // WebhookHandler receives inbound messages from external platforms (Telegram,
 // Slack, etc.) via POST /api/v1/webhooks/{connector_name} and routes them to
-// either the agent (for normal messages) or the dispatcher (for /run commands).
+// either the slash commands (/remind, /research, /run, ...) or the agent.
 // Replies are sent back through the same connector type.
 type WebhookHandler struct {
 	Registry    func() models.RegistryData
 	Persistence *persistence.WorkspaceManager
 	Events      assistant.EventPublisher
 	CommTools   *tools.CommunicationTools
-	Dispatcher  *automation.Dispatcher
-	Turns       AgentTurns
-	Logger      logging.Logger
-	Limiter     ratelimiter.Limiter
+	// AutomationEvents is the dispatcher's event bus: /run follows the automation it started there. nil: a started
+	// automation is not followed.
+	AutomationEvents *eventbus.Bus
+	Turns            AgentTurns
+	Logger           logging.Logger
+	Limiter          ratelimiter.Limiter
 	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset.
 	OwnerTimezone func() string
 	// Commands are the slash commands (/remind, ...) answered without the assistant.
@@ -120,14 +122,10 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Logger.Info("webhook: routing message", "connector", connectorName, "workspace", workspaceID, "chat_id", chatID)
 
-	// Route: slash commands are answered in code (a turn command starts its turn),
-	// /run goes to the dispatcher, everything else goes to the agent.
+	// Route: slash commands are answered in code (a turn command starts its turn,
+	// /run its automation), everything else goes to the agent.
 	in := inbound{workspaceID: workspaceID, connectorName: connectorName, connectorType: cfg.Type, chatID: chatID}
-	switch {
-	case h.handleCommand(in, message):
-	case strings.HasPrefix(message, "/run "):
-		h.handleAutomation(workspaceID, connectorName, cfg.Type, message)
-	default:
+	if !h.handleCommand(in, message) {
 		h.handleAgentMessage(in, message)
 	}
 
@@ -144,7 +142,7 @@ type inbound struct {
 // reports whether the message was one. A turn command's turn then runs the way
 // any message does, its answer sent back to the chat.
 func (h *WebhookHandler) handleCommand(in inbound, message string) bool {
-	reply, handled := h.Commands.Execute(agentRunContext(in.connectorType), message, commands.Env{Zone: h.agentTimezone()})
+	reply, handled := h.Commands.Execute(agentRunContext(in.connectorType), message, commands.Env{Zone: h.agentTimezone(), WorkspaceID: in.workspaceID})
 	if !handled {
 		return false
 	}
@@ -154,68 +152,63 @@ func (h *WebhookHandler) handleCommand(in inbound, message string) bool {
 	if reply.Turn != nil && !reply.Failed {
 		h.startAgentTurn(in, *reply.Turn)
 	}
+	if reply.Automation != "" && !reply.Failed && h.AutomationEvents != nil {
+		h.followAutomation(in, reply.Automation)
+	}
 	return true
 }
 
-// handleAutomation triggers an automation by name and sends result back.
-func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorType, message string) {
-	name := strings.TrimSpace(strings.TrimPrefix(message, "/run "))
-	if name == "" {
-		h.replyToChat(connectorName, "Usage: /run <automation_name>")
-		return
-	}
-
-	ctx := h.execCtx(workspaceID)
-
-	// Trigger is a cheap lane enqueue (the run timeout starts at dequeue), so
-	// it runs inline; the run's progress is observed by the monitor goroutine
-	// below.
-	if _, err := h.Dispatcher.Trigger(workspaceID, name, ""); err != nil {
-		h.Logger.Error("automation trigger failed", "name", name, "error", err)
-	}
-
-	immediateReply := fmt.Sprintf("Running '%s'...", name)
-	h.replyToChat(connectorName, immediateReply)
-
+// followAutomation sends the result of an automation a command started (/run) to the chat when its run ends, or a
+// pointer to Pulse when it is still running after 30 seconds.
+func (h *WebhookHandler) followAutomation(in inbound, name string) {
 	resultCh := make(chan string, 1)
 	// Only this automation's own run: another automation finishing in the workspace
 	// must not be taken for it.
 	stream := assistant.AutomationStream(name)
-	sub, _ := h.Dispatcher.Events().Subscribe(workspaceID, stream)
+	sub, _ := h.AutomationEvents.Subscribe(in.workspaceID, stream)
+	ctx := h.execCtx(in.workspaceID)
 
 	safe.Go("webhook automation monitor", func() {
-		defer h.Dispatcher.Events().Unsubscribe(workspaceID, stream, sub)
-		for {
-			select {
-			case ev := <-sub:
-				if ev.Type == assistant.EventMessage {
-					if msg, ok := ev.Payload.(proxy.Message); ok && msg.Content == assistant.MsgExecutionComplete {
-						state, err := h.Persistence.ReadState(workspaceID)
-						if err == nil {
-							if run, ok := state.LastRuns[name]; ok && run.Output != "" {
-								resultCh <- run.Output
-								return
-							}
-						}
-						resultCh <- "Automation completed, see Pulse for details."
-						return
-					}
-				}
-			case <-time.After(30 * time.Second):
-				resultCh <- "Automation started, see Pulse for results."
-				return
-			case <-ctx.Done():
-				return
-			}
-		}
+		defer h.AutomationEvents.Unsubscribe(in.workspaceID, stream, sub)
+		resultCh <- h.awaitAutomationResult(ctx, in.workspaceID, name, sub)
 	})
 
 	select {
 	case result := <-resultCh:
-		h.replyToChat(connectorName, result)
+		if result != "" {
+			h.replyToChat(in.connectorName, result)
+		}
 	case <-time.After(31 * time.Second):
-		h.replyToChat(connectorName, "Automation completed, see Pulse for details.")
+		h.replyToChat(in.connectorName, "Automation completed, see Pulse for details.")
 	}
+}
+
+// awaitAutomationResult waits for the automation's run to end and returns its output, a pointer to Pulse when it has
+// none or takes longer than 30 seconds, or "" when ctx ends first.
+func (h *WebhookHandler) awaitAutomationResult(ctx context.Context, workspaceID, name string, sub <-chan assistant.AgentEvent) string {
+	timeout := time.After(30 * time.Second)
+	for {
+		select {
+		case ev := <-sub:
+			if msg, ok := ev.Payload.(proxy.Message); ok && ev.Type == assistant.EventMessage && msg.Content == assistant.MsgExecutionComplete {
+				return h.lastAutomationOutput(workspaceID, name)
+			}
+		case <-timeout:
+			return "Automation started, see Pulse for results."
+		case <-ctx.Done():
+			return ""
+		}
+	}
+}
+
+// lastAutomationOutput is the output of the automation's last run, or a pointer to Pulse when there is none.
+func (h *WebhookHandler) lastAutomationOutput(workspaceID, name string) string {
+	if state, err := h.Persistence.ReadState(workspaceID); err == nil {
+		if run, ok := state.LastRuns[name]; ok && run.Output != "" {
+			return run.Output
+		}
+	}
+	return "Automation completed, see Pulse for details."
 }
 
 // handleAgentMessage runs the agent for an inbound message.

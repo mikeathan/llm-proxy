@@ -87,7 +87,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/transport/http/handlers/registry_handlers.go:discoverModelFiles":                   true,
 	"internal/transport/http/handlers/secrets_handlers.go:AdminProviderKeysPutHandler":           true,
 	"internal/transport/http/handlers/webhook_handlers.go:ServeHTTP":                             true,
-	"internal/transport/http/handlers/webhook_handlers.go:handleAutomation":                      true,
 }
 
 // moduleRoot returns the nearest ancestor directory containing go.mod.

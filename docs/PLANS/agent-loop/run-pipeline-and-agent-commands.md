@@ -1,7 +1,7 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
 **Status:** approved (2026-10-23). D1–D3 decided. PR 1 is done: C0, C1, C2, C4, C5 (#129, #130) and C6; C3, the
-commands (PR 2, #132), is merged and checked live on the web path; `/run` into the registry is deferred (C3 results).
+commands (PR 2, #132), is merged and checked live on the web path; `/run` joined the registry in the wrap-up (C3 results).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -45,7 +45,7 @@ it is what makes a command that shapes a turn a small change instead of a second
     message. A turn command extends that answer with the `TurnSpec`, and the composer sends the message with those
     run choices once.
   - `/run <automation>` is a second command path, a `switch` in the webhook handler outside the registry. It was to
-    join the registry in the commands PR; deferred (C3 results).
+    join the registry in the commands PR; deferred there, done in the wrap-up (C3 results).
   - Long replies are already split: Telegram `Send` cuts a message over 4000 UTF-16 units on line boundaries
     (`tools/notifiers/telegram.go:51,60`, SPEC-009 1.2), so a research answer longer than Telegram's 4096 cap arrives
     as several messages. Checked 2026-10-23 (C6).
@@ -225,9 +225,14 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 - **Channels:** `POST /admin/api/commands/run` answers with `turn`, and the composer sends `turn.message` with the
   agent and helpers (a queued message takes the same path). The webhook routes an inbound message through an `inbound`
   struct, so a turn command's turn runs like any message (`startAgentTurn`), after its note.
-- **Not done here, on purpose:** `/run` into the registry. Its reply is asynchronous and connector-only (a monitor
-  goroutine with 30 s fallbacks), so it does not fit a command that returns its answer, and the connector path cannot
-  be checked on vertex; moving it would change behaviour in the one channel nobody can test, for no gain to C3. The
+- **`/run` into the registry — deferred in C3, done in the wrap-up** (user, 2026-10-23: "do everything else"). It is
+  `commands.Run` (`run.go`): it triggers the automation in the message's workspace through an `AutomationStarter`
+  port (`app/commands.go` adapts `Dispatcher.Trigger`) and names it in `Reply.Automation`; the webhook sends the start
+  line, then follows the automation's event stream and sends its result (`followAutomation`, the old monitor without
+  its trigger, split under the complexity limit; `handleAutomation` and its baseline key are gone). The web chat sends
+  its workspace with every command, so `/run` works there too. Behaviour changes: an unknown automation is refused
+  with the reason (it was logged and the chat still got "Running…"), a bare `/run` gets its usage (it went to the
+  agent), and the reply is sent as plain text. The connector path is unit-tested only (no connector token yet). The
   run record does not say which agent answered (`TurnRun` has no profile field); not added. So **Retry** on a turn
   command's answer reruns the stored question under the conversation's own agent, without helpers.
 - **Corrected while documenting:** `api-reference.md` still showed the message endpoint answering `200` with the
@@ -269,12 +274,11 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 ## Remaining Work
 
-- The connector turn on a real Telegram chat (C2's reply fix), once vertex has a reachable webhook.
-- The connector path on a real Telegram chat (C2's reply fix and `/research` from a connector). Telegram cannot call
+- **The only item left:** the connector path on a real Telegram chat (C2's reply fix, `/research` and `/run` from a
+  connector). Telegram cannot call
   vertex (no public HTTPS), so the test posts a Telegram-shaped update itself, on vertex or from the LAN over plain HTTP
   (`POST http://localhost:4001/api/v1/webhooks/<connector>`, header `X-Telegram-Bot-Api-Secret-Token` when the
   connector has a webhook secret, body `{"message":{"text":"…","chat":{"id":1}}}`); the answer goes out to Telegram
-  over HTTPS as reminders do. Send "Reply with exactly TELEGRAM-OK", then `/research <question>`; each answers
+  over HTTPS as reminders do. Send "Reply with exactly TELEGRAM-OK", then `/research <question>`, then `/run <automation>`; each answers
   `{"status":"ok"}` and the replies should arrive in the connector's chat. The connector needs a workspace set.
   Postponed by the user (2026-10-23).
-- `/run` into the command registry (deferred, C3 results).

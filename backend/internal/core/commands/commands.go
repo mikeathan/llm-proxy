@@ -16,20 +16,23 @@ import (
 
 // Env is what a channel knows about the person typing.
 type Env struct {
-	Zone string    // IANA zone the person's times are in (reminders.ChatZone)
-	Now  time.Time // zero means time.Now()
+	Zone        string    // IANA zone the person's times are in (reminders.ChatZone)
+	Now         time.Time // zero means time.Now()
+	WorkspaceID string    // the workspace the message is in ("" when the channel has none)
 }
 
 // Request is a command's arguments in that environment.
 type Request struct {
-	Args string
-	Zone string
-	Now  time.Time
+	Args        string
+	Zone        string
+	Now         time.Time
+	WorkspaceID string
 }
 
 // Command is one slash command. Preview says what Run would do without doing it;
 // both return an error whose text is meant to be shown to the person. A turn
-// command sets Turn instead of Run (and needs no Preview: its TurnStart says).
+// command sets Turn instead of Run (and needs no Preview: its TurnStart says);
+// a command that starts an automation sets Start, so the channel can follow it.
 type Command struct {
 	Name     string
 	Usage    string
@@ -38,6 +41,14 @@ type Command struct {
 	Preview  func(ctx context.Context, req Request) (string, error)
 	Run      func(ctx context.Context, req Request) (string, error)
 	Turn     func(ctx context.Context, req Request) (TurnStart, error)
+	Start    func(ctx context.Context, req Request) (Started, error)
+}
+
+// Started is what a command that starts an automation did: the line to show, and the automation whose result the
+// channel may follow ("" when nothing will run, e.g. a skipped run).
+type Started struct {
+	Text       string
+	Automation string
 }
 
 // TurnSpec is the chat turn a turn command asks for: the message the assistant is
@@ -118,16 +129,19 @@ func (e Env) request(args string) Request {
 	if now.IsZero() {
 		now = time.Now()
 	}
-	return Request{Args: args, Zone: e.Zone, Now: now}
+	return Request{Args: args, Zone: e.Zone, Now: now, WorkspaceID: e.WorkspaceID}
 }
 
 // Reply is what a command answers: Text to show, and Failed when the command was
 // refused (Text then carries the reason and the usage). Turn is set by a turn
 // command: the channel starts that turn, after showing Text when there is one.
+// Automation names the automation a command started, for a channel that sends
+// its result when it ends.
 type Reply struct {
-	Text   string
-	Failed bool
-	Turn   *TurnSpec
+	Text       string
+	Failed     bool
+	Turn       *TurnSpec
+	Automation string
 }
 
 // Execute runs the message if it is a command and returns the reply to show;
@@ -143,6 +157,13 @@ func (r *Registry) Execute(ctx context.Context, message string, env Env) (reply 
 			return refused(cmd, err), true
 		}
 		return Reply{Text: start.Note, Turn: &start.Spec}, true
+	}
+	if cmd.Start != nil {
+		started, err := cmd.Start(ctx, env.request(args))
+		if err != nil {
+			return refused(cmd, err), true
+		}
+		return Reply{Text: started.Text, Automation: started.Automation}, true
 	}
 	text, err := cmd.Run(ctx, env.request(args))
 	if err != nil {

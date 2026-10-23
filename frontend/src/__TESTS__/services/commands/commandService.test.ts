@@ -22,6 +22,17 @@ describe('CommandService', () => {
     expect(body.timezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
   })
 
+  it('sends the chat\'s workspace when it has one (/run starts an automation there)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ handled: true, reply: "Running 'news'..." }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await CommandService.run('/run news', 'ws-1')
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).workspace_id).toBe('ws-1')
+    await CommandService.preview('/run news', undefined, 'ws-1')
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body).workspace_id).toBe('ws-1')
+    await CommandService.run('/remind x')
+    expect(JSON.parse(fetchMock.mock.calls[2]![1].body)).not.toHaveProperty('workspace_id')
+  })
+
   it('reports a refused command', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ handled: true, reply: 'nope', failed: true }) }))
     expect(await CommandService.run('/remind')).toMatchObject({ handled: true, failed: true, reply: 'nope' })
