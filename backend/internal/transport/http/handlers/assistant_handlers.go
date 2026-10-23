@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -10,8 +9,6 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/chat"
-	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
@@ -24,13 +21,10 @@ type AssistantHandlerDeps interface {
 	Limiter() ratelimiter.Limiter
 	Logger() logging.Logger
 	Persistence() *persistence.WorkspaceManager
-	Lane() *runlane.Scheduler
-	LaneKeyFor(model string) runlane.LaneKey
 	ModelConfig(modelName string) (models.ModelConfig, bool)
 	Profiles() *profile.Catalog
 	GuardrailEngine() *guardrails.GuardrailEngine
 	GuardrailDecisionStore() *assistantPkg.GuardrailDecisionStore
-	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	MemoryStore() *memory.Store
 }
 
@@ -43,7 +37,6 @@ type AssistantMessageHandler struct {
 	persistence *persistence.WorkspaceManager
 	svc         AssistantHandlerDeps
 	turns       *chat.Service
-	lane        *runlane.Scheduler
 	// reviewTimeout bounds a memory review's wait plus model call; zero means memoryReviewTimeout.
 	reviewTimeout time.Duration
 }
@@ -55,7 +48,6 @@ func NewAssistantMessageHandler(service AssistantHandlerDeps, turns *chat.Servic
 		persistence: service.Persistence(),
 		svc:         service,
 		turns:       turns,
-		lane:        service.Lane(),
 	}
 }
 

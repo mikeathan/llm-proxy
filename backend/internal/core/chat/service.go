@@ -26,6 +26,7 @@ import (
 type Deps interface {
 	assistant.ConversationDeps
 	ClientProvider() proxy.LLMClientProvider
+	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	Lane() *runlane.Scheduler
 	LaneKeyFor(model string) runlane.LaneKey
 	Engine() assistant.Engine
@@ -97,6 +98,32 @@ func (s *Service) Run(ctx context.Context, req *Request, log logging.Logger) (as
 		runCtx = claimed
 	}
 	return s.execute(runCtx, req, log)
+}
+
+// ErrNotAdmitted is a lease the run lane did not grant: the call was cancelled or timed out while it waited.
+var ErrNotAdmitted = errors.New("not admitted to the run lane")
+
+// Lease admits a short model call that is not a turn (a memory review) the way a turn is admitted: an interactive claim
+// on the run lane, then a wait for a cold model, both bounded by ctx. It returns the claimed context, the client, the
+// model it is for and the release to call when the work is done.
+func (s *Service) Lease(ctx context.Context, workspaceID string) (context.Context, proxy.Client, string, func(), error) {
+	model := s.modelFor("")
+	release := func() {}
+	if s.lane != nil {
+		claimed, done, err := s.lane.ClaimInteractive(ctx, s.deps.LaneKeyFor(""), workspaceID, model)
+		if err != nil {
+			return ctx, nil, model, release, fmt.Errorf("%w: %w", ErrNotAdmitted, err)
+		}
+		ctx, release = claimed, done
+	}
+	client, err := proxy.WaitForClient(ctx, func() (proxy.Client, error) { return s.deps.GetClientForModel(ctx, model) }, proxy.ModelWait{
+		ModelName: model, PollInterval: models.ModelStartPollInterval, Timeout: models.ModelStartWaitTimeout,
+	})
+	if err != nil {
+		release()
+		return ctx, nil, model, func() {}, err
+	}
+	return ctx, client, model, release, nil
 }
 
 // stopTurn cancels a turn that has already been removed from the registry and waits (bounded) for it to exit, so none
@@ -242,9 +269,6 @@ func (s *Service) modelName(req *Request) string {
 	primary, _ := s.deps.SelectModels()
 	return primary
 }
-
-// Model is the model a chat message that names none will use: the registry primary, else the fallback.
-func (s *Service) Model() string { return s.modelFor("") }
 
 // modelFor resolves the model a turn will use: the one it names, else the registry primary, else the fallback. It
 // mirrors the resolution LaneKeyFor applies, so the lane key and the holder's model agree.

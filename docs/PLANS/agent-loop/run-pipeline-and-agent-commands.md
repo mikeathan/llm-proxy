@@ -1,6 +1,6 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. C0, C1 and C2 done; C4 next.
+**Status:** approved (2026-10-23). D1–D3 decided. C0, C1, C2 and C4 done; C5 not started.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -107,8 +107,8 @@ that each pass the tests; PR 2 is the commands, C3, after PR 1 is merged (D2: re
 | C1 | **Read the connector path** (done, §2) | Findings written into this plan, no code |
 | C2 | **Chat service — done.** `core/chat` (`chat.Service`, `chat.Request`) holds the turn lifecycle; the handler and the webhook call it; `Execute` takes one `ExecuteRequest`; the chat handlers depend on a 11-method `AssistantHandlerDeps`, not the 26-method `AssistantService` (the automation side still uses that one; C4). The lifecycle tests moved with the code (22 tests) | Characterisation tests unchanged; handlers contain no lifecycle; complexity has no new violations |
 | C3 | **Turn commands (PR 2).** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, `/run` into the registry, long-reply handling; docs in SPEC-009 and SPEC-003 | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
-| C4 | **Merge duplicates.** Memory review on the shared setup; `RunRecord`; handler helpers; remaining D6 / D7 copies | Tests; the one deliberate change (memory review waits for a cold model) has its own test |
-| C5 | **Package moves.** `conversation/` out of `assistant`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
+| C4 | **Merge duplicates — done, see C4 results.** Memory review on the shared admission; the others were looked at and left | Tests green; complexity has no new violations |
+| C5 | **Package moves — not started.** Moving the conversation service out of `assistant` needs ~50 symbols moved or exported (the loop shares helpers with it), so it is a large mechanical change with no behaviour gain; recommended as its own PR after C2 has had a live smoke on vertex. Scope: the conversation service into `chat`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
 | C6 | **Close out.** SPECs, `architecture.md`, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
 
 Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap.
@@ -124,6 +124,20 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   Telegram chat.
 - Turn errors are plain errors now: the handler's `Status` was never used (the run is detached after the 202).
 - Verified: `go test ./...`, the complexity check (no new violations), the ported lifecycle tests.
+
+### C4 results (2026-10-23)
+
+- **Merged:** the memory review now takes the same admission as a turn through `chat.Service.Lease` (an interactive
+  lane claim, then the cold-model wait), instead of carrying its own copy in the handler; the chat handlers' interface
+  shrank to 8 methods (no lane, no client provider).
+- **Looked at and left alone, on purpose:**
+  - `TurnRun` and `AutomationRun` share three fields (model, duration, warnings) but their JSON differs (`omitempty`
+    on one, none on the other, and `AutomationRun` is stored in `state.json`); an embedded `RunRecord` would change one
+    of the two shapes for three fields.
+  - The chat observer and the automation observer share only "publish and write to the recording" (six lines); the chat
+    one also checkpoints the session, so a common observer would be a parameterised wrapper around two different jobs.
+  - The handler helper split from the codebase audit (`writeJSONError`, `requirePathParams`) already exists.
+- The automation side's wide interfaces (`automation.LLMServiceProvider`, `handlers.AssistantService`) are unchanged.
 
 ## 6. Risks
 

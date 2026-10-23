@@ -22,6 +22,7 @@ const reviewReply = `[{"content":"We deploy through the vertex host","scope":"wo
 
 type reviewFixture struct {
 	handler *AssistantMessageHandler
+	service *mocks.MockAssistantService
 	client  *mocks.MockLLMClient
 }
 
@@ -41,7 +42,7 @@ func newReviewFixture(t *testing.T, reply string, modelErr error) reviewFixture 
 	if err := service.PersistenceMgr.WriteSession("ws", session); err != nil {
 		t.Fatal(err)
 	}
-	return reviewFixture{handler: newTestHandler(service), client: client}
+	return reviewFixture{handler: newTestHandler(service), service: service, client: client}
 }
 
 func postReview(h *AssistantMessageHandler, workspace, session string) *httptest.ResponseRecorder {
@@ -119,7 +120,8 @@ func TestReviewMemories_ABusyModelIsReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	f.handler.lane = lane
+	f.service.LaneRef = lane
+	f.handler = newTestHandler(f.service)
 	f.handler.reviewTimeout = 50 * time.Millisecond
 
 	rr := postReview(f.handler, "ws", "conv_1")
