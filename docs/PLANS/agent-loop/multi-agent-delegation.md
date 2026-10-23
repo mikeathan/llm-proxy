@@ -1,6 +1,6 @@
 # Multi-Agent Delegation — one run pipeline, then cloud sub-agents
 
-**Status:** active (2026-10-22). R0, Part A and Part B (B0–B6, B8) built; B7's live smoke is done (2026-10-22), its eval is open.
+**Status:** active (2026-10-23). R0, Part A and Part B (B0–B8) built; B7 (the live eval) done — helpers kept. Part C is open.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher, §V run scheduler), SPEC-012 (Prompt
 Profiles), SPEC-006 (Guardrails), SPEC-004 (Memory).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow; automations never wait),
@@ -129,7 +129,7 @@ Decisions from the research report §9:
 | B4 | **Events + record:** child events carry `parent_run_id` and the helper ID on the parent's channel; `TurnRun.Subagents` records model, duration, tokens and status | Event test; record JSON test |
 | B5 | **Settings + wiring:** `scheduler.cloud_subagent_concurrency` (default 3); bootstrap injects the port; the `research` profile lists `web-researcher` (a new built-in profile) | `go test ./...`; settings round-trip |
 | B6 | **UI:** sub-agent steps nested and collapsed in the chat | `npm test`, `npm run build`, visual check |
-| B7 | **Eval:** 10–15 research prompts, local Qwen 16k parent, with and without delegation, N repeats; LLM-judge quality, peak parent context, overflow and loop errors, wall time, tokens | Results in `docs/audits/`; ship only if quality ≥ baseline and overflows go down |
+| B7 | **Eval:** 10–15 research prompts, local Qwen 16k parent, with and without delegation, N repeats; LLM-judge quality, peak parent context, overflow and loop errors, wall time, tokens | Results in `docs/audits/`; ship only if quality ≥ baseline and overflows go down. **Done 2026-10-23**: [`delegation-eval`](../../audits/2026-10-23-delegation-eval.md) |
 | B8 | **Docs:** SPEC-001 (delegation section), SPEC-012 (profile fields), SPEC-007 §V (sub-agent pool), architecture pitfalls | Harness check |
 
 ## Part C — later
@@ -229,8 +229,19 @@ the first reply (`delegate_task` or not):
   choice in the composer that adds the request to the message, a `/research` command, or the delegate step being the
   required first step of a profile. None is built.
 
+## B7 eval result (2026-10-23)
+
+12 prompts × 2 arms × 2 repeats on vertex's Qwen3.6 (16k), judged blind
+([`docs/audits/2026-10-23-delegation-eval.md`](../../audits/2026-10-23-delegation-eval.md)):
+
+- Breadth questions: helpers preferred in 13 of 16 pairs, baseline in 0, 3 ties. Simple questions: 7 ties, 1 baseline.
+- 15 of 16 baseline breadth runs read more than 16k prompt tokens against 3 of 16 with helpers; no run failed in either
+  arm. The overflow count itself was not recorded.
+- Costs: breadth runs 51 s slower on average; the helpers read a median of about 0.4M prompt tokens per run on the cloud
+  model. No simple question delegated.
+- Decision: keep the feature as shipped (explicit switch, off by default).
+
 ## Remaining Work
 
-- **B7:** the eval (the live smoke is done): research prompts with and without delegation, LLM-judge quality, peak
-  parent context, wall time, tokens. It needs `agent.subagent_model` set to a cloud model and a search key there.
+- **Overflow count in the run record**, so the next eval reads it instead of inferring it.
 - **Part C.**
