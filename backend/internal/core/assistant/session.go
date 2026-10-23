@@ -216,6 +216,9 @@ func (s *runSession) emptyTurnNag() string {
 
 func (s *runSession) handleContextSizeError(cause error) error {
 	s.sieve.sieveStreak++
+	if t := usage.FromContext(s.ctx); t != nil {
+		t.AddContextOverflow()
+	}
 	if s.sieve.sieveStreak >= sessionMaxSieveRetries {
 		return fmt.Errorf("agent execution failed: model stuck in reasoning loop after %d sieve retries", s.sieve.sieveStreak)
 	}

@@ -143,3 +143,12 @@ func TestTracker_SubagentsAndAFreshTrackerForAChild(t *testing.T) {
 		t.Error("Subagents returns a copy")
 	}
 }
+
+func TestTracker_ContextOverflows(t *testing.T) {
+	tr := &Tracker{}
+	tr.AddContextOverflow()
+	tr.AddContextOverflow()
+	if got := tr.ContextOverflows(); got != 2 {
+		t.Errorf("ContextOverflows() = %d, want 2", got)
+	}
+}

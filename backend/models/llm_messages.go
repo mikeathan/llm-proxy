@@ -83,6 +83,9 @@ type TurnRun struct {
 	MemorySaved []string `json:"memory_saved,omitempty"`
 	// Subagents are the tasks the turn delegated, one record each; their tokens are not in the counts above.
 	Subagents []SubagentRun `json:"subagents,omitempty"`
+	// ContextOverflows counts the times the model's server rejected a request as too large during the turn; each
+	// was answered by cutting the history and trying again.
+	ContextOverflows int `json:"context_overflows,omitempty"`
 	// Warnings are the turn's non-fatal problems, e.g. a tool whose credential was rejected — recorded whatever the
 	// model's answer says, so the operator sees them.
 	Warnings []string `json:"warnings,omitempty"`

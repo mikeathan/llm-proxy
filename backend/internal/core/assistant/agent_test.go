@@ -1202,10 +1202,14 @@ func TestAgent_ContextSizeErrorRecovery(t *testing.T) {
 		history = append(history, proxy.Message{Role: proxy.AssistantRole, Content: fmt.Sprintf("message %d", i)})
 	}
 
-	reply, _, err := agent.Execute(context.Background(), history)
+	ctx := usage.WithTracker(context.Background())
+	reply, _, err := agent.Execute(ctx, history)
 
 	if err != nil {
 		t.Fatalf("Execute should have recovered from context size error, got: %v", err)
+	}
+	if got := usage.FromContext(ctx).ContextOverflows(); got != 1 {
+		t.Errorf("ContextOverflows() = %d, want 1: the one rejected request", got)
 	}
 	if !strings.Contains(reply, "Recovered after sieve") {
 		t.Errorf("expected recovered response, got '%s'", reply)

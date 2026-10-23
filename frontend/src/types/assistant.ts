@@ -50,6 +50,8 @@ export interface TurnRun {
   memory_saved?: string[]
   // Non-fatal problems in the turn, e.g. a tool whose credential was rejected.
   warnings?: string[]
+  // Requests the server rejected as too large; each was answered by cutting the history.
+  context_overflows?: number
   // The tasks the turn delegated to sub-agents.
   subagents?: SubagentRun[]
 }
