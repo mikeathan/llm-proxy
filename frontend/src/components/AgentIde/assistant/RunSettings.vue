@@ -7,7 +7,7 @@ import FormField from "../../common/forms/FormField.vue"
 import SelectInput from "../../common/forms/SelectInput.vue"
 import PopoverPanel from "../../common/layout/PopoverPanel.vue"
 import BaseToggle from "../../common/buttons/BaseToggle.vue"
-import { HELPERS_FIELD_LABEL, HELPERS_ON_SUFFIX, HELPERS_TOGGLE_LABEL, helpersHelp } from "../../../constants/labels"
+import { AGENT_LABEL, HELPERS_FIELD_LABEL, HELPERS_ON_SUFFIX, HELPERS_TOGGLE_LABEL, helpersHelp } from "../../../constants/labels"
 import { toSettings } from "../../../router/routes"
 import type { HelpersProblem } from "../../../types/helpers"
 
@@ -50,7 +50,7 @@ const modelLabel = computed(() => props.modelOptions.find((o) => o.value === mod
 // With no problem given but helpers unavailable, the model was simply never chosen.
 const helpersHelpText = computed(() => helpersHelp(props.helpersAvailable ? "" : (props.helpersProblem || "unset"), props.helpersModel ?? ""))
 const helpersOn = computed(() => helpers.value && !!props.helpersShown && !!props.helpersAvailable)
-const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${modelLabel.value ? `, ${modelLabel.value}` : ""}${helpersOn.value ? ", helpers on" : ""}. Change`)
+const buttonLabel = computed(() => `Run settings: ${props.profileName} agent${modelLabel.value ? `, ${modelLabel.value}` : ""}${helpersOn.value ? ", helpers on" : ""}. Change`)
 </script>
 
 <template>
@@ -75,9 +75,9 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${
     <div v-if="open" ref="panel" :class="{ 'relative z-50': sheet }">
     <PopoverPanel :id="panelId" title="Run settings" placement="above" align="left" width="sm:w-[340px]" @close="open = false">
       <div class="flex flex-col gap-3 p-3">
-        <FormField label="Profile" :hint="profileSummary">
+        <FormField :label="AGENT_LABEL" :hint="profileSummary">
           <template #default="{ id, describedBy }">
-            <SelectInput :id="id" v-model="profile" :options="profileOptions" label="Profile" :aria-describedby="describedBy" />
+            <SelectInput :id="id" v-model="profile" :options="profileOptions" :label="AGENT_LABEL" :aria-describedby="describedBy" />
           </template>
         </FormField>
         <FormField v-if="modelOptions.length > 1" label="Model" hint="Used for the next message.">
@@ -103,7 +103,7 @@ const buttonLabel = computed(() => `Run settings: ${props.profileName} profile${
   @apply inline-flex h-8 max-w-[10rem] items-center gap-1.5 rounded-[var(--radius-md)] px-2 font-mono text-[length:var(--text-small)] text-muted transition-colors hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60;
 }
 .helpers-link { @apply -mt-1.5 w-fit text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2; }
-/* "Research · helpers" is longer than a profile name alone: room for the whole word. */
+/* "Research · helpers" is longer than an agent name alone: room for the whole word. */
 .trigger--helpers { @apply max-w-[14rem]; }
 @media (pointer: coarse) { .trigger { @apply h-11; } }
 </style>

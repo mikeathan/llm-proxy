@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.14"
+version: "2.15"
 status: stable
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,16 @@ supersedes:
 
 ## Changelog
 
+- **2.15 (2026-10-23)** — **Settings → Agents** and the rename of "profile" to "agent" in the interface.
+  - A General section, **Agents** (`AgentsSettings.vue`), between Runs and Memory & reminders: the list (the user's own
+    first, then the built-in ones, each with its summary, what it is the default for and its helper count) beside the
+    open agent on a wide screen, one at a time on a phone with a way back. The form is drawn from
+    `GET /admin/api/profile-schema`; the server's refusal appears beside the setting it names.
+  - Built-in agents are read-only with **Duplicate**; the user's own can be saved, discarded and deleted ("Restore
+    built-in" when a file replaces one). Leaving an edited agent asks first; the section reports its unsaved edits to
+    the page's guard. Saves go straight to the server (each agent is a file), so it has no shared Save.
+  - The picker in Run settings reads **Agent**, the workspace field **Agent for new chats**, the automation form and
+    details **Agent**. The API paths, field names and files still say profile (SPEC-012).
 - **2.14 (2026-10-22)** — The Helpers row in Run settings links to **Settings → Runs**, where the Helper model is
   chosen, and says what is wrong when helpers cannot run, by `GET /admin/api/helpers`'s `problem`: no model chosen
   (`unset`), the chosen one **removed from the models** (`missing`), or one that is not a cloud model (`not_cloud`).

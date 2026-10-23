@@ -96,3 +96,24 @@ export const MODEL_BUSY_DIALOG_MESSAGE =
 export const MODEL_BUSY_WAIT_LABEL = 'Wait'
 export const MODEL_BUSY_CANCEL_LABEL = 'Cancel'
 export const TRANSPORT_ERROR_LABEL = 'transport error'
+
+// Settings · Agents (an agent is a prompt profile; the server calls it a profile).
+export const AGENT_LABEL = 'Agent'
+export const AGENT_FOR_NEW_CHATS_LABEL = 'Agent for new chats'
+export const AGENT_DISCARD_PROMPT = {
+  title: 'Discard your changes?',
+  message: 'This agent has edits that are not saved.',
+  type: 'warning',
+  confirmText: 'Discard',
+} as const
+export function agentSavedToast(name: string): string {
+  return `Saved ${name}`
+}
+// What deleting says it does: who still lists the agent as a helper (they skip it from now on), and that deleting a
+// user's file over a built-in brings the built-in back.
+export function agentDeletePrompt(agent: { name: string; replaces_builtin: boolean; delegating_to: string[] }, all: { id: string; name: string }[]) {
+  const namedBy = agent.delegating_to.map((id) => all.find((p) => p.id === id)?.name ?? id)
+  const parts = [agent.replaces_builtin ? 'The built-in agent with this id comes back.' : 'This cannot be undone.']
+  if (namedBy.length > 0) parts.push(`${namedBy.join(', ')} ${namedBy.length === 1 ? 'lists' : 'list'} it as a helper and will stop using it.`)
+  return { title: `Delete ${agent.name}?`, message: parts.join(' '), type: 'warning', confirmText: agent.replaces_builtin ? 'Restore built-in' : 'Delete' } as const
+}

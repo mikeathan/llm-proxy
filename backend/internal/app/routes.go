@@ -293,6 +293,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/queue/{queue_key}/cancel", hs.ActiveRuns.ServeCancelHTTP, jsonMethodNotAllowed)
 
 	router.Get("/admin/api/profiles", hs.Profiles.List, jsonMethodNotAllowed)
+	router.Get("/admin/api/profile-schema", hs.Profiles.Schema, jsonMethodNotAllowed)
+	router.Get("/admin/api/profiles/{id}", hs.Profiles.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/profiles/{id}", hs.Profiles.Put, jsonMethodNotAllowed)
+	router.Delete("/admin/api/profiles/{id}", hs.Profiles.Delete, jsonMethodNotAllowed)
 	router.Get("/admin/api/helpers", hs.Helpers.Status, jsonMethodNotAllowed)
 
 	if hs.Reminders != nil {

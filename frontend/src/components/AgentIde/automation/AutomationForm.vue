@@ -15,6 +15,7 @@ import { triggerLabel } from "../../../utils/automation/automationDisplay";
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { defaultProfile, profileLabel } from "../../../utils/assistant/profileChoice";
 import { useProfiles } from "../../../composables/assistant/useProfiles";
+import { AGENT_LABEL } from "../../../constants/labels";
 import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, journalLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
 import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
@@ -261,7 +262,7 @@ const review = computed(() => [
   ["Name", form.value.name || "—"],
   ["Task file", writingTask.value ? (newTaskFile.value ? `${newTaskFile.value} (new file)` : "—") : form.value.taskFile || "—"],
   ["Model", form.value.model || "Workspace default"],
-  ["Profile", profileLabel(profiles.value, "automation", form.value.profile)],
+  [AGENT_LABEL, profileLabel(profiles.value, "automation", form.value.profile)],
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
   ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
   ["Memory", memoryLabel(form.value.memoryMode)],
@@ -330,7 +331,7 @@ const review = computed(() => [
             </select>
           </template>
         </FormField>
-        <FormField label="Profile" :hint="profileHint">
+        <FormField :label="AGENT_LABEL" :hint="profileHint">
           <template #default="{ id, describedBy }">
             <select :id="id" v-model="form.profile" :aria-describedby="describedBy" class="form-control">
               <option value="">{{ profileLabel(profiles, "automation") }}</option>

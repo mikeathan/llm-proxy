@@ -67,15 +67,15 @@ type Profile struct {
 // frontMatter is the file header. Unknown keys are an error, so a typo in a user's file is not silently ignored.
 type frontMatter struct {
 	Name        string            `yaml:"name"`
-	Summary     string            `yaml:"summary"`
-	AnswerFirst bool              `yaml:"answer_first"`
-	MayAsk      bool              `yaml:"may_ask"`
-	MaxSteps    int               `yaml:"max_steps"`
-	Tools       []string          `yaml:"tools"`
-	Memory      models.MemoryMode `yaml:"memory"`
-	MemorySave  SaveMode          `yaml:"memory_save"`
-	Reminders   bool              `yaml:"reminders"`
-	Delegates   []string          `yaml:"delegates"`
+	Summary     string            `yaml:"summary,omitempty"`
+	AnswerFirst bool              `yaml:"answer_first,omitempty"`
+	MayAsk      bool              `yaml:"may_ask,omitempty"`
+	MaxSteps    int               `yaml:"max_steps,omitempty"`
+	Tools       []string          `yaml:"tools,omitempty"`
+	Memory      models.MemoryMode `yaml:"memory,omitempty"`
+	MemorySave  SaveMode          `yaml:"memory_save,omitempty"`
+	Reminders   bool              `yaml:"reminders,omitempty"`
+	Delegates   []string          `yaml:"delegates,omitempty"`
 }
 
 // Unprofiled is what an agent runs with when no profile was chosen (a direct constructor, a test): the loop as it

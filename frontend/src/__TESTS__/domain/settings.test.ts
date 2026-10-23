@@ -3,7 +3,7 @@ import { getSettingsTabGroups, groupOfSection, isProviderTab } from '../../domai
 import type { SettingsTab } from '../../types/admin'
 
 // What useProviders.settingsTabs yields, plus a security entry the manifests omit.
-const ALL: SettingsTab[] = ['appearance', 'local', 'runs', 'memory', 'storage', 'local-models', 'limits', 'guardrails', 'gemini', 'openai', 'mcp', 'communication', 'search', 'processes']
+const ALL: SettingsTab[] = ['appearance', 'local', 'runs', 'agents', 'memory', 'storage', 'local-models', 'limits', 'guardrails', 'gemini', 'openai', 'mcp', 'communication', 'search', 'processes']
 
 describe('getSettingsTabGroups', () => {
   it('groups every section under six tabs, in order', () => {
@@ -15,7 +15,7 @@ describe('getSettingsTabGroups', () => {
   it('places each section where the operator would look for it', () => {
     const bySection = Object.fromEntries(getSettingsTabGroups(ALL).map((g) => [g.id, g.sections]))
     expect(bySection).toEqual({
-      general: ['local', 'runs', 'memory', 'storage'],
+      general: ['local', 'runs', 'agents', 'memory', 'storage'],
       models: ['local-models', 'gemini', 'openai'],
       safety: ['security', 'limits', 'guardrails'],
       connectors: ['communication', 'search', 'mcp'],
@@ -60,7 +60,7 @@ describe('groupOfSection', () => {
 
 describe('isProviderTab', () => {
   it('is true only for cloud providers', () => {
-    for (const section of ['runs', 'memory', 'storage', 'limits'] as const) expect(isProviderTab(section)).toBe(false)
+    for (const section of ['runs', 'agents', 'memory', 'storage', 'limits'] as const) expect(isProviderTab(section)).toBe(false)
     expect(isProviderTab('openai')).toBe(true)
     expect(isProviderTab('local')).toBe(false)
     expect(isProviderTab('mcp')).toBe(false)

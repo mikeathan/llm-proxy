@@ -7,6 +7,7 @@ import { useAutomationJournal } from "../../../composables/automation/useAutomat
 import { useConfirm } from "../../../composables/ui/useConfirm";
 import { useModels } from "../../../composables/models/useModels";
 import { useProfiles } from "../../../composables/assistant/useProfiles";
+import { AGENT_LABEL } from "../../../constants/labels";
 import { profileLabel } from "../../../utils/assistant/profileChoice";
 import { useMemoryDefaults } from "../../../composables/memory/useMemoryDefaults";
 import { groupTurns } from "../../../utils/message/turnGrouper";
@@ -127,7 +128,7 @@ const config = computed(() => [
   ...(nextRunLabel(props.automation) ? [["Next run", `${nextRunLabel(props.automation)} (server time)`]] : []),
   ["Strategy", props.automation.strategy],
   ["Model", modelLabel.value],
-  ["Profile", profileLabel(profiles.value, "automation", props.automation.profile)],
+  [AGENT_LABEL, profileLabel(profiles.value, "automation", props.automation.profile)],
   ["Loop strategy", props.automation.loop_strategy || "Model's setting"],
   ["Network", props.automation.network_grant || "Inherits the workspace"],
   ["Memory", memoryModeLabel(props.automation.memory_mode, automationDefaultOn.value)],
