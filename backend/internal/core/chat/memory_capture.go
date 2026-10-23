@@ -7,6 +7,7 @@ import (
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/run"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
@@ -64,15 +65,15 @@ func (l captureLibrary) Has(ctx context.Context, workspaceID, content string) bo
 // before the agent starts, so a standing instruction is already in that run's memory block. Only the operator's own
 // chats qualify (a connector session is an outside sender) and only while assistant memory is on. It never fails the
 // chat: a store error is logged and the turn goes on.
-func (s *conversationService) captureMemories(ctx context.Context, run *models.TurnRun, workspaceID, conversationID, message string, runProfile profile.Profile, log logging.Logger) {
+func (s *conversationService) captureMemories(ctx context.Context, turnRun *models.TurnRun, workspaceID, conversationID, message string, runProfile profile.Profile, log logging.Logger) {
 	store := s.deps.MemoryStore()
-	if run == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !runProfile.CapturesMemory() || !assistant.HotMemoryActive(s.deps, assistant.RunSpec{
-		Kind: profile.KindAssistant, Profile: runProfile, Overrides: assistant.RunOverrides{Memory: s.workspaceMemory(workspaceID)},
+	if turnRun == nil || store == nil || models.SessionSource(conversationID) != models.SessionSourceManual || !runProfile.CapturesMemory() || !run.HotMemoryActive(s.deps, run.Spec{
+		Kind: profile.KindAssistant, Profile: runProfile, Overrides: run.Overrides{Memory: s.workspaceMemory(workspaceID)},
 	}) {
 		return
 	}
 	res := memorycapture.Capture(ctx, s.extractor, captureLibrary{tools: tools.NewMemoryToolProvider(store)}, workspaceID, message)
-	run.MemorySaved = res.Saved
+	turnRun.MemorySaved = res.Saved
 	if res.Failed > 0 {
 		log.Warn("explicit memory request could not be saved", "workspace", workspaceID, "failed", res.Failed)
 	}

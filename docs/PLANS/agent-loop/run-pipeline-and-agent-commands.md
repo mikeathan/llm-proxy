@@ -1,7 +1,7 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. C0, C1, C2 and C4 done; C5 part done (the conversation service is in
-`chat`; `ResolveRunOptions` and heartbeat not moved).
+**Status:** approved (2026-10-23). D1–D3 decided. C0, C1, C2, C4 and C5 done (C0–C5 part merged as #129); C6 next, then
+C3 (PR 2).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -109,7 +109,7 @@ that each pass the tests; PR 2 is the commands, C3, after PR 1 is merged (D2: re
 | C2 | **Chat service — done.** `core/chat` (`chat.Service`, `chat.Request`) holds the turn lifecycle; the handler and the webhook call it; `Execute` takes one `ExecuteRequest`; the chat handlers depend on a 11-method `AssistantHandlerDeps`, not the 26-method `AssistantService` (the automation side still uses that one; C4). The lifecycle tests moved with the code (22 tests) | Characterisation tests unchanged; handlers contain no lifecycle; complexity has no new violations |
 | C3 | **Turn commands (PR 2).** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, `/run` into the registry, long-reply handling; docs in SPEC-009 and SPEC-003 | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
 | C4 | **Merge duplicates — done, see C4 results.** Memory review on the shared admission; the others were looked at and left | Tests green; complexity has no new violations |
-| C5 | **Package moves — part done, see C5 results.** The conversation service is in `chat`. Left: `ResolveRunOptions` into `run/`, heartbeat out of `executor.go`. Not yet smoked on vertex (C2 neither) | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
+| C5 | **Package moves — done, see C5 results.** The conversation service is in `chat` (#129); the resolver is `run.ResolveOptions`; the heartbeat's quiet signal is in `automation/heartbeat.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
 | C6 | **Close out.** SPECs, `architecture.md`, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
 
 Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap.
@@ -158,6 +158,21 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   functions, unchanged).
 - Verified: `go build ./...`, `go vet ./...`, `go test ./...`, the complexity check.
 
+### C5 second part (2026-10-23, after #129)
+
+- **The resolver is `run.ResolveOptions`** (`run/options.go`) with `run.Spec`, `run.Overrides`, `run.OptionDeps` and
+  `run.HotMemoryActive`; the `assistant` copies are deleted, not aliased. `run` imports `assistant`; neither
+  `assistant` nor `delegation` imports `run` (`go list -deps`). Callers: `chat`, `automation/executor.go`,
+  `delegation/runner.go`. In `chat.captureMemories` the `run` parameter (a `*models.TurnRun`) is now `turnRun`, which
+  shadowed the package.
+- Tests follow: `run/options_test.go` (`TestResolveOptions`, `TestResolveOptions_SubagentRules`, renamed from
+  `TestResolveRunOptions*`). The adaptive-result-cap test splits in two: the setting reaching the options
+  (`run.TestResolveOptions_AdaptiveResultCap`) and the options reaching the agent (`assistant.
+  TestNewAgent_AdaptiveResultCapReachesTheAgent`, which reads the agent's unexported config), so one test name is new.
+- **Heartbeat:** the Pulse Logic block (`HEARTBEAT_OK`, `isQuietHeartbeat`, `isQuietResponse`, `heartbeatResultOf`,
+  `ApplyPulseLogic`) and `TestApplyPulseLogic` move unchanged from `executor.go` / `executor_test.go` to `heartbeat.go`
+  / `heartbeat_test.go`. `executor.go` is 609 lines (735 at the review).
+
 ### Live smoke on vertex (2026-10-23, build `6e9c7f0`, throwaway workspaces, deleted afterwards)
 
 - **Passed:** a turn and a follow-up in the same conversation (the history is replayed); replace (a new message
@@ -188,7 +203,6 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 ## Remaining Work
 
-- C5: `ResolveRunOptions` into `run/`; heartbeat out of `executor.go`.
 - The connector turn on a real Telegram chat (C2's reply fix), once vertex has a reachable webhook.
 - An idle timeout for an upstream stream that stalls (seen in the smoke; separate fix).
 - C6 close-out, then C3 (PR 2).

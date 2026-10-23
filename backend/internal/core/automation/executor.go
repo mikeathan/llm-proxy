@@ -79,7 +79,7 @@ type ExecuteResponse struct {
 // LLMServiceProvider is the minimal interface needed by LLMTaskExecutor.
 // It avoids an import cycle by not depending on the api or nodeherder packages.
 type LLMServiceProvider interface {
-	assistant.RunOptionDeps
+	run.OptionDeps
 	ClientProvider() proxy.LLMClientProvider
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
@@ -360,16 +360,16 @@ func (e *LLMTaskExecutor) buildAgentOptions(req ExecuteRequest, runProfile profi
 	}
 	// Approval events go to live subscribers only, not the run's event file.
 	spec.DecisionEvents = func(ev assistant.AgentEvent) { e.publishRunEvent(req, ev) }
-	return assistant.ResolveRunOptions(e.svc, spec)
+	return run.ResolveOptions(e.svc, spec)
 }
 
 // runSpec is the automation's choices for its run: its model, profile, loop, allowed tools and memory mode. The
 // allow list restricts the exposed tool schema for unattended runs (allow ∩ guardrail-disabled, resolved in
 // NewAgent); a profile can hide tools, never add one the list lacks.
-func runSpec(req ExecuteRequest, runProfile profile.Profile) assistant.RunSpec {
-	return assistant.RunSpec{
+func runSpec(req ExecuteRequest, runProfile profile.Profile) run.Spec {
+	return run.Spec{
 		Kind: profile.KindAutomation, WorkspaceID: req.WorkspaceID, Model: req.Model, Profile: runProfile,
-		Overrides: assistant.RunOverrides{
+		Overrides: run.Overrides{
 			LoopStrategy: assistant.LoopStrategyName(req.LoopStrategy),
 			AllowedTools: allowedToolsFor(req),
 			Memory:       req.MemoryMode,
@@ -588,7 +588,7 @@ func (e *LLMTaskExecutor) recordRun(outcome runOutcome, output, errStr string, d
 func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest, runProfile profile.Profile) string {
 	prompt := fmt.Sprintf(prompts.AutomationTaskPrompt,
 		req.WorkspaceID, req.TaskFile, taskContent)
-	if assistant.HotMemoryActive(e.svc, runSpec(req, runProfile)) && toolOffered(req, runProfile, models.ToolMemorySearch) {
+	if run.HotMemoryActive(e.svc, runSpec(req, runProfile)) && toolOffered(req, runProfile, models.ToolMemorySearch) {
 		prompt += prompts.AutomationMemoryBlock()
 	}
 	return prompt
@@ -599,51 +599,6 @@ func (e *LLMTaskExecutor) buildPrompt(taskContent string, req ExecuteRequest, ru
 func toolOffered(req ExecuteRequest, runProfile profile.Profile, name string) bool {
 	allowed := allowedToolsFor(req)
 	return (len(allowed) == 0 || slices.Contains(allowed, name)) && !slices.Contains(runProfile.ExcludedTools(), name)
-}
-
-// ============================================================================
-// Pulse Logic (Smart Skip)
-// ============================================================================
-
-const (
-	heartbeatOKMarker = "HEARTBEAT_OK"
-	// heartbeatMarkupChars are markdown emphasis characters a model may wrap
-	// around the marker (**HEARTBEAT_OK**, `HEARTBEAT_OK`).
-	heartbeatMarkupChars = "*_`# \t\r\n"
-)
-
-// isQuietHeartbeat reports whether a report is the "nothing to report" signal:
-// it must START with the marker (ignoring markdown emphasis), so a real alert
-// that merely mentions the marker is never swallowed. The UI's smart skip and
-// connector delivery share this one definition.
-func isQuietHeartbeat(report string) bool {
-	return strings.HasPrefix(strings.TrimLeft(report, heartbeatMarkupChars), heartbeatOKMarker)
-}
-
-// isQuietResponse judges the agent's report alone when there is one — Output
-// carries a run header and would match a marker mentioned anywhere. A response
-// without a Report (legacy executors) falls back to scanning Output.
-func isQuietResponse(resp *ExecuteResponse) bool {
-	if resp.Report != "" {
-		return isQuietHeartbeat(resp.Report)
-	}
-	return strings.Contains(resp.Output, heartbeatOKMarker)
-}
-
-// heartbeatResultOf classifies a finished heartbeat check by its report.
-func heartbeatResultOf(resp *ExecuteResponse) models.HeartbeatResult {
-	if isQuietResponse(resp) {
-		return models.HeartbeatQuiet
-	}
-	return models.HeartbeatAlert
-}
-
-// ApplyPulseLogic applies the Smart Skip logic to suppress noisy heartbeat output.
-func ApplyPulseLogic(resp *ExecuteResponse) {
-	if isQuietResponse(resp) {
-		resp.Output = ""
-		resp.State.LastPulse = time.Now()
-	}
 }
 
 // publishRunEvent sends an event of this run, naming its automation so it is routed

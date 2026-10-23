@@ -110,7 +110,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 
 | Status | Plan | Open scope |
 |--------|-------|-----------|
-| approved | Run pipeline cleanup and agent commands | C0, C1, C2, C4 done; C5 part done (conversation service in `chat`); left: rest of C5, vertex smoke, C6, then PR 2 commands C3; D1–D3 decided (`agent-loop/run-pipeline-and-agent-commands.md`) |
+| approved | Run pipeline cleanup and agent commands | C0–C5 done (#129 merged; C5's second part on its own branch); left: C6, then PR 2 commands C3; D1–D3 decided (`agent-loop/run-pipeline-and-agent-commands.md`) |
 | active | Multi-Agent Delegation | R0 + Part A done; Part B built (cloud web-research sub-agents: `delegate_task`, `delegation.Runner`, pool, profile `delegates`, Settings + chat UI) — B7 eval done 2026-10-23 (helpers kept); overflow count recorded (#126), Agents editor built (#128); left: Part C planned (handler lifecycle, package moves, reviewer, pipelines) (`agent-loop/multi-agent-delegation.md`) |
 | active | Prompt Profiles | built (Phases 0–6); left: eval the Research, Operator, Builder and Watcher profiles, fold in the layering plan's write guardrail, delete the dead `GetSystemPrompt` chain (`cross-cutting/prompt-profiles.md`) |
 | partial | Automation Learning Journal | live-model checks only — Phase 3 (does a small model call `memory_search` first) + Phase 2 smoke run; Phases 1–4 are built (bullet dedup, journal + tool, memory-first prompt, heartbeat active hours) |

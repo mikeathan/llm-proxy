@@ -150,10 +150,10 @@ func TestCurrentResultCap_DefaultOutsideATurn(t *testing.T) {
 	}
 }
 
-func TestResolveRunOptions_AdaptiveResultCapReachesTheAgent(t *testing.T) {
+// The resolved setting (run.TestResolveOptions_AdaptiveResultCap) reaches the agent.
+func TestNewAgent_AdaptiveResultCapReachesTheAgent(t *testing.T) {
 	for _, enabled := range []bool{true, false} {
-		deps := &runOptionDepsStub{agent: &models.AgentConfig{AdaptiveResultCap: new(enabled)}}
-		a := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, ResolveRunOptions(deps, RunSpec{Logger: logging.NewNopLogger()}))
+		a := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{Logger: logging.NewNopLogger(), AdaptiveResultCap: enabled})
 		if a.config.AdaptiveResultCap != enabled {
 			t.Errorf("setting %v -> agent %v", enabled, a.config.AdaptiveResultCap)
 		}

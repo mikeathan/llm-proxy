@@ -503,30 +503,6 @@ func TestExecute_SendsTheRunsProfileBehaviour(t *testing.T) {
 	}
 }
 
-func TestApplyPulseLogic(t *testing.T) {
-	const header = "⏱ **Duration:** 1s\n\n### Final Report\n\n"
-	cases := []struct {
-		name, report string
-		wantQuiet    bool
-	}{
-		{"bare marker", "HEARTBEAT_OK", true},
-		{"bold marker", "**HEARTBEAT_OK**", true},
-		{"an alert that merely mentions the marker stays visible", "Not HEARTBEAT_OK: GPT-6 shipped", false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			resp := &ExecuteResponse{Output: header + tc.report, Report: tc.report, State: &models.AgentState{}}
-			ApplyPulseLogic(resp)
-			if quiet := resp.Output == ""; quiet != tc.wantQuiet {
-				t.Errorf("output blanked = %v, want %v", quiet, tc.wantQuiet)
-			}
-			if got := !resp.State.LastPulse.IsZero(); got != tc.wantQuiet {
-				t.Errorf("LastPulse set = %v, want %v", got, tc.wantQuiet)
-			}
-		})
-	}
-}
-
 // One run, one id: the history entry carries the id the run context was given, and the response reports it so the
 // dispatcher can find that run again after delivery.
 func TestRecordRun_UsesTheRunIDAndReportsIt(t *testing.T) {

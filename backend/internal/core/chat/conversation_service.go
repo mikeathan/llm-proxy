@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/memorycapture"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/run"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -22,7 +23,7 @@ import (
 // ConversationDeps provides the external dependencies for ConversationService.
 // Implemented by the HTTP handler layer.
 type ConversationDeps interface {
-	assistant.RunOptionDeps
+	run.OptionDeps
 	SelectModels() (string, string)
 	// Profiles is the prompt-profile catalog a run's behaviour is resolved from.
 	Profiles() *profile.Catalog
@@ -291,10 +292,10 @@ type chatAgentRun struct {
 // agentOptions resolves the options a chat turn's agent runs with; the workspace's memory setting is the turn's own
 // choice, above the profile's.
 func (s *conversationService) agentOptions(r chatAgentRun) assistant.AgentOptions {
-	return assistant.ResolveRunOptions(s.deps, assistant.RunSpec{
+	return run.ResolveOptions(s.deps, run.Spec{
 		Kind: profile.KindAssistant, WorkspaceID: r.workspaceID, ConversationID: r.sessionID, Model: r.modelName,
 		Profile: r.profile, Logger: r.log, Observer: r.observer,
-		Overrides: assistant.RunOverrides{ExcludedTools: r.excludeTools, Memory: s.workspaceMemory(r.workspaceID)},
+		Overrides: run.Overrides{ExcludedTools: r.excludeTools, Memory: s.workspaceMemory(r.workspaceID)},
 	})
 }
 

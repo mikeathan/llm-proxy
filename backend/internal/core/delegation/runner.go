@@ -15,6 +15,7 @@ import (
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/run"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -36,7 +37,7 @@ var childTools = []string{models.ToolInternetSearch, models.ToolNetworkFetch}
 // Deps is what running a child needs. It is the app's services as they were before the runner was added to them, so
 // their own SubRunner is nil and a child cannot delegate in turn.
 type Deps interface {
-	assistant.RunOptionDeps
+	run.OptionDeps
 	Profiles() *profile.Catalog
 	GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error)
 	EffectiveToolCallFormat(ctx context.Context, modelName string) string
@@ -150,10 +151,10 @@ func (r *Runner) runChild(ctx context.Context, req assistant.SubRunRequest, help
 
 	native := r.deps.EffectiveToolCallFormat(childCtx, res.Model) == "native"
 	scope, _ := models.RunNetworkScopeFrom(ctx) // a child never reaches further than its parent may
-	opts := assistant.ResolveRunOptions(r.deps, assistant.RunSpec{
+	opts := run.ResolveOptions(r.deps, run.Spec{
 		Kind: profile.KindSubagent, WorkspaceID: req.WorkspaceID, Model: res.Model, Profile: helper,
 		Logger: r.deps.ProcessLogger(req.WorkspaceID), Observer: progress(req, res.RunID),
-		Overrides: assistant.RunOverrides{AllowedTools: childTools, Memory: models.MemoryModeOff},
+		Overrides: run.Overrides{AllowedTools: childTools, Memory: models.MemoryModeOff},
 	})
 	opts.RunNetworkScope = scope
 	agent := assistant.NewAgent(client, r.deps.ToolProvider(), r.deps.Engine(), opts)
