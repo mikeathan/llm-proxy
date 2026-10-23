@@ -2,7 +2,7 @@
 import type { LoopStrategy, Model, AvailableModel, ActiveModel } from './model'
 
 export type ProviderType = 'local' | 'gemini' | 'openai' | 'openrouter' | 'nvidia'
-export type SettingsTab = ProviderType | 'appearance' | 'runs' | 'memory' | 'storage' | 'limits' | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search'
+export type SettingsTab = ProviderType | 'appearance' | 'runs' | 'memory' | 'storage' | 'limits' | 'local-models' | 'mcp' | 'guardrails' | 'security' | 'processes' | 'communication' | 'search' | 'agents'
 
 export interface APIKeyItem {
   id: string

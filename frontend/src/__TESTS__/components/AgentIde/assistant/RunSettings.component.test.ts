@@ -25,7 +25,7 @@ describe('RunSettings', () => {
   it('is one button naming the profile, with the full choice in its label', () => {
     const button = mountSettings({ model: 'b' }).get('[data-test="run-settings"]')
     expect(button.text()).toBe('General')
-    expect(button.attributes('aria-label')).toBe('Run settings: General profile, b. Change')
+    expect(button.attributes('aria-label')).toBe('Run settings: General agent, b. Change')
     expect(button.attributes('aria-expanded')).toBe('false')
   })
 
@@ -60,7 +60,7 @@ describe('RunSettings', () => {
   it('reports a profile pick and a model pick', async () => {
     const w = mountSettings()
     await w.get('[data-test="run-settings"]').trigger('click')
-    await w.get('select[aria-label="Profile"]').setValue('research')
+    await w.get('select[aria-label="Agent"]').setValue('research')
     await w.get('select[aria-label="Model"]').setValue('b')
     expect(w.emitted('update:profile')?.[0]).toEqual(['research'])
     expect(w.emitted('update:model')?.[0]).toEqual(['b'])
@@ -70,7 +70,7 @@ describe('RunSettings', () => {
     const w = mountSettings({ modelOptions: [{ value: '', label: 'Default (a)' }] })
     await w.get('[data-test="run-settings"]').trigger('click')
     expect(w.find('select[aria-label="Model"]').exists()).toBe(false)
-    expect(w.find('select[aria-label="Profile"]').exists()).toBe(true)
+    expect(w.find('select[aria-label="Agent"]').exists()).toBe(true)
   })
 
   it('cannot be opened while a run is going', () => {

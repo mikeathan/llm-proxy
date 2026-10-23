@@ -101,7 +101,7 @@ describe('Settings (global)', () => {
   it('splits General into short sections, each its own page', async () => {
     const { w } = await mountSettings('/settings/runs')
     const row = w.get('nav[aria-label="General sections"]')
-    expect(row.findAll('a').map((a) => a.text())).toEqual(['Routing & engine', 'Runs', 'Memory & reminders', 'Storage & logging'])
+    expect(row.findAll('a').map((a) => a.text())).toEqual(['Routing & engine', 'Runs', 'Agents', 'Memory & reminders', 'Storage & logging'])
     expect(row.get('a[aria-current="page"]').attributes('href')).toBe('/settings/runs')
     const visible = w.findAll('section').filter((p) => p.isVisible()).map((p) => p.text())
     expect(visible.some((t) => /run scheduler/i.test(t))).toBe(true)

@@ -30,7 +30,7 @@ describe('WorkspaceProfileField', () => {
 
   it('offers the default (named) and every profile, and shows what the default is for', async () => {
     const w = await mountField()
-    const select = w.get('select[aria-label="Profile for new chats"]')
+    const select = w.get('select[aria-label="Agent for new chats"]')
     expect(select.findAll('option').map((o) => o.text())).toEqual(['Default (General)', 'Builder', 'General'])
     expect((select.element as HTMLSelectElement).value).toBe('')
     expect(w.text()).toContain('Everyday assistant.')

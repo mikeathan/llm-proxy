@@ -86,7 +86,11 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/admin/api/profiles` | Every prompt profile (built-in and the user's files) with its flags and what it is the default for; never its instructions (SPEC-012) |
+| GET | `/admin/api/profiles` | Every prompt profile (an "agent" in the UI; built-in and the user's files) with its flags and what it is the default for; never its instructions (SPEC-012) |
+| GET | `/admin/api/profiles/{id}` | One profile with its instructions, the profiles that list it as a helper, and whether a user file replaces a built-in |
+| PUT | `/admin/api/profiles/{id}` | Create or replace one of the user's own profiles; `400 {error, field}` when invalid, `409` for a built-in |
+| DELETE | `/admin/api/profiles/{id}` | Delete the user's own profile file (a replaced built-in comes back); `409` for a built-in |
+| GET | `/admin/api/profile-schema` | The settings of a profile with their help text, for the Settings → Agents form |
 
 A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `profile` name a profile; an unknown id is `400`.
 

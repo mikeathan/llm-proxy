@@ -33,4 +33,5 @@ export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   mcp: "MCP Servers",
   communication: "Communication",
   search: "Search",
+  agents: "Agents",
 };

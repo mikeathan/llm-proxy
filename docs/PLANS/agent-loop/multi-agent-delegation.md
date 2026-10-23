@@ -139,7 +139,8 @@ Decisions from the research report §9:
 - A5: the test-doubles package (Step 0 of `cross-cutting/assistant-conversation-package.md`), `conversation/` out of
   `assistant`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go`, plus cleanup Bucket A.
 - Helpers with `on_finish`; the reviewer type; `files` / `cloud_files`.
-- The Settings → Agents editor with schema-driven hints (built-ins read-only, "Duplicate to edit").
+- The Settings → Agents editor with schema-driven hints (built-ins read-only, "Duplicate to edit"): planned in
+  [`agents-editor.md`](agents-editor.md).
 - Pipelines with Event-Driven Triggers.
 
 ## Part A results (2026-10-22)

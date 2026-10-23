@@ -109,10 +109,10 @@ describe('AutomationDetails', () => {
   it("names the profile its runs use, or the default's name when none was chosen", async () => {
     const chosen = await mountDetails({ automation: { ...AUTO, profile: 'research' } })
     await flushPromises()
-    expect(chosen.text()).toMatch(/Profile\s*Research/)
+    expect(chosen.text()).toMatch(/Agent\s*Research/)
     const unchosen = await mountDetails()
     await flushPromises()
-    expect(unchosen.text()).toMatch(/Profile\s*Default \(Task runner\)/)
+    expect(unchosen.text()).toMatch(/Agent\s*Default \(Task runner\)/)
   })
 
   it('shows the configuration, the last error and the last output, and connects the live console', async () => {

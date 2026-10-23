@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, toRef } from "vue"
+import { AGENT_FOR_NEW_CHATS_LABEL } from "../../../constants/labels"
 import { useProfiles } from "../../../composables/assistant/useProfiles"
 import { useWorkspaceProfile } from "../../../composables/assistant/useWorkspaceProfile"
 import { defaultProfile } from "../../../utils/assistant/profileChoice"
@@ -26,13 +27,13 @@ const problem = computed(() => error.value ?? catalogError.value)
 </script>
 
 <template>
-  <FormField label="Profile for new chats" :hint="summary">
+  <FormField :label="AGENT_FOR_NEW_CHATS_LABEL" :hint="summary">
     <template #default="{ id }">
       <SelectInput
         :id="id"
         :model-value="shown"
         :options="options"
-        label="Profile for new chats"
+        :label="AGENT_FOR_NEW_CHATS_LABEL"
         :disabled="loading || saving || profiles.length === 0"
         :aria-busy="loading || saving"
         @update:model-value="save($event)"

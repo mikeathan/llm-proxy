@@ -12,7 +12,7 @@ import { useSettingsSection } from "../composables/settings/useSettingsSection"
 import { useProviderKeys } from "../composables/settings/useProviderKeys"
 import { AdminApiService } from "../services/admin/adminService"
 import { getSettingsTabGroups, isProviderTab } from "../domain/settings"
-import { SETTINGS_GROUP_SECTIONS, SETTINGS_SECTION_LABELS } from "../constants/settings"
+import { GENERAL_PANEL_SECTION, SETTINGS_SECTION_LABELS } from "../constants/settings"
 import { errorMessage } from "../utils/errors"
 import { ROUTE_NAMES } from "../types/routes"
 import type { GlobalConfig, ProviderType, SettingsTab } from "../types/admin"
@@ -34,6 +34,7 @@ import McpServers from "../components/settings/McpServers.vue"
 import ApiKeySettings from "../components/settings/ApiKeySettings.vue"
 import ProviderModelsCard from "../components/settings/ProviderModelsCard.vue"
 import CommunicationSettings from "../components/settings/CommunicationSettings.vue"
+import AgentsSettings from "../components/settings/AgentsSettings.vue"
 import SearchSettings from "../components/settings/SearchSettings.vue"
 import InfrastructurePanel from "../components/infrastructure/InfrastructurePanel.vue"
 import AppearanceSettings from "../components/settings/AppearanceSettings.vue"
@@ -55,7 +56,7 @@ const RESTART_PROMPT = {
   confirmText: "Restart",
 } as const
 // Sections with a draft of their own (not part of the shared configuration).
-type DraftSection = "appearance" | "security" | "communication" | "search"
+type DraftSection = "appearance" | "security" | "communication" | "search" | "agents"
 
 const { config, isLoading, isSaving, isDirty: configDirty, error: configError, fetchConfig, updateConfig, discardChanges, ensureProvider } = useConfig()
 const { state: modelsState, availableModels, refresh: refreshModels } = useModels()
@@ -75,7 +76,7 @@ const { activeTab } = useSettingsSection(
 const providerTabs = computed(() => settingsTabs.value.filter(isProviderTab) as ProviderType[])
 const labelOf = (tab: SettingsTab) => SETTINGS_SECTION_LABELS[tab] ?? getLabel(tab)
 // General is several short sections over one form: all stay mounted, so an edit survives moving between them.
-const isGeneralSection = computed(() => SETTINGS_GROUP_SECTIONS.general.includes(activeTab.value))
+const isGeneralSection = computed(() => Object.values(GENERAL_PANEL_SECTION).includes(activeTab.value))
 // Security is two sections over one draft, for the same reason.
 const isSecuritySection = computed(() => activeTab.value === 'security' || activeTab.value === 'limits')
 
@@ -111,7 +112,7 @@ watch(
 // ── Saving the shared configuration ───────────────────────────────────────
 const saveError = ref("")
 const loadFailed = ref(false)
-const draftDirty = reactive<Record<DraftSection, boolean>>({ appearance: false, security: false, communication: false, search: false })
+const draftDirty = reactive<Record<DraftSection, boolean>>({ appearance: false, security: false, communication: false, search: false, agents: false })
 const anyDirty = computed(() => configDirty.value || Object.values(draftDirty).some(Boolean))
 
 async function saveConfig() {
@@ -215,6 +216,10 @@ const updateConfigValue = (value: GlobalConfig) => {
               @update-log-level="updateLogLevel"
             />
             <SettingsActions :dirty="configDirty" :saving="isSaving" :error="saveError" save-label="Save settings" @save="saveConfig" @discard="discardConfig" />
+          </div>
+
+          <div v-show="activeTab === 'agents'">
+            <AgentsSettings @dirty-change="draftDirty.agents = $event" />
           </div>
 
           <div v-show="activeTab === 'local-models'">

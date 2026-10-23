@@ -1,10 +1,20 @@
+// A failed request. `field` is the setting a server-side validation refused, when the server says so.
+export class HttpError extends Error {
+  field: string
+
+  constructor(message: string, field = '') {
+    super(message)
+    this.field = field
+  }
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (res.status === 204) {
     return {} as T
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as Record<string, string>
-    throw new Error(err['error'] || res.statusText)
+    throw new HttpError(err['error'] || res.statusText, err['field'])
   }
   return res.json() as Promise<T>
 }

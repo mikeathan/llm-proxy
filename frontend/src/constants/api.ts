@@ -10,6 +10,7 @@ export const API_ENDPOINTS = {
   logLevel: `${API_BASE}/log-level`,
   models: `${API_BASE}/models`,
   profiles: `${API_BASE}/profiles`,
+  profileSchema: `${API_BASE}/profile-schema`,
   helpers: `${API_BASE}/helpers`,
   modelsAll: `${API_BASE}/models/all`,
   start: `${API_BASE}/start`,

@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { ProfileService } from '../../services/profile/profileService'
 import type { PromptProfile } from '../../types/profile'
 
-const LOAD_FAILED = 'The profiles could not be read.'
+const LOAD_FAILED = 'The agents could not be read.'
 
 // The prompt-profile catalog, shared by every picker. It is read once and kept; refresh() reads it again (a profile
 // file was added or edited on the server).

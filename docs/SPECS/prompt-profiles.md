@@ -1,9 +1,9 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.4"
+version: "1.5"
 status: draft
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 constitution_references: [II.13, II.3]
 related_specs: [SPEC-001, SPEC-004, SPEC-007, SPEC-011]
 supersedes:
@@ -13,6 +13,16 @@ supersedes:
 
 ## Changelog
 
+- **1.5 (2026-10-23)** — **Settings → Agents** (SPEC-003): the user's own profiles can be created, edited, duplicated and
+  deleted from the UI. In the interface a profile is called an **agent** ("Agent" in the chat picker, "Agent for new
+  chats", an automation's "Agent"); the file format, the API paths and the field names keep the word *profile*.
+  - The editor reads and writes the same `profiles/<id>.md` files (§2.2), so a hand-edited file and the editor never
+    disagree. `Marshal` is the inverse of `Parse`; a save is parsed before it is written and written atomically.
+  - API (§4): `GET /admin/api/profiles/{id}` (with the instructions), `PUT` (create or replace one of the user's own),
+    `DELETE`, and `GET /admin/api/profile-schema` (the settings with help text, so the form and the parser cannot
+    drift). A built-in cannot be saved or deleted: it is duplicated under a new id. A user file with a built-in's id can
+    be edited, and deleting it brings the built-in back. A save naming an unknown helper is refused.
+  - Deleting an agent that others still list as a helper is allowed; the response names them and the run skips the id.
 - **1.4 (2026-10-22)** — `GET /admin/api/helpers` adds `problem` (`""` when helpers can run, else `unset`, `missing`
   when the Helper model was removed from the models, or `not_cloud`).
 
@@ -111,6 +121,16 @@ The profile's flags are read by the loop (SPEC-001): answer-first completion and
 
 - `GET /admin/api/profiles` → every profile (`id`, `name`, `summary`, `source`, the flags, `default_for`), sorted by id;
   the instructions are not included.
+- `GET /admin/api/profiles/{id}` → one profile with its `instructions`, `delegating_to` (the profiles that list it as a
+  helper) and `replaces_builtin` (a user file that has a built-in's id). `404` for an unknown id.
+- `PUT /admin/api/profiles/{id}` → create or replace one of the user's own profiles from `{name, summary,
+  instructions, answer_first, may_ask, max_steps, tools, memory, memory_save, reminders, delegates}`. `400
+  {"error", "field"}` when the file would be invalid (`field` names the setting), `409` for a built-in's id with no
+  user file, `200` with the saved profile otherwise. At most 50 files of 64 KB.
+- `DELETE /admin/api/profiles/{id}` → delete the user's own file: `{restored_builtin, delegating_to}`. `409` for a
+  built-in, `404` for an unknown id.
+- `GET /admin/api/profile-schema` → the settings of a profile in drawing order (`key`, `label`, `kind`, `help`,
+  `required`, `max`, `options`).
 - `POST /admin/api/conversation/message` accepts `profile`; an unknown id is `400` naming the known ones. It also
   accepts `use_helpers: true`: the message asks the assistant to hand its independent parts to helpers (SPEC-001 §15).
   It is ignored, never an error, when the run's profile names no `delegates` or helpers are not set up.

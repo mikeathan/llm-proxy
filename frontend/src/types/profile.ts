@@ -21,3 +21,51 @@ export interface PromptProfile {
   delegates?: string[]
   default_for: ProfileKind[]
 }
+
+/** One profile with what the editor needs beyond the picker's entry (backend GET /admin/api/profiles/{id}). */
+export interface ProfileDetail extends PromptProfile {
+  instructions: string
+  /** The profiles that name this one as a helper. */
+  delegating_to: string[]
+  /** The user's own file that has a built-in's id; deleting it brings the built-in back. */
+  replaces_builtin: boolean
+}
+
+/** What the editor saves (backend PUT /admin/api/profiles/{id}); the id is the path. */
+export interface ProfileInput {
+  name: string
+  summary: string
+  instructions: string
+  answer_first: boolean
+  may_ask: boolean
+  max_steps: number
+  tools: string[]
+  memory: MemoryMode
+  memory_save: PromptProfile['memory_save']
+  reminders: boolean
+  delegates: string[]
+}
+
+export type ProfileFieldKind = 'text' | 'longtext' | 'toggle' | 'number' | 'choice' | 'choices' | 'profiles'
+
+export interface ProfileFieldOption {
+  value: string
+  label: string
+}
+
+/** One setting of a profile as the server describes it (GET /admin/api/profile-schema): the form is drawn from this. */
+export interface ProfileField {
+  key: keyof ProfileInput
+  label: string
+  kind: ProfileFieldKind
+  help: string
+  required?: boolean
+  max?: number
+  options?: ProfileFieldOption[]
+}
+
+/** What a delete left behind. */
+export interface ProfileDeleted {
+  restored_builtin: boolean
+  delegating_to: string[]
+}

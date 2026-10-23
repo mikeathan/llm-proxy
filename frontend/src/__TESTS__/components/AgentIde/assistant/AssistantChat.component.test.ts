@@ -297,7 +297,7 @@ describe('AssistantChat', () => {
       await flushPromises()
       expect(settingsButton(w).text()).toBe('General')
       await settingsButton(w).trigger('click')
-      const labels = w.findAll('select[aria-label="Profile"] option').map((o) => o.text())
+      const labels = w.findAll('select[aria-label="Agent"] option').map((o) => o.text())
       expect(labels).toEqual(['Builder', 'General (default)', 'Research'])
     })
 
@@ -312,7 +312,7 @@ describe('AssistantChat', () => {
       const { w } = mountChat()
       await flushPromises()
       await settingsButton(w).trigger('click')
-      await w.get('select[aria-label="Profile"]').setValue('research')
+      await w.get('select[aria-label="Agent"]').setValue('research')
       expect(a.conversationProfile.value).toBe('research')
       expect(settingsButton(w).text()).toBe('Research')
 
@@ -359,7 +359,7 @@ describe('AssistantChat', () => {
         await settingsButton(w).trigger('click')
         expect(w.text()).toContain('Use helpers for this chat')
         expect(w.text()).toContain('deepseek-v4.1-flash')
-        await w.get('select[aria-label="Profile"]').setValue('builder')
+        await w.get('select[aria-label="Agent"]').setValue('builder')
         expect(w.text()).not.toContain('Use helpers for this chat')
       })
     })
