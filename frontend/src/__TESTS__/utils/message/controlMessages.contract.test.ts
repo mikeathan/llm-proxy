@@ -3,7 +3,7 @@ import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { isInternalMessage } from '../../../utils/message/turnGrouper'
 
-// Contract with the backend: every message isAgentControlMessage
+// Contract with the backend: every message IsAgentControlMessage
 // (backend/internal/core/assistant/session.go) treats as agent-internal must be
 // hidden by the chat UI too. The list is read from the Go source, so a new
 // control prompt added there fails this test until the UI filter knows it.
@@ -15,9 +15,9 @@ const templates = readFileSync(resolve(BACKEND, 'prompts/templates.go'), 'utf8')
 const MIN_CONTROL_PROMPTS = 15
 
 function controlFunctionBody(): string {
-  const start = session.indexOf('func isAgentControlMessage(')
+  const start = session.indexOf('func IsAgentControlMessage(')
   const end = session.indexOf('\n}\n', start)
-  expect(start, 'isAgentControlMessage not found in session.go').toBeGreaterThan(-1)
+  expect(start, 'IsAgentControlMessage not found in session.go').toBeGreaterThan(-1)
   return session.slice(start, end)
 }
 
