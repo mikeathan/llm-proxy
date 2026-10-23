@@ -16,6 +16,7 @@ They identify gaps, regressions, and bugs found during testing or production use
 | `remove-memory-rewriter.md` | Remove Memory Rewriter + FTS5 Fix | complete |
 | `write-file-truncation-cycles.md` | write_file Truncation Cycles, Block Editing & Early Reasoning Stuck Detection | reference |
 | `degenerate-stream-repetition-guard.md` | Degenerate stream repetition loop — content guard & per-stream duration cap | complete |
+| `2026-10-23-delegation-eval.md` | Delegation eval (B7) — helpers vs no helpers on a 16k local model | complete |
 | `hermes-write-file-guardrail.md` | Hermes Agent does not structurally block report file writes | reference |
 | `terminal-vs-filesystem-guardrail-asymmetry.md` | Audit: Terminal vs Filesystem Guardrail Asymmetry — `.sandbox` readable via terminal | complete |
 | `2026-08-28-ops-performance-review.md` | Ops & Backend Performance Review — findings + fixes (log rotation, tail reads, host-metrics cache, EventBus byte budget, compact session marshal) | reference |
