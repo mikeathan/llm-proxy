@@ -609,6 +609,24 @@ func TestAssistant_UseHelpersReachesTheRun(t *testing.T) {
 	}
 }
 
+// A message's one-message agent (a turn command) reaches the conversation service.
+func TestAssistant_AgentReachesTheRun(t *testing.T) {
+	service := mocks.NewMockAssistantService(&mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}, nil, nil, nil)
+	svc := New(service, nil)
+	capture := &ctxService{}
+	svc.exec = capture
+	var payload Request
+	if err := json.Unmarshal([]byte(`{"workspace_id":"ws","message":"compare A and B","agent":"research"}`), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.execute(context.Background(), &payload, logging.NewNopLogger()); err != nil {
+		t.Fatalf("execute: %+v", err)
+	}
+	if capture.agent != "research" {
+		t.Errorf("the run's agent = %q, want research", capture.agent)
+	}
+}
+
 // blockingLLMClient implements proxy.Client but blocks Chat until release is
 // closed, so a run stays in-flight for deterministic cancellation tests.
 type blockingLLMClient struct {
@@ -641,11 +659,16 @@ func (c *blockingLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (
 
 func (c *blockingLLMClient) ReasoningField() string { return proxy.ReasoningFieldBudget }
 
-// ctxService is a ConversationService that records whether the run's context says the message asked for helpers.
-type ctxService struct{ asked bool }
+// ctxService is a ConversationService that records whether the run's context says the message asked for helpers, and
+// the one-message agent it was handed.
+type ctxService struct {
+	asked bool
+	agent string
+}
 
-func (s *ctxService) Execute(ctx context.Context, _ ExecuteRequest) (ExecuteResult, error) {
+func (s *ctxService) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
 	s.asked = models.HelpersRequested(ctx)
+	s.agent = req.Agent
 	return ExecuteResult{}, nil
 }
 

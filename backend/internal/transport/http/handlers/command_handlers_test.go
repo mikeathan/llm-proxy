@@ -61,6 +61,24 @@ func TestCommandHandlers_RunLeavesPlainTextToTheAssistant(t *testing.T) {
 	}
 }
 
+// A turn command answers with the turn the chat then sends: its message, agent and helpers.
+func TestCommandHandlers_RunAnswersATurn(t *testing.T) {
+	h := NewCommandHandlers(commands.New(turnCommand()), nil)
+	rec := postCommand(t, h.Run, `{"message":"/research compare Go and Rust"}`)
+	var got struct {
+		Handled bool               `json:"handled"`
+		Reply   string             `json:"reply"`
+		Turn    *commands.TurnSpec `json:"turn"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := commands.TurnSpec{Message: "compare Go and Rust", Agent: "research", UseHelpers: true}
+	if !got.Handled || got.Turn == nil || *got.Turn != want || got.Reply != "a note" {
+		t.Errorf("response = %s, want the turn %+v and the note", rec.Body.String(), want)
+	}
+}
+
 func TestCommandHandlers_Preview(t *testing.T) {
 	h := NewCommandHandlers(commands.New(zoneEcho()), nil)
 	var got commandPreviewResponse

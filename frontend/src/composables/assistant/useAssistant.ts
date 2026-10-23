@@ -394,6 +394,7 @@ export function useAssistant() {
         message: text,
         model: choice.model || undefined,
         profile: choice.profile || undefined,
+        agent: choice.agent || undefined,
         use_helpers: choice.useHelpers || undefined,
       })
 

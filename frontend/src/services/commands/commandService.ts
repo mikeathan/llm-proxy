@@ -1,4 +1,4 @@
-import type { CommandInfo, CommandPreview, CommandRunResult } from '../../types/commands'
+import type { CommandInfo, CommandPreview, CommandRunResult, CommandTurn } from '../../types/commands'
 import { browserTimeZone } from '../../utils/format/timezone'
 
 async function post<T>(path: string, message: string, signal?: AbortSignal): Promise<T> {
@@ -21,8 +21,8 @@ export class CommandService {
   }
 
   static async run(message: string): Promise<CommandRunResult> {
-    const body = await post<{ handled: boolean; reply?: string; failed?: boolean }>('run', message)
-    return { handled: body.handled, reply: body.reply ?? '', failed: body.failed ?? false }
+    const body = await post<{ handled: boolean; reply?: string; failed?: boolean; turn?: CommandTurn }>('run', message)
+    return { handled: body.handled, reply: body.reply ?? '', failed: body.failed ?? false, ...(body.turn && { turn: body.turn }) }
   }
 
   static preview(message: string, signal?: AbortSignal): Promise<CommandPreview> {

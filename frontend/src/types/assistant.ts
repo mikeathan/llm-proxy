@@ -98,6 +98,8 @@ export interface AssistantSession {
 export interface RunChoice {
   model?: string
   profile?: string
+  /** An agent for this message only (a turn command such as /research); the conversation keeps its own profile. */
+  agent?: string
   /** Ask the assistant to hand the independent parts of this message to helpers (sub-agents). */
   useHelpers?: boolean
 }
@@ -112,6 +114,8 @@ export interface ChatRequestPayload {
   model?: string
   // A prompt profile chosen for this message, which the conversation then keeps; absent keeps the conversation's own.
   profile?: string
+  // An agent for this message only (a turn command); the conversation keeps its own profile.
+  agent?: string
   // The user switched helpers on for this message (the composer's "Use helpers"); absent means they did not.
   use_helpers?: boolean
 }

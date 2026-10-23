@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.15"
+version: "2.16"
 status: stable
 last_updated: 2026-10-23
 constitution_references: []
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **2.16 (2026-10-23)** — **Turn commands in the composer** (SPEC-012 1.6). Sending `/research <question>` or
+  `/agent <agent> <question>` asks `POST /admin/api/commands/run`; when it answers with a `turn`, the composer sends
+  `turn.message` with `turn.agent` and `turn.use_helpers` for that message only (the model and the conversation's agent
+  stay as they are), after a warning toast when the reply says why helpers are off. A queued message goes through the
+  same path. The command preview under the box says how it would run. Known limit: **Retry** on such an answer reruns
+  the stored question under the conversation's own agent, without helpers (the turn's agent is not stored).
 - **2.15 (2026-10-23)** — **Settings → Agents** and the rename of "profile" to "agent" in the interface.
   - A General section, **Agents** (`AgentsSettings.vue`), between Runs and Memory & reminders: the list (the user's own
     first, then the built-in ones, each with its summary, what it is the default for and its helper count) beside the

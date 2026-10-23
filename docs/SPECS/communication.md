@@ -1,9 +1,9 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.5"
+version: "1.6"
 status: stable
-last_updated: 2026-10-11
+last_updated: 2026-10-23
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **1.6 (2026-10-23)** — An inbound message is a chat turn through the same chat service as the web chat
+  (`chat.Service.Run`); its answer (`ExecuteResult.Reply`) is sent back through the connector it came from. A slash
+  command is answered in code; a **turn command** (`/research <question>`, `/agent <agent> <question>`, SPEC-012 1.6)
+  sends its note when it has one (why it runs without helpers), then runs its question as a turn under that agent,
+  with helpers when they can run. Each inbound message is still its own fresh conversation. A long answer is split by
+  the connector's `Send` (Telegram: 4000 UTF-16 units, 1.2).
 - **1.5 (2026-10-11)** — Reminders (SPEC-011) deliver through the same shared connector set: `CommunicationTools.Types()`
   lists the configured connector types (used to resolve the default reminder channel and to refuse a named type that is
   not configured), and `NotifyAll` is the send path.

@@ -1,7 +1,7 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.5"
+version: "1.6"
 status: draft
 last_updated: 2026-10-23
 constitution_references: [II.13, II.3]
@@ -13,6 +13,17 @@ supersedes:
 
 ## Changelog
 
+- **1.6 (2026-10-23)** — **Turn commands** and the **one-message agent**.
+  - `/research <question>` asks the Research agent, with helpers when they can run; `/agent <agent> <question>` asks any
+    agent in the catalog (the same ids the chat's picker and `profile` accept), with helpers when it names some and
+    they can run. When the agent names helpers that cannot run, the turn still runs, without them, and the person is
+    told why first. `/agent <agent>` alone is refused: an agent for a whole chat is chosen in the chat, or as the
+    workspace's default (a connector message starts a fresh conversation every time, so there is nothing for it to
+    stick to). An unknown agent is refused with the known ids.
+  - A turn command shapes a chat turn instead of answering: its result is a `TurnSpec` (`message`, `agent`,
+    `use_helpers`), and every channel starts that turn the way it starts a typed message (§4, SPEC-009, SPEC-003).
+  - The chat request accepts `agent`: a profile for **this message only**. It outranks `profile` and the conversation's
+    profile for that turn and is never stored, so the next plain message runs under the conversation's own (§2.3).
 - **1.5 (2026-10-23)** — **Settings → Agents** (SPEC-003): the user's own profiles can be created, edited, duplicated and
   deleted from the UI. In the interface a profile is called an **agent** ("Agent" in the chat picker, "Agent for new
   chats", an automation's "Agent"); the file format, the API paths and the field names keep the word *profile*.
@@ -87,8 +98,9 @@ surplus (beyond 50) file is skipped with a warning and never stops a run.
 
 ### 2.3 Resolution
 
-The profile of a chat turn is the first existing of: the one the message asked for (which the conversation then keeps,
-stored on the session), the conversation's, the workspace's `assistant_profile`, the default for chats. An automation's is
+The profile of a chat turn is the first existing of: the message's one-message `agent` (a turn command's; never
+stored), the one the message asked for as `profile` (which the conversation then keeps, stored on the session), the
+conversation's, the workspace's `assistant_profile`, the default for chats. An automation's is
 its `profile`, else the default for automations; the heartbeat's is always Watcher. An id that no longer exists is
 skipped. Explicit settings beat the profile beneath them: hot memory is the workspace's `assistant_memory` /
 automation's `memory_mode`, else the profile's `memory`, else the global default; an automation's `allowed_tools`
@@ -133,7 +145,11 @@ The profile's flags are read by the loop (SPEC-001): answer-first completion and
   `required`, `max`, `options`).
 - `POST /admin/api/conversation/message` accepts `profile`; an unknown id is `400` naming the known ones. It also
   accepts `use_helpers: true`: the message asks the assistant to hand its independent parts to helpers (SPEC-001 §15).
-  It is ignored, never an error, when the run's profile names no `delegates` or helpers are not set up.
+  It is ignored, never an error, when the run's profile names no `delegates` or helpers are not set up. It also accepts
+  `agent`, a profile for this message only (§2.3), checked against the catalog like `profile` (`400` naming the agent).
+- `POST /admin/api/commands/run` answers a turn command (`/research`, `/agent`) with `turn: {message, agent,
+  use_helpers}`; the chat sends that message with those choices, after showing `reply` when there is one (why it runs
+  without helpers). `/admin/api/commands/preview` says how it would run ("Runs under Research with helpers").
 - `GET /admin/api/helpers` → `{available, model, problem}`: `available` is true when a cloud helper model is set up (the
   sub-runner's `Enabled()`), `model` is the Helper model Settings names (`agent.subagent_model`), `""` when none, even
   when it is not usable, so the page can say why.

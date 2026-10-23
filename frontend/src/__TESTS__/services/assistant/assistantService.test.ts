@@ -25,6 +25,13 @@ describe('AssistantService.sendMessage', () => {
     expect(bodyOf()).not.toHaveProperty('use_helpers')
   })
 
+  it('sends a one-message agent only when a turn command named one', async () => {
+    await AssistantService.sendMessage({ workspace_id: 'ws', message: 'compare A and B', agent: 'research' })
+    expect(bodyOf()).toMatchObject({ message: 'compare A and B', agent: 'research' })
+    await AssistantService.sendMessage({ workspace_id: 'ws', message: 'hello' })
+    expect(bodyOf()).not.toHaveProperty('agent')
+  })
+
   it('keeps sending the model and the profile only when chosen', async () => {
     await AssistantService.sendMessage({ workspace_id: 'ws', message: 'hello', model: 'qwen', profile: 'builder' })
     expect(bodyOf()).toMatchObject({ model: 'qwen', profile: 'builder' })

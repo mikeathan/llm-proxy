@@ -240,7 +240,7 @@ func (s *Service) execute(ctx context.Context, req *Request, log logging.Logger)
 	ctx = models.WithHelpersRequest(models.WithProfileRequest(models.WithModelOverride(ctx, req.Model), req.Profile), req.UseHelpers)
 	result, execErr := s.exec.Execute(ctx, ExecuteRequest{
 		WorkspaceID: req.WorkspaceID, ConversationID: req.ConversationID, Message: req.Message, ContextVersion: req.ContextVersion,
-		Timezone: s.zone(req.Timezone), ExcludeTools: req.ExcludeTools, Log: procLog, Provider: s.deps.ToolProvider(),
+		Timezone: s.zone(req.Timezone), Agent: req.Agent, ExcludeTools: req.ExcludeTools, Log: procLog, Provider: s.deps.ToolProvider(),
 		Client: client, Engine: s.deps.Engine(), Events: s.deps.Events(), Recorder: recorder,
 	})
 	if execErr != nil {

@@ -99,7 +99,7 @@ func (h *AssistantMessageHandler) prepareRequest(w http.ResponseWriter, r *http.
 			return nil, nil, false
 		}
 	}
-	if err := validateProfileID(h.svc.Profiles(), "profile", payload.Profile); err != nil {
+	if err := errors.Join(validateProfileID(h.svc.Profiles(), "profile", payload.Profile), validateProfileID(h.svc.Profiles(), "agent", payload.Agent)); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return nil, nil, false
 	}

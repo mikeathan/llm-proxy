@@ -274,6 +274,21 @@ describe('AssistantChat', () => {
       expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('/remind blah 9am call')
     })
 
+    it('sends a turn command\'s question under its agent, with helpers, for this message only', async () => {
+      commandService.run.mockResolvedValue({ handled: true, reply: '', failed: false, turn: { message: 'compare Go and Rust', agent: 'research', use_helpers: true } })
+      const { w } = mountChat()
+      await send(w, '/research compare Go and Rust')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'compare Go and Rust', { model: '', profile: '', agent: 'research', useHelpers: true })
+      expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+    })
+
+    it('shows a turn command\'s note and still sends its turn', async () => {
+      commandService.run.mockResolvedValue({ handled: true, reply: 'Helpers are off (no Helper model is chosen), so Research answers on its own.', failed: false, turn: { message: 'q', agent: 'research' } })
+      const { w } = mountChat()
+      await send(w, '/research q')
+      expect(a.sendMessage).toHaveBeenCalledWith('ws', 'q', { model: '', profile: '', agent: 'research' })
+    })
+
     it('sends an unknown /word to the assistant as usual', async () => {
       const { w } = mountChat()
       await send(w, '/etc/hosts is odd')

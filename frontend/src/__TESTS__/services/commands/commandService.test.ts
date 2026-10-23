@@ -27,6 +27,12 @@ describe('CommandService', () => {
     expect(await CommandService.run('/remind')).toMatchObject({ handled: true, failed: true, reply: 'nope' })
   })
 
+  it('returns the turn a turn command asks for', async () => {
+    const turn = { message: 'compare Go and Rust', agent: 'research', use_helpers: true }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ handled: true, turn }) }))
+    expect(await CommandService.run('/research compare Go and Rust')).toEqual({ handled: true, reply: '', failed: false, turn })
+  })
+
   it('treats plain text as not handled', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ handled: false }) }))
     expect(await CommandService.run('hello')).toEqual({ handled: false, reply: '', failed: false })

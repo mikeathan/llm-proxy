@@ -24,13 +24,16 @@ type ExecuteRequest struct {
 	Message        string
 	ContextVersion string
 	Timezone       string
-	ExcludeTools   []string
-	Log            logging.Logger
-	Provider       assistant.ToolProvider
-	Client         proxy.Client
-	Engine         assistant.Engine
-	Events         assistant.EventPublisher
-	Recorder       assistant.EventRecorder // nil: the turn is not recorded
+	// Agent runs this turn under that profile and leaves the conversation's own as it was (a turn command); ""
+	// runs the conversation's profile.
+	Agent        string
+	ExcludeTools []string
+	Log          logging.Logger
+	Provider     assistant.ToolProvider
+	Client       proxy.Client
+	Engine       assistant.Engine
+	Events       assistant.EventPublisher
+	Recorder     assistant.EventRecorder // nil: the turn is not recorded
 }
 
 // ConversationService encapsulates the stateful agent turn execution.
