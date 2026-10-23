@@ -3,22 +3,20 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
+	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -36,6 +34,49 @@ func (l *noopLogger) Error(msg string, args ...any)   {}
 func (l *noopLogger) With(args ...any) logging.Logger { return l }
 func (l *noopLogger) SetLevel(logging.Level)          {}
 func (l *noopLogger) Level() logging.Level            { return logging.LevelInfo }
+
+// newTestHandler is the chat handler over the mock service, with the chat service that runs its turns.
+func newTestHandler(service interface {
+	AssistantHandlerDeps
+	chat.Deps
+}) *AssistantMessageHandler {
+	return NewAssistantMessageHandler(service, chat.New(service, nil))
+}
+
+func releaseOnce(release chan struct{}) func() {
+	var once sync.Once
+	return func() { once.Do(func() { close(release) }) }
+}
+
+func waitForRunning(t *testing.T, h *AssistantMessageHandler, workspaceID string, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		if h.turns.Running(workspaceID) {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+func waitForNotRunning(t *testing.T, h *AssistantMessageHandler, workspaceID string, timeout time.Duration) bool {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		if !h.turns.Running(workspaceID) {
+			return true
+		}
+		select {
+		case <-deadline:
+			return false
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
 
 func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	// Setup
@@ -82,7 +123,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(tmpWorkspaces) })
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	// Gated client: holds the first Chat open so the detached run stays
 	// registered in the running map while the test observes it (see
@@ -221,7 +262,7 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 	service.PersistenceMgr = mgr
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	// Gated client: keeps the run observable in the running map (see
 	// gatedLLMClient — instant mocks can complete the run between polls).
@@ -289,7 +330,7 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 	// Gated client: keeps the run observable in the running map (see
 	// gatedLLMClient — instant mocks can complete the run between polls).
 	inner := &mocks.MockLLMClient{}
@@ -364,7 +405,7 @@ func TestAssistant_RenameSession(t *testing.T) {
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpDir, tmpDir, tmpDir))
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.PersistenceMgr = mgr
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	wsID := "test-ws"
 	sessionID := "conv_rename"
@@ -416,7 +457,7 @@ func TestAssistant_RenameSession_NotFound(t *testing.T) {
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(t.TempDir(), t.TempDir(), t.TempDir()))
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.PersistenceMgr = mgr
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	body := `{"title":"Rename"}`
 	req := httptest.NewRequest("PATCH", "/admin/api/conversation/sessions/missing-ws/missing-session", strings.NewReader(body))
@@ -436,7 +477,7 @@ func TestAssistant_RenameSession_MissingTitle(t *testing.T) {
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(t.TempDir(), t.TempDir(), t.TempDir()))
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.PersistenceMgr = mgr
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	body := `{"title":""}`
 	req := httptest.NewRequest("PATCH", "/admin/api/conversation/sessions/test/test", strings.NewReader(body))
@@ -457,7 +498,7 @@ func TestAssistant_DeleteAllSessions(t *testing.T) {
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmpDir, tmpDir, tmpDir))
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.PersistenceMgr = mgr
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	wsID := "test-ws"
 	for i := range 3 {
@@ -491,7 +532,7 @@ func TestAssistant_DeleteAllSessions_NoWorkspace(t *testing.T) {
 	mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(t.TempDir(), t.TempDir(), t.TempDir()))
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.PersistenceMgr = mgr
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	req := httptest.NewRequest("DELETE", "/admin/api/conversation/sessions/", nil)
 	req.SetPathValue("workspace", "")
@@ -504,227 +545,18 @@ func TestAssistant_DeleteAllSessions_NoWorkspace(t *testing.T) {
 	}
 }
 
-func TestAssistant_CancelAgent_NotRunning(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	if handler.CancelAgent("ws-missing", "conv-1") {
-		t.Error("CancelAgent should return false when no agent is running")
-	}
-}
-
-func TestAssistant_CancelAgent_Running(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	canceled := make(chan struct{})
-	done := make(chan struct{})
-	handler.running.Store("ws-1", &runningAgent{
-		cancel: func() { close(canceled); close(done) },
-		done:   done,
-	})
-
-	if !handler.CancelAgent("ws-1", "conv-1") {
-		t.Error("CancelAgent should return true when an agent is running")
-	}
-	select {
-	case <-canceled:
-	case <-time.After(time.Second):
-		t.Error("cancel func was not invoked")
-	}
-
-	if handler.CancelAgent("ws-1", "conv-1") {
-		t.Error("CancelAgent should return false after the agent was canceled and removed")
-	}
-}
-
-func TestAssistant_RunningConversationID(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	if got := handler.RunningConversationID("ws-1"); got != "" {
-		t.Errorf("RunningConversationID with no running agent = %q, want \"\"", got)
-	}
-
-	handler.running.Store("ws-1", &runningAgent{
-		cancel:         func() {},
-		done:           make(chan struct{}),
-		conversationID: "conv_123",
-	})
-	if got := handler.RunningConversationID("ws-1"); got != "conv_123" {
-		t.Errorf("RunningConversationID = %q, want %q", got, "conv_123")
-	}
-
-	// A different workspace has no running agent.
-	if got := handler.RunningConversationID("ws-2"); got != "" {
-		t.Errorf("RunningConversationID(ws-2) = %q, want \"\"", got)
-	}
-}
-
 // Stop must not return while the cancelled run can still publish events: a
 // message sent right after Stop would otherwise interleave with the dying run's
 // stale reasoning/segments on the same workspace stream.
-func TestAssistant_CancelAgent_WaitsForRunToExit(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	done := make(chan struct{})
-	canceled := make(chan struct{})
-	handler.running.Store("ws-1", &runningAgent{
-		cancel: func() { close(canceled) },
-		done:   done,
-	})
-	go func() {
-		<-canceled
-		time.Sleep(50 * time.Millisecond) // the run still winds down after cancel
-		close(done)
-	}()
-
-	start := time.Now()
-	if !handler.CancelAgent("ws-1", "conv-1") {
-		t.Fatal("CancelAgent should report a running agent")
-	}
-	if elapsed := time.Since(start); elapsed < 50*time.Millisecond {
-		t.Errorf("CancelAgent returned before the run exited; elapsed=%v", elapsed)
-	}
-}
-
 // A run that finishes after a newer run replaced it must not unregister the
 // newer run, or the new run could no longer be cancelled or seen as running.
-func TestAssistant_FinishRun_LeavesNewerRunRegistered(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	old := &runningAgent{cancel: func() {}, done: make(chan struct{})}
-	newer := &runningAgent{cancel: func() {}, done: make(chan struct{}), conversationID: "conv-new"}
-	handler.running.Store("ws-1", old)
-	handler.running.Store("ws-1", newer) // the new message took over the workspace
-
-	handler.finishRun("ws-1", old)
-
-	if got := handler.RunningConversationID("ws-1"); got != "conv-new" {
-		t.Errorf("the finished old run unregistered the newer run: running conversation = %q", got)
-	}
-	select {
-	case <-old.done:
-	default:
-		t.Error("finishRun must close the finished run's done channel")
-	}
-
-	handler.finishRun("ws-1", newer)
-	if handler.RunningExists("ws-1") {
-		t.Error("finishing the registered run should unregister it")
-	}
-}
-
 // newTestRun is a registrable run whose cancel and done are inert.
-func newTestRun() *runningAgent {
-	return &runningAgent{cancel: func() {}, done: make(chan struct{})}
-}
-
 // Two runs starting at once on one workspace: registration is a single atomic
 // swap, so exactly one ends up registered and the one it replaced is cancelled.
 // Neither can be left running unregistered, where Stop could not reach it.
-func TestAssistant_ReplaceRun_ConcurrentStartsLeaveOneRegistered(t *testing.T) {
-	for i := 0; i < 50; i++ {
-		handler := NewAssistantMessageHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
-		var cancelled [2]atomic.Bool
-		runs := [2]*runningAgent{}
-		for k := range runs {
-			done := make(chan struct{})
-			runs[k] = &runningAgent{done: done, cancel: func() {
-				if cancelled[k].CompareAndSwap(false, true) {
-					close(done)
-				}
-			}}
-		}
-		var wg sync.WaitGroup
-		for k := range runs {
-			wg.Add(1)
-			go func() { defer wg.Done(); handler.replaceRun("ws-1", runs[k], &noopLogger{}) }()
-		}
-		wg.Wait()
-
-		v, ok := handler.running.Load("ws-1")
-		if !ok {
-			t.Fatal("no run registered")
-		}
-		kept := v.(*runningAgent)
-		for k, ra := range runs {
-			if ra != kept && !cancelled[k].Load() {
-				t.Fatalf("iteration %d: run %d was replaced but never cancelled — it would run unreachable", i, k)
-			}
-			if ra == kept && cancelled[k].Load() {
-				t.Fatalf("iteration %d: the registered run %d was cancelled", i, k)
-			}
-		}
-	}
-}
-
-func TestAssistant_ReplaceRun_WaitsForDone(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	done := make(chan struct{})
-	canceled := make(chan struct{})
-	handler.running.Store("ws-1", &runningAgent{
-		cancel: func() { close(canceled) },
-		done:   done,
-	})
-
-	// Simulate the prior agent finishing its cleanup work after cancel.
-	go func() {
-		<-canceled
-		time.Sleep(50 * time.Millisecond)
-		close(done)
-	}()
-
-	start := time.Now()
-	handler.replaceRun("ws-1", newTestRun(), &noopLogger{})
-	elapsed := time.Since(start)
-
-	if elapsed < 50*time.Millisecond {
-		t.Errorf("replaceRun returned before prior agent finished; elapsed=%v", elapsed)
-	}
-	if elapsed > 2*time.Second {
-		t.Errorf("replaceRun took too long; elapsed=%v", elapsed)
-	}
-}
-
-func TestAssistant_ReplaceRun_TimesOut(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	// Prior never closes done; replaceRun should time out at 2s.
-	handler.running.Store("ws-1", &runningAgent{
-		cancel: func() {},
-		done:   make(chan struct{}),
-	})
-
-	start := time.Now()
-	handler.replaceRun("ws-1", newTestRun(), &noopLogger{})
-	elapsed := time.Since(start)
-
-	if elapsed < 2*time.Second {
-		t.Errorf("expected to wait ~2s before timing out, got %v", elapsed)
-	}
-}
-
-func TestAssistant_ReplaceRun_NoOp(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
-
-	// No prior; should return immediately.
-	start := time.Now()
-	handler.replaceRun("ws-1", newTestRun(), &noopLogger{})
-	if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
-		t.Errorf("expected immediate return, got %v", elapsed)
-	}
-}
-
 func TestAssistant_CancelHandler_MissingFields(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	req := httptest.NewRequest("POST", "/admin/api/conversation/cancel", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -740,7 +572,7 @@ func TestAssistant_CancelHandler_EmptyConvIDAllowed(t *testing.T) {
 	// user cancels before the first response returns a session_id.  Cancel
 	// by workspace in that case.
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	body := `{"workspace_id":"ws-1"}`
 	req := httptest.NewRequest("POST", "/admin/api/conversation/cancel", strings.NewReader(body))
@@ -763,7 +595,7 @@ func TestAssistant_CancelHandler_EmptyConvIDAllowed(t *testing.T) {
 
 func TestAssistant_CancelHandler_NotRunningReturns200(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	body := `{"workspace_id":"ws-1","conversation_id":"conv-missing"}`
 	req := httptest.NewRequest("POST", "/admin/api/conversation/cancel", strings.NewReader(body))
@@ -963,7 +795,7 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult([]proxy.Tool{
 		{
-			Type: "function",
+			Type:     "function",
 			Function: proxy.FunctionSchema{Name: "query_device"},
 		},
 	})
@@ -977,7 +809,7 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 	defer os.RemoveAll(tmpWorkspaces)
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	clientMock := mockClient.Client.(*mocks.MockLLMClient)
 	toolArgs := map[string]any{"target_name": "lamp"}
@@ -1114,120 +946,11 @@ func TestPublishSessionLifecycle_PublishesWithCorrectPayload(t *testing.T) {
 	}
 }
 
-func TestAssistant_RunWithCancel_RegistersInMap(t *testing.T) {
-	logger := &noopLogger{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
-	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
-	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
-	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
-	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
-
-	tmpWorkspaces := t.TempDir()
-	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
-	defer os.RemoveAll(tmpWorkspaces)
-
-	handler := NewAssistantMessageHandler(service)
-
-	// Blocking client: keeps the run in-flight so the running-map registration
-	// is deterministically observable (an instant mock can complete the entire
-	// run between two waitForRunning polls, making the registration invisible).
-	release := make(chan struct{})
-	mockClient.Client = &blockingLLMClient{release: release}
-
-	payload := &AssistantMessage{ConversationID: "runc-test", WorkspaceID: "test-ws", Message: "check lamp"}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		handler.RunWithCancel(context.Background(), "test-ws", payload, logger)
-	}()
-
-	if !waitForRunning(t, handler, "test-ws", time.Second) {
-		t.Fatal("RunWithCancel did not register in running map within 1s")
-	}
-
-	handler.CancelAgent("test-ws", "")
-	<-done
-
-	if handler.RunningExists("test-ws") {
-		t.Error("expected running map entry to be removed after cancel")
-	}
-}
-
-func TestAssistant_RunWithCancel_CanBeCancelled(t *testing.T) {
-	logger := &noopLogger{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
-	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
-	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
-	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
-	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
-
-	tmpWorkspaces := t.TempDir()
-	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
-	defer os.RemoveAll(tmpWorkspaces)
-
-	handler := NewAssistantMessageHandler(service)
-
-	// Blocking client: keeps the run in-flight so the running-map registration
-	// is deterministically observable (see RegistersInMap).
-	release := make(chan struct{})
-	mockClient.Client = &blockingLLMClient{release: release}
-
-	payload := &AssistantMessage{ConversationID: "cancel-test", WorkspaceID: "test-ws", Message: "hello"}
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		handler.RunWithCancel(context.Background(), "test-ws", payload, logger)
-	}()
-
-	if !waitForRunning(t, handler, "test-ws", time.Second) {
-		t.Fatal("RunWithCancel did not register in running map within 1s")
-	}
-
-	handler.CancelAgent("test-ws", "")
-	<-done
-}
-
 // waitForRunning polls runningExists up to timeout to check if the running
 // map entry exists.  Unlike CancelAgent it does not destroy the entry.
-func waitForRunning(t *testing.T, handler *AssistantMessageHandler, workspaceID string, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		if handler.RunningExists(workspaceID) {
-			return true
-		}
-		select {
-		case <-deadline:
-			return false
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
-}
-
 // waitForNotRunning polls until the running map entry is gone (the detached run
 // finished or was cancelled).  Used by tests that trigger a run via ServeHTTP
 // and then need to observe its asynchronous completion.
-func waitForNotRunning(t *testing.T, handler *AssistantMessageHandler, workspaceID string, timeout time.Duration) bool {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		if !handler.RunningExists(workspaceID) {
-			return true
-		}
-		select {
-		case <-deadline:
-			return false
-		case <-time.After(5 * time.Millisecond):
-		}
-	}
-}
-
 // TestAssistant_RunWithCancel_SurvivesParentContextCancel verifies the core
 // fix for the "refresh kills the run" regression: cancelling the *parent*
 // context passed to RunWithCancel (which previously was r.Context(), killed by
@@ -1237,64 +960,6 @@ func waitForNotRunning(t *testing.T, handler *AssistantMessageHandler, workspace
 // It uses a blocking mock LLM client so the run stays in-flight, letting us
 // assert the run survives an explicit parent-context cancellation (the signal a
 // disconnected client delivers).
-func TestAssistant_RunWithCancel_SurvivesParentContextCancel(t *testing.T) {
-	logger := &noopLogger{}
-	mockMCP := mocks.NewMockNodeHerder(nil)
-	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
-	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
-
-	// Blocking client: Chat blocks until release is closed, keeping the run
-	// in-flight so we can observe parent-context cancellation behaviour.
-	release := make(chan struct{})
-	blockingClient := &blockingLLMClient{release: release}
-	mockClient := &mocks.MockLLMClientProvider{Client: blockingClient}
-	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
-
-	tmpWorkspaces := t.TempDir()
-	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
-	defer os.RemoveAll(tmpWorkspaces)
-
-	handler := NewAssistantMessageHandler(service)
-
-	payload := &AssistantMessage{ConversationID: "survive-test", WorkspaceID: "test-ws", Message: "hello"}
-
-	// Use a cancellable parent ctx to simulate a client disconnect (r.Context()).
-	parentCtx, cancelParent := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		handler.RunWithCancel(parentCtx, "test-ws", payload, logger)
-	}()
-
-	if !waitForRunning(t, handler, "test-ws", time.Second) {
-		t.Fatal("RunWithCancel did not register in running map within 1s")
-	}
-
-	// Simulate the browser closing the tab / aborting the fetch: cancel the
-	// parent request context.
-	cancelParent()
-
-	// Give the goroutine a moment to observe the (now inert) parent cancel.
-	time.Sleep(50 * time.Millisecond)
-
-	// The run must still be registered — it must NOT have been killed by the
-	// parent context cancellation.
-	if !handler.RunningExists("test-ws") {
-		t.Fatal("run was killed by parent context cancel; it must survive client disconnect")
-	}
-
-	// Let the run finish, then clean up.
-	close(release)
-	handler.CancelAgent("test-ws", "")
-	<-done
-
-	if handler.RunningExists("test-ws") {
-		t.Error("expected running map entry to be removed after explicit cancel")
-	}
-}
-
 // blockingLLMClient implements proxy.Client but blocks Chat until release is
 // closed, so a run stays in-flight for deterministic cancellation tests.
 type blockingLLMClient struct {
@@ -1342,11 +1007,6 @@ func (c *gatedLLMClient) ReasoningField() string { return c.inner.ReasoningField
 
 // releaseOnce returns an idempotent gate-release func: safe to call both
 // mid-test (to unblock the run) and via defer (for early-fail paths).
-func releaseOnce(release chan struct{}) func() {
-	var once sync.Once
-	return func() { once.Do(func() { close(release) }) }
-}
-
 func (c *blockingLLMClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 	ch := make(chan *proxy.ChatResponse)
 	go func() {
@@ -1387,7 +1047,7 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	t.Cleanup(func() { _ = os.RemoveAll(tmpWorkspaces) })
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	// Blocking client: keeps the detached run in-flight so its registration in
 	// the running map is deterministically observable (see RegistersInMap).
@@ -1422,7 +1082,7 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	// Clean up the run. Cancel first, then release the blocking client and wait
 	// for the detached goroutine to fully exit — otherwise it may still write to
 	// the TempDir after RemoveAll (flaky "directory not empty" cleanup error).
-	handler.CancelAgent("test-ws", "")
+	handler.turns.Cancel("test-ws", logging.NewNopLogger())
 	if !waitForNotRunning(t, handler, "test-ws", time.Second) {
 		t.Fatal("run did not exit after cancel")
 	}
@@ -1433,54 +1093,6 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 // client-acquisition failure (no primary model configured) is surfaced on the
 // SSE bus as an EventError rather than silently discarded. This is the backend
 // half of the "UI does nothing with no error" fix.
-func TestHandleAssistant_NoTargetModelPublishesErrorEvent(t *testing.T) {
-	logger := &noopLogger{}
-	mockClient := &mocks.MockLLMClientProvider{
-		GetClientErr: errors.New("no target model available"),
-	}
-	mockLimiter := &mocks.MockRateLimiter{}
-	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
-
-	eventBus := eventbus.NewBus()
-	eventCh, _ := eventBus.Subscribe("ws-no-model", assistant.ChannelAssistant)
-
-	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mocks.NewMockNodeHerder(nil))
-	service.EventBusRef = eventBus
-	// SelectModels() defaults to "" so the actionable "no primary model" path fires.
-
-	handler := NewAssistantMessageHandler(service)
-
-	payload := &AssistantMessage{
-		WorkspaceID:    "ws-no-model",
-		ConversationID: "conv-no-model",
-		Message:        "do something",
-	}
-
-	_, herr := handler.RunWithCancel(context.Background(), payload.WorkspaceID, payload, logger)
-	if herr == nil {
-		t.Fatal("expected a handlerError for no target model, got nil")
-	}
-	if herr.Status != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", herr.Status)
-	}
-
-	select {
-	case ev := <-eventCh:
-		if ev.Type != assistant.EventError {
-			t.Fatalf("expected EventError on the bus, got %q", ev.Type)
-		}
-		if ev.ConversationID != "conv-no-model" {
-			t.Errorf("event conversation_id = %q, want conv-no-model", ev.ConversationID)
-		}
-		payloadErr, _ := ev.Payload.(map[string]any)["error"].(string)
-		if payloadErr == "" {
-			t.Error("event payload missing error message")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for EventError on the bus")
-	}
-}
-
 // TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation verifies
 // the regression from the "added a provider but no primary model" scenario: a
 // brand-new conversation has an empty ConversationID, and the error event must
@@ -1488,52 +1100,6 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent(t *testing.T) {
 // The conversation ID is resolved up front in RunWithCancel so the error event
 // carries the same ID the session would use — letting the frontend associate
 // the failure with a concrete session row.
-func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *testing.T) {
-	logger := &noopLogger{}
-	mockClient := &mocks.MockLLMClientProvider{
-		GetClientErr: errors.New("no target model available"),
-	}
-	mockLimiter := &mocks.MockRateLimiter{}
-	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
-
-	eventBus := eventbus.NewBus()
-	eventCh, _ := eventBus.Subscribe("ws-empty-conv", assistant.ChannelAssistant)
-
-	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mocks.NewMockNodeHerder(nil))
-	service.EventBusRef = eventBus
-
-	handler := NewAssistantMessageHandler(service)
-
-	payload := &AssistantMessage{
-		WorkspaceID:    "ws-empty-conv",
-		ConversationID: "", // first send: no session id yet
-		Message:        "do something",
-	}
-
-	_, herr := handler.RunWithCancel(context.Background(), payload.WorkspaceID, payload, logger)
-	if herr == nil {
-		t.Fatal("expected a handlerError for no target model, got nil")
-	}
-
-	select {
-	case ev := <-eventCh:
-		if ev.Type != assistant.EventError {
-			t.Fatalf("expected EventError on the bus, got %q", ev.Type)
-		}
-		// RunWithCancel resolves the conversation ID up front, so the error
-		// event is scoped to the resolved conversation instead of empty.
-		if ev.ConversationID == "" {
-			t.Error("event conversation_id should be resolved to a generated id")
-		}
-		payloadErr, _ := ev.Payload.(map[string]any)["error"].(string)
-		if payloadErr == "" {
-			t.Error("event payload missing error message")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for EventError on the bus (empty conversation_id)")
-	}
-}
-
 // TestGuardrailDecisionHandler_LateOverridePersists proves that when a user
 // submits an "allow & remember" decision AFTER the approval wait already
 // expired (the agent moved on), the override is still persisted so future calls
@@ -1575,7 +1141,7 @@ func TestGuardrailDecisionHandler_LateOverridePersists(t *testing.T) {
 	)
 	defer service.GuardrailEng.Stop()
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	body := `{"decision_id":"gr_expired","allow":true,"persist":true}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/api/conversation/guardrail-decision", strings.NewReader(body))
@@ -1615,7 +1181,7 @@ func TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected(t *testing.T) {
 	})
 	service.GuardrailStore = store
 
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	for _, tc := range []struct {
 		name   string
@@ -1638,135 +1204,12 @@ func TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected(t *testing.T) {
 	}
 }
 
-func TestAssistant_RunningQueued(t *testing.T) {
-	newLane := func() *runlane.Scheduler { return runlane.New(runlane.Limits{Local: 1, Cloud: 1}, true) }
-	tests := []struct {
-		name    string
-		lane    *runlane.Scheduler
-		store   bool
-		granted bool
-		want    bool
-	}{
-		{"no lane means never queued", nil, true, false, false},
-		{"registered but not granted is queued", newLane(), true, false, true},
-		{"granted is not queued", newLane(), true, true, false},
-		{"no registered run is not queued", newLane(), false, false, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := &AssistantMessageHandler{running: sync.Map{}, lane: tt.lane}
-			if tt.store {
-				ra := &runningAgent{}
-				ra.granted.Store(tt.granted)
-				h.running.Store("ws", ra)
-			}
-			if got := h.RunningQueued("ws"); got != tt.want {
-				t.Fatalf("RunningQueued = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-// startingProvider reports a cold model for the first `starting` calls, then a ready client (ready, or an empty one).
-type startingProvider struct {
-	starting int
-	calls    int
-	ready    proxy.Client
-}
-
-func (p *startingProvider) GetClient(context.Context) (proxy.Client, error) {
-	p.calls++
-	if p.calls <= p.starting {
-		return nil, models.ErrModelStarting
-	}
-	if p.ready != nil {
-		return p.ready, nil
-	}
-	return &mocks.MockLLMClient{}, nil
-}
-
-func (p *startingProvider) GetClientForModel(ctx context.Context, _ string) (proxy.Client, error) {
-	return p.GetClient(ctx)
-}
-
-// The first chat after the local model unloaded (idle timeout, restart) must wait for it to load instead of failing
-// with "model is starting, try again shortly" and losing the message — and must tell the user, once, that the model
-// is loading.
-func TestAssistant_GetLLMClient_WaitsForAColdModel(t *testing.T) {
-	restore := models.ModelStartPollInterval
-	models.ModelStartPollInterval = time.Millisecond
-	defer func() { models.ModelStartPollInterval = restore }()
-
-	bus := eventbus.NewBus()
-	defer bus.Stop()
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	provider := &startingProvider{starting: 3}
-	service.Client = provider
-	service.EventBusRef = bus
-	handler := NewAssistantMessageHandler(service)
-	events, _ := bus.Subscribe("ws-1", assistant.ChannelAssistant)
-
-	client, herr := handler.getLLMClient(context.Background(), &noopLogger{}, &AssistantMessage{WorkspaceID: "ws-1", ConversationID: "c1"})
-	if herr != nil || client == nil {
-		t.Fatalf("getLLMClient = %v, %+v; want a client once the model has loaded", client, herr)
-	}
-	if provider.calls != 4 {
-		t.Errorf("calls = %d, want 3 starting + 1 ready", provider.calls)
-	}
-
-	var notices []assistant.AgentEvent
-	for len(events) > 0 {
-		ev := <-events
-		if ev.Type == assistant.EventUpstream {
-			notices = append(notices, ev)
-		}
-	}
-	if len(notices) != 1 {
-		t.Fatalf("model-starting notices = %d, want exactly one", len(notices))
-	}
-	if p, ok := notices[0].Payload.(assistant.UpstreamEventPayload); !ok || p.Reason != "model_starting" || notices[0].ConversationID != "c1" {
-		t.Errorf("notice = %+v, want reason model_starting for conversation c1", notices[0])
-	}
-}
-
-// namedProvider records which model each client request asked for.
-type namedProvider struct{ asked []string }
-
-func (p *namedProvider) GetClient(context.Context) (proxy.Client, error) {
-	p.asked = append(p.asked, "<primary>")
-	return &mocks.MockLLMClient{}, nil
-}
-
-func (p *namedProvider) GetClientForModel(_ context.Context, name string) (proxy.Client, error) {
-	p.asked = append(p.asked, name)
-	return &mocks.MockLLMClient{}, nil
-}
-
 // A message that names a model gets that model's client — never the primary or its fallback.
-func TestAssistant_GetLLMClient_UsesTheChosenModel(t *testing.T) {
-	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
-	provider := &namedProvider{}
-	service.Client = provider
-	handler := NewAssistantMessageHandler(service)
-
-	for _, chosen := range []string{"", "nemotron"} {
-		if _, herr := handler.getLLMClient(context.Background(), &noopLogger{}, &AssistantMessage{WorkspaceID: "ws", Model: chosen}); herr != nil {
-			t.Fatalf("getLLMClient(%q): %+v", chosen, herr)
-		}
-	}
-	if got := strings.Join(provider.asked, ","); got != "<primary>,nemotron" {
-		t.Errorf("clients asked for = %s, want <primary>,nemotron", got)
-	}
-	if got := handler.chatModelFor("nemotron"); got != "nemotron" {
-		t.Errorf("chatModelFor = %q, want nemotron", got)
-	}
-}
-
 // A model the registry does not know is refused before anything runs.
 func TestAssistant_PrepareRequest_RejectsAnUnknownModel(t *testing.T) {
 	service := mocks.NewMockAssistantService(nil, nil, nil, nil)
 	service.ModelConfigs = map[string]models.ModelConfig{"known": {}}
-	handler := NewAssistantMessageHandler(service)
+	handler := newTestHandler(service)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"workspace_id":"ws","message":"hi","model":"ghost"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -1781,7 +1224,7 @@ func TestAssistant_PrepareRequest_RejectsAnUnknownModel(t *testing.T) {
 
 // A profile the catalog does not know is refused before anything runs, and the answer names the known ones.
 func TestAssistant_PrepareRequest_RejectsAnUnknownProfile(t *testing.T) {
-	handler := NewAssistantMessageHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
+	handler := newTestHandler(mocks.NewMockAssistantService(nil, nil, nil, nil))
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"workspace_id":"ws","message":"hi","profile":"ghost"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -1794,39 +1237,5 @@ func TestAssistant_PrepareRequest_RejectsAnUnknownProfile(t *testing.T) {
 	}
 }
 
-// ctxService is a ConversationService that records whether the run's context says the message asked for helpers.
-type ctxService struct{ asked bool }
-
-func (s *ctxService) Execute(ctx context.Context, _, _, _, _, _ string, _ []string, _ logging.Logger, _ assistant.ToolProvider, _ proxy.Client, _ assistant.Engine, _ assistant.EventPublisher, _ assistant.EventRecorder) (assistant.ExecuteResult, error) {
-	s.asked = models.HelpersRequested(ctx)
-	return assistant.ExecuteResult{}, nil
-}
-
 // "use_helpers" in the request body reaches the run: the page sent it, the handler decodes it into the run's context.
 // A body that does not ask leaves the context asking for nothing.
-func TestAssistant_UseHelpersReachesTheRun(t *testing.T) {
-	for _, tc := range []struct {
-		name, body string
-		want       bool
-	}{
-		{"asked", `{"workspace_id":"ws","message":"compare A and B","use_helpers":true}`, true},
-		{"not asked", `{"workspace_id":"ws","message":"compare A and B"}`, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			service := mocks.NewMockAssistantService(&mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}, nil, nil, nil)
-			handler := NewAssistantMessageHandler(service)
-			capture := &ctxService{}
-			handler.service = capture
-			var payload AssistantMessage
-			if err := json.Unmarshal([]byte(tc.body), &payload); err != nil {
-				t.Fatal(err)
-			}
-			if _, herr := handler.handleAssistant(context.Background(), &payload, &noopLogger{}); herr != nil {
-				t.Fatalf("handleAssistant: %+v", herr)
-			}
-			if capture.asked != tc.want {
-				t.Errorf("the run's context asks for helpers = %v, want %v", capture.asked, tc.want)
-			}
-		})
-	}
-}

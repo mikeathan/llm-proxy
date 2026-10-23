@@ -1,10 +1,16 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"llm-proxy/internal/core/assistant"
+	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/commands"
+	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 )
 
@@ -55,5 +61,64 @@ func TestWebhookHandler_PlainTextIsNotACommand(t *testing.T) {
 	}
 	if (&WebhookHandler{}).handleCommand("tg", "telegram", "/remind x") {
 		t.Error("a handler with no registry handles nothing")
+	}
+}
+
+// fakeTurns answers a connector message with a fixed turn result and records the request it was given.
+type fakeTurns struct {
+	result assistant.ExecuteResult
+	err    error
+	got    *chat.Request
+	origin string
+}
+
+func (f *fakeTurns) Run(ctx context.Context, req *chat.Request, _ logging.Logger) (assistant.ExecuteResult, error) {
+	f.got = req
+	f.origin = models.OriginConnector(ctx)
+	return f.result, f.err
+}
+
+// sentTo is a connector that records what it was asked to send.
+type sentTo struct{ sent []string }
+
+func (s *sentTo) Send(_ context.Context, message string) error {
+	s.sent = append(s.sent, message)
+	return nil
+}
+func (s *sentTo) Name() string { return "recorder" }
+
+// The answer of a turn started by a connector message goes back through that connector, and the turn is told which
+// connector it came from. Before this was tested, the reply was read from a map the typed result never was, so a
+// connector's agent answers were dropped.
+func TestWebhookHandler_AgentAnswerGoesBackToTheConnector(t *testing.T) {
+	turns := &fakeTurns{result: assistant.ExecuteResult{Reply: "Go 1.27.3, released 2026-10-19."}}
+	conn := &sentTo{}
+	comm := tools.NewCommunicationTools()
+	comm.AddConnector("tg", "telegram", conn)
+	h := &WebhookHandler{Turns: turns, CommTools: comm, Logger: logging.NewNopLogger()}
+
+	h.runAgentReply("tg", "telegram", &chat.Request{WorkspaceID: "ws", Message: "latest Go?"})
+
+	if len(conn.sent) != 1 || conn.sent[0] != "Go 1.27.3, released 2026-10-19." {
+		t.Errorf("connector was sent %q, want the turn's answer once", conn.sent)
+	}
+	if turns.origin != "telegram" || turns.got.Message != "latest Go?" {
+		t.Errorf("the turn got origin %q and %+v", turns.origin, turns.got)
+	}
+}
+
+func TestWebhookHandler_NoAnswerSendsNothing(t *testing.T) {
+	for name, turns := range map[string]*fakeTurns{
+		"an empty answer (a cancelled or unadmitted turn)": {},
+		"a failed turn": {err: errors.New("model unavailable")},
+	} {
+		conn := &sentTo{}
+		comm := tools.NewCommunicationTools()
+		comm.AddConnector("tg", "telegram", conn)
+		h := &WebhookHandler{Turns: turns, CommTools: comm, Logger: logging.NewNopLogger()}
+		h.runAgentReply("tg", "telegram", &chat.Request{WorkspaceID: "ws", Message: "hi"})
+		if len(conn.sent) != 0 {
+			t.Errorf("%s: sent %q, want nothing", name, conn.sent)
+		}
 	}
 }

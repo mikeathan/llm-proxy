@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/models"
 )
 
 // Mock TokenManager
@@ -120,6 +121,32 @@ func (m *MockLLMClientProvider) GetClient(ctx context.Context) (proxy.Client, er
 
 func (m *MockLLMClientProvider) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
 	return m.GetClient(ctx)
+}
+
+// ColdStartProvider reports a cold model (models.ErrModelStarting) for the first Starting calls, then a ready client:
+// Ready, or an empty MockLLMClient.
+type ColdStartProvider struct {
+	Starting int
+	Ready    proxy.Client
+	calls    int
+}
+
+// Calls is how many times a client was asked for.
+func (p *ColdStartProvider) Calls() int { return p.calls }
+
+func (p *ColdStartProvider) GetClient(context.Context) (proxy.Client, error) {
+	p.calls++
+	if p.calls <= p.Starting {
+		return nil, models.ErrModelStarting
+	}
+	if p.Ready != nil {
+		return p.Ready, nil
+	}
+	return &MockLLMClient{}, nil
+}
+
+func (p *ColdStartProvider) GetClientForModel(ctx context.Context, _ string) (proxy.Client, error) {
+	return p.GetClient(ctx)
 }
 
 // Mock LLMClient

@@ -142,11 +142,7 @@ func TestConversationService_Execute_NewSession(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	result, err := svc.Execute(
-		context.Background(),
-		"ws-1", "", "hello", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -209,11 +205,7 @@ func TestConversationService_Execute_EmptyWorkspaceID(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	result, err := svc.Execute(
-		context.Background(),
-		"", "", "hello", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -241,11 +233,7 @@ func TestConversationService_Execute_Canceled(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	result, err := svc.Execute(
-		context.Background(),
-		"ws-1", "", "hello", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err != nil {
 		t.Fatalf("Expected nil error for cancel, got: %v", err)
 	}
@@ -424,11 +412,7 @@ func TestConversationService_Execute_AgentError(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	_, err := svc.Execute(
-		context.Background(),
-		"ws-1", "", "hello", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	)
+	_, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err == nil {
 		t.Fatal("expected error from agent execution")
 	}
@@ -528,11 +512,7 @@ func TestConversationService_Execute_ExistingSession(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	result, err := svc.Execute(
-		context.Background(),
-		"ws-1", sessionID, "second message", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: sessionID, Message: "second message", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -579,11 +559,7 @@ func TestConversationService_Execute_ExcludeTools(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	result, err := svc.Execute(
-		context.Background(),
-		"ws-1", "", "hello", "v1", "UTC",
-		[]string{"tool-a", "tool-b"}, log, provider, client, engine, pub, nil,
-	)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: []string{"tool-a", "tool-b"}, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err != nil {
 		t.Fatalf("Execute with exclude tools failed: %v", err)
 	}
@@ -617,11 +593,7 @@ func TestConversationService_Execute_SessionPersisted(t *testing.T) {
 	pub := &mockEventPublisher{}
 	log := logging.NewNopLogger()
 
-	result, err := svc.Execute(
-		context.Background(),
-		"ws-persist", "", "hello", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	)
+	result, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-persist", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil})
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -800,11 +772,7 @@ func TestExecute_SessionStartedPublishedAfterClear(t *testing.T) {
 	pub := &orderedEventPublisher{}
 	log := logging.NewNopLogger()
 
-	if _, err := svc.Execute(
-		context.Background(),
-		"ws-1", "", "hello", "v1", "UTC",
-		nil, log, provider, client, engine, pub, nil,
-	); err != nil {
+	if _, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: log, Provider: provider, Client: client, Engine: engine, Events: pub, Recorder: nil}); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
@@ -875,7 +843,7 @@ func TestConversationService_Execute_HotMemoryFollowsOverrides(t *testing.T) {
 					return ch, nil
 				},
 			}
-			if _, err := svc.Execute(ctx, "ws-1", "", "how do I build?", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{Tools: []proxy.Tool{}}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+			if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "", Message: "how do I build?", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{Tools: []proxy.Tool{}}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 				t.Fatalf("Execute failed: %v", err)
 			}
 
@@ -926,8 +894,7 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 				ChatFunc: tc.chat,
 			}
 			before := time.Now()
-			_, _ = svc.Execute(context.Background(), "ws-1", "conv_run", "hello", "v1", "UTC",
-				nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{}, &mockEventPublisher{}, nil)
+			_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_run", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
 
 			session, err := pm.ReadSession("ws-1", "conv_run")
 			if err != nil || session == nil {
@@ -953,8 +920,7 @@ func TestConversationService_RecordsTurnRun(t *testing.T) {
 			ChatFunc: answer,
 		}
 		for _, msg := range []string{"first", "second"} {
-			_, _ = svc.Execute(context.Background(), "ws-1", "conv_two", msg, "v1", "UTC",
-				nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{}, &mockEventPublisher{}, nil)
+			_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_two", Message: msg, ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
 		}
 		session, _ := pm.ReadSession("ws-1", "conv_two")
 		turnRunOf(t, session.History, "first")
@@ -991,8 +957,7 @@ func TestConversationService_RecordsReportedTokens(t *testing.T) {
 			}, nil
 		},
 	}
-	_, _ = svc.Execute(context.Background(), "ws-1", "conv_tok", "hello", "v1", "UTC",
-		nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{}, &mockEventPublisher{}, nil)
+	_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_tok", Message: "hello", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{}, Events: &mockEventPublisher{}, Recorder: nil})
 	session, _ := pm.ReadSession("ws-1", "conv_tok")
 	run := turnRunOf(t, session.History, "hello")
 	if run.PromptTokens != 1200 || run.CompletionTokens != 85 {
@@ -1021,8 +986,7 @@ func TestConversationService_RecordsToolWarningsOnTheTurn(t *testing.T) {
 	}
 	provider := &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: "web_lookup"}}}}
 	engine := &MockEngine{Err: fmt.Errorf("key rejected: %w", models.ErrToolUnavailable)}
-	_, _ = svc.Execute(context.Background(), "ws-1", "conv_warn", "look it up", "v1", "UTC",
-		nil, logging.NewNopLogger(), provider, client, engine, &mockEventPublisher{}, nil)
+	_, _ = svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv_warn", Message: "look it up", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: provider, Client: client, Engine: engine, Events: &mockEventPublisher{}, Recorder: nil})
 
 	session, err := pm.ReadSession("ws-1", "conv_warn")
 	if err != nil || session == nil {
@@ -1068,7 +1032,7 @@ func chatTurns(t *testing.T, pm *persistence.WorkspaceManager, turns []context.C
 	}
 	var out []chatTurnResult
 	for _, ctx := range turns {
-		if _, err := svc.Execute(ctx, "ws-1", "conv-profiles", "a question", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+		if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-profiles", Message: "a question", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
 		session, err := pm.ReadSession("ws-1", "conv-profiles")
@@ -1312,9 +1276,7 @@ func TestConversationService_DelegatesToSubAgents(t *testing.T) {
 	}}
 	events := &mockEventPublisher{}
 	ctx := models.WithProfileRequest(context.Background(), "research")
-	result, err := svc.Execute(ctx, "ws-1", "conv-d", "compare A and B", "v1", "UTC", nil, logging.NewNopLogger(),
-		&MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolInternetSearch}}}},
-		client, &MockEngine{Result: "ok"}, events, nil)
+	result, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-d", Message: "compare A and B", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{Tools: []proxy.Tool{{Type: "function", Function: proxy.FunctionSchema{Name: models.ToolInternetSearch}}}}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: events, Recorder: nil})
 	if err != nil || !strings.Contains(result.Reply, "both are fine") {
 		t.Fatalf("Execute = %q, %v", result.Reply, err)
 	}
@@ -1402,7 +1364,7 @@ func TestConversationService_HelpersNote(t *testing.T) {
 				return ch, nil
 			}}
 			ctx := models.WithHelpersRequest(models.WithProfileRequest(context.Background(), tc.profile), tc.asked)
-			if _, err := svc.Execute(ctx, "ws-1", "conv-h", "compare A and B", "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+			if _, err := svc.Execute(ctx, ExecuteRequest{WorkspaceID: "ws-1", ConversationID: "conv-h", Message: "compare A and B", ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
 			if got := strings.Contains(lastUser, prompts.HelpersNote); got != tc.wantNote {

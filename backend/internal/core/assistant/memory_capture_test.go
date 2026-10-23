@@ -30,7 +30,7 @@ func captureChat(t *testing.T, deps *mockConvDeps, pm *persistence.WorkspaceMana
 			return ch, nil
 		},
 	}
-	if _, err := svc.Execute(context.Background(), "ws-1", conversationID, message, "v1", "UTC", nil, logging.NewNopLogger(), &MockProvider{Tools: []proxy.Tool{}}, client, &MockEngine{Result: "ok"}, &mockEventPublisher{}, nil); err != nil {
+	if _, err := svc.Execute(context.Background(), ExecuteRequest{WorkspaceID: "ws-1", ConversationID: conversationID, Message: message, ContextVersion: "v1", Timezone: "UTC", ExcludeTools: nil, Log: logging.NewNopLogger(), Provider: &MockProvider{Tools: []proxy.Tool{}}, Client: client, Engine: &MockEngine{Result: "ok"}, Events: &mockEventPublisher{}, Recorder: nil}); err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
 	session, err := pm.ReadSession("ws-1", conversationID)

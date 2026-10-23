@@ -1,6 +1,7 @@
 package app
 
 import (
+	"llm-proxy/internal/core/chat"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
@@ -22,6 +23,7 @@ type HandlerSet struct {
 	MCP        *handlers.MCPHandlers
 	Model      *handlers.ModelHandlers
 	Proxy      *handlers.ProxyHandlers
+	Turns      *chat.Service
 	Assistant  *handlers.AssistantMessageHandler
 	ActiveRuns *handlers.ActiveRunsHandler
 	Dispatcher *handlers.DispatcherHandlers
@@ -37,9 +39,9 @@ type HandlerSet struct {
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
 func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
 	hs := &HandlerSet{}
-	hs.Assistant = handlers.NewAssistantMessageHandler(s)
 	ownerZone := func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone }
-	hs.Assistant.OwnerTimezone = ownerZone
+	hs.Turns = chat.New(s, ownerZone)
+	hs.Assistant = handlers.NewAssistantMessageHandler(s, hs.Turns)
 	// Operator actions on queued inbound callers. These are the only paths that
 	// cancel a run to free the local model, alongside the host's explicit
 	// inbound-preempt policy.
@@ -52,10 +54,10 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	// Authoritative per-workspace "running" source, aggregating the assistant
 	// and automation subsystems so the frontend has one endpoint to poll.
 	hs.ActiveRuns = handlers.NewActiveRunsHandler(handlers.ActiveRunsSources{
-		AssistantRunning:        hs.Assistant.RunningExists,
+		AssistantRunning:        hs.Turns.Running,
 		AutomationRunning:       disp.IsAutomationRunning,
-		AssistantConversationID: hs.Assistant.RunningConversationID,
-		AssistantQueued:         hs.Assistant.RunningQueued,
+		AssistantConversationID: hs.Turns.RunningConversation,
+		AssistantQueued:         hs.Turns.Queued,
 		LaneSnapshot:            disp.LaneSnapshot,
 		PromoteModelWait:        promoteModelWait,
 		CancelModelWait:         cancelModelWait,
@@ -103,7 +105,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		Events:      s.Events(),
 		CommTools:   commTools,
 		Dispatcher:  disp,
-		Assistant:   hs.Assistant,
+		Turns:       hs.Turns,
 		Logger:      s.Logger(),
 		Limiter:     ratelimiter.NewLimiter(utils.NewRealClock()),
 		// Connector messages carry no browser timezone; the owner's configured zone
@@ -130,7 +132,7 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 				}
 				return ids, err
 			},
-			assistantBusy:  func(id string) bool { return hs.Assistant.RunningExists(id) || hs.Assistant.RunningQueued(id) },
+			assistantBusy:  func(id string) bool { return hs.Turns.Running(id) || hs.Turns.Queued(id) },
 			automationBusy: disp.IsAutomationRunning,
 			// Queued lane entries are active work too: the lanes are in-memory, so clearing runtime data with a
 			// queued run would silently drop it.

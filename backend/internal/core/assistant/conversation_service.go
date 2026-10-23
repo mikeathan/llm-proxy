@@ -43,13 +43,15 @@ func NewConversationService(deps ConversationDeps, persistence *persistence.Work
 	return &conversationService{deps: deps, persistence: persistence, extractor: memorycapture.NewExtractor(tools.ContainsSecret)}
 }
 
-func (s *conversationService) Execute(ctx context.Context, workspaceID, conversationID, message, contextVersion, timezone string, excludeTools []string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, events EventPublisher, recorder EventRecorder) (ExecuteResult, error) {
+func (s *conversationService) Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error) {
+	workspaceID, conversationID, message, timezone := req.WorkspaceID, req.ConversationID, req.Message, req.Timezone
+	log, events := req.Log, req.Events
 	if workspaceID == "" {
 		workspaceID = "default"
 	}
 
 	// 1. Resolve or create session
-	session, err := s.resolveSession(workspaceID, conversationID, contextVersion, timezone, log)
+	session, err := s.resolveSession(workspaceID, conversationID, req.ContextVersion, timezone, log)
 	if err != nil {
 		return ExecuteResult{}, fmt.Errorf("resolve session: %w", err)
 	}
@@ -88,11 +90,11 @@ func (s *conversationService) Execute(ctx context.Context, workspaceID, conversa
 	copy(baseHistory, session.History)
 
 	// 5. Build agent options
-	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, recorder, log)
+	observer, collected := s.buildObserver(baseHistory, session, workspaceID, events, req.Recorder, log)
 
-	agent := NewAgent(client, provider, engine, s.agentOptions(chatAgentRun{
+	agent := NewAgent(req.Client, req.Provider, req.Engine, s.agentOptions(chatAgentRun{
 		modelName: modelName, workspaceID: workspaceID, sessionID: session.ID, log: log,
-		observer: observer, excludeTools: excludeTools, profile: runProfile,
+		observer: observer, excludeTools: req.ExcludeTools, profile: runProfile,
 	}))
 
 	// 6. Execute agent

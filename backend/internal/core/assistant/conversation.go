@@ -29,8 +29,24 @@ type ExecuteResult struct {
 	Canceled       bool             `json:"canceled,omitempty"`
 }
 
+// ExecuteRequest is one chat turn handed to the conversation service: what was asked, and the parts the turn runs with.
+type ExecuteRequest struct {
+	WorkspaceID    string
+	ConversationID string
+	Message        string
+	ContextVersion string
+	Timezone       string
+	ExcludeTools   []string
+	Log            logging.Logger
+	Provider       ToolProvider
+	Client         proxy.Client
+	Engine         Engine
+	Events         EventPublisher
+	Recorder       EventRecorder // nil: the turn is not recorded
+}
+
 // ConversationService encapsulates the stateful agent turn execution.
-// The HTTP handler decodes/validates the request, calls Execute, then encodes the response.
+// The chat service (core/chat) admits the turn and calls Execute; the HTTP handler only decodes and encodes.
 type ConversationService interface {
-	Execute(ctx context.Context, workspaceID, conversationID, message, contextVersion, timezone string, excludeTools []string, log logging.Logger, provider ToolProvider, client proxy.Client, engine Engine, events EventPublisher, recorder EventRecorder) (ExecuteResult, error)
+	Execute(ctx context.Context, req ExecuteRequest) (ExecuteResult, error)
 }

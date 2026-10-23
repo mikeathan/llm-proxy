@@ -1,6 +1,6 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. C0 and C1 done; C2 next.
+**Status:** approved (2026-10-23). D1–D3 decided. C0, C1 and C2 done; C4 next.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -105,13 +105,25 @@ that each pass the tests; PR 2 is the commands, C3, after PR 1 is merged (D2: re
 |---|---|---|
 | C0 | **Safety net and dead code — done.** `internal/testing/assistanttest` holds the loop's doubles (the root tests alias them). The chat turn lifecycle already has characterisation tests in `handlers/assistant_handlers_test.go` (replace, cancel, running and queued state, cold-model wait, use_helpers, errors); they move with the code in C2. Bucket A was already gone (a search finds none of the 13); two stale comments corrected | `go test ./...` green; no Bucket A symbol exists |
 | C1 | **Read the connector path** (done, §2) | Findings written into this plan, no code |
-| C2 | **Chat service.** `ChatRequest`; lifecycle out of the handler; `Execute` ≤4 parameters; `AssistantService` narrowed | Characterisation tests unchanged; handlers contain no lifecycle; complexity has no new violations |
+| C2 | **Chat service — done.** `core/chat` (`chat.Service`, `chat.Request`) holds the turn lifecycle; the handler and the webhook call it; `Execute` takes one `ExecuteRequest`; the chat handlers depend on a 11-method `AssistantHandlerDeps`, not the 26-method `AssistantService` (the automation side still uses that one; C4). The lifecycle tests moved with the code (22 tests) | Characterisation tests unchanged; handlers contain no lifecycle; complexity has no new violations |
 | C3 | **Turn commands (PR 2).** `TurnSpec`, `/research`, `/agent`, the web helper preview, the connector path, `/run` into the registry, long-reply handling; docs in SPEC-009 and SPEC-003 | Unit tests per command; a live Telegram-style message on vertex runs Research with helpers |
 | C4 | **Merge duplicates.** Memory review on the shared setup; `RunRecord`; handler helpers; remaining D6 / D7 copies | Tests; the one deliberate change (memory review waits for a cold model) has its own test |
 | C5 | **Package moves.** `conversation/` out of `assistant`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go` | `go build` proves no cycle; root `assistant` no longer imports `conversation` |
 | C6 | **Close out.** SPECs, `architecture.md`, plan statuses, tracker | `./scripts/check-agent-harness.sh` |
 
 Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap.
+
+### C2 results (2026-10-23)
+
+- The package is `core/chat`, not `conversation/` as the review sketched: the conversation service itself moves in
+  there in C5.
+- **Found while moving it:** the connector's agent answer was read with `result.(map[string]any)`, but the turn's result
+  is the typed `assistant.ExecuteResult`, so by reading the code a Telegram agent turn's reply was never sent back
+  (nothing tested that path). The webhook now takes `result.Reply` through a narrow `AgentTurns` interface, with tests
+  that a reply goes back through the connector and that an empty or failed turn sends nothing. Not checked on a real
+  Telegram chat.
+- Turn errors are plain errors now: the handler's `Status` was never used (the run is detached after the 202).
+- Verified: `go test ./...`, the complexity check (no new violations), the ported lifecycle tests.
 
 ## 6. Risks
 

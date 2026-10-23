@@ -60,7 +60,7 @@ func (h *AssistantMessageHandler) ReviewMemories(w http.ResponseWriter, r *http.
 
 	ctx, cancel := context.WithTimeout(r.Context(), h.reviewTimeoutOrDefault())
 	defer cancel()
-	model := h.chatModel()
+	model := h.turns.Model()
 	if h.lane != nil {
 		claimed, release, err := h.lane.ClaimInteractive(ctx, h.svc.LaneKeyFor(""), workspaceID, model)
 		if err != nil {

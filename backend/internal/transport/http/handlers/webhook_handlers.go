@@ -8,6 +8,7 @@ import (
 	"io"
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/commands"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/reminders"
@@ -26,6 +27,11 @@ import (
 // unauthenticated webhook cannot be used as a resource-exhaustion amplifier.
 const webhookRateLimitInterval = time.Second
 
+// AgentTurns runs one chat message as a turn: the part of the chat service a connector uses.
+type AgentTurns interface {
+	Run(ctx context.Context, req *chat.Request, log logging.Logger) (assistant.ExecuteResult, error)
+}
+
 // WebhookHandler receives inbound messages from external platforms (Telegram,
 // Slack, etc.) via POST /api/v1/webhooks/{connector_name} and routes them to
 // either the agent (for normal messages) or the dispatcher (for /run commands).
@@ -36,7 +42,7 @@ type WebhookHandler struct {
 	Events      assistant.EventPublisher
 	CommTools   *tools.CommunicationTools
 	Dispatcher  *automation.Dispatcher
-	Assistant   *AssistantMessageHandler
+	Turns       AgentTurns
 	Logger      logging.Logger
 	Limiter     ratelimiter.Limiter
 	// OwnerTimezone returns the owner's configured IANA zone, or "" when unset.
@@ -207,7 +213,7 @@ func (h *WebhookHandler) handleAutomation(workspaceID, connectorName, connectorT
 func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connectorType, message string, chatID string) {
 	h.Logger.Info("webhook agent request", "workspace", workspaceID, "connector", connectorName)
 
-	payload := &AssistantMessage{
+	payload := &chat.Request{
 		WorkspaceID:    workspaceID,
 		ConversationID: webhookSessionKey(connectorType, chatID),
 		Message:        message,
@@ -221,7 +227,7 @@ func (h *WebhookHandler) handleAgentMessage(workspaceID, connectorName, connecto
 	// Run agent in a goroutine — the webhook response to Telegram is sent
 	// immediately to avoid timeouts.  The agent's reply is delivered via
 	// the connector's sendMessage API when execution completes.
-	safe.Go("webhook agent reply", func() { h.runAgentReply(workspaceID, connectorName, connectorType, chatID, payload) })
+	safe.Go("webhook agent reply", func() { h.runAgentReply(connectorName, connectorType, payload) })
 }
 
 // agentRunContext is the context of a connector-originated run: it records which
@@ -230,17 +236,15 @@ func agentRunContext(connectorType string) context.Context {
 	return models.WithOriginConnector(context.Background(), connectorType)
 }
 
-// runAgentReply runs handleAssistant and sends the result back via the connector.
-func (h *WebhookHandler) runAgentReply(workspaceID, connectorName, connectorType, chatID string, payload *AssistantMessage) {
-	result, handlerErr := h.Assistant.RunWithCancel(agentRunContext(connectorType), workspaceID, payload, h.Logger)
-	if handlerErr != nil {
-		h.Logger.Error("webhook agent execution failed", "error", handlerErr.Message)
+// runAgentReply runs the message as a chat turn and sends the answer back via the connector.
+func (h *WebhookHandler) runAgentReply(connectorName, connectorType string, payload *chat.Request) {
+	result, err := h.Turns.Run(agentRunContext(connectorType), payload, h.Logger)
+	if err != nil {
+		h.Logger.Error("webhook agent execution failed", "error", err)
 		return
 	}
-	if resultMap, ok := result.(map[string]any); ok {
-		if reply, ok := resultMap["reply"].(string); ok && reply != "" {
-			h.replyToChat(connectorName, reply)
-		}
+	if result.Reply != "" {
+		h.replyToChat(connectorName, result.Reply)
 	}
 }
 
