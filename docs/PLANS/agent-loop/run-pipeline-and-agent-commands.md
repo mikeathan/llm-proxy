@@ -140,7 +140,7 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   - The handler helper split from the codebase audit (`writeJSONError`, `requirePathParams`) already exists.
 - The automation side's wide interfaces (`automation.LLMServiceProvider`, `handlers.AssistantService`) are unchanged.
 
-### C5 results (2026-10-23, uncommitted)
+### C5 results (2026-10-23)
 
 - **Moved to `chat`:** `conversation.go` (`ExecuteRequest`, `ExecuteResult`, `ConversationService`),
   `conversation_service.go`, `conversation_helpers.go` (history truncation, cancel filtering, partial history, local
@@ -156,7 +156,18 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   `TestConversationSystemMessage` uses its own workspace id instead of clearing `assistant`'s AGENTS.md cache.
 - The complexity baseline keys for `TruncateHistory` and `buildPartialHistory` follow the file to `chat/` (same
   functions, unchanged).
-- Verified: `go build ./...`, `go vet ./...`, `go test ./...`, the complexity check. Not run on vertex.
+- Verified: `go build ./...`, `go vet ./...`, `go test ./...`, the complexity check.
+
+### Live smoke on vertex (2026-10-23, build `6e9c7f0`, throwaway workspaces, deleted afterwards)
+
+- **Passed:** a turn and a follow-up in the same conversation (the history is replayed); replace (a new message
+  cancels the running one, which is kept with `cancelled_indices`, and the new one answers); cancel (`canceled: true`,
+  idle at once, the user's message kept and marked); a new turn in the cancelled conversation; the memory review
+  (C4's admission) answered in 4 s. Model `deepseek-v4.1-flash`; turns 1–2 also on `nemotron-3.5-super-vl:free`.
+- **Not checked:** the connector path, including C2's fix for the Telegram reply that was never sent. vertex is local
+  HTTP only, and the inbound webhook cannot reach it; checked once a reachable webhook exists.
+- **Seen, not caused by this work:** the free model returned 502s, then held a stream open for four minutes with no
+  output; nothing ended it until a new message replaced the turn. There is no idle timeout on an upstream stream.
 
 ## 6. Risks
 
@@ -178,5 +189,6 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 ## Remaining Work
 
 - C5: `ResolveRunOptions` into `run/`; heartbeat out of `executor.go`.
-- A live smoke on vertex of C2 + C5 (a web chat turn, a connector turn, a cancel) before PR 1 is opened.
+- The connector turn on a real Telegram chat (C2's reply fix), once vertex has a reachable webhook.
+- An idle timeout for an upstream stream that stalls (seen in the smoke; separate fix).
 - C6 close-out, then C3 (PR 2).
