@@ -138,6 +138,7 @@ func finishTurnRun(run *models.TurnRun, tracker *usage.Tracker, warnings []strin
 	run.Warnings = warnings
 	if tracker != nil {
 		run.Subagents = tracker.Subagents()
+		run.ContextOverflows = tracker.ContextOverflows()
 		run.PromptTokens, run.CompletionTokens = tracker.ReportedUsage()
 		run.CachedTokens = tracker.ReportedCached()
 	}

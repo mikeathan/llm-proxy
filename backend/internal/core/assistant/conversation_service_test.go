@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
+	"llm-proxy/internal/core/assistant/usage"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/platform/logging"
@@ -1415,5 +1416,15 @@ func TestConversationService_HelpersNote(t *testing.T) {
 				t.Errorf("the stored message is not what the user typed: %q", saved.History[1].Content)
 			}
 		})
+	}
+}
+
+func TestFinishTurnRun_RecordsContextOverflows(t *testing.T) {
+	tracker := &usage.Tracker{}
+	tracker.AddContextOverflow()
+	run := &models.TurnRun{StartedAt: time.Now()}
+	finishTurnRun(run, tracker, nil)
+	if run.ContextOverflows != 1 {
+		t.Errorf("ContextOverflows = %d, want 1", run.ContextOverflows)
 	}
 }

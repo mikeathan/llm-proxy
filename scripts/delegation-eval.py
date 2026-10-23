@@ -44,7 +44,7 @@ def summarise(arm, pid, rep, r):
         'seconds': r.get('seconds'), 'finished': bool(final.strip()) and not r.get('error'),
         'parent_prompt_tokens': run.get('prompt_tokens'), 'parent_completion_tokens': run.get('completion_tokens'),
         'duration_ms': run.get('duration_ms'), 'model': run.get('model'),
-        'helpers': len(subs), 'helper_failed': sum(1 for s in subs if s.get('status') != 'done'),
+        'context_overflows': run.get('context_overflows') or 0, 'helpers': len(subs), 'helper_failed': sum(1 for s in subs if s.get('status') != 'done'),
         'helper_prompt_tokens': sum(s.get('prompt_tokens') or 0 for s in subs),
         'helper_completion_tokens': sum(s.get('completion_tokens') or 0 for s in subs),
         'tools': [c['tool'] for c in calls],
@@ -59,6 +59,7 @@ def main():
     ap.add_argument('base'); ap.add_argument('workspace'); ap.add_argument('out')
     ap.add_argument('--repeats', type=int, default=2)
     ap.add_argument('--model', default='Qwen3.6 35B A3B')
+    ap.add_argument('--arms', default='AB', help='arms to run, e.g. B to run only the helpers arm')
     ap.add_argument('--only', default='', help='comma-separated prompt ids, for a smoke run')
     a = ap.parse_args()
     b = Backend(a.base)
@@ -78,7 +79,7 @@ def main():
             for i, pid in enumerate(order):
                 arms = ['A', 'B'] if (i + rep) % 2 == 0 else ['B', 'A']
                 for arm in arms:
-                    if (arm, pid, rep) in done:
+                    if (arm, pid, rep) in done or arm not in a.arms:
                         continue
                     extra = {'profile': 'research', 'model': a.model}
                     if arm == 'B':

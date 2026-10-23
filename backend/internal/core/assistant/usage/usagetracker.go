@@ -29,6 +29,7 @@ type Tracker struct {
 	reportedCompletion int
 	reportedCached     int
 	subagents          []models.SubagentRun
+	contextOverflows   int
 	mu                 sync.Mutex
 }
 
@@ -123,4 +124,18 @@ func (t *Tracker) Subagents() []models.SubagentRun {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return slices.Clone(t.subagents)
+}
+
+// AddContextOverflow records one request the server rejected as larger than its context window.
+func (t *Tracker) AddContextOverflow() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.contextOverflows++
+}
+
+// ContextOverflows returns how many requests of the run the server rejected as too large.
+func (t *Tracker) ContextOverflows() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.contextOverflows
 }
