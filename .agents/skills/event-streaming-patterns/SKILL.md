@@ -1,7 +1,7 @@
 ---
 name: event-streaming-patterns
 description: "Event streaming patterns: SSE composables, observer chaining, guardrail flow, heartbeat cleanup, and dedup. Use when working with event streams or SSE handlers."
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-23
 ---
 
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
@@ -71,23 +71,21 @@ agent := NewAgent(..., AgentOptions{
 })
 ```
 
-### CollectingObserver for HTTP responses
+### The chat observer collects as it publishes
 
-For assistant chat responses, events must also be returned in the HTTP body
-(to fill the gap between SSE disconnect and response arrival):
+A chat turn's events reach the client over SSE only: `POST /admin/api/conversation/message` answers `202 Accepted`
+at once and the turn runs detached (`chat.Service.Run`), so nothing comes back in the HTTP body. The chat observer
+(`buildObserver` in `core/chat/conversation_service.go`) still keeps the events it publishes: they rebuild the
+session's partial history for the disk checkpoint on every `tool_result` / `message`, and end up in
+`ExecuteResult.Events`. It keeps only the newest snapshot of a stream (`assistant.SupersedesSnapshot`), because
+`buildPartialHistory` rescans the log on every tool result.
 
 ```go
-// In assistant_handlers.go:
-var collected []AgentEvent
-publishObs := func(ev AgentEvent) {
+// In core/chat/conversation_service.go (buildObserver), simplified:
+obs := func(ev assistant.AgentEvent) {
     collected = append(collected, ev)
-    h.svc.Events().Publish(workspaceID, ev)
-}
-// ... Execute() ...
-// Return both reply + collected events:
-return map[string]any{
-    "reply":  reply,
-    "events": collected,  // serialised as JSON-friendly map
+    events.Publish(workspaceID, ev)            // SSE
+    // + recorder.Write(ev), the checkpoint on tool_result/message, the step counter on tool_call
 }
 ```
 

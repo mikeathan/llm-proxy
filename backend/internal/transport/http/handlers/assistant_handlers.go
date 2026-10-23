@@ -74,7 +74,7 @@ func (h *AssistantMessageHandler) ServeHTTP(w http.ResponseWriter, r *http.Reque
 	respondJSON(w, map[string]any{
 		"status": "running",
 		// conversationID is resolved BEFORE the run goroutine starts: the goroutine
-		// mutates payload.ConversationID (RunWithCancel re-resolves it idempotently),
+		// mutates payload.ConversationID (chat.Service.Run re-resolves it idempotently),
 		// so the response must use this local copy instead of the shared struct field
 		// to stay race-free under -race.
 		"conversation_id": conversationID,

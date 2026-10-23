@@ -1,6 +1,6 @@
 # Multi-Agent Delegation — one run pipeline, then cloud sub-agents
 
-**Status:** active (2026-10-23). R0, Part A and Part B (B0–B8) built; B7 (the live eval) done — helpers kept. Part C: the Agents editor is built (#128); the rest is open.
+**Status:** active (2026-10-23). R0, Part A and Part B (B0–B8) built; B7 (the live eval) done — helpers kept. Part C: the Agents editor is built (#128); A3 and A5 are done (`run-pipeline-and-agent-commands.md`, #129, #130); the rest is open.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher, §V run scheduler), SPEC-012 (Prompt
 Profiles), SPEC-006 (Guardrails), SPEC-004 (Memory).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow; automations never wait),
@@ -134,10 +134,11 @@ Decisions from the research report §9:
 
 ## Part C — later
 
-- A3: chat lifecycle (lane claim, cold-model wait, cancel / replace) out of the HTTP handler; narrow the service
-  interfaces.
-- A5: the test-doubles package (Step 0 of `cross-cutting/assistant-conversation-package.md`), `conversation/` out of
-  `assistant`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go`, plus cleanup Bucket A.
+- A3 (done, #129): chat lifecycle (lane claim, cold-model wait, cancel / replace) out of the HTTP handler into
+  `core/chat`; narrow the service interfaces.
+- A5 (done, #129, #130): the test-doubles package (`internal/testing/assistanttest`), the conversation service out of
+  `assistant` (into `core/chat`), `run.ResolveOptions`, heartbeat out of `executor.go`; cleanup Bucket A was already
+  gone.
 - Helpers with `on_finish`; the reviewer type; `files` / `cloud_files`.
 - The Settings → Agents editor with schema-driven hints (built-ins read-only, "Duplicate to edit"): planned in
   [`agents-editor.md`](agents-editor.md), built (#128).

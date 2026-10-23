@@ -1,7 +1,7 @@
 ---
 name: agent-loop
 description: "Agent-loop mechanics (reference): execution flow, structural/reactive sieve, stuck/spiral detection, reasoning budget, fallback chain, GBNF, and key constants. Load alongside debugging when the failure is in the loop."
-last_reviewed: 2026-10-08
+last_reviewed: 2026-10-23
 ---
 
 # Agent Loop — Execution, Sieve, Stuck Detection & Fallback
