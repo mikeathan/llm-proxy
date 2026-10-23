@@ -1,6 +1,6 @@
 # Multi-Agent Delegation — one run pipeline, then cloud sub-agents
 
-**Status:** active (2026-10-23). R0, Part A and Part B (B0–B8) built; B7 (the live eval) done — helpers kept. Part C is open.
+**Status:** active (2026-10-23). R0, Part A and Part B (B0–B8) built; B7 (the live eval) done — helpers kept. Part C: the Agents editor is built (#128); the rest is open.
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher, §V run scheduler), SPEC-012 (Prompt
 Profiles), SPEC-006 (Guardrails), SPEC-004 (Memory).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow; automations never wait),
@@ -140,7 +140,7 @@ Decisions from the research report §9:
   `assistant`, `ResolveRunOptions` into `run/`, heartbeat out of `executor.go`, plus cleanup Bucket A.
 - Helpers with `on_finish`; the reviewer type; `files` / `cloud_files`.
 - The Settings → Agents editor with schema-driven hints (built-ins read-only, "Duplicate to edit"): planned in
-  [`agents-editor.md`](agents-editor.md).
+  [`agents-editor.md`](agents-editor.md), built (#128).
 - Pipelines with Event-Driven Triggers.
 
 ## Part A results (2026-10-22)
@@ -244,5 +244,10 @@ the first reply (`delegate_task` or not):
 
 ## Remaining Work
 
-- **Overflow count in the run record**, so the next eval reads it instead of inferring it.
-- **Part C.**
+- **Part C, what is left:** A3 (chat lifecycle out of the HTTP handler) and A5 (package tidy) are planned, with the agent
+  commands, in [`run-pipeline-and-agent-commands.md`](run-pipeline-and-agent-commands.md). Helpers with `on_finish`, the
+  reviewer type, `files` / `cloud_files` and pipelines stay open; none blocks the feature.
+- **Choosing an agent from a connector chat.** The composer has the Agent and Use helpers controls; a Telegram or webhook
+  message has neither. The slash-command registry (`internal/core/commands`) only holds model-free commands (`/remind`),
+  so a `/research <question>` that runs a turn under an agent with helpers on needs a command kind that shapes the turn
+  instead of answering it. Not designed or built.

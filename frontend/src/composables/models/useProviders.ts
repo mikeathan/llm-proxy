@@ -35,8 +35,8 @@ export function useProviders() {
   const allProviders = computed(() => ['local' as ProviderType, ...cloudProviders.value])
 
   const settingsTabs = computed<SettingsTab[]>(() => {
-    // We want to preserve the order from SETTINGS_TABS while ensuring 
-    // any dynamically discovered cloud providers are also included.
+    // The sections in their order, with the cloud providers the manifests list among them. A new fixed section must be
+    // added here too, or it is missing from the Settings navigation.
     const base = ['appearance', 'local', 'runs', 'agents', 'memory', 'storage', 'local-models', 'limits', 'guardrails', ...cloudProviders.value, 'mcp', 'communication', 'search', 'processes']
     return Array.from(new Set(base)) as SettingsTab[]
   })

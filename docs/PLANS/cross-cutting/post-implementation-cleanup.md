@@ -38,6 +38,8 @@ byte-identical. No phase may change a local `max_tokens`/`ContextBudget` value.
 
 ### Bucket A — Dead code (safe to delete)
 
+**Done (checked 2026-10-23):** none of A1–A13 exists any more — a search for each symbol and file finds no code, only two stale comments, which were corrected. The table is kept as the record.
+
 | ID | Location | Dead symbol | Evidence |
 |---|---|---|---|
 | A1 | `backend/internal/core/assistant/agent.go:137-142` | `TierForProvider` | zero callers (prod + tests); superseded by `models.TuningFor` / `ProviderTiers()` |

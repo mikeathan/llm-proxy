@@ -148,7 +148,7 @@ func isLoopbackHost(host string) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
-// hostMatches implements the exact IsLocalModelURL matching semantics: strip
+// hostMatches keeps the matching the former proxy IsLocalModelURL had: strip
 // scheme and trailing slash, then compare bare host or host:port/host/ prefix.
 func hostMatches(rawURL, modelHost string) bool {
 	if modelHost == "" {
