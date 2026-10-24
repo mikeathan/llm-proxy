@@ -1,7 +1,7 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.6"
+version: "1.7"
 status: stable
 last_updated: 2026-10-23
 constitution_references: [II.4, II.5, V]
@@ -13,6 +13,11 @@ supersedes:
 
 ## Changelog
 
+- **1.7 (2026-10-23)** — `/run <automation>` is a registered slash command (`core/commands/run.go`), not a prefix
+  the webhook checks itself: it triggers the automation in the connector's workspace, the chat gets its start line
+  ("Running 'x'...", or that it is queued or skipped), and the webhook then sends the run's result as before (or a
+  pointer to Pulse after 30 seconds). An unknown automation is now refused with the reason (it was logged and the
+  chat still got "Running…"), and a bare `/run` gets its usage instead of going to the agent.
 - **1.6 (2026-10-23)** — An inbound message is a chat turn through the same chat service as the web chat
   (`chat.Service.Run`); its answer (`ExecuteResult.Reply`) is sent back through the connector it came from. A slash
   command is answered in code; a **turn command** (`/research <question>`, `/agent <agent> <question>`, SPEC-012 1.6)

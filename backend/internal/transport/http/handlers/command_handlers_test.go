@@ -79,6 +79,27 @@ func TestCommandHandlers_RunAnswersATurn(t *testing.T) {
 	}
 }
 
+// The chat's workspace reaches the command (/run starts an automation there), and the started automation is named.
+func TestCommandHandlers_RunPassesTheWorkspace(t *testing.T) {
+	var gotWS string
+	run := commands.Command{Name: "run", Usage: "/run <automation>", Start: func(_ context.Context, r commands.Request) (commands.Started, error) {
+		gotWS = r.WorkspaceID
+		return commands.Started{Text: "Running '" + r.Args + "'...", Automation: r.Args}, nil
+	}}
+	h := NewCommandHandlers(commands.New(run), nil)
+	var got struct {
+		Handled    bool   `json:"handled"`
+		Reply      string `json:"reply"`
+		Automation string `json:"automation"`
+	}
+	if err := json.Unmarshal(postCommand(t, h.Run, `{"message":"/run news","workspace_id":"ws-1"}`).Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if gotWS != "ws-1" || !got.Handled || got.Reply != "Running 'news'..." || got.Automation != "news" {
+		t.Errorf("workspace %q, response %+v", gotWS, got)
+	}
+}
+
 func TestCommandHandlers_Preview(t *testing.T) {
 	h := NewCommandHandlers(commands.New(zoneEcho()), nil)
 	var got commandPreviewResponse

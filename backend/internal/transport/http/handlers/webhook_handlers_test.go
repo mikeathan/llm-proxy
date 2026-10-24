@@ -8,10 +8,15 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/commands"
+	"llm-proxy/internal/core/eventbus"
+	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
@@ -199,5 +204,44 @@ func TestWebhookHandler_NoAnswerSendsNothing(t *testing.T) {
 		if len(conn.sent) != 0 {
 			t.Errorf("%s: sent %q, want nothing", name, conn.sent)
 		}
+	}
+}
+
+// startCommand is a /run-like command that "starts" the named automation and says so.
+func startCommand() commands.Command {
+	return commands.Command{
+		Name: "run", Usage: "/run <automation>",
+		Start: func(_ context.Context, r commands.Request) (commands.Started, error) {
+			return commands.Started{Text: "Running '" + r.Args + "'...", Automation: r.Args}, nil
+		},
+	}
+}
+
+// /run from a connector: the command's line goes to the chat, then the automation's result when its run ends.
+func TestWebhookHandler_RunCommandSendsTheAutomationsResult(t *testing.T) {
+	tmp := t.TempDir()
+	pm := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	if err := pm.WriteState("ws", &models.AgentState{LastRuns: map[string]*models.AutomationRun{"news": {Output: "the news report"}}}); err != nil {
+		t.Fatal(err)
+	}
+	bus := eventbus.NewBus()
+	conn := &sentTo{}
+	comm := tools.NewCommunicationTools()
+	comm.AddConnector("tg", "telegram", conn)
+	h := &WebhookHandler{Commands: commands.New(startCommand()), AutomationEvents: bus, Persistence: pm, CommTools: comm, Logger: logging.NewNopLogger()}
+
+	stream := assistant.AutomationStream("news")
+	go func() { // the run ends once the handler is listening for it
+		for bus.SubscriberCount("ws", stream) == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		bus.Publish("ws", assistant.AgentEvent{Type: assistant.EventMessage, Automation: "news",
+			Payload: proxy.Message{Role: proxy.AssistantRole, Content: assistant.MsgExecutionComplete}})
+	}()
+	if !h.handleCommand(inbound{workspaceID: "ws", connectorName: "tg", connectorType: "telegram"}, "/run news") {
+		t.Fatal("/run is a command")
+	}
+	if sent := conn.sentMessages(); len(sent) != 2 || sent[0] != "Running 'news'..." || sent[1] != "the news report" {
+		t.Errorf("connector was sent %q, want the start line then the report", sent)
 	}
 }

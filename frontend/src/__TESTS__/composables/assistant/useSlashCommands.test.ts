@@ -56,7 +56,7 @@ describe('useSlashCommands', () => {
     expect(service.preview).not.toHaveBeenCalled()
     await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS)
     expect(service.preview).toHaveBeenCalledTimes(1)
-    expect(service.preview).toHaveBeenCalledWith('/remind tomorrow 9am')
+    expect(service.preview).toHaveBeenCalledWith('/remind tomorrow 9am', undefined, undefined)
     expect(preview.value).toEqual({ text: 'Tue 13 Oct 2026 09:00', error: '' })
   })
 

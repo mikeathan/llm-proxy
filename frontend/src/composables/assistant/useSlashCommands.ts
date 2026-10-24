@@ -9,7 +9,7 @@ export const PREVIEW_DEBOUNCE_MS = 250
 
 // Slash-command help for the chat box: the menu of commands, the active command's usage and examples, and a live
 // preview of what the typed text would do (answered by the backend, so it can never disagree with what runs).
-export function useSlashCommands(text: Ref<string>) {
+export function useSlashCommands(text: Ref<string>, workspaceId?: Ref<string | undefined>) {
   const commands = ref<CommandInfo[]>([])
   const preview = ref<SlashPreview | null>(null)
   let loaded = false
@@ -42,7 +42,7 @@ export function useSlashCommands(text: Ref<string>) {
   async function refreshPreview(message: string) {
     const mine = ++latest
     try {
-      const p = await CommandService.preview(message)
+      const p = await CommandService.preview(message, undefined, workspaceId?.value)
       if (mine !== latest) return
       preview.value = p.matched ? { text: p.text ?? '', error: p.error ?? '' } : null
     } catch {

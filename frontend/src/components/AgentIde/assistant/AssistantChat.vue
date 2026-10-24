@@ -257,7 +257,7 @@ const confirmDelete = (title: string, message: string) =>
   const runCommand = async (text: string): Promise<CommandOutcome> => {
     let result;
     try {
-      result = await CommandService.run(text);
+      result = await CommandService.run(text, props.workspaceId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "The command could not be run");
       return { kind: "refused" };
@@ -499,6 +499,7 @@ const handleDeleteGroup = async (ids: string[]) => {
         :paused="paused"
         :input-message="inputMessage"
         :queued="queuedText"
+        :workspace-id="workspaceId"
         @send="handleSend"
         @unqueue="messageQueue.remove()"
         @cancel="cancel"

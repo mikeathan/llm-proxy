@@ -261,7 +261,7 @@ describe('AssistantChat', () => {
       commandService.run.mockResolvedValue({ handled: true, reply: 'Reminder 4 set', failed: false })
       const { w } = mountChat()
       await send(w, '/remind tomorrow 9am call')
-      expect(commandService.run).toHaveBeenCalledWith('/remind tomorrow 9am call')
+      expect(commandService.run).toHaveBeenCalledWith('/remind tomorrow 9am call', 'ws')
       expect(a.sendMessage).not.toHaveBeenCalled()
       expect((w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
     })

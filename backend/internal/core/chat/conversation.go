@@ -10,11 +10,10 @@ import (
 
 // ExecuteResult is the typed return value from ConversationService.Execute.
 type ExecuteResult struct {
-	Reply          string           `json:"reply"`
-	ConversationID string           `json:"conversation_id"`
-	WorkspaceID    string           `json:"workspace_id"`
-	Events         []map[string]any `json:"events"`
-	Canceled       bool             `json:"canceled,omitempty"`
+	Reply          string `json:"reply"`
+	ConversationID string `json:"conversation_id"`
+	WorkspaceID    string `json:"workspace_id"`
+	Canceled       bool   `json:"canceled,omitempty"`
 }
 
 // ExecuteRequest is one chat turn handed to the conversation service: what was asked, and the parts the turn runs with.
