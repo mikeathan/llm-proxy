@@ -1,7 +1,8 @@
 # Run pipeline cleanup and agent commands — Part C of multi-agent delegation
 
-**Status:** approved (2026-10-23). D1–D3 decided. PR 1 is done: C0, C1, C2, C4, C5 (#129, #130) and C6; C3, the
-commands (PR 2, #132), is merged and checked live on the web path; `/run` joined the registry in the wrap-up (C3 results).
+**Status:** complete (2026-10-24). D1–D3 decided. Every phase is built, merged and checked live on vertex: the
+refactor C0–C6 (#129, #130, #131), the commands C3 (#132), the history fix it exposed (#133) and the wrap-up (#134).
+One live check is left, postponed by the user: the connector path on a real Telegram chat (Remaining Work).
 **Related Specs:** SPEC-001 (Agent Loop), SPEC-007 (Automation Dispatcher), SPEC-009 (Communication), SPEC-012
 (Prompt Profiles), SPEC-003 (UI).
 **Constitution refs:** II.2 / II.14 (lifecycle tethering), II.10 (guardrail decision flow), IV.1 / IV.2 (ctx, `%w`),
@@ -232,7 +233,11 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
   its trigger, split under the complexity limit; `handleAutomation` and its baseline key are gone). The web chat sends
   its workspace with every command, so `/run` works there too. Behaviour changes: an unknown automation is refused
   with the reason (it was logged and the chat still got "Running…"), a bare `/run` gets its usage (it went to the
-  agent), and the reply is sent as plain text. The connector path is unit-tested only (no connector token yet). The
+  agent), and the reply is sent as plain text. The connector path is unit-tested only (no connector token yet).
+  **Checked live** (vertex `v0.11.13`, 2026-10-24, web path): the command list includes `run`; the preview reads "Runs
+  'smoke' now" and starts nothing; `/run` alone, an unknown automation and a request with no workspace are refused
+  with the reason and usage; `/run smoke` answered "Running 'smoke'..." with `automation: smoke`, and the run finished
+  in 4 s with its report; a plain chat turn afterwards answered as usual. The
   run record does not say which agent answered (`TurnRun` has no profile field); not added. So **Retry** on a turn
   command's answer reruns the stored question under the conversation's own agent, without helpers.
 - **Corrected while documenting:** `api-reference.md` still showed the message endpoint answering `200` with the
@@ -274,7 +279,7 @@ Order: C0 → C2 → C4 → C5 → C6 (PR 1), then C3 (PR 2). C4 and C5 can swap
 
 ## Remaining Work
 
-- **The only item left:** the connector path on a real Telegram chat (C2's reply fix, `/research` and `/run` from a
+- **The only item left (a live check, postponed by the user):** the connector path on a real Telegram chat (C2's reply fix, `/research` and `/run` from a
   connector). Telegram cannot call
   vertex (no public HTTPS), so the test posts a Telegram-shaped update itself, on vertex or from the LAN over plain HTTP
   (`POST http://localhost:4001/api/v1/webhooks/<connector>`, header `X-Telegram-Bot-Api-Secret-Token` when the
