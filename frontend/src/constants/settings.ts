@@ -55,6 +55,7 @@ export const AGENT_FORM_SECTIONS: readonly { title: string; keys: readonly strin
   { title: 'Behaviour', keys: ['answer_first', 'may_ask', 'max_steps', 'reminders'] },
   { title: 'Tools', keys: ['tools'] },
   { title: 'Memory', keys: ['memory', 'memory_save'] },
+  { title: 'Privacy', keys: ['local_only'] },
   { title: 'Helpers', keys: ['delegates'] },
 ]
 export const AGENT_FORM_OTHER_TITLE = 'More'

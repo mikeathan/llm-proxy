@@ -11,14 +11,8 @@ import (
 // communicationTools finds the connector registry inside the tool provider
 // chain; nil when no local tool registry carries one.
 func communicationTools(tp assistantPkg.ToolProvider) *tools.CommunicationTools {
-	mtp, ok := tp.(*assistantPkg.MultiToolProvider)
-	if !ok {
-		return nil
-	}
-	for _, p := range mtp.Providers {
-		if ltr, ok := p.(*assistantPkg.LocalToolRegistry); ok {
-			return ltr.Communication
-		}
+	if ltr := localRegistry(tp); ltr != nil {
+		return ltr.Communication
 	}
 	return nil
 }

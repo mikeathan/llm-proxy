@@ -23,7 +23,7 @@ export function uniqueId(base: string, taken: readonly string[]): string {
 export function blankInput(): ProfileInput {
   return {
     name: '', summary: '', instructions: '', answer_first: true, may_ask: true, max_steps: 0, tools: [],
-    memory: '', memory_save: 'model', reminders: false, delegates: [],
+    memory: '', memory_save: 'model', reminders: false, local_only: false, delegates: [],
   }
 }
 
@@ -31,7 +31,7 @@ export function inputFromDetail(detail: ProfileDetail): ProfileInput {
   return {
     name: detail.name, summary: detail.summary, instructions: detail.instructions, answer_first: detail.answer_first,
     may_ask: detail.may_ask, max_steps: detail.max_steps ?? 0, tools: [...(detail.tools ?? [])], memory: detail.memory ?? '',
-    memory_save: detail.memory_save, reminders: detail.reminders, delegates: [...(detail.delegates ?? [])],
+    memory_save: detail.memory_save, reminders: detail.reminders, local_only: detail.local_only ?? false, delegates: [...(detail.delegates ?? [])],
   }
 }
 

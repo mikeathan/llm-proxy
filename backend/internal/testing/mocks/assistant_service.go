@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/runlane"
+	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
@@ -86,7 +87,7 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 	if m.EngineRef != nil {
 		return m.EngineRef
 	}
-	return assistant.NewEngine(m.Herder, m.LoggerRef)
+	return toolregistry.NewEngine(m.Herder, m.LoggerRef)
 }
 
 func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {

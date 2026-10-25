@@ -39,7 +39,7 @@ Use `docs/architecture.md` (directory map + Common Pitfalls) to name the package
 |---|---|
 | HTTP route / handler | `internal/app/routes.go` → `internal/transport/http/handlers/` |
 | Agent loop / completion / sieve | `internal/core/assistant/` (`session.go`, `stream.go`, `agent.go`) |
-| Tool executes wrong / not at all | `models/tools.go` const → `internal/core/tools/manifests/<tool>.json` → `core/tools/<category>.go` → `core/assistant/registry.go` |
+| Tool executes wrong / not at all | `models/tools.go` const → `internal/core/tools/manifests/<tool>.json` → `core/tools/<category>.go` → `core/toolregistry/registry.go` |
 | Prompt text wrong | `internal/core/assistant/prompts/templates.go` (the ONLY home — Constitution II.13) |
 | Model field ignored | `models/{config,infrastructure}.go` → `transport/http/handlers/{registry_handlers,admin_handlers,admin_view}.go` → `core/llm/manager.go` → `internal/testing/mocks/manager.go` |
 | Event not reaching the UI | `assistant/agent_events.go` producer → `core/eventbus/` → `/live` SSE → `frontend/.../useAssistantSSE.ts` → `utils/message/messageBuilder.ts` |

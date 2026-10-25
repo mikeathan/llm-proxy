@@ -2,7 +2,7 @@
 // InitializeAgentStack (the top-level wiring function).  The init helper
 // functions (initTerminalTools, initCommunicationTools, etc.) are extracted
 // here to keep InitializeAgentStack as a short orchestration function.
-package assistant
+package toolregistry
 
 import (
 	"context"
@@ -100,13 +100,7 @@ func getEffectiveConfig[T any](
 // file named after its category, taken from the one table in models.
 func registerTool[T any](r *LocalToolRegistry, toolName string, fn func(context.Context, T) (any, error)) {
 	r.addTool(models.CategoryOf(toolName), toolName)
-	r.handlers[toolName] = func(ctx context.Context, rawArgs string) (any, error) {
-		var args T
-		if err := decodeArgs(rawArgs, &args); err != nil {
-			return nil, err
-		}
-		return fn(ctx, args)
-	}
+	r.handlers[toolName] = Handle(fn)
 }
 
 // LocalToolRegistry manages Go-based tools implemented in this repository.
@@ -403,7 +397,7 @@ func InitializeAgentStack(
 	appCtx AgentStackContext,
 	mcp nodeherder.MCPService,
 	deps AgentStackDeps,
-) (ToolProvider, Engine, *guardrails.GuardrailEngine) {
+) (Provider, Engine, *guardrails.GuardrailEngine) {
 	resolver := appCtx.Resolver()
 	defaultGuardrails := appCtx.GetGuardrails()
 
@@ -473,7 +467,7 @@ func InitializeAgentStack(
 	return provider, engine, grEngine
 }
 
-// ListTools satisfies the ToolProvider interface.
+// ListTools satisfies the Provider interface.
 func (r *LocalToolRegistry) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	if len(r.scoped) == 0 {
 		return r.toolDefinitions, nil
@@ -516,7 +510,11 @@ func (r *LocalToolRegistry) addTool(toolKey string, toolName string) {
 		logging.Warn("failed to load tool manifest", "key", toolKey, "error", err)
 		return
 	}
+	r.addDefinition(toolName, desc, params)
+}
 
+// addDefinition lists a tool in the schema.
+func (r *LocalToolRegistry) addDefinition(toolName, desc string, params map[string]any) {
 	r.toolDefinitions = append(r.toolDefinitions, proxy.Tool{
 		Type: "function",
 		Function: proxy.FunctionSchema{
@@ -525,6 +523,14 @@ func (r *LocalToolRegistry) addTool(toolKey string, toolName string) {
 			Parameters:  params,
 		},
 	})
+}
+
+// hideWhenUnavailable drops a tool from ListTools while available(ctx) is false.
+func (r *LocalToolRegistry) hideWhenUnavailable(toolName string, available func(context.Context) bool) {
+	if r.scoped == nil {
+		r.scoped = make(map[string]func(context.Context) bool)
+	}
+	r.scoped[toolName] = available
 }
 
 func (r *LocalToolRegistry) registerAll() {
@@ -649,10 +655,7 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 // satisfies available: it is left out of ListTools (so out of the schema, the
 // tool manual and argument validation) and its handler refuses other contexts.
 func registerScopedTool[T any](r *LocalToolRegistry, toolName string, available func(context.Context) bool, fn func(context.Context, T) (any, error)) {
-	if r.scoped == nil {
-		r.scoped = make(map[string]func(context.Context) bool)
-	}
-	r.scoped[toolName] = available
+	r.hideWhenUnavailable(toolName, available)
 	registerTool(r, toolName, func(ctx context.Context, args T) (any, error) {
 		if !available(ctx) {
 			return nil, ErrToolNotInternal

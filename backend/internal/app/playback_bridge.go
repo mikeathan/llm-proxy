@@ -177,6 +177,9 @@ func (b *PlaybackBridge) ReasoningField() string {
 	return proxy.ReasoningFieldBudget
 }
 
+// IsLocal is true: a replay contacts no upstream, so it cannot send a prompt anywhere.
+func (b *PlaybackBridge) IsLocal() bool { return true }
+
 func (b *PlaybackBridge) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 	turn := b.nextValidTurn()
 	if turn == nil {

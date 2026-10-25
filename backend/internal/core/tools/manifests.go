@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -84,6 +85,21 @@ func LoadManifestAsTool(toolKey string, toolName string) (map[string]any, string
 		}
 	}
 
+	return parseManifestTool(data, toolKey, toolName)
+}
+
+// LoadManifestFromFS is LoadManifestAsTool for a manifest that lives in another file system — a tool family that
+// embeds its own manifests. The file is `<toolKey>.json` at the root of fsys.
+func LoadManifestFromFS(fsys fs.FS, toolKey string, toolName string) (map[string]any, string, error) {
+	data, err := fs.ReadFile(fsys, toolKey+".json")
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read %s manifest: %w", toolKey, err)
+	}
+	return parseManifestTool(data, toolKey, toolName)
+}
+
+// parseManifestTool turns manifest JSON into the tool's parameter schema and description.
+func parseManifestTool(data []byte, toolKey string, toolName string) (map[string]any, string, error) {
 	var m ToolManifest
 	if err := json.Unmarshal(data, &m); err != nil {
 		return nil, "", err

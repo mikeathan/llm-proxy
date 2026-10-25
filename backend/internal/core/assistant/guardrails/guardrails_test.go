@@ -750,3 +750,42 @@ func TestSearchAvailabilityGate(t *testing.T) {
 		}
 	})
 }
+
+// Characterisation table (network-audit plan, Phase 0): the exact tool × run
+// scope truth table of today's gating. The catalog merge (Phase 1) must leave
+// every row unchanged, in both the schema hide and the hard denial.
+func TestRunScopeTruthTable(t *testing.T) {
+	tools := []string{
+		models.ToolNetworkFetch,
+		models.ToolNetworkScan,
+		models.ToolNetworkInfo,
+		models.ToolInternetSearch,
+		models.ToolNotifyUser,
+		models.ToolTerminalExecute,
+	}
+	forbidden := map[models.NetworkScope][]string{
+		models.NetworkScopeNone:         {models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo, models.ToolInternetSearch, models.ToolNotifyUser},
+		models.NetworkScopeLan:          {models.ToolInternetSearch, models.ToolNotifyUser},
+		models.NetworkScopeInternetOnly: {models.ToolNetworkScan, models.ToolNetworkInfo},
+		models.NetworkScopeInternet:     nil,
+	}
+	for scope, want := range forbidden {
+		t.Run(string(scope), func(t *testing.T) {
+			e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return enabledNetworkCfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+			e.SetHostNetworkAllowed(func() bool { return true })
+			hidden := mapSlice(e.DisabledToolNamesForScope("", scope))
+			ctx := models.WithRunNetworkScope(context.Background(), scope)
+			for _, name := range tools {
+				wantForbidden := containsString(want, name)
+				if hidden[name] != wantForbidden {
+					t.Errorf("%s: schema hidden = %v, want %v", name, hidden[name], wantForbidden)
+				}
+				call := proxy.ToolCall{Function: proxy.FunctionCall{Name: name, Arguments: `{}`}}
+				denied := errors.Is(e.ValidateToolCall(ctx, call, ""), ErrNetworkDisabled)
+				if denied != wantForbidden {
+					t.Errorf("%s: hard-denied = %v, want %v", name, denied, wantForbidden)
+				}
+			}
+		})
+	}
+}

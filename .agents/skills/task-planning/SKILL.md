@@ -31,7 +31,7 @@ Do not design against imagined code. Find the real path first.
    | Looking for | Start here |
    |---|---|
    | HTTP route | `internal/app/routes.go` → `internal/transport/http/handlers/` |
-   | Tool | `models/tools.go` → `core/tools/manifests/<tool>.json` → `core/tools/<category>.go` → `core/assistant/registry.go` |
+   | Tool | `models/tools.go` → `core/tools/manifests/<tool>.json` → `core/tools/<category>.go` → `core/toolregistry/registry.go` |
    | Prompt text | `core/assistant/prompts/templates.go` (only home) |
    | Model field | `models/` → `transport/http/handlers/{registry_handlers,admin_handlers,admin_view}.go` → `core/llm/manager.go` → `internal/testing/mocks/manager.go` |
    | Event | `assistant/agent_events.go` producer → `core/eventbus/` → `/live` SSE → frontend handler |

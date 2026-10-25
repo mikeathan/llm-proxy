@@ -170,7 +170,7 @@ func TestProfileHandlers_SchemaListsTheSettings(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.Schema(rec, httptest.NewRequest(http.MethodGet, "/admin/api/profile-schema", nil))
 	var fields []struct{ Key, Kind, Help string }
-	if err := json.Unmarshal(rec.Body.Bytes(), &fields); err != nil || len(fields) != 11 || fields[0].Key != "name" {
+	if err := json.Unmarshal(rec.Body.Bytes(), &fields); err != nil || len(fields) != 12 || fields[0].Key != "name" {
 		t.Errorf("schema = %v %v", fields, err)
 	}
 }

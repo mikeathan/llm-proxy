@@ -503,7 +503,7 @@ func TestWorkspaceManager_SeenLedgerCorruptIsQuarantined(t *testing.T) {
 	}
 	// The unreadable file is set aside, so the next WriteSeen cannot silently
 	// destroy it.
-	if _, err := os.Stat(path + seenCorruptSuffix); err != nil {
+	if _, err := os.Stat(path + corruptSuffix); err != nil {
 		t.Errorf("corrupt ledger was not preserved: %v", err)
 	}
 	if got, err := mgr.ReadSeen("ws", "nightly"); err != nil || len(got) != 0 {

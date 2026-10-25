@@ -269,6 +269,11 @@ func (rc *RecordingClient) ReasoningField() string {
 	return rc.underlying.ReasoningField()
 }
 
+// IsLocal delegates to the underlying client, so a local-only run sees the real upstream, not the wrapper.
+func (rc *RecordingClient) IsLocal() bool {
+	return proxy.IsLocalClient(rc.underlying)
+}
+
 func (rc *RecordingClient) Stream(ctx context.Context, req proxy.ChatRequest) (<-chan *proxy.ChatResponse, error) {
 	if err := rc.ensureFile(ctx); err != nil {
 		return nil, err

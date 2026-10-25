@@ -736,6 +736,11 @@ func NewAgent(client proxy.Client, provider ToolProvider, engine Engine, opts Ag
 const watchdogGracePeriod = 5 * time.Minute
 
 func (a *Agent) Execute(ctx context.Context, history []proxy.Message) (string, []proxy.Message, error) {
+	// A local-only profile is enforced here, once the model client is known and before any prompt leaves: this is the
+	// one place every route to a run (chat, automation, delegation, the failover) passes through.
+	if a.config.Profile.LocalOnly && !proxy.IsLocalClient(a.deps.Client) {
+		return "", history, models.ErrLocalOnly
+	}
 	execCtx, cancel := context.WithTimeout(ctx, a.config.GlobalTimeout)
 	defer cancel()
 

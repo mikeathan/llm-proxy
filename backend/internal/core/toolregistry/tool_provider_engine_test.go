@@ -1,12 +1,12 @@
-package assistant_test
+package toolregistry_test
 
 import (
 	"context"
 	"encoding/json"
 	"testing"
 
-	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/testing/mocks"
 )
@@ -27,7 +27,7 @@ func TestExecuteTool(t *testing.T) {
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	logger := &noopLogger{}
 
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 
 	expectedArgs := map[string]any{
 		"target_name": "lamp 1",

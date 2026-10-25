@@ -63,7 +63,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/core/proxy/client.go:doRequest":                                                    true,
 	"internal/core/proxy/history.go:NormalizeHistory":                                            true,
 	"internal/core/tools/filesystem.go:validateFilePath":                                         true,
-	"internal/core/tools/manifests.go:LoadManifestAsTool":                                        true,
 	"internal/core/tools/memory_tools.go:Search":                                                 true,
 	"internal/core/tools/terminal.go:checkPathSecurity":                                          true,
 	"internal/core/tools/terminal.go:executeShell":                                               true,

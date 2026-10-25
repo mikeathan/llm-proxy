@@ -20,7 +20,7 @@ func TestMarshalRoundTrips(t *testing.T) {
 	all = append(all, Profile{
 		ID: "everything", Name: "Every: field", Summary: "line one\nline two: \"quoted\"", Source: User, Instructions: "Body.\n\n---\n\nAfter a rule.",
 		AnswerFirst: true, MayAsk: true, MaxSteps: 12, Tools: []string{models.CategorySearch, models.CategoryReminders},
-		Memory: models.MemoryModeOn, MemorySave: SaveExplicit, Reminders: true, Delegates: []string{"web-researcher"},
+		Memory: models.MemoryModeOn, MemorySave: SaveExplicit, Reminders: true, Delegates: []string{"web-researcher"}, LocalOnly: true,
 	})
 	for _, p := range all {
 		got, err := Parse(p.ID, p.Source, Marshal(p))
@@ -222,7 +222,7 @@ func TestSchemaMatchesTheFileFormat(t *testing.T) {
 			t.Errorf("%s has no label or help", f.Key)
 		}
 	}
-	fileKeys := []string{"name", "summary", "instructions", "answer_first", "may_ask", "max_steps", "tools", "memory", "memory_save", "reminders", "delegates"}
+	fileKeys := []string{"name", "summary", "instructions", "answer_first", "may_ask", "max_steps", "tools", "memory", "memory_save", "reminders", "local_only", "delegates"}
 	if !reflect.DeepEqual(keys, fileKeys) {
 		t.Errorf("schema keys = %v, want %v", keys, fileKeys)
 	}

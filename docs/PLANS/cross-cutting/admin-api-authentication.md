@@ -215,6 +215,18 @@ summary is correct in each of the four combinations (loopback/LAN × auth off/on
 Non-goals: TLS termination in-process, per-route scopes beyond operator / inference / webhook, audit log UI
 (a structured `auth` log line is enough).
 
+## Features that depend on this plan
+
+[`network-audit.md`](network-audit.md) (2026-10-24) was designed with this plan **parked by the owner**, so these are
+conventions there, not security controls, until Phases 1–2 here land:
+
+- operator-only acknowledgement of scan findings (an unauthenticated caller on the LAN can edit them);
+- the scan-scope list, the enabled scan modes and the "allow unconfined scans" switch;
+- approval of intrusive scan modes;
+- scripts and intrusive modes against the host's own addresses (the admin API is reachable on those).
+
+When this plan lands, revisit those four items and make them real checks.
+
 ## Remaining Work
 
 Everything. Suggested first PR: Phase 0 (route table + exploit-shaped tests + S5 proof) — it changes no

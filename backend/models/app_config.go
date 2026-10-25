@@ -17,6 +17,7 @@ type AppConfig struct {
 	Reminders      *RemindersConfig         `yaml:"reminders,omitempty" json:"reminders,omitempty"`
 	Agent          *AgentConfig             `yaml:"agent,omitempty" json:"agent,omitempty"`
 	RunLogging     *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
+	Netaudit       *NetauditConfig          `yaml:"netaudit,omitempty" json:"netaudit,omitempty"`
 }
 
 // AppServerConfig is the infrastructure-level server section of AppConfig

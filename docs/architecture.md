@@ -19,6 +19,7 @@ This document contains architectural reference material extracted from the agent
 ### Core Systems
 
 - `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
+- `internal/core/toolregistry/` — the local tool registry, MCP engine and the composite provider/engine (wired by `InitializeAgentStack`)
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)
 - `internal/core/llm/` — Model lifecycle (start/stop/reap), GGUF scanning, provider registry
@@ -76,9 +77,9 @@ The admin UI contract — destinations, route table, theme tokens, tree, notific
 
 The `RuntimeManager` interface is implemented by `LLMRuntimeManager` (production) and `MockManager` (tests). Any method added to the interface MUST be added to both implementations.
 
-### ToolProvider Interface (`internal/core/assistant/tool_provider.go`)
+### ToolProvider Interface (`internal/core/assistant/ports.go`)
 
-Defines how tools are listed and provided to the agent. Implemented by `LocalToolRegistry`, `MCPNodeHerder`, and `MultiToolProvider`.
+Defines how tools are listed and provided to the agent; the agent owns the interface and `internal/core/toolregistry` holds the implementations. Implemented by `LocalToolRegistry`, `MCPNodeHerder`, and `MultiToolProvider`.
 
 ### Guardrail Decision Flow (`internal/core/assistant/agent.go`)
 
@@ -164,7 +165,7 @@ When adding a new tool category (e.g. a new category like "communication"):
 1. `models/tools.go` — add category constant (e.g. `CategoryCommunication`)
 2. `internal/core/tools/manifests/{category}.json` — tool manifest (embedded)
 3. `internal/core/tools/{category}.go` — implementation file with category struct + methods
-4. `internal/core/assistant/registry.go` — registration wiring:
+4. `internal/core/toolregistry/registry.go` — registration wiring:
    - Add field to `LocalToolRegistry` struct
    - Add `init{Category}Tools()` helper function
    - Add `register{Category}Tools()` method on `LocalToolRegistry`
@@ -176,7 +177,7 @@ When adding a single tool:
 1. `models/tools.go` — constant
 2. `internal/core/tools/manifests/{tool}.json` — manifest (embedded)
 3. `internal/core/tools/{tool_category}.go` — implementation
-4. `internal/core/assistant/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
+4. `internal/core/toolregistry/registry.go` — registration (add field to `LocalToolRegistry`, add `register{Category}Tools()`, call from `registerAll()`, add `init{Category}Tools()` helper, wire in `InitializeAgentStack`)
 
 When adding a communication connector:
 
