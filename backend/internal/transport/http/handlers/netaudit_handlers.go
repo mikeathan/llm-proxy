@@ -49,6 +49,9 @@ func (h *NetauditHandlers) GetReadiness(w http.ResponseWriter, r *http.Request) 
 type scopeResponse struct {
 	netaudit.ScopeView
 	Suggestions []netaudit.Suggestion `json:"suggestions"`
+	// SuggestionsError says why the machine's networks could not be listed; a failure to list them never hides the
+	// saved scope.
+	SuggestionsError string `json:"suggestions_error,omitempty"`
 }
 
 // scopeRequest changes the scan scope. A nil field is left as it is.
@@ -94,13 +97,14 @@ func (h *NetauditHandlers) PutScope(w http.ResponseWriter, r *http.Request) {
 
 func (h *NetauditHandlers) respondScope(w http.ResponseWriter, view netaudit.ScopeView) {
 	suggestions, err := h.scope.Suggestions()
+	resp := scopeResponse{ScopeView: view, Suggestions: suggestions}
 	if err != nil {
-		suggestions = nil // a failure to list interfaces must not hide the saved scope
+		resp.Suggestions, resp.SuggestionsError = nil, err.Error()
 	}
-	if suggestions == nil {
-		suggestions = []netaudit.Suggestion{}
+	if resp.Suggestions == nil {
+		resp.Suggestions = []netaudit.Suggestion{}
 	}
-	respondJSON(w, scopeResponse{ScopeView: view, Suggestions: suggestions})
+	respondJSON(w, resp)
 }
 
 // isScopeRefusal reports whether err is the operator's input being refused rather than a failure to save.

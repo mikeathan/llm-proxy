@@ -3,7 +3,7 @@ name: General
 summary: Everyday assistant — answers, writing, reminders, look-ups, files and memory.
 answer_first: true
 may_ask: true
-tools: [terminal, search, communication, filesystem, network, memory, reminders]
+tools: [terminal, search, communication, filesystem, network, netaudit, memory, reminders]
 memory_save: model
 reminders: true
 ---

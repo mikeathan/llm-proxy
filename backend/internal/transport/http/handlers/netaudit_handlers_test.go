@@ -116,3 +116,27 @@ func TestNetauditHandlers_GetReadiness(t *testing.T) {
 		t.Errorf("missing = %v", missing)
 	}
 }
+
+type failingScope struct{ NetauditScope }
+
+func (failingScope) Suggestions() ([]netaudit.Suggestion, error) {
+	return nil, context.DeadlineExceeded
+}
+
+func TestNetauditHandlers_AFailureToListNetworksIsReportedNotHidden(t *testing.T) {
+	store := &scopeStore{cfg: models.NetauditConfig{ScanRanges: []string{"10.0.0.0/24"}}}
+	h := NewNetauditHandlers(failingScope{netaudit.NewScope(store, noResolver{}, nil)}, stubReadiness{})
+	rec := httptest.NewRecorder()
+	h.GetScope(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/scope", nil))
+	var got struct {
+		Ranges           []any  `json:"ranges"`
+		Suggestions      []any  `json:"suggestions"`
+		SuggestionsError string `json:"suggestions_error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Ranges) != 1 || got.Suggestions == nil || got.SuggestionsError == "" {
+		t.Errorf("the saved scope must still be returned, with the reason the list is empty: %s", rec.Body.String())
+	}
+}

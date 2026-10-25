@@ -3,10 +3,12 @@ package profile
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
 )
 
 func newCatalog(t *testing.T) (*Catalog, string) {
@@ -173,6 +175,51 @@ func TestBuiltinMemorySaveModes(t *testing.T) {
 		p, ok := c.Get(id)
 		if !ok || p.MemorySave != mode {
 			t.Errorf("%s: memory_save = %q (found %v), want %q", id, p.MemorySave, ok, mode)
+		}
+	}
+}
+
+// A tool category that no built-in profile lists cannot be reached from a chat at all: the category is hidden by every
+// profile that lists tools. Moving a tool to a new category (scan_local_network → network_scan in netaudit) once left
+// it out of every built-in profile, so the model was told it had no scan tool.
+func TestBuiltinProfilesTogetherExposeEveryToolCategory(t *testing.T) {
+	c, _ := newCatalog(t)
+	exposed := map[string]bool{}
+	for _, p := range c.List() {
+		if p.Source != Builtin {
+			continue
+		}
+		for _, category := range p.Tools {
+			exposed[category] = true
+		}
+	}
+	for _, category := range models.ToolCategories() {
+		if category == models.CategoryDelegation || slices.Contains(alwaysOnCategories, category) {
+			continue
+		}
+		if !exposed[category] {
+			t.Errorf("no built-in profile lists the %q category, so its tools can never be offered", category)
+		}
+	}
+}
+
+func TestNetworkScanIsOfferedByTheProfilesThatWorkOnTheNetworkOnly(t *testing.T) {
+	c, _ := newCatalog(t)
+	offered := func(id string) bool {
+		p, ok := c.Get(id)
+		if !ok {
+			t.Fatalf("no built-in profile %q", id)
+		}
+		return !slices.Contains(p.ExcludedTools(), models.ToolNetworkScan)
+	}
+	for _, id := range []string{"general", "operator"} {
+		if !offered(id) {
+			t.Errorf("%s must offer network_scan", id)
+		}
+	}
+	for _, id := range []string{"research", "web-researcher", "builder"} {
+		if offered(id) {
+			t.Errorf("%s must not offer network_scan", id)
 		}
 	}
 }

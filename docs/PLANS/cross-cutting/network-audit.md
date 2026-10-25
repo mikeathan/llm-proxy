@@ -541,7 +541,15 @@ an unused helper would be dead code (Constitution IV.4).
   common ports). Through the real service: discover 4.2 s, ports 8.9 s with nmap (same 8 up / 17 open as the Go prober),
   services 25.5 s. **Thorough (`thorough: true`, for audits):** no sweep, every address, `-Pn`, `-T3`, `--max-rate 100`,
   top 100 ports — unchanged from the first cut, and the slow one by design.
-- Not done: the Ubuntu run (Landlock grants for nmap), persisted `allowed_tools` entries
+- **Ubuntu verified after deploy (2026-10-25), two bugs found and fixed in the follow-up PR:** (1) the new `netaudit` category was
+  listed by no built-in profile, so a chat was never offered `network_scan` (the model said it had no such tool) — `general` and
+  `operator` now list it, and a test requires every built-in tool category to be listed by some built-in profile; (2) nmap refused
+  to start in the Landlock jail on vertex: `Could not assign /dev/null to stdout for writing: Permission denied` — `/dev/null` was
+  granted read-only; it is now read-write (it stores nothing). Reproduced in an Ubuntu 24.04 container (kernel 6.8, Landlock
+  ABI v4, nmap 7.95) with the fix removed and restored; with it, real nmap runs under the jail in discover, ports and services
+  (`TestEngine_RunsRealNmapInsideTheFileJail`, skipped where nmap or a jail is missing). vertex's network suggestions came back
+  empty; the API now says why (`suggestions_error`) so it can be read after the next deploy.
+- Not done: ~~the Ubuntu run (Landlock grants for nmap),~~ persisted `allowed_tools` entries
   that still name `scan_local_network` (they now match nothing).
 
 Not done from §4.1: a `validateCategory` case for the future `network_scan` (it now dispatches network tools by `Gate`, so a

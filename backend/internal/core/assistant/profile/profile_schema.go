@@ -42,7 +42,8 @@ var toolCategoryLabels = map[string]string{
 	models.CategorySearch:        "Web search",
 	models.CategoryCommunication: "Send messages",
 	models.CategoryFileSystem:    "Read and write files",
-	models.CategoryNetwork:       "Fetch pages, network scan",
+	models.CategoryNetwork:       "Fetch web pages",
+	models.CategoryNetaudit:      "Scan the network",
 	models.CategoryMemory:        "Memory",
 	models.CategoryReminders:     "Reminders",
 }
