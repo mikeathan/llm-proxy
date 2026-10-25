@@ -31,7 +31,7 @@ What already works and must be kept: the instruction hierarchy, `CLAUDE.md` as a
 **Goals**
 1. Separate knowledge by lifecycle: *architecture/SPECS* (current truth), *decisions* (immutable), *roadmap/plans* (future, short-lived), *learnings* (what we tried), linked per subsystem.
 2. Make every always-loaded file small; push depth into on-demand files (`SKILL.md` ≤ 150 lines + `references/`).
-3. Work across harnesses: `AGENTS.md` stays the canonical contract; every other harness file is a thin pointer.
+3. Be harness-neutral. The owner uses opencode, pi agent, command code, codex, and Claude Code (Claude models in Claude Code only; the others run any model). `AGENTS.md` is the canonical contract and names no tool or vendor. The only Claude-named files are `CLAUDE.md` (a pointer) and the `.claude/skills` symlink Claude Code needs to discover skills.
 4. Keep the harness check authoritative: every move below updates `scripts/check-agent-harness.sh`, `.githooks/pre-commit`, and CI in the same phase.
 5. Nothing is lost: old paths either keep a one-line stub or every inbound link is rewritten; history stays in git.
 
@@ -39,23 +39,24 @@ What already works and must be kept: the instruction hierarchy, `CLAUDE.md` as a
 
 ## 3. Harness compatibility contract
 
-Principle: **one canonical source, thin adapters.** Anything a harness needs beyond `AGENTS.md` is a pointer, never a copy.
+Principle: **one canonical, vendor-neutral source; the only vendor-named file is a pointer.**
 
-| Harness | Reads | Plan |
+| Harness (owner uses all five) | Reads | Plan |
 |---|---|---|
-| Codex, Cursor, Copilot agent, Windsurf, Aider-style tools using the AGENTS.md convention | `AGENTS.md` (nearest file wins for nested ones) | Canonical file. Keep ≤ ~120 lines of always-needed content. |
-| Claude Code | `CLAUDE.md` (not `AGENTS.md`), `.claude/skills`, `.claude/rules/*.md`, `.claude/settings.json` | `CLAUDE.md` stays ≤ 20 lines: `@AGENTS.md` + Claude-only notes. Add path-scoped `.claude/rules/*.md` as thin loaders (see §5). |
-| Gemini CLI | `GEMINI.md` by default; configurable via `context.fileName` | Add root `GEMINI.md` = `@AGENTS.md` import only **if** the team uses it (decide in Phase 0). |
-| GitHub Copilot (IDE) | `.github/copilot-instructions.md` | Same decision: pointer file only, if used. |
-| Skills (open Agent Skills format) | `SKILL.md` with `name` + `description` frontmatter; optional `references/`, `scripts/`, `assets/` | Keep `.agents/skills/` canonical; `.claude/skills` stays a symlink. |
+| opencode, pi agent, command code, codex | `AGENTS.md` (assumed; verify each in Phase 0). Skills from `.agents/skills/` where supported. | Nothing tool-specific is added. They get `AGENTS.md` and `.agents/skills/` as they are. |
+| Claude Code (Claude models only) | `CLAUDE.md`, not `AGENTS.md`; skills via `.claude/skills` | `CLAUDE.md` stays ≤ 20 lines: `@AGENTS.md` import + Claude-only notes. `.claude/skills` stays a symlink to `.agents/skills` (the one other Claude-named path). |
 
-Assumptions to **verify in Phase 0 before relying on them** (from general knowledge, not checked against installed versions):
-- Claude Code supports `.claude/rules/*.md` with a `paths:` frontmatter glob for conditional loading.
-- Claude Code resolves `@path` imports from `CLAUDE.md`, and a symlinked `.claude/skills` is discovered (the latter is already relied on today).
-- Which of Gemini CLI / Copilot / Cursor the owner actually uses.
-- Symlinks: Windows checkouts may materialise symlinks as text files. If any contributor is on Windows, replace `.claude/skills` and any new link with a harness-generated copy (harness check verifies byte equality) instead of a symlink.
+**Decision: no further Claude-named files.** The earlier idea of `.claude/rules/*.md` path-scoped loaders and a `.claude/settings.json` hook is dropped. Path-scoped loading comes instead from nested `AGENTS.md` files (§5.2), which is the cross-harness convention, and the harness check runs from the git hook and CI, which are tool-neutral. `GEMINI.md` and Copilot adapters are not wanted (not used).
 
-Rules for every adapter file: no unique content; the harness check fails if an adapter contains anything other than an import/pointer plus an allow-listed "Claude-specific notes" block.
+**No vendor references outside the allow-list.** Neutral surfaces say "the agent" or "the harness", never a vendor or model name. Allow-list (the only places the string `claude` may appear): `CLAUDE.md`, the `.claude/skills` symlink, `scripts/check-agent-harness.sh` and `.githooks/pre-commit` (they must name the adapter to check it). Product code, tests, plans, audits and archives are out of scope for this rule: Claude appears there as provider/model data or history, not as an instruction target. A harness check enforces it (§7).
+
+Assumptions to **verify in Phase 0 before relying on them** (from general knowledge, not checked against the installed versions):
+- Each of opencode, pi agent, command code and codex reads root `AGENTS.md`, and which of them honor a nested `AGENTS.md` (nearest wins). If one does not, the root `AGENTS.md` "Before coding" step already tells the agent which rule file to read, so nothing breaks; only the automatic path scoping is lost for that tool.
+- Which of them discover `.agents/skills/` natively, and if any needs its own skills directory, whether a symlink is accepted (any such directory would be a new tool-named path; decide then whether the owner accepts it or the tool is told the path via `AGENTS.md`).
+- Claude Code resolves `@AGENTS.md` imports from `CLAUDE.md` and follows the `.claude/skills` symlink (the symlink is already relied on today).
+- Symlinks: Windows checkouts may materialise symlinks as text files. If any contributor is on Windows, replace `.claude/skills` with a generated copy (harness check verifies byte equality).
+
+Adapter rule: `CLAUDE.md` holds no unique content except the Claude-only notes block; the harness check fails otherwise.
 
 ## 4. Target docs structure
 
@@ -95,13 +96,11 @@ The per-subsystem ledger line format: `- tried <X> → <result>; why: <Y>; evide
 
 ### 5.1 Always-loaded files
 - `AGENTS.md`: keep contract; reorder so Commands and "Before coding" are first; replace the vague Memory section with the rule above; point at `docs/subsystems/` hubs for the "classify first" step; drop anything duplicated in `CONTRIBUTING.md`.
-- `CLAUDE.md`: unchanged shape (import + Claude-only notes), updated for `.claude/rules` and the new paths.
-- Optional adapters (`GEMINI.md`, `.github/copilot-instructions.md`): only if Phase 0 says they are used.
+- `CLAUDE.md`: unchanged shape (import + Claude-only notes: the skills symlink, how auto-memory maps to the memory rule); updated only for new paths. It is the only place that names Claude.
+- Strip any vendor/model wording from every neutral file (today: one sample line in `.agents/skills/assistant-ui-chat/SKILL.md`, "Claude Haiku 5.5", becomes a neutral example model name). `AGENTS.md` wording stays generic ("the agent", "the harness").
 
 ### 5.2 Rules (`.agents/rules/`)
-Keep the two full files as canonical. Add `.claude/rules/go.md` (`paths: ["backend/**"]`) and `.claude/rules/vue.md`
-(`paths: ["frontend/**"]`), each ≤ 15 lines: the must-not-break core plus a link to the full rule file. Other harnesses keep using
-the AGENTS.md "Before coding" instruction. The harness check verifies each adapter's link target exists.
+Keep the two full files as canonical. Add nested `backend/AGENTS.md` and `frontend/AGENTS.md`, each ≤ 15 lines: the must-not-break core plus a link to the full rule file. Tools that honor nested `AGENTS.md` get path-scoped loading; every tool, including those that do not, still gets the root "Before coding" instruction. No vendor-named loader files. The harness check verifies each nested file's link target exists, and the product-template rename in Phase 6 must land first so the nested files are not confused with it.
 
 ### 5.3 Skills: slim `SKILL.md`, move depth under the skill folder
 Standard layout (one level deep, as the Agent Skills format expects):
@@ -135,8 +134,8 @@ Also: tighten each `description` to *what it does + when to use it* (several cur
 Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own commit/PR-sized unit. Phase 0 decides scope; later phases are independent except where noted.
 
 ### Phase 0 — Decide and verify (no moves)
-- Confirm the assumptions in §3 (harnesses in use; `.claude/rules` `paths:` behavior; Windows contributors).
-- Decide whether `GEMINI.md` / `.github/copilot-instructions.md` adapters are wanted.
+- Confirm the assumptions in §3 for each of opencode, pi agent, command code, codex and Claude Code (root and nested `AGENTS.md`, `.agents/skills/` discovery, symlink handling) and whether any contributor is on Windows.
+- Confirm the allow-list for the `claude` string (§3). The harness stays vendor-neutral: no GEMINI/Copilot/Claude rules/settings files.
 - Record the answers in this plan (edit §3) and in one ADR (first file in `docs/decisions/`).
 - **Accept when:** §3 has no unverified assumptions left; the owner approved the target structure in §4.
 
@@ -171,12 +170,11 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 - **Accept when:** every audit has the frontmatter; every subsystem hub links a non-empty ledger; the first ADR batch is listed in `decisions/README.md`.
 
 ### Phase 6 — Harness adapters and stray files
-- `AGENTS.md` reorder and memory-rule rewrite (§5.1); `CLAUDE.md` update.
-- Add `.claude/rules/go.md` and `vue.md` (after Phase 0 verification); add optional adapters if approved.
-- Rename `backend/internal/core/assistant/prompts/AGENTS.md` → `AGENTS.template.md` and update the `//go:embed AGENTS.md` at `backend/internal/core/assistant/prompts/templates.go:17` and every Go reference that names the file (`rg -n 'AGENTS.md' backend --include=*.go`: e.g. `prompts/default_agents_md_test.go`, `system_prompt.go`, `models/workspace.go` — only the *embedded default* file is renamed, not the per-workspace `AGENTS.md` those files also mention). Run `cd backend && go build ./... && go test ./...`.
+- Do the rename first (the nested files below must not be confused with it). Rename `backend/internal/core/assistant/prompts/AGENTS.md` → `AGENTS.template.md` and update the `//go:embed AGENTS.md` at `backend/internal/core/assistant/prompts/templates.go:17` and every Go reference that names the file (`rg -n 'AGENTS.md' backend --include=*.go`: e.g. `prompts/default_agents_md_test.go`, `system_prompt.go`, `models/workspace.go` — only the *embedded default* file is renamed, not the per-workspace `AGENTS.md` those files also mention). Run `cd backend && go build ./... && go test ./...`.
 - Fold `docs/superpowers/` into `docs/PLANS/autonomy/` (reminders design) and remove the folder; add `docs/api-reference.md` to `docs/INDEX.md`.
-- Optional: minimal `.claude/settings.json` with a hook that runs the harness check (ask first: settings and hooks are a behavior change).
-- **Accept when:** a fresh read of `AGENTS.md` shows commands and "Before coding" in the first screen; build/tests green; harness PASS.
+- Then `AGENTS.md` reorder and memory-rule rewrite (§5.1, vendor-neutral wording); `CLAUDE.md` update; add nested `backend/AGENTS.md` and `frontend/AGENTS.md` (§5.2); neutralise the one sample line in `assistant-ui-chat/SKILL.md`.
+- No `.claude/rules`, no `.claude/settings.json`: enforcement stays in the git hook and CI.
+- **Accept when:** a fresh read of `AGENTS.md` shows commands and "Before coding" in the first screen; `rg -il claude` over the neutral surfaces (§7 check) returns only the allow-list; build/tests green; harness PASS.
 
 ### Phase 7 — Turn warnings into gates
 - Flip the Phase 1 warn-only checks to failing; run the full gate; write the final "as-built" summary into this plan and mark it `complete` after harvesting it with its own §4 rule.
@@ -186,15 +184,15 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 `scripts/check-agent-harness.sh`
 - **DOCS list:** add `docs/architecture/*.md`, `docs/subsystems/*.md`, `docs/decisions/*.md`, `docs/learnings/*.md`, `docs/PLANS/ARCHIVE/README.md`; add skills' `references/*.md` to the link/path scans.
 - **[1] skill frontmatter:** keep; add warning when `last_reviewed` is older than 60 days or missing; add cap `SKILL.md` ≤ 150 lines (use a ratchet allow-list during Phase 2, remove it in Phase 7).
-- **[3] links:** extend to `references/` files and `.claude/rules/*.md` targets.
+- **[3] links:** extend to `references/` files and the nested `backend/AGENTS.md` / `frontend/AGENTS.md` targets.
 - **[6]:** INDEX skills table check stays; consider generating the table from skill files to remove the hand-kept duplicate.
 - **[7]:** archive stubs are indexed by `ARCHIVE/README.md` instead of being skipped; add catalogs for `decisions/`, `learnings/`, `subsystems/`.
 - **[8]:** point the template check at `testing-guide/references/automation-templates.md`.
 - **[10]:** read status from the live `PLANS/README.md` table only; fail if a live-table row is `complete`.
-- **New checks:** (a) adapter files contain only pointers/imports; (b) every `docs/subsystems/*.md` links an existing SPEC; (c) ADR files are numbered, have `status`, and are listed in `decisions/README.md`; (d) archived plans have harvest links; (e) the product template `AGENTS.template.md` exists and no `AGENTS.md` exists under `backend/` or `frontend/`.
+- **New checks:** (a) `CLAUDE.md` is ≤ 20 lines, imports `@AGENTS.md`, and nothing else in the repo duplicates `AGENTS.md` content; (a2) **vendor-neutrality:** case-insensitive `claude` is absent from the neutral surfaces (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `docs/INDEX.md`, `docs/architecture*`, `docs/subsystems/`, `docs/decisions/`, `docs/learnings/`, `docs/SPECS/`, `docs/guides/`, `.agents/**`), with the §3 allow-list as the only exemptions; the same check could cover other vendor names if the owner wants; (b) every `docs/subsystems/*.md` links an existing SPEC; (c) ADR files are numbered, have `status`, and are listed in `decisions/README.md`; (d) archived plans have harvest links; (e) the product template `AGENTS.template.md` exists, and the only `AGENTS.md` files under `backend/` and `frontend/` are the two nested pointer files.
 - Keep POSIX-bash + coreutils only, as today.
 
-`.githooks/pre-commit` (line 29 regex): add `CLAUDE\.md`, `GEMINI\.md`, `\.claude/`, `docs/(architecture|subsystems|decisions|learnings)/`, and keep `AGENT\.md`.
+`.githooks/pre-commit` (line 29 regex): add `CLAUDE\.md`, `(backend|frontend)/AGENTS\.md`, `docs/(architecture|subsystems|decisions|learnings)/`, and keep `AGENT\.md`.
 
 `.github/workflows/ci.yml` (`agent-harness` job, line 50): the job runs the script as-is; add path filters only if the workflow has them. No new job.
 
@@ -205,7 +203,8 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 | Risk | Mitigation |
 |---|---|
 | Dead links after moves (plans cite files, skills cite `architecture.md` sections) | Move with `git mv`; keep `architecture.md` as entry point; run the harness (check 3) after every phase; PLANS/audits are not link-scanned today, so add a one-time `rg` pass for old paths in the Phase 3 and 4 PRs |
-| A harness silently stops loading something | Phase 0 verification; adapters are pointers, so worst case falls back to `AGENTS.md` |
+| A harness silently stops loading something | Phase 0 verification per tool; the root `AGENTS.md` "Before coding" step is the fallback for tools that ignore nested files; `CLAUDE.md` is a pointer, so Claude Code falls back to `AGENTS.md` |
+| A tool the owner uses wants its own skills directory or config file | Not assumed. Decide in Phase 0; prefer telling the tool the path through `AGENTS.md` over adding a tool-named path |
 | Harvest loses nuance from big plans | Stubs link the pre-archive commit SHA; git history keeps the full text; harvest is reviewed per plan |
 | Skill split hides content from agents | "Read next" table in every `SKILL.md` names each reference and when to open it; the check requires every reference be linked |
 | Symlink breakage on Windows | Decision in Phase 0; fallback is a generated copy verified by the harness |
