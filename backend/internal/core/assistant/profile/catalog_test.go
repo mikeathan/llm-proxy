@@ -3,10 +3,12 @@ package profile
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/models"
 )
 
 func newCatalog(t *testing.T) (*Catalog, string) {
@@ -27,9 +29,9 @@ func writeUser(t *testing.T, dir, id, content string) {
 }
 
 // shippedBuiltins is how many profiles are built in.
-const shippedBuiltins = 7
+const shippedBuiltins = 8
 
-func TestBuiltinsAreTheShippedSeven(t *testing.T) {
+func TestBuiltinsAreTheShipped(t *testing.T) {
 	c, _ := newCatalog(t)
 	var ids []string
 	for _, p := range c.List() {
@@ -38,7 +40,7 @@ func TestBuiltinsAreTheShippedSeven(t *testing.T) {
 			t.Errorf("built-in %s is incomplete: %+v", p.ID, p)
 		}
 	}
-	if got, want := strings.Join(ids, ","), "builder,general,operator,research,task-runner,watcher,web-researcher"; got != want {
+	if got, want := strings.Join(ids, ","), "builder,general,operator,research,security-auditor,task-runner,watcher,web-researcher"; got != want {
 		t.Errorf("built-ins = %s, want %s", got, want)
 	}
 }
@@ -174,5 +176,75 @@ func TestBuiltinMemorySaveModes(t *testing.T) {
 		if !ok || p.MemorySave != mode {
 			t.Errorf("%s: memory_save = %q (found %v), want %q", id, p.MemorySave, ok, mode)
 		}
+	}
+}
+
+// A tool category that no built-in profile lists cannot be reached from a chat at all: the category is hidden by every
+// profile that lists tools. Moving a tool to a new category (scan_local_network → network_scan in netaudit) once left
+// it out of every built-in profile, so the model was told it had no scan tool.
+func TestBuiltinProfilesTogetherExposeEveryToolCategory(t *testing.T) {
+	c, _ := newCatalog(t)
+	exposed := map[string]bool{}
+	for _, p := range c.List() {
+		if p.Source != Builtin {
+			continue
+		}
+		for _, category := range p.Tools {
+			exposed[category] = true
+		}
+	}
+	for _, category := range models.ToolCategories() {
+		if category == models.CategoryDelegation || slices.Contains(alwaysOnCategories, category) {
+			continue
+		}
+		if !exposed[category] {
+			t.Errorf("no built-in profile lists the %q category, so its tools can never be offered", category)
+		}
+	}
+}
+
+func TestNetworkScanIsOfferedByTheProfilesThatWorkOnTheNetworkOnly(t *testing.T) {
+	c, _ := newCatalog(t)
+	offered := func(id string) bool {
+		p, ok := c.Get(id)
+		if !ok {
+			t.Fatalf("no built-in profile %q", id)
+		}
+		return !slices.Contains(p.ExcludedTools(), models.ToolNetworkScan)
+	}
+	for _, id := range []string{"general", "operator"} {
+		if !offered(id) {
+			t.Errorf("%s must offer network_scan", id)
+		}
+	}
+	for _, id := range []string{"research", "web-researcher", "builder"} {
+		if offered(id) {
+			t.Errorf("%s must not offer network_scan", id)
+		}
+	}
+}
+
+// The security auditor is the profile a nightly network audit runs under: it sees only the scan tool, saves nothing and
+// never runs on a cloud model, whatever the file says elsewhere.
+func TestSecurityAuditorIsLockedDown(t *testing.T) {
+	c, _ := newCatalog(t)
+	p, ok := c.Get("security-auditor")
+	if !ok {
+		t.Fatal("no built-in security-auditor profile")
+	}
+	if !p.LocalOnly || p.MemorySave != SaveOff || p.Memory != models.MemoryModeOff || len(p.Delegates) != 0 || p.Reminders {
+		t.Errorf("security-auditor = %+v", p)
+	}
+	if !slices.Equal(p.Tools, []string{models.CategoryNetaudit}) {
+		t.Errorf("tools = %v, want only %s", p.Tools, models.CategoryNetaudit)
+	}
+	hidden := p.ExcludedTools()
+	for _, tool := range []string{models.ToolTerminalExecute, models.ToolFileWrite, models.ToolNetworkFetch, models.ToolInternetSearch, models.ToolNotifyUser, models.ToolMemoryUpdate, models.ToolDelegate} {
+		if !slices.Contains(hidden, tool) {
+			t.Errorf("%s must be hidden from the auditor", tool)
+		}
+	}
+	if slices.Contains(hidden, models.ToolNetworkScan) {
+		t.Error("the auditor must be offered network_scan")
 	}
 }

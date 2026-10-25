@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.19"
+version: "1.20"
 status: stable
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -13,6 +13,14 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.20 (2026-10-25)** — Network audits (§II.8). A run can be **pre-flighted** (`WithPreflight`): before the model is
+  touched, a refusal ends the run as failed with the reason, through the same path as a task file that cannot be read, and
+  the operator is told **once per reason** until the automation next succeeds (a nightly run blocked for the same reason
+  every night does not notify every night; the per-automation one-hour failure limiter is unchanged). A **report hook**
+  (`SetReportHook`) lets a feature add facts it collected during the run to the final report; every copy of the report (the
+  response, the run directory, the saved file, the run history) carries the augmented text. The scan feature uses both:
+  the scheduled audit is refused when a scan cannot run, and its report starts with an "Observed" section written by code
+  from the scan data, compared with the automation's previous scan, followed by the model's assessment under its own heading.
 - **1.19 (2026-10-22)** — §V: sub-agents (SPEC-001 §15) have their own pool and are never admitted through the run
   lanes or the model gate.
 
@@ -296,6 +304,29 @@ recurring search improve instead of repeating itself. Off by default.
   persistence channel for prompt injection. Mitigations: sanitised and capped, fenced and labelled
   as untrusted notes (the close tag is stripped from stored text), written only through the tool,
   never injected into chat, visible and clearable by the operator.
+
+### 8. Network audits (`network_scan`, profile `security-auditor`)
+
+A scheduled **network audit** is an ordinary automation that runs under the built-in **Security auditor** profile
+(SPEC-012): it is offered only the scan tool, saves nothing to memory and refuses a model that is not local. The task file
+names the targets (`backend/data/templates/nightly_network_audit.md`); the operator allows the network in Settings → Network
+scan (SPEC-006 §II.7.6) and gives the automation a local-network grant.
+
+- **Pre-flight.** For this profile the dispatcher checks readiness before the run starts. Everything a scan needs must be
+  there, including what only limits an attended scan (nmap installed, OS file confinement or the operator's opt-in), because
+  a scheduled audit never falls back to the limited engine. The reason is the run's recorded failure and the one notice.
+- **Observed vs assessment.** The scan tool also hands its structured result to the run. After the run, code compares it with
+  the automation's **latest scan** (`baseline/<automation>.json` in the workspace's metadata folder, outside the agent's
+  workspace; two automations never share one; deleted with the automation) and writes the "Observed" section: what was
+  scanned, and what is new, resolved or changed. An address the run did not scan is not reported resolved, and its earlier
+  findings are carried forward. Values from the network are escaped so they cannot break the table. The model's report
+  follows under "Assessment (written by the model)".
+- **Where the facts live.** `GET /admin/api/netaudit/findings?workspace_id=&automation=` returns the latest scan's findings,
+  marking the new ones, and what was resolved since the scan before.
+- **Limits.** `network_scan` is not cut by the 2-minute tool timeout (a thorough scan takes minutes); the engine bounds it at
+  8 minutes, inside the 10-minute run cap, and a scan that runs out of time returns the hosts it finished with a warning. A
+  live host the engine did not finish is reported as "not scanned to completion", not as having no open ports. Measured on a
+  /24: a quick scan takes seconds, a thorough one (what the audit uses) about two minutes; see the network-audit plan.
 
 ## III. Error Handling
 

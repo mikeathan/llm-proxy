@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/egress"
+	"llm-proxy/internal/core/netaudit"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/assistant/guardrails"
@@ -64,6 +65,7 @@ type Container struct {
 func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.TaskExecutor {
 	exec := automation.NewLLMTaskExecutor(svc).(*automation.LLMTaskExecutor)
 	exec.SetShellPool(c.Infra.ShellManager)
+	exec.SetReportHook(netaudit.NewRunReporter(svc.Persistence()))
 	return exec
 }
 
@@ -598,6 +600,9 @@ func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.
 	var opts []automation.Option
 	if comm := communicationTools(svc.ToolProvider()); comm != nil {
 		opts = append(opts, automation.WithNotifier(connectorNotifier{comm: comm}))
+	}
+	if pf, ok := svc.(interface{ NetauditPreflight() automation.Preflight }); ok && pf.NetauditPreflight() != nil {
+		opts = append(opts, automation.WithPreflight(pf.NetauditPreflight()))
 	}
 	d, err := automation.NewDispatcher(automation.DispatcherDeps{
 		Persistence: svc.Persistence(),

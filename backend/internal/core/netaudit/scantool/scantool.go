@@ -80,6 +80,10 @@ func run(ctx context.Context, scanner Scanner, args scanArgs) (any, error) {
 	if err != nil {
 		return nil, explain(err)
 	}
+	// An automation run builds the observed part of its report from these, not from what the model says it saw.
+	if collector := netaudit.CollectorFrom(ctx); collector != nil {
+		collector.Add(res)
+	}
 	return render(args, res)
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -247,5 +249,76 @@ func TestHandleAgentSuccess_RecordsTheReportPathOnTheRun(t *testing.T) {
 	}
 	if got := state.History[1].ReportPath; got != "" {
 		t.Errorf("a run with no reply names a report: %q", got)
+	}
+}
+
+// fakeHook adds a fixed line to the report and records what it was asked.
+type fakeHook struct {
+	began      bool
+	workspace  string
+	automation string
+	given      string
+}
+
+type hookKey struct{}
+
+func (f *fakeHook) Begin(ctx context.Context) context.Context {
+	f.began = true
+	return context.WithValue(ctx, hookKey{}, "collecting")
+}
+
+func (f *fakeHook) Augment(ctx context.Context, workspaceID, automation, report string) string {
+	f.workspace, f.automation, f.given = workspaceID, automation, report
+	return "OBSERVED BY CODE\n\n" + report + "\n(collector: " + fmt.Sprint(ctx.Value(hookKey{})) + ")"
+}
+
+// A report hook sees the run's context and the agent's report, and what it returns is what every copy of the report
+// carries: the response, the saved file and the run history.
+func TestHandleAgentSuccess_TheReportHookShapesEveryCopyOfTheReport(t *testing.T) {
+	tmp := t.TempDir()
+	store := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+	hook := &fakeHook{}
+	e := &LLMTaskExecutor{svc: &reportSvc{store: store}}
+	e.SetReportHook(hook)
+
+	outcome := reportOutcome()
+	outcome.resp = &ExecuteResponse{State: &models.AgentState{}}
+	ctx := hook.Begin(context.Background())
+	resp, err := e.handleAgentSuccess(ctx, outcome, "the model's words", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hook.workspace != "ws1" || hook.automation != "daily-news" || hook.given != "the model's words" {
+		t.Errorf("hook saw %+v", hook)
+	}
+	want := "OBSERVED BY CODE\n\nthe model's words\n(collector: collecting)"
+	if resp.Report != want || !strings.Contains(resp.Output, want) {
+		t.Errorf("response report = %q", resp.Report)
+	}
+	if runs := resp.State.History; len(runs) != 1 || !strings.Contains(runs[0].Output, want) {
+		t.Errorf("run history = %+v", runs)
+	}
+	tree, err := store.ListTree("ws1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved []byte
+	for _, f := range tree.Entries {
+		if f.Type == models.TreeEntryFile && strings.HasPrefix(f.Path, "reports/daily-news/") {
+			saved, _ = os.ReadFile(filepath.Join(tmp, "workspaces", "ws1", f.Path))
+			if saved == nil {
+				saved, _ = os.ReadFile(filepath.Join(tmp, "ws1", f.Path))
+			}
+		}
+	}
+	if !strings.Contains(string(saved), "OBSERVED BY CODE") {
+		t.Errorf("the saved report file must carry the observed section, got %q", saved)
+	}
+}
+
+func TestHandleAgentSuccess_WithoutAHookTheReportIsTheAgentsOwn(t *testing.T) {
+	_, resp := finishRun(t, "plain report", reportOutcome())
+	if resp.Report != "plain report" {
+		t.Errorf("report = %q", resp.Report)
 	}
 }

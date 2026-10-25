@@ -83,6 +83,15 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 		d.runMu.Unlock()
 	}()
 
+	if d.preflight != nil {
+		if err := d.preflight(execCtx, entry); err != nil {
+			d.metrics.RecordExecution(false, false, time.Since(start))
+			d.reportPrepareFailure(entry, err, start)
+			d.notifyPreflight(ctx, entry, err)
+			return err
+		}
+	}
+
 	stratCtx, state, taskContent, err := d.prepareRun(execCtx, entry)
 	if err != nil {
 		d.metrics.RecordExecution(false, false, time.Since(start))
@@ -110,6 +119,7 @@ func (d *Dispatcher) executeAutomation(ctx context.Context, entry *AutomationEnt
 	d.succeedRun(entry, state, resp)
 	d.metrics.RecordExecution(true, false, elapsed)
 	d.failureNotices.reset(failureNoticeKey(entry))
+	d.preflightNotices.reset(failureNoticeKey(entry))
 	d.deliverAndRecord(ctx, entry, resp, ledger)
 	return nil
 }

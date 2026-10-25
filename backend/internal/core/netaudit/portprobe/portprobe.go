@@ -101,7 +101,7 @@ func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.R
 
 func (e *Engine) portsFor(req netaudit.ScanRequest) ([]int, error) {
 	if req.Mode == netaudit.ModeDiscover {
-		return netaudit.DiscoverPorts, nil
+		return netaudit.LivenessPorts(req.Thorough), nil
 	}
 	ports, err := netaudit.ExpandPorts(req.Ports)
 	if err != nil {

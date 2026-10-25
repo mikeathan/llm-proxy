@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -49,6 +50,26 @@ var DefaultPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 515, 6
 // DiscoverPorts are the ports tried to see whether an address is alive: any answer, even a refusal, means it is. Both
 // engines use the same list.
 var DiscoverPorts = []int{22, 80, 443, 445, 5000, 8080}
+
+// ThoroughDiscoverPorts are the liveness ports of a thorough sweep: the quick ones plus every default port, so a device
+// that answers on only one common service is still found. A device that answers on none of them is not.
+var ThoroughDiscoverPorts = func() []int {
+	out := append([]int{}, DiscoverPorts...)
+	for _, p := range DefaultPorts {
+		if !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
+}()
+
+// LivenessPorts returns the ports a sweep tries, for a thorough scan or a quick one.
+func LivenessPorts(thorough bool) []int {
+	if thorough {
+		return ThoroughDiscoverPorts
+	}
+	return DiscoverPorts
+}
 
 // ExpandPorts lists the ports a validated list names, in order, without duplicates. An empty list is empty.
 func ExpandPorts(ports string) ([]int, error) {

@@ -60,9 +60,13 @@ func DecodeProfile(encoded string) (Profile, error) {
 // (git/curl TLS, resolv, /dev nodes, Go runtime /proc reads, ld.so cache).
 var linuxSupportPaths = []string{
 	"/etc/ssl/certs", "/etc/ssl", "/etc/resolv.conf", "/etc/hosts",
-	"/etc/ld.so.cache", "/dev/null", "/dev/zero", "/dev/random", "/dev/urandom",
+	"/etc/ld.so.cache", "/dev/zero", "/dev/random", "/dev/urandom",
 	"/proc",
 }
+
+// linuxWritableDevices are device nodes a jailed child may write: programs open /dev/null for their standard streams
+// (nmap refuses to start without being able to), and a shell redirect to it must work. Writing to it stores nothing.
+var linuxWritableDevices = []string{"/dev/null"}
 
 // loaderDirs returns read-only grants for the dynamic loader and shared-library
 // dirs. Executing a dynamically linked binary makes the kernel (and ld.so)
@@ -172,6 +176,9 @@ func (lp landlockProvider) Wrap(cmd *exec.Cmd, ws WorkspaceView) error {
 	support = append(support, loaderDirs()...)
 	support = append(support, ws.ReadPaths...)
 	p := DefaultProfile(ws.RootPath, toolchainDirs(cmd.Env), support)
+	for _, dev := range linuxWritableDevices {
+		p.Add(dev, PermRead|PermWrite)
+	}
 	p.NeedTraverse()
 
 	exe, err := os.Executable()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/platform/scanscope"
@@ -23,14 +24,65 @@ type NetauditReadiness interface {
 	Check(ctx context.Context) []models.Requirement
 }
 
-// NetauditHandlers serves the operator's network-audit settings.
+// NetauditBaselines reads an automation's latest scan result. *persistence.WorkspaceManager satisfies it.
+type NetauditBaselines interface {
+	ReadBaseline(workspaceID, automation string) (models.ScanBaseline, error)
+}
+
+// NetauditHandlers serves the operator's network-audit settings and the latest findings.
 type NetauditHandlers struct {
 	scope     NetauditScope
 	readiness NetauditReadiness
+	baselines NetauditBaselines
 }
 
-func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness) *NetauditHandlers {
-	return &NetauditHandlers{scope: scope, readiness: readiness}
+func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines) *NetauditHandlers {
+	return &NetauditHandlers{scope: scope, readiness: readiness, baselines: baselines}
+}
+
+// findingView is a finding with whether the latest scan found it for the first time.
+type findingView struct {
+	models.ScanFinding
+	New bool `json:"new"`
+}
+
+// findingsResponse is an automation's latest scan as a screen needs it.
+type findingsResponse struct {
+	Scanned   bool                 `json:"scanned"`
+	ScannedAt string               `json:"scanned_at,omitempty"`
+	Engine    string               `json:"engine,omitempty"`
+	Findings  []findingView        `json:"findings"`
+	Resolved  []models.ScanFinding `json:"resolved"`
+}
+
+// GetFindings returns the latest scan of one automation: its findings (marking the new ones) and what was resolved
+// since the scan before. Scanned is false when the automation has not scanned yet.
+func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
+	workspaceID, automation := r.URL.Query().Get("workspace_id"), r.URL.Query().Get("automation")
+	if workspaceID == "" || automation == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id and automation are required")
+		return
+	}
+	b, err := h.baselines.ReadBaseline(workspaceID, automation)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp := findingsResponse{Findings: []findingView{}, Resolved: []models.ScanFinding{}}
+	if !b.ScannedAt.IsZero() {
+		isNew := make(map[string]bool, len(b.NewKeys))
+		for _, k := range b.NewKeys {
+			isNew[k] = true
+		}
+		resp.Scanned, resp.ScannedAt, resp.Engine = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine
+		for _, f := range b.Findings {
+			resp.Findings = append(resp.Findings, findingView{ScanFinding: f, New: isNew[f.Key()]})
+		}
+		if b.Resolved != nil {
+			resp.Resolved = b.Resolved
+		}
+	}
+	respondJSON(w, resp)
 }
 
 // GetReadiness lists every unmet prerequisite with the one step that would meet it. An empty list means scans can run.
@@ -49,6 +101,9 @@ func (h *NetauditHandlers) GetReadiness(w http.ResponseWriter, r *http.Request) 
 type scopeResponse struct {
 	netaudit.ScopeView
 	Suggestions []netaudit.Suggestion `json:"suggestions"`
+	// SuggestionsError says why the machine's networks could not be listed; a failure to list them never hides the
+	// saved scope.
+	SuggestionsError string `json:"suggestions_error,omitempty"`
 }
 
 // scopeRequest changes the scan scope. A nil field is left as it is.
@@ -94,13 +149,14 @@ func (h *NetauditHandlers) PutScope(w http.ResponseWriter, r *http.Request) {
 
 func (h *NetauditHandlers) respondScope(w http.ResponseWriter, view netaudit.ScopeView) {
 	suggestions, err := h.scope.Suggestions()
+	resp := scopeResponse{ScopeView: view, Suggestions: suggestions}
 	if err != nil {
-		suggestions = nil // a failure to list interfaces must not hide the saved scope
+		resp.Suggestions, resp.SuggestionsError = nil, err.Error()
 	}
-	if suggestions == nil {
-		suggestions = []netaudit.Suggestion{}
+	if resp.Suggestions == nil {
+		resp.Suggestions = []netaudit.Suggestion{}
 	}
-	respondJSON(w, scopeResponse{ScopeView: view, Suggestions: suggestions})
+	respondJSON(w, resp)
 }
 
 // isScopeRefusal reports whether err is the operator's input being refused rather than a failure to save.

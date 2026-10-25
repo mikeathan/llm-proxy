@@ -95,7 +95,7 @@ func TestArgs_WhoDecidesWhichAddressesAreLive(t *testing.T) {
 	if !slices.Contains(slow, "-Pn") || !slices.Contains(slow, "--top-ports") || !slices.Contains(slow, "-T3") {
 		t.Errorf("thorough: %v", slow)
 	}
-	if i := slices.Index(slow, "--max-rate"); slow[i+1] != "100" {
+	if i := slices.Index(slow, "--max-rate"); slow[i+1] != "300" {
 		t.Errorf("thorough must stay gentle: %v", slow)
 	}
 }

@@ -38,6 +38,7 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
 | `compliance_check_internal.md` | Compliance & high-risk port audit |
 | `network_recon_unprivileged.md` | Unprivileged network reconnaissance |
+| `nightly_network_audit.md` | Nightly network audit: scan, compare with the last scan, assess |
 | `workspace_health_audit.md` | Workspace storage & health audit |
 | `web_discovery_fast.md` | Fast AI/LLM news discovery — token-efficient search digest |
 | `llm_ai_release_brief.md` | LLM & AI release news brief |

@@ -35,8 +35,8 @@ func TestProfileHandlers_ListNamesTheDefaultsAndHidesTheInstructions(t *testing.
 	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(items) != 7 {
-		t.Fatalf("got %d profiles, want the seven built-ins", len(items))
+	if len(items) != 8 {
+		t.Fatalf("got %d profiles, want the eight built-ins", len(items))
 	}
 	byID := map[string]string{}
 	for _, it := range items {

@@ -3,15 +3,20 @@ package nmap
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/platform/progexec"
+	"llm-proxy/internal/platform/sandbox"
 )
 
 type fakeRunner struct {
@@ -95,6 +100,28 @@ func TestEngine_ScanSurfacesRunnerErrorsAndTruncation(t *testing.T) {
 	}
 }
 
+// A scan that runs out of time returns the hosts it finished, with a warning, instead of nothing.
+func TestEngine_ATimedOutScanKeepsTheHostsItFinished(t *testing.T) {
+	xml, err := os.ReadFile("testdata/services_localhost.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := xml[:strings.LastIndex(string(xml), "</host>")+len("</host>")] // killed after the first host, before the summary
+	e, _ := testEngine(t, &fakeRunner{out: progexec.Output{Stdout: cut}, err: fmt.Errorf("nmap: %w after 8m0s", progexec.ErrTimedOut)})
+	res, err := e.Scan(context.Background(), netaudit.ScanRequest{Targets: []netip.Addr{netip.MustParseAddr("10.0.0.1")}, Mode: netaudit.ModeServices, Thorough: true})
+	if err != nil {
+		t.Fatalf("a timeout with partial results is a result, not an error: %v", err)
+	}
+	if len(res.Hosts) != 1 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "time limit") {
+		t.Errorf("res = %+v", res)
+	}
+
+	e, _ = testEngine(t, &fakeRunner{err: fmt.Errorf("nmap: %w", progexec.ErrTimedOut)})
+	if res, err := e.Scan(context.Background(), netaudit.ScanRequest{Targets: []netip.Addr{netip.MustParseAddr("10.0.0.1")}, Mode: netaudit.ModePorts}); err != nil || len(res.Hosts) != 0 || len(res.Warnings) != 1 {
+		t.Errorf("a timeout with nothing finished still says so: %+v, %v", res, err)
+	}
+}
+
 func TestEngine_AvailableReportsWhatIsMissing(t *testing.T) {
 	e, _ := testEngine(t, &fakeRunner{})
 	if err := e.Available(context.Background()); err != nil {
@@ -116,5 +143,58 @@ func TestEngine_AvailableReportsWhatIsMissing(t *testing.T) {
 	}
 	if !e.Supports(netaudit.ModeServices) || e.Name() != "nmap" {
 		t.Error("nmap supports every mode")
+	}
+}
+
+// TestMain lets the test binary act as the sandbox runner: under Landlock the engine starts nmap by re-running this
+// binary, which confines itself and then execs nmap.
+func TestMain(m *testing.M) {
+	sandbox.RunChildIfRequested()
+	os.Exit(m.Run())
+}
+
+// With the real sandbox provider, real nmap must run to completion inside the jail in every mode. This is what caught
+// nmap refusing to start because /dev/null was not writable. It needs nmap and an OS file jail, so it skips elsewhere.
+func TestEngine_RunsRealNmapInsideTheFileJail(t *testing.T) {
+	if _, err := exec.LookPath("nmap"); err != nil {
+		t.Skip("nmap is not installed")
+	}
+	sb := sandbox.New(sandbox.Config{Filesystem: true})
+	if sb.Effective().Filesystem.Mechanism == sandbox.EnforcementNone {
+		t.Skip("no OS file jail on this host")
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skip("no loopback")
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+
+	e := New(progexec.Runner{Sandbox: sb}) // no AllowUnconfined: the jail must be in force
+	if err := e.Available(context.Background()); err != nil {
+		t.Skipf("nmap not usable here: %v", err)
+	}
+	for _, mode := range netaudit.Modes() {
+		res, err := e.Scan(context.Background(), netaudit.ScanRequest{
+			Targets: []netip.Addr{netip.MustParseAddr("127.0.0.1")}, Mode: mode, Ports: port, Prefiltered: true,
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if len(res.Hosts) != 1 || !res.Hosts[0].Up {
+			t.Errorf("%s: hosts = %+v", mode, res.Hosts)
+		}
+		if mode != netaudit.ModeDiscover && (len(res.Hosts[0].Ports) != 1 || res.Hosts[0].Ports[0].State != "open") {
+			t.Errorf("%s: the open port was not found: %+v", mode, res.Hosts[0].Ports)
+		}
 	}
 }

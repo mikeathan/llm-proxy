@@ -140,14 +140,17 @@ func TestRun_KillsTheWholeProcessGroupOnTimeout(t *testing.T) {
 	}
 	marker := filepath.Join(t.TempDir(), "child-survived")
 	// The shell backgrounds a child that would write the marker after the timeout; killing only the shell would let it.
-	prog := script(t, `(sleep 1; touch `+marker+`) & sleep 30`)
+	prog := script(t, `echo partial-output; (sleep 1; touch `+marker+`) & sleep 30`)
 	inv := invocation(t)
 	inv.Timeout = 200 * time.Millisecond
 
 	start := time.Now()
-	_, err := confined().Run(context.Background(), prog, inv)
+	out, err := confined().Run(context.Background(), prog, inv)
 	if !errors.Is(err, ErrTimedOut) {
 		t.Fatalf("err = %v, want ErrTimedOut", err)
+	}
+	if !strings.Contains(string(out.Stdout), "partial-output") {
+		t.Errorf("a timeout must return what the program had printed, got %q", out.Stdout)
 	}
 	if time.Since(start) > 5*time.Second {
 		t.Errorf("the run must end at the timeout, took %s", time.Since(start))

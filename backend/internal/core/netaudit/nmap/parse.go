@@ -1,6 +1,7 @@
 package nmap
 
 import (
+	"bytes"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -77,6 +78,21 @@ func ParseXML(r io.Reader) ([]netaudit.Host, error) {
 		}
 	}
 	return hosts, nil
+}
+
+// ParsePartialXML reads the output of an nmap that was killed before it finished: the complete <host> elements before
+// the cut are kept and the rest is dropped. It never fails; a cut that leaves no complete host gives no hosts.
+func ParsePartialXML(raw []byte) []netaudit.Host {
+	const endHost, endRun = "</host>", "</nmaprun>"
+	cut := bytes.LastIndex(raw, []byte(endHost))
+	if cut < 0 {
+		return nil
+	}
+	hosts, err := ParseXML(bytes.NewReader(append(append([]byte{}, raw[:cut+len(endHost)]...), endRun...)))
+	if err != nil {
+		return nil
+	}
+	return hosts
 }
 
 func convertHost(h xmlHost) (netaudit.Host, bool) {

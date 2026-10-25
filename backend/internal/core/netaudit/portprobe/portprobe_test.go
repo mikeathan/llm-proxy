@@ -182,3 +182,16 @@ func TestScan_RealLoopbackConnect(t *testing.T) {
 		t.Errorf("res = %+v, err = %v", res, err)
 	}
 }
+
+// A thorough discover sweeps the wider liveness list, so a device that answers on one common service is found.
+func TestScan_ThoroughDiscoverUsesTheWiderLivenessPorts(t *testing.T) {
+	d := &fakeDialer{open: map[string]bool{"10.0.0.2:3306": true}}
+	quick, err := engine(d, allow).Scan(context.Background(), netaudit.ScanRequest{Targets: addrs("10.0.0.2"), Mode: netaudit.ModeDiscover})
+	if err != nil || quick.Hosts[0].Up {
+		t.Fatalf("a quick sweep does not try 3306: %+v, %v", quick.Hosts, err)
+	}
+	wide, err := engine(d, allow).Scan(context.Background(), netaudit.ScanRequest{Targets: addrs("10.0.0.2"), Mode: netaudit.ModeDiscover, Thorough: true})
+	if err != nil || !wide.Hosts[0].Up {
+		t.Errorf("a thorough sweep finds a device that only answers on 3306: %+v, %v", wide.Hosts, err)
+	}
+}

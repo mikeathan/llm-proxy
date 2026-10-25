@@ -21,7 +21,7 @@
       },
       "thorough": {
         "type": "boolean",
-        "description": "Default false: a quick scan that finds the live addresses first and looks only at those (seconds for a /24). Set true to also scan addresses that did not answer, which is slower and gentler; use it for audits."
+        "description": "Default false: a quick scan of the common ports (seconds for a /24). Set true for an audit: it looks for live devices on more ports and scans the top 300 ports of each one it finds, gently; it takes a couple of minutes."
       }
     },
     "required": ["targets", "mode"]

@@ -4600,6 +4600,19 @@ func TestToolCtxWithTimeout_NetworkUsesDefaultTimeout(t *testing.T) {
 	}
 }
 
+// A thorough network scan runs for minutes; the 2-minute default would kill it halfway. The scan engine bounds it.
+func TestToolCtxWithTimeout_NetworkScanIsNotCutByTheDefaultToolTimeout(t *testing.T) {
+	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
+		ToolTimeout:           2 * time.Minute,
+		FilesystemToolTimeout: 30 * time.Second,
+	})
+	toolCtx, cancel := agent.toolCtxWithTimeout(context.Background(), models.ToolNetworkScan)
+	defer cancel()
+	if _, ok := toolCtx.Deadline(); ok {
+		t.Fatal("network_scan must not get the default tool deadline")
+	}
+}
+
 func TestToolCtxWithTimeout_SearchUsesDefaultTimeout(t *testing.T) {
 	agent := NewAgent(&MockClient{}, &MockProvider{}, &MockEngine{}, AgentOptions{
 		ToolTimeout:           2 * time.Minute,

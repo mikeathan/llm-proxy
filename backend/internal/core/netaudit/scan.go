@@ -27,8 +27,8 @@ type Request struct {
 	Mode    Mode
 	// Ports is an optional list such as "22,80,8000-8100"; empty means the engine's default set.
 	Ports string
-	// Thorough also scans addresses that did not answer the quick liveness check, and takes longer. The default is the
-	// quick scan: find the live addresses first, then look at only those.
+	// Thorough sweeps on more ports and then scans more ports of the live addresses, more gently; it takes longer. The
+	// default is the quick scan.
 	Thorough bool
 	// Unattended marks a scheduled run, where no person can read a warning: it never falls back to the limited engine.
 	Unattended bool
@@ -102,9 +102,10 @@ func NewService(authorizer Authorizer, primary, fallback Engine) *Service {
 // Scan authorises and runs one scan. It refuses before touching the network when the mode or ports are invalid,
 // scanning is off, a target is out of scope, another scan is running, or no suitable engine is available.
 //
-// A quick scan (the default) sweeps the targets first with the limited engine, which finds the live addresses of a
-// /24 in seconds, and gives only those to the engine that does the real work; discover is the sweep alone. A
-// thorough scan skips the sweep and hands every address to the engine, which takes longer and misses nothing.
+// Every scan sweeps the targets first with the limited engine, which finds the live addresses of a /24 in seconds, and
+// gives only those to the engine that does the real work; discover is the sweep alone. A thorough scan sweeps on more
+// ports (so a device that answers on one service is still found) and then looks harder at what it found: more ports,
+// gentler timing. Probing every dead address instead took ten minutes for a /24 and marked every address up.
 func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	scan, err := s.prepare(ctx, req)
 	if err != nil {
@@ -115,8 +116,8 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	}
 	defer s.running.Unlock()
 
-	// Refuse before the network is touched when the engine this scan needs is not there. A quick discover with a sweeper
-	// is the sweep alone and needs no engine of its own.
+	// Refuse before the network is touched when the engine this scan needs is not there. A discover with a sweeper is the
+	// sweep alone and needs no engine of its own.
 	engine, warnings, err := s.engineFor(ctx, req)
 	if err != nil {
 		return Result{}, err
@@ -137,6 +138,10 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	res.Warnings = append(warnings, res.Warnings...)
 	if swept.sweep != nil {
 		res.Hosts = mergeHosts(swept.sweep.Hosts, res.Hosts)
+		if n := countUnscanned(res.Hosts); n > 0 {
+			res.Warnings = append(res.Warnings, fmt.Sprintf("%d live address(es) were not scanned to completion (the scan ran out of time on them), "+
+				"so their open ports are unknown, not none.", n))
+		}
 	}
 	return finish(res), nil
 }
@@ -159,7 +164,7 @@ func (s *Service) prepare(ctx context.Context, req Request) (ScanRequest, error)
 
 // engineFor picks the engine that does the real work, or nil when a quick discover is the sweep alone.
 func (s *Service) engineFor(ctx context.Context, req Request) (Engine, []string, error) {
-	if req.Mode == ModeDiscover && !req.Thorough && s.sweeper() != nil {
+	if req.Mode == ModeDiscover && s.sweeper() != nil {
 		return nil, nil, nil
 	}
 	return s.pickEngine(ctx, req)
@@ -173,13 +178,13 @@ type sweepOutcome struct {
 	final *Result
 }
 
-// sweepFirst runs the quick sweep unless the scan is thorough or there is no sweeper. A discover scan is complete after
-// the sweep, and so is any scan in which nothing answered.
+// sweepFirst runs the sweep unless there is no sweeper. A discover scan is complete after the sweep, and so is any scan in
+// which nothing answered.
 func (s *Service) sweepFirst(ctx context.Context, req Request, scan ScanRequest) (sweepOutcome, error) {
-	if req.Thorough || s.sweeper() == nil {
+	if s.sweeper() == nil {
 		return sweepOutcome{scan: scan}, nil
 	}
-	sweep, err := s.sweeper().Scan(ctx, ScanRequest{Targets: scan.Targets, Mode: ModeDiscover})
+	sweep, err := s.sweeper().Scan(ctx, ScanRequest{Targets: scan.Targets, Mode: ModeDiscover, Thorough: req.Thorough})
 	if err != nil {
 		return sweepOutcome{}, err
 	}
@@ -201,6 +206,16 @@ func finish(res Result) Result {
 		res.Findings = FindingsOf(res.Hosts)
 	}
 	return res
+}
+
+func countUnscanned(hosts []Host) int {
+	n := 0
+	for _, h := range hosts {
+		if h.Unscanned {
+			n++
+		}
+	}
+	return n
 }
 
 func liveAddrs(hosts []Host) []netip.Addr {
@@ -225,6 +240,8 @@ func mergeHosts(swept, scanned []Host) []Host {
 		if detailed, ok := byAddr[h.Addr]; ok {
 			h = detailed
 			h.Up = true // the sweep saw it answer
+		} else if h.Up {
+			h.Unscanned = true // alive, but the engine never reported on it
 		}
 		out = append(out, h)
 	}
