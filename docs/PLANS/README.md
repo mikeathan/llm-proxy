@@ -58,6 +58,7 @@ Organized by subsystem:
 | [`cross-cutting/assistant-liveness-heartbeat-package-split.md`](cross-cutting/assistant-liveness-heartbeat-package-split.md) | Assistant Liveness Heartbeat & Package Restructure | partial | 2026-08-18 | SPEC-001, SPEC-010, SPEC-003 |
 | [`cross-cutting/run-recordings.md`](cross-cutting/run-recordings.md) | Make run recordings readable and safe (run logging already records every request; masked on write, listed without `--record`, content endpoint) | complete | 2026-10-20 | SPEC-001, SPEC-007 |
 | [`cross-cutting/agents-md-layering-guardrails.md`](cross-cutting/agents-md-layering-guardrails.md) | AGENTS.md Layering, Override-ability & Write Guardrails | partial | 2026-08-04 | SPEC-001, CONSTITUTION II.13/II.10 |
+| [`cross-cutting/docs-and-agent-harness-restructure.md`](cross-cutting/docs-and-agent-harness-restructure.md) | Docs and Agent Harness Restructure (lifecycle-split docs: architecture/decisions/roadmap/learnings + subsystem hubs; slim skills with `references/`; harness-neutral adapters; harness script updates) | proposed | 2026-10-25 | — |
 | [`assistant-ui/composer-queue-and-reminder-alerts.md`](assistant-ui/composer-queue-and-reminder-alerts.md) | Composer message queue while a run is live, and live web UI alerts when a reminder fires (owner phone testing, 2026-10-18) | complete | 2026-10-18 | SPEC-003, SPEC-011, SPEC-001 |
 | [`agent-loop/run-efficiency-and-convergence.md`](agent-loop/run-efficiency-and-convergence.md) | Run Efficiency and Convergence (pair-atomic pruning, result shaping, result-level progress monitor, batching; from a measured 141 s run; pairing fix + observability done) | partial | 2026-10-18 | SPEC-001, SPEC-006, SPEC-010 |
 | [`agent-loop/large-result-storage.md`](agent-loop/large-result-storage.md) | Keep large tool results instead of cutting them (ranged `read_file` built in #99; automation/chat reports saved under the workspace `reports/`; operator-only purge; link + side sheet) | partial | 2026-10-19 | SPEC-001, SPEC-003, SPEC-004, SPEC-006, SPEC-007 |
@@ -119,6 +120,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |
+| proposed | Docs and Agent Harness Restructure | everything — Phase 0 (owner decisions on harnesses in use, `.claude/rules` verification) then Phase 1 skeleton (`cross-cutting/docs-and-agent-harness-restructure.md`) |
 | partial | CI & Versioning | P2/P3 hygiene work + P6 (verify tag flow on a real merge); P5 build-release deliberately parked |
 | partial | Agent Improvements | re-scoped 2026-09-05: only Phase 4 (tool dedup), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent wrap) still valid — see re-scope note in plan |
 | partial | Memory Improvements | Session Search tool (FTS5 `session_search`) + Skill System (procedural memory) — everything else done |
