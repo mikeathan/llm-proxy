@@ -35,3 +35,15 @@ type ScanBaseline struct {
 	NewKeys  []string      `json:"new_keys,omitempty"`
 	Resolved []ScanFinding `json:"resolved,omitempty"`
 }
+
+// ScanAck is the operator's decision to accept a finding for a while. It names the finding by Key and the version text
+// that was accepted: if the finding's version changes, the acceptance no longer applies and the finding comes back.
+type ScanAck struct {
+	Key             string    `json:"key"`
+	AcceptedVersion string    `json:"accepted_version,omitempty"`
+	Note            string    `json:"note,omitempty"`
+	AcceptedAt      time.Time `json:"accepted_at"`
+	ExpiresAt       time.Time `json:"expires_at"`
+	// LastSeen is the last time a scan still showed the finding, so an acceptance for something long gone is dropped.
+	LastSeen time.Time `json:"last_seen,omitempty"`
+}

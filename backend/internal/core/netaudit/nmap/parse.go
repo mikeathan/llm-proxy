@@ -24,6 +24,7 @@ const (
 	stateOpen     = "open"
 	stateUp       = "up"
 	protoTCP      = "tcp"
+	methodTable   = "table"
 	addrTypeIPv4  = "ipv4"
 	truncationEnd = "…"
 )
@@ -58,6 +59,8 @@ type xmlService struct {
 	Name    string `xml:"name,attr"`
 	Product string `xml:"product,attr"`
 	Version string `xml:"version,attr"`
+	// Method is how nmap got the name: "probed" when it talked to the service, "table" when it only looked the port up.
+	Method string `xml:"method,attr"`
 }
 
 // ParseXML reads nmap's -oX output. Hosts without an IPv4 address are skipped; the output of an engine is data, so
@@ -115,6 +118,7 @@ func convertHost(h xmlHost) (netaudit.Host, bool) {
 			host.Ports = append(host.Ports, netaudit.Port{
 				Number: p.ID, Proto: p.Protocol, State: clean(p.State.State),
 				Service: clean(p.Service.Name), Product: clean(p.Service.Product), Version: clean(p.Service.Version),
+				Guessed: p.Service.Name != "" && p.Service.Method == methodTable,
 			})
 		}
 		return host, true

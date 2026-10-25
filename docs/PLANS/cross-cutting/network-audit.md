@@ -552,6 +552,15 @@ an unused helper would be dead code (Constitution IV.4).
 - Not done: ~~the Ubuntu run (Landlock grants for nmap),~~ persisted `allowed_tools` entries
   that still name `scan_local_network` (they now match nothing).
 
+**Phase 6 backend done (branch `netaudit-guessed-services-and-netlink`):** accepted findings — `models.ScanAck`, `acks.json` per workspace
+(the workspace-level path helper §4.5 was waiting for), `netaudit.NewAck/StateFor/ApplyAcks/HideAccepted`, `Acks` service and
+`POST/GET/DELETE /admin/api/netaudit/acks`; `GET .../findings` marks accepted findings. Accepted findings are left out of what the
+model sees (`scantool`) and counted in the Observed section, and stay in the baseline. The report UI (`FindingsReport`) waits on
+the wireframes (F-0). Also from the vertex run of a real scheduled audit (Qwen3.6 local, thorough services, all of profile,
+pre-flight, Observed, baseline and comparison worked): nmap's port-table names are marked as guesses (8081 had been read as
+"blackice-icecap" and described by the model as an IDS), and where a service cannot open a netlink socket (vertex's systemd unit)
+the interface list falls back to the default route's address on a /24, for both the scope suggestions and `get_network_info`.
+
 Not done from §4.1: a `validateCategory` case for the future `network_scan` (it now dispatches network tools by `Gate`, so a
 new row with `GateNetwork` gets the L1 checks); the `validateNetwork` scan/info messages still name the two tools.
 

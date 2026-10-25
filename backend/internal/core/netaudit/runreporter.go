@@ -3,6 +3,7 @@ package netaudit
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"llm-proxy/models"
@@ -18,11 +19,19 @@ type BaselineStore interface {
 // as the baseline for the next run. It never reads the model's words: it works from what the scan tool collected.
 type RunReporter struct {
 	store BaselineStore
+	acks  AckStore // optional: findings the operator accepted
 	now   func() time.Time
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
 	return &RunReporter{store: store, now: time.Now}
+}
+
+// WithAcks makes the report leave out findings the operator has accepted (counting them instead) and keeps the
+// acceptances up to date. Without it every finding is reported.
+func (r *RunReporter) WithAcks(acks AckStore) *RunReporter {
+	r.acks = acks
+	return r
 }
 
 // Begin makes the run's context collect scan results. It is cheap, so every automation run gets it.
@@ -48,10 +57,12 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 
 	scanned := scannedDevices(result.Hosts)
 	delta := Diff(restrictTo(prev.Findings, scanned), result.Findings)
-	observed := RenderObserved(Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: result, Delta: delta})
+	shown, accepted, ackNote := r.applyAcks(workspaceID, result, delta, at)
+	observed := RenderObserved(Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted})
 	if readErr != nil {
 		observed += "\n\n> Note: the previous scan result could not be read, so no comparison was made."
 	}
+	observed += ackNote
 
 	next := models.ScanBaseline{
 		ScannedAt: at, Engine: result.Engine, Findings: append(withoutDevices(prev.Findings, scanned), result.Findings...),
@@ -69,6 +80,56 @@ func keysOf(findings []Finding) []string {
 		keys = append(keys, f.Key())
 	}
 	return keys
+}
+
+// shownScan is the part of a scan the report lists: what no active acceptance covers.
+type shownScan struct {
+	result Result
+	delta  Delta
+}
+
+// applyAcks removes the findings the operator accepted from what the report lists, returns how many that was, and saves
+// the refreshed acceptances. A problem reading or saving them is stated in the note, and nothing is hidden when they
+// cannot be read.
+func (r *RunReporter) applyAcks(workspaceID string, result Result, delta Delta, at time.Time) (shownScan, int, string) {
+	shown := shownScan{result: result, delta: delta}
+	if r.acks == nil {
+		return shown, 0, ""
+	}
+	acks, err := r.acks.ReadAcks(workspaceID)
+	if err != nil {
+		return shown, 0, "\n\n> Note: the accepted findings could not be read, so every finding is listed."
+	}
+	applied := ApplyAcks(result.Findings, acks, at)
+	covered := make(map[string]bool, len(applied.Accepted))
+	for _, f := range applied.Accepted {
+		covered[f.Key()] = true
+	}
+	shown.result.Findings = applied.Visible
+	shown.delta.New = withoutKeys(delta.New, covered)
+	shown.delta.Changed = nil
+	for _, c := range delta.Changed {
+		if !covered[c.After.Key()] {
+			shown.delta.Changed = append(shown.delta.Changed, c)
+		}
+	}
+	note := ""
+	if !reflect.DeepEqual(acks, applied.Acks) {
+		if err := r.acks.WriteAcks(workspaceID, applied.Acks); err != nil {
+			note = fmt.Sprintf("\n\n> Note: the accepted findings could not be updated (%v).", err)
+		}
+	}
+	return shown, len(applied.Accepted), note
+}
+
+func withoutKeys(findings []Finding, drop map[string]bool) []Finding {
+	var out []Finding
+	for _, f := range findings {
+		if !drop[f.Key()] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // scannedDevices is the set of addresses this run looked at to the end, up or down.

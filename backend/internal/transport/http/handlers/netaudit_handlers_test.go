@@ -34,7 +34,7 @@ func (noResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, er
 
 func newNetauditTestHandlers() (*NetauditHandlers, *scopeStore) {
 	store := &scopeStore{}
-	return NewNetauditHandlers(netaudit.NewScope(store, noResolver{}, nil), stubReadiness{}, nil), store
+	return NewNetauditHandlers(netaudit.NewScope(store, noResolver{}, nil), stubReadiness{}, nil, nil), store
 }
 
 func putScope(h *NetauditHandlers, body string) *httptest.ResponseRecorder {
@@ -99,7 +99,7 @@ func (s stubReadiness) Check(context.Context) []models.Requirement { return s.re
 
 func TestNetauditHandlers_GetReadiness(t *testing.T) {
 	get := func(r NetauditReadiness) map[string]any {
-		h := NewNetauditHandlers(netaudit.NewScope(&scopeStore{}, noResolver{}, nil), r, nil)
+		h := NewNetauditHandlers(netaudit.NewScope(&scopeStore{}, noResolver{}, nil), r, nil, nil)
 		rec := httptest.NewRecorder()
 		h.GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/readiness", nil))
 		var out map[string]any
@@ -126,7 +126,7 @@ func (failingScope) Suggestions() ([]netaudit.Suggestion, error) {
 
 func TestNetauditHandlers_AFailureToListNetworksIsReportedNotHidden(t *testing.T) {
 	store := &scopeStore{cfg: models.NetauditConfig{ScanRanges: []string{"10.0.0.0/24"}}}
-	h := NewNetauditHandlers(failingScope{netaudit.NewScope(store, noResolver{}, nil)}, stubReadiness{}, nil)
+	h := NewNetauditHandlers(failingScope{netaudit.NewScope(store, noResolver{}, nil)}, stubReadiness{}, nil, nil)
 	rec := httptest.NewRecorder()
 	h.GetScope(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/scope", nil))
 	var got struct {
@@ -163,7 +163,7 @@ func TestNetauditHandlers_GetFindings(t *testing.T) {
 		ScannedAt: time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC), Engine: "nmap",
 		Findings: []models.ScanFinding{ssh, telnet}, NewKeys: []string{telnet.Key()}, Resolved: []models.ScanFinding{gone},
 	}
-	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline})
+	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil)
 
 	var got findingsResponse
 	rec := getFindings(h, "?workspace_id=ws&automation=nightly")
@@ -175,14 +175,96 @@ func TestNetauditHandlers_GetFindings(t *testing.T) {
 	}
 
 	var none findingsResponse
-	rec = getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{}), "?workspace_id=ws&automation=nightly")
+	rec = getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{}, nil), "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &none); err != nil || none.Scanned || none.Findings == nil || none.Resolved == nil {
 		t.Errorf("an automation that has not scanned: %s", rec.Body.String())
 	}
 	if rec := getFindings(h, "?workspace_id=ws"); rec.Code != http.StatusBadRequest {
 		t.Errorf("a missing automation = %d", rec.Code)
 	}
-	if rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{err: context.Canceled}), "?workspace_id=ws&automation=a"); rec.Code != http.StatusInternalServerError {
+	if rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{err: context.Canceled}, nil), "?workspace_id=ws&automation=a"); rec.Code != http.StatusInternalServerError {
 		t.Errorf("a read failure = %d", rec.Code)
+	}
+}
+
+type fakeAcks struct {
+	acks      []models.ScanAck
+	acceptErr error
+	revoked   bool
+	gotAccept ackRequest
+}
+
+func (f *fakeAcks) List(string) ([]models.ScanAck, error) { return f.acks, nil }
+func (f *fakeAcks) Accept(ws, automation, key, note string, days int) (models.ScanAck, error) {
+	f.gotAccept = ackRequest{ws, automation, key, note, days}
+	return models.ScanAck{Key: key, Note: note}, f.acceptErr
+}
+func (f *fakeAcks) Revoke(string, string) (bool, error) { return f.revoked, nil }
+
+func do(h http.HandlerFunc, method, target, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h(rec, req)
+	return rec
+}
+
+func TestNetauditHandlers_AcceptFinding(t *testing.T) {
+	acks := &fakeAcks{}
+	h := NewNetauditHandlers(nil, nil, nil, acks)
+	body := `{"workspace_id":"ws","automation":"nightly","key":"10.0.0.1|tcp|22|open_port","note":"jump host","days":30}`
+
+	if rec := do(h.AcceptFinding, http.MethodPost, "/admin/api/netaudit/acks", body); rec.Code != http.StatusOK || acks.gotAccept.Days != 30 || acks.gotAccept.Note != "jump host" {
+		t.Errorf("accept = %d %s (%+v)", rec.Code, rec.Body.String(), acks.gotAccept)
+	}
+	if rec := do(h.AcceptFinding, http.MethodPost, "/", `{"workspace_id":"ws"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("a request without the automation and key = %d", rec.Code)
+	}
+	for err, want := range map[error]int{netaudit.ErrBadAck: http.StatusBadRequest, netaudit.ErrNoSuchFinding: http.StatusNotFound, context.Canceled: http.StatusInternalServerError} {
+		acks.acceptErr = err
+		if rec := do(h.AcceptFinding, http.MethodPost, "/", body); rec.Code != want {
+			t.Errorf("%v = %d, want %d", err, rec.Code, want)
+		}
+	}
+}
+
+func TestNetauditHandlers_ListAndRevokeAcks(t *testing.T) {
+	acks := &fakeAcks{}
+	h := NewNetauditHandlers(nil, nil, nil, acks)
+	rec := do(h.ListAcks, http.MethodGet, "/admin/api/netaudit/acks?workspace_id=ws", "")
+	if rec.Code != http.StatusOK || strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Errorf("no acceptances is an empty array, not null: %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := do(h.ListAcks, http.MethodGet, "/admin/api/netaudit/acks", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("a missing workspace = %d", rec.Code)
+	}
+	if rec := do(h.RevokeAck, http.MethodDelete, "/?workspace_id=ws&key=k", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("revoking nothing = %d", rec.Code)
+	}
+	acks.revoked = true
+	if rec := do(h.RevokeAck, http.MethodDelete, "/?workspace_id=ws&key=k", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("revoke = %d", rec.Code)
+	}
+	if rec := do(h.RevokeAck, http.MethodDelete, "/?workspace_id=ws", ""); rec.Code != http.StatusBadRequest {
+		t.Errorf("a missing key = %d", rec.Code)
+	}
+}
+
+func TestNetauditHandlers_FindingsShowWhatIsAccepted(t *testing.T) {
+	ssh := models.ScanFinding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: "open_port", Severity: "info", Version: "OpenSSH 9"}
+	telnet := models.ScanFinding{Device: "10.0.0.1", Port: 23, Proto: "tcp", Check: "open_port", Severity: "info"}
+	baseline := models.ScanBaseline{ScannedAt: time.Now(), Engine: "nmap", Findings: []models.ScanFinding{ssh, telnet}}
+	now := time.Now()
+	acks := &fakeAcks{acks: []models.ScanAck{
+		{Key: ssh.Key(), AcceptedVersion: "OpenSSH 9", Note: "jump host", ExpiresAt: now.Add(24 * time.Hour)},
+		{Key: telnet.Key(), ExpiresAt: now.Add(-time.Hour)}, // expired: not accepted any more
+	}}
+	var got findingsResponse
+	rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, acks), "?workspace_id=ws&automation=nightly")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Findings[0].Accepted || got.Findings[0].AcceptedNote != "jump host" || got.Findings[0].AcceptedTill == "" || got.Findings[1].Accepted {
+		t.Errorf("findings = %+v", got.Findings)
 	}
 }

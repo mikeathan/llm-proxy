@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/proxy"
@@ -27,7 +28,12 @@ func (f *fakeScanner) Scan(_ context.Context, req netaudit.Request) (netaudit.Re
 
 func call(t *testing.T, s Scanner, available func(context.Context) bool, ctx context.Context, args string) (any, error) {
 	t.Helper()
-	r := toolregistry.NewLocalToolRegistry(nil, nil, nil, nil, nil, nil).Use(Module(s, available))
+	return callWithAcks(t, s, nil, available, ctx, args)
+}
+
+func callWithAcks(t *testing.T, s Scanner, acks AckSource, available func(context.Context) bool, ctx context.Context, args string) (any, error) {
+	t.Helper()
+	r := toolregistry.NewLocalToolRegistry(nil, nil, nil, nil, nil, nil).Use(Module(s, acks, available))
 	return r.ExecuteTool(ctx, proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkScan, Arguments: args}})
 }
 
@@ -111,7 +117,7 @@ func TestTool_OnlyOperatorFixableRefusalsStopTheLoop(t *testing.T) {
 
 func TestTool_IsHiddenWhileUnavailable(t *testing.T) {
 	ready := false
-	r := toolregistry.NewLocalToolRegistry(nil, nil, nil, nil, nil, nil).Use(Module(&fakeScanner{}, func(context.Context) bool { return ready }))
+	r := toolregistry.NewLocalToolRegistry(nil, nil, nil, nil, nil, nil).Use(Module(&fakeScanner{}, nil, func(context.Context) bool { return ready }))
 	has := func() bool {
 		tools, _ := r.ListTools(context.Background())
 		for _, tl := range tools {
@@ -127,5 +133,41 @@ func TestTool_IsHiddenWhileUnavailable(t *testing.T) {
 	ready = true
 	if !has() {
 		t.Error("the tool must appear once ready")
+	}
+}
+
+type fixedAcks struct {
+	acks []models.ScanAck
+	err  error
+}
+
+func (f fixedAcks) ReadAcks(string) ([]models.ScanAck, error) { return f.acks, f.err }
+
+func TestTool_AcceptedFindingsNeverReachTheModelButStillReachTheReport(t *testing.T) {
+	ssh := netaudit.Finding{Device: "192.168.1.5", Port: 22, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: netaudit.SeverityInfo}
+	hosts := []netaudit.Host{{Addr: netip.MustParseAddr("192.168.1.5"), Up: true, Ports: []netaudit.Port{
+		{Number: 22, Proto: "tcp", State: "open", Service: "ssh"}, {Number: 3306, Proto: "tcp", State: "open", Service: "mysql"},
+	}}}
+	s := &fakeScanner{res: netaudit.Result{Engine: "nmap", Hosts: hosts, Findings: netaudit.FindingsOf(hosts)}}
+	ack, _ := netaudit.NewAck(ssh, "jump host", 30, time.Now())
+
+	ctx, collector := netaudit.WithCollector(models.WithWorkspaceID(context.Background(), "ws"))
+	out, err := callWithAcks(t, s, fixedAcks{acks: []models.ScanAck{ack}}, nil, ctx, `{"targets":["192.168.1.5"],"mode":"ports"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.(string)
+	if strings.Contains(text, `"number": 22`) || !strings.Contains(text, `"number": 3306`) || !strings.Contains(text, "1 finding(s) the operator has accepted are left out") {
+		t.Errorf("the model's view:\n%s", text)
+	}
+	merged, ok := collector.Merged()
+	if !ok || len(merged.Hosts[0].Ports) != 2 {
+		t.Errorf("the report is built from the full result, accepted ports included: %+v", merged)
+	}
+
+	// Acceptances that cannot be read hide nothing.
+	out, _ = callWithAcks(t, s, fixedAcks{err: errors.New("corrupt")}, nil, context.Background(), `{"targets":["192.168.1.5"],"mode":"ports"}`)
+	if !strings.Contains(out.(string), `"number": 22`) {
+		t.Error("unreadable acceptances must not hide findings")
 	}
 }

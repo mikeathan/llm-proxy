@@ -143,3 +143,71 @@ func TestRunReporter_AHostTheScanGaveUpOnKeepsItsEarlierFindingsAndIsFlagged(t *
 		t.Errorf("the abandoned host's earlier finding must be carried forward: %+v", store.data["ws/nightly"].Findings)
 	}
 }
+
+type memAcks struct {
+	acks     []models.ScanAck
+	readErr  error
+	writeErr error
+	writes   int
+}
+
+func (m *memAcks) ReadAcks(string) ([]models.ScanAck, error) { return m.acks, m.readErr }
+func (m *memAcks) WriteAcks(_ string, a []models.ScanAck) error {
+	m.writes++
+	if m.writeErr != nil {
+		return m.writeErr
+	}
+	m.acks = a
+	return nil
+}
+
+func TestRunReporter_AcceptedFindingsAreCountedNotListedAndStayInTheBaseline(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	ssh, telnet := finding("10.0.0.1", 22, "OpenSSH 9"), finding("10.0.0.1", 23, "")
+	ack, _ := NewAck(ssh, "jump host", 30, reportTime.Add(-time.Hour))
+	acks := &memAcks{acks: []models.ScanAck{ack}}
+	r := reporter(store, reportTime).WithAcks(acks)
+
+	got := r.Augment(scanned(ssh, telnet), "ws", "nightly", "")
+	if !strings.Contains(got, "1 finding(s) in this scan are accepted by the operator") {
+		t.Errorf("the accepted count is stated:\n%s", got)
+	}
+	if strings.Contains(got, "22/tcp") || !strings.Contains(got, "23/tcp") {
+		t.Errorf("the accepted port must not be listed, the other must:\n%s", got)
+	}
+	if len(store.data["ws/nightly"].Findings) != 2 {
+		t.Errorf("the baseline keeps every finding, accepted or not: %+v", store.data["ws/nightly"].Findings)
+	}
+	if acks.writes != 1 || !acks.acks[0].LastSeen.Equal(reportTime) {
+		t.Errorf("a seen acceptance is refreshed and saved: %+v (writes %d)", acks.acks, acks.writes)
+	}
+}
+
+func TestRunReporter_AChangedVersionOrAnExpiredAcceptanceComesBackIntoTheReport(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime)
+	r.Augment(scanned(finding("10.0.0.1", 22, "OpenSSH 8")), "ws", "nightly", "") // the baseline
+
+	ack, _ := NewAck(finding("10.0.0.1", 22, "OpenSSH 8"), "", 30, reportTime.Add(-time.Hour))
+	r = reporter(store, reportTime.Add(24*time.Hour)).WithAcks(&memAcks{acks: []models.ScanAck{ack}})
+	got := r.Augment(scanned(finding("10.0.0.1", 22, "OpenSSH 9")), "ws", "nightly", "")
+	if !strings.Contains(got, "### Changed") || strings.Contains(got, "accepted by the operator") {
+		t.Errorf("an upgrade after the acceptance is news again:\n%s", got)
+	}
+
+	expired, _ := NewAck(finding("10.0.0.1", 22, "OpenSSH 9"), "", 1, reportTime.Add(-72*time.Hour))
+	r = reporter(&memBaselines{data: map[string]models.ScanBaseline{}}, reportTime).WithAcks(&memAcks{acks: []models.ScanAck{expired}})
+	got = r.Augment(scanned(finding("10.0.0.1", 22, "OpenSSH 9")), "ws", "nightly", "")
+	if !strings.Contains(got, "22/tcp") || strings.Contains(got, "accepted by the operator") {
+		t.Errorf("an expired acceptance does not hide anything:\n%s", got)
+	}
+}
+
+func TestRunReporter_AcknowledgementTroubleIsStatedAndNeverHidesFindings(t *testing.T) {
+	f := finding("10.0.0.1", 22, "")
+	got := reporter(&memBaselines{data: map[string]models.ScanBaseline{}}, reportTime).WithAcks(&memAcks{readErr: errors.New("corrupt")}).
+		Augment(scanned(f), "ws", "nightly", "")
+	if !strings.Contains(got, "could not be read, so every finding is listed") || !strings.Contains(got, "22/tcp") {
+		t.Errorf("unreadable acceptances must not hide findings:\n%s", got)
+	}
+}

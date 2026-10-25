@@ -19,6 +19,7 @@ import (
 type netauditServices struct {
 	Scope     *netaudit.Scope
 	Readiness *netaudit.Readiness
+	Acks      *netaudit.Acks
 }
 
 // NetauditPreflight is the check the dispatcher runs before a scheduled audit touches the model; it is nil until the
@@ -56,9 +57,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Sandbox:       s.AppCtx.sandboxProv,
 		HostNetworkOn: func() bool { return s.AppCtx.HostSettings().Sandboxing.NetworkAllowed() },
 	})
-	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness}
+	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence())}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
-		registry.Use(scantool.Module(service, func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
+		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
 	}
 }

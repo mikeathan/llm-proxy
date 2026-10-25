@@ -29,21 +29,33 @@ type NetauditBaselines interface {
 	ReadBaseline(workspaceID, automation string) (models.ScanBaseline, error)
 }
 
-// NetauditHandlers serves the operator's network-audit settings and the latest findings.
+// NetauditAcks is what the operator can do with findings: accept one for a while, take the acceptance back, list them.
+type NetauditAcks interface {
+	List(workspaceID string) ([]models.ScanAck, error)
+	Accept(workspaceID, automation, key, note string, days int) (models.ScanAck, error)
+	Revoke(workspaceID, key string) (bool, error)
+}
+
+// NetauditHandlers serves the operator's network-audit settings, the latest findings and the accepted findings.
 type NetauditHandlers struct {
 	scope     NetauditScope
 	readiness NetauditReadiness
 	baselines NetauditBaselines
+	acks      NetauditAcks
 }
 
-func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines) *NetauditHandlers {
-	return &NetauditHandlers{scope: scope, readiness: readiness, baselines: baselines}
+func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines, acks NetauditAcks) *NetauditHandlers {
+	return &NetauditHandlers{scope: scope, readiness: readiness, baselines: baselines, acks: acks}
 }
 
-// findingView is a finding with whether the latest scan found it for the first time.
+// findingView is a finding with whether the latest scan found it for the first time, and whether the operator has
+// accepted it (and until when).
 type findingView struct {
 	models.ScanFinding
-	New bool `json:"new"`
+	New          bool   `json:"new"`
+	Accepted     bool   `json:"accepted"`
+	AcceptedNote string `json:"accepted_note,omitempty"`
+	AcceptedTill string `json:"accepted_until,omitempty"`
 }
 
 // findingsResponse is an automation's latest scan as a screen needs it.
@@ -75,8 +87,13 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 			isNew[k] = true
 		}
 		resp.Scanned, resp.ScannedAt, resp.Engine = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine
+		acks := h.activeAcks(workspaceID)
 		for _, f := range b.Findings {
-			resp.Findings = append(resp.Findings, findingView{ScanFinding: f, New: isNew[f.Key()]})
+			view := findingView{ScanFinding: f, New: isNew[f.Key()]}
+			if a, ok := acks[f.Key()]; ok && netaudit.StateFor(a, f, time.Now()) == netaudit.AckActive {
+				view.Accepted, view.AcceptedNote, view.AcceptedTill = true, a.Note, a.ExpiresAt.UTC().Format(time.RFC3339)
+			}
+			resp.Findings = append(resp.Findings, view)
 		}
 		if b.Resolved != nil {
 			resp.Resolved = b.Resolved
@@ -145,6 +162,90 @@ func (h *NetauditHandlers) PutScope(w http.ResponseWriter, r *http.Request) {
 		view = h.scope.View()
 	}
 	h.respondScope(w, view)
+}
+
+// activeAcks indexes the workspace's acceptances by finding key; a failure to read them lists every finding as not accepted.
+func (h *NetauditHandlers) activeAcks(workspaceID string) map[string]models.ScanAck {
+	out := map[string]models.ScanAck{}
+	if h.acks == nil {
+		return out
+	}
+	acks, err := h.acks.List(workspaceID)
+	if err != nil {
+		return out
+	}
+	for _, a := range acks {
+		out[a.Key] = a
+	}
+	return out
+}
+
+// ackRequest accepts one finding of an automation's latest scan.
+type ackRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	Automation  string `json:"automation"`
+	Key         string `json:"key"`
+	Note        string `json:"note"`
+	Days        int    `json:"days"`
+}
+
+// ListAcks returns the workspace's accepted findings, including expired ones until they are dropped.
+func (h *NetauditHandlers) ListAcks(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+	acks, err := h.acks.List(workspaceID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if acks == nil {
+		acks = []models.ScanAck{}
+	}
+	respondJSON(w, acks)
+}
+
+// AcceptFinding accepts a finding of the automation's latest scan for a number of days (90 when not given).
+func (h *NetauditHandlers) AcceptFinding(w http.ResponseWriter, r *http.Request) {
+	var req ackRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if req.WorkspaceID == "" || req.Automation == "" || req.Key == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id, automation and key are required")
+		return
+	}
+	ack, err := h.acks.Accept(req.WorkspaceID, req.Automation, req.Key, req.Note, req.Days)
+	switch {
+	case errors.Is(err, netaudit.ErrBadAck):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, netaudit.ErrNoSuchFinding):
+		writeJSONError(w, http.StatusNotFound, err.Error())
+	case err != nil:
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+	default:
+		respondJSON(w, ack)
+	}
+}
+
+// RevokeAck takes an acceptance back.
+func (h *NetauditHandlers) RevokeAck(w http.ResponseWriter, r *http.Request) {
+	workspaceID, key := r.URL.Query().Get("workspace_id"), r.URL.Query().Get("key")
+	if workspaceID == "" || key == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id and key are required")
+		return
+	}
+	ok, err := h.acks.Revoke(workspaceID, key)
+	switch {
+	case err != nil:
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+	case !ok:
+		writeJSONError(w, http.StatusNotFound, "no accepted finding with that key")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 func (h *NetauditHandlers) respondScope(w http.ResponseWriter, view netaudit.ScopeView) {

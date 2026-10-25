@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/netaudit"
@@ -28,12 +29,18 @@ type Scanner interface {
 	Scan(ctx context.Context, req netaudit.Request) (netaudit.Result, error)
 }
 
+// AckSource lists a workspace's accepted findings. *persistence.WorkspaceManager satisfies it.
+type AckSource interface {
+	ReadAcks(workspaceID string) ([]models.ScanAck, error)
+}
+
 // Module builds the tool module. available hides the tool while it returns false (see netaudit.Readiness.Blocking).
-func Module(scanner Scanner, available func(context.Context) bool) toolregistry.Module {
+// acks, when given, keeps the findings the operator accepted out of what the model is shown.
+func Module(scanner Scanner, acks AckSource, available func(context.Context) bool) toolregistry.Module {
 	return toolregistry.Module{
 		Handlers: map[string]toolregistry.ToolHandler{
 			models.ToolNetworkScan: toolregistry.Handle(func(ctx context.Context, args scanArgs) (any, error) {
-				return run(ctx, scanner, args)
+				return run(ctx, scanner, acks, args)
 			}),
 		},
 		Available: available,
@@ -70,7 +77,7 @@ type scanArgs struct {
 	Thorough bool `json:"thorough"`
 }
 
-func run(ctx context.Context, scanner Scanner, args scanArgs) (any, error) {
+func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (any, error) {
 	if len(args.Targets) == 0 {
 		return nil, fmt.Errorf("targets is required: pass at least one address, range or name")
 	}
@@ -84,7 +91,13 @@ func run(ctx context.Context, scanner Scanner, args scanArgs) (any, error) {
 	if collector := netaudit.CollectorFrom(ctx); collector != nil {
 		collector.Add(res)
 	}
-	return render(args, res)
+	shown, hidden := res, 0
+	if acks != nil {
+		if accepted, err := acks.ReadAcks(models.GetWorkspaceID(ctx)); err == nil {
+			shown, hidden = netaudit.HideAccepted(res, accepted, time.Now())
+		}
+	}
+	return render(args, shown, hidden)
 }
 
 // explain turns a refusal that only the operator can fix into ErrToolUnavailable, so the loop stops retrying; every
@@ -99,7 +112,7 @@ func explain(err error) error {
 }
 
 // render writes a short header, the result as JSON inside the fenced block, and the rule for reading the block.
-func render(args scanArgs, res netaudit.Result) (string, error) {
+func render(args scanArgs, res netaudit.Result, hidden int) (string, error) {
 	payload := struct {
 		Engine   string             `json:"engine"`
 		Hosts    []netaudit.Host    `json:"hosts"`
@@ -112,6 +125,9 @@ func render(args scanArgs, res netaudit.Result) (string, error) {
 	}
 	// A banner could contain the closing fence; break it so the block cannot be ended from the inside.
 	data := strings.ReplaceAll(string(body), dataClose, "</untrusted-scan-data (removed)>")
-	return fmt.Sprintf("network_scan %s finished with %s: %d host(s), %d finding(s).\n%s\n%s\n%s\n%s",
-		args.Mode, res.Engine, len(res.Hosts), len(res.Findings), dataOpen, data, dataClose, prompts.UntrustedScanDataNote), nil
+	header := fmt.Sprintf("network_scan %s finished with %s: %d host(s), %d finding(s).", args.Mode, res.Engine, len(res.Hosts), len(res.Findings))
+	if hidden > 0 {
+		header += fmt.Sprintf(" %d finding(s) the operator has accepted are left out.", hidden)
+	}
+	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s", header, dataOpen, data, dataClose, prompts.UntrustedScanDataNote), nil
 }

@@ -33,3 +33,14 @@ func TestFinding_KeyIgnoresWording(t *testing.T) {
 		t.Error("the key must identify what a finding is about, not how it is worded")
 	}
 }
+
+func TestFindingsOf_ALookedUpServiceNameIsLabelledAsAGuess(t *testing.T) {
+	hosts := []Host{{Addr: netip.MustParseAddr("10.0.0.1"), Up: true, Ports: []Port{
+		{Number: 22, Proto: "tcp", State: "open", Service: "ssh", Product: "OpenSSH"},
+		{Number: 8081, Proto: "tcp", State: "open", Service: "blackice-icecap", Guessed: true},
+	}}}
+	got := FindingsOf(hosts)
+	if got[0].Service != "ssh" || got[1].Service != "blackice-icecap (guess)" {
+		t.Errorf("services = %q, %q", got[0].Service, got[1].Service)
+	}
+}
