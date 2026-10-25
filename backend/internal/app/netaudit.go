@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/netip"
 
@@ -12,6 +13,7 @@ import (
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/platform/progexec"
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 )
 
 // netauditServices are the network-audit pieces the app layer shares: the HTTP handlers read the scope and the
@@ -30,11 +32,34 @@ func (s AppServices) NetauditPreflight() automation.Preflight {
 	}
 	readiness := s.netaudit.Readiness
 	return func(ctx context.Context, entry *automation.AutomationEntry) error {
-		code, message, refused := readiness.Preflight(ctx, entry.Profile)
-		if !refused {
-			return nil
+		if code, message, refused := readiness.Preflight(ctx, entry.Profile); refused {
+			return &automation.PreflightError{Code: code, Message: message}
 		}
-		return &automation.PreflightError{Code: code, Message: message}
+		return s.auditModelIsLocal(entry)
+	}
+}
+
+// ModelNotLocalCode is the pre-flight reason for an audit whose model runs in the cloud.
+const ModelNotLocalCode = "model_not_local"
+
+// auditModelIsLocal refuses a scheduled audit whose model is not local, before any model is woken: the auditor's findings
+// must not leave the machine, and a cloud run would stop on that rule after already contacting its provider. A model
+// that cannot be found here is left to fail in the run itself.
+func (s AppServices) auditModelIsLocal(entry *automation.AutomationEntry) error {
+	if entry.Profile != netaudit.AuditorProfileID {
+		return nil
+	}
+	name := entry.Model
+	if name == "" {
+		name, _ = s.SelectModels()
+	}
+	cfg, known := s.ModelConfig(name)
+	if !known || cfg.WorkloadClass == models.WorkloadLocal {
+		return nil
+	}
+	return &automation.PreflightError{
+		Code:    ModelNotLocalCode,
+		Message: fmt.Sprintf("The model %q runs in the cloud, and a network audit may only use a model on this machine. Choose a local model for the automation.", name),
 	}
 }
 

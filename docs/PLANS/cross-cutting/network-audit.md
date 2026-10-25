@@ -561,6 +561,16 @@ pre-flight, Observed, baseline and comparison worked): nmap's port-table names a
 "blackice-icecap" and described by the model as an IDS), and where a service cannot open a netlink socket (vertex's systemd unit)
 the interface list falls back to the default route's address on a /24, for both the scope suggestions and `get_network_info`.
 
+**Phase 5 finished (branch `netaudit-summary-delivery-and-local-preflight`):** the connector message for an audit is a one-line
+count summary written by code (`netaudit.SummaryOf`, `ExecuteResponse.Summary`, delivered instead of the report), and the
+pre-flight refuses a scheduled audit whose model is not local before waking it (`model_not_local`).
+
+**F-0 wireframes published for sign-off** (2026-10-25): https://claude.ai/artifact/BQPr4piiBVbmoVbDpgxHRp — six artboards: Settings →
+Network scan at desktop and phone width, the readiness banner in every state with the confirm dialog, the findings report at
+desktop and phone width (grouped by device, new/changed/accepted/resolved, the accept dialog and its bottom-sheet form, the
+"not scanned to completion" notice), and the nightly-audit setup checklist. Four decisions to confirm are on the canvas. Nothing
+in F-A (the UI build) starts before this is signed off.
+
 Not done from §4.1: a `validateCategory` case for the future `network_scan` (it now dispatches network tools by `Gate`, so a
 new row with `GateNetwork` gets the L1 checks); the `validateNetwork` scan/info messages still name the two tools.
 

@@ -72,8 +72,11 @@ type ExecuteResponse struct {
 	// Report is the agent's final report alone (no run header), the text a
 	// notify delivery is built from. Empty when the run produced none.
 	Report string
-	Error  error
-	State  *models.AgentState
+	// Summary, when set, is what a connector delivery sends instead of the report: counts the hook wrote itself, never
+	// text the agent or the network produced.
+	Summary string
+	Error   error
+	State   *models.AgentState
 }
 
 // LLMServiceProvider is the minimal interface needed by LLMTaskExecutor.
@@ -140,6 +143,9 @@ type LLMTaskExecutor struct {
 type ReportHook interface {
 	Begin(ctx context.Context) context.Context
 	Augment(ctx context.Context, workspaceID, automation, report string) string
+	// Summary is a short account of the run written by code from what the hook collected, safe to send through a
+	// connector in place of the report; "" when the run has none.
+	Summary(ctx context.Context) string
 }
 
 // SetReportHook installs the report hook; nil (the default) leaves reports as the agent wrote them.
@@ -472,7 +478,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		}
 	}
 
-	output = e.augmentReport(ctx, outcome.req, output)
+	output, outcome.resp.Summary = e.applyReportHook(ctx, outcome.req, output)
 
 	elapsed := time.Since(outcome.startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
@@ -521,12 +527,13 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 	return outcome.resp, nil
 }
 
-// augmentReport lets the report hook add what it collected during the run; without a hook the report is the agent's own.
-func (e *LLMTaskExecutor) augmentReport(ctx context.Context, req ExecuteRequest, report string) string {
+// applyReportHook lets the report hook add what it collected during the run and supply the summary a connector carries
+// instead; without a hook the report is the agent's own and there is no summary.
+func (e *LLMTaskExecutor) applyReportHook(ctx context.Context, req ExecuteRequest, report string) (string, string) {
 	if e.reports == nil {
-		return report
+		return report, ""
 	}
-	return e.reports.Augment(ctx, req.WorkspaceID, req.AutomationName, report)
+	return e.reports.Augment(ctx, req.WorkspaceID, req.AutomationName, report), e.reports.Summary(ctx)
 }
 
 // reportWriter saves a run's final report in the workspace and returns the path it used.

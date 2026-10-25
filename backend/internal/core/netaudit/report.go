@@ -107,3 +107,29 @@ func cell(s string) string {
 	r := strings.NewReplacer("|", "/", "`", "'", "<", "(", ">", ")", "\r", " ", "\n", " ", "\t", " ")
 	return strings.TrimSpace(r.Replace(s))
 }
+
+// SummaryOf is the one-line account of a scan a connector message carries: counts only. No address, port, service or
+// version from the network appears in it, so nothing a device wrote can reach a chat channel through it.
+func SummaryOf(o Observed, name string) string {
+	up := 0
+	for _, h := range o.Result.Hosts {
+		if h.Up {
+			up++
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Network audit %s: %d of %d addresses up", name, up, len(o.Result.Hosts))
+	if o.Previous.IsZero() {
+		fmt.Fprintf(&b, "; first scan, %d open port(s) recorded as the baseline", len(o.Result.Findings))
+	} else {
+		fmt.Fprintf(&b, "; %d new, %d changed, %d resolved", len(o.Delta.New), len(o.Delta.Changed), len(o.Delta.Resolved))
+	}
+	if o.Accepted > 0 {
+		fmt.Fprintf(&b, "; %d accepted", o.Accepted)
+	}
+	if n := len(unscannedAddrs(o.Result.Hosts)); n > 0 {
+		fmt.Fprintf(&b, "; %d not scanned to completion", n)
+	}
+	b.WriteString(". Open the app for the details.")
+	return b.String()
+}
