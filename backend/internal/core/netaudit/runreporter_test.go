@@ -211,3 +211,25 @@ func TestRunReporter_AcknowledgementTroubleIsStatedAndNeverHidesFindings(t *test
 		t.Errorf("unreadable acceptances must not hide findings:\n%s", got)
 	}
 }
+
+func TestRunReporter_TheSummaryIsSetAndHonoursAcceptedFindings(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	ssh, telnet := finding("10.0.0.1", 22, ""), finding("10.0.0.1", 23, "")
+	ack, _ := NewAck(ssh, "", 30, reportTime.Add(-time.Hour))
+	r := reporter(store, reportTime).WithAcks(&memAcks{acks: []models.ScanAck{ack}})
+
+	ctx := r.Begin(context.Background())
+	if r.Summary(ctx) != "" {
+		t.Error("no summary before a scan")
+	}
+	collector := CollectorFrom(ctx)
+	collector.Add(Result{Engine: "nmap", Hosts: hostsWith(ssh, telnet), Findings: []Finding{ssh, telnet}})
+	r.Augment(ctx, "ws", "nightly", "model text")
+	got := r.Summary(ctx)
+	if !strings.Contains(got, "1 accepted") || !strings.Contains(got, "first scan, 2 open port(s)") {
+		t.Errorf("summary = %q", got)
+	}
+	if r.Summary(context.Background()) != "" {
+		t.Error("a context without a collector has no summary")
+	}
+}

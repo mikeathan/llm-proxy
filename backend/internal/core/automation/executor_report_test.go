@@ -262,6 +262,8 @@ type fakeHook struct {
 
 type hookKey struct{}
 
+func (f *fakeHook) Summary(context.Context) string { return "SUMMARY: 1 new" }
+
 func (f *fakeHook) Begin(ctx context.Context) context.Context {
 	f.began = true
 	return context.WithValue(ctx, hookKey{}, "collecting")
@@ -287,6 +289,9 @@ func TestHandleAgentSuccess_TheReportHookShapesEveryCopyOfTheReport(t *testing.T
 	resp, err := e.handleAgentSuccess(ctx, outcome, "the model's words", nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if resp.Summary != "SUMMARY: 1 new" {
+		t.Errorf("the hook's summary must reach the response, got %q", resp.Summary)
 	}
 	if hook.workspace != "ws1" || hook.automation != "daily-news" || hook.given != "the model's words" {
 		t.Errorf("hook saw %+v", hook)

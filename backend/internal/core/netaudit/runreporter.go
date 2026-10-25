@@ -34,6 +34,14 @@ func (r *RunReporter) WithAcks(acks AckStore) *RunReporter {
 	return r
 }
 
+// Summary is the connector-safe account of the run's scan (counts only), or "" when the run made no scan.
+func (r *RunReporter) Summary(ctx context.Context) string {
+	if collector := CollectorFrom(ctx); collector != nil {
+		return collector.Summary()
+	}
+	return ""
+}
+
 // Begin makes the run's context collect scan results. It is cheap, so every automation run gets it.
 func (r *RunReporter) Begin(ctx context.Context) context.Context {
 	ctx, _ = WithCollector(ctx)
@@ -58,7 +66,9 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	scanned := scannedDevices(result.Hosts)
 	delta := Diff(restrictTo(prev.Findings, scanned), result.Findings)
 	shown, accepted, ackNote := r.applyAcks(workspaceID, result, delta, at)
-	observed := RenderObserved(Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted})
+	view := Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted}
+	observed := RenderObserved(view)
+	collector.SetSummary(SummaryOf(Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: result, Delta: shown.delta, Accepted: accepted}, automation))
 	if readErr != nil {
 		observed += "\n\n> Note: the previous scan result could not be read, so no comparison was made."
 	}

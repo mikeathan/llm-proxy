@@ -119,3 +119,31 @@ func TestReasonNoticeLimiter(t *testing.T) {
 		t.Error("reset must not touch another automation")
 	}
 }
+
+// A run that carries a code-written summary delivers that, not its report: the report holds text from the network and
+// the model, and a connector must carry neither.
+func TestDeliverReport_ASummaryReplacesTheReport(t *testing.T) {
+	exec := &summaryExecutor{scriptedExecutor: scriptedExecutor{report: "FULL REPORT with 192.168.1.5 port 22 OpenSSH"}, summary: "Network audit nightly: 1 new."}
+	n := &fakeNotifier{}
+	d, entry := newNotifyDispatcher(t, exec, n, &models.NotifyConfig{Connector: "tg"})
+
+	if err := d.executeAutomation(context.Background(), entry, ""); err != nil {
+		t.Fatal(err)
+	}
+	if len(n.sent) != 1 || n.sent[0] != "Network audit nightly: 1 new." {
+		t.Errorf("delivered %q, want only the summary", n.sent)
+	}
+}
+
+type summaryExecutor struct {
+	scriptedExecutor
+	summary string
+}
+
+func (e *summaryExecutor) Execute(ctx context.Context, req ExecuteRequest) (*ExecuteResponse, error) {
+	resp, err := e.scriptedExecutor.Execute(ctx, req)
+	if resp != nil {
+		resp.Summary = e.summary
+	}
+	return resp, err
+}

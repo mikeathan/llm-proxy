@@ -193,6 +193,13 @@ func (d *Dispatcher) deliverReport(ctx context.Context, entry *AutomationEntry, 
 	if resp.Report == "" || isQuietHeartbeat(resp.Report) {
 		return deliverySkipped, nil
 	}
+	if resp.Summary != "" {
+		// A code-written summary replaces the report: the report holds text from the network and the model.
+		if err := d.send(ctx, entry, resp.Summary); err != nil {
+			return deliveryFailed, err
+		}
+		return deliverySent, nil
+	}
 	now := time.Now()
 	dg := buildDigest(resp.Report, ledger, *entry.Notify, now)
 	if dg.Message == "" {

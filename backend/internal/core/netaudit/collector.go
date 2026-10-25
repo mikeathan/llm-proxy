@@ -13,6 +13,21 @@ type collectorKey struct{}
 type Collector struct {
 	mu      sync.Mutex
 	results []Result
+	summary string
+}
+
+// SetSummary records the short, code-written summary of the run (see SummaryOf) for delivery through a connector.
+func (c *Collector) SetSummary(s string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.summary = s
+}
+
+// Summary returns what SetSummary recorded; empty when the run made no scan.
+func (c *Collector) Summary() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.summary
 }
 
 // WithCollector returns a context that carries a new Collector, and the Collector.

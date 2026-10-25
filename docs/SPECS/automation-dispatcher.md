@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.21"
+version: "1.22"
 status: stable
 last_updated: 2026-10-25
 constitution_references: []
@@ -13,6 +13,13 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.22 (2026-10-25)** — §II.8: connector delivery of an audit is a **code-written summary** and the audit pre-flight also
+  refuses a **model that is not local**. A run's report hook can supply `ExecuteResponse.Summary`; when it is set, notify delivery
+  sends that instead of the report (no digest, no dedup): for a network audit it is one line of counts (addresses up, new,
+  changed, resolved, accepted, not scanned to completion) with no address, port, service or version, because the report holds
+  text written by devices on the network and by the model and a chat channel must carry neither. The pre-flight refuses a
+  scheduled audit whose model is not local (`model_not_local`) before any model is woken; the run itself still stops on the
+  same rule (SPEC-012 `local_only`) if it gets that far.
 - **1.21 (2026-10-25)** — §II.8: **accepted findings.** The operator can accept a finding of an automation's latest scan for
   1–365 days (90 by default) with a short note (`POST /admin/api/netaudit/acks`; `GET`/`DELETE` list and take back). An
   acceptance names the finding by its key and the version text that was accepted, lives in the workspace's metadata folder
@@ -330,6 +337,7 @@ scan (SPEC-006 §II.7.6) and gives the automation a local-network grant.
   scanned, and what is new, resolved or changed. An address the run did not scan is not reported resolved, and its earlier
   findings are carried forward. Values from the network are escaped so they cannot break the table. The model's report
   follows under "Assessment (written by the model)".
+- **Delivery.** A connector message for an audit is the summary above, never the findings.
 - **Accepted findings.** See the 1.21 changelog entry: accepted findings are hidden from the model and counted, not listed, in
   the Observed section, and come back on expiry or when their version changes.
 - **Where the facts live.** `GET /admin/api/netaudit/findings?workspace_id=&automation=` returns the latest scan's findings,
