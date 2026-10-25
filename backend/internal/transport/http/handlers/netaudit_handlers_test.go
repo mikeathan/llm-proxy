@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/models"
@@ -33,7 +34,7 @@ func (noResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, er
 
 func newNetauditTestHandlers() (*NetauditHandlers, *scopeStore) {
 	store := &scopeStore{}
-	return NewNetauditHandlers(netaudit.NewScope(store, noResolver{}, nil), stubReadiness{}), store
+	return NewNetauditHandlers(netaudit.NewScope(store, noResolver{}, nil), stubReadiness{}, nil), store
 }
 
 func putScope(h *NetauditHandlers, body string) *httptest.ResponseRecorder {
@@ -98,7 +99,7 @@ func (s stubReadiness) Check(context.Context) []models.Requirement { return s.re
 
 func TestNetauditHandlers_GetReadiness(t *testing.T) {
 	get := func(r NetauditReadiness) map[string]any {
-		h := NewNetauditHandlers(netaudit.NewScope(&scopeStore{}, noResolver{}, nil), r)
+		h := NewNetauditHandlers(netaudit.NewScope(&scopeStore{}, noResolver{}, nil), r, nil)
 		rec := httptest.NewRecorder()
 		h.GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/readiness", nil))
 		var out map[string]any
@@ -125,7 +126,7 @@ func (failingScope) Suggestions() ([]netaudit.Suggestion, error) {
 
 func TestNetauditHandlers_AFailureToListNetworksIsReportedNotHidden(t *testing.T) {
 	store := &scopeStore{cfg: models.NetauditConfig{ScanRanges: []string{"10.0.0.0/24"}}}
-	h := NewNetauditHandlers(failingScope{netaudit.NewScope(store, noResolver{}, nil)}, stubReadiness{})
+	h := NewNetauditHandlers(failingScope{netaudit.NewScope(store, noResolver{}, nil)}, stubReadiness{}, nil)
 	rec := httptest.NewRecorder()
 	h.GetScope(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/scope", nil))
 	var got struct {
@@ -138,5 +139,50 @@ func TestNetauditHandlers_AFailureToListNetworksIsReportedNotHidden(t *testing.T
 	}
 	if len(got.Ranges) != 1 || got.Suggestions == nil || got.SuggestionsError == "" {
 		t.Errorf("the saved scope must still be returned, with the reason the list is empty: %s", rec.Body.String())
+	}
+}
+
+type fixedBaselines struct {
+	b   models.ScanBaseline
+	err error
+}
+
+func (f fixedBaselines) ReadBaseline(string, string) (models.ScanBaseline, error) { return f.b, f.err }
+
+func getFindings(h *NetauditHandlers, query string) *httptest.ResponseRecorder {
+	rec := httptest.NewRecorder()
+	h.GetFindings(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/findings"+query, nil))
+	return rec
+}
+
+func TestNetauditHandlers_GetFindings(t *testing.T) {
+	ssh := models.ScanFinding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: "open_port", Severity: "info"}
+	telnet := models.ScanFinding{Device: "10.0.0.2", Port: 23, Proto: "tcp", Check: "open_port", Severity: "info"}
+	gone := models.ScanFinding{Device: "10.0.0.3", Port: 445, Proto: "tcp", Check: "open_port", Severity: "info"}
+	baseline := models.ScanBaseline{
+		ScannedAt: time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC), Engine: "nmap",
+		Findings: []models.ScanFinding{ssh, telnet}, NewKeys: []string{telnet.Key()}, Resolved: []models.ScanFinding{gone},
+	}
+	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline})
+
+	var got findingsResponse
+	rec := getFindings(h, "?workspace_id=ws&automation=nightly")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("code %d: %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	if !got.Scanned || got.Engine != "nmap" || len(got.Findings) != 2 || got.Findings[0].New || !got.Findings[1].New || len(got.Resolved) != 1 {
+		t.Errorf("findings = %+v", got)
+	}
+
+	var none findingsResponse
+	rec = getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{}), "?workspace_id=ws&automation=nightly")
+	if err := json.Unmarshal(rec.Body.Bytes(), &none); err != nil || none.Scanned || none.Findings == nil || none.Resolved == nil {
+		t.Errorf("an automation that has not scanned: %s", rec.Body.String())
+	}
+	if rec := getFindings(h, "?workspace_id=ws"); rec.Code != http.StatusBadRequest {
+		t.Errorf("a missing automation = %d", rec.Code)
+	}
+	if rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{err: context.Canceled}), "?workspace_id=ws&automation=a"); rec.Code != http.StatusInternalServerError {
+		t.Errorf("a read failure = %d", rec.Code)
 	}
 }

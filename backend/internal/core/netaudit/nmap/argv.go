@@ -11,7 +11,7 @@ import (
 )
 
 // profile is how hard a scan pushes. Quick uses timing suited to a local network and the common ports; thorough is
-// gentler and wider (the top 100 ports), for an audit that must not miss a quiet device.
+// gentler and wider (the top 300 ports; measured at about a minute per host that drops probes, where 1000 ports took over three and hit the per-host limit), for an audit that must not miss a quiet device.
 type profile struct {
 	timing      string
 	hostTimeout string
@@ -21,7 +21,7 @@ type profile struct {
 
 var (
 	quick    = profile{timing: "-T4", hostTimeout: "60s", maxRate: "500"}
-	thorough = profile{timing: "-T3", hostTimeout: "120s", maxRate: "100", topPorts: "100"}
+	thorough = profile{timing: "-T3", hostTimeout: "180s", maxRate: "300", topPorts: "300"}
 )
 
 const (

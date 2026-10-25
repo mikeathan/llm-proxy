@@ -915,12 +915,17 @@ func (a *Agent) executeTool(ctx context.Context, tc proxy.ToolCall) (any, error)
 
 // toolCtxWithTimeout wraps ctx with the per-tool timeout derived from
 // the tool's category (models.CategoryOf) and AgentConfig. Returns ctx unchanged when the timeout is 0
-// (disabled). Filesystem tools use FilesystemToolTimeout; all others use
-// ToolTimeout.
+// (disabled). Filesystem tools use FilesystemToolTimeout; the delegate and scan tools have bounds of their own; all
+// others use ToolTimeout.
 func (a *Agent) toolCtxWithTimeout(ctx context.Context, toolName string) (context.Context, context.CancelFunc) {
 	if toolName == models.ToolDelegate {
 		// A delegated task is a whole child run, minutes on a slow cloud model; its own step limit, stuck detection and
 		// run timeout bound it, and the parent's run timeout bounds the call.
+		return ctx, func() {}
+	}
+	if toolName == models.ToolNetworkScan {
+		// A thorough scan of a /24 takes minutes, far past the default tool timeout. The scan engine has its own bound
+		// (a timeout that kills the whole process group) and the run's timeout bounds the call.
 		return ctx, func() {}
 	}
 	timeout := a.config.ToolTimeout

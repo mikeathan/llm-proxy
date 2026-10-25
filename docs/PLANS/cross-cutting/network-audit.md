@@ -533,22 +533,22 @@ an unused helper would be dead code (Constitution IV.4).
   The templates, frontend step label, SPEC-006 (§II.7.6) and the agent-loop skill follow. `GET /admin/api/netaudit/readiness`.
 - Checked live on macOS against this machine's own LAN address: real nmap through `progexec` in all three modes, the fallback
   with nmap marked unavailable, and loopback / public / documentation addresses refused.
-- **Speed, measured on a real /24 (192.168.50.0/24, 8 live hosts, 24 ports):** the first cut was slow — nmap `ports` took 136 s
-  because it scanned every dead address (`-Pn`), and with host discovery it took 23 s but found 6 hosts, not 8; the Go prober took
-  45 s. Retries on silent hosts dominate nmap's time (max-retries 0 brought discovery to 7 s but lost hosts), so liveness is now
-  the Go sweep's job. **Quick (default):** the limited engine sweeps the targets on six shared liveness ports (22, 80, 443, 445,
-  5000, 8080; a refusal counts as alive; 256 workers, 700 ms), then the engine looks at only the live hosts (`-Pn`, `-T4`,
-  common ports). Through the real service: discover 4.2 s, ports 8.9 s with nmap (same 8 up / 17 open as the Go prober),
-  services 25.5 s. **Thorough (`thorough: true`, for audits):** no sweep, every address, `-Pn`, `-T3`, `--max-rate 100`,
-  top 100 ports — unchanged from the first cut, and the slow one by design.
-- **Ubuntu verified after deploy (2026-10-25), two bugs found and fixed in the follow-up PR:** (1) the new `netaudit` category was
-  listed by no built-in profile, so a chat was never offered `network_scan` (the model said it had no such tool) — `general` and
-  `operator` now list it, and a test requires every built-in tool category to be listed by some built-in profile; (2) nmap refused
-  to start in the Landlock jail on vertex: `Could not assign /dev/null to stdout for writing: Permission denied` — `/dev/null` was
-  granted read-only; it is now read-write (it stores nothing). Reproduced in an Ubuntu 24.04 container (kernel 6.8, Landlock
-  ABI v4, nmap 7.95) with the fix removed and restored; with it, real nmap runs under the jail in discover, ports and services
-  (`TestEngine_RunsRealNmapInsideTheFileJail`, skipped where nmap or a jail is missing). vertex's network suggestions came back
-  empty; the API now says why (`suggestions_error`) so it can be read after the next deploy.
+- **Speed, measured on a real /24 (192.168.50.0/24, 7–10 live hosts):** the first cut was slow — nmap `ports` took 136 s because it
+  scanned every dead address (`-Pn`), nmap with its own host discovery took 23 s but found 6 hosts, not 8, and the Go prober took
+  45 s. Retries on silent hosts dominate nmap's time (turning them off lost hosts). So **every scan sweeps first** with the Go
+  prober (256 workers, 700 ms; a refusal counts as alive) and the engine looks at only the live hosts (`-Pn`). **Quick (default):**
+  six liveness ports, then nmap `-T4` on the 24 common ports — discover 4 s, ports 11 s, services 29 s, 17 open ports.
+  **Thorough (`thorough: true`, for audits):** a wider sweep (the quick ports plus every default port), then nmap `-T3`,
+  `--max-rate 300`, the top **300** ports, 180 s per host — 2 m 04 s to 2 m 22 s, 10 hosts and 34–35 open ports (quick: 8 and 17).
+  Top 1000 was tried and rejected: a host that drops probes takes about 205 s for 1000 ports against 62 s for 300, so the per-host
+  limit abandoned every host. The first thorough design (no sweep, `-Pn` on all 254 addresses) took over 10 minutes, then 8
+  minutes with a partial result, and reported every address as up.
+- **Honesty about what a scan did not finish:** a scan that hits the engine's 8-minute limit returns the hosts it finished with a
+  warning (`progexec` returns the partial stdout with the timeout; `ParsePartialXML`). A live host nmap abandoned (its per-host
+  limit) is flagged `Unscanned` — "ports unknown", never "none open" — named in the report's Observed section, left out of the
+  comparison, and its earlier findings are carried forward rather than called resolved. Devices rate-limit scanners: after
+  minutes of heavy scanning one run saw 4 open ports and the next 0 where the same command later found 18, so a lower count
+  than the last scan is a reason to look, not proof.
 - Not done: ~~the Ubuntu run (Landlock grants for nmap),~~ persisted `allowed_tools` entries
   that still name `scan_local_network` (they now match nothing).
 

@@ -134,7 +134,7 @@ type Runner struct {
 	AllowUnconfined func() bool
 }
 
-// Run starts the program and returns its stdout. It refuses before starting anything when the invocation is
+// Run starts the program and returns its stdout. On a timeout it returns ErrTimedOut together with whatever stdout there was. It refuses before starting anything when the invocation is
 // incomplete or the host cannot confine the program and the operator has not allowed that. The program is killed
 // with its whole process group when ctx ends or the timeout passes.
 func (r Runner) Run(ctx context.Context, p Program, inv Invocation) (Output, error) {
@@ -165,7 +165,9 @@ func (r Runner) Run(ctx context.Context, p Program, inv Invocation) (Output, err
 	}
 	if err := cmd.Run(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return Output{}, fmt.Errorf("%s: %w after %s", p.Name, ErrTimedOut, inv.Timeout)
+			// What the program printed before it was killed is returned with the error: a long scan that finished some
+			// hosts has results worth keeping.
+			return Output{Stdout: stdout.Bytes(), Truncated: stdout.truncated}, fmt.Errorf("%s: %w after %s", p.Name, ErrTimedOut, inv.Timeout)
 		}
 		if ctx.Err() != nil {
 			return Output{}, ctx.Err()

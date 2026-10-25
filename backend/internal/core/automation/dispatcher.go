@@ -35,6 +35,10 @@ type Dispatcher struct {
 	notifier Notifier
 	// failureNotices rate-limits failure notices per automation.
 	failureNotices failureNoticeLimiter
+	// preflight, when set, checks a run can do its job before the model is touched (WithPreflight).
+	preflight Preflight
+	// preflightNotices tells the operator once per reason that a run could not start.
+	preflightNotices reasonNoticeLimiter
 
 	mu      sync.RWMutex
 	jobs    map[string]cron.EntryID // automationID -> cron.EntryID

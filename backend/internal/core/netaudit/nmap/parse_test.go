@@ -79,3 +79,26 @@ func TestParseXML_IgnoresExternalEntities(t *testing.T) {
 		t.Fatal("an external entity was resolved")
 	}
 }
+
+func TestParsePartialXML_KeepsTheHostsThatFinishedBeforeTheCut(t *testing.T) {
+	full, err := os.ReadFile("testdata/services_localhost.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	twoHosts := strings.Replace(string(full), "</nmaprun>", "", 1)
+	twoHosts = strings.Replace(twoHosts, "<runstats>", `<host><status state="up"/><address addr="127.0.0.2" addrtype="ipv4"/></host><host><status state="up"/><address addr="127.0.0.3" addrtype="ipv4"/><ports><port protocol="tcp" portid="22"><state state="open"/>`, 1)
+	// The output stops in the middle of the third host.
+	hosts := ParsePartialXML([]byte(twoHosts))
+	if len(hosts) != 2 || hosts[0].Addr.String() != "127.0.0.1" || hosts[1].Addr.String() != "127.0.0.2" {
+		t.Errorf("hosts = %+v (only complete hosts before the cut)", hosts)
+	}
+	if got := ParsePartialXML([]byte("<nmaprun><host><status")); got != nil {
+		t.Errorf("no complete host gives none, got %+v", got)
+	}
+	if got := ParsePartialXML(nil); got != nil {
+		t.Errorf("empty output gives none, got %+v", got)
+	}
+	if got := ParsePartialXML(full); len(got) != 1 {
+		t.Errorf("complete output still parses: %+v", got)
+	}
+}

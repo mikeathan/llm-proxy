@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/netip"
 
+	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/portprobe"
@@ -18,6 +19,22 @@ import (
 type netauditServices struct {
 	Scope     *netaudit.Scope
 	Readiness *netaudit.Readiness
+}
+
+// NetauditPreflight is the check the dispatcher runs before a scheduled audit touches the model; it is nil until the
+// network-audit services are wired.
+func (s AppServices) NetauditPreflight() automation.Preflight {
+	if s.netaudit == nil {
+		return nil
+	}
+	readiness := s.netaudit.Readiness
+	return func(ctx context.Context, entry *automation.AutomationEntry) error {
+		code, message, refused := readiness.Preflight(ctx, entry.Profile)
+		if !refused {
+			return nil
+		}
+		return &automation.PreflightError{Code: code, Message: message}
+	}
 }
 
 // wireNetaudit builds the network-audit services and registers the network_scan tool. It is the one place they are

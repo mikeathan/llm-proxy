@@ -32,3 +32,22 @@ func TestExpandPorts(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestLivenessPorts(t *testing.T) {
+	if !slices.Equal(LivenessPorts(false), DiscoverPorts) {
+		t.Error("a quick sweep uses the short list")
+	}
+	wide := LivenessPorts(true)
+	for _, p := range append(slices.Clone(DiscoverPorts), DefaultPorts...) {
+		if !slices.Contains(wide, p) {
+			t.Errorf("port %d missing from the thorough sweep", p)
+		}
+	}
+	seen := map[int]bool{}
+	for _, p := range wide {
+		if seen[p] {
+			t.Errorf("port %d is listed twice", p)
+		}
+		seen[p] = true
+	}
+}

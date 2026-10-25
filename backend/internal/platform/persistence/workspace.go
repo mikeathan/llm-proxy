@@ -493,7 +493,7 @@ func (m *WorkspaceManager) DeleteAutomationRuns(workspaceID, automation string) 
 	}
 
 	m.pruneEmptyParents(modelDirs...)
-	return errors.Join(m.DeleteSeen(workspaceID, automation), m.DeleteJournal(workspaceID, automation))
+	return errors.Join(m.DeleteSeen(workspaceID, automation), m.DeleteJournal(workspaceID, automation), m.DeleteBaseline(workspaceID, automation))
 }
 
 // DeleteRunByID removes a single automation run by its history ID. It looks up

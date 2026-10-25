@@ -131,6 +131,20 @@ func (e *DefaultTaskExecutor) ModelTimeout(modelName string) time.Duration { ret
 type LLMTaskExecutor struct {
 	svc       LLMServiceProvider
 	shellPool shell.ShellProvider
+	reports   ReportHook
+}
+
+// ReportHook lets a feature add facts it collected during a run to the run's final report, without the executor
+// knowing what the feature is. Begin returns the context the run executes in (so the feature can collect from tools);
+// Augment returns the report to keep, given the one the agent wrote.
+type ReportHook interface {
+	Begin(ctx context.Context) context.Context
+	Augment(ctx context.Context, workspaceID, automation, report string) string
+}
+
+// SetReportHook installs the report hook; nil (the default) leaves reports as the agent wrote them.
+func (e *LLMTaskExecutor) SetReportHook(h ReportHook) {
+	e.reports = h
 }
 
 func NewLLMTaskExecutor(svc LLMServiceProvider) TaskExecutor {
@@ -187,6 +201,9 @@ func (e *LLMTaskExecutor) Execute(ctx context.Context, req ExecuteRequest) (*Exe
 	procLog.Info("Automation execution started", "workspace", req.WorkspaceID, "automation", req.AutomationName)
 
 	execCtx := usage.WithTracker(runContextFor(ctx, req, models.NewRunID()))
+	if e.reports != nil {
+		execCtx = e.reports.Begin(execCtx)
+	}
 
 	rec := e.recording(execCtx, client, req, procLog)
 	runDir, eventSink := rec.Dir, rec.Events
@@ -455,6 +472,8 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		}
 	}
 
+	output = e.augmentReport(ctx, outcome.req, output)
+
 	elapsed := time.Since(outcome.startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
 	outcome.resp.Output = fullOutput
@@ -500,6 +519,14 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 
 	e.recordRun(outcome, runResult, runError, time.Since(outcome.startTime))
 	return outcome.resp, nil
+}
+
+// augmentReport lets the report hook add what it collected during the run; without a hook the report is the agent's own.
+func (e *LLMTaskExecutor) augmentReport(ctx context.Context, req ExecuteRequest, report string) string {
+	if e.reports == nil {
+		return report
+	}
+	return e.reports.Augment(ctx, req.WorkspaceID, req.AutomationName, report)
 }
 
 // reportWriter saves a run's final report in the workspace and returns the path it used.

@@ -2,6 +2,7 @@ package nmap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,9 +16,10 @@ import (
 // EngineName labels results produced by this engine.
 const EngineName = "nmap"
 
-// Run limits: a scan of a /24 under the host timeout and rate limits fits well inside these.
+// Run limits. The scan must end before an automation's own time cap (10 minutes by default) so the run can still write
+// its report; a scan that runs out of time returns the hosts it finished.
 const (
-	scanTimeout   = 10 * time.Minute
+	scanTimeout   = 8 * time.Minute
 	maxOutput     = 4 << 20
 	runDirPattern = "netaudit-nmap-*"
 	nmapDataFile  = "nmap-services"
@@ -104,6 +106,13 @@ func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.R
 		Timeout:   scanTimeout,
 		MaxOutput: maxOutput,
 	})
+	if errors.Is(err, progexec.ErrTimedOut) {
+		return netaudit.Result{
+			Hosts: ParsePartialXML(out.Stdout),
+			Warnings: []string{fmt.Sprintf("the scan hit its %s time limit and was stopped: the hosts listed finished before then, "+
+				"so more may exist. Scan fewer addresses at a time or use a quick scan.", scanTimeout)},
+		}, nil
+	}
 	if err != nil {
 		return netaudit.Result{}, err
 	}

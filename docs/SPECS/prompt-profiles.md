@@ -1,9 +1,9 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.6"
+version: "1.7"
 status: draft
-last_updated: 2026-10-23
+last_updated: 2026-10-25
 constitution_references: [II.13, II.3]
 related_specs: [SPEC-001, SPEC-004, SPEC-007, SPEC-011]
 supersedes:
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **1.7 (2026-10-25)** — `local_only: true` (a run whose model client is not local stops before any prompt is sent,
+  `models.ErrLocalOnly`; enforced in `Agent.Execute`), the `netaudit` tool category (`network_scan`; listed by the
+  `general` and `operator` built-ins), and the built-in **Security auditor** (`security-auditor`: only `netaudit`, memory
+  off, nothing saved, local only) that a scheduled network audit runs under (SPEC-007 §II.8). A test requires every tool
+  category to be listed by some built-in profile, since a category no built-in lists can never be offered in a chat. Eight
+  built-ins now ship.
 - **1.6 (2026-10-23)** — **Turn commands** and the **one-message agent**.
   - `/research <question>` asks the Research agent, with helpers when they can run; `/agent <agent> <question>` asks any
     agent in the catalog (the same ids the chat's picker and `profile` accept), with helpers when it names some and

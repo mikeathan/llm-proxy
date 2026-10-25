@@ -29,9 +29,9 @@ func writeUser(t *testing.T, dir, id, content string) {
 }
 
 // shippedBuiltins is how many profiles are built in.
-const shippedBuiltins = 7
+const shippedBuiltins = 8
 
-func TestBuiltinsAreTheShippedSeven(t *testing.T) {
+func TestBuiltinsAreTheShipped(t *testing.T) {
 	c, _ := newCatalog(t)
 	var ids []string
 	for _, p := range c.List() {
@@ -40,7 +40,7 @@ func TestBuiltinsAreTheShippedSeven(t *testing.T) {
 			t.Errorf("built-in %s is incomplete: %+v", p.ID, p)
 		}
 	}
-	if got, want := strings.Join(ids, ","), "builder,general,operator,research,task-runner,watcher,web-researcher"; got != want {
+	if got, want := strings.Join(ids, ","), "builder,general,operator,research,security-auditor,task-runner,watcher,web-researcher"; got != want {
 		t.Errorf("built-ins = %s, want %s", got, want)
 	}
 }
@@ -221,5 +221,30 @@ func TestNetworkScanIsOfferedByTheProfilesThatWorkOnTheNetworkOnly(t *testing.T)
 		if offered(id) {
 			t.Errorf("%s must not offer network_scan", id)
 		}
+	}
+}
+
+// The security auditor is the profile a nightly network audit runs under: it sees only the scan tool, saves nothing and
+// never runs on a cloud model, whatever the file says elsewhere.
+func TestSecurityAuditorIsLockedDown(t *testing.T) {
+	c, _ := newCatalog(t)
+	p, ok := c.Get("security-auditor")
+	if !ok {
+		t.Fatal("no built-in security-auditor profile")
+	}
+	if !p.LocalOnly || p.MemorySave != SaveOff || p.Memory != models.MemoryModeOff || len(p.Delegates) != 0 || p.Reminders {
+		t.Errorf("security-auditor = %+v", p)
+	}
+	if !slices.Equal(p.Tools, []string{models.CategoryNetaudit}) {
+		t.Errorf("tools = %v, want only %s", p.Tools, models.CategoryNetaudit)
+	}
+	hidden := p.ExcludedTools()
+	for _, tool := range []string{models.ToolTerminalExecute, models.ToolFileWrite, models.ToolNetworkFetch, models.ToolInternetSearch, models.ToolNotifyUser, models.ToolMemoryUpdate, models.ToolDelegate} {
+		if !slices.Contains(hidden, tool) {
+			t.Errorf("%s must be hidden from the auditor", tool)
+		}
+	}
+	if slices.Contains(hidden, models.ToolNetworkScan) {
+		t.Error("the auditor must be offered network_scan")
 	}
 }

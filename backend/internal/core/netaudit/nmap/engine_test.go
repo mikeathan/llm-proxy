@@ -3,6 +3,7 @@ package nmap
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -96,6 +97,28 @@ func TestEngine_ScanSurfacesRunnerErrorsAndTruncation(t *testing.T) {
 	res, err := e.Scan(context.Background(), req)
 	if err != nil || len(res.Warnings) != 1 {
 		t.Errorf("a truncated output must warn: %+v, %v", res, err)
+	}
+}
+
+// A scan that runs out of time returns the hosts it finished, with a warning, instead of nothing.
+func TestEngine_ATimedOutScanKeepsTheHostsItFinished(t *testing.T) {
+	xml, err := os.ReadFile("testdata/services_localhost.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := xml[:strings.LastIndex(string(xml), "</host>")+len("</host>")] // killed after the first host, before the summary
+	e, _ := testEngine(t, &fakeRunner{out: progexec.Output{Stdout: cut}, err: fmt.Errorf("nmap: %w after 8m0s", progexec.ErrTimedOut)})
+	res, err := e.Scan(context.Background(), netaudit.ScanRequest{Targets: []netip.Addr{netip.MustParseAddr("10.0.0.1")}, Mode: netaudit.ModeServices, Thorough: true})
+	if err != nil {
+		t.Fatalf("a timeout with partial results is a result, not an error: %v", err)
+	}
+	if len(res.Hosts) != 1 || len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "time limit") {
+		t.Errorf("res = %+v", res)
+	}
+
+	e, _ = testEngine(t, &fakeRunner{err: fmt.Errorf("nmap: %w", progexec.ErrTimedOut)})
+	if res, err := e.Scan(context.Background(), netaudit.ScanRequest{Targets: []netip.Addr{netip.MustParseAddr("10.0.0.1")}, Mode: netaudit.ModePorts}); err != nil || len(res.Hosts) != 0 || len(res.Warnings) != 1 {
+		t.Errorf("a timeout with nothing finished still says so: %+v, %v", res, err)
 	}
 }
 
