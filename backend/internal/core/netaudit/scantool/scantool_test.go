@@ -53,6 +53,16 @@ func TestTool_PassesTheCallToTheServiceAndMarksTheResultUntrusted(t *testing.T) 
 	}
 }
 
+func TestTool_ThoroughIsOptionalAndOffByDefault(t *testing.T) {
+	s := &fakeScanner{}
+	if _, err := call(t, s, nil, context.Background(), `{"targets":["192.168.1.5"],"mode":"ports"}`); err != nil || s.got.Thorough {
+		t.Errorf("a quick scan is the default: %+v, %v", s.got, err)
+	}
+	if _, err := call(t, s, nil, context.Background(), `{"targets":["192.168.1.5"],"mode":"ports","thorough":true}`); err != nil || !s.got.Thorough {
+		t.Errorf("thorough must reach the service: %+v, %v", s.got, err)
+	}
+}
+
 func TestTool_AcceptsTargetsAsOneCommaSeparatedString(t *testing.T) {
 	s := &fakeScanner{}
 	if _, err := call(t, s, nil, context.Background(), `{"targets":"192.168.1.5, 192.168.1.6 ,","mode":"ports"}`); err != nil {

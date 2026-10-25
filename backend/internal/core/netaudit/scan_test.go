@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"slices"
 	"sync"
 	"testing"
 )
@@ -102,7 +103,9 @@ func TestService_RefusesBeforeAnyEngineRuns(t *testing.T) {
 
 func TestService_FallbackRules(t *testing.T) {
 	missing := errors.New("nmap is not installed")
-	limited := func() *fakeEngine { return &fakeEngine{name: "portprobe", modes: []Mode{ModeDiscover, ModePorts}} }
+	limited := func() *sweepEngine {
+		return &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: []Mode{ModeDiscover, ModePorts}}, live: []netip.Addr{netip.MustParseAddr("192.168.1.5")}}
+	}
 	nmap := func() *fakeEngine { return &fakeEngine{name: "nmap", unavail: missing, modes: allModes} }
 
 	t.Run("an attended scan falls back, labelled", func(t *testing.T) {
@@ -148,5 +151,97 @@ func TestService_RunsOneScanAtATime(t *testing.T) {
 	}
 	if _, err := svc.Scan(context.Background(), Request{Mode: ModePorts}); err != nil {
 		t.Errorf("a scan must be allowed once the last one ended: %v", err)
+	}
+}
+
+// sweepEngine answers a discover scan from a fixed list of live addresses, as the limited prober does.
+type sweepEngine struct {
+	fakeEngine
+	live []netip.Addr
+}
+
+func (s *sweepEngine) Scan(ctx context.Context, req ScanRequest) (Result, error) {
+	s.calls++
+	s.gotReq = req
+	var hosts []Host
+	for _, a := range req.Targets {
+		hosts = append(hosts, Host{Addr: a, Up: slices.Contains(s.live, a)})
+	}
+	return Result{Hosts: hosts}, nil
+}
+
+func fiveAddrs() []netip.Addr {
+	return []netip.Addr{
+		netip.MustParseAddr("10.0.0.1"), netip.MustParseAddr("10.0.0.2"), netip.MustParseAddr("10.0.0.3"),
+	}
+}
+
+func TestService_QuickSweepsFirstThenOnlyLooksAtLiveHosts(t *testing.T) {
+	addrs := fiveAddrs()
+	sweep := &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: []Mode{ModeDiscover, ModePorts}}, live: addrs[1:2]}
+	nmap := &fakeEngine{name: "nmap", modes: allModes, result: Result{Hosts: []Host{{Addr: addrs[1], Up: true, Ports: []Port{{Number: 80, Proto: "tcp", State: "open"}}}}}}
+	res, err := NewService(&fixedAuth{addrs: addrs}, nmap, sweep).Scan(context.Background(), Request{Mode: ModePorts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sweep.gotReq.Mode != ModeDiscover || len(sweep.gotReq.Targets) != 3 {
+		t.Errorf("the sweep must cover every address in discover mode: %+v", sweep.gotReq)
+	}
+	if len(nmap.gotReq.Targets) != 1 || nmap.gotReq.Targets[0] != addrs[1] || !nmap.gotReq.Prefiltered || nmap.gotReq.Thorough {
+		t.Errorf("the engine must get only the live host, marked prefiltered: %+v", nmap.gotReq)
+	}
+	if res.Engine != "nmap" || len(res.Hosts) != 3 {
+		t.Fatalf("result = %+v", res)
+	}
+	if res.Hosts[0].Up || !res.Hosts[1].Up || len(res.Hosts[1].Ports) != 1 || res.Hosts[2].Up {
+		t.Errorf("dead hosts are reported as down, the live one with its ports: %+v", res.Hosts)
+	}
+	if len(res.Findings) != 1 {
+		t.Errorf("findings = %+v", res.Findings)
+	}
+}
+
+func TestService_QuickDiscoverIsTheSweepAlone(t *testing.T) {
+	addrs := fiveAddrs()
+	sweep := &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: allModes}, live: addrs[:2]}
+	nmap := &fakeEngine{name: "nmap", modes: allModes}
+	res, err := NewService(&fixedAuth{addrs: addrs}, nmap, sweep).Scan(context.Background(), Request{Mode: ModeDiscover})
+	if err != nil || res.Engine != "portprobe" || nmap.calls != 0 {
+		t.Fatalf("res = %+v, err = %v, nmap calls = %d", res, err, nmap.calls)
+	}
+	if up := liveAddrs(res.Hosts); len(up) != 2 {
+		t.Errorf("live = %v", up)
+	}
+}
+
+func TestService_NothingAliveMeansNoDeepScan(t *testing.T) {
+	sweep := &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: allModes}}
+	nmap := &fakeEngine{name: "nmap", modes: allModes}
+	res, err := NewService(&fixedAuth{addrs: fiveAddrs()}, nmap, sweep).Scan(context.Background(), Request{Mode: ModeServices})
+	if err != nil || nmap.calls != 0 || len(res.Hosts) != 3 {
+		t.Errorf("res = %+v, err = %v, nmap calls = %d (nmap must not start when nothing answered)", res, err, nmap.calls)
+	}
+}
+
+func TestService_ThoroughSkipsTheSweepAndScansEveryAddress(t *testing.T) {
+	addrs := fiveAddrs()
+	sweep := &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: allModes}, live: addrs[:1]}
+	nmap := &fakeEngine{name: "nmap", modes: allModes}
+	if _, err := NewService(&fixedAuth{addrs: addrs}, nmap, sweep).Scan(context.Background(), Request{Mode: ModePorts, Thorough: true}); err != nil {
+		t.Fatal(err)
+	}
+	if sweep.calls != 0 {
+		t.Error("a thorough scan must not be narrowed by the sweep")
+	}
+	if len(nmap.gotReq.Targets) != 3 || !nmap.gotReq.Thorough || nmap.gotReq.Prefiltered {
+		t.Errorf("nmap request = %+v", nmap.gotReq)
+	}
+}
+
+func TestService_WithoutASweeperEveryScanGoesStraightToTheEngine(t *testing.T) {
+	nmap := &fakeEngine{name: "nmap", modes: allModes}
+	res, err := NewService(newAuth(), nmap, nil).Scan(context.Background(), Request{Mode: ModeDiscover})
+	if err != nil || res.Engine != "nmap" || nmap.calls != 1 || nmap.gotReq.Prefiltered {
+		t.Errorf("res = %+v, err = %v, calls = %d, req = %+v", res, err, nmap.calls, nmap.gotReq)
 	}
 }

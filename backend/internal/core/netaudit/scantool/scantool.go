@@ -66,6 +66,8 @@ type scanArgs struct {
 	Targets targetList `json:"targets"`
 	Mode    string     `json:"mode"`
 	Ports   string     `json:"ports"`
+	// Thorough is optional; false is the quick scan.
+	Thorough bool `json:"thorough"`
 }
 
 func run(ctx context.Context, scanner Scanner, args scanArgs) (any, error) {
@@ -73,7 +75,7 @@ func run(ctx context.Context, scanner Scanner, args scanArgs) (any, error) {
 		return nil, fmt.Errorf("targets is required: pass at least one address, range or name")
 	}
 	res, err := scanner.Scan(ctx, netaudit.Request{
-		Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Unattended: models.IsUnattendedRun(ctx),
+		Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Thorough: args.Thorough, Unattended: models.IsUnattendedRun(ctx),
 	})
 	if err != nil {
 		return nil, explain(err)

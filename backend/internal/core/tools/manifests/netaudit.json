@@ -18,6 +18,10 @@
       "ports": {
         "type": "string",
         "description": "Optional ports for ports/services, such as '22,80,8000-8100'. Leave out for the common ports."
+      },
+      "thorough": {
+        "type": "boolean",
+        "description": "Default false: a quick scan that finds the live addresses first and looks only at those (seconds for a /24). Set true to also scan addresses that did not answer, which is slower and gentler; use it for audits."
       }
     },
     "required": ["targets", "mode"]

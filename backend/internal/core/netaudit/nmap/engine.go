@@ -77,7 +77,7 @@ func (*Engine) Supports(m netaudit.Mode) bool { return m.Valid() }
 
 // Scan runs nmap for an authorised request and parses its XML.
 func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.Result, error) {
-	args, err := Args(req.Mode, req.Targets, req.Ports)
+	args, err := Args(req)
 	if err != nil {
 		return netaudit.Result{}, err
 	}

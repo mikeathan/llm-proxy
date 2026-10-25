@@ -533,7 +533,15 @@ an unused helper would be dead code (Constitution IV.4).
   The templates, frontend step label, SPEC-006 (§II.7.6) and the agent-loop skill follow. `GET /admin/api/netaudit/readiness`.
 - Checked live on macOS against this machine's own LAN address: real nmap through `progexec` in all three modes, the fallback
   with nmap marked unavailable, and loopback / public / documentation addresses refused.
-- Not done: the Ubuntu run (Landlock grants for nmap), rate-limit values from a measured /24, persisted `allowed_tools` entries
+- **Speed, measured on a real /24 (192.168.50.0/24, 8 live hosts, 24 ports):** the first cut was slow — nmap `ports` took 136 s
+  because it scanned every dead address (`-Pn`), and with host discovery it took 23 s but found 6 hosts, not 8; the Go prober took
+  45 s. Retries on silent hosts dominate nmap's time (max-retries 0 brought discovery to 7 s but lost hosts), so liveness is now
+  the Go sweep's job. **Quick (default):** the limited engine sweeps the targets on six shared liveness ports (22, 80, 443, 445,
+  5000, 8080; a refusal counts as alive; 256 workers, 700 ms), then the engine looks at only the live hosts (`-Pn`, `-T4`,
+  common ports). Through the real service: discover 4.2 s, ports 8.9 s with nmap (same 8 up / 17 open as the Go prober),
+  services 25.5 s. **Thorough (`thorough: true`, for audits):** no sweep, every address, `-Pn`, `-T3`, `--max-rate 100`,
+  top 100 ports — unchanged from the first cut, and the slow one by design.
+- Not done: the Ubuntu run (Landlock grants for nmap), persisted `allowed_tools` entries
   that still name `scan_local_network` (they now match nothing).
 
 Not done from §4.1: a `validateCategory` case for the future `network_scan` (it now dispatches network tools by `Gate`, so a

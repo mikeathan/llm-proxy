@@ -42,6 +42,14 @@ func ValidatePorts(raw string) (string, error) {
 	return ports, nil
 }
 
+// DefaultPorts are scanned when a request names none: the services a home or office network most often exposes. Both
+// engines use the same list, so a quick scan means the same thing whichever one runs it.
+var DefaultPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 515, 631, 1883, 3306, 3389, 5000, 5353, 5432, 5900, 8000, 8080, 8443, 9100}
+
+// DiscoverPorts are the ports tried to see whether an address is alive: any answer, even a refusal, means it is. Both
+// engines use the same list.
+var DiscoverPorts = []int{22, 80, 443, 445, 5000, 8080}
+
 // ExpandPorts lists the ports a validated list names, in order, without duplicates. An empty list is empty.
 func ExpandPorts(ports string) ([]int, error) {
 	checked, err := ValidatePorts(ports)

@@ -22,19 +22,15 @@ import (
 const EngineName = "portprobe"
 
 const (
-	dialTimeout = 1500 * time.Millisecond
-	workers     = 64
+	// dialTimeout is generous for a local network, where an answer, even a refusal, comes back in milliseconds; a
+	// silent address is simply slow to give up, so a short timeout keeps a sweep of dead addresses quick.
+	dialTimeout = 700 * time.Millisecond
+	workers     = 256
 	// maxProbes bounds addresses × ports for one scan.
 	maxProbes = 50000
 	stateOpen = "open"
 	protoTCP  = "tcp"
 )
-
-// defaultPorts are tried when the request names none: the services a home or office network most often exposes.
-var defaultPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 515, 631, 1883, 3306, 3389, 5000, 5353, 5432, 5900, 8000, 8080, 8443, 9100}
-
-// discoverPorts are the few ports tried to see whether an address is alive: any answer, even a refusal, means it is.
-var discoverPorts = []int{80, 443, 22, 445}
 
 // Guard re-checks one address immediately before it is dialled, as the second line behind the service's
 // authorisation. A non-nil error skips the address.
@@ -78,22 +74,23 @@ type outcome struct {
 	alive bool
 }
 
-// Scan probes every address × port with a bounded set of workers. Addresses are dialled as literals, never as
-// names, so nothing is resolved after authorisation.
+// Scan probes every address in the request: the ports asked for, or for a discover scan the liveness ports. Choosing
+// which addresses to probe is the service's job (it sweeps first on a quick scan). Addresses are dialled as literals,
+// never as names, so nothing is resolved after authorisation.
 func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.Result, error) {
 	ports, err := e.portsFor(req)
 	if err != nil {
 		return netaudit.Result{}, err
-	}
-	if len(req.Targets)*len(ports) > maxProbes {
-		return netaudit.Result{}, fmt.Errorf("%d addresses × %d ports is more than the %d probes the limited engine allows; narrow the scan or install nmap",
-			len(req.Targets), len(ports), maxProbes)
 	}
 	var allowed []netip.Addr
 	for _, a := range req.Targets {
 		if e.guard != nil && e.guard(a) == nil {
 			allowed = append(allowed, a)
 		}
+	}
+	if len(allowed)*len(ports) > maxProbes {
+		return netaudit.Result{}, fmt.Errorf("%d addresses × %d ports is more than the %d probes the limited engine allows; narrow the scan or install nmap",
+			len(allowed), len(ports), maxProbes)
 	}
 	results := e.run(ctx, allowed, ports)
 	return netaudit.Result{
@@ -104,14 +101,14 @@ func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.R
 
 func (e *Engine) portsFor(req netaudit.ScanRequest) ([]int, error) {
 	if req.Mode == netaudit.ModeDiscover {
-		return discoverPorts, nil
+		return netaudit.DiscoverPorts, nil
 	}
 	ports, err := netaudit.ExpandPorts(req.Ports)
 	if err != nil {
 		return nil, err
 	}
 	if len(ports) == 0 {
-		return defaultPorts, nil
+		return netaudit.DefaultPorts, nil
 	}
 	return ports, nil
 }

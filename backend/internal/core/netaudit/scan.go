@@ -27,6 +27,9 @@ type Request struct {
 	Mode    Mode
 	// Ports is an optional list such as "22,80,8000-8100"; empty means the engine's default set.
 	Ports string
+	// Thorough also scans addresses that did not answer the quick liveness check, and takes longer. The default is the
+	// quick scan: find the live addresses first, then look at only those.
+	Thorough bool
 	// Unattended marks a scheduled run, where no person can read a warning: it never falls back to the limited engine.
 	Unattended bool
 }
@@ -36,6 +39,11 @@ type ScanRequest struct {
 	Targets []netip.Addr
 	Mode    Mode
 	Ports   string
+	// Thorough is Request.Thorough.
+	Thorough bool
+	// Prefiltered means the service already swept the targets and they all answered, so the engine need not check
+	// which addresses are alive before looking at them.
+	Prefiltered bool
 }
 
 // Result is what a scan found.
@@ -93,15 +101,12 @@ func NewService(authorizer Authorizer, primary, fallback Engine) *Service {
 
 // Scan authorises and runs one scan. It refuses before touching the network when the mode or ports are invalid,
 // scanning is off, a target is out of scope, another scan is running, or no suitable engine is available.
+//
+// A quick scan (the default) sweeps the targets first with the limited engine, which finds the live addresses of a
+// /24 in seconds, and gives only those to the engine that does the real work; discover is the sweep alone. A
+// thorough scan skips the sweep and hands every address to the engine, which takes longer and misses nothing.
 func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
-	if !req.Mode.Valid() {
-		return Result{}, fmt.Errorf("%w: %q (use one of %v)", ErrBadMode, req.Mode, Modes())
-	}
-	ports, err := ValidatePorts(req.Ports)
-	if err != nil {
-		return Result{}, err
-	}
-	addrs, err := s.authorizer.Authorize(ctx, req.Targets)
+	scan, err := s.prepare(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
@@ -110,20 +115,120 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	}
 	defer s.running.Unlock()
 
-	engine, warnings, err := s.pickEngine(ctx, req)
+	// Refuse before the network is touched when the engine this scan needs is not there. A quick discover with a sweeper
+	// is the sweep alone and needs no engine of its own.
+	engine, warnings, err := s.engineFor(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
-	res, err := engine.Scan(ctx, ScanRequest{Targets: addrs, Mode: req.Mode, Ports: ports})
+	swept, err := s.sweepFirst(ctx, req, scan)
+	if err != nil {
+		return Result{}, err
+	}
+	if swept.final != nil {
+		return finish(*swept.final), nil
+	}
+
+	res, err := engine.Scan(ctx, swept.scan)
 	if err != nil {
 		return Result{}, err
 	}
 	res.Engine = engine.Name()
 	res.Warnings = append(warnings, res.Warnings...)
+	if swept.sweep != nil {
+		res.Hosts = mergeHosts(swept.sweep.Hosts, res.Hosts)
+	}
+	return finish(res), nil
+}
+
+// prepare validates the request and authorises its targets; nothing has touched the network yet.
+func (s *Service) prepare(ctx context.Context, req Request) (ScanRequest, error) {
+	if !req.Mode.Valid() {
+		return ScanRequest{}, fmt.Errorf("%w: %q (use one of %v)", ErrBadMode, req.Mode, Modes())
+	}
+	ports, err := ValidatePorts(req.Ports)
+	if err != nil {
+		return ScanRequest{}, err
+	}
+	addrs, err := s.authorizer.Authorize(ctx, req.Targets)
+	if err != nil {
+		return ScanRequest{}, err
+	}
+	return ScanRequest{Targets: addrs, Mode: req.Mode, Ports: ports, Thorough: req.Thorough}, nil
+}
+
+// engineFor picks the engine that does the real work, or nil when a quick discover is the sweep alone.
+func (s *Service) engineFor(ctx context.Context, req Request) (Engine, []string, error) {
+	if req.Mode == ModeDiscover && !req.Thorough && s.sweeper() != nil {
+		return nil, nil, nil
+	}
+	return s.pickEngine(ctx, req)
+}
+
+// sweepOutcome is what the quick sweep decided: the request to give the engine, the sweep's own result (to merge back
+// in), or a final result when the sweep answered the whole request.
+type sweepOutcome struct {
+	scan  ScanRequest
+	sweep *Result
+	final *Result
+}
+
+// sweepFirst runs the quick sweep unless the scan is thorough or there is no sweeper. A discover scan is complete after
+// the sweep, and so is any scan in which nothing answered.
+func (s *Service) sweepFirst(ctx context.Context, req Request, scan ScanRequest) (sweepOutcome, error) {
+	if req.Thorough || s.sweeper() == nil {
+		return sweepOutcome{scan: scan}, nil
+	}
+	sweep, err := s.sweeper().Scan(ctx, ScanRequest{Targets: scan.Targets, Mode: ModeDiscover})
+	if err != nil {
+		return sweepOutcome{}, err
+	}
+	sweep.Engine = s.sweeper().Name()
+	live := liveAddrs(sweep.Hosts)
+	if req.Mode == ModeDiscover || len(live) == 0 {
+		return sweepOutcome{final: &sweep}, nil
+	}
+	scan.Targets, scan.Prefiltered = live, true
+	return sweepOutcome{scan: scan, sweep: &sweep}, nil
+}
+
+// sweeper is the engine that finds live addresses quickly: the limited Go prober, when there is one.
+func (s *Service) sweeper() Engine { return s.fallback }
+
+// finish fills in the findings a result does not carry yet.
+func finish(res Result) Result {
 	if res.Findings == nil {
 		res.Findings = FindingsOf(res.Hosts)
 	}
-	return res, nil
+	return res
+}
+
+func liveAddrs(hosts []Host) []netip.Addr {
+	var out []netip.Addr
+	for _, h := range hosts {
+		if h.Up {
+			out = append(out, h.Addr)
+		}
+	}
+	return out
+}
+
+// mergeHosts takes the sweep's list of every address and replaces the entries for the addresses the engine looked at
+// with what the engine found, so addresses that did not answer are still reported, as down.
+func mergeHosts(swept, scanned []Host) []Host {
+	byAddr := make(map[netip.Addr]Host, len(scanned))
+	for _, h := range scanned {
+		byAddr[h.Addr] = h
+	}
+	out := make([]Host, 0, len(swept))
+	for _, h := range swept {
+		if detailed, ok := byAddr[h.Addr]; ok {
+			h = detailed
+			h.Up = true // the sweep saw it answer
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // pickEngine prefers nmap. A mode that needs nmap, or an unattended run, never falls back; an attended run that can
