@@ -33,13 +33,7 @@ var ErrNetworkDisabled = errors.New("agent network is denied by security policy"
 // overrides or persisted approvals. notify_user (connector sends) and
 // internet_search are agent egress and are included; inbound webhook receipt is
 // server-side and unaffected.
-var hostNetworkGatedTools = []string{
-	models.ToolNetworkFetch,
-	models.ToolNetworkScan,
-	models.ToolNetworkInfo,
-	models.ToolInternetSearch,
-	models.ToolNotifyUser,
-}
+var hostNetworkGatedTools = models.HostNetworkGatedTools()
 
 // hostNetworkGatedSet mirrors hostNetworkGatedTools for O(1) lookup.
 var hostNetworkGatedSet = func() map[string]bool {
@@ -246,7 +240,8 @@ func (e *GuardrailEngine) validateCategory(ctx context.Context, call proxy.ToolC
 		return e.validateCommunication(call, cfg.Communication)
 	case models.ToolDirectoryList, models.ToolFileRead, models.ToolFileWrite, models.ToolFileAppend, models.ToolFileEditBlock:
 		return e.validateFileSystem(call, cfg.FileSystem, workspaceID)
-	case models.ToolNetworkFetch, models.ToolNetworkScan, models.ToolNetworkInfo:
+	}
+	if models.GateOf(call.Function.Name) == models.GateNetwork {
 		// An explicitly stamped run scope (automation grant) replaces the
 		// workspace L1 net flags for this run: it may loosen (grant in a
 		// none-workspace) within the host ceiling. Scope mapping is centralized
@@ -401,6 +396,23 @@ func (e *GuardrailEngine) validateNetwork(call proxy.ToolCall, cfg models.Networ
 	return nil
 }
 
+// toolGates are the guardrail switches that statically enable a tool category, in the order
+// DisabledToolNames lists their tools.
+var toolGates = []models.ToolGate{models.GateCommunication, models.GateSearch, models.GateNetwork}
+
+// gateClosed reports whether the workspace-merged config disables every tool behind a gate.
+func (e *GuardrailEngine) gateClosed(gate models.ToolGate, cfg models.AgentGuardrailsConfig) bool {
+	switch gate {
+	case models.GateCommunication:
+		return !cfg.Communication.Enabled
+	case models.GateSearch:
+		return e.searchDisabled(cfg)
+	case models.GateNetwork:
+		return !cfg.Network.Enabled
+	}
+	return false
+}
+
 // DisabledToolNames returns the tool names whose category is statically
 // disabled by guardrail policy (the Communication/Search/Network `Enabled`
 // gates), with workspace overrides merged exactly as ValidateToolCall resolves
@@ -421,11 +433,12 @@ func (e *GuardrailEngine) DisabledToolNames(workspaceID string) []string {
 			disabled = append(disabled, name)
 		}
 	}
-	add(models.ToolNotifyUser, !cfg.Communication.Enabled)
-	add(models.ToolInternetSearch, e.searchDisabled(cfg))
-	add(models.ToolNetworkFetch, !cfg.Network.Enabled)
-	add(models.ToolNetworkScan, !cfg.Network.Enabled)
-	add(models.ToolNetworkInfo, !cfg.Network.Enabled)
+	for _, gate := range toolGates {
+		closed := e.gateClosed(gate, cfg)
+		for _, name := range models.ToolsWithGate(gate) {
+			add(name, closed)
+		}
+	}
 	if e.hostNetworkOff() {
 		// Host-level hard gate OUTSIDE the override stack: unlike the policy adds
 		// above, an in-memory/persisted override must NOT keep the tool visible
@@ -493,16 +506,7 @@ func (e *GuardrailEngine) scopeTierDisabled(workspaceID string, scope models.Net
 // forbids the local-network ones (scan + network info); internet forbids none
 // (its ceiling is the host switch + L1 tiers).
 func scopeForbiddenTools(scope models.NetworkScope) []string {
-	switch scope {
-	case models.NetworkScopeLan:
-		return []string{models.ToolInternetSearch, models.ToolNotifyUser}
-	case models.NetworkScopeInternetOnly:
-		return []string{models.ToolNetworkScan, models.ToolNetworkInfo}
-	case models.NetworkScopeNone:
-		return hostNetworkGatedTools
-	default:
-		return nil
-	}
+	return models.ScopeForbiddenTools(scope)
 }
 
 func containsString(list []string, want string) bool {

@@ -1349,3 +1349,15 @@ func TestLLMClient_LocalRequestsPreserveThinking(t *testing.T) {
 		t.Errorf("a cloud request must not carry chat_template_kwargs: %v", bodies[2])
 	}
 }
+
+func TestIsLocalClient(t *testing.T) {
+	if !IsLocalClient(NewLLMClientForLocal("http://127.0.0.1:8080", "m", nil, nil)) {
+		t.Error("a client built for a local server must report local")
+	}
+	if IsLocalClient(NewLLMClient("https://api.example.com", "m", nil, nil)) {
+		t.Error("a cloud client must not report local")
+	}
+	if IsLocalClient(nil) {
+		t.Error("no client is not local")
+	}
+}

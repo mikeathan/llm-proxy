@@ -6,6 +6,7 @@ import (
 
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/reminders"
+	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/transport/http/handlers"
@@ -84,13 +85,13 @@ func (p reminderPort) view(r reminders.Reminder) tools.ReminderView {
 }
 
 // localRegistry finds the local tool registry inside the tool provider chain.
-func localRegistry(tp assistantPkg.ToolProvider) *assistantPkg.LocalToolRegistry {
-	mtp, ok := tp.(*assistantPkg.MultiToolProvider)
+func localRegistry(tp assistantPkg.ToolProvider) *toolregistry.LocalToolRegistry {
+	mtp, ok := tp.(*toolregistry.MultiToolProvider)
 	if !ok {
 		return nil
 	}
 	for _, p := range mtp.Providers {
-		if ltr, ok := p.(*assistantPkg.LocalToolRegistry); ok {
+		if ltr, ok := p.(*toolregistry.LocalToolRegistry); ok {
 			return ltr
 		}
 	}

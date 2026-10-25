@@ -52,6 +52,7 @@ const (
 )
 
 type LLMClient struct {
+	local              bool // built for a local model server (see NewLLMClientForLocal)
 	httpClient         *http.Client
 	chatCompletionsURL string
 	headers            http.Header
@@ -163,7 +164,25 @@ func NewLLMClient(baseURL string, model string, httpClient *http.Client, headers
 func NewLLMClientForLocal(baseURL string, model string, httpClient *http.Client, headers http.Header) Client {
 	c := newLLMClient(baseURL, model, httpClient, headers, ReasoningFieldThinkTokens, network.LLMChatTransport).(*LLMClient)
 	c.preserveThinking = true
+	c.local = true
 	return c
+}
+
+// Locality is implemented by a client that knows whether its upstream is a local model server.
+type Locality interface {
+	IsLocal() bool
+}
+
+// IsLocalClient reports whether c talks to a local model. A client that does not say is not assumed local, so a
+// caller that requires a local model refuses it.
+func IsLocalClient(c Client) bool {
+	l, ok := c.(Locality)
+	return ok && l.IsLocal()
+}
+
+// IsLocal reports whether this client was built for a local model server.
+func (c *LLMClient) IsLocal() bool {
+	return c.local
 }
 
 // withTemplateKwargs adds preserve_thinking to a local request, merged into whatever the reasoning resolver set.

@@ -17,6 +17,8 @@ export interface PromptProfile {
   memory?: MemoryMode
   memory_save: 'model' | 'explicit' | 'off'
   reminders: boolean
+  /** Runs stop unless the model is local, so nothing the run sees goes to a cloud provider. */
+  local_only?: boolean
   /** Helper profiles this one may hand tasks to (sub-agents); empty or absent means it never delegates. */
   delegates?: string[]
   default_for: ProfileKind[]
@@ -43,6 +45,7 @@ export interface ProfileInput {
   memory: MemoryMode
   memory_save: PromptProfile['memory_save']
   reminders: boolean
+  local_only: boolean
   delegates: string[]
 }
 

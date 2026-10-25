@@ -1,7 +1,7 @@
-// tool_provider.go — ToolProvider and Engine interfaces (with
-// MultiToolProvider, CompositeEngine, assistantEngine implementations),
-// and the NewEngine constructor.  engine.go was merged into this file.
-package assistant
+// tool_provider.go — Provider and Engine interfaces (structurally the same as the ones the agent
+// consumes in assistant/ports.go), with the MultiToolProvider, CompositeEngine and MCP engine
+// implementations and the NewEngine constructor.
+package toolregistry
 
 import (
 	"context"
@@ -11,19 +11,19 @@ import (
 	"llm-proxy/internal/platform/logging"
 )
 
-// ToolProvider defines how tools and prompts are discovered.
-type ToolProvider interface {
+// Provider defines how tools and prompts are discovered.
+type Provider interface {
 	ListTools(ctx context.Context) ([]proxy.Tool, error)
 	UseNativeTools() bool
 }
 
 // MultiToolProvider aggregates tools from multiple providers.
 type MultiToolProvider struct {
-	Providers      []ToolProvider
+	Providers      []Provider
 	useNativeTools bool
 }
 
-func NewMultiToolProvider(useNativeTools bool, providers ...ToolProvider) *MultiToolProvider {
+func NewMultiToolProvider(useNativeTools bool, providers ...Provider) *MultiToolProvider {
 	return &MultiToolProvider{Providers: providers, useNativeTools: useNativeTools}
 }
 

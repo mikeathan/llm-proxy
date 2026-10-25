@@ -36,4 +36,12 @@ describe('agentDraft', () => {
     expect(sameInput(saved, { ...saved, summary: 'changed' })).toBe(false)
     expect(blankInput().name).toBe('')
   })
+
+  it('keeps a local-only agent local-only when it is edited or copied', () => {
+    const local: ProfileDetail = { ...research, local_only: true }
+    expect(inputFromDetail(local).local_only).toBe(true)
+    expect(copyOf(local, []).input.local_only).toBe(true)
+    expect(inputFromDetail(research).local_only).toBe(false)
+    expect(blankInput().local_only).toBe(false)
+  })
 })

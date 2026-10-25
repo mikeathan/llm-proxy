@@ -1,4 +1,4 @@
-package assistant
+package toolregistry
 
 import (
 	"context"
@@ -6,6 +6,12 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/testing/assistanttest"
+)
+
+type (
+	MockProvider = assistanttest.MockProvider
+	MockEngine   = assistanttest.MockEngine
 )
 
 var errTest = fmt.Errorf("test error")

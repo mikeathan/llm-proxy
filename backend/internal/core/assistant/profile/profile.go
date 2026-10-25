@@ -62,6 +62,9 @@ type Profile struct {
 	// Delegates lists the profiles this one may hand tasks to as sub-agents; the delegate tool exists only when it is
 	// not empty. A helper's own delegates are never used: delegation is one level deep.
 	Delegates []string `json:"delegates,omitempty"`
+	// LocalOnly restricts the profile's runs to a local model: a run whose model client is not local stops before
+	// sending a prompt. For work whose data must not leave the machine.
+	LocalOnly bool `json:"local_only,omitempty"`
 }
 
 // frontMatter is the file header. Unknown keys are an error, so a typo in a user's file is not silently ignored.
@@ -76,6 +79,7 @@ type frontMatter struct {
 	MemorySave  SaveMode          `yaml:"memory_save,omitempty"`
 	Reminders   bool              `yaml:"reminders,omitempty"`
 	Delegates   []string          `yaml:"delegates,omitempty"`
+	LocalOnly   bool              `yaml:"local_only,omitempty"`
 }
 
 // Unprofiled is what an agent runs with when no profile was chosen (a direct constructor, a test): the loop as it
@@ -105,7 +109,7 @@ func Parse(id string, source Source, data []byte) (Profile, error) {
 		ID: id, Name: strings.TrimSpace(fm.Name), Summary: strings.TrimSpace(fm.Summary), Source: source,
 		Instructions: strings.TrimSpace(body), AnswerFirst: fm.AnswerFirst, MayAsk: fm.MayAsk, MaxSteps: fm.MaxSteps,
 		Tools: fm.Tools, Memory: fm.Memory, MemorySave: fm.MemorySave.Effective(), Reminders: fm.Reminders,
-		Delegates: fm.Delegates,
+		Delegates: fm.Delegates, LocalOnly: fm.LocalOnly,
 	}
 	if err := p.validate(); err != nil {
 		return Profile{}, fmt.Errorf("profile %s: %w", id, err)

@@ -15,6 +15,7 @@ import (
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/runlane"
+	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -238,7 +239,7 @@ func TestAssistant_RunWithCancel_RegistersInMap(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 
 	tmpWorkspaces := t.TempDir()
@@ -280,7 +281,7 @@ func TestAssistant_RunWithCancel_CanBeCancelled(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 
 	tmpWorkspaces := t.TempDir()
@@ -346,7 +347,7 @@ func TestAssistant_RunWithCancel_SurvivesParentContextCancel(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 
 	// Blocking client: Chat blocks until release is closed, keeping the run
 	// in-flight so we can observe parent-context cancellation behaviour.
@@ -409,7 +410,7 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent(t *testing.T) {
 		GetClientErr: errors.New("no target model available"),
 	}
 	mockLimiter := &mocks.MockRateLimiter{}
-	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
+	engine := toolregistry.NewEngine(mocks.NewMockNodeHerder(nil), logger)
 
 	eventBus := eventbus.NewBus()
 	eventCh, _ := eventBus.Subscribe("ws-no-model", assistant.ChannelAssistant)
@@ -457,7 +458,7 @@ func TestHandleAssistant_NoTargetModelPublishesErrorEvent_EmptyConversation(t *t
 		GetClientErr: errors.New("no target model available"),
 	}
 	mockLimiter := &mocks.MockRateLimiter{}
-	engine := assistant.NewEngine(mocks.NewMockNodeHerder(nil), logger)
+	engine := toolregistry.NewEngine(mocks.NewMockNodeHerder(nil), logger)
 
 	eventBus := eventbus.NewBus()
 	eventCh, _ := eventBus.Subscribe("ws-empty-conv", assistant.ChannelAssistant)

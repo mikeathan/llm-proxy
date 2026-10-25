@@ -103,6 +103,32 @@ func TestAgent_Execute_Simple(t *testing.T) {
 	}
 }
 
+// localMock is a MockClient that says its upstream is a local model server.
+type localMock struct{ MockClient }
+
+func (*localMock) IsLocal() bool { return true }
+
+// A local-only profile stops a run whose client is not local before any prompt is sent, and lets a local one run.
+func TestAgent_Execute_LocalOnlyProfile(t *testing.T) {
+	reply := proxy.ChatResponse{Choices: []proxy.Choice{{Message: proxy.Message{Role: "assistant", Content: "done"}}}}
+	history := []proxy.Message{{Role: "user", Content: "Hi"}}
+	opts := AgentOptions{MaxSteps: 5, Profile: profile.Profile{ID: "private", LocalOnly: true, MemorySave: profile.SaveOff}}
+
+	cloud := &MockClient{Response: reply}
+	_, _, err := NewAgent(cloud, &MockProvider{}, &MockEngine{}, opts).Execute(context.Background(), history)
+	if !errors.Is(err, models.ErrLocalOnly) {
+		t.Fatalf("a non-local client must be refused with ErrLocalOnly, got %v", err)
+	}
+	if cloud.Calls != 0 {
+		t.Errorf("no prompt may be sent to a non-local model, got %d calls", cloud.Calls)
+	}
+
+	local := &localMock{MockClient{Response: reply}}
+	if got, _, err := NewAgent(local, &MockProvider{}, &MockEngine{}, opts).Execute(context.Background(), history); err != nil || got != "done" {
+		t.Errorf("a local client must run: %q, %v", got, err)
+	}
+}
+
 func TestAgent_Execute_ToolCall(t *testing.T) {
 	// 1. First call returns a tool call
 	// 2. Second call returns final content

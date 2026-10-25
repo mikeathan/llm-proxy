@@ -25,6 +25,7 @@ import (
 	"llm-proxy/internal/core/proxy/recorder"
 	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/runlane"
+	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
@@ -101,10 +102,10 @@ func (c *Container) BuildAppServices() *AppServices {
 
 	// Unified tool providers and engines (Local Registry + Remote MCP). Services
 	// travel together in one deps struct (rule: ≤3 params).
-	s.toolProvider, s.engine, s.guardrailEngine = assistantPkg.InitializeAgentStack(
+	s.toolProvider, s.engine, s.guardrailEngine = toolregistry.InitializeAgentStack(
 		s.AppCtx,
 		s.nodeHerder,
-		assistantPkg.AgentStackDeps{
+		toolregistry.AgentStackDeps{
 			Persistence:  s.persistence,
 			Logger:       s.logger,
 			ShellManager: shellManager,

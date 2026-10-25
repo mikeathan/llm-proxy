@@ -38,6 +38,7 @@ type DataManager struct {
 	systemView   *SystemConfigView
 	settingsView *UserSettingsView
 	hostView     *hostSettingsView
+	netauditView *netauditView
 
 	// Secrets (Credentials)
 	encSecretStore *Store[models.EncryptedSecretData]
@@ -90,6 +91,7 @@ func NewDataManager(p paths.Paths) (*DataManager, error) {
 	m.systemView = &SystemConfigView{mgr: m}
 	m.settingsView = &UserSettingsView{mgr: m}
 	m.hostView = &hostSettingsView{mgr: m}
+	m.netauditView = &netauditView{mgr: m}
 
 	return m, nil
 }
@@ -356,6 +358,9 @@ func mergeAppConfigDefaults(d, c models.AppConfig) models.AppConfig {
 func (m *DataManager) System() *SystemConfigView       { return m.systemView }
 func (m *DataManager) Settings() *UserSettingsView     { return m.settingsView }
 func (m *DataManager) HostSettings() *hostSettingsView { return m.hostView }
+
+// Netaudit is the host-wide network-audit policy view.
+func (m *DataManager) Netaudit() *netauditView { return m.netauditView }
 
 func (m *DataManager) Secrets() models.SecretsStore {
 	m.secretsMu.RLock()

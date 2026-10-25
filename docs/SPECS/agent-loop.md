@@ -427,8 +427,9 @@ assistant/delegate.go           — the delegate tool: schema, call checks, para
 assistant/subrun.go             — the SubRunner port and its request/result/event types
 delegation/runner.go, pool.go   — runs a task as a cloud child run; the sub-agent pool beside the run lanes
 assistant/agent.go              — Execute loop, sieve, tool processing
-assistant/registry.go           — wires LocalToolRegistry + MCP → provider/engine
-assistant/tool_provider.go      — MultiToolProvider, CompositeEngine, ToolProvider interface
+assistant/ports.go             — the ToolProvider and Engine interfaces the agent consumes
+toolregistry/registry.go       — wires LocalToolRegistry + MCP → provider/engine
+toolregistry/tool_provider.go  — MultiToolProvider, CompositeEngine, MCP engine
 assistant/stream.go             — streaming compute, FilterStreamingMarkup markup filter
 assistant/guardrails/           — tool-call guardrail validation
 assistant/prompts/              — system prompts, nag prompts, tool manual builder

@@ -26,7 +26,7 @@ const tempFilePrefix = ".saving-"
 func Marshal(p Profile) []byte {
 	fm := frontMatter{
 		Name: p.Name, Summary: p.Summary, AnswerFirst: p.AnswerFirst, MayAsk: p.MayAsk, MaxSteps: p.MaxSteps,
-		Tools: p.Tools, Memory: p.Memory, Reminders: p.Reminders, Delegates: p.Delegates,
+		Tools: p.Tools, Memory: p.Memory, Reminders: p.Reminders, Delegates: p.Delegates, LocalOnly: p.LocalOnly,
 	}
 	if p.MemorySave.Effective() != SaveModel {
 		fm.MemorySave = p.MemorySave

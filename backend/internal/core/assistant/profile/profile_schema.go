@@ -70,6 +70,8 @@ func Schema() []Field {
 			Help: "Who decides what is saved. Reading memory is not affected."},
 		{Key: "reminders", Label: "Reminders", Kind: KindToggle,
 			Help: "The reminder tools are offered. Needs the Reminders tool kind when tools are limited."},
+		{Key: "local_only", Label: "Local model only", Kind: KindToggle,
+			Help: "Runs stop unless the model is on this machine or network, so nothing the run sees is sent to a cloud provider."},
 		{Key: "delegates", Label: "Helpers", Kind: KindProfiles,
 			Help: "Profiles this one may hand tasks to. A helper runs on the Helper model with only web search and page fetch, whatever its own tools say."},
 	}

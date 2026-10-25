@@ -17,6 +17,7 @@ import (
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
+	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/storage"
@@ -101,7 +102,7 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	})
 
 	// Setup Engine
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 
 	// service
 	service := mocks.NewMockAssistantService(
@@ -258,7 +259,7 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	mockMCP.SetSystemPrompt("BASE_PROMPT")
 	mockMCP.SetToolsResult([]proxy.Tool{})
 
-	engine := assistant.NewEngine(mockMCP, &noopLogger{})
+	engine := toolregistry.NewEngine(mockMCP, &noopLogger{})
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 	service.PersistenceMgr = mgr
 
@@ -324,7 +325,7 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 	mockMCP.SetSystemPrompt("SYSTEM")
 	mockMCP.SetToolsResult([]proxy.Tool{})
 
-	engine := assistant.NewEngine(mockMCP, &noopLogger{})
+	engine := toolregistry.NewEngine(mockMCP, &noopLogger{})
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 	tmpWorkspaces := t.TempDir()
 	service.PersistenceMgr = persistence.NewWorkspaceManager(storage.NewPathResolver(tmpWorkspaces, tmpWorkspaces, tmpWorkspaces))
@@ -799,7 +800,7 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 			Function: proxy.FunctionSchema{Name: "query_device"},
 		},
 	})
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 
 	eventBus := eventbus.NewBus()
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
@@ -1032,7 +1033,7 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
-	engine := assistant.NewEngine(mockMCP, logger)
+	engine := toolregistry.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
 
 	// The run's session checkpoints are written by an event-bus subscriber, so a
@@ -1109,7 +1110,7 @@ func TestGuardrailDecisionHandler_LateOverridePersists(t *testing.T) {
 	service := mocks.NewMockAssistantService(
 		&mocks.MockLLMClientProvider{},
 		&mocks.MockRateLimiter{},
-		assistant.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
+		toolregistry.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
 		mocks.NewMockNodeHerder(nil),
 	)
 	service.LoggerRef = &noopLogger{}
@@ -1164,7 +1165,7 @@ func TestGuardrailDecisionHandler_LateDenyOrNoPersistRejected(t *testing.T) {
 	service := mocks.NewMockAssistantService(
 		&mocks.MockLLMClientProvider{},
 		&mocks.MockRateLimiter{},
-		assistant.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
+		toolregistry.NewEngine(mocks.NewMockNodeHerder(nil), &noopLogger{}),
 		mocks.NewMockNodeHerder(nil),
 	)
 	service.LoggerRef = &noopLogger{}
