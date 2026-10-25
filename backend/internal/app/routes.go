@@ -83,7 +83,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
-	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence())
+	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks)
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -311,6 +311,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/scope", hs.Netaudit.PutScope, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/readiness", hs.Netaudit.GetReadiness, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/findings", hs.Netaudit.GetFindings, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/acks", hs.Netaudit.ListAcks, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/acks", hs.Netaudit.AcceptFinding, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/acks", hs.Netaudit.RevokeAck, jsonMethodNotAllowed)
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)

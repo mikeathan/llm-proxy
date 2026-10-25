@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.20"
+version: "1.21"
 status: stable
 last_updated: 2026-10-25
 constitution_references: []
@@ -13,6 +13,15 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.21 (2026-10-25)** — §II.8: **accepted findings.** The operator can accept a finding of an automation's latest scan for
+  1–365 days (90 by default) with a short note (`POST /admin/api/netaudit/acks`; `GET`/`DELETE` list and take back). An
+  acceptance names the finding by its key and the version text that was accepted, lives in the workspace's metadata folder
+  (`acks.json`, outside the agent's jail, written only by that endpoint, removed with the workspace), and stops applying when it
+  expires or when the finding's version changes. While it applies the finding is left out of what the model is shown (the scan
+  tool's result), and the report's Observed section counts it instead of listing it; the baseline still keeps it, so it does not
+  flap between new and resolved. An acceptance for something no scan has shown for 30 days is dropped. Unreadable acceptances
+  hide nothing. A service name nmap only looked up by port number is marked "(guess)" in the report and flagged `guessed` to the
+  model.
 - **1.20 (2026-10-25)** — Network audits (§II.8). A run can be **pre-flighted** (`WithPreflight`): before the model is
   touched, a refusal ends the run as failed with the reason, through the same path as a task file that cannot be read, and
   the operator is told **once per reason** until the automation next succeeds (a nightly run blocked for the same reason
@@ -321,6 +330,8 @@ scan (SPEC-006 §II.7.6) and gives the automation a local-network grant.
   scanned, and what is new, resolved or changed. An address the run did not scan is not reported resolved, and its earlier
   findings are carried forward. Values from the network are escaped so they cannot break the table. The model's report
   follows under "Assessment (written by the model)".
+- **Accepted findings.** See the 1.21 changelog entry: accepted findings are hidden from the model and counted, not listed, in
+  the Observed section, and come back on expiry or when their version changes.
 - **Where the facts live.** `GET /admin/api/netaudit/findings?workspace_id=&automation=` returns the latest scan's findings,
   marking the new ones, and what was resolved since the scan before.
 - **Limits.** `network_scan` is not cut by the 2-minute tool timeout (a thorough scan takes minutes); the engine bounds it at

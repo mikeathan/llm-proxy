@@ -13,6 +13,8 @@ type Observed struct {
 	Previous time.Time
 	Result   Result
 	Delta    Delta
+	// Accepted is how many findings of this scan an operator's acceptance covers; they are counted, not listed.
+	Accepted int
 }
 
 // ObservedHeading titles the section the code writes. The model's text follows it under its own heading.
@@ -46,6 +48,9 @@ func RenderObserved(o Observed) string {
 			"and they were left out of the comparison: %s.\n", len(unscanned), cell(strings.Join(firstN(unscanned, maxListedAddrs), ", ")))
 	}
 
+	if o.Accepted > 0 {
+		fmt.Fprintf(&b, "\n%d finding(s) in this scan are accepted by the operator and not listed below.\n", o.Accepted)
+	}
 	if o.Previous.IsZero() {
 		fmt.Fprintf(&b, "\nFirst scan: there is no earlier result to compare with, so all %d open port(s) are recorded as the baseline.\n", len(o.Result.Findings))
 	} else {

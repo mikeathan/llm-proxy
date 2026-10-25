@@ -268,7 +268,9 @@ func (n *NetworkTools) GetNetworkInfo(ctx context.Context) (string, error) {
 func (n *NetworkTools) getLocalSubnet() (string, *net.IPNet, error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return "", nil, err
+		// Listing interfaces needs a netlink socket, which a service run under systemd's RestrictAddressFamilies may not
+		// open. The kernel can still say which address the default route sends from (an UDP "connection" sends nothing).
+		return outboundSubnet(err)
 	}
 	for _, addr := range addrs {
 		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
@@ -278,6 +280,21 @@ func (n *NetworkTools) getLocalSubnet() (string, *net.IPNet, error) {
 		}
 	}
 	return "", nil, fmt.Errorf("no valid local IPv4 address found")
+}
+
+// outboundSubnet is the fallback when interfaces cannot be listed: the default route's local address on an assumed /24.
+func outboundSubnet(listErr error) (string, *net.IPNet, error) {
+	conn, err := net.Dial("udp4", "8.8.8.8:80")
+	if err != nil {
+		return "", nil, listErr
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil {
+		return "", nil, listErr
+	}
+	ipnet := &net.IPNet{IP: addr.IP.Mask(net.CIDRMask(24, 32)), Mask: net.CIDRMask(24, 32)}
+	return addr.IP.String(), ipnet, nil
 }
 
 // ValidateDomainBoundary checks if a host matches any blocked domains at label boundaries.

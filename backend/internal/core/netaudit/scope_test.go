@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"reflect"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/platform/scanscope"
@@ -112,5 +113,29 @@ func TestScope_SuggestionsListOnlyScannablePrivateNetworks(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("suggestions = %+v, want %+v", got, want)
+	}
+}
+
+func TestInterfacesWithFallback(t *testing.T) {
+	listed := map[string][]net.Addr{"en0": {&net.IPNet{IP: net.ParseIP("192.168.1.5"), Mask: net.CIDRMask(24, 32)}}}
+	failing := func() (map[string][]net.Addr, error) {
+		return nil, errors.New("netlinkrib: address family not supported by protocol")
+	}
+
+	got, err := interfacesWithFallback(func() (map[string][]net.Addr, error) { return listed, nil }, nil)
+	if err != nil || len(got) != 1 || got["en0"] == nil {
+		t.Errorf("a working list is used as it is: %+v, %v", got, err)
+	}
+
+	got, err = interfacesWithFallback(failing, func() (net.IP, error) { return net.ParseIP("192.168.50.60"), nil })
+	if err != nil || len(got[fallbackInterface]) != 1 {
+		t.Fatalf("a blocked list falls back to the default route's address: %+v, %v", got, err)
+	}
+	if sug, ok := suggestionFor(fallbackInterface, got[fallbackInterface][0]); !ok || sug.CIDR != "192.168.50.0/24" {
+		t.Errorf("the fallback must suggest the /24 around the address, got %+v, %v", sug, ok)
+	}
+
+	if _, err := interfacesWithFallback(failing, func() (net.IP, error) { return nil, errors.New("no route") }); err == nil || !strings.Contains(err.Error(), "netlinkrib") {
+		t.Errorf("when neither works the original error is reported, got %v", err)
 	}
 }

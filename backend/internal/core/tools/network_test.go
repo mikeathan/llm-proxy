@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -416,5 +417,16 @@ func TestNetworkTools_FetchURL_ReportsItsOwnCut(t *testing.T) {
 	}
 	if lines := fetch("/short"); len(lines) != 0 {
 		t.Errorf("a page that fits must report nothing, got %q", lines)
+	}
+}
+
+// Without a netlink socket the interfaces cannot be listed; the default route's address on a /24 stands in.
+func TestOutboundSubnet_IsTheDefaultRoutesAddressOnASlash24(t *testing.T) {
+	ip, subnet, err := outboundSubnet(errors.New("netlinkrib: address family not supported by protocol"))
+	if err != nil {
+		t.Skipf("no default route here: %v", err)
+	}
+	if ones, bits := subnet.Mask.Size(); ones != 24 || bits != 32 || !subnet.Contains(net.ParseIP(ip)) {
+		t.Errorf("subnet %s does not hold %s as a /24", subnet, ip)
 	}
 }

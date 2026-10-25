@@ -1,10 +1,8 @@
 package process
 
 import (
+	"bufio"
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,16 +79,20 @@ var agentCommandCallers = []string{
 	"internal/shell/terminal.go",
 }
 
+// callMarker is how a spawn site calls the helper from outside this package.
+const callMarker = "process.AgentCommand("
+
+// The scan reads each source file line by line and keeps nothing: an earlier version parsed every file in the repository
+// into one syntax-tree set, and the memory that held ran a CI runner out under the race detector.
 func TestAgentCommandHasOnlyTheKnownCallers(t *testing.T) {
 	root := backendRoot(t)
-	fset := token.NewFileSet()
 	found := map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "node_modules" || d.Name() == "frontend_dist" {
+			if d.Name() == "node_modules" || d.Name() == "frontend_dist" || d.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -98,25 +100,14 @@ func TestAgentCommandHasOnlyTheKnownCallers(t *testing.T) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		file, parseErr := parser.ParseFile(fset, path, nil, 0)
-		if parseErr != nil {
-			return nil
+		calls, err := callsAgentCommand(path)
+		if err != nil {
+			return err
 		}
-		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || sel.Sel.Name != "AgentCommand" {
-				return true
-			}
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "process" {
-				rel, _ := filepath.Rel(root, path)
-				found[filepath.ToSlash(rel)] = true
-			}
-			return true
-		})
+		if calls {
+			rel, _ := filepath.Rel(root, path)
+			found[filepath.ToSlash(rel)] = true
+		}
 		return nil
 	})
 	if err != nil {
@@ -132,6 +123,27 @@ func TestAgentCommandHasOnlyTheKnownCallers(t *testing.T) {
 			t.Errorf("%s is listed as a spawn site but no longer calls process.AgentCommand; remove it from the list", file)
 		}
 	}
+}
+
+// callsAgentCommand reports whether a source file calls process.AgentCommand on a line that is not a comment.
+func callsAgentCommand(path string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "//") {
+			continue
+		}
+		if strings.Contains(line, callMarker) {
+			return true, nil
+		}
+	}
+	return false, scanner.Err()
 }
 
 func backendRoot(t *testing.T) string {

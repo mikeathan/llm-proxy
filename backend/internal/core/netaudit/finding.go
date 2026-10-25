@@ -14,6 +14,9 @@ type Port struct {
 	Service string `json:"service,omitempty"`
 	Product string `json:"product,omitempty"`
 	Version string `json:"version,omitempty"`
+	// Guessed means Service is only the usual name for that port number (nmap's port table), not something the scan
+	// confirmed by talking to the service.
+	Guessed bool `json:"guessed,omitempty"`
 }
 
 // Host is one address a scan looked at.
@@ -45,12 +48,22 @@ func FindingsOf(hosts []Host) []Finding {
 				continue
 			}
 			out = append(out, Finding{
-				Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Service: p.Service, Version: joinVersion(p),
+				Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Service: serviceLabel(p), Version: joinVersion(p),
 				Check: CheckOpenPort, Severity: SeverityInfo,
 			})
 		}
 	}
 	return out
+}
+
+// guessedSuffix marks a service name that is only the usual one for the port.
+const guessedSuffix = " (guess)"
+
+func serviceLabel(p Port) string {
+	if p.Guessed && p.Service != "" {
+		return p.Service + guessedSuffix
+	}
+	return p.Service
 }
 
 func joinVersion(p Port) string {

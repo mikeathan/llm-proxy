@@ -156,8 +156,35 @@ func suggestionFor(name string, a net.Addr) (Suggestion, bool) {
 	return Suggestion{Interface: name, CIDR: prefix.String(), Devices: scanscope.HostCount(prefix)}, true
 }
 
-// systemInterfaces reads the machine's interfaces.
+// fallbackInterface names the one network found without listing interfaces.
+const (
+	fallbackInterface = "default route"
+	// fallbackProbeTarget is only used to ask the kernel which local address it would send from; an UDP "connection"
+	// sends nothing.
+	fallbackProbeTarget = "8.8.8.8:80"
+	fallbackMaskBits    = 24
+)
+
+// systemInterfaces reads the machine's interfaces. On a host where the service may not open a netlink socket (a systemd
+// unit with RestrictAddressFamilies) the list fails; it then falls back to the one address the default route sends from,
+// assumed to sit on a /24, so the operator still gets a network to pick.
 func systemInterfaces() (map[string][]net.Addr, error) {
+	return interfacesWithFallback(listInterfaces, outboundIP)
+}
+
+func interfacesWithFallback(list func() (map[string][]net.Addr, error), outbound func() (net.IP, error)) (map[string][]net.Addr, error) {
+	out, err := list()
+	if err == nil {
+		return out, nil
+	}
+	ip, outErr := outbound()
+	if outErr != nil {
+		return nil, err
+	}
+	return map[string][]net.Addr{fallbackInterface: {&net.IPNet{IP: ip, Mask: net.CIDRMask(fallbackMaskBits, 8*net.IPv4len)}}}, nil
+}
+
+func listInterfaces() (map[string][]net.Addr, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
@@ -171,4 +198,18 @@ func systemInterfaces() (map[string][]net.Addr, error) {
 		out[iface.Name] = addrs
 	}
 	return out, nil
+}
+
+// outboundIP is the local IPv4 address the default route would send from.
+func outboundIP() (net.IP, error) {
+	conn, err := net.Dial("udp4", fallbackProbeTarget)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok || addr.IP == nil {
+		return nil, fmt.Errorf("no local address")
+	}
+	return addr.IP, nil
 }

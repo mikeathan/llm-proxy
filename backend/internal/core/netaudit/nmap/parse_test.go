@@ -102,3 +102,21 @@ func TestParsePartialXML_KeepsTheHostsThatFinishedBeforeTheCut(t *testing.T) {
 		t.Errorf("complete output still parses: %+v", got)
 	}
 }
+
+// A service name nmap only looked up by port number is marked as a guess; one it confirmed by probing is not. On a real
+// scan 8081 came back as "blackice-icecap", which the model took for a legacy intrusion-detection tool.
+func TestParseXML_MarksServicesNmapOnlyGuessedFromThePort(t *testing.T) {
+	xml := `<nmaprun><host><status state="up"/><address addr="10.0.0.1" addrtype="ipv4"/><ports>
+<port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="8081"><state state="open"/><service name="blackice-icecap" method="table" conf="3"/></port>
+<port protocol="tcp" portid="9999"><state state="open"/></port>
+</ports></host></nmaprun>`
+	hosts, err := ParseXML(strings.NewReader(xml))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ports := hosts[0].Ports
+	if ports[0].Guessed || !ports[1].Guessed || ports[2].Guessed {
+		t.Errorf("guessed flags = %v %v %v, want false true false (no service at all is not a guess)", ports[0].Guessed, ports[1].Guessed, ports[2].Guessed)
+	}
+}
