@@ -1,7 +1,7 @@
 # Network audit — guarded programs, an nmap scan tool, and a nightly auditor agent
 
 **Status:** proposed (2026-10-24, revised 2026-10-25 after a plan-vs-code review). D1–D12 decided by the owner
-(§2); open facts in §11. Phase 0 mostly done; Phase 1 built on branch `network-audit-catalog` (2026-10-25).
+(§2); open facts in §11. Phases 0–3 merged (PR #137); Phase 4 built on branch `network-audit-engine` (2026-10-25).
 **Related Specs:** SPEC-006 (Guardrails §II.6–II.7), SPEC-007 (Automation Dispatcher), SPEC-012 (Prompt Profiles),
 SPEC-001 (Agent Loop), SPEC-003 (UI), SPEC-009 (Communication).
 **Constitution refs:** I.1–I.3 (network guardrails), II.3 (sandbox isolation, env allow-list), II.10 (guardrail
@@ -517,8 +517,35 @@ an unused helper would be dead code (Constitution IV.4).
   `progexec`) and the per-program read grants in the sandbox API (needs the `progexec` design). The Constitution/SPEC-006/
   SPEC-012 text still needs the owner's security review.
 
+**Phase 4 done (branch `network-audit-engine`):**
+- `platform/progexec`: `Runner.Run` (explicit env, run dir, timeout, capped stdout, process-group kill, fails closed on
+  `Effective().Filesystem.Mechanism == none` unless `netaudit.allow_unconfined`), `Detect` with the install hint, `CleanEnv`;
+  `sandbox.WorkspaceView.ReadPaths` is the per-program read grant (Landlock only; **not yet verified on Ubuntu**).
+  A test pins the files allowed to call `process.AgentCommand` (shell, one-shot terminal, progexec).
+- `core/netaudit`: `Mode` table (discover, ports, services; `services` needs nmap), `Finding`, `Service` (authorise → one scan
+  at a time → nmap, or the labelled limited engine for an attended run; an unattended run or a nmap-only mode never falls back),
+  `Readiness` (`Blocking()` is settings-only and drives the tool's visibility; `Check()` adds nmap and sandbox), `ports.go`.
+- `netaudit/nmap`: argv from a mode table (a test pins the allowed flag set and refuses `-iL`, `--script*`, `--datadir`,
+  `--proxies`, `-o*` files…), XML parser with fixtures captured from real nmap 7.99, hostile-banner cleaning (control chars,
+  secret redaction, length cut), NMAPDIR pinned. `netaudit/portprobe`: the Go connect prober (guard re-check before every dial,
+  64 workers, 50k probe cap). `netaudit/scantool`: the `network_scan` tool module (untrusted-data fence + reading rule).
+- `scan_local_network` is deleted (code, tests, manifest entry); `network_scan` is category `netaudit`, reach lan, mutating.
+  The templates, frontend step label, SPEC-006 (§II.7.6) and the agent-loop skill follow. `GET /admin/api/netaudit/readiness`.
+- Checked live on macOS against this machine's own LAN address: real nmap through `progexec` in all three modes, the fallback
+  with nmap marked unavailable, and loopback / public / documentation addresses refused.
+- **Speed, measured on a real /24 (192.168.50.0/24, 8 live hosts, 24 ports):** the first cut was slow — nmap `ports` took 136 s
+  because it scanned every dead address (`-Pn`), and with host discovery it took 23 s but found 6 hosts, not 8; the Go prober took
+  45 s. Retries on silent hosts dominate nmap's time (max-retries 0 brought discovery to 7 s but lost hosts), so liveness is now
+  the Go sweep's job. **Quick (default):** the limited engine sweeps the targets on six shared liveness ports (22, 80, 443, 445,
+  5000, 8080; a refusal counts as alive; 256 workers, 700 ms), then the engine looks at only the live hosts (`-Pn`, `-T4`,
+  common ports). Through the real service: discover 4.2 s, ports 8.9 s with nmap (same 8 up / 17 open as the Go prober),
+  services 25.5 s. **Thorough (`thorough: true`, for audits):** no sweep, every address, `-Pn`, `-T3`, `--max-rate 100`,
+  top 100 ports — unchanged from the first cut, and the slow one by design.
+- Not done: the Ubuntu run (Landlock grants for nmap), persisted `allowed_tools` entries
+  that still name `scan_local_network` (they now match nothing).
+
 Not done from §4.1: a `validateCategory` case for the future `network_scan` (it now dispatches network tools by `Gate`, so a
 new row with `GateNetwork` gets the L1 checks); the `validateNetwork` scan/info messages still name the two tools.
 
-**Everything else:** Suggested first PR: Phase 0 (characterisation tests + the verifications) — it changes no behaviour and
+**Everything else (Phase 5 onwards; the UI waits for the wireframes, F-0):** Suggested first PR: Phase 0 (characterisation tests + the verifications) — it changes no behaviour and
 settles the open facts in §11. All twelve decisions are made.

@@ -64,8 +64,10 @@ var toolCatalog = []ToolSpec{
 	{Name: ToolFileEditBlock, Category: CategoryFileSystem},
 	{Name: ToolDirectoryList, Category: CategoryFileSystem, Effect: EffectReadOnly},
 	{Name: ToolNetworkFetch, Category: CategoryNetwork, Effect: EffectReadOnly, Reach: ReachAny, Gate: GateNetwork},
-	{Name: ToolNetworkScan, Category: CategoryNetwork, Effect: EffectReadOnly, Reach: ReachLAN, Gate: GateNetwork},
 	{Name: ToolNetworkInfo, Category: CategoryNetwork, Effect: EffectReadOnly, Reach: ReachLAN, Gate: GateNetwork},
+	// network_scan sends connection probes to other hosts, so it is not read-only: a failed call must not let the rest
+	// of a batch run on as if nothing happened.
+	{Name: ToolNetworkScan, Category: CategoryNetaudit, Reach: ReachLAN, Gate: GateNetwork},
 	{Name: ToolApplyGuardrails, Category: CategoryGlobal},
 	{Name: ToolMemorySearch, Category: CategoryMemory, Effect: EffectReadOnly},
 	{Name: ToolMemoryUpdate, Category: CategoryMemory, Effect: EffectHousekeeping},

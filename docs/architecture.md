@@ -19,6 +19,8 @@ This document contains architectural reference material extracted from the agent
 ### Core Systems
 
 - `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
+- `internal/core/netaudit/` — network-audit domain: scan scope, modes, scan service, readiness; engines in `nmap/` and `portprobe/`, the agent tool in `scantool/`
+- `internal/platform/progexec/`, `internal/platform/scanscope/` — the guarded-program runner and the scan-target policy
 - `internal/core/toolregistry/` — the local tool registry, MCP engine and the composite provider/engine (wired by `InitializeAgentStack`)
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)

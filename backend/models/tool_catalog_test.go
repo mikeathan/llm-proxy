@@ -36,7 +36,7 @@ func TestEffectOf(t *testing.T) {
 }
 
 func TestGateOf(t *testing.T) {
-	if got := ToolsWithGate(GateNetwork); !slices.Equal(got, []string{ToolNetworkFetch, ToolNetworkScan, ToolNetworkInfo}) {
+	if got := ToolsWithGate(GateNetwork); !slices.Equal(got, []string{ToolNetworkFetch, ToolNetworkInfo, ToolNetworkScan}) {
 		t.Errorf("network gate tools = %v", got)
 	}
 	if GateOf(ToolTerminalExecute) != GateNone {

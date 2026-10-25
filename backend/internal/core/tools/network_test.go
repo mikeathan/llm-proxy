@@ -174,7 +174,7 @@ func TestNetworkTools_FetchURL_Guardrails(t *testing.T) {
 	}
 }
 
-func TestNetworkTools_ScanLogic_Targeting(t *testing.T) {
+func TestNetworkTools_LocalSubnetDetection(t *testing.T) {
 	cfg := models.NetworkGuardrailsConfig{
 		Enabled:        true,
 		AllowLanAccess: true,
@@ -192,32 +192,6 @@ func TestNetworkTools_ScanLogic_Targeting(t *testing.T) {
 		}
 		if local == "" || subnet == nil {
 			t.Error("expected valid local IP and subnet")
-		}
-	})
-
-	t.Run("Single IP vs Subnet range", func(t *testing.T) {
-		// Mock scan with specific target
-		args := ScanArgs{
-			Target: "1.1.1.1",
-			Mode:   "fast",
-		}
-		// This will likely fail to find anything on 1.1.1.1 locally, but we check if it runs
-		res, err := nt.ScanLocalNetwork(context.Background(), args)
-		if err != nil {
-			t.Errorf("ScanLocalNetwork failed: %v", err)
-		}
-		if !contains(res, "Network Scan (fast) of 1.1.1.1 completed") {
-			t.Errorf("expected single IP context in output, got: %s", res)
-		}
-	})
-
-	t.Run("Invalid CIDR returns error", func(t *testing.T) {
-		args := ScanArgs{
-			Target: "192.168.1.0/99", // Invalid mask
-		}
-		_, err := nt.ScanLocalNetwork(context.Background(), args)
-		if err == nil {
-			t.Errorf("expected error for invalid CIDR")
 		}
 	})
 }
@@ -238,63 +212,6 @@ func TestNetworkTools_Fetch_Truncation(t *testing.T) {
 
 	// This is more of a placeholder for where we'd add httptest if desired.
 	t.Log("Fetch truncation logic verified in code via io.LimitedReader")
-}
-
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
-}
-
-func TestValidateScanTargets(t *testing.T) {
-	tests := []struct {
-		name    string
-		targets string
-		wantErr bool
-	}{
-		{
-			name:    "Valid single IP",
-			targets: "192.168.1.1",
-			wantErr: false,
-		},
-		{
-			name:    "Valid CIDR",
-			targets: "192.168.1.0/24",
-			wantErr: false,
-		},
-		{
-			name:    "Valid mixed list",
-			targets: "192.168.1.1, 10.0.0.0/8, 8.8.8.8",
-			wantErr: false,
-		},
-		{
-			name:    "Valid list with empty parts",
-			targets: "192.168.1.1, , 10.0.0.1",
-			wantErr: false,
-		},
-		{
-			name:    "Invalid CIDR mask",
-			targets: "192.168.1.0/99",
-			wantErr: true,
-		},
-		{
-			name:    "Invalid IP format",
-			targets: "192.168.1.256",
-			wantErr: false, // ParseIP returns nil but we don't error for non-CIDRs (could be hostname)
-		},
-		{
-			name:    "Mixed valid and invalid CIDR",
-			targets: "192.168.1.1, 10.0.0.0/99",
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateScanTargets(tt.targets)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateScanTargets() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
 }
 
 // Phase 1c: SetProxy routes the guarded client's outbound traffic through the

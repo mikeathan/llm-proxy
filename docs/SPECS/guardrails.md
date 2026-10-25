@@ -1,9 +1,9 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.6"
+version: "1.7"
 status: stable
-last_updated: 2026-10-22
+last_updated: 2026-10-25
 constitution_references: [II.3]
 related_specs: [SPEC-001]
 supersedes:
@@ -13,6 +13,13 @@ supersedes:
 
 ## Changelog
 
+- **1.7 (2026-10-25)** — Guarded programs (new §II.7.6): a known external program (nmap first) is started only by
+  `platform/progexec` with code-built arguments, an explicit environment and a private run directory, through the
+  sandbox provider; on a host with no OS file confinement it does not run unless the operator opts in. The scan tool
+  moves to its own category: `scan_local_network` is replaced by `network_scan` (category `netaudit`). Tool facts
+  (category, effect, network reach, gate) now come from one catalog (`models/tool_catalog.go`), from which
+  `hostNetworkGatedTools` and `scopeForbiddenTools` are derived. Constitution text for guarded programs is drafted in
+  `docs/PLANS/cross-cutting/network-audit.md` §8 and awaits the security review.
 - **1.6 (2026-10-22)** — An approval covers the call the user was shown, not the tool. "Allow once" (and an "Allow and
   remember" with nothing to remember) used to mark the whole tool for 30 minutes: every other command, path or query in
   that workspace then skipped the guardrails, the secret check included. `MarkApproved` now records the tool with the
@@ -183,7 +190,7 @@ return EOF). It is matched by exact literal only, so permitting it does not open
 `DisabledToolNames(workspaceID)` returns the tool names whose category has a hard "disabled by
 policy" gate (`Enabled == false`), or whose category is closed by the host-level network gate
 (§II.7): `notify_user` (Communication), `internet_search` (Search),
-`fetch_url` / `scan_local_network` / `get_network_info` (Network). Workspace overrides are merged
+`fetch_url` / `get_network_info` (Network) and `network_scan` (Netaudit). Workspace overrides are merged
 exactly as `ValidateToolCall` resolves them, and tools with an active in-memory override are
 skipped. Terminal/filesystem categories are allowlist-based (no `Enabled` hard gate) and are not
 covered.
@@ -219,7 +226,7 @@ Host-level OS sandboxing (plan: `docs/PLANS/cross-cutting/agent-os-sandboxing.md
    state + merged guardrails + the run's network grant (assistant: workspace scope;
    automation: declared grant or workspace scope).
 3. **Network default-off.** When the effective network scope is none, network-category tools
-   (`fetch_url`, `scan_local_network`, `get_network_info`, `internet_search`, connector-send)
+   (`fetch_url`, `network_scan`, `get_network_info`, `internet_search`, connector-send)
    are hidden at the schema narrow waist (§II.6) in BOTH native and XML-text tool modes, and
    any residual call path returns a synchronous, non-approvable security-boundary rejection —
    never the approval flow (§II.3). Inbound webhook receipt is exempt (server-side,
@@ -229,7 +236,7 @@ Host-level OS sandboxing (plan: `docs/PLANS/cross-cutting/agent-os-sandboxing.md
    does not imply LAN. The resolved run scope is the full combination: `none` (off), `lan`
    (local network only), `internet_only` (internet with the local network blocked), or
    `internet` (both). At `lan`, internet-only egress (`internet_search`, connector send) is
-   hidden and hard-denied; at `internet_only`, the local-network tools (`scan_local_network`,
+   hidden and hard-denied; at `internet_only`, the local-network tools (`network_scan`,
    `get_network_info`, and `fetch_url` to private addresses) are hidden and hard-denied. The
    forbidden sets come from one source (`scopeForbiddenTools`), shared by the schema
    (`DisabledToolNamesForScope`) and the non-approvable hard gate (`securityHardGates`).
@@ -257,6 +264,20 @@ Host-level OS sandboxing (plan: `docs/PLANS/cross-cutting/agent-os-sandboxing.md
    With the proxy on, the in-process `fetch_url` applies the LAN/internet policy to the original URL and to
    every redirect target before following it; the proxy re-resolves names without that policy, so a DNS answer
    that changes to a LAN address between the two lookups is a known residual.
+
+6. **Guarded programs (`platform/progexec`).** A tool that runs a known external program does not use the
+   shell. The runner: refuses an invocation without an explicit environment (a nil one would inherit the host's), a
+   run directory, a timeout and an output cap; resolves the binary itself and builds the command through
+   `process.AgentCommand` (own process group, killed whole on timeout or cancel); wraps it with the sandbox
+   provider, confined to a private per-run directory plus read-only grants for the program's own data
+   (`WorkspaceView.ReadPaths`); and returns stdout only, capped. It fails closed on what the provider actually
+   enforces: when `Effective().Filesystem.Mechanism` is `none` (macOS, or `sandboxing.filesystem` off) the
+   program does not start unless the operator has set `netaudit.allow_unconfined` — a development shortcut. The set of
+   files that may call `process.AgentCommand` is pinned by a test, so a new spawn site is a reviewed change.
+   Targets are policy in the domain, not the runner: `platform/scanscope` authorises every scan target (resolved in
+   process, every address private IPv4 and inside the operator's declared ranges; empty list = scanning off) and the
+   engines receive addresses only. A scan uses an unprivileged connect scan, never a model-chosen flag; a
+   `local_only` profile (SPEC-012) refuses to run on a non-local model client.
 
 Security-boundary denials from either kind surface as guardrail *rejections* on the existing
 synchronous path (§II.3): `guardrail_violation` event, tool not executed, `stopBatch` set —

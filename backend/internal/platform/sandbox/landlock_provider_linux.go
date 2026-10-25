@@ -170,6 +170,7 @@ func (lp landlockProvider) Wrap(cmd *exec.Cmd, ws WorkspaceView) error {
 	support := make([]string, 0, len(linuxSupportPaths)+8)
 	support = append(support, linuxSupportPaths...)
 	support = append(support, loaderDirs()...)
+	support = append(support, ws.ReadPaths...)
 	p := DefaultProfile(ws.RootPath, toolchainDirs(cmd.Env), support)
 	p.NeedTraverse()
 

@@ -75,7 +75,7 @@ const (
 
 	// Network
 	ToolNetworkFetch = "fetch_url"
-	ToolNetworkScan  = "scan_local_network"
+	ToolNetworkScan  = "network_scan" // the netaudit category
 	ToolNetworkInfo  = "get_network_info"
 
 	// Security/Admin
@@ -103,6 +103,7 @@ const (
 	CategoryCommunication = "communication"
 	CategoryFileSystem    = "filesystem"
 	CategoryNetwork       = "network"
+	CategoryNetaudit      = "netaudit"
 	CategoryGlobal        = "security"
 	CategoryMemory        = "memory"
 	CategoryReminders     = "reminders"

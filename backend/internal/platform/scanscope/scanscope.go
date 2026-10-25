@@ -113,6 +113,20 @@ func (p Policy) Authorize(ctx context.Context, r Resolver, targets []string) ([]
 	return out, nil
 }
 
+// Check reports whether one address may be scanned right now: scannable in principle and inside a declared range.
+// The engines call it just before they touch an address, as the last line of defence behind Authorize.
+func (p Policy) Check(a netip.Addr) error {
+	a = a.Unmap()
+	prefix := netip.PrefixFrom(a, a.BitLen())
+	if err := checkScannable(prefix); err != nil {
+		return fmt.Errorf("%s: %w", a, err)
+	}
+	if !p.contains(prefix) {
+		return fmt.Errorf("%s: %w", a, ErrOutOfScope)
+	}
+	return nil
+}
+
 // contains reports whether prefix lies wholly inside one declared range.
 func (p Policy) contains(prefix netip.Prefix) bool {
 	for _, allowed := range p.Allowed {
