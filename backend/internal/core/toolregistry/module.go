@@ -14,7 +14,7 @@ import (
 // Module is a family of tools with its own manifests. Each tool's schema comes from
 // `<category>.json` in Manifests, the category being the one the models tool catalog gives the tool.
 type Module struct {
-	// Manifests holds the family's manifest files at its root.
+	// Manifests holds the family's manifest files at its root. Nil means the built-in manifests (core/tools/manifests).
 	Manifests fs.FS
 	// Handlers maps a tool name to its handler (build one with Handle).
 	Handlers map[string]ToolHandler
@@ -39,7 +39,7 @@ func Handle[T any](fn func(context.Context, T) (any, error)) ToolHandler {
 func (r *LocalToolRegistry) Use(m Module) *LocalToolRegistry {
 	for name, handler := range m.Handlers {
 		key := models.CategoryOf(name)
-		params, desc, err := tools.LoadManifestFromFS(m.Manifests, key, name)
+		params, desc, err := m.loadManifest(key, name)
 		if err != nil {
 			logging.Warn("failed to load tool manifest", "key", key, "tool", name, "error", err)
 			continue
@@ -51,4 +51,11 @@ func (r *LocalToolRegistry) Use(m Module) *LocalToolRegistry {
 		}
 	}
 	return r
+}
+
+func (m Module) loadManifest(key, name string) (map[string]any, string, error) {
+	if m.Manifests == nil {
+		return tools.LoadManifestAsTool(key, name)
+	}
+	return tools.LoadManifestFromFS(m.Manifests, key, name)
 }

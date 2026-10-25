@@ -191,7 +191,7 @@ another's side effects. `toolpolicy.EffectFor(name)` classifies each tool:
 
 | Effect | Tools | Batch after a non-fatal failure |
 |---|---|---|
-| `EffectReadOnly` | `fetch_url`, `internet_search`, `read_file`, `list_directory`, `memory_search`, `get_network_info`, `scan_local_network` | continues |
+| `EffectReadOnly` | `fetch_url`, `internet_search`, `read_file`, `list_directory`, `memory_search`, `get_network_info` | continues |
 | `EffectHousekeeping` | `memory_update`, `automation_journal` | stops |
 | `EffectMutating` (default: every unlisted and MCP tool) | `write_file`, terminal, `notify_user`, … | stops |
 

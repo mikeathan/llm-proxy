@@ -42,7 +42,7 @@ func TestEffectFor(t *testing.T) {
 		{models.ToolDirectoryList, EffectReadOnly},
 		{models.ToolMemorySearch, EffectReadOnly},
 		{models.ToolNetworkInfo, EffectReadOnly},
-		{models.ToolNetworkScan, EffectReadOnly},
+		{models.ToolNetworkScan, EffectMutating},
 		{models.ToolMemoryUpdate, EffectHousekeeping},
 		{models.ToolAutomationJournal, EffectHousekeeping},
 		{models.ToolFileWrite, EffectMutating},

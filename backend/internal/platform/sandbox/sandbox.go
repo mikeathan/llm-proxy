@@ -68,6 +68,9 @@ type WorkspaceView struct {
 	RootPath    string // workspace absolute path (grant root)
 	NetworkOn   bool   // OS network state for this process (D8)
 	Epoch       int64  // policy epoch the spawn was resolved under
+	// ReadPaths are extra directories the child may read (a guarded program's own data files), granted read-only on
+	// top of the default profile.
+	ReadPaths []string
 }
 
 // Provider wraps a prepared exec.Cmd so the child runs under the OS sandbox.

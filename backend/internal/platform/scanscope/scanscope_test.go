@@ -128,3 +128,22 @@ func TestAuthorize_HostCap(t *testing.T) {
 		t.Errorf("a zero MaxHosts must fall back to the default cap, got %v", err)
 	}
 }
+
+func TestPolicy_CheckIsTheLastLineOfDefence(t *testing.T) {
+	p := policy("192.168.1.0/24")
+	if err := p.Check(netip.MustParseAddr("192.168.1.9")); err != nil {
+		t.Errorf("an address in range: %v", err)
+	}
+	if err := p.Check(netip.MustParseAddr("::ffff:192.168.1.9")); err != nil {
+		t.Errorf("an IPv4-mapped address in range: %v", err)
+	}
+	if err := p.Check(netip.MustParseAddr("192.168.2.9")); !errors.Is(err, ErrOutOfScope) {
+		t.Errorf("outside the range: %v", err)
+	}
+	if err := p.Check(netip.MustParseAddr("8.8.8.8")); !errors.Is(err, ErrNotScannable) {
+		t.Errorf("a public address: %v", err)
+	}
+	if err := (Policy{}).Check(netip.MustParseAddr("192.168.1.9")); !errors.Is(err, ErrOutOfScope) {
+		t.Errorf("no declared range allows nothing: %v", err)
+	}
+}

@@ -636,13 +636,6 @@ func (r *LocalToolRegistry) registerNetworkTools() {
 		return r.Network.FetchURL(ctx, args.URL)
 	})
 
-	registerTool(r, models.ToolNetworkScan, func(ctx context.Context, args tools.ScanArgs) (any, error) {
-		if r.Network == nil {
-			return nil, fmt.Errorf("network tools not configured")
-		}
-		return r.Network.ScanLocalNetwork(ctx, args)
-	})
-
 	registerTool(r, models.ToolNetworkInfo, func(ctx context.Context, args struct{}) (any, error) {
 		if r.Network == nil {
 			return nil, fmt.Errorf("network tools not configured")

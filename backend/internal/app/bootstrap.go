@@ -114,6 +114,7 @@ func (c *Container) BuildAppServices() *AppServices {
 			EgressEnv:    egressEnv,
 		},
 	)
+	s.wireNetaudit(c.Core.AppCtx.dataMgr)
 	c.watchConnectorConfig(s)
 	c.initReminders(s)
 	// The sub-agent runner gets a copy of the services taken now, before it is set: a child run's own services have
@@ -357,6 +358,8 @@ type AppServices struct {
 	// subRunner runs delegated tasks. The runner keeps its own copy of these services taken before this is set, so a
 	// child run has none: delegation is one level deep by construction.
 	subRunner assistantPkg.SubRunner
+	// netaudit is the network-audit scope and readiness the admin API serves; the scan tool is registered with it.
+	netaudit *netauditServices
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {

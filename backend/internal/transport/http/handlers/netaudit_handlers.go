@@ -7,6 +7,7 @@ import (
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/platform/scanscope"
+	"llm-proxy/models"
 )
 
 // NetauditScope is the part of the scan-scope service the handlers use.
@@ -17,13 +18,31 @@ type NetauditScope interface {
 	Suggestions() ([]netaudit.Suggestion, error)
 }
 
-// NetauditHandlers serves the operator's network-audit settings.
-type NetauditHandlers struct {
-	scope NetauditScope
+// NetauditReadiness answers what is missing before scans can run.
+type NetauditReadiness interface {
+	Check(ctx context.Context) []models.Requirement
 }
 
-func NewNetauditHandlers(scope NetauditScope) *NetauditHandlers {
-	return &NetauditHandlers{scope: scope}
+// NetauditHandlers serves the operator's network-audit settings.
+type NetauditHandlers struct {
+	scope     NetauditScope
+	readiness NetauditReadiness
+}
+
+func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness) *NetauditHandlers {
+	return &NetauditHandlers{scope: scope, readiness: readiness}
+}
+
+// GetReadiness lists every unmet prerequisite with the one step that would meet it. An empty list means scans can run.
+func (h *NetauditHandlers) GetReadiness(w http.ResponseWriter, r *http.Request) {
+	requirements := h.readiness.Check(r.Context())
+	if requirements == nil {
+		requirements = []models.Requirement{}
+	}
+	respondJSON(w, struct {
+		Ready        bool                 `json:"ready"`
+		Requirements []models.Requirement `json:"requirements"`
+	}{Ready: len(requirements) == 0, Requirements: requirements})
 }
 
 // scopeResponse is the scan scope with the networks the machine is attached to, so the settings page can offer them.

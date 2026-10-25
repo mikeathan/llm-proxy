@@ -72,10 +72,10 @@ alias of `internet`).
 |---|---|---|---|---|
 | A: `fetch_url` offered | yes | yes | yes | hidden |
 | A: `internet_search` offered (internet-only egress) | yes | **hidden** | yes | hidden |
-| A: `scan_local_network` / `get_network_info` offered | yes | yes | **hidden** | hidden |
+| A: `network_scan` / `get_network_info` offered | yes | yes | **hidden** | hidden |
 | A: `fetch_url` to a **public** host | allowed | **denied** | allowed | denied / absent |
 | A: `fetch_url` to a **LAN/private** host | allowed | allowed | **denied** | denied / absent |
-| A: `scan_local_network` / `get_network_info` call | allowed | allowed | absent | absent |
+| A: `network_scan` / `get_network_info` call | allowed | allowed | absent | absent |
 | B: shell `curl https://…` | allowed | OS may still allow — see note | OS may still allow — see note | OS may still allow — see note |
 | B: shell DNS resolve | allowed | OS may still allow | OS may still allow | OS may still allow |
 | C: read / write outside workspace | denied | denied | denied | denied |
@@ -107,7 +107,7 @@ target — say so explicitly (that alone does not fail the run; it makes A3 unve
 ### Surface A — Tool-layer network (schema + tool denial)
 
 1. Report which of these tools were offered in your tool schema: `internet_search`,
-   `fetch_url`, `scan_local_network`, `get_network_info`, `notify_user`. Compare with the
+   `fetch_url`, `network_scan`, `get_network_info`, `notify_user`. Compare with the
    matrix above for the configured grant.
 2. Attempt ONE `fetch_url` to a public host: `https://example.com/`.
 3. Attempt ONE `fetch_url` to the operator's `LAN_HOST` (a private address). Under `internet_only`

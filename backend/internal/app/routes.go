@@ -3,8 +3,6 @@ package app
 import (
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/eventbus"
-	"llm-proxy/internal/core/netaudit"
-	"net"
 	"net/http"
 
 	"llm-proxy/internal/buildinfo"
@@ -85,7 +83,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
-	hs.Netaudit = handlers.NewNetauditHandlers(netaudit.NewScope(s.AppCtx.dataMgr.Netaudit(), net.DefaultResolver, nil))
+	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness)
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -311,6 +309,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/helpers", hs.Helpers.Status, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/scope", hs.Netaudit.GetScope, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/scope", hs.Netaudit.PutScope, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/readiness", hs.Netaudit.GetReadiness, jsonMethodNotAllowed)
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)

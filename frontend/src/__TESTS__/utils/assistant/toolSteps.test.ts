@@ -14,7 +14,7 @@ describe('describeToolStep', () => {
     ['memory_search', '{"query":"incident"}', { kind: 'memory-search', verb: 'Searched memory', target: 'incident' }],
     ['memory_update', '{"content":"The commander is Marcus."}', { kind: 'memory-save', verb: 'Saved to memory', target: 'The commander is Marcus.' }],
     ['memory_forget', '{"text":"vertex host"}', { kind: 'memory-forget', verb: 'Forgot a memory', target: 'vertex host' }],
-    ['scan_local_network', '{}', { kind: 'network', verb: 'Scanned the local network', target: '' }],
+    ['network_scan', '{}', { kind: 'network', verb: 'Scanned the network', target: '' }],
     ['notify_user', '{"message":"done"}', { kind: 'notify', verb: 'Sent a notification', target: 'done' }],
     ['delegate_task', '{"tasks":[{"agent":"web-researcher","task":"Rust news"},{"agent":"web-researcher","task":"Go news"}]}',
       { kind: 'delegate', verb: 'Asked helpers', target: 'Rust news · Go news' }],

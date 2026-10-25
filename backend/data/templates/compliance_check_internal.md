@@ -9,18 +9,19 @@ Audit internal hosts for the presence of legacy or high-risk services that shoul
 
 - Scan the **local subnet of this host** (derive it from the host's own IP via the `get_network_info` tool, or scan the detected gateway's subnet, e.g. `192.168.x.0/24`).
 - Do NOT scan external/cloud ranges or the metadata IP `169.254.169.254`.
+- `network_scan` only scans addresses the operator has allowed (Settings → Network scan). If it refuses a target, say so in the report and stop.
 
 ### Execution Strategy
 
 #### Action: High-Risk Service Audit
-**Action:** Use `scan_local_network` with specific ports: [21,23,111,445,2049,3389,5900] on the local subnet.
+**Action:** Use `network_scan` with `mode: "ports"`, `ports: "21,23,111,445,2049,3389,5900"` and the local subnet as the target.
 *   **Port 21/23**: FTP/Telnet (Unencrypted Admin)
 *   **Port 445**: SMB (File Sharing)
 *   **Port 111/2049**: NFS (Network File System)
 *   **Port 3389/5900**: Remote Desktop (RDP/VNC)
 
 #### Evidence Verification
-For every open high-risk port reported, **confirm it with a second probe** (re-run a targeted deep scan on that IP:port, or probe the port directly) and record the evidence. Do not list a port as open without confirmation.
+For every open high-risk port reported, **confirm it with a second probe** (re-run `network_scan` with `mode: "ports"` and `ports` set to that one port on that IP) and record the evidence. Do not list a port as open without confirmation.
 
 ### Analysis Goals
 *   Verify if exposure is justified by business need.

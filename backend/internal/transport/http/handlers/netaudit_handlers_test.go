@@ -33,7 +33,7 @@ func (noResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, er
 
 func newNetauditTestHandlers() (*NetauditHandlers, *scopeStore) {
 	store := &scopeStore{}
-	return NewNetauditHandlers(netaudit.NewScope(store, noResolver{}, nil)), store
+	return NewNetauditHandlers(netaudit.NewScope(store, noResolver{}, nil), stubReadiness{}), store
 }
 
 func putScope(h *NetauditHandlers, body string) *httptest.ResponseRecorder {
@@ -89,5 +89,30 @@ func TestNetauditHandlers_PutScopeLeavesOmittedFieldsAlone(t *testing.T) {
 	}
 	if rec := putScope(h, `{"entries":[]}`); rec.Code != http.StatusOK || len(store.cfg.ScanRanges) != 0 || !store.cfg.AllowUnconfined {
 		t.Errorf("an empty list turns scanning off and keeps the switch: %+v (%d)", store.cfg, rec.Code)
+	}
+}
+
+type stubReadiness struct{ reqs []models.Requirement }
+
+func (s stubReadiness) Check(context.Context) []models.Requirement { return s.reqs }
+
+func TestNetauditHandlers_GetReadiness(t *testing.T) {
+	get := func(r NetauditReadiness) map[string]any {
+		h := NewNetauditHandlers(netaudit.NewScope(&scopeStore{}, noResolver{}, nil), r)
+		rec := httptest.NewRecorder()
+		h.GetReadiness(rec, httptest.NewRequest(http.MethodGet, "/admin/api/netaudit/readiness", nil))
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	ready := get(stubReadiness{})
+	if ready["ready"] != true || ready["requirements"] == nil {
+		t.Errorf("ready host = %v (requirements must be [], not null)", ready)
+	}
+	missing := get(stubReadiness{reqs: []models.Requirement{{Code: models.RequirementScopeEmpty, Blocking: true, Message: "m"}}})
+	if missing["ready"] != false || len(missing["requirements"].([]any)) != 1 {
+		t.Errorf("missing = %v", missing)
 	}
 }
