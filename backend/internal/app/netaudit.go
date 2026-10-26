@@ -74,7 +74,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	nmapEngine := nmap.New(runner)
 	probe := portprobe.New(func(a netip.Addr) error { return scope.Policy().Check(a) })
 	service := netaudit.NewService(
-		netaudit.PolicyAuthorizer{Policy: scope.Policy, Resolver: net.DefaultResolver}, nmapEngine, probe)
+		netaudit.PolicyAuthorizer{Policy: scope.Policy, Resolver: net.DefaultResolver}, nmapEngine, probe).WithDeviceTimeout(scope.DeviceTimeout)
 
 	readiness := netaudit.NewReadiness(netaudit.ReadinessDeps{
 		Config:        store.Get,

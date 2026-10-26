@@ -92,6 +92,16 @@ Returns full admin state: active model, available models, guardrails config, pro
 
 A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `profile` name a profile; an unknown id is `400`.
 
+### Network scan
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin/api/netaudit/scope` | The allowed scan ranges (CIDR, device count), `allow_unconfined`, and the networks this machine is on as suggestions |
+| PUT | `/admin/api/netaudit/scope` | Replace the ranges (`entries`), set `allow_unconfined` and/or `device_timeout_minutes` (0 standard, 5 or 7: how long a scan may spend on one device); a field left out stays; a refused entry or a time that is not offered is a `400` and nothing is saved |
+| GET | `/admin/api/netaudit/readiness` | `{ready, requirements[]}`: what is missing before a scan can run, each with the one fix |
+| GET | `/admin/api/netaudit/findings?workspace_id&automation` | The automation's latest scan: findings (each with `key`, `new`, `changed` + `previous_version`, `accepted`), what was resolved, `unscanned` devices (the scan ran out of time on them; their earlier findings are kept) and `devices_up` |
+| GET / POST / DELETE | `/admin/api/netaudit/acks` | List, accept (`key`, `note`, `days`) or take back (`?key`) an accepted finding |
+
 ### Providers
 
 | Method | Path | Description |

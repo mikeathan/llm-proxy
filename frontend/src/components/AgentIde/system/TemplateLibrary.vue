@@ -5,6 +5,9 @@ import type { Template, TemplateMetadata } from '../../../types/templates';
 import type { ChoiceOption } from '../../../types/ui';
 import BaseButton from '../../common/buttons/BaseButton.vue';
 import MicroLabel from '../../common/display/MicroLabel.vue';
+import { useProfiles } from '../../../composables/assistant/useProfiles';
+import { NETWORK_GRANT_LABEL } from '../../../constants/labels';
+import { profileLabel } from '../../../utils/assistant/profileChoice';
 import SearchInput from '../../common/forms/SearchInput.vue';
 import SelectInput from '../../common/forms/SelectInput.vue';
 import LoadingState from '../../common/feedback/LoadingState.vue';
@@ -27,6 +30,16 @@ const emit = defineEmits<{
 }>();
 
 const ALL_CATEGORIES = '';
+
+// What creating an automation from a playbook will set up, so nobody has to open it to find out.
+const { profiles } = useProfiles();
+function usesOf(t: TemplateMetadata): string {
+  const d = t.defaults;
+  const parts: string[] = [];
+  if (d?.profile) parts.push(profileLabel(profiles.value, 'automation', d.profile));
+  if (d?.network_grant) parts.push(NETWORK_GRANT_LABEL[d.network_grant] ?? d.network_grant);
+  return parts.join(' · ');
+}
 
 const templates = ref<TemplateMetadata[]>([]);
 const loading = ref(true);
@@ -102,6 +115,8 @@ onMounted(fetchTemplates);
           <span class="font-mono text-[length:var(--text-micro)] text-faint">{{ t.id }}</span>
         </span>
         <h3 class="m-0 text-[length:var(--text-body)] font-semibold text-primary">{{ t.name }}</h3>
+        <p v-if="t.description" class="m-0 text-[length:var(--text-small)] text-secondary">{{ t.description }}</p>
+        <p v-if="usesOf(t)" class="m-0 text-[length:var(--text-small)] text-muted" data-test="uses">Sets up: {{ usesOf(t) }}</p>
         <span class="mt-auto flex flex-wrap gap-2">
           <BaseButton variant="secondary" size="sm" icon="plus" @click="handleAction(t.id, 'create')">New file</BaseButton>
           <BaseButton variant="secondary" size="sm" icon="play" @click="emit('create-automation', t.id)">Create automation</BaseButton>

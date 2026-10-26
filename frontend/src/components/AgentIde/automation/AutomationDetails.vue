@@ -31,6 +31,12 @@ import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import EmptyState from "../../common/feedback/EmptyState.vue";
 import ChatMessages from "../assistant/ChatMessages.vue";
+import FindingsReport from "../../netaudit/FindingsReport.vue";
+import AuditSetupCheck from "../../netaudit/AuditSetupCheck.vue";
+import FailureExplanation from "../../netaudit/FailureExplanation.vue";
+import NetauditToolbar from "../../netaudit/NetauditToolbar.vue";
+import NetauditHelp from "../../netaudit/NetauditHelp.vue";
+import { AUDITOR_PROFILE } from "../../../constants/netaudit";
 import GuardrailBanner from "../../common/chat/GuardrailBanner.vue";
 
 // One automation (plan Phase 5): its configuration, the latest result, the
@@ -199,6 +205,13 @@ const runKey = (run: AutomationRun) => run.id;
       </dl>
     </Panel>
 
+    <template v-if="automation.profile === AUDITOR_PROFILE">
+      <NetauditToolbar />
+      <AuditSetupCheck :profile="automation.profile" :network-grant="automation.network_grant" :automation-id="automation.id" />
+      <FindingsReport :workspace-id="automation.workspace" :automation="automation.name" :refresh-key="`${showLiveUI}|${activeRun?.id ?? ''}`" />
+      <NetauditHelp />
+    </template>
+
     <Panel v-if="!showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" title="Last result">
       <div v-if="!automation.last_error && automation.last_warnings?.length" class="mb-3 flex flex-col gap-2">
         <StatusTag v-bind="runOutcomeTag({ error: '', warnings: automation.last_warnings })" />
@@ -209,7 +222,7 @@ const runKey = (run: AutomationRun) => run.id;
           <StatusTag state="error" label="Failed" />
           <CopyButton :text="automation.last_error" title="Copy last error" />
         </span>
-        <pre class="m-0 whitespace-pre-wrap break-words font-mono text-[length:var(--text-small)] text-state-error">{{ automation.last_error }}</pre>
+        <FailureExplanation :error="automation.last_error" :automation-id="automation.id" />
       </div>
       <div v-if="automation.last_output" class="flex flex-col gap-1">
         <span class="flex items-baseline justify-between gap-2">

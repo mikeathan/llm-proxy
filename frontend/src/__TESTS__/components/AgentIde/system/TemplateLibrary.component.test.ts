@@ -10,9 +10,14 @@ vi.mock('../../../../services/template/templateService', () => ({
   },
 }))
 
+vi.mock('../../../../services/profile/profileService', () => ({
+  ProfileService: { list: vi.fn().mockResolvedValue([{ id: 'security-auditor', name: 'Security auditor', summary: 'Scans.', source: 'builtin', answer_first: false, may_ask: false, memory_save: 'off', reminders: false, default_for: [] }]) },
+}))
+
 const templates = [
   { id: 'pb-scan', name: 'Port Scan with a deliberately long playbook title that must stay whole', category: 'Recon' },
   { id: 'pb-report', name: 'Write Report', category: 'Docs' },
+  { id: 'network-audit', name: 'Network Audit', category: 'network', description: 'Scans the networks you allowed.', defaults: { profile: 'security-auditor', network_grant: 'lan' as const } },
 ]
 
 async function mountLibrary(props: Record<string, unknown> = {}) {
@@ -30,10 +35,18 @@ beforeEach(() => {
 describe('TemplateLibrary (Playbooks section)', () => {
   it('lists every playbook with visible actions and whole titles', async () => {
     const w = await mountLibrary()
-    expect(w.findAll('[data-test="playbook"]')).toHaveLength(2)
-    expect(button(w, 'New file')).toHaveLength(2)
+    expect(w.findAll('[data-test="playbook"]')).toHaveLength(3)
+    expect(button(w, 'New file')).toHaveLength(3)
     expect(w.text()).toContain('deliberately long playbook title that must stay whole')
     expect(w.find('.truncate').exists()).toBe(false)
+  })
+
+  it('says what a playbook is for and what creating an automation from it sets up', async () => {
+    const w = await mountLibrary()
+    const audit = w.findAll('[data-test="playbook"]').find((p) => p.text().includes('Network Audit'))!
+    expect(audit.text()).toContain('Scans the networks you allowed.')
+    expect(audit.get('[data-test="uses"]').text()).toBe('Sets up: Security auditor · Local network only')
+    expect(w.findAll('[data-test="uses"]')).toHaveLength(1)
   })
 
   it('filters by search text and by category', async () => {
@@ -54,7 +67,7 @@ describe('TemplateLibrary (Playbooks section)', () => {
 
   it('starts a new automation from a playbook without fetching its text', async () => {
     const w = await mountLibrary()
-    expect(button(w, 'Create automation')).toHaveLength(2)
+    expect(button(w, 'Create automation')).toHaveLength(3)
     await button(w, 'Create automation')[1]!.trigger('click')
     expect(w.emitted('create-automation')).toEqual([['pb-report']])
     expect(TemplateService.getTemplate).not.toHaveBeenCalled()

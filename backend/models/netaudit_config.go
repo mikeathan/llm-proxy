@@ -9,4 +9,7 @@ type NetauditConfig struct {
 	// AllowUnconfined lets a scan program run on a host with no OS file confinement. Development only: without it
 	// such a host refuses to run guarded programs.
 	AllowUnconfined bool `yaml:"allow_unconfined,omitempty" json:"allow_unconfined"`
+	// DeviceTimeoutMinutes is how long a scan may spend on one device before it gives up on it. 0 is the standard
+	// (1 minute for a quick scan, 3 for a thorough one); the other allowed values are netaudit.AllowedDeviceTimeouts.
+	DeviceTimeoutMinutes int `yaml:"device_timeout_minutes,omitempty" json:"device_timeout_minutes"`
 }

@@ -15,7 +15,8 @@ import { triggerLabel } from "../../../utils/automation/automationDisplay";
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { defaultProfile, profileLabel } from "../../../utils/assistant/profileChoice";
 import { useProfiles } from "../../../composables/assistant/useProfiles";
-import { AGENT_LABEL } from "../../../constants/labels";
+import { AGENT_LABEL, NETWORK_GRANT_LABEL } from "../../../constants/labels";
+import AuditSetupCheck from "../../netaudit/AuditSetupCheck.vue";
 import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, journalLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
 import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
@@ -104,10 +105,25 @@ async function applyStart() {
   await onChoosePlaybook(playbook);
 }
 
+// What the chosen playbook asks of the automation (its agent, network access, journal). Only what it declares is set,
+// the agent only when that agent exists, and each stays editable below.
+async function applyPlaybookDefaults() {
+  const { profile, network_grant, journal, schedule } = authoring.defaults.value;
+  if (profile && !profiles.value.some((p) => p.id === profile)) await refreshProfiles();
+  if (profile && profiles.value.some((p) => p.id === profile)) form.value.profile = profile;
+  if (network_grant !== undefined) form.value.networkGrant = network_grant;
+  if (journal !== undefined) form.value.journal = journal;
+  if (schedule) {
+    form.value.triggerType = "cron";
+    form.value.triggerValue = schedule;
+  }
+}
+
 const playbookKey = ref(0);
 async function onChoosePlaybook(id: string) {
   try {
     if (!(await authoring.choosePlaybook(id))) playbookKey.value++;
+    else await applyPlaybookDefaults();
   } catch (err) {
     playbookKey.value++;
     toast.error(`Could not load that playbook: ${err instanceof Error ? err.message : err}`);
@@ -115,19 +131,11 @@ async function onChoosePlaybook(id: string) {
 }
 const newTaskFile = computed(() => (form.value.name ? taskFileName(form.value.name) : ""));
 
-const NETWORK_LABEL: Record<string, string> = {
-  "": "Inherit workspace settings",
-  none: "No network",
-  lan: "Local network only",
-  internet_only: "Internet only",
-  internet: "Local network + Internet",
-};
-
 const { automationDefaultOn } = useMemoryDefaults();
 const memoryLabel = (mode: MemoryMode) => memoryModeLabel(mode, automationDefaultOn.value);
 
 // The profile says how the run behaves; the hint reads what the chosen one (or the default) is for.
-const { profiles } = useProfiles();
+const { profiles, refresh: refreshProfiles } = useProfiles();
 // An automation whose saved profile no longer exists keeps that value visible (and replaceable) rather than a blank select.
 const profileChoices = computed(() => {
   const saved = form.value.profile;
@@ -264,7 +272,7 @@ const review = computed(() => [
   ["Model", form.value.model || "Workspace default"],
   [AGENT_LABEL, profileLabel(profiles.value, "automation", form.value.profile)],
   ["Runs", triggerLabel({ trigger: form.value.triggerType, trigger_value: form.value.triggerValue })],
-  ["Network", NETWORK_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
+  ["Network", NETWORK_GRANT_LABEL[form.value.networkGrant] ?? form.value.networkGrant],
   ["Memory", memoryLabel(form.value.memoryMode)],
   ["Delivery", deliveryLabel(notifyFromForm(form.value))],
   ["When busy", busyLabel(form.value.triggerType !== "manual" && form.value.skipIfBusy)],
@@ -311,6 +319,7 @@ const review = computed(() => [
     </Panel>
 
     <Panel title="Model & access">
+      <AuditSetupCheck class="mb-4" :profile="form.profile" :network-grant="form.networkGrant" fixable @use-local-network="form.networkGrant = 'lan'" />
       <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-4">
         <FormField label="Connection">
           <template #default="{ id }">
@@ -353,7 +362,7 @@ const review = computed(() => [
         >
           <template #default="{ id, describedBy }">
             <select :id="id" v-model="form.networkGrant" :aria-describedby="describedBy" class="form-control">
-              <option v-for="(label, value) in NETWORK_LABEL" :key="value" :value="value">{{ label }}</option>
+              <option v-for="(label, value) in NETWORK_GRANT_LABEL" :key="value" :value="value">{{ label }}</option>
             </select>
           </template>
         </FormField>

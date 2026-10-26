@@ -117,3 +117,12 @@ export function agentDeletePrompt(agent: { name: string; replaces_builtin: boole
   if (namedBy.length > 0) parts.push(`${namedBy.join(', ')} ${namedBy.length === 1 ? 'lists' : 'list'} it as a helper and will stop using it.`)
   return { title: `Delete ${agent.name}?`, message: parts.join(' '), type: 'warning', confirmText: agent.replaces_builtin ? 'Restore built-in' : 'Delete' } as const
 }
+
+/** What each network access choice of an automation means, for the form, its review and the playbook library. */
+export const NETWORK_GRANT_LABEL: Record<string, string> = {
+  '': 'Inherit workspace settings',
+  none: 'No network',
+  lan: 'Local network only',
+  internet_only: 'Internet only',
+  internet: 'Local network + Internet',
+}

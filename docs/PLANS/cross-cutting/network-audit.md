@@ -571,6 +571,18 @@ desktop and phone width (grouped by device, new/changed/accepted/resolved, the a
 "not scanned to completion" notice), and the nightly-audit setup checklist. Four decisions to confirm are on the canvas. Nothing
 in F-A (the UI build) starts before this is signed off.
 
+**F-A built** (branch `netaudit-ui`, 2026-10-25): Settings → Safety → Network scan (Simple "Use my network" / Advanced ranges,
+suggestions, typed entries, unconfined switch), `ReadinessBanner`, the Help panel, `FindingsReport` (Simple/Advanced, accept and
+take back) on `security-auditor` automations, and `findingView.Key` on the findings API. Not in it: the nightly-audit setup
+checklist (board 6; needs a create-automation path that sets profile `security-auditor`, `network_grant: lan`, journal off), and
+per-host "not scanned to completion" (the findings API does not expose it yet).
+
+**Setup made one path (2026-10-25):** no separate "create audit" endpoint. `network_audit.md` (was `nightly_network_audit.md`; `compliance_check_internal.md` and `network_recon_unprivileged.md` were removed — they are this audit with a `PORTS` line / `DEPTH: thorough`, and need `get_network_info`, which the auditor lacks) declares `**Agent:** security-auditor`,
+`**Network:** lan`, `**Journal:** off` and has editable `TARGETS` / `DEPTH` / `PORTS` / extra-instruction sections; the ordinary new-automation
+form applies the declared settings; playbook headers also carry `**Summary:**` and `**Schedule:**` (cron); Settings → Network scan has a "Set up a network audit" button (enabled once a scan could run) that opens that form from the playbook.
+`network_scan` with no `targets` scans every allowed range (`Policy.Authorize`), so a model never guesses a network (an auditor run that
+named no target had guessed 192.168.1.0/24). Also built: `AuditSetupCheck` (readiness + "this automation can't reach your network") in the form and on the page, `FailureExplanation` (plain failures with the fix, raw text behind "Show details"), playbook library descriptions and "Sets up:" line. Per-device time: `netaudit.device_timeout_minutes` (0 standard = 60 s quick / 180 s thorough; 5 or 7), Advanced-only "Scan time" panel (anchor `#scan-time`, reached from the report's "Allow more time"); a device that times out is retried once with twice the time when at least 90 s of the 8-minute scan budget remain (`Service.retryUnscanned`). The choices stop at 7 minutes because an automation run is capped at 10 minutes. The report refetches when a run starts or finishes (`refreshKey`). The Network audit panel lists existing audits (automations on the Security auditor; `AuditList`) and offers "Set up" only when none exists ("Add another audit" in Advanced). Still to do: `checks` mode (nmap safe scripts); password testing needs its own decision and a Constitution review.
+
 Not done from §4.1: a `validateCategory` case for the future `network_scan` (it now dispatches network tools by `Gate`, so a
 new row with `GateNetwork` gets the L1 checks); the `validateNetwork` scan/info messages still name the two tools.
 

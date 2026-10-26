@@ -144,6 +144,31 @@ func TestRunReporter_AHostTheScanGaveUpOnKeepsItsEarlierFindingsAndIsFlagged(t *
 	}
 }
 
+func TestRunReporter_TheBaselineRecordsWhatChangedWhatWasUnscannedAndHowManyAnswered(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime)
+	r.Augment(scanned(finding("10.0.0.1", 22, "9.6p1"), finding("10.0.0.2", 445, "")), "ws", "nightly", "")
+
+	ctx, c := WithCollector(context.Background())
+	c.Add(Result{Engine: "nmap", Hosts: []Host{
+		{Addr: netip.MustParseAddr("10.0.0.1"), Up: true, Ports: []Port{{Number: 22, Proto: "tcp", State: "open", Version: "9.7p1"}}},
+		{Addr: netip.MustParseAddr("10.0.0.2"), Up: true, Unscanned: true},
+		{Addr: netip.MustParseAddr("10.0.0.3"), Up: false},
+	}})
+	r.Augment(ctx, "ws", "nightly", "")
+
+	b := store.data["ws/nightly"]
+	if was, ok := b.ChangedFrom[finding("10.0.0.1", 22, "").Key()]; !ok || was != "9.6p1" {
+		t.Errorf("ChangedFrom = %v, want the ssh finding's earlier version", b.ChangedFrom)
+	}
+	if len(b.Unscanned) != 1 || b.Unscanned[0] != "10.0.0.2" {
+		t.Errorf("Unscanned = %v", b.Unscanned)
+	}
+	if b.DevicesUp != 2 {
+		t.Errorf("DevicesUp = %d, want 2", b.DevicesUp)
+	}
+}
+
 type memAcks struct {
 	acks     []models.ScanAck
 	readErr  error

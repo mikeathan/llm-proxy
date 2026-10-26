@@ -103,7 +103,7 @@ func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.R
 		Env:       append(progexec.CleanEnv(root), "NMAPDIR="+dataDir),
 		Root:      root,
 		ReadPaths: []string{dataDir, filepath.Dir(installed.Path)},
-		Timeout:   scanTimeout,
+		Timeout:   runLimit(req),
 		MaxOutput: maxOutput,
 	})
 	if errors.Is(err, progexec.ErrTimedOut) {
@@ -125,6 +125,15 @@ func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.R
 		res.Warnings = append(res.Warnings, "nmap output was cut at the size limit; some hosts may be missing")
 	}
 	return res, nil
+}
+
+// runLimit is how long nmap may run for a request: the caller's bound when it set one (never longer than the engine's own),
+// else the engine's.
+func runLimit(req netaudit.ScanRequest) time.Duration {
+	if req.Timeout > 0 && req.Timeout < scanTimeout {
+		return req.Timeout
+	}
+	return scanTimeout
 }
 
 // dataDir finds the directory with nmap's data files; the scan pins nmap to it through NMAPDIR so nmap never
