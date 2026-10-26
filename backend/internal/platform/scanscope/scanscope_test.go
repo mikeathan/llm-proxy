@@ -111,7 +111,7 @@ func TestAuthorize_Scope(t *testing.T) {
 }
 
 func TestAuthorize_NoTargetsScansEveryRangeButNothingElse(t *testing.T) {
-	got, err := policy("192.168.50.0/30", "10.0.0.0/30").Authorize(context.Background(), nil, nil)
+	got, err := policy("192.168.1.0/30", "10.0.0.0/30").Authorize(context.Background(), nil, nil)
 	if err != nil || len(got) != 4 {
 		t.Fatalf("got %d addresses, err %v; want the two usable addresses of each range", len(got), err)
 	}

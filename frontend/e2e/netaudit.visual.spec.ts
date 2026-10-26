@@ -4,7 +4,7 @@ import { DEFAULT_CONFIG } from '../src/composables/models/useConfig'
 // Settings → Network scan at both widths, Simple and Advanced: nothing may scroll sideways and the main button is a
 // comfortable touch target. The screenshots are for looking at; they are not compared.
 const scope = {
-  ranges: [{ cidr: '192.168.50.0/24', devices: 254 }],
+  ranges: [{ cidr: '192.168.1.0/24', devices: 254 }],
   allow_unconfined: false,
   suggestions: [{ interface: 'en0', cidr: '10.0.0.0/24', devices: 254 }],
 }

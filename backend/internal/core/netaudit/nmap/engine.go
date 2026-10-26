@@ -16,10 +16,10 @@ import (
 // EngineName labels results produced by this engine.
 const EngineName = "nmap"
 
-// Run limits. The scan must end before an automation's own time cap (10 minutes by default) so the run can still write
-// its report; a scan that runs out of time returns the hosts it finished.
+// Run limits. The scan must end inside netaudit.ScanBudget so the run can still write its report; a scan that runs out
+// of time returns the hosts it finished.
 const (
-	scanTimeout   = 8 * time.Minute
+	scanTimeout   = netaudit.ScanBudget
 	maxOutput     = 4 << 20
 	runDirPattern = "netaudit-nmap-*"
 	nmapDataFile  = "nmap-services"

@@ -345,6 +345,37 @@ func TestRunContext_ModelTimeoutWins(t *testing.T) {
 	}
 }
 
+// TestRunContext_AProfileMayHaveALongerCap: a run of a profile that needs more time than the default (a network audit
+// waits on a scan) gets that profile's cap; the longer of the profile cap and the model's timeout wins, and every other
+// profile keeps the dispatcher cap.
+func TestRunContext_AProfileMayHaveALongerCap(t *testing.T) {
+	d, err := NewDispatcher(DispatcherDeps{Executor: &mockExecutor{}, Logger: logging.NewNopLogger(), Lane: newTestLane(), LaneKeyFor: testLaneKeyFor},
+		WithProfileTimeout("slow-profile", 20*time.Minute))
+	if err != nil {
+		t.Fatalf("dispatcher: %v", err)
+	}
+	defer d.Stop(context.Background())
+
+	capOf := func(profile string) time.Duration {
+		ctx, cancel := d.runContext(context.Background(), &AutomationEntry{Name: "a", Profile: profile})
+		defer cancel()
+		deadline, ok := ctx.Deadline()
+		if !ok {
+			t.Fatal("expected a deadline on the run context")
+		}
+		return time.Until(deadline)
+	}
+	if got := capOf("slow-profile"); got < 20*time.Minute-time.Second {
+		t.Errorf("the profile's cap should apply, got %v", got)
+	}
+	if got := capOf("other"); got > defaultAutomationTimeout+time.Second {
+		t.Errorf("another profile keeps the dispatcher cap, got %v", got)
+	}
+	if got := capOf(""); got > defaultAutomationTimeout+time.Second {
+		t.Errorf("no profile keeps the dispatcher cap, got %v", got)
+	}
+}
+
 type slowModelExecutor struct {
 	mockExecutor
 	timeout time.Duration

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -17,16 +18,19 @@ import (
 // from the network is cut, stripped of control characters and scrubbed of secret-shaped text before it goes
 // anywhere else.
 const (
-	maxFieldLen   = 80
-	maxHosts      = 4096
-	maxPortsEach  = 1024
-	maxXMLBytes   = 8 << 20
-	stateOpen     = "open"
-	stateUp       = "up"
-	protoTCP      = "tcp"
-	methodTable   = "table"
-	addrTypeIPv4  = "ipv4"
-	truncationEnd = "…"
+	maxFieldLen  = 80
+	maxHosts     = 4096
+	maxPortsEach = 1024
+	// maxScriptOutput bounds what is kept of one script's output; the checks only need to see a few dozen lines.
+	maxScriptOutput = 4096
+	maxScriptsEach  = 16
+	maxXMLBytes     = 8 << 20
+	stateOpen       = "open"
+	stateUp         = "up"
+	protoTCP        = "tcp"
+	methodTable     = "table"
+	addrTypeIPv4    = "ipv4"
+	truncationEnd   = "…"
 )
 
 type xmlRun struct {
@@ -34,6 +38,8 @@ type xmlRun struct {
 }
 
 type xmlHost struct {
+	// TimedOut is set by nmap on a host it gave up on at --host-timeout; it prints such a host with no ports.
+	TimedOut  bool         `xml:"timedout,attr"`
 	Status    xmlState     `xml:"status"`
 	Addresses []xmlAddress `xml:"address"`
 	Ports     []xmlPort    `xml:"ports>port"`
@@ -49,10 +55,17 @@ type xmlAddress struct {
 }
 
 type xmlPort struct {
-	Protocol string     `xml:"protocol,attr"`
-	ID       int        `xml:"portid,attr"`
-	State    xmlState   `xml:"state"`
-	Service  xmlService `xml:"service"`
+	Protocol string      `xml:"protocol,attr"`
+	ID       int         `xml:"portid,attr"`
+	State    xmlState    `xml:"state"`
+	Service  xmlService  `xml:"service"`
+	Scripts  []xmlScript `xml:"script"`
+}
+
+// xmlScript is one script's result on a port: its id and the text it printed.
+type xmlScript struct {
+	ID     string `xml:"id,attr"`
+	Output string `xml:"output,attr"`
 }
 
 type xmlService struct {
@@ -108,6 +121,11 @@ func convertHost(h xmlHost) (netaudit.Host, bool) {
 			continue
 		}
 		host := netaudit.Host{Addr: addr, Up: h.Status.State == stateUp}
+		if h.TimedOut {
+			// Ran out of time: whatever it printed is incomplete, so its ports are unknown, not "none open".
+			host.Unscanned = true
+			return host, true
+		}
 		for i, p := range h.Ports {
 			if i == maxPortsEach {
 				break
@@ -119,6 +137,7 @@ func convertHost(h xmlHost) (netaudit.Host, bool) {
 				Number: p.ID, Proto: p.Protocol, State: clean(p.State.State),
 				Service: clean(p.Service.Name), Product: clean(p.Service.Product), Version: clean(p.Service.Version),
 				Guessed: p.Service.Name != "" && p.Service.Method == methodTable,
+				Scripts: convertScripts(p.Scripts),
 			})
 		}
 		return host, true
@@ -138,6 +157,39 @@ func clean(s string) string {
 	s = tools.RedactSecrets(strings.TrimSpace(s))
 	if len([]rune(s)) > maxFieldLen {
 		s = string([]rune(s)[:maxFieldLen]) + truncationEnd
+	}
+	return s
+}
+
+// convertScripts keeps the output of the reviewed check scripts on a port, each cleaned and bounded. Any other script
+// nmap ran (it adds some of its own while identifying services) is dropped: nothing reads it, and it is text from the
+// device.
+func convertScripts(in []xmlScript) []netaudit.Script {
+	var out []netaudit.Script
+	for _, s := range in {
+		if len(out) == maxScriptsEach {
+			break
+		}
+		if !slices.Contains(netaudit.CheckScriptNames(), s.ID) {
+			continue
+		}
+		out = append(out, netaudit.Script{ID: s.ID, Output: cleanScript(s.Output)})
+	}
+	return out
+}
+
+// cleanScript is clean for text that has lines: newlines are kept (the checks read it line by line), other control
+// characters are removed, secret-shaped text is redacted and the length is cut.
+func cleanScript(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || unicode.IsPrint(r) {
+			return r
+		}
+		return -1
+	}, s)
+	s = tools.RedactSecrets(s)
+	if len([]rune(s)) > maxScriptOutput {
+		s = string([]rune(s)[:maxScriptOutput]) + truncationEnd
 	}
 	return s
 }

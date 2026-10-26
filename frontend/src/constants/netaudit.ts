@@ -37,6 +37,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'A network scan looks at the devices on your own network and lists which doors are open on each one: the services that answer when something knocks.',
       'It only looks. It never changes a device, signs in to one or tries passwords.',
       'A nightly audit runs a scan on a schedule and tells you only what is new since the last time.',
+      'Checks look for common weak settings on the services found: SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more. They only read; nothing tries a password and nothing changes on a device.',
     ],
   },
   setup: {
@@ -100,5 +101,17 @@ export const SCAN_TIME_ANCHOR = 'scan-time'
 export const DEVICE_TIME_OPTIONS: ChoiceOption[] = [
   { value: '0', label: 'Standard' },
   { value: '5', label: '5 minutes' },
-  { value: '7', label: '7 minutes' },
+  { value: '10', label: '10 minutes' },
 ]
+
+/**
+ * How a finding's severity looks. A check stands out from the plain open ports around it: a thick coloured edge and a
+ * tint (red for critical and high, amber for medium and low); open ports stay plain.
+ */
+export const SEVERITY_CARD_CLASS: Record<string, string> = {
+  critical: 'border-state-error bg-state-error/[0.10]',
+  high: 'border-state-error bg-state-error/[0.10]',
+  medium: 'border-state-running bg-state-running/[0.10]',
+  low: 'border-state-running bg-state-running/[0.10]',
+}
+export const PLAIN_CARD_CLASS = 'border-hairline bg-surface'

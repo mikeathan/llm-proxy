@@ -132,7 +132,7 @@ onMounted(async () => {
       </Panel>
 
       <Panel v-if="advanced" :id="SCAN_TIME_ANCHOR" title="Scan time">
-        <FormField label="Time allowed per device" hint="Raise this if a slow device keeps showing as not scanned. A device that runs out of time is tried once more with twice as long. Audits stop after 10 minutes in total, so longer choices are not offered.">
+        <FormField label="Time allowed per device" hint="Raise this if a slow device keeps showing as not scanned. A device that runs out of time is tried once more with twice as long. A whole scan may take up to 12 minutes.">
           <template #default="{ id, describedBy }">
             <SelectInput
               :id="id"

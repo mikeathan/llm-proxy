@@ -152,7 +152,7 @@ func TestScope_DeviceTimeoutIsOneOfTheOfferedChoices(t *testing.T) {
 			t.Errorf("%d minutes: err %v, timeout %v", minutes, err, s.DeviceTimeout())
 		}
 	}
-	if err := s.SetDeviceTimeout(30); !errors.Is(err, ErrBadDeviceTimeout) || store.cfg.DeviceTimeoutMinutes != 7 {
+	if err := s.SetDeviceTimeout(30); !errors.Is(err, ErrBadDeviceTimeout) || store.cfg.DeviceTimeoutMinutes != 10 {
 		t.Errorf("a choice that is not offered must be refused and change nothing: %v, stored %d", err, store.cfg.DeviceTimeoutMinutes)
 	}
 }

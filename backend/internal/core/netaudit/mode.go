@@ -13,6 +13,9 @@ const (
 	ModePorts Mode = "ports"
 	// ModeServices finds the open ports and identifies the service and version behind each.
 	ModeServices Mode = "services"
+	// ModeChecks does everything services does, then runs a short fixed list of safe nmap scripts on what it found
+	// (see CheckScriptNames): weak settings such as SMBv1, anonymous FTP or a Redis with no password.
+	ModeChecks Mode = "checks"
 )
 
 // ModeSpec is what the platform knows about a mode.
@@ -29,6 +32,7 @@ var modeTable = map[Mode]ModeSpec{
 	ModeDiscover: {Description: "Find which addresses answer"},
 	ModePorts:    {Description: "Find open TCP ports"},
 	ModeServices: {Description: "Identify the service and version on each open port", NeedsNmap: true},
+	ModeChecks:   {Description: "Identify services, then run a short fixed list of safe checks on them", NeedsNmap: true},
 }
 
 // Valid reports whether m is a known mode.

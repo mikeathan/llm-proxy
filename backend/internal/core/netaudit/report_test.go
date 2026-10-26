@@ -103,3 +103,38 @@ func TestSummaryOf_IsCountsOnlyAndNothingFromTheNetwork(t *testing.T) {
 		t.Errorf("first scan: %q", first)
 	}
 }
+
+func TestRenderObserved_ChecksGetTheirOwnTableWithSeverityAndOurWords(t *testing.T) {
+	findings := []Finding{
+		{Device: "192.0.2.10", Port: 445, Proto: "tcp", Service: "microsoft-ds", Check: CheckOpenPort, Severity: SeverityInfo},
+		{Device: "192.0.2.10", Port: 445, Proto: "tcp", Service: "microsoft-ds", Check: CheckSMBv1, Severity: SeverityHigh, Evidence: "SMBv1 is enabled | <b>x</b>"},
+	}
+	first := RenderObserved(Observed{ScannedAt: reportTime, Result: Result{Engine: "nmap", Findings: findings}})
+	for _, want := range []string{"all 1 open port(s) and 1 check finding(s) are recorded", "### Open ports", "### Checks", "| 192.0.2.10 | 445/tcp | high |"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("first scan: missing %q:\n%s", want, first)
+		}
+	}
+	if strings.Contains(first, "<b>") || strings.Contains(first, "SMBv1 is enabled |") {
+		t.Errorf("evidence is escaped like every cell:\n%s", first)
+	}
+
+	later := RenderObserved(Observed{ScannedAt: reportTime, Previous: reportTime.Add(-24 * time.Hour), Result: Result{Engine: "nmap", Findings: findings}, Delta: Delta{New: findings[1:]}})
+	if !strings.Contains(later, "### New checks") || strings.Contains(later, "### New\n") {
+		t.Errorf("a new check is listed under its own heading, not as a port:\n%s", later)
+	}
+}
+
+func TestSummaryOf_CountsChecksWithoutNamingThem(t *testing.T) {
+	findings := []Finding{
+		{Device: "10.0.0.1", Port: 445, Proto: "tcp", Check: CheckOpenPort, Severity: SeverityInfo},
+		{Device: "10.0.0.1", Port: 445, Proto: "tcp", Check: CheckSMBv1, Severity: SeverityHigh, Evidence: "SMBv1 is enabled"},
+	}
+	got := SummaryOf(Observed{ScannedAt: reportTime, Result: Result{Findings: findings}}, "audit")
+	if !strings.Contains(got, "1 open port(s)") || !strings.Contains(got, "1 check finding(s)") {
+		t.Errorf("summary = %q", got)
+	}
+	if strings.Contains(got, "SMB") || strings.Contains(got, "10.0.0.1") {
+		t.Errorf("a connector message carries counts only: %q", got)
+	}
+}

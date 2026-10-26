@@ -12,8 +12,8 @@
       },
       "mode": {
         "type": "string",
-        "enum": ["discover", "ports", "services"],
-        "description": "discover: which addresses answer. ports: open TCP ports. services: open ports plus the service and version on each (needs nmap)."
+        "enum": ["discover", "ports", "services", "checks"],
+        "description": "discover: which addresses answer. ports: open TCP ports. services: open ports plus the service and version on each (needs nmap). checks: services, then a short fixed list of safe checks on what was found, such as SMBv1, anonymous FTP, a Redis or VNC with no password, an expired certificate (needs nmap)."
       },
       "ports": {
         "type": "string",

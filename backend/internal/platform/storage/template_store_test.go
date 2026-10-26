@@ -264,7 +264,7 @@ func TestShippedNetworkAuditDeclaresTheAuditorSettings(t *testing.T) {
 	if got.Defaults.Schedule != "0 2 * * *" || got.Description == "" {
 		t.Errorf("the audit starts on a nightly schedule and says what it is for: %+v", got)
 	}
-	for _, line := range []string{"TARGETS: all allowed", "DEPTH: thorough", "PORTS: default"} {
+	for _, line := range []string{"TARGETS: all allowed", "DEPTH: thorough", "PORTS: default", "CHECKS: on"} {
 		if !strings.Contains(got.Content, line) {
 			t.Errorf("missing the editable line %q", line)
 		}

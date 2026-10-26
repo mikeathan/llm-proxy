@@ -333,7 +333,7 @@ func TestService_NoRetryWhenTheBudgetIsAlmostSpent(t *testing.T) {
 	nmap := &scriptedEngine{fakeEngine: fakeEngine{name: "nmap", modes: allModes}, results: []Result{{}}}
 	svc := NewService(&fixedAuth{addrs: addrs}, nmap, sweep)
 	clock := time.Unix(0, 0)
-	svc.now = func() time.Time { c := clock; clock = clock.Add(scanBudget - time.Minute); return c } // first read starts, later reads are late
+	svc.now = func() time.Time { c := clock; clock = clock.Add(ScanBudget - time.Minute); return c } // first read starts, later reads are late
 	if _, err := svc.Scan(context.Background(), Request{Mode: ModeServices}); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,35 @@ func TestService_UsesTheOperatorsPerDeviceTimeWhenSet(t *testing.T) {
 	if _, err := svc.Scan(context.Background(), Request{Mode: ModePorts}); err != nil {
 		t.Fatal(err)
 	}
+	if nmap.gotReq.Timeout != ScanBudget {
+		t.Errorf("the first pass is bounded by the scan budget, got %v", nmap.gotReq.Timeout)
+	}
 	if nmap.gotReq.HostTimeout != 5*time.Minute {
 		t.Errorf("HostTimeout = %v, want 5m", nmap.gotReq.HostTimeout)
+	}
+}
+
+func TestService_ADeviceNmapGaveUpOnIsRetriedAndOneWithNothingOpenIsNotFlagged(t *testing.T) {
+	addrs := fiveAddrs()
+	sweep := &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: allModes}, live: addrs[:2]}
+	// First pass: addrs[0] hit the per-device limit (nmap prints it as a host with no ports, flagged), addrs[1] answered
+	// but has nothing open (printed as an up host with no open ports).
+	first := Result{Hosts: []Host{{Addr: addrs[0], Up: true, Unscanned: true}, {Addr: addrs[1], Up: true}}}
+	retry := Result{Hosts: []Host{{Addr: addrs[0], Up: true, Ports: []Port{{Number: 8080, Proto: "tcp", State: "open"}}}}}
+	nmap := &scriptedEngine{fakeEngine: fakeEngine{name: "nmap", modes: allModes}, results: []Result{first, retry}}
+	res, err := NewService(&fixedAuth{addrs: addrs}, nmap, sweep).Scan(context.Background(), Request{Mode: ModeServices, Thorough: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nmap.reqs) != 2 || len(nmap.reqs[1].Targets) != 1 || nmap.reqs[1].Targets[0] != addrs[0] {
+		t.Fatalf("only the device nmap gave up on is retried: %+v", nmap.reqs)
+	}
+	if countUnscanned(res.Hosts) != 0 {
+		t.Errorf("the retried device finished and the quiet one was never in doubt: %+v", res.Hosts)
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "not scanned to completion") {
+			t.Errorf("nothing is left to warn about: %v", res.Warnings)
+		}
 	}
 }

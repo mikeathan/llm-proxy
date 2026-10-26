@@ -71,7 +71,7 @@ describe('FindingsReport', () => {
     const w = await mountReport()
     expect(w.get('[data-test="scan-meta"]').text()).toContain('nmap · 10 devices up · 5 open ports')
     const tiles = w.findAll('button[aria-pressed]').map((b) => b.text())
-    expect(tiles).toEqual(['2new since the last scan', '1changed', '1resolved', '1accepted (hidden from the assistant)'])
+    expect(tiles).toEqual(['0problems found by checks', '2new since the last scan', '1changed', '1resolved', '1accepted (hidden from the assistant)'])
     expect(w.text()).toContain('1 device was not scanned to completion')
     expect(w.text()).toContain('192.168.1.34')
     expect(w.findAll('section[aria-label="192.168.1.5"]')).toHaveLength(1)
@@ -168,6 +168,85 @@ describe('FindingsReport', () => {
     await flushPromises()
     expect(w.text()).toContain('boom')
     expect(w.text()).toContain('Retry')
+  })
+})
+
+describe('FindingsReport with checks', () => {
+  const withChecks: Report = {
+    scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', unscanned: [], devices_up: 3, resolved: [],
+    findings: [
+      finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds', new: true }),
+      finding({ key: 'smb', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1, an old and unsafe file-sharing version, is enabled', new: true }),
+      finding({ key: 'p2', device: '192.0.2.20', port: 6379, service: 'redis', new: true }),
+      finding({ key: 'redis', device: '192.0.2.20', port: 6379, check: 'redis_no_auth', severity: 'critical', evidence: 'Redis answers without a password', new: true }),
+    ],
+  }
+  async function mountChecks() {
+    service.findings.mockResolvedValue(withChecks)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
+    await flushPromises()
+    return w
+  }
+
+  it('Simple: the worst problem is listed first, in plain words, and counts include the checks', async () => {
+    const w = await mountChecks()
+    expect(w.get('[data-test="summary"]').text()).toBe('4 things need a look')
+    const lines = w.findAll('li').map((li) => li.text())
+    expect(lines[0]).toContain('192.0.2.20: Redis answers without a password')
+    expect(lines[1]).toContain('192.0.2.10: SMBv1, an old and unsafe file-sharing version, is enabled')
+    expect(w.text()).toContain('2 services on 2 devices, 2 problems found by checks')
+    expect(w.text()).not.toContain('smb_v1')
+  })
+
+  it('Simple: a problem stands out by colour and tag, and stays listed after the scan it was found in', async () => {
+    const old: Report = {
+      ...withChecks,
+      findings: [
+        finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds' }),
+        finding({ key: 'smb', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled' }),
+        finding({ key: 'cert', device: '192.0.2.43', port: 8009, check: 'tls_cert_expiring', severity: 'low', evidence: 'The certificate expires on 2026-12-01' }),
+      ],
+    }
+    service.findings.mockResolvedValue(old)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    // Nothing is new, yet the two problems are still there to deal with; the plain open port is not listed.
+    expect(w.get('[data-test="summary"]').text()).toBe('2 things need a look')
+    expect(w.get('[data-test="problems"]').text()).toBe('2 problems found by checks')
+    const rows = w.findAll('li[data-severity]')
+    expect(rows.map((r) => r.attributes('data-severity'))).toEqual(['high', 'low'])
+    expect(rows[0]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
+    expect(rows[1]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-running']))
+    expect(rows[1]!.text()).toContain('Problem · low')
+    expect(rows[1]!.get('span.font-semibold').text()).toContain('The certificate expires on 2026-12-01')
+  })
+
+  it('Advanced: the Problems tile and filter list every unaccepted problem, new or not', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountChecks()
+    await w.findAll('button[aria-pressed]').find((b) => b.text().includes('problems found by checks'))!.trigger('click')
+    expect(w.findAll('li[data-key]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
+    const row = w.get('[data-key="redis"]')
+    expect(row.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
+    expect(row.text()).toContain('Problem · critical')
+  })
+
+  it('Simple: the accept dialog names the check, not a port', async () => {
+    const w = await mountChecks()
+    await w.findAll('button').find((b) => b.text() === 'This is fine')!.trigger('click')
+    expect(document.body.textContent).toContain('192.0.2.20: Redis answers without a password will stop being listed')
+    w.unmount()
+  })
+
+  it('Advanced: a check row shows its severity and the finding, and the counts keep ports and problems apart', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountChecks()
+    expect(w.get('[data-test="scan-meta"]').text()).toContain('2 open ports · 2 problems found by checks')
+    const row = w.get('[data-key="smb"] [data-test="check"]')
+    expect(row.text()).toContain('high')
+    expect(row.text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
+    expect(w.get('section[aria-label="192.0.2.10"]').text()).toContain('1 open port, 1 problem')
+    expect(w.get('[data-key="p"]').text()).toContain('microsoft-ds')
   })
 })
 
@@ -313,7 +392,7 @@ describe('NetworkScanSettings', () => {
     const w = mount(NetworkScanSettings)
     await flushPromises()
     expect(w.text()).toContain('Time allowed per device')
-    expect(w.text()).toContain('Audits stop after 10 minutes in total')
+    expect(w.text()).toContain('A whole scan may take up to 12 minutes')
     await w.get('select[aria-label="Time allowed per device"]').setValue('5')
     await flushPromises()
     expect(service.updateScope).toHaveBeenCalledWith({ device_timeout_minutes: 5 })
@@ -400,11 +479,11 @@ describe('FailureExplanation', () => {
   const OUT = 'agent execution failed: tool unavailable: operator action required: 192.168.1.0/24: target is outside the declared scan ranges'
 
   it('says what went wrong and what is allowed, with the original one tap away', async () => {
-    service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: '192.168.50.0/24', devices: 254 }] })
+    service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: '192.168.1.0/24', devices: 254 }] })
     const w = mount(FailureExplanation, { props: { error: OUT, automationId: 'ws/audit' } })
     await flushPromises()
     expect(w.text()).toContain("That network isn't allowed for scanning")
-    expect(w.text()).toContain('192.168.50.0/24')
+    expect(w.text()).toContain('192.168.1.0/24')
     expect(w.text()).not.toContain('operator action required')
     await w.findAll('button').find((b) => b.text() === 'Show details')!.trigger('click')
     expect(w.text()).toContain('operator action required')

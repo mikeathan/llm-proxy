@@ -105,9 +105,12 @@ type Service struct {
 	running sync.Mutex
 }
 
-// scanBudget is how long one scan may take in all, the retry included. An automation run is capped at 10 minutes and
-// still has to write its report, so the scan stops well before that.
-const scanBudget = 8 * time.Minute
+// ScanBudget is how long one scan may take in all, the retry included. A network audit's run is capped at AuditRunCap,
+// which leaves the model time to read the result and write its assessment after the scan.
+const ScanBudget = 12 * time.Minute
+
+// AuditRunCap is how long a network audit's whole run may take: the scan budget, then the model's assessment.
+const AuditRunCap = 20 * time.Minute
 
 // retryMinRemaining is the least time that must be left in the budget for a device that ran out of time to be tried
 // again; a shorter retry would only time out too.
@@ -141,6 +144,7 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 	started := s.now()
+	scan.Timeout = ScanBudget
 	if s.deviceTimeout != nil {
 		scan.HostTimeout = s.deviceTimeout()
 	}
@@ -171,7 +175,7 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	res.Warnings = append(warnings, res.Warnings...)
 	if swept.sweep != nil {
 		res.Hosts = mergeHosts(swept.sweep.Hosts, res.Hosts)
-		res.Hosts = s.retryUnscanned(ctx, engine, swept.scan, res.Hosts, scanBudget-s.now().Sub(started))
+		res.Hosts = s.retryUnscanned(ctx, engine, swept.scan, res.Hosts, ScanBudget-s.now().Sub(started))
 		if n := countUnscanned(res.Hosts); n > 0 {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%d live address(es) were not scanned to completion (the scan ran out of time on them), "+
 				"so their open ports are unknown, not none.", n))

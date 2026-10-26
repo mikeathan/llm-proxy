@@ -43,7 +43,7 @@ var ErrNoActiveRun = errors.New("no active automation found")
 // model configured with timeout_minutes > the dispatcher cap is not cut off
 // mid-run while a run without a model override stays within the dispatcher cap.
 func (d *Dispatcher) runContext(ctx context.Context, entry *AutomationEntry) (context.Context, context.CancelFunc) {
-	timeout := d.automationTimeout
+	timeout := max(d.automationTimeout, d.profileTimeouts[entry.Profile])
 	if entry.Model != "" {
 		if mt := d.executor.ModelTimeout(entry.Model); mt > timeout {
 			timeout = mt
