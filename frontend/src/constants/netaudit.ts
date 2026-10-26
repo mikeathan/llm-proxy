@@ -115,3 +115,9 @@ export const SEVERITY_CARD_CLASS: Record<string, string> = {
   low: 'border-state-running bg-state-running/[0.10]',
 }
 export const PLAIN_CARD_CLASS = 'border-hairline bg-surface'
+
+/** The depths an audit may scan at. */
+export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
+  { value: 'thorough', label: 'Thorough (a few minutes)' },
+  { value: 'quick', label: 'Quick (seconds)' },
+]

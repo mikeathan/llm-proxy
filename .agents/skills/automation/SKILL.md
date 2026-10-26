@@ -168,7 +168,7 @@ backend/data/runs/workspace-<id>/<task-name>/<model>/<timestamp>_<uuid>/
 Templates live in `backend/data/templates/`. They're plain markdown files copied to the workspace when a task starts. The template is the first user message the agent sees.
 
 **Header fields:** a playbook starts with `## Task:`, `**ID:**` and `**Category:**`; it may also declare the automation settings it
-needs with `**Agent:**` (a profile id), `**Network:**` (`none|lan|internet_only|internet`) and `**Journal:**` (`on|off`) before its first
+needs with `**Agent:**` (a profile id), `**Network:**` (`none|lan|internet_only|internet`) and `**Journal:**` (`on|off`), `**Schedule:**` (cron) and, for a network audit, `**Depth:**` (`quick|thorough`), `**Checks:**` (`on|off`), `**Ports:**` and `**Targets:**` before its first
 `###` section. `TemplateStore.Get` returns them as `defaults`; the automation form applies what is declared (the agent only if it exists)
 when it is opened from the playbook, and each stays editable. Do not add a second creation path for a kind of automation: declare it here.
 

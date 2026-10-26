@@ -26,6 +26,9 @@ type AutomationEntry struct {
 	SkipIfBusy   bool                 // scheduled fires skip instead of queueing behind busy work
 	Journal      bool                 // the run keeps a learning journal (automation_journal tool)
 	Profile      string               // prompt profile id; "" = the default for automations
+	// Scan is a network audit's settings as its runs use them (its own, or the defaults for an audit that has none);
+	// nil for an automation that is not an audit.
+	Scan *models.ScanSettings
 }
 
 // AutomationRegistry manages registered automations.
@@ -71,6 +74,7 @@ func (r *AutomationRegistry) Register(workspaceID string, auto *models.Automatio
 		SkipIfBusy:   auto.SkipIfBusy,
 		Journal:      auto.Journal,
 		Profile:      auto.Profile,
+		Scan:         auto.EffectiveScan(),
 	}
 
 	r.mu.Lock()

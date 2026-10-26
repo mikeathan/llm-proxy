@@ -2,6 +2,7 @@
 import type { LoopStrategy } from './model'
 import type { NetworkGrant } from './admin'
 import type { MemoryMode, NotifyConfig } from './automation'
+import type { ScanSettings } from './netaudit'
 
 export interface AutomationRun {
   id: string
@@ -59,6 +60,8 @@ export interface Automation {
   journal?: boolean
   // Prompt profile id; empty runs the default for automations.
   profile?: string
+  // A network audit's settings as its runs use them (depth and checks filled in); absent for other automations.
+  scan?: ScanSettings
 }
 
 // AutomationJournal is the learning journal an automation keeps between runs.

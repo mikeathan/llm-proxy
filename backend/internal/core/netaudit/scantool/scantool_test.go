@@ -172,3 +172,42 @@ func TestTool_AcceptedFindingsNeverReachTheModelButStillReachTheReport(t *testin
 		t.Error("unreadable acceptances must not hide findings")
 	}
 }
+
+func TestTool_AnAuditsOwnSettingsDecideTheScanWhateverTheModelPasses(t *testing.T) {
+	s := &fakeScanner{res: netaudit.Result{Engine: "nmap"}}
+	off := false
+	ctx := models.WithScanSettings(context.Background(), models.ScanSettings{Targets: []string{"192.168.2.0/24"}, Depth: "quick", Ports: "22,80", Checks: &off})
+	// The model asks for a different network, a deeper scan and the checks; none of it applies.
+	out, err := call(t, s, nil, ctx, `{"targets":["192.168.1.0/24"],"mode":"checks","thorough":true,"ports":"1-1000"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.got
+	if len(got.Targets) != 1 || got.Targets[0] != "192.168.2.0/24" || got.Mode != netaudit.ModeServices || got.Thorough || got.Ports != "22,80" {
+		t.Errorf("the audit's settings must win over the model's arguments: %+v", got)
+	}
+	if !strings.Contains(out.(string), "network_scan services finished") {
+		t.Errorf("the result says what actually ran, not what was asked for: %s", strings.SplitN(out.(string), "\n", 2)[0])
+	}
+}
+
+func TestTool_AnAuditWithNothingAskedOfTheModelScansEveryAllowedNetwork(t *testing.T) {
+	s := &fakeScanner{res: netaudit.Result{Engine: "nmap"}}
+	ctx := models.WithScanSettings(context.Background(), models.ScanSettings{})
+	if _, err := call(t, s, nil, ctx, `{"mode":"ports"}`); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.got.Targets) != 0 || s.got.Mode != netaudit.ModeChecks || !s.got.Thorough {
+		t.Errorf("defaults: every allowed network (no targets), thorough, checks on: %+v", s.got)
+	}
+}
+
+func TestTool_ARunWithNoSettingsUsesTheModelsArguments(t *testing.T) {
+	s := &fakeScanner{res: netaudit.Result{Engine: "nmap"}}
+	if _, err := call(t, s, nil, context.Background(), `{"targets":["192.168.1.5"],"mode":"ports","ports":"80"}`); err != nil {
+		t.Fatal(err)
+	}
+	if s.got.Mode != netaudit.ModePorts || s.got.Ports != "80" || len(s.got.Targets) != 1 {
+		t.Errorf("an ordinary run is unchanged: %+v", s.got)
+	}
+}

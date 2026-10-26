@@ -325,7 +325,7 @@ recurring search improve instead of repeating itself. Off by default.
 
 A scheduled **network audit** is an ordinary automation that runs under the built-in **Security auditor** profile
 (SPEC-012): it is offered only the scan tool, saves nothing to memory and refuses a model that is not local. The task file
-may name the targets, depth and ports (`backend/data/templates/network_audit.md`; with no targets the scan covers every allowed range); the operator allows the network in Settings → Network
+has its own scan settings (targets, depth, ports, checks: `models.Automation.Scan`; defaults when absent, with no targets meaning every allowed range) that the server applies whatever the model passes to `network_scan`; its task file (`backend/data/templates/network_audit.md`) only carries optional extra instructions for the assessment; the operator allows the network in Settings → Network
 scan (SPEC-006 §II.7.6) and gives the automation a local-network grant.
 
 - **Pre-flight.** For this profile the dispatcher checks readiness before the run starts. Everything a scan needs must be

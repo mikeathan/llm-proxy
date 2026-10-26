@@ -63,6 +63,8 @@ type ExecuteRequest struct {
 	Journal bool
 	// Profile is the prompt profile id; "" runs the default for automations.
 	Profile string
+	// Scan is a network audit's settings; the scan tool applies them whatever the model passes. nil for any other run.
+	Scan *models.ScanSettings
 }
 
 type ExecuteResponse struct {
@@ -347,6 +349,9 @@ func runContextFor(ctx context.Context, req ExecuteRequest, runID string) contex
 	ctx = newRunContext(ctx, req.AutomationName, runID)
 	if req.Journal {
 		ctx = models.WithJournalRun(ctx)
+	}
+	if req.Scan != nil {
+		ctx = models.WithScanSettings(ctx, *req.Scan)
 	}
 	return ctx
 }

@@ -147,6 +147,9 @@ type Automation struct {
 	// Profile is the prompt profile this automation's runs use (a built-in's or a user file's id); empty runs the
 	// default for automations.
 	Profile string `yaml:"profile,omitempty" json:"profile,omitempty"`
+	// Scan is a network audit's own settings (what it scans and how), applied by code when the audit runs. Nil means
+	// the defaults for a network audit (see EffectiveScan) and no constraint for any other automation.
+	Scan *ScanSettings `yaml:"scan,omitempty" json:"scan,omitempty"`
 }
 
 // WorkspaceConfig represents the metadata from workspaces/{id}/config.yaml

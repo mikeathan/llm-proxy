@@ -8,6 +8,7 @@ import (
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/eventbus"
+	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
@@ -193,6 +194,11 @@ func validateRunOptions(auto *models.Automation) error {
 			return fmt.Errorf("invalid notify: %w", err)
 		}
 	}
+	if auto.Scan != nil {
+		if err := netaudit.ValidateScanSettings(*auto.Scan); err != nil {
+			return fmt.Errorf("invalid scan settings: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -233,6 +239,9 @@ type AutomationInfo struct {
 	SkipIfBusy bool `json:"skip_if_busy,omitempty"`
 	// Journal: the automation keeps a learning journal (read it with GetAutomationJournal).
 	Journal bool `json:"journal,omitempty"`
+	// Scan is a network audit's settings as its runs use them (its own, or the defaults for an audit that has none),
+	// with depth and checks filled in; absent for an automation that is not an audit.
+	Scan *models.ScanSettings `json:"scan,omitempty"`
 }
 
 func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +277,7 @@ func (h *DispatcherHandlers) ListAutomations(w http.ResponseWriter, r *http.Requ
 			Notify:       entry.Notify,
 			SkipIfBusy:   entry.SkipIfBusy,
 			Journal:      entry.Journal,
+			Scan:         entry.Scan,
 			NextRunAt:    nextRuns[entry.ID],
 		}
 

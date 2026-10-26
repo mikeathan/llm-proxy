@@ -24,9 +24,11 @@ const profileService = vi.hoisted(() => ({
   list: vi.fn().mockResolvedValue([
     { id: 'research', name: 'Research', summary: 'Finds and cites.', source: 'builtin', answer_first: true, may_ask: true, memory_save: 'model', reminders: false, default_for: [] },
     { id: 'task-runner', name: 'Task runner', summary: 'Runs unattended.', source: 'builtin', answer_first: false, may_ask: false, memory_save: 'model', reminders: false, default_for: ['automation'] },
+    { id: 'security-auditor', name: 'Security auditor', summary: 'Scans.', source: 'builtin', answer_first: false, may_ask: false, memory_save: 'off', reminders: false, default_for: [] },
   ]),
 }))
 vi.mock('../../../../services/profile/profileService', () => ({ ProfileService: profileService }))
+vi.mock('../../../../services/netaudit/netauditService', () => ({ NetauditService: { readiness: vi.fn().mockResolvedValue({ ready: true, requirements: [] }) } }))
 vi.mock('../../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
 vi.mock('../../../../composables/editor/useWorkspaceFileWriter', () => ({ useWorkspaceFileWriter: () => ({ writeFile: writeFileMock }) }))
 vi.mock('../../../../services/template/templateService', () => ({ TemplateService: { listTemplates: listTemplatesMock, getTemplate: getTemplateMock } }))
@@ -515,7 +517,7 @@ describe('AutomationForm', () => {
       const w = await mountForm(AUTO)
       await flushPromises()
       const select = profileField(w)
-      expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Default (Task runner)', 'Research', 'Task runner'])
+      expect(Array.from(select.options).map((o) => o.textContent)).toEqual(['Default (Task runner)', 'Research', 'Task runner', 'Security auditor'])
       expect(select.value).toBe('')
       expect(w.text()).toContain('Runs unattended.')
     })
@@ -530,6 +532,57 @@ describe('AutomationForm', () => {
       expect(w.get('[data-test="review"]').text()).toContain('Research')
       await w.get('form').trigger('submit')
       expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({ profile: 'research' })
+    })
+
+    describe('network audit settings', () => {
+      const choose = async (w: VueWrapper, id: string) => {
+        const select = profileField(w)
+        select.value = id
+        select.dispatchEvent(new Event('change'))
+        await flushPromises()
+      }
+
+      it('are offered for the Security auditor only, in two plain choices (Advanced adds the networks and ports)', async () => {
+        const w = await mountForm(AUTO)
+        await flushPromises()
+        expect(w.find('[data-test="scan-settings"]').exists()).toBe(false)
+        await choose(w, 'security-auditor')
+        const panel = w.get('[data-test="scan-settings"]')
+        expect(panel.text()).toContain('How thoroughly')
+        expect(panel.text()).toContain('Check for common weak settings')
+        expect(panel.text()).not.toContain('Networks to scan')
+        expect(w.get('[data-test="scan-summary"]').findAll('[data-test="scan-tag"]').map((t) => t.text())).toEqual(['Thorough scan', 'Safe checks on'])
+        expect(w.get('[data-test="scan-summary"]').text()).toContain('Every allowed network')
+        await panel.findAll('button[role="radio"]').find((b) => b.text() === 'Advanced')!.trigger('click')
+        expect(panel.text()).toContain('Networks to scan')
+        expect(panel.text()).toContain('Ports')
+      })
+
+      it('are sent with the audit, and nothing is sent for another agent', async () => {
+        const w = await mountForm(AUTO)
+        await flushPromises()
+        await choose(w, 'security-auditor')
+        await w.get('[data-test="scan-settings"] select').setValue('quick')
+        await w.get('[data-test="scan-settings"]').findAll('button[role="radio"]').find((b) => b.text() === 'Advanced')!.trigger('click')
+        await w.get('[data-test="scan-settings"] input[type="text"]').setValue('192.168.1.0/24, 192.168.1.5')
+        expect(w.get('[data-test="review"]').text()).toContain('Quick scan')
+        await w.get('form').trigger('submit')
+        expect((w.emitted('update-automation')![0] as unknown[])[2]).toMatchObject({
+          profile: 'security-auditor', scan: { targets: ['192.168.1.0/24', '192.168.1.5'], depth: 'quick', checks: true },
+        })
+        const other = await mountForm(AUTO)
+        await other.get('form').trigger('submit')
+        expect((other.emitted('update-automation')![0] as unknown[])[2]).not.toHaveProperty('scan')
+      })
+
+      it('start from what the playbook declares', async () => {
+        listTemplatesMock.mockResolvedValue([{ id: 'network-audit', name: 'Network Audit', category: 'network' }])
+        getTemplateMock.mockResolvedValue({ id: 'network-audit', name: 'Network Audit', category: 'network', description: '', content: 'AUDIT TEXT', defaults: { profile: 'security-auditor', scan: { depth: 'quick', checks: false } } })
+        const w = await mountForm(null, [], { workspace: 'ws', playbook: 'network-audit' })
+        await flushPromises()
+        expect((w.get('[data-test="scan-settings"] select').element as HTMLSelectElement).value).toBe('quick')
+        expect(w.get('[data-test="scan-summary"]').text()).toContain('Checks off')
+      })
     })
 
     it('keeps a saved profile that no longer exists visible, so it can be replaced', async () => {

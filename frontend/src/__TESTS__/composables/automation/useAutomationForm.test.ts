@@ -39,7 +39,14 @@ describe('useAutomationForm', () => {
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
       strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'on',
       notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false, journal: false, profile: '',
+      scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true,
     })
+  })
+
+  it('shows an audit\'s saved scan settings for editing, and the defaults for an automation that has none', () => {
+    const audit = { ...AUTO, profile: 'security-auditor', scan: { targets: ['192.168.1.0/24'], depth: 'quick', ports: '22,80', checks: false } } as Automation
+    expect(useAutomationForm(ref(audit), vi.fn()).form.value).toMatchObject({ scanTargets: '192.168.1.0/24', scanDepth: 'quick', scanPorts: '22,80', scanChecks: false })
+    expect(useAutomationForm(ref(null), vi.fn()).form.value).toMatchObject({ scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true })
   })
 
   it('reads a stale or unknown memory mode as the default instead of carrying it into the form', () => {

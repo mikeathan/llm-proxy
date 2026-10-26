@@ -18,6 +18,8 @@ type TemplateDefaults struct {
 	NetworkGrant string `json:"network_grant,omitempty"` // none | lan | internet_only | internet
 	Journal      *bool  `json:"journal,omitempty"`       // nil = not declared
 	Schedule     string `json:"schedule,omitempty"`      // a cron expression the form offers as the first schedule
+	// Scan is the network-audit settings the form starts with (depth, checks, ports, targets); nil = not declared.
+	Scan *ScanSettings `json:"scan,omitempty"`
 }
 
 // TemplateMetadata is a lightweight version of a template for listing.
@@ -28,4 +30,12 @@ type TemplateMetadata struct {
 	// Description is the playbook's one-line summary, so the library can say what it is for.
 	Description string           `json:"description,omitempty"`
 	Defaults    TemplateDefaults `json:"defaults"`
+}
+
+// ScanSettings returns the playbook's scan defaults, creating them when the first audit-setting line is read.
+func (d *TemplateDefaults) ScanSettings() *ScanSettings {
+	if d.Scan == nil {
+		d.Scan = &ScanSettings{}
+	}
+	return d.Scan
 }

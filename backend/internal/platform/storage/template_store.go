@@ -19,6 +19,10 @@ const (
 	templateNetworkField  = "**Network:**"
 	templateJournalField  = "**Journal:**"
 	templateScheduleField = "**Schedule:**"
+	templateDepthField    = "**Depth:**"
+	templateChecksField   = "**Checks:**"
+	templatePortsField    = "**Ports:**"
+	templateTargetsField  = "**Targets:**"
 	templateSummaryField  = "**Summary:**"
 	// The header ends at the first section heading.
 	templateSectionPrefix = "###"
@@ -116,34 +120,56 @@ func (s *TemplateStore) parseMetadata(name string) (models.TemplateMetadata, err
 	return meta, nil
 }
 
-// applyHeaderLine reads one header line into the metadata. Journal is "on" or "off"; any other value is not a
-// declaration.
-func applyHeaderLine(meta *models.TemplateMetadata, line string) {
-	value := func(prefix string) (string, bool) {
-		if !strings.HasPrefix(line, prefix) {
-			return "", false
+// headerFields is every header line a playbook may carry and how it is read. A value that is not valid for its field
+// declares nothing (Journal and Checks are "on" or "off"; Depth is "quick" or "thorough").
+var headerFields = []struct {
+	prefix string
+	read   func(meta *models.TemplateMetadata, value string)
+}{
+	{templateNamePrefix, func(m *models.TemplateMetadata, v string) { m.Name = v }},
+	{templateIDPrefix, func(m *models.TemplateMetadata, v string) { m.ID = v }},
+	{templateCategoryField, func(m *models.TemplateMetadata, v string) { m.Category = v }},
+	{templateSummaryField, func(m *models.TemplateMetadata, v string) { m.Description = v }},
+	{templateAgentField, func(m *models.TemplateMetadata, v string) { m.Defaults.Profile = v }},
+	{templateNetworkField, func(m *models.TemplateMetadata, v string) { m.Defaults.NetworkGrant = v }},
+	{templateScheduleField, func(m *models.TemplateMetadata, v string) { m.Defaults.Schedule = v }},
+	{templateJournalField, func(m *models.TemplateMetadata, v string) { m.Defaults.Journal = onOff(v) }},
+	{templateChecksField, func(m *models.TemplateMetadata, v string) {
+		if on := onOff(v); on != nil {
+			m.Defaults.ScanSettings().Checks = on
 		}
-		return strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, prefix)), "`"), true
+	}},
+	{templateDepthField, func(m *models.TemplateMetadata, v string) {
+		if v == models.ScanDepthQuick || v == models.ScanDepthThorough {
+			m.Defaults.ScanSettings().Depth = v
+		}
+	}},
+	{templatePortsField, func(m *models.TemplateMetadata, v string) { m.Defaults.ScanSettings().Ports = v }},
+	{templateTargetsField, func(m *models.TemplateMetadata, v string) {
+		for _, t := range strings.Split(v, ",") {
+			if t = strings.TrimSpace(t); t != "" {
+				s := m.Defaults.ScanSettings()
+				s.Targets = append(s.Targets, t)
+			}
+		}
+	}},
+}
+
+// onOff reads "on" or "off"; anything else is not a declaration.
+func onOff(v string) *bool {
+	if v != "on" && v != "off" {
+		return nil
 	}
-	switch {
-	case strings.HasPrefix(line, templateNamePrefix):
-		meta.Name = strings.TrimSpace(strings.TrimPrefix(line, templateNamePrefix))
-	case strings.HasPrefix(line, templateIDPrefix):
-		meta.ID, _ = value(templateIDPrefix)
-	case strings.HasPrefix(line, templateCategoryField):
-		meta.Category, _ = value(templateCategoryField)
-	case strings.HasPrefix(line, templateSummaryField):
-		meta.Description, _ = value(templateSummaryField)
-	case strings.HasPrefix(line, templateAgentField):
-		meta.Defaults.Profile, _ = value(templateAgentField)
-	case strings.HasPrefix(line, templateNetworkField):
-		meta.Defaults.NetworkGrant, _ = value(templateNetworkField)
-	case strings.HasPrefix(line, templateScheduleField):
-		meta.Defaults.Schedule, _ = value(templateScheduleField)
-	case strings.HasPrefix(line, templateJournalField):
-		if v, _ := value(templateJournalField); v == "on" || v == "off" {
-			on := v == "on"
-			meta.Defaults.Journal = &on
+	on := v == "on"
+	return &on
+}
+
+// applyHeaderLine reads one header line into the metadata.
+func applyHeaderLine(meta *models.TemplateMetadata, line string) {
+	for _, f := range headerFields {
+		if strings.HasPrefix(line, f.prefix) {
+			f.read(meta, strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, f.prefix)), "`"))
+			return
 		}
 	}
 }

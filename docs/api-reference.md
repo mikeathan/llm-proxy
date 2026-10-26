@@ -225,6 +225,8 @@ Optional per-automation `notify` `{connector, dedup, dedup_days, send_empty}` de
 
 Optional per-automation `skip_if_busy` (bool, default false): a scheduled fire that cannot start immediately is skipped instead of queued, and a run preempted by a chat is dropped instead of restarted (SPEC-007 §V). Manual triggers ignore it. Echoed as `skip_if_busy`.
 
+Optional per-automation `scan` (a network audit's settings, `models.ScanSettings`): `targets` (addresses, ranges or names; empty = every network allowed in Settings), `depth` (`quick` or `thorough`, default thorough), `ports` (empty = the common ports) and `checks` (bool, default on). The server applies them when the audit runs and the scan tool ignores what the model passes for them; an automation on the Security auditor with no `scan` gets the defaults. A bad value is a `400`. `GET …/automations` echoes the effective settings (depth and checks filled in) and omits `scan` for an automation that is not an audit.
+
 Optional per-automation `journal` (bool, default false): the automation keeps notes between runs — its runs see them in the task and rewrite them with the `automation_journal` tool (SPEC-007 §II.7). Echoed as `journal`; read or clear the text with the journal endpoints below.
 
 | Method | Path | Description |

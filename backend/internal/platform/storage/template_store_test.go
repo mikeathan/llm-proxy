@@ -264,9 +264,38 @@ func TestShippedNetworkAuditDeclaresTheAuditorSettings(t *testing.T) {
 	if got.Defaults.Schedule != "0 2 * * *" || got.Description == "" {
 		t.Errorf("the audit starts on a nightly schedule and says what it is for: %+v", got)
 	}
-	for _, line := range []string{"TARGETS: all allowed", "DEPTH: thorough", "PORTS: default", "CHECKS: on"} {
-		if !strings.Contains(got.Content, line) {
-			t.Errorf("missing the editable line %q", line)
+	if got.Defaults.Scan == nil || got.Defaults.Scan.Depth != "thorough" || got.Defaults.Scan.Checks == nil || !*got.Defaults.Scan.Checks {
+		t.Errorf("the audit declares a thorough scan with checks on: %+v", got.Defaults.Scan)
+	}
+	for _, gone := range []string{"TARGETS:", "DEPTH:", "PORTS:", "CHECKS:"} {
+		if strings.Contains(got.Content, gone) {
+			t.Errorf("settings live on the automation, not in the task text: %q is still there", gone)
+		}
+	}
+}
+
+func TestTemplateStore_ReadsTheAuditSettingsAPlaybookDeclares(t *testing.T) {
+	store := NewTemplateStore(fstest.MapFS{
+		"a.md": {Data: []byte("## Task: A\n**ID:** `a`\n**Category:** x\n**Depth:** quick\n**Checks:** off\n**Ports:** 22,80\n**Targets:** 192.168.1.0/24, 192.168.1.5\n\n### Body\n**Depth:** thorough\n")},
+		"b.md": {Data: []byte("## Task: B\n**ID:** `b`\n**Category:** x\n**Depth:** deep\n**Checks:** maybe\n")},
+		"c.md": {Data: []byte("## Task: C\n**ID:** `c`\n**Category:** x\n**Depth:** thorough\n**Checks:** on\n")},
+	})
+	a, _ := store.Get("a")
+	if a.Defaults.Scan == nil || a.Defaults.Scan.Depth != "quick" || a.Defaults.Scan.Ports != "22,80" || a.Defaults.Scan.Checks == nil || *a.Defaults.Scan.Checks ||
+		len(a.Defaults.Scan.Targets) != 2 || a.Defaults.Scan.Targets[1] != "192.168.1.5" {
+		t.Errorf("scan defaults = %+v", a.Defaults.Scan)
+	}
+	if b, _ := store.Get("b"); b.Defaults.Scan != nil {
+		t.Errorf("a depth or checks value that is not valid declares nothing: %+v", b.Defaults.Scan)
+	}
+	c, _ := store.Get("c")
+	if c.Defaults.Scan == nil || c.Defaults.Scan.Depth != "thorough" || c.Defaults.Scan.Checks == nil || !*c.Defaults.Scan.Checks {
+		t.Errorf("explicit on is kept as on: %+v", c.Defaults.Scan)
+	}
+	list, _ := store.List()
+	for _, m := range list {
+		if m.ID == "a" && m.Defaults.Scan == nil {
+			t.Error("the list carries the declared settings too, so the library can show them")
 		}
 	}
 }
