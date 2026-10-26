@@ -91,3 +91,14 @@ func TestAllowedToolsFor(t *testing.T) {
 		})
 	}
 }
+
+func TestRunContextFor_CarriesAnAuditsScanSettingsToTheScanTool(t *testing.T) {
+	req := ExecuteRequest{AutomationName: "audit", Scan: &models.ScanSettings{Depth: models.ScanDepthQuick, Ports: "22"}}
+	got, ok := models.ScanSettingsFrom(runContextFor(context.Background(), req, "run-1"))
+	if !ok || got.Depth != models.ScanDepthQuick || got.Ports != "22" {
+		t.Errorf("an audit's run context must carry its settings: %+v %v", got, ok)
+	}
+	if _, ok := models.ScanSettingsFrom(runContextFor(context.Background(), ExecuteRequest{AutomationName: "chat"}, "run-2")); ok {
+		t.Error("a run that is not an audit must not carry any")
+	}
+}

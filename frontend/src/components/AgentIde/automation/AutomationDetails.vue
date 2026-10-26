@@ -37,6 +37,7 @@ import FailureExplanation from "../../netaudit/FailureExplanation.vue";
 import NetauditToolbar from "../../netaudit/NetauditToolbar.vue";
 import NetauditHelp from "../../netaudit/NetauditHelp.vue";
 import { AUDITOR_PROFILE } from "../../../constants/netaudit";
+import ScanSummary from "../../netaudit/ScanSummary.vue";
 import GuardrailBanner from "../../common/chat/GuardrailBanner.vue";
 
 // One automation (plan Phase 5): its configuration, the latest result, the
@@ -197,6 +198,10 @@ const runKey = (run: AutomationRun) => run.id;
         <div v-for="[term, value] in config" :key="term" class="flex flex-col gap-1">
           <dt class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">{{ term }}</dt>
           <dd class="m-0 break-words text-secondary">{{ value }}</dd>
+        </div>
+        <div v-if="automation.scan" class="flex flex-col gap-1.5 sm:col-span-2" data-test="scans">
+          <dt class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">Scans</dt>
+          <dd class="m-0"><ScanSummary :scan="automation.scan" /></dd>
         </div>
         <div v-if="automation.recording_ref" class="flex flex-col gap-1">
           <dt class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">Replays recording</dt>

@@ -1466,3 +1466,30 @@ func TestDeleteAutomation(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateAutomation_ScanSettings(t *testing.T) {
+	handlers := NewDispatcherHandlers(&testDispatcher{}, NewWorkspaceService(nil), logging.NewNopLogger())
+	cases := []struct {
+		name    string
+		scan    *models.ScanSettings
+		wantErr string
+	}{
+		{"none passes", nil, ""},
+		{"defaults pass", &models.ScanSettings{}, ""},
+		{"full settings pass", &models.ScanSettings{Targets: []string{"192.168.1.0/24"}, Depth: "quick", Ports: "22,80"}, ""},
+		{"an unknown depth is refused", &models.ScanSettings{Depth: "deep"}, "invalid scan settings"},
+		{"a public target is refused", &models.ScanSettings{Targets: []string{"8.8.8.8"}}, "8.8.8.8"},
+		{"a port list that could become a flag is refused", &models.ScanSettings{Ports: "22;--script=x"}, "ports"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handlers.validateAutomation(&models.Automation{Name: "audit", TaskFile: "task.md", Trigger: models.TriggerConfig{Type: "manual"}, Scan: tc.scan})
+			switch {
+			case tc.wantErr == "" && err != nil:
+				t.Errorf("unexpected refusal: %v", err)
+			case tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)):
+				t.Errorf("refusal = %v, want it to mention %q", err, tc.wantErr)
+			}
+		})
+	}
+}

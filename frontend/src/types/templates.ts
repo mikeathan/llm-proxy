@@ -1,4 +1,5 @@
 import type { NetworkGrant } from './admin';
+import type { ScanSettings } from './netaudit';
 
 export interface Template {
   id: string;
@@ -16,6 +17,8 @@ export interface TemplateDefaults {
   journal?: boolean;
   /** A cron expression the form offers as the first schedule. */
   schedule?: string;
+  /** The network-audit settings the form starts with. */
+  scan?: ScanSettings;
 }
 
 export interface TemplateMetadata {

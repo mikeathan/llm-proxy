@@ -78,9 +78,14 @@ type scanArgs struct {
 }
 
 func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (any, error) {
-	res, err := scanner.Scan(ctx, netaudit.Request{
-		Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Thorough: args.Thorough, Unattended: models.IsUnattendedRun(ctx),
-	})
+	req := netaudit.Request{Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Thorough: args.Thorough}
+	// A network audit has its own settings, kept with the automation: they decide what is scanned and how, and nothing
+	// the model passes changes them. A run without settings (an ordinary chat or automation) uses its arguments.
+	if cfg, ok := models.ScanSettingsFrom(ctx); ok {
+		req = netaudit.RequestFromSettings(cfg)
+	}
+	req.Unattended = models.IsUnattendedRun(ctx)
+	res, err := scanner.Scan(ctx, req)
 	if err != nil {
 		return nil, explain(err)
 	}
@@ -94,7 +99,7 @@ func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (a
 			shown, hidden = netaudit.HideAccepted(res, accepted, time.Now())
 		}
 	}
-	return render(args, shown, hidden)
+	return render(req.Mode, shown, hidden)
 }
 
 // explain turns a refusal that only the operator can fix into ErrToolUnavailable, so the loop stops retrying; every
@@ -109,7 +114,7 @@ func explain(err error) error {
 }
 
 // render writes a short header, the result as JSON inside the fenced block, and the rule for reading the block.
-func render(args scanArgs, res netaudit.Result, hidden int) (string, error) {
+func render(mode netaudit.Mode, res netaudit.Result, hidden int) (string, error) {
 	payload := struct {
 		Engine   string             `json:"engine"`
 		Hosts    []netaudit.Host    `json:"hosts"`
@@ -122,7 +127,7 @@ func render(args scanArgs, res netaudit.Result, hidden int) (string, error) {
 	}
 	// A banner could contain the closing fence; break it so the block cannot be ended from the inside.
 	data := strings.ReplaceAll(string(body), dataClose, "</untrusted-scan-data (removed)>")
-	header := fmt.Sprintf("network_scan %s finished with %s: %d host(s), %d finding(s).", args.Mode, res.Engine, len(res.Hosts), len(res.Findings))
+	header := fmt.Sprintf("network_scan %s finished with %s: %d host(s), %d finding(s).", mode, res.Engine, len(res.Hosts), len(res.Findings))
 	if hidden > 0 {
 		header += fmt.Sprintf(" %d finding(s) the operator has accepted are left out.", hidden)
 	}

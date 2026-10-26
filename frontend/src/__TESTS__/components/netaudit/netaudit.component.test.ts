@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import type { FindingsReport as Report, ScanFinding, ScanScope } from '../../../types/netaudit'
+import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({ readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
@@ -13,6 +13,7 @@ vi.mock('vue-router', async (importOriginal) => ({ ...(await importOriginal<type
 import FindingsReport from '../../../components/netaudit/FindingsReport.vue'
 import ReadinessBanner from '../../../components/netaudit/ReadinessBanner.vue'
 import NetworkScanSettings from '../../../components/settings/NetworkScanSettings.vue'
+import ScanSummary from '../../../components/netaudit/ScanSummary.vue'
 import AuditSetupCheck from '../../../components/netaudit/AuditSetupCheck.vue'
 import FailureExplanation from '../../../components/netaudit/FailureExplanation.vue'
 import NetauditHelp from '../../../components/netaudit/NetauditHelp.vue'
@@ -496,5 +497,26 @@ describe('FailureExplanation', () => {
     await flushPromises()
     expect(w.text()).toBe('the model timed out')
     expect(service.scope).not.toHaveBeenCalled()
+  })
+})
+
+describe('ScanSummary', () => {
+  const RouterLink = { props: ['to'], template: '<a :data-to="JSON.stringify(to)"><slot /></a>' }
+  const render = (scan?: ScanSettings) =>
+    mount(ScanSummary, { props: { scan }, global: { stubs: { RouterLink } } })
+
+  it('shows the defaults as clear tags, with the allowed networks one click away', () => {
+    const w = render(undefined)
+    const tags = w.findAll('[data-test="scan-tag"]').map((t) => t.text())
+    expect(tags).toEqual(['Thorough scan', 'Safe checks on'])
+    const link = w.get('a')
+    expect(link.text()).toBe('Every allowed network')
+    expect(JSON.parse(link.attributes('data-to')!)).toMatchObject({ params: { section: 'network-scan' } })
+  })
+
+  it('shows what was chosen: quick, checks off, the ports and each network on its own', () => {
+    const w = render({ depth: 'quick', checks: false, ports: '22,80', targets: ['192.168.1.0/24', 'nas.local'] })
+    expect(w.findAll('[data-test="scan-tag"]').map((t) => t.text())).toEqual(['Quick scan', 'Checks off', 'ports 22,80', '192.168.1.0/24', 'nas.local'])
+    expect(w.find('a').exists()).toBe(false)
   })
 })

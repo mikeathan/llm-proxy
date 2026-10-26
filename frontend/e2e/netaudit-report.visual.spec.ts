@@ -17,7 +17,7 @@ const report = {
 }
 const automation = {
   id: 'ws/network-audit', workspace: 'ws', name: 'network-audit', task_file: 'network-audit.md', strategy: 'persistent', trigger: 'cron',
-  trigger_value: '0 2 * * *', profile: 'security-auditor', network_grant: 'lan', history: [{ id: 'r1', timestamp: '2026-10-26T13:30:00Z', error: '', output: '', duration_ms: 1000, model: '' }],
+  trigger_value: '0 2 * * *', profile: 'security-auditor', network_grant: 'lan', scan: { depth: 'thorough', checks: true }, history: [{ id: 'r1', timestamp: '2026-10-26T13:30:00Z', error: '', output: '', duration_ms: 1000, model: '' }],
 }
 
 async function open(page: Page, view: 'simple' | 'advanced') {

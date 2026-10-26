@@ -92,6 +92,13 @@ describe('AutomationDetails', () => {
     expect(netaudit.findings.mock.calls.length).toBeGreaterThanOrEqual(2) // it was read again after the run, not only on mount
   })
 
+  it('says in one plain line what an audit scans, and nothing for an automation that is not one', async () => {
+    const audit = await mountDetails({ automation: { ...AUTO, profile: 'security-auditor', scan: { depth: 'quick', checks: false, targets: ['192.168.1.0/24'] } } })
+    expect(audit.get('[data-test="scans"]').findAll('[data-test="scan-tag"]').map((t) => t.text())).toEqual(['Quick scan', 'Checks off', '192.168.1.0/24'])
+    const plain = await mountDetails()
+    expect(plain.text()).not.toContain('Scans')
+  })
+
   it('lists the automation\'s saved reports, loaded for that automation', async () => {
     getReports.mockResolvedValueOnce({ reports: [{ path: 'reports/nightly/20261021T070000Z-run_2.md', run_id: 'run_2', started_at: '2026-10-21T07:00:00Z', size_bytes: 512 }], truncated: false })
     const w = await mountDetails()

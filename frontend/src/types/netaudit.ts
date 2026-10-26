@@ -136,6 +136,19 @@ export interface AcceptRequest {
   days: number
 }
 
+/** How hard an audit scans: quick checks the common ports in seconds; thorough looks harder and takes minutes. */
+export type ScanDepth = 'quick' | 'thorough'
+
+/** What a network audit scans and how; kept with the automation and applied by the server, not by the model. */
+export interface ScanSettings {
+  /** Addresses, ranges or names; empty or absent means every network allowed in Settings. */
+  targets?: string[]
+  depth?: ScanDepth
+  /** A port list such as "22,80,8000-8100"; empty means the common ports. */
+  ports?: string
+  checks?: boolean
+}
+
 /** The parts of the Help panel; a warning opens it on the one that explains it. */
 export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'safety' | 'words'
 

@@ -3,10 +3,12 @@ package netaudit
 import (
 	"context"
 	"strings"
+
+	"llm-proxy/models"
 )
 
 // AuditorProfileID is the built-in profile a scheduled network audit runs under.
-const AuditorProfileID = "security-auditor"
+const AuditorProfileID = models.AuditorProfileID
 
 // Preflight returns the check that runs before a scheduled audit touches the model. It is a refusal when anything a
 // scan needs is missing — including what only limits an attended scan (nmap, file confinement), because an audit does

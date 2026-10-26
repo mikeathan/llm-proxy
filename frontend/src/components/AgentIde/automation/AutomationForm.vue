@@ -17,6 +17,9 @@ import { defaultProfile, profileLabel } from "../../../utils/assistant/profileCh
 import { useProfiles } from "../../../composables/assistant/useProfiles";
 import { AGENT_LABEL, NETWORK_GRANT_LABEL } from "../../../constants/labels";
 import AuditSetupCheck from "../../netaudit/AuditSetupCheck.vue";
+import ScanSettingsFields from "../../netaudit/ScanSettingsFields.vue";
+import { AUDITOR_PROFILE } from "../../../constants/netaudit";
+import { formFromScan, scanFromForm, scanSummary } from "../../../utils/netaudit/scan";
 import { DEFAULT_DEDUP_DAYS, MAX_DEDUP_DAYS, busyLabel, deliveryLabel, journalLabel, notifyFromForm, parseDedupDays } from "../../../utils/automation/delivery";
 import { toSettings } from "../../../router/routes";
 import { RESOURCE_NAME_PATTERN, RESOURCE_NAME_RULE } from "../../../constants/validation";
@@ -108,7 +111,7 @@ async function applyStart() {
 // What the chosen playbook asks of the automation (its agent, network access, journal). Only what it declares is set,
 // the agent only when that agent exists, and each stays editable below.
 async function applyPlaybookDefaults() {
-  const { profile, network_grant, journal, schedule } = authoring.defaults.value;
+  const { profile, network_grant, journal, schedule, scan } = authoring.defaults.value;
   if (profile && !profiles.value.some((p) => p.id === profile)) await refreshProfiles();
   if (profile && profiles.value.some((p) => p.id === profile)) form.value.profile = profile;
   if (network_grant !== undefined) form.value.networkGrant = network_grant;
@@ -117,6 +120,7 @@ async function applyPlaybookDefaults() {
     form.value.triggerType = "cron";
     form.value.triggerValue = schedule;
   }
+  if (scan) Object.assign(form.value, formFromScan(scan));
 }
 
 const playbookKey = ref(0);
@@ -252,6 +256,8 @@ const handleSubmit = async () => {
     skip_if_busy: data.triggerType !== "manual" && data.skipIfBusy,
     journal: data.journal,
     profile: data.profile,
+    // An audit's settings are kept with it and applied by the server; no other automation has any.
+    ...(data.profile === AUDITOR_PROFILE ? { scan: scanFromForm(data) } : {}),
   };
 
   submitted.value = true;
@@ -277,6 +283,7 @@ const review = computed(() => [
   ["Delivery", deliveryLabel(notifyFromForm(form.value))],
   ["When busy", busyLabel(form.value.triggerType !== "manual" && form.value.skipIfBusy)],
   ["Journal", journalLabel(form.value.journal)],
+  ...(form.value.profile === AUDITOR_PROFILE ? [["Scans", scanSummary(scanFromForm(form.value))]] : []),
 ]);
 </script>
 
@@ -385,6 +392,10 @@ const review = computed(() => [
       <p v-if="hostNetworkKnown && hostNetworkOff" role="note" class="m-0 mt-3 text-[length:var(--text-small)] text-state-running">
         The host network is off (Settings → Security &amp; Sandboxing), so runs resolve to "No network" until it is enabled. The grant is kept for then.
       </p>
+    </Panel>
+
+    <Panel v-if="form.profile === AUDITOR_PROFILE" title="What the audit scans">
+      <ScanSettingsFields v-model:targets="form.scanTargets" v-model:depth="form.scanDepth" v-model:ports="form.scanPorts" v-model:checks="form.scanChecks" />
     </Panel>
 
     <Panel title="Delivery">

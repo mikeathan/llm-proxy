@@ -1,5 +1,6 @@
 import type { LoopStrategy } from './model'
 import type { NetworkGrant } from './admin'
+import type { ScanDepth, ScanSettings } from './netaudit'
 
 // MemoryMode overrides the global hot-memory default for one surface ('' = use the default).
 // Mirrors the backend models.MemoryMode.
@@ -38,6 +39,8 @@ export interface AutomationPayload {
   journal: boolean
   // Prompt profile id; '' runs the default for automations.
   profile: string
+  // A network audit's settings; only sent for an audit.
+  scan?: ScanSettings
 }
 
 // AutomationFormData is the editable shape of the automation form. See
@@ -62,4 +65,9 @@ export interface AutomationFormData {
   journal: boolean
   // Prompt profile id; '' runs the default for automations.
   profile: string
+  // A network audit's settings, as typed: networks as comma-separated text (empty = every allowed network).
+  scanTargets: string
+  scanDepth: ScanDepth
+  scanPorts: string
+  scanChecks: boolean
 }

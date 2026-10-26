@@ -5,6 +5,7 @@ import type { ProviderItem } from "../../types/admin"
 import type { Automation } from "../../types/dispatcher"
 import type { AutomationFormData, TriggerType } from "../../types/automation"
 import { loopStrategyOptions as buildLoopStrategyOptions } from "../../utils/model/modelUtils"
+import { formFromScan } from "../../utils/netaudit/scan"
 import { modelWakeNotice } from "../../utils/automation/heartbeat"
 import { useConnectorOptions } from "./useConnectorOptions"
 
@@ -40,6 +41,7 @@ export function useAutomationForm(
       skipIfBusy: false,
       journal: false,
       profile: "",
+      ...formFromScan(undefined),
     }
   }
 
@@ -138,6 +140,7 @@ export function useAutomationForm(
         skipIfBusy: !!target.skip_if_busy,
         journal: !!target.journal,
         profile: target.profile || "",
+        ...formFromScan(target.scan),
       }
     },
     { immediate: true },
