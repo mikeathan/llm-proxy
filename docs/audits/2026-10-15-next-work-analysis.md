@@ -1,3 +1,11 @@
+---
+subsystem: memory
+tags: [planning, memory-contract]
+result: reference
+status: reference
+date: 2026-10-15
+---
+
 # Next-Work Analysis — an assistant that knows the user (2026-10-15)
 
 **Status:** reference. Analysis only; no code was changed. Authentication work is excluded by instruction

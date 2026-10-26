@@ -14,7 +14,10 @@ import (
 	"llm-proxy/models"
 )
 
-//go:embed AGENTS.md
+// DefaultAgentsMD is the notes stub seeded into a new workspace as its AGENTS.md. The source file is named
+// AGENTS.template.md so coding agents working in this repository do not read it as instructions for this directory.
+//
+//go:embed AGENTS.template.md
 var DefaultAgentsMD string
 
 // BuiltinProfileFiles are the shipped prompt profiles, one markdown file each (see package profile). Their text lives
@@ -363,7 +366,7 @@ const ToolUnavailablePrefix = "TOOL UNAVAILABLE: "
 // ToolUnavailablePrompt is the tool result for a terminal (operator-actionable)
 // failure — a missing or rejected credential. Args: tool name, reason. It tells
 // the model not to retry the tool or route around it (see
-// docs/PLANS/cross-cutting/tool-error-classification.md).
+// docs/PLANS/ARCHIVE/cross-cutting/tool-error-classification.md).
 const ToolUnavailablePrompt = ToolUnavailablePrefix + "%s — %s. Do NOT retry it or route around it. If the task depends on this capability, report the failure; otherwise continue with the remaining work and note the gap."
 
 // ToolUnavailableRetryPrompt replaces ToolUnavailablePrompt in replayed history

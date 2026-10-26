@@ -26,7 +26,7 @@ fi
 # Only runs when instruction/doc files are staged, so backend/frontend-only
 # commits are unaffected.
 if git diff --cached --name-only \
-   | grep -qE '^(AGENTS\.md|AGENT\.md|CONTRIBUTING\.md|README\.md|docs/INDEX\.md|docs/architecture\.md|docs/(SPEC-change-management|api-reference|data-layout)\.md|docs/(SPECS|PLANS|audits|guides)/|\.agents/|scripts/check-agent-harness\.sh)'; then
+   | grep -qE '^(AGENTS\.md|AGENT\.md|CLAUDE\.md|CONTRIBUTING\.md|README\.md|(backend|frontend)/AGENTS\.md|docs/INDEX\.md|docs/architecture\.md|docs/(SPEC-change-management|api-reference|data-layout)\.md|docs/(SPECS|PLANS|audits|guides|architecture|subsystems|decisions|learnings)/|\.agents/|\.claude/|scripts/check-agent-harness\.sh)'; then
   echo "[agent-harness] checking instruction consistency..."
   if ! bash ./scripts/check-agent-harness.sh; then
     echo ""

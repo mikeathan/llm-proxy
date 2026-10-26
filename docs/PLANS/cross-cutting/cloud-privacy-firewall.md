@@ -114,7 +114,7 @@ in the app log at INFO. Values are **never** stored.
 
 ### Phase 4 — `ask` mode + UI + audit
 - Reuse the guardrail approval flow for `ask`; Settings → Privacy tab (follow
-  `docs/architecture.md#adding-a-frontend-settings-tab-checklist`); audit list view.
+  `docs/architecture/checklists.md#adding-a-frontend-settings-tab-checklist`); audit list view.
 - **Acceptance:** `npm test && npm run build && npm run test:visual`; handler tests for settings.
 
 ### Phase 5 — Router integration (after `../orchestrator/auto-model-router.md` Phase 2)

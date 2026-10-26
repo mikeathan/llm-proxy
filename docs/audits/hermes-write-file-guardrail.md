@@ -1,6 +1,10 @@
 ---
+subsystem: guardrails
+tags: [write_file, hermes]
+result: inconclusive
 status: reference
 last_reviewed: 2026-07-19
+date: 2026-07-19
 ---
 
 # Audit: Hermes Agent does not structurally block report file writes

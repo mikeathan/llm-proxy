@@ -1,7 +1,8 @@
 ---
 name: memory-system
 description: "Memory architecture: injection, three-tier storage, tags, dedup, and gotchas. Use when working on memory storage or injection."
-last_reviewed: 2026-10-06
+metadata:
+  last_reviewed: "2026-10-06"
 ---
 
 # Memory System — Architecture, Decisions & Patterns

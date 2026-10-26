@@ -159,7 +159,7 @@ region); the list → detail → edit → back path works by URL at 1440 and 390
 
 1. Chat + editor split with `?file=`; files-touched chips; read-only while live.
 2. `RunInspector` (Changes / Run / Memory / Approvals); Memory tab uses the injection preview endpoint from
-   `memory/small-context-memory.md` Phase 4.1 when available, else is omitted (no placeholder).
+   `ARCHIVE/memory/small-context-memory.md` Phase 4.1 when available, else is omitted (no placeholder).
 3. Workspaces keep-alive preserved; `useRunningActivity()` still called only by `WorkspacesView`.
 4. Bottom-sheet inspector and full-screen editor below `lg`.
 

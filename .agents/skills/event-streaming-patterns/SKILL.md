@@ -1,7 +1,8 @@
 ---
 name: event-streaming-patterns
 description: "Event streaming patterns: SSE composables, observer chaining, guardrail flow, heartbeat cleanup, and dedup. Use when working with event streams or SSE handlers."
-last_reviewed: 2026-10-23
+metadata:
+  last_reviewed: "2026-10-26"
 ---
 
 # Event Streaming Patterns — SSE, Observers & Lifecycle Events
@@ -9,6 +10,16 @@ last_reviewed: 2026-10-23
 **Source docs:** `SPEC-006`, `internal/core/assistant/agent_events.go`, `frontend/src/composables/assistant/useAssistantSSE.ts`, `frontend/src/composables/automation/useLiveConsole.ts`
 
 ---
+
+## Reference files
+
+Open only the one your task needs:
+
+| File | Open it when |
+|------|--------------|
+| [`references/observers-and-guardrail-flow.md`](references/observers-and-guardrail-flow.md) | You are adding an observer or changing how guardrail approvals flow through events. |
+| [`references/sse-composables-and-dedup.md`](references/sse-composables-and-dedup.md) | You are changing a frontend SSE composable or seeing duplicate/missing events. |
+| [`references/heartbeat-cleanup.md`](references/heartbeat-cleanup.md) | You are touching stream heartbeats or chasing a goroutine leak. |
 
 ## Architecture
 
@@ -50,162 +61,6 @@ never `Events().Publish` directly.
 content-free, never fabricated model output), `stuck_detected`, `fallback_*`,
 `guardrail_violation` (sync rejection, no approval flow).
 
-## Observer Pattern
-
-### Observer is a raw function type
-
-```go
-type Observer func(AgentEvent)
-```
-
-There can **only be one observer per agent** — setting a new one silently replaces
-the prior one. If both test capture and production publish are needed, chain them:
-
-```go
-var captured []AgentEvent
-agent := NewAgent(..., AgentOptions{
-    Observer: func(ev AgentEvent) {
-        captured = append(captured, ev)
-        productionObserver(ev)  // forward to SSE
-    },
-})
-```
-
-### The chat observer collects as it publishes
-
-A chat turn's events reach the client over SSE only: `POST /admin/api/conversation/message` answers `202 Accepted`
-at once and the turn runs detached (`chat.Service.Run`), so nothing comes back in the HTTP body. The chat observer
-(`buildObserver` in `core/chat/conversation_service.go`) still keeps the events it publishes: they rebuild the
-session's partial history for the disk checkpoint on every `tool_result` / `message`, and the cancel path reads the
-last failure from them (`lastRunFailureText`). It keeps only the newest snapshot of a stream (`assistant.SupersedesSnapshot`), because
-`buildPartialHistory` rescans the log on every tool result.
-
-```go
-// In core/chat/conversation_service.go (buildObserver), simplified:
-obs := func(ev assistant.AgentEvent) {
-    collected = append(collected, ev)
-    events.Publish(workspaceID, ev)            // SSE
-    // + recorder.Write(ev), the checkpoint on tool_result/message, the step counter on tool_call
-}
-```
-
-## Guardrail Decision Flow
-
-```
-Model calls tool → GuardrailEngine blocks → GuardrailDecisionCallback invoked
-  ├── Decision stored in GuardrailDecisionStore with unique `decision_id`
-  ├── `guardrail_blocked` event published (SSE)
-  ├── Frontend shows GuardrailBanner → user clicks Allow/Deny
-  │     └── POST /admin/api/conversation/guardrail-decision {decision_id, allow, persist}
-  │           └── DecisionStore.Resolve() → wakes callback
-  ├── Callback returns {Allow, Persist} to resolveGuardrail (consumed via
-  │     executeSingleToolStep, shared by processToolCalls and executePlan)
-  └── Callback blocks up to GuardrailApprovalTimeout (default 5m, per-model
-      configurable, Constitution II.10) for a decision; on expiry → guardrail_invalidated
-      (reason "timeout") → treated as denied (violation recorded, run continues). The bound is
-      applied at the call site (resolveGuardrail), not inside the callback —
-      it is distinct from DefaultGuardrailTimeout (5s, the validation bound).
-```
-
-> **Delivery guarantee:** `guardrail_blocked` / `guardrail_invalidated` / `error` are
-> `criticalEvents` in the EventBus (`internal/core/eventbus/bus.go`) — they are never dropped
-> when a subscriber's buffer is full (bounded blocking send, 3s), unlike cosmetic events
-> (reasoning/tool_stream). Dropping a `guardrail_blocked` would leave the agent waiting on
-> an approval the UI never shows; the `recent` replay buffer is only the reconnect net, not
-> the primary delivery path.
-
-### Frontend guardrail state management
-
-```typescript
-// useLiveConsole.ts / useAssistantSSE.ts:
-const pendingDecision = ref<GuardrailBlockedPayload | null>(null)
-const handledDecisionIds = new Set<string>()
-
-// On guardrail_blocked event:
-if (!handledDecisionIds.has(payload.decision_id)) {
-    pendingDecision.value = payload
-}
-
-// On guardrail_invalidated event:
-handledDecisionIds.add(payload.decision_id)
-if (pendingDecision.value?.decision_id === payload.decision_id) {
-    pendingDecision.value = null
-}
-
-// After submitting decision:
-handledDecisionIds.add(id)
-pendingDecision.value = null
-```
-
-## SSE Composables
-
-### Automation: `useLiveConsole`
-
-```typescript
-export function useLiveConsole(workspaceId, isExecuting, historyEvents, automationName) {
-    const liveEvents = ref<AgentEvent[]>([])
-    const displayEvents = computed(() => liveEvents.value.length > 0
-        ? liveEvents.value
-        : historyEvents() || [])
-
-    connect()  // EventSource → /live?channel=automation&automation=<name>
-    disconnect()
-    submitDecision(allow, persist)
-}
-```
-
-- Always connected when the automation console is mounted
-- Displays `displayEvents` — live events during run, history events after run
-- Guardrail decisions submitted via `ApiService.submitGuardrailDecision()`
-
-### Assistant: `useAssistantSSE`
-
-```typescript
-export function useAssistantSSE(workspaceId) {
-    const streamingContent = ref('')      // tool_stream → live text
-    const liveEvents = ref<AgentEvent[]>([])  // all other event types
-    const pendingDecision = ref<GuardrailBlockedPayload | null>(null)
-
-    connect()   // connect before POST
-    disconnect() // disconnect after HTTP response
-    reset()      // clear all state for new message
-}
-```
-
-- Connected only during message execution (not persistent like automation)
-- `streamingContent` replaces the loading spinner with live text
-- `liveEvents` accumulates tool_call, tool_result, lifecycle events
-- Disconnected as soon as the HTTP response arrives
-
-## SSE Event Deduplication Strategy
-
-The bus keeps a per-workspace/stream `recent` buffer (1000 events / 4 MiB; an automation's stream is its own, so a workspace holds at most that per automation) that a new subscriber receives before live events: it is how a reopened chat rebuilds a running turn. `reasoning` and `tool_stream` events are **full snapshots** (the text so far), so `Bus.Publish` replaces the newest buffered event when the new one supersedes it (same type and conversation, string payloads, nothing between: `assistant.SupersedesSnapshot`). Without that, a four-minute run published ~3,300 snapshots (11 MB), evicted `session_started` and the tool cycles, and a reopened chat got only a window of snapshots with no start. `eventbus.Sink` (`events.jsonl`) applies the same rule plus a 10 s checkpoint. The chat opens through `useAssistant.openWorkspace`, which connects to the live stream once (loading a running conversation connects itself).
-
-SSE reconnects may replay events. The frontend handles this via:
-
-1. **Server-assigned event IDs** — Check `ev.id` against a seen-id Set.
-   If already seen, skip processing. Both SSE consumers (chat
-   `useAssistantSSE`, automation `useLiveConsole`) share the single
-   `createEventIdDeduper()` implementation in
-   `frontend/src/utils/events/eventIdDedup.ts` — **never hand-roll a second
-   dedup** (the automation variant previously drifted to a
-   `liveEvents.some()` array scan, O(n) per event → O(n²) over a long run).
-   An event without an id always passes and gets one assigned.
-2. **`handledDecisionIds` Set** — Persists across SSE reconnects so guardrail
-   decision prompts aren't re-shown.
-3. **HTTP response fill** — Events from the HTTP response fill gaps between
-   SSE disconnect and final response. Frontend skips events already seen via SSE.
-
-```typescript
-const eventIds = createEventIdDeduper()
-
-const handleAgentEvent = (ev: AgentEvent) => {
-    if (!eventIds.accept(ev)) return
-
-    // ... handle event by type ...
-}
-```
-
 ## Lifecycle Event Format
 
 | Phase | Payload | Message |
@@ -214,38 +69,6 @@ const handleAgentEvent = (ev: AgentEvent) => {
 | `fallback_started` | `{reason, mode}` | 🔄 Switching to {mode} mode — {reason} |
 | `fallback_waiting` | `{elapsed}` | ⏳ Waiting for non-streaming response... (elapsed: {time}) |
 | `fallback_completed` | `{}` | ✅ Fallback completed successfully |
-
-## Heartbeat Goroutine Cleanup
-
-`computeNextResponseNonStreaming` spawns a heartbeat goroutine that ticks every
-`nonStreamHeartbeatInterval` to emit `fallback_waiting` events. The goroutine
-must exit cleanly when the stream ends:
-
-```go
-heartbeatDone := make(chan struct{})
-
-go func() {
-    defer close(heartbeatDone)
-    for {
-        select {
-        case <-ctx.Done():
-            return
-        case <-streamDone:
-            return
-        case <-time.After(interval):
-            notifyLifecycle("fallback_waiting", elapsed)
-        }
-    }
-}()
-
-// When computeNextResponseNonStreaming returns:
-close(streamDone)
-<-heartbeatDone  // wait for goroutine to exit
-```
-
-The `streamDone` channel ensures the goroutine exits when `processStream` returns
-for ANY reason (stuck detection, stream EOF, errors), not just context cancellation.
-Always pair `select { case <-ctx.Done(): case <-streamDone: }` in new goroutines.
 
 ## Key Files
 

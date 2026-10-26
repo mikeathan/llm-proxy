@@ -1,4 +1,7 @@
 ---
+subsystem: agent-loop
+tags: [stability, tool-calling]
+result: reference
 status: complete
 last_reviewed: 2026-07-11
 ---

@@ -204,7 +204,7 @@ convention live there); open decision 6 is answered for final reports as `report
     also keeps `final-report.md` (`rundir.WriteFinalReport`), but only when run logging is on and only for the 30-day reaper's
     window. So the answer to §4.2 is **yes, a final report can be lost**; keeping final reports is a separate need from saving
     cut tool results and is not solved by this phase unless the scope says so.
-  - **Name collision:** `reports/` is already a user convention. `prompts/AGENTS.md:5` gives "reports go in reports/" as the example
+  - **Name collision:** `reports/` is already a user convention. `prompts/AGENTS.template.md:5` gives "reports go in reports/" as the example
     of a workspace preference, and tests use `reports/scan.txt`. Saved raw pages next to a user's own reports would mix two kinds
     of file; the manifest protects deletion but not the listing. Decide the folder name before building (open decision 6).
   - The journal (`tools/automation_journal.go`) is the existing cross-run channel: its text is capped and sanitised

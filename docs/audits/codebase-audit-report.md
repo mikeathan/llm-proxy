@@ -1,4 +1,7 @@
 ---
+subsystem: platform
+tags: [bugs, architecture, duplication, docs]
+result: reference
 status: active
 last_reviewed: 2026-07-11
 ---

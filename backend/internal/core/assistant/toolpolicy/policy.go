@@ -5,7 +5,7 @@ import "llm-proxy/models"
 // FailurePolicy is the run-fatality decision for a terminal tool failure —
 // distinct from terminality itself (the tool marks that with
 // models.ErrToolUnavailable). See
-// docs/PLANS/cross-cutting/tool-error-classification.md.
+// docs/PLANS/ARCHIVE/cross-cutting/tool-error-classification.md.
 type FailurePolicy int
 
 const (

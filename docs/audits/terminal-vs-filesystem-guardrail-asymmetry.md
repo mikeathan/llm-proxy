@@ -1,4 +1,7 @@
 ---
+subsystem: guardrails
+tags: [terminal, sandbox]
+result: worked
 status: complete
 last_reviewed: 2026-08-20
 ---

@@ -1,7 +1,8 @@
 ---
 name: tdd-guide
 description: "TDD with agents: Red/Green/Refactor flow, test grouping, and keeping the suite fast. Use when implementing a feature or fix test-first."
-last_reviewed: 2026-09-12
+metadata:
+  last_reviewed: "2026-09-12"
 ---
 
 # TDD Guide — Intelligent Test-Driven Development

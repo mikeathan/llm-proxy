@@ -1,7 +1,8 @@
 ---
 name: task-planning
 description: "Plan and execute non-trivial changes: classify, find the governing SPEC, trace the existing code path, scope, decompose into verifiable steps, record a plan, and resume safely. Use before multi-file/multi-subsystem or ambiguous work, and to understand a subsystem before changing it."
-last_reviewed: 2026-09-26
+metadata:
+  last_reviewed: "2026-10-26"
 ---
 
 # Task Planning — Recon, Scope, Decompose, Verify
@@ -25,7 +26,7 @@ Multi-subsystem work loads each affected subsystem's pieces, not all of them.
 Do not design against imagined code. Find the real path first.
 
 1. **Read the governing SPEC** — if the behavior is contracted, the SPEC is the source of truth (e.g. agent loop = SPEC-001, memory = SPEC-004, budget = SPEC-005, guardrails = SPEC-006, run scheduler/residency = SPEC-007, connectors = SPEC-009).
-2. **Map the subsystem** with `docs/architecture.md` (directory map, interfaces, Common Pitfalls, File Change Checklist).
+2. **Open the subsystem hub** (`docs/subsystems/<name>.md`): it links the SPEC, code, ADRs, open plans and the learnings ledger — read the ledger before choosing an approach. Then map the code with `docs/architecture/map.md` and search `docs/architecture/pitfalls.md` for the area.
 3. **Trace with targeted grep** (name the seam, not the folder):
 
    | Looking for | Start here |
@@ -38,7 +39,7 @@ Do not design against imagined code. Find the real path first.
    | Run state / lanes | `core/runlane/` (+ SPEC-007 §V) |
    | Frontend flow | `composables/` → `services/` → `types/` (load the affected UI skill) |
 
-4. **Read the change checklist for the change type** in `docs/architecture.md` before editing:
+4. **Read the change checklist for the change type** in `docs/architecture/checklists.md` before editing:
    - new model field / new tool / new tool category / new connector / new endpoint / new settings tab — each has an ordered file list.
 5. **Find the existing tests** that cover the area (`rg -n "TestX|describe\("`, `go test ./<pkg>/ -run TestX -count=1`). Improve the implementation, don't duplicate it.
 
@@ -58,7 +59,7 @@ Plan doc shape (match the existing plans and `docs/PLANS/README.md`):
 - phases, each with an explicit acceptance criterion;
 - a **Remaining Work** line for anything not done.
 
-Register the plan: add it to `docs/PLANS/README.md` (Active Plans + Remaining Work) and to the plans table in `docs/INDEX.md`.
+Register the plan: one row in `docs/PLANS/README.md` (Open plans, with its "What's left") and a link in the subsystem hub (`docs/subsystems/<slug>.md`). Keep the front page under ~15 KB; split long designs by phase. As phases merge, harvest them (see `documentation-stewardship`).
 
 **SPEC-first:** if the change alters contracted behavior, update the SPEC, not just the code — see `docs/SPEC-change-management.md` (propose/change/deprecate). A new invariant is formalized in `CONSTITUTION.md`.
 
@@ -85,8 +86,8 @@ verify: <exact command>  → expected: <PASS / specific output>
 ## Phase 6 — Close out
 
 - Run the full relevant gate (`AGENTS.md` → Workflow / Pre-Completion Review) and report it gate-by-gate.
-- Update docs per `documentation-stewardship` (SPEC, plan + Remaining Work, `docs/INDEX.md`, `architecture.md` pitfalls, `CONSTITUTION.md` if an invariant changed).
-- Mark the plan `complete`/`partial` and move it/archive as the conventions require.
+- Update docs per `documentation-stewardship` (SPEC, plan + Remaining Work, `docs/INDEX.md`, `docs/architecture/pitfalls.md`, an ADR for a settled choice, a learnings line, `CONSTITUTION.md` if an invariant changed).
+- Mark the plan `partial`/`complete`; when complete, harvest it and `git mv` it to `docs/PLANS/ARCHIVE/` (`documentation-stewardship`).
 
 ## Resumability and failure handling
 

@@ -1,7 +1,8 @@
 ---
 name: agent-loop
 description: "Agent-loop mechanics (reference): execution flow, structural/reactive sieve, stuck/spiral detection, reasoning budget, fallback chain, GBNF, and key constants. Load alongside debugging when the failure is in the loop."
-last_reviewed: 2026-10-23
+metadata:
+  last_reviewed: "2026-10-26"
 ---
 
 # Agent Loop — Execution, Sieve, Stuck Detection & Fallback
@@ -11,6 +12,17 @@ last_reviewed: 2026-10-23
 > Debugging workflow: [`debugging`](../debugging/SKILL.md). Planning a loop change: [`task-planning`](../task-planning/SKILL.md).
 
 ---
+
+## Reference files
+
+Open only the one your task needs:
+
+| File | Open it when |
+|------|--------------|
+| [`references/stuck-and-repetition.md`](references/stuck-and-repetition.md) | A run loops, repeats a tool call, or is wrongly declared stuck. |
+| [`references/completion-and-control-plane.md`](references/completion-and-control-plane.md) | A run finishes too early, never finishes, or a truncated write is salvaged. |
+| [`references/tool-calls.md`](references/tool-calls.md) | You are changing how tool calls are parsed, batched, constrained by grammar, or executed. |
+| [`references/plan-execute.md`](references/plan-execute.md) | You are changing the plan-execute strategy. |
 
 ## Execution Flow
 
@@ -55,94 +67,6 @@ executor.go Execute()
   4. `TokenUsage.CachedTokens` (llama.cpp `cache_n`) is summed per run and logged per call: a history rewrite shows as `cached_tokens` collapsing to ~0
   4. Before dropping, compress long `Content` (>4000 chars) and `ReasoningContent` (>2000 chars) with head+tail truncation
 
-## Stuck Detection
-
-**Reasoning stuck (length ceiling):** When reasoning content exceeds `maxTokens * 2` chars (= `max_tokens / 2` tokens at 4 chars/token; floor 2000), the stream is aborted. A `lifecycle` event with phase `stuck_detected` is emitted. The same ceiling applies to every model: there is no budget-based early cut (the old `reasoningBudget == 0` branch compared characters with a token count and aborted thinking Qwen at ~2K tokens, wasting ~80 s per abort).
-
-**Reasoning-loop guard (`reasoning_repetition.go`):** while the stream is only thinking, once per 1 KB of growth the last 4 KB (whitespace collapsed, digits as written) are scanned: if ≥ half of the 64-byte windows already occurred earlier in the tail, abort into `[stuck]` recovery (`stuck_detected`, `reason: reasoning_repetition`). Judges content, not length, so loops stop in ~3K chars; on real thinking the top score was 0.06 vs the 0.5 threshold. Stays on when `SkipStuckCheck` is set. Paraphrased, count-up or long-period loops fall back to the ceiling / duration cap; digits are not normalised so drafted CSV / tables / checklists are not flagged.
-
-Note: workloads classified local (a llama.cpp server run directly, or one behind an OpenAI-style URL identified by its listing fingerprint, SPEC-005) auto-derive a think-token budget from `max_tokens` (`resolveReasoningSpec(provider, workload, …)` → `DefaultReasoningBudget`, `max_tokens/3`); the derivation is from workload and context size, never the model name.
-
-**Detector stop in chat answers instead of failing:** when `rd.Check`, `CheckAlternating`, `CheckSequenceRepeat` or `CheckSameTarget` fires on the assistant channel and the run has a tool result, `stopOnLoop` runs one tools-off finalization turn (`prompts.LoopStopFinalizePrompt`) and returns the model's answer; automations, runs with no tool work and a model that will not answer keep the `LoopError`.
-
-**Progress monitor (`progress/`, chat only):** judges read-only results by how much of them is new to the run (word 4-grams of values), stricter for a call that rewords an earlier one of the same tool; streaks are per tool; any non-read-only call resets. Two stale results of one tool append one factual `[progress note: ...]` line to the newest tool result, `StrongAfter` (MaxSteps/6, clamped 4..6) a second; each once per streak. Never replaces the sieve warning; automations are not watched. Wired in `Agent.progressNote` (`tool_exec.go`).
-
-**Empty tool_call spiral:** When pure-reasoning stream (no content, no native tool deltas) has ≥`emptyToolCallSpiralLimit` (3) closed empty `<tool_call></tool_call>` blocks, stuck fires immediately — same lifecycle + nag recovery as char-threshold stuck. Does **not** kill the run. Dangling open tags (still forming a real call) are not counted. Catches Qwen 3.5 empty-tag loops in ~1s instead of waiting for the char threshold (~19s). See `countEmptyClosedToolCalls()`.
-
-**Content-level repetition guard:** Catches degenerate loops that write visible content with no tool calls and no progress (e.g. a model echoing a malformed tool-call dialect as ~190 repeated closing tags — the deepseek-v4-flash workspace-health-test incident). When `Content` is dominated by verbatim repeats (a single 60+ char window or repeated line covering ≥50% of the text, minimum fragment 400 chars, fail-open) **and** zero native tool calls are parsed, the stream aborts into the same `[stuck]` recovery as char-threshold stuck. Model/provider-agnostic — keys purely off the streamed bytes, independent of grammar/tool format. Real tool calls are never discarded (guard requires zero parsed calls). See `isRepetitionDominated()` (Hermes Agent `repetition_guard` port).
-
-**Per-stream duration cap:** A stream producing no native tool calls and no natural completion beyond `streamMaxDuration` (default 5 min, test-shortenable) is terminated; the clock starts at the **first token**, not the request (prompt processing on a busy local server can take a minute); the wait for the first token of a cloud stream is bounded separately (`streamFirstTokenTimeout`, 3 min; local workloads exempt). Content is preserved (not cleared) so the partial turn is evaluated/salvaged.
-
-**Local thinking budget and recovery:** a local workload sends `thinking_budget_tokens` (`max_tokens/3` unless `reasoning_budget` is set) together with `reasoning_budget_message` (`prompts.ThinkBudgetWrapUp`) so the server closes the thought cleanly at the budget instead of letting the reasoning spill into the visible reply. The server appends it on ANY turn that hits the budget, so it must never say the answer is next — a run skipped its playbook's `memory_update` that way (2026-10-07). After a stream is aborted as stuck (ceiling or loop guard), `Agent.noteStuckThinking` makes the next request ask for less reasoning once (`reasoning.StepDown`, for every workload): a local model answers without thinking (`enable_thinking=false`), an effort model drops one level and never to none, an object model lowers its effort, and an on/off model is left alone — a cloud model's reasoning is never switched off. It fires only where the guard reads reasoning text (`reasoning_content`): local models and effort-mode endpoints that stream it; OpenRouter's `reasoning` field and OpenAI/Gemini's opaque reasoning are not read. The think budget is derived from the output cap, so it is only as good as that cap: a stale cap (the GGUF training window) gave a 29k-token budget and the 2026-10-21 runaway loop; a context overflow that reports the window re-derives it (`lowerThinkBudgetToOutputCap`, never raising it, never touching a configured budget).
-
-**Progressive sieve recovery:**
-- 1st stuck → reactive sieve (first 2 + last 6 messages) + nag prompt
-- 2nd consecutive stuck → aggressive sieve (first 2 + last 3 messages) + stronger nag
-- 3rd consecutive stuck → agent fails with clear error
-
-**Stuck detection is skipped on XML fallback retries** (the `SkipStuckCheck` config flag).
-
-## Natural Completion vs Control Plane
-
-Completion (Hermes-aligned, Phase 2b): a content-only assistant message with
-at least one tool result anywhere in the run's history → done. The model signals
-completion by writing plain text without further tool calls. Reasoning-only
-interleaves (empty content, large `ReasoningContent`) do not block completion.
-
-**Invisible reasoning in content:** Local models (Qwen3, Ollama) may emit
-`<think>`/`<reasoning>` blocks inline in `content`. `stripThinkBlocks` removes
-these blocks before evaluating completion. If nothing substantive remains after
-stripping, the turn is NOT a final answer.
-
-**Embedded tool calls in reasoning:** Some models (Qwen3) write `<tool_call>`
-blocks inside `reasoning_content` instead of using native tool call deltas.
-`tryExtractToolCallFromReasoning()` (stream.go) extracts these tool calls
-directly into `fullMsg.ToolCalls` without copying reasoning text into `Content`.
-The llama.cpp server already separates `reasoning_content` from `content` at
-the wire level — reasoning text stays in `ReasoningContent` and is never
-promoted to visible output. This prevents a feedback loop where the model
-sees its own thinking text in conversation history and reuses it on subsequent
-turns, wasting tokens and producing duplicated output.
-
-Recovery messages (nags, sieve notes, parse feedback, stuck placeholders) are
-**control plane** — `IsAgentControlMessage` identifies them so they are never
-confused with real conversation. See `checkTaskCompletion` in `session.go`.
-
-**Content-with-tools fallback:** When the model writes visible text AND calls
-tools in the same turn, and every call is housekeeping (`hasOnlyHousekeepingTools`
-→ `toolpolicy.EffectHousekeeping`: `memory_update`, `automation_journal`), the text
-is saved (`lastContentWithTools`). If the next turn is empty, the saved text is used
-as the final answer. This handles the common pattern where a model delivers its
-report while calling `memory_update`. Text beside a substantive tool (`write_file`,
-terminal, reads) is mid-task narration and is not saved, and such a turn clears any
-text saved earlier (`noteContentWithTools`). Until 2026-10-08 the housekeeping switch
-matched no tool, so this path never fired in production.
-A natural-completion turn that is at least `signOffRatio` (2x) shorter than the saved text is a sign-off, so
-`keepReportOverSignOff` keeps the saved report (a playbook's "save to memory before you answer" puts the report beside
-the `memory_update` call; the next turn is a one-line "done"). A comparable or longer final answer wins.
-
-**One-shot nag:** Empty turns after tool results trigger a single
-`AutomationNagPrompt` injection. If the next turn is still empty, a fallback
-(fallback content or best-available assistant text) finishes the run — the
-agent does not nag perpetually.
-
-**Finalization-turn failure fallback:** When the tools-disabled `finalizeReport`
-turn fails (LLM/provider error) or returns empty, the fallback chain is
-`bestAvailableAnswer()` (last substantive assistant text) → `synthesizeRunSummary()`
-(a degraded-but-real summary of the run's tool activity: per-tool call counts +
-recorded `{"error": ...}` failures) → error only when the run did no tool work.
-This is what keeps plan_execute runs alive when a provider outage hits the report
-turn — their history is pure tool calls, so there is no assistant text to salvage.
-
-## Truncated write_file salvage
-
-When `write_file` / `append_file` args JSON is truncated mid-stream, the agent:
-1. Recovers `content` (≥100 chars) from partial args
-2. Best-effort extracts `path` and persists via Engine (guardrails + FS)
-3. Completes with the recovered report even if path is missing or persist fails
-
-No path is invented. See `salvageTruncatedWrite` in `tool_exec.go`.
-
 ## Reasoning Budget
 
 - Auto-computed as `maxTokens / 3` (divisor = 3, do NOT change)
@@ -150,57 +74,12 @@ No path is invented. See `salvageTruncatedWrite` in `tool_exec.go`.
 - **Warn-only, never terminate** — the proxy warns when exceeded but does NOT kill the stream
 - Model-specific: llama.cpp enforces at API level, OpenAI ignores
 
-## Output Constraint (GBNF Grammar)
-
-The agent does **not** send a GBNF grammar on native-tools requests to local
-llama.cpp. llama.cpp — the only server that accepted GBNF — rejects a custom
-grammar combined with native `tools` in one request (HTTP 400 "Cannot use
-custom grammar constraints with tools."), and every local llama.cpp is reached
-over the OpenAI-compatible wire. Attaching the grammar made each tool-using
-turn fail before generation (2026-09-05: assistant execution failed on the
-locally-managed llama.cpp path while the same model via an OpenAI-style
-registration worked). Native tool-call arguments are already constrained by the
-server's own tool template, and llm-proxy validates results post-hoc
-(`handleContentToolCalls` + `ValidateToolCall`), so no grammar is attached on
-any path today:
-
-- **Native tools (local or cloud):** no grammar — `buildChatRequest` never sets
-  `req.Grammar`; the server returns structured JSON that the parser validates.
-- **XML text mode:** no grammar either — the model writes
-  `<tool_call>{"tool":…}</tool_call>` free-text and parse failures feed the
-  format-error feedback loop (SPEC-002), never a generation-level constraint.
-- The bare-JSON GBNF builder remains available as `proxy.GBNFConstraint`
-  (unit-tested) for a future non-tools/JSON-mode use; it is deliberately not
-  wired to native-tools requests.
-- **Re-enabling grammar is tracked, not forgotten:** an opt-in, llama.cpp-safe
-  re-enablement (envelope-aware grammar for XML text mode, never with native
-  tools, per-model toggle) is planned in
-  `docs/PLANS/cross-cutting/tool-call-grammar-reenable.md`.
-
 ## Fallback Chain
 
 When native tools stream returns empty:
 1. **Native-only models** (`usePrefill=false`): skip XML retry, go directly to **non-streaming Chat** + nag prompt.
 2. **XML-text models** (`usePrefill=true`): retry via **XML streaming** (disables `useNativeTools`, suppresses `tool_choice` and `reasoningBudget`, stuck detection skipped). If also empty → **non-streaming Chat**.
 3. Non-streaming heartbeat uses `fallback_waiting` lifecycle events with elapsed time.
-
-## Tool-Call Batches
-
-All calls of one assistant turn are emitted before any result, so a call depends only on
-another's side effects. `toolpolicy.EffectFor(name)` classifies each tool:
-
-| Effect | Tools | Batch after a non-fatal failure |
-|---|---|---|
-| `EffectReadOnly` | `fetch_url`, `internet_search`, `read_file`, `list_directory`, `memory_search`, `get_network_info` | continues |
-| `EffectHousekeeping` | `memory_update`, `automation_journal` | stops |
-| `EffectMutating` (default: every unlisted and MCP tool) | `write_file`, terminal, `notify_user`, … | stops |
-
-Invalid arguments, a guardrail denial and a run-fatal error always stop the batch. Every early stop
-answers the unrun calls with `prompts.ToolCallNotExecuted` (`appendSkippedToolResults`, under `mu`,
-bypassing `appendToolResult` so the guardrail streak and the ledger are untouched) — an unanswered
-tool_call id was resent on every later request and is rejected by strict APIs. Failures inside one
-batch count once toward `toolFailureStreakLimit` (`toolFailureState.beginBatch`); plan steps and
-lone `executeSingleToolStep` calls count one by one.
 
 ## Key Constants
 
@@ -220,95 +99,6 @@ lone `executeSingleToolStep` calls count one by one.
 | `streamMaxDuration` | 5 min | `stream.go` | Max generation time (from the first token) with no tool calls → terminate (preserves content) |
 | `reasoningRepeat*` | 64 B window, 4 KB tail, 1 KB step, ≥ 1/2 | `reasoning_repetition.go` | Reasoning that mostly repeats itself → `[stuck]` recovery |
 | `minRepetitionFragmentLen` | 400 | `stream.go` | Min content length before repetition guard runs (fail-open) |
-
-## Repetition/Spiral Detector
-
-`repetitionDetector.check()` in `agent.go`:
-
-1. **Exact duplicate args** — streak ≥ 3 → aborts with "infinite loop"
-2. **Single-tool spiral** — 12+ consecutive calls to the same tool that **recycle ≤4 distinct argument values** → aborts with "spiral detected". A burst of varied-argument calls to one tool (e.g. an audit automation running a sequence of distinct `execute_terminal_command` calls) is legitimate batching (Constitution II.1), not a spiral — identical-argument repeats are caught earlier by the duplicate detector.
-3. Streak < 3 → injects AutomationDuplicateNagPrompt and continues
-
-**Sequence-repeat (n-gram) detector** — `checkSequenceRepeat()`: catches
-repeating tool-call cycles of length 3–5 in the last 30 calls. Keys are
-**name + args** (full `toolKey`), so a run that legitimately uses one tool
-with varying arguments (e.g. a series of distinct `execute_terminal_command`
-calls in a storage audit) is never flagged as a cycle; true degenerate cycles
-recur with identical arguments and are caught after 3 repeats. Single-tool
-stagnation with varied args is still bounded by the 12-consecutive spiral
-detector. `checkAlternating()` catches 2-tool oscillation (≤30% unique
-(tool, args) calls over 20 calls for 15+ turns), and `checkSameTarget()` catches
-many-tools-one-path oscillation within a turn.
-
-## Tool Call Data Flow
-
-### History Normalization (`NormalizeHistory` in `history.go`)
-
-Before each LLM call, history is normalized based on `useNativeTools`:
-
-**When `useNativeTools=true` (native mode):**
-- `ToolRole` messages kept as-is with `Content` = raw JSON result
-- `ToolCalls` arrays preserved on assistant messages
-- Standard OpenAI-style `tools` + `tool_choice` format
-
-**When `useNativeTools=false` (XML mode):**
-- `ToolRole` messages **converted to `UserRole`** with `"Tool result [callID]: ..."` prefix
-- `ToolCalls` arrays **emptied** and serialized to XML in `Content`:
-  ```
-  <tool_call>
-  {"tool": "memory_search", "args": {"query": "foo"}}
-  </tool_call>
-  ```
-- Consecutive same-role messages are merged (except messages with `ToolCallID`)
-- Empty content is filled with placeholders (`"Thinking..."`, `"Tool result: ..."`)
-- `ReasoningContent`, `Name`, and non-standard fields are stripped by `SanitizeHistory`
-
-**Effect on debugging:** A history dump with `useNativeTools=false` looks fundamentally
-different from one with `true`. There will be no `ToolRole` messages or `ToolCalls` arrays.
-The model sees `UserRole` messages with `"Tool result"` text prefixes instead.
-
-### `useNativeTools` Resolution (Three-State `*bool`)
-
-`AgentOptions.UseNativeTools` is a `*bool` — nil, `&false`, or `&true`:
-
-| Value | Behaviour |
-|-------|-----------|
-| `nil` (unset) | Use `provider.UseNativeTools()` — `LocalToolRegistry` returns `false`, `MockNodeHerder` returns `true` |
-| `&true` | Force native mode — `tool_choice: "required"` in automation, `NormalizeHistory` keeps ToolRole |
-| `&false` | Force XML mode — `tool_choice` not set, `NormalizeHistory` converts ToolRole → UserRole |
-
-**Important:** `&false` is NOT the same as `nil`. Setting `UseNativeTools: &false`
-silently overrides the provider's `UseNativeTools()` return value. This changed the
-tool role format in the assistant handler and broke the agnostic flow test.
-
-### `appendToolResult` Double-JSON-Marshaling
-
-In `processToolCalls`, the tool result is marshaled to JSON TWICE:
-1. In the caller (`processToolCalls` lines 159-170) to create `finalResult`
-2. In `appendToolResult` (line 443) via `json.Marshal(result)`
-
-This is wasteful and can produce different output if `result` is a pointer type
-modified between the two calls. When adding new tool execution paths, prefer
-passing pre-serialized strings to `appendToolResult`: `string(json.Marshal(result))`.
-
-```go
-// Correct — single marshal in caller:
-raw, _ := json.Marshal(result)
-a.appendToolResult(history, tc, string(raw))
-```
-
-## executePlan Execution (plan_execute primitive)
-
-`executePlan` is the shared plan primitive used by `PlanExecuteStrategy` (SPEC-010); the old
-`execute_plan` tool is gone. When a plan is generated it bypasses the standard turn loop:
-
-- **Pre-check:** if `len(plan.Steps) > MaxPlanSteps` (default 50), plan fails before any step executes.
-- **Plan-level timeout:** whole plan wrapped in `context.WithTimeout(MaxPlanDuration)` (default 15 min).
-- **Per-step timeout:** each step uses `executeSingleToolStep` with the same `ToolTimeout`/`FilesystemToolTimeout` as regular tool calls.
-- **Inline check:** after each step, `if i >= MaxPlanSteps → abort`.
-- **Guardrail checks:** each step/tool goes through `resolveGuardrail` with `GuardrailTimeout`.
-- **Step execution failures continue (record-and-continue):** a step whose tool *execution* fails (shell exit code, compile error, missing file, tool timeout) is logged as `plan step failed, continuing` and the next step runs — the failure is already in history as a tool result, so the final report notes it. A single failed step never aborts the run, matching the react loop's `processToolCalls` behavior (model-agnostic: a weak model's mistakes become reported issues, not run-killers). Only structural errors abort: args marshal failure, `validateToolArgs` failure, `MaxPlanSteps` exceeded, plan deadline exceeded.
-- **Guardrail-denied steps continue** (`plan step guardrail denied, continuing`); in unattended automation the denial is immediate (Constitution II.10).
 
 ## Important Gotchas
 

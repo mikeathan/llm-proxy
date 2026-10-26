@@ -76,7 +76,7 @@ Order by expected payoff; each item is independent and gated on its Phase 0 numb
    `FinishReason` is `json:"-"`). Cloud providers that support automatic prefix caching get it from stability
    alone, see 1.2.
 2. **Fix the prefix breaks the Phase 0 test finds.**
-   - Memory: block appended to the system message from a per-run snapshot (plan `memory/small-context-memory.md` Phase 1.1).
+   - Memory: block appended to the system message from a per-run snapshot (plan `ARCHIVE/memory/small-context-memory.md` Phase 1.1).
    - Sieve: make compression idempotent and do it once per prune, not on every call
      (`sieve.go:54-56`); after the first prune, compressed messages are never re-edited.
    - Anything date/time-varying in the system prompt moves to the *end* of the prompt or is day-granular.

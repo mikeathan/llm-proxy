@@ -1,4 +1,7 @@
 ---
+subsystem: platform
+tags: [bugs, leaks, performance]
+result: reference
 status: reference
 last_reviewed: 2026-07-03
 ---

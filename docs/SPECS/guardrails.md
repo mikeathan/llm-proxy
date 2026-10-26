@@ -45,7 +45,7 @@ supersedes:
   never persisted; see §II.7.4). Frontmatter
   `constitution_references` corrected `[I.5]`→`[II.3]` (Constitution §I has four items; the
   sandbox law is Constitution II.3). Mechanism and phases: plan
-  `docs/PLANS/cross-cutting/agent-os-sandboxing.md` (rev 2).
+  `docs/PLANS/ARCHIVE/cross-cutting/agent-os-sandboxing.md` (rev 2).
 
 ## I. Intent
 
@@ -154,7 +154,7 @@ reason (missing/rejected credential) is classified by the **agent loop**, not th
 the tool is disabled for the run and, in automation, the run fails — this is about the tool
 *not working*, not about *permission*. Guardrail denials remain about permission and route
 through the flow above. See SPEC-001 §II.6 and
-`docs/PLANS/cross-cutting/tool-error-classification.md`.
+`docs/PLANS/ARCHIVE/cross-cutting/tool-error-classification.md`.
 
 ### 4. Tool-Level Guardrail Configuration
 
@@ -211,7 +211,7 @@ never an approval prompt.
 
 ### 7. OS Enforcement Layer (host sandboxing — under guardrails, never a replacement)
 
-Host-level OS sandboxing (plan: `docs/PLANS/cross-cutting/agent-os-sandboxing.md`) sits
+Host-level OS sandboxing (plan: `docs/PLANS/ARCHIVE/cross-cutting/agent-os-sandboxing.md`) sits
 *underneath* this engine as a behavioral backstop for agent-spawned child processes. Contract:
 
 1. **One pipeline, two enforcement kinds.** Guardrail stages reason over tool-call *intent*

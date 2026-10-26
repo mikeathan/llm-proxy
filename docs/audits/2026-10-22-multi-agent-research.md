@@ -1,3 +1,11 @@
+---
+subsystem: agent-loop
+tags: [delegation, research]
+result: reference
+status: reference
+date: 2026-10-22
+---
+
 # Multi-Agent Workflows — research for a possible plan (2026-10-22)
 
 **Status:** reference. Research for discussion only. No code was changed and no plan was written.
@@ -212,7 +220,7 @@ wait needs a bound.
   The benefit there is not speed.
 - **Context isolation is the main benefit for small local models [assumption, to measure].** Two real runs fit this:
   - **The vertex 16k Qwen overflow.** JSON search results measure about 2.76 characters per token, so tool results
-    fill the 16k window far sooner than the 4.0 estimate assumed (`docs/PLANS/agent-loop/request-size-estimator.md`
+    fill the 16k window far sooner than the 4.0 estimate assumed (`docs/PLANS/ARCHIVE/agent-loop/request-size-estimator.md`
     §2, row 2) **[doc]**.
   - **The 141 s weather run.** A search loop, then a history rewrite that broke the cache, followed by a 41 s step
     (`docs/PLANS/agent-loop/run-efficiency-and-convergence.md` E1/E5) **[doc]**. Isolation would have kept the loop's

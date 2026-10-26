@@ -66,7 +66,7 @@ func streamingToolRunWith(t *testing.T, store *memory.Store, opts AgentOptions, 
 }
 
 // TestHotMemory_PresentEveryTurn is the M1 acceptance test
-// (docs/PLANS/memory/small-context-memory.md, Phase 0/1.1): the model sees the
+// (docs/PLANS/ARCHIVE/memory/small-context-memory.md, Phase 0/1.1): the model sees the
 // hot memory on every request of a run, exactly once, inside the head system
 // message so the prompt prefix stays byte-identical and the KV cache is reused.
 func TestHotMemory_PresentEveryTurn(t *testing.T) {

@@ -8,7 +8,7 @@
 **Skills affected:** agent-loop (updated by Phase 2b), assistant-ui-chat, assistant-ui-patterns, automation, event-streaming-patterns, lifecycle-events  
 **Subsystems:** agent-loop (core changes in Phase 2b), assistant-ui, automation  
 **Branches:** `task/universal_agent_completion` (Phase 1+2+2b uncommitted changes)
-**Related completed plans:** `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md`, `docs/PLANS/ARCHIVE/assistant-ui/automation-unified-renderer-and-report-truncation.md` — both pre-implemented pieces of Phase 2 frontend + Phase 3 infrastructure (see §9).
+**Related completed plans:** `docs/PLANS/ARCHIVE/assistant-ui/automation-renderer-unify-consumption.md`, `docs/PLANS/ARCHIVE/assistant-ui/automation-unified-renderer-and-report-truncation.md` — both pre-implemented pieces of Phase 2 frontend + Phase 3 infrastructure (see §9).
 
 > **Resolved (2026-07-18): event-stream contamination.** Phase 2b notes that assistant and automation share one SSE topic, which caused automation `finalReply`/nag output to leak into the assistant chat pane (frontend `useAssistantSSE` filtered only by `workspace_id`). Fixed with server-side channel isolation: every `AgentEvent` now carries `Channel` (`assistant`|`automation`) + `ConversationID`; the automation `EventBus` routes by `(workspace, channel)`; the `/live` SSE endpoint serves a single channel per connection (`?channel=assistant` for chat, default `automation` for the console). Frontend `useAssistantSSE` connects with `?channel=assistant` and drops any non-assistant event defensively. See `docs/architecture.md` Pitfall #6.
 
@@ -551,7 +551,7 @@ description must be explicit that `notify_user` is NOT for task results.
 
 #### 4.2.12 Frontend Changes — SUPERSEDED
 
-> **Status:** All items below were implemented by `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md` (complete). That plan unified chat + automation event consumption through a single `useMessageBuilder` path with `MessageBuilderOptions` (`source`, `headerMessage`, `finalizeOn`). In doing so it naturally removed `isFinalTurn` and `isSubmit` skip logic, added lifecycle-based finalize, and wired the shared renderer. The original table below is kept for historical reference only.
+> **Status:** All items below were implemented by `docs/PLANS/ARCHIVE/assistant-ui/automation-renderer-unify-consumption.md` (complete). That plan unified chat + automation event consumption through a single `useMessageBuilder` path with `MessageBuilderOptions` (`source`, `headerMessage`, `finalizeOn`). In doing so it naturally removed `isFinalTurn` and `isSubmit` skip logic, added lifecycle-based finalize, and wired the shared renderer. The original table below is kept for historical reference only.
 
 <details>
 <summary>Original Phase 2 frontend spec (implemented by automation-renderer-unify-consumption)</summary>
@@ -622,7 +622,7 @@ test the new `checkTaskCompletion` path. No net loss of coverage.
 | `docs/skills/assistant-ui-patterns.md` | Audit and remove submit_final_answer references in tool rendering sections |
 | `docs/SPECS/tool-call-parser.md` (SPEC-002) | Audit for submit_final_answer as valid tool name — remove if present |
 | `docs/PLANS/memory/memory-improvements-implementation-plan.md` (line 498) | References submit_final_answer as skill-store trigger — update or note as no longer applicable |
-| `docs/PLANS/cross-cutting/webhook-fresh-sessions.md` (line 18) | References submit_final_answer as problem source — update |
+| `docs/PLANS/ARCHIVE/cross-cutting/webhook-fresh-sessions.md` (line 18) | References submit_final_answer as problem source — update |
 | `docs/PLANS/ARCHIVE/**` | Archived plans that reference submit_final_answer (e.g., `unify-assistant-automation.md`, `refactor-assistant-clean-code.md`, `agnostic-agent-loop.md`) — **no update needed**. Archive plans are historical reference, not active code. |
 
 #### 4.2.16 Verification
@@ -1641,7 +1641,7 @@ auto-collapse.
 - [x] Canceled turns display correctly with inset pattern
 - [x] `npm run build` passes
 
-> **Note:** Phase 3 was pre-implemented by `docs/PLANS/assistant-ui/automation-renderer-unify-consumption.md`. All inset rendering, phase state machine, compact tool mode, and auto-collapse behavior exists in the current code (see §9 cross-reference for file:line evidence).
+> **Note:** Phase 3 was pre-implemented by `docs/PLANS/ARCHIVE/assistant-ui/automation-renderer-unify-consumption.md`. All inset rendering, phase state machine, compact tool mode, and auto-collapse behavior exists in the current code (see §9 cross-reference for file:line evidence).
 
 ---
 

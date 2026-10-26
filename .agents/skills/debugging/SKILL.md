@@ -1,7 +1,8 @@
 ---
 name: debugging
 description: "Root-cause a failing test, build, agent run, or tool call: reproduce, capture the exact error, locate the code path, isolate one hypothesis, fix the smallest cause, add a regression test, run the gate. Use when something fails or misbehaves."
-last_reviewed: 2026-09-26
+metadata:
+  last_reviewed: "2026-10-26"
 ---
 
 # Debugging — Root-Cause Workflow
@@ -33,7 +34,7 @@ Read the actual error text, stack, exit code, HTTP status, or SSE event — not 
 
 ## 3. Locate the code path
 
-Use `docs/architecture.md` (directory map + Common Pitfalls) to name the package, then grep for the seam:
+Use the subsystem hub (`docs/subsystems/`), `docs/architecture/map.md` and a keyword search of `docs/architecture/pitfalls.md` to name the package, then grep for the seam:
 
 | Symptom | Start here |
 |---|---|
@@ -95,7 +96,7 @@ When a tool call keeps failing and the model loops, the gap is usually in the re
 - **Symptom patch** — clamping the value that overflowed instead of the arithmetic that produced it.
 - **Stale baseline** — a "passing" suite on a tree that does not build; run build before test.
 - **Silent catch** — `_ = err`/empty `catch` swallowed the real cause; remove it to see the error (Constitution IV.2/IV.4).
-- **Wrong layer** — "fixing" a transport handler for a domain bug; confirm the owner from `architecture.md`.
+- **Wrong layer** — "fixing" a transport handler for a domain bug; confirm the owner from `docs/architecture/map.md`.
 - **Environment masquerade** — a missing model/server/timeout looks like a logic bug; check the classified transport error (Pitfall #27/#33) before touching logic.
 
 ## Completion criteria
@@ -110,5 +111,5 @@ When a tool call keeps failing and the model loops, the gap is usually in the re
 - `testing-guide` — run analysis, `MockClient` patterns, record-replay.
 - `agent-loop` — sieve, stuck/spiral detection, fallback chain, key constants.
 - `tdd-guide` — Red/Green/Refactor for the fix.
-- `clean-code` §6/§7 — error handling and test smells.
-- `docs/architecture.md` Common Pitfalls · `docs/audits/` — post-mortems for known incidents.
+- `clean-code` §6/§7 (`references/objects-errors-boundaries.md`, `references/tests-and-design.md`) — error handling and test smells.
+- `docs/architecture/pitfalls.md` · `docs/learnings/<subsystem>.md` (what was tried) · `docs/audits/` — post-mortems for known incidents.

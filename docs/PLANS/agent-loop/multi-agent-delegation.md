@@ -141,7 +141,7 @@ Decisions from the research report §9:
   gone.
 - Helpers with `on_finish`; the reviewer type; `files` / `cloud_files`.
 - The Settings → Agents editor with schema-driven hints (built-ins read-only, "Duplicate to edit"): planned in
-  [`agents-editor.md`](agents-editor.md), built (#128).
+  [`agents-editor.md`](../ARCHIVE/agent-loop/agents-editor.md), built (#128).
 - Pipelines with Event-Driven Triggers.
 
 ## Part A results (2026-10-22)
@@ -204,7 +204,7 @@ Decisions from the research report §9:
   - Summaries are sized on their JSON-encoded length.
   - Cuts never split a character.
   - Child tool results are no longer forwarded (they were unused by the UI and doubled the event volume).
-- **Live smoke done (2026-10-22).** A real cloud helper model ran delegate calls from a local Qwen parent and from a cloud parent on vertex; results in [`use-helpers-control.md`](use-helpers-control.md) (P3). The eval is still open.
+- **Live smoke done (2026-10-22).** A real cloud helper model ran delegate calls from a local Qwen parent and from a cloud parent on vertex; results in [`use-helpers-control.md`](../ARCHIVE/agent-loop/use-helpers-control.md) (P3). The eval is still open.
 
 ## B7 first findings (2026-10-22, live on vertex, local Qwen 16k)
 
@@ -246,7 +246,7 @@ the first reply (`delegate_task` or not):
 ## Remaining Work
 
 - **Part C, what is left:** A3 (chat lifecycle out of the HTTP handler) and A5 (package tidy) are planned, with the agent
-  commands, in [`run-pipeline-and-agent-commands.md`](run-pipeline-and-agent-commands.md). Helpers with `on_finish`, the
+  commands, in [`run-pipeline-and-agent-commands.md`](../ARCHIVE/agent-loop/run-pipeline-and-agent-commands.md). Helpers with `on_finish`, the
   reviewer type, `files` / `cloud_files` and pipelines stay open; none blocks the feature.
 - **Choosing an agent from a connector chat.** The composer has the Agent and Use helpers controls; a Telegram or webhook
   message has neither. The slash-command registry (`internal/core/commands`) only holds model-free commands (`/remind`),

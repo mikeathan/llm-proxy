@@ -1,4 +1,7 @@
 ---
+subsystem: agent-loop
+tags: [repetition, streaming]
+result: worked
 status: complete
 last_reviewed: 2026-08-20
 ---

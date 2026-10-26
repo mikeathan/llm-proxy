@@ -13,7 +13,7 @@ var ErrLocalOnly = errors.New("this run may only use a local model")
 // succeed until configuration is fixed (missing or rejected credential, disabled
 // integration). Tools wrap it with %w where the failure is detected; the agent
 // loop classifies it via errors.Is and stops retrying that tool (see
-// docs/PLANS/cross-cutting/tool-error-classification.md). Transient and
+// docs/PLANS/ARCHIVE/cross-cutting/tool-error-classification.md). Transient and
 // input/content errors stay plain — they are model-actionable.
 var ErrToolUnavailable = errors.New("tool unavailable: operator action required")
 

@@ -130,7 +130,7 @@ existing), empty-content fallback, automation path parity.
 
 ### Phase 2 — Strengthen `DefaultAgentsMD` (embedded seed)
 
-**File:** `backend/internal/core/assistant/prompts/AGENTS.md` (`//go:embed` →
+**File:** `backend/internal/core/assistant/prompts/AGENTS.template.md` (`//go:embed` →
 `DefaultAgentsMD`). This becomes the seed for both the global file and new workspaces, so
 its wording matters more than ever.
 
@@ -237,7 +237,7 @@ benign content untouched), loader integration, log-on-sanitize.
 | `backend/internal/core/assistant/conversation_helpers.go` | `LoadAgentsFile` precedence + global lookup; new global loader helper |
 | `backend/internal/platform/storage/manager.go` | expose metadata/config dir accessor for the global file path |
 | `backend/internal/core/assistant/executor.go` | (verify only — already calls `LoadAgentsFile` at :175-180) |
-| `backend/internal/core/assistant/prompts/AGENTS.md` | strengthened seed (scope/anti-exec/never-empty) |
+| `backend/internal/core/assistant/prompts/AGENTS.template.md` | strengthened seed (scope/anti-exec/never-empty) |
 | `backend/internal/core/assistant/prompts/templates.go` | rule 7 reword (:164/:183), `InstructionBoundaryRule` tighten (:24-27) |
 | `backend/internal/core/assistant/prompts/injection_scan.go` | NEW — load-time scan |
 | `backend/internal/core/tools/filesystem.go` | write-block protected instruction names in `validateFilePath` (:96-165) |

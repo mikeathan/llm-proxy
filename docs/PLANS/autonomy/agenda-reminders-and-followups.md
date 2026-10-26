@@ -12,8 +12,8 @@ related_plans: [autonomy-roadmap.md, attention-policy.md, standing-goals.md, eve
 **Status:** partial — the **reminder** half is built (2026-10-11): store, scheduler, `schedule_reminder` /
 `list_reminders` / `cancel_reminder`, default channel + owner timezone settings, Overview list. Behaviour is specified in
 [SPEC-011](../../SPECS/reminders.md); the design and plan were
-[`docs/superpowers/specs/2026-10-11-reminders-design.md`](../../superpowers/specs/2026-10-11-reminders-design.md) and
-[`docs/superpowers/plans/2026-10-11-reminders.md`](../../superpowers/plans/2026-10-11-reminders.md). Reminders were built
+[`docs/PLANS/ARCHIVE/autonomy/reminders-design.md`](../ARCHIVE/autonomy/reminders-design.md) and
+[`docs/PLANS/ARCHIVE/autonomy/reminders-implementation.md`](../ARCHIVE/autonomy/reminders-implementation.md). Reminders were built
 **without** `RunReason`, the run-lane `agenda` kind, snooze or the Agenda/Today view, and use their own table
 (`core/reminders`), not `AgendaItem`: the follow-up work below must either extend that table with `action=run` or
 migrate it. D2 (recurring reminders: yes) and D3 (late < 12 h, else missed) are implemented as recommended.

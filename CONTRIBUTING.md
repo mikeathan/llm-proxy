@@ -30,9 +30,11 @@ npm run build                          # production (runs lint + type check firs
 ## Before You Write Code
 
 1. Read `CONSTITUTION.md` — architectural invariants (6 sections).
-2. Read the relevant SPEC (`docs/SPECS/README.md`).
+2. Open the subsystem's hub in `docs/subsystems/` — it links the SPEC, code, decisions (ADRs), open plans
+   and the learnings ledger (what was already tried). Read the SPEC.
 3. Run `cd backend && go build ./... && go test ./...` for clean baseline.
-4. Working with an AI agent? It follows `AGENTS.md`; docs/instruction changes must pass
+4. Working with an AI agent? Every harness follows `AGENTS.md` (vendor-neutral; the one tool-specific file is a pointer
+   to it — `docs/decisions/ADR-0001-harness-neutral-agent-instructions.md`). Docs/instruction changes must pass
    `./scripts/check-agent-harness.sh`.
 
 ## Code Standards
@@ -134,5 +136,8 @@ Go 1.26 `new(value)` expressions. `crap4go` needs Go 1.26.4+ to build (Go can do
 toolchain during installation); the commit scan itself disables toolchain and dependency downloads.
 
 ## Documentation
-After any change: follow `.agents/skills/documentation-stewardship/SKILL.md`. Verify the doc/agent
-catalog still resolves with `./scripts/check-agent-harness.sh`.
+`docs/` is the project's shared memory, split by lifecycle (`docs/decisions/ADR-0002-docs-split-by-lifecycle.md`):
+SPECs and `docs/architecture/` say how it works now, `docs/decisions/` why, `docs/PLANS/` what is next (open
+plans only; finished ones move to `docs/PLANS/ARCHIVE/`), `docs/learnings/` what was tried, `docs/audits/`
+the evidence, and `docs/subsystems/` links them per subsystem. After any change follow
+`.agents/skills/documentation-stewardship/SKILL.md`, then run `./scripts/check-agent-harness.sh`.

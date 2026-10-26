@@ -9,7 +9,7 @@ related_specs: [SPEC-001]
 > - Phase 3 (fallback retry w/ context injection) — **superseded** by the SPEC-001 fallback
 >   chain + sieve recovery that shipped with the loop-strategy work.
 > - Phase 6 (execution plan strategy) — **shipped** as the plan-and-execute strategy in
->   SPEC-010 (`agent-loop/agent-loop-strategies.md`, complete).
+>   SPEC-010 (`ARCHIVE/agent-loop/agent-loop-strategies.md`, complete).
 > - **Still potentially valid:** Phase 4 (tool deduplication for MCP re-listing — revisit
 >   against SPEC-008), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent auto-wrap).
 > Re-validate each against current code before implementing; do not treat the sketches

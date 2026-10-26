@@ -1,6 +1,10 @@
 ---
+subsystem: agent-loop
+tags: [tool-calling, history, gbnf]
+result: worked
 status: reference
 last_reviewed: 2026-07-11
+date: 2026-07-06
 ---
 
 # Audit: Assistant Debug Cycle — Tool Calling, History Leak & Emoji Loop

@@ -23,7 +23,7 @@ a couple of exposed gauges more than another audit.
 This plan does **not** cover: model/inference latency (see
 [`local-and-cloud-inference-performance.md`](../orchestrator/local-and-cloud-inference-performance.md)); browser
 GPU cost ([`gpu-performance.md`](../gpu-performance.md)); the agent-loop safety items still open in
-[`unattended-run-safety-hardening.md`](../unattended-run-safety-hardening.md) Steps 6–9 (context-aware I/O
+[`ARCHIVE/cross-cutting/unattended-run-safety-hardening.md`](../ARCHIVE/cross-cutting/unattended-run-safety-hardening.md) Steps 6–9 (context-aware I/O
 hardening, unattended tool restriction and spiral detection, perf optimisations O1/O3/O5–O7, docs sync) —
 execute those there and do not duplicate them here.
 
@@ -99,7 +99,7 @@ each time (`conversation_service.go:189-213`); total work per run is quadratic i
 Steps (only if A fails): (1) write the benchmark, (2) make `buildPartialHistory` incremental and cap retained
 events to what `handle*Result` actually needs (`collectedEvents` is also the SSE replay source — check before trimming),
 (3) add the trailing flush with a tethered timer, (4) amend the reload contract in
-`docs/PLANS/cross-cutting/session-source-backend-driven.md` and change `TestBuildObserver_CheckpointsEveryToolResult`
+`docs/PLANS/ARCHIVE/cross-cutting/session-source-backend-driven.md` and change `TestBuildObserver_CheckpointsEveryToolResult`
 to assert "latest state persisted within the window and on completion/cancel/error".
 
 Verify: `cd backend && go test ./internal/core/assistant/ -run 'Observer|Checkpoint' -count=1 -race` (concurrency code changed → `-race`).

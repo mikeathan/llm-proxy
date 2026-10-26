@@ -1,4 +1,7 @@
 ---
+subsystem: orchestrator
+tags: [streaming, ttft, performance]
+result: reference
 status: reference
 last_reviewed: 2026-08-18
 ---

@@ -1,3 +1,11 @@
+---
+subsystem: orchestrator
+tags: [kv-cache, llama.cpp, performance]
+result: worked
+status: reference
+date: 2026-10-09
+---
+
 # Local prompt cache: why every chat turn re-processed the conversation (2026-10-09)
 
 Phase 0 finding for [`../PLANS/orchestrator/local-and-cloud-inference-performance.md`](../PLANS/orchestrator/local-and-cloud-inference-performance.md).

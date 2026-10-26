@@ -1,7 +1,7 @@
 # Memory — Verify It Works, and Measure Whether It Helps
 
 Guidance, not the contract: behaviour is specified in [SPEC-004](../SPECS/memory.md) and
-[SPEC-001](../SPECS/agent-loop.md); the plan is [small-context-memory](../PLANS/memory/small-context-memory.md).
+[SPEC-001](../SPECS/agent-loop.md); the plan is [small-context-memory](../PLANS/ARCHIVE/memory/small-context-memory.md).
 **You run it, I read it** — nothing here starts, stops or restarts your server.
 
 - **Part A (about a minute):** confirm memory is *stored* by the agent and *used* in a later run.
