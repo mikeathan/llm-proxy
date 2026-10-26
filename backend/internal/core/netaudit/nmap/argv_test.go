@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/netaudit"
 )
@@ -130,5 +131,45 @@ func TestArgs_RefusesWhatCouldBecomeAFlag(t *testing.T) {
 	}
 	if _, err := Args(netaudit.ScanRequest{Mode: netaudit.ModePorts, Targets: []netip.Addr{netip.MustParseAddr("fd00::1")}}); err == nil {
 		t.Error("an IPv6 target must be refused")
+	}
+}
+
+func hostTimeoutOf(t *testing.T, r netaudit.ScanRequest) string {
+	t.Helper()
+	args, err := Args(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return args[slices.Index(args, "--host-timeout")+1]
+}
+
+func TestArgs_PerDeviceTimeIsTheDepthsStandardUnlessTheOperatorOrARetryChangesIt(t *testing.T) {
+	quickReq, thoroughReq := req(netaudit.ModePorts, "", false, false), req(netaudit.ModePorts, "", true, false)
+	if got := hostTimeoutOf(t, quickReq); got != "60s" {
+		t.Errorf("quick standard = %s, want 60s", got)
+	}
+	if got := hostTimeoutOf(t, thoroughReq); got != "180s" {
+		t.Errorf("thorough standard = %s, want 180s", got)
+	}
+	thoroughReq.HostTimeout = 5 * time.Minute
+	if got := hostTimeoutOf(t, thoroughReq); got != "300s" {
+		t.Errorf("the operator's choice replaces the standard: %s", got)
+	}
+	thoroughReq.HostTimeoutFactor = 2
+	if got := hostTimeoutOf(t, thoroughReq); got != "600s" {
+		t.Errorf("a retry doubles whichever applies: %s", got)
+	}
+	quickReq.HostTimeoutFactor = 2
+	if got := hostTimeoutOf(t, quickReq); got != "120s" {
+		t.Errorf("a retry doubles the standard too: %s", got)
+	}
+}
+
+func TestRunLimit_NeverLongerThanTheEnginesOwn(t *testing.T) {
+	if runLimit(netaudit.ScanRequest{}) != scanTimeout || runLimit(netaudit.ScanRequest{Timeout: time.Hour}) != scanTimeout {
+		t.Error("the engine's limit is the ceiling")
+	}
+	if got := runLimit(netaudit.ScanRequest{Timeout: 2 * time.Minute}); got != 2*time.Minute {
+		t.Errorf("a shorter caller bound applies, got %v", got)
 	}
 }

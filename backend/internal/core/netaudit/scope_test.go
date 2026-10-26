@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/platform/scanscope"
 	"llm-proxy/models"
@@ -137,5 +138,21 @@ func TestInterfacesWithFallback(t *testing.T) {
 
 	if _, err := interfacesWithFallback(failing, func() (net.IP, error) { return nil, errors.New("no route") }); err == nil || !strings.Contains(err.Error(), "netlinkrib") {
 		t.Errorf("when neither works the original error is reported, got %v", err)
+	}
+}
+
+func TestScope_DeviceTimeoutIsOneOfTheOfferedChoices(t *testing.T) {
+	store := &memStore{}
+	s := NewScope(store, noNames{}, nil)
+	if s.DeviceTimeout() != 0 {
+		t.Errorf("the default is the standard (0), got %v", s.DeviceTimeout())
+	}
+	for _, minutes := range AllowedDeviceTimeouts {
+		if err := s.SetDeviceTimeout(minutes); err != nil || s.DeviceTimeout() != time.Duration(minutes)*time.Minute || s.View().DeviceTimeoutMinutes != minutes {
+			t.Errorf("%d minutes: err %v, timeout %v", minutes, err, s.DeviceTimeout())
+		}
+	}
+	if err := s.SetDeviceTimeout(30); !errors.Is(err, ErrBadDeviceTimeout) || store.cfg.DeviceTimeoutMinutes != 7 {
+		t.Errorf("a choice that is not offered must be refused and change nothing: %v, stored %d", err, store.cfg.DeviceTimeoutMinutes)
 	}
 }

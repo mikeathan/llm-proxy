@@ -77,8 +77,9 @@ func TestTool_AcceptsTargetsAsOneCommaSeparatedString(t *testing.T) {
 	if len(s.got.Targets) != 2 || s.got.Targets[1] != "192.168.1.6" {
 		t.Errorf("targets = %v", s.got.Targets)
 	}
-	if _, err := call(t, s, nil, context.Background(), `{"targets":[],"mode":"ports"}`); err == nil {
-		t.Error("no targets must be an error")
+	// No targets is allowed: the scan service reads that as every allowed range, so a model never has to guess one.
+	if _, err := call(t, s, nil, context.Background(), `{"mode":"ports"}`); err != nil || len(s.got.Targets) != 0 {
+		t.Errorf("no targets must reach the scanner as none: err %v, targets %v", err, s.got.Targets)
 	}
 	if _, err := call(t, s, nil, context.Background(), `{"targets":5,"mode":"ports"}`); err == nil {
 		t.Error("a number is not a target list")

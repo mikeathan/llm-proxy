@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"llm-proxy/internal/core/netaudit"
 )
@@ -32,11 +33,24 @@ const (
 
 // baseFlags are on every scan: no name lookups (the targets are addresses), XML on stdout (nothing written to a
 // file), no raw sockets even if the process is privileged, and the profile's timing, retry and rate limits.
-func baseFlags(p profile) []string {
+func baseFlags(p profile, req netaudit.ScanRequest) []string {
 	return []string{
 		"-n", "--unprivileged", "-oX", "-",
-		p.timing, "--max-retries", maxRetries, "--host-timeout", p.hostTimeout, "--max-rate", p.maxRate,
+		p.timing, "--max-retries", maxRetries, "--host-timeout", hostTimeout(p, req), "--max-rate", p.maxRate,
 	}
+}
+
+// hostTimeout is the per-device limit for a request: the operator's choice when there is one, else the depth's
+// standard, times the request's factor (a retry gives a slow device twice as long). It is always whole seconds.
+func hostTimeout(p profile, req netaudit.ScanRequest) string {
+	base := req.HostTimeout
+	if base <= 0 {
+		base, _ = time.ParseDuration(p.hostTimeout)
+	}
+	if req.HostTimeoutFactor > 1 {
+		base *= time.Duration(req.HostTimeoutFactor)
+	}
+	return strconv.Itoa(int(base.Seconds())) + "s"
 }
 
 // modeFlags are the flags each mode adds. It is the whole of what a mode can ask nmap to do.
@@ -64,7 +78,7 @@ func Args(req netaudit.ScanRequest) ([]string, error) {
 	if req.Thorough {
 		p = thorough
 	}
-	args := append(baseFlags(p), flags...)
+	args := append(baseFlags(p, req), flags...)
 	switch {
 	case req.Mode != netaudit.ModeDiscover && (req.Thorough || req.Prefiltered):
 		args = append(args, "-Pn")

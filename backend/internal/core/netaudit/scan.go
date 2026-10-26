@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"sync"
+	"time"
 
 	"llm-proxy/internal/platform/scanscope"
 )
@@ -44,6 +45,12 @@ type ScanRequest struct {
 	// Prefiltered means the service already swept the targets and they all answered, so the engine need not check
 	// which addresses are alive before looking at them.
 	Prefiltered bool
+	// HostTimeout is how long the engine may spend on one device; zero means the depth's standard. HostTimeoutFactor
+	// multiplies whichever applies (a retry of a device that ran out of time uses 2); zero or one changes nothing.
+	HostTimeout       time.Duration
+	HostTimeoutFactor int
+	// Timeout bounds the whole engine run; zero means the engine's own limit.
+	Timeout time.Duration
 }
 
 // Result is what a scan found.
@@ -91,12 +98,34 @@ type Service struct {
 	primary    Engine // nmap
 	fallback   Engine // the limited Go prober; may be nil
 
+	// deviceTimeout is the operator's per-device time limit (zero = each depth's standard); nil means standard.
+	deviceTimeout func() time.Duration
+	now           func() time.Time
+
 	running sync.Mutex
 }
 
+// scanBudget is how long one scan may take in all, the retry included. An automation run is capped at 10 minutes and
+// still has to write its report, so the scan stops well before that.
+const scanBudget = 8 * time.Minute
+
+// retryMinRemaining is the least time that must be left in the budget for a device that ran out of time to be tried
+// again; a shorter retry would only time out too.
+const retryMinRemaining = 90 * time.Second
+
+// retryFactor is how many times longer a retry lets a slow device take.
+const retryFactor = 2
+
 // NewService builds a Service. fallback may be nil, which means a host without nmap cannot scan.
 func NewService(authorizer Authorizer, primary, fallback Engine) *Service {
-	return &Service{authorizer: authorizer, primary: primary, fallback: fallback}
+	return &Service{authorizer: authorizer, primary: primary, fallback: fallback, now: time.Now}
+}
+
+// WithDeviceTimeout makes scans use the operator's per-device time limit, read for every scan so a change applies to
+// the next one.
+func (s *Service) WithDeviceTimeout(limit func() time.Duration) *Service {
+	s.deviceTimeout = limit
+	return s
 }
 
 // Scan authorises and runs one scan. It refuses before touching the network when the mode or ports are invalid,
@@ -110,6 +139,10 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	scan, err := s.prepare(ctx, req)
 	if err != nil {
 		return Result{}, err
+	}
+	started := s.now()
+	if s.deviceTimeout != nil {
+		scan.HostTimeout = s.deviceTimeout()
 	}
 	if !s.running.TryLock() {
 		return Result{}, ErrScanBusy
@@ -138,6 +171,7 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 	res.Warnings = append(warnings, res.Warnings...)
 	if swept.sweep != nil {
 		res.Hosts = mergeHosts(swept.sweep.Hosts, res.Hosts)
+		res.Hosts = s.retryUnscanned(ctx, engine, swept.scan, res.Hosts, scanBudget-s.now().Sub(started))
 		if n := countUnscanned(res.Hosts); n > 0 {
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%d live address(es) were not scanned to completion (the scan ran out of time on them), "+
 				"so their open ports are unknown, not none.", n))
@@ -206,6 +240,40 @@ func finish(res Result) Result {
 		res.Findings = FindingsOf(res.Hosts)
 	}
 	return res
+}
+
+// retryUnscanned gives the live devices the engine ran out of time on one more try, each allowed twice as long, when
+// enough of the scan's budget is left. A device the retry finishes replaces its unscanned entry; the rest stay flagged.
+// A failed retry changes nothing: the first pass's result stands.
+func (s *Service) retryUnscanned(ctx context.Context, engine Engine, first ScanRequest, hosts []Host, remaining time.Duration) []Host {
+	var slow []netip.Addr
+	for _, h := range hosts {
+		if h.Unscanned {
+			slow = append(slow, h.Addr)
+		}
+	}
+	if len(slow) == 0 || remaining < retryMinRemaining {
+		return hosts
+	}
+	retry := first
+	retry.Targets, retry.HostTimeoutFactor, retry.Timeout = slow, retryFactor, remaining
+	again, err := engine.Scan(ctx, retry)
+	if err != nil {
+		return hosts
+	}
+	byAddr := make(map[netip.Addr]Host, len(again.Hosts))
+	for _, h := range again.Hosts {
+		byAddr[h.Addr] = h
+	}
+	out := make([]Host, len(hosts))
+	for i, h := range hosts {
+		if found, ok := byAddr[h.Addr]; ok && h.Unscanned && !found.Unscanned {
+			found.Up = true
+			h = found
+		}
+		out[i] = h
+	}
+	return out
 }
 
 func countUnscanned(hosts []Host) int {

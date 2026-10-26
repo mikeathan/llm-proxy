@@ -191,6 +191,20 @@ describe('AutomationForm', () => {
       expect(writeFileMock).toHaveBeenCalledWith('ws', 'morning.md', 'BRIEF TEXT for Tuesdays')
     })
 
+    it('applies the agent, network access and journal a playbook declares, and leaves them editable', async () => {
+      listTemplatesMock.mockResolvedValue([{ id: 'network-audit', name: 'Network Audit', category: 'network' }])
+      getTemplateMock.mockResolvedValue({ id: 'network-audit', name: 'Network Audit', category: 'network', description: '', content: 'AUDIT TEXT', defaults: { profile: 'research', network_grant: 'lan', journal: false, schedule: '0 2 * * *' } })
+      const w = await mountForm(null, [], { workspace: 'ws', playbook: 'network-audit' })
+      await flushPromises()
+      expect((control(w, 'Agent').element as HTMLSelectElement).value).toBe('research')
+      expect((control(w, 'Network access').element as HTMLSelectElement).value).toBe('lan')
+      expect((control(w, 'Task').element as HTMLTextAreaElement).value).toBe('AUDIT TEXT')
+      expect((w.get('[data-test="kind"]').element as HTMLSelectElement).value).toBe('daily')
+      expect(w.get('input[type="time"]').element).toHaveProperty('value', '02:00')
+      await control(w, 'Network access').setValue('none')
+      expect((control(w, 'Network access').element as HTMLSelectElement).value).toBe('none')
+    })
+
     it('keeps what the user wrote, and the playbook list back at its prompt, when replacing is declined', async () => {
       confirmMock.mockResolvedValue(false)
       const w = await mountForm()

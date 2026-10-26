@@ -31,6 +31,12 @@ vi.mock('../../../../services/automation/dispatcherService', () => ({
   DispatcherService: { getAutomationJournal: getJournal, clearAutomationJournal: clearJournal, getAutomationReports: getReports, readWorkspaceFile: vi.fn() },
 }))
 
+const netaudit = vi.hoisted(() => ({
+  findings: vi.fn().mockResolvedValue({ scanned: false, findings: [], resolved: [], unscanned: [], devices_up: 0 }),
+  readiness: vi.fn().mockResolvedValue({ ready: true, requirements: [] }),
+}))
+vi.mock('../../../../services/netaudit/netauditService', () => ({ NetauditService: netaudit }))
+
 import AutomationDetails from '../../../../components/AgentIde/automation/AutomationDetails.vue'
 
 const run = (id: string, over: Partial<AutomationRun> = {}): AutomationRun =>
@@ -63,6 +69,27 @@ describe('AutomationDetails', () => {
   afterEach(() => {
     mounted.splice(0).forEach((w) => w.unmount())
     document.body.innerHTML = ''
+  })
+
+  it('shows the network scan report on an auditor automation only', async () => {
+    const plain = await mountDetails()
+    expect(plain.text()).not.toContain('Latest network scan')
+    expect(netaudit.findings).not.toHaveBeenCalled()
+    const w = await mountDetails({ automation: { ...AUTO, profile: 'security-auditor' } })
+    expect(w.text()).toContain('Latest network scan')
+    expect(w.text()).toContain('Not scanned yet')
+    expect(netaudit.findings).toHaveBeenCalledWith('ws', 'nightly')
+    expect(w.find('button[aria-checked="true"]').text()).toBe('Simple')
+  })
+
+  it('reads the scan report again when the run finishes, without a page refresh', async () => {
+    netaudit.findings.mockClear()
+    const audit = { ...AUTO, profile: 'security-auditor' }
+    const w = await mountDetails({ automation: audit, isExecuting: true })
+    expect(netaudit.findings).toHaveBeenCalledTimes(1)
+    await w.setProps({ isExecuting: false, automation: { ...audit, history: [run('3'), ...(audit.history ?? [])] } })
+    await flushPromises()
+    expect(netaudit.findings.mock.calls.length).toBeGreaterThanOrEqual(2) // it was read again after the run, not only on mount
   })
 
   it('lists the automation\'s saved reports, loaded for that automation', async () => {

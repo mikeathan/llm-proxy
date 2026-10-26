@@ -36,9 +36,7 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `memory-ab-test.md` | Memory A/B comparison — goal-phrased task that fills an 8K window; run with `memory_mode` off vs on (see `docs/guides/memory-testing.md` Part B) |
 | `sandbox-conformance-probe.md` | Sandbox conformance probe (OS-jail / run capability) |
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
-| `compliance_check_internal.md` | Compliance & high-risk port audit |
-| `network_recon_unprivileged.md` | Unprivileged network reconnaissance |
-| `nightly_network_audit.md` | Nightly network audit: scan, compare with the last scan, assess |
+| `network_audit.md` | Network audit: scan, compare with the last scan, assess (declares the Security auditor, local-network access, journal off, a 02:00 schedule) |
 | `workspace_health_audit.md` | Workspace storage & health audit |
 | `web_discovery_fast.md` | Fast AI/LLM news discovery — token-efficient search digest |
 | `llm_ai_release_brief.md` | LLM & AI release news brief |

@@ -75,7 +75,8 @@ func Parse(ctx context.Context, r Resolver, entry string) ([]netip.Prefix, error
 
 // Authorize resolves the targets and returns every address to scan, deduplicated and in order. It refuses
 // the whole request if scanning is off, if any target is not scannable or lies outside the declared ranges,
-// or if the request names more than MaxHosts addresses.
+// or if the request names more than MaxHosts addresses. No targets at all means every declared range, so a caller
+// that does not know the network (a model) never has to guess it.
 func (p Policy) Authorize(ctx context.Context, r Resolver, targets []string) ([]netip.Addr, error) {
 	if len(p.Allowed) == 0 {
 		return nil, ErrScanningOff
@@ -84,30 +85,35 @@ func (p Policy) Authorize(ctx context.Context, r Resolver, targets []string) ([]
 	if maxHosts <= 0 {
 		maxHosts = DefaultMaxHosts
 	}
-	seen := map[netip.Addr]bool{}
-	var out []netip.Addr
+	var wanted []netip.Prefix
+	if len(targets) == 0 {
+		wanted = p.Allowed
+	}
 	for _, target := range targets {
 		prefixes, err := Parse(ctx, r, target)
 		if err != nil {
 			return nil, err
 		}
-		for _, prefix := range prefixes {
-			if !p.contains(prefix) {
-				return nil, fmt.Errorf("%s: %w", prefix, ErrOutOfScope)
+		wanted = append(wanted, prefixes...)
+	}
+	seen := map[netip.Addr]bool{}
+	var out []netip.Addr
+	for _, prefix := range wanted {
+		if !p.contains(prefix) {
+			return nil, fmt.Errorf("%s: %w", prefix, ErrOutOfScope)
+		}
+		if HostCount(prefix) > uint64(maxHosts) {
+			return nil, fmt.Errorf("%s: %w (limit %d)", prefix, ErrTooManyHosts, maxHosts)
+		}
+		for _, a := range hosts(prefix) {
+			if seen[a] {
+				continue
 			}
-			if HostCount(prefix) > uint64(maxHosts) {
-				return nil, fmt.Errorf("%s: %w (limit %d)", prefix, ErrTooManyHosts, maxHosts)
+			if len(out) == maxHosts {
+				return nil, fmt.Errorf("%w (limit %d)", ErrTooManyHosts, maxHosts)
 			}
-			for _, a := range hosts(prefix) {
-				if seen[a] {
-					continue
-				}
-				if len(out) == maxHosts {
-					return nil, fmt.Errorf("%w (limit %d)", ErrTooManyHosts, maxHosts)
-				}
-				seen[a] = true
-				out = append(out, a)
-			}
+			seen[a] = true
+			out = append(out, a)
 		}
 	}
 	return out, nil

@@ -77,11 +77,45 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	next := models.ScanBaseline{
 		ScannedAt: at, Engine: result.Engine, Findings: append(withoutDevices(prev.Findings, scanned), result.Findings...),
 		NewKeys: keysOf(delta.New), Resolved: delta.Resolved,
+		ChangedFrom: changedFrom(delta.Changed), Unscanned: unscannedDevices(result.Hosts), DevicesUp: devicesUp(result.Hosts),
 	}
 	if err := r.store.WriteBaseline(workspaceID, automation, next); err != nil {
 		observed += fmt.Sprintf("\n\n> Note: this scan could not be saved for next time (%v).", err)
 	}
 	return observed + "\n\n---\n\n" + AssessmentHeading + "\n\n" + report
+}
+
+// changedFrom maps each changed finding's key to the version it had before.
+func changedFrom(changes []Change) map[string]string {
+	if len(changes) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(changes))
+	for _, c := range changes {
+		out[c.After.Key()] = c.Before.Version
+	}
+	return out
+}
+
+// unscannedDevices lists the addresses the engine gave up on.
+func unscannedDevices(hosts []Host) []string {
+	var out []string
+	for _, h := range hosts {
+		if h.Unscanned {
+			out = append(out, h.Addr.String())
+		}
+	}
+	return out
+}
+
+func devicesUp(hosts []Host) int {
+	n := 0
+	for _, h := range hosts {
+		if h.Up {
+			n++
+		}
+	}
+	return n
 }
 
 func keysOf(findings []Finding) []string {

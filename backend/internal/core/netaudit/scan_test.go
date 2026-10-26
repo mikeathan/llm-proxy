@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type fakeEngine struct {
@@ -264,5 +265,90 @@ func TestService_ALiveHostTheEngineGaveUpOnIsReportedAsUnscanned(t *testing.T) {
 	}
 	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "1 live address(es) were not scanned to completion") {
 		t.Errorf("warnings = %v", res.Warnings)
+	}
+}
+
+// scriptedEngine answers each Scan call with the next result and records every request.
+type scriptedEngine struct {
+	fakeEngine
+	results []Result
+	reqs    []ScanRequest
+}
+
+func (s *scriptedEngine) Scan(_ context.Context, req ScanRequest) (Result, error) {
+	s.reqs = append(s.reqs, req)
+	r := s.results[len(s.reqs)-1]
+	return r, nil
+}
+
+func slowHostScenario() (addrs []netip.Addr, sweep *sweepEngine, open Host) {
+	addrs = fiveAddrs()
+	sweep = &sweepEngine{fakeEngine: fakeEngine{name: "portprobe", modes: allModes}, live: addrs[:2]}
+	open = Host{Addr: addrs[1], Up: true, Ports: []Port{{Number: 22, Proto: "tcp", State: "open"}}}
+	return addrs, sweep, open
+}
+
+func TestService_ADeviceThatRanOutOfTimeGetsOneLongerTry(t *testing.T) {
+	addrs, sweep, open := slowHostScenario()
+	first := Result{Hosts: []Host{{Addr: addrs[0], Up: true, Ports: []Port{{Number: 80, Proto: "tcp", State: "open"}}}}} // addrs[1] timed out
+	nmap := &scriptedEngine{fakeEngine: fakeEngine{name: "nmap", modes: allModes}, results: []Result{first, {Hosts: []Host{open}}}}
+	res, err := NewService(&fixedAuth{addrs: addrs}, nmap, sweep).Scan(context.Background(), Request{Mode: ModeServices, Thorough: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nmap.reqs) != 2 {
+		t.Fatalf("the engine must run twice, got %d", len(nmap.reqs))
+	}
+	retry := nmap.reqs[1]
+	if len(retry.Targets) != 1 || retry.Targets[0] != addrs[1] || retry.HostTimeoutFactor != 2 || retry.Timeout <= 0 {
+		t.Errorf("the retry must cover only the slow device, with twice the time: %+v", retry)
+	}
+	if countUnscanned(res.Hosts) != 0 || len(res.Hosts[1].Ports) != 1 {
+		t.Errorf("a device the retry finished is no longer unscanned: %+v", res.Hosts)
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "not scanned to completion") {
+			t.Errorf("nothing is left to warn about: %v", res.Warnings)
+		}
+	}
+}
+
+func TestService_ADeviceThatStillTimesOutStaysFlagged(t *testing.T) {
+	addrs, sweep, _ := slowHostScenario()
+	nmap := &scriptedEngine{fakeEngine: fakeEngine{name: "nmap", modes: allModes}, results: []Result{{}, {}}}
+	res, err := NewService(&fixedAuth{addrs: addrs}, nmap, sweep).Scan(context.Background(), Request{Mode: ModeServices})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nmap.reqs) != 2 || countUnscanned(res.Hosts) != 2 {
+		t.Errorf("tried %d times, unscanned %d: %+v", len(nmap.reqs), countUnscanned(res.Hosts), res.Hosts)
+	}
+	if len(res.Warnings) == 0 || !strings.Contains(res.Warnings[len(res.Warnings)-1], "not scanned to completion") {
+		t.Errorf("the warning must remain: %v", res.Warnings)
+	}
+}
+
+func TestService_NoRetryWhenTheBudgetIsAlmostSpent(t *testing.T) {
+	addrs, sweep, _ := slowHostScenario()
+	nmap := &scriptedEngine{fakeEngine: fakeEngine{name: "nmap", modes: allModes}, results: []Result{{}}}
+	svc := NewService(&fixedAuth{addrs: addrs}, nmap, sweep)
+	clock := time.Unix(0, 0)
+	svc.now = func() time.Time { c := clock; clock = clock.Add(scanBudget - time.Minute); return c } // first read starts, later reads are late
+	if _, err := svc.Scan(context.Background(), Request{Mode: ModeServices}); err != nil {
+		t.Fatal(err)
+	}
+	if len(nmap.reqs) != 1 {
+		t.Errorf("with under %s left the device must not be retried, engine ran %d times", retryMinRemaining, len(nmap.reqs))
+	}
+}
+
+func TestService_UsesTheOperatorsPerDeviceTimeWhenSet(t *testing.T) {
+	nmap := &fakeEngine{name: "nmap", modes: allModes}
+	svc := NewService(newAuth(), nmap, nil).WithDeviceTimeout(func() time.Duration { return 5 * time.Minute })
+	if _, err := svc.Scan(context.Background(), Request{Mode: ModePorts}); err != nil {
+		t.Fatal(err)
+	}
+	if nmap.gotReq.HostTimeout != 5*time.Minute {
+		t.Errorf("HostTimeout = %v, want 5m", nmap.gotReq.HostTimeout)
 	}
 }

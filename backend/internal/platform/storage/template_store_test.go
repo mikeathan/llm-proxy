@@ -222,3 +222,51 @@ func TestShippedNewsBrief_MemorySectionKeepsTheSavedListEqualToTheTable(t *testi
 		}
 	}
 }
+
+func TestTemplateStore_ListCarriesTheSummaryAndDeclaredSettings(t *testing.T) {
+	list, err := NewTemplateStore(fstest.MapFS{
+		"a.md": {Data: []byte("## Task: A\n**ID:** `a`\n**Category:** x\n**Summary:** Does a thing.\n**Agent:** `helper`\n**Schedule:** 0 2 * * *\n\n### Body\n")},
+	}).List()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list = %+v, %v", list, err)
+	}
+	if list[0].Description != "Does a thing." || list[0].Defaults.Profile != "helper" || list[0].Defaults.Schedule != "0 2 * * *" {
+		t.Errorf("metadata = %+v", list[0])
+	}
+}
+
+func TestTemplateStore_ReadsTheSettingsAPlaybookDeclares(t *testing.T) {
+	store := NewTemplateStore(fstest.MapFS{
+		"a.md": {Data: []byte("## Task: A\n**ID:** `a`\n**Category:** x\n**Agent:** `security-auditor`\n**Network:** lan\n**Journal:** off\n\n### Body\n**Agent:** ignored\n")},
+		"b.md": {Data: []byte("## Task: B\n**ID:** `b`\n**Category:** x\n**Journal:** maybe\n")},
+	})
+	a, err := store.Get("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Defaults.Profile != "security-auditor" || a.Defaults.NetworkGrant != "lan" || a.Defaults.Journal == nil || *a.Defaults.Journal {
+		t.Errorf("defaults = %+v", a.Defaults)
+	}
+	b, _ := store.Get("b")
+	if b.Defaults.Profile != "" || b.Defaults.NetworkGrant != "" || b.Defaults.Journal != nil {
+		t.Errorf("a playbook that declares nothing valid must declare nothing: %+v", b.Defaults)
+	}
+}
+
+func TestShippedNetworkAuditDeclaresTheAuditorSettings(t *testing.T) {
+	got, err := NewTemplateStore(shipped.FS).Get("network-audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Defaults.Profile != "security-auditor" || got.Defaults.NetworkGrant != "lan" || got.Defaults.Journal == nil || *got.Defaults.Journal {
+		t.Errorf("the nightly audit must ask for the Security auditor, local-network access and no journal: %+v", got.Defaults)
+	}
+	if got.Defaults.Schedule != "0 2 * * *" || got.Description == "" {
+		t.Errorf("the audit starts on a nightly schedule and says what it is for: %+v", got)
+	}
+	for _, line := range []string{"TARGETS: all allowed", "DEPTH: thorough", "PORTS: default"} {
+		if !strings.Contains(got.Content, line) {
+			t.Errorf("missing the editable line %q", line)
+		}
+	}
+}

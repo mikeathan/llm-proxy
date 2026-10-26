@@ -1,6 +1,6 @@
 import { ref } from "vue"
 import type { TaskMode } from "../../types/automation"
-import type { TemplateMetadata } from "../../types/templates"
+import type { TemplateDefaults, TemplateMetadata } from "../../types/templates"
 import { TemplateService } from "../../services/template/templateService"
 import { useWorkspaceFileWriter } from "../editor/useWorkspaceFileWriter"
 import { useConfirm } from "../ui/useConfirm"
@@ -22,6 +22,8 @@ export function useTaskAuthoring() {
   const playbookId = ref("")
   const playbooks = ref<TemplateMetadata[]>([])
   const playbooksFailed = ref(false)
+  // The settings the chosen playbook declares (empty for one that declares none); the form applies them.
+  const defaults = ref<TemplateDefaults>({})
 
   let loaded = false
   // The text a playbook last put in the box: while the box still holds exactly it, nothing the user wrote is at risk.
@@ -53,6 +55,7 @@ export function useTaskAuthoring() {
     content.value = template.content
     playbookText = template.content
     playbookId.value = id
+    defaults.value = template.defaults ?? {}
     return true
   }
 
@@ -68,7 +71,8 @@ export function useTaskAuthoring() {
     content.value = ""
     playbookId.value = ""
     playbookText = ""
+    defaults.value = {}
   }
 
-  return { mode, content, playbookId, playbooks, playbooksFailed, loadPlaybooks, choosePlaybook, saveTask, reset }
+  return { mode, content, playbookId, defaults, playbooks, playbooksFailed, loadPlaybooks, choosePlaybook, saveTask, reset }
 }

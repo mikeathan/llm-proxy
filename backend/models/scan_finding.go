@@ -34,6 +34,14 @@ type ScanBaseline struct {
 	// earlier scan that are gone, so a screen can show what changed without keeping two scans.
 	NewKeys  []string      `json:"new_keys,omitempty"`
 	Resolved []ScanFinding `json:"resolved,omitempty"`
+	// ChangedFrom maps the key of each finding whose version differs from the scan before to the version it had (which
+	// may be empty), so a screen can show "was 9.6p1, now 9.7p1".
+	ChangedFrom map[string]string `json:"changed_from,omitempty"`
+	// Unscanned are the devices the engine ran out of time on in this scan: their ports are unknown, not "none", and
+	// their earlier findings were kept.
+	Unscanned []string `json:"unscanned,omitempty"`
+	// DevicesUp counts the addresses that answered in this scan.
+	DevicesUp int `json:"devices_up,omitempty"`
 }
 
 // ScanAck is the operator's decision to accept a finding for a while. It names the finding by Key and the version text

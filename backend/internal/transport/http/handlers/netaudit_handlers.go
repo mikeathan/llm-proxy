@@ -16,6 +16,7 @@ type NetauditScope interface {
 	View() netaudit.ScopeView
 	SetRanges(ctx context.Context, entries []string) (netaudit.ScopeView, error)
 	SetAllowUnconfined(allow bool) error
+	SetDeviceTimeout(minutes int) error
 	Suggestions() ([]netaudit.Suggestion, error)
 }
 
@@ -52,10 +53,15 @@ func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, basel
 // accepted it (and until when).
 type findingView struct {
 	models.ScanFinding
-	New          bool   `json:"new"`
-	Accepted     bool   `json:"accepted"`
-	AcceptedNote string `json:"accepted_note,omitempty"`
-	AcceptedTill string `json:"accepted_until,omitempty"`
+	// Key identifies the finding for accepting it; the page never builds one itself.
+	Key string `json:"key"`
+	New bool   `json:"new"`
+	// Changed is true when the version differs from the scan before; PreviousVersion is what it was (possibly empty).
+	Changed         bool   `json:"changed"`
+	PreviousVersion string `json:"previous_version,omitempty"`
+	Accepted        bool   `json:"accepted"`
+	AcceptedNote    string `json:"accepted_note,omitempty"`
+	AcceptedTill    string `json:"accepted_until,omitempty"`
 }
 
 // findingsResponse is an automation's latest scan as a screen needs it.
@@ -65,6 +71,9 @@ type findingsResponse struct {
 	Engine    string               `json:"engine,omitempty"`
 	Findings  []findingView        `json:"findings"`
 	Resolved  []models.ScanFinding `json:"resolved"`
+	// Unscanned are the devices the engine ran out of time on; DevicesUp is how many addresses answered.
+	Unscanned []string `json:"unscanned"`
+	DevicesUp int      `json:"devices_up"`
 }
 
 // GetFindings returns the latest scan of one automation: its findings (marking the new ones) and what was resolved
@@ -80,16 +89,18 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := findingsResponse{Findings: []findingView{}, Resolved: []models.ScanFinding{}}
+	resp := findingsResponse{Findings: []findingView{}, Resolved: []models.ScanFinding{}, Unscanned: []string{}}
 	if !b.ScannedAt.IsZero() {
 		isNew := make(map[string]bool, len(b.NewKeys))
 		for _, k := range b.NewKeys {
 			isNew[k] = true
 		}
-		resp.Scanned, resp.ScannedAt, resp.Engine = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine
+		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp
+		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
 		acks := h.activeAcks(workspaceID)
 		for _, f := range b.Findings {
-			view := findingView{ScanFinding: f, New: isNew[f.Key()]}
+			view := findingView{ScanFinding: f, Key: f.Key(), New: isNew[f.Key()]}
+			view.PreviousVersion, view.Changed = b.ChangedFrom[f.Key()]
 			if a, ok := acks[f.Key()]; ok && netaudit.StateFor(a, f, time.Now()) == netaudit.AckActive {
 				view.Accepted, view.AcceptedNote, view.AcceptedTill = true, a.Note, a.ExpiresAt.UTC().Format(time.RFC3339)
 			}
@@ -127,6 +138,8 @@ type scopeResponse struct {
 type scopeRequest struct {
 	Entries         *[]string `json:"entries"`
 	AllowUnconfined *bool     `json:"allow_unconfined"`
+	// DeviceTimeoutMinutes is the per-device time limit; one of netaudit.AllowedDeviceTimeouts.
+	DeviceTimeoutMinutes *int `json:"device_timeout_minutes"`
 }
 
 // GetScope returns the declared scan ranges and the networks this machine could scan.
@@ -157,6 +170,17 @@ func (h *NetauditHandlers) PutScope(w http.ResponseWriter, r *http.Request) {
 	if req.AllowUnconfined != nil {
 		if err := h.scope.SetAllowUnconfined(*req.AllowUnconfined); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		view = h.scope.View()
+	}
+	if req.DeviceTimeoutMinutes != nil {
+		if err := h.scope.SetDeviceTimeout(*req.DeviceTimeoutMinutes); err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, netaudit.ErrBadDeviceTimeout) {
+				status = http.StatusBadRequest
+			}
+			writeJSONError(w, status, err.Error())
 			return
 		}
 		view = h.scope.View()

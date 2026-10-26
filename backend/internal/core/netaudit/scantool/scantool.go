@@ -78,9 +78,6 @@ type scanArgs struct {
 }
 
 func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (any, error) {
-	if len(args.Targets) == 0 {
-		return nil, fmt.Errorf("targets is required: pass at least one address, range or name")
-	}
 	res, err := scanner.Scan(ctx, netaudit.Request{
 		Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Thorough: args.Thorough, Unattended: models.IsUnattendedRun(ctx),
 	})

@@ -162,6 +162,7 @@ func TestNetauditHandlers_GetFindings(t *testing.T) {
 	baseline := models.ScanBaseline{
 		ScannedAt: time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC), Engine: "nmap",
 		Findings: []models.ScanFinding{ssh, telnet}, NewKeys: []string{telnet.Key()}, Resolved: []models.ScanFinding{gone},
+		ChangedFrom: map[string]string{ssh.Key(): "9.6p1"}, Unscanned: []string{"10.0.0.9"}, DevicesUp: 10,
 	}
 	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil)
 
@@ -169,6 +170,15 @@ func TestNetauditHandlers_GetFindings(t *testing.T) {
 	rec := getFindings(h, "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("code %d: %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	if got.Findings[0].Key != ssh.Key() || got.Findings[1].Key != telnet.Key() {
+		t.Errorf("each finding carries the key to accept it by: %+v", got.Findings)
+	}
+	if !got.Findings[0].Changed || got.Findings[0].PreviousVersion != "9.6p1" || got.Findings[1].Changed {
+		t.Errorf("only the ssh finding changed, from 9.6p1: %+v", got.Findings)
+	}
+	if len(got.Unscanned) != 1 || got.Unscanned[0] != "10.0.0.9" || got.DevicesUp != 10 {
+		t.Errorf("unscanned devices and devices up must be returned: %+v", got)
 	}
 	if !got.Scanned || got.Engine != "nmap" || len(got.Findings) != 2 || got.Findings[0].New || !got.Findings[1].New || len(got.Resolved) != 1 {
 		t.Errorf("findings = %+v", got)
@@ -266,5 +276,23 @@ func TestNetauditHandlers_FindingsShowWhatIsAccepted(t *testing.T) {
 	}
 	if !got.Findings[0].Accepted || got.Findings[0].AcceptedNote != "jump host" || got.Findings[0].AcceptedTill == "" || got.Findings[1].Accepted {
 		t.Errorf("findings = %+v", got.Findings)
+	}
+}
+
+func TestNetauditHandlers_PutScopeSetsThePerDeviceTimeAndRefusesOtherChoices(t *testing.T) {
+	h, store := newNetauditTestHandlers()
+
+	rec := putScope(h, `{"device_timeout_minutes":5}`)
+	var got struct {
+		DeviceTimeoutMinutes int `json:"device_timeout_minutes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK || got.DeviceTimeoutMinutes != 5 || store.cfg.DeviceTimeoutMinutes != 5 {
+		t.Fatalf("code %d, body %s, stored %d", rec.Code, rec.Body.String(), store.cfg.DeviceTimeoutMinutes)
+	}
+	if rec := putScope(h, `{"device_timeout_minutes":45}`); rec.Code != http.StatusBadRequest || store.cfg.DeviceTimeoutMinutes != 5 {
+		t.Errorf("a time that is not offered = %d and must change nothing (stored %d)", rec.Code, store.cfg.DeviceTimeoutMinutes)
+	}
+	if rec := putScope(h, `{"allow_unconfined":true}`); rec.Code != http.StatusOK || store.cfg.DeviceTimeoutMinutes != 5 {
+		t.Errorf("a change to another field must leave the time alone (stored %d)", store.cfg.DeviceTimeoutMinutes)
 	}
 }

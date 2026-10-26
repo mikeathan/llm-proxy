@@ -8,7 +8,7 @@
       "targets": {
         "type": "array",
         "items": { "type": "string" },
-        "description": "What to scan: IP addresses (192.168.1.5), CIDR blocks (192.168.1.0/24), ranges (192.168.1.10-192.168.1.20) or device names. Pass several in ONE call."
+        "description": "What to scan: IP addresses (192.168.1.5), CIDR blocks (192.168.1.0/24), ranges (192.168.1.10-192.168.1.20) or device names. Pass several in ONE call. Leave out to scan every range the operator allowed (use this when the task names no target)."
       },
       "mode": {
         "type": "string",
@@ -24,7 +24,7 @@
         "description": "Default false: a quick scan of the common ports (seconds for a /24). Set true for an audit: it looks for live devices on more ports and scans the top 300 ports of each one it finds, gently; it takes a couple of minutes."
       }
     },
-    "required": ["targets", "mode"]
+    "required": ["mode"]
   },
   "guardrails": {
     "enabled": true,

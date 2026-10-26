@@ -4,11 +4,13 @@ package netaudit
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
 	"slices"
 	"strings"
+	"time"
 
 	"llm-proxy/internal/platform/scanscope"
 	"llm-proxy/models"
@@ -37,6 +39,8 @@ type Range struct {
 type ScopeView struct {
 	Ranges          []Range `json:"ranges"`
 	AllowUnconfined bool    `json:"allow_unconfined"`
+	// DeviceTimeoutMinutes is the per-device time limit chosen (0 = standard).
+	DeviceTimeoutMinutes int `json:"device_timeout_minutes"`
 }
 
 // Suggestion is a network the machine is attached to, offered as a one-click range.
@@ -70,7 +74,7 @@ func (s *Scope) Policy() scanscope.Policy {
 // View returns the stored scope.
 func (s *Scope) View() ScopeView {
 	cfg := s.store.Get()
-	view := ScopeView{Ranges: []Range{}, AllowUnconfined: cfg.AllowUnconfined}
+	view := ScopeView{Ranges: []Range{}, AllowUnconfined: cfg.AllowUnconfined, DeviceTimeoutMinutes: cfg.DeviceTimeoutMinutes}
 	for _, c := range cfg.ScanRanges {
 		if prefix, err := netip.ParsePrefix(c); err == nil {
 			view.Ranges = append(view.Ranges, Range{CIDR: c, Devices: scanscope.HostCount(prefix)})
@@ -112,6 +116,32 @@ func (s *Scope) SetAllowUnconfined(allow bool) error {
 		return fmt.Errorf("failed to save the unconfined setting: %w", err)
 	}
 	return nil
+}
+
+// AllowedDeviceTimeouts are the per-device time limits (minutes) an operator may choose; 0 is the standard. The longest
+// is bounded by the scan's own 8-minute limit and an automation run's 10-minute cap, so a longer one could never finish.
+var AllowedDeviceTimeouts = []int{0, 5, 7}
+
+// ErrBadDeviceTimeout is returned for a time limit that is not one of AllowedDeviceTimeouts.
+var ErrBadDeviceTimeout = errors.New("that time limit is not one of the choices")
+
+// SetDeviceTimeout records how many minutes a scan may spend on one device (0 = standard).
+func (s *Scope) SetDeviceTimeout(minutes int) error {
+	if !slices.Contains(AllowedDeviceTimeouts, minutes) {
+		return fmt.Errorf("%w: %d minutes", ErrBadDeviceTimeout, minutes)
+	}
+	if err := s.store.Update(func(c *models.NetauditConfig) error {
+		c.DeviceTimeoutMinutes = minutes
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the time limit: %w", err)
+	}
+	return nil
+}
+
+// DeviceTimeout is the per-device time limit scans use now; zero means each depth's standard.
+func (s *Scope) DeviceTimeout() time.Duration {
+	return time.Duration(s.store.Get().DeviceTimeoutMinutes) * time.Minute
 }
 
 // Suggestions lists every private IPv4 network the machine is attached to. The operator picks; the first

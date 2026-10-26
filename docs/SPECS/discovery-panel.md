@@ -276,6 +276,16 @@ account model, and makes no network request outside the proxy's own origin.
   only turn on, numbers > 0 replace); the UI shows each effective value's
   source. A shared fixture keeps the TypeScript mirror and the Go merge in
   step (SPEC-006).
+- **Network scan** (Settings → Safety → Network scan, and an automation whose agent is `security-auditor`): every screen has a
+  **Simple** view (default; plain sentences, one decision at a time) and an **Advanced** view (ports, versions, the full
+  list, ranges, the unconfined switch), switched at its top right, remembered per person and shared by all of them, over
+  the same data. A **Help** button on each screen opens one side panel; a warning's "Learn more" opens the right part.
+  The scope saves on every action (no Save bar); the readiness banner names each missing step and its one fix.
+  Accepting a finding ("This is fine") asks how long (30 days, 90 days, 1 year) and takes an optional note.
+  Creating an audit is the ordinary new-automation form started from the **Network audit** playbook (the playbook library lists
+  what each playbook sets up); the form and the automation page show what the computer is missing and whether the
+  automation's network access cuts the scan tool off, and a failed audit run is explained in plain words with the fix, the
+  original message behind "Show details". Settings → Network scan lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** is Advanced-only. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
 
 ### 7. Theming
 - Built-in presets: `retro-dark-soft` (default; a faded black, easier on the eyes), `retro-dark` (the original

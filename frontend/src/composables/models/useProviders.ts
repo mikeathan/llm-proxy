@@ -37,7 +37,7 @@ export function useProviders() {
   const settingsTabs = computed<SettingsTab[]>(() => {
     // The sections in their order, with the cloud providers the manifests list among them. A new fixed section must be
     // added here too, or it is missing from the Settings navigation.
-    const base = ['appearance', 'local', 'runs', 'agents', 'memory', 'storage', 'local-models', 'limits', 'guardrails', ...cloudProviders.value, 'mcp', 'communication', 'search', 'processes']
+    const base = ['appearance', 'local', 'runs', 'agents', 'memory', 'storage', 'local-models', 'limits', 'guardrails', 'network-scan', ...cloudProviders.value, 'mcp', 'communication', 'search', 'processes']
     return Array.from(new Set(base)) as SettingsTab[]
   })
 

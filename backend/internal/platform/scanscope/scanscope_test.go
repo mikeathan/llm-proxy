@@ -95,6 +95,7 @@ func TestAuthorize_Scope(t *testing.T) {
 		{"duplicates collapse", []string{"192.168.1.5", "192.168.1.0/29", "192.168.1.5"}, 6, nil},
 		{"block drops network and broadcast", []string{"192.168.1.0/24"}, 254, nil},
 		{"a /31 has both addresses", []string{"192.168.1.4/31"}, 2, nil},
+		{"no targets means every allowed range", nil, 254, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -106,6 +107,16 @@ func TestAuthorize_Scope(t *testing.T) {
 				t.Errorf("got %d addresses, want %d", len(got), tt.want)
 			}
 		})
+	}
+}
+
+func TestAuthorize_NoTargetsScansEveryRangeButNothingElse(t *testing.T) {
+	got, err := policy("192.168.50.0/30", "10.0.0.0/30").Authorize(context.Background(), nil, nil)
+	if err != nil || len(got) != 4 {
+		t.Fatalf("got %d addresses, err %v; want the two usable addresses of each range", len(got), err)
+	}
+	if _, err := (Policy{}).Authorize(context.Background(), nil, nil); !errors.Is(err, ErrScanningOff) {
+		t.Errorf("no ranges allowed and no targets = %v, want ErrScanningOff", err)
 	}
 }
 
