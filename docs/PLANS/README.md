@@ -120,7 +120,7 @@ Filtered view of everything not `complete`. Use this as the live "what's left" t
 | active | GPU Performance | P0–P4 rendering/metrics (P5 unblocked — fix-final-report-realignment landed) |
 | active | Connector Auto-Reply | Phase 3 interactive gateway paths |
 | active | Post-Implementation Cleanup | execute findings register (dead code/dup sweep) |
-| proposed | Docs and Agent Harness Restructure | everything — Phase 0 (owner decisions on harnesses in use, `.claude/rules` verification) then Phase 1 skeleton (`cross-cutting/docs-and-agent-harness-restructure.md`) |
+| proposed | Docs and Agent Harness Restructure | everything — Phase 0 (verify `AGENTS.md`/`.agents/skills` handling in opencode, pi agent, command code, codex, Claude Code; re-baseline after each rebase) then Phase 1 skeleton (`cross-cutting/docs-and-agent-harness-restructure.md`) |
 | partial | CI & Versioning | P2/P3 hygiene work + P6 (verify tag flow on a real merge); P5 build-release deliberately parked |
 | partial | Agent Improvements | re-scoped 2026-09-05: only Phase 4 (tool dedup), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent wrap) still valid — see re-scope note in plan |
 | partial | Memory Improvements | Session Search tool (FTS5 `session_search`) + Skill System (procedural memory) — everything else done |

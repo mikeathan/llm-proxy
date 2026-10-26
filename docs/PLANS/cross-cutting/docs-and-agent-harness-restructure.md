@@ -1,6 +1,6 @@
 # Docs and Agent Harness Restructure
 
-**Status:** proposed (2026-10-25) — plan only; no file has been moved yet
+**Status:** proposed (2026-10-25; re-baselined 2026-10-26 on `main` 76a87f3) — plan only; no file has been moved yet
 **Related:** `AGENTS.md` (operating contract), `CONSTITUTION.md` II.13 (prompts SSOT, unaffected), `docs/SPEC-change-management.md`
 **Adjacent (not superseded):** `agents-md-layering-guardrails.md` covers the *product* AGENTS.md layer the assistant reads at run time; this plan covers the *repo* agent harness and docs tree.
 
@@ -9,15 +9,15 @@
 ## 1. Why
 
 `docs/` is the repo's long-term memory (work done, things learned, future work), and it has outgrown its shape.
-Measured on branch `HEAD` 70944ca (all numbers from this repo, 2026-10-25):
+Measured on `main` 76a87f3 (v0.12.0, 2026-10-26; the first draft was measured on 70944ca, and 11 PRs — #137–#145, the network-audit work — merged since; every figure below is re-measured, and §9 has the commands to refresh them):
 
 | Finding | Evidence |
 |---|---|
-| The live tracker mixes finished and open work | `docs/PLANS/README.md` is 29 KB; its "Active Plans" table lists ~25 `complete` plans; "Remaining Work" (meant to hold only non-complete plans) contains a `complete` row (Run pipeline cleanup) |
-| Finished plans stay in the active tree | `docs/PLANS/` is 2.1 MB; `cross-cutting/frontend-redesign-retro.md` is 128 KB, `agent-os-sandboxing.md` 95 KB, both `complete`, not in `ARCHIVE/` |
+| The live tracker mixes finished and open work | `docs/PLANS/README.md` is 30 KB and still growing (+2 rows in the last 11 PRs); its "Active Plans" table lists 31 `complete` plans; "Remaining Work" (meant to hold only non-complete plans) contains two `complete` rows (Run pipeline cleanup; Agent OS Sandboxing, `complete (pending Linux-CI)`) |
+| Finished plans stay in the active tree | `docs/PLANS/` is 2.2 MB (53 plan files already in `ARCHIVE/`); `cross-cutting/frontend-redesign-retro.md` is 128 KB, `agent-os-sandboxing.md` 95 KB, both `complete`, not in `ARCHIVE/`. The newest live plan, `cross-cutting/network-audit.md` (`partial`, Phases 0–6 merged), is already 65 KB, so the size problem recurs on every large feature |
 | One doc does four jobs | `docs/architecture.md` is 64 KB: directory map, contracts, checklists, pitfalls |
 | Learnings are chronological, not retrievable | `docs/audits/` holds 25 files with no per-subsystem ledger; decisions live inside plans; no ADRs |
-| Skills are heavy | 19 skills, 3 148 lines; 7 over 235 lines (`clean-code` 382, `assistant-ui-chat` 335, `agent-loop` 319, `event-streaming-patterns` 261, `automation` 254, `lifecycle-events` 236, `testing-guide` 195); none has a `references/` folder |
+| Skills are heavy | 19 skills, 3 152 lines; 7 over 235 lines (`clean-code` 382, `assistant-ui-chat` 335, `agent-loop` 319, `event-streaming-patterns` 261, `automation` 259, `lifecycle-events` 236, `testing-guide` 194); none has a `references/` folder |
 | Stray / orphaned files | `backend/internal/core/assistant/prompts/AGENTS.md` is a *product* template that agent tools will read as instructions for that directory; `docs/superpowers/` (1 plan + 1 spec) is in no catalog and no harness scan; `docs/api-reference.md` is linked from `README.md` but absent from `docs/INDEX.md` |
 | Staleness is unenforced | `last_reviewed` frontmatter exists but nothing checks it; oldest are 2026-07-11 (`connector-patterns`, `llamacpp-setup`) |
 | Rules are loaded by instruction, not by path | `AGENTS.md` → "Before coding" asks the agent to remember to read `.agents/rules/*` |
@@ -76,7 +76,7 @@ docs/
 ```
 
 Subsystem list for hubs (from the existing SPEC/plan folders): agent-loop, memory, orchestrator, automation, communication,
-guardrails, assistant-ui, discovery/admin-ui, prompt-profiles, reminders, autonomy, mcp, data-layout.
+guardrails, assistant-ui, discovery/admin-ui, prompt-profiles, reminders, autonomy, mcp, data-layout, plus the two added since the first draft: **network-audit** (`core/netaudit`, the `network_scan` tool, the Security auditor agent; plan `cross-cutting/network-audit.md`, no SPEC of its own yet — it cites SPEC-001/003/006/007/009/012) and **tool-registry** (`core/toolregistry`, the one tool catalog; documented in `architecture.md` and the network-audit plan, no SPEC). A hub may name "no SPEC yet" and link the governing plan instead.
 
 **Lifecycle rule ("harvest"):** a plan is only `complete` after it is harvested:
 1. architecture / SPEC updated to the as-built state;
@@ -85,7 +85,7 @@ guardrails, assistant-ui, discovery/admin-ui, prompt-profiles, reminders, autono
 4. the plan reduced to an archive stub: title, outcome, PR links, pointers to 1–3.
 Git history retains the full text.
 
-**Plan hygiene:** a live plan is a front page (status, scope, phases with acceptance, Remaining Work) kept under ~15 KB; longer designs split by phase.
+**Plan hygiene:** a live plan is a front page (status, scope, phases with acceptance, Remaining Work) kept under ~15 KB; longer designs split by phase. Merged phases are harvested out of a `partial` plan as they land (so `network-audit.md`, 65 KB with Phases 0–6 merged, shrinks to its open scope), not only when the whole plan completes.
 
 **Learnings entry shape** (frontmatter on audits/learnings docs): `subsystem`, `tags`, `question`, `result` (worked | failed | inconclusive), `links`.
 The per-subsystem ledger line format: `- tried <X> → <result>; why: <Y>; evidence: <link>`. Agents read the ledger before proposing an approach.
@@ -152,7 +152,8 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 
 ### Phase 3 — Plans: split live from done
 - Rewrite `docs/PLANS/README.md` as the short tracker (open plans only: status legend, one table, Remaining Work). Move the full completed-plan table to `docs/PLANS/ARCHIVE/README.md`.
-- Harvest then archive completed plans, largest first (`frontend-redesign-retro`, `agent-os-sandboxing`, `xdg-config-data-relocation`, `search-tool-calling`, …): for each, perform the §4 harvest and leave a stub in `ARCHIVE/`. Move files with `git mv` so history follows.
+- Before moving anything: `git fetch origin main`, merge/rebase onto it, re-run the §9 measurements and update §1 (the tree moved 11 PRs between the first draft and this revision).
+- Harvest then archive completed plans, largest first (`frontend-redesign-retro`, `agent-os-sandboxing`, `xdg-config-data-relocation`, `search-tool-calling`, …); for the `partial` `network-audit.md`, harvest only its merged phases (0–6, PRs #137–#144) and keep the open scope (its §13) live: for each, perform the §4 harvest and leave a stub in `ARCHIVE/`. Move files with `git mv` so history follows.
 - Fix the `complete` row in Remaining Work.
 - Update check 7 and 10 to the new layout (see §7); turn on the "no `complete` row in live tables" check.
 - **Accept when:** live `PLANS/README.md` < 10 KB; `docs/PLANS/` (excluding ARCHIVE) contains only non-complete plans; every archived plan has a stub with harvest links; harness PASS.
@@ -160,7 +161,7 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 ### Phase 4 — Architecture split and subsystem hubs
 - Split `docs/architecture.md` into `docs/architecture/{map,contracts,checklists,pitfalls}.md`; keep `architecture.md` as the entry point. Give pitfalls stable IDs (`PIT-001…`) and keep the existing numbering as aliases so references like "pitfall 12" stay resolvable.
 - Rewrite references in `AGENTS.md`, `CONTRIBUTING.md`, skills, `docs/INDEX.md`, rules, and the harness (`task-planning` and `documentation-stewardship` skills both cite `docs/architecture.md` sections by name).
-- Create one hub per subsystem listed in §4. Pilot with **memory** first and review before the rest.
+- Create one hub per subsystem listed in §4 (including network-audit and tool-registry). Pilot with **memory** first and review before the rest. `architecture.md`'s package map now lists `core/netaudit` and `core/toolregistry`; carry both into `architecture/map.md`.
 - **Accept when:** each SPEC has a hub; hubs list SPEC, architecture section, ADRs, open plans, ledger, skill; harness check validates hub links; harness PASS.
 
 ### Phase 5 — Learnings and decisions
@@ -189,7 +190,7 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 - **[7]:** archive stubs are indexed by `ARCHIVE/README.md` instead of being skipped; add catalogs for `decisions/`, `learnings/`, `subsystems/`.
 - **[8]:** point the template check at `testing-guide/references/automation-templates.md`.
 - **[10]:** read status from the live `PLANS/README.md` table only; fail if a live-table row is `complete`.
-- **New checks:** (a) `CLAUDE.md` is ≤ 20 lines, imports `@AGENTS.md`, and nothing else in the repo duplicates `AGENTS.md` content; (a2) **vendor-neutrality:** case-insensitive `claude` is absent from the neutral surfaces (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `docs/INDEX.md`, `docs/architecture*`, `docs/subsystems/`, `docs/decisions/`, `docs/learnings/`, `docs/SPECS/`, `docs/guides/`, `.agents/**`), with the §3 allow-list as the only exemptions; the same check could cover other vendor names if the owner wants; (b) every `docs/subsystems/*.md` links an existing SPEC; (c) ADR files are numbered, have `status`, and are listed in `decisions/README.md`; (d) archived plans have harvest links; (e) the product template `AGENTS.template.md` exists, and the only `AGENTS.md` files under `backend/` and `frontend/` are the two nested pointer files.
+- **New checks:** (a) `CLAUDE.md` is ≤ 20 lines, imports `@AGENTS.md`, and nothing else in the repo duplicates `AGENTS.md` content; (a2) **vendor-neutrality:** case-insensitive `claude` is absent from the neutral surfaces (`AGENTS.md`, `CONTRIBUTING.md`, `README.md`, `docs/INDEX.md`, `docs/architecture*`, `docs/subsystems/`, `docs/decisions/`, `docs/learnings/`, `docs/SPECS/`, `docs/guides/`, `.agents/**`), with the §3 allow-list as the only exemptions; the same check could cover other vendor names if the owner wants; (b) every `docs/subsystems/*.md` links an existing SPEC, or states `no SPEC yet` and links an existing plan; (c) ADR files are numbered, have `status`, and are listed in `decisions/README.md`; (d) archived plans have harvest links; (e) the product template `AGENTS.template.md` exists, and the only `AGENTS.md` files under `backend/` and `frontend/` are the two nested pointer files.
 - Keep POSIX-bash + coreutils only, as today.
 
 `.githooks/pre-commit` (line 29 regex): add `CLAUDE\.md`, `(backend|frontend)/AGENTS\.md`, `docs/(architecture|subsystems|decisions|learnings)/`, and keep `AGENT\.md`.
@@ -208,11 +209,16 @@ Each phase ends with `./scripts/check-agent-harness.sh` → PASS and is its own 
 | Harvest loses nuance from big plans | Stubs link the pre-archive commit SHA; git history keeps the full text; harvest is reviewed per plan |
 | Skill split hides content from agents | "Read next" table in every `SKILL.md` names each reference and when to open it; the check requires every reference be linked |
 | Symlink breakage on Windows | Decision in Phase 0; fallback is a generated copy verified by the harness |
+| Concurrent work: the repo merged 11 PRs (many touching `docs/`, `PLANS/README.md`, skills and `architecture.md`) while this plan was a draft, so moves will conflict | One phase per PR, merged quickly; rebase and re-measure immediately before each move (Phase 3 first step); do skill splits (Phase 2) one skill per PR so a concurrent skill edit conflicts in at most one file; agree a short freeze on the file being moved, or land content edits to a moved file in the same PR |
 | Scope creep into code | Only Phase 6 touches Go (one rename); everything else is docs/scripts |
 
 ## 9. Verification (per phase and at the end)
 
 ```bash
+# refresh the §1 figures after any rebase
+wc -c docs/PLANS/README.md docs/architecture.md; du -sh docs/PLANS docs/audits docs/SPECS
+awk '/^## Active Plans/,/^## Remaining Work/' docs/PLANS/README.md | grep -c '| complete'   # live-table complete rows (31 at 76a87f3)
+awk '/^## Remaining Work/,0' docs/PLANS/README.md | grep '^| complete'                    # must be empty after Phase 3
 ./scripts/check-agent-harness.sh                      # must PASS after every phase
 wc -l .agents/skills/*/SKILL.md | sort -n | tail      # Phase 2: all ≤ 150
 wc -c docs/PLANS/README.md docs/architecture.md       # Phase 3/4 size budgets
