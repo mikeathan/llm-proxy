@@ -1,7 +1,7 @@
 # Network audit — guarded programs, an nmap scan tool, and a nightly auditor agent
 
-**Status:** proposed (2026-10-24, revised 2026-10-25 after a plan-vs-code review). D1–D12 decided by the owner
-(§2); open facts in §11. Phases 0–3 merged (PR #137); Phase 4 built on branch `network-audit-engine` (2026-10-25).
+**Status:** partial (2026-10-24, revised 2026-10-26). D1–D13 decided by the owner (§2); open facts in §11. Phases 0–6, the report
+UI, checks mode and per-audit scan settings are merged (PRs #137–#144, v0.12.0). §13 lists what is left.
 **Related Specs:** SPEC-006 (Guardrails §II.6–II.7), SPEC-007 (Automation Dispatcher), SPEC-012 (Prompt Profiles),
 SPEC-001 (Agent Loop), SPEC-003 (UI), SPEC-009 (Communication).
 **Constitution refs:** I.1–I.3 (network guardrails), II.3 (sandbox isolation, env allow-list), II.10 (guardrail
@@ -24,7 +24,7 @@ declared scope, or seeing data it should not.
 audit". The *Security auditor* agent (a profile file), an automation template and the report format give it that job.
 
 **Not in this plan:** packet capture (Appendix A), agent-applied fixes (v1 proposes; the operator applies, then
-rescans), internet CVE lookup, any admin-API authentication work, a database.
+rescans; revisited as a decision in §13.C), internet CVE lookup (revisited in §13.B), any admin-API authentication work, a database.
 
 ## 2. Decisions
 
@@ -48,6 +48,7 @@ Proposed by the review, **need the owner's yes**:
 |---|---|---|
 | D10 | **Nothing new goes into `assistant`** (owner rule, 2026-10-25: "assistant is too big, period"). The tool registry (`registry.go`, `tool_provider.go`, ~825 lines) **moves out** into its own package first (Phase 1b), and the module seam (§4.2) is built there; `assistant` ends smaller. **Decided by the owner.** | Review 2 showed the seam is not self-contained inside `assistant`; the registry has few outside users, so the move looks small (§4.2). |
 | D11 | **A tool whose prerequisites are unmet is hidden**, as SPEC-006 §II.6 and the search-provider precedent do; the reason is shown by the readiness UI and, if the tool is somehow called, by the existing `models.ErrToolUnavailable`. **Accepted by the owner, 2026-10-25.** | The first draft contradicted the spec, and `registerScopedTool` can only hide (§4.6). |
+| D13 | **No nmap in CI.** The sandbox-conformance job stays without nmap; the scripts are verified by hand on an Ubuntu host instead (§13.D). **Decided by the owner, 2026-10-26.** | Keeps CI small and fast; the cost is that the Landlock behaviour of nmap is only as verified as the last manual run. |
 | D12 | **The auditor profile lists only `netaudit`.** No `filesystem` category (it cannot be read-only and includes `write_file`, which could edit past reports); the report is written by the executor, not the model. **Decided by the owner, 2026-10-25** (option A: no file tools; the auditor needs none). | Profiles select whole categories (`profile.go`). |
 
 ## 3. Where things stand (verified)
@@ -355,7 +356,7 @@ real network: nmap is exercised through XML fixtures and a fake-binary test of `
 | **5b Model evaluation** | Run the auditor on a local model against a fixture network, as the profile and delegation evals did (`docs/audits/2026-10-17-prompt-profiles-eval.md`, `2026-10-23-delegation-eval.md`); record tool-use correctness and report quality | Result recorded in `docs/audits/`; the supported model list stated |
 | **6 Acknowledgements + report UI** | `acks.json`, operator endpoints, expiry/stale rules; `FindingsReport` with `Disclosure.vue` | Acked findings never reach the model; an expired or version-changed ack resurfaces |
 | **7 Deeper modes** | `vuln_check` with exact-name scripts; per-target operator grant for intrusive modes (interactive only); remediation proposals in the report; "rescan this host" | Intrusive modes cannot run unattended |
-| **8 Close-out** | SPECs, `architecture.md` map + pitfalls, plan status, README tracker; owner decision on adding nmap to the sandbox-conformance CI job (`ci.yml:134`) | `./scripts/check-agent-harness.sh` clean; Pre-Completion Review reported gate by gate |
+| **8 Close-out** | SPECs, `architecture.md` map + pitfalls, plan status, README tracker; ~~owner decision on adding nmap to the sandbox-conformance CI job~~ decided: no (D13) | `./scripts/check-agent-harness.sh` clean; Pre-Completion Review reported gate by gate |
 
 ## Phase 0 findings (2026-10-25, in progress)
 
@@ -473,6 +474,49 @@ I re-checked in the code: the `registerScopedTool` behaviour, the Landlock nil-r
 `ResolveOptions` acquires no client, that `useHostNetworkState` is not a singleton, the file counts, the `network.go`
 lines, and the existence of `Disclosure.vue`, `Callout.vue` and `models.ErrToolUnavailable`. Review 2's other claims are
 tagged "review 2 only" above and are re-verified in Phase 0.
+
+## 13. What is left (2026-10-26)
+
+**Shipped:** scan scope and readiness; the guarded nmap runner and `network_scan` (discover, ports, services, checks); findings with
+new / changed / resolved, accept and Undo; the code-written report and connector summary; the Security auditor and the Network Audit
+playbook; the settings, report and form UI (Simple and Advanced); per-audit scan settings applied by the server (v0.12.0); plain-language
+failures. Details are in the status notes above.
+
+### 13.A Finish what the plan already promised (small, no new risk)
+| Item | Notes |
+|---|---|
+| "Scan it again" on the unscanned-device notice | Needs a way to start the audit's run from the report panel. |
+| Readiness warning for an audit's targets | Say before a run that a chosen network is outside the allowed ones (today the run fails with a plain explanation). |
+| Library "Sets up:" line shows the scan settings | The playbook already declares them. |
+| "Rescan this host" | One device, using the audit's own settings. |
+| **Remediation proposals in the report** | For each finding, a suggested fix written by code from a fixed table keyed by the check (for example "disable SMBv1"), shown beside the finding and in the Observed text; the operator applies it and the next scan confirms. Read-only text: nothing is changed on any device. |
+
+### 13.B More ways to identify weaknesses (read-only; each needs its own reviewed design before it is built)
+1. **Known-vulnerability matching.** Compare detected service versions with a vulnerability list stored locally and updated by the operator, so a scan never needs the internet. This revisits the plan's "no internet CVE lookup" non-goal and is an owner decision (where the list comes from, how it is updated, how a false match is handled).
+2. **More safe configuration checks** of the same kind as today's nine: one row in `netaudit/checks.go` and its test each, from nmap's `safe` category only. Web checks wait until the redirect behaviour of the scripts is proven to stay on the scanned device.
+3. **Expectations per device.** The operator records what a device should offer ("the printer: only 631"), and code reports the difference. No new probing.
+4. **Certificate and TLS hygiene** beyond expiry, as read-only reports.
+
+Anything that sends more than ordinary connections, tries credentials, or could disturb a device is **intrusive** and is not specified here. It stays behind the existing Phase 7 rule (per-target operator grant, interactive only, never unattended) and needs, first: an owner decision, a Constitution review (§8), and admin API authentication (D1, §9).
+
+### 13.C Remediation
+1. **Proposals** (13.A): in scope, read-only.
+2. **Assisted fixes**: the operator approves each action. This is an open decision, not a design. It would need: a list of what the app is able to change and where (only on hosts or devices it can already reach through a configured connector), a recorded way back for every change, a log of each approval, and a Constitution review. Nothing is specified until the owner decides to proceed.
+3. **Automatic, unattended fixes** are **out of scope**: a model must not change a device unsupervised, and a wrong fix on a router or a NAS can cut the network off.
+
+### 13.D Verification gaps and governance
+- **nmap under the Ubuntu Landlock grants** and the check scripts on real devices: verified by hand on an Ubuntu host, not in CI (D13). Procedure to record here when done: run `go test -run TestChecks_RealNmap ./internal/core/netaudit/nmap/` and one audit of a test device on that host, and note the result and the date.
+- **Constitution text for guarded programs** (§8) is drafted and still needs the owner's security review before it is added to `CONSTITUTION.md`.
+- **Admin API authentication** stays parked (§9): the audit's operator-only parts are conventions until it lands.
+
+### 13.E Suggested order
+13.A (small, closes the original plan) → decisions on 13.B.1 and 13.C.2 → 13.B.2–4 → anything intrusive only after the 13.B conditions.
+
+### 13.F Decisions needed from the owner
+1. Is local vulnerability matching wanted, and from which source (13.B.1)?
+2. Do assisted fixes go ahead as a design (13.C.2), and for which targets?
+3. Is the Constitution text for guarded programs approved (13.D)?
+4. When does admin API authentication move out of "parked"?
 
 ## Appendix A — what packet capture (wireshark/tcpdump) would need
 
