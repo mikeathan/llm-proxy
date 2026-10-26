@@ -1,8 +1,12 @@
 ---
+subsystem: memory
+tags: [latency, fts5]
+result: worked
 status: complete
 date: 2026-06-03
 related_specs: [SPEC-004]
 ---
+
 # Remove Memory Rewriter and Fix FTS5 Query Sanitization
 
 **Status:** Completed

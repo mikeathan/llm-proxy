@@ -1,8 +1,12 @@
 ---
+subsystem: memory
+tags: [injection, sieve, automation]
+result: reference
 status: reference
 date: 2026-06-03
 related_specs: [SPEC-004]
 ---
+
 > **Resolved (2026-08-30):** the premature-sieve root cause described here was
 > the local `context_budget` using a wrong 2 chars/token (≈10924 chars for an 8192 ctx),
 > which pruned history when the real window was barely a third full. The derivation now
@@ -10,7 +14,7 @@ related_specs: [SPEC-004]
 > `docs/audits/2026-08-30-llm-smoke-test-incomplete-run.md` §budget.
 >
 > **Later (2026-10-01):** the per-run head-system `<memory>` block, ledger and per-automation `memory_mode` in
-> `docs/PLANS/memory/small-context-memory.md` supersede the injection design below. This file is the evidence for
+> `docs/PLANS/ARCHIVE/memory/small-context-memory.md` supersede the injection design below. This file is the evidence for
 > why the earlier approaches failed.
 
 # Memory Injection Investigation Report

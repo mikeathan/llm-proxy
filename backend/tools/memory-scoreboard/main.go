@@ -1,5 +1,5 @@
 // memory-scoreboard prints the memory scoreboard for one or more run
-// directories (docs/PLANS/memory/small-context-memory.md, Phase 0): memory
+// directories (docs/PLANS/ARCHIVE/memory/small-context-memory.md, Phase 0): memory
 // tokens per request, derived sieve firings, repeated (tool,args) calls,
 // turn-1 latency and steps. It reads only files the runtime already records
 // (events.jsonl, recording.jsonl, run-meta.json) and prints n/a for anything

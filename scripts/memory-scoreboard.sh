@@ -3,7 +3,7 @@
 # Usage: scripts/memory-scoreboard.sh <run-dir>...
 #   e.g. scripts/memory-scoreboard.sh ~/.config/llm-proxy/runs/<ws>/<model>/<task>/<run>
 # Columns the run files cannot supply print n/a. See
-# docs/PLANS/memory/small-context-memory.md (Phase 0).
+# docs/PLANS/ARCHIVE/memory/small-context-memory.md (Phase 0).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

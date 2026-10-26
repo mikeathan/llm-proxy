@@ -1,3 +1,11 @@
+---
+subsystem: agent-loop
+tags: [run-pipeline, refactor]
+result: reference
+status: reference
+date: 2026-10-22
+---
+
 # Architecture Review Before Multi-Agent Work (2026-10-22)
 
 **Status:** reference. Review only; no code was changed. It looks at how the backend is structured before adding

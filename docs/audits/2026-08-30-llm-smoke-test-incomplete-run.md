@@ -1,4 +1,7 @@
 ---
+subsystem: agent-loop
+tags: [completion, terminal, local-models]
+result: worked
 id: audit-2026-08-30-llm-smoke-test
 title: "llm-smoke-test Incomplete Run — Root Cause & Generic Fixes"
 status: complete

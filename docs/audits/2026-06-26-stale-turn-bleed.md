@@ -1,6 +1,10 @@
 ---
+subsystem: agent-loop
+tags: [cancel, sse, chat]
+result: worked
 status: reference
 last_reviewed: 2026-07-11
+date: 2026-06-26
 ---
 
 # Audit: stale turn bleed on cancel + new message

@@ -8,7 +8,7 @@ SPEC-001 (Agent Loop), SPEC-003 (UI), SPEC-009 (Communication).
 decision flow), II.13 (prompt centralisation), III.3 (workspace jail), IV.4 (no dead code), V.1 (amend after a
 security review), V.3 (no half-finished work).
 **Depends on / defers to:** [`admin-api-authentication.md`](admin-api-authentication.md) — **parked by the owner**
-(§9). **Builds on:** [`agent-os-sandboxing.md`](agent-os-sandboxing.md), [`sandbox-and-egress-residuals.md`](sandbox-and-egress-residuals.md),
+(§9). **Builds on:** [`agent-os-sandboxing.md`](../ARCHIVE/cross-cutting/agent-os-sandboxing.md), [`sandbox-and-egress-residuals.md`](sandbox-and-egress-residuals.md),
 the R0 category table (`models/tools.go` `toolsByCategory`).
 **Origin:** the owner's request (2026-10-24): a *generic* agent able to run nmap-class network analysis, with a nightly
 vulnerability audit as the first case study, safe against leaking sensitive information. Two independent model reviews

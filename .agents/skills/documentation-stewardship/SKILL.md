@@ -1,39 +1,56 @@
 ---
 name: documentation-stewardship
-description: "Post-change documentation pass: map what you changed to the SPEC, plan, INDEX, architecture pitfalls, skill, and CONSTITUTION updates it requires, then verify the catalog still resolves. Use after finishing any code change."
-last_reviewed: 2026-09-26
+description: "Post-change documentation pass: route what you changed or learned to the right home (SPEC, architecture, ADR, plan, learnings ledger, subsystem hub, skill), harvest and archive finished plans, then verify with the harness check. Use after finishing any code change, merging a plan phase, or running an eval or investigation."
+metadata:
+  last_reviewed: "2026-10-26"
 ---
 
 # Documentation Stewardship — Post-Change Pass
 
-**Trigger:** you finished a change. Docs are part of the deliverable, not an optional extra.
-**Source of truth:** `docs/INDEX.md` is the router; each doc kind has one authoritative catalog — SPECs (`docs/SPECS/README.md`), plans (`docs/PLANS/README.md`), audits (`docs/audits/README.md`). Never maintain a second copy of a catalog.
+**Trigger:** you finished a change, merged a plan phase, or learned something from a run, eval or
+investigation. Docs are the repo's shared memory and part of the deliverable.
 
-Update by what actually changed — not all seven rows every time:
+**Where knowledge lives** (by lifecycle — `docs/decisions/ADR-0002-docs-split-by-lifecycle.md`):
 
-| You changed | Update |
+| Kind | Home | Rule |
+|------|------|------|
+| How it works now | `docs/SPECS/` (contracts) · `docs/architecture/` (map, contracts, conventions, checklists, pitfalls) | Edit in place; always current. |
+| Why it is this way | `docs/decisions/` (ADRs) | Immutable once accepted; supersede with a new ADR. |
+| What is next | `docs/PLANS/` (open plans only) | Harvest as phases merge; archive when done. |
+| What we tried | `docs/learnings/<subsystem>.md` · raw evidence in `docs/audits/` | Append a line; never delete. |
+| One page per subsystem | `docs/subsystems/<slug>.md` | Index only — link, don't restate. |
+
+`docs/INDEX.md` is the router; each kind has one catalog (`docs/SPECS/README.md`, `docs/PLANS/README.md`,
+`docs/PLANS/ARCHIVE/README.md`, `docs/decisions/README.md`, `docs/learnings/README.md`, `docs/audits/README.md`,
+`docs/subsystems/README.md`). Never keep a second copy of a catalog.
+
+## Route by what happened (only the rows that apply)
+
+| What happened | Update |
 |---|---|
-| Contracted behavior (route, event, tool, phase, budget, config semantics) | The governing SPEC in `docs/SPECS/` (check `docs/SPECS/README.md`; follow `docs/SPEC-change-management.md`). |
-| A multi-step feature / phased work | `docs/PLANS/<subsystem>/<kebab-name>.md` — status + **Remaining Work**; register it in `docs/PLANS/README.md` (Active Plans + Remaining Work). |
-| A recurring trap / root cause ("if you do X it breaks because Y") | A numbered pitfall in `docs/architecture.md` → Common Pitfalls, or a new `docs/audits/` entry for a post-mortem. |
-| A new SPEC | A row in `docs/SPECS/README.md` (the canonical SPEC catalog). |
-| A new package / directory | The directory map in `docs/architecture.md` (and a sub-catalog row if it owns docs). |
-| A new skill | Nothing to register — skills are auto-discovered from `.agents/skills/<name>/SKILL.md`; ensure `name` matches the directory and `description` states the trigger. |
-| Any other new top-level doc | A row in `docs/INDEX.md` (the router's guide/other tables). |
-| An architectural invariant | `CONSTITUTION.md` — formalize it (security review first); don't leave the law stale. |
-| A skill's content | Bump its frontmatter `last_reviewed:` and keep the one-line `description` trigger accurate. |
-| User-facing setup / commands | `README.md`, `CONTRIBUTING.md`, `docs/service_setup.md`, or the operator guide that owns it. |
+| Contracted behavior changed (route, event, tool, phase, budget, config semantics) | The governing SPEC (`docs/SPEC-change-management.md`). |
+| A package or directory was added or moved | `docs/architecture/map.md` and the subsystem hub's **Code** row. |
+| A recurring trap ("if you do X it breaks because Y") | Append a numbered pitfall to `docs/architecture/pitfalls.md` — numbers are stable IDs, never renumber. |
+| A choice between real alternatives was settled | A new ADR from `docs/decisions/TEMPLATE.md`, a row in `docs/decisions/README.md`, and the hub's **Decisions** row. |
+| A run, eval, audit or failed attempt taught something | One line in `docs/learnings/<subsystem>.md` (format in its README) with an evidence link; a long write-up goes to `docs/audits/` with the frontmatter in `docs/learnings/README.md`. |
+| Phased work started | `docs/PLANS/<folder>/<kebab-name>.md` (front page ≤ ~15 KB: status, phases with acceptance, Remaining Work), a row in `docs/PLANS/README.md`, a link in the hub. |
+| A plan phase merged | **Harvest** it: as-built → SPEC/architecture; decisions → ADR; lessons → ledger; update the plan's status and Remaining Work and its tracker row. |
+| A plan is complete or superseded | Harvest, `git mv` it to `docs/PLANS/ARCHIVE/<folder>/`, move its row to `docs/PLANS/ARCHIVE/README.md`, drop it from the hub's open plans. Leftover follow-ups go under "Follow-ups left by archived plans". |
+| An architectural invariant | `CONSTITUTION.md` (security review first). |
+| A skill's content | Keep `SKILL.md` ≤ 150 lines — detail goes in `references/` (one level deep, linked from the skill's reference table); bump `metadata.last_reviewed`; keep `description` = what it does + when to use it. A new skill needs no registration beyond the `docs/INDEX.md` skills table. |
+| Agent instructions | `AGENTS.md` only, in vendor-neutral words (`docs/decisions/ADR-0001-harness-neutral-agent-instructions.md`). |
+| User-facing setup or commands | `README.md`, `CONTRIBUTING.md`, `docs/service_setup.md`, or the guide that owns it. |
 
 Rules:
 
-- **Correct, don't append.** Update the existing doc/row; don't create a parallel one. Wrong docs are worse than none.
-- **Don't duplicate.** If the fact lives in a SPEC, link the SPEC from elsewhere rather than restating it.
-- **Keep the catalog navigable.** Every catalog and link must resolve — no dead links, no stale statuses.
+- **Correct, don't append** (ledgers excepted). Update the existing doc or row; wrong docs are worse than none.
+- **Don't duplicate.** Link the SPEC, ADR or ledger instead of restating it.
+- **Every link resolves, every status is current.**
 
 ## Verify
 
 ```bash
-./scripts/check-agent-harness.sh   # skills, referenced paths, markdown links, plan links
+./scripts/check-agent-harness.sh   # frontmatter, paths, links, catalogs, hubs, ADRs, plan status, vendor-neutral wording
 ```
 
 Fix every `FAIL:` line before finishing. Then run the full gate for the code change (`AGENTS.md` →
@@ -42,4 +59,4 @@ Pre-Completion Review) and report the documentation pass alongside it.
 ## Related
 
 - `task-planning` — writes the plan this pass closes out.
-- `clean-code` §3 — comment/doc smells (stale, redundant, commented-out code).
+- `clean-code` §3 (`references/comments-and-formatting.md`) — comment/doc smells (stale, redundant, commented-out code).

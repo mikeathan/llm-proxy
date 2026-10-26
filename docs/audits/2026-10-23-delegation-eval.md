@@ -1,3 +1,11 @@
+---
+subsystem: agent-loop
+tags: [delegation, eval]
+result: worked
+status: complete
+date: 2026-10-23
+---
+
 # Delegation eval (B7) — helpers vs no helpers on a 16k local model (2026-10-23)
 
 **Status:** complete. Closes B7 of [`multi-agent-delegation.md`](../PLANS/agent-loop/multi-agent-delegation.md).

@@ -5,7 +5,7 @@
 
 Probe what agent enforcement is actually active on this run and report it as structured evidence.
 This template is the end-to-end counterpart of the OS-sandboxing acceptance tests (plan
-`docs/PLANS/cross-cutting/agent-os-sandboxing.md`, SPEC-006 §II.7): run it in a THROWAWAY
+`docs/PLANS/ARCHIVE/cross-cutting/agent-os-sandboxing.md`, SPEC-006 §II.7): run it in a THROWAWAY
 workspace to verify the posture you configured, then compare the report with the
 "Effective enforcement" readout on the Security & Sandboxing page and the run's recorded
 network scope.

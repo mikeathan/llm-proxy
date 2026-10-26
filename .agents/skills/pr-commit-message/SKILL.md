@@ -1,7 +1,8 @@
 ---
 name: pr-commit-message
 description: "Draft PR titles, descriptions, and commit messages from the branch implementation, emphasizing core work and material secondary fixes. Use when preparing PR or commit text."
-last_reviewed: 2026-10-04
+metadata:
+  last_reviewed: "2026-10-04"
 ---
 
 # PR and Commit Text

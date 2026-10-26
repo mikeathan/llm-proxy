@@ -77,7 +77,8 @@ Full dev workflow and AI-agent rules: see [`AGENTS.md`](AGENTS.md).
 | | | |
 |---|---|---|
 | 📚 API reference | [docs/api-reference.md](docs/api-reference.md) | All endpoints |
-| 🏗️ Architecture | [docs/architecture.md](docs/architecture.md) | Directory map, contracts, checklists |
+| 🏗️ Architecture | [docs/architecture.md](docs/architecture.md) | Directory map, contracts, checklists, pitfalls |
+| 🧭 Subsystems | [docs/subsystems/README.md](docs/subsystems/README.md) | One page per subsystem: spec, code, decisions, plans, learnings |
 | 🛡️ Constitution | [CONSTITUTION.md](CONSTITUTION.md) | Immutable laws (6 sections) |
 | 🧪 Testing | [.agents/skills/testing-guide/SKILL.md](.agents/skills/testing-guide/SKILL.md) | Patterns, record-replay |
 | 🤖 Agent loop | [.agents/skills/agent-loop/SKILL.md](.agents/skills/agent-loop/SKILL.md) | Spec + implementation guide |

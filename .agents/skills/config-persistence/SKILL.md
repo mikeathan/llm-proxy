@@ -1,7 +1,8 @@
 ---
 name: config-persistence
 description: "Add or fix persisted configuration across settings, registry, workspace overrides, API/UI mapping, runtime application, and reload. Use when changing config fields, defaults, precedence, or storage behavior."
-last_reviewed: 2026-10-04
+metadata:
+  last_reviewed: "2026-10-04"
 ---
 
 # Configuration and Persistence

@@ -1,7 +1,8 @@
 ---
 name: assistant-ui-patterns
 description: "AgentIde UI shell patterns: chat shell composition, sidebar/drawer states, mobile breakpoints, the shared chat renderer, and UI gotchas. Use when working on AgentIde layout/components."
-last_reviewed: 2026-10-15
+metadata:
+  last_reviewed: "2026-10-15"
 ---
 
 # Assistant UI Chat Patterns

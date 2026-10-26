@@ -151,7 +151,7 @@ supersedes:
   still the cascade base in `tokens.css`. Behaviour change only for browsers
   with no stored theme choice.
 - **2.0 (2026-09-30)** — Rewritten to match the shipped admin UI after the
-  retro redesign (`docs/PLANS/cross-cutting/frontend-redesign-retro.md`).
+  retro redesign (`docs/PLANS/ARCHIVE/cross-cutting/frontend-redesign-retro.md`).
   v1.0 described a single "Discovery Panel" (`DiscoveryPanel.vue`,
   `ModelGrid.vue`, `ToolManifest.vue`, `WorkspaceList.vue`) that never
   existed, a glassmorphic "Glass Deck" style with pulse animations, and a

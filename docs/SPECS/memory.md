@@ -211,7 +211,7 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
   `Automation.memory_mode` for an automation, `WorkspaceConfig.assistant_memory` for that workspace's chats.
   `MemoryMode.Effective(globalDefault)` resolves it, the dispatcher/conversation service read the defaults live
   (`MemorySettings()`), so a Settings change applies to the next run. Why these defaults: cost is prefill on every
-  run and the benefit for small models is unproven (`docs/PLANS/memory/small-context-memory.md`), so only the
+  run and the benefit for small models is unproven (`docs/PLANS/ARCHIVE/memory/small-context-memory.md`), so only the
   interactive surface is on. Automation path: `AutomationEntry.MemoryMode` →
   `ExecuteRequest.MemoryMode` → `run.Overrides.Memory` → `run.ResolveOptions` sets `MemoryStore` + `EnableHotMemory` when effective (`run.HotMemoryActive`; a chat keeps the store with hot memory off, for `memory_search`). Same frozen
   head-system block as chats. `hot+hints` is not shipped (needs a scoreboard win; see the plan).

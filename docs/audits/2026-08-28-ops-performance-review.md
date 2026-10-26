@@ -1,4 +1,7 @@
 ---
+subsystem: platform
+tags: [performance, logging, eventbus]
+result: worked
 status: reference
 date: 2026-08-28
 ---

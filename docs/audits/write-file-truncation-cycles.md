@@ -1,4 +1,7 @@
 ---
+subsystem: agent-loop
+tags: [write_file, grammar, tool-schema]
+result: worked
 status: reference
 last_reviewed: 2026-07-11
 ---

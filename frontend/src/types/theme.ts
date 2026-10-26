@@ -1,4 +1,4 @@
-// Theme system types (plan: docs/PLANS/cross-cutting/frontend-redesign-retro.md,
+// Theme system types (plan: docs/PLANS/ARCHIVE/cross-cutting/frontend-redesign-retro.md,
 // D1, D2, D15). The single home for theme types — theme/, composables/ and
 // components import them from here.
 

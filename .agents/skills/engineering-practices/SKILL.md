@@ -1,12 +1,13 @@
 ---
 name: engineering-practices
 description: "Repo engineering mechanics: Go patterns, error handling, code style, frontend icon conventions, and the ordered file-change checklists for a model field / tool / prompt / connector. Use when writing Go or Vue in this repo or adding one of those."
-last_reviewed: 2026-10-04
+metadata:
+  last_reviewed: "2026-10-26"
 ---
 
 # Engineering Practices — Go Patterns, Code Style & Architecture
 
-**Source docs:** `docs/architecture.md` (package layout, contracts, file checklists), `.agents/rules/go-staff-engineer.md`, `.agents/rules/frontend-vue-engineer.md`
+**Source docs:** `docs/architecture/map.md` (package layout), `docs/architecture/contracts.md`, `docs/architecture/checklists.md`, `.agents/rules/go-staff-engineer.md`, `.agents/rules/frontend-vue-engineer.md`
 
 > Language-agnostic principles (naming, functions, comments, dependency boundaries,
 > the smells checklist) live in [`clean-code`](../clean-code/SKILL.md); this file covers
@@ -44,7 +45,7 @@ last_reviewed: 2026-10-04
 
 Repo-specific patterns only. General patterns (constants over magic values, strategy maps over
 growing switches, value objects, null object, command–query separation, no silent failures,
-parameter immutability, named predicates) live in [`clean-code`](../clean-code/SKILL.md) §2/§5/§6 and
+parameter immutability, named predicates) live in [`clean-code`](../clean-code/SKILL.md) §2/§5/§6 ([`names-and-functions`](../clean-code/references/names-and-functions.md), [`objects-errors-boundaries`](../clean-code/references/objects-errors-boundaries.md)) and
 `.agents/rules/go-staff-engineer.md`.
 
 ### Constants over Magic Values
@@ -93,11 +94,11 @@ site instead, and keep a wrapper only when it derives arguments (e.g. choosing w
 
 ## File Change Checklist
 
-Canonical path-level checklists live in `docs/architecture.md` → **File Change Checklist** (new model
+Canonical path-level checklists live in `docs/architecture/checklists.md` → **File Change Checklist** (new model
 field, tool category, single tool, connector, prompt, frontend settings tab, backend endpoint). Read
 the one matching your change type there before editing.
 
-**When adding a search provider** — the one recipe kept here (architecture.md links to it):
+**When adding a search provider** — the one recipe kept here (`docs/architecture/checklists.md` links to it):
 1. `models/config.go` — add the `SearchProvider*` const and its entry in `SearchProviderIDs()` (the frontend fallback `constants/search.ts` mirrors the set; the dropdown itself is backend-driven via `search_providers`).
 2. `internal/core/tools/searchproviders/search_<name>.go` — implement `tools.SearchProvider` (`Search(ctx, query, timeRange tools.SearchTimeRange)`: map the window to the provider's recency filter and send no filter for `SearchRangeAny`; add the provider to `TestProviders_MapTimeRange` in `search_registry_test.go`); constructor `new<Name>Provider(cfg tools.SearchProviderConfig) (tools.SearchProvider, error)` rejecting a nil client and a missing key, bound responses with `io.LimitReader`, skip malformed result URLs (`validResultURL`), wrap non-2xx with `%w` via `providerStatusError` (which maps **401/403** to `models.ErrToolUnavailable` so the loop classifies a rejected key as terminal; other statuses stay plain), never log the API key or query. Add the mirroring `search_<name>_test.go` (httptest + the shared `newTestClient`).
 3. `internal/core/tools/searchproviders/search_registry.go` — add one table row `{RequiresKey: true, New: new<Name>Provider}`; the drift test `search_registry_test.go` fails until the row matches `models.SearchProviderIDs()`.

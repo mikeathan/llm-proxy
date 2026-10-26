@@ -1,4 +1,7 @@
 ---
+subsystem: admin-ui
+tags: [gpu, rendering, performance]
+result: reference
 status: reference
 last_reviewed: 2026-08-06
 ---

@@ -1,4 +1,7 @@
 ---
+subsystem: platform
+tags: [security, memory, performance]
+result: reference
 status: reference
 date: 2026-09-30
 last_reviewed: 2026-09-30
@@ -30,7 +33,7 @@ Nothing here was changed in code. Line numbers drift; re-`grep` the symbol befor
 | Memory injection for automations | injected on every turn | disabled; completion tool had been silently dropped by a trailing comma in `manifests/system.json` (real cause of the `notify_user` mis-selection) | same, "Root Cause (June 7)" |
 | Context budget for local models | `context_budget` from `ctx×2` chars/token | wrong ratio made the sieve fire at ~1/3 of the window; now `(ctx − max_tokens) × 4` | SPEC-005 §II.3 fn 1; `docs/audits/2026-08-30-llm-smoke-test-incomplete-run.md` |
 | GPU/UI cost while streaming | backdrop blur, pulse animations, deep watchers, plain-text reasoning | the arc-orbit loader animation was the dominant cost (~11 points); removed. Re-measure before touching rendering again | `docs/PLANS/gpu-performance.md`, `docs/audits/gpu-performance-audit.md` |
-| Sandboxing | Wazero/WASM (removed 2026-05), Docker (rejected: macOS bind-mount I/O 5–20× slower), sandbox-exec CLI (deprecated), per-use-case profiles (rejected) | shipped: network default-off + egress proxy + Landlock (Linux) + dedicated-user deployment | `docs/PLANS/cross-cutting/agent-os-sandboxing.md` §0, §2 |
+| Sandboxing | Wazero/WASM (removed 2026-05), Docker (rejected: macOS bind-mount I/O 5–20× slower), sandbox-exec CLI (deprecated), per-use-case profiles (rejected) | shipped: network default-off + egress proxy + Landlock (Linux) + dedicated-user deployment | `docs/PLANS/ARCHIVE/cross-cutting/agent-os-sandboxing.md` §0, §2 |
 | Model eviction by inbound `/v1` callers | swap freely | killed live runs; replaced by the residency gate (429 + `X-LLM-Status`) | SPEC-007 §V.1 |
 | Design language | glass/shadows; dotted-relay mark; square-in-square glyphs; corner crosshairs | all rejected by the user; **no shadows** except the primary button offset; nothing may trace to reference products | `frontend-redesign-retro.md` "Design language", SPEC-003 §IV |
 
@@ -105,7 +108,7 @@ Nothing here was changed in code. Line numbers drift; re-`grep` the symbol befor
 |---|---|
 | `docs/PLANS/cross-cutting/admin-api-authentication.md` | S1–S5, S9 |
 | `docs/PLANS/cross-cutting/sandbox-and-egress-residuals.md` | S6, S6b, S7, S10, S11, S12 |
-| `docs/PLANS/memory/small-context-memory.md` | M1–M9 |
+| `docs/PLANS/ARCHIVE/memory/small-context-memory.md` | M1–M9 |
 | `docs/PLANS/orchestrator/local-and-cloud-inference-performance.md` | P1, P9, P12 (local + cloud inference) |
 | `docs/PLANS/cross-cutting/backend-hot-paths-and-leak-hardening.md` | P2–P8, P10, P11 |
 | `docs/PLANS/assistant-ui/assistant-automation-workbench-layout.md` | U1–U7 |

@@ -1,3 +1,11 @@
+---
+subsystem: prompt-profiles
+tags: [eval, local-models]
+result: worked
+status: reference
+date: 2026-10-17
+---
+
 # Prompt profiles — evaluation before and after (2026-10-17)
 
 Evidence for `docs/PLANS/cross-cutting/prompt-profiles.md` and SPEC-012. Driver: `scripts/prompt-eval.py` (shared helpers

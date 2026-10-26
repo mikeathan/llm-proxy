@@ -1,6 +1,6 @@
 // heartbeat.go — the per-workspace heartbeat: a frequent, cheap check that only speaks up when
 // something needs attention. It compiles to an ordinary automation, so scheduling, lanes, history
-// and delivery are unchanged (docs/PLANS/automation/memory-and-heartbeat-simplification.md).
+// and delivery are unchanged (docs/PLANS/ARCHIVE/automation/memory-and-heartbeat-simplification.md).
 package models
 
 import (

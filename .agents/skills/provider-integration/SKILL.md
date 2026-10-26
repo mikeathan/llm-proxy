@@ -1,7 +1,8 @@
 ---
 name: provider-integration
 description: "Add or fix LLM provider integration: manifests, credential/endpoint resolution, request and streaming compatibility, capabilities, and failover. Use for inference providers, not search providers or communication connectors."
-last_reviewed: 2026-10-04
+metadata:
+  last_reviewed: "2026-10-04"
 ---
 
 # LLM Provider Integration

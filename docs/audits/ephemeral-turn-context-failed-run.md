@@ -1,4 +1,7 @@
 ---
+subsystem: agent-loop
+tags: [prompting, performance]
+result: failed
 status: complete
 last_reviewed: 2026-07-11
 ---

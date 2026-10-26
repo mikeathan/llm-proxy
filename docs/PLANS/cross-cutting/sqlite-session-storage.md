@@ -76,5 +76,5 @@ and are storage-agnostic; SQLite is a follow-up that can build on them.
   (full transcript persisted; only the prompt is compressed by summarization).
 - llm-proxy current store: `backend/internal/platform/persistence/workspace.go`
   (`WriteSession`/`ReadSession`/`ListSessions`).
-- Related docs: `docs/PLANS/cross-cutting/session-source-backend-driven.md`
-  ("Checkpoint persistence during execution"), `docs/PLANS/cross-cutting/persist-assistant-run-state-for-reload.md`.
+- Related docs: `docs/PLANS/ARCHIVE/cross-cutting/session-source-backend-driven.md`
+  ("Checkpoint persistence during execution"), `docs/PLANS/ARCHIVE/cross-cutting/persist-assistant-run-state-for-reload.md`.

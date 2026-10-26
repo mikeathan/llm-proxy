@@ -1,22 +1,8 @@
 # AGENTS.md — For AI coding agents
 
-Operating contract for this repo. Read before making changes.
-
-## Instruction hierarchy (higher wins on conflict)
-
-`CONSTITUTION.md` → this file → `.agents/rules/*` (mandatory language mechanics) → the relevant SPEC
-(`docs/SPECS/README.md`) → `docs/architecture.md` → existing code conventions. Skills are procedural
-guides loaded on demand; they inherit everything above. An explicit instruction in the current request
-outranks repo conventions unless it violates `CONSTITUTION.md` — if you deviate, say so and why. Ask
-only when the conflict cannot be resolved safely.
-
-## Navigation (progressive disclosure)
-
-- Start from `docs/INDEX.md` — a router to each doc catalog. Do NOT recursively scan `docs/` with ls/find.
-- Load only what the task needs. Every loaded file costs context — prefer `file:line` pointers and
-  targeted reads over opening whole docs. When unsure whether a large doc is needed, ask first.
-- **Classify first:** backend / frontend / cross-cutting / docs / tests. Load the matching rule file and
-  the affected subsystem's SPEC/skill only — never all of them.
+Operating contract for this repo — a local-first LLM orchestrator and agent platform (Go backend in
+`backend/`, Vue 3 admin UI in `frontend/`). Read before making changes. This file is the one source of
+agent instructions for every harness; keep it tool- and vendor-neutral.
 
 ## Commands
 
@@ -31,6 +17,36 @@ cd frontend && npm run test:visual                        # visual regression (U
 cd backend && go run main.go                             # :4001 (omit --data for XDG/home layout)
 ./scripts/check-agent-harness.sh                         # verify the agent harness stays consistent
 ```
+
+## Before coding
+
+1. Read `CONSTITUTION.md` (6 sections — the law).
+2. **Classify** the work: backend / frontend / cross-cutting / docs / tests, and name the subsystem.
+3. Open its hub, `docs/subsystems/<slug>.md` (list: `docs/subsystems/README.md`). It links the SPEC, the code,
+   the decisions, the open plans and the **learnings ledger** — read the ledger before choosing an approach so
+   you do not repeat a dead end. Read the SPEC it names.
+4. Load the matching rule file — `.agents/rules/go-staff-engineer.md` (backend),
+   `.agents/rules/frontend-vue-engineer.md` (frontend). Mandatory.
+5. Load the phase skill(s) below; for multi-file or ambiguous work start with `task-planning`, and use
+   `debugging` when something fails.
+6. Run the relevant baseline before changing behavior (see Workflow); docs/harness tasks skip the build.
+
+## Instruction hierarchy (higher wins on conflict)
+
+`CONSTITUTION.md` → this file → `.agents/rules/*` (mandatory language mechanics) → the relevant SPEC
+(`docs/SPECS/README.md`) → `docs/architecture.md` → existing code conventions. Skills are procedural
+guides loaded on demand; they inherit everything above. An explicit instruction in the current request
+outranks repo conventions unless it violates `CONSTITUTION.md` — if you deviate, say so and why. Ask
+only when the conflict cannot be resolved safely.
+
+## Navigation (progressive disclosure)
+
+- Start from `docs/INDEX.md` — a router to each doc catalog. Do NOT recursively scan `docs/` with ls/find.
+- Load only what the task needs. Every loaded file costs context — prefer `file:line` pointers and
+  targeted reads over opening whole docs. When unsure whether a large doc is needed, ask first.
+- Load the matching rule file and the affected subsystem's hub, SPEC and skill only — never all of them.
+- Finished plans in `docs/PLANS/ARCHIVE/` are evidence, not instructions: open one only when its topic is in
+  play; the SPECs, `docs/architecture/` and the ADRs win if they disagree.
 
 ## Workflow
 
@@ -73,15 +89,26 @@ Non-trivial work follows **inspect → plan → implement → verify → review 
   mutation; deleting or rewriting unrelated work; security/network/secret changes `CONSTITUTION.md` does
   not already authorize.
 
-## Memory / Knowledge Persistence
+## Knowledge and memory
 
-Persist durable findings to the harness's long-term memory if it exposes one — do not let learnings die
-with the session. Trigger after: a non-trivial bug / edge case solved · a subsystem understood beyond
-the source · an architectural decision / convention / user preference set · a non-obvious build / test /
-setup quirk.
+**The repo is the shared, durable memory** — for people and for every agent on any harness
+(`docs/decisions/ADR-0002-docs-split-by-lifecycle.md`). Do not let learnings die with the session. Trigger
+after: a non-trivial bug / edge case solved · a subsystem understood beyond the source · an architectural
+decision / convention / user preference set · a non-obvious build / test / setup quirk · an approach that
+failed. Route it with `documentation-stewardship`:
 
-Save quietly at task conclusion; never block the user; never claim memory was written unless it was.
-Prefer a short, searchable summary with `file:line` pointers and verbatim values.
+- what was tried and what happened → a line in `docs/learnings/<subsystem>.md`;
+- a recurring code trap → a numbered pitfall in `docs/architecture/pitfalls.md`;
+- a choice between alternatives → an ADR in `docs/decisions/`;
+- changed behavior → the SPEC; next steps → the plan's Remaining Work.
+
+These homes win over any tool's or skill's default location: plans and designs go in `docs/PLANS/`,
+contracts in `docs/SPECS/`, never in a tool-named folder.
+
+Test for the repo: *would a fresh clone need this?* If yes, it goes in the repo. A harness's own private
+memory (if it has one) is a per-user cache for personal preferences only, never the only copy of a finding.
+Save quietly at task conclusion; never block the user; never claim anything was saved unless it was. Prefer a
+short, searchable entry with `file:line` pointers, verbatim values and an evidence link.
 
 ## Boundaries
 
@@ -96,6 +123,9 @@ Prefer a short, searchable summary with `file:line` pointers and verbatim values
 - **Comments:** never remove comments unless factually incorrect — then correct the error, do not delete.
 - **Secrets / telemetry / network:** governed by `CONSTITUTION.md` — comply.
 - **Heavy deps / CI changes:** ask before adding or modifying.
+- **Agent instructions stay neutral:** no tool, vendor or model names in this file, `.agents/`, or the docs
+  routers; the only harness-specific adapter is the pointer file named in
+  `docs/decisions/ADR-0001-harness-neutral-agent-instructions.md`. The harness check enforces it.
 
 ### Isolated worktrees (opt-in — explicit approval required)
 
@@ -108,10 +138,11 @@ Do not create a worktree, branch, commit, or PR on your own initiative.
 ## Skills (load on demand — never all at once)
 
 `.agents/skills/<name>/SKILL.md` are Agent Skills the harness surfaces automatically: only each `name` +
-`description` are always in context; the body loads when relevant. **The `description` is the trigger —
-there is no separate trigger field.** Route by phase:
+`description` are always in context; the body loads when relevant, and each skill's `references/` files
+load only when its reference table says so. **The `description` is the trigger — there is no separate
+trigger field.** Route by phase:
 - **Plan / research** → `task-planning`; add `clean-code` + `engineering-practices` and the affected
-  subsystem skill (catalog: `docs/INDEX.md` → Skills).
+  subsystem skill (the hub lists it; catalog: `docs/INDEX.md` → Skills).
 - **Implement** → `tdd-guide` (+ `clean-code`, `engineering-practices`).
 - **Verify / debug** → `debugging` for anything failing; `testing-guide` for authoring/running tests,
   smoke runs, record-replay, and run analysis.
@@ -120,22 +151,14 @@ there is no separate trigger field.** Route by phase:
   `config-persistence`; inference-provider work (not search or connectors) → `provider-integration`.
 - **Commit / PR text** → `pr-commit-message`.
 
-## Before coding
-
-1. Read `CONSTITUTION.md` (6 sections — the law).
-2. Read the affected subsystem's SPEC (`docs/SPECS/README.md`).
-3. Load the matching rule file — `.agents/rules/go-staff-engineer.md` (backend),
-   `.agents/rules/frontend-vue-engineer.md` (frontend). Mandatory.
-4. Load the phase skill(s) above; for multi-file or ambiguous work start with `task-planning`, and use
-   `debugging` when something fails.
-5. Run the relevant baseline before changing behavior (see Workflow); docs/harness tasks skip the build.
-
 ## Reference (load on demand)
 
-- `docs/INDEX.md` — router to every doc catalog (SPECs, plans, audits, skills, rules).
-- `docs/architecture.md` — directory map, critical contracts, file-change checklists, Common Pitfalls.
-- `docs/PLANS/README.md` — live "what's left" tracker for non-complete plans.
-- Adding a frontend settings tab? → `docs/architecture.md#adding-a-frontend-settings-tab-checklist`.
+- `docs/INDEX.md` — router to every doc catalog (subsystems, SPECs, architecture, decisions, plans,
+  learnings, audits, skills, rules).
+- `docs/subsystems/` — one hub per subsystem; the fastest way in.
+- `docs/architecture.md` — entry to `docs/architecture/`: map, contracts, conventions, checklists, pitfalls.
+- `docs/PLANS/README.md` — open plans and what is left in each.
+- Adding a frontend settings tab? → `docs/architecture/checklists.md#adding-a-frontend-settings-tab-checklist`.
 
 ## Pre-Completion Review (Mandatory Gate)
 
@@ -153,5 +176,5 @@ Before marking done, pass every check; fix or report failures and summarize the 
    TODOs, and incomplete work; preserve unrelated existing TODOs.
 7. Confirm conventions, required documentation, tests, and production readiness; report checks run,
    failures, fixes, and remaining risk to the user (or state "clean").
-8. Persist durable findings to harness memory if one is exposed (see Memory / Knowledge Persistence).
+8. Persist durable findings to the repo (see Knowledge and memory).
 Applies to all task sizes and user-requested change reviews.

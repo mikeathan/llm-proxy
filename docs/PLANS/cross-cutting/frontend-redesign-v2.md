@@ -10,7 +10,7 @@ last_reviewed: 2026-10-14
 **Related Specs:** SPEC-003 (Admin UI — amended to v2.11 in this plan), SPEC-007 §V (run scheduler, read-only consumer)
 **Constitution refs:** V.2 (spec-first), V.3 (no half-finished work), IV.4 (no dead code)
 **Related plans:** [`assistant-ui/assistant-automation-workbench-layout.md`](../assistant-ui/assistant-automation-workbench-layout.md) (proposed, gated — chat + editor split and the automation workbench; orthogonal: this plan changes the shell, look, Settings and the composer, and does not implement the split)
-**Supersedes:** the "Design language" decisions of [`frontend-redesign-retro.md`](frontend-redesign-retro.md) that this plan changes (listed below). That plan stays `complete`.
+**Supersedes:** the "Design language" decisions of [`frontend-redesign-retro.md`](../ARCHIVE/cross-cutting/frontend-redesign-retro.md) that this plan changes (listed below). That plan stays `complete`.
 **Skills:** `task-planning`, `frontend-vue-engineer`, `assistant-ui-patterns`, `tdd-guide`, `documentation-stewardship`
 
 ---
