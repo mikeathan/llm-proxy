@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.99 scan initiated Mon Oct 26 14:01:56 2026 as: nmap -n -&#45;unprivileged -sT -Pn -T3 -&#45;max-retries 1 -&#45;max-rate 300 -p 22,80,443 -oX - 192.0.2.20 -->
+<nmaprun scanner="nmap" args="nmap -n -&#45;unprivileged -sT -Pn -T3 -&#45;max-retries 1 -&#45;max-rate 300 -p 22,80,443 -oX - 192.0.2.20" start="1793023316" startstr="Mon Oct 26 14:01:56 2026" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="3" services="22,80,443"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1793023316" endtime="1793023316"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.20" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="22"><state state="closed" reason="conn-refused" reason_ttl="0"/><service name="ssh" method="table" conf="3"/></port>
+<port protocol="tcp" portid="80"><state state="closed" reason="conn-refused" reason_ttl="0"/><service name="http" method="table" conf="3"/></port>
+<port protocol="tcp" portid="443"><state state="closed" reason="conn-refused" reason_ttl="0"/><service name="https" method="table" conf="3"/></port>
+</ports>
+<times srtt="20142" rttvar="26473" to="126034"/>
+</host>
+<runstats><finished time="1793023316" timestr="Mon Oct 26 14:01:56 2026" summary="Nmap done at Mon Oct 26 14:01:56 2026; 1 IP address (1 host up) scanned in 0.08 seconds" elapsed="0.08" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

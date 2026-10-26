@@ -80,6 +80,9 @@ export interface ScanFinding {
 /** A finding as it was, listed under "resolved" because the next scan no longer showed it. */
 export interface ResolvedFinding {
   device: string
+  /** What kind of finding it was; absent or "open_port" for a plain open port. */
+  check?: string
+  evidence?: string
   port?: number
   proto?: string
   service?: string
@@ -101,6 +104,8 @@ export interface FindingsReport {
 /** What the report shows, sorted from the findings: the parts the filter tiles count. */
 export interface ReportSummary {
   needLook: ScanFinding[]
+  /** Checks that found something and nobody has accepted, new or not: they stay until dealt with. */
+  problems: ScanFinding[]
   added: ScanFinding[]
   changed: ScanFinding[]
   accepted: ScanFinding[]
@@ -113,7 +118,7 @@ export interface DeviceGroup<T> {
 }
 
 /** Which part of the Advanced report is listed. */
-export type FindingFilter = 'all' | 'new' | 'changed' | 'accepted' | 'resolved'
+export type FindingFilter = 'all' | 'problems' | 'new' | 'changed' | 'accepted' | 'resolved'
 
 export interface ScanAck {
   key: string

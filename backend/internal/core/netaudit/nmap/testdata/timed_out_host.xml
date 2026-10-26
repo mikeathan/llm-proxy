@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.99 scan initiated Mon Oct 26 14:01:56 2026 as: nmap -n -&#45;unprivileged -sT -Pn -T3 -&#45;max-retries 1 -&#45;max-rate 300 -&#45;host-timeout 4s -p 1-1000 -oX - 192.0.2.7 -->
+<nmaprun scanner="nmap" args="nmap -n -&#45;unprivileged -sT -Pn -T3 -&#45;max-retries 1 -&#45;max-rate 300 -&#45;host-timeout 4s -p 1-1000 -oX - 192.0.2.7" start="1793023316" startstr="Mon Oct 26 14:01:56 2026" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1000" services="1-1000"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1793023316" endtime="1793023320" timedout="true"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.7" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<times srtt="309523" rttvar="471559" to="2195759"/>
+</host>
+<runstats><finished time="1793023320" timestr="Mon Oct 26 14:02:00 2026" summary="Nmap done at Mon Oct 26 14:02:00 2026; 1 IP address (1 host up) scanned in 4.02 seconds" elapsed="4.02" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

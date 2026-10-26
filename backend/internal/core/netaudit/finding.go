@@ -17,6 +17,15 @@ type Port struct {
 	// Guessed means Service is only the usual name for that port number (nmap's port table), not something the scan
 	// confirmed by talking to the service.
 	Guessed bool `json:"guessed,omitempty"`
+	// Scripts are what nmap's scripts printed for this port (a checks scan only). They are read by the checks and
+	// never serialised: the text is whatever the device sent.
+	Scripts []Script `json:"-"`
+}
+
+// Script is the output of one nmap script on one port, cleaned of control characters and secret-shaped text.
+type Script struct {
+	ID     string
+	Output string
 }
 
 // Host is one address a scan looked at.
@@ -39,7 +48,7 @@ const (
 	SeverityInfo = "info"
 )
 
-// FindingsOf turns scan hosts into findings: one per open port.
+// FindingsOf turns scan hosts into findings: one per open port, then whatever the checks found on that port.
 func FindingsOf(hosts []Host) []Finding {
 	var out []Finding
 	for _, h := range hosts {
@@ -51,6 +60,7 @@ func FindingsOf(hosts []Host) []Finding {
 				Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Service: serviceLabel(p), Version: joinVersion(p),
 				Check: CheckOpenPort, Severity: SeverityInfo,
 			})
+			out = append(out, checkFindings(h.Addr.String(), p)...)
 		}
 	}
 	return out

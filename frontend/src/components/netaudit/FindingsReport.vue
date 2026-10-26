@@ -11,7 +11,7 @@ import FindingsSimple from "./FindingsSimple.vue"
 import UnscannedNotice from "./UnscannedNotice.vue"
 import { useFindings } from "../../composables/netaudit/useFindings"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
-import { describeService } from "../../utils/netaudit/friendly"
+import { checkCount, findingTitle, portCount } from "../../utils/netaudit/friendly"
 import { summarize } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import type { ScanFinding } from "../../types/netaudit"
@@ -37,7 +37,7 @@ const hasEarlier = computed(() => !!report.value?.unscanned.some((d) => report.v
 const meta = computed(() => {
   const r = report.value
   if (!r?.scanned) return ""
-  const parts = [formatAbsoluteTime(r.scanned_at ?? ""), r.engine, `${r.devices_up} ${r.devices_up === 1 ? "device" : "devices"} up`, `${r.findings.length} open ${r.findings.length === 1 ? "port" : "ports"}`]
+  const parts = [formatAbsoluteTime(r.scanned_at ?? ""), r.engine, `${r.devices_up} ${r.devices_up === 1 ? "device" : "devices"} up`, `${portCount(r.findings)} open ${portCount(r.findings) === 1 ? "port" : "ports"}`, checkCount(r.findings) ? `${checkCount(r.findings)} ${checkCount(r.findings) === 1 ? "problem" : "problems"} found by checks` : ""]
   return parts.filter(Boolean).join(" · ")
 })
 
@@ -74,6 +74,6 @@ onMounted(findings.load)
       </template>
     </div>
 
-    <AcceptDialog :open="accepting !== null" :what="accepting ? `${describeService(accepting)} on ${accepting.device}` : ''" :saving="saving" :error="actionError" @accept="accept" @cancel="accepting = null" />
+    <AcceptDialog :open="accepting !== null" :what="accepting ? findingTitle(accepting) : ''" :saving="saving" :error="actionError" @accept="accept" @cancel="accepting = null" />
   </Panel>
 </template>

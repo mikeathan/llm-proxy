@@ -601,6 +601,8 @@ func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.
 	if comm := communicationTools(svc.ToolProvider()); comm != nil {
 		opts = append(opts, automation.WithNotifier(connectorNotifier{comm: comm}))
 	}
+	// An audit waits on its scan, so its run may take longer than other automations'.
+	opts = append(opts, automation.WithProfileTimeout(netaudit.AuditorProfileID, netaudit.AuditRunCap))
 	if pf, ok := svc.(interface{ NetauditPreflight() automation.Preflight }); ok && pf.NetauditPreflight() != nil {
 		opts = append(opts, automation.WithPreflight(pf.NetauditPreflight()))
 	}

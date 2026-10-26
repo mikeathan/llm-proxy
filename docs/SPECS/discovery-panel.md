@@ -285,7 +285,7 @@ account model, and makes no network request outside the proxy's own origin.
   Creating an audit is the ordinary new-automation form started from the **Network audit** playbook (the playbook library lists
   what each playbook sets up); the form and the automation page show what the computer is missing and whether the
   automation's network access cuts the scan tool off, and a failed audit run is explained in plain words with the fix, the
-  original message behind "Show details". Settings → Network scan lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** is Advanced-only. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
+  original message behind "Show details". Settings → Network scan lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** is Advanced-only. The report also shows the problems the audit's checks found (SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more): worst first in Simple, with a severity tag in Advanced, each acceptable like an open port. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
 
 ### 7. Theming
 - Built-in presets: `retro-dark-soft` (default; a faded black, easier on the eyes), `retro-dark` (the original

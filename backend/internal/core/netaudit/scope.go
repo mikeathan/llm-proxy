@@ -119,8 +119,8 @@ func (s *Scope) SetAllowUnconfined(allow bool) error {
 }
 
 // AllowedDeviceTimeouts are the per-device time limits (minutes) an operator may choose; 0 is the standard. The longest
-// is bounded by the scan's own 8-minute limit and an automation run's 10-minute cap, so a longer one could never finish.
-var AllowedDeviceTimeouts = []int{0, 5, 7}
+// stays well inside the scan budget (ScanBudget), so a slow device can use it and the scan still finishes.
+var AllowedDeviceTimeouts = []int{0, 5, 10}
 
 // ErrBadDeviceTimeout is returned for a time limit that is not one of AllowedDeviceTimeouts.
 var ErrBadDeviceTimeout = errors.New("that time limit is not one of the choices")

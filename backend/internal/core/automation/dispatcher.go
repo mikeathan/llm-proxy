@@ -55,6 +55,9 @@ type Dispatcher struct {
 	// (overridable via WithAutomationTimeout); the effective bound is max(this,
 	// the pinned model's timeout_minutes).
 	automationTimeout time.Duration
+	// profileTimeouts are longer caps for the runs of a profile that has to wait on something slow (a network audit
+	// waits on its scan); the cap is the longest of this, the dispatcher's and the model's.
+	profileTimeouts map[string]time.Duration
 	// now is the dispatcher's wall clock (server local time, like cron triggers); tests replace it.
 	now func() time.Time
 
@@ -139,6 +142,19 @@ func WithAutomationTimeout(t time.Duration) Option {
 		if t > 0 {
 			d.automationTimeout = t
 		}
+	}
+}
+
+// WithProfileTimeout gives the runs of one prompt profile a longer wall-clock cap than the default.
+func WithProfileTimeout(profileID string, t time.Duration) Option {
+	return func(d *Dispatcher) {
+		if profileID == "" || t <= 0 {
+			return
+		}
+		if d.profileTimeouts == nil {
+			d.profileTimeouts = map[string]time.Duration{}
+		}
+		d.profileTimeouts[profileID] = t
 	}
 }
 

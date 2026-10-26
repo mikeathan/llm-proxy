@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.99 scan initiated Mon Oct 26 13:02:38 2026 as: nmap -n -sT -sV -&#45;version-intensity 2 -&#45;open -oX scripts_ssl_cert.xml -p 18443 -&#45;script ssl-cert -&#45;script-timeout 20s 127.0.0.1 -->
+<nmaprun scanner="nmap" args="nmap -n -sT -sV -&#45;version-intensity 2 -&#45;open -oX scripts_ssl_cert.xml -p 18443 -&#45;script ssl-cert -&#45;script-timeout 20s 127.0.0.1" start="1793019758" startstr="Mon Oct 26 13:02:38 2026" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="18443"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="unknown-response" reason_ttl="0"/>
+<address addr="127.0.0.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+</hosthint>
+<host starttime="1793019758" endtime="1793019790"><status state="up" reason="conn-refused" reason_ttl="0"/>
+<address addr="127.0.0.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="18443"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="unknown" servicefp="SF-Port18443-TCP:V=7.99%T=SSL%I=2%D=10/26%Time=6ADF4F84%P=arm-apple-darwin25.3.0%r(GetRequest,1517,&quot;HTTP/1\.0\x20200\x20ok\r\nContent-type:\x20text/html\r\n\r\n&lt;HTML&gt;&lt;BODY\x20BGCOLOR=\&quot;#ffffff\&quot;&gt;\n&lt;pre&gt;\n\ns_server\x20-accept\x2018443\x20-cert\x20c\.pem\x20-key\x20k\.pem\x20-quiet\x20-www\x20\nThis\x20TLS\x20version\x20forbids\x20renegotiation\.\nCiphers\x20supported\x20in\x20s_server\x20binary\nTLSv1\.3\x20\x20\x20\x20:TLS_AES_256_GCM_SHA384\x20\x20\x20\x20TLSv1\.3\x20\x20\x20\x20:TLS_CHACHA20_POLY1305_SHA256\x20\nTLSv1\.3\x20\x20\x20\x20:TLS_AES_128_GCM_SHA256\x20\x20\x20\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES256-GCM-SHA384\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES256-GCM-SHA384\x20TLSv1\.2\x20\x20\x20\x20:DHE-RSA-AES256-GCM-SHA384\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-CHACHA20-POLY1305\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-CHACHA20-POLY1305\x20\nTLSv1\.2\x20\x20\x20\x20:DHE-RSA-CHACHA20-POLY1305\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES128-GCM-SHA256\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES128-GCM-SHA256\x20TLSv1\.2\x20\x20\x20\x20:DHE-RSA-AES128-GCM-SHA256\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES256-SHA384\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES256-SHA384\x20\x20\x20\nTLSv1\.2\x20\x20\x20\x20:DHE-RSA-AES256-SHA256\x20\x20\x20\x20\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES128-SHA256\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES128-SHA256\x20\x20\x20TLSv1\.2&quot;);" tunnel="ssl" method="table" conf="3"/><script id="fingerprint-strings" output="&#xa;  GetRequest: &#xa;    HTTP/1.0 200 ok&#xa;    Content-type: text/html&#xa;    &lt;HTML&gt;&lt;BODY BGCOLOR=&quot;#ffffff&quot;&gt;&#xa;    &lt;pre&gt;&#xa;    s_server -accept 18443 -cert c.pem -key k.pem -quiet -www &#xa;    This TLS version forbids renegotiation.&#xa;    Ciphers supported in s_server binary&#xa;    TLSv1.3 :TLS_AES_256_GCM_SHA384 TLSv1.3 :TLS_CHACHA20_POLY1305_SHA256 &#xa;    TLSv1.3 :TLS_AES_128_GCM_SHA256 TLSv1.2 :ECDHE-ECDSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-RSA-AES256-GCM-SHA384 TLSv1.2 :DHE-RSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-ECDSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-RSA-CHACHA20-POLY1305 &#xa;    TLSv1.2 :DHE-RSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-ECDSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 :DHE-RSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-ECDSA-AES256-SHA384 TLSv1.2 :ECDHE-RSA-AES256-SHA384 &#xa;    TLSv1.2 :DHE-RSA-AES256-SHA256 TLSv1.2 :ECDHE-ECDSA-AES128-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-SHA256 TLSv1.2"><elem key="GetRequest">&#xa;    HTTP/1.0 200 ok&#xa;    Content-type: text/html&#xa;    &lt;HTML&gt;&lt;BODY BGCOLOR=&quot;#ffffff&quot;&gt;&#xa;    &lt;pre&gt;&#xa;    s_server -accept 18443 -cert c.pem -key k.pem -quiet -www &#xa;    This TLS version forbids renegotiation.&#xa;    Ciphers supported in s_server binary&#xa;    TLSv1.3 :TLS_AES_256_GCM_SHA384 TLSv1.3 :TLS_CHACHA20_POLY1305_SHA256 &#xa;    TLSv1.3 :TLS_AES_128_GCM_SHA256 TLSv1.2 :ECDHE-ECDSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-RSA-AES256-GCM-SHA384 TLSv1.2 :DHE-RSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-ECDSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-RSA-CHACHA20-POLY1305 &#xa;    TLSv1.2 :DHE-RSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-ECDSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 :DHE-RSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-ECDSA-AES256-SHA384 TLSv1.2 :ECDHE-RSA-AES256-SHA384 &#xa;    TLSv1.2 :DHE-RSA-AES256-SHA256 TLSv1.2 :ECDHE-ECDSA-AES128-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-SHA256 TLSv1.2</elem>
+</script><script id="ssl-cert" output="Subject: commonName=fixture.local&#xa;Issuer: commonName=fixture.local&#xa;Public Key type: rsa&#xa;Public Key bits: 2048&#xa;Signature Algorithm: sha256WithRSAEncryption&#xa;Not valid before: 2026-10-26T13:02:37&#xa;Not valid after:  2026-10-28T13:02:37&#xa;MD5:     c292 b300 f990 03b6 2a0f ff6c 0f96 7073&#xa;SHA-1:   931e a230 2fd1 6e69 638c 56c1 3d59 5d6c 3f22 9401&#xa;SHA-256: 2f1c aaea 15c8 db79 0bb4 e518 5065 759f 7c9e 02df 1ee4 d350 1c53 5325 bc8a 2835"><table key="subject">
+<elem key="commonName">fixture.local</elem>
+</table>
+<table key="issuer">
+<elem key="commonName">fixture.local</elem>
+</table>
+<table key="pubkey">
+<elem key="type">rsa</elem>
+<elem key="bits">2048</elem>
+<elem key="modulus">965A669CFE1B1102600F5CC15EA6D7B9AC6D3C41540C58967DE53E56A31B4E42DCDD91DBDE2274CDE4E6D5E6419B2D878FCCAE8819951A53CB94BC7E53CEC4D45F418747E22436E3BCC273A3BA9E289DDC15C6CA41C007A1936085D2B3E456F6B139EB30C95ECA115CC53C3C8B980CB05E214FBB1244C163E81FC6FC523AF0763BA96D0905435CA36A41CFCD88B5A39C6C9A195897893C8DCBC5AF1589FDA7EE18BBD8A51DEAC96DF8496702170C2B1736AC0C8CE18C24F88CB49D2B65D75366A40D9BA964F95CDF65FFEA55F27C9B07440E9FDB3A7DF735EC46CD4D5EEC37673890EB3748748ECC78E51A1E01CE888BE551D01EC45C34D2097D2FE3E1B1476B</elem>
+<elem key="exponent">65537</elem>
+</table>
+<table key="extensions">
+<table>
+<elem key="name">X509v3 Subject Key Identifier</elem>
+<elem key="value">EA:D0:34:C2:D9:BE:6E:3B:3E:14:E5:A3:69:85:BD:2D:1E:51:67:3E</elem>
+</table>
+<table>
+<elem key="name">X509v3 Authority Key Identifier</elem>
+<elem key="value">EA:D0:34:C2:D9:BE:6E:3B:3E:14:E5:A3:69:85:BD:2D:1E:51:67:3E</elem>
+</table>
+<table>
+<elem key="name">X509v3 Basic Constraints</elem>
+<elem key="value">CA:TRUE</elem>
+<elem key="critical">true</elem>
+</table>
+</table>
+<elem key="sig_algo">sha256WithRSAEncryption</elem>
+<table key="validity">
+<elem key="notBefore">2026-10-26T13:02:37</elem>
+<elem key="notAfter">2026-10-28T13:02:37</elem>
+</table>
+<elem key="md5">c292b300f99003b62a0fff6c0f967073</elem>
+<elem key="sha1">931ea2302fd16e69638c56c13d595d6c3f229401</elem>
+<elem key="sha256">2f1caaea15c8db790bb4e5185065759f7c9e02df1ee4d3501c535325bc8a2835</elem>
+<elem key="pem">-&#45;&#45;&#45;&#45;BEGIN CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;MIIDETCCAfmgAwIBAgIUGkPxOwIZZUx8M53p0pNxI52EN8YwDQYJKoZIhvcNAQEL&#xa;BQAwGDEWMBQGA1UEAwwNZml4dHVyZS5sb2NhbDAeFw0yNjEwMjYxMzAyMzdaFw0y&#xa;NjEwMjgxMzAyMzdaMBgxFjAUBgNVBAMMDWZpeHR1cmUubG9jYWwwggEiMA0GCSqG&#xa;SIb3DQEBAQUAA4IBDwAwggEKAoIBAQCWWmac/hsRAmAPXMFepte5rG08QVQMWJZ9&#xa;5T5WoxtOQtzdkdveInTN5ObV5kGbLYePzK6IGZUaU8uUvH5TzsTUX0GHR+IkNuO8&#xa;wnOjup4ondwVxspBwAehk2CF0rPkVvaxOeswyV7KEVzFPDyLmAywXiFPuxJEwWPo&#xa;H8b8UjrwdjupbQkFQ1yjakHPzYi1o5xsmhlYl4k8jcvFrxWJ/afuGLvYpR3qyW34&#xa;SWcCFwwrFzasDIzhjCT4jLSdK2XXU2akDZupZPlc32X/6lXyfJsHRA6f2zp99zXs&#xa;Rs1NXuw3ZziQ6zdIdI7MeOUaHgHOiIvlUdAexFw00gl9L+PhsUdrAgMBAAGjUzBR&#xa;MB0GA1UdDgQWBBTq0DTC2b5uOz4U5aNphb0tHlFnPjAfBgNVHSMEGDAWgBTq0DTC&#xa;2b5uOz4U5aNphb0tHlFnPjAPBgNVHRMBAf8EBTADAQH/MA0GCSqGSIb3DQEBCwUA&#xa;A4IBAQCAkT72vbQaU/YuEzUuqqSYhbK0qxhZH2LUftj+e+l7VLfgmlIV8yYlazju&#xa;+7eNTdIdMgLBOr2KbsrONJIS1O8DI6a0aFAEZIgFZeRUWtImDbFWjOwZwerCjwIi&#xa;cupy7n/Mulc6Wqey/X0afb/Mg78Pn99qCQttwPd9vGk1uGgQLtnAJ2qydprQEHTh&#xa;nlEjMRq52UzmR+TyTCBM2NApN9CqCzQB5G2Gy94CcRsanEllRRDo2/Ms1jqjEV10&#xa;5RMmkalkuQ48O+0ZJCOmKZYZgwvHyHIQjexHom8VLhvXfNtFVhXJ35Yf6fc39a7d&#xa;S5bEiNE7puO1Z2minMrBQtM4yhNm&#xa;-&#45;&#45;&#45;&#45;END CERTIFICATE-&#45;&#45;&#45;&#45;&#xa;</elem>
+</script></port>
+</ports>
+<times srtt="64" rttvar="3758" to="100000"/>
+</host>
+<runstats><finished time="1793019790" timestr="Mon Oct 26 13:03:10 2026" summary="Nmap done at Mon Oct 26 13:03:10 2026; 1 IP address (1 host up) scanned in 32.16 seconds" elapsed="32.16" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

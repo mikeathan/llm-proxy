@@ -120,3 +120,74 @@ func TestParseXML_MarksServicesNmapOnlyGuessedFromThePort(t *testing.T) {
 		t.Errorf("guessed flags = %v %v %v, want false true false (no service at all is not a guess)", ports[0].Guessed, ports[1].Guessed, ports[2].Guessed)
 	}
 }
+
+func TestParseXML_RealNmapScriptOutputIsKeptOnItsPort(t *testing.T) {
+	hosts, err := ParseXML(fixture(t, "scripts_ssl_cert.xml"))
+	if err != nil || len(hosts) != 1 || len(hosts[0].Ports) != 1 {
+		t.Fatalf("hosts = %+v, err = %v", hosts, err)
+	}
+	scripts := hosts[0].Ports[0].Scripts
+	// nmap also ran fingerprint-strings on this service; only the reviewed scripts are kept.
+	if len(scripts) != 1 || scripts[0].ID != "ssl-cert" {
+		t.Fatalf("scripts = %+v", scripts)
+	}
+	out := scripts[0].Output
+	if !strings.Contains(out, "Not valid after:") || !strings.Contains(out, "\n") {
+		t.Errorf("the certificate dates and the line structure must survive for the checks to read: %q", out)
+	}
+}
+
+func TestParseXML_ScriptOutputFromADeviceIsCleanedAndBounded(t *testing.T) {
+	long := strings.Repeat("A", 9000)
+	xml := `<nmaprun><host><status state="up"/><address addr="10.0.0.5" addrtype="ipv4"/><ports>` +
+		`<port protocol="tcp" portid="21"><state state="open"/><script id="ftp-anon" output="line one&#xa;bell&#133;next&#8203;zero AKIAIOSFODNN7EXAMPLE&#xa;` + long + `"/></port>` +
+		`</ports></host></nmaprun>`
+	hosts, err := ParseXML(strings.NewReader(xml))
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts = %+v, err = %v", hosts, err)
+	}
+	out := hosts[0].Ports[0].Scripts[0].Output
+	if strings.ContainsAny(out, "\u0085\u200b") {
+		t.Error("control characters must be stripped")
+	}
+	if !strings.Contains(out, "line one\n") {
+		t.Error("newlines are kept so the checks can read line by line")
+	}
+	if strings.Contains(out, "AKIAIOSFODNN7EXAMPLE") {
+		t.Error("secret-shaped text must be redacted")
+	}
+	if len([]rune(out)) > maxScriptOutput+len("…") {
+		t.Errorf("output must be bounded, got %d runes", len([]rune(out)))
+	}
+}
+
+// Real nmap output, addresses changed to the documentation range. A device that answers but has nothing open is still
+// printed when --open is not used, so it counts as scanned.
+func TestParseXML_ADeviceWithNothingOpenIsScannedNotMissing(t *testing.T) {
+	hosts, err := ParseXML(fixture(t, "closed_host_all_ports_closed.xml"))
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts = %+v, err = %v", hosts, err)
+	}
+	h := hosts[0]
+	if !h.Up || h.Unscanned || h.Addr.String() != "192.0.2.20" {
+		t.Errorf("a device that refused every port was scanned to the end: %+v", h)
+	}
+	for _, p := range h.Ports {
+		if p.State == "open" {
+			t.Errorf("nothing is open on it: %+v", p)
+		}
+	}
+}
+
+// nmap prints a host that hit --host-timeout as an empty <host timedout="true">: it must not read as "scanned, nothing
+// open", which would also make its earlier findings look resolved.
+func TestParseXML_ADeviceThatTimedOutIsUnscannedNotClean(t *testing.T) {
+	hosts, err := ParseXML(fixture(t, "timed_out_host.xml"))
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("hosts = %+v, err = %v", hosts, err)
+	}
+	h := hosts[0]
+	if !h.Up || !h.Unscanned || h.Addr.String() != "192.0.2.7" || len(h.Ports) != 0 {
+		t.Errorf("a device that ran out of time is up, unscanned and has no ports on record: %+v", h)
+	}
+}

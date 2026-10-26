@@ -4,6 +4,7 @@ package nmap
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +27,11 @@ var (
 )
 
 const (
-	maxRetries = "1"
+	// maxHostGroup is the most devices scanned at once.
+	maxHostGroup = 64
+	// scriptAllowance is the extra time a device gets in a checks scan: its scripts run inside the per-device limit.
+	scriptAllowance = 120 * time.Second
+	maxRetries      = "1"
 	// versionIntensity keeps service detection to the light probes.
 	versionIntensity = "2"
 )
@@ -34,10 +39,17 @@ const (
 // baseFlags are on every scan: no name lookups (the targets are addresses), XML on stdout (nothing written to a
 // file), no raw sockets even if the process is privileged, and the profile's timing, retry and rate limits.
 func baseFlags(p profile, req netaudit.ScanRequest) []string {
-	return []string{
+	flags := []string{
 		"-n", "--unprivileged", "-oX", "-",
 		p.timing, "--max-retries", maxRetries, "--host-timeout", hostTimeout(p, req), "--max-rate", p.maxRate,
 	}
+	if n := len(req.Targets); n > 1 {
+		// nmap scans hosts in groups of about five, one group after the next, so a slow device holds up every group
+		// behind it. One group for all of them makes the scan as long as the slowest device, not the sum of the groups;
+		// --max-rate still bounds the traffic.
+		flags = append(flags, "--min-hostgroup", strconv.Itoa(min(n, maxHostGroup)))
+	}
+	return flags
 }
 
 // hostTimeout is the per-device limit for a request: the operator's choice when there is one, else the depth's
@@ -46,6 +58,9 @@ func hostTimeout(p profile, req netaudit.ScanRequest) string {
 	base := req.HostTimeout
 	if base <= 0 {
 		base, _ = time.ParseDuration(p.hostTimeout)
+		if req.Mode == netaudit.ModeChecks {
+			base += scriptAllowance
+		}
 	}
 	if req.HostTimeoutFactor > 1 {
 		base *= time.Duration(req.HostTimeoutFactor)
@@ -56,8 +71,29 @@ func hostTimeout(p profile, req netaudit.ScanRequest) string {
 // modeFlags are the flags each mode adds. It is the whole of what a mode can ask nmap to do.
 var modeFlags = map[netaudit.Mode][]string{
 	netaudit.ModeDiscover: {"-sn"},
-	netaudit.ModePorts:    {"-sT", "--open"},
-	netaudit.ModeServices: {"-sT", "--open", "-sV", "--version-intensity", versionIntensity},
+	// No --open: with it nmap leaves a device that has nothing open out of its output, and a device missing from the
+	// output is reported as "not scanned to completion". Open ports are picked out by state when the output is read.
+	netaudit.ModePorts:    {"-sT"},
+	netaudit.ModeServices: {"-sT", "-sV", "--version-intensity", versionIntensity},
+	// Checks are services plus the reviewed script list (see scriptFlags); nothing in a request can add to it.
+	netaudit.ModeChecks: {"-sT", "-sV", "--version-intensity", versionIntensity},
+}
+
+// flagsFor is the flags a mode adds to nmap's base flags; a checks scan also runs the reviewed scripts.
+func flagsFor(m netaudit.Mode) ([]string, bool) {
+	flags, ok := modeFlags[m]
+	if ok && m == netaudit.ModeChecks {
+		flags = append(slices.Clone(flags), scriptFlags()...)
+	}
+	return flags, ok
+}
+
+// scriptTimeout limits one script on one port, so a service that stops answering cannot hold a scan.
+const scriptTimeout = "30s"
+
+// scriptFlags is the whole of what a checks scan asks nmap to run: exactly netaudit.CheckScriptNames(), by name.
+func scriptFlags() []string {
+	return []string{"--script", strings.Join(netaudit.CheckScriptNames(), ","), "--script-timeout", scriptTimeout}
 }
 
 // Args builds nmap's argument list for an authorised request. Ports is empty for the default set or a list already
@@ -67,7 +103,7 @@ var modeFlags = map[netaudit.Mode][]string{
 // answered, and a thorough one wants every address scanned whether it answers or not, so both skip nmap's own
 // liveness check (-Pn). Only a quick, unfiltered request lets nmap look for live addresses itself.
 func Args(req netaudit.ScanRequest) ([]string, error) {
-	flags, ok := modeFlags[req.Mode]
+	flags, ok := flagsFor(req.Mode)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", netaudit.ErrBadMode, req.Mode)
 	}

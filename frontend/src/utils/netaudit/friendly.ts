@@ -1,4 +1,5 @@
 import type { ScanFinding, ResolvedFinding } from '../../types/netaudit'
+import type { StatusState } from '../../types/ui'
 
 // Plain wording for what a scan found, for the Simple view. Generic on purpose: it names what a port is usually used
 // for, never what kind of device it is.
@@ -67,22 +68,54 @@ export function needsLookSentence(n: number): string {
   return n === 0 ? 'Nothing needs a look' : `${n} ${plural(n, 'thing needs', 'things need')} a look`
 }
 
-/** How many things were seen, as one plain sentence. */
-export function seenSentence(devices: number, services: number): string {
-  return `${services} ${plural(services, 'service', 'services')} on ${devices} ${plural(devices, 'device', 'devices')}`
+/** How many things were seen, as one plain sentence; `checks` is how many problems the checks found, when any ran. */
+export function seenSentence(devices: number, services: number, checks = 0): string {
+  const seen = `${services} ${plural(services, 'service', 'services')} on ${devices} ${plural(devices, 'device', 'devices')}`
+  return checks > 0 ? `${seen}, ${checks} ${plural(checks, 'problem', 'problems')} found by checks` : seen
 }
 
 export function devicesIn(findings: readonly Pick<ScanFinding, 'device'>[]): number {
   return new Set(findings.map((f) => f.device)).size
 }
 
-export const describeResolved = (r: ResolvedFinding): string => `${r.device}: ${describeService(r)}`
+const OPEN_PORT = 'open_port'
+
+/** A check is a finding beyond "this port is open": a weak setting a safe script found. */
+export const isCheck = (f: { check?: string }): boolean => !!f.check && f.check !== OPEN_PORT
+
+export const portCount = (findings: readonly { check?: string }[]): number => findings.filter((f) => !isCheck(f)).length
+export const checkCount = (findings: readonly { check?: string }[]): number => findings.filter(isCheck).length
+
+const CHECK_FALLBACK = 'A check found a problem'
+
+type Titled = { device: string; port?: number; service?: string; check?: string; evidence?: string }
+
+/**
+ * What a finding is, in one phrase. A check is the device, then what the server wrote about it in its own fixed words
+ * ("10.0.0.1: SMBv1 is enabled"); an open port is what the port is for, and where.
+ */
+export function findingTitle(f: Titled): string {
+  return isCheck(f) ? `${f.device}: ${f.evidence || CHECK_FALLBACK}` : `${describeService(f)} on ${f.device}`
+}
+
+export function describeResolved(r: ResolvedFinding): string {
+  return isCheck(r) ? `${r.device}: ${r.evidence || CHECK_FALLBACK}` : `${r.device}: ${describeService(r)}`
+}
 
 /** The sentence for one thing that needs a look: what it is, where, and (when only its version moved) what changed. */
-export function lookSentence(f: Pick<ScanFinding, 'device' | 'port' | 'service' | 'new' | 'version'>): string {
-  const what = `${describeService(f)} on ${f.device}`
-  return f.new || !f.version ? what : `${what} changed to ${f.version}`
+export function lookSentence(f: Titled & { new?: boolean; version?: string }): string {
+  const what = findingTitle(f)
+  return isCheck(f) || f.new || !f.version ? what : `${what} changed to ${f.version}`
 }
+
+const SEVERITY_ORDER = ['info', 'low', 'medium', 'high', 'critical']
+
+/** How serious a severity is, for sorting (higher is worse); anything unknown ranks below info. */
+export const severityRank = (severity: string): number => SEVERITY_ORDER.indexOf(severity.toLowerCase())
+
+const SEVERITY_STATE: Record<string, StatusState> = { critical: 'error', high: 'error', medium: 'warning', low: 'warning' }
+
+export const severityState = (severity: string): StatusState => SEVERITY_STATE[severity.toLowerCase()] ?? 'neutral'
 
 /** "3 devices were not scanned to completion". */
 export function unscannedSentence(n: number): string {
