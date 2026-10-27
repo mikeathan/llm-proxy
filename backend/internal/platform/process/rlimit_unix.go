@@ -29,8 +29,19 @@ type ChildLimits struct {
 // RLIMIT_AS/RLIMIT_DATA) are reported as skipped, never as errors, so the
 // honest Effective state can say "memory not kernel-enforced on Darwin".
 func ApplyChildLimits(c ChildLimits) (applied []string, skipped []string, err error) {
+	return applyLimits(c, setRlimit)
+}
+
+// setRlimit lowers one limit on the calling process. It is the seam that lets
+// tests exercise applyLimits without capping the test binary itself (a 2 GiB
+// RLIMIT_AS makes the race detector fail with out-of-memory on Linux).
+func setRlimit(res int, value uint64) error {
+	return unix.Setrlimit(res, &unix.Rlimit{Cur: value, Max: value})
+}
+
+func applyLimits(c ChildLimits, setLimit func(res int, value uint64) error) (applied []string, skipped []string, err error) {
 	set := func(res int, label string, value uint64) error {
-		if err := unix.Setrlimit(res, &unix.Rlimit{Cur: value, Max: value}); err != nil {
+		if err := setLimit(res, value); err != nil {
 			return err
 		}
 		applied = append(applied, label)
