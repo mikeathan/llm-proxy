@@ -23,6 +23,8 @@
 #   --build       build the binary first (scripts/build.sh)
 #   --force       overwrite binary + unit even when identical
 #   --yes         accept all prompts with defaults
+#   --unattended  never prompt; reuse the installed unit's settings, print the
+#                 resolved configuration, then apply it (needs a subcommand)
 #
 # Contributor dev setup (gitleaks + git hooks) lives in
 # scripts/setup-gitleaks.sh — different job, different machine.
@@ -35,8 +37,9 @@ BIN_NAME="llm-proxy"
 SVC_USER="llm-proxy"
 SVC_ROOT="/var/lib/llm-proxy"
 INSTALL_BIN="/usr/local/bin/${BIN_NAME}"
+UNIT_FILE="/etc/systemd/system/${BIN_NAME}.service"
 
-FORCE=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; MODE=""
+FORCE=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; UNATTENDED=0; MODE=""
 
 for arg in "$@"; do
   case "$arg" in
@@ -52,7 +55,8 @@ for arg in "$@"; do
     --build)     DO_BUILD=1 ;;
     --force)     FORCE=1 ;;
     --yes)       ASSUME_YES=1 ;;
-    -h|--help)   sed -n '2,28p' "$0"; exit 0 ;;
+    --unattended) UNATTENDED=1; ASSUME_YES=1 ;;
+    -h|--help)   sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown arg: $arg (-h for usage)" >&2; exit 1 ;;
   esac
 done
@@ -63,6 +67,11 @@ INTERACTIVE=1
   exit 1
 }
 [[ $ASSUME_YES == 1 ]] && INTERACTIVE=0
+if [[ $UNATTENDED == 1 && -z "$MODE" ]]; then
+  echo "--unattended needs an explicit subcommand: install|register|build|access" >&2
+  echo "  e.g. sudo ./setup.sh --install --unattended" >&2
+  exit 1
+fi
 
 # =============================================================================
 # UI LAYER
@@ -291,6 +300,42 @@ check_env() {
 }
 
 # -----------------------------------------------------------------------------
+# PREVIOUS SETTINGS — an installed unit file is the authoritative record of how
+# this host was configured (user, data root, binary). Unattended runs reuse it
+# instead of silently falling back to the defaults, which would repoint an
+# existing install.
+# -----------------------------------------------------------------------------
+resolve_unit_settings() { # [unit-file] — assigns SVC_USER/SVC_ROOT/INSTALL_BIN
+  local unit="${1:-$UNIT_FILE}" u r b
+  [[ -f "$unit" ]] || return 1
+  u="$(sed -n 's/^User=//p' "$unit" 2>/dev/null || true)"
+  r="$(sed -n 's/^Environment=LLM_PROXY_HOME=//p' "$unit" 2>/dev/null || true)"
+  b="$(sed -n 's/^ExecStart=//p' "$unit" 2>/dev/null || true)"
+  [[ -n "$u" ]] && SVC_USER="$u"
+  [[ -n "$r" ]] && SVC_ROOT="$r"
+  [[ -n "$b" ]] && INSTALL_BIN="$b"
+  return 0
+}
+
+# Print the configuration an install is about to apply. Unattended runs have no
+# prompts, so this is the only chance to see (and abort before) a surprise.
+print_settings() { # $1 = where the values came from
+  local MODEL_DIR_PATH="" LLAMA_BIN_PATH="" paths="$SVC_ROOT/.setup-paths"
+  step "Configuration (${1})"
+  info "service user:    ${SVC_USER}"
+  info "data root:       ${SVC_ROOT}"
+  info "binary:          ${INSTALL_BIN}"
+  info "build binary:    $([[ $DO_BUILD == 1 ]] && echo yes || echo no)"
+  info "start service:   $([[ ${START_NOW:-1} == 1 ]] && echo yes || echo no)"
+  if [[ -f "$paths" ]]; then
+    # shellcheck disable=SC1090
+    source "$paths"
+    info "model directory: ${MODEL_DIR_PATH:-(none)}"
+    info "llama-server:    ${LLAMA_BIN_PATH:-(none)}"
+  fi
+}
+
+# -----------------------------------------------------------------------------
 # SERVICE USER CHOICE — dedicated hardened account (default) vs the invoking
 # user's own account. The screen spells out the trade-off before deciding.
 # Returns the chosen username on stdout.
@@ -375,6 +420,11 @@ grant_read_access() { # $1 = service user, $2 = path
 # llama-server binary). Explicit opt-in, never part of install.
 # -----------------------------------------------------------------------------
 access_flow() {
+  # Unattended: take user/root from the installed unit so the saved path file
+  # is looked up in the data root the service actually uses.
+  if [[ $UNATTENDED == 1 ]]; then
+    resolve_unit_settings || true
+  fi
   offer_access_grants
   info "restart the service afterwards: sudo systemctl restart ${BIN_NAME}.service"
 }
@@ -382,7 +432,8 @@ access_flow() {
 # Prompt for model dir + llama-server binary paths and grant the service user
 # read access via ACLs. Used by install (dedicated/custom user chosen) and by
 # the explicit `access` mode. Saves answers in $SVC_ROOT/.setup-paths (0600)
-# so later runs prefill them. Never runs in non-interactive mode.
+# so later runs prefill them. Interactive runs prompt; unattended runs re-apply
+# the saved paths.
 offer_access_grants() {
   local MODEL_DIR_PATH="" LLAMA_BIN_PATH=""
   local PATHS_FILE="$SVC_ROOT/.setup-paths"
@@ -401,6 +452,19 @@ offer_access_grants() {
     printf 'MODEL_DIR_PATH=%q\nLLAMA_BIN_PATH=%q\n' "$MODEL_DIR_PATH" "$LLAMA_BIN_PATH" > "$PATHS_FILE"
     chmod 0600 "$PATHS_FILE"
     success "saved for next run: $PATHS_FILE"
+  elif [[ $UNATTENDED == 1 ]]; then
+    step "External model & runtime paths"
+    if [[ -z "$MODEL_DIR_PATH" && -z "$LLAMA_BIN_PATH" ]]; then
+      info "no saved paths in ${PATHS_FILE} — nothing to grant"
+      return 0
+    fi
+    info "reusing saved paths from ${PATHS_FILE}"
+    if [[ -n "$MODEL_DIR_PATH" ]]; then
+      grant_read_access "$SVC_USER" "$MODEL_DIR_PATH"
+    fi
+    if [[ -n "$LLAMA_BIN_PATH" ]]; then
+      grant_read_access "$SVC_USER" "$LLAMA_BIN_PATH"
+    fi
   else
     info "non-interactive — grant manually with:"
     info "  setfacl -R -m u:${SVC_USER}:rX <path>   (+ traverse on parent dirs)"
@@ -412,6 +476,9 @@ offer_access_grants() {
 # service has failed. Run with sudo (systemd/journalctl need root).
 # -----------------------------------------------------------------------------
 service_flow() {
+  if [[ $UNATTENDED == 1 ]]; then
+    fail "unattended mode has no service menu — use: sudo systemctl <start|stop|restart|status> ${BIN_NAME}.service"
+  fi
   local UNIT_NAME="${BIN_NAME}.service"
   if ! command -v systemctl >/dev/null 2>&1; then
     fail "systemd not found on this host"
@@ -585,19 +652,30 @@ build_step() {
 # INSTALL
 # -----------------------------------------------------------------------------
 install_flow() {
-  step "Configuration"
-  if [[ $INTERACTIVE == 1 ]]; then
+  START_NOW=1
+  if [[ $UNATTENDED == 1 ]]; then
+    local origin="defaults (no previous install found)"
+    if resolve_unit_settings; then
+      origin="previous install (${UNIT_FILE})"
+    fi
+    # Same guard as the interactive path: a malformed unit must not make us
+    # chown / or write an empty ExecStart.
+    [[ "$SVC_ROOT" == "/" || -z "$SVC_ROOT" ]] && fail "data root must be a real directory (not / or empty): '${SVC_ROOT}'"
+    [[ -n "$INSTALL_BIN" ]] || fail "binary install path cannot be empty"
+    print_settings "$origin"
+  elif [[ $INTERACTIVE == 1 ]]; then
+    step "Configuration"
     SVC_ROOT="$(ui_input "Data root:" "$SVC_ROOT")"
     INSTALL_BIN="$(ui_input "Binary install path:" "$INSTALL_BIN")"
     # Refuse values that would corrupt the unit or the filesystem.
     [[ "$SVC_ROOT" == "/" || -z "$SVC_ROOT" ]] && fail "data root must be a real directory (not / or empty)"
     [[ -n "$INSTALL_BIN" ]] || fail "binary install path cannot be empty"
     SVC_USER="$(choose_service_user)"
-  fi
-  info "user=$SVC_USER root=$SVC_ROOT bin=$INSTALL_BIN backend=$UI_BACKEND"
-  START_NOW=1
-  if [[ $INTERACTIVE == 1 ]]; then
+    info "user=$SVC_USER root=$SVC_ROOT bin=$INSTALL_BIN backend=$UI_BACKEND"
     ui_confirm "Start the service when done?" || START_NOW=0
+  else
+    step "Configuration"
+    info "user=$SVC_USER root=$SVC_ROOT bin=$INSTALL_BIN backend=$UI_BACKEND"
   fi
 
   step "Binary"
@@ -706,7 +784,7 @@ install_flow() {
   fi
 
   step "Unit file"
-  UNIT="/etc/systemd/system/${BIN_NAME}.service"
+  UNIT="$UNIT_FILE"
   # Render the unit template with the configured user/root. The template
   # ships with defaults; the five tokens below are the only host-specific
   # values. Custom SVC_USER/SVC_ROOT prompts would otherwise produce a unit
@@ -786,18 +864,10 @@ Data:  ${SVC_ROOT} (single root: settings, DB, logs, workspaces)"
 # UNINSTALL — also serves the purge flow (PURGE=1: no per-item asks, erase all)
 # -----------------------------------------------------------------------------
 uninstall_flow() {
-  local UNIT="/etc/systemd/system/${BIN_NAME}.service"
+  local UNIT="$UNIT_FILE"
   # Read the actually-installed user/root/binary so we tear down what was
   # installed, not today's defaults (a custom binary path survives this way).
-  if [[ -f "$UNIT" ]]; then
-    local u r b
-    u="$(sed -n 's/^User=//p' "$UNIT" 2>/dev/null || true)"
-    r="$(sed -n 's/^Environment=LLM_PROXY_HOME=//p' "$UNIT" 2>/dev/null || true)"
-    b="$(sed -n 's/^ExecStart=//p' "$UNIT" 2>/dev/null || true)"
-    [[ -n "$u" ]] && SVC_USER="$u"
-    [[ -n "$r" ]] && SVC_ROOT="$r"
-    [[ -n "$b" ]] && INSTALL_BIN="$b"
-  fi
+  resolve_unit_settings || true
 
   step "Artifacts found"
   [[ -f "$UNIT" ]]           && info "unit:         $UNIT"        || info "unit:         (not installed)"
@@ -902,17 +972,8 @@ uninstall_flow() {
 # PURGE — uninstall + erase everything, with a full-screen warning up front
 # -----------------------------------------------------------------------------
 purge_flow() {
-  local UNIT="/etc/systemd/system/${BIN_NAME}.service"
   # Resolve what's actually installed for the warning listing.
-  if [[ -f "$UNIT" ]]; then
-    local u r b
-    u="$(sed -n 's/^User=//p' "$UNIT" 2>/dev/null || true)"
-    r="$(sed -n 's/^Environment=LLM_PROXY_HOME=//p' "$UNIT" 2>/dev/null || true)"
-    b="$(sed -n 's/^ExecStart=//p' "$UNIT" 2>/dev/null || true)"
-    [[ -n "$u" ]] && SVC_USER="$u"
-    [[ -n "$r" ]] && SVC_ROOT="$r"
-    [[ -n "$b" ]] && INSTALL_BIN="$b"
-  fi
+  resolve_unit_settings || true
 
   local warning="FULL PURGE — this erases ALL llm-proxy artifacts:
 

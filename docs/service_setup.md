@@ -2,7 +2,7 @@
 
 > **Automated:** `sudo ./setup.sh` opens a `dialog`/`whiptail` TUI (classic
 > setup-screen panels; plain-ANSI fallback) with install / register-only /
-> build-only / uninstall / **full purge** / preview options, and is idempotent —
+> build-only / uninstall / **full purge** options, and is idempotent —
 > safe to re-run; it skips what's already done.
 
 The setup UI follows the admin UI's retro style: warm cream text, persimmon
@@ -25,10 +25,26 @@ UI checks (no root privileges or service changes):
 | `access` | Grant the service user read access to external paths (ACLs; opt-in) |
 | `uninstall` | Remove service + binary (asks about data; data kept by default) |
 | `purge` | Full purge — typed `PURGE` confirmation behind a full-screen warning |
-| `preview` | Dry-run preview of install |
 
 Unattended flags (skip the TUI): `--install` `--uninstall` `--build` `--force`
-`--dry-run` `--yes`.
+`--yes` `--unattended`.
+
+`--unattended` never prompts and needs an explicit subcommand. It reuses the
+settings recorded in the installed unit (`/etc/systemd/system/llm-proxy.service`)
+plus `$SVC_ROOT/.setup-paths`, prints the resolved configuration before applying
+it, and re-applies the saved ACL grants:
+
+```bash
+sudo ./setup.sh --install --unattended     # register the service (previous settings)
+sudo ./setup.sh --install --build --unattended  # rebuild first, then register
+sudo ./setup.sh --uninstall --unattended   # keeps data, binary and service user
+sudo ./setup.sh --access --unattended      # re-apply saved model/binary grants
+```
+
+On a host with no unit file the defaults apply and the summary says so. `--yes`
+is unchanged: it accepts prompts with defaults and does not reuse the installed
+unit. `--unattended` refuses the `service` menu (use `systemctl`) and never
+bypasses the typed `PURGE` confirmation.
 
 ## Service user profile (install)
 
