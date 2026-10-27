@@ -17,7 +17,7 @@ vi.mock('../../../../services/profile/profileService', () => ({
 const templates = [
   { id: 'pb-scan', name: 'Port Scan with a deliberately long playbook title that must stay whole', category: 'Recon' },
   { id: 'pb-report', name: 'Write Report', category: 'Docs' },
-  { id: 'network-audit', name: 'Network Audit', category: 'network', description: 'Scans the networks you allowed.', defaults: { profile: 'security-auditor', network_grant: 'lan' as const } },
+  { id: 'network-audit', name: 'Network Audit', category: 'network', description: 'Scans the networks you allowed.', defaults: { profile: 'security-auditor', network_grant: 'lan' as const, scan: { depth: 'quick' as const, checks: false, ports: '22,80' } } },
 ]
 
 async function mountLibrary(props: Record<string, unknown> = {}) {
@@ -45,7 +45,7 @@ describe('TemplateLibrary (Playbooks section)', () => {
     const w = await mountLibrary()
     const audit = w.findAll('[data-test="playbook"]').find((p) => p.text().includes('Network Audit'))!
     expect(audit.text()).toContain('Scans the networks you allowed.')
-    expect(audit.get('[data-test="uses"]').text()).toBe('Sets up: Security auditor · Local network only')
+    expect(audit.get('[data-test="uses"]').text()).toBe('Sets up: Security auditor · Local network only · Quick scan · checks off · ports 22,80 · every network you allowed')
     expect(w.findAll('[data-test="uses"]')).toHaveLength(1)
   })
 

@@ -62,7 +62,7 @@ type Dispatcher interface {
 	Register(workspaceID string, auto *models.Automation) error
 	Unregister(workspaceID string, automationName string) error
 	ListAll() []*automation.AutomationEntry
-	Trigger(workspaceID string, automationName string, recordingRef string) (automation.TriggerResult, error)
+	Trigger(workspaceID string, automationName string, opts automation.RunOptions) (automation.TriggerResult, error)
 	CancelQueued(workspaceID string, automationName string) error
 	LaneSnapshot() runlane.Snapshot
 	StopAutomation(workspaceID string) error
@@ -317,12 +317,17 @@ func (h *DispatcherHandlers) TriggerAutomation(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	recordingRef := r.URL.Query().Get("recording_ref")
+	query := r.URL.Query()
+	opts := automation.RunOptions{RecordingRef: query.Get("recording_ref"), ScanTarget: query.Get("scan_target")}
 
 	// Submit is a cheap lane enqueue (the run timeout starts at dequeue), so
 	// the trigger runs inline and reports the admission disposition. The old
 	// 409-on-running path is gone: overlapping runs queue instead.
-	result, err := h.dispatcher.Trigger(workspaceID, automationName, recordingRef)
+	result, err := h.dispatcher.Trigger(workspaceID, automationName, opts)
+	if errors.Is(err, automation.ErrBadScanTarget) || errors.Is(err, automation.ErrNotAnAudit) {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		writeJSONError(w, http.StatusNotFound, err.Error())
 		return

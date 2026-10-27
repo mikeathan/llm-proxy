@@ -12,7 +12,7 @@ import type { FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "
 // The Advanced report: a tile for each part (they filter the list), then every device with its ports, services and
 // versions, and Accept… or Undo on each. Both views read the same data.
 const props = defineProps<{ report: FindingsReport; summary: ReportSummary }>()
-const emit = defineEmits<{ (e: "accept", finding: ScanFinding): void; (e: "revoke", finding: ScanFinding): void }>()
+const emit = defineEmits<{ (e: "accept", finding: ScanFinding): void; (e: "revoke", finding: ScanFinding): void; (e: "rescan", device: string): void }>()
 
 const filter = ref<FindingFilter>("all")
 
@@ -79,9 +79,10 @@ const STATE_CLASS: Record<string, string> = {
       <section v-for="g in groups" :key="g.device" :aria-label="g.device" class="min-w-0 rounded-[var(--radius-md)] border border-hairline">
         <header class="flex flex-wrap items-center justify-between gap-2 bg-surface-raised px-3 py-2">
           <span class="min-w-0 break-all"><span class="font-mono font-semibold text-primary">{{ g.device }}</span> <span class="text-muted">· {{ portsLabel(portCount(g.items)) }}<template v-if="checkCount(g.items)">, {{ checkCount(g.items) }} {{ checkCount(g.items) === 1 ? "problem" : "problems" }}</template></span></span>
-          <span class="flex gap-1.5 text-[length:var(--text-micro)] text-muted">
+          <span class="flex items-center gap-1.5 text-[length:var(--text-micro)] text-muted">
             <span v-if="g.items.some((f) => f.new && !f.accepted)">{{ g.items.filter((f) => f.new && !f.accepted).length }} new</span>
             <span v-if="g.items.some((f) => f.changed && !f.accepted)">{{ g.items.filter((f) => f.changed && !f.accepted).length }} changed</span>
+            <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', g.device)">Rescan this host</BaseButton>
           </span>
         </header>
         <ul class="m-0 list-none p-0">
@@ -90,6 +91,7 @@ const STATE_CLASS: Record<string, string> = {
             <span v-if="isCheck(f)" class="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
               <StatusTag :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" />
               {{ f.evidence || "A check found a problem" }}
+              <span v-if="f.fix" class="w-full break-words text-[length:var(--text-small)] font-normal text-secondary" data-test="fix">How to fix it: {{ f.fix }}</span>
             </span>
             <span v-else class="min-w-0 flex-1 break-words font-mono text-[length:var(--text-small)] text-secondary">
               {{ serviceName(f.service) }}<template v-if="isGuessedService(f.service)"> (guess)</template> ·

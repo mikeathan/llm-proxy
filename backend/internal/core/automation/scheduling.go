@@ -238,7 +238,7 @@ func (d *Dispatcher) scheduleAutomation(entry *AutomationEntry) error {
 		// Admit to the run lane: started now or queued FIFO behind running
 		// work. The run timeout starts at dequeue — the lane owns the run ctx.
 		// An already-queued fire is absorbed by admitRun, not an error.
-		if _, err := d.admitRun(entry, false, ""); err != nil {
+		if _, err := d.admitRun(entry, false, RunOptions{}); err != nil {
 			d.logger.Error("Automation admission failed",
 				"workspace", entry.Workspace,
 				"automation", entry.Name,

@@ -8,6 +8,7 @@ import MicroLabel from '../../common/display/MicroLabel.vue';
 import { useProfiles } from '../../../composables/assistant/useProfiles';
 import { NETWORK_GRANT_LABEL } from '../../../constants/labels';
 import { profileLabel } from '../../../utils/assistant/profileChoice';
+import { scanSummary } from '../../../utils/netaudit/scan';
 import SearchInput from '../../common/forms/SearchInput.vue';
 import SelectInput from '../../common/forms/SelectInput.vue';
 import LoadingState from '../../common/feedback/LoadingState.vue';
@@ -38,6 +39,7 @@ function usesOf(t: TemplateMetadata): string {
   const parts: string[] = [];
   if (d?.profile) parts.push(profileLabel(profiles.value, 'automation', d.profile));
   if (d?.network_grant) parts.push(NETWORK_GRANT_LABEL[d.network_grant] ?? d.network_grant);
+  if (d?.scan) parts.push(scanSummary(d.scan));
   return parts.join(' · ');
 }
 

@@ -28,6 +28,7 @@ type testDispatcher struct {
 	stopCalled    map[string]bool
 	triggerResult automation.TriggerResult
 	triggerErr    error
+	triggerOpts   automation.RunOptions // what the last Trigger was asked for
 	cancelErr     error
 	cancelCalled  map[string]bool
 	laneSnapshot  runlane.Snapshot
@@ -52,7 +53,8 @@ func (t *testDispatcher) HeartbeatState(string) (models.HeartbeatState, error) {
 	return t.heartbeat, nil
 }
 func (t *testDispatcher) ListAll() []*automation.AutomationEntry { return nil }
-func (t *testDispatcher) Trigger(ws, name, _ string) (automation.TriggerResult, error) {
+func (t *testDispatcher) Trigger(ws, name string, opts automation.RunOptions) (automation.TriggerResult, error) {
+	t.triggerOpts = opts
 	return t.triggerResult, t.triggerErr
 }
 func (t *testDispatcher) CancelQueued(ws, name string) error {
@@ -549,6 +551,36 @@ func TestTriggerAutomation_MapsAdmissionErrorToNotFound(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for an admission error, got %d", rec.Code)
+	}
+}
+
+func TestTriggerAutomation_PassesTheRecordingAndTheDeviceToRescan(t *testing.T) {
+	d := &testDispatcher{triggerResult: automation.TriggerResult{Status: automation.TriggerStarted}}
+	handlers := NewDispatcherHandlers(d, NewWorkspaceService(nil), logging.NewNopLogger())
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/dispatcher/trigger/ws/a?recording_ref=r1&scan_target=10.0.0.5", nil)
+	req.SetPathValue(models.WorkspaceIDParam, "ws")
+	req.SetPathValue("automation", "a")
+	handlers.TriggerAutomation(httptest.NewRecorder(), req)
+
+	if want := (automation.RunOptions{RecordingRef: "r1", ScanTarget: "10.0.0.5"}); d.triggerOpts != want {
+		t.Errorf("options = %+v, want %+v", d.triggerOpts, want)
+	}
+}
+
+func TestTriggerAutomation_RefusesARescanItCannotRunWithAPlainReason(t *testing.T) {
+	for _, refused := range []error{automation.ErrBadScanTarget, automation.ErrNotAnAudit} {
+		handlers := NewDispatcherHandlers(&testDispatcher{triggerErr: refused}, NewWorkspaceService(nil), logging.NewNopLogger())
+		req := httptest.NewRequest(http.MethodPost, "/admin/api/dispatcher/trigger/ws/a?scan_target=x", nil)
+		req.SetPathValue(models.WorkspaceIDParam, "ws")
+		req.SetPathValue("automation", "a")
+		rec := httptest.NewRecorder()
+
+		handlers.TriggerAutomation(rec, req)
+
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), refused.Error()) {
+			t.Errorf("%v: got %d %s, want 400 with the reason", refused, rec.Code, rec.Body.String())
+		}
 	}
 }
 

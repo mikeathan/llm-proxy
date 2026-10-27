@@ -89,7 +89,7 @@ func TestHeartbeat_NoChecksSkipsWithoutAModelCall(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			exec := newRecordingExecutor("HEARTBEAT_OK", nil)
 			d, entry := heartbeatDispatcher(t, exec, file)
-			res, err := d.admitRun(entry, false, "")
+			res, err := d.admitRun(entry, false, RunOptions{})
 			if err != nil || res.Status != TriggerSkipped {
 				t.Fatalf("admitRun = %+v, %v; want skipped", res, err)
 			}
@@ -106,7 +106,7 @@ func TestHeartbeat_NoChecksSkipsWithoutAModelCall(t *testing.T) {
 func TestHeartbeat_SendsTheChecksAndTheReplyRulesButNoComments(t *testing.T) {
 	exec := newRecordingExecutor("HEARTBEAT_OK", nil)
 	d, entry := heartbeatDispatcher(t, exec, "<!-- private note -->\nWatch: new Claude releases\n")
-	if _, err := d.admitRun(entry, false, ""); err != nil {
+	if _, err := d.admitRun(entry, false, RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	<-exec.done
@@ -134,7 +134,7 @@ func TestHeartbeat_RecordsHowTheLastCheckEnded(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			exec := newRecordingExecutor(tc.report, tc.err)
 			d, entry := heartbeatDispatcher(t, exec, "Watch: releases")
-			if _, err := d.admitRun(entry, false, ""); err != nil {
+			if _, err := d.admitRun(entry, false, RunOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			<-exec.done
@@ -248,7 +248,7 @@ func TestHeartbeat_ActiveHoursGateScheduledTicks(t *testing.T) {
 			saveActiveHours(t, d, tc.hours)
 			d.now = func() time.Time { return tc.now }
 
-			res, err := d.admitRun(entry, tc.manual, "")
+			res, err := d.admitRun(entry, tc.manual, RunOptions{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -291,12 +291,12 @@ func TestHeartbeat_QueuedTickRechecksActiveHoursAtDequeue(t *testing.T) {
 	now.Store(inside)
 	d.now = func() time.Time { return now.Load().(time.Time) }
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a") // the lane is now busy
 
-	res, err := d.admitRun(hb, false, "")
+	res, err := d.admitRun(hb, false, RunOptions{})
 	if err != nil || res.Status != TriggerQueued {
 		t.Fatalf("tick inside the window behind a busy lane = %+v, %v; want queued", res, err)
 	}

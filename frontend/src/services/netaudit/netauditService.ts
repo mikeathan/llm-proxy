@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { AcceptRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate } from '../../types/netaudit'
+import type { AcceptRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -19,6 +19,11 @@ export class NetauditService {
 
   static findings(workspaceId: string, automation: string): Promise<FindingsReport> {
     return get<FindingsReport>(`${API_ENDPOINTS.netauditFindings}${query({ workspace_id: workspaceId, automation })}`)
+  }
+
+  static async checkTargets(targets: string[]): Promise<TargetProblem[]> {
+    const { problems } = await post<{ problems: TargetProblem[] }>(API_ENDPOINTS.netauditTargetsCheck, { targets })
+    return problems
   }
 
   static acks(workspaceId: string): Promise<ScanAck[]> {

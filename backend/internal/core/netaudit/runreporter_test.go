@@ -169,6 +169,30 @@ func TestRunReporter_TheBaselineRecordsWhatChangedWhatWasUnscannedAndHowManyAnsw
 	}
 }
 
+func TestRunReporter_ARescanOfOneDeviceKeepsWhatIsKnownAboutTheOthers(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime)
+	ctx, c := WithCollector(context.Background())
+	c.Add(Result{Engine: "nmap", Hosts: []Host{
+		{Addr: netip.MustParseAddr("10.0.0.1"), Up: true, Ports: []Port{{Number: 22, Proto: "tcp", State: "open"}}},
+		{Addr: netip.MustParseAddr("10.0.0.2"), Up: true, Ports: []Port{{Number: 445, Proto: "tcp", State: "open"}}},
+		{Addr: netip.MustParseAddr("10.0.0.3"), Up: true, Unscanned: true},
+	}, Findings: []Finding{finding("10.0.0.1", 22, ""), finding("10.0.0.2", 445, "")}})
+	r.Augment(ctx, "ws", "nightly", "")
+
+	rescan, rc := WithCollector(context.Background())
+	rc.Add(Result{Engine: "nmap", Hosts: []Host{{Addr: netip.MustParseAddr("10.0.0.1"), Up: true}}})
+	r.Augment(rescan, "ws", "nightly", "")
+
+	b := store.data["ws/nightly"]
+	if len(b.Unscanned) != 1 || b.Unscanned[0] != "10.0.0.3" {
+		t.Errorf("a device this run did not look at stays flagged: Unscanned = %v", b.Unscanned)
+	}
+	if b.DevicesUp != 3 {
+		t.Errorf("DevicesUp = %d, want 3 (the rescanned device, the one with findings, the flagged one)", b.DevicesUp)
+	}
+}
+
 type memAcks struct {
 	acks     []models.ScanAck
 	readErr  error

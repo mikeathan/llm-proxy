@@ -188,12 +188,12 @@ func TestDispatcher_SkipIfBusy(t *testing.T) {
 	registerManualAutomation(t, d, "ws", "other")
 	entry, _ := d.registry.Get("ws", "beat")
 
-	if _, err := d.Trigger("ws", "other", ""); err != nil {
+	if _, err := d.Trigger("ws", "other", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "other")
 
-	res, err := d.admitRun(entry, false, "")
+	res, err := d.admitRun(entry, false, RunOptions{})
 	if err != nil || res.Status != TriggerSkipped {
 		t.Fatalf("scheduled fire on a busy lane = %+v, %v; want skipped", res, err)
 	}
@@ -203,7 +203,7 @@ func TestDispatcher_SkipIfBusy(t *testing.T) {
 		}
 	}
 
-	res, err = d.admitRun(entry, true, "")
+	res, err = d.admitRun(entry, true, RunOptions{})
 	if err != nil || res.Status != TriggerQueued {
 		t.Fatalf("a manual trigger must still queue, got %+v, %v", res, err)
 	}

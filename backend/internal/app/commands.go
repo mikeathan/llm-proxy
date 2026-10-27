@@ -32,7 +32,7 @@ func buildCommands(s *AppServices, disp *automation.Dispatcher) *commands.Regist
 type automationStarter struct{ disp *automation.Dispatcher }
 
 func (a automationStarter) Start(workspaceID, name string) (commands.AutomationStart, error) {
-	result, err := a.disp.Trigger(workspaceID, name, "")
+	result, err := a.disp.Trigger(workspaceID, name, automation.RunOptions{})
 	if err != nil {
 		return commands.AutomationStart{}, err
 	}

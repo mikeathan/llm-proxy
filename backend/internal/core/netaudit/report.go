@@ -121,10 +121,10 @@ func writeChecks(b *strings.Builder, title string, findings []Finding) {
 	if countChecks(findings, true) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "\n### %s\n\n| Device | Port | Severity | Finding |\n|---|---|---|---|\n", title)
+	fmt.Fprintf(b, "\n### %s\n\n| Device | Port | Severity | Finding | Suggested fix |\n|---|---|---|---|---|\n", title)
 	for _, f := range findings {
 		if f.Check != CheckOpenPort {
-			fmt.Fprintf(b, "| %s | %d/%s | %s | %s |\n", cell(f.Device), f.Port, cell(f.Proto), cell(f.Severity), cell(f.Evidence))
+			fmt.Fprintf(b, "| %s | %d/%s | %s | %s | %s |\n", cell(f.Device), f.Port, cell(f.Proto), cell(f.Severity), cell(f.Evidence), cell(RemediationFor(f.Check)))
 		}
 	}
 }

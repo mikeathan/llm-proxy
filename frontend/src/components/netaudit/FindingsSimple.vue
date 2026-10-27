@@ -27,6 +27,7 @@ const cardClass = (f: ScanFinding) => (isCheck(f) ? `border-l-4 ${SEVERITY_CARD_
         <span class="flex min-w-0 flex-col gap-1">
           <StatusTag v-if="isCheck(f)" :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" class="self-start" />
           <span :class="['block break-words text-primary', isCheck(f) ? 'font-semibold' : '']">{{ lookSentence(f) }}</span>
+          <span v-if="f.fix" class="block break-words text-[length:var(--text-small)] text-secondary" data-test="fix"><span class="font-semibold">How to fix it:</span> {{ f.fix }}</span>
           <span v-if="isPlainText(f)" class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-state-error">
             It sends everything unencrypted.
             <BaseButton variant="ghost" size="sm" @click="help.show('words')">Learn more</BaseButton>

@@ -156,3 +156,36 @@ func TestScope_DeviceTimeoutIsOneOfTheOfferedChoices(t *testing.T) {
 		t.Errorf("a choice that is not offered must be refused and change nothing: %v, stored %d", err, store.cfg.DeviceTimeoutMinutes)
 	}
 }
+
+func TestScope_CheckTargetsNamesEachTargetTheAuditCouldNotScanAndWhy(t *testing.T) {
+	store := &memStore{cfg: models.NetauditConfig{ScanRanges: []string{"192.168.1.0/24"}}}
+	s := NewScope(store, noNames{}, nil)
+
+	got := s.CheckTargets(context.Background(), []string{"192.168.1.20", "192.168.1.0/28", "10.9.9.9", "printer.local", "8.8.8.8"})
+
+	reasons := map[string]string{}
+	for _, p := range got {
+		reasons[p.Entry] = p.Reason
+	}
+	if len(got) != 3 || reasons["10.9.9.9"] == "" || reasons["printer.local"] == "" || reasons["8.8.8.8"] == "" {
+		t.Fatalf("only the three targets that cannot be scanned are listed: %+v", got)
+	}
+	if !strings.Contains(reasons["10.9.9.9"], "outside") || strings.Contains(reasons["10.9.9.9"], "declared") {
+		t.Errorf("an address outside the allowed networks says so in plain words: %q", reasons["10.9.9.9"])
+	}
+}
+
+func TestScope_CheckTargetsWithNothingAllowedSaysScanningIsOffOnce(t *testing.T) {
+	s := NewScope(&memStore{}, noNames{}, nil)
+	got := s.CheckTargets(context.Background(), []string{"192.168.1.20", "192.168.1.21"})
+	if len(got) != 1 || got[0].Entry != "" || !strings.Contains(got[0].Reason, "No network") {
+		t.Errorf("one problem for the whole list: %+v", got)
+	}
+}
+
+func TestScope_CheckTargetsWithNoTargetsMeansEveryAllowedNetworkAndIsFine(t *testing.T) {
+	s := NewScope(&memStore{cfg: models.NetauditConfig{ScanRanges: []string{"192.168.1.0/24"}}}, noNames{}, nil)
+	if got := s.CheckTargets(context.Background(), nil); len(got) != 0 {
+		t.Errorf("got %+v", got)
+	}
+}

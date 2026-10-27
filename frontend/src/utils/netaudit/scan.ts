@@ -8,8 +8,11 @@ type ScanFields = Pick<AutomationFormData, 'scanTargets' | 'scanDepth' | 'scanPo
 
 const TARGET_SEPARATOR = /[\n,]/
 
+/** The entries typed in the networks field: separated by commas or lines, blanks dropped. */
+export const splitTargets = (text: string): string[] => text.split(TARGET_SEPARATOR).map((t) => t.trim()).filter(Boolean)
+
 export function scanFromForm(f: ScanFields): ScanSettings {
-  const targets = f.scanTargets.split(TARGET_SEPARATOR).map((t) => t.trim()).filter(Boolean)
+  const targets = splitTargets(f.scanTargets)
   const ports = f.scanPorts.trim()
   return { ...(targets.length ? { targets } : {}), depth: f.scanDepth, ...(ports ? { ports } : {}), checks: f.scanChecks }
 }

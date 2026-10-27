@@ -18,6 +18,7 @@ type NetauditScope interface {
 	SetAllowUnconfined(allow bool) error
 	SetDeviceTimeout(minutes int) error
 	Suggestions() ([]netaudit.Suggestion, error)
+	CheckTargets(ctx context.Context, targets []string) []netaudit.TargetProblem
 }
 
 // NetauditReadiness answers what is missing before scans can run.
@@ -56,6 +57,8 @@ type findingView struct {
 	// Key identifies the finding for accepting it; the page never builds one itself.
 	Key string `json:"key"`
 	New bool   `json:"new"`
+	// Fix is the suggested remedy for a check finding, fixed text the operator applies by hand; empty for an open port.
+	Fix string `json:"fix,omitempty"`
 	// Changed is true when the version differs from the scan before; PreviousVersion is what it was (possibly empty).
 	Changed         bool   `json:"changed"`
 	PreviousVersion string `json:"previous_version,omitempty"`
@@ -99,7 +102,7 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
 		acks := h.activeAcks(workspaceID)
 		for _, f := range b.Findings {
-			view := findingView{ScanFinding: f, Key: f.Key(), New: isNew[f.Key()]}
+			view := findingView{ScanFinding: f, Key: f.Key(), New: isNew[f.Key()], Fix: netaudit.RemediationFor(f.Check)}
 			view.PreviousVersion, view.Changed = b.ChangedFrom[f.Key()]
 			if a, ok := acks[f.Key()]; ok && netaudit.StateFor(a, f, time.Now()) == netaudit.AckActive {
 				view.Accepted, view.AcceptedNote, view.AcceptedTill = true, a.Note, a.ExpiresAt.UTC().Format(time.RFC3339)
@@ -186,6 +189,27 @@ func (h *NetauditHandlers) PutScope(w http.ResponseWriter, r *http.Request) {
 		view = h.scope.View()
 	}
 	h.respondScope(w, view)
+}
+
+// checkTargetsRequest is the targets of an audit as it is being set up.
+type checkTargetsRequest struct {
+	Targets []string `json:"targets"`
+}
+
+// CheckTargets says before a run which of an audit's targets it would refuse, and why, so the form can warn instead of
+// the run failing at night.
+func (h *NetauditHandlers) CheckTargets(w http.ResponseWriter, r *http.Request) {
+	var req checkTargetsRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	problems := h.scope.CheckTargets(r.Context(), req.Targets)
+	if problems == nil {
+		problems = []netaudit.TargetProblem{}
+	}
+	respondJSON(w, struct {
+		Problems []netaudit.TargetProblem `json:"problems"`
+	}{problems})
 }
 
 // activeAcks indexes the workspace's acceptances by finding key; a failure to read them lists every finding as not accepted.
