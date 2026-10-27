@@ -1,7 +1,8 @@
 # Network audit — guarded programs, an nmap scan tool, and a nightly auditor agent
 
 **Status:** partial (2026-10-24, revised 2026-10-26). D1–D13 decided by the owner (§2); open facts in §11. Phases 0–6, the report
-UI, checks mode and per-audit scan settings are merged (PRs #137–#144, v0.12.0). §13 lists what is left.
+UI, checks mode and per-audit scan settings are merged (PRs #137–#144, v0.12.0). §13.A (the small finishes) is built on branch
+`netaudit-finishes` (v0.13.0, unmerged). §13 lists what is left.
 **Related Specs:** SPEC-006 (Guardrails §II.6–II.7), SPEC-007 (Automation Dispatcher), SPEC-012 (Prompt Profiles),
 SPEC-001 (Agent Loop), SPEC-003 (UI), SPEC-009 (Communication).
 **Constitution refs:** I.1–I.3 (network guardrails), II.3 (sandbox isolation, env allow-list), II.10 (guardrail
@@ -482,14 +483,19 @@ new / changed / resolved, accept and Undo; the code-written report and connector
 playbook; the settings, report and form UI (Simple and Advanced); per-audit scan settings applied by the server (v0.12.0); plain-language
 failures. Details are in the status notes above.
 
-### 13.A Finish what the plan already promised (small, no new risk)
-| Item | Notes |
+### 13.A Finish what the plan already promised (small, no new risk) — built on `netaudit-finishes`
+| Item | As built |
 |---|---|
-| "Scan it again" on the unscanned-device notice | Needs a way to start the audit's run from the report panel. |
-| Readiness warning for an audit's targets | Say before a run that a chosen network is outside the allowed ones (today the run fails with a plain explanation). |
-| Library "Sets up:" line shows the scan settings | The playbook already declares them. |
-| "Rescan this host" | One device, using the audit's own settings. |
-| **Remediation proposals in the report** | For each finding, a suggested fix written by code from a fixed table keyed by the check (for example "disable SMBv1"), shown beside the finding and in the Observed text; the operator applies it and the next scan confirms. Read-only text: nothing is changed on any device. |
+| "Scan it again" on the unscanned-device notice | `UnscannedNotice` button; one unscanned device → a rescan of that device, several → the whole audit runs again. Goes through the ordinary trigger (`useFindings.rescan`). |
+| Readiness warning for an audit's targets | `POST /admin/api/netaudit/targets/check` → `Scope.CheckTargets` (the same `Policy.Authorize` a scan uses, one entry at a time); `useTargetCheck` debounces and `ScanSettingsFields` shows a warning naming each refused entry and why. A failed check shows nothing. |
+| Library "Sets up:" line shows the scan settings | `TemplateLibrary.usesOf` appends `scanSummary(defaults.scan)`. |
+| "Rescan this host" | `POST …/dispatcher/trigger/{ws}/{automation}?scan_target=<ip>` (`automation.RunOptions.ScanTarget`, one IP only, audit only, 400 otherwise); the run uses a copy of the entry with `Targets` = that IP, so depth, ports and checks stay the audit's own and nothing is saved. Button in the Advanced device header. `Trigger`/`admitRun` now take `RunOptions` instead of a bare `recordingRef`. |
+| **Remediation proposals in the report** | `netaudit.RemediationFor(check)` (fixed table, `remediation.go`); the findings API returns it as `fix`, both views show "How to fix it", the Observed checks table has a "Suggested fix" column. Read-only text; the resolved-checks table carries the column too. |
+
+Traps found while building 13.A: a rescan that is queued behind a running or queued run of the same audit is absorbed by the
+lane's key dedupe and runs as the plain audit (the options of the absorbed trigger are dropped) — the response says "queued".
+A one-device scan would have overwritten the baseline's `Unscanned` list and `DevicesUp` with its own one host; `carryOver`
+(`runreporter.go`) keeps devices flagged earlier and counts devices that had findings and were not looked at this time.
 
 ### 13.B More ways to identify weaknesses (read-only; each needs its own reviewed design before it is built)
 1. **Known-vulnerability matching.** Compare detected service versions with a vulnerability list stored locally and updated by the operator, so a scan never needs the internet. This revisits the plan's "no internet CVE lookup" non-goal and is an owner decision (where the list comes from, how it is updated, how a false match is handled).
@@ -527,6 +533,10 @@ the jail, the model sees only parsed summaries (never packets), and a `Program` 
 guarded-program runner is shaped so that adds a declaration, not plumbing; nothing for it is built now.
 
 ## Remaining Work
+
+**Current (2026-10-27):** §13.A is built (branch `netaudit-finishes`). Left is everything in §13.B–F, which waits on the owner's
+decisions (§13.F) or its own reviewed design; plus the hand verification of nmap under Landlock on Ubuntu (§13.D). The notes
+below are the phase-by-phase log and are due to be harvested into the learnings ledger and ADRs.
 
 **Done on branch `network-audit-catalog`:** Phase 0 characterisation (`TestRunScopeTruthTable`) and Phase 1 — `models/tool_catalog.go`
 holds `ToolSpec{Name, Category, Effect, Reach, Gate}`; the category table, `toolpolicy` effects, `hostNetworkGatedTools`,

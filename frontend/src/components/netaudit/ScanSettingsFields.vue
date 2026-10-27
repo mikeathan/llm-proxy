@@ -2,7 +2,9 @@
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import FormField from "../common/forms/FormField.vue"
 import ToggleField from "../common/forms/ToggleField.vue"
+import Callout from "../common/feedback/Callout.vue"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
+import { useTargetCheck } from "../../composables/netaudit/useTargetCheck"
 import { SCAN_DEPTH_OPTIONS, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
 import ScanSummary from "./ScanSummary.vue"
 import { scanFromForm } from "../../utils/netaudit/scan"
@@ -19,6 +21,8 @@ const ports = defineModel<string>("ports", { required: true })
 const checks = defineModel<boolean>("checks", { required: true })
 
 const { mode, advanced, set } = useNetauditViewMode()
+// Say now, not at 2 a.m., which typed networks the audit would refuse.
+const { problems } = useTargetCheck(() => targets.value)
 const summary = computed(() => scanFromForm({ scanTargets: targets.value, scanDepth: depth.value, scanPorts: ports.value, scanChecks: checks.value }))
 const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 font-mono text-[length:var(--text-small)] text-primary focus-visible:outline-none focus-visible:ring-2"
 </script>
@@ -43,6 +47,14 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
           <input :id="id" v-model="targets" type="text" autocomplete="off" spellcheck="false" placeholder="every allowed network" :aria-describedby="describedBy" :class="INPUT_CLASS" />
         </template>
       </FormField>
+      <Callout v-if="problems.length" tone="warning" title="The audit would not scan some of these" data-test="target-problems">
+        <ul class="m-0 flex list-none flex-col gap-1 p-0">
+          <li v-for="p in problems" :key="p.entry ?? p.reason" class="break-words"><span v-if="p.entry" class="font-mono">{{ p.entry }}</span><template v-if="p.entry">: </template>{{ p.reason }}</li>
+        </ul>
+        <template #actions>
+          <RouterLink :to="toSettings('network-scan')" class="text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline">Choose the allowed networks</RouterLink>
+        </template>
+      </Callout>
       <RouterLink :to="toSettings('network-scan')" class="-mt-2 self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline">Choose the allowed networks in Settings</RouterLink>
       <FormField label="Ports" hint="Leave empty for the common ports, or list them, for example 22,80,8000-8100.">
         <template #default="{ id, describedBy }">

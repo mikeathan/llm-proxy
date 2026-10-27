@@ -1,6 +1,6 @@
 ---
 subsystem: network-audit
-last_updated: 2026-10-26
+last_updated: 2026-10-27
 ---
 
 # Learnings — Network audit (no SPEC yet; plan `cross-cutting/network-audit.md`)
@@ -19,3 +19,4 @@ _None recorded yet._
 - **Tried:** Trusting nmap's port-table service names → **8081 was read as "blackice-icecap" and described as an IDS**. **Lesson:** mark table names as guesses. Evidence: [network-audit.md](../PLANS/cross-cutting/network-audit.md).
 - **Tried:** Reading interfaces via netlink under a systemd unit → **no netlink socket on the deployment**. **Lesson:** fall back to the default route's address on a /24. Evidence: [network-audit.md](../PLANS/cross-cutting/network-audit.md).
 - **Tried:** Running nmap in CI → **decided against (D13)**. **Lesson:** verify nmap under Landlock by hand on Ubuntu; keep CI small. Evidence: [network-audit.md](../PLANS/cross-cutting/network-audit.md).
+- **Tried:** A one-device rescan through the ordinary audit run → **its baseline write replaced `Unscanned` and `DevicesUp` with the single host's, while findings were already merged per device**. **Lesson:** a run that covers some devices must carry over the rest (`carryOver` in `runreporter.go`). A rescan queued behind the same audit is absorbed by the lane's key dedupe and runs as the full audit. Evidence: [network-audit.md](../PLANS/cross-cutting/network-audit.md) §13.A.

@@ -243,3 +243,42 @@ func outboundIP() (net.IP, error) {
 	}
 	return addr.IP, nil
 }
+
+// TargetProblem is one target an audit could not scan, in words for the operator. Entry is empty when the problem is
+// with the whole list.
+type TargetProblem struct {
+	Entry  string `json:"entry,omitempty"`
+	Reason string `json:"reason"`
+}
+
+// Words for the reasons a target cannot be scanned.
+const (
+	reasonScanningOff = "No network has been allowed for scanning yet."
+	reasonOutside     = "It is outside the networks allowed for scanning."
+	reasonTooMany     = "It covers more devices than one scan may."
+	reasonUnusable    = "It is not an address, range or name that can be scanned (a name must resolve to a local address)."
+)
+
+// CheckTargets says, before a run, which of an audit's targets the run would refuse. The same policy a scan is held to
+// decides, so the answer cannot drift from what happens. An empty list means every allowed network and is fine unless
+// none is allowed.
+func (s *Scope) CheckTargets(ctx context.Context, targets []string) []TargetProblem {
+	policy := s.Policy()
+	if len(policy.Allowed) == 0 {
+		return []TargetProblem{{Reason: reasonScanningOff}}
+	}
+	var out []TargetProblem
+	for _, entry := range targets {
+		_, err := policy.Authorize(ctx, s.resolver, []string{entry})
+		switch {
+		case err == nil:
+		case errors.Is(err, scanscope.ErrOutOfScope):
+			out = append(out, TargetProblem{Entry: entry, Reason: reasonOutside})
+		case errors.Is(err, scanscope.ErrTooManyHosts):
+			out = append(out, TargetProblem{Entry: entry, Reason: reasonTooMany})
+		default:
+			out = append(out, TargetProblem{Entry: entry, Reason: reasonUnusable})
+		}
+	}
+	return out
+}

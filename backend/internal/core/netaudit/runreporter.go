@@ -77,8 +77,9 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	next := models.ScanBaseline{
 		ScannedAt: at, Engine: result.Engine, Findings: append(withoutDevices(prev.Findings, scanned), result.Findings...),
 		NewKeys: keysOf(delta.New), Resolved: delta.Resolved,
-		ChangedFrom: changedFrom(delta.Changed), Unscanned: unscannedDevices(result.Hosts), DevicesUp: devicesUp(result.Hosts),
+		ChangedFrom: changedFrom(delta.Changed),
 	}
+	next.Unscanned, next.DevicesUp = carryOver(prev, result.Hosts)
 	if err := r.store.WriteBaseline(workspaceID, automation, next); err != nil {
 		observed += fmt.Sprintf("\n\n> Note: this scan could not be saved for next time (%v).", err)
 	}
@@ -106,6 +107,32 @@ func unscannedDevices(hosts []Host) []string {
 		}
 	}
 	return out
+}
+
+// carryOver is the unscanned list and the count of answering addresses after this run. A run that looked at only some
+// devices (a rescan, or an audit aimed at one range) does not forget the others: a device flagged earlier and not
+// looked at now stays flagged, and a device that earlier had findings or was flagged counts as answering.  A run over
+// every device changes nothing here, because every earlier device is among this run's hosts.
+func carryOver(prev models.ScanBaseline, hosts []Host) ([]string, int) {
+	seen := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		seen[h.Addr.String()] = true
+	}
+	unscanned := unscannedDevices(hosts)
+	up := devicesUp(hosts)
+	kept := map[string]bool{}
+	for _, d := range prev.Unscanned {
+		if !seen[d] && !kept[d] {
+			unscanned = append(unscanned, d)
+			kept[d] = true
+		}
+	}
+	for _, f := range prev.Findings {
+		if !seen[f.Device] && !kept[f.Device] {
+			kept[f.Device] = true
+		}
+	}
+	return unscanned, up + len(kept)
 }
 
 func devicesUp(hosts []Host) int {

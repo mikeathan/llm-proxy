@@ -42,7 +42,7 @@ func TestFailRun_PublishesErrorPayloadForSharedRenderer(t *testing.T) {
 	events, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
 	defer d.Events().Unsubscribe("ws", assistant.AutomationStream("a"), events)
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestExecute_PrepareFailureIsSurfaced(t *testing.T) {
 	events, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
 	defer d.Events().Unsubscribe("ws", assistant.AutomationStream("a"), events)
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestDispatcherEvents_NameTheirAutomation(t *testing.T) {
 	bare, _ := d.Events().Subscribe("ws", assistant.ChannelAutomation)
 	defer d.Events().Unsubscribe("ws", assistant.ChannelAutomation, bare)
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatalf("trigger: %v", err)
 	}
 

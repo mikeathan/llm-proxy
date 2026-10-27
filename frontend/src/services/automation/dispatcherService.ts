@@ -14,12 +14,13 @@ export const DispatcherService = {
     return get<Automation[]>(`${BASE_URL}/automations`)
   },
 
-  async triggerAutomation(workspace: string, automation: string, recordingRef?: string): Promise<TriggerResponse> {
-    let url = `${BASE_URL}/trigger/${workspace}/${automation}`
-    if (recordingRef) {
-      url += `?recording_ref=${encodeURIComponent(recordingRef)}`
-    }
-    return post<TriggerResponse>(url)
+  /** `scanTarget` points a network audit at one device for this run only. */
+  async triggerAutomation(workspace: string, automation: string, recordingRef?: string, scanTarget?: string): Promise<TriggerResponse> {
+    const params = new URLSearchParams()
+    if (recordingRef) params.set('recording_ref', recordingRef)
+    if (scanTarget) params.set('scan_target', scanTarget)
+    const query = params.toString()
+    return post<TriggerResponse>(`${BASE_URL}/trigger/${workspace}/${automation}${query ? `?${query}` : ''}`)
   },
 
   async getAutomationJournal(workspace: string, automation: string): Promise<AutomationJournal> {

@@ -24,7 +24,7 @@ const props = defineProps<{ workspaceId: string; automation: string; refreshKey?
 
 const { advanced } = useNetauditViewMode()
 const findings = useFindings(() => props.workspaceId, () => props.automation)
-const { report, loading, error, actionError } = findings
+const { report, loading, error, actionError, notice } = findings
 
 const accepting = ref<ScanFinding | null>(null)
 const saving = ref(false)
@@ -64,12 +64,13 @@ onMounted(findings.load)
     <div v-else class="flex flex-col gap-4">
       <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="scan-meta">{{ meta }}</p>
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
+      <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
 
-      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)">
-        <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" /></template>
+      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)">
+        <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" /></template>
       </FindingsAdvanced>
       <template v-else>
-        <UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" />
+        <UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" />
         <FindingsSimple :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" />
       </template>
     </div>

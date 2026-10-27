@@ -279,6 +279,20 @@ func TestNetauditHandlers_FindingsShowWhatIsAccepted(t *testing.T) {
 	}
 }
 
+func TestNetauditHandlers_FindingsCarryTheSuggestedFixOfACheck(t *testing.T) {
+	smb := models.ScanFinding{Device: "10.0.0.1", Port: 445, Proto: "tcp", Check: netaudit.CheckSMBv1, Severity: "high"}
+	port := models.ScanFinding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: "info"}
+	baseline := models.ScanBaseline{ScannedAt: time.Now(), Engine: "nmap", Findings: []models.ScanFinding{smb, port}}
+	var got findingsResponse
+	rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil), "?workspace_id=ws&automation=nightly")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Findings[0].Fix != netaudit.RemediationFor(netaudit.CheckSMBv1) || got.Findings[0].Fix == "" || got.Findings[1].Fix != "" {
+		t.Errorf("only the check finding has a fix: %+v", got.Findings)
+	}
+}
+
 func TestNetauditHandlers_PutScopeSetsThePerDeviceTimeAndRefusesOtherChoices(t *testing.T) {
 	h, store := newNetauditTestHandlers()
 
@@ -294,5 +308,33 @@ func TestNetauditHandlers_PutScopeSetsThePerDeviceTimeAndRefusesOtherChoices(t *
 	}
 	if rec := putScope(h, `{"allow_unconfined":true}`); rec.Code != http.StatusOK || store.cfg.DeviceTimeoutMinutes != 5 {
 		t.Errorf("a change to another field must leave the time alone (stored %d)", store.cfg.DeviceTimeoutMinutes)
+	}
+}
+
+func TestNetauditHandlers_CheckTargetsListsWhatTheAuditCouldNotScan(t *testing.T) {
+	h, store := newNetauditTestHandlers()
+	store.cfg.ScanRanges = []string{"192.168.1.0/24"}
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/api/netaudit/targets/check", strings.NewReader(`{"targets":["192.168.1.5","10.1.1.1"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.CheckTargets(rec, req)
+
+	var got struct {
+		Problems []netaudit.TargetProblem `json:"problems"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("code %d: %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	if len(got.Problems) != 1 || got.Problems[0].Entry != "10.1.1.1" {
+		t.Errorf("problems = %+v", got.Problems)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/admin/api/netaudit/targets/check", strings.NewReader(`{"targets":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	h.CheckTargets(rec, req)
+	if !strings.Contains(rec.Body.String(), `"problems":[]`) {
+		t.Errorf("no problems is an empty list, not null: %s", rec.Body.String())
 	}
 }

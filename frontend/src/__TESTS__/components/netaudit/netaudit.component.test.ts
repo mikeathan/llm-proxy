@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn() }))
+const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
-const dispatcher = vi.hoisted(() => ({ listAutomations: vi.fn(), listWorkspaces: vi.fn() }))
+const dispatcher = vi.hoisted(() => ({ listAutomations: vi.fn(), listWorkspaces: vi.fn(), triggerAutomation: vi.fn() }))
 vi.mock('../../../services/automation/dispatcherService', () => ({ DispatcherService: dispatcher }))
 const push = vi.hoisted(() => vi.fn())
 const routeState = vi.hoisted(() => ({ hash: '' }))
 vi.mock('vue-router', async (importOriginal) => ({ ...(await importOriginal<typeof import('vue-router')>()), useRouter: () => ({ push }), useRoute: () => routeState }))
 
+import ScanSettingsFields from '../../../components/netaudit/ScanSettingsFields.vue'
 import FindingsReport from '../../../components/netaudit/FindingsReport.vue'
 import ReadinessBanner from '../../../components/netaudit/ReadinessBanner.vue'
 import NetworkScanSettings from '../../../components/settings/NetworkScanSettings.vue'
@@ -43,6 +44,7 @@ beforeEach(() => {
   push.mockReset()
   dispatcher.listAutomations.mockReset().mockResolvedValue([])
   dispatcher.listWorkspaces.mockReset().mockResolvedValue([{ id: 'ws' }])
+  dispatcher.triggerAutomation.mockReset().mockResolvedValue({ status: 'started' })
   routeState.hash = ''
   service.readiness.mockResolvedValue({ ready: true, requirements: [] })
   useNetauditViewMode().set('simple')
@@ -248,6 +250,85 @@ describe('FindingsReport with checks', () => {
     expect(row.text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
     expect(w.get('section[aria-label="192.0.2.10"]').text()).toContain('1 open port, 1 problem')
     expect(w.get('[data-key="p"]').text()).toContain('microsoft-ds')
+  })
+})
+
+describe('FindingsReport fixes and rescans', () => {
+  const FIX = 'Turn off SMBv1 on the device or server.'
+  const scanned: Report = {
+    scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 3, resolved: [], unscanned: ['192.0.2.30'],
+    findings: [
+      finding({ key: 'smb', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', fix: FIX, new: true }),
+      finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds', new: true }),
+    ],
+  }
+  async function mountScanned() {
+    service.findings.mockResolvedValue(scanned)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    return w
+  }
+  const button = (w: Awaited<ReturnType<typeof mountScanned>>, text: string) => w.findAll('button').find((b) => b.text() === text)!
+
+  it('shows the suggested fix beside a problem in both views, and none for an open port', async () => {
+    const simple = await mountScanned()
+    expect(simple.get('[data-test="fix"]').text()).toBe(`How to fix it: ${FIX}`)
+    expect(simple.findAll('[data-test="fix"]')).toHaveLength(1)
+    useNetauditViewMode().set('advanced')
+    const advanced = await mountScanned()
+    expect(advanced.get('[data-key="smb"] [data-test="fix"]').text()).toContain(FIX)
+    expect(advanced.get('[data-key="p"]').find('[data-test="fix"]').exists()).toBe(false)
+  })
+
+  it('"Scan it again" scans the one device that ran out of time and says it started', async () => {
+    const w = await mountScanned()
+    await button(w, 'Scan it again').trigger('click')
+    await flushPromises()
+    expect(dispatcher.triggerAutomation).toHaveBeenCalledWith('ws', 'audit', undefined, '192.0.2.30')
+    expect(w.get('[data-test="scan-notice"]').text()).toContain('192.0.2.30')
+  })
+
+  it('"Scan it again" runs the whole audit when several devices ran out of time', async () => {
+    service.findings.mockResolvedValue({ ...scanned, unscanned: ['192.0.2.30', '192.0.2.31'] })
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    await button(w, 'Scan it again').trigger('click')
+    expect(dispatcher.triggerAutomation).toHaveBeenCalledWith('ws', 'audit', undefined, undefined)
+  })
+
+  it('Advanced: "Rescan this host" scans just that device', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountScanned()
+    await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
+    await flushPromises()
+    expect(dispatcher.triggerAutomation).toHaveBeenCalledWith('ws', 'audit', undefined, '192.0.2.10')
+  })
+
+  it('shows why a rescan could not start', async () => {
+    dispatcher.triggerAutomation.mockRejectedValue(new Error('only a network audit can scan a device'))
+    const w = await mountScanned()
+    await button(w, 'Scan it again').trigger('click')
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toBe('only a network audit can scan a device')
+  })
+})
+
+describe('ScanSettingsFields target warning', () => {
+  it('names the typed networks the audit would refuse, and why, once typing pauses', async () => {
+    vi.useFakeTimers()
+    try {
+      service.checkTargets.mockResolvedValue([{ entry: '10.9.9.9', reason: 'It is outside the networks allowed for scanning.' }])
+      useNetauditViewMode().set('advanced')
+      const w = mount(ScanSettingsFields, { props: { targets: '', depth: 'thorough' as const, ports: '', checks: true, 'onUpdate:targets': (v: string) => w.setProps({ targets: v }) } })
+      expect(w.find('[data-test="target-problems"]').exists()).toBe(false)
+      await w.get('input[placeholder="every allowed network"]').setValue('10.9.9.9')
+      await vi.advanceTimersByTimeAsync(500)
+      expect(service.checkTargets).toHaveBeenCalledWith(['10.9.9.9'])
+      const warning = w.get('[data-test="target-problems"]')
+      expect(warning.text()).toContain('10.9.9.9: It is outside the networks allowed for scanning.')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

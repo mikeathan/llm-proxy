@@ -484,12 +484,12 @@ func TestDispatcher_Lane_OverlappingFiresQueueInsteadOfDropping(t *testing.T) {
 	d := newLaneDispatcher(t, exec)
 	registerManualAutomation(t, d, "ws", "a")
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a")
 
-	res, err := d.Trigger("ws", "a", "")
+	res, err := d.Trigger("ws", "a", RunOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestDispatcher_Lane_OverlappingFiresQueueInsteadOfDropping(t *testing.T) {
 
 	// A third fire while it is already queued is absorbed — reported as queued
 	// at the same position, never an error.
-	res, err = d.Trigger("ws", "a", "")
+	res, err = d.Trigger("ws", "a", RunOptions{})
 	if err != nil {
 		t.Fatalf("trigger while queued = %v, want nil", err)
 	}
@@ -519,7 +519,7 @@ func TestDispatcher_Lane_CancelQueuedLeavesRunningRunAlone(t *testing.T) {
 	d := newLaneDispatcher(t, exec)
 	registerManualAutomation(t, d, "ws", "a")
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a")
@@ -546,7 +546,7 @@ func TestDispatcher_Lane_PreemptedRunIsSkippedNotFailed(t *testing.T) {
 
 	events, _ := d.Events().Subscribe("ws", assistant.AutomationStream("a"))
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a")
@@ -598,11 +598,11 @@ func TestDispatcher_Lane_SameWorkspaceRunsQueueOnFlock(t *testing.T) {
 	registerManualAutomation(t, d, "ws", "a")
 	registerManualAutomation(t, d, "ws", "b")
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a")
-	if _, err := d.Trigger("ws", "b", ""); err != nil {
+	if _, err := d.Trigger("ws", "b", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -619,11 +619,11 @@ func TestDispatcher_Lane_StopAutomationClearsQueuedEntries(t *testing.T) {
 	registerManualAutomation(t, d, "ws", "a")
 	registerManualAutomation(t, d, "ws", "b")
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a")
-	if _, err := d.Trigger("ws", "b", ""); err != nil {
+	if _, err := d.Trigger("ws", "b", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -645,11 +645,11 @@ func TestDispatcher_Lane_DropsQueuedEntryForDeletedAutomation(t *testing.T) {
 	registerManualAutomation(t, d, "ws", "a")
 	registerManualAutomation(t, d, "ws", "b")
 
-	if _, err := d.Trigger("ws", "a", ""); err != nil {
+	if _, err := d.Trigger("ws", "a", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	waitStarted(t, exec.started, "a")
-	if _, err := d.Trigger("ws", "b", ""); err != nil {
+	if _, err := d.Trigger("ws", "b", RunOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	d.Unregister("ws", "b")

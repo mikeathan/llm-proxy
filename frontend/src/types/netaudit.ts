@@ -68,6 +68,8 @@ export interface ScanFinding {
   check: string
   severity: string
   evidence?: string
+  /** What to do about a check's problem: fixed text the server wrote. Nothing is changed on the device for you. */
+  fix?: string
   new: boolean
   /** The version differs from the scan before; `previous_version` is what it was (it may be empty). */
   changed: boolean
@@ -173,4 +175,10 @@ export interface FailureExplanation {
   fix: FailureFix
   /** The allowed networks help here: the run asked for something outside them. */
   showsAllowedNetworks?: boolean
+}
+
+/** A target the audit would refuse, with why in plain words; `entry` is absent when the whole list is the problem. */
+export interface TargetProblem {
+  entry?: string
+  reason: string
 }

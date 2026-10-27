@@ -10,10 +10,14 @@ import { unscannedSentence } from "../../utils/netaudit/friendly"
 // A scan that ran out of time on a device knows nothing about its ports, which is not the same as none being open.
 // `hasEarlier` is true when there are findings from a scan before, which are kept. The time allowed per device lives
 // in the Advanced settings, so the button switches to Advanced and goes straight to it.
-defineProps<{ devices: readonly string[]; hasEarlier: boolean }>()
+const props = defineProps<{ devices: readonly string[]; hasEarlier: boolean }>()
+// "Scan it again" scans the one device that ran out of time; with several, the whole audit runs again.
+const emit = defineEmits<{ (e: "rescan", device?: string): void }>()
 
 const router = useRouter()
 const view = useNetauditViewMode()
+
+const scanAgain = () => emit("rescan", props.devices.length === 1 ? props.devices[0] : undefined)
 
 function allowMoreTime() {
   view.set("advanced")
@@ -25,6 +29,7 @@ function allowMoreTime() {
   <Callout v-if="devices.length" tone="warning" :title="unscannedSentence(devices.length)">
     <span class="break-words font-mono">{{ devices.join(", ") }}</span> ran out of time, even after a second try. Their ports are unknown, not "none".<template v-if="hasEarlier"> Their earlier findings are kept.</template>
     <template #actions>
+      <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="scanAgain">Scan it again</BaseButton>
       <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="allowMoreTime">Allow more time</BaseButton>
     </template>
   </Callout>

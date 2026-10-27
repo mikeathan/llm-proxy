@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"time"
 
@@ -14,6 +15,46 @@ import (
 // flockRetryInterval is the polling interval while waiting for the workspace
 // flock (see acquireWorkspaceLock).
 const flockRetryInterval = 250 * time.Millisecond
+
+// RunOptions are what a manual trigger may change about one run. The zero value is the automation as saved.
+type RunOptions struct {
+	// RecordingRef plays back a recording instead of calling the model.
+	RecordingRef string
+	// ScanTarget points a network audit at one device for this run only, keeping the audit's own depth, ports and
+	// checks. It is one IP address; the saved settings are never changed.
+	ScanTarget string
+}
+
+// Errors a trigger returns for options it refuses.
+var (
+	ErrBadScanTarget = errors.New("a rescan takes one IP address")
+	ErrNotAnAudit    = errors.New("only a network audit can scan a device")
+)
+
+func (o RunOptions) validateFor(entry *AutomationEntry) error {
+	if o.ScanTarget == "" {
+		return nil
+	}
+	if entry.Scan == nil {
+		return ErrNotAnAudit
+	}
+	if _, err := netip.ParseAddr(o.ScanTarget); err != nil {
+		return ErrBadScanTarget
+	}
+	return nil
+}
+
+// applyTo returns the entry this run executes: the entry itself, or a copy whose scan settings aim at ScanTarget.
+func (o RunOptions) applyTo(entry *AutomationEntry) *AutomationEntry {
+	if o.ScanTarget == "" || entry.Scan == nil {
+		return entry
+	}
+	scan := *entry.Scan
+	scan.Targets = []string{o.ScanTarget}
+	run := *entry
+	run.Scan = &scan
+	return &run
+}
 
 // TriggerResult reports whether a manual trigger started immediately or was
 // queued behind running work (with the 1-based queue position).
@@ -30,12 +71,15 @@ const (
 	TriggerSkipped string = "skipped"
 )
 
-func (d *Dispatcher) Trigger(workspaceID, automationName, recordingRef string) (TriggerResult, error) {
+func (d *Dispatcher) Trigger(workspaceID, automationName string, opts RunOptions) (TriggerResult, error) {
 	entry, ok := d.registry.Get(workspaceID, automationName)
 	if !ok {
 		return TriggerResult{}, fmt.Errorf("automation not found: %s/%s", workspaceID, automationName)
 	}
-	return d.admitRun(entry, true, recordingRef)
+	if err := opts.validateFor(entry); err != nil {
+		return TriggerResult{}, err
+	}
+	return d.admitRun(entry, true, opts)
 }
 
 // admitRun submits an automation run to its workload-class lane and classifies
@@ -44,7 +88,7 @@ func (d *Dispatcher) Trigger(workspaceID, automationName, recordingRef string) (
 // queued is absorbed (ErrAlreadyQueued) and reported as queued at its existing
 // position — never an error. The entry is re-resolved at dequeue so a deleted or
 // renamed automation is dropped instead of running a stale definition.
-func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef string) (TriggerResult, error) {
+func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, opts RunOptions) (TriggerResult, error) {
 	if d.skipHeartbeatTick(entry, manual) {
 		return TriggerResult{Status: TriggerSkipped}, nil
 	}
@@ -68,7 +112,7 @@ func (d *Dispatcher) admitRun(entry *AutomationEntry, manual bool, recordingRef 
 			if d.skipHeartbeatTick(live, manual) {
 				return nil
 			}
-			return d.executeAutomation(ctx, live, recordingRef)
+			return d.executeAutomation(ctx, opts.applyTo(live), opts.RecordingRef)
 		},
 	})
 	switch {
