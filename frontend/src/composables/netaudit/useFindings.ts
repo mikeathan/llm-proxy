@@ -2,13 +2,15 @@ import { ref } from 'vue'
 import { DispatcherService } from '../../services/automation/dispatcherService'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
-import type { FindingsReport } from '../../types/netaudit'
+import type { DeviceExpectation, FindingsReport } from '../../types/netaudit'
 
 const LOAD_FAILED = 'The latest scan could not be read.'
 const ACCEPT_FAILED = 'It could not be marked as fine.'
 const REVOKE_FAILED = 'It could not be taken back.'
 const MARK_FAILED = 'It could not be marked as fixed.'
 const UNMARK_FAILED = 'The mark could not be taken back.'
+const EXPECT_FAILED = 'What this device should offer could not be saved.'
+const UNEXPECT_FAILED = 'The expected ports could not be taken back.'
 const RESCAN_FAILED = 'The scan could not be started.'
 const QUEUED_STATUS = 'queued'
 const SCAN_STARTED = 'The scan has started. The report updates when it finishes.'
@@ -17,16 +19,29 @@ const SCAN_QUEUED = 'The scan is waiting for the run before it. The report updat
 /** The latest scan of one automation, and accepting or taking back a finding. Reloads after each change. */
 export function useFindings(workspaceId: () => string, automation: () => string) {
   const report = ref<FindingsReport | null>(null)
+  /** What the operator says each device should offer; empty when none is set or they could not be read. */
+  const expectations = ref<DeviceExpectation[]>([])
   const loading = ref(false)
   const error = ref('')
   const actionError = ref('')
   /** What to tell the operator after a scan was started; empty when there is nothing to say. */
   const notice = ref('')
 
+  // The expectations only add a line to a device; a failure to read them must not hide the report, so it leaves none.
+  async function loadExpectations(): Promise<void> {
+    try {
+      const items = await NetauditService.expectations(workspaceId())
+      expectations.value = Array.isArray(items) ? items : []
+    } catch {
+      expectations.value = []
+    }
+  }
+
   async function load(): Promise<void> {
     loading.value = true
     try {
-      report.value = await NetauditService.findings(workspaceId(), automation())
+      const [latest] = await Promise.all([NetauditService.findings(workspaceId(), automation()), loadExpectations()])
+      report.value = latest
       error.value = ''
     } catch (err) {
       error.value = errorMessage(err, LOAD_FAILED)
@@ -58,6 +73,12 @@ export function useFindings(workspaceId: () => string, automation: () => string)
 
   const unmarkFixed = (key: string) => act(() => NetauditService.unmarkFixed(workspaceId(), key), UNMARK_FAILED)
 
+  /** Says what a device should offer (its open ports right now, or what the operator typed); the next scan reports any difference. */
+  const setExpected = (device: string, ports: number[]) =>
+    act(() => NetauditService.setExpectation({ workspace_id: workspaceId(), device, ports, note: '' }), EXPECT_FAILED)
+
+  const removeExpected = (device: string) => act(() => NetauditService.removeExpectation(workspaceId(), device), UNEXPECT_FAILED)
+
   /** Runs the audit again; with a device, only that device (the audit's own settings still apply). */
   async function rescan(device?: string): Promise<boolean> {
     notice.value = ''
@@ -73,5 +94,5 @@ export function useFindings(workspaceId: () => string, automation: () => string)
     }
   }
 
-  return { report, loading, error, actionError, notice, load, accept, revoke, markFixed, unmarkFixed, rescan }
+  return { report, expectations, loading, error, actionError, notice, load, accept, revoke, markFixed, unmarkFixed, setExpected, removeExpected, rescan }
 }

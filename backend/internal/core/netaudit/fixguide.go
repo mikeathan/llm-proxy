@@ -210,6 +210,28 @@ var guides = map[string]FixGuide{
 		Risk: "Anything that still logs in with Telnet, such as an old script or device, stops working.",
 		Undo: "Run sudo systemctl enable --now telnet.socket, or switch the service back on in the device's settings.",
 	},
+	CheckUnexpectedPort: {
+		Steps: []string{
+			"Find out what is listening on that port: on a computer, the command below lists the program; on a router or other device, look in its services or settings page.",
+			"If nothing needs it, stop the service or turn the setting off, then close the port in the device's firewall.",
+			"If it should be open, add the port to the device's expected ports in this app so it is no longer reported.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo ss -ltnp   # lists each listening port and the program that owns it"},
+		},
+		Risk: "Anything that still connects to that port, such as another device or an old script, stops working.",
+		Undo: "Start the service again or switch the setting back on, and remove the firewall rule if you added one.",
+	},
+	CheckExpectedPortClosed: {
+		Steps: []string{
+			"Check that the device is on and that the service behind the port is running; a restart of the service or the device often brings it back.",
+			"If the service was turned off on purpose, remove the port from the device's expected ports in this app.",
+			"Run the scan again to confirm.",
+		},
+		Risk: "Restarting a service interrupts anything using it at that moment.",
+		Undo: "Stop the service again, or add the port back to the expected ports if you removed it.",
+	},
 	CheckDockerAPI: {
 		Steps: []string{
 			"Find how Docker was told to listen on a network port: look for a tcp:// address in its service file or in daemon.json.",

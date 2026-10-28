@@ -297,3 +297,19 @@ export interface FixRequest {
   key: string
   note: string
 }
+
+/** What the operator says a device should offer: the TCP ports that may be open on it (none means nothing should answer). */
+export interface DeviceExpectation {
+  device: string
+  ports: number[]
+  note?: string
+  set_at: string
+}
+
+/** Sets, or replaces, what one device should offer. */
+export interface ExpectationRequest {
+  workspace_id: string
+  device: string
+  ports: number[]
+  note: string
+}

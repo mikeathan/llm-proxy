@@ -18,11 +18,12 @@ type BaselineStore interface {
 // RunReporter turns the scans an automation run made into the code-rendered part of its report, and keeps the result
 // as the baseline for the next run. It never reads the model's words: it works from what the scan tool collected.
 type RunReporter struct {
-	store BaselineStore
-	acks  AckStore   // optional: findings the operator accepted
-	fixes FixStore   // optional: findings the operator marked as fixed
-	vulns VulnSource // optional: the vulnerability data known_vulns findings are matched against
-	now   func() time.Time
+	store  BaselineStore
+	acks   AckStore         // optional: findings the operator accepted
+	fixes  FixStore         // optional: findings the operator marked as fixed
+	vulns  VulnSource       // optional: the vulnerability data known_vulns findings are matched against
+	expect ExpectationStore // optional: what the operator says each device should offer
+	now    func() time.Time
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -40,6 +41,13 @@ func (r *RunReporter) WithAcks(acks AckStore) *RunReporter {
 // with the scan so the screen can say the fix is confirmed. A record never changes what is listed or compared.
 func (r *RunReporter) WithFixes(fixes FixStore) *RunReporter {
 	r.fixes = fixes
+	return r
+}
+
+// WithExpectations makes the reporter compare each device that has an expectation with it. The differences join the scan's
+// findings, so they are compared with the last scan, accepted and kept like any other. Without it nothing is compared.
+func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
+	r.expect = store
 	return r
 }
 
@@ -70,6 +78,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		return report
 	}
 	cov := r.addKnownVulns(ctx, &result)
+	expectNote := r.addExpectations(workspaceID, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
@@ -82,7 +91,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	if readErr != nil {
 		observed += "\n\n> Note: the previous scan result could not be read, so no comparison was made."
 	}
-	observed += ackNote
+	observed += ackNote + expectNote
 
 	next := models.ScanBaseline{
 		ScannedAt: at, Engine: result.Engine, Findings: append(withoutDevices(prev.Findings, scanned), result.Findings...),
@@ -269,4 +278,18 @@ func withoutDevices(findings []Finding, devices map[string]bool) []Finding {
 		}
 	}
 	return out
+}
+
+// addExpectations appends what differs from the operator's expectations to the result, before the comparison with the last
+// scan. A store that cannot be read is stated in the report and never stops the scan from being reported.
+func (r *RunReporter) addExpectations(workspaceID string, result *Result) string {
+	if r.expect == nil {
+		return ""
+	}
+	items, err := r.expect.ReadExpectations(workspaceID)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: the expected ports could not be read, so they were not compared (%v).", err)
+	}
+	result.Findings = append(result.Findings, ExpectationFindings(items, result.Hosts)...)
+	return ""
 }

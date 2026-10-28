@@ -27,6 +27,8 @@ type netauditServices struct {
 	Readiness *netaudit.Readiness
 	Acks      *netaudit.Acks
 	Fixes     *netaudit.Fixes
+	// Expectations holds what the operator says each device should offer.
+	Expectations *netaudit.Expectations
 	// Vulns holds the vulnerability data and runs its operator-started download.
 	Vulns *vulnfeed.Manager
 }
@@ -110,7 +112,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	})
 	// The downloaded vulnerability data lives beside the settings, outside what a factory reset replaces; a reset clears it too.
 	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
-	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Vulns: vulns}
+	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))

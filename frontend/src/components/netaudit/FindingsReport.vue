@@ -6,11 +6,13 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import AcceptDialog from "./AcceptDialog.vue"
+import ExpectedPortsDialog from "./ExpectedPortsDialog.vue"
 import FindingsAdvanced from "./FindingsAdvanced.vue"
 import FindingsSimple from "./FindingsSimple.vue"
 import UnscannedNotice from "./UnscannedNotice.vue"
 import { useFindings } from "../../composables/netaudit/useFindings"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
+import { openPortsOf } from "../../utils/netaudit/expectations"
 import { checkCount, findingTitle, portCount } from "../../utils/netaudit/friendly"
 import { summarize } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
@@ -24,10 +26,14 @@ const props = defineProps<{ workspaceId: string; automation: string; refreshKey?
 
 const { advanced } = useNetauditViewMode()
 const findings = useFindings(() => props.workspaceId, () => props.automation)
-const { report, loading, error, actionError, notice } = findings
+const { report, expectations, loading, error, actionError, notice } = findings
 
 const accepting = ref<ScanFinding | null>(null)
 const saving = ref(false)
+
+// The device whose expected ports are being edited, and what the dialog starts from: what it expects now, or what is open.
+const editing = ref("")
+const editingPorts = computed(() => expectations.value.find((e) => e.device === editing.value)?.ports ?? openPortsOf(report.value?.findings ?? [], editing.value))
 
 const summary = computed(() => (report.value ? summarize(report.value) : null))
 
@@ -49,6 +55,13 @@ async function accept(days: number, note: string) {
   if (ok) accepting.value = null
 }
 
+async function saveExpected(ports: number[]) {
+  saving.value = true
+  const ok = await findings.setExpected(editing.value, ports)
+  saving.value = false
+  if (ok) editing.value = ""
+}
+
 watch(() => [props.workspaceId, props.automation, props.refreshKey], findings.load)
 onMounted(findings.load)
 </script>
@@ -66,7 +79,7 @@ onMounted(findings.load)
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
 
-      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
+      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" :expectations="expectations" @expect="findings.setExpected" @edit-expected="editing = $event" @unexpect="findings.removeExpected($event)" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
         <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" /></template>
       </FindingsAdvanced>
       <template v-else>
@@ -75,6 +88,7 @@ onMounted(findings.load)
       </template>
     </div>
 
+    <ExpectedPortsDialog :open="editing !== ''" :device="editing" :ports="editingPorts" :saving="saving" :error="actionError" @save="saveExpected" @cancel="editing = ''" />
     <AcceptDialog :open="accepting !== null" :what="accepting ? findingTitle(accepting) : ''" :saving="saving" :error="actionError" @accept="accept" @cancel="accepting = null" />
   </Panel>
 </template>

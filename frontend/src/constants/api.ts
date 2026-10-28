@@ -18,6 +18,7 @@ export const API_ENDPOINTS = {
   netauditTargetsCheck: `${API_BASE}/netaudit/targets/check`,
   netauditAcks: `${API_BASE}/netaudit/acks`,
   netauditFixes: `${API_BASE}/netaudit/fixes`,
+  netauditExpectations: `${API_BASE}/netaudit/expectations`,
   netauditVulnData: `${API_BASE}/netaudit/vulndata`,
   netauditVulnDownload: `${API_BASE}/netaudit/vulndata/download`,
   netauditVulnCancel: `${API_BASE}/netaudit/vulndata/cancel`,

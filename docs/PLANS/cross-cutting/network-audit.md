@@ -666,7 +666,7 @@ the host. If ever built: off by default and operator-enabled, interface allow-li
 the jail, the model sees only parsed summaries (never packets), and a `Program` value plus its own amendment. The
 guarded-program runner is shaped so that adds a declaration, not plumbing; nothing for it is built now.
 
-### 13.H Design for review — expectations per device (13.B.3)
+### 13.I Design for review — expectations per device (13.B.3)
 
 *Status: draft for the owner's review; nothing is built. Read-only, no new probing, no Constitution change.*
 
@@ -690,9 +690,11 @@ Both appear in `ProblemGroups` with a fix written once ("close it on the device,
 
 **Owner decisions 2026-10-28:** set with one click from the current open ports (then editable); a device is identified by its IP address and the UI says so; `unexpected_port` is medium and `expected_port_closed` is low; an empty list is allowed.
 
+**Built 2026-10-28 (UI too: `ExpectedPortsDialog.vue`, "Set as expected" / "Edit expected" / "Remove expected" on the Advanced device header via `DeviceFindings.vue`, `useFindings.setExpected`, `utils/netaudit/expectations.ts`; the Help text says to set it again if a device gets a new address):** `models.Expectation`; `persistence/expectations.go` (`expectations.json` in the workspace's internal directory, outside the agent's jail, like the fix records); `netaudit/expectations.go` (`NewExpectation`, `ExpectationFindings`, the `Expectations` service, caps of 64 ports and 256 devices); `RunReporter.WithExpectations` adds the two checks to the scan's findings before the comparison, so they are diffed, accepted and kept like any other (a store that cannot be read is stated in the report, never hides the scan); a fix and a guide for each check; `GET/PUT/DELETE /admin/api/netaudit/expectations`. The deep check is §13.J.
+
 **Phases.** (1) model, store, evaluator and tests; (2) endpoints; (3) UI and the report line; (4) docs. Each is small enough for one PR; (1) and (2) can ship together.
 
-### 13.I Design for review — the interactive deep check (intrusive scripts)
+### 13.J Design for review — the interactive deep check (intrusive scripts)
 
 *Status: draft for the owner's review; nothing is built, and the Constitution text below is a proposal, not applied law.*
 
@@ -717,7 +719,7 @@ Both appear in `ProblemGroups` with a fix written once ("close it on the device,
 
 ## Remaining Work
 
-**Current (2026-10-28):** v0.15.0 adds the Tier 1 checks and the grouped report (13.B.2 as built, above); not yet run against real devices (the four new scripts and the Docker/Telnet rules are covered by fixtures and the argument tests only, like ADR-0007 says). Next on the owner's list: the interactive deep check for intrusive scripts (design §13.I, on hold until admin-API authentication lands) and expectations per device (13.B.3, design §13.H, drafted 2026-10-28). **Earlier (2026-10-27):** §13.A is merged (#146, v0.13.0, live on vertex; a live rescan there has not been tried yet). Left is everything in §13.B–F, which waits on the owner's
+**Current (2026-10-28):** v0.15.0 adds the Tier 1 checks and the grouped report (13.B.2 as built, above); not yet run against real devices (the four new scripts and the Docker/Telnet rules are covered by fixtures and the argument tests only, like ADR-0007 says). Next on the owner's list: the interactive deep check for intrusive scripts (design §13.J, on hold until admin-API authentication lands) and expectations per device (13.B.3, design §13.I; built 2026-10-28, all four phases). **Earlier (2026-10-27):** §13.A is merged (#146, v0.13.0, live on vertex; a live rescan there has not been tried yet). Left is everything in §13.B–F, which waits on the owner's
 decisions (§13.F) or its own reviewed design; plus the hand verification of nmap under Landlock on Ubuntu (§13.D).
 **Owner decisions 2026-10-27:** vulnerability matching yes (NVD + KEV; design §13.G); assisted fixes yes as a design (targets set in 13.C.2); guarded-programs Constitution text approved and applied; admin API authentication stays parked. Source (NVD + KEV) and fix targets confirmed the same day. Next: accept the §13.G design, then build 13.B.1 phase by phase; the 13.C.2 design follows. The notes
 below are the phase-by-phase log and are due to be harvested into the learnings ledger and ADRs.
