@@ -76,3 +76,5 @@ node_modules/
 
 # Python bytecode (scripts/*.py)
 __pycache__/
+backend/graphify-out/*
+graphify-out/*
