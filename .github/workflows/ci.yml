@@ -58,8 +58,31 @@ jobs:
       - name: Test staged CRAP hook
         run: bash ./scripts/crap-staged.sh --self-test
 
+  # The static gates run beside the test job, not before it: they used to run in
+  # the same job, so the ~1m15s of build + vet came off the front of every run's
+  # wall time even though the tests do not depend on them.
+  backend-static:
+    name: Backend (build, vet, complexity)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Complexity gate (<= 12)
+        run: go run ./tools/check-complexity/
+
   backend:
-    name: Backend (build, vet, complexity, test, coverage)
+    name: Backend (test, coverage)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
@@ -71,13 +94,6 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      # Cheap gates first: fail fast before the slow -race suite.
-      - name: Build
-        run: go build ./...
-      - name: Vet
-        run: go vet ./...
-      - name: Complexity gate (<= 12)
-        run: go run ./tools/check-complexity/
       - name: Test (race + coverage)
         run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
       - name: Coverage report
@@ -220,12 +236,43 @@ jobs:
       - name: Build (eslint + vue-tsc + vite)
         run: npm run build
 
+  # Builds the pinned CRAP scanners while the test jobs run. Caches are scoped to
+  # the PR that saved them (CI does not run on main, so nothing seeds a shared
+  # one), which made the ~50s install a cold miss on the critical path of every
+  # new PR. Here it overlaps the 2+ minute test job; `crap` restores it below.
+  crap-tools:
+    name: CRAP scanners (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CRAP_REV: 8eea294df1123778a77ecb826f0b16d95b65768d
+      CRAP4GO_VERSION: v0.2.0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Set scanner install directory
+        run: echo "GOBIN=${RUNNER_TEMP}/crap-bin" >> "$GITHUB_ENV"
+      - name: Restore pinned CRAP binaries
+        id: crap-cache
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/crap-bin
+          key: crap-tools-${{ runner.os }}-${{ runner.arch }}-${{ env.CRAP_REV }}-${{ env.CRAP4GO_VERSION }}
+      - name: Install pinned CRAP scanners (cache miss)
+        if: steps.crap-cache.outputs.cache-hit != 'true'
+        run: |
+          go install "github.com/hbaldwin98/crap/cmd/crap@${CRAP_REV}"
+          go install "github.com/jadenmaciel/gauntlet/cmd/crap4go@${CRAP4GO_VERSION}"
+
   # Reuse fresh coverage from the existing suites; no second test run.
   crap:
     name: CRAP scores (Go + TypeScript)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [backend, frontend]
+    needs: [backend, frontend, crap-tools]
     env:
       CRAP_REV: 8eea294df1123778a77ecb826f0b16d95b65768d
       CRAP4GO_VERSION: v0.2.0
@@ -240,13 +287,13 @@ jobs:
           node-version: 24
       - name: Set scanner install directory
         run: echo "GOBIN=${RUNNER_TEMP}/crap-bin" >> "$GITHUB_ENV"
-      - name: Restore pinned CRAP binaries
+      - name: Restore pinned CRAP binaries (saved by crap-tools)
         id: crap-cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ runner.temp }}/crap-bin
           key: crap-tools-${{ runner.os }}-${{ runner.arch }}-${{ env.CRAP_REV }}-${{ env.CRAP4GO_VERSION }}
-      - name: Install pinned CRAP scanners (cache miss)
+      - name: Install pinned CRAP scanners (fallback if the restore missed)
         if: steps.crap-cache.outputs.cache-hit != 'true'
         run: |
           go install "github.com/hbaldwin98/crap/cmd/crap@${CRAP_REV}"
