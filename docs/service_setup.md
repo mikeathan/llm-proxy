@@ -2,7 +2,7 @@
 
 > **Automated:** `sudo ./setup.sh` opens a `dialog`/`whiptail` TUI (classic
 > setup-screen panels; plain-ANSI fallback) with install / register-only /
-> build-only / uninstall / **full purge** / preview options, and is idempotent —
+> build-only / uninstall / **full purge** options, and is idempotent —
 > safe to re-run; it skips what's already done.
 
 The setup UI follows the admin UI's retro style: warm cream text, persimmon
@@ -25,10 +25,30 @@ UI checks (no root privileges or service changes):
 | `access` | Grant the service user read access to external paths (ACLs; opt-in) |
 | `uninstall` | Remove service + binary (asks about data; data kept by default) |
 | `purge` | Full purge — typed `PURGE` confirmation behind a full-screen warning |
-| `preview` | Dry-run preview of install |
 
 Unattended flags (skip the TUI): `--install` `--uninstall` `--build` `--force`
-`--dry-run` `--yes`.
+`--yes` `--unattended`.
+
+`--unattended` never prompts and needs an explicit subcommand. Run the setup
+interactively once and pick what you want; every later `--unattended` run replays
+those choices instead of showing screens. It reads the service user, data root and
+binary path from the installed unit (`/etc/systemd/system/llm-proxy.service`) and
+the remaining choices (build, start when done, model directory, llama-server path)
+from `/etc/llm-proxy/setup.conf`. It prints the resolved configuration, re-applies
+the saved ACL grants, and applies the install:
+
+```bash
+sudo ./setup.sh --install --unattended     # register the service (previous settings)
+sudo ./setup.sh --install --build --unattended  # rebuild first, then register
+sudo ./setup.sh --uninstall --unattended   # keeps data, binary and service user
+sudo ./setup.sh access --unattended        # re-apply saved model/binary grants
+```
+
+`--build` on the command line forces a rebuild even if the saved choice was not to
+build. On a host with no unit file or no saved choices the defaults apply and the
+summary says so. `--yes` is unchanged: it accepts prompts with defaults and does
+not reuse the installed unit or the saved choices. `--unattended` refuses the `service` menu (use `systemctl`) and never
+bypasses the typed `PURGE` confirmation.
 
 ## Service user profile (install)
 
@@ -41,7 +61,8 @@ The installer asks **who runs the service**, with an explanatory screen:
   paths** — model dir + llama-server binary — and applies read-only ACLs
   (`setfacl -R -m u:<user>:rX <path>`, traverse-only on parents up to `/`),
   so your home stays private (traverse, no listing). Answers are saved in
-  `$SVC_ROOT/.setup-paths` (0600) to prefill future runs; also available
+  `/etc/llm-proxy/setup.conf` (root-owned, 0600, plain `KEY=value` lines that are
+  read, never executed) to prefill future runs and to replay under `--unattended`; also available
   standalone as `./setup.sh access`.
 - **Your own account** (the invoking user) — zero grants ever needed; model
   dirs and binaries anywhere in your home just work. The trade-off, spelled
