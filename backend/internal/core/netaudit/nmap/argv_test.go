@@ -83,7 +83,7 @@ func TestArgs_WhoDecidesWhichAddressesAreLive(t *testing.T) {
 	if !slices.Contains(prefiltered, "-Pn") || !slices.Contains(prefiltered, "-T4") || slices.Contains(prefiltered, "-PS22,80,443,445,5000,8080") {
 		t.Errorf("prefiltered: %v", prefiltered)
 	}
-	if i := slices.Index(prefiltered, "-p"); i < 0 || prefiltered[i+1] != "21,22,23,25,53,80,110,139,143,443,445,515,631,1883,3306,3389,5000,5353,5432,5900,8000,8080,8443,9100" {
+	if i := slices.Index(prefiltered, "-p"); i < 0 || prefiltered[i+1] != "21,22,23,25,53,80,110,139,143,443,445,515,631,1883,3306,3389,5000,5353,5432,5900,8000,8080,8443,9100,2375,11211,27017" {
 		t.Errorf("quick must scan the shared default ports: %v", prefiltered)
 	}
 
@@ -93,8 +93,22 @@ func TestArgs_WhoDecidesWhichAddressesAreLive(t *testing.T) {
 	}
 
 	slow, _ := Args(req(netaudit.ModePorts, "", true, false))
-	if !slices.Contains(slow, "-Pn") || !slices.Contains(slow, "--top-ports") || !slices.Contains(slow, "-T3") {
+	if !slices.Contains(slow, "-Pn") || !slices.Contains(slow, "-T3") {
 		t.Errorf("thorough: %v", slow)
+	}
+	// nmap ignores --top-ports when -p is also given, so the list is explicit; the ports the checks need must be on it.
+	if slices.Contains(slow, "--top-ports") {
+		t.Errorf("thorough must not rely on --top-ports: %v", slow)
+	}
+	i := slices.Index(slow, "-p")
+	if i < 0 {
+		t.Fatalf("thorough names its ports: %v", slow)
+	}
+	scanned := strings.Split(slow[i+1], ",")
+	for _, need := range []string{"22", "23", "445", "2375", "11211", "27017"} {
+		if !slices.Contains(scanned, need) {
+			t.Errorf("thorough must scan port %s: %v", need, scanned)
+		}
 	}
 	if i := slices.Index(slow, "--max-rate"); slow[i+1] != "300" {
 		t.Errorf("thorough must stay gentle: %v", slow)

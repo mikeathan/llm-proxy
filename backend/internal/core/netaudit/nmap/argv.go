@@ -13,17 +13,17 @@ import (
 )
 
 // profile is how hard a scan pushes. Quick uses timing suited to a local network and the common ports; thorough is
-// gentler and wider (the top 300 ports; measured at about a minute per host that drops probes, where 1000 ports took over three and hit the per-host limit), for an audit that must not miss a quiet device.
+// gentler and wider (the 300 most common ports plus a few the checks need, see netaudit.ThoroughPorts; measured at about a minute per host that drops probes, where 1000 ports took over three and hit the per-host limit), for an audit that must not miss a quiet device.
 type profile struct {
 	timing      string
 	hostTimeout string
 	maxRate     string
-	topPorts    string
+	ports       []int
 }
 
 var (
 	quick    = profile{timing: "-T4", hostTimeout: "60s", maxRate: "500"}
-	thorough = profile{timing: "-T3", hostTimeout: "180s", maxRate: "300", topPorts: "300"}
+	thorough = profile{timing: "-T3", hostTimeout: "180s", maxRate: "300", ports: netaudit.ThoroughPorts}
 )
 
 const (
@@ -139,8 +139,8 @@ func Args(req netaudit.ScanRequest) ([]string, error) {
 
 func portFlags(ports string, p profile) ([]string, error) {
 	if ports == "" {
-		if p.topPorts != "" {
-			return []string{"--top-ports", p.topPorts}, nil
+		if p.ports != nil {
+			return []string{"-p", joinPorts(p.ports)}, nil
 		}
 		return []string{"-p", joinPorts(netaudit.DefaultPorts)}, nil
 	}

@@ -146,6 +146,98 @@ var guides = map[string]FixGuide{
 		Risk: "Remote Desktop clients too old to support Network Level Authentication can no longer connect.",
 		Undo: "Untick the box in System Properties, or run the same command with 0 instead of 1.",
 	},
+	CheckSSHWeakHostKey: {
+		Steps: []string{
+			"Check which host keys the server uses: look for HostKey lines in its configuration, and list the key files.",
+			"Keep an Ed25519 key (create one if the server has none) and remove the DSA key and any RSA key shorter than 2048 bits.",
+			"Test the configuration, then restart the SSH service.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak\nls /etc/ssh/ssh_host_*_key\n# create an Ed25519 key if it is missing:\n#   sudo ssh-keygen -t ed25519 -N \"\" -f /etc/ssh/ssh_host_ed25519_key\n# remove or comment out the HostKey lines for the dsa key and for short rsa keys in /etc/ssh/sshd_config\nsudo sshd -t && sudo systemctl restart ssh"},
+		},
+		Risk: "Computers that remember the old key will warn that the host key changed the next time they connect, and very old clients that only know DSA can no longer connect.",
+		Undo: "Put the saved sshd_config.bak back and restart the SSH service.",
+	},
+	CheckTLSWeakKey:       weakCertificateGuide,
+	CheckTLSWeakSignature: weakCertificateGuide,
+	CheckMemcachedOpen: {
+		Steps: []string{
+			"Make Memcached listen on this computer only, unless other computers really need it.",
+			"If they do, turn on SASL authentication and allow only those computers through the firewall.",
+			"Restart the service and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /etc/memcached.conf /etc/memcached.conf.bak\n# in /etc/memcached.conf set:\n#   -l 127.0.0.1\nsudo systemctl restart memcached"},
+		},
+		Risk: "Programs on other computers that use this cache stop working until they are allowed again.",
+		Undo: "Put the saved memcached.conf.bak back and restart the service.",
+	},
+	CheckMongoNoAuth: {
+		Steps: []string{
+			"Create an administrator user and a user for each program that uses the database, before turning authentication on.",
+			"Turn on authorization in MongoDB's configuration and make it listen on this computer only, unless other computers need it.",
+			"Restart MongoDB, update the programs to use their user names and passwords, and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /etc/mongod.conf /etc/mongod.conf.bak\n# in /etc/mongod.conf set:\n#   security:\n#     authorization: enabled\n#   net:\n#     bindIp: 127.0.0.1\nsudo systemctl restart mongod"},
+		},
+		Risk: "Programs that connect without a user name and password stop working until they are given one.",
+		Undo: "Put the saved mongod.conf.bak back and restart MongoDB.",
+	},
+	CheckMQTTAnonymous: {
+		Steps: []string{
+			"Create a user name and password for each device and program that uses the broker.",
+			"Turn off anonymous access in the broker's configuration and point it at the password file.",
+			"Restart the broker, give each device its credentials, and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux + " (Mosquitto)", "sudo mosquitto_passwd -c /etc/mosquitto/passwd first_user\n# in /etc/mosquitto/conf.d/auth.conf set:\n#   allow_anonymous false\n#   password_file /etc/mosquitto/passwd\nsudo systemctl restart mosquitto"},
+		},
+		Risk: "Devices that publish or subscribe without a login are cut off until they are given credentials.",
+		Undo: "Remove auth.conf (or set allow_anonymous true) and restart the broker.",
+	},
+	CheckTelnetOpen: {
+		Steps: []string{
+			"Find the device. On a computer, stop the Telnet service and use SSH to log in instead.",
+			"On a router, camera or other device, turn Telnet off in its settings page; if it has no such setting, update its firmware.",
+			"If the device cannot turn it off, keep it off the main network or replace it.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux + " (stop the service)", "sudo systemctl disable --now telnet.socket   # or inetd or xinetd, depending on how Telnet was installed"},
+		},
+		Risk: "Anything that still logs in with Telnet, such as an old script or device, stops working.",
+		Undo: "Run sudo systemctl enable --now telnet.socket, or switch the service back on in the device's settings.",
+	},
+	CheckDockerAPI: {
+		Steps: []string{
+			"Find how Docker was told to listen on a network port: look for a tcp:// address in its service file or in daemon.json.",
+			"Remove that address so Docker listens on its local socket only.",
+			"For remote access use SSH (docker -H ssh://user@host) or the TLS-protected port 2376 with certificates.",
+			"Restart Docker and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo ss -ltnp | grep 2375\nsudo cp /etc/docker/daemon.json /etc/docker/daemon.json.bak\n# remove the tcp:// entry from \"hosts\" in /etc/docker/daemon.json, and any -H tcp:// in the docker service file\nsudo systemctl restart docker"},
+		},
+		Risk: "Restarting Docker stops running containers unless live restore is on, and tools that used the open port lose access.",
+		Undo: "Put the saved daemon.json.bak back and restart Docker.",
+	},
+}
+
+// weakCertificateGuide serves both weak-certificate checks: the fix is a new certificate.
+var weakCertificateGuide = FixGuide{
+	Steps: []string{
+		"Find which service or device uses the certificate. It is usually a web server, or a device's own web page.",
+		"On a device, use its settings page to create a new certificate. On a server, issue a new one: from your certificate authority, or with the command below for a self-signed certificate.",
+		"Install the new certificate (with its full chain) where the service reads it and reload the service.",
+		"Run the scan again to confirm.",
+	},
+	Commands: []GuideCommand{
+		{platformLinux + " (new self-signed certificate)", "openssl req -x509 -sha256 -newkey rsa:3072 -nodes -days 365 -keyout new-key.pem -out new-cert.pem -subj \"/CN=name-of-the-service\""},
+	},
+	Risk: "A certificate for the wrong name, or without its chain, makes browsers and programs refuse the service; programs that remembered the old certificate must be told about the new one.",
+	Undo: "Put the previous certificate and key files back where the service reads them and reload it. Keep a copy before you replace them.",
 }
 
 // certificateGuide serves both certificate checks: the fix is the same, only the urgency differs.

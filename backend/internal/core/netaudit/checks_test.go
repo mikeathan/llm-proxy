@@ -1,6 +1,7 @@
 package netaudit
 
 import (
+	"fmt"
 	"net/netip"
 	"slices"
 	"strings"
@@ -130,7 +131,7 @@ func TestCheck_RDPWithoutNetworkLevelAuthentication(t *testing.T) {
 }
 
 func TestCheckScriptNames_AreTheFixedSortedList(t *testing.T) {
-	want := []string{"ftp-anon", "nfs-showmount", "rdp-enum-encryption", "redis-info", "smb-protocols", "smb2-security-mode", "ssh2-enum-algos", "ssl-cert", "vnc-info"}
+	want := []string{"ftp-anon", "memcached-info", "mongodb-info", "mqtt-subscribe", "nfs-showmount", "rdp-enum-encryption", "redis-info", "smb-protocols", "smb2-security-mode", "ssh-hostkey", "ssh2-enum-algos", "ssl-cert", "vnc-info"}
 	got := CheckScriptNames()
 	if !slices.Equal(got, want) {
 		t.Errorf("the scripts a scan may run are a reviewed list, got %v want %v", got, want)
@@ -170,5 +171,96 @@ func TestModeChecks_NeedsNmapAndIsNotIntrusive(t *testing.T) {
 	spec := ModeChecks.Spec()
 	if !ModeChecks.Valid() || !spec.NeedsNmap || spec.Intrusive {
 		t.Errorf("checks = %+v: it reads from devices, never falls back to the limited engine and is not intrusive", spec)
+	}
+}
+
+const certFixture = "Subject: commonName=fixture.local\nIssuer: commonName=Fixture CA\nPublic Key type: %s\nPublic Key bits: %s\nSignature Algorithm: %s\nNot valid before: 2026-01-01T00:00:00\nNot valid after:  2027-01-01T00:00:00\nMD5:     c292 b300 f990 03b6 2a0f ff6c 0f96 7073"
+
+func certOutput(keyType, bits, signature string) string {
+	return fmt.Sprintf(certFixture, keyType, bits, signature)
+}
+
+func checksOf(hits []checkHit) []string {
+	var out []string
+	for _, h := range hits {
+		out = append(out, h.Check)
+	}
+	return out
+}
+
+func TestCheck_TLSWeakKeyAndSignature(t *testing.T) {
+	if got := checksOf(hitsOf(t, "ssl-cert", certOutput("rsa", "1024", "sha256WithRSAEncryption"))); !slices.Equal(got, []string{CheckTLSWeakKey}) {
+		t.Errorf("a 1024-bit RSA key = %v, want only %s", got, CheckTLSWeakKey)
+	}
+	if got := checksOf(hitsOf(t, "ssl-cert", certOutput("rsa", "2048", "sha1WithRSAEncryption"))); !slices.Equal(got, []string{CheckTLSWeakSignature}) {
+		t.Errorf("a SHA-1 signature = %v, want only %s", got, CheckTLSWeakSignature)
+	}
+	if got := checksOf(hitsOf(t, "ssl-cert", certOutput("rsa", "1024", "md5WithRSAEncryption"))); !slices.Equal(got, []string{CheckTLSWeakKey, CheckTLSWeakSignature}) {
+		t.Errorf("both faults must be reported: %v", got)
+	}
+}
+
+func TestCheck_TLSStrongCertificatesAreQuiet(t *testing.T) {
+	for _, out := range []string{
+		certOutput("rsa", "2048", "sha256WithRSAEncryption"),
+		certOutput("rsa", "4096", "sha384WithRSAEncryption"),
+		// An elliptic-curve key of 256 bits is strong; the RSA size rule must not apply to it.
+		certOutput("ec", "256", "ecdsa-with-SHA256"),
+	} {
+		if hits := hitsOf(t, "ssl-cert", out); len(hits) != 0 {
+			t.Errorf("a sound certificate has nothing to report: %+v\n%s", hits, out)
+		}
+	}
+}
+
+func TestCheck_ExpiredAndWeakCertificateGiveBothFindings(t *testing.T) {
+	out := strings.Replace(certOutput("rsa", "1024", "sha256WithRSAEncryption"), "2027-01-01", "2026-06-01", 1)
+	if got := checksOf(hitsOf(t, "ssl-cert", out)); !slices.Equal(got, []string{CheckCertExpired, CheckTLSWeakKey}) {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestCheck_SSHHostKey(t *testing.T) {
+	weakDSA := "\n  1024 aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99 (DSA)\n  256 SHA256:AbCdEf (ECDSA)\n  256 SHA256:GhIjKl (ED25519)"
+	onlyHit(t, "ssh-hostkey", weakDSA, CheckSSHWeakHostKey, SeverityLow)
+	onlyHit(t, "ssh-hostkey", "\n  1024 f0:58:ce:f4:aa:a4:59:1c:8e:dd:4d:07:44:c8:25:11 (RSA)", CheckSSHWeakHostKey, SeverityLow)
+	for _, out := range []string{
+		"\n  3072 SHA256:AbCdEf (RSA)\n  256 SHA256:GhIjKl (ECDSA)\n  256 SHA256:MnOpQr (ED25519)",
+		"\n  2048 f0:58:ce:f4:aa:a4:59:1c:8e:dd:4d:07:44:c8:25:11 (RSA)",
+		"",
+	} {
+		if hits := hitsOf(t, "ssh-hostkey", out); len(hits) != 0 {
+			t.Errorf("a sound host key has nothing to report: %+v for %q", hits, out)
+		}
+	}
+}
+
+func TestCheck_MemcachedWithoutAPassword(t *testing.T) {
+	open := "\n  Process ID: 18568\n  Uptime: 6950 seconds\n  Current connections: 10\n  TCP Port: 11211\n  Authentication: no"
+	onlyHit(t, "memcached-info", open, CheckMemcachedOpen, SeverityMedium)
+	if hits := hitsOf(t, "memcached-info", strings.Replace(open, "Authentication: no", "Authentication: yes", 1)); len(hits) != 0 {
+		t.Errorf("a memcached that asks for authentication is fine: %+v", hits)
+	}
+}
+
+func TestCheck_MongoDBAnswersWithoutALogin(t *testing.T) {
+	out := "\n  MongoDB Build info\n    ok = 1\n    version = 1.3.1-\n    sysInfo = Linux domU-12-31-39-06-79-A1 2.6.21.7\n  Server status\n    uptime = 747"
+	hit := onlyHit(t, "mongodb-info", out, CheckMongoNoAuth, SeverityHigh)
+	if strings.Contains(hit.Evidence, "domU") || strings.Contains(hit.Evidence, "1.3.1") {
+		t.Errorf("what the server printed must not reach the evidence: %q", hit.Evidence)
+	}
+	if hits := hitsOf(t, "mongodb-info", ""); len(hits) != 0 {
+		t.Errorf("a server that refuses printed nothing: %+v", hits)
+	}
+}
+
+func TestCheck_MQTTAnonymousSubscribe(t *testing.T) {
+	out := "\n  Topics and their most recent payloads: \n    $SYS/broker/version: mosquitto version 1.4.8\n    home/door/lock: password=hunter2"
+	hit := onlyHit(t, "mqtt-subscribe", out, CheckMQTTAnonymous, SeverityMedium)
+	if strings.Contains(hit.Evidence, "hunter2") || strings.Contains(hit.Evidence, "door") {
+		t.Errorf("the topics and payloads other devices published must never reach the evidence: %q", hit.Evidence)
+	}
+	if hits := hitsOf(t, "mqtt-subscribe", ""); len(hits) != 0 {
+		t.Errorf("a broker that refused printed nothing: %+v", hits)
 	}
 }

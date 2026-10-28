@@ -68,6 +68,8 @@ export interface ScanFinding {
   service?: string
   version?: string
   check: string
+  /** A few plain words naming the check, so one heading can cover every place it was found; absent for an open port. */
+  check_title?: string
   severity: string
   evidence?: string
   /** A known_vulns finding: every CVE id (sorted), the ones CISA lists as exploited, and each one's base score. */
@@ -115,10 +117,14 @@ export interface FindingsReport {
   unscanned: string[]
   /** How many addresses answered. */
   devices_up: number
+  /** Nothing was scanned before this: the open ports are the baseline, not changes. Absent in a report from an older server. */
+  first_scan?: boolean
 }
 
 /** What the report shows, sorted from the findings: the parts the filter tiles count. */
 export interface ReportSummary {
+  /** The scan is the baseline: no open port in it is new, and only problems need a look. */
+  baseline: boolean
   needLook: ScanFinding[]
   /** Checks that found something and nobody has accepted, new or not: they stay until dealt with. */
   problems: ScanFinding[]
@@ -126,6 +132,19 @@ export interface ReportSummary {
   changed: ScanFinding[]
   accepted: ScanFinding[]
   resolved: ResolvedFinding[]
+  /** The unaccepted problems, one entry per check with every place it was found, worst first. */
+  problemGroups: ProblemGroup[]
+}
+
+/** One kind of problem and everywhere the latest scan found it. */
+export interface ProblemGroup {
+  check: string
+  title: string
+  /** The worst severity among its items. */
+  severity: string
+  /** The suggested fix, written once for the whole group. */
+  fix: string
+  items: ScanFinding[]
 }
 
 export interface DeviceGroup<T> {

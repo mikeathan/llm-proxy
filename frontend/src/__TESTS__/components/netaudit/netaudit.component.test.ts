@@ -210,9 +210,11 @@ describe('FindingsReport with checks', () => {
   it('Simple: the worst problem is listed first, in plain words, and counts include the checks', async () => {
     const w = await mountChecks()
     expect(w.get('[data-test="summary"]').text()).toBe('4 things need a look')
-    const lines = w.findAll('li').map((li) => li.text())
-    expect(lines[0]).toContain('192.0.2.20: Redis answers without a password')
-    expect(lines[1]).toContain('192.0.2.10: SMBv1, an old and unsafe file-sharing version, is enabled')
+    const groups = w.findAll('article[data-check]')
+    expect(groups.map((g) => g.attributes('data-check'))).toEqual(['redis_no_auth', 'smb_v1'])
+    expect(groups[0]!.text()).toContain('Redis answers without a password')
+    expect(groups[0]!.text()).toContain('on 192.0.2.20')
+    expect(groups[1]!.text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
     expect(w.text()).toContain('2 services on 2 devices, 2 problems found by checks')
     expect(w.text()).not.toContain('smb_v1')
   })
@@ -232,22 +234,24 @@ describe('FindingsReport with checks', () => {
     // Nothing is new, yet the two problems are still there to deal with; the plain open port is not listed.
     expect(w.get('[data-test="summary"]').text()).toBe('2 things need a look')
     expect(w.get('[data-test="problems"]').text()).toBe('2 problems found by checks')
-    const rows = w.findAll('li[data-severity]')
+    const rows = w.findAll('article[data-severity]')
     expect(rows.map((r) => r.attributes('data-severity'))).toEqual(['high', 'low'])
     expect(rows[0]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
     expect(rows[1]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-running']))
     expect(rows[1]!.text()).toContain('Problem · low')
-    expect(rows[1]!.get('span.font-semibold').text()).toContain('The certificate expires on 2026-12-01')
+    expect(rows[1]!.get('[data-test="problem-title"]').text()).toContain('The certificate expires on 2026-12-01')
   })
 
   it('Advanced: the Problems tile and filter list every unaccepted problem, new or not', async () => {
     useNetauditViewMode().set('advanced')
     const w = await mountChecks()
     await w.findAll('button[aria-pressed]').find((b) => b.text().includes('problems found by checks'))!.trigger('click')
-    expect(w.findAll('li[data-key]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
-    const row = w.get('[data-key="redis"]')
-    expect(row.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
-    expect(row.text()).toContain('Problem · critical')
+    expect(w.findAll('[data-test="problem"]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
+    const group = w.get('article[data-check="redis_no_auth"]')
+    expect(group.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
+    expect(group.text()).toContain('Problem · critical')
+    // The problems are listed once, in the Problems block; the filter shows no device list under them.
+    expect(w.findAll('[data-test="device"]')).toHaveLength(0)
   })
 
   it('Simple: the accept dialog names the check, not a port', async () => {
@@ -261,11 +265,93 @@ describe('FindingsReport with checks', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountChecks()
     expect(w.get('[data-test="scan-meta"]').text()).toContain('2 open ports · 2 problems found by checks')
-    const row = w.get('[data-key="smb"] [data-test="check"]')
-    expect(row.text()).toContain('high')
-    expect(row.text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
+    expect(w.get('article[data-check="smb_v1"]').text()).toContain('high')
+    expect(w.get('[data-key="smb"] [data-test="check"]').text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
     expect(w.get('section[aria-label="192.0.2.10"]').text()).toContain('1 open port, 1 problem')
+    // The device list shows the port, not the problem again.
+    expect(w.get('section[aria-label="192.0.2.10"]').find('[data-key="smb"]').exists()).toBe(false)
     expect(w.get('[data-key="p"]').text()).toContain('microsoft-ds')
+  })
+})
+
+describe('FindingsReport grouped problems', () => {
+  const FIX = 'Update the software to the vendor current release.'
+  const ssh = (key: string, device: string) =>
+    finding({ key, device, port: 22, check: 'known_vulns', check_title: 'Software with known flaws', severity: 'low', evidence: 'May be affected by 29 known flaws', fix: FIX, new: true })
+  const grouped: Report = {
+    scanned: true, scanned_at: '2026-10-28T02:00:00Z', engine: 'nmap', unscanned: [], devices_up: 3, resolved: [],
+    findings: [
+      finding({ key: 'p1', device: '192.0.2.10', port: 22, version: 'OpenSSH 9.6p1', new: true }),
+      ssh('v1', '192.0.2.10'), ssh('v2', '192.0.2.20'), ssh('v3', '192.0.2.30'),
+    ],
+  }
+  async function mountGrouped(over: Partial<Report> = {}) {
+    service.findings.mockResolvedValue({ ...grouped, ...over })
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    return w
+  }
+
+  it('shows one problem found in three places as one card: the title and the fix once, each place with its own decision', async () => {
+    const w = await mountGrouped()
+    const cards = w.findAll('article[data-check]')
+    expect(cards).toHaveLength(1)
+    expect(cards[0]!.get('[data-test="problem-title"]').text()).toBe('Software with known flaws')
+    expect(cards[0]!.text()).toContain('3 places')
+    expect(w.findAll('[data-test="fix"]')).toHaveLength(1)
+    expect(cards[0]!.findAll('[data-test="problem"]').map((r) => r.attributes('data-key'))).toEqual(['v1', 'v2', 'v3'])
+    expect(cards[0]!.findAll('button').filter((b) => b.text() === 'This is fine')).toHaveLength(3)
+  })
+
+  it('accepts one place of a group without touching the others', async () => {
+    const w = await mountGrouped()
+    await w.get('[data-key="v2"]').findAll('button').find((b) => b.text() === 'This is fine')!.trigger('click')
+    expect(document.body.textContent).toContain('192.0.2.20')
+    w.unmount()
+  })
+
+  it('treats the first scan as a baseline: no port is new, the note says so, and what was found stays one tap away', async () => {
+    const w = await mountGrouped({ first_scan: true, findings: [finding({ key: 'p1', device: '192.0.2.10', port: 22, version: 'OpenSSH 9.6p1', new: true }), finding({ key: 'p2', device: '192.0.2.10', port: 80, service: 'http', new: true })] })
+    expect(w.get('[data-test="summary"]').text()).toBe('Nothing needs a look')
+    expect(w.get('[data-test="baseline-note"]').text()).toContain('first scan')
+    expect(w.get('[data-test="inventory"]').text()).toContain('What was found')
+    expect(w.findAll('button').filter((b) => b.text() === 'This is fine')).toHaveLength(0)
+  })
+
+  it('still lists a problem on the first scan: a baseline hides new ports, not problems', async () => {
+    const w = await mountGrouped({ first_scan: true })
+    expect(w.get('[data-test="summary"]').text()).toBe('3 things need a look')
+  })
+
+  it('Advanced: a device with nothing to look at is folded behind "Show ports", and opens on demand', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountGrouped({
+      first_scan: true,
+      findings: [finding({ key: 'p1', device: '192.0.2.10', port: 22, version: 'OpenSSH 9.6p1' }), finding({ key: 'p2', device: '192.0.2.10', port: 80, service: 'http', version: 'nginx 1.2' })],
+    })
+    const section = w.get('section[aria-label="192.0.2.10"]')
+    expect(section.find('[data-key="p1"]').exists()).toBe(false)
+    expect(section.text()).toContain('2 open ports')
+    await section.get('[data-test="toggle-device"]').trigger('click')
+    expect(section.find('[data-key="p1"]').exists()).toBe(true)
+    expect(section.get('[data-test="toggle-device"]').text()).toBe('Hide ports')
+  })
+
+  it('Advanced: ports the scan could not identify fold into one line, and can be shown', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountGrouped({
+      findings: [
+        finding({ key: 'u1', device: '192.0.2.40', port: 8443, service: 'https-alt (guess)', new: true }),
+        finding({ key: 'u2', device: '192.0.2.40', port: 49152, service: 'unknown (guess)', new: true }),
+        finding({ key: 'ok', device: '192.0.2.40', port: 22, version: 'OpenSSH 9.6p1', new: true }),
+      ],
+    })
+    const section = w.get('section[aria-label="192.0.2.40"]')
+    expect(section.find('[data-key="u1"]').exists()).toBe(false)
+    expect(section.get('[data-test="low-detail"]').text()).toContain('2 ports the scan could not identify: 8443, 49152')
+    expect(section.find('[data-key="ok"]').exists()).toBe(true)
+    await section.get('[data-test="low-detail"] button').trigger('click')
+    expect(section.find('[data-key="u1"]').exists()).toBe(true)
   })
 })
 
@@ -436,7 +522,7 @@ describe('FindingsReport fixes and rescans', () => {
     expect(simple.findAll('[data-test="fix"]')).toHaveLength(1)
     useNetauditViewMode().set('advanced')
     const advanced = await mountScanned()
-    expect(advanced.get('[data-key="smb"] [data-test="fix"]').text()).toContain(FIX)
+    expect(advanced.get('article[data-check="smb_v1"] [data-test="fix"]').text()).toContain(FIX)
     expect(advanced.get('[data-key="p"]').find('[data-test="fix"]').exists()).toBe(false)
   })
 

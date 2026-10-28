@@ -88,6 +88,8 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		ScannedAt: at, Engine: result.Engine, Findings: append(withoutDevices(prev.Findings, scanned), result.Findings...),
 		NewKeys: keysOf(delta.New), Resolved: delta.Resolved,
 		ChangedFrom: changedFrom(delta.Changed),
+		// A baseline that could not be read says nothing about whether one existed, so it is not called a first scan.
+		FirstScan: readErr == nil && prev.ScannedAt.IsZero(),
 	}
 	next.Unscanned, next.DevicesUp = carryOver(prev, result.Hosts)
 	fixedAt, fixNote := r.confirmFixes(workspaceID, delta.Resolved)

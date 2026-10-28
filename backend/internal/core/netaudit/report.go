@@ -2,6 +2,7 @@ package netaudit
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -62,14 +63,14 @@ func RenderObserved(o Observed) string {
 			o.Previous.Format(timeLayout), len(o.Delta.New), len(o.Delta.Resolved), len(o.Delta.Changed), o.Delta.Unchanged)
 	}
 	if o.Previous.IsZero() {
-		writeTable(&b, "Open ports", o.Result.Findings)
-		writeChecks(&b, "Checks", o.Result.Findings)
+		writeInventory(&b, "Open ports", o.Result.Findings)
+		writeChecks(&b, "Checks", o.Result.Findings, true)
 		return strings.TrimRight(b.String(), "\n")
 	}
 	writeTable(&b, "New", o.Delta.New)
-	writeChecks(&b, "New checks", o.Delta.New)
+	writeChecks(&b, "New checks", o.Delta.New, true)
 	writeTable(&b, "Resolved", o.Delta.Resolved)
-	writeChecks(&b, "Resolved checks", o.Delta.Resolved)
+	writeChecks(&b, "Resolved checks", o.Delta.Resolved, false)
 	if len(o.Delta.Changed) > 0 {
 		b.WriteString("\n### Changed\n\n| Device | Port | Before | After |\n|---|---|---|---|\n")
 		for _, c := range o.Delta.Changed {
@@ -118,18 +119,91 @@ func checkCountNote(findings []Finding) string {
 	return ""
 }
 
-// writeChecks lists the check findings among findings: what a safe script learned about a service. The evidence is the
-// code's own wording (see checks.go), escaped like every other cell.
-func writeChecks(b *strings.Builder, title string, findings []Finding) {
-	if countChecks(findings, true) == 0 {
+// writeChecks lists the check findings among findings: what a safe script or a port rule learned. The same problem on
+// several services is one row that names where it is, and each distinct check's suggested fix is written once under the
+// table, so a long report does not repeat a paragraph per service. The evidence is the code's own wording (see
+// checks.go), escaped like every other cell.
+func writeChecks(b *strings.Builder, title string, findings []Finding, withFixes bool) {
+	groups := groupChecks(findings)
+	if len(groups) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "\n### %s\n\n| Device | Port | Severity | Finding | Suggested fix |\n|---|---|---|---|---|\n", title)
-	for _, f := range findings {
-		if f.Check != CheckOpenPort {
-			fmt.Fprintf(b, "| %s | %d/%s | %s | %s | %s |\n", cell(f.Device), f.Port, cell(f.Proto), cell(f.Severity), cell(f.Evidence), cell(RemediationFor(f.Check)))
+	fmt.Fprintf(b, "\n### %s\n\n| Severity | Finding | Where |\n|---|---|---|\n", title)
+	for _, g := range groups {
+		fmt.Fprintf(b, "| %s | %s | %s |\n", cell(g.severity), cell(g.evidence), cell(strings.Join(firstN(g.where, maxListedAddrs), ", ")))
+	}
+	if !withFixes {
+		return
+	}
+	b.WriteString("\nSuggested fixes:\n\n")
+	seen := map[string]bool{}
+	for _, g := range groups {
+		if fix := RemediationFor(g.check); fix != "" && !seen[g.check] {
+			seen[g.check] = true
+			fmt.Fprintf(b, "- **%s**: %s\n", cell(CheckTitle(g.check)), cell(fix))
 		}
 	}
+}
+
+// checkGroup is one distinct problem and every place it was found.
+type checkGroup struct {
+	check, severity, evidence string
+	where                     []string
+}
+
+// groupChecks merges the check findings that say the same thing (same check, severity and words) and orders the result
+// worst first; within a severity, in the order the findings came.
+func groupChecks(findings []Finding) []checkGroup {
+	var groups []checkGroup
+	index := map[[3]string]int{}
+	for _, f := range findings {
+		if f.Check == CheckOpenPort {
+			continue
+		}
+		key := [3]string{f.Check, f.Severity, f.Evidence}
+		i, ok := index[key]
+		if !ok {
+			i = len(groups)
+			index[key] = i
+			groups = append(groups, checkGroup{check: f.Check, severity: f.Severity, evidence: f.Evidence})
+		}
+		groups[i].where = append(groups[i].where, fmt.Sprintf("%s %d/%s", f.Device, f.Port, f.Proto))
+	}
+	slices.SortStableFunc(groups, func(a, b checkGroup) int { return severityRank(b.severity) - severityRank(a.severity) })
+	return groups
+}
+
+// severityOrder ranks severities from the mildest; an unknown one ranks below them all.
+var severityOrder = []string{SeverityInfo, SeverityLow, SeverityMedium, SeverityHigh, SeverityCritical}
+
+func severityRank(s string) int { return slices.Index(severityOrder, s) }
+
+// writeInventory lists the open ports of a first scan as one row per device, so a baseline of dozens of ports stays a
+// handful of lines. Later scans list only what changed (writeTable).
+func writeInventory(b *strings.Builder, title string, findings []Finding) {
+	var devices []string
+	ports := map[string][]string{}
+	for _, f := range findings {
+		if f.Check != CheckOpenPort {
+			continue
+		}
+		if _, ok := ports[f.Device]; !ok {
+			devices = append(devices, f.Device)
+		}
+		ports[f.Device] = append(ports[f.Device], portSummary(f))
+	}
+	if len(devices) == 0 {
+		return
+	}
+	fmt.Fprintf(b, "\n### %s\n\n| Device | Open ports |\n|---|---|\n", title)
+	for _, d := range devices {
+		fmt.Fprintf(b, "| %s | %s |\n", cell(d), cell(strings.Join(ports[d], "; ")))
+	}
+}
+
+// portSummary is "22/tcp ssh OpenSSH 9.6p1": the port, then whatever the scan could say about the service behind it.
+func portSummary(f Finding) string {
+	return strings.TrimSpace(fmt.Sprintf("%d/%s %s %s", f.Port, f.Proto, f.Service, f.Version))
 }
 
 // writeTable lists the open ports among findings.

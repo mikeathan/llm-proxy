@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,6 +29,14 @@ const (
 	CheckCertExpiring      = "tls_cert_expiring"
 	CheckSSHWeakAlgorithms = "ssh_weak_algorithms"
 	CheckRDPNoNLA          = "rdp_no_nla"
+	CheckSSHWeakHostKey    = "ssh_weak_hostkey"
+	CheckTLSWeakKey        = "tls_weak_key"
+	CheckTLSWeakSignature  = "tls_weak_signature"
+	CheckMemcachedOpen     = "memcached_exposed"
+	CheckMongoNoAuth       = "mongodb_no_auth"
+	CheckMQTTAnonymous     = "mqtt_anonymous"
+	CheckTelnetOpen        = "telnet_open"
+	CheckDockerAPI         = "docker_api_exposed"
 
 	SeverityLow      = "low"
 	SeverityMedium   = "medium"
@@ -54,6 +63,10 @@ var checkTable = map[string]func(output string, now time.Time) []checkHit{
 	"ssl-cert":            evalCertificate,
 	"ssh2-enum-algos":     evalSSHAlgorithms,
 	"rdp-enum-encryption": evalRDP,
+	"ssh-hostkey":         evalSSHHostKey,
+	"memcached-info":      evalMemcached,
+	"mongodb-info":        evalMongo,
+	"mqtt-subscribe":      evalMQTT,
 }
 
 // CheckScriptNames lists the scripts a checks scan runs, sorted.
@@ -164,6 +177,17 @@ func parseCertTime(re *regexp.Regexp, out string) (time.Time, bool) {
 }
 
 func evalCertificate(out string, now time.Time) []checkHit {
+	hits := certExpiryHits(out, now)
+	if bits, ok := certKeyBits(out); ok && bits < minRSAKeyBits {
+		hits = append(hits, checkHit{CheckTLSWeakKey, SeverityMedium, fmt.Sprintf("The certificate uses a %d-bit RSA key; %d bits is the minimum today", bits, minRSAKeyBits)})
+	}
+	if m := certSignature.FindStringSubmatch(out); m != nil && weakSignature(m[1]) {
+		hits = append(hits, checkHit{CheckTLSWeakSignature, SeverityLow, "The certificate is signed with an outdated algorithm (SHA-1 or MD5)"})
+	}
+	return hits
+}
+
+func certExpiryHits(out string, now time.Time) []checkHit {
 	expires, ok := parseCertTime(certNotAfter, out)
 	if !ok {
 		return nil
@@ -175,6 +199,33 @@ func evalCertificate(out string, now time.Time) []checkHit {
 		return one(CheckCertExpiring, SeverityLow, "The certificate expires on "+expires.Format("2006-01-02"))
 	}
 	return nil
+}
+
+var (
+	certKeyType   = regexp.MustCompile(`Public Key type:\s+(\S+)`)
+	certKeyBitsRe = regexp.MustCompile(`Public Key bits:\s+(\d+)`)
+	certSignature = regexp.MustCompile(`Signature Algorithm:\s+(\S+)`)
+)
+
+// minRSAKeyBits is the shortest RSA key still thought safe; shorter ones can be factored with modest resources.
+const minRSAKeyBits = 2048
+
+// certKeyBits is the size of an RSA key. Other key types are sized differently (an elliptic-curve key of 256 bits is
+// strong), so they are not judged by this number.
+func certKeyBits(out string) (int, bool) {
+	t := certKeyType.FindStringSubmatch(out)
+	b := certKeyBitsRe.FindStringSubmatch(out)
+	if t == nil || b == nil || !strings.EqualFold(t[1], "rsa") {
+		return 0, false
+	}
+	bits, err := strconv.Atoi(b[1])
+	return bits, err == nil
+}
+
+// weakSignature reports whether a signature algorithm name (such as sha1WithRSAEncryption) uses SHA-1 or MD5.
+func weakSignature(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasPrefix(n, "sha1") || strings.HasPrefix(n, "md5")
 }
 
 // shortLived reports whether the certificate was issued for only a few days, which devices that renew their own
@@ -222,6 +273,48 @@ func evalRDP(out string, _ time.Time) []checkHit {
 	m := rdpNLA.FindStringSubmatch(out)
 	if m != nil && m[1] != "SUCCESS" {
 		return one(CheckRDPNoNLA, SeverityMedium, "Remote Desktop does not require network-level authentication")
+	}
+	return nil
+}
+
+var sshHostKeyLine = regexp.MustCompile(`(?m)^\s*(\d+)\s+\S+\s+\((RSA|DSA|ECDSA|ED25519)\)`)
+
+// evalSSHHostKey flags the host keys that can be broken or forged with modest resources: any DSA key (fixed at 1024
+// bits) and an RSA key shorter than minRSAKeyBits. A server that also offers a strong key is still flagged, because a
+// client can be made to use the weak one.
+func evalSSHHostKey(out string, _ time.Time) []checkHit {
+	for _, m := range sshHostKeyLine.FindAllStringSubmatch(out, -1) {
+		bits, _ := strconv.Atoi(m[1])
+		if m[2] == "DSA" || (m[2] == "RSA" && bits < minRSAKeyBits) {
+			return one(CheckSSHWeakHostKey, SeverityLow, "The SSH server offers a weak host key (DSA, or RSA shorter than 2048 bits)")
+		}
+	}
+	return nil
+}
+
+var memcachedNoAuth = regexp.MustCompile(`(?m)^\s*Authentication:\s+no\b`)
+
+func evalMemcached(out string, _ time.Time) []checkHit {
+	if memcachedNoAuth.MatchString(out) {
+		return one(CheckMemcachedOpen, SeverityMedium, "Memcached answers anyone on the network, with no password")
+	}
+	return nil
+}
+
+// evalMongo reads only whether the server answered: mongodb-info asks for the build and status, which a server that
+// requires a login refuses. None of what it printed is copied.
+func evalMongo(out string, _ time.Time) []checkHit {
+	if strings.Contains(out, "MongoDB Build info") || strings.Contains(out, "Server status") {
+		return one(CheckMongoNoAuth, SeverityHigh, "MongoDB answers anyone on the network without a login")
+	}
+	return nil
+}
+
+// evalMQTT reads only whether an anonymous client could subscribe. The topics and payloads the script prints are what
+// other devices published and are never copied.
+func evalMQTT(out string, _ time.Time) []checkHit {
+	if strings.Contains(out, "Topics and their most recent payloads") {
+		return one(CheckMQTTAnonymous, SeverityMedium, "The MQTT broker lets anyone on the network read what devices publish, with no login")
 	}
 	return nil
 }

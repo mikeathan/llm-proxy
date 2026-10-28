@@ -98,6 +98,18 @@ export function findingTitle(f: Titled): string {
   return isCheck(f) ? `${f.device}: ${f.evidence || CHECK_FALLBACK}` : `${describeService(f)} on ${f.device}`
 }
 
+/** Where a problem is, in one phrase: "File sharing (port 445) on 10.0.0.5". */
+export const placeSentence = (f: Titled): string => `${describeService(f)} on ${f.device}`
+
+/**
+ * A port the scan could not say anything about: its name is only the usual one for the number (or tcpwrapped, or
+ * absent) and no version came back. Lists fold these into one line per device.
+ */
+export function isLowDetail(f: { check?: string; service?: string; version?: string }): boolean {
+  const service = serviceName(f.service)
+  return !isCheck(f) && !f.version && (isGuessedService(f.service) || service === '' || service === 'tcpwrapped')
+}
+
 export function describeResolved(r: ResolvedFinding): string {
   return isCheck(r) ? `${r.device}: ${r.evidence || CHECK_FALLBACK}` : `${r.device}: ${describeService(r)}`
 }

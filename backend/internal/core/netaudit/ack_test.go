@@ -120,15 +120,15 @@ func TestUpsertAndRemoveAck(t *testing.T) {
 }
 
 func TestHideAccepted_TheModelNeverSeesWhatTheOperatorAccepted(t *testing.T) {
-	ssh, telnet := finding("10.0.0.1", 22, "OpenSSH 9"), finding("10.0.0.1", 23, "")
+	ssh, telnet := finding("10.0.0.1", 22, "OpenSSH 9"), finding("10.0.0.1", 3306, "")
 	res := Result{Engine: "nmap", Hosts: hostsWith(ssh, telnet), Findings: []Finding{ssh, telnet}, Warnings: []string{"w"}}
 	ack, _ := NewAck(ssh, "", 30, ackNow.AddDate(0, 0, -1))
 
 	got, hidden := HideAccepted(res, []models.ScanAck{ack}, ackNow)
-	if hidden != 1 || len(got.Hosts[0].Ports) != 1 || got.Hosts[0].Ports[0].Number != 23 {
+	if hidden != 1 || len(got.Hosts[0].Ports) != 1 || got.Hosts[0].Ports[0].Number != 3306 {
 		t.Errorf("hosts = %+v, hidden %d", got.Hosts, hidden)
 	}
-	if len(got.Findings) != 1 || got.Findings[0].Port != 23 || got.Engine != "nmap" || len(got.Warnings) != 1 {
+	if len(got.Findings) != 1 || got.Findings[0].Port != 3306 || got.Engine != "nmap" || len(got.Warnings) != 1 {
 		t.Errorf("findings and the rest of the result follow: %+v", got)
 	}
 	if len(res.Hosts[0].Ports) != 2 || len(res.Findings) != 2 {

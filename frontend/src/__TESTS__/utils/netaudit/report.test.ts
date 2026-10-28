@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupByDevice, summarize } from '../../../utils/netaudit/report'
+import { groupByDevice, groupProblems, summarize } from '../../../utils/netaudit/report'
 import type { FindingsReport, ScanFinding } from '../../../types/netaudit'
 
 const f = (key: string, over: Partial<ScanFinding> = {}): ScanFinding =>
@@ -38,5 +38,41 @@ describe('groupByDevice', () => {
       f('cert', { new: true, check: 'tls_cert_expiring', severity: 'low' }),
     ]))
     expect(s.needLook.map((x) => x.key)).toEqual(['redis', 'smb', 'cert', 'port'])
+  })
+})
+
+describe('summarize on the first scan', () => {
+  it('counts no open port as new, but keeps every unaccepted problem', () => {
+    const s = summarize({ ...report([f('port', { new: true }), f('smb', { new: true, check: 'smb_v1', severity: 'high' })]), first_scan: true })
+    expect(s.baseline).toBe(true)
+    expect(s.added.map((x) => x.key)).toEqual(['smb'])
+    expect(s.needLook.map((x) => x.key)).toEqual(['smb'])
+  })
+
+  it('is not a baseline when the server does not say so', () => {
+    expect(summarize(report([f('port', { new: true })])).baseline).toBe(false)
+    expect(summarize(report([f('port', { new: true })])).added).toHaveLength(1)
+  })
+})
+
+describe('groupProblems', () => {
+  const p = (key: string, over: Partial<ScanFinding>) => f(key, { check: 'smb_v1', severity: 'high', check_title: 'SMBv1 enabled', fix: 'Turn it off', ...over })
+
+  it('makes one group per check, with the fix and title once, worst group and worst place first', () => {
+    const groups = groupProblems([
+      p('a', { device: 'x', severity: 'medium' }),
+      p('b', { device: 'y', severity: 'high' }),
+      p('c', { check: 'redis_no_auth', severity: 'critical', check_title: 'Redis with no password', fix: 'Set one' }),
+    ])
+    expect(groups.map((g) => [g.check, g.severity, g.items.map((i) => i.key)])).toEqual([
+      ['redis_no_auth', 'critical', ['c']],
+      ['smb_v1', 'high', ['b', 'a']],
+    ])
+    expect(groups[1]).toMatchObject({ title: 'SMBv1 enabled', fix: 'Turn it off' })
+  })
+
+  it('falls back to the evidence when a server sent no title', () => {
+    const [g] = groupProblems([p('a', { check_title: undefined, evidence: 'SMBv1 is on' })])
+    expect(g!.title).toBe('SMBv1 is on')
   })
 })

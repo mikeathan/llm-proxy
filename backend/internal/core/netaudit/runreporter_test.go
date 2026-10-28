@@ -85,6 +85,20 @@ func TestRunReporter_SecondRunIsComparedWithTheFirst(t *testing.T) {
 	}
 }
 
+func TestRunReporter_OnlyTheScanWithNothingBeforeItIsTheFirstScan(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime)
+	r.Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	if !store.data["ws/nightly"].FirstScan {
+		t.Error("the first scan is the baseline")
+	}
+	r.now = func() time.Time { return reportTime.Add(24 * time.Hour) }
+	r.Augment(scanned(finding("10.0.0.1", 22, ""), finding("10.0.0.1", 80, "")), "ws", "nightly", "")
+	if store.data["ws/nightly"].FirstScan {
+		t.Error("a scan with an earlier one to compare against is not the first, even when everything in it is new")
+	}
+}
+
 func TestRunReporter_AnAddressNotScannedThisTimeIsNotReportedResolved(t *testing.T) {
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
 	r := reporter(store, reportTime)
@@ -212,7 +226,7 @@ func (m *memAcks) WriteAcks(_ string, a []models.ScanAck) error {
 
 func TestRunReporter_AcceptedFindingsAreCountedNotListedAndStayInTheBaseline(t *testing.T) {
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
-	ssh, telnet := finding("10.0.0.1", 22, "OpenSSH 9"), finding("10.0.0.1", 23, "")
+	ssh, telnet := finding("10.0.0.1", 22, "OpenSSH 9"), finding("10.0.0.1", 3306, "")
 	ack, _ := NewAck(ssh, "jump host", 30, reportTime.Add(-time.Hour))
 	acks := &memAcks{acks: []models.ScanAck{ack}}
 	r := reporter(store, reportTime).WithAcks(acks)
@@ -221,7 +235,7 @@ func TestRunReporter_AcceptedFindingsAreCountedNotListedAndStayInTheBaseline(t *
 	if !strings.Contains(got, "1 finding(s) in this scan are accepted by the operator") {
 		t.Errorf("the accepted count is stated:\n%s", got)
 	}
-	if strings.Contains(got, "22/tcp") || !strings.Contains(got, "23/tcp") {
+	if strings.Contains(got, "22/tcp") || !strings.Contains(got, "3306/tcp") {
 		t.Errorf("the accepted port must not be listed, the other must:\n%s", got)
 	}
 	if len(store.data["ws/nightly"].Findings) != 2 {
@@ -263,7 +277,7 @@ func TestRunReporter_AcknowledgementTroubleIsStatedAndNeverHidesFindings(t *test
 
 func TestRunReporter_TheSummaryIsSetAndHonoursAcceptedFindings(t *testing.T) {
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
-	ssh, telnet := finding("10.0.0.1", 22, ""), finding("10.0.0.1", 23, "")
+	ssh, telnet := finding("10.0.0.1", 22, ""), finding("10.0.0.1", 3306, "")
 	ack, _ := NewAck(ssh, "", 30, reportTime.Add(-time.Hour))
 	r := reporter(store, reportTime).WithAcks(&memAcks{acks: []models.ScanAck{ack}})
 
