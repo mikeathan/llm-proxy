@@ -135,6 +135,10 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 	// Tether the watcher restarted after factory reset to the app lifecycle
 	// (Constitution II.2/II.14) instead of an untethered context.
 	svc.AppCtx.SetRootContext(ctx)
+	// The vulnerability-data download, when the operator starts one, ends with the application (II.2/II.14).
+	if svc.netaudit != nil && svc.netaudit.Vulns != nil {
+		svc.netaudit.Vulns.Attach(ctx)
+	}
 
 	// Start the run scheduler before anything can admit runs (Constitution
 	// II.14: tethered to the app root context).

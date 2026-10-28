@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -24,13 +25,17 @@ const (
 	// maxScriptOutput bounds what is kept of one script's output; the checks only need to see a few dozen lines.
 	maxScriptOutput = 4096
 	maxScriptsEach  = 16
-	maxXMLBytes     = 8 << 20
-	stateOpen       = "open"
-	stateUp         = "up"
-	protoTCP        = "tcp"
-	methodTable     = "table"
-	addrTypeIPv4    = "ipv4"
-	truncationEnd   = "…"
+	// maxCPEsEach bounds the identifiers kept for one service; nmap prints a handful (application, system, hardware).
+	maxCPEsEach = 8
+	// maxCPELen bounds one identifier; a longer one is not a CPE nmap would print.
+	maxCPELen     = 160
+	maxXMLBytes   = 8 << 20
+	stateOpen     = "open"
+	stateUp       = "up"
+	protoTCP      = "tcp"
+	methodTable   = "table"
+	addrTypeIPv4  = "ipv4"
+	truncationEnd = "…"
 )
 
 type xmlRun struct {
@@ -69,9 +74,10 @@ type xmlScript struct {
 }
 
 type xmlService struct {
-	Name    string `xml:"name,attr"`
-	Product string `xml:"product,attr"`
-	Version string `xml:"version,attr"`
+	Name    string   `xml:"name,attr"`
+	Product string   `xml:"product,attr"`
+	Version string   `xml:"version,attr"`
+	CPEs    []string `xml:"cpe"`
 	// Method is how nmap got the name: "probed" when it talked to the service, "table" when it only looked the port up.
 	Method string `xml:"method,attr"`
 }
@@ -137,6 +143,7 @@ func convertHost(h xmlHost) (netaudit.Host, bool) {
 				Number: p.ID, Proto: p.Protocol, State: clean(p.State.State),
 				Service: clean(p.Service.Name), Product: clean(p.Service.Product), Version: clean(p.Service.Version),
 				Guessed: p.Service.Name != "" && p.Service.Method == methodTable,
+				CPEs:    convertCPEs(p.Service.CPEs),
 				Scripts: convertScripts(p.Scripts),
 			})
 		}
@@ -159,6 +166,27 @@ func clean(s string) string {
 		s = string([]rune(s)[:maxFieldLen]) + truncationEnd
 	}
 	return s
+}
+
+// cpePattern is the CPE 2.2 URI form nmap prints: a part (application, operating system or hardware) and up to six
+// components of plain characters. Anything else is not something nmap would print.
+var cpePattern = regexp.MustCompile(`^cpe:/[aoh](:[A-Za-z0-9._~%+\-]*){0,6}$`)
+
+// convertCPEs keeps the identifiers that have exactly the CPE 2.2 shape and drops the rest whole: the version inside
+// one is text the device sent, so a malformed one is discarded rather than cleaned into something that looks valid.
+func convertCPEs(in []string) []string {
+	var out []string
+	for _, c := range in {
+		if len(out) == maxCPEsEach {
+			break
+		}
+		c = strings.TrimSpace(c)
+		if len(c) > maxCPELen || !cpePattern.MatchString(c) || slices.Contains(out, c) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // convertScripts keeps the output of the reviewed check scripts on a port, each cleaned and bounded. Any other script

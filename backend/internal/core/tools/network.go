@@ -108,44 +108,57 @@ func (n *NetworkTools) Config(ctx context.Context) models.NetworkGuardrailsConfi
 	return n.configProvider(ctx)
 }
 
-func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, error) {
+// Open makes a guarded GET and returns the response for the caller to stream and close: network tools on, internet
+// access allowed, the host not blocked, every resolved address and redirect target vetted. Only a 200 answer is returned.
+// FetchURL reads such a response as capped text; a caller that needs more (an operator-triggered download of a data file)
+// streams the body itself and sets its own cap.
+func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Response, error) {
 	cfg := n.configProvider(ctx)
 	if !cfg.Enabled {
-		return "", fmt.Errorf("network tools are disabled")
+		return nil, fmt.Errorf("network tools are disabled")
 	}
 
 	if !cfg.AllowInternetAccess && !cfg.AllowLanAccess {
-		return "", fmt.Errorf("network access is fully blocked by guardrails")
+		return nil, fmt.Errorf("network access is fully blocked by guardrails")
 	}
 
 	// Security Check: Blocked Domains
 	host := ExtractHost(targetURL)
 	if err := ValidateDomainBoundary(host, cfg.BlockedDomains); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Initial pre-check (best effort, real check is in DialContext)
 	if err := n.validateAddress(ctx, targetURL, cfg); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Use the shared httpClient which has the security-locked DialContext and pooling
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to prepare request: %w", err)
+		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
 	req.Header.Set("User-Agent", "LLM-Proxy-Agent/1.0")
 
 	resp, err := n.httpClient.Do(req)
 	if err != nil {
 		n.logger.Error("Network fetch failed", "url", targetURL, "error", err)
-		return "", fmt.Errorf("failed to fetch content from '%s': %s", targetURL, err.Error())
+		return nil, fmt.Errorf("failed to fetch content from '%s': %s", targetURL, err.Error())
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("server returned unexpected status: %s", resp.Status)
+	}
+	return resp, nil
+}
+
+func (n *NetworkTools) FetchURL(ctx context.Context, targetURL string) (string, error) {
+	cfg := n.configProvider(ctx)
+	resp, err := n.Open(ctx, targetURL)
+	if err != nil {
+		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("server returned unexpected status: %s", resp.Status)
-	}
 
 	limit := units.KiB(cfg.MaxFetchSizeKB)
 	if limit <= 0 {

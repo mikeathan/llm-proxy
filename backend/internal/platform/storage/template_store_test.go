@@ -267,7 +267,10 @@ func TestShippedNetworkAuditDeclaresTheAuditorSettings(t *testing.T) {
 	if got.Defaults.Scan == nil || got.Defaults.Scan.Depth != "thorough" || got.Defaults.Scan.Checks == nil || !*got.Defaults.Scan.Checks {
 		t.Errorf("the audit declares a thorough scan with checks on: %+v", got.Defaults.Scan)
 	}
-	for _, gone := range []string{"TARGETS:", "DEPTH:", "PORTS:", "CHECKS:"} {
+	if got.Defaults.Scan.KnownVulns == nil || !*got.Defaults.Scan.KnownVulns {
+		t.Errorf("the audit declares the known-vulnerability look as on: %+v", got.Defaults.Scan)
+	}
+	for _, gone := range []string{"TARGETS:", "DEPTH:", "PORTS:", "CHECKS:", "KNOWN VULNERABILITIES:"} {
 		if strings.Contains(got.Content, gone) {
 			t.Errorf("settings live on the automation, not in the task text: %q is still there", gone)
 		}
@@ -276,13 +279,13 @@ func TestShippedNetworkAuditDeclaresTheAuditorSettings(t *testing.T) {
 
 func TestTemplateStore_ReadsTheAuditSettingsAPlaybookDeclares(t *testing.T) {
 	store := NewTemplateStore(fstest.MapFS{
-		"a.md": {Data: []byte("## Task: A\n**ID:** `a`\n**Category:** x\n**Depth:** quick\n**Checks:** off\n**Ports:** 22,80\n**Targets:** 192.168.1.0/24, 192.168.1.5\n\n### Body\n**Depth:** thorough\n")},
-		"b.md": {Data: []byte("## Task: B\n**ID:** `b`\n**Category:** x\n**Depth:** deep\n**Checks:** maybe\n")},
+		"a.md": {Data: []byte("## Task: A\n**ID:** `a`\n**Category:** x\n**Depth:** quick\n**Checks:** off\n**Known vulnerabilities:** off\n**Ports:** 22,80\n**Targets:** 192.168.1.0/24, 192.168.1.5\n\n### Body\n**Depth:** thorough\n")},
+		"b.md": {Data: []byte("## Task: B\n**ID:** `b`\n**Category:** x\n**Depth:** deep\n**Checks:** maybe\n**Known vulnerabilities:** sometimes\n")},
 		"c.md": {Data: []byte("## Task: C\n**ID:** `c`\n**Category:** x\n**Depth:** thorough\n**Checks:** on\n")},
 	})
 	a, _ := store.Get("a")
 	if a.Defaults.Scan == nil || a.Defaults.Scan.Depth != "quick" || a.Defaults.Scan.Ports != "22,80" || a.Defaults.Scan.Checks == nil || *a.Defaults.Scan.Checks ||
-		len(a.Defaults.Scan.Targets) != 2 || a.Defaults.Scan.Targets[1] != "192.168.1.5" {
+		len(a.Defaults.Scan.Targets) != 2 || a.Defaults.Scan.Targets[1] != "192.168.1.5" || a.Defaults.Scan.KnownVulns == nil || *a.Defaults.Scan.KnownVulns {
 		t.Errorf("scan defaults = %+v", a.Defaults.Scan)
 	}
 	if b, _ := store.Get("b"); b.Defaults.Scan != nil {

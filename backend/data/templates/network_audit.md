@@ -9,6 +9,7 @@
 **Schedule:** 0 2 * * *
 **Depth:** thorough
 **Checks:** on
+**Known vulnerabilities:** on
 
 Scan the network and report what changed since the last scan: new open ports, services that disappeared, software versions that changed and weak settings the safe checks found. The scan facts are written by the system, not the model, so the report is comparable from one scan to the next. It runs on the schedule you choose when you create the automation (every night at 02:00 to start with); set it to manual to run it only when you press Run.
 
@@ -22,6 +23,8 @@ Scan the network and report what changed since the last scan: new open ports, se
 What is scanned and how (the networks, quick or thorough, the ports, and whether the safe checks run) is set on the automation, in the form and on its page, not in this text. The system applies those settings when the audit runs. By default it scans every network you allowed, thoroughly, with the checks on.
 
 The checks look for SMBv1 and unsigned SMB, anonymous FTP, a VNC or Redis with no password, exposed NFS shares, expired certificates, weak SSH algorithms and Remote Desktop without network-level authentication. They only read; nothing tries a password and nothing changes on a device.
+
+The system also compares the software the scan recognised with a list of publicly known flaws and adds those findings to the report itself, after your assessment. You do not see them, so do not write about known vulnerabilities, and never say none were found.
 
 ### Extra instructions (optional)
 

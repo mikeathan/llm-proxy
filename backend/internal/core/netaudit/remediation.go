@@ -13,6 +13,7 @@ var remediations = map[string]string{
 	CheckCertExpired:       "Renew the certificate on the device and install the new one; set a reminder before the next expiry.",
 	CheckCertExpiring:      "Renew the certificate before it expires and install the new one on the device.",
 	CheckSSHWeakAlgorithms: "Remove the weak algorithms from the SSH server's configuration (Ciphers, MACs, KexAlgorithms, HostKeyAlgorithms) and update its software.",
+	CheckKnownVulns:        "Update the software to the vendor's current release and check the vendor's notice for the listed numbers; a distribution may fix a flaw without changing the version, so if it is already fixed, accept the finding with a note.",
 	CheckRDPNoNLA:          "Require network-level authentication in the Remote Desktop settings (on Windows: System Properties, Remote).",
 }
 

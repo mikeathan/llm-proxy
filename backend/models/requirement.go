@@ -4,10 +4,12 @@ package models
 type RequirementCode string
 
 const (
-	RequirementScopeEmpty     RequirementCode = "scope_empty"
-	RequirementHostNetworkOff RequirementCode = "host_network_off"
-	RequirementNmapMissing    RequirementCode = "nmap_missing"
-	RequirementNoSandbox      RequirementCode = "no_sandbox"
+	RequirementScopeEmpty      RequirementCode = "scope_empty"
+	RequirementHostNetworkOff  RequirementCode = "host_network_off"
+	RequirementNmapMissing     RequirementCode = "nmap_missing"
+	RequirementNoSandbox       RequirementCode = "no_sandbox"
+	RequirementVulnDataMissing RequirementCode = "vuln_data_missing"
+	RequirementVulnDataOld     RequirementCode = "vuln_data_old"
 )
 
 // FixKind is what a person can do about a requirement.

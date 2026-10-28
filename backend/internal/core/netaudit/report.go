@@ -15,6 +15,8 @@ type Observed struct {
 	Delta    Delta
 	// Accepted is how many findings of this scan an operator's acceptance covers; they are counted, not listed.
 	Accepted int
+	// Vulns says how far known-vulnerability matching reached; the zero value means it was not asked for.
+	Vulns VulnCoverage
 }
 
 // ObservedHeading titles the section the code writes. The model's text follows it under its own heading.
@@ -51,6 +53,7 @@ func RenderObserved(o Observed) string {
 	if o.Accepted > 0 {
 		fmt.Fprintf(&b, "\n%d finding(s) in this scan are accepted by the operator and not listed below.\n", o.Accepted)
 	}
+	writeCoverage(&b, o.Vulns)
 	if o.Previous.IsZero() {
 		fmt.Fprintf(&b, "\nFirst scan: there is no earlier result to compare with, so all %d open port(s)%s are recorded as the baseline.\n",
 			countChecks(o.Result.Findings, false), checkCountNote(o.Result.Findings))
@@ -70,7 +73,7 @@ func RenderObserved(o Observed) string {
 	if len(o.Delta.Changed) > 0 {
 		b.WriteString("\n### Changed\n\n| Device | Port | Before | After |\n|---|---|---|---|\n")
 		for _, c := range o.Delta.Changed {
-			fmt.Fprintf(&b, "| %s | %d/%s | %s | %s |\n", cell(c.After.Device), c.After.Port, cell(c.After.Proto), cell(c.Before.Version), cell(c.After.Version))
+			fmt.Fprintf(&b, "| %s | %d/%s | %s | %s |\n", cell(c.After.Device), c.After.Port, cell(c.After.Proto), cell(changeText(c.Before)), cell(changeText(c.After)))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
@@ -167,9 +170,23 @@ func SummaryOf(o Observed, name string) string {
 	if o.Accepted > 0 {
 		fmt.Fprintf(&b, "; %d accepted", o.Accepted)
 	}
+	b.WriteString(coverageSummary(o.Vulns))
 	if n := len(unscannedAddrs(o.Result.Hosts)); n > 0 {
 		fmt.Fprintf(&b, "; %d not scanned to completion", n)
 	}
 	b.WriteString(". Open the app for the details.")
 	return b.String()
+}
+
+// changeText is what the Changed table shows for a finding: its version, and for a known_vulns finding the number of
+// flaws too, because a new flaw can arrive with the version unchanged.
+func changeText(f Finding) string {
+	if f.Check != CheckKnownVulns {
+		return f.Version
+	}
+	noun := "flaws"
+	if len(f.CVEs) == 1 {
+		noun = "flaw"
+	}
+	return fmt.Sprintf("%s (%d possible %s)", f.Version, len(f.CVEs), noun)
 }

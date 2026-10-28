@@ -80,6 +80,7 @@ const refreshGlobalHistory = () => refreshHistory(null, fetchWorkspaceState, fet
 const {
   selectedAutomationId,
   triggering,
+  starting,
   lastTriggerResult,
   selectedAutomation,
   anyRunningInSelectedWorkspace,
@@ -333,7 +334,7 @@ usePolling(() => {
         <template #actions>
           <StatusTag v-if="headerStatus" v-bind="headerStatus" />
           <BaseButton v-if="selectedAutomation.is_running" variant="danger" icon="stop" @click="handleStop">Stop</BaseButton>
-          <BaseButton v-else icon="play" :loading="triggering" :disabled="busy" @click="handleTrigger">Run now</BaseButton>
+          <BaseButton v-else icon="play" :loading="triggering || starting" :disabled="busy" @click="handleTrigger">{{ starting ? "Starting…" : "Run now" }}</BaseButton>
           <RouterLink v-if="selectedAutomation.name === HEARTBEAT_NAME" :to="toWorkspaceSection(selectedAutomation.workspace, 'heartbeat')" class="header-link">Heartbeat settings</RouterLink>
           <RouterLink v-else-if="!selectedAutomation.is_running && !busy" :to="toAutomationEdit(selectedAutomation.id)" class="header-link">Edit</RouterLink>
           <BaseButton v-if="selectedAutomation.name !== HEARTBEAT_NAME" variant="ghost" icon="trash" icon-only :label="`Delete ${selectedAutomation.name}`" :disabled="busy || !!selectedAutomation.is_running" @click="confirmRemoveSelected" />

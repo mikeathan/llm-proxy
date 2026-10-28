@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import FixGuidePanel from "./FixGuidePanel.vue"
 import { useNetauditHelp } from "../../composables/netaudit/useNetauditHelp"
 import { checkCount, describeResolved, devicesIn, findingTitle, isCheck, isPlainText, lookSentence, needsLookSentence, portCount, seenSentence, severityState } from "../../utils/netaudit/friendly"
+import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
 import type { FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
 
 // The Simple report: one plain line saying how many things need a look, each of them with one decision ("This is
 // fine"), and the rest as counts.
 defineProps<{ report: FindingsReport; summary: ReportSummary }>()
-const emit = defineEmits<{ (e: "accept", finding: ScanFinding): void; (e: "revoke", finding: ScanFinding): void }>()
+const emit = defineEmits<{
+  (e: "accept", finding: ScanFinding): void
+  (e: "revoke", finding: ScanFinding): void
+  (e: "mark", finding: ScanFinding): void
+  (e: "unmark", finding: ScanFinding): void
+  (e: "rescan", device: string): void
+}>()
 const help = useNetauditHelp()
 const whatIs = findingTitle
 // A problem a check found has a thick coloured edge and tint, so it cannot be missed in a long list; a plain open port does not.
@@ -28,6 +36,7 @@ const cardClass = (f: ScanFinding) => (isCheck(f) ? `border-l-4 ${SEVERITY_CARD_
           <StatusTag v-if="isCheck(f)" :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" class="self-start" />
           <span :class="['block break-words text-primary', isCheck(f) ? 'font-semibold' : '']">{{ lookSentence(f) }}</span>
           <span v-if="f.fix" class="block break-words text-[length:var(--text-small)] text-secondary" data-test="fix"><span class="font-semibold">How to fix it:</span> {{ f.fix }}</span>
+          <FixGuidePanel :finding="f" :advanced="false" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
           <span v-if="isPlainText(f)" class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-state-error">
             It sends everything unencrypted.
             <BaseButton variant="ghost" size="sm" @click="help.show('words')">Learn more</BaseButton>
@@ -48,7 +57,9 @@ const cardClass = (f: ScanFinding) => (isCheck(f) ? `border-l-4 ${SEVERITY_CARD_
     </section>
     <section v-if="summary.resolved.length" aria-label="Gone since last time" class="flex flex-col gap-1">
       <p class="m-0 font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">Gone since last time</p>
-      <p v-for="r in summary.resolved" :key="describeResolved(r)" class="m-0 break-words text-secondary">{{ describeResolved(r) }}</p>
+      <p v-for="r in summary.resolved" :key="describeResolved(r)" class="m-0 break-words text-secondary">
+        {{ describeResolved(r) }}<template v-if="r.fixed_at"> <span class="text-state-success" data-test="fixed-confirmed">· fixed: you marked it on {{ formatAbsoluteTime(r.fixed_at) }} and the scan confirms it</span></template>
+      </p>
     </section>
   </div>
 </template>

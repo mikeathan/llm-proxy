@@ -45,6 +45,10 @@ type AppContext struct {
 	// "no known active work" for shell-session-only guards.
 	activeWork func() bool
 
+	// resets are cleanups other subsystems registered to run after a successful factory reset (a cache they keep
+	// outside the settings, registry and secrets the reset replaces).
+	resets []resetCleanup
+
 	// procLogMu guards procLoggers: one cached FileLogger per workspace so
 	// process logs don't leak an fd + fsync goroutine per call (each
 	// FileLogger runs a 1s syncLoop until closed).
@@ -224,4 +228,16 @@ func (s *AppContext) hasActiveWork() bool {
 		return true
 	}
 	return false
+}
+
+// resetCleanup is one subsystem's cleanup after a factory reset.
+type resetCleanup struct {
+	what string
+	run  func() error
+}
+
+// AfterFactoryReset registers a cleanup to run once a factory reset has succeeded, for data a subsystem keeps beside the
+// settings that the reset does not replace. A failing cleanup is reported with the reset result and never undoes it.
+func (s *AppContext) AfterFactoryReset(what string, run func() error) {
+	s.resets = append(s.resets, resetCleanup{what: what, run: run})
 }

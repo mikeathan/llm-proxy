@@ -70,4 +70,5 @@ export interface AutomationFormData {
   scanDepth: ScanDepth
   scanPorts: string
   scanChecks: boolean
+  scanKnownVulns: boolean
 }

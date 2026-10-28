@@ -5,7 +5,7 @@ import type { SettingsTab } from './admin'
 export type NetauditViewMode = 'simple' | 'advanced'
 
 /** What a requirement is about; the server names them, the UI picks the wording around them. */
-export type RequirementCode = 'scope_empty' | 'host_network_off' | 'nmap_missing' | 'no_sandbox'
+export type RequirementCode = 'scope_empty' | 'host_network_off' | 'nmap_missing' | 'no_sandbox' | 'vuln_data_missing' | 'vuln_data_old'
 
 /** The one step that meets a requirement. */
 export type RequirementFix =
@@ -24,6 +24,8 @@ export interface Requirement {
 export interface Readiness {
   ready: boolean
   requirements: Requirement[]
+  /** Improvements that never stop an audit (the vulnerability data not being downloaded); never change `ready`. */
+  notices?: Requirement[]
 }
 
 /** One allowed range, in canonical CIDR form, with how many devices it covers. */
@@ -68,8 +70,18 @@ export interface ScanFinding {
   check: string
   severity: string
   evidence?: string
+  /** A known_vulns finding: every CVE id (sorted), the ones CISA lists as exploited, and each one's base score. */
+  cves?: string[]
+  exploited?: string[]
+  cve_scores?: Record<string, number>
   /** What to do about a check's problem: fixed text the server wrote. Nothing is changed on the device for you. */
   fix?: string
+  /** The longer form of the fix (steps, commands to copy, risk, undo): fixed text the server owns; absent for an open port. */
+  guide?: FixGuide
+  /** What the operator told us: they applied the fix. `marked` waits for the next scan; `still_present` means a scan since still shows it. */
+  fix_state?: FixState
+  fix_marked_at?: string
+  fix_note?: string
   new: boolean
   /** The version differs from the scan before; `previous_version` is what it was (it may be empty). */
   changed: boolean
@@ -89,6 +101,8 @@ export interface ResolvedFinding {
   proto?: string
   service?: string
   version?: string
+  /** When the operator marked it fixed, if they had and this scan confirms it is gone. */
+  fixed_at?: string
 }
 
 export interface FindingsReport {
@@ -149,10 +163,12 @@ export interface ScanSettings {
   /** A port list such as "22,80,8000-8100"; empty means the common ports. */
   ports?: string
   checks?: boolean
+  /** Look for known vulnerabilities in the software the scan recognised; absent means on. */
+  known_vulns?: boolean
 }
 
 /** The parts of the Help panel; a warning opens it on the one that explains it. */
-export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'safety' | 'words'
+export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'fixes' | 'safety' | 'words'
 
 export interface HelpSection {
   title: string
@@ -181,4 +197,84 @@ export interface FailureExplanation {
 export interface TargetProblem {
   entry?: string
   reason: string
+}
+
+/** Where the vulnerability-data download stands; the server derives it from what it holds, so it survives a restart. */
+export type VulnDataState = 'idle' | 'running' | 'stopped' | 'done'
+
+/** One data source (CISA's exploited list, or NVD by year) as the index holds it. */
+export interface VulnSource {
+  /** A zero date (year 1) means the source was never imported. */
+  imported_at: string
+  cves: number
+  entries: number
+  /** CVEs the last file's import left out, by reason. */
+  no_config?: number
+  needs_all?: number
+  rejected?: number
+  /** NVD's yearly files held; empty for the exploited list. */
+  years?: number[]
+}
+
+export interface VulnDataStatus {
+  state: VulnDataState
+  /** The file being fetched, while running. */
+  file?: string
+  files_done: number
+  files_total: number
+  bytes_done?: number
+  bytes_total?: number
+  /** Why a download stopped, in plain words. */
+  reason?: string
+  nvd: VulnSource
+  kev: VulnSource
+}
+
+/** What the card shows and offers for a status. */
+export type VulnDataAction = 'download' | 'resume' | 'cancel' | 'update'
+
+export interface VulnDataSummary {
+  line: string
+  /** The one button to offer; null when there is nothing to do (the data is held and recent). */
+  action: VulnDataAction | null
+  /** Held but older than the age the card calls old. */
+  old: boolean
+}
+
+/** One line of the Advanced card: a data source with when and how much it was imported. */
+export interface VulnSourceRow {
+  name: string
+  detail: string
+  /** What the import left out of the last file; absent when it left nothing out. */
+  skipped?: string
+}
+
+/** One flaw of a known_vulns finding as listed; the score is null when the index gave none. */
+export interface VulnFlaw {
+  id: string
+  score: number | null
+  exploited: boolean
+}
+
+/** A command to copy for one kind of system; it is shown, never run. */
+export interface GuideCommand {
+  platform: string
+  command: string
+}
+
+export interface FixGuide {
+  steps: string[]
+  commands?: GuideCommand[]
+  risk: string
+  undo: string
+}
+
+export type FixState = 'marked' | 'still_present'
+
+/** Tells the server the operator applied the fix for one finding of an automation's latest scan. */
+export interface FixRequest {
+  workspace_id: string
+  automation: string
+  key: string
+  note: string
 }

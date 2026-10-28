@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { DEFAULT_CONFIG } from '../src/composables/models/useConfig'
+import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // Settings → Network scan at both widths, Simple and Advanced: nothing may scroll sideways and the main button is a
 // comfortable touch target. The screenshots are for looking at; they are not compared.
@@ -21,22 +21,8 @@ const readiness = {
 }
 
 async function open(page: Page, view: 'simple' | 'advanced') {
-  await page.addInitScript((v) => localStorage.setItem('admin-ui:netaudit-view', JSON.stringify({ version: 1, data: v })), view)
-  await page.route('**/admin/api/**', async (route) => {
-    const path = new URL(route.request().url()).pathname
-    const json = path.endsWith('/state')
-      ? { config: structuredClone(DEFAULT_CONFIG), models: [], available_models: [] }
-      : path.endsWith('/netaudit/scope')
-        ? scope
-        : path.endsWith('/netaudit/readiness')
-          ? readiness
-          : path.endsWith('/automations')
-            ? [audit]
-            : path.endsWith('/manifests') || path.endsWith('/mcp') || path.endsWith('/workspaces') || path.endsWith('/profiles') || path.endsWith('/profile-schema')
-            ? []
-            : {}
-    await route.fulfill({ json })
-  })
+  await setNetauditView(page, view)
+  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/readiness': readiness, '/automations': [audit] } })
   await page.goto('settings/network-scan')
   await expect(page.getByRole('heading', { name: 'What may be scanned' })).toBeVisible()
 }
@@ -44,8 +30,7 @@ async function open(page: Page, view: 'simple' | 'advanced') {
 for (const view of ['simple', 'advanced'] as const) {
   test(`network scan settings (${view}) fit the screen`, async ({ page }, testInfo) => {
     await open(page, view)
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
-    expect(overflow).toBeLessThanOrEqual(0)
+    await expectNoSidewaysScroll(page)
     if (testInfo.project.name === 'mobile') {
       const open = await page.getByRole('button', { name: 'Open', exact: true }).boundingBox()
       expect(open?.height).toBeGreaterThanOrEqual(44)
@@ -54,6 +39,6 @@ for (const view of ['simple', 'advanced'] as const) {
         expect(another?.height).toBeGreaterThanOrEqual(44)
       }
     }
-    await page.screenshot({ path: testInfo.outputPath(`network-scan-${view}.png`), fullPage: true })
+    await lookAt(page, testInfo, `network-scan-${view}.png`, true)
   })
 }

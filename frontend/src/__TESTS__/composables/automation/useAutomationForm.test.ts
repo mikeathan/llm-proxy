@@ -39,7 +39,7 @@ describe('useAutomationForm', () => {
       name: 'nightly', triggerType: 'cron', triggerValue: '0 7 * * *', taskFile: 'jobs/nightly.md',
       strategy: 'persistent', model: 'gpt-5', loopStrategy: 'react', networkGrant: 'lan', memoryMode: 'on',
       notifyConnector: '', notifyDedup: false, notifyDedupDays: '', notifySendEmpty: false, skipIfBusy: false, journal: false, profile: '',
-      scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true,
+      scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true, scanKnownVulns: true,
     })
   })
 

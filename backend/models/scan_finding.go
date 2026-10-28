@@ -17,6 +17,13 @@ type ScanFinding struct {
 	Check    string `json:"check"`
 	Severity string `json:"severity"`
 	Evidence string `json:"evidence,omitempty"`
+	// CVEs and Exploited belong to a known_vulns finding: every CVE id the port's software may be affected by, and the
+	// ones among them CISA lists as exploited. Both hold only ids that passed the CVE-id pattern, sorted.
+	CVEs      []string `json:"cves,omitempty"`
+	Exploited []string `json:"exploited,omitempty"`
+	// CVEScores gives each of those CVEs its base score, so a screen can list them most serious first. It is for showing
+	// only: comparing scans and accepting a finding use the id sets above.
+	CVEScores map[string]float64 `json:"cve_scores,omitempty"`
 }
 
 // Key identifies what a finding is about, independent of its wording, for comparing scans.
@@ -42,6 +49,9 @@ type ScanBaseline struct {
 	Unscanned []string `json:"unscanned,omitempty"`
 	// DevicesUp counts the addresses that answered in this scan.
 	DevicesUp int `json:"devices_up,omitempty"`
+	// FixedAt maps the key of each finding the operator had marked as fixed, and that this scan no longer shows, to when
+	// they marked it, so a screen can say "you marked it fixed and the scan confirms it".
+	FixedAt map[string]time.Time `json:"fixed_at,omitempty"`
 }
 
 // ScanAck is the operator's decision to accept a finding for a while. It names the finding by Key and the version text
@@ -54,4 +64,8 @@ type ScanAck struct {
 	ExpiresAt       time.Time `json:"expires_at"`
 	// LastSeen is the last time a scan still showed the finding, so an acceptance for something long gone is dropped.
 	LastSeen time.Time `json:"last_seen,omitempty"`
+	// AcceptedCVEs and AcceptedExploited are the CVE sets a known_vulns finding had when it was accepted. A CVE outside
+	// them, or one that became exploited since, brings the finding back.
+	AcceptedCVEs      []string `json:"accepted_cves,omitempty"`
+	AcceptedExploited []string `json:"accepted_exploited,omitempty"`
 }

@@ -20,6 +20,7 @@ The single root contains:
 ```
 {root}/
 ├── settings.yml, registry.json, secrets.json, master.key(.hash), orchestrator.db
+├── vulnindex.json      the downloaded vulnerability data (network audit; Settings → Network scan; deletable there)
 ├── profiles/           the user's own prompt profiles, one *.md each (optional; see SPEC-012)
 ├── meta/               per-workspace metadata (sessions, state, config)
 ├── runs/               automation run dirs + LLM recordings
@@ -122,7 +123,7 @@ refuse to run while assistant/automation runs or live shell sessions are active.
 | Control | Endpoint | Removes | Keeps | Process |
 |---|---|---|---|---|
 | Clear runtime data | `POST /admin/api/system/clear-runtime-data` | `runs/`, `logs/`, `meta/*/sessions`, `meta/*/process.log`, `meta/*/.lock` (dirs recreated) | settings, secrets, master key, `orchestrator.db`, `meta/` structure, `workspaces/` | stays running |
-| Factory reset | `POST /admin/api/system/factory-reset` | resets `settings.yml`, `registry.json`, `secrets.json`, `master.key` to defaults (fresh key) | `orchestrator.db`, `meta/`, `runs/`, `logs/`, `workspaces/` | stays running |
+| Factory reset | `POST /admin/api/system/factory-reset` | resets `settings.yml`, `registry.json`, `secrets.json`, `master.key` to defaults (fresh key); also deletes the downloaded `vulnindex.json` (a cleanup registered with `AppContext.AfterFactoryReset`; a failure is returned as `warnings`, never undoing the reset) | `orchestrator.db`, `meta/` (scan results, accepted findings, fix records), `runs/`, `logs/`, `workspaces/` | stays running |
 | Wipeout (uninstall) | `POST /admin/api/system/wipeout` | the entire single root **and** the workspaces directory | nothing | stops (`os.Exit(0)`) |
 
 `wipeout` is a separate operation rather than a composition of the other two:

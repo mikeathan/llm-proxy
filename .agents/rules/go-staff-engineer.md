@@ -28,8 +28,11 @@ description: Staff-level Go backend and agentic workflow engineering guide optim
 ## Context
 
 -   `context.Context` is the first parameter.
--   Never store context in structs.
--   Constructors never accept context.
+-   Never store or pass to a constructor a request-scoped context (one that ends with a request or a call); give it to
+    the method that does the work.
+-   An object that owns background work may take the application's lifecycle context (the root context, or one derived
+    from it) in its constructor or in a method such as `Start`, and keep it to derive the contexts of that work. The work
+    ends when that context ends, and `context.Background()` is not a substitute for it (Constitution II.2, II.14).
 -   Every blocking operation must observe `ctx.Done()`.
 
 ## Concurrency

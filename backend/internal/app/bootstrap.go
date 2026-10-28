@@ -65,7 +65,11 @@ type Container struct {
 func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.TaskExecutor {
 	exec := automation.NewLLMTaskExecutor(svc).(*automation.LLMTaskExecutor)
 	exec.SetShellPool(c.Infra.ShellManager)
-	exec.SetReportHook(netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()))
+	reporter := netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()).WithFixes(svc.Persistence())
+	if v, ok := svc.(interface{ NetauditVulns() netaudit.VulnSource }); ok && v.NetauditVulns() != nil {
+		reporter.WithVulns(v.NetauditVulns())
+	}
+	exec.SetReportHook(reporter)
 	return exec
 }
 
@@ -368,6 +372,9 @@ func (s AppServices) Shutdown(ctx context.Context) {
 	if s.egressCancel != nil {
 		logging.Info("Stopping agent egress proxy...")
 		s.egressCancel()
+	}
+	if s.netaudit != nil && s.netaudit.Vulns != nil {
+		s.netaudit.Vulns.Close()
 	}
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")

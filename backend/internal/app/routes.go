@@ -34,6 +34,7 @@ type HandlerSet struct {
 	Profiles   *handlers.ProfileHandlers
 	Helpers    *handlers.HelpersHandlers
 	Netaudit   *handlers.NetauditHandlers
+	VulnData   *handlers.VulnDataHandlers
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 }
@@ -83,7 +84,8 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
-	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks)
+	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes)
+	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -311,10 +313,16 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/scope", hs.Netaudit.PutScope, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/targets/check", hs.Netaudit.CheckTargets, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/readiness", hs.Netaudit.GetReadiness, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/vulndata", hs.VulnData.Get, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/vulndata", hs.VulnData.Clear, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/vulndata/download", hs.VulnData.Download, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/vulndata/cancel", hs.VulnData.Cancel, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/findings", hs.Netaudit.GetFindings, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/acks", hs.Netaudit.ListAcks, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/acks", hs.Netaudit.AcceptFinding, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/acks", hs.Netaudit.RevokeAck, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/fixes", hs.Netaudit.MarkFixed, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/fixes", hs.Netaudit.UnmarkFixed, jsonMethodNotAllowed)
 
 	if hs.Reminders != nil {
 		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)

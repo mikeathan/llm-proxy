@@ -93,9 +93,10 @@ func TestNetauditHandlers_PutScopeLeavesOmittedFieldsAlone(t *testing.T) {
 	}
 }
 
-type stubReadiness struct{ reqs []models.Requirement }
+type stubReadiness struct{ reqs, notices []models.Requirement }
 
 func (s stubReadiness) Check(context.Context) []models.Requirement { return s.reqs }
+func (s stubReadiness) Notices() []models.Requirement                { return s.notices }
 
 func TestNetauditHandlers_GetReadiness(t *testing.T) {
 	get := func(r NetauditReadiness) map[string]any {
@@ -111,6 +112,10 @@ func TestNetauditHandlers_GetReadiness(t *testing.T) {
 	ready := get(stubReadiness{})
 	if ready["ready"] != true || ready["requirements"] == nil {
 		t.Errorf("ready host = %v (requirements must be [], not null)", ready)
+	}
+	withNotice := get(stubReadiness{notices: []models.Requirement{{Code: models.RequirementVulnDataMissing, Message: "n"}}})
+	if withNotice["ready"] != true || len(withNotice["notices"].([]any)) != 1 || ready["notices"] == nil {
+		t.Errorf("a notice must not make the host not ready, and notices must be [] not null: %v / %v", withNotice, ready)
 	}
 	missing := get(stubReadiness{reqs: []models.Requirement{{Code: models.RequirementScopeEmpty, Blocking: true, Message: "m"}}})
 	if missing["ready"] != false || len(missing["requirements"].([]any)) != 1 {

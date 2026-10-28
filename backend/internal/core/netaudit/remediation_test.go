@@ -8,7 +8,7 @@ import (
 // allChecks is every check name checks.go declares; a new check is added here and gets its fix in remediation.go.
 var allChecks = []string{
 	CheckSMBv1, CheckSMBSigning, CheckFTPAnonymous, CheckVNCNoAuth, CheckRedisNoAuth,
-	CheckNFSExports, CheckCertExpired, CheckCertExpiring, CheckSSHWeakAlgorithms, CheckRDPNoNLA,
+	CheckNFSExports, CheckCertExpired, CheckCertExpiring, CheckSSHWeakAlgorithms, CheckRDPNoNLA, CheckKnownVulns,
 }
 
 func TestRemediationFor_EveryCheckHasAFix(t *testing.T) {
