@@ -55,9 +55,15 @@ DO_BUILD=1; START_NOW=0; STEP=0; UI_BACKEND=ansi
 summary="$(print_settings 'previous install')"
 [[ "$summary" == *"service user:    svc"* ]] || { echo 'FAIL: summary user'; exit 1; }
 [[ "$summary" == *"data root:       /tmp/llm-proxy-summary"* ]] || { echo 'FAIL: summary root'; exit 1; }
-[[ "$summary" == *"binary:          /opt/bin/llm-proxy"* ]] || { echo 'FAIL: summary binary'; exit 1; }
+[[ "$summary" == *"install binary:  /opt/bin/llm-proxy"* ]] || { echo 'FAIL: summary binary'; exit 1; }
+[[ "$summary" == *"source binary:   ${PRJ_ROOT}/backend/llm-proxy"* ]] || { echo 'FAIL: summary source binary'; exit 1; }
+[[ "$summary" == *"model directory: (none saved"* && "$summary" == *"llama-server:    (none saved"* ]] \
+  || { echo 'FAIL: summary must say when nothing is saved'; exit 1; }
 [[ "$summary" == *"build binary:    yes"* ]] || { echo 'FAIL: summary build'; exit 1; }
 [[ "$summary" == *"start service:   no"* ]] || { echo 'FAIL: summary start'; exit 1; }
+DO_BUILD=0
+[[ "$(print_settings x)" == *"no (pass --build"* ]] || { echo 'FAIL: summary must hint at --build'; exit 1; }
+DO_BUILD=1
 
 # A custom binary path must round-trip: render the unit, then read it back.
 SVC_USER=svc; SVC_ROOT=/srv/root; INSTALL_BIN=/opt/bin/llm-proxy

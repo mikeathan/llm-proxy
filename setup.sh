@@ -367,16 +367,22 @@ load_selections() {
 }
 
 # Print the configuration an install is about to apply. Unattended runs have no
-# prompts, so this is the log of what was applied.
-print_settings() { # $1 = where the values came from
+# prompts, so this is the log of what was applied: every value names where it
+# came from, and an empty saved choice says so instead of printing a blank.
+print_settings() { # $1 = where the unit values came from
+  local model llama
+  model="$(selection MODEL_DIR_PATH)"
+  llama="$(selection LLAMA_BIN_PATH)"
   step "Configuration (${1})"
   info "service user:    ${SVC_USER}"
   info "data root:       ${SVC_ROOT}"
-  info "binary:          ${INSTALL_BIN}"
-  info "build binary:    $([[ $DO_BUILD == 1 ]] && echo yes || echo no)"
+  info "install binary:  ${INSTALL_BIN}"
+  info "source binary:   ${PRJ_ROOT}/backend/${BIN_NAME}"
+  info "build binary:    $([[ $DO_BUILD == 1 ]] && echo yes || echo "no (pass --build to include new changes)")"
   info "start service:   $([[ ${START_NOW:-1} == 1 ]] && echo yes || echo no)"
-  info "model directory: $(selection MODEL_DIR_PATH || true)"
-  info "llama-server:    $(selection LLAMA_BIN_PATH || true)"
+  info "model directory: ${model:-(none saved — run ./setup.sh once to record)}"
+  info "llama-server:    ${llama:-(none saved — run ./setup.sh once to record)}"
+  info "saved choices:   ${SELECTIONS_FILE} $([[ -f "$SELECTIONS_FILE" ]] && echo '(found)' || echo '(not found)')"
 }
 
 # -----------------------------------------------------------------------------
