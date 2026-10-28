@@ -21,6 +21,8 @@ export const ACCEPT_DAY_OPTIONS: ChoiceOption[] = [
   { value: '365', label: '1 year' },
 ]
 export const ACCEPT_NOTE_MAX = 200
+/** The most ports one device's expectation may list; the server refuses more. */
+export const MAX_EXPECTED_PORTS = 64
 
 export const HELP_TOPIC_LABELS: Record<NetauditHelpTopic, string> = {
   basics: 'The basics',
@@ -56,6 +58,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'Problems the checks found come first, grouped by kind: the same problem on several devices is one card that lists each place, with the fix written once. Below them, each device lists the services that answered. "New" means the last scan did not show it before. Something marked "Gone" was seen earlier and has disappeared.',
       'The first scan has nothing to compare with, so it marks nothing as new: what it found is saved as the baseline, and later scans point out what changed. Ports the scan could not identify are folded into one line per device.',
       '"This is fine" hides a finding you expect, such as your own file server, for 30 days, 90 days or a year. It comes back if the service changes, and you can take it back at any time.',
+      'In Advanced, "Set as expected" on a device saves the ports open on it now as what it should offer. After that, any other open port is reported as a problem, and so is a listed port that stops answering. "Edit expected" changes the list, and "Remove expected" takes it back. Devices are told apart by their address, so if your router gives a device a new address, set it again.',
       'A scan can run out of time on a slow device, and is tried a second time before it gives up. Such a device is reported as not scanned to completion; that is not the same as having no open doors. In Advanced settings, "Time allowed per device" gives slow devices longer.',
     ],
   },

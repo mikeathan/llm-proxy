@@ -38,7 +38,7 @@ const automation = {
 
 async function open(page: Page, view: 'simple' | 'advanced') {
   await setNetauditView(page, view)
-  await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
+  await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('heading', { name: 'Latest network scan' })).toBeVisible()
 }

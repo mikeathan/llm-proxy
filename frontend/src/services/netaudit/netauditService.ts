@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { AcceptRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus } from '../../types/netaudit'
+import type { AcceptRequest, DeviceExpectation, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -44,6 +44,18 @@ export class NetauditService {
 
   static unmarkFixed(workspaceId: string, key: string): Promise<void> {
     return del(`${API_ENDPOINTS.netauditFixes}${query({ workspace_id: workspaceId, key })}`)
+  }
+
+  static expectations(workspaceId: string): Promise<DeviceExpectation[]> {
+    return get<DeviceExpectation[]>(`${API_ENDPOINTS.netauditExpectations}${query({ workspace_id: workspaceId })}`)
+  }
+
+  static setExpectation(request: ExpectationRequest): Promise<DeviceExpectation> {
+    return put<DeviceExpectation>(API_ENDPOINTS.netauditExpectations, request)
+  }
+
+  static removeExpectation(workspaceId: string, device: string): Promise<void> {
+    return del(`${API_ENDPOINTS.netauditExpectations}${query({ workspace_id: workspaceId, device })}`)
   }
 
   static vulnData(): Promise<VulnDataStatus> {

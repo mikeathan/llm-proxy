@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -362,5 +363,32 @@ func TestRunReporter_FixRecordTroubleIsStatedAndNeverBreaksTheReport(t *testing.
 	got := reporter(store, reportTime).WithFixes(fixes).Augment(scannedHosts(smbHost("10.0.0.1", true)), "ws", "nightly", "")
 	if !strings.Contains(got, "fix records could not be read") {
 		t.Errorf("the trouble is stated:\n%s", got)
+	}
+}
+
+func (f *fakeExpectationStore) fail(err error) *fakeExpectationStore { f.err = err; return f }
+
+func TestRunReporter_ADeviceThatDiffersFromItsExpectationIsReportedAndKept(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	exps := &fakeExpectationStore{items: []models.Expectation{expect("10.0.0.5", 631)}}
+	r := reporter(store, reportTime).WithExpectations(exps)
+	got := r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	for _, want := range []string{"Open port that is not expected", "Expected port not answering"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("report is missing %q:\n%s", want, got)
+		}
+	}
+	keys := keysOf(Diff(nil, store.data["ws/nightly"].Findings).New)
+	if !slices.Contains(keys, "10.0.0.5|tcp|22|"+CheckUnexpectedPort) {
+		t.Errorf("the finding is not in the baseline: %v", keys)
+	}
+}
+
+func TestRunReporter_ExpectationTroubleIsStatedAndNeverHidesTheScan(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime).WithExpectations((&fakeExpectationStore{}).fail(errors.New("disk gone")))
+	got := r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	if !strings.Contains(got, "could not be read") || !strings.Contains(got, "10.0.0.5") {
+		t.Errorf("report:\n%s", got)
 	}
 }

@@ -2,21 +2,25 @@
 import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import { formatPorts } from "../../utils/netaudit/expectations"
 import { isCheck, isGuessedService, isLowDetail, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
-import type { DeviceGroup, ScanFinding } from "../../types/netaudit"
+import type { DeviceExpectation, DeviceGroup, ScanFinding } from "../../types/netaudit"
 
 // One device in the Advanced report: a header that always shows the counts, and its ports underneath, folded when the
 // device has nothing to look at. Ports the scan could say nothing about (a name taken from the port table, no version)
 // fold into one line, because a long run of "http (guess), version unknown" says nothing a count does not. The problems
 // themselves are listed once in ProblemGroups; a check row here is only a pointer, kept so an accepted one can be undone.
-const props = defineProps<{ group: DeviceGroup<ScanFinding>; open: boolean; baseline: boolean; problems: number }>()
+const props = defineProps<{ group: DeviceGroup<ScanFinding>; open: boolean; baseline: boolean; problems: number; expected?: DeviceExpectation }>()
 const emit = defineEmits<{
   (e: "toggle"): void
   (e: "accept", finding: ScanFinding): void
   (e: "revoke", finding: ScanFinding): void
   (e: "rescan", device: string): void
+  (e: "expect", device: string): void
+  (e: "edit-expected", device: string): void
+  (e: "unexpect", device: string): void
 }>()
 
 // Folding one port into a line saves nothing; a few do.
@@ -48,9 +52,15 @@ const STATE_CLASS: Record<string, string> = {
           <span v-if="group.items.some((f) => f.new && !f.accepted)">{{ group.items.filter((f) => f.new && !f.accepted).length }} new</span>
           <span v-if="group.items.some((f) => f.changed && !f.accepted)">{{ group.items.filter((f) => f.changed && !f.accepted).length }} changed</span>
         </template>
+        <template v-if="expected">
+          <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="edit-expected" @click="emit('edit-expected', group.device)">Edit expected</BaseButton>
+          <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="remove-expected" @click="emit('unexpect', group.device)">Remove expected</BaseButton>
+        </template>
+        <BaseButton v-else variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="set-expected" @click="emit('expect', group.device)">Set as expected</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', group.device)">Rescan this host</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="toggle-device" :aria-expanded="open" @click="emit('toggle')">{{ open ? "Hide ports" : "Show ports" }}</BaseButton>
       </span>
+      <p v-if="expected" class="m-0 basis-full break-words text-[length:var(--text-small)] text-secondary" data-test="expected">Expects {{ formatPorts(expected.ports) }}. Anything else open, or a listed port that does not answer, is reported as a problem.</p>
     </header>
     <ul v-if="open" class="m-0 list-none p-0">
       <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS}` : '']">

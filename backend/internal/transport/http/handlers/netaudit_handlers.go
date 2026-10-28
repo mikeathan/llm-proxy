@@ -47,13 +47,21 @@ type NetauditFixes interface {
 	Unmark(workspaceID, key string) (bool, error)
 }
 
+// NetauditExpectations is what the operator can say about what each device should offer: set it, take it back, list them.
+type NetauditExpectations interface {
+	List(workspaceID string) ([]models.Expectation, error)
+	Set(ctx context.Context, workspaceID, device string, ports []int, note string) (models.Expectation, error)
+	Remove(workspaceID, device string) (bool, error)
+}
+
 // NetauditHandlers serves the operator's network-audit settings, the latest findings and the accepted findings.
 type NetauditHandlers struct {
 	scope     NetauditScope
 	readiness NetauditReadiness
 	baselines NetauditBaselines
 	acks      NetauditAcks
-	fixes     NetauditFixes // optional: without it findings carry guides but no record of what the operator did
+	fixes     NetauditFixes        // optional: without it findings carry guides but no record of what the operator did
+	expects   NetauditExpectations // optional: without it the expectations endpoints answer 404
 }
 
 func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines, acks NetauditAcks) *NetauditHandlers {
@@ -63,6 +71,12 @@ func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, basel
 // WithFixes adds the operator's fix records, so findings show what they said and the page can record more.
 func (h *NetauditHandlers) WithFixes(fixes NetauditFixes) *NetauditHandlers {
 	h.fixes = fixes
+	return h
+}
+
+// WithExpectations adds the operator's per-device expectations, so the page can read and change them.
+func (h *NetauditHandlers) WithExpectations(expects NetauditExpectations) *NetauditHandlers {
+	h.expects = expects
 	return h
 }
 
@@ -399,4 +413,81 @@ func (h *NetauditHandlers) respondScope(w http.ResponseWriter, view netaudit.Sco
 // isScopeRefusal reports whether err is the operator's input being refused rather than a failure to save.
 func isScopeRefusal(err error) bool {
 	return errors.Is(err, scanscope.ErrBadEntry) || errors.Is(err, scanscope.ErrNotScannable)
+}
+
+type expectationRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	Device      string `json:"device"`
+	Ports       []int  `json:"ports"`
+	Note        string `json:"note"`
+}
+
+// ListExpectations returns the workspace's per-device expectations.
+func (h *NetauditHandlers) ListExpectations(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+	if h.expects == nil {
+		writeJSONError(w, http.StatusNotFound, "expectations are not available")
+		return
+	}
+	items, err := h.expects.List(workspaceID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if items == nil {
+		items = []models.Expectation{}
+	}
+	respondJSON(w, items)
+}
+
+// SetExpectation records what a device should offer, replacing an earlier entry for it. An empty ports list means nothing
+// should answer.
+func (h *NetauditHandlers) SetExpectation(w http.ResponseWriter, r *http.Request) {
+	var req expectationRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if req.WorkspaceID == "" || req.Device == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id and device are required")
+		return
+	}
+	if h.expects == nil {
+		writeJSONError(w, http.StatusNotFound, "expectations are not available")
+		return
+	}
+	exp, err := h.expects.Set(r.Context(), req.WorkspaceID, req.Device, req.Ports, req.Note)
+	switch {
+	case errors.Is(err, netaudit.ErrBadExpectation):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case err != nil:
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+	default:
+		respondJSON(w, exp)
+	}
+}
+
+// RemoveExpectation takes a device's expectation back.
+func (h *NetauditHandlers) RemoveExpectation(w http.ResponseWriter, r *http.Request) {
+	workspaceID, device := r.URL.Query().Get("workspace_id"), r.URL.Query().Get("device")
+	if workspaceID == "" || device == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id and device are required")
+		return
+	}
+	if h.expects == nil {
+		writeJSONError(w, http.StatusNotFound, "expectations are not available")
+		return
+	}
+	ok, err := h.expects.Remove(workspaceID, device)
+	switch {
+	case err != nil:
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+	case !ok:
+		writeJSONError(w, http.StatusNotFound, "no expectation for that device")
+	default:
+		w.WriteHeader(http.StatusNoContent)
+	}
 }

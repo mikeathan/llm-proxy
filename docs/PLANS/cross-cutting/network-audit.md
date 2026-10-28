@@ -666,9 +666,60 @@ the host. If ever built: off by default and operator-enabled, interface allow-li
 the jail, the model sees only parsed summaries (never packets), and a `Program` value plus its own amendment. The
 guarded-program runner is shaped so that adds a declaration, not plumbing; nothing for it is built now.
 
+### 13.I Design for review — expectations per device (13.B.3)
+
+*Status: draft for the owner's review; nothing is built. Read-only, no new probing, no Constitution change.*
+
+**What it is.** The operator records what a device should offer ("the printer: only 631"). After each scan, code reports the difference. It reuses what the scan already finds; it sends nothing new.
+
+**Data.** `Expectation{Device, Ports []int, Note, SetAt}`, one per device, stored per workspace in the same way acknowledgements are (`ack.go`, `ackservice.go`, the `persistence` JSON helpers: missing file = none, corrupt = quarantined). TCP only, like the scan. A device with no expectation behaves exactly as today.
+
+**Findings.** Two new checks in `checks.go`'s fixed vocabulary, evaluated in `RunReporter` beside `applyAcks`, in fixed wording, never from device text:
+- `unexpected_port` (medium): an open port that is not on the device's list. Key `device|tcp|port|unexpected_port`, so accepting it, "I've done this" and the baseline diff work unchanged.
+- `expected_port_closed` (low): a listed port that did not answer, which usually means the service is down. It is skipped for a device in `Unscanned` (its ports are unknown, not none).
+Both appear in `ProblemGroups` with a fix written once ("close it on the device, or add it to the expected list").
+
+**API.** `GET/PUT/DELETE /admin/api/netaudit/expectations`. A device must be inside the declared scan scope (`scanscope`); at most 64 ports per device and a cap on devices; a refused entry is a 400 that names it, as the scope endpoint does.
+
+**UI.** The Advanced device header gets "Set as expected": one click saves the device's current open ports, since typing a list is the slow way. An expectation shows as a short line on the device ("Expects 631") with Edit and Remove. Simple shows only the problems.
+
+**Open questions for the owner.**
+1. **Identity is the IP address.** `-sT --unprivileged` gives no MAC, so a DHCP change moves an expectation to the wrong device. Options: accept it and say so in the UI (recommended, same as acks), or require static leases for devices with an expectation.
+2. **Should a device with no open port at all be allowed an empty list** ("nothing should answer")? Recommended: yes.
+3. **Authentication.** Like acknowledgements, saving an expectation is an operator action behind the parked admin-API auth (D1); it stays a convention until that lands. An expectation can only hide or reveal findings, never widen the scan.
+
+**Owner decisions 2026-10-28:** set with one click from the current open ports (then editable); a device is identified by its IP address and the UI says so; `unexpected_port` is medium and `expected_port_closed` is low; an empty list is allowed.
+
+**Built 2026-10-28 (UI too: `ExpectedPortsDialog.vue`, "Set as expected" / "Edit expected" / "Remove expected" on the Advanced device header via `DeviceFindings.vue`, `useFindings.setExpected`, `utils/netaudit/expectations.ts`; the Help text says to set it again if a device gets a new address):** `models.Expectation`; `persistence/expectations.go` (`expectations.json` in the workspace's internal directory, outside the agent's jail, like the fix records); `netaudit/expectations.go` (`NewExpectation`, `ExpectationFindings`, the `Expectations` service, caps of 64 ports and 256 devices); `RunReporter.WithExpectations` adds the two checks to the scan's findings before the comparison, so they are diffed, accepted and kept like any other (a store that cannot be read is stated in the report, never hides the scan); a fix and a guide for each check; `GET/PUT/DELETE /admin/api/netaudit/expectations`. The deep check is §13.J.
+
+**Phases.** (1) model, store, evaluator and tests; (2) endpoints; (3) UI and the report line; (4) docs. Each is small enough for one PR; (1) and (2) can ship together.
+
+### 13.J Design for review — the interactive deep check (intrusive scripts)
+
+*Status: draft for the owner's review; nothing is built, and the Constitution text below is a proposal, not applied law.*
+
+**Goal.** Find what the nightly checks may not: SSL/TLS versions and ciphers a service still accepts (`ssl-enum-ciphers`, nmap categories `discovery, intrusive`) and whether SSH accepts passwords (`ssh-auth-methods`, `auth, intrusive`; it tries a random user name). Both talk only to the scanned host, but they send many handshakes or an authentication attempt, which II.3 does not cover ("anything that sends more than ordinary connections, tries credentials, or could disturb a device is intrusive ... needs its own amendment").
+
+**Shape (owner decision 2026-10-28: a separate, interactive check of one device).**
+- A new scan mode `deep` in the mode table (`nmap/argv.go`) with its own fixed list, `DeepScriptNames()`, kept apart from `CheckScriptNames()` so a nightly audit can never load it. The mode is refused unless the request carries the operator's grant.
+- Started only from the UI for one named device already inside the scan scope: `POST /admin/api/netaudit/deep {device}`. The button states what will be sent. It is **not** an agent tool and has no catalog entry, so a model cannot start it, and automations cannot either.
+- Limits in code: one device per request, only the ports the last scan found open on it, one run at a time, a cool-down per device, a hard run time limit, conservative timing.
+- Output is parsed into typed findings with fixed wording (`tls_weak_protocol`, `ssh_password_login`), as II.3 item 6 requires. The last deep result per device is kept and carried into the next audit's report marked "from the deep check of <date>", because the nightly scan does not repeat it.
+
+**Proposed Constitution amendment (for the security review, V.1).** Add to II.3's guarded-program text: *an intrusive program run is allowed only when (a) the operator asks for it in the interface for one named device in scope, (b) it never starts from an agent, an automation or any unattended path, (c) its scripts come from a separate exact reviewed list that never contains a script that guesses or brute-forces credentials, exploits a flaw, denies service, or can open connections to hosts other than the target, and (d) each run is rate-limited and time-limited. A change to that list is a security review.* Items (1) to (4) and (6) of the guarded-program text apply unchanged.
+
+**Owner decision 2026-10-28: admin-API authentication stays parked, so option (a) below holds: the deep check is designed but not built until authentication lands, and D1 is unchanged.** Questions 2 and 3 still need answers before then.
+
+**Open questions for the owner.**
+1. **Authentication (decided: wait).** D1 says intrusive modes against the *host's own addresses* wait for admin-API auth; the note after §13.B.4 says intrusive modes need auth in general. Without it, anyone who can reach the API can trigger a deep check on a LAN device. Options: (a) wait for auth (nothing is built); (b) amend D1 so a deep check may run against other LAN devices, never the host's own addresses, until auth lands, with the risk written into the Security UI copy as for acks. I recommend (b) only if you accept that a LAN caller can start one probe of one device at a time, rate-limited; otherwise (a).
+2. **Is `ssh-auth-methods` acceptable at all?** It sends an authentication attempt for a random user. The proposed wording allows it because it guesses no credential, but it is the closest item to II.3's line; dropping it leaves TLS only.
+3. **Real-device safety.** Both scripts have only been read, not run here. Before the list is final, run each once against a device you do not mind disturbing and record what it sent (ADR-0007: fixtures are not evidence).
+
+**Phases (after the amendment and the answers above).** (1) amendment text applied; (2) `deep` mode, list and refusal tests; (3) endpoint with grant, limits and cool-down; (4) findings, carry-over and report line; (5) UI button and copy.
+
 ## Remaining Work
 
-**Current (2026-10-28):** v0.15.0 adds the Tier 1 checks and the grouped report (13.B.2 as built, above); not yet run against real devices (the four new scripts and the Docker/Telnet rules are covered by fixtures and the argument tests only, like ADR-0007 says). Next on the owner's list: the interactive deep check for intrusive scripts, then expectations per device (13.B.3). **Earlier (2026-10-27):** §13.A is merged (#146, v0.13.0, live on vertex; a live rescan there has not been tried yet). Left is everything in §13.B–F, which waits on the owner's
+**Current (2026-10-28):** v0.15.0 adds the Tier 1 checks and the grouped report (13.B.2 as built, above); not yet run against real devices (the four new scripts and the Docker/Telnet rules are covered by fixtures and the argument tests only, like ADR-0007 says). Next on the owner's list: the interactive deep check for intrusive scripts (design §13.J, on hold until admin-API authentication lands) and expectations per device (13.B.3, design §13.I; built 2026-10-28, all four phases). **Earlier (2026-10-27):** §13.A is merged (#146, v0.13.0, live on vertex; a live rescan there has not been tried yet). Left is everything in §13.B–F, which waits on the owner's
 decisions (§13.F) or its own reviewed design; plus the hand verification of nmap under Landlock on Ubuntu (§13.D).
 **Owner decisions 2026-10-27:** vulnerability matching yes (NVD + KEV; design §13.G); assisted fixes yes as a design (targets set in 13.C.2); guarded-programs Constitution text approved and applied; admin API authentication stays parked. Source (NVD + KEV) and fix targets confirmed the same day. Next: accept the §13.G design, then build 13.B.1 phase by phase; the 13.C.2 design follows. The notes
 below are the phase-by-phase log and are due to be harvested into the learnings ledger and ADRs.

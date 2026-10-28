@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings, VulnDataStatus } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn() }))
+const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirmMock = vi.hoisted(() => vi.fn())
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
@@ -59,6 +59,7 @@ beforeEach(() => {
   routeState.hash = ''
   service.readiness.mockResolvedValue({ ready: true, requirements: [], notices: [] })
   service.vulnData.mockResolvedValue(vulnStatus())
+  service.expectations.mockResolvedValue([])
   // The download's state is shared by every screen, so each test starts from none.
   Object.assign(useVulnData(), {}).status.value = null
   useVulnData().error.value = ''
@@ -1180,5 +1181,65 @@ describe('ScanSummary', () => {
     const w = render({ depth: 'quick', checks: false, ports: '22,80', targets: ['192.168.1.0/24', 'nas.local'] })
     expect(w.findAll('[data-test="scan-tag"]').map((t) => t.text())).toEqual(['Quick scan', 'Checks off', 'ports 22,80', '192.168.1.0/24', 'nas.local'])
     expect(w.find('a').exists()).toBe(false)
+  })
+})
+
+describe('FindingsReport expected ports', () => {
+  const DEVICE = '192.0.2.10'
+  const scan: Report = {
+    scanned: true, scanned_at: '2026-10-28T02:00:00Z', engine: 'nmap', unscanned: [], devices_up: 1, resolved: [],
+    findings: [finding({ key: 'a', device: DEVICE, port: 631, service: 'ipp' }), finding({ key: 'b', device: DEVICE, port: 22, service: 'ssh' })],
+  }
+  async function mountAdvanced(expectations: { device: string; ports: number[]; set_at: string }[] = []) {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(scan)
+    service.expectations.mockResolvedValue(expectations)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    return w
+  }
+
+  it('sets what is open now as the expectation with one click, then reloads', async () => {
+    service.setExpectation.mockResolvedValue({})
+    const w = await mountAdvanced()
+    await w.get('[data-test="set-expected"]').trigger('click')
+    await flushPromises()
+    expect(service.setExpectation).toHaveBeenCalledWith({ workspace_id: 'ws', device: DEVICE, ports: [22, 631], note: '' })
+    expect(service.findings).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows what a device expects and lets the operator take it back', async () => {
+    service.removeExpectation.mockResolvedValue(undefined)
+    const w = await mountAdvanced([{ device: DEVICE, ports: [22], set_at: '2026-10-28T01:00:00Z' }])
+    expect(w.get('[data-test="expected"]').text()).toContain('Expects 22')
+    expect(w.find('[data-test="set-expected"]').exists()).toBe(false)
+    await w.get('[data-test="remove-expected"]').trigger('click')
+    await flushPromises()
+    expect(service.removeExpectation).toHaveBeenCalledWith('ws', DEVICE)
+  })
+
+  it('edits the ports by typing and refuses a bad list', async () => {
+    service.setExpectation.mockResolvedValue({})
+    const w = await mountAdvanced([{ device: DEVICE, ports: [22], set_at: '2026-10-28T01:00:00Z' }])
+    await w.get('[data-test="edit-expected"]').trigger('click')
+    const dialog = w.get('[role="dialog"]')
+    const input = dialog.get('input[type="text"]')
+    expect((input.element as HTMLInputElement).value).toBe('22')
+    await input.setValue('22, 99999')
+    expect(dialog.find('[data-test="ports-invalid"]').exists()).toBe(true)
+    await input.setValue('631 22')
+    expect(dialog.find('[data-test="ports-invalid"]').exists()).toBe(false)
+    await dialog.findAll('button').find((x) => x.text() === 'Save')!.trigger('click')
+    await flushPromises()
+    expect(service.setExpectation).toHaveBeenCalledWith({ workspace_id: 'ws', device: DEVICE, ports: [22, 631], note: '' })
+  })
+
+  it('still shows the report when the expectations cannot be read', async () => {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(scan)
+    service.expectations.mockRejectedValue(new Error('nope'))
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    expect(w.find('[data-test="set-expected"]').exists()).toBe(true)
   })
 })
