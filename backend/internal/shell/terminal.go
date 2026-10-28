@@ -133,6 +133,12 @@ func (ps *persistentShell) Execute(ctx context.Context, command string) (string,
 			ps.killAll()
 			return outputBuf.String(), ctxErr
 		case <-ps.watch.Done():
+			// Cancellation kills the process group, so the watcher can fire
+			// together with ctx.Done and select picks either at random; the
+			// cancellation is the cause, the exit only its symptom.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return outputBuf.String(), ctxErr
+			}
 			return outputBuf.String(), fmt.Errorf("shell process exited unexpectedly")
 		default:
 		}
