@@ -187,8 +187,10 @@ func TestDownload_ProgressShowsTheFileAndItsSizeWhileRunning(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		s := m.Status()
-		if s.State == StateRunning && s.File == "NVD 2025" {
-			if s.FilesDone != 2 || s.FilesTotal != 6 || s.BytesTotal != 1000 {
+		// The file's name is set before the request is made and its size only once the answer's headers arrive, so wait
+		// for both.
+		if s.State == StateRunning && s.File == "NVD 2025" && s.BytesTotal == 1000 {
+			if s.FilesDone != 2 || s.FilesTotal != 6 {
 				t.Errorf("status = %+v", s)
 			}
 			return
