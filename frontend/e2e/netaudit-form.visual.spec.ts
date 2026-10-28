@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { DEFAULT_CONFIG } from '../src/composables/models/useConfig'
+import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // The audit's edit form with its scan settings, Simple and Advanced at both widths: nothing may scroll sideways, and the
 // screenshots are for looking at.
@@ -11,24 +11,8 @@ const automation = {
 const profiles = [{ id: 'security-auditor', name: 'Security auditor', summary: 'Scans the networks you allowed.', source: 'builtin', answer_first: false, may_ask: false, memory_save: 'off', reminders: false, default_for: [] }]
 
 async function open(page: Page, view: 'simple' | 'advanced') {
-  await page.addInitScript((v) => localStorage.setItem('admin-ui:netaudit-view', JSON.stringify({ version: 1, data: v })), view)
-  await page.route('**/admin/api/**', async (route) => {
-    const path = new URL(route.request().url()).pathname
-    const json = path.endsWith('/state')
-      ? { config: structuredClone(DEFAULT_CONFIG), models: [], available_models: [] }
-      : path.endsWith('/netaudit/readiness')
-        ? { ready: true, requirements: [] }
-        : path.endsWith('/automations')
-          ? [automation]
-          : path.endsWith('/workspaces')
-            ? [{ id: 'ws' }]
-            : path.endsWith('/profiles')
-              ? profiles
-              : path.endsWith('/manifests') || path.endsWith('/mcp') || path.endsWith('/profile-schema')
-                ? []
-                : {}
-    await route.fulfill({ json })
-  })
+  await setNetauditView(page, view)
+  await mockAdminApi(page, { answers: { '/netaudit/readiness': { ready: true, requirements: [] }, '/automations': [automation], '/workspaces': [{ id: 'ws' }], '/profiles': profiles } })
   await page.goto('automations/ws%2Fnetwork-audit/edit')
   await expect(page.getByRole('heading', { name: 'What the audit scans' })).toBeVisible()
 }
@@ -36,8 +20,8 @@ async function open(page: Page, view: 'simple' | 'advanced') {
 for (const view of ['simple', 'advanced'] as const) {
   test(`audit form scan settings (${view}) fit the screen`, async ({ page }, testInfo) => {
     await open(page, view)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
+    await expectNoSidewaysScroll(page)
     await page.getByRole('heading', { name: 'What the audit scans' }).scrollIntoViewIfNeeded()
-    await page.screenshot({ path: testInfo.outputPath(`form-${view}.png`), fullPage: true })
+    await lookAt(page, testInfo, `form-${view}.png`, true)
   })
 }

@@ -23,6 +23,9 @@ type ScanSettings struct {
 	Ports string `yaml:"ports,omitempty" json:"ports,omitempty"`
 	// Checks says whether the safe checks run; nil is on. A pointer so an explicit "off" survives a save.
 	Checks *bool `yaml:"checks,omitempty" json:"checks,omitempty"`
+	// KnownVulns says whether the audit's report looks for known vulnerabilities in the software the scan recognised; nil
+	// is on. A pointer for the same reason as Checks.
+	KnownVulns *bool `yaml:"known_vulns,omitempty" json:"known_vulns,omitempty"`
 }
 
 // Thorough reports whether the scan looks harder (anything but an explicit quick).
@@ -30,6 +33,9 @@ func (s ScanSettings) Thorough() bool { return s.Depth != ScanDepthQuick }
 
 // ChecksOn reports whether the safe checks run (anything but an explicit off).
 func (s ScanSettings) ChecksOn() bool { return s.Checks == nil || *s.Checks }
+
+// KnownVulnsOn reports whether known-vulnerability matching is on (anything but an explicit off).
+func (s ScanSettings) KnownVulnsOn() bool { return s.KnownVulns == nil || *s.KnownVulns }
 
 // Normalized returns the settings with the depth and checks filled in, so a screen shows what will run without
 // knowing the defaults.
@@ -41,6 +47,8 @@ func (s ScanSettings) Normalized() ScanSettings {
 	s.Depth = depth
 	on := s.ChecksOn()
 	s.Checks = &on
+	vulns := s.KnownVulnsOn()
+	s.KnownVulns = &vulns
 	return s
 }
 

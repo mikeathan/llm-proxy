@@ -66,12 +66,12 @@ onMounted(findings.load)
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
 
-      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)">
+      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
         <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" /></template>
       </FindingsAdvanced>
       <template v-else>
         <UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" />
-        <FindingsSimple :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" />
+        <FindingsSimple :report="report" :summary="summary" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)" @rescan="findings.rescan($event)" />
       </template>
     </div>
 

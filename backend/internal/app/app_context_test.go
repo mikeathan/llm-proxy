@@ -958,6 +958,24 @@ func TestFactoryReset_RepointsRuntimeSecrets(t *testing.T) {
 	}
 }
 
+func TestFactoryReset_RunsTheRegisteredCleanupsAndSaysWhenOneFails(t *testing.T) {
+	srv := createTestServer(t, mocks.NewMockManager(), nil)
+	cleared := 0
+	srv.AfterFactoryReset("downloaded vulnerability data", func() error { cleared++; return nil })
+	srv.AfterFactoryReset("another cache", func() error { return errors.New("read-only") })
+
+	res, err := srv.FactoryReset()
+	if err != nil {
+		t.Fatalf("a failed cleanup must not undo a reset that worked: %v", err)
+	}
+	if cleared != 1 {
+		t.Errorf("the registered cleanup ran %d times, want once", cleared)
+	}
+	if len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "another cache") || !strings.Contains(res.Warnings[0], "read-only") {
+		t.Errorf("a failed cleanup is reported to the person who pressed reset: %v", res.Warnings)
+	}
+}
+
 func TestFactoryReset_RejectsActiveRuns(t *testing.T) {
 	srv := createTestServer(t, mocks.NewMockManager(), nil)
 	srv.SetActiveWorkChecker(func() bool { return true })

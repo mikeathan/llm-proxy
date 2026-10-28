@@ -17,6 +17,10 @@ type Port struct {
 	// Guessed means Service is only the usual name for that port number (nmap's port table), not something the scan
 	// confirmed by talking to the service.
 	Guessed bool `json:"guessed,omitempty"`
+	// CPEs are the identifiers nmap printed for the software it recognised (CPE 2.2 form, e.g.
+	// "cpe:/a:openbsd:openssh:9.6p1"), already checked for shape. The version inside one is the device's own text, so
+	// like Version it is untrusted; known-vulnerability matching reads them, nothing serialises them.
+	CPEs []string `json:"-"`
 	// Scripts are what nmap's scripts printed for this port (a checks scan only). They are read by the checks and
 	// never serialised: the text is whatever the device sent.
 	Scripts []Script `json:"-"`

@@ -3,6 +3,7 @@ package persistence
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -14,12 +15,12 @@ func TestAcks_NoneYetThenRoundTripPerWorkspace(t *testing.T) {
 	if got, err := mgr.ReadAcks("ws"); err != nil || len(got) != 0 {
 		t.Fatalf("no file is no acknowledgements: %v, %v", got, err)
 	}
-	ack := models.ScanAck{Key: "10.0.0.1|tcp|22|open_port", AcceptedVersion: "OpenSSH 9", Note: "jump host", AcceptedAt: time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2027, 1, 25, 0, 0, 0, 0, time.UTC)}
+	ack := models.ScanAck{Key: "10.0.0.1|tcp|22|open_port", AcceptedVersion: "OpenSSH 9", Note: "jump host", AcceptedCVEs: []string{"CVE-2024-0001"}, AcceptedExploited: []string{"CVE-2024-0001"}, AcceptedAt: time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2027, 1, 25, 0, 0, 0, 0, time.UTC)}
 	if err := mgr.WriteAcks("ws", []models.ScanAck{ack}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := mgr.ReadAcks("ws")
-	if err != nil || len(got) != 1 || got[0] != ack {
+	if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0], ack) {
 		t.Errorf("got %+v, %v", got, err)
 	}
 	if other, _ := mgr.ReadAcks("other-ws"); len(other) != 0 {

@@ -430,3 +430,24 @@ func TestOutboundSubnet_IsTheDefaultRoutesAddressOnASlash24(t *testing.T) {
 		t.Errorf("subnet %s does not hold %s as a /24", subnet, ip)
 	}
 }
+
+func TestNetworkTools_Open_RefusesWhatTheGuardrailsRefuse(t *testing.T) {
+	cases := map[string]models.NetworkGuardrailsConfig{
+		"tools disabled":    {Enabled: false, AllowInternetAccess: true},
+		"internet blocked":  {Enabled: true, AllowInternetAccess: false},
+		"domain blocked":    {Enabled: true, AllowInternetAccess: true, BlockedDomains: []string{"example.com"}},
+		"loopback is never": {Enabled: true, AllowInternetAccess: true},
+	}
+	for name, cfg := range cases {
+		nt := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, &mockLogger{})
+		target := "https://example.com/file"
+		if name == "loopback is never" {
+			target = "http://127.0.0.1:1/file"
+		}
+		resp, err := nt.Open(context.Background(), target)
+		if err == nil {
+			resp.Body.Close()
+			t.Errorf("%s: Open must refuse", name)
+		}
+	}
+}

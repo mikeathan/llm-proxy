@@ -73,3 +73,17 @@ func TestAutomation_ScanSurvivesTheConfigFile(t *testing.T) {
 		t.Errorf("an automation that has none keeps none: %s", raw)
 	}
 }
+
+func TestScanSettings_KnownVulnsDefaultsOnAndAnExplicitOffSurvivesNormalizing(t *testing.T) {
+	if !(ScanSettings{}).KnownVulnsOn() {
+		t.Error("no setting must mean on")
+	}
+	off := false
+	s := ScanSettings{KnownVulns: &off}
+	if s.KnownVulnsOn() || s.Normalized().KnownVulnsOn() {
+		t.Error("an explicit off must stay off")
+	}
+	if n := (ScanSettings{}).Normalized(); n.KnownVulns == nil || !*n.KnownVulns {
+		t.Errorf("Normalized must fill the default in: %+v", n.KnownVulns)
+	}
+}

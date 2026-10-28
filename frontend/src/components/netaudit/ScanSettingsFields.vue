@@ -19,11 +19,12 @@ const targets = defineModel<string>("targets", { required: true })
 const depth = defineModel<ScanDepth>("depth", { required: true })
 const ports = defineModel<string>("ports", { required: true })
 const checks = defineModel<boolean>("checks", { required: true })
+const knownVulns = defineModel<boolean>("knownVulns", { required: true })
 
 const { mode, advanced, set } = useNetauditViewMode()
 // Say now, not at 2 a.m., which typed networks the audit would refuse.
 const { problems } = useTargetCheck(() => targets.value)
-const summary = computed(() => scanFromForm({ scanTargets: targets.value, scanDepth: depth.value, scanPorts: ports.value, scanChecks: checks.value }))
+const summary = computed(() => scanFromForm({ scanTargets: targets.value, scanDepth: depth.value, scanPorts: ports.value, scanChecks: checks.value, scanKnownVulns: knownVulns.value }))
 const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 font-mono text-[length:var(--text-small)] text-primary focus-visible:outline-none focus-visible:ring-2"
 </script>
 
@@ -41,6 +42,7 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
       </template>
     </FormField>
     <ToggleField v-model="checks" label="Check for common weak settings" hint="SMBv1, anonymous FTP, a VNC or Redis with no password, exposed NFS shares, expired certificates and a few more. They only read; nothing tries a password and nothing changes on a device." />
+    <ToggleField v-model="knownVulns" label="Look for known vulnerabilities" hint="Compares the software the scan recognises with a list of publicly known flaws kept on this computer. A match means it may be affected, not that it is. The list is downloaded in Settings → Network scan; without it the audit still runs and says this check was skipped." />
     <template v-if="advanced">
       <FormField label="Networks to scan" hint="Leave empty to scan every network you allowed in Settings → Network scan. Or list addresses, ranges or device names, separated by commas; anything outside the allowed networks is refused when the audit runs.">
         <template #default="{ id, describedBy }">

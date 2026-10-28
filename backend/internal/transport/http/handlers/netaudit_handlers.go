@@ -24,6 +24,8 @@ type NetauditScope interface {
 // NetauditReadiness answers what is missing before scans can run.
 type NetauditReadiness interface {
 	Check(ctx context.Context) []models.Requirement
+	// Notices are improvements that never stop an audit (the vulnerability data not being downloaded).
+	Notices() []models.Requirement
 }
 
 // NetauditBaselines reads an automation's latest scan result. *persistence.WorkspaceManager satisfies it.
@@ -38,16 +40,30 @@ type NetauditAcks interface {
 	Revoke(workspaceID, key string) (bool, error)
 }
 
+// NetauditFixes is what the operator can do after applying a fix by hand: say so, take that back, list the records.
+type NetauditFixes interface {
+	List(workspaceID string) ([]models.FixRecord, error)
+	Mark(workspaceID, automation, key, note string) (models.FixRecord, error)
+	Unmark(workspaceID, key string) (bool, error)
+}
+
 // NetauditHandlers serves the operator's network-audit settings, the latest findings and the accepted findings.
 type NetauditHandlers struct {
 	scope     NetauditScope
 	readiness NetauditReadiness
 	baselines NetauditBaselines
 	acks      NetauditAcks
+	fixes     NetauditFixes // optional: without it findings carry guides but no record of what the operator did
 }
 
 func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines, acks NetauditAcks) *NetauditHandlers {
 	return &NetauditHandlers{scope: scope, readiness: readiness, baselines: baselines, acks: acks}
+}
+
+// WithFixes adds the operator's fix records, so findings show what they said and the page can record more.
+func (h *NetauditHandlers) WithFixes(fixes NetauditFixes) *NetauditHandlers {
+	h.fixes = fixes
+	return h
 }
 
 // findingView is a finding with whether the latest scan found it for the first time, and whether the operator has
@@ -65,15 +81,28 @@ type findingView struct {
 	Accepted        bool   `json:"accepted"`
 	AcceptedNote    string `json:"accepted_note,omitempty"`
 	AcceptedTill    string `json:"accepted_until,omitempty"`
+	// Guide is the longer, fixed-text form of the fix for a check (steps, commands to copy, risk, undo); absent for an
+	// open port. FixState, FixMarkedAt and FixNote say what the operator told us about it: that they applied the fix,
+	// when and with what note, and whether a scan since still shows it.
+	Guide       *netaudit.FixGuide `json:"guide,omitempty"`
+	FixState    string             `json:"fix_state,omitempty"`
+	FixMarkedAt string             `json:"fix_marked_at,omitempty"`
+	FixNote     string             `json:"fix_note,omitempty"`
+}
+
+// resolvedView is a finding the latest scan no longer shows, with when the operator marked it fixed if they had.
+type resolvedView struct {
+	models.ScanFinding
+	FixedAt string `json:"fixed_at,omitempty"`
 }
 
 // findingsResponse is an automation's latest scan as a screen needs it.
 type findingsResponse struct {
-	Scanned   bool                 `json:"scanned"`
-	ScannedAt string               `json:"scanned_at,omitempty"`
-	Engine    string               `json:"engine,omitempty"`
-	Findings  []findingView        `json:"findings"`
-	Resolved  []models.ScanFinding `json:"resolved"`
+	Scanned   bool           `json:"scanned"`
+	ScannedAt string         `json:"scanned_at,omitempty"`
+	Engine    string         `json:"engine,omitempty"`
+	Findings  []findingView  `json:"findings"`
+	Resolved  []resolvedView `json:"resolved"`
 	// Unscanned are the devices the engine ran out of time on; DevicesUp is how many addresses answered.
 	Unscanned []string `json:"unscanned"`
 	DevicesUp int      `json:"devices_up"`
@@ -92,28 +121,61 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := findingsResponse{Findings: []findingView{}, Resolved: []models.ScanFinding{}, Unscanned: []string{}}
+	resp := findingsResponse{Findings: []findingView{}, Resolved: []resolvedView{}, Unscanned: []string{}}
 	if !b.ScannedAt.IsZero() {
-		isNew := make(map[string]bool, len(b.NewKeys))
-		for _, k := range b.NewKeys {
-			isNew[k] = true
-		}
 		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp
 		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
-		acks := h.activeAcks(workspaceID)
+		views := newFindingViewer(b, h.activeAcks(workspaceID), h.fixRecords(workspaceID))
 		for _, f := range b.Findings {
-			view := findingView{ScanFinding: f, Key: f.Key(), New: isNew[f.Key()], Fix: netaudit.RemediationFor(f.Check)}
-			view.PreviousVersion, view.Changed = b.ChangedFrom[f.Key()]
-			if a, ok := acks[f.Key()]; ok && netaudit.StateFor(a, f, time.Now()) == netaudit.AckActive {
-				view.Accepted, view.AcceptedNote, view.AcceptedTill = true, a.Note, a.ExpiresAt.UTC().Format(time.RFC3339)
-			}
-			resp.Findings = append(resp.Findings, view)
+			resp.Findings = append(resp.Findings, views.finding(f))
 		}
-		if b.Resolved != nil {
-			resp.Resolved = b.Resolved
+		for _, r := range b.Resolved {
+			resp.Resolved = append(resp.Resolved, views.resolved(r))
 		}
 	}
 	respondJSON(w, resp)
+}
+
+// findingViewer turns the findings of one saved scan into what a screen needs, with the operator's acceptances and fix
+// records applied.
+type findingViewer struct {
+	b     models.ScanBaseline
+	isNew map[string]bool
+	acks  map[string]models.ScanAck
+	fixes map[string]models.FixRecord
+}
+
+func newFindingViewer(b models.ScanBaseline, acks map[string]models.ScanAck, fixes map[string]models.FixRecord) findingViewer {
+	isNew := make(map[string]bool, len(b.NewKeys))
+	for _, k := range b.NewKeys {
+		isNew[k] = true
+	}
+	return findingViewer{b: b, isNew: isNew, acks: acks, fixes: fixes}
+}
+
+func (v findingViewer) finding(f models.ScanFinding) findingView {
+	key := f.Key()
+	view := findingView{ScanFinding: f, Key: key, New: v.isNew[key], Fix: netaudit.RemediationFor(f.Check)}
+	view.PreviousVersion, view.Changed = v.b.ChangedFrom[key]
+	if g, ok := netaudit.GuideFor(f.Check); ok {
+		view.Guide = &g
+		if rec, marked := v.fixes[key]; marked {
+			view.FixState, view.FixNote = string(netaudit.FixStateFor(rec, v.b.ScannedAt)), rec.Note
+			view.FixMarkedAt = rec.AppliedAt.UTC().Format(time.RFC3339)
+		}
+	}
+	if a, ok := v.acks[key]; ok && netaudit.StateFor(a, f, time.Now()) == netaudit.AckActive {
+		view.Accepted, view.AcceptedNote, view.AcceptedTill = true, a.Note, a.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	return view
+}
+
+func (v findingViewer) resolved(r models.ScanFinding) resolvedView {
+	view := resolvedView{ScanFinding: r}
+	if at, ok := v.b.FixedAt[r.Key()]; ok {
+		view.FixedAt = at.UTC().Format(time.RFC3339)
+	}
+	return view
 }
 
 // GetReadiness lists every unmet prerequisite with the one step that would meet it. An empty list means scans can run.
@@ -122,10 +184,15 @@ func (h *NetauditHandlers) GetReadiness(w http.ResponseWriter, r *http.Request) 
 	if requirements == nil {
 		requirements = []models.Requirement{}
 	}
+	notices := h.readiness.Notices()
+	if notices == nil {
+		notices = []models.Requirement{}
+	}
 	respondJSON(w, struct {
 		Ready        bool                 `json:"ready"`
 		Requirements []models.Requirement `json:"requirements"`
-	}{Ready: len(requirements) == 0, Requirements: requirements})
+		Notices      []models.Requirement `json:"notices"`
+	}{Ready: len(requirements) == 0, Requirements: requirements, Notices: notices})
 }
 
 // scopeResponse is the scan scope with the networks the machine is attached to, so the settings page can offer them.
@@ -224,6 +291,22 @@ func (h *NetauditHandlers) activeAcks(workspaceID string) map[string]models.Scan
 	}
 	for _, a := range acks {
 		out[a.Key] = a
+	}
+	return out
+}
+
+// fixRecords indexes the workspace's fix records by finding key; a failure to read them shows every finding without one.
+func (h *NetauditHandlers) fixRecords(workspaceID string) map[string]models.FixRecord {
+	out := map[string]models.FixRecord{}
+	if h.fixes == nil {
+		return out
+	}
+	records, err := h.fixes.List(workspaceID)
+	if err != nil {
+		return out
+	}
+	for _, r := range records {
+		out[r.Key] = r
 	}
 	return out
 }

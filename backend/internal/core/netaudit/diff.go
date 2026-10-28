@@ -27,7 +27,7 @@ func Diff(prev, cur []Finding) Delta {
 		switch {
 		case !existed:
 			d.New = append(d.New, now)
-		case was.Version != now.Version:
+		case was.Version != now.Version || !slices.Equal(was.CVEs, now.CVEs) || !slices.Equal(was.Exploited, now.Exploited):
 			d.Changed = append(d.Changed, Change{Before: was, After: now})
 		default:
 			d.Unchanged++

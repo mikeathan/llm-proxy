@@ -216,6 +216,12 @@ func (s *AppContext) FactoryReset() (storage.ResetResult, error) {
 			logging.Warn("failed to restart watcher after reset", "error", werr)
 		}
 	}
+	for _, c := range s.resets {
+		if cerr := c.run(); cerr != nil {
+			logging.Warn("cleanup after factory reset failed", "what", c.what, "error", cerr)
+			res.Warnings = append(res.Warnings, fmt.Sprintf("%s could not be removed: %v", c.what, cerr))
+		}
+	}
 	return res, nil
 }
 

@@ -1,9 +1,19 @@
-import { ref, computed, type Ref } from "vue"
-import type { Automation, AutomationRun, RecordingMeta } from "../../types/dispatcher"
+import { ref, computed, getCurrentScope, onScopeDispose, type Ref } from "vue"
+import type { Automation, AutomationRun, RecordingMeta, TriggerResponse } from "../../types/dispatcher"
+
+// The server answers a trigger as soon as the run is admitted, but marks the automation running a moment later (after the
+// workspace lock and the pre-flight). Until it does, the page follows it once a second so the Run button shows "starting"
+// instead of looking as if the click did nothing; it gives up after a minute.
+const START_POLL_MS = 1000
+const START_WAIT_MAX_MS = 60_000
+const TRIGGER_STARTED = "started"
+
+/** The newest run on an automation; a new one appearing means the run came and went without showing as running. */
+const lastRunId = (a: Automation | null | undefined) => a?.history?.[a.history.length - 1]?.id ?? ""
 
 export function useAutomationRunner(
   automations: Ref<Automation[]>,
-  triggerAutomation: (workspace: string, name: string, recordingRef?: string) => Promise<void>,
+  triggerAutomation: (workspace: string, name: string, recordingRef?: string) => Promise<TriggerResponse | void>,
   stopAutomation: (workspace: string) => Promise<void>,
   refreshHistory: () => Promise<void>,
   fetchAutomations: (silent?: boolean) => Promise<void>,
@@ -12,6 +22,16 @@ export function useAutomationRunner(
   const selectedRun = ref<AutomationRun | null>(null)
   const triggering = ref(false)
   const lastTriggerResult = ref<string | null>(null)
+  // True from the moment a run was admitted until the server shows it running (or it has visibly ended or failed to start).
+  const starting = ref(false)
+  let startWatch: ReturnType<typeof setInterval> | null = null
+
+  function stopWatchingStart() {
+    if (startWatch !== null) clearInterval(startWatch)
+    startWatch = null
+    starting.value = false
+  }
+  if (getCurrentScope()) onScopeDispose(stopWatchingStart)
 
   const selectedAutomation = computed(() => {
     if (!selectedAutomationId.value) return null
@@ -33,6 +53,7 @@ export function useAutomationRunner(
   }
 
   function selectAutomation(auto: Automation) {
+    stopWatchingStart()
     selectedAutomationId.value = auto.id
     selectedRun.value = null
     lastTriggerResult.value = null
@@ -50,12 +71,35 @@ export function useAutomationRunner(
     }
   }
 
+  /** Follows an admitted run until the server shows it running; a run that is queued or skipped has nothing to wait for. */
+  function watchStart(outcome: TriggerResponse | void, baseline: string) {
+    const auto = selectedAutomation.value
+    if (outcome?.status !== TRIGGER_STARTED || !auto || auto.is_running || auto.queued || lastRunId(auto) !== baseline) return
+    stopWatchingStart()
+    starting.value = true
+    const began = Date.now()
+    let inFlight = false
+    startWatch = setInterval(async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        await fetchAutomations(true)
+      } finally {
+        inFlight = false
+      }
+      const now = selectedAutomation.value
+      if (!now || now.is_running || now.queued || lastRunId(now) !== baseline || Date.now() - began >= START_WAIT_MAX_MS) stopWatchingStart()
+    }, START_POLL_MS)
+  }
+
   async function handleTrigger() {
     if (!selectedAutomation.value) return
+    const baseline = lastRunId(selectedAutomation.value)
+    let outcome: TriggerResponse | void = undefined
     triggering.value = true
     lastTriggerResult.value = `Running ${selectedAutomation.value.name}...`
     try {
-      await triggerAutomation(
+      outcome = await triggerAutomation(
         selectedAutomation.value.workspace,
         selectedAutomation.value.name,
       )
@@ -67,14 +111,17 @@ export function useAutomationRunner(
       await fetchAutomations()
       await refreshHistory()
     }
+    watchStart(outcome, baseline)
   }
 
   async function handleReplayRecording(auto: Automation, recording: RecordingMeta) {
     selectedAutomationId.value = auto.id
+    const baseline = lastRunId(auto)
+    let outcome: TriggerResponse | void = undefined
     triggering.value = true
     lastTriggerResult.value = `Replaying recording for ${auto.name}...`
     try {
-      await triggerAutomation(auto.workspace, auto.name, recording.id)
+      outcome = await triggerAutomation(auto.workspace, auto.name, recording.id)
       lastTriggerResult.value = `Replayed ${auto.name} from recording`
     } catch {
       lastTriggerResult.value = `Failed to replay ${auto.name}`
@@ -83,6 +130,7 @@ export function useAutomationRunner(
       await fetchAutomations()
       await refreshHistory()
     }
+    watchStart(outcome, baseline)
   }
 
   async function handleStopRecording(workspace: string) {
@@ -113,6 +161,7 @@ export function useAutomationRunner(
   }
 
   function clearSelection() {
+    stopWatchingStart()
     selectedAutomationId.value = null
     selectedRun.value = null
     lastTriggerResult.value = null
@@ -122,6 +171,7 @@ export function useAutomationRunner(
     selectedAutomationId,
     selectedRun,
     triggering,
+    starting,
     lastTriggerResult,
     selectedAutomation,
     anyRunningInSelectedWorkspace,

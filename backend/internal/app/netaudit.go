@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"time"
 
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/scantool"
+	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/progexec"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
@@ -22,6 +26,17 @@ type netauditServices struct {
 	Scope     *netaudit.Scope
 	Readiness *netaudit.Readiness
 	Acks      *netaudit.Acks
+	Fixes     *netaudit.Fixes
+	// Vulns holds the vulnerability data and runs its operator-started download.
+	Vulns *vulnfeed.Manager
+}
+
+// NetauditVulns is where the run reporter reads the vulnerability data from; nil until the services are wired.
+func (s AppServices) NetauditVulns() netaudit.VulnSource {
+	if s.netaudit == nil || s.netaudit.Vulns == nil {
+		return nil
+	}
+	return s.netaudit.Vulns.Index
 }
 
 // NetauditPreflight is the check the dispatcher runs before a scheduled audit touches the model; it is nil until the
@@ -76,13 +91,26 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	service := netaudit.NewService(
 		netaudit.PolicyAuthorizer{Policy: scope.Policy, Resolver: net.DefaultResolver}, nmapEngine, probe).WithDeviceTimeout(scope.DeviceTimeout)
 
+	// The vulnerability data is downloaded only when the operator asks. The fetch goes through the guarded network
+	// client, so the global network guardrails and the blocked-domain list apply to it like to any agent fetch.
+	netTools := tools.NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return dataMgr.Settings().Get().Guardrails.Network
+	}, s.logger)
+	vulns := vulnfeed.New(persistence.NewVulnIndexStore(s.AppCtx.RootDir()), netTools.Open, vulnfeed.DefaultSources())
+
 	readiness := netaudit.NewReadiness(netaudit.ReadinessDeps{
 		Config:        store.Get,
 		Nmap:          nmapEngine,
 		Sandbox:       s.AppCtx.sandboxProv,
 		HostNetworkOn: func() bool { return s.AppCtx.HostSettings().Sandboxing.NetworkAllowed() },
+		VulnData: func() netaudit.VulnDataView {
+			st := vulns.Status()
+			return netaudit.VulnDataView{Running: st.State == vulnfeed.StateRunning, FilesDone: st.FilesDone, FilesTotal: st.FilesTotal, Age: st.Age(time.Now())}
+		},
 	})
-	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence())}
+	// The downloaded vulnerability data lives beside the settings, outside what a factory reset replaces; a reset clears it too.
+	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
+	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))

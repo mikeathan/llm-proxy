@@ -3,8 +3,11 @@ import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import Disclosure from "../common/layout/Disclosure.vue"
+import FixGuidePanel from "./FixGuidePanel.vue"
 import { checkCount, describePort, isCheck, isGuessedService, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { groupByDevice } from "../../utils/netaudit/report"
+import { flawsOf, nvdUrl } from "../../utils/netaudit/flaws"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
 import type { FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
@@ -12,9 +15,18 @@ import type { FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "
 // The Advanced report: a tile for each part (they filter the list), then every device with its ports, services and
 // versions, and Accept… or Undo on each. Both views read the same data.
 const props = defineProps<{ report: FindingsReport; summary: ReportSummary }>()
-const emit = defineEmits<{ (e: "accept", finding: ScanFinding): void; (e: "revoke", finding: ScanFinding): void; (e: "rescan", device: string): void }>()
+const emit = defineEmits<{
+  (e: "accept", finding: ScanFinding): void
+  (e: "revoke", finding: ScanFinding): void
+  (e: "rescan", device: string): void
+  (e: "mark", finding: ScanFinding): void
+  (e: "unmark", finding: ScanFinding): void
+}>()
 
 const filter = ref<FindingFilter>("all")
+const KNOWN_VULNS = "known_vulns"
+// Which findings have their flaw list open; folded by default, since a port can have dozens.
+const flawsOpen = ref<Record<string, boolean>>({})
 
 const TILES: { value: Exclude<FindingFilter, "all">; label: string; count: () => number; dashed?: boolean }[] = [
   { value: "problems", label: "problems found by checks", count: () => props.summary.problems.length },
@@ -91,7 +103,20 @@ const STATE_CLASS: Record<string, string> = {
             <span v-if="isCheck(f)" class="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
               <StatusTag :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" />
               {{ f.evidence || "A check found a problem" }}
+              <template v-if="f.check === KNOWN_VULNS">
+                <span class="w-full break-words font-mono text-[length:var(--text-small)] font-normal text-muted" data-test="vuln-software">Compared: {{ [serviceName(f.service), f.version].filter(Boolean).join(" · ") }}</span>
+                <Disclosure v-if="flawsOf(f).length" class="w-full font-normal" data-test="vuln-flaws" :title="`All ${flawsOf(f).length} known flaws`" :open="!!flawsOpen[f.key]" @update:open="flawsOpen[f.key] = $event">
+                  <ul class="m-0 flex list-none flex-col gap-1 p-0">
+                    <li v-for="flaw in flawsOf(f)" :key="flaw.id" data-test="vuln-flaw" class="flex flex-wrap items-center gap-x-3 font-mono text-[length:var(--text-small)] font-normal">
+                      <a :href="nvdUrl(flaw.id)" target="_blank" rel="noopener noreferrer" class="text-accent-info-text underline-offset-2 hover:underline">{{ flaw.id }}</a>
+                      <span class="text-muted">{{ flaw.score === null ? "no score" : `score ${flaw.score}` }}</span>
+                      <span v-if="flaw.exploited" class="text-state-error">exploited</span>
+                    </li>
+                  </ul>
+                </Disclosure>
+              </template>
               <span v-if="f.fix" class="w-full break-words text-[length:var(--text-small)] font-normal text-secondary" data-test="fix">How to fix it: {{ f.fix }}</span>
+              <FixGuidePanel v-if="!f.accepted" :finding="f" :advanced="true" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
             </span>
             <span v-else class="min-w-0 flex-1 break-words font-mono text-[length:var(--text-small)] text-secondary">
               {{ serviceName(f.service) }}<template v-if="isGuessedService(f.service)"> (guess)</template> ·
@@ -112,7 +137,7 @@ const STATE_CLASS: Record<string, string> = {
       <p v-if="!resolvedGroups.length" class="m-0 text-muted">Nothing has gone away since the scan before.</p>
       <section v-for="g in resolvedGroups" :key="g.device" :aria-label="g.device" class="rounded-[var(--radius-md)] border border-hairline">
         <header class="bg-surface-raised px-3 py-2 font-mono font-semibold text-primary">{{ g.device }}</header>
-        <p v-for="r in g.items" :key="`${describePort(r)}|${r.check ?? ''}`" class="m-0 border-t border-hairline px-3 py-2 font-mono text-[length:var(--text-small)] text-secondary">{{ isCheck(r) ? (r.evidence || "A check finding") : describePort(r) }} <span class="text-muted">is no longer there</span></p>
+        <p v-for="r in g.items" :key="`${describePort(r)}|${r.check ?? ''}`" class="m-0 border-t border-hairline px-3 py-2 font-mono text-[length:var(--text-small)] text-secondary">{{ isCheck(r) ? (r.evidence || "A check finding") : describePort(r) }} <span class="text-muted">is no longer there</span><template v-if="r.fixed_at"> <span class="text-state-success" data-test="fixed-confirmed">· fixed: you marked it on {{ formatAbsoluteTime(r.fixed_at) }} and the scan confirms it</span></template></p>
       </section>
     </template>
   </div>

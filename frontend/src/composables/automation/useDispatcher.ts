@@ -1,6 +1,6 @@
 import { HEARTBEAT_TASK_FILE } from '../../utils/automation/heartbeat'
 import { computed, markRaw, ref, shallowRef } from 'vue'
-import type { Automation, AutomationRun, AgentState, DispatcherMetrics } from '../../types/dispatcher'
+import type { Automation, AutomationRun, AgentState, DispatcherMetrics, TriggerResponse } from '../../types/dispatcher'
 import { useAppBanner } from '../ui/useAppBanner'
 import { DispatcherService } from '../../services/automation/dispatcherService'
 import type { WorkspaceTree } from '../../types/workspace'
@@ -81,7 +81,7 @@ async function fetchMetrics() {
   }
 }
 
-async function triggerAutomation(workspace: string, automation: string, recordingRef?: string) {
+async function triggerAutomation(workspace: string, automation: string, recordingRef?: string): Promise<TriggerResponse> {
   clearBanner()
   try {
     const result = await DispatcherService.triggerAutomation(workspace, automation, recordingRef)
@@ -94,6 +94,7 @@ async function triggerAutomation(workspace: string, automation: string, recordin
     if (result.status === TRIGGER_SKIPPED_STATUS) {
       showBanner({ severity: 'notice', message: `${automation} was skipped: it has nothing to run yet. Add checks to ${HEARTBEAT_TASK_FILE}.` })
     }
+    return result
   } catch (e) {
     showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to trigger automation' })
     console.error('triggerAutomation error:', e)

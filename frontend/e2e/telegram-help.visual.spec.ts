@@ -1,22 +1,13 @@
 import { expect, test } from '@playwright/test'
 import { DEFAULT_CONFIG } from '../src/composables/models/useConfig'
+import { mockAdminApi } from './support/adminApi'
 
 test('saved Telegram secrets are visibly masked in the edit form', async ({ page }, testInfo) => {
   const config = structuredClone(DEFAULT_CONFIG)
   config.communication.connectors = {
     tg: { type: 'telegram', enabled: true, secret_ref: 'tg', settings: { chat_id: '42', webhook_token: 'fixture-webhook-secret' } },
   }
-  await page.route('**/admin/api/**', async (route) => {
-    const path = new URL(route.request().url()).pathname
-    const json = path.endsWith('/state')
-      ? { config, models: [], available_models: [] }
-      : path.endsWith('/secrets/tools')
-        ? { secret: '••••1234' }
-        : path.endsWith('/manifests') || path.endsWith('/mcp') || path.endsWith('/workspaces')
-          ? []
-          : {}
-    await route.fulfill({ json })
-  })
+  await mockAdminApi(page, { config, answers: { '/secrets/tools': { secret: '••••1234' } } })
   await page.goto('settings/communication')
   await page.getByRole('button', { name: 'Edit tg', exact: true }).click()
   const token = page.getByLabel('Bot token', { exact: true })
@@ -31,15 +22,7 @@ test('saved Telegram secrets are visibly masked in the edit form', async ({ page
 })
 
 test('Telegram setup help follows the theme and preserves the form draft', async ({ page }, testInfo) => {
-  await page.route('**/admin/api/**', async (route) => {
-    const path = new URL(route.request().url()).pathname
-    const json = path.endsWith('/state')
-      ? { config: DEFAULT_CONFIG, models: [], available_models: [] }
-      : path.endsWith('/manifests') || path.endsWith('/mcp') || path.endsWith('/workspaces')
-        ? []
-        : {}
-    await route.fulfill({ json })
-  })
+  await mockAdminApi(page)
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.goto('settings/communication')
   await page.getByRole('button', { name: 'Add connector', exact: true }).click()

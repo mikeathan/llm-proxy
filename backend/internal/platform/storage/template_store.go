@@ -21,6 +21,7 @@ const (
 	templateScheduleField = "**Schedule:**"
 	templateDepthField    = "**Depth:**"
 	templateChecksField   = "**Checks:**"
+	templateVulnsField    = "**Known vulnerabilities:**"
 	templatePortsField    = "**Ports:**"
 	templateTargetsField  = "**Targets:**"
 	templateSummaryField  = "**Summary:**"
@@ -137,6 +138,11 @@ var headerFields = []struct {
 	{templateChecksField, func(m *models.TemplateMetadata, v string) {
 		if on := onOff(v); on != nil {
 			m.Defaults.ScanSettings().Checks = on
+		}
+	}},
+	{templateVulnsField, func(m *models.TemplateMetadata, v string) {
+		if on := onOff(v); on != nil {
+			m.Defaults.ScanSettings().KnownVulns = on
 		}
 	}},
 	{templateDepthField, func(m *models.TemplateMetadata, v string) {

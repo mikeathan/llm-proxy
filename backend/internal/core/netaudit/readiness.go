@@ -3,6 +3,9 @@ package netaudit
 import (
 	"context"
 	"errors"
+	"fmt"
+	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"time"
 
 	"llm-proxy/internal/platform/progexec"
 	"llm-proxy/internal/platform/sandbox"
@@ -28,6 +31,19 @@ type ReadinessDeps struct {
 	Sandbox interface{ Effective() sandbox.EffectiveState }
 	// HostNetworkOn reports whether the host allows agent network traffic at all.
 	HostNetworkOn func() bool
+	// VulnData reports how much of the vulnerability data is downloaded; nil means notices about it are not made.
+	VulnData func() VulnDataView
+}
+
+// OldVulnDataAge is how old held vulnerability data may get before a notice offers the update.
+const OldVulnDataAge = vulnfeed.StaleAfter
+
+// VulnDataView is what the notice about the vulnerability data needs: whether a download is running, how many of the
+// wanted files are held, and how long ago the oldest held source was downloaded (zero when nothing is held).
+type VulnDataView struct {
+	Running               bool
+	FilesDone, FilesTotal int
+	Age                   time.Duration
 }
 
 // Readiness answers "can a scan run, and if not, what is missing?" — the one source for the tool's visibility, the
@@ -94,4 +110,33 @@ func nmapMissing(err error) models.Requirement {
 		req.Fix = &models.RequirementFix{Kind: models.FixCopy, Text: notInstalled.Hint}
 	}
 	return req
+}
+
+// Notices lists what would improve an audit but never stops one: unlike Check, an audit runs without them, so the
+// pre-flight does not read them. Today that is the vulnerability data, which an audit works without (the report then says
+// the known-vulnerability check was skipped).
+func (r *Readiness) Notices() []models.Requirement {
+	if r.deps.VulnData == nil {
+		return nil
+	}
+	v := r.deps.VulnData()
+	fix := &models.RequirementFix{Kind: models.FixOpenSettings, Section: scanSettingsSection}
+	notice := func(message string) []models.Requirement {
+		return []models.Requirement{{Code: models.RequirementVulnDataMissing, Message: message, Fix: fix}}
+	}
+	switch {
+	case v.Running:
+		return notice(fmt.Sprintf("Vulnerability data is downloading (%d of %d files).", v.FilesDone, v.FilesTotal))
+	case v.FilesDone >= v.FilesTotal && v.Age > OldVulnDataAge:
+		days := int(v.Age / (24 * time.Hour))
+		return []models.Requirement{{
+			Code: models.RequirementVulnDataOld, Fix: fix,
+			Message: fmt.Sprintf("The vulnerability data was downloaded %d days ago, so newer flaws are missing from audits. Update it in the scan settings.", days),
+		}}
+	case v.FilesDone >= v.FilesTotal:
+		return nil
+	case v.FilesDone == 0:
+		return notice("Vulnerability data is not downloaded, so audits skip the check for known vulnerabilities. Download it in the scan settings.")
+	}
+	return notice(fmt.Sprintf("The vulnerability data download did not finish (%d of %d files). Audits use what was downloaded; resume it in the scan settings.", v.FilesDone, v.FilesTotal))
 }

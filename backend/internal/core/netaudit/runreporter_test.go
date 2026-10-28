@@ -282,3 +282,71 @@ func TestRunReporter_TheSummaryIsSetAndHonoursAcceptedFindings(t *testing.T) {
 		t.Error("a context without a collector has no summary")
 	}
 }
+
+// smbHost is a device whose scan found SMBv1 (or, when fixed is true, only a current SMB version).
+func smbHost(addr string, fixed bool) Host {
+	out := "\n  dialects: \n    NT LM 0.12 (SMBv1) [dangerous, but default]\n    2.0.2\n    2.1\n    3.1.1"
+	if fixed {
+		out = "\n  dialects: \n    2.0.2\n    2.1\n    3.1.1"
+	}
+	return Host{Addr: netip.MustParseAddr(addr), Up: true, Ports: []Port{{Number: 445, Proto: "tcp", State: "open", Service: "microsoft-ds", Scripts: []Script{{ID: "smb-protocols", Output: out}}}}}
+}
+
+func scannedHosts(hosts ...Host) context.Context {
+	ctx, c := WithCollector(context.Background())
+	c.Add(Result{Engine: "nmap", Hosts: hosts})
+	return ctx
+}
+
+func smbKey(addr string) string { return addr + "|tcp|445|" + CheckSMBv1 }
+
+func TestRunReporter_AFindingMarkedFixedThatIsGoneIsConfirmedAndTheRecordRetired(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	fixes := &memFixes{records: []models.FixRecord{{Key: smbKey("10.0.0.1"), AppliedAt: reportTime.Add(-time.Hour)}, {Key: smbKey("10.0.0.2"), AppliedAt: reportTime.Add(-time.Hour)}}}
+	reporter(store, reportTime.Add(-24*time.Hour)).Augment(scannedHosts(smbHost("10.0.0.1", false), smbHost("10.0.0.2", false)), "ws", "nightly", "")
+
+	// The first device no longer shows SMBv1; the second still does.
+	reporter(store, reportTime).WithFixes(fixes).Augment(scannedHosts(smbHost("10.0.0.1", true), smbHost("10.0.0.2", false)), "ws", "nightly", "")
+
+	b := store.data["ws/nightly"]
+	if len(b.FixedAt) != 1 || !b.FixedAt[smbKey("10.0.0.1")].Equal(reportTime.Add(-time.Hour)) {
+		t.Errorf("the baseline should say the fixed finding is confirmed gone: %+v", b.FixedAt)
+	}
+	if len(fixes.records) != 1 || fixes.records[0].Key != smbKey("10.0.0.2") {
+		t.Errorf("only the confirmed record is retired; the other finding is still there: %+v", fixes.records)
+	}
+}
+
+func TestRunReporter_ARecordForADeviceNotScannedThisTimeStays(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	fixes := &memFixes{records: []models.FixRecord{{Key: smbKey("10.0.0.2"), AppliedAt: reportTime.Add(-time.Hour)}}}
+	reporter(store, reportTime.Add(-24*time.Hour)).Augment(scannedHosts(smbHost("10.0.0.1", false), smbHost("10.0.0.2", false)), "ws", "nightly", "")
+
+	reporter(store, reportTime).WithFixes(fixes).Augment(scannedHosts(smbHost("10.0.0.1", false)), "ws", "nightly", "")
+
+	if len(fixes.records) != 1 || len(store.data["ws/nightly"].FixedAt) != 0 {
+		t.Errorf("a device that was not looked at has not been fixed: records %+v, fixed %+v", fixes.records, store.data["ws/nightly"].FixedAt)
+	}
+}
+
+func TestRunReporter_FixRecordsNeverChangeWhatTheReportListsOrCompares(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	fixes := &memFixes{records: []models.FixRecord{{Key: smbKey("10.0.0.1"), AppliedAt: reportTime.Add(-time.Hour)}}}
+	got := reporter(store, reportTime).WithFixes(fixes).Augment(scannedHosts(smbHost("10.0.0.1", false)), "ws", "nightly", "")
+	if !strings.Contains(got, "SMBv1") {
+		t.Errorf("a finding marked fixed must still be reported while it is there:\n%s", got)
+	}
+	if fixes.writes != 0 || len(store.data["ws/nightly"].FixedAt) != 0 {
+		t.Errorf("nothing was confirmed, so nothing is written: %d writes, %+v", fixes.writes, store.data["ws/nightly"].FixedAt)
+	}
+}
+
+func TestRunReporter_FixRecordTroubleIsStatedAndNeverBreaksTheReport(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	reporter(store, reportTime.Add(-time.Hour)).Augment(scannedHosts(smbHost("10.0.0.1", false)), "ws", "nightly", "")
+	fixes := &memFixes{readErr: errors.New("boom")}
+	got := reporter(store, reportTime).WithFixes(fixes).Augment(scannedHosts(smbHost("10.0.0.1", true)), "ws", "nightly", "")
+	if !strings.Contains(got, "fix records could not be read") {
+		t.Errorf("the trouble is stated:\n%s", got)
+	}
+}

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/platform/progexec"
 	"llm-proxy/internal/platform/sandbox"
@@ -99,5 +101,60 @@ func TestReadiness_NoSandboxIsNotReportedWhenNmapIsMissingToo(t *testing.T) {
 	got := NewReadiness(deps).Check(context.Background())
 	if !slices.Equal(codes(got), []models.RequirementCode{models.RequirementNmapMissing}) {
 		t.Errorf("requirements = %v (confinement only matters once nmap is there)", codes(got))
+	}
+}
+
+func TestReadiness_OldVulnerabilityDataIsANoticeThatOffersTheUpdate(t *testing.T) {
+	deps := readyDeps()
+	deps.VulnData = func() VulnDataView { return VulnDataView{FilesDone: 6, FilesTotal: 6, Age: 61 * 24 * time.Hour} }
+	r := NewReadiness(deps)
+	got := r.Notices()
+	if len(got) != 1 || got[0].Code != models.RequirementVulnDataOld || got[0].Blocking || !strings.Contains(got[0].Message, "61 days") ||
+		got[0].Fix == nil || got[0].Fix.Kind != models.FixOpenSettings || got[0].Fix.Section != "network-scan" {
+		t.Errorf("notices = %+v", got)
+	}
+	if len(r.Check(context.Background())) != 0 {
+		t.Error("old data must not count as an unmet requirement")
+	}
+	if _, _, refused := r.Preflight(context.Background(), AuditorProfileID); refused {
+		t.Error("a scheduled audit must still run with old data")
+	}
+}
+
+func TestReadiness_NoticesSayWhatTheVulnerabilityDataLacksButNeverStopAnAudit(t *testing.T) {
+	cases := []struct {
+		name string
+		view VulnDataView
+		want string // "" = no notice
+	}{
+		{"nothing downloaded", VulnDataView{FilesTotal: 6}, "not downloaded"},
+		{"running", VulnDataView{Running: true, FilesDone: 2, FilesTotal: 6}, "downloading (2 of 6 files)"},
+		{"stopped part-way", VulnDataView{FilesDone: 3, FilesTotal: 6}, "did not finish (3 of 6 files)"},
+		{"complete", VulnDataView{FilesDone: 6, FilesTotal: 6}, ""},
+		{"complete and recent", VulnDataView{FilesDone: 6, FilesTotal: 6, Age: 59 * 24 * time.Hour}, ""},
+	}
+	for _, c := range cases {
+		deps := readyDeps()
+		view := c.view
+		deps.VulnData = func() VulnDataView { return view }
+		r := NewReadiness(deps)
+		got := r.Notices()
+		if c.want == "" {
+			if len(got) != 0 {
+				t.Errorf("%s: %+v", c.name, got)
+			}
+		} else if len(got) != 1 || !strings.Contains(got[0].Message, c.want) || got[0].Blocking ||
+			got[0].Code != models.RequirementVulnDataMissing || got[0].Fix == nil || got[0].Fix.Kind != models.FixOpenSettings || got[0].Fix.Section != "network-scan" {
+			t.Errorf("%s: %+v", c.name, got)
+		}
+		if len(r.Check(context.Background())) != 0 {
+			t.Errorf("%s: a notice must not count as an unmet requirement", c.name)
+		}
+		if _, _, refused := r.Preflight(context.Background(), AuditorProfileID); refused {
+			t.Errorf("%s: a scheduled audit must still run without vulnerability data", c.name)
+		}
+	}
+	if got := NewReadiness(readyDeps()).Notices(); got != nil {
+		t.Errorf("no data source wired: %+v", got)
 	}
 }

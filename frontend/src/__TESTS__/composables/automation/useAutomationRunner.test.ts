@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { ref } from 'vue'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { effectScope, ref } from 'vue'
 import { useAutomationRunner } from '../../../composables/automation/useAutomationRunner'
 import type { Automation, AutomationRun } from '../../../types/dispatcher'
 
@@ -63,5 +63,84 @@ describe('useAutomationRunner', () => {
     r.selectAutomation(A)
     r.clearSelection()
     expect(r.selectedAutomation.value).toBeNull()
+  })
+})
+
+// The server answers a trigger as soon as the run is admitted, but only marks the automation running a moment later
+// (after the workspace lock and the pre-flight). Until then the button must not look as if the click did nothing.
+describe('useAutomationRunner: starting', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  const idle = (): Automation => ({ id: 'ws/a', workspace: 'ws', name: 'a', is_running: false, history: [] }) as unknown as Automation
+
+  function start(status: 'started' | 'queued' | 'skipped' = 'started') {
+    const automations = ref([idle()])
+    const trigger = vi.fn().mockResolvedValue({ status })
+    const fetchAutomations = vi.fn().mockResolvedValue(undefined)
+    const scope = effectScope()
+    const r = scope.run(() => useAutomationRunner(automations, trigger, vi.fn(), vi.fn().mockResolvedValue(undefined), fetchAutomations))!
+    r.selectAutomation(automations.value[0]!)
+    return { r, automations, fetchAutomations, scope }
+  }
+  const mutate = (automations: ReturnType<typeof start>['automations'], over: Partial<Automation>) => { automations.value = [{ ...automations.value[0]!, ...over }] }
+
+  it('stays "starting" after the trigger answers, and follows the server until it says running', async () => {
+    const { r, automations, fetchAutomations, scope } = start()
+    await r.handleTrigger()
+    expect(r.triggering.value).toBe(false)
+    expect(r.starting.value).toBe(true)
+    fetchAutomations.mockClear()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(fetchAutomations).toHaveBeenCalledTimes(3)
+    expect(r.starting.value).toBe(true)
+    mutate(automations, { is_running: true })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(r.starting.value).toBe(false)
+    fetchAutomations.mockClear()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchAutomations).not.toHaveBeenCalled()
+    scope.stop()
+  })
+
+  it('is not starting when the run is already running by the time the trigger returns', async () => {
+    const { r, automations, scope } = start()
+    mutate(automations, { is_running: true })
+    await r.handleTrigger()
+    expect(r.starting.value).toBe(false)
+    scope.stop()
+  })
+
+  it.each(['queued', 'skipped'] as const)('is not starting when the trigger was %s: nothing is about to run', async (status) => {
+    const { r, scope } = start(status)
+    await r.handleTrigger()
+    expect(r.starting.value).toBe(false)
+    scope.stop()
+  })
+
+  it('stops waiting when the run ended without ever showing as running (it failed to start)', async () => {
+    const { r, automations, scope } = start()
+    await r.handleTrigger()
+    mutate(automations, { history: [{ id: 'r1' } as AutomationRun] })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(r.starting.value).toBe(false)
+    scope.stop()
+  })
+
+  it('gives up after a minute rather than waiting forever', async () => {
+    const { r, scope } = start()
+    await r.handleTrigger()
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(r.starting.value).toBe(false)
+    scope.stop()
+  })
+
+  it('stops polling when the page goes away', async () => {
+    const { r, fetchAutomations, scope } = start()
+    await r.handleTrigger()
+    scope.stop()
+    fetchAutomations.mockClear()
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchAutomations).not.toHaveBeenCalled()
   })
 })

@@ -38,6 +38,7 @@ func NewAck(f Finding, note string, days int, now time.Time) (models.ScanAck, er
 	return models.ScanAck{
 		Key: f.Key(), AcceptedVersion: f.Version, Note: note,
 		AcceptedAt: now, ExpiresAt: now.AddDate(0, 0, days), LastSeen: now,
+		AcceptedCVEs: slices.Clone(f.CVEs), AcceptedExploited: slices.Clone(f.Exploited),
 	}, nil
 }
 
@@ -48,6 +49,7 @@ const (
 	AckActive         AckState = "active"
 	AckExpired        AckState = "expired"
 	AckVersionChanged AckState = "version_changed"
+	AckNewVulns       AckState = "new_vulns"
 )
 
 // StateFor reports whether the acceptance still covers the finding. The finding must be the one it names.
@@ -57,8 +59,21 @@ func StateFor(a models.ScanAck, f Finding, now time.Time) AckState {
 		return AckExpired
 	case a.AcceptedVersion != f.Version:
 		return AckVersionChanged
+	case hasNewID(f.CVEs, a.AcceptedCVEs) || hasNewID(f.Exploited, a.AcceptedExploited):
+		return AckNewVulns
 	}
 	return AckActive
+}
+
+// hasNewID reports whether current holds an id that accepted does not. A smaller set is not new: fewer flaws never
+// bring an accepted finding back.
+func hasNewID(current, accepted []string) bool {
+	for _, id := range current {
+		if !slices.Contains(accepted, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // AckResult is the findings split by the acceptances that apply, with the acceptances brought up to date.

@@ -7,6 +7,8 @@ import type { FindingsReport } from '../../types/netaudit'
 const LOAD_FAILED = 'The latest scan could not be read.'
 const ACCEPT_FAILED = 'It could not be marked as fine.'
 const REVOKE_FAILED = 'It could not be taken back.'
+const MARK_FAILED = 'It could not be marked as fixed.'
+const UNMARK_FAILED = 'The mark could not be taken back.'
 const RESCAN_FAILED = 'The scan could not be started.'
 const QUEUED_STATUS = 'queued'
 const SCAN_STARTED = 'The scan has started. The report updates when it finishes.'
@@ -50,6 +52,12 @@ export function useFindings(workspaceId: () => string, automation: () => string)
 
   const revoke = (key: string) => act(() => NetauditService.revoke(workspaceId(), key), REVOKE_FAILED)
 
+  /** "I've done this": records that the operator applied the fix. The next scan decides whether it worked. */
+  const markFixed = (key: string) =>
+    act(() => NetauditService.markFixed({ workspace_id: workspaceId(), automation: automation(), key, note: '' }), MARK_FAILED)
+
+  const unmarkFixed = (key: string) => act(() => NetauditService.unmarkFixed(workspaceId(), key), UNMARK_FAILED)
+
   /** Runs the audit again; with a device, only that device (the audit's own settings still apply). */
   async function rescan(device?: string): Promise<boolean> {
     notice.value = ''
@@ -65,5 +73,5 @@ export function useFindings(workspaceId: () => string, automation: () => string)
     }
   }
 
-  return { report, loading, error, actionError, notice, load, accept, revoke, rescan }
+  return { report, loading, error, actionError, notice, load, accept, revoke, markFixed, unmarkFixed, rescan }
 }

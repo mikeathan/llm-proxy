@@ -26,6 +26,8 @@ export const HELP_TOPIC_LABELS: Record<NetauditHelpTopic, string> = {
   basics: 'The basics',
   setup: 'Setting it up',
   reports: 'Reading a report',
+  vulns: 'Known vulnerabilities',
+  fixes: 'Fixing a finding',
   safety: 'Is it safe?',
   words: 'Words explained',
 }
@@ -54,6 +56,26 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'Each line is a device and a service that answered. "New" means the last scan did not show it before. Something marked "Gone" was seen earlier and has disappeared.',
       '"This is fine" hides a finding you expect, such as your own file server, for 30 days, 90 days or a year. It comes back if the service changes, and you can take it back at any time.',
       'A scan can run out of time on a slow device, and is tried a second time before it gives up. Such a device is reported as not scanned to completion; that is not the same as having no open doors. In Advanced settings, "Time allowed per device" gives slow devices longer.',
+    ],
+  },
+  vulns: {
+    title: HELP_TOPIC_LABELS.vulns,
+    paragraphs: [
+      'When a scan recognises a program and its version, such as OpenSSH 9.6, the audit can compare it with a list of publicly known security flaws kept on this computer. If the version is on the list, the report says the software may be affected by those flaws.',
+      '"May be affected" is not proof. A version number can look old while the maker has already fixed the flaw (Linux distributions often do), and some flaws only matter in a particular setup. If you have checked, use "This is fine" and it stays quiet until a new flaw appears for that version.',
+      'The list comes from the U.S. National Vulnerability Database (NVD) and, to rank what matters first, CISA\'s Known Exploited Vulnerabilities catalog, which names flaws attackers are already using. Download it from Settings → Network scan. More than 100 MB is fetched, only when you press the button; the scan itself never uses the Internet.',
+      'It can only look at what the scan recognised. Many routers, cameras and phones do not say which program or firmware they run, so they are not covered, and the report says how many services were looked at. Silence from this check does not mean a device is safe.',
+      'Without the list, audits still run and say that the check was skipped. You can turn the check off for one audit in its settings.',
+    ],
+  },
+  fixes: {
+    title: HELP_TOPIC_LABELS.fixes,
+    paragraphs: [
+      'For a problem a check found, "How to fix it" opens the steps, what could go wrong and how to undo it. The app never changes a device for you: you apply the fix yourself.',
+      'After you have done it, press "I\'ve done this". That only records what you did and when. The problem stays in the report until a scan no longer finds it.',
+      'If the next scan still shows it, the report says so plainly ("Still showing after you marked it fixed"). Check the steps again, or use "This is fine" if you have decided to live with it. If the scan no longer finds it, the report lists it as fixed and says you marked it.',
+      'Marking something as done never hides it and never changes the alerts you get. "Take back" removes your mark.',
+      'In Advanced, the commands are there to copy. Read each one first: they are written for common systems and yours may differ.',
     ],
   },
   safety: {
@@ -85,8 +107,15 @@ export const REQUIREMENT_COPY: Record<RequirementCode, RequirementCopy> = {
   scope_empty: { title: 'Choose which network to look at', simple: 'Scanning is off until you say which network is yours.', help: 'setup' },
   host_network_off: { title: 'Network access is switched off', simple: 'This computer is not letting agents use the network, so nothing can be scanned.', help: 'setup' },
   nmap_missing: { title: 'A helper program is missing', simple: 'A free program called nmap gives better results. Until it is installed only a limited scan works.', help: 'setup' },
+  vuln_data_missing: { title: 'Known-vulnerability data is not downloaded', simple: 'Audits still run, but they skip the check for known software flaws until the data is downloaded.', help: 'vulns' },
+  vuln_data_old: { title: 'Known-vulnerability data is out of date', simple: 'Audits compare against an old list, so newer software flaws are missed. Updating downloads more than 100 MB.', help: 'vulns' },
   no_sandbox: { title: "This computer can't fence the scan in", simple: 'Scans will not run here unless you allow them without that protection.', help: 'safety' },
 }
+
+/** The readiness notices (not requirements) about the vulnerability data; they never stop a scan. */
+export const VULN_NOTICES: readonly string[] = ['vuln_data_missing', 'vuln_data_old']
+/** The one notice the banner can act on in place: the data is held but old. */
+export const VULN_OLD_NOTICE = 'vuln_data_old'
 
 /** The agent profile whose automations scan the network; their pages show the readiness banner and the report. */
 export const AUDITOR_PROFILE = 'security-auditor'
@@ -121,3 +150,8 @@ export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
   { value: 'thorough', label: 'Thorough (a few minutes)' },
   { value: 'quick', label: 'Quick (seconds)' },
 ]
+
+/** The wording around the vulnerability data: where it comes from, and what a match does and does not say. */
+export const VULN_ATTRIBUTION = "Data from the U.S. National Vulnerability Database (NVD) and CISA's Known Exploited Vulnerabilities catalog. Not endorsed by NIST or CISA."
+export const VULN_NOT_PROOF = 'A match means the software may be affected, not proof that it is: the maker may have fixed it without changing the version number.'
+export const VULN_DOWNLOAD_SIZE = 'Downloading fetches more than 100 MB, only when you press the button.'

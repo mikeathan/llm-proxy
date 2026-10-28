@@ -16,6 +16,8 @@ import (
 type ResetResult struct {
 	KeyRegenerated       bool `json:"key_regenerated"`
 	KeyExternallyManaged bool `json:"key_externally_managed"`
+	// Warnings are things the reset could not clean up beyond the files it replaces; the reset itself succeeded.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // FactoryReset performs the staged, failure-safe reset described in Phase 10 of

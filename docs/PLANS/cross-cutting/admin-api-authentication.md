@@ -223,9 +223,11 @@ conventions there, not security controls, until Phases 1–2 here land:
 - operator-only acknowledgement of scan findings (an unauthenticated caller on the LAN can edit them);
 - the scan-scope list, the enabled scan modes and the "allow unconfined scans" switch;
 - approval of intrusive scan modes;
-- scripts and intrusive modes against the host's own addresses (the admin API is reachable on those).
+- scripts and intrusive modes against the host's own addresses (the admin API is reachable on those);
+- the import of vulnerability data for known-vulnerability matching (network-audit §13.G, proposed 2026-10-27): an unauthenticated caller on the LAN could replace the index and silence the matching findings;
+- the fix records of network-audit §13.H Level 1 (`/netaudit/fixes`; low impact, since a record never hides a finding) and everything in its Level 2: managed-host records, stored SSH keys, and the approval of a command on a host. Level 2 must not be built before this plan lands.
 
-When this plan lands, revisit those four items and make them real checks.
+When this plan lands, revisit those items and make them real checks.
 
 ## Remaining Work
 

@@ -73,6 +73,28 @@ describe('Automations', () => {
     document.body.innerHTML = ''
   })
 
+  it('shows "Starting…" and no clickable Run between the click and the server marking the run running', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
+    try {
+      d.triggerAutomation.mockResolvedValue({ status: 'started', workspace: 'demo', automation: 'nightly' })
+      const { w } = await mountAt('/automations/demo%2Fnightly')
+      const runButton = () => w.findAll('button').find((b) => /^(Run now|Starting…)$/.test(b.text()))!
+      expect(runButton().text()).toBe('Run now')
+      await runButton().trigger('click')
+      await flushPromises()
+      // The trigger has answered but the server has not marked the run running yet.
+      expect(runButton().text()).toBe('Starting…')
+      expect(runButton().attributes('disabled')).toBeDefined()
+      d.automations.value = [{ ...AUTO, is_running: true }]
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+      expect(w.findAll('button').some((b) => b.text() === 'Starting…' || b.text() === 'Run now')).toBe(false)
+      expect(w.findAll('button').some((b) => b.text() === 'Stop')).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('lists the fleet at /automations with links to create and to recordings', async () => {
     const { w } = await mountAt('/automations')
     expect(w.get('h1').text()).toBe('Automations')

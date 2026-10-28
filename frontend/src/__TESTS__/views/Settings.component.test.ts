@@ -46,6 +46,8 @@ const STUBS = {
   McpServers: true,
   GuardrailSettings: true,
   AppearanceSettings: true,
+  NetworkScanSettings: true,
+  AgentsSettings: true,
 }
 
 const LOADED: GlobalConfig = { ...structuredClone(DEFAULT_CONFIG), primary_model: 'qwen', model_host: '10.0.0.2' }
