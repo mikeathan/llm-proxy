@@ -39,7 +39,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'A network scan looks at the devices on your own network and lists which doors are open on each one: the services that answer when something knocks.',
       'It only looks. It never changes a device, signs in to one or tries passwords.',
       'A nightly audit runs a scan on a schedule and tells you only what is new since the last time.',
-      'Checks look for common weak settings on the services found: SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more. They only read; nothing tries a password and nothing changes on a device.',
+      'Checks look for common weak settings on the services found: SMBv1, anonymous FTP, Telnet, a VNC, Redis, MongoDB, Memcached or MQTT broker with no password, an open Docker control port, expired or weak certificates, weak SSH settings and a few more. They only read; nothing tries a password and nothing changes on a device.',
     ],
   },
   setup: {
@@ -53,7 +53,8 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
   reports: {
     title: HELP_TOPIC_LABELS.reports,
     paragraphs: [
-      'Each line is a device and a service that answered. "New" means the last scan did not show it before. Something marked "Gone" was seen earlier and has disappeared.',
+      'Problems the checks found come first, grouped by kind: the same problem on several devices is one card that lists each place, with the fix written once. Below them, each device lists the services that answered. "New" means the last scan did not show it before. Something marked "Gone" was seen earlier and has disappeared.',
+      'The first scan has nothing to compare with, so it marks nothing as new: what it found is saved as the baseline, and later scans point out what changed. Ports the scan could not identify are folded into one line per device.',
       '"This is fine" hides a finding you expect, such as your own file server, for 30 days, 90 days or a year. It comes back if the service changes, and you can take it back at any time.',
       'A scan can run out of time on a slow device, and is tried a second time before it gives up. Such a device is reported as not scanned to completion; that is not the same as having no open doors. In Advanced settings, "Time allowed per device" gives slow devices longer.',
     ],

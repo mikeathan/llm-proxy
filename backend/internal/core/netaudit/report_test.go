@@ -31,7 +31,7 @@ func hostsWith(findings ...Finding) []Host {
 func TestRenderObserved_FirstScanRecordsABaseline(t *testing.T) {
 	f := finding("10.0.0.1", 22, "OpenSSH 8.9")
 	got := RenderObserved(Observed{ScannedAt: reportTime, Result: Result{Engine: "nmap", Hosts: hostsWith(f), Findings: []Finding{f}}})
-	for _, want := range []string{ObservedHeading, "Scanned 1 address(es)", "with nmap: 1 up, 0 down", "First scan", "### Open ports", "| 10.0.0.1 | 22/tcp |"} {
+	for _, want := range []string{ObservedHeading, "Scanned 1 address(es)", "with nmap: 1 up, 0 down", "First scan", "### Open ports", "| 10.0.0.1 | 22/tcp "} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
@@ -67,8 +67,8 @@ func TestRenderObserved_NothingFromTheNetworkCanBreakTheTable(t *testing.T) {
 			row = line
 		}
 	}
-	if strings.Count(row, "|") != 5 {
-		t.Errorf("a finding must stay one row of four cells, got %q", row)
+	if strings.Count(row, "|") != 3 {
+		t.Errorf("a device must stay one row of two cells, got %q", row)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestRenderObserved_ChecksGetTheirOwnTableWithSeverityAndOurWords(t *testing
 		{Device: "192.0.2.10", Port: 445, Proto: "tcp", Service: "microsoft-ds", Check: CheckSMBv1, Severity: SeverityHigh, Evidence: "SMBv1 is enabled | <b>x</b>"},
 	}
 	first := RenderObserved(Observed{ScannedAt: reportTime, Result: Result{Engine: "nmap", Findings: findings}})
-	for _, want := range []string{"all 1 open port(s) and 1 check finding(s) are recorded", "### Open ports", "### Checks", "| 192.0.2.10 | 445/tcp | high |"} {
+	for _, want := range []string{"all 1 open port(s) and 1 check finding(s) are recorded", "### Open ports", "### Checks", "| high | SMBv1 is enabled / (b)x(/b) | 192.0.2.10 445/tcp |"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("first scan: missing %q:\n%s", want, first)
 		}

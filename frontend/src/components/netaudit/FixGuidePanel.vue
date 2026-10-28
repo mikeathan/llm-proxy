@@ -1,39 +1,22 @@
 <script setup lang="ts">
-import { ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import CopyButton from "../common/display/CopyButton.vue"
-import Disclosure from "../common/layout/Disclosure.vue"
+import FixGuideSteps from "./FixGuideSteps.vue"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import type { ScanFinding } from "../../types/netaudit"
 
 // What to do about a problem a check found: the steps, what could go wrong and how to undo it, folded to one line; and the
 // operator's own word that they did it. Nothing here changes a device. The guide is fixed text from the server; the app
-// only records "I've done this" and the next scan says whether it worked. Simple shows the steps; Advanced adds commands.
-const props = defineProps<{ finding: ScanFinding; advanced: boolean }>()
+// only records "I've done this" and the next scan says whether it worked. A group of the same problem shows the steps
+// once above its places and passes `steps: false`, so each place keeps only its own record.
+const props = withDefaults(defineProps<{ finding: ScanFinding; advanced: boolean; steps?: boolean }>(), { steps: true })
 const emit = defineEmits<{ (e: "mark", finding: ScanFinding): void; (e: "unmark", finding: ScanFinding): void; (e: "rescan", device: string): void }>()
 
-const open = ref(false)
 const markedOn = () => formatAbsoluteTime(props.finding.fix_marked_at ?? "")
 </script>
 
 <template>
   <div v-if="finding.guide" class="flex w-full min-w-0 flex-col gap-2 font-normal" data-test="fix-guide-block">
-    <Disclosure data-test="fix-guide" title="How to fix it" summary="steps, risks and how to undo" :open="open" @update:open="open = $event">
-      <ol class="m-0 flex list-decimal flex-col gap-1 pl-5 text-[length:var(--text-small)] text-secondary">
-        <li v-for="step in finding.guide.steps" :key="step" class="break-words">{{ step }}</li>
-      </ol>
-      <div v-if="advanced && finding.guide.commands?.length" class="flex flex-col gap-2">
-        <div v-for="c in finding.guide.commands" :key="c.platform" data-test="fix-command" class="flex min-w-0 flex-col gap-1">
-          <span class="flex items-center justify-between gap-2 font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">
-            {{ c.platform }}
-            <CopyButton :text="c.command" :title="`Copy the ${c.platform} command`" />
-          </span>
-          <pre class="m-0 overflow-x-auto whitespace-pre-wrap break-all bg-canvas p-2 font-mono text-[length:var(--text-small)] text-primary">{{ c.command }}</pre>
-        </div>
-      </div>
-      <p class="m-0 text-[length:var(--text-small)] text-secondary"><span class="font-semibold">What could go wrong:</span> {{ finding.guide.risk }}</p>
-      <p class="m-0 text-[length:var(--text-small)] text-secondary"><span class="font-semibold">How to undo it:</span> {{ finding.guide.undo }}</p>
-    </Disclosure>
+    <FixGuideSteps v-if="steps" :guide="finding.guide" :advanced="advanced" />
 
     <div v-if="!finding.fix_state" class="flex flex-wrap items-center gap-2">
       <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('mark', finding)">I've done this</BaseButton>

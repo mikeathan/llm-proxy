@@ -22,7 +22,7 @@ Scan the network and report what changed since the last scan: new open ports, se
 
 What is scanned and how (the networks, quick or thorough, the ports, and whether the safe checks run) is set on the automation, in the form and on its page, not in this text. The system applies those settings when the audit runs. By default it scans every network you allowed, thoroughly, with the checks on.
 
-The checks look for SMBv1 and unsigned SMB, anonymous FTP, a VNC or Redis with no password, exposed NFS shares, expired certificates, weak SSH algorithms and Remote Desktop without network-level authentication. They only read; nothing tries a password and nothing changes on a device.
+The checks look for SMBv1 and unsigned SMB, anonymous FTP, a VNC, Redis, MongoDB, Memcached or MQTT broker with no password, exposed NFS shares, Telnet and an open Docker control port, expired or weak certificates, weak SSH algorithms and host keys, and Remote Desktop without network-level authentication. They only read; nothing tries a password and nothing changes on a device.
 
 The system also compares the software the scan recognised with a list of publicly known flaws and adds those findings to the report itself, after your assessment. You do not see them, so do not write about known vulnerabilities, and never say none were found.
 
@@ -34,8 +34,8 @@ Anything the assessment should take into account, in plain words, for example "t
 
 **Action:** Run `network_scan` once. The system applies this audit's settings whatever you pass, so pass `mode: "checks"` and nothing else.
 
-Then write your assessment (the system adds the observed facts above it), following the extra instructions: the new or changed findings ranked by risk, each with the one step that would fix it. If nothing is new or changed, say so in one sentence.
+Then write a short assessment (the system adds the observed facts, with every check's problem and fix, above it), following the extra instructions. Do not restate the problems the checks found. If nothing is new or changed, say so in one sentence.
 
 ### Result
 
-**PASS** if the scan ran and the assessment covers every new or changed finding (or states there are none). **FAIL** with the reason if the scan was refused or could not run.
+**PASS** if the scan ran and the assessment covers what is new or changed (or states there are none). **FAIL** with the reason if the scan was refused or could not run.

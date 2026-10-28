@@ -52,7 +52,7 @@ const (
 	SeverityInfo = "info"
 )
 
-// FindingsOf turns scan hosts into findings: one per open port, then whatever the checks found on that port.
+// FindingsOf turns scan hosts into findings: one per open port, then what the port rules and the script checks found on it.
 func FindingsOf(hosts []Host) []Finding {
 	var out []Finding
 	for _, h := range hosts {
@@ -64,6 +64,7 @@ func FindingsOf(hosts []Host) []Finding {
 				Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Service: serviceLabel(p), Version: joinVersion(p),
 				Check: CheckOpenPort, Severity: SeverityInfo,
 			})
+			out = append(out, portFindings(h.Addr.String(), p)...)
 			out = append(out, checkFindings(h.Addr.String(), p)...)
 		}
 	}

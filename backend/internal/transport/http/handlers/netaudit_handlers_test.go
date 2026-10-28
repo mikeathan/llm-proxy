@@ -296,6 +296,21 @@ func TestNetauditHandlers_FindingsCarryTheSuggestedFixOfACheck(t *testing.T) {
 	if got.Findings[0].Fix != netaudit.RemediationFor(netaudit.CheckSMBv1) || got.Findings[0].Fix == "" || got.Findings[1].Fix != "" {
 		t.Errorf("only the check finding has a fix: %+v", got.Findings)
 	}
+	if got.Findings[0].CheckTitle != netaudit.CheckTitle(netaudit.CheckSMBv1) || got.Findings[0].CheckTitle == "" || got.Findings[1].CheckTitle != "" {
+		t.Errorf("only the check finding has a title: %+v", got.Findings)
+	}
+}
+
+func TestNetauditHandlers_FindingsSayWhetherTheScanIsTheBaseline(t *testing.T) {
+	port := models.ScanFinding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: "info"}
+	for _, first := range []bool{true, false} {
+		baseline := models.ScanBaseline{ScannedAt: time.Now(), Engine: "nmap", Findings: []models.ScanFinding{port}, FirstScan: first}
+		var got findingsResponse
+		rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil), "?workspace_id=ws&automation=nightly")
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.FirstScan != first {
+			t.Errorf("first_scan = %v, want %v (err %v)", got.FirstScan, first, err)
+		}
+	}
 }
 
 func TestNetauditHandlers_PutScopeSetsThePerDeviceTimeAndRefusesOtherChoices(t *testing.T) {

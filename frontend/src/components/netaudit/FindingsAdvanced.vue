@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import BaseButton from "../common/buttons/BaseButton.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
-import StatusTag from "../common/display/StatusTag.vue"
-import Disclosure from "../common/layout/Disclosure.vue"
-import FixGuidePanel from "./FixGuidePanel.vue"
-import { checkCount, describePort, isCheck, isGuessedService, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
-import { groupByDevice } from "../../utils/netaudit/report"
-import { flawsOf, nvdUrl } from "../../utils/netaudit/flaws"
+import DeviceFindings from "./DeviceFindings.vue"
+import ProblemGroups from "./ProblemGroups.vue"
+import { describePort, isCheck } from "../../utils/netaudit/friendly"
+import { groupByDevice, groupProblems } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
 import type { FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
 
-// The Advanced report: a tile for each part (they filter the list), then every device with its ports, services and
-// versions, and Accept… or Undo on each. Both views read the same data.
+// The Advanced report: a tile for each part (they filter the list), the problems the checks found grouped by kind, then
+// every device with its ports, services and versions. Both views read the same data.
 const props = defineProps<{ report: FindingsReport; summary: ReportSummary }>()
 const emit = defineEmits<{
   (e: "accept", finding: ScanFinding): void
@@ -24,9 +20,8 @@ const emit = defineEmits<{
 }>()
 
 const filter = ref<FindingFilter>("all")
-const KNOWN_VULNS = "known_vulns"
-// Which findings have their flaw list open; folded by default, since a port can have dozens.
-const flawsOpen = ref<Record<string, boolean>>({})
+// A device the reader opened or folded by hand; every other device is open only when something there needs a look.
+const toggled = ref<Record<string, boolean>>({})
 
 const TILES: { value: Exclude<FindingFilter, "all">; label: string; count: () => number; dashed?: boolean }[] = [
   { value: "problems", label: "problems found by checks", count: () => props.summary.problems.length },
@@ -42,28 +37,39 @@ const CHIPS: { value: FindingFilter; label: string }[] = [
 const countOf = (value: FindingFilter): number => value === "all" ? props.report.findings.length : TILES.find((t) => t.value === value)!.count()
 const chipOptions = computed(() => CHIPS.map((c) => ({ value: c.value, label: `${c.label} (${countOf(c.value)})` })))
 
-const visible = computed<ScanFinding[]>(() => {
+// The problems a filter lists, grouped; every unaccepted problem is in the Problems block, so a device list never repeats one.
+const problemGroups = computed(() => {
   switch (filter.value) {
-    case "problems": return props.summary.problems
-    case "new": return props.summary.added
-    case "changed": return props.summary.changed
-    case "accepted": return props.summary.accepted
+    case "all":
+    case "problems": return props.summary.problemGroups
+    case "new": return groupProblems(props.summary.problems.filter((f) => f.new))
+    case "changed": return groupProblems(props.summary.problems.filter((f) => f.changed))
+    default: return []
+  }
+})
+const visible = computed<ScanFinding[]>(() => {
+  const ports = (list: ScanFinding[]) => list.filter((f) => !isCheck(f) || f.accepted)
+  switch (filter.value) {
+    case "problems":
     case "resolved": return []
-    default: return props.report.findings
+    case "new": return ports(props.summary.added)
+    case "changed": return ports(props.summary.changed)
+    case "accepted": return props.summary.accepted
+    default: return ports(props.report.findings)
   }
 })
 const groups = computed(() => groupByDevice(visible.value))
 const resolvedGroups = computed(() => groupByDevice(props.summary.resolved))
-const portsLabel = (n: number) => `${n} open ${n === 1 ? "port" : "ports"}`
+const showDevices = computed(() => filter.value !== "resolved" && filter.value !== "problems")
+
 const setFilter = (value: string) => { filter.value = value as FindingFilter }
 const pick = (value: FindingFilter) => { filter.value = filter.value === value ? "all" : value }
-const stateOf = (f: ScanFinding) => (f.accepted ? "accepted" : f.new ? "new" : f.changed ? "changed" : "unchanged")
-const STATE_CLASS: Record<string, string> = {
-  new: "bg-accent-info/15 text-accent-info-text",
-  changed: "border border-control text-primary",
-  accepted: "border border-dashed border-control text-secondary",
-  unchanged: "text-muted",
-}
+// Something needs a look on a device when a port is new or changed (never on the first scan, where all are the baseline), or it has an unaccepted problem.
+const needsLook = (device: string) =>
+  props.summary.problems.some((f) => f.device === device) || (!props.summary.baseline && [...props.summary.added, ...props.summary.changed].some((f) => f.device === device))
+const problemsOn = (device: string) => props.summary.problems.filter((f) => f.device === device).length
+const isOpen = (device: string) => toggled.value[device] ?? (filter.value !== "all" || needsLook(device))
+const toggle = (device: string) => { toggled.value = { ...toggled.value, [device]: !isOpen(device) } }
 </script>
 
 <template>
@@ -84,56 +90,31 @@ const STATE_CLASS: Record<string, string> = {
 
     <slot name="notice" />
 
+    <p v-if="summary.baseline" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="baseline-note">
+      This is the first scan. What it found is saved as the baseline; from the next scan only changes are marked as new.
+    </p>
+
     <SegmentedControl :model-value="filter" :options="chipOptions" label="Show findings" @update:model-value="setFilter" />
 
-    <template v-if="filter !== 'resolved'">
-      <p v-if="!groups.length" class="m-0 text-muted">Nothing to show here.</p>
-      <section v-for="g in groups" :key="g.device" :aria-label="g.device" class="min-w-0 rounded-[var(--radius-md)] border border-hairline">
-        <header class="flex flex-wrap items-center justify-between gap-2 bg-surface-raised px-3 py-2">
-          <span class="min-w-0 break-all"><span class="font-mono font-semibold text-primary">{{ g.device }}</span> <span class="text-muted">· {{ portsLabel(portCount(g.items)) }}<template v-if="checkCount(g.items)">, {{ checkCount(g.items) }} {{ checkCount(g.items) === 1 ? "problem" : "problems" }}</template></span></span>
-          <span class="flex items-center gap-1.5 text-[length:var(--text-micro)] text-muted">
-            <span v-if="g.items.some((f) => f.new && !f.accepted)">{{ g.items.filter((f) => f.new && !f.accepted).length }} new</span>
-            <span v-if="g.items.some((f) => f.changed && !f.accepted)">{{ g.items.filter((f) => f.changed && !f.accepted).length }} changed</span>
-            <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', g.device)">Rescan this host</BaseButton>
-          </span>
-        </header>
-        <ul class="m-0 list-none p-0">
-          <li v-for="f in g.items" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS}` : '']">
-            <span class="w-20 flex-none font-mono text-[length:var(--text-small)] text-primary">{{ f.port }}/{{ f.proto || "tcp" }}</span>
-            <span v-if="isCheck(f)" class="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
-              <StatusTag :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" />
-              {{ f.evidence || "A check found a problem" }}
-              <template v-if="f.check === KNOWN_VULNS">
-                <span class="w-full break-words font-mono text-[length:var(--text-small)] font-normal text-muted" data-test="vuln-software">Compared: {{ [serviceName(f.service), f.version].filter(Boolean).join(" · ") }}</span>
-                <Disclosure v-if="flawsOf(f).length" class="w-full font-normal" data-test="vuln-flaws" :title="`All ${flawsOf(f).length} known flaws`" :open="!!flawsOpen[f.key]" @update:open="flawsOpen[f.key] = $event">
-                  <ul class="m-0 flex list-none flex-col gap-1 p-0">
-                    <li v-for="flaw in flawsOf(f)" :key="flaw.id" data-test="vuln-flaw" class="flex flex-wrap items-center gap-x-3 font-mono text-[length:var(--text-small)] font-normal">
-                      <a :href="nvdUrl(flaw.id)" target="_blank" rel="noopener noreferrer" class="text-accent-info-text underline-offset-2 hover:underline">{{ flaw.id }}</a>
-                      <span class="text-muted">{{ flaw.score === null ? "no score" : `score ${flaw.score}` }}</span>
-                      <span v-if="flaw.exploited" class="text-state-error">exploited</span>
-                    </li>
-                  </ul>
-                </Disclosure>
-              </template>
-              <span v-if="f.fix" class="w-full break-words text-[length:var(--text-small)] font-normal text-secondary" data-test="fix">How to fix it: {{ f.fix }}</span>
-              <FixGuidePanel v-if="!f.accepted" :finding="f" :advanced="true" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
-            </span>
-            <span v-else class="min-w-0 flex-1 break-words font-mono text-[length:var(--text-small)] text-secondary">
-              {{ serviceName(f.service) }}<template v-if="isGuessedService(f.service)"> (guess)</template> ·
-              <template v-if="f.changed && f.previous_version"><s class="text-muted">{{ f.previous_version }}</s> </template>{{ f.version || "version unknown" }}
-            </span>
-            <span :class="['inline-flex min-h-5 items-center px-2 font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)]', STATE_CLASS[stateOf(f)]]">
-              <template v-if="f.accepted">Accepted until {{ formatAbsoluteTime(f.accepted_until ?? "") }}<template v-if="f.accepted_note"> · “{{ f.accepted_note }}”</template></template>
-              <template v-else>{{ stateOf(f) }}</template>
-            </span>
-            <BaseButton v-if="f.accepted" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('revoke', f)">Undo</BaseButton>
-            <BaseButton v-else variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('accept', f)">Accept…</BaseButton>
-          </li>
-        </ul>
-      </section>
+    <ProblemGroups :groups="problemGroups" advanced @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
+
+    <template v-if="showDevices">
+      <p v-if="!groups.length && !problemGroups.length" class="m-0 text-muted">Nothing to show here.</p>
+      <DeviceFindings
+        v-for="g in groups"
+        :key="g.device"
+        :group="g"
+        :open="isOpen(g.device)"
+        :baseline="summary.baseline"
+        :problems="problemsOn(g.device)"
+        @toggle="toggle(g.device)"
+        @accept="emit('accept', $event)"
+        @revoke="emit('revoke', $event)"
+        @rescan="emit('rescan', $event)"
+      />
     </template>
 
-    <template v-else>
+    <template v-else-if="filter === 'resolved'">
       <p v-if="!resolvedGroups.length" class="m-0 text-muted">Nothing has gone away since the scan before.</p>
       <section v-for="g in resolvedGroups" :key="g.device" :aria-label="g.device" class="rounded-[var(--radius-md)] border border-hairline">
         <header class="bg-surface-raised px-3 py-2 font-mono font-semibold text-primary">{{ g.device }}</header>

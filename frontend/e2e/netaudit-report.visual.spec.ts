@@ -10,16 +10,16 @@ const report = {
   scanned: true, scanned_at: '2026-10-26T13:38:00Z', engine: 'nmap', devices_up: 8, unscanned: ['192.0.2.107'], resolved: [],
   findings: [
     ...[1, 10, 43, 60, 63, 241].flatMap((n, i) => [22, 80, 443, 8080].slice(0, (i % 4) + 1).map((port) => finding({ key: `p${n}-${port}`, device: `192.0.2.${n}`, port, service: port === 22 ? 'ssh' : 'http' }))),
-    finding({ key: 'cert', device: '192.0.2.43', port: 8009, service: 'ajp13 (guess)', check: 'tls_cert_expiring', severity: 'low', evidence: 'The certificate expires on 2026-11-20', new: true }),
-    finding({ key: 'smb', device: '192.0.2.10', port: 445, service: 'microsoft-ds', check: 'smb_v1', severity: 'high', evidence: 'SMBv1, an old and unsafe file-sharing version, is enabled', new: true }),
+    finding({ key: 'cert', device: '192.0.2.43', port: 8009, service: 'ajp13 (guess)', check: 'tls_cert_expiring', check_title: 'Certificate about to expire', severity: 'low', evidence: 'The certificate expires on 2026-11-20', new: true }),
+    finding({ key: 'smb', device: '192.0.2.10', port: 445, service: 'microsoft-ds', check: 'smb_v1', check_title: 'SMBv1 enabled', severity: 'high', evidence: 'SMBv1, an old and unsafe file-sharing version, is enabled', new: true }),
     finding({
-      key: 'vulns', device: '192.0.2.43', port: 22, service: 'ssh', version: 'OpenSSH 9.6p1 Ubuntu 3ubuntu13.14', check: 'known_vulns', severity: 'low', new: true,
+      key: 'vulns', device: '192.0.2.43', port: 22, service: 'ssh', version: 'OpenSSH 9.6p1 Ubuntu 3ubuntu13.14', check: 'known_vulns', check_title: 'Software with known flaws', severity: 'low', new: true,
       evidence: 'The software on this port may be affected by 12 known flaws: CVE-2024-6387, CVE-2026-60002, CVE-2026-35385, CVE-2023-51767, CVE-2025-26465 and 7 more. This is a distribution build, so the flaws may already be fixed.',
       cves: Array.from({ length: 12 }, (_, i) => `CVE-2024-${String(6387 + i).padStart(4, '0')}`), exploited: ['CVE-2024-6390'],
       cve_scores: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`CVE-2024-${String(6387 + i).padStart(4, '0')}`, 5 + (i % 5)])),
     }),
     finding({
-      key: 'smb-fix', device: '192.0.2.10', port: 139, check: 'smb_v1', severity: 'high', evidence: 'SMBv1, an old and unsafe file-sharing version, is enabled', new: true,
+      key: 'smb-fix', device: '192.0.2.10', port: 139, check: 'smb_v1', check_title: 'SMBv1 enabled', severity: 'high', evidence: 'SMBv1, an old and unsafe file-sharing version, is enabled', new: true,
       fix: 'Turn off SMBv1.', fix_state: 'still_present', fix_marked_at: '2026-10-26T09:00:00Z',
       guide: {
         steps: ['Find which devices still need SMBv1. Very old printers and Windows XP machines are the usual ones.', 'Require SMB2 or newer in the [global] section, then restart the service.'],
@@ -28,7 +28,7 @@ const report = {
         undo: 'Put the saved smb.conf.bak back and restart smbd.',
       },
     }),
-    finding({ key: 'redis', device: '192.0.2.60', port: 6379, service: 'redis', check: 'redis_no_auth', severity: 'critical', evidence: 'Redis answers without a password' }),
+    finding({ key: 'redis', device: '192.0.2.60', port: 6379, service: 'redis', check: 'redis_no_auth', check_title: 'Redis with no password', severity: 'critical', evidence: 'Redis answers without a password' }),
   ],
 }
 const automation = {

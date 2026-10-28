@@ -73,6 +73,9 @@ type findingView struct {
 	// Key identifies the finding for accepting it; the page never builds one itself.
 	Key string `json:"key"`
 	New bool   `json:"new"`
+	// CheckTitle names the check in a few plain words, so a screen can put every place the same problem was found under
+	// one heading; empty for an open port.
+	CheckTitle string `json:"check_title,omitempty"`
 	// Fix is the suggested remedy for a check finding, fixed text the operator applies by hand; empty for an open port.
 	Fix string `json:"fix,omitempty"`
 	// Changed is true when the version differs from the scan before; PreviousVersion is what it was (possibly empty).
@@ -106,6 +109,8 @@ type findingsResponse struct {
 	// Unscanned are the devices the engine ran out of time on; DevicesUp is how many addresses answered.
 	Unscanned []string `json:"unscanned"`
 	DevicesUp int      `json:"devices_up"`
+	// FirstScan is true when this scan is the baseline: nothing came before it, so no open port in it is a change.
+	FirstScan bool `json:"first_scan"`
 }
 
 // GetFindings returns the latest scan of one automation: its findings (marking the new ones) and what was resolved
@@ -123,7 +128,7 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := findingsResponse{Findings: []findingView{}, Resolved: []resolvedView{}, Unscanned: []string{}}
 	if !b.ScannedAt.IsZero() {
-		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp
+		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp, resp.FirstScan = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp, b.FirstScan
 		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
 		views := newFindingViewer(b, h.activeAcks(workspaceID), h.fixRecords(workspaceID))
 		for _, f := range b.Findings {
@@ -155,7 +160,7 @@ func newFindingViewer(b models.ScanBaseline, acks map[string]models.ScanAck, fix
 
 func (v findingViewer) finding(f models.ScanFinding) findingView {
 	key := f.Key()
-	view := findingView{ScanFinding: f, Key: key, New: v.isNew[key], Fix: netaudit.RemediationFor(f.Check)}
+	view := findingView{ScanFinding: f, Key: key, New: v.isNew[key], CheckTitle: netaudit.CheckTitle(f.Check), Fix: netaudit.RemediationFor(f.Check)}
 	view.PreviousVersion, view.Changed = v.b.ChangedFrom[key]
 	if g, ok := netaudit.GuideFor(f.Check); ok {
 		view.Guide = &g

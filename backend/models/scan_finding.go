@@ -47,6 +47,9 @@ type ScanBaseline struct {
 	// Unscanned are the devices the engine ran out of time on in this scan: their ports are unknown, not "none", and
 	// their earlier findings were kept.
 	Unscanned []string `json:"unscanned,omitempty"`
+	// FirstScan is true when no scan came before this one, so every finding is the baseline rather than a change. It is
+	// absent in a baseline saved by an older version, which reads as "not the first scan".
+	FirstScan bool `json:"first_scan,omitempty"`
 	// DevicesUp counts the addresses that answered in this scan.
 	DevicesUp int `json:"devices_up,omitempty"`
 	// FixedAt maps the key of each finding the operator had marked as fixed, and that this scan no longer shows, to when
