@@ -10,7 +10,7 @@ const port = (device: string, p: number, service: string, version = '') => ({
 const flaws = (device: string, p: number, n: number, severity: string, accepted = false) => ({
   key: `kv:${device}:${p}`, device, port: p, proto: 'tcp', service: 'ssh', version: 'OpenSSH 9.6p1 Ubuntu 3ubuntu13.20', check: 'known_vulns', check_title: 'Software with known flaws', severity,
   evidence: `The software on this port may be affected by ${n} known flaws: CVE-2024-6387, CVE-2026-60002, CVE-2026-35385, CVE-2023-51767, CVE-2025-26465 and ${n - 5} more. This is a distribution build, so the flaws may already be fixed.`,
-  fix: "Update the software to the vendor's current release and check the vendor's notice for the listed numbers.", cves: ['CVE-2024-6387'], new: false, changed: false, accepted,
+  fix: "Update the software to the vendor's current release and check the vendor's notice for the listed numbers.", cves: Array.from({ length: n }, (_, i) => `CVE-2024-${String(6387 + i).padStart(4, '0')}`), exploited: ['CVE-2024-6387'], new: false, changed: false, accepted,
   ...(accepted ? { accepted_until: '2027-01-26T16:26:00Z' } : {}),
 })
 const devices = ['1', '7', '10', '43', '60', '125', '188', '241'].map((n) => `192.0.2.${n}`)

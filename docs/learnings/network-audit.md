@@ -58,6 +58,8 @@ _None recorded yet._
 
 - 2026-10-29 (deep check, first live click, vertex v0.23.0): the owner ran it on `192.168.50.60` at 18:18 UTC; the stored result (`GET /admin/api/netaudit/deep`) holds one finding, `ssh_password_login` (medium, port 22), and the ports it judged: 22 answered as SSH, 4001 and 8081 answered neither SSH nor TLS (so nothing to judge there, as designed). The page showed it under the device at once. Carry-over confirmed the same evening: a one-device rescan of the device at 18:43 UTC put the finding into the report as an ordinary check finding, evidence "(from the deep check of 2026-10-29)", and kept the other seven devices (`devices_up` 8).
 
+- 2026-10-29 (auditor assessment, root cause): the model wrote "first scan, no baseline" under a report whose code-written part had compared with the scan before. The prompt asked it to say "what is new or changed" and "if nothing is new or changed, say so", but the comparison is made by `RunReporter` after the run and is never in the tool result, so it had nothing to base the sentence on. **Lesson:** do not ask the model to describe data it is not given; tell it the code owns that part. A fix to a built-in profile reaches every workspace; a fix to a task template does not reach existing automations (their task file is a copy).
+
 ## Plan history
 
 The phase table, the Phase 0 findings and the phase-by-phase log of the plan moved on 2026-10-29 to [`audits/2026-10-29-network-audit-phase-log.md`](../audits/2026-10-29-network-audit-phase-log.md); the as-built design is in [`architecture/network-audit.md`](../architecture/network-audit.md).

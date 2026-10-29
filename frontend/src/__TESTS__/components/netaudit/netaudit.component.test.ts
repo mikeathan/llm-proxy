@@ -400,6 +400,32 @@ describe('FindingsReport known vulnerabilities', () => {
     expect(link.attributes('target')).toBe('_blank')
   })
 
+  it('says the long caution once per card and gives each place only its count', async () => {
+    const two: Report = { ...vulns, findings: [vulns.findings[0]!, { ...vulns.findings[0]!, key: 'v2', device: '192.0.2.6' }] }
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(two)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
+    await flushPromises()
+    const card = w.get('article[data-check="known_vulns"]')
+    expect(card.findAll('[data-test="vuln-caution"]')).toHaveLength(1)
+    expect(card.get('[data-test="vuln-caution"]').text()).toContain('not proof')
+    const places = card.findAll('[data-test="problem"]')
+    expect(places).toHaveLength(2)
+    for (const place of places) {
+      expect(place.get('[data-test="check"]').text()).toBe('3 known flaws · 1 exploited by attackers')
+      expect(place.text()).not.toContain('The software on this port may be affected')
+    }
+  })
+
+  it('Simple: the same compact line, with no list', async () => {
+    useNetauditViewMode().set('simple')
+    service.findings.mockResolvedValue(vulns)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    expect(w.get('[data-key="v"] [data-test="check"]').text()).toBe('3 known flaws · 1 exploited by attackers')
+    expect(w.find('[data-test="vuln-caution"]').exists()).toBe(true)
+  })
+
   it('Simple: keeps the one plain line, with no list', async () => {
     useNetauditViewMode().set('simple')
     service.findings.mockResolvedValue(vulns)
