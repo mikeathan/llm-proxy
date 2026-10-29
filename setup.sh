@@ -905,8 +905,8 @@ UI:    http://127.0.0.1:4001 (a new install listens on this machine only)
 Logs:  journalctl -u ${BIN_NAME}.service -f
 Data:  ${SVC_ROOT} (single root: settings, DB, logs, workspaces)
 
-NEXT, set the passphrase that signs you in (until you do, anyone who can
-reach the UI can change settings and run the agent):
+NEXT, set the passphrase that signs you in. Until you do, the admin
+interface is locked and shows only the setup page:
   sudo ${INSTALL_BIN} auth setup-code
 then open /admin/setup in the UI and enter the code with a passphrase.
 

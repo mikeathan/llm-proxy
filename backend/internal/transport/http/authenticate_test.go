@@ -38,7 +38,7 @@ func (f *fakeAuth) InferenceRequired() bool { return f.inference }
 
 func newFake() *fakeAuth {
 	return &fakeAuth{
-		state:    auth.State{Required: true},
+		state:    auth.State{SetUp: true},
 		sessions: map[string]auth.Session{"sess": {}, "elevated": {ElevatedUntil: time.Now().Add(time.Minute)}},
 		tokens: map[string]auth.Token{
 			"lp_admin": {ID: "a", Scope: auth.ScopeAdmin}, "lp_inference": {ID: "i", Scope: auth.ScopeInference},
@@ -68,13 +68,44 @@ func bearer(v string) func(*http.Request) {
 	return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+v) }
 }
 
-func TestAuthenticate_NothingIsRequiredUntilAPassphraseExists(t *testing.T) {
+// Sign-in is compulsory: with no passphrase there is nothing to sign in with, so the admin API refuses everything but the
+// sign-in routes, and says why (setup_required) so the page sends the person to the setup page and not to a login.
+func TestAuthenticate_WithoutAPassphraseTheAdminAPIAnswersSetupRequired(t *testing.T) {
 	f := newFake()
 	f.state = auth.State{}
 	h := authed(f)
-	for _, p := range []string{"/admin/api/state", "/admin/api/system/wipeout", "/v1/models"} {
-		if code := req(h, "POST", p, nil); code != http.StatusOK {
-			t.Errorf("%s while unset = %d, want 200 (the upgrade state is open)", p, code)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/admin/api/state"}, {"GET", "/admin/api/config"}, {"POST", "/admin/api/system/wipeout"}, {"PUT", "/admin/api/host"},
+		{"GET", "/admin/api/dispatcher/workspaces/w/live"}, {"GET", "/admin/api/auth/sessions"},
+	} {
+		// Whatever the request carries: no session or token can exist yet, and a stale cookie must not open the door.
+		for name, mod := range map[string]func(*http.Request){"bare": nil, "cookie": cookie("sess"), "token": bearer("lp_admin")} {
+			rec := httptest.NewRecorder()
+			r := httptest.NewRequest(c.method, c.path, nil)
+			if mod != nil {
+				mod(r)
+			}
+			h.ServeHTTP(rec, r)
+			if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), SetupRequired) {
+				t.Errorf("%s %s (%s) = %d %q, want 401 %s", c.method, c.path, name, rec.Code, rec.Body.String(), SetupRequired)
+			}
+		}
+	}
+}
+
+// The sign-in routes, the shell and the webhooks stay open while nothing is set up: they are how it gets set up, what the
+// page is made of, and a surface with its own secret. /v1 is a separate decision and is not changed.
+func TestAuthenticate_WithoutAPassphraseTheAllowlistStillAnswers(t *testing.T) {
+	f := newFake()
+	f.state = auth.State{}
+	h := authed(f)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/admin/"}, {"GET", "/admin/assets/index.js"}, {"GET", "/admin/api/auth/status"},
+		{"POST", "/admin/api/auth/setup"}, {"POST", "/admin/api/auth/login"}, {"POST", "/admin/api/auth/logout"},
+		{"POST", "/api/v1/webhooks/telegram"}, {"GET", "/v1/models"},
+	} {
+		if code := req(h, c.method, c.path, nil); code != http.StatusOK {
+			t.Errorf("%s %s while nothing is set up = %d, want 200", c.method, c.path, code)
 		}
 	}
 }
@@ -205,14 +236,6 @@ var stepUpProbes = []probe{
 	{"POST", "/admin/api/mcp"}, {"PUT", "/admin/api/mcp"}, {"DELETE", "/admin/api/mcp"}, {"POST", "/admin/api/auth/tokens"},
 }
 
-func TestAuthenticate_StepUpNotEnforcedWhileOpen(t *testing.T) {
-	f := newFake()
-	f.state = auth.State{}
-	if code := req(authed(f), "POST", "/admin/api/system/wipeout", nil); code != http.StatusOK {
-		t.Errorf("= %d", code)
-	}
-}
-
 func TestAuthenticate_ThePrincipalReachesTheHandler(t *testing.T) {
 	var got Principal
 	var ok bool
@@ -250,10 +273,6 @@ func TestStepUpGranted_TellsAHandlerWhetherThePassphraseWasRecentlyEntered(t *te
 	check("a plain session", cookie("sess"), false)
 	check("an admin token", bearer("lp_admin"), false)
 
-	f := newFake()
-	f.state = auth.State{}
-	h = Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { granted, seen = StepUpGranted(r.Context()), true }), f)
-	check("sign-in not set up", nil, true)
 }
 
 func TestStepUpGranted_WithoutTheMiddlewareThereIsNothingToAskOf(t *testing.T) {
@@ -336,17 +355,24 @@ func TestStillAuthorized_FollowsTheCredentialTheRequestStartedWith(t *testing.T)
 	}
 }
 
-// Before a passphrase exists nothing is signed in and nothing is revoked; and a request that never went through the
-// middleware (a test, a handler used on its own) has nothing to re-check.
-func TestStillAuthorized_OpenWhenNoSignInIsRequired(t *testing.T) {
+// A request that never went through the middleware (a test, a handler used on its own) has nothing to re-check. And a
+// stream open when `auth reset` removes the passphrase ends: nothing is signed in any more, and the API is closed again.
+func TestStillAuthorized_EndsWhenTheSignInIsReset(t *testing.T) {
 	if !StillAuthorized(context.Background()) {
 		t.Error("a context the middleware never saw must read as authorized")
 	}
 	f := newFake()
-	f.state.Required = false
-	var seen []bool
-	serve(handlerSeeing(f, &seen), func(*http.Request) {})
-	if len(seen) != 1 || !seen[0] {
-		t.Errorf("open API: %v", seen)
+	var still func() bool
+	h := Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		still = func() bool { return StillAuthorized(ctx) }
+	}), f)
+	serve(h, cookie("sess"))
+	if !still() {
+		t.Fatal("a valid session reads as authorized")
+	}
+	f.state = auth.State{} // `auth reset`: no passphrase, no sessions
+	if still() {
+		t.Error("a stream must end when the passphrase is removed")
 	}
 }

@@ -126,7 +126,7 @@ func TestStreamWorkspaceEvents_IsNotReadableByOtherOrigins(t *testing.T) {
 // signedIn is an Authenticator with one session that can be revoked while a request is open.
 type signedIn struct{ revoked atomic.Bool }
 
-func (s *signedIn) State() (auth.State, error) { return auth.State{Required: true}, nil }
+func (s *signedIn) State() (auth.State, error) { return auth.State{SetUp: true}, nil }
 func (s *signedIn) Session(string) (auth.Session, bool) {
 	return auth.Session{}, !s.revoked.Load()
 }

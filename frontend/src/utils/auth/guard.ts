@@ -18,15 +18,16 @@ export function safeNext(next: unknown): string {
 
 /**
  * What the router does with a navigation, given what the server said about sign-in. `true` lets it through.
- * Signed in, or sign-in not set up: the sign-in pages have nothing to offer and send you home. Sign-in required and not
- * signed in: everything goes to the login page, remembering where it was going. `setup` needs an open setup code.
+ * Sign-in is compulsory, so until a passphrase exists every page is the setup page (which shows the command to run, with or
+ * without an open code: sending it away would loop). Once one exists: signed in goes where it wanted; not signed in goes to
+ * the login page, remembering where it was going; and the sign-in pages have nothing to offer a signed-in person.
  */
 export function decideRoute(status: AuthStatus, to: { name?: unknown; meta: { public?: boolean }; fullPath: string }): RouteLocationRaw | true {
-  const open = !status.required || status.authenticated
+  if (!status.set_up) return to.name === ROUTE_NAMES.setup ? true : { name: ROUTE_NAMES.setup }
   if (to.meta.public) {
-    if (to.name === ROUTE_NAMES.setup) return status.required ? { name: open ? ROUTE_NAMES.overview : ROUTE_NAMES.login } : status.setup_open ? true : { name: ROUTE_NAMES.overview }
-    return open ? { path: HOME_PATH } : true
+    if (to.name === ROUTE_NAMES.setup) return { name: status.authenticated ? ROUTE_NAMES.overview : ROUTE_NAMES.login }
+    return status.authenticated ? { path: HOME_PATH } : true
   }
-  if (open) return true
+  if (status.authenticated) return true
   return { name: ROUTE_NAMES.login, query: { next: to.fullPath } }
 }

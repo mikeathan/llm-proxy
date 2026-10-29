@@ -3,7 +3,7 @@ import { AuthService } from '../../services/auth/authService'
 import { signalUnauthorized } from '../../services/httpClient'
 import type { AuthStatus } from '../../types/auth'
 
-// What the server last said about sign-in. One copy for the whole app: the router guard, the pages and the banner read it.
+// What the server last said about sign-in. One copy for the whole app: the router guard and the pages read it.
 const status = ref<AuthStatus | null>(null)
 
 /** Reads sign-in's state from the server. null when it could not be read: the pages then load, and the API says no itself. */
@@ -21,18 +21,14 @@ async function ensureStatus(): Promise<AuthStatus | null> {
   return status.value ?? refresh()
 }
 
-/** The server said the session ended (a 401): the page must show the login, whatever it thought before. */
 /**
  * For a stream that failed without saying why (an EventSource cannot see a status code): asks the server whether the session
- * is the problem, and if so sends the user to sign in, instead of retrying for ever.
+ * is the problem (not signed in, or sign-in reset under it), and if so sends the user to sign in or set up, instead of
+ * retrying for ever.
  */
 async function checkSession(): Promise<void> {
   const st = await refresh()
-  if (st && st.required && !st.authenticated) signalUnauthorized()
-}
-
-function markSignedOut(): void {
-  if (status.value) status.value = { ...status.value, required: true, authenticated: false, elevated: false }
+  if (st && (!st.set_up || !st.authenticated)) signalUnauthorized()
 }
 
 async function login(passphrase: string): Promise<void> {
@@ -54,5 +50,5 @@ async function logout(): Promise<void> {
 }
 
 export function useAuth() {
-  return { status, refresh, ensureStatus, checkSession, markSignedOut, login, setup, logout }
+  return { status, refresh, ensureStatus, checkSession, login, setup, logout }
 }

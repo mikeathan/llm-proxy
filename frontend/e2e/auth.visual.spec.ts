@@ -3,10 +3,10 @@ import { expectNoSidewaysScroll, lookAt, mockAdminApi } from './support/adminApi
 
 // Sign-in at both widths: the login and setup pages, the "not set up" banner, and Settings · Sign-in. Nothing may scroll
 // sideways and the buttons are comfortable touch targets. The screenshots are for looking at; they are not compared.
-const SIGNED_OUT = { required: true, setup_open: false, authenticated: false, elevated: false, encrypted: false }
-const NOT_SET_UP = { required: false, setup_open: false, authenticated: false, elevated: false, encrypted: false }
+const SIGNED_OUT = { set_up: true, setup_open: false, authenticated: false, elevated: false, encrypted: false }
+const NOT_SET_UP = { set_up: false, setup_open: false, authenticated: false, elevated: false, encrypted: false }
 const SETUP_OPEN = { ...NOT_SET_UP, setup_open: true }
-const SIGNED_IN = { required: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
+const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
 
 const sessions = [
   { id: 'me', browser: 'Firefox on Mac', address: '192.168.50.20', created_at: '2026-10-29T08:00:00Z', last_seen: '2026-10-29T09:00:00Z', current: true },
@@ -22,7 +22,7 @@ const events = [
 ]
 
 const exposure = {
-  listening: { address: '0.0.0.0:4001', network: true }, sign_in_required: true, encrypted: false, inference_key_required: false,
+  listening: { address: '0.0.0.0:4001', network: true }, encrypted: false, inference_key_required: false,
   webhooks: { inbound: 2, with_secret: 1 }, sandbox: { enabled: true, filesystem: 'landlock' },
   attention: [
     { id: 'unencrypted', text: 'This connection is not encrypted: your passphrase and session can be read by others on the network.', fix: 'Put a TLS front end (Caddy, nginx, Tailscale) in front and list it in server.trusted_proxies, or set server.bind to 127.0.0.1.' },
@@ -61,11 +61,13 @@ test('the setup page fits the screen', async ({ page }, testInfo) => {
   await lookAt(page, testInfo, 'setup.png', true)
 })
 
-test('while sign-in is not set up, every page carries the banner', async ({ page }, testInfo) => {
+test('while sign-in is not set up, every page is the setup page', async ({ page }, testInfo) => {
   await open(page, 'overview', NOT_SET_UP)
-  await expect(page.locator('[data-test="auth-banner"]')).toContainText('Sign-in is not set up')
+  await expect(page).toHaveURL(/\/setup$/)
+  await expect(page.getByRole('heading', { name: 'Set up sign-in' })).toBeVisible()
+  await expect(page.getByText('auth setup-code')).toBeVisible()
   await expectNoSidewaysScroll(page)
-  await lookAt(page, testInfo, 'banner.png')
+  await lookAt(page, testInfo, 'not-set-up.png', true)
 })
 
 test('Settings · Sign-in lists sessions and script tokens and fits the screen', async ({ page }, testInfo) => {

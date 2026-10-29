@@ -6,7 +6,7 @@ import { DEFAULT_CONFIG } from '../../src/composables/models/useConfig'
 const LIST_ENDPOINTS = ['/manifests', '/mcp', '/workspaces', '/profiles', '/profile-schema', '/automations']
 const READY = { ready: true, requirements: [], notices: [] }
 // Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
-const SIGNED_IN = { required: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
+const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
 
 type Answers = Record<string, unknown>
 

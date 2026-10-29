@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.18"
+version: "2.19"
 status: stable
 last_updated: 2026-10-30
 constitution_references: []
@@ -13,6 +13,10 @@ supersedes:
 
 ## Changelog
 
+- **2.19 (2026-10-30)** — **Sign-in is compulsory** (0.22.0). Until a passphrase exists every page is the setup page (it
+  shows the `auth setup-code` command with or without an open code, so the guard cannot loop); the "not set up" banner is
+  removed, and a 401 `setup_required` (or `auth reset` under an open page) sends the person to setup, not to a login. The
+  status field `required` is now `set_up`.
 - **2.18 (2026-10-30)** — **Sign-in** (plan `admin-api-authentication`). §I: "has no account model" becomes **one operator
   credential** (a passphrase) plus named script tokens; there are still no users or roles. New §II.9 describes the
   pages, the 401 handling and the Sign-in settings; §III.2 lists `/login` and `/setup`; §VI says the webhook secret is
@@ -293,9 +297,9 @@ and makes no network request outside the proxy's own origin.
   original message behind "Show details". Settings → Network scan lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** is Advanced-only. The report also shows the problems the audit's checks found (SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more): worst first in Simple, with a severity tag in Advanced, each acceptable like an open port. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
 
 ### 9. Sign-in
-- Until a passphrase exists the admin API is open (the upgrade state) and every page carries a banner saying so, with a
-  stronger line when the connection is not encrypted. The passphrase is set once, on `/setup`, with a one-time code made
-  on the server by `llm-proxy auth setup-code`; the UI never makes or shows that code.
+- Sign-in is compulsory. Until a passphrase exists the admin API answers only the sign-in routes and every page is the
+  setup page. The passphrase is set once, on `/setup`, with a one-time code made on the server by
+  `llm-proxy auth setup-code`; the UI never makes or shows that code, and the page tells the person which command to run.
 - Once a passphrase exists, the router sends every visit without a session to `/login?next=…` and returns to `next`
   (an address inside the app only) after signing in. A 401 from any request does the same; an event stream that fails
   without a reason asks `/auth/status` instead of retrying for ever. The message box's draft is kept in memory per

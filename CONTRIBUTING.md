@@ -9,7 +9,7 @@ _(Canonical command reference — AGENTS.md links here.)_
 cd backend
 go build ./... && go test ./...         # build + test
 go run ./tools/check-complexity/        # complexity ≤12
-go run main.go                          # :4001
+go run main.go                          # :4001; the UI shows only the setup page until you run: go run . auth setup-code (same --data), then enter the code
 
 # Frontend
 cd frontend

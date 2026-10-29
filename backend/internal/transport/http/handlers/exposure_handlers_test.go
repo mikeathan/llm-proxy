@@ -43,47 +43,37 @@ func TestIsLoopbackBind(t *testing.T) {
 }
 
 func TestExposure_ClosedDownInstallNeedsNothing(t *testing.T) {
-	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001", SignInRequired: true, Encrypted: false, Sandbox: true})
+	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001", Encrypted: false, Sandbox: true})
 	if v.Listening.Network || len(v.Attention) != 0 {
-		t.Errorf("loopback with sign-in is fine: %+v", v)
+		t.Errorf("loopback is fine: %+v", v)
 	}
 }
 
-func TestExposure_NetworkWithoutSignInSaysHowToSetItUp(t *testing.T) {
+func TestExposure_NetworkOnPlainHTTPIsFlaggedWithAFix(t *testing.T) {
 	v := buildExposure(exposureInput{Bind: "0.0.0.0:4001", Sandbox: true})
-	if !v.Listening.Network || !hasAttention(v, "sign_in_off") {
-		t.Fatalf("a network listener with no sign-in must be flagged: %+v", v)
-	}
-	for _, a := range v.Attention {
-		if a.ID == "sign_in_off" && a.Fix == "" {
-			t.Error("every item names what to do")
-		}
-	}
-	if hasAttention(v, "unencrypted") {
-		t.Error("with no sign-in there is no passphrase to protect yet; one clear item is enough")
-	}
-}
-
-func TestExposure_NetworkSignedInButPlainHTTP(t *testing.T) {
-	v := buildExposure(exposureInput{Bind: "0.0.0.0:4001", SignInRequired: true, Sandbox: true})
-	if !hasAttention(v, "unencrypted") || hasAttention(v, "sign_in_off") {
+	if !hasAttention(v, "unencrypted") {
 		t.Errorf("attention = %v", attentionIDs(v))
 	}
-	if len(buildExposure(exposureInput{Bind: "0.0.0.0:4001", SignInRequired: true, Encrypted: true, InferenceKeyRequired: true, Sandbox: true}).Attention) != 0 {
-		t.Error("an encrypted, signed-in server needs no item")
+	for _, a := range v.Attention {
+		if a.Fix == "" {
+			t.Errorf("%s names no fix", a.ID)
+		}
+	}
+	if len(buildExposure(exposureInput{Bind: "0.0.0.0:4001", Encrypted: true, InferenceKeyRequired: true, Sandbox: true}).Attention) != 0 {
+		t.Error("an encrypted server with an inference key needs no item")
 	}
 }
 
 func TestExposure_InferenceOpenOnlyMattersOnTheNetwork(t *testing.T) {
-	open := buildExposure(exposureInput{Bind: "0.0.0.0:4001", SignInRequired: true, Encrypted: true, Sandbox: true})
+	open := buildExposure(exposureInput{Bind: "0.0.0.0:4001", Encrypted: true, Sandbox: true})
 	if !hasAttention(open, "model_proxy_open") {
 		t.Errorf("an open /v1 on the network should be flagged: %v", attentionIDs(open))
 	}
-	local := buildExposure(exposureInput{Bind: "127.0.0.1:4001", SignInRequired: true, Sandbox: true})
+	local := buildExposure(exposureInput{Bind: "127.0.0.1:4001", Sandbox: true})
 	if hasAttention(local, "model_proxy_open") {
 		t.Error("loopback: nobody else can reach /v1")
 	}
-	keyed := buildExposure(exposureInput{Bind: "0.0.0.0:4001", SignInRequired: true, Encrypted: true, InferenceKeyRequired: true, Sandbox: true})
+	keyed := buildExposure(exposureInput{Bind: "0.0.0.0:4001", Encrypted: true, InferenceKeyRequired: true, Sandbox: true})
 	if hasAttention(keyed, "model_proxy_open") {
 		t.Error("a key is required, nothing to flag")
 	}
@@ -96,7 +86,7 @@ func TestExposure_WebhookSecretsCountOnlyInboundConnectors(t *testing.T) {
 		"send": {Type: models.ConnectorTypeTelegram, Enabled: true, Settings: map[string]string{"chat_id": "1"}},
 		"off":  {Type: models.ConnectorTypeTelegram, Settings: map[string]string{"workspace_id": "ws"}},
 	}
-	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001", SignInRequired: true, Sandbox: true, Connectors: conns})
+	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001", Sandbox: true, Connectors: conns})
 	if v.Webhooks.Inbound != 2 || v.Webhooks.WithSecret != 1 {
 		t.Errorf("webhooks = %+v, want 1 of 2", v.Webhooks)
 	}
@@ -106,7 +96,7 @@ func TestExposure_WebhookSecretsCountOnlyInboundConnectors(t *testing.T) {
 }
 
 func TestExposure_SandboxOffIsFlagged(t *testing.T) {
-	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001", SignInRequired: true})
+	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001"})
 	if !hasAttention(v, "sandbox_off") {
 		t.Errorf("sandbox off: %v", attentionIDs(v))
 	}

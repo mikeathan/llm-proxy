@@ -67,8 +67,8 @@ type passphraseBody struct {
 	Passphrase string `json:"passphrase"`
 }
 
-// Status says whether sign-in is required, whether the first passphrase can be set up, and whether this browser is signed
-// in. It says nothing else: it is open to anyone who can reach the server.
+// Status says whether a passphrase is set up (until it is, the admin API answers only the sign-in routes), whether the
+// first one can be set from the page (a setup code is open), and whether this browser is signed in. It says nothing else: it is open to anyone who can reach the server.
 func (h *AuthHandlers) Status(w http.ResponseWriter, r *http.Request) {
 	state, err := h.svc.State()
 	if err != nil {
@@ -77,7 +77,7 @@ func (h *AuthHandlers) Status(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, signedIn := h.session(r)
 	respondJSON(w, map[string]bool{
-		"required": state.Required, "setup_open": state.SetupOpen,
+		"set_up": state.SetUp, "setup_open": state.SetupOpen,
 		"authenticated": signedIn, "elevated": signedIn && h.svc.Elevated(sess), "encrypted": h.isHTTPS(r),
 	})
 }

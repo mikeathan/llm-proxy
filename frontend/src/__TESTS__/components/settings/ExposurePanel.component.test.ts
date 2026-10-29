@@ -8,7 +8,7 @@ vi.mock('../../../services/auth/authService', () => ({ AuthService: service }))
 import ExposurePanel from '../../../components/settings/ExposurePanel.vue'
 
 const exposure = (over: Partial<AuthExposure> = {}): AuthExposure => ({
-  listening: { address: '127.0.0.1:4001', network: false }, sign_in_required: true, encrypted: false, inference_key_required: false,
+  listening: { address: '127.0.0.1:4001', network: false }, encrypted: false, inference_key_required: false,
   webhooks: { inbound: 0, with_secret: 0 }, sandbox: { enabled: true, filesystem: 'landlock' }, attention: [], ...over,
 })
 
@@ -27,7 +27,6 @@ describe('ExposurePanel', () => {
     const facts = w.get('[data-test="exposure-facts"]').text()
     expect(facts).toContain('127.0.0.1:4001')
     expect(facts).toContain('this machine only')
-    expect(facts).toContain('Required')
     expect(facts).toContain('Not encrypted')
     expect(facts).toContain('Not required: /v1 is open')
     expect(facts).toContain('No connector receives messages')

@@ -28,7 +28,7 @@ Gotchas (each cost a debugging round):
 `npm run build` and rebuild the binary before looking at UI changes. Build into a scratch dir and start it
 **with cwd = that dir**: `cd <scratch> && ./lp-bin --data <scratch>/home`. Never start it with cwd `backend/` —
 it then loads `backend/.env.development` (`internal/platform/env/env.go`) and points at the user's real
-data. Confirm `GET /admin/api/dispatcher/workspaces` returns your fixtures before any write. To stop it, read
+data. Sign-in is compulsory, so a fresh `--data` folder answers `401 setup_required` to everything but the sign-in routes: run `./lp-bin auth setup-code --data <scratch>/home`, post the code and a passphrase to `/admin/api/auth/setup` (the response sets the session cookie; keep it in a cookie jar), then confirm `GET /admin/api/dispatcher/workspaces` returns your fixtures before any write. A script token (made under Script access, `LLM_PROXY_TOKEN`) works for evals. To stop it, read
 the PID's command line from `lsof -tiTCP:4001 -sTCP:LISTEN` first and kill only what you started. Ad-hoc
 Playwright scripts use `channel: 'chrome'`; inject a theme with localStorage `admin-ui:theme-selection` =
 `{"version":1,"data":{"kind":"preset","id":"retro-dark"}}` (plus `admin-ui:theme-applied`, see `e2e/design.visual.spec.ts`).

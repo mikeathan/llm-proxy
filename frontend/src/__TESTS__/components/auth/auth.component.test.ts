@@ -16,14 +16,13 @@ vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ conf
 import LoginView from '../../../views/LoginView.vue'
 import SetupView from '../../../views/SetupView.vue'
 import ReauthDialog from '../../../components/auth/ReauthDialog.vue'
-import AuthBanner from '../../../components/auth/AuthBanner.vue'
 import SignInSettings from '../../../components/settings/SignInSettings.vue'
 import { useAuth } from '../../../composables/auth/useAuth'
 import { useReauth } from '../../../composables/auth/useReauth'
 
-const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ required: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
+const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ set_up: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
 const EXPOSED: AuthExposure = {
-  listening: { address: '127.0.0.1:4001', network: false }, sign_in_required: true, encrypted: false, inference_key_required: false,
+  listening: { address: '127.0.0.1:4001', network: false }, encrypted: false, inference_key_required: false,
   webhooks: { inbound: 0, with_secret: 0 }, sandbox: { enabled: true, filesystem: 'landlock' }, attention: [],
 }
 const LENGTH: SessionLength = { idle_hours: 24, absolute_days: 14, max_idle_hours: 720, max_absolute_days: 90, default_idle_hours: 24, default_absolute_days: 14 }
@@ -115,6 +114,13 @@ describe('SetupView', () => {
     expect(replace).toHaveBeenCalledWith('/')
   })
 
+  it('says which command makes the code, and that the interface needs the passphrase before it opens', () => {
+    const w = mount(SetupView, stubs)
+    expect(w.text()).toContain('auth setup-code')
+    expect(w.text()).toContain('needs a passphrase before it will open')
+    expect(w.text()).not.toContain('anyone on your network')
+  })
+
   it('says what is wrong before asking: too short, or the two differ', async () => {
     const w = mount(SetupView, stubs)
     await fill(w, 'ABCD-2345', 'short', 'shorter')
@@ -174,31 +180,8 @@ describe('ReauthDialog', () => {
   })
 })
 
-describe('AuthBanner', () => {
-  it('shows while sign-in is not set up, mentioning an unencrypted connection, and links to the setting', () => {
-    useAuth().status.value = status({ required: false, encrypted: false })
-    const w = mount(AuthBanner, stubs)
-    expect(w.get('[data-test="auth-banner"]').text()).toContain('Sign-in is not set up')
-    expect(w.text()).toContain('not encrypted')
-  })
-
-  it('is gone once sign-in is set up, or before the state is known', () => {
-    useAuth().status.value = status({ required: true })
-    expect(mount(AuthBanner, stubs).find('[data-test="auth-banner"]').exists()).toBe(false)
-    useAuth().status.value = null
-    expect(mount(AuthBanner, stubs).find('[data-test="auth-banner"]').exists()).toBe(false)
-  })
-})
-
 describe('SignInSettings', () => {
   const session = (over = {}) => ({ id: 's1', browser: 'Firefox on Mac', address: '10.0.0.2', created_at: '2026-10-29T08:00:00Z', last_seen: '2026-10-29T09:00:00Z', current: false, ...over })
-
-  it('explains how to set up when sign-in is not set up, and loads nothing', () => {
-    useAuth().status.value = status({ required: false })
-    const w = mount(SignInSettings, stubs)
-    expect(w.get('[data-test="not-set-up"]').text()).toContain('auth setup-code')
-    expect(service.sessions).not.toHaveBeenCalled()
-  })
 
   it('lists where you are signed in, marks this one, and ends another', async () => {
     service.sessions.mockResolvedValue([session({ id: 'me', current: true }), session({ id: 'other', browser: 'Safari on iPhone' })])

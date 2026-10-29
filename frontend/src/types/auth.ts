@@ -5,8 +5,8 @@ export type TokenScope = 'admin' | 'inference'
 
 /** What anyone may ask before signing in. */
 export interface AuthStatus {
-  /** A passphrase exists, so every admin request needs a credential. */
-  required: boolean
+  /** A passphrase exists. Until it does the admin API answers only the sign-in routes, and the app shows only the setup page. */
+  set_up: boolean
   /** A setup code was made and has not expired, so the first passphrase can be set here. */
   setup_open: boolean
   /** This browser is signed in. */
@@ -62,7 +62,6 @@ export interface ExposureAttention {
 /** Where the server listens and what protects it (the Sign-in page's Exposure card). It holds no secret. */
 export interface AuthExposure {
   listening: { address: string; /** Other machines can connect. */ network: boolean }
-  sign_in_required: boolean
   /** The connection this page came over is HTTPS. */
   encrypted: boolean
   inference_key_required: boolean

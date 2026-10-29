@@ -42,8 +42,8 @@ async function submit() {
 </script>
 
 <template>
-  <AuthCard title="Set up sign-in" lead="Until you do, anyone on your network can change settings and run the assistant.">
-    <p class="m-0 text-[length:var(--text-small)] text-secondary">On the server, run <code class="font-mono text-primary">{{ PRODUCT_NAME }} auth setup-code</code> (with <code class="font-mono text-primary">sudo</code> if it is installed as a service) and enter the code it prints.</p>
+  <AuthCard title="Set up sign-in" lead="This interface needs a passphrase before it will open. It is set once, here.">
+    <p class="m-0 text-[length:var(--text-small)] text-secondary">On the server, run <code class="font-mono text-primary">{{ PRODUCT_NAME }} auth setup-code</code> (with <code class="font-mono text-primary">sudo</code> if it is installed as a service), enter the code it prints, and choose a passphrase. The code works once and expires in 15 minutes.</p>
     <form class="flex flex-col gap-3" novalidate @submit.prevent="submit">
       <FormField label="Setup code">
         <template #default="{ id, describedBy }">

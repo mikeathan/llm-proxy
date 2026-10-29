@@ -3,14 +3,23 @@ import { decideRoute, safeNext } from '../../../utils/auth/guard'
 import { ROUTE_NAMES } from '../../../types/routes'
 import type { AuthStatus } from '../../../types/auth'
 
-const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ required: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
+const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ set_up: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
 const page = { name: ROUTE_NAMES.overview, meta: {}, fullPath: '/workspaces/ws/assistant?x=1' }
 const login = { name: ROUTE_NAMES.login, meta: { public: true }, fullPath: '/login' }
 const setup = { name: ROUTE_NAMES.setup, meta: { public: true }, fullPath: '/setup' }
 
 describe('decideRoute', () => {
-  it('lets every page through while sign-in is not set up', () => {
-    expect(decideRoute(status({ required: false }), page)).toBe(true)
+  it('sends every page to the setup page while sign-in is not set up', () => {
+    expect(decideRoute(status({ set_up: false }), page)).toEqual({ name: ROUTE_NAMES.setup })
+    expect(decideRoute(status({ set_up: false, setup_open: true }), page)).toEqual({ name: ROUTE_NAMES.setup })
+  })
+
+  it('shows the setup page while nothing is set up, with or without a setup code, and never loops', () => {
+    // The setup page itself must not send the person anywhere: without a code it shows the command to run.
+    expect(decideRoute(status({ set_up: false, setup_open: false }), setup)).toBe(true)
+    expect(decideRoute(status({ set_up: false, setup_open: true }), setup)).toBe(true)
+    // The login page has nothing to offer before a passphrase exists.
+    expect(decideRoute(status({ set_up: false }), login)).toEqual({ name: ROUTE_NAMES.setup })
   })
 
   it('lets a signed-in user through', () => {
@@ -24,14 +33,11 @@ describe('decideRoute', () => {
   it('shows the login page to someone who must sign in, and sends everyone else home', () => {
     expect(decideRoute(status(), login)).toBe(true)
     expect(decideRoute(status({ authenticated: true }), login)).toEqual({ path: '/' })
-    expect(decideRoute(status({ required: false }), login)).toEqual({ path: '/' })
   })
 
-  it('offers setup only while a setup code is open and no passphrase exists', () => {
-    expect(decideRoute(status({ required: false, setup_open: true }), setup)).toBe(true)
-    expect(decideRoute(status({ required: false, setup_open: false }), setup)).toEqual({ name: ROUTE_NAMES.overview })
-    expect(decideRoute(status({ required: true }), setup)).toEqual({ name: ROUTE_NAMES.login })
-    expect(decideRoute(status({ required: true, authenticated: true }), setup)).toEqual({ name: ROUTE_NAMES.overview })
+  it('offers no setup once a passphrase exists', () => {
+    expect(decideRoute(status({ set_up: true }), setup)).toEqual({ name: ROUTE_NAMES.login })
+    expect(decideRoute(status({ set_up: true, authenticated: true }), setup)).toEqual({ name: ROUTE_NAMES.overview })
   })
 })
 

@@ -35,8 +35,6 @@ const yesNo = (on: boolean, yes: string, no: string) => (on ? yes : no)
       <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2" data-test="exposure-facts">
         <dt><MicroLabel>Listening on</MicroLabel></dt>
         <dd class="m-0 break-words"><span class="font-mono">{{ exposure.listening.address }}</span> · {{ yesNo(exposure.listening.network, "other machines can connect", "this machine only") }}</dd>
-        <dt><MicroLabel>Sign-in</MicroLabel></dt>
-        <dd class="m-0">{{ yesNo(exposure.sign_in_required, "Required", "Not set up") }}</dd>
         <dt><MicroLabel>Connection</MicroLabel></dt>
         <dd class="m-0">{{ yesNo(exposure.encrypted, "Encrypted (HTTPS)", "Not encrypted") }}</dd>
         <dt><MicroLabel>Model proxy key</MicroLabel></dt>
