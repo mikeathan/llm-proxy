@@ -12,6 +12,7 @@ import (
 	"llm-proxy/internal/platform/auth"
 	"llm-proxy/internal/platform/logging"
 	api "llm-proxy/internal/transport/http"
+	"llm-proxy/models"
 )
 
 // AuthService is the sign-in as the handlers use it. *auth.Service satisfies it.
@@ -40,6 +41,9 @@ type AuthHandlers struct {
 	svc AuthService
 	// trustedProxies lists the addresses whose X-Forwarded-Proto is believed (server.trusted_proxies); nil: none.
 	trustedProxies func() []string
+	// sessionLength reads and saves server.auth (how long a sign-in lasts); nil: the page cannot change it.
+	getAuthSettings func() models.AuthSettings
+	setAuthSettings func(models.AuthSettings) error
 }
 
 func NewAuthHandlers(svc AuthService) *AuthHandlers { return &AuthHandlers{svc: svc} }
@@ -47,6 +51,12 @@ func NewAuthHandlers(svc AuthService) *AuthHandlers { return &AuthHandlers{svc: 
 // WithTrustedProxies sets where a reverse proxy's X-Forwarded-Proto is believed from; it is read on every request.
 func (h *AuthHandlers) WithTrustedProxies(list func() []string) *AuthHandlers {
 	h.trustedProxies = list
+	return h
+}
+
+// WithSessionLength sets where the session lifetimes are read and saved.
+func (h *AuthHandlers) WithSessionLength(get func() models.AuthSettings, set func(models.AuthSettings) error) *AuthHandlers {
+	h.getAuthSettings, h.setAuthSettings = get, set
 	return h
 }
 
@@ -310,4 +320,63 @@ func firstMatch(s string, table [][2]string) string {
 		}
 	}
 	return ""
+}
+
+type sessionLengthView struct {
+	IdleHours       int `json:"idle_hours"`
+	AbsoluteDays    int `json:"absolute_days"`
+	MaxIdleHours    int `json:"max_idle_hours"`
+	MaxAbsoluteDays int `json:"max_absolute_days"`
+	DefaultIdle     int `json:"default_idle_hours"`
+	DefaultAbsolute int `json:"default_absolute_days"`
+}
+
+// sessionLength is the lifetimes in force: the saved values, else the defaults.
+func (h *AuthHandlers) sessionLength() sessionLengthView {
+	v := sessionLengthView{
+		IdleHours: auth.DefaultIdleHours, AbsoluteDays: auth.DefaultAbsoluteDays,
+		MaxIdleHours: auth.MaxIdleHours, MaxAbsoluteDays: auth.MaxAbsoluteDays,
+		DefaultIdle: auth.DefaultIdleHours, DefaultAbsolute: auth.DefaultAbsoluteDays,
+	}
+	if h.getAuthSettings != nil {
+		saved := h.getAuthSettings()
+		if saved.IdleHours > 0 {
+			v.IdleHours = saved.IdleHours
+		}
+		if saved.AbsoluteDays > 0 {
+			v.AbsoluteDays = saved.AbsoluteDays
+		}
+	}
+	return v
+}
+
+// SessionLength answers how long a sign-in lasts: the idle limit and the absolute limit, the defaults and the ceilings.
+func (h *AuthHandlers) SessionLength(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, h.sessionLength())
+}
+
+// SetSessionLength saves the two lifetimes. A longer session weakens sign-in, so the middleware asks for the passphrase
+// again first (a step-up route). The new values apply to the next request, with no restart.
+func (h *AuthHandlers) SetSessionLength(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IdleHours    int `json:"idle_hours"`
+		AbsoluteDays int `json:"absolute_days"`
+	}
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if err := auth.ValidateLifetimes(req.IdleHours, req.AbsoluteDays); err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.setAuthSettings == nil {
+		writeJSONError(w, http.StatusServiceUnavailable, "the session length cannot be saved here")
+		return
+	}
+	if err := h.setAuthSettings(models.AuthSettings{IdleHours: req.IdleHours, AbsoluteDays: req.AbsoluteDays}); err != nil {
+		logging.Error("session length not saved", "error", err)
+		writeJSONError(w, http.StatusInternalServerError, "the session length could not be saved")
+		return
+	}
+	respondJSON(w, h.sessionLength())
 }

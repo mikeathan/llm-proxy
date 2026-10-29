@@ -38,14 +38,35 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{IdleTimeout: 24 * time.Hour, AbsoluteTimeout: 14 * 24 * time.Hour, ElevationWindow: 5 * time.Minute, SetupCodeTTL: 15 * time.Minute, MaxSetupAttempts: 5}
+	return Config{IdleTimeout: DefaultIdleHours * time.Hour, AbsoluteTimeout: DefaultAbsoluteDays * 24 * time.Hour, ElevationWindow: 5 * time.Minute, SetupCodeTTL: 15 * time.Minute, MaxSetupAttempts: 5}
 }
 
-// The most a setting may ask for. A session must always end, so there is a ceiling even for an operator who wants long ones.
+// The most a setting may ask for (exported so the settings page can show them). A session must always end, so there is a
+// ceiling even for an operator who wants long ones.
 const (
-	maxIdleHours    = 24 * 30
-	maxAbsoluteDays = 90
+	MaxIdleHours    = 24 * 30
+	MaxAbsoluteDays = 90
 )
+
+// DefaultIdleHours and DefaultAbsoluteDays are the lifetimes when nothing is set (DefaultConfig).
+const (
+	DefaultIdleHours    = 24
+	DefaultAbsoluteDays = 14
+)
+
+// ValidateLifetimes checks the two lifetimes a person chose on the settings page: both whole numbers from 1 up to the
+// ceiling, and the idle limit no longer than the absolute one (a session cannot be idle longer than it can live).
+func ValidateLifetimes(idleHours, absoluteDays int) error {
+	switch {
+	case idleHours < 1 || idleHours > MaxIdleHours:
+		return fmt.Errorf("the idle limit must be from 1 to %d hours", MaxIdleHours)
+	case absoluteDays < 1 || absoluteDays > MaxAbsoluteDays:
+		return fmt.Errorf("the absolute limit must be from 1 to %d days", MaxAbsoluteDays)
+	case idleHours > absoluteDays*24:
+		return fmt.Errorf("the idle limit (%d hours) cannot be longer than the absolute limit (%d days)", idleHours, absoluteDays)
+	}
+	return nil
+}
 
 // ConfigFrom builds the lifetimes from the operator's settings (server.auth in settings.yml): the idle limit in hours and
 // the absolute limit in days. A zero or negative value means "the default"; a value past the ceiling is cut to it; and
@@ -53,10 +74,10 @@ const (
 func ConfigFrom(idleHours, absoluteDays int) Config {
 	c := DefaultConfig()
 	if idleHours > 0 {
-		c.IdleTimeout = time.Duration(min(idleHours, maxIdleHours)) * time.Hour
+		c.IdleTimeout = time.Duration(min(idleHours, MaxIdleHours)) * time.Hour
 	}
 	if absoluteDays > 0 {
-		c.AbsoluteTimeout = time.Duration(min(absoluteDays, maxAbsoluteDays)) * 24 * time.Hour
+		c.AbsoluteTimeout = time.Duration(min(absoluteDays, MaxAbsoluteDays)) * 24 * time.Hour
 	}
 	c.IdleTimeout = min(c.IdleTimeout, c.AbsoluteTimeout)
 	return c

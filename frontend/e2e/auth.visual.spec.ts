@@ -21,6 +21,16 @@ const events = [
   { at: '2026-10-29T08:05:00Z', kind: 'login_failed', address: '192.168.50.99' },
 ]
 
+const exposure = {
+  listening: { address: '0.0.0.0:4001', network: true }, sign_in_required: true, encrypted: false, inference_key_required: false,
+  webhooks: { inbound: 2, with_secret: 1 }, sandbox: { enabled: true, filesystem: 'landlock' },
+  attention: [
+    { id: 'unencrypted', text: 'This connection is not encrypted: your passphrase and session can be read by others on the network.', fix: 'Put a TLS front end (Caddy, nginx, Tailscale) in front and list it in server.trusted_proxies, or set server.bind to 127.0.0.1.' },
+    { id: 'webhook_no_secret', text: 'A connector that receives messages has no webhook secret, so the server refuses its messages.', fix: 'Open Settings, Communication, and create a secret for it, then register the webhook again.' },
+  ],
+}
+const sessionLength = { idle_hours: 24, absolute_days: 14, max_idle_hours: 720, max_absolute_days: 90, default_idle_hours: 24, default_absolute_days: 14 }
+
 async function open(page: Page, path: string, status: object, extra: Record<string, unknown> = {}) {
   await mockAdminApi(page, { answers: { '/auth/status': status, ...extra } })
   await page.goto(path)
@@ -59,8 +69,12 @@ test('while sign-in is not set up, every page carries the banner', async ({ page
 })
 
 test('Settings · Sign-in lists sessions and script tokens and fits the screen', async ({ page }, testInfo) => {
-  await open(page, 'settings/sign-in', SIGNED_IN, { '/auth/sessions': sessions, '/auth/tokens': tokens, '/auth/events': events })
+  await open(page, 'settings/sign-in', SIGNED_IN, { '/auth/sessions': sessions, '/auth/tokens': tokens, '/auth/events': events, '/auth/exposure': exposure, '/auth/session-length': sessionLength })
   await expect(page.getByRole('heading', { name: 'Where you are signed in' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Exposure' })).toBeVisible()
+  await expect(page.getByText('This connection is not encrypted')).toBeVisible()
+  await expect(page.getByText('1 of 2 connectors that receive messages')).toBeVisible()
+  await expect(page.getByLabel('Signed out after idle (hours)')).toHaveValue('24')
   await expect(page.getByText('this one')).toBeVisible()
   await expect(page.getByText('eval scripts')).toBeVisible()
   await expect(page.getByText('A wrong passphrase was tried')).toBeVisible()

@@ -49,7 +49,8 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	if s.auth != nil {
 		trusted := func() []string { return s.AppCtx.GetSystem().Server.TrustedProxies }
 		warnInvalidTrustedProxies(trusted())
-		hs.Auth = handlers.NewAuthHandlers(s.auth).WithTrustedProxies(trusted)
+		hs.Auth = handlers.NewAuthHandlers(s.auth).WithTrustedProxies(trusted).WithSessionLength(
+			func() models.AuthSettings { return s.AppCtx.GetSystem().Server.Auth }, s.AppCtx.SetAuthSettings)
 		hs.Exposure = handlers.NewExposureHandlers(handlers.ExposureSource{
 			Auth:           s.auth,
 			Bind:           func() string { return bindAddress(s.AppCtx.GetSystem()) },
@@ -399,6 +400,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Delete("/admin/api/auth/tokens", hs.Auth.RevokeToken, jsonMethodNotAllowed)
 		router.Get("/admin/api/auth/events", hs.Auth.Events, jsonMethodNotAllowed)
 		router.Get("/admin/api/auth/exposure", hs.Exposure.Get, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/session-length", hs.Auth.SessionLength, jsonMethodNotAllowed)
+		router.Put("/admin/api/auth/session-length", hs.Auth.SetSessionLength, jsonMethodNotAllowed)
 	}
 
 	// Public webhooks — external platforms POST here (no admin auth)

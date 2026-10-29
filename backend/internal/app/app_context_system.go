@@ -344,3 +344,11 @@ func (s *AppContext) SystemUpdateChangesWhatRuns(req models.SystemUpdatePayload)
 func equalEnvironment(a, b map[string]string) bool {
 	return len(a) == len(b) && maps.Equal(a, b) || len(a) == 0 && len(b) == 0
 }
+
+// SetAuthSettings saves how long a sign-in lasts (server.auth). The sign-in reads it at each request, so it applies at once.
+func (s *AppContext) SetAuthSettings(a models.AuthSettings) error {
+	return s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
+		sys.Server.Auth = a
+		return nil
+	})
+}

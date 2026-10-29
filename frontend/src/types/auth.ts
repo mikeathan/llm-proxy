@@ -70,3 +70,13 @@ export interface AuthExposure {
   sandbox: { enabled: boolean; /** The file confinement agents run under, or "none". */ filesystem: string }
   attention: ExposureAttention[]
 }
+
+/** How long a sign-in lasts: the idle limit in hours and the absolute limit in days, with the defaults and the ceilings. */
+export interface SessionLength {
+  idle_hours: number
+  absolute_days: number
+  max_idle_hours: number
+  max_absolute_days: number
+  default_idle_hours: number
+  default_absolute_days: number
+}

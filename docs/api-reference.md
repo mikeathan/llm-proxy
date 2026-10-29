@@ -25,6 +25,7 @@ token; otherwise `401`. `/v1/*` is open until the first **inference** token is m
 | POST | `/admin/api/auth/sessions/revoke-all` | Sign out everywhere, this browser too |
 | POST | `/admin/api/auth/passphrase` | `{old, new}`; ends every other session |
 | GET / POST / DELETE | `/admin/api/auth/tokens[?id]` | List script tokens (no secret); make one `{name, scope: "admin"\|"inference"}` (the secret is in this answer only, and this needs the passphrase again); revoke |
+| GET, PUT | `/admin/api/auth/session-length` | How long a sign-in lasts: `{idle_hours, absolute_days, max_idle_hours, max_absolute_days, default_idle_hours, default_absolute_days}`. `PUT {idle_hours, absolute_days}` saves `server.auth` (whole numbers, 1 to the ceiling, idle no longer than absolute); it needs the passphrase again (step-up) and applies to the next request. |
 | GET | `/admin/api/auth/exposure` | Where the server listens and what protects it: `{listening{address,network}, sign_in_required, encrypted, inference_key_required, webhooks{inbound,with_secret}, sandbox{enabled,filesystem}, attention[{id,text,fix}]}`. No secret. |
 | GET | `/admin/api/auth/events` | The last 20 sign-in events (never a secret) |
 

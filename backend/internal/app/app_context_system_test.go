@@ -6,7 +6,9 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
+	"llm-proxy/internal/platform/auth"
 	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
@@ -338,5 +340,20 @@ func TestApplySystemUpdate_MaskedWebhookSecretKeepsTheStoredOne(t *testing.T) {
 	save(conn("replacement"))
 	if got := stored(); got != "replacement" {
 		t.Errorf("a typed secret must replace the stored one, got %q", got)
+	}
+}
+
+// The session lifetimes saved from the settings page are what the sign-in reads at its next request.
+func TestSetAuthSettings_ReachesWhatTheSignInReads(t *testing.T) {
+	srv := newSystemTestServer(t)
+	if err := srv.SetAuthSettings(models.AuthSettings{IdleHours: 6, AbsoluteDays: 3}); err != nil {
+		t.Fatalf("SetAuthSettings: %v", err)
+	}
+	a := srv.GetSystem().Server.Auth
+	if a != (models.AuthSettings{IdleHours: 6, AbsoluteDays: 3}) {
+		t.Fatalf("GetSystem().Server.Auth = %+v", a)
+	}
+	if got := auth.ConfigFrom(a.IdleHours, a.AbsoluteDays); got.IdleTimeout != 6*time.Hour || got.AbsoluteTimeout != 72*time.Hour {
+		t.Errorf("the sign-in would use %v / %v", got.IdleTimeout, got.AbsoluteTimeout)
 	}
 }

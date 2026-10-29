@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick, onMounted, toRef } from "vue";
+import { ref, watch, computed, nextTick, onMounted, onBeforeUnmount, toRef } from "vue";
 import { useAssistant } from "../../../composables/assistant/useAssistant";
 import { useMessageQueue } from "../../../composables/assistant/useMessageQueue";
+import { peekDraft, stashDraft } from "../../../composables/assistant/useComposerDraft";
 import { useMemoryReview } from "../../../composables/memory/useMemoryReview";
 import { useToast } from "../../../composables/useToast";
 import MemoryReviewDialog from "../memory/MemoryReviewDialog.vue";
@@ -111,7 +112,9 @@ const status = computed<{ state: StatusState; label: string }>(() => {
   return { state: "neutral", label: "Ready" };
 });
 
-const inputMessage = ref("");
+// What was in the box when the chat was last taken down (a 401 and a trip to the sign-in page) comes back with it.
+const inputMessage = ref(peekDraft(props.workspaceId));
+onBeforeUnmount(() => stashDraft(props.workspaceId, inputMessage.value));
 // Text given back to the box (a queued message that could not be sent, a refused command); a draft already in the box
 // is kept, with the returned text after it.
 const restoreDraft = (text: string) => {

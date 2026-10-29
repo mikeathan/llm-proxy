@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { AuthService } from '../../services/auth/authService'
 import { errorMessage } from '../../utils/errors'
 import { useAuth } from './useAuth'
-import type { AuthEvent, AuthSession, AuthToken, NewAuthToken, TokenScope } from '../../types/auth'
+import type { AuthEvent, AuthSession, AuthToken, NewAuthToken, SessionLength, TokenScope } from '../../types/auth'
 
 const LOAD_FAILED = 'The sign-in details could not be read.'
 const PASSPHRASE_FAILED = 'The passphrase could not be changed.'
@@ -10,6 +10,7 @@ const REVOKE_SESSION_FAILED = 'That session could not be ended.'
 const SIGN_OUT_ALL_FAILED = 'Signing out everywhere failed.'
 const TOKEN_CREATE_FAILED = 'The token could not be made.'
 const TOKEN_REVOKE_FAILED = 'The token could not be revoked.'
+const SESSION_LENGTH_FAILED = 'The session length could not be saved.'
 
 /** Settings · Sign-in: where this operator is signed in, their script tokens, the recent sign-in log, and the passphrase. */
 export function useSignInSettings() {
@@ -17,6 +18,7 @@ export function useSignInSettings() {
   const sessions = ref<AuthSession[]>([])
   const tokens = ref<AuthToken[]>([])
   const events = ref<AuthEvent[]>([])
+  const sessionLength = ref<SessionLength | null>(null)
   const loading = ref(false)
   const error = ref('')
   const actionError = ref('')
@@ -26,7 +28,7 @@ export function useSignInSettings() {
   async function load(): Promise<void> {
     loading.value = true
     try {
-      ;[sessions.value, tokens.value, events.value] = await Promise.all([AuthService.sessions(), AuthService.tokens(), AuthService.events()])
+      ;[sessions.value, tokens.value, events.value, sessionLength.value] = await Promise.all([AuthService.sessions(), AuthService.tokens(), AuthService.events(), AuthService.sessionLength()])
       error.value = ''
     } catch (err) {
       error.value = errorMessage(err, LOAD_FAILED)
@@ -76,8 +78,11 @@ export function useSignInSettings() {
     return true
   }
 
+  const saveSessionLength = (idleHours: number, absoluteDays: number) =>
+    act(() => AuthService.setSessionLength(idleHours, absoluteDays), SESSION_LENGTH_FAILED)
+
   const revokeToken = (id: string) => act(() => AuthService.revokeToken(id), TOKEN_REVOKE_FAILED)
   const dismissCreated = () => { created.value = null }
 
-  return { sessions, tokens, events, loading, error, actionError, created, load, changePassphrase, revokeSession, signOutEverywhere, createToken, revokeToken, dismissCreated }
+  return { sessions, tokens, events, sessionLength, saveSessionLength, loading, error, actionError, created, load, changePassphrase, revokeSession, signOutEverywhere, createToken, revokeToken, dismissCreated }
 }

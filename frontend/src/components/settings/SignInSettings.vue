@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
@@ -9,6 +9,7 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import PassphraseInput from "../auth/PassphraseInput.vue"
 import ExposurePanel from "./ExposurePanel.vue"
+import { sessionLengthProblem } from "../../utils/auth/sessionLength"
 import { useAuth } from "../../composables/auth/useAuth"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useSignInSettings } from "../../composables/auth/useSignInSettings"
@@ -39,6 +40,21 @@ async function changePass() {
     newPass.value = ""
     passDone.value = true
   }
+}
+
+const idleHours = ref(0)
+const absoluteDays = ref(0)
+const lengthSaved = ref(false)
+watch(s.sessionLength, (len) => {
+  if (!len) return
+  idleHours.value = len.idle_hours
+  absoluteDays.value = len.absolute_days
+}, { immediate: true })
+const lengthProblem = computed(() => (s.sessionLength.value ? sessionLengthProblem(idleHours.value, absoluteDays.value, s.sessionLength.value) : ""))
+async function saveLength() {
+  lengthSaved.value = false
+  if (lengthProblem.value) return
+  lengthSaved.value = await s.saveSessionLength(idleHours.value, absoluteDays.value)
 }
 
 const tokenName = ref("")
@@ -95,6 +111,29 @@ onMounted(() => { if (required.value) void s.load() })
             <div class="flex flex-wrap items-center gap-3">
               <BaseButton type="submit" :disabled="!oldPass || !newPass || tooShort" class-name="max-sm:!h-11">Change passphrase</BaseButton>
               <span v-if="passDone" role="status" class="text-[length:var(--text-small)] text-state-success" data-test="pass-done">Changed. Your other sessions were signed out.</span>
+            </div>
+          </form>
+        </Panel>
+
+        <Panel v-if="s.sessionLength.value" title="How long you stay signed in" preserve-case>
+          <form class="flex max-w-xl flex-col gap-3" novalidate data-test="session-length-form" @submit.prevent="saveLength">
+            <p class="m-0 text-[length:var(--text-small)] text-secondary">A browser is signed out after this long without use, and never stays signed in longer than the absolute limit however busy it is. A change applies to the next request, with no restart, and asks for your passphrase.</p>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <FormField label="Signed out after idle (hours)" :hint="`Default ${s.sessionLength.value.default_idle_hours}. At most ${s.sessionLength.value.max_idle_hours}.`">
+                <template #default="{ id, describedBy }">
+                  <input :id="id" v-model.number="idleHours" type="number" inputmode="numeric" min="1" :max="s.sessionLength.value.max_idle_hours" :aria-describedby="describedBy" data-test="idle-hours" class="min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 py-2 text-primary focus-visible:outline-none focus-visible:ring-2" />
+                </template>
+              </FormField>
+              <FormField label="Always signed out after (days)" :hint="`Default ${s.sessionLength.value.default_absolute_days}. At most ${s.sessionLength.value.max_absolute_days}.`">
+                <template #default="{ id, describedBy }">
+                  <input :id="id" v-model.number="absoluteDays" type="number" inputmode="numeric" min="1" :max="s.sessionLength.value.max_absolute_days" :aria-describedby="describedBy" data-test="absolute-days" class="min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 py-2 text-primary focus-visible:outline-none focus-visible:ring-2" />
+                </template>
+              </FormField>
+            </div>
+            <p v-if="lengthProblem" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="session-length-error">{{ lengthProblem }}</p>
+            <div class="flex flex-wrap items-center gap-3">
+              <BaseButton type="submit" :disabled="!!lengthProblem" class-name="max-sm:!h-11">Save</BaseButton>
+              <span v-if="lengthSaved" role="status" class="text-[length:var(--text-small)] text-state-success" data-test="session-length-done">Saved.</span>
             </div>
           </form>
         </Panel>
