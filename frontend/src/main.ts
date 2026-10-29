@@ -5,6 +5,7 @@ import { createAppRouter } from './router'
 import { installStaleChunkReload } from './router/staleChunkReload'
 import { useTheme } from './composables/ui/useTheme'
 import { startRunNotifications } from './composables/assistant/useRunNotifications'
+import { startAuth } from './composables/auth/startAuth'
 import { startReminderAlerts } from './composables/reminders/useReminderAlerts'
 import { documentTitle } from './utils/documentTitle'
 
@@ -13,6 +14,9 @@ import { documentTitle } from './utils/documentTitle'
 useTheme().start()
 
 const router = createAppRouter()
+
+// Sign-in: the router guard, the 401 handling and the passphrase prompt (plan admin-api-authentication).
+startAuth(router)
 
 // After a deploy, an open tab's page chunks are gone: reload once onto the new build instead of failing silently.
 installStaleChunkReload(router)

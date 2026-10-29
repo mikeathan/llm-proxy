@@ -9,7 +9,7 @@ import type { SettingsTab, SettingsTabGroup } from "../types/admin";
 // Every section that is not a cloud provider; providers are discovered at runtime.
 const FIXED_SECTIONS: ReadonlySet<SettingsTab> = new Set<SettingsTab>([
   "appearance", "local", "runs", "memory", "storage", "limits", "local-models", "mcp",
-  "guardrails", "security", "processes", "communication", "search", "agents", "network-scan",
+  "guardrails", "security", "processes", "communication", "search", "agents", "network-scan", "sign-in",
 ]);
 
 /**

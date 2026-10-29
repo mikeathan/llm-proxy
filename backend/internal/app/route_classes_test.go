@@ -51,7 +51,7 @@ func allRoutes(t *testing.T) []string {
 		ActiveRuns: &handlers.ActiveRunsHandler{}, Dispatcher: &handlers.DispatcherHandlers{},
 		Recordings: &handlers.RecordingHandlers{}, Memory: &handlers.MemoryHandlers{}, Reminders: &handlers.ReminderHandlers{},
 		Profiles: &handlers.ProfileHandlers{}, Helpers: &handlers.HelpersHandlers{}, Netaudit: &handlers.NetauditHandlers{},
-		VulnData: &handlers.VulnDataHandlers{}, Commands: &handlers.CommandHandlers{}, Webhook: &handlers.WebhookHandler{},
+		VulnData: &handlers.VulnDataHandlers{}, Commands: &handlers.CommandHandlers{}, Webhook: &handlers.WebhookHandler{}, Auth: &handlers.AuthHandlers{},
 	}
 	router, ok := buildRouter(hs).(*api.Router)
 	if !ok {
@@ -97,6 +97,37 @@ func TestRouteClassification_TheDestructiveRoutesAreAdmin(t *testing.T) {
 		}
 		if classify(want) != classAdmin {
 			t.Errorf("%q must be an admin route, got %q", want, classify(want))
+		}
+	}
+}
+
+// Every step-up route is a real route, so renaming one cannot silently drop its protection.
+func TestRouteClassification_EveryStepUpRouteExists(t *testing.T) {
+	routes := allRoutes(t)
+	for _, r := range api.StepUpRoutes() {
+		if !slices.Contains(routes, r.Method+" "+r.Path) {
+			t.Errorf("step-up route %s %s is not registered (renamed? update api.stepUpExact)", r.Method, r.Path)
+		}
+	}
+	for _, prefix := range api.StepUpPrefixes() {
+		found := false
+		for _, r := range routes {
+			if _, path, _ := strings.Cut(r, " "); strings.HasPrefix(path, prefix) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("no route starts with the step-up prefix %q", prefix)
+		}
+	}
+}
+
+// Only the sign-in routes may be reached without signing in, and they are all under /admin/api/auth/.
+func TestRouteClassification_TheSignInRoutesAreTheOnlyOpenAPIRoutes(t *testing.T) {
+	want := []string{"GET /admin/api/auth/status", "POST /admin/api/auth/login", "POST /admin/api/auth/logout", "POST /admin/api/auth/setup"}
+	for _, route := range want {
+		if !slices.Contains(allRoutes(t), route) {
+			t.Errorf("%s is not registered", route)
 		}
 	}
 }

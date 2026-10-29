@@ -36,6 +36,7 @@ import ProviderModelsCard from "../components/settings/ProviderModelsCard.vue"
 import CommunicationSettings from "../components/settings/CommunicationSettings.vue"
 import AgentsSettings from "../components/settings/AgentsSettings.vue"
 import NetworkScanSettings from "../components/settings/NetworkScanSettings.vue"
+import SignInSettings from "../components/settings/SignInSettings.vue"
 import SearchSettings from "../components/settings/SearchSettings.vue"
 import InfrastructurePanel from "../components/infrastructure/InfrastructurePanel.vue"
 import AppearanceSettings from "../components/settings/AppearanceSettings.vue"
@@ -225,6 +226,10 @@ const updateConfigValue = (value: GlobalConfig) => {
 
           <div v-show="activeTab === 'network-scan'">
             <NetworkScanSettings />
+          </div>
+
+          <div v-show="activeTab === 'sign-in'">
+            <SignInSettings />
           </div>
 
           <div v-show="activeTab === 'local-models'">

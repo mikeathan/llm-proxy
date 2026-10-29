@@ -3,10 +3,13 @@ package app_test
 import (
 	"context"
 	"encoding/json"
+	"llm-proxy/internal/platform/auth"
+	api "llm-proxy/internal/transport/http"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/app"
@@ -129,5 +132,139 @@ func TestHandlerIsGuarded(t *testing.T) {
 	}
 	if code := serve("GET", "/v1/models", "vertex.lan", "cross-site"); code == http.StatusMisdirectedRequest || code == http.StatusForbidden {
 		t.Errorf("/v1 must not be guarded by the browser rules, got %d", code)
+	}
+}
+
+// The whole path, through the real handler: sign-in is off until the operator sets it up with a code the command line
+// made (a second process on the same file), then every admin route needs the cookie, and a destructive one needs the
+// passphrase again. The model proxy and the UI shell stay open.
+func TestSignInEndToEnd(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	dataMgr := minimalTestDataManager(t)
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
+
+	send := func(method, path, body string, cookie *http.Cookie) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Host = testHost
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		a.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+
+	if rec := send("GET", "/admin/api/version", "", nil); rec.Code != http.StatusOK {
+		t.Fatalf("before setup the admin API is open (the upgrade state): %d", rec.Code)
+	}
+
+	cli := auth.NewService(auth.OpenStore(app.AuthFilePath(dataMgr.RootDir())), auth.NewHasher(auth.DefaultParams()), auth.DefaultConfig())
+	code, err := cli.IssueSetupCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := send("POST", "/admin/api/auth/setup", `{"code":"`+code+`","passphrase":"correct horse battery"}`, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup = %d %s", rec.Code, rec.Body.String())
+	}
+	var cookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == api.SessionCookie {
+			cookie = c
+		}
+	}
+	if cookie == nil {
+		t.Fatal("no session cookie after setup")
+	}
+
+	if rec := send("GET", "/admin/api/version", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("after setup, no credential = %d, want 401", rec.Code)
+	}
+	if rec := send("GET", "/admin/api/version", "", cookie); rec.Code != http.StatusOK {
+		t.Errorf("with the cookie = %d, want 200", rec.Code)
+	}
+	if rec := send("POST", "/admin/api/system/wipeout", "", cookie); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "reauth_required") {
+		t.Errorf("wipeout with a plain session = %d %s, want 403 reauth_required", rec.Code, rec.Body.String())
+	}
+	if rec := send("GET", "/admin/", "", nil); rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
+		t.Errorf("the UI shell must stay open: %d", rec.Code)
+	}
+	if rec := send("GET", "/v1/models", "", nil); rec.Code == http.StatusUnauthorized {
+		t.Errorf("/v1 stays open until an inference key exists: %d", rec.Code)
+	}
+	if rec := send("GET", "/admin/api/auth/status", "", nil); !strings.Contains(rec.Body.String(), `"required":true`) {
+		t.Errorf("status = %s", rec.Body.String())
+	}
+}
+
+// A settings save is ordinary until it changes a program to run (the model server's arguments, environment or path, or the
+// GPU program): that is command execution, so it needs the passphrase again, and a script token can never do it.
+func TestSignIn_ChangingWhatRunsNeedsThePassphraseAgain(t *testing.T) {
+	utils.SetRequiredEnv(t)
+	dataMgr := minimalTestDataManager(t)
+	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
+	send := func(method, path, body string, cookie *http.Cookie, token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Host = testHost
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		a.Handler().ServeHTTP(rec, req)
+		return rec
+	}
+	sessionOf := func(rec *httptest.ResponseRecorder) *http.Cookie {
+		for _, c := range rec.Result().Cookies() {
+			if c.Name == api.SessionCookie {
+				return c
+			}
+		}
+		return nil
+	}
+
+	const pass = "correct horse battery"
+	cli := auth.NewService(auth.OpenStore(app.AuthFilePath(dataMgr.RootDir())), auth.NewHasher(auth.DefaultParams()), auth.DefaultConfig())
+	code, _ := cli.IssueSetupCode()
+	cookie := sessionOf(send("POST", "/admin/api/auth/setup", `{"code":"`+code+`","passphrase":"`+pass+`"}`, nil, ""))
+	if cookie == nil {
+		t.Fatal("setup did not sign in")
+	}
+
+	const ordinary = `{"model_host":"127.0.0.1"}`
+	const runsCode = `{"default_args":["--host","0.0.0.0"]}`
+	if rec := send("PUT", "/admin/api/config", ordinary, cookie, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("an ordinary save with a plain session = %d %s, want 204", rec.Code, rec.Body.String())
+	}
+	if rec := send("PUT", "/admin/api/config", runsCode, cookie, ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "reauth_required") {
+		t.Errorf("changing the model arguments with a plain session = %d %s, want 403 reauth_required", rec.Code, rec.Body.String())
+	}
+	if rec := send("PUT", "/admin/api/system", runsCode, cookie, ""); rec.Code != http.StatusForbidden {
+		t.Errorf("the same through /system = %d, want 403", rec.Code)
+	}
+
+	plain, _, err := cli.CreateToken("scripts", auth.ScopeAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec := send("PUT", "/admin/api/config", ordinary, nil, plain); rec.Code != http.StatusNoContent {
+		t.Errorf("a token may make an ordinary save: %d", rec.Code)
+	}
+	if rec := send("PUT", "/admin/api/config", runsCode, nil, plain); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "passphrase") {
+		t.Errorf("a token changing the model arguments = %d %s, want 403", rec.Code, rec.Body.String())
+	}
+
+	elevated := sessionOf(send("POST", "/admin/api/auth/reauth", `{"passphrase":"`+pass+`"}`, cookie, ""))
+	if elevated == nil {
+		t.Fatal("reauth did not give a new cookie")
+	}
+	if rec := send("PUT", "/admin/api/config", runsCode, elevated, ""); rec.Code != http.StatusNoContent {
+		t.Errorf("after confirming the passphrase = %d %s, want 204", rec.Code, rec.Body.String())
 	}
 }

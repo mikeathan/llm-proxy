@@ -9,46 +9,47 @@ import (
 )
 
 type MockAdminService struct {
-	GetSettingsFunc           func() models.UserSettings
-	UpdateSettingsFunc        func(func(*models.UserSettings)) error
-	GetSystemFunc             func() models.SystemConfig
-	UpdateSystemFunc          func(func(*models.SystemConfig)) error
-	GetRegistryFunc           func() models.RegistryData
-	UpdateRegistryFunc        func(func(*models.RegistryData)) error
-	GetGuardrailsFunc         func() models.AgentGuardrailsConfig
-	GPUConfigFunc             func() models.GPUConfig
-	SetGPUConfigFunc          func(models.GPUConfig)
-	PersistModelFunc          func(models.ModelConfig) error
-	PersistReplaceModelFunc   func(models.ModelConfig) error
-	PersistDeleteModelFunc    func(string) error
-	ResolveModelPathFunc      func(string, string) string
-	RefreshMetricsServiceFunc func()
-	MetricsSnapshotFunc       func() metrics.MetricsSnapshot
-	ListMCPServersFunc        func() []models.MCPServerConfig
-	AddMCPServerFunc          func(models.MCPServerConfig) error
-	UpdateMCPServerFunc       func(models.MCPServerConfig) error
-	RemoveMCPServerFunc       func(string) error
-	EnvironmentFunc           func() map[string]string
-	ModelsFunc                func() []models.ModelConfig
-	ProvidersFunc             func() map[string]models.ProviderItem
-	WorkspacesDirFunc         func() string
-	SetWorkspacesDirFunc      func(string)
-	ProcessLoggerFunc         func(string) logging.Logger
-	RootDirFunc               func() string
-	SecretsFunc               func() models.SecretsStore
-	ApplySystemUpdateFunc     func(context.Context, models.SystemUpdatePayload) error
-	ServiceCredentialsFunc    func() (string, string)
-	ListTemplatesFunc         func() ([]models.TemplateMetadata, error)
-	GetTemplateFunc           func(string) (models.Template, error)
-	HostSettingsFunc          func() models.HostSettings
-	UpdateHostSettingsFunc    func(models.HostSettings) error
-	ResetShellFunc            func(string) error
-	ListShellSessionsFunc     func() []models.TerminalSessionView
-	DeleteProviderWithCleanupFunc func(string) error
-	RunLoggingEnabledFunc     func() bool
-	FactoryResetFunc          func() (storage.ResetResult, error)
-	ClearRuntimeDataFunc      func() error
-	WipeoutFunc               func() (storage.WipeoutResult, error)
+	GetSettingsFunc                 func() models.UserSettings
+	UpdateSettingsFunc              func(func(*models.UserSettings)) error
+	GetSystemFunc                   func() models.SystemConfig
+	UpdateSystemFunc                func(func(*models.SystemConfig)) error
+	GetRegistryFunc                 func() models.RegistryData
+	UpdateRegistryFunc              func(func(*models.RegistryData)) error
+	GetGuardrailsFunc               func() models.AgentGuardrailsConfig
+	GPUConfigFunc                   func() models.GPUConfig
+	SetGPUConfigFunc                func(models.GPUConfig)
+	PersistModelFunc                func(models.ModelConfig) error
+	PersistReplaceModelFunc         func(models.ModelConfig) error
+	PersistDeleteModelFunc          func(string) error
+	ResolveModelPathFunc            func(string, string) string
+	RefreshMetricsServiceFunc       func()
+	MetricsSnapshotFunc             func() metrics.MetricsSnapshot
+	ListMCPServersFunc              func() []models.MCPServerConfig
+	AddMCPServerFunc                func(models.MCPServerConfig) error
+	UpdateMCPServerFunc             func(models.MCPServerConfig) error
+	RemoveMCPServerFunc             func(string) error
+	EnvironmentFunc                 func() map[string]string
+	ModelsFunc                      func() []models.ModelConfig
+	ProvidersFunc                   func() map[string]models.ProviderItem
+	WorkspacesDirFunc               func() string
+	SetWorkspacesDirFunc            func(string)
+	ProcessLoggerFunc               func(string) logging.Logger
+	RootDirFunc                     func() string
+	SecretsFunc                     func() models.SecretsStore
+	ApplySystemUpdateFunc           func(context.Context, models.SystemUpdatePayload) error
+	SystemUpdateChangesWhatRunsFunc func(models.SystemUpdatePayload) bool
+	ServiceCredentialsFunc          func() (string, string)
+	ListTemplatesFunc               func() ([]models.TemplateMetadata, error)
+	GetTemplateFunc                 func(string) (models.Template, error)
+	HostSettingsFunc                func() models.HostSettings
+	UpdateHostSettingsFunc          func(models.HostSettings) error
+	ResetShellFunc                  func(string) error
+	ListShellSessionsFunc           func() []models.TerminalSessionView
+	DeleteProviderWithCleanupFunc   func(string) error
+	RunLoggingEnabledFunc           func() bool
+	FactoryResetFunc                func() (storage.ResetResult, error)
+	ClearRuntimeDataFunc            func() error
+	WipeoutFunc                     func() (storage.WipeoutResult, error)
 }
 
 func (m *MockAdminService) RunLoggingEnabled() bool {
@@ -241,6 +242,14 @@ func (m *MockAdminService) Secrets() models.SecretsStore {
 		return m.SecretsFunc()
 	}
 	return nil
+}
+
+// SystemUpdateChangesWhatRuns is false unless a test sets the func.
+func (m *MockAdminService) SystemUpdateChangesWhatRuns(req models.SystemUpdatePayload) bool {
+	if m.SystemUpdateChangesWhatRunsFunc != nil {
+		return m.SystemUpdateChangesWhatRunsFunc(req)
+	}
+	return false
 }
 
 func (m *MockAdminService) ApplySystemUpdate(ctx context.Context, req models.SystemUpdatePayload) error {

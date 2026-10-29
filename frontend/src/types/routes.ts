@@ -20,6 +20,8 @@ export const ROUTE_NAMES = {
   activity: 'activity',
   settings: 'settings',
   design: 'design',
+  login: 'login',
+  setup: 'setup',
   notFound: 'not-found',
 } as const
 
@@ -97,6 +99,8 @@ declare module 'vue-router' {
     keepAlive?: boolean
     // Rendered without the app shell (the dev-only /design reference).
     bare?: boolean
+    // A sign-in page: reachable without being signed in, and sent home once there is nothing to sign in to.
+    public?: boolean
     // Page title segment for document.title.
     title?: string
     // Uses the full content width (IDE-style panes) instead of the reading column.

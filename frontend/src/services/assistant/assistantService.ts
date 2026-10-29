@@ -9,10 +9,11 @@ import type {
 } from '../../types/assistant'
 import type { MemorySuggestion } from '../../types/memory'
 import { API_ENDPOINTS } from '../../constants/api'
+import { apiFetch } from '../httpClient'
 
 export class AssistantService {
   static async sendMessage(payload: ChatRequestPayload, signal?: AbortSignal): Promise<ChatResponsePayload> {
-    const res = await fetch('/admin/api/conversation/message', {
+    const res = await apiFetch('/admin/api/conversation/message', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -39,7 +40,7 @@ export class AssistantService {
   }
 
   static async listSessions(workspaceId: string): Promise<SessionBrief[]> {
-    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}`)
+    const res = await apiFetch(`/admin/api/conversation/sessions/${workspaceId}`)
     if (!res.ok) {
       const text = await res.text()
       throw new Error(`Failed to list sessions: ${res.status} - ${text}`)
@@ -48,7 +49,7 @@ export class AssistantService {
   }
 
   static async getSession(workspaceId: string, sessionId: string): Promise<AssistantSession> {
-    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}`)
+    const res = await apiFetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}`)
     if (!res.ok) {
       const text = await res.text()
       throw new Error(`Failed to load session: ${res.status} - ${text}`)
@@ -59,7 +60,7 @@ export class AssistantService {
   // Asks the chat's model which facts in the conversation are worth remembering. Saves nothing. A failure carries the
   // backend's own sentence ("The model is busy right now…"), not a status line.
   static async reviewMemories(workspaceId: string, sessionId: string): Promise<MemorySuggestion[]> {
-    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}/memory-review`, { method: 'POST' })
+    const res = await apiFetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}/memory-review`, { method: 'POST' })
     if (!res.ok) {
       const body = await res.json().catch(() => null) as { error?: string } | null
       throw new Error(body?.error || `The review failed (${res.status}).`)
@@ -69,7 +70,7 @@ export class AssistantService {
   }
 
   static async deleteSession(workspaceId: string, sessionId: string): Promise<void> {
-    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}`, {
+    const res = await apiFetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}`, {
       method: 'DELETE',
     })
     if (!res.ok) {
@@ -79,7 +80,7 @@ export class AssistantService {
   }
 
   static async deleteAllSessions(workspaceId: string): Promise<void> {
-    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}`, {
+    const res = await apiFetch(`/admin/api/conversation/sessions/${workspaceId}`, {
       method: 'DELETE',
     })
     if (!res.ok) {
@@ -89,7 +90,7 @@ export class AssistantService {
   }
 
   static async renameSession(workspaceId: string, sessionId: string, title: string): Promise<AssistantSession> {
-    const res = await fetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}`, {
+    const res = await apiFetch(`/admin/api/conversation/sessions/${workspaceId}/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title }),
@@ -105,7 +106,7 @@ export class AssistantService {
     workspaceId: string,
     sessionId: string
   ): Promise<CancelAgentResponse> {
-    const res = await fetch('/admin/api/conversation/cancel', {
+    const res = await apiFetch('/admin/api/conversation/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -122,7 +123,7 @@ export class AssistantService {
   }
 
   static async getActiveRuns(workspaceId: string): Promise<ActiveRunsResponse> {
-    const res = await fetch(API_ENDPOINTS.activeRuns(workspaceId))
+    const res = await apiFetch(API_ENDPOINTS.activeRuns(workspaceId))
     if (!res.ok) {
       const text = await res.text()
       throw new Error(`Failed to load active runs: ${res.status} - ${text}`)
@@ -131,7 +132,7 @@ export class AssistantService {
   }
 
   static async getGlobalActiveRuns(): Promise<GlobalActiveRunsResponse> {
-    const res = await fetch(API_ENDPOINTS.activeRunsGlobal)
+    const res = await apiFetch(API_ENDPOINTS.activeRunsGlobal)
     if (!res.ok) {
       const text = await res.text()
       throw new Error(`Failed to load running activity: ${res.status} - ${text}`)
@@ -151,7 +152,7 @@ export class AssistantService {
   }
 
   private static async queueAction(endpoint: string, action: string, key: string): Promise<void> {
-    const res = await fetch(endpoint, { method: 'POST' })
+    const res = await apiFetch(endpoint, { method: 'POST' })
     if (!res.ok) {
       const text = await res.text()
       throw new Error(`Failed to ${action} queued caller ${key}: ${res.status} - ${text}`)
@@ -159,7 +160,7 @@ export class AssistantService {
   }
 
   static async submitGuardrailDecision(decisionId: string, allow: boolean, persist: boolean): Promise<void> {
-    const res = await fetch('/admin/api/conversation/guardrail-decision', {
+    const res = await apiFetch('/admin/api/conversation/guardrail-decision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ decision_id: decisionId, allow, persist }),

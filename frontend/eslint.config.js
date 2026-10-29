@@ -43,6 +43,16 @@ export default [
     },
   },
   {
+    // Every request goes through services/httpClient.ts (plan admin-api-authentication): one place sends the page's own
+    // credentials and notices a 401. A bare fetch would be a request that never signs the user out or back in.
+    name: "no-bare-fetch",
+    files: ["src/**/*.ts", "src/**/*.vue"],
+    ignores: ["src/services/httpClient.ts", "src/__TESTS__/**"],
+    rules: {
+      "no-restricted-globals": ["error", { name: "fetch", message: "Use apiFetch (or get/post/put/del) from services/httpClient.ts." }],
+    },
+  },
+  {
     // No raw palette classes (plan D21), everywhere: colours come from semantic
     // tokens only. The Phase 5 per-directory list ended with the close-out
     // (2026-09-30); scripts/check-palette.mjs also covers @apply and TS literals.

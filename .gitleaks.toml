@@ -5,6 +5,12 @@
 [extend]
 useDefault = true
 
+[[rules]]
+id = "llm-proxy-script-token"
+description = "A script token for this server's own sign-in (lp_ + 32 random bytes in base32)"
+regex = '''lp_[a-z2-7]{52}'''
+keywords = ["lp_"]
+
 [[allowlists]]
 description = "Known test fixtures and placeholders (not real secrets)"
 regexTarget = "match"

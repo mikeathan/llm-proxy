@@ -14,6 +14,8 @@ import { useResponsiveLayout } from './composables/ui/useResponsiveLayout'
 import Toast from './components/ui/Toast.vue'
 import ConfirmDialog from './components/ui/ConfirmDialog.vue'
 import AppBanner from './components/ui/AppBanner.vue'
+import AuthBanner from './components/auth/AuthBanner.vue'
+import ReauthDialog from './components/auth/ReauthDialog.vue'
 import { useConfirm } from './composables/ui/useConfirm'
 import { useActiveWorkspace } from './composables/ui/useActiveWorkspace'
 import { useRunNotifications } from './composables/assistant/useRunNotifications'
@@ -105,6 +107,7 @@ onMounted(() => {
         </div>
 
         <template v-else>
+          <AuthBanner />
           <AppBanner class="mb-4" />
           <RouterView v-slot="{ Component }">
             <Transition name="route" mode="out-in">
@@ -125,6 +128,7 @@ onMounted(() => {
   </div>
 
   <Toast />
+  <ReauthDialog />
   <ConfirmDialog
     v-model="isOpen"
     v-bind="options"

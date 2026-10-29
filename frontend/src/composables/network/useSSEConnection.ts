@@ -1,4 +1,5 @@
 import { ref } from "vue";
+import { useAuth } from "../auth/useAuth";
 
 const DEATH_SPIRAL_THRESHOLD = 5;
 const DEATH_SPIRAL_DELAY_MS = 30_000;
@@ -49,6 +50,9 @@ export function useSSEConnection(options: SSEConnectionOptions) {
     eventSource.onerror = () => {
       isConnected.value = false;
       reconnectAttempts++;
+      // A stream cannot see a 401: the first failure of a streak (and each death spiral) asks the server whether the session
+      // ended, and sends the user to sign in if so, instead of retrying for ever.
+      if (reconnectAttempts === 1 || reconnectAttempts >= DEATH_SPIRAL_THRESHOLD) void useAuth().checkSession();
       // Let the browser's built-in reconnect handle transient disconnects.
       // Only intervene on death spiral (5+ consecutive failures = 404/401).
       if (reconnectAttempts >= DEATH_SPIRAL_THRESHOLD) {

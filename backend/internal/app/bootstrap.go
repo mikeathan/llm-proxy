@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"llm-proxy/internal/platform/auth"
 	"log"
 	"net/http"
 	"net/url"
@@ -121,6 +122,7 @@ func (c *Container) BuildAppServices() *AppServices {
 		},
 	)
 	s.wireNetaudit(c.Core.AppCtx.dataMgr)
+	s.wireAuth(c.Core.AppCtx.dataMgr.RootDir())
 	c.watchConnectorConfig(s)
 	c.initReminders(s)
 	// The sub-agent runner gets a copy of the services taken now, before it is set: a child run's own services have
@@ -366,6 +368,8 @@ type AppServices struct {
 	subRunner assistantPkg.SubRunner
 	// netaudit is the network-audit scope and readiness the admin API serves; the scan tool is registered with it.
 	netaudit *netauditServices
+	// auth is the operator's sign-in; the middleware around the router and the /admin/api/auth routes use it.
+	auth *auth.Service
 }
 
 func (s AppServices) Shutdown(ctx context.Context) {

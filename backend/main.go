@@ -27,6 +27,11 @@ func main() {
 		return
 	}
 
+	// `llm-proxy auth …` is the operator's command line for sign-in (setup code, reset): it never starts the server.
+	if len(os.Args) > 1 && os.Args[1] == "auth" {
+		os.Exit(boot.RunAuthCLI(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+	}
+
 	opts := boot.ParseFlags()
 
 	if opts.Version {

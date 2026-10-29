@@ -5,6 +5,8 @@ import { DEFAULT_CONFIG } from '../../src/composables/models/useConfig'
 // read as lists answer `[]` (a `{}` there throws in the page and hides the section under test); anything unknown `{}`.
 const LIST_ENDPOINTS = ['/manifests', '/mcp', '/workspaces', '/profiles', '/profile-schema', '/automations']
 const READY = { ready: true, requirements: [], notices: [] }
+// Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
+const SIGNED_IN = { required: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
 
 type Answers = Record<string, unknown>
 
@@ -26,9 +28,11 @@ export async function mockAdminApi(page: Page, { answers = {}, config = DEFAULT_
         ? state
         : path.endsWith('/netaudit/readiness')
           ? READY
-          : LIST_ENDPOINTS.some((suffix) => path.endsWith(suffix))
-            ? []
-            : {}
+          : path.endsWith('/auth/status')
+            ? SIGNED_IN
+            : LIST_ENDPOINTS.some((suffix) => path.endsWith(suffix))
+              ? []
+              : {}
     await route.fulfill({ json })
   })
 }

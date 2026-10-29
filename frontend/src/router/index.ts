@@ -16,6 +16,8 @@ const ModelsView = () => import('../views/ModelsView.vue')
 const ActivityView = () => import('../views/ActivityView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
 const NotFoundView = () => import('../views/NotFoundView.vue')
+const LoginView = () => import('../views/LoginView.vue')
+const SetupView = () => import('../views/SetupView.vue')
 
 const WORKSPACES_META = { destination: 'workspaces', keepAlive: true, fullWidth: true, title: 'Workspaces' } as const
 // The assistant is a Workspaces route (one kept-alive view), titled for what it is.
@@ -60,6 +62,11 @@ export const routes: RouteRecordRaw[] = [
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },
   { path: '/activity', name: ROUTE_NAMES.activity, component: ActivityView, meta: { destination: 'activity', keepAlive: true, title: 'Activity' } },
   { path: '/settings/:section?', name: ROUTE_NAMES.settings, component: SettingsView, meta: { destination: 'settings', workspaceScope: 'all', title: 'Settings' } },
+
+  // Sign-in (plan admin-api-authentication): bare pages, open to someone who is not signed in. The guard in
+  // composables/auth/startAuth.ts decides who is sent where.
+  { path: '/login', name: ROUTE_NAMES.login, component: LoginView, meta: { bare: true, public: true, title: 'Sign in' } },
+  { path: '/setup', name: ROUTE_NAMES.setup, component: SetupView, meta: { bare: true, public: true, title: 'Set up sign-in' } },
 
   ...devRoutes,
 

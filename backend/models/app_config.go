@@ -32,6 +32,16 @@ type AppServerConfig struct {
 	// AllowedHosts are names the admin interface may be reached under, besides IP addresses, localhost and this machine's
 	// own name (a reverse proxy or a custom DNS name). Any other name is refused, which stops DNS rebinding.
 	AllowedHosts []string `yaml:"allowed_hosts,omitempty" json:"allowed_hosts,omitempty"`
+	// Auth sets how long a sign-in lasts. Zero means the default, so an existing settings file needs no change.
+	Auth AuthSettings `yaml:"auth,omitempty" json:"auth,omitempty"`
+}
+
+// AuthSettings are the lifetimes of a signed-in session (platform/auth bounds them: a session always ends).
+type AuthSettings struct {
+	// IdleHours: a session unused for this long ends. 0 = the default (24).
+	IdleHours int `yaml:"idle_hours,omitempty" json:"idle_hours,omitempty"`
+	// AbsoluteDays: no session lasts longer than this, however active. 0 = the default (14).
+	AbsoluteDays int `yaml:"absolute_days,omitempty" json:"absolute_days,omitempty"`
 }
 
 // DefaultAppConfig returns the canonical first-run configuration. It mirrors
