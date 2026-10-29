@@ -24,4 +24,4 @@ Intrusive checks exist without ever running unattended. The cost is a manual cli
 - **Never run them** — leaves weak TLS and SSH password login undetected.
 
 ## Links
-- Plan: [`network-audit.md`](../PLANS/cross-cutting/network-audit.md); as built: [`architecture/network-audit.md`](../architecture/network-audit.md).
+- Plan: [`network-audit.md`](../PLANS/ARCHIVE/cross-cutting/network-audit.md); as built: [`architecture/network-audit.md`](../architecture/network-audit.md).

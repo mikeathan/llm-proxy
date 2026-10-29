@@ -1,16 +1,16 @@
 # Network audit — guarded programs, an nmap scan tool, and a nightly auditor agent
 
-**Status:** partial (2026-10-24, revised 2026-10-29). D1–D13 decided by the owner (§2); open facts in §11. Everything the plan
-set out to build is merged and runs on vertex (PRs #137–#162, up to v0.23.0): the scan tool, checks, known-vulnerability
-matching with the file import, guided fixes, expectations per device and the interactive deep check. What is left is in
-Remaining Work at the end; the design as built moved to [`architecture/network-audit.md`](../../architecture/network-audit.md) on 2026-10-29.
+**Status:** complete (2026-10-24, closed 2026-10-29; follow-ups in Remaining Work). D1–D13 decided by the owner (§2); open facts in §11. Everything the plan
+set out to build is merged and runs on vertex (PRs #137–#164, up to v0.24.1): the scan tool, checks, known-vulnerability
+matching with the file import, guided fixes, expectations per device and the interactive deep check. The follow-ups left are in
+Remaining Work at the end; the design as built moved to [`architecture/network-audit.md`](../../../architecture/network-audit.md) on 2026-10-29.
 **Related Specs:** SPEC-006 (Guardrails §II.6–II.7), SPEC-007 (Automation Dispatcher), SPEC-012 (Prompt Profiles),
 SPEC-001 (Agent Loop), SPEC-003 (UI), SPEC-009 (Communication).
 **Constitution refs:** I.1–I.3 (network guardrails), II.3 (sandbox isolation, env allow-list), II.10 (guardrail
 decision flow), II.13 (prompt centralisation), III.3 (workspace jail), IV.4 (no dead code), V.1 (amend after a
 security review), V.3 (no half-finished work).
-**Depends on / defers to:** [`admin-api-authentication.md`](admin-api-authentication.md) — **no longer parked**: sign-in
-has been compulsory since v0.22.0 (§9). **Builds on:** [`agent-os-sandboxing.md`](../ARCHIVE/cross-cutting/agent-os-sandboxing.md), [`sandbox-and-egress-residuals.md`](sandbox-and-egress-residuals.md),
+**Depends on / defers to:** [`admin-api-authentication.md`](../../cross-cutting/admin-api-authentication.md) — **no longer parked**: sign-in
+has been compulsory since v0.22.0 (§9). **Builds on:** [`agent-os-sandboxing.md`](agent-os-sandboxing.md), [`sandbox-and-egress-residuals.md`](../../cross-cutting/sandbox-and-egress-residuals.md),
 the R0 category table (`models/tools.go` `toolsByCategory`).
 **Origin:** the owner's request (2026-10-24): a *generic* agent able to run nmap-class network analysis, with a nightly
 vulnerability audit as the first case study, safe against leaking sensitive information. Two independent model reviews
@@ -55,15 +55,15 @@ Proposed by the review, **need the owner's yes**:
 
 ## 3. Where things stand (at the start)
 
-Moved on 2026-10-29 to [`audits/2026-10-29-network-audit-phase-log.md`](../../audits/2026-10-29-network-audit-phase-log.md) with §10 to §12 (risks, open points, review log).
+Moved on 2026-10-29 to [`audits/2026-10-29-network-audit-phase-log.md`](../../../audits/2026-10-29-network-audit-phase-log.md) with §10 to §12 (risks, open points, review log).
 
 ## 4. to 6. Architecture, frontend, security design
 
-Moved on 2026-10-29 to [`architecture/network-audit.md`](../../architecture/network-audit.md) with the section numbers kept (§4.0 to §4.10, §5, §6).
+Moved on 2026-10-29 to [`architecture/network-audit.md`](../../../architecture/network-audit.md) with the section numbers kept (§4.0 to §4.10, §5, §6).
 
 ## 7. Phases
 
-All phases are merged. The phase table and the Phase 0 findings moved on 2026-10-29 to [`audits/2026-10-29-network-audit-phase-log.md`](../../audits/2026-10-29-network-audit-phase-log.md).
+All phases are merged. The phase table and the Phase 0 findings moved on 2026-10-29 to [`audits/2026-10-29-network-audit-phase-log.md`](../../../audits/2026-10-29-network-audit-phase-log.md).
 
 ## 8. Documentation and law
 
@@ -105,7 +105,7 @@ failures. Details are in the status notes above.
 
 ### 13.A and 13.B.2 as built
 
-Moved on 2026-10-29 to [`architecture/network-audit.md`](../../architecture/network-audit.md) (section "13.A and 13.B.2 as built").
+Moved on 2026-10-29 to [`architecture/network-audit.md`](../../../architecture/network-audit.md) (section "13.A and 13.B.2 as built").
 
 ### 13.B More ways to identify weaknesses (read-only; each needs its own reviewed design before it is built)
 1. **Known-vulnerability matching.** Compare detected service versions with a vulnerability list stored locally and updated by the operator, so a scan never needs the internet. **Owner decision 2026-10-27: yes.** **Source picked by the owner 2026-10-27: NVD for matching plus the CISA KEV catalogue to rank.** The reviewed design is §13.G; nothing is built before it is accepted. Options considered:
@@ -151,7 +151,7 @@ Moved on 2026-10-29 to [`architecture/network-audit.md`](../../architecture/netw
 
 ### 13.H, 13.G, 13.I, 13.J and Appendix A
 
-The reviewed designs (assisted fixes, known-vulnerability matching, expectations per device, the deep check, and what packet capture would need) moved on 2026-10-29 to [`architecture/network-audit.md`](../../architecture/network-audit.md) with their numbers kept. Decisions taken since: Level 2 assisted fixes ("run it for me" over SSH) are **not to be built** (owner's recommendation accepted 2026-10-29: three candidate checks, Level 1 guides cover them, a stored SSH key and a new Constitution class are a high cost); the file import for the vulnerability data **was built** (2026-10-29).
+The reviewed designs (assisted fixes, known-vulnerability matching, expectations per device, the deep check, and what packet capture would need) moved on 2026-10-29 to [`architecture/network-audit.md`](../../../architecture/network-audit.md) with their numbers kept. Decisions taken since: Level 2 assisted fixes ("run it for me" over SSH) are **not to be built** (owner's recommendation accepted 2026-10-29: three candidate checks, Level 1 guides cover them, a stored SSH key and a new Constitution class are a high cost); the file import for the vulnerability data **was built** (2026-10-29).
 
 ### 13.E Suggested order
 13.A (merged, #146) → pick the 13.B.1 data source → reviewed design for 13.B.1 → build 13.B.1 → pick the 13.C.2 targets → reviewed design for 13.C.2 → 13.B.2–4 → anything intrusive only after the 13.B conditions. Each of 13.B and 13.C needs its own reviewed design before code.
@@ -178,9 +178,15 @@ The reviewed designs (assisted fixes, known-vulnerability matching, expectations
 
 **Decided on 2026-10-29:** Level 2 assisted fixes (§13.H) are **not built** and are not planned: only three checks qualify, Level 1 guides already cover them, and a stored SSH key plus a new Constitution class cost more than they return. Reopen only if the same fix is being repeated across many hosts.
 
-**Open:**
-1. **The deep check's live click: done and confirmed (2026-10-29).** Run on 192.168.50.60 at 18:18 UTC (`ssh_password_login`). A one-device rescan at 18:43 UTC carried it into the report as "The SSH server accepts password login (from the deep check of 2026-10-29)", medium, with the other seven devices kept (`devices_up` 8).
-2. **Second Landlock capture** on a device that triggers the web, TLS and database scripts (for example 192.168.50.241, nginx), with the same two `tcpdump` filters, to complete the rule that no check script contacts another host. Also note vertex has nmap 7.94SVN while the script list was reviewed on 7.99.
-3. **TLS hygiene (13.B.4): no check proposed.** A real run of the product's flags with `ssl-cert` against vertex.local (192.168.50.60, ports 22, 4001, 8081) found no TLS service (only `fingerprint-strings` produced output), so there is no real `ssl-cert` output to judge from, and fixtures are not evidence. Propose at most three once a TLS device is named and a real run has been captured (`nmap/testdata/deep_*.xml` is the pattern; addresses replaced).
-4. **Archive decision:** the plan is "partial" only because of items 1 to 3. When they are settled, `git mv` it to `PLANS/ARCHIVE/cross-cutting/`, add its row to `ARCHIVE/README.md`, remove its row from `PLANS/README.md`, and keep what carries on in [`network-detection.md`](network-detection.md).
-5. **Small UI follow-ups:** the audit tabs are a `SegmentedControl` (28 px high) and are below the 44 px touch size on a phone; a device with many ports still lists them all when unfolded.
+**Closed on 2026-10-29 (verification of the deployed v0.24.1 on vertex: read-only checks plus two runs; the owner confirmed the UI by eye):**
+- *Deployed release:* version `v0.24.1` (commit `ffa47e7`), file confinement `landlock`, `netaudit/readiness` ready, the automation's profile `security-auditor`, its task file already carries the new wording (nothing to edit by hand), and the stored deep result still holds `ssh_password_login` for 192.168.50.60.
+- *Run 1* (19:44 UTC, Huihui Qwen3 30B abliterated): finished, compared with the earlier scan (`first_scan` false), carried the deep finding as "(from the deep check of 2026-10-29)", accepted findings stayed accepted, no "first scan" wording; **but the model's assessment invented services** (NFS and Telnet on a host with no open ports, Redis, MongoDB and Memcached on a host that does not run them, "SMBv1 reported by the checks"). Model quality, not the product.
+- *Run 2* (19:51 UTC, `Qwen3.6 35B A3B`): finished in 3m 16s, 1 new / 1 resolved / 40 unchanged, deep finding carried, accepted findings kept, assessment names only services in the scan. The automation was left on `Qwen3.6 35B A3B`.
+- *UI* (the owner's confirmation, not seen by the agent): the Live run tab turns amber during a run, the console is wider on desktop, the report buttons are off during a run and return after it.
+
+**Follow-ups left (postponed on purpose, not blockers; listed under "Follow-ups left by archived plans" in `PLANS/README.md`):**
+1. **Second Landlock capture** on a device that triggers the web, TLS and database scripts (for example 192.168.50.241, nginx), with the two `tcpdump` filters of 13.D, to complete the rule that no check script contacts another host. vertex has nmap 7.94SVN while the script list was reviewed on 7.99.
+2. **TLS hygiene (13.B.4): no check proposed.** A real run with `ssl-cert` against vertex.local found no TLS service, so there is no real output to judge from. Propose at most three once a TLS device is named and a real run has been captured (`nmap/testdata/deep_*.xml` is the pattern; addresses replaced).
+3. **Small UI follow-ups:** the audit tabs are a `SegmentedControl` (28 px high), below the 44 px touch size on a phone; a device with many ports still lists them all when unfolded.
+
+What carries on after this plan: [`network-detection.md`](../../cross-cutting/network-detection.md).

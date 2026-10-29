@@ -8,7 +8,7 @@ date: 2026-10-29
 
 # Network audit — phase table, Phase 0 findings and phase-by-phase log
 
-Moved unchanged on 2026-10-29 from the plan [`network-audit.md`](../PLANS/cross-cutting/network-audit.md) when it was
+Moved unchanged on 2026-10-29 from the plan [`network-audit.md`](../PLANS/ARCHIVE/cross-cutting/network-audit.md) when it was
 harvested: what was done and found while building, as raw evidence, not instructions. The design as built is in
 [`architecture/network-audit.md`](../architecture/network-audit.md); the distilled lessons are in
 [`learnings/network-audit.md`](../learnings/network-audit.md).

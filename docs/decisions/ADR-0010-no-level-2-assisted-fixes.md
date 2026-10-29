@@ -24,4 +24,4 @@ Nothing new holds a secret that can log in to other machines, and no new Constit
 - **Automatic, unattended fixes** — out of scope (§13.C.3): a wrong fix on a router or NAS can cut the network off.
 
 ## Links
-- Plan: [`network-audit.md`](../PLANS/cross-cutting/network-audit.md); as built: [`architecture/network-audit.md`](../architecture/network-audit.md).
+- Plan: [`network-audit.md`](../PLANS/ARCHIVE/cross-cutting/network-audit.md); as built: [`architecture/network-audit.md`](../architecture/network-audit.md).

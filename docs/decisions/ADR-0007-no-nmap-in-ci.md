@@ -25,4 +25,4 @@ CI stays small and fast. A Landlock regression for nmap is caught only by the ma
 - **nmap in the sandbox-conformance job** — owner declined.
 
 ## Links
-- [`PLANS/cross-cutting/network-audit.md`](../PLANS/cross-cutting/network-audit.md) D13, §13.D (owner decision, 2026-10-26)
+- [`PLANS/ARCHIVE/cross-cutting/network-audit.md`](../PLANS/ARCHIVE/cross-cutting/network-audit.md) D13, §13.D (owner decision, 2026-10-26)
