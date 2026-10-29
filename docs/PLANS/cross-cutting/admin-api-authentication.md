@@ -1,16 +1,18 @@
 ---
 status: proposed
 date: 2026-09-30
-last_reviewed: 2026-09-30
+last_reviewed: 2026-10-29
 related_specs: [SPEC-003, SPEC-006, SPEC-007, SPEC-009]
 constitution_references: [I.4, III.6, V.1]
-evidence: docs/audits/2026-09-30-platform-scan.md (S1–S5, S9)
+evidence: docs/audits/2026-09-30-platform-scan.md (S1–S5, S9); admin-api-authentication-design.md § Evidence ledger (2026-10-29)
 ---
 
 # Admin / API Authentication and Control-Plane Hardening
 
-**Status:** proposed — needs the decisions in [§ Decisions for the user](#decisions-for-the-user) before Phase 2.
-Phases 0 and 1 need no decision and change no contract; they can start immediately.
+**Status:** proposed, reviewed 2026-10-29. The design, evidence ledger, threat model and UI are in
+[admin-api-authentication-design.md](admin-api-authentication-design.md); this file keeps the phases and decisions. The
+owner's four decisions of 2026-10-29 are in [§ Review 2026-10-29](#review-2026-10-29). Phases 0 and 1 need no
+decision and change no contract; they can start immediately.
 
 ## Why this plan exists
 
@@ -70,6 +72,27 @@ Recommendation first in each row.
 | A6 | Constitution change | add a new law (e.g. §I.5 "The control plane is authenticated; unauthenticated surfaces are an enumerated allowlist") | **Yes.** Per Constitution §V.1 an invariant that would be violated by the status quo must be formalised, not just coded. |
 | A7 | Is TLS in scope? | terminate in-process vs. document reverse proxy | **Document a reverse proxy; out of scope for code.** The cookie must be `Secure` when the request is HTTPS (or `X-Forwarded-Proto`), nothing more. |
 
+## Review 2026-10-29
+
+A second pass over the code (evidence ledger E1–E18 in the design file) changed this plan in four ways.
+
+**Owner decisions, 2026-10-29** (these settle A1, A2 and A5 in part, and add three):
+
+| Decision | Choice |
+|---|---|
+| Credentials (A1) | A passphrase for the UI (argon2id) and **named, revocable script tokens** (SHA-256, shown once, scope `admin` or `inference`). Not one token for everything. |
+| Step-up | The most destructive actions ask for the passphrase again within 5 minutes (list in the design, §4.6). |
+| First run (A5) | A **one-time setup code** made on demand by `llm-proxy auth setup-code` and entered in the UI. Nothing is printed to a log. Upgrades stay open with a persistent banner until set up. |
+| Default bind (A4) | Fresh installs listen on loopback only; existing installs are never changed. |
+
+**Findings the first plan missed** (full list in design §3): a stored provider key can be sent to a caller-chosen URL by
+a **GET** (`providers/test`, E5/E6), which Origin checks that skip safe methods do not stop; Phase 1 protects only
+against browsers, so the agent case (S6b) stays open until Phase 2; the "loopback listener always accepts set-token"
+recovery contradicts the design rule below and is replaced by an OS-user CLI; printing a generated token leaks it to
+the journal and possibly `app-logs`; in-memory sessions end at every self-restart; the frontend has 33 raw `fetch`
+calls and three `EventSource` users outside any single 401 handler; the eval and shell scripts have no credential;
+clickjacking, the plain-HTTP LAN and the macOS no-file-jail case are not covered.
+
 ## Design rule: loopback is not trusted
 
 Do **not** exempt `127.0.0.1` from authentication. The agents this server runs can reach loopback:
@@ -118,8 +141,10 @@ All of this is safe for every existing deployment.
    `os.Hostname()` and `<hostname>.local`, (c) anything in `server.allowed_hosts` (new, additive; for reverse-proxy
    or custom DNS names). Reject other DNS names with 421. Test matrix: `127.0.0.1`, `192.168.x.y:4001`, `localhost`,
    `myhost.local`, `evil.example` (rejected), `evil.example` listed in `allowed_hosts` (accepted).
-2. **Origin check on every non-GET/HEAD**: require `Origin` absent (non-browser) or same-origin; 403 otherwise.
-   Closes the body-less-POST CSRF (S3).
+2. **Cross-site protection** (design §4.4): `net/http.CrossOriginProtection` on every non-safe method of `/admin/api`,
+   plus a Fetch-Metadata gate on **all** methods (refuse `Sec-Fetch-Site: cross-site|same-site`), because some GETs have
+   side effects. Closes the body-less-POST CSRF (S3) and works through the Vite dev proxy, which a hand-written Origin
+   check would not. A request with neither header is a non-browser client and passes until Phase 2.
 3. **Drop `Access-Control-Allow-Origin: *`** from `StreamWorkspaceEvents` (`dispatcher_handlers.go:354`); the UI
    is same-origin. Test: SSE response has no ACAO header.
 4. **Process-stop ownership.** `POST /admin/api/runtime/processes/{pid}/stop` only signals a PID the
@@ -134,7 +159,17 @@ All of this is safe for every existing deployment.
    `webhook_token`). So generating a token for an existing connector is not enough — the UI must re-run the
    "create webhook" action afterwards, or inbound messages stop arriving. Connector types other than Telegram must
    document which header carries the token (`X-Webhook-Token`). Constitution §I.4 exemption is unchanged.
-6. **Complexity gate** stays green (`go run ./tools/check-complexity/` ≤ baseline, no new >12).
+6. **Fix E5 at the source.** `providers/test` becomes a POST with a JSON body; no secret in a URL; a stored key may only
+   be used with its own base URL (or none). Same review for `providers/models`.
+7. **Security headers**: `frame-ancestors 'none'`, `X-Frame-Options`, `nosniff`, `Referrer-Policy: no-referrer`,
+   `Cache-Control: no-store` on API responses.
+8. **Frontend prep (own PR, no behaviour change):** move the 33 raw `fetch` calls onto `httpClient.ts`; give scripts a
+   `LLM_PROXY_TOKEN` environment variable (sent as Bearer, ignored until Phase 2); fix or delete the stale
+   `scripts/assistant.sh` path.
+9. **Complexity gate** stays green (`go run ./tools/check-complexity/` ≤ baseline, no new >12).
+
+**Phase 1 stops browser-origin attacks only.** A prompt-injected agent or a stranger on the LAN is not stopped until
+Phase 2; the network-audit "conventions" stay conventions until then.
 
 Verify: `cd backend && go build ./... && go test ./... && go run ./tools/check-complexity/`; frontend
 unaffected but run `cd frontend && npm test`.
@@ -148,18 +183,22 @@ and from `localhost`; a Mac → remote `/v1` call still works unchanged.
    bcrypt), `session_ttl`, `allowed_hosts`. Add `yaml` tags and per-key backfill — the sandbox plan's D6 lesson:
    plain bools with whole-struct merge boot existing installs with the wrong value. `unset` is the
    upgrade state and means "legacy open + banner".
-2. **Token lifecycle.** CLI `llm-proxy auth set-token` / `--print-token` (generate 32 random bytes, show once,
-   store hash). Fresh non-loopback installs auto-generate and print at startup (A5c).
+2. **Credentials and recovery** (design §4.2, §4.8). Passphrase (argon2id) set through a one-time setup code from
+   `llm-proxy auth setup-code`; named script tokens (`lp_…`, SHA-256, scopes `admin`/`inference`); `llm-proxy auth reset`
+   as the OS-user recovery. Nothing is printed to a log, and recovery is never an HTTP route. Replaces the
+   auto-generated startup token (A5c).
 3. **Middleware** wrapping `buildRouter`: `admin` routes require a valid session cookie **or**
    `Authorization: Bearer <operator token>`; constant-time compare; per-IP failed-attempt backoff (reuse
    `platform/ratelimiter`). The Phase 0 table drives which routes are wrapped.
 4. **Login / logout endpoints** (`POST /admin/api/auth/login`, `/logout`, `GET /admin/api/auth/status`) are the only
    admin routes reachable unauthenticated; `status` returns `{required, authenticated}` and nothing else.
-5. **Session store** in memory with rotation on login; cookie `HttpOnly; SameSite=Strict; Path=/admin; Secure` when HTTPS.
-   Sessions do not survive restart (acceptable; document).
-6. **Frontend**: a `LoginView` (new route `login`, SPEC-003 §III.2 amendment), a global 401 handler in
-   `services/httpClient.ts` that routes to login and preserves the target, sign-out in the header menu. Uses
-   existing primitives only (tokens, `FormField`, `BaseButton`) — no new design language.
+5. **Session store** persisted as SHA-256 hashes in the config root (`auth/sessions.json`), new id on login and step-up,
+   idle and absolute expiry, listed and revocable; cookie `HttpOnly; SameSite=Strict; Path=/admin`, `Secure` over HTTPS.
+   Live streams re-check the session at each heartbeat. Step-up (`/auth/reauth`) gates the destructive routes (design §4.6).
+6. **Frontend** (design §5): `setup` and `login` views, a global 401 handler in `httpClient.ts` (after the Phase 1 fetch
+   migration) that routes to login and keeps the target, an `EventSource` error that asks `/auth/status` instead of
+   retrying for ever, the unset banner, and a Settings → Security tab (passphrase, sessions, script tokens, exposure
+   summary). Existing primitives only; visual baselines for each screen on desktop and mobile.
 7. **SPEC-003** v2.3: new "Sign-in" section; §I "no account model" reworded to "one operator credential".
    **SPEC-007 §V.1** wording fixed to match. **Constitution** new law (A6).
 
@@ -206,7 +245,7 @@ summary is correct in each of the four combinations (loopback/LAN × auth off/on
 
 | Risk | Mitigation |
 |---|---|
-| Locking the operator out | Loopback listener always accepts `llm-proxy auth set-token`; token reset documented; Phase 2 never makes `unset` fatal. |
+| Locking the operator out | `llm-proxy auth reset` run as the server's OS user (never an HTTP route: the agent can reach loopback); `unset` is never fatal. |
 | SSE + cookies behind a reverse proxy | `SameSite=Strict` needs same site; document proxy path mapping; test with `X-Forwarded-*`. |
 | Breaking the Mac → remote setup | Phase 3 uses the header those clients already send; Phase 1 has an explicit acceptance test for it. |
 | Scope creep into users/roles/OIDC | Non-goal (A1). Revisit only if a second operator appears. |
@@ -231,5 +270,21 @@ When this plan lands, revisit those items and make them real checks.
 
 ## Remaining Work
 
-Everything. Suggested first PR: Phase 0 (route table + exploit-shaped tests + S5 proof) — it changes no
-behaviour and settles the one open factual question.
+**Built 2026-10-29 on branch `admin-auth-planning` (v0.17.0):** Phase 0 (the route classification
+test `internal/app/route_classes_test.go`, `Router.Routes()`, and the E5 proof, **run and confirmed**:
+`providers/registrar_baseurl_key_test.go`) and the browser half of Phase 1: `api.Guard` (Host rule, Fetch-Metadata on every
+method of `/admin/api`, `CrossOriginProtection` on writes, framing/sniffing/referrer headers, `no-store` on the API;
+`server.allowed_hosts`), `providers/test` as a POST with a body (frontend caller updated), the wildcard CORS header
+removed from the live stream, PID-stop ownership (only a model server the Models page lists), and an optional
+`LLM_PROXY_TOKEN` in `scripts/evallib.py`.
+
+**Still to do in Phase 1:** (a) the **mandatory webhook secret** (E8) — deliberately not done here: it must ship with the
+UI that generates a token on enable and re-runs Telegram's `setWebhook` with it, or an existing connector stops receiving
+messages at deploy; (b) moving the **33 raw `fetch` calls** onto `httpClient.ts` (own PR, no behaviour change); (c) fix or
+delete `scripts/assistant.sh` (it posts to `/api/conversation/message`, which no route serves); (d) Phase 0 leftovers:
+audit the remaining GETs for side effects, check connector/config GETs for unmasked tokens, and confirm startup output
+does not reach `app-logs` (E18). **Phase 1 stops browser-origin attacks only**; a stranger on the LAN or a prompt-injected
+agent is stopped by Phase 2.
+
+**Then:** Phase 2a (backend: passphrase, script tokens, persisted sessions, step-up, CLI) → 2b (frontend) → Phases 3–5.
+Open for the owner: D3 session lifetimes and D4 token access to destructive routes (design §7).

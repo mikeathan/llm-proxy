@@ -12,7 +12,12 @@ EXCLUDE = [t for t in os.environ.get('EVAL_EXCLUDE_TOOLS', '').split(',') if t] 
 
 def call(base, method, path, body=None, timeout=60):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(base + path, data=data, method=method, headers={'Content-Type': 'application/json'})
+    headers = {'Content-Type': 'application/json'}
+    # A script token (Settings > Security, once sign-in exists). Ignored by a server that has none set up.
+    token = os.environ.get('LLM_PROXY_TOKEN')
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read()

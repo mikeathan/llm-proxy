@@ -4,6 +4,22 @@
 
 All API endpoints are served from the server root (default `http://0.0.0.0:4001`).
 
+### Browser protection on `/admin/` and `/admin/api/` (since 0.17.0)
+
+There is still no sign-in (plan `admin-api-authentication`); these rules stop pages that are not the UI. `/v1/*` and the
+webhook path are not affected.
+
+- **Host:** an IP address, `localhost`, this machine's name (and `<name>.local`) and any name in `server.allowed_hosts`
+  (`settings.yml`) are served; any other name gets `421`. Set `allowed_hosts` when the UI is reached through a reverse
+  proxy or a custom DNS name.
+- **Cross-site:** a request to `/admin/api/` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site` gets `403`,
+  whatever its method; writes with a foreign `Origin` and no Fetch-Metadata also get `403`. Scripts and `curl` send neither
+  header and pass.
+- **Headers:** `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer` on the UI and the API; `Cache-Control: no-store` on API answers.
+- The workspace live stream no longer sends `Access-Control-Allow-Origin: *`; `POST /admin/api/runtime/processes/{pid}/stop`
+  only stops a model server the Models page lists (`403` otherwise).
+
 ---
 
 ## Conversation API
@@ -115,7 +131,7 @@ A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `
 |--------|------|-------------|
 | GET | `/admin/api/providers/models?provider={p}&api_key_name={k}` | List remote models |
 | GET | `/admin/api/providers/manifests` | List provider manifests |
-| GET | `/admin/api/providers/test?provider={p}` | Test connection |
+| POST | `/admin/api/providers/test` | Test connection: body `{provider, api_key?, api_key_name?, base_url?}` (a POST with a body, not a query string, since it can send a stored key to a URL; plan admin-api-authentication E5) |
 
 ### Secrets
 

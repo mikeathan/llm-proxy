@@ -4,6 +4,7 @@ import (
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/eventbus"
 	"net/http"
+	"os"
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
@@ -156,7 +157,11 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 		}))
 	}
 
-	return buildRouter(hs)
+	hostname, _ := os.Hostname()
+	return api.Guard(buildRouter(hs), api.GuardConfig{
+		Hostname:     hostname,
+		AllowedHosts: func() []string { return s.AppCtx.GetSystem().Server.AllowedHosts },
+	})
 }
 
 func buildRouter(hs *HandlerSet) http.Handler {
@@ -206,7 +211,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/mcp", hs.MCP.AdminMCPRemoveHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/models", hs.Model.AdminListProviderModelsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/manifests", hs.Model.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
-	router.Get("/admin/api/providers/test", hs.Model.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
+	router.Post("/admin/api/providers/test", hs.Model.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)
 
 	// Model registry — CRUD + registry view
 	router.Post("/admin/api/models", hs.Model.AdminAddModelHandler, jsonMethodNotAllowed)
