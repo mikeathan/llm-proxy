@@ -11,7 +11,7 @@ every `/admin/api/` route except the four marked *open* needs either the session
 (`HttpOnly; SameSite=Strict; Path=/admin`, `Secure` over HTTPS) or `Authorization: Bearer lp_…` with an **admin** script
 token; otherwise `401`. `/v1/*` is open until the first **inference** token is made, then needs `Authorization: Bearer lp_…`
 (an admin token also works). The UI shell and the webhooks are not affected. Set up on the server, as the server's OS user:
-`llm-proxy auth setup-code` (a one-time code, 15 minutes), then enter it with a passphrase on `/admin/setup`;
+`llm-proxy auth setup-code` (a one-time code, 15 minutes; on a systemd install type `sudo llm-proxy auth setup-code` from anywhere: it finds the service's account and data folder from the unit and acts as that account, or tells you the exact command, so the code is written where the server reads it; `--data DIR` names the folder yourself; every command prints the sign-in file it used), then enter it with a passphrase on `/admin/setup`;
 `llm-proxy auth status` and `llm-proxy auth reset` (removes the passphrase, sessions and tokens; no web route does this).
 
 | Method | Path | |

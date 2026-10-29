@@ -45,6 +45,6 @@ onMounted(() => { void auth.refresh() })
       <PassphraseInput v-model="passphrase" label="Passphrase" autocomplete="current-password" :error="error" />
       <BaseButton type="submit" :loading="busy" :disabled="!passphrase" class-name="max-sm:!h-11">Sign in</BaseButton>
     </form>
-    <p class="m-0 text-[length:var(--text-small)] text-faint">Forgotten it? On the server, run <code class="font-mono text-secondary">{{ PRODUCT_NAME }} auth reset</code>, then <code class="font-mono text-secondary">{{ PRODUCT_NAME }} auth setup-code</code>.</p>
+    <p class="m-0 text-[length:var(--text-small)] text-faint">Forgotten it? On the server, run <code class="font-mono text-secondary">{{ PRODUCT_NAME }} auth reset</code> (with <code class="font-mono text-secondary">sudo</code> if it is installed as a service), then <code class="font-mono text-secondary">{{ PRODUCT_NAME }} auth setup-code</code>.</p>
   </AuthCard>
 </template>

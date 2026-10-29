@@ -299,7 +299,7 @@ re-runs Telegram's `setWebhook`, or an existing connector stops receiving messag
 startup output does not reach `app-logs` (E18); (e) ~~conditional step-up for `PUT /config` and `PUT /system`~~ **done 2026-10-29**: `AppContext.SystemUpdateChangesWhatRuns` compares the update with the current settings (model-server environment, arguments and path, GPU program) and `api.StepUpGranted` / `api.RefuseStepUp` gate it in the handlers; a settings save that sends back what it read is not a change; (f) live streams re-check the session at each heartbeat (a revoked session's open stream
 runs on until it closes); (g) `server.trusted_proxies` so `Secure` and "encrypted" follow a reverse proxy's `X-Forwarded-Proto`;
 (h) the **exposure summary** (listening address, webhook secrets, sandbox mode) on the Sign-in page, `setup.sh` printing the
-setup code and a loopback-only default bind for new installs (Phase 4); (i) the **Constitution** law (A6) and SPEC-003/SPEC-007
+setup code and a loopback-only default bind for new installs (Phase 4); (i) ~~`llm-proxy auth` finds the service~~ **done 2026-10-29** (0.18.2: it reads the systemd unit's account, `LLM_PROXY_HOME`/`--data` and program, runs as that account when root, tells anyone else the exact `sudo` line, and prints the file it used; before this a setup code typed from a checkout landed in a file the service never read); (j) the **Constitution** law (A6) and SPEC-003/SPEC-007
 wording, which need the owner's review. **Phase 1 stops browser-origin attacks; Phase 2 is what stops a stranger on the LAN
 and a prompt-injected agent**, provided the passphrase is set: until the operator runs `llm-proxy auth setup-code` the API is
 still open.
