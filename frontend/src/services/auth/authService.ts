@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post } from '../httpClient'
-import type { AuthEvent, AuthSession, AuthStatus, AuthToken, NewAuthToken, TokenScope } from '../../types/auth'
+import type { AuthEvent, AuthExposure, AuthSession, AuthStatus, AuthToken, NewAuthToken, TokenScope } from '../../types/auth'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -57,5 +57,9 @@ export class AuthService {
 
   static events(): Promise<AuthEvent[]> {
     return get<AuthEvent[]>(API_ENDPOINTS.authEvents)
+  }
+
+  static exposure(): Promise<AuthExposure> {
+    return get<AuthExposure>(API_ENDPOINTS.authExposure)
   }
 }

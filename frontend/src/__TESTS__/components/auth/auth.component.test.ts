@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import type { AuthStatus } from '../../../types/auth'
+import type { AuthExposure, AuthStatus } from '../../../types/auth'
 
 const service = vi.hoisted(() => ({
   status: vi.fn(), login: vi.fn(), setup: vi.fn(), logout: vi.fn(), reauth: vi.fn(), sessions: vi.fn(), revokeSession: vi.fn(),
-  revokeAllSessions: vi.fn(), changePassphrase: vi.fn(), tokens: vi.fn(), createToken: vi.fn(), revokeToken: vi.fn(), events: vi.fn(),
+  revokeAllSessions: vi.fn(), changePassphrase: vi.fn(), tokens: vi.fn(), createToken: vi.fn(), revokeToken: vi.fn(), events: vi.fn(), exposure: vi.fn(),
 }))
 vi.mock('../../../services/auth/authService', () => ({ AuthService: service }))
 const replace = vi.hoisted(() => vi.fn())
@@ -22,6 +22,10 @@ import { useAuth } from '../../../composables/auth/useAuth'
 import { useReauth } from '../../../composables/auth/useReauth'
 
 const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ required: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
+const EXPOSED: AuthExposure = {
+  listening: { address: '127.0.0.1:4001', network: false }, sign_in_required: true, encrypted: false, inference_key_required: false,
+  webhooks: { inbound: 0, with_secret: 0 }, sandbox: { enabled: true, filesystem: 'landlock' }, attention: [],
+}
 const stubs = { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } }
 const PASS = 'correct horse battery'
 
@@ -34,6 +38,7 @@ beforeEach(() => {
   service.sessions.mockResolvedValue([])
   service.tokens.mockResolvedValue([])
   service.events.mockResolvedValue([])
+  service.exposure.mockResolvedValue(EXPOSED)
   useAuth().status.value = status()
 })
 

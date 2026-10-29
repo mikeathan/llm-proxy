@@ -2,7 +2,7 @@
 
 ## Base URL
 
-All API endpoints are served from the server root (default `http://0.0.0.0:4001`).
+All API endpoints are served from the server root (default `http://127.0.0.1:4001` for a new install, `http://0.0.0.0:4001` for one that predates 0.20.0).
 
 ### Sign-in (since 0.18.0)
 
@@ -25,6 +25,7 @@ token; otherwise `401`. `/v1/*` is open until the first **inference** token is m
 | POST | `/admin/api/auth/sessions/revoke-all` | Sign out everywhere, this browser too |
 | POST | `/admin/api/auth/passphrase` | `{old, new}`; ends every other session |
 | GET / POST / DELETE | `/admin/api/auth/tokens[?id]` | List script tokens (no secret); make one `{name, scope: "admin"\|"inference"}` (the secret is in this answer only, and this needs the passphrase again); revoke |
+| GET | `/admin/api/auth/exposure` | Where the server listens and what protects it: `{listening{address,network}, sign_in_required, encrypted, inference_key_required, webhooks{inbound,with_secret}, sandbox{enabled,filesystem}, attention[{id,text,fix}]}`. No secret. |
 | GET | `/admin/api/auth/events` | The last 20 sign-in events (never a secret) |
 
 **Step-up.** These writes answer `403 {"error":"reauth_required"}` until the session has re-entered the passphrase in the

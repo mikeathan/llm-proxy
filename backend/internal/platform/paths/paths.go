@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 
@@ -385,8 +386,13 @@ func (p Paths) seedSecrets() error {
 	return writeExclusive(secretsFile, payload, secretFilePerm)
 }
 
+// defaultSettingsYAML is the settings.yml of a new install. It listens on this machine only, unlike
+// models.DefaultAppConfig, which keeps the historical all-interfaces bind because it also backfills an older settings.yml
+// that lacks the key, and that install must not change.
 func defaultSettingsYAML() ([]byte, error) {
-	return yaml.Marshal(models.DefaultAppConfig())
+	cfg := models.DefaultAppConfig()
+	cfg.Server.Bind = net.JoinHostPort(models.AddrLocalhost, models.DefaultAppPort)
+	return yaml.Marshal(cfg)
 }
 
 func defaultRegistryJSON() ([]byte, error) {

@@ -96,7 +96,12 @@ func InitializeData(ctx context.Context, dataMgr *storage.DataManager) error {
 
 // ResolveBindAddr determines the server binding address from configuration.
 func ResolveBindAddr(dataMgr *storage.DataManager) string {
-	sys := dataMgr.System().Get()
+	return bindAddress(dataMgr.System().Get())
+}
+
+// bindAddress is the address the server listens on for these settings: the configured one, else every interface on the
+// default port.
+func bindAddress(sys models.SystemConfig) string {
 	if sys.Server.Bind == "" {
 		return network.JoinDefault(models.AddrAllInterfaces)
 	}

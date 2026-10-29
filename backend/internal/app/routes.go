@@ -40,6 +40,7 @@ type HandlerSet struct {
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 	Auth       *handlers.AuthHandlers
+	Exposure   *handlers.ExposureHandlers
 }
 
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
@@ -49,6 +50,13 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		trusted := func() []string { return s.AppCtx.GetSystem().Server.TrustedProxies }
 		warnInvalidTrustedProxies(trusted())
 		hs.Auth = handlers.NewAuthHandlers(s.auth).WithTrustedProxies(trusted)
+		hs.Exposure = handlers.NewExposureHandlers(handlers.ExposureSource{
+			Auth:           s.auth,
+			Bind:           func() string { return bindAddress(s.AppCtx.GetSystem()) },
+			Registry:       s.AppCtx.GetRegistry,
+			Host:           s.AppCtx.HostSettings,
+			TrustedProxies: trusted,
+		})
 	}
 	ownerZone := func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone }
 	hs.Turns = chat.New(s, ownerZone)
@@ -390,6 +398,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Post("/admin/api/auth/tokens", hs.Auth.CreateToken, jsonMethodNotAllowed)
 		router.Delete("/admin/api/auth/tokens", hs.Auth.RevokeToken, jsonMethodNotAllowed)
 		router.Get("/admin/api/auth/events", hs.Auth.Events, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/exposure", hs.Exposure.Get, jsonMethodNotAllowed)
 	}
 
 	// Public webhooks — external platforms POST here (no admin auth)

@@ -8,6 +8,7 @@ import SelectInput from "../common/forms/SelectInput.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import PassphraseInput from "../auth/PassphraseInput.vue"
+import ExposurePanel from "./ExposurePanel.vue"
 import { useAuth } from "../../composables/auth/useAuth"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useSignInSettings } from "../../composables/auth/useSignInSettings"
@@ -71,6 +72,7 @@ onMounted(() => { if (required.value) void s.load() })
 
 <template>
   <div class="flex min-w-0 flex-col gap-4" data-test="sign-in-settings">
+    <ExposurePanel />
     <Panel v-if="!required" title="Sign-in" preserve-case data-test="not-set-up">
       <div class="flex flex-col gap-2">
         <p class="m-0">Sign-in is not set up, so anyone on your network can change settings and run the assistant.</p>

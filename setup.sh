@@ -901,9 +901,19 @@ install_flow() {
   success "dev launcher env refreshed: .launch.env (LLM_PROXY_HOME=$SVC_ROOT)"
 
   ui_msgbox "Install complete.
-UI:    http://<host>:4001
+UI:    http://127.0.0.1:4001 (a new install listens on this machine only)
 Logs:  journalctl -u ${BIN_NAME}.service -f
-Data:  ${SVC_ROOT} (single root: settings, DB, logs, workspaces)"
+Data:  ${SVC_ROOT} (single root: settings, DB, logs, workspaces)
+
+NEXT, set the passphrase that signs you in (until you do, anyone who can
+reach the UI can change settings and run the agent):
+  sudo ${INSTALL_BIN} auth setup-code
+then open /admin/setup in the UI and enter the code with a passphrase.
+
+To reach the UI from another computer: use an SSH tunnel
+  ssh -L 4001:127.0.0.1:4001 <user>@<host>
+or put a TLS front end in front (docs/service_setup.md, Encrypted access),
+or set server.bind in ${SVC_ROOT}/settings.yml."
 }
 
 # -----------------------------------------------------------------------------
