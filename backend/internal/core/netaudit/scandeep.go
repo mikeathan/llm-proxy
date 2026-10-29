@@ -35,23 +35,9 @@ var (
 // limited engine never stands in: it cannot do this). There is no sweep: the device is known, and it is the only thing
 // touched. Findings are the deep checks only; open ports and the nightly checks belong to the audit's own scan.
 func (s *Service) DeepScan(ctx context.Context, device string, ports []int) (Result, error) {
-	if models.IsUnattendedRun(ctx) {
-		return Result{}, fmt.Errorf("%w: a deep check is started by the operator, never by a scheduled run", ErrIntrusiveRefused)
-	}
-	addr, err := netip.ParseAddr(strings.TrimSpace(device))
-	if err != nil || !addr.Is4() {
-		return Result{}, ErrBadDevice
-	}
-	portList, err := deepPortList(ports)
+	scan, err := s.prepareDeep(ctx, device, ports)
 	if err != nil {
 		return Result{}, err
-	}
-	addrs, err := s.authorizer.Authorize(ctx, []string{addr.String()})
-	if err != nil {
-		return Result{}, err
-	}
-	if len(addrs) != 1 || addrs[0] != addr {
-		return Result{}, ErrBadDevice
 	}
 	if !s.running.TryLock() {
 		return Result{}, ErrScanBusy
@@ -64,10 +50,6 @@ func (s *Service) DeepScan(ctx context.Context, device string, ports []int) (Res
 		}
 		return Result{}, fmt.Errorf("%w: %v", ErrNmapRequired, unavailable)
 	}
-	scan := ScanRequest{Targets: addrs, Mode: ModeDeep, Ports: portList, Timeout: DeepBudget}
-	if s.deviceTimeout != nil {
-		scan.HostTimeout = s.deviceTimeout()
-	}
 	runCtx, cancel := context.WithTimeout(ctx, DeepBudget)
 	defer cancel()
 	res, err := s.primary.Scan(runCtx, scan)
@@ -77,6 +59,33 @@ func (s *Service) DeepScan(ctx context.Context, device string, ports []int) (Res
 	res.Engine = s.primary.Name()
 	res.Findings = DeepFindingsOf(res.Hosts)
 	return res, nil
+}
+
+// prepareDeep validates a deep check and authorises its device; nothing has touched the network yet.
+func (s *Service) prepareDeep(ctx context.Context, device string, ports []int) (ScanRequest, error) {
+	if models.IsUnattendedRun(ctx) {
+		return ScanRequest{}, fmt.Errorf("%w: a deep check is started by the operator, never by a scheduled run", ErrIntrusiveRefused)
+	}
+	addr, err := netip.ParseAddr(strings.TrimSpace(device))
+	if err != nil || !addr.Is4() {
+		return ScanRequest{}, ErrBadDevice
+	}
+	portList, err := deepPortList(ports)
+	if err != nil {
+		return ScanRequest{}, err
+	}
+	addrs, err := s.authorizer.Authorize(ctx, []string{addr.String()})
+	if err != nil {
+		return ScanRequest{}, err
+	}
+	if len(addrs) != 1 || addrs[0] != addr {
+		return ScanRequest{}, ErrBadDevice
+	}
+	scan := ScanRequest{Targets: addrs, Mode: ModeDeep, Ports: portList, Timeout: DeepBudget}
+	if s.deviceTimeout != nil {
+		scan.HostTimeout = s.deviceTimeout()
+	}
+	return scan, nil
 }
 
 // deepPortList checks the ports and writes them as the comma list nmap takes, sorted and without repeats.
