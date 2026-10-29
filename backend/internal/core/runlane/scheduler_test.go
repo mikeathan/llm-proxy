@@ -90,10 +90,13 @@ func claim(t *testing.T, s *Scheduler, lane LaneKey) (<-chan func(), <-chan erro
 	errCh := make(chan error, 1)
 	go func() {
 		_, release, err := s.ClaimInteractive(t.Context(), lane, "ws", "m1")
-		if err == nil {
-			releaseCh <- release
+		// One channel answers: the release func on success, the error on failure. Sending a nil error as well made a test
+		// that selects on both read "claim failed: <nil>" whenever both were ready (seen under -race on CI).
+		if err != nil {
+			errCh <- err
+			return
 		}
-		errCh <- err
+		releaseCh <- release
 	}()
 	return releaseCh, errCh
 }

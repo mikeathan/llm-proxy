@@ -1,4 +1,5 @@
 import type { MemoryEntry, MemoryImportResult, MemoryInjectionPreview, MemoryPriority, MemoryView, NewMemory, NotesScope, OperatorNotes } from '../../types/memory'
+import { apiFetch } from '../httpClient'
 
 // The backend answers errors as {"error": "…"}; show the reason, not the JSON.
 async function failureReason(res: Response, what: string): Promise<Error> {
@@ -22,7 +23,7 @@ export class MemoryService {
     if (view === 'hot') params.set('hot', 'true')
     if (view === 'unused') params.set('unused', 'true')
     const query = params.toString() ? `?${params.toString()}` : ''
-    const res = await fetch(`/admin/api/memory/${workspaceId}${query}`)
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}${query}`)
     if (!res.ok) {
       const text = await res.text()
       throw new Error(`Failed to list memories: ${res.status} - ${text}`)
@@ -31,7 +32,7 @@ export class MemoryService {
   }
 
   static async search(workspaceId: string, query: string, limit?: number): Promise<MemoryEntry[]> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}/search`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/search`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, limit: limit || 20 }),
@@ -53,7 +54,7 @@ export class MemoryService {
     change: { hot?: boolean; priority?: MemoryPriority } = {},
   ): Promise<void> {
     const body = { title, content, ...change }
-    const res = await fetch(`/admin/api/memory/${workspaceId}/${id}`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -62,7 +63,7 @@ export class MemoryService {
   }
 
   static async create(workspaceId: string, memory: NewMemory): Promise<MemoryEntry> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(memory),
@@ -73,14 +74,14 @@ export class MemoryService {
 
   // The operator's MEMORY.md: the global notes and this workspace's notes.
   static async getNotes(workspaceId: string): Promise<OperatorNotes> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}/notes`)
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/notes`)
     if (!res.ok) throw await failureReason(res, 'load the operator notes')
     return res.json()
   }
 
   // Blank content removes the notes file.
   static async saveNotes(workspaceId: string, scope: NotesScope, content: string): Promise<void> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}/notes`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/notes`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scope, content }),
@@ -90,7 +91,7 @@ export class MemoryService {
 
   // The workspace's facts and the user-wide facts as an editable markdown file.
   static async exportMarkdown(workspaceId: string): Promise<string> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}/export`)
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/export`)
     if (!res.ok) throw await failureReason(res, 'export memory')
     return res.text()
   }
@@ -98,7 +99,7 @@ export class MemoryService {
   // Adds the facts of a markdown file; duplicates are skipped and unusable
   // entries come back in issues, each with the line of its heading.
   static async importMarkdown(workspaceId: string, markdown: string): Promise<MemoryImportResult> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}/import`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/import`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ markdown }),
@@ -110,13 +111,13 @@ export class MemoryService {
   // model '' = no model chosen: the backend sizes with its fallback budget.
   static async injectionPreview(workspaceId: string, model: string): Promise<MemoryInjectionPreview> {
     const query = model ? `?model=${encodeURIComponent(model)}` : ''
-    const res = await fetch(`/admin/api/memory/${workspaceId}/injection-preview${query}`)
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/injection-preview${query}`)
     if (!res.ok) throw await failureReason(res, 'load the memory preview')
     return res.json()
   }
 
   static async delete(workspaceId: string, id: number): Promise<void> {
-    const res = await fetch(`/admin/api/memory/${workspaceId}/${id}`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}/${id}`, {
       method: 'DELETE',
     })
     if (!res.ok) {
@@ -127,7 +128,7 @@ export class MemoryService {
 
   static async clearAll(workspaceId: string, type?: string): Promise<{deleted: number}> {
     const params = type ? `?type=${type}` : ''
-    const res = await fetch(`/admin/api/memory/${workspaceId}${params}`, {
+    const res = await apiFetch(`/admin/api/memory/${workspaceId}${params}`, {
       method: 'DELETE',
     })
     if (!res.ok) {

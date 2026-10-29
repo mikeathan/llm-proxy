@@ -1,8 +1,9 @@
 import type { CommandInfo, CommandPreview, CommandRunResult, CommandTurn } from '../../types/commands'
 import { browserTimeZone } from '../../utils/format/timezone'
+import { apiFetch } from '../httpClient'
 
 async function post<T>(path: string, message: string, workspaceId?: string, signal?: AbortSignal): Promise<T> {
-  const res = await fetch(`/admin/api/commands/${path}`, {
+  const res = await apiFetch(`/admin/api/commands/${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     signal,
@@ -16,7 +17,7 @@ async function post<T>(path: string, message: string, workspaceId?: string, sign
 
 export class CommandService {
   static async list(): Promise<CommandInfo[]> {
-    const res = await fetch('/admin/api/commands')
+    const res = await apiFetch('/admin/api/commands')
     if (!res.ok) throw new Error(`Failed to list commands: ${res.status} - ${await res.text()}`)
     return ((await res.json()) as { commands: CommandInfo[] }).commands
   }

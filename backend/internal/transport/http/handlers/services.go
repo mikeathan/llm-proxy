@@ -55,6 +55,8 @@ type RuntimeService interface {
 type AdminService interface {
 	// Tier 1: Infrastructure
 	GetSystem() models.SystemConfig
+	// SystemUpdateChangesWhatRuns: the update changes a program the server runs or its arguments or environment.
+	SystemUpdateChangesWhatRuns(models.SystemUpdatePayload) bool
 	UpdateSystem(func(*models.SystemConfig)) error
 
 	// Tier 2: Registry

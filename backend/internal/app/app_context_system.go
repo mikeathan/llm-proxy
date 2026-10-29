@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 
 	"llm-proxy/internal/platform/env"
 	"llm-proxy/models"
@@ -312,4 +314,31 @@ func applyServiceCredentials(req models.SystemUpdatePayload) {
 		envPath, _ := env.EnvFilePaths()
 		_ = env.UpdateEnvFile(envPath, envUpdates)
 	}
+}
+
+// SystemUpdateChangesWhatRuns reports whether a system update changes a program the server runs or what it is started with:
+// the environment and arguments of the model server, the model server's own path, or the GPU-stats program. That is
+// command execution as the service user, so the admin API asks for the passphrase again before it. A value equal to the
+// current one is not a change: the settings page sends back what it read, and an ordinary save must not ask.
+func (s *AppContext) SystemUpdateChangesWhatRuns(req models.SystemUpdatePayload) bool {
+	sys, set := s.GetSystem(), s.GetSettings()
+	if req.Environment != nil && !equalEnvironment(req.Environment, sys.Server.Environment) {
+		return true
+	}
+	if req.DefaultArgs != nil && !slices.Equal(req.DefaultArgs, set.Local.DefaultArgs) {
+		return true
+	}
+	if req.GPUBinary != "" && req.GPUBinary != sys.Metrics.GPU.Binary {
+		return true
+	}
+	local, ok := req.Providers["local"]
+	if !ok {
+		return false
+	}
+	return local.LlamaServerBinary != set.Local.LlamaServerBinary || (local.DefaultArgs != nil && !slices.Equal(local.DefaultArgs, set.Local.DefaultArgs))
+}
+
+// equalEnvironment compares two environments, an absent one being an empty one.
+func equalEnvironment(a, b map[string]string) bool {
+	return len(a) == len(b) && maps.Equal(a, b) || len(a) == 0 && len(b) == 0
 }

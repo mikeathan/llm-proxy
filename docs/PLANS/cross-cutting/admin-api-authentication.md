@@ -278,13 +278,30 @@ method of `/admin/api`, `CrossOriginProtection` on writes, framing/sniffing/refe
 removed from the live stream, PID-stop ownership (only a model server the Models page lists), and an optional
 `LLM_PROXY_TOKEN` in `scripts/evallib.py`.
 
-**Still to do in Phase 1:** (a) the **mandatory webhook secret** (E8) — deliberately not done here: it must ship with the
-UI that generates a token on enable and re-runs Telegram's `setWebhook` with it, or an existing connector stops receiving
-messages at deploy; (b) moving the **33 raw `fetch` calls** onto `httpClient.ts` (own PR, no behaviour change); (c) fix or
-delete `scripts/assistant.sh` (it posts to `/api/conversation/message`, which no route serves); (d) Phase 0 leftovers:
-audit the remaining GETs for side effects, check connector/config GETs for unmasked tokens, and confirm startup output
-does not reach `app-logs` (E18). **Phase 1 stops browser-origin attacks only**; a stranger on the LAN or a prompt-injected
-agent is stopped by Phase 2.
+**Phase 2 built 2026-10-29 on branch `admin-auth-phase2` (v0.18.0, backend and UI together):**
+- *Backend:* `platform/auth` (argon2id passphrase, `lp_` script tokens, persisted hashed sessions with idle and absolute expiry,
+  a one-time setup code that is single-use, expires and is cancelled by guessing, per-address and global lockout, step-up
+  elevation that rotates the session id, the last 20 events, `auth.json` 0600 that a second process (the CLI) can change and
+  the server notices); `api.Authenticate` (default deny from the path: `/admin/api/*` needs a session or an admin token once a
+  passphrase exists, `/v1/*` needs a key once an inference token exists, a store that cannot be read gives `503` and never
+  reads as open; step-up routes refuse tokens); `/admin/api/auth/*`; `llm-proxy auth setup-code|status|reset`; the `lp_`
+  token shape in the shared secret patterns and `.gitleaks.toml`.
+- *Frontend:* every request already goes through `apiFetch`; the router guard and `startAuth`, `LoginView`, `SetupView`, the
+  "not set up" banner, the "confirm it's you" dialog (a request the server answers `reauth_required` is repeated after the
+  passphrase), `EventSource` errors ask `/auth/status` instead of retrying for ever, and Settings → Safety → Sign-in & access
+  (change passphrase, sessions, script tokens, recent sign-ins).
+- *Deliberately decided here:* script tokens are refused on the step-up routes (design D4: never, the safer option, until the
+  owner chooses otherwise); session lifetimes are **24 h idle / 14 d absolute (D3, owner chose this 2026-10-29)** and are settings (`server.auth.idle_hours`, `server.auth.absolute_days`, capped at 720 h and 90 d, applied without a restart).
 
-**Then:** Phase 2a (backend: passphrase, script tokens, persisted sessions, step-up, CLI) → 2b (frontend) → Phases 3–5.
-Open for the owner: D3 session lifetimes and D4 token access to destructive routes (design §7).
+**Still to do:** (a) the **mandatory webhook secret** (E8) — it must ship with the UI that generates a token on enable and
+re-runs Telegram's `setWebhook`, or an existing connector stops receiving messages at deploy; (c) fix or delete `scripts/assistant.sh`;
+(d) Phase 0 leftovers: audit the remaining GETs for side effects, check connector/config GETs for unmasked tokens, confirm
+startup output does not reach `app-logs` (E18); (e) ~~conditional step-up for `PUT /config` and `PUT /system`~~ **done 2026-10-29**: `AppContext.SystemUpdateChangesWhatRuns` compares the update with the current settings (model-server environment, arguments and path, GPU program) and `api.StepUpGranted` / `api.RefuseStepUp` gate it in the handlers; a settings save that sends back what it read is not a change; (f) live streams re-check the session at each heartbeat (a revoked session's open stream
+runs on until it closes); (g) `server.trusted_proxies` so `Secure` and "encrypted" follow a reverse proxy's `X-Forwarded-Proto`;
+(h) the **exposure summary** (listening address, webhook secrets, sandbox mode) on the Sign-in page, `setup.sh` printing the
+setup code and a loopback-only default bind for new installs (Phase 4); (i) the **Constitution** law (A6) and SPEC-003/SPEC-007
+wording, which need the owner's review. **Phase 1 stops browser-origin attacks; Phase 2 is what stops a stranger on the LAN
+and a prompt-injected agent**, provided the passphrase is set: until the operator runs `llm-proxy auth setup-code` the API is
+still open.
+
+D4 is decided: **script tokens never do step-up actions** (owner accepted the recommendation 2026-10-29); revisit only if a real script needs one.

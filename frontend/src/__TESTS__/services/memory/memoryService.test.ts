@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MemoryService } from '../../../services/memory/memoryService'
 
+// Every request goes through apiFetch, which sends the page's own credentials.
+const SAME_ORIGIN = { credentials: 'same-origin' }
+
 const json = (body: unknown, status = 200) => ({ ok: status < 400, status, json: async () => body, text: async () => JSON.stringify(body) }) as Response
 
 describe('MemoryService', () => {
@@ -11,19 +14,19 @@ describe('MemoryService', () => {
   it('lists the always-injected facts with hot=true (the server uses the injection query)', async () => {
     fetchMock.mockResolvedValue(json([]))
     await MemoryService.list('ws', undefined, 'hot')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws?hot=true')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws?hot=true', SAME_ORIGIN)
   })
 
   it('lists the facts never sent or found with unused=true', async () => {
     fetchMock.mockResolvedValue(json([]))
     await MemoryService.list('ws', undefined, 'unused')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws?unused=true')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws?unused=true', SAME_ORIGIN)
   })
 
   it('still lists by type', async () => {
     fetchMock.mockResolvedValue(json([]))
     await MemoryService.list('ws', 'daily')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws?type=daily')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws?type=daily', SAME_ORIGIN)
   })
 
   it('creates a fact as JSON and returns the stored entry', async () => {
@@ -55,15 +58,15 @@ describe('MemoryService', () => {
   it('asks for the injection preview of a model, URL-encoded', async () => {
     fetchMock.mockResolvedValue(json({}))
     await MemoryService.injectionPreview('ws', 'my model')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws/injection-preview?model=my%20model')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws/injection-preview?model=my%20model', SAME_ORIGIN)
     await MemoryService.injectionPreview('ws', '')
-    expect(fetchMock).toHaveBeenLastCalledWith('/admin/api/memory/ws/injection-preview')
+    expect(fetchMock).toHaveBeenLastCalledWith('/admin/api/memory/ws/injection-preview', SAME_ORIGIN)
   })
 
   it('reads the operator notes (MEMORY.md) of a workspace', async () => {
     fetchMock.mockResolvedValue(json({ global: 'g', workspace: 'w', max_chars: 6000 }))
     const notes = await MemoryService.getNotes('ws')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws/notes')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws/notes', SAME_ORIGIN)
     expect(notes).toEqual({ global: 'g', workspace: 'w', max_chars: 6000 })
   })
 
@@ -84,7 +87,7 @@ describe('MemoryService', () => {
   it('downloads the markdown export as text', async () => {
     fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => '# Memory export — ws' } as Response)
     expect(await MemoryService.exportMarkdown('ws')).toBe('# Memory export — ws')
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws/export')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/memory/ws/export', SAME_ORIGIN)
   })
 
   it('imports markdown as JSON and returns what happened', async () => {

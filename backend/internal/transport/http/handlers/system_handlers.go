@@ -8,6 +8,7 @@ import (
 
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/platform/logging"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
 
@@ -87,6 +88,9 @@ func (h *SystemHandlers) AdminSystemPutHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	if !h.stepUpOK(w, r, req) {
+		return
+	}
 	if err := h.admin.ApplySystemUpdate(r.Context(), req); err != nil {
 		writeSystemUpdateError(w, err)
 		return
@@ -101,12 +105,25 @@ func (h *SystemHandlers) AdminConfigUpdateHandler(w http.ResponseWriter, r *http
 		return
 	}
 
+	if !h.stepUpOK(w, r, req) {
+		return
+	}
 	if err := h.admin.ApplySystemUpdate(r.Context(), req); err != nil {
 		writeSystemUpdateError(w, err)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// stepUpOK lets an update through, unless it changes a program the server runs (or its arguments or environment) and the
+// request has not just confirmed the passphrase. Those are command execution as the service user. It answers 403 itself.
+func (h *SystemHandlers) stepUpOK(w http.ResponseWriter, r *http.Request, req models.SystemUpdatePayload) bool {
+	if api.StepUpGranted(r.Context()) || !h.admin.SystemUpdateChangesWhatRuns(req) {
+		return true
+	}
+	api.RefuseStepUp(w, r)
+	return false
 }
 
 // writeSystemUpdateError answers a failed system update: a bad model name or an invalid search, scheduler, agent or

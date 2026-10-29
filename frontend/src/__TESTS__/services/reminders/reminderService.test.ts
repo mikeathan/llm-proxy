@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { ReminderService } from '../../../services/reminders/reminderService'
 
+// Every request goes through apiFetch, which sends the page's own credentials.
+const SAME_ORIGIN = { credentials: 'same-origin' }
+
 afterEach(() => vi.unstubAllGlobals())
 
 describe('ReminderService.list', () => {
@@ -9,7 +12,7 @@ describe('ReminderService.list', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => body })
     vi.stubGlobal('fetch', fetchMock)
     expect(await ReminderService.list()).toEqual(body)
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/reminders')
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/reminders', SAME_ORIGIN)
   })
 
   it('reports the reason on failure', async () => {
@@ -43,7 +46,7 @@ describe('ReminderService.remove', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
     vi.stubGlobal('fetch', fetchMock)
     await ReminderService.remove(4)
-    expect(fetchMock).toHaveBeenCalledWith('/admin/api/reminders/4', { method: 'DELETE' })
+    expect(fetchMock).toHaveBeenCalledWith('/admin/api/reminders/4', { method: 'DELETE', credentials: 'same-origin' })
   })
 
   it('reports a reminder that is already gone', async () => {
@@ -77,7 +80,7 @@ describe.each(['pause', 'resume', 'skip'] as const)('ReminderService.%s', (actio
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => item })
     vi.stubGlobal('fetch', fetchMock)
     expect(await ReminderService[action](3)).toEqual(item)
-    expect(fetchMock).toHaveBeenCalledWith(`/admin/api/reminders/3/${action}`, { method: 'POST' })
+    expect(fetchMock).toHaveBeenCalledWith(`/admin/api/reminders/3/${action}`, { method: 'POST', credentials: 'same-origin' })
   })
 
   it('reports a refusal', async () => {

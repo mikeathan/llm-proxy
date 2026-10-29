@@ -1,0 +1,160 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
+import Panel from "../common/layout/Panel.vue"
+import BaseButton from "../common/buttons/BaseButton.vue"
+import FormField from "../common/forms/FormField.vue"
+import SelectInput from "../common/forms/SelectInput.vue"
+import ErrorState from "../common/feedback/ErrorState.vue"
+import LoadingState from "../common/feedback/LoadingState.vue"
+import PassphraseInput from "../auth/PassphraseInput.vue"
+import { useAuth } from "../../composables/auth/useAuth"
+import { useConfirm } from "../../composables/ui/useConfirm"
+import { useSignInSettings } from "../../composables/auth/useSignInSettings"
+import { formatAbsoluteTime } from "../../utils/format/time"
+import { ROUTE_NAMES } from "../../types/routes"
+import { PRODUCT_NAME } from "../../config/brand"
+import { MIN_PASSPHRASE_LENGTH, TOKEN_NAME_MAX, TOKEN_SCOPE_OPTIONS, EVENT_LABELS } from "../../constants/auth"
+import type { TokenScope } from "../../types/auth"
+
+// Settings · Sign-in: change the passphrase, see where you are signed in, make and revoke script tokens, and read the recent
+// sign-in log. Nothing here shows a secret except a new token, once. Making a token asks for the passphrase again.
+const router = useRouter()
+const auth = useAuth()
+const { confirm } = useConfirm()
+const s = useSignInSettings()
+
+const required = computed(() => auth.status.value?.required === true)
+
+const oldPass = ref("")
+const newPass = ref("")
+const passDone = ref(false)
+const tooShort = computed(() => newPass.value !== "" && [...newPass.value].length < MIN_PASSPHRASE_LENGTH)
+
+async function changePass() {
+  passDone.value = false
+  if (await s.changePassphrase(oldPass.value, newPass.value)) {
+    oldPass.value = ""
+    newPass.value = ""
+    passDone.value = true
+  }
+}
+
+const tokenName = ref("")
+const tokenScope = ref<TokenScope>("admin")
+async function makeToken() {
+  if (await s.createToken(tokenName.value.trim(), tokenScope.value)) tokenName.value = ""
+}
+const copied = ref(false)
+async function copyToken() {
+  if (!s.created.value) return
+  try {
+    await navigator.clipboard.writeText(s.created.value.token)
+    copied.value = true
+  } catch {
+    copied.value = false
+  }
+}
+
+async function endEverywhere() {
+  const ok = await confirm({ title: "Sign out everywhere?", message: "Every browser, including this one, will have to sign in again. Script tokens keep working.", confirmText: "Sign out everywhere", type: "warning" })
+  if (ok && (await s.signOutEverywhere())) await router.replace({ name: ROUTE_NAMES.login })
+}
+
+async function revokeToken(id: string, name: string) {
+  const ok = await confirm({ title: "Revoke this token?", message: `Anything using “${name}” stops working at once.`, confirmText: "Revoke", type: "warning" })
+  if (ok) await s.revokeToken(id)
+}
+
+onMounted(() => { if (required.value) void s.load() })
+</script>
+
+<template>
+  <div class="flex min-w-0 flex-col gap-4" data-test="sign-in-settings">
+    <Panel v-if="!required" title="Sign-in" preserve-case data-test="not-set-up">
+      <div class="flex flex-col gap-2">
+        <p class="m-0">Sign-in is not set up, so anyone on your network can change settings and run the assistant.</p>
+        <p class="m-0 text-[length:var(--text-small)] text-secondary">On the server, run <code class="font-mono text-primary">{{ PRODUCT_NAME }} auth setup-code</code>, then open <RouterLink :to="{ name: ROUTE_NAMES.setup }" class="underline underline-offset-2">the setup page</RouterLink> and enter the code with the passphrase you choose.</p>
+      </div>
+    </Panel>
+
+    <template v-else>
+      <LoadingState v-if="s.loading.value && !s.sessions.value.length" label="Reading the sign-in details" />
+      <ErrorState v-else-if="s.error.value" title="The sign-in details could not be read" :cause="s.error.value" next="Check that the server is running, then try again.">
+        <template #action><BaseButton variant="secondary" icon="refresh" @click="s.load">Retry</BaseButton></template>
+      </ErrorState>
+      <template v-else>
+        <p v-if="s.actionError.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="action-error">{{ s.actionError.value }}</p>
+
+        <Panel title="Passphrase" preserve-case>
+          <form class="flex max-w-md flex-col gap-3" novalidate @submit.prevent="changePass">
+            <PassphraseInput v-model="oldPass" label="Current passphrase" autocomplete="current-password" />
+            <PassphraseInput v-model="newPass" label="New passphrase" autocomplete="new-password" :hint="`${MIN_PASSPHRASE_LENGTH} characters or more.`" :error="tooShort ? `Use at least ${MIN_PASSPHRASE_LENGTH} characters.` : ''" />
+            <div class="flex flex-wrap items-center gap-3">
+              <BaseButton type="submit" :disabled="!oldPass || !newPass || tooShort" class-name="max-sm:!h-11">Change passphrase</BaseButton>
+              <span v-if="passDone" role="status" class="text-[length:var(--text-small)] text-state-success" data-test="pass-done">Changed. Your other sessions were signed out.</span>
+            </div>
+          </form>
+        </Panel>
+
+        <Panel title="Where you are signed in" preserve-case>
+          <ul class="m-0 flex list-none flex-col gap-2 p-0" data-test="sessions">
+            <li v-for="x in s.sessions.value" :key="x.id" :data-current="x.current" class="flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-2 first:border-t-0 first:pt-0">
+              <span class="flex min-w-0 flex-col">
+                <span class="break-words font-semibold text-primary">{{ x.browser || "Unknown browser" }}<template v-if="x.current"> · this one</template></span>
+                <span class="break-words text-[length:var(--text-small)] text-muted">{{ x.address || "unknown address" }} · last used {{ formatAbsoluteTime(x.last_seen) }}</span>
+              </span>
+              <BaseButton v-if="!x.current" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="s.revokeSession(x.id)">Sign out</BaseButton>
+            </li>
+          </ul>
+          <div class="mt-3"><BaseButton variant="danger" class-name="max-sm:!h-11" data-test="sign-out-everywhere" @click="endEverywhere">Sign out everywhere</BaseButton></div>
+        </Panel>
+
+        <Panel title="Script access" preserve-case>
+          <div class="flex flex-col gap-3">
+            <p class="m-0 text-[length:var(--text-small)] text-secondary">A script uses a token instead of your passphrase, so you can revoke one script without signing yourself out. “Admin” reaches the admin API; “Model proxy” reaches only <code class="font-mono">/v1</code>. A token cannot do the actions that need your passphrase.</p>
+
+            <div v-if="s.created.value" role="status" class="flex flex-col gap-2 border border-accent-info p-3" data-test="new-token">
+              <p class="m-0 font-semibold text-primary">Copy “{{ s.created.value.name }}” now. It is shown only once.</p>
+              <code class="break-all font-mono text-[length:var(--text-small)] text-primary" data-test="token-value">{{ s.created.value.token }}</code>
+              <div class="flex flex-wrap items-center gap-2">
+                <BaseButton variant="secondary" class-name="max-sm:!h-11" @click="copyToken">{{ copied ? "Copied" : "Copy" }}</BaseButton>
+                <BaseButton variant="ghost" class-name="max-sm:!h-11" @click="s.dismissCreated">I have copied it</BaseButton>
+              </div>
+            </div>
+
+            <form class="grid max-w-xl grid-cols-1 items-end gap-3 sm:grid-cols-[1fr_auto_auto]" novalidate @submit.prevent="makeToken">
+              <FormField label="Name">
+                <template #default="{ id, describedBy }">
+                  <input :id="id" v-model="tokenName" type="text" :maxlength="TOKEN_NAME_MAX" :aria-describedby="describedBy" placeholder="eval scripts" class="min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 py-2 text-primary focus-visible:outline-none focus-visible:ring-2" />
+                </template>
+              </FormField>
+              <FormField label="Can reach">
+                <template #default="{ id }"><SelectInput :id="id" v-model="tokenScope" :options="TOKEN_SCOPE_OPTIONS" label="Can reach" /></template>
+              </FormField>
+              <BaseButton type="submit" :disabled="!tokenName.trim()" class-name="max-sm:!h-11">Make token</BaseButton>
+            </form>
+
+            <ul v-if="s.tokens.value.length" class="m-0 flex list-none flex-col gap-2 p-0" data-test="tokens">
+              <li v-for="t in s.tokens.value" :key="t.id" class="flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-2">
+                <span class="flex min-w-0 flex-col">
+                  <span class="break-words font-semibold text-primary">{{ t.name }} <span class="font-normal text-muted">· {{ t.scope === "admin" ? "Admin" : "Model proxy" }}</span></span>
+                  <span class="text-[length:var(--text-small)] text-muted">Made {{ formatAbsoluteTime(t.created_at) }} · {{ t.last_used ? `last used ${formatAbsoluteTime(t.last_used)}` : "never used" }}</span>
+                </span>
+                <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="revokeToken(t.id, t.name)">Revoke</BaseButton>
+              </li>
+            </ul>
+            <p v-else class="m-0 text-[length:var(--text-small)] text-muted">No tokens yet.</p>
+          </div>
+        </Panel>
+
+        <Panel title="Recent sign-ins" preserve-case>
+          <ul v-if="s.events.value.length" class="m-0 flex list-none flex-col gap-1 p-0 font-mono text-[length:var(--text-small)]" data-test="events">
+            <li v-for="(e, i) in [...s.events.value].reverse()" :key="i" class="break-words text-secondary">{{ formatAbsoluteTime(e.at) }} · {{ EVENT_LABELS[e.kind] ?? e.kind }}<template v-if="e.address"> · {{ e.address }}</template><template v-if="e.detail"> · {{ e.detail }}</template></li>
+          </ul>
+          <p v-else class="m-0 text-[length:var(--text-small)] text-muted">Nothing yet.</p>
+        </Panel>
+      </template>
+    </template>
+  </div>
+</template>

@@ -271,3 +271,42 @@ func TestApplySystemUpdate_ExportsServiceCredentials(t *testing.T) {
 		t.Error("credentials not exported to the process")
 	}
 }
+
+// A system update that changes a program the server runs, or what it is started with, is command execution as the service
+// user; the admin API asks for the passphrase again for it (plan admin-api-authentication). An ordinary save sends the
+// same values it read, which must not count, or every save would ask.
+func TestSystemUpdateChangesWhatRuns(t *testing.T) {
+	srv := newSystemTestServer(t)
+	ctx := context.Background()
+	if err := srv.ApplySystemUpdate(ctx, models.SystemUpdatePayload{
+		Environment: map[string]string{"A": "1"}, DefaultArgs: []string{"-ngl", "99"}, GPUBinary: "nvidia-smi",
+		Providers: map[string]models.ProviderItem{"local": {LlamaServerBinary: "/usr/bin/llama-server", DefaultArgs: []string{"-ngl", "99"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name string
+		req  models.SystemUpdatePayload
+		want bool
+	}{
+		{"an empty update", models.SystemUpdatePayload{}, false},
+		{"the same values the settings page read back", models.SystemUpdatePayload{
+			Environment: map[string]string{"A": "1"}, DefaultArgs: []string{"-ngl", "99"}, GPUBinary: "nvidia-smi",
+			Providers: map[string]models.ProviderItem{"local": {LlamaServerBinary: "/usr/bin/llama-server", DefaultArgs: []string{"-ngl", "99"}}},
+		}, false},
+		{"settings that do not run anything", models.SystemUpdatePayload{ModelHost: "10.0.0.5", PrimaryModel: "x", Agent: &models.AgentConfig{}}, false},
+		{"a new environment variable", models.SystemUpdatePayload{Environment: map[string]string{"A": "1", "LD_PRELOAD": "/tmp/x.so"}}, true},
+		{"a changed environment variable", models.SystemUpdatePayload{Environment: map[string]string{"A": "2"}}, true},
+		{"the environment cleared", models.SystemUpdatePayload{Environment: map[string]string{}}, true},
+		{"other model arguments", models.SystemUpdatePayload{DefaultArgs: []string{"--host", "0.0.0.0"}}, true},
+		{"another GPU program", models.SystemUpdatePayload{GPUBinary: "/tmp/evil"}, true},
+		{"another server program", models.SystemUpdatePayload{Providers: map[string]models.ProviderItem{"local": {LlamaServerBinary: "/tmp/evil"}}}, true},
+		{"other arguments through the local provider", models.SystemUpdatePayload{Providers: map[string]models.ProviderItem{"local": {LlamaServerBinary: "/usr/bin/llama-server", DefaultArgs: []string{"--x"}}}}, true},
+	}
+	for _, c := range cases {
+		if got := srv.SystemUpdateChangesWhatRuns(c.req); got != c.want {
+			t.Errorf("%s: = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

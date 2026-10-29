@@ -38,11 +38,15 @@ type HandlerSet struct {
 	VulnData   *handlers.VulnDataHandlers
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
+	Auth       *handlers.AuthHandlers
 }
 
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
 func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
 	hs := &HandlerSet{}
+	if s.auth != nil {
+		hs.Auth = handlers.NewAuthHandlers(s.auth)
+	}
 	ownerZone := func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone }
 	hs.Turns = chat.New(s, ownerZone)
 	hs.Assistant = handlers.NewAssistantMessageHandler(s, hs.Turns)
@@ -158,7 +162,11 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 	}
 
 	hostname, _ := os.Hostname()
-	return api.Guard(buildRouter(hs), api.GuardConfig{
+	var inner http.Handler = buildRouter(hs)
+	if s.auth != nil {
+		inner = api.Authenticate(inner, s.auth)
+	}
+	return api.Guard(inner, api.GuardConfig{
 		Hostname:     hostname,
 		AllowedHosts: func() []string { return s.AppCtx.GetSystem().Server.AllowedHosts },
 	})
@@ -361,6 +369,24 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Put("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.UpdateMemory, jsonMethodNotAllowed)
 		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}/{id}", hs.Memory.DeleteMemory, jsonMethodNotAllowed)
 		router.Delete("/admin/api/memory/{"+models.WorkspaceIDParam+"}", hs.Memory.ClearWorkspace, jsonMethodNotAllowed)
+	}
+
+	// Sign-in. Only status, setup, login and logout are open to someone not signed in (api.Authenticate decides that from
+	// the path); the rest need a session, and creating a token needs the passphrase again.
+	if hs.Auth != nil {
+		router.Get("/admin/api/auth/status", hs.Auth.Status, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/setup", hs.Auth.Setup, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/login", hs.Auth.Login, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/logout", hs.Auth.Logout, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/reauth", hs.Auth.Reauth, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/sessions", hs.Auth.Sessions, jsonMethodNotAllowed)
+		router.Delete("/admin/api/auth/sessions", hs.Auth.RevokeSession, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/sessions/revoke-all", hs.Auth.RevokeAllSessions, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/passphrase", hs.Auth.ChangePassphrase, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/tokens", hs.Auth.Tokens, jsonMethodNotAllowed)
+		router.Post("/admin/api/auth/tokens", hs.Auth.CreateToken, jsonMethodNotAllowed)
+		router.Delete("/admin/api/auth/tokens", hs.Auth.RevokeToken, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/events", hs.Auth.Events, jsonMethodNotAllowed)
 	}
 
 	// Public webhooks — external platforms POST here (no admin auth)

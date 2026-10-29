@@ -4,6 +4,38 @@
 
 All API endpoints are served from the server root (default `http://0.0.0.0:4001`).
 
+### Sign-in (since 0.18.0)
+
+Until the operator sets a passphrase the admin API stays open (the upgrade state; the UI shows a banner). Once one exists,
+every `/admin/api/` route except the four marked *open* needs either the session cookie `llmproxy_session`
+(`HttpOnly; SameSite=Strict; Path=/admin`, `Secure` over HTTPS) or `Authorization: Bearer lp_…` with an **admin** script
+token; otherwise `401`. `/v1/*` is open until the first **inference** token is made, then needs `Authorization: Bearer lp_…`
+(an admin token also works). The UI shell and the webhooks are not affected. Set up on the server, as the server's OS user:
+`llm-proxy auth setup-code` (a one-time code, 15 minutes), then enter it with a passphrase on `/admin/setup`;
+`llm-proxy auth status` and `llm-proxy auth reset` (removes the passphrase, sessions and tokens; no web route does this).
+
+| Method | Path | |
+|---|---|---|
+| GET | `/admin/api/auth/status` | *open.* `{required, setup_open, authenticated, elevated, encrypted}` and nothing else |
+| POST | `/admin/api/auth/setup` | *open.* `{code, passphrase}`: sets the first passphrase and signs in. `403` wrong code (five wrong codes cancel it), `409` no code or already set up, `400` weak passphrase (12+ characters, not a common one) |
+| POST | `/admin/api/auth/login` | *open.* `{passphrase}` sets the cookie. `401` wrong; `429` with `Retry-After` after five wrong tries from one address (or 30 an hour overall) |
+| POST | `/admin/api/auth/logout` | *open.* Clears the cookie and ends the session (`204`) |
+| POST | `/admin/api/auth/reauth` | `{passphrase}`: opens a 5-minute window for the destructive actions and **replaces the cookie** |
+| GET / DELETE | `/admin/api/auth/sessions[?id]` | List where you are signed in (never the cookie value); end one |
+| POST | `/admin/api/auth/sessions/revoke-all` | Sign out everywhere, this browser too |
+| POST | `/admin/api/auth/passphrase` | `{old, new}`; ends every other session |
+| GET / POST / DELETE | `/admin/api/auth/tokens[?id]` | List script tokens (no secret); make one `{name, scope: "admin"\|"inference"}` (the secret is in this answer only, and this needs the passphrase again); revoke |
+| GET | `/admin/api/auth/events` | The last 20 sign-in events (never a secret) |
+
+**Step-up.** These writes answer `403 {"error":"reauth_required"}` until the session has re-entered the passphrase in the
+last 5 minutes (the UI asks and repeats the request): `POST /system/wipeout`, `/system/factory-reset`,
+`/system/clear-runtime-data`, `PUT /host`, every write under `/secrets/` and `/mcp`, and `POST /auth/tokens`; and `PUT /config` or
+`PUT /system` **only when the update changes a program the server runs**: the model server's arguments, environment or path
+(`default_args`, `environment`, `providers.local`) or the GPU program (`gpu_binary`). A value equal to the current one does not
+count, so an ordinary settings save never asks. A script token cannot confirm a passphrase, so it gets `403` on all of these. Lifetimes: a session ends after 24 hours unused or 14 days in all (`server.auth.idle_hours` and `server.auth.absolute_days` in `settings.yml`; 0 or unset is the default, at most 720 hours and 90 days, and idle never exceeds absolute; a change applies without a restart).
+Everything the sign-in keeps (passphrase as argon2id, tokens and session ids as SHA-256) is in `auth.json` in the data root,
+mode 0600, and survives a factory reset.
+
 ### Browser protection on `/admin/` and `/admin/api/` (since 0.17.0)
 
 There is still no sign-in (plan `admin-api-authentication`); these rules stop pages that are not the UI. `/v1/*` and the

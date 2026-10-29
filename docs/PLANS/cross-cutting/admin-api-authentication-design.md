@@ -87,7 +87,7 @@ A route-classification test walks every registered route and fails on one that i
 
 - 256-bit random id; the server stores **SHA-256(id)** in `auth/sessions.json` under the config root (atomic write, 0600, outside every workspace, E13), with created, last seen, client address and browser name, and the step-up expiry.
 - Cookie `llmproxy_session`: `HttpOnly; SameSite=Strict; Path=/admin`, plus `Secure` when the request is HTTPS. The `Host-` cookie prefix needs `Secure`, which plain-HTTP LAN installs cannot set, so it is not used.
-- Idle expiry 8 hours, absolute 7 days (to be confirmed as decision D3). A new id on login and on step-up (no fixation). Sign-out deletes it; "sign out everywhere" deletes all.
+- Idle expiry 24 hours, absolute 14 days (decision D3, chosen by the owner 2026-10-29; `server.auth.idle_hours` / `absolute_days`, capped at 720 h / 90 d, idle never above absolute, read at each request). A new id on login and on step-up (no fixation). Sign-out deletes it; "sign out everywhere" deletes all.
 - Live streams are checked when they open and again at each heartbeat, so a revoked session cuts its stream.
 - Behind a reverse proxy, `X-Forwarded-Proto` is believed only from addresses in `server.trusted_proxies`.
 
@@ -155,7 +155,7 @@ Every registered route is classified; each `admin` route returns 401 with no cre
 
 ## 7. Open questions
 
-- **D3**: session lifetimes (idle 8 h / absolute 7 d proposed).
-- **D4**: tokens that touch destructive routes: allowed only right after step-up (proposed) or never.
+- ~~D3 session lifetimes~~ **decided 2026-10-29: idle 24 h / absolute 14 d, as settings.**
+- ~~D4 tokens and destructive routes~~ **decided 2026-10-29: never.** A token cannot confirm a passphrase; revisit only for a real script (a backup, a deploy).
 - Whether `server.trusted_proxies` is wanted at all (proposed: yes, empty by default).
 - E18, E5 and the unmasked-token question for connector GETs are settled in Phase 0 by running them.

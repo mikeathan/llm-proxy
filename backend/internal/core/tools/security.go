@@ -15,6 +15,8 @@ var SecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`sk-[a-zA-Z0-9]{32,}`),
 	regexp.MustCompile(`AKIA[a-zA-Z0-9]{16}`),
 	regexp.MustCompile(`AIza[a-zA-Z0-9_-]{35}`),
+	// A script token of this server's own sign-in (platform/auth): "lp_" and 32 random bytes in lower-case base32.
+	regexp.MustCompile(`lp_[a-z2-7]{52}`),
 }
 
 // credentialAssignments match a credential word followed by "is", "=" or ":" and a value ("the password is hunter2",
