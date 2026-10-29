@@ -69,8 +69,13 @@ func TestMethodEnforcement(t *testing.T) {
 	dataMgr := minimalTestDataManager(t)
 	a := app.New(context.Background(), dataMgr, &mocks.MockLogger{}, &buildinfo.Info{}, false, false)
 
+	// Sign-in is compulsory, so the router is only reached by someone signed in.
+	cookie := signInThroughTheCLI(t, a, dataMgr)
+
 	req := httptest.NewRequest("PUT", "/admin/api/state", nil)
 	req.Host = testHost
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(cookie)
 	rec := httptest.NewRecorder()
 
 	a.Handler().ServeHTTP(rec, req)
@@ -78,6 +83,33 @@ func TestMethodEnforcement(t *testing.T) {
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405, got %d", rec.Code)
 	}
+}
+
+// signInThroughTheCLI sets the passphrase the way an operator does (a setup code made by a second process on the same file,
+// entered on the setup route) and returns the session cookie it was given.
+func signInThroughTheCLI(t *testing.T, a *app.App, dataMgr *storage.DataManager) *http.Cookie {
+	t.Helper()
+	cli := auth.NewService(auth.OpenStore(app.AuthFilePath(dataMgr.RootDir())), auth.NewHasher(auth.DefaultParams()), auth.DefaultConfig())
+	code, err := cli.IssueSetupCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/admin/api/auth/setup", strings.NewReader(`{"code":"`+code+`","passphrase":"correct horse battery"}`))
+	req.Host = testHost
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("setup = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == api.SessionCookie {
+			return c
+		}
+	}
+	t.Fatal("no session cookie after setup")
+	return nil
 }
 
 func minimalTestDataManager(t *testing.T) *storage.DataManager {
@@ -156,8 +188,12 @@ func TestSignInEndToEnd(t *testing.T) {
 		return rec
 	}
 
-	if rec := send("GET", "/admin/api/version", "", nil); rec.Code != http.StatusOK {
-		t.Fatalf("before setup the admin API is open (the upgrade state): %d", rec.Code)
+	// Sign-in is compulsory: before a passphrase exists the admin API refuses everything but the sign-in routes.
+	if rec := send("GET", "/admin/api/version", "", nil); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "setup_required") {
+		t.Fatalf("before setup the admin API must answer 401 setup_required: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := send("GET", "/admin/api/auth/status", "", nil); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"set_up":false`) {
+		t.Fatalf("status must stay open before setup: %d %s", rec.Code, rec.Body.String())
 	}
 
 	cli := auth.NewService(auth.OpenStore(app.AuthFilePath(dataMgr.RootDir())), auth.NewHasher(auth.DefaultParams()), auth.DefaultConfig())
@@ -194,8 +230,16 @@ func TestSignInEndToEnd(t *testing.T) {
 	if rec := send("GET", "/v1/models", "", nil); rec.Code == http.StatusUnauthorized {
 		t.Errorf("/v1 stays open until an inference key exists: %d", rec.Code)
 	}
-	if rec := send("GET", "/admin/api/auth/status", "", nil); !strings.Contains(rec.Body.String(), `"required":true`) {
+	if rec := send("GET", "/admin/api/auth/status", "", nil); !strings.Contains(rec.Body.String(), `"set_up":true`) {
 		t.Errorf("status = %s", rec.Body.String())
+	}
+
+	// `auth reset` (a second process again) closes the API: the old cookie is dead and the API asks to be set up again.
+	if err := cli.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	if rec := send("GET", "/admin/api/version", "", cookie); rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "setup_required") {
+		t.Errorf("after a reset the old session = %d %s, want 401 setup_required", rec.Code, rec.Body.String())
 	}
 }
 

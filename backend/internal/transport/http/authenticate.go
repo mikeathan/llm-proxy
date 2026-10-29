@@ -46,7 +46,7 @@ type principalKey struct{}
 type stepUpKey struct{}
 
 // StepUpGranted reports whether the request may do something that needs the passphrase again: the session entered it
-// recently, or sign-in is not set up. A token never does. A handler that must decide from the request's own content (a
+// recently. A token never does. A handler that must decide from the request's own content (a
 // settings save is only dangerous when it changes a program to run) asks this and calls RefuseStepUp. Without the
 // middleware (a unit test calling a handler directly) there is nothing to ask of, so it is granted.
 func StepUpGranted(ctx context.Context) bool {
@@ -65,11 +65,13 @@ func RefuseStepUp(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
+	// SetupRequired is the error the admin API answers (401) while no passphrase exists; the UI goes to the setup page.
+	SetupRequired      = "setup_required"
 	reauthRequired     = "reauth_required"
 	tokenStepUpMessage = "this action needs the passphrase; do it in the interface"
 )
 
-// PrincipalFrom returns who made the request, when it was authenticated (it is absent while sign-in is not set up).
+// PrincipalFrom returns who made the request, when it was authenticated (it is absent for a context the middleware did not authenticate).
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(principalKey{}).(Principal)
 	return p, ok
@@ -125,9 +127,9 @@ func publicAPI(method, path string) bool {
 	return false
 }
 
-// Authenticate makes the admin API and the model proxy answer only to someone signed in, once there is something to sign
-// in with. Until a passphrase is set the admin API stays open (the upgrade state; the UI shows a banner), and /v1 stays
-// open until the first inference key is made. The UI shell and the webhooks are not touched: the shell holds no data, and a
+// Authenticate makes the admin API and the model proxy answer only to someone signed in. Sign-in is compulsory: until a
+// passphrase is set the admin API answers only the sign-in routes (everything else is 401 setup_required). /v1 is a separate
+// matter and stays open until the first inference key is made. The UI shell and the webhooks are not touched: the shell holds no data, and a
 // webhook carries its own secret. A store that cannot be read refuses; it never reads as "open".
 func Authenticate(next http.Handler, a Authenticator) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,8 +168,10 @@ func authenticateAdmin(w http.ResponseWriter, r *http.Request, next http.Handler
 		WriteJSONError(w, http.StatusServiceUnavailable, "sign-in could not be checked")
 		return
 	}
-	if !state.Required {
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), stepUpKey{}, true)))
+	if !state.SetUp {
+		// Sign-in is compulsory: nothing can be signed in yet, so nothing but the sign-in routes is answered. The body says
+		// why, so the page sends the person to the setup page instead of a login that could not succeed.
+		WriteJSONError(w, http.StatusUnauthorized, SetupRequired)
 		return
 	}
 	p, sess, ok := principalOf(r, a)
@@ -204,8 +208,8 @@ func credentialStillValid(r *http.Request, p Principal, a Authenticator) bool {
 	if err != nil {
 		return false
 	}
-	if !state.Required {
-		return true
+	if !state.SetUp {
+		return false // the passphrase was removed (`auth reset`): nobody is signed in any more
 	}
 	if p.Kind == PrincipalSession {
 		return a.SessionAlive(p.SessionID)

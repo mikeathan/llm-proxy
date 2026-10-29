@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/netip"
 
-	"llm-proxy/internal/platform/auth"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
@@ -18,7 +17,6 @@ type exposureView struct {
 		// Network is true when other machines can connect (the bind is not a loopback address).
 		Network bool `json:"network"`
 	} `json:"listening"`
-	SignInRequired       bool `json:"sign_in_required"`
 	Encrypted            bool `json:"encrypted"`
 	InferenceKeyRequired bool `json:"inference_key_required"`
 	Webhooks             struct {
@@ -44,7 +42,6 @@ type exposureAttention struct {
 // exposureInput is what the card is built from, gathered by the handler.
 type exposureInput struct {
 	Bind                 string
-	SignInRequired       bool
 	Encrypted            bool
 	InferenceKeyRequired bool
 	Connectors           map[string]models.ConnectorConfig
@@ -70,7 +67,7 @@ func buildExposure(in exposureInput) exposureView {
 	var v exposureView
 	v.Listening.Address = in.Bind
 	v.Listening.Network = !isLoopbackBind(in.Bind)
-	v.SignInRequired, v.Encrypted, v.InferenceKeyRequired = in.SignInRequired, in.Encrypted, in.InferenceKeyRequired
+	v.Encrypted, v.InferenceKeyRequired = in.Encrypted, in.InferenceKeyRequired
 	v.Sandbox = exposureSandbox{Enabled: in.Sandbox, Filesystem: in.FilesystemMechanism}
 	if v.Sandbox.Filesystem == "" {
 		v.Sandbox.Filesystem = "none"
@@ -96,14 +93,7 @@ func buildExposure(in exposureInput) exposureView {
 func exposureAttentionItems(v exposureView) []exposureAttention {
 	var out []exposureAttention
 	network := v.Listening.Network
-	switch {
-	case network && !v.SignInRequired:
-		out = append(out, exposureAttention{
-			ID:   "sign_in_off",
-			Text: "Anyone on your network can change settings and run the assistant: sign-in is not set up.",
-			Fix:  "Run `llm-proxy auth setup-code` on the server (with sudo if it is installed as a service), then open Set up sign-in.",
-		})
-	case network && !v.Encrypted:
+	if network && !v.Encrypted {
 		out = append(out, exposureAttention{
 			ID:   "unencrypted",
 			Text: "This connection is not encrypted: your passphrase and session can be read by others on the network.",
@@ -136,10 +126,7 @@ func exposureAttentionItems(v exposureView) []exposureAttention {
 
 // ExposureSource is what the card reads from the running server.
 type ExposureSource struct {
-	Auth interface {
-		State() (auth.State, error)
-		InferenceRequired() bool
-	}
+	Auth           interface{ InferenceRequired() bool }
 	Bind           func() string
 	Registry       func() models.RegistryData
 	Host           func() models.HostSettings
@@ -153,15 +140,9 @@ func NewExposureHandlers(src ExposureSource) *ExposureHandlers { return &Exposur
 
 // Get answers with the exposure card. It is behind sign-in like the rest of the admin API: it describes the setup.
 func (h *ExposureHandlers) Get(w http.ResponseWriter, r *http.Request) {
-	state, err := h.src.Auth.State()
-	if err != nil {
-		writeJSONError(w, http.StatusServiceUnavailable, "sign-in could not be checked")
-		return
-	}
 	host := h.src.Host()
 	in := exposureInput{
 		Bind:                 h.src.Bind(),
-		SignInRequired:       state.Required,
 		Encrypted:            api.IsHTTPS(r, h.src.TrustedProxies),
 		InferenceKeyRequired: h.src.Auth.InferenceRequired(),
 		Connectors:           h.src.Registry().Communication.Connectors,

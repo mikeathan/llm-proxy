@@ -168,7 +168,7 @@ journalctl -u llm-proxy.service -f
   reach the UI from another computer, use an SSH tunnel (`ssh -L 4001:127.0.0.1:4001 user@host`), a TLS front end (see
   *Encrypted access* below), or set `server.bind` (for example `0.0.0.0:4001`) in `settings.yml` and restart.
 - After the first start, set the passphrase: `sudo llm-proxy auth setup-code`, then enter the code with a passphrase on
-  `/admin/setup`. Until you do, anyone who can reach the UI can change settings and run the agent. *Settings → Safety →
+  `/admin/setup`. Until you do, the admin interface is locked: every page is the setup page, and the admin API refuses every request. *Settings → Safety →
   Sign-in & access → Exposure* shows where the server listens and what protects it.
 - The service listens on an unprivileged port (:4001 default), so it needs no
   capabilities (`CapabilityBoundingSet=` is empty by design).

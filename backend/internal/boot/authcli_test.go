@@ -51,13 +51,13 @@ func TestAuthCLI_SetupCodeThenStatusThenReset(t *testing.T) {
 	if code, _, _ := runAuth(t, root, "no\n", "reset"); code == 0 {
 		t.Error("reset without the typed confirmation must stop")
 	}
-	if st, _ := svc.State(); !st.Required {
+	if st, _ := svc.State(); !st.SetUp {
 		t.Error("an unconfirmed reset changed something")
 	}
 	if code, _, errOut := runAuth(t, root, "reset\n", "reset"); code != 0 {
 		t.Fatalf("confirmed reset = %d %q", code, errOut)
 	}
-	if st, _ := svc.State(); st.Required {
+	if st, _ := svc.State(); st.SetUp {
 		t.Error("the running server still requires sign-in after a reset")
 	}
 }

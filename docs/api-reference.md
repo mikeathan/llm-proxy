@@ -4,19 +4,21 @@
 
 All API endpoints are served from the server root (default `http://127.0.0.1:4001` for a new install, `http://0.0.0.0:4001` for one that predates 0.20.0).
 
-### Sign-in (since 0.18.0)
+### Sign-in (since 0.18.0; compulsory since 0.22.0)
 
-Until the operator sets a passphrase the admin API stays open (the upgrade state; the UI shows a banner). Once one exists,
+Sign-in is compulsory. Until the operator sets a passphrase, every `/admin/api/` route except the four marked *open*
+answers `401 {"error":"setup_required"}` (the UI then shows only the setup page); **an install that had none before
+0.22.0 is locked until `llm-proxy auth setup-code` and the setup page have been used**. Once one exists,
 every `/admin/api/` route except the four marked *open* needs either the session cookie `llmproxy_session`
 (`HttpOnly; SameSite=Strict; Path=/admin`, `Secure` over HTTPS) or `Authorization: Bearer lp_…` with an **admin** script
 token; otherwise `401`. `/v1/*` is open until the first **inference** token is made, then needs `Authorization: Bearer lp_…`
 (an admin token also works). The UI shell and the webhooks are not affected. Set up on the server, as the server's OS user:
 `llm-proxy auth setup-code` (a one-time code, 15 minutes; the command acts on the data folder the server would use with the same flags and environment (`--data DIR`, `LLM_PROXY_HOME`, `.env`, else `~/.config/llm-proxy`), so `go run . auth setup-code` and the installed service resolve alike; run as root it first becomes the account that owns that folder, so the file is readable by the server, and with a systemd unit installed and no folder named root uses the service's folder, so on a service install `sudo llm-proxy auth setup-code` works from anywhere; every command prints the sign-in file it used and says whether a live server reads that folder, using `server.json` which a running server keeps in its data folder, then enter it with a passphrase on `/admin/setup`;
-`llm-proxy auth status` and `llm-proxy auth reset` (removes the passphrase, sessions and tokens; no web route does this).
+`llm-proxy auth status` and `llm-proxy auth reset` (removes the passphrase, sessions and tokens and locks the admin API again; no web route does this). Scripts and evals against a fresh server need a token: set up, make an admin token under *Script access*, and export it as `LLM_PROXY_TOKEN`.
 
 | Method | Path | |
 |---|---|---|
-| GET | `/admin/api/auth/status` | *open.* `{required, setup_open, authenticated, elevated, encrypted}` and nothing else |
+| GET | `/admin/api/auth/status` | *open.* `{set_up, setup_open, authenticated, elevated, encrypted}` (`set_up`: a passphrase exists) and nothing else |
 | POST | `/admin/api/auth/setup` | *open.* `{code, passphrase}`: sets the first passphrase and signs in. `403` wrong code (five wrong codes cancel it), `409` no code or already set up, `400` weak passphrase (12+ characters, not a common one) |
 | POST | `/admin/api/auth/login` | *open.* `{passphrase}` sets the cookie. `401` wrong; `429` with `Retry-After` after five wrong tries from one address (or 30 an hour overall) |
 | POST | `/admin/api/auth/logout` | *open.* Clears the cookie and ends the session (`204`) |

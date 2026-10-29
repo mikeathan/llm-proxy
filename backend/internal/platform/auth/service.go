@@ -95,8 +95,8 @@ const (
 
 // State is what the UI needs before anyone has signed in.
 type State struct {
-	// Required: a passphrase exists, so every admin request needs a credential.
-	Required bool
+	// SetUp: a passphrase exists. Until it does the admin API refuses every request but the sign-in routes.
+	SetUp bool
 	// SetupOpen: a setup code has been made and has not expired, so the first passphrase can be set from the UI.
 	SetupOpen bool
 }
@@ -133,8 +133,8 @@ func (s *Service) Config() Config {
 func (s *Service) State() (State, error) {
 	var st State
 	err := s.store.View(func(r Record) {
-		st.Required = r.Passphrase != ""
-		st.SetupOpen = !st.Required && r.SetupCode != nil && s.now().Before(r.SetupCode.ExpiresAt)
+		st.SetUp = r.Passphrase != ""
+		st.SetupOpen = !st.SetUp && r.SetupCode != nil && s.now().Before(r.SetupCode.ExpiresAt)
 	})
 	return st, err
 }

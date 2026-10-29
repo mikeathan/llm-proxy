@@ -11,7 +11,7 @@ import { useReauth } from '../../../composables/auth/useReauth'
 import { startAuth } from '../../../composables/auth/startAuth'
 import { apiFetch, setReauthHandler, setUnauthorizedHandler } from '../../../services/httpClient'
 
-const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ required: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
+const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ set_up: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
 
 beforeEach(() => {
   for (const fn of Object.values(service)) fn.mockReset()
@@ -22,12 +22,12 @@ beforeEach(() => {
 
 describe('useAuth', () => {
   it('reads the state once and remembers it', async () => {
-    service.status.mockResolvedValue(status({ required: false }))
+    service.status.mockResolvedValue(status({ set_up: false }))
     const auth = useAuth()
     await auth.ensureStatus()
     await auth.ensureStatus()
     expect(service.status).toHaveBeenCalledTimes(1)
-    expect(auth.status.value?.required).toBe(false)
+    expect(auth.status.value?.set_up).toBe(false)
   })
 
   it('leaves the state unknown when it cannot be read, so the pages load and the API says no itself', async () => {
@@ -48,13 +48,6 @@ describe('useAuth', () => {
     await expect(useAuth().login('x')).rejects.toThrow('not right')
   })
 
-  it('marks the session ended without asking the server', () => {
-    const auth = useAuth()
-    auth.status.value = status({ required: false, authenticated: true, elevated: true })
-    auth.markSignedOut()
-    expect(auth.status.value).toMatchObject({ required: true, authenticated: false, elevated: false })
-  })
-
   it('checkSession sends the user to sign in only when the server says the session ended', async () => {
     const handler = vi.fn()
     setUnauthorizedHandler(handler)
@@ -64,9 +57,9 @@ describe('useAuth', () => {
     service.status.mockResolvedValue(status({ authenticated: false }))
     await useAuth().checkSession()
     expect(handler).toHaveBeenCalledTimes(1)
-    service.status.mockResolvedValue(status({ required: false }))
+    service.status.mockResolvedValue(status({ set_up: false }))
     await useAuth().checkSession()
-    expect(handler).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledTimes(2) // sign-in was reset under the page: there is nothing to sign in to, so set it up
   })
 })
 
@@ -126,11 +119,13 @@ describe('startAuth', () => {
     expect(router.currentRoute.value.query.next).toBe('/workspaces')
   })
 
-  it('lets everything through while sign-in is not set up', async () => {
-    service.status.mockResolvedValue(status({ required: false }))
+  it('sends every page to the setup page while sign-in is not set up, and stays there', async () => {
+    service.status.mockResolvedValue(status({ set_up: false }))
     const router = appRouter()
     await router.push('/workspaces')
-    expect(router.currentRoute.value.name).toBe('workspaces')
+    expect(router.currentRoute.value.name).toBe('setup')
+    await router.push('/login')
+    expect(router.currentRoute.value.name).toBe('setup')
   })
 
   it('lets pages load when the state cannot be read', async () => {
@@ -140,25 +135,33 @@ describe('startAuth', () => {
     expect(router.currentRoute.value.name).toBe('workspaces')
   })
 
-  it('shows the setup page when a setup code was made after the app loaded', async () => {
-    // The state is read once at start; the code is made on the server later, while the page is open. Following the link to
-    // the setup page must ask the server again, not trust what it said before the code existed.
-    service.status.mockResolvedValueOnce(status({ required: false, setup_open: false }))
+  it('shows the setup page with or without a setup code', async () => {
+    service.status.mockResolvedValueOnce(status({ set_up: false, setup_open: false }))
     const router = appRouter()
     await router.push('/workspaces')
-    expect(router.currentRoute.value.name).toBe('workspaces')
-    service.status.mockResolvedValue(status({ required: false, setup_open: true }))
-    await router.push('/setup')
     expect(router.currentRoute.value.name).toBe('setup')
   })
 
   it('shows the login page after sign-in was set up while the app was open', async () => {
-    service.status.mockResolvedValueOnce(status({ required: false }))
+    service.status.mockResolvedValueOnce(status({ set_up: false }))
     const router = appRouter()
     await router.push('/workspaces')
-    service.status.mockResolvedValue(status({ required: true }))
+    expect(router.currentRoute.value.name).toBe('setup')
+    service.status.mockResolvedValue(status({ set_up: true }))
     await router.push('/login')
     expect(router.currentRoute.value.name).toBe('login')
+  })
+
+  it('goes to the setup page when a request is answered 401 because sign-in was reset under the page', async () => {
+    service.status.mockResolvedValue(status({ authenticated: true }))
+    const router = appRouter()
+    await router.push('/workspaces')
+    service.status.mockResolvedValue(status({ set_up: false })) // `auth reset` ran on the server
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":"setup_required"}', { status: 401 })))
+    await apiFetch('/admin/api/state')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('setup')
+    vi.unstubAllGlobals()
   })
 
   it('goes to the login page when any request is answered 401', async () => {

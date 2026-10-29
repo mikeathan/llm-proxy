@@ -46,20 +46,20 @@ func setUp(t *testing.T, s *Service) string {
 
 func TestService_FirstRunStateAndSetup(t *testing.T) {
 	s, _, _ := newTestService(t)
-	if st, _ := s.State(); st.Required || st.SetupOpen {
+	if st, _ := s.State(); st.SetUp || st.SetupOpen {
 		t.Errorf("a fresh install is open with no setup code: %+v", st)
 	}
 	code, err := s.IssueSetupCode()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := s.State(); st.Required || !st.SetupOpen {
+	if st, _ := s.State(); st.SetUp || !st.SetupOpen {
 		t.Errorf("after the code is issued: %+v", st)
 	}
 	if err := s.Setup(context.Background(), code, goodPass, "10.0.0.1"); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := s.State(); !st.Required || st.SetupOpen {
+	if st, _ := s.State(); !st.SetUp || st.SetupOpen {
 		t.Errorf("after setup, sign-in is required and the code is spent: %+v", st)
 	}
 }
@@ -354,7 +354,7 @@ func TestService_ResetClearsEverything(t *testing.T) {
 	if err := s.Reset(); err != nil {
 		t.Fatal(err)
 	}
-	if st, _ := s.State(); st.Required {
+	if st, _ := s.State(); st.SetUp {
 		t.Error("sign-in is still required after a reset")
 	}
 	if _, ok := s.Session(id); ok {

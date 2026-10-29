@@ -77,7 +77,7 @@ func setUpAndSignIn(t *testing.T, h *AuthHandlers, svc *auth.Service) *http.Cook
 func TestAuthStatus_NeverSaysMoreThanItMust(t *testing.T) {
 	h, svc := newAuthHandlers(t)
 	m := decode(t, call(h.Status, "GET", "/", "", nil))
-	if m["required"] != false || m["setup_open"] != false || m["authenticated"] != false {
+	if m["set_up"] != false || m["setup_open"] != false || m["authenticated"] != false {
 		t.Errorf("fresh: %v", m)
 	}
 	if len(m) > 5 {
@@ -85,7 +85,7 @@ func TestAuthStatus_NeverSaysMoreThanItMust(t *testing.T) {
 	}
 	c := setUpAndSignIn(t, h, svc)
 	m = decode(t, call(h.Status, "GET", "/", "", nil))
-	if m["required"] != true || m["authenticated"] != false {
+	if m["set_up"] != true || m["authenticated"] != false {
 		t.Errorf("signed out: %v", m)
 	}
 	m = decode(t, call(h.Status, "GET", "/", "", withCookie(c)))

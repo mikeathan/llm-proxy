@@ -168,17 +168,17 @@ func authStatus(svc *auth.Service, file string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	if st.Required {
+	if st.SetUp {
 		fmt.Fprintf(stdout, "Sign-in is set up. %d script token(s).\nSign-in file: %s\n", len(svc.Tokens()), file)
 		return 0
 	}
-	fmt.Fprintf(stdout, "Sign-in is not set up: the admin interface is open to anyone who can reach it. Run: llm-proxy auth setup-code\nSign-in file: %s\n", file)
+	fmt.Fprintf(stdout, "Sign-in is not set up: the admin interface refuses every request until it is. Run: llm-proxy auth setup-code\nSign-in file: %s\n", file)
 	return 0
 }
 
 func resetAuth(svc *auth.Service, file string, yes bool, stdin io.Reader, stdout, stderr io.Writer) int {
 	if !yes {
-		fmt.Fprintf(stdout, "This removes the passphrase, signs everyone out and deletes every script token.\nType %q to continue: ", resetConfirmation)
+		fmt.Fprintf(stdout, "This removes the passphrase, signs everyone out and deletes every script token. The admin interface is then locked until you set a new passphrase.\nType %q to continue: ", resetConfirmation)
 		line, _ := bufio.NewReader(stdin).ReadString('\n')
 		if strings.TrimSpace(line) != resetConfirmation {
 			fmt.Fprintln(stderr, "\nNothing was changed.")
@@ -189,6 +189,6 @@ func resetAuth(svc *auth.Service, file string, yes bool, stdin io.Reader, stdout
 		fmt.Fprintln(stderr, "error:", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Sign-in was reset. Run: llm-proxy auth setup-code\nSign-in file: %s\n", file)
+	fmt.Fprintf(stdout, "Sign-in was reset and the admin interface is locked. To set a new passphrase run: llm-proxy auth setup-code\nSign-in file: %s\n", file)
 	return 0
 }
