@@ -34,7 +34,7 @@ const inventorySummary = computed(() => seenSentence(devicesIn(props.report.find
 
 <template>
   <div class="flex flex-col gap-4" data-test="findings-simple">
-    <p class="m-0 text-[15px] font-semibold text-primary" data-test="summary">{{ needsLookSentence(summary.needLook.length) }}</p>
+    <p class="m-0 text-[15px] font-semibold text-primary" data-test="summary">{{ needsLookSentence(summary.needLook.length + extraProblems.length) }}</p>
     <p v-if="problemCount" class="m-0 font-semibold text-state-running" data-test="problems">
       {{ problemCount }} {{ problemCount === 1 ? "problem" : "problems" }} found by checks
     </p>

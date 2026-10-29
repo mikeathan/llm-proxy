@@ -30,6 +30,7 @@ import CopyButton from "../../common/display/CopyButton.vue";
 import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
 import BaseButton from "../../common/buttons/BaseButton.vue";
 import EmptyState from "../../common/feedback/EmptyState.vue";
+import Callout from "../../common/feedback/Callout.vue";
 import ChatMessages from "../assistant/ChatMessages.vue";
 import FindingsReport from "../../netaudit/FindingsReport.vue";
 import AuditSetupCheck from "../../netaudit/AuditSetupCheck.vue";
@@ -88,7 +89,7 @@ const auditTab = ref<AuditTab>("results");
 const shown = (tab: AuditTab) => !isAudit.value || auditTab.value === tab;
 const auditTabs = computed(() => [
   { value: "results", label: "Results" },
-  { value: "live", label: showLiveUI.value ? "Live run · running" : "Live run" },
+  { value: "live", label: "Live run", live: showLiveUI.value },
   { value: "history", label: "History" },
   { value: "setup", label: "Setup" },
 ]);
@@ -208,7 +209,7 @@ const runKey = (run: AutomationRun) => run.id;
   <div class="flex flex-col gap-4">
     <template v-if="isAudit">
       <NetauditToolbar />
-      <SegmentedControl :model-value="auditTab" :options="auditTabs" label="Part of the audit" touch @update:model-value="auditTab = $event as AuditTab" />
+      <SegmentedControl :model-value="auditTab" :options="auditTabs" label="Part of the audit" touch :tone="showLiveUI ? 'running' : undefined" @update:model-value="auditTab = $event as AuditTab" />
     </template>
 
     <Panel v-if="shown('setup')" title="Configuration">
@@ -235,6 +236,10 @@ const runKey = (run: AutomationRun) => run.id;
     </Panel>
 
     <template v-if="isAudit && shown('results')">
+      <Callout v-if="automation.last_error && !showLiveUI" tone="error" title="The last run failed" data-test="last-run-failed">
+        The report below is from the run before it.
+        <template #actions><BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="auditTab = 'history'">See why</BaseButton></template>
+      </Callout>
       <ScanSummary v-if="automation.scan" :scan="automation.scan" data-test="scans" />
       <AuditSetupCheck :profile="automation.profile" :network-grant="automation.network_grant" :automation-id="automation.id" />
       <FindingsReport :workspace-id="automation.workspace" :automation="automation.name" :busy="showLiveUI" :refresh-key="`${showLiveUI}|${activeRun?.id ?? ''}`" @watch-live="auditTab = 'live'" />

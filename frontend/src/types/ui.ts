@@ -66,6 +66,8 @@ export interface DataTableColumn<T> {
 export interface ChoiceOption {
   value: string
   label: string
+  /** Something is happening on this option right now (a run): it gets a small pulsing dot. */
+  live?: boolean
 }
 
 // ToastType backs the transient toast notifications (useToast).

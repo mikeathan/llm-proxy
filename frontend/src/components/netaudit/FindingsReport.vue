@@ -116,7 +116,7 @@ onMounted(() => { void findings.load(); void deepCheck.load() })
     </fieldset>
 
     <DeepCheckDialog :open="deepDevice !== ''" :device="deepDevice" :ports="deepPorts" :running="deepCheck.running.value !== ''" :error="deepCheck.error.value" @run="runDeep" @cancel="deepDevice = ''" />
-    <ExpectedPortsDialog :open="editing !== ''" :device="editing" :ports="editingPorts" :saving="saving" :error="actionError" @save="saveExpected" @cancel="editing = ''" />
-    <AcceptDialog :open="accepting !== null" :what="accepting ? findingTitle(accepting) : ''" :saving="saving" :error="actionError" @accept="accept" @cancel="accepting = null" />
+    <ExpectedPortsDialog :open="editing !== ''" :device="editing" :ports="editingPorts" :saving="saving || running" :error="actionError" @save="saveExpected" @cancel="editing = ''" />
+    <AcceptDialog :open="accepting !== null" :what="accepting ? findingTitle(accepting) : ''" :saving="saving || running" :error="actionError" @accept="accept" @cancel="accepting = null" />
   </Panel>
 </template>

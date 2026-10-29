@@ -140,6 +140,7 @@ func TestVulnDataHandlers_ImportSaysWhyInPlainWords(t *testing.T) {
 		{vulnfeed.ErrBadSource, http.StatusBadRequest},
 		{vulnfeed.ErrBadYear, http.StatusBadRequest},
 		{vulnfeed.ErrBadImport, http.StatusBadRequest},
+		{vulnfeed.ErrImportTooBig, http.StatusRequestEntityTooLarge},
 		{vulnfeed.ErrNotReady, http.StatusServiceUnavailable},
 		{errors.New("the data could not be saved: disk full"), http.StatusInternalServerError},
 	} {
@@ -157,5 +158,13 @@ func TestVulnDataHandlers_ImportRefusesABadYearValueBeforeReadingTheBody(t *test
 	NewVulnDataHandlers(stub).Import(rec, httptest.NewRequest(http.MethodPost, "/x?source=nvd&year=abc", strings.NewReader("x")))
 	if rec.Code != http.StatusBadRequest || len(stub.imported) != 0 {
 		t.Errorf("code %d imported %v", rec.Code, stub.imported)
+	}
+}
+
+func TestVulnDataHandlers_ClearWhileAJobRunsIsAConflictNotAFault(t *testing.T) {
+	rec := httptest.NewRecorder()
+	NewVulnDataHandlers(&stubVulnData{clearErr: vulnfeed.ErrBusy}).Clear(rec, httptest.NewRequest(http.MethodDelete, "/admin/api/netaudit/vulndata", nil))
+	if rec.Code != http.StatusConflict {
+		t.Errorf("code %d body %s", rec.Code, rec.Body.String())
 	}
 }

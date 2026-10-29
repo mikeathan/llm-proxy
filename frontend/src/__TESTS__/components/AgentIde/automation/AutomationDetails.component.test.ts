@@ -347,6 +347,29 @@ describe('AutomationDetails of a network audit', () => {
     expect(tab(w, 'Live run').attributes('aria-checked')).toBe('true')
   })
 
+  it('shows the live run tab with a dot and tints the chosen tab while a run is on, and neither when idle', async () => {
+    const busy = await mountDetails({ automation: AUDIT, isExecuting: true })
+    expect(tab(busy, 'Live run').find('[data-test="live-dot"]').exists()).toBe(true)
+    expect(tab(busy, 'Results').classes().join(' ')).toContain('state-running')
+    const idle = await mountDetails({ automation: AUDIT })
+    expect(idle.find('[data-test="live-dot"]').exists()).toBe(false)
+    expect(tab(idle, 'Results').classes().join(' ')).not.toContain('state-running')
+  })
+
+  it('says on the results tab that the last run failed, and leads to why', async () => {
+    const w = await mountDetails({ automation: { ...AUDIT, last_error: 'nmap is not installed' } })
+    const note = w.get('[data-test="last-run-failed"]')
+    expect(note.text()).toContain('The last run failed')
+    await note.get('button').trigger('click')
+    expect(tab(w, 'History').attributes('aria-checked')).toBe('true')
+    expect(w.text()).toContain('nmap is not installed')
+  })
+
+  it('says nothing about a failure when the last run worked', async () => {
+    const w = await mountDetails({ automation: AUDIT })
+    expect(w.find('[data-test="last-run-failed"]').exists()).toBe(false)
+  })
+
   it('turns off clearing runs and the journal while it runs', async () => {
     const w = await mountDetails({ automation: { ...AUDIT, journal: true }, isExecuting: true })
     await tab(w, 'History').trigger('click')

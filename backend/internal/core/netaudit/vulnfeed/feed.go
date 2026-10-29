@@ -37,11 +37,9 @@ const yearsWanted = 5
 // MaxFileBytes caps one downloaded or imported file (as sent, compressed). The largest yearly file seen is about 42 MB.
 const MaxFileBytes = 256 << 20
 
-const defaultMaxFileBytes = MaxFileBytes
-
 var (
-	// ErrBusy means a download is already running.
-	ErrBusy = errors.New("a download is already running")
+	// ErrBusy means a download or an import is already running.
+	ErrBusy = errors.New("a download or an import is already running")
 	// ErrNotReady means the application has not finished starting, so no download can begin yet.
 	ErrNotReady = errors.New("the application is still starting; try again in a moment")
 	// ErrUpToDate means everything is held and recent, so there is nothing to fetch; Start with restart fetches it anyway.
@@ -50,6 +48,9 @@ var (
 	ErrBadSource = errors.New("the source must be nvd or kev")
 	// ErrBadYear means an NVD import named a year the data does not cover.
 	ErrBadYear = errors.New("that year is not one of the years the vulnerability data covers")
+	// ErrImportTooBig means the supplied file is larger than the cap. NVD's yearly file is much smaller as the .gz it is
+	// published as, so that is the one to hand over.
+	ErrImportTooBig = errors.New("that file is larger than 256 MB; use the compressed .gz file as NVD publishes it")
 	// ErrBadImport means the supplied file could not be used: it is not the expected kind of data, or it is too large.
 	// Nothing of the file's own text is in the message.
 	ErrBadImport = errors.New("that file could not be read as vulnerability data, so it was not used")
@@ -155,7 +156,6 @@ type Manager struct {
 	index            models.VulnIndex
 	loadNote         string
 	running          bool
-	importing        bool
 	cancel           context.CancelFunc
 	current          string
 	reason           string
@@ -165,7 +165,7 @@ type Manager struct {
 
 // New returns a manager that cannot start a download until Attach gives it the application's lifecycle.
 func New(store Store, open Opener, src Sources) *Manager {
-	return &Manager{store: store, open: open, src: src, now: time.Now, maxFileBytes: defaultMaxFileBytes}
+	return &Manager{store: store, open: open, src: src, now: time.Now, maxFileBytes: MaxFileBytes}
 }
 
 // Attach ties every download the manager starts to parent: it ends when parent does. It is called once, when the
@@ -312,12 +312,12 @@ func (m *Manager) Start(restart bool) error {
 	return nil
 }
 
-// Cancel stops a running download; the files already finished stay. An import in progress is not cancelled: it is one
-// file the operator already supplied and ends in moments.
+// Cancel stops a running download; the files already finished stay. An import in progress is not cancelled (it holds a
+// no-op cancel): it is one file the operator already supplied, and ends when the file has arrived and been read.
 func (m *Manager) Cancel() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.running && !m.importing {
+	if m.running {
 		m.cancel()
 	}
 }
@@ -351,15 +351,19 @@ func (m *Manager) Import(source string, year int, r io.Reader) error {
 	body := &countingReader{r: r, n: &m.bytes, limit: m.maxFileBytes}
 	next, err := m.importFile(base, f, body)
 	if err != nil {
-		// Whatever went wrong while reading it (not data, too large, cut short), the file was not used and nothing of its
-		// own text is repeated.
+		// Whatever went wrong while reading it, the file was not used and nothing of its own text is repeated. Too large
+		// is said as such: it is the one thing the operator can fix by choosing the .gz.
+		var tooBig *http.MaxBytesError
+		if errors.As(body.err, &tooBig) || errors.Is(body.err, errTooBig) {
+			return ErrImportTooBig
+		}
 		return ErrBadImport
 	}
 	if err := m.store.Write(next); err != nil {
 		return fmt.Errorf("the data could not be saved: %w", err)
 	}
 	m.mu.Lock()
-	m.index = next
+	m.index, m.reason = next, ""
 	m.mu.Unlock()
 	return nil
 }
@@ -389,14 +393,14 @@ func (m *Manager) beginImport(label string) error {
 		return ErrNotReady
 	}
 	m.loadLocked()
-	m.running, m.importing, m.cancel, m.reason, m.current = true, true, func() {}, "", label
+	m.running, m.cancel, m.current = true, func() {}, label
 	m.jobSize, m.jobDone = 1, 0
 	return nil
 }
 
 func (m *Manager) endImport() {
 	m.mu.Lock()
-	m.running, m.importing, m.current = false, false, ""
+	m.running, m.current = false, ""
 	m.mu.Unlock()
 }
 

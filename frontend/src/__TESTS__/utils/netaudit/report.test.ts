@@ -99,4 +99,13 @@ describe('deepProblemsOf', () => {
   it('stops listing it after 90 days', () => {
     expect(deepProblemsOf(report([open22]), [check({ at: '2026-07-01T00:00:00Z' })], NOW)).toEqual([])
   })
+
+  it('does not list one on a device the last scan ran out of time on, since the audit would not carry it', () => {
+    expect(deepProblemsOf({ ...report([open22]), unscanned: ['a'] }, [check()], NOW)).toEqual([])
+  })
+
+  it('matches the protocol too: an open udp port does not stand in for the tcp one', () => {
+    expect(deepProblemsOf(report([f('u', { port: 22, proto: 'udp' })]), [check()], NOW)).toEqual([])
+  })
 })
+

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"llm-proxy/models"
@@ -675,7 +676,7 @@ func TestImport_AFileOverTheSizeCapIsRefused(t *testing.T) {
 	store := &memStore{}
 	m := newManager(t, newFeedServer(t), store)
 	m.maxFileBytes = 10
-	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); !errors.Is(err, ErrBadImport) || store.writes != 0 {
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); !errors.Is(err, ErrImportTooBig) || store.writes != 0 {
 		t.Errorf("err %v writes %d", err, store.writes)
 	}
 }
@@ -748,5 +749,28 @@ func TestImport_AFileCutShortIsAnUnusableFileNotAServerFault(t *testing.T) {
 	whole := nvdBody(2026)
 	if err := m.Import(SourceNVD, 2026, bytes.NewReader(whole[:len(whole)/2])); !errors.Is(err, ErrBadImport) || store.writes != 0 {
 		t.Errorf("err %v writes %d", err, store.writes)
+	}
+}
+
+func TestImport_ASizeProblemIsNotCalledABadFile(t *testing.T) {
+	m := newManager(t, newFeedServer(t), &memStore{})
+	err := m.Import(SourceNVD, 2026, iotest.ErrReader(&http.MaxBytesError{Limit: 5}))
+	if !errors.Is(err, ErrImportTooBig) || errors.Is(err, ErrBadImport) {
+		t.Errorf("err %v", err)
+	}
+}
+
+func TestImport_AFailedImportKeepsWhyTheDownloadStopped(t *testing.T) {
+	fs, store := newFeedServer(t), &memStore{}
+	fs.hook = func(path string, w http.ResponseWriter) bool { w.WriteHeader(http.StatusForbidden); return true }
+	m := newManager(t, fs, store)
+	m.Start(false)
+	before := waitFor(t, m, StateStopped)
+	if err := m.Import(SourceKEV, 0, strings.NewReader("<html>")); !errors.Is(err, ErrBadImport) {
+		t.Fatalf("err %v", err)
+	}
+	after := m.Status()
+	if after.State != StateStopped || after.Reason != before.Reason {
+		t.Errorf("a refused file changed the status from %+v to %+v", before, after)
 	}
 }
