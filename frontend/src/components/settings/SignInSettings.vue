@@ -10,6 +10,7 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import PassphraseInput from "../auth/PassphraseInput.vue"
 import ExposurePanel from "./ExposurePanel.vue"
 import { sessionLengthProblem } from "../../utils/auth/sessionLength"
+import { copyText } from "../../utils/clipboard"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useSignInSettings } from "../../composables/auth/useSignInSettings"
 import { formatAbsoluteTime } from "../../utils/format/time"
@@ -58,14 +59,23 @@ async function makeToken() {
   if (await s.createToken(tokenName.value.trim(), tokenScope.value)) tokenName.value = ""
 }
 const copied = ref(false)
+const copyFailed = ref(false)
+const tokenEl = ref<HTMLElement | null>(null)
 async function copyToken() {
   if (!s.created.value) return
-  try {
-    await navigator.clipboard.writeText(s.created.value.token)
-    copied.value = true
-  } catch {
-    copied.value = false
-  }
+  copied.value = await copyText(s.created.value.token)
+  copyFailed.value = !copied.value
+  if (copyFailed.value) selectToken()
+}
+// When no copy works the token is selected, so the person only has to press the copy shortcut.
+function selectToken() {
+  const el = tokenEl.value
+  const selection = window.getSelection()
+  if (!el || !selection) return
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  selection.removeAllRanges()
+  selection.addRange(range)
 }
 
 async function endEverywhere() {
@@ -144,9 +154,10 @@ onMounted(() => { void s.load() })
 
           <div v-if="s.created.value" role="status" class="flex flex-col gap-2 border border-accent-info p-3" data-test="new-token">
             <p class="m-0 font-semibold text-primary">Copy “{{ s.created.value.name }}” now. It is shown only once.</p>
-            <code class="break-all font-mono text-[length:var(--text-small)] text-primary" data-test="token-value">{{ s.created.value.token }}</code>
+            <code ref="tokenEl" class="select-all break-all font-mono text-[length:var(--text-small)] text-primary" data-test="token-value">{{ s.created.value.token }}</code>
             <div class="flex flex-wrap items-center gap-2">
               <BaseButton variant="secondary" class-name="max-sm:!h-11" @click="copyToken">{{ copied ? "Copied" : "Copy" }}</BaseButton>
+              <span v-if="copyFailed" role="alert" class="text-[length:var(--text-small)] text-state-error" data-test="copy-failed">This page cannot copy for you. The token is selected: press Ctrl+C (Cmd+C on a Mac).</span>
               <BaseButton variant="ghost" class-name="max-sm:!h-11" @click="s.dismissCreated">I have copied it</BaseButton>
             </div>
           </div>

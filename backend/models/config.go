@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -590,6 +591,56 @@ type ConnectorConfig struct {
 	Settings   map[string]string `json:"settings"`
 	SecretRef  string            `json:"secret_ref,omitempty"`
 	WebhookURL string            `json:"webhook_url,omitempty"`
+}
+
+// secretNameParts are the words that make an environment variable's name look like it holds a credential.
+var secretNameParts = []string{"TOKEN", "SECRET", "KEY", "PASSWORD", "PASSWD", "CREDENTIAL"}
+
+func looksSecretName(name string) bool {
+	upper := strings.ToUpper(name)
+	for _, part := range secretNameParts {
+		if strings.Contains(upper, part) {
+			return true
+		}
+	}
+	return false
+}
+
+// MaskedEnvironment is a copy of the model server's environment with the value of each secret-looking variable replaced by
+// MaskedSecret, for a response. The receiver is not changed; nil stays nil.
+func MaskedEnvironment(env map[string]string) map[string]string {
+	if env == nil {
+		return nil
+	}
+	out := make(map[string]string, len(env))
+	for name, value := range env {
+		if looksSecretName(name) && value != "" {
+			value = MaskedSecret
+		}
+		out[name] = value
+	}
+	return out
+}
+
+// KeepStoredEnvironmentSecrets resolves an environment that came from a request: a variable whose value is MaskedSecret is
+// the one stored under the same name (and is dropped when nothing is stored, so the mask is never saved as a value). Any
+// other value is taken as sent. nil (the request did not mention the environment) stays nil. The inputs are not changed.
+func KeepStoredEnvironmentSecrets(next, stored map[string]string) map[string]string {
+	if next == nil {
+		return nil
+	}
+	out := make(map[string]string, len(next))
+	for name, value := range next {
+		if value == MaskedSecret {
+			kept, ok := stored[name]
+			if !ok || kept == "" {
+				continue
+			}
+			value = kept
+		}
+		out[name] = value
+	}
+	return out
 }
 
 // MaskedWebhookSecrets is a copy with each connector's webhook secret replaced by MaskedSecret, for a response. A connector

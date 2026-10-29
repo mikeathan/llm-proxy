@@ -465,6 +465,8 @@ loudly instead of receiving HTML.
   horizontally scrollable box (`.md-table-scroll`, keyboard-focusable) so a wide table never widens
   the page; columns keep a readable width and long URLs wrap.
 - Secrets (provider keys, bot tokens, connector webhook secrets) are write-only in the UI: shown masked, replaced,
-  never read back in clear; a masked value sent back means "keep what is stored".
+  never read back in clear; a masked value sent back means "keep what is stored". The Copy button works on a plain-HTTP
+  page (no clipboard API) through a selected hidden box, and says so when nothing can copy; a new token is then selected
+  for the person to copy by hand.
 - Guardrail approvals from the UI go through the same `GuardrailEngine`
   decision as agent calls (SPEC-006); one approval posts once.

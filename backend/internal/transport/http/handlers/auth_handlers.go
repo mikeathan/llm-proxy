@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -91,7 +90,7 @@ func (h *AuthHandlers) Setup(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONBody(w, r, &req) {
 		return
 	}
-	if err := h.svc.Setup(r.Context(), req.Code, req.Passphrase, clientAddr(r)); err != nil {
+	if err := h.svc.Setup(r.Context(), req.Code, req.Passphrase, h.clientAddr(r)); err != nil {
 		h.fail(w, err)
 		return
 	}
@@ -112,7 +111,7 @@ func (h *AuthHandlers) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandlers) startSession(w http.ResponseWriter, r *http.Request, passphrase string) {
-	id, err := h.svc.Login(r.Context(), passphrase, clientAddr(r), browserName(r.UserAgent()))
+	id, err := h.svc.Login(r.Context(), passphrase, h.clientAddr(r), browserName(r.UserAgent()))
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -141,7 +140,7 @@ func (h *AuthHandlers) Reauth(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "sign in required")
 		return
 	}
-	fresh, err := h.svc.Reauth(r.Context(), c.Value, req.Passphrase, clientAddr(r))
+	fresh, err := h.svc.Reauth(r.Context(), c.Value, req.Passphrase, h.clientAddr(r))
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -195,7 +194,7 @@ func (h *AuthHandlers) ChangePassphrase(w http.ResponseWriter, r *http.Request) 
 	if c, err := r.Cookie(api.SessionCookie); err == nil {
 		current = c.Value
 	}
-	if err := h.svc.ChangePassphrase(r.Context(), current, req.Old, req.New, clientAddr(r)); err != nil {
+	if err := h.svc.ChangePassphrase(r.Context(), current, req.Old, req.New, h.clientAddr(r)); err != nil {
 		h.fail(w, err)
 		return
 	}
@@ -289,14 +288,9 @@ func (h *AuthHandlers) clearSessionCookie(w http.ResponseWriter, r *http.Request
 	http.SetCookie(w, &http.Cookie{Name: api.SessionCookie, Value: "", Path: "/admin", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: h.isHTTPS(r), MaxAge: -1})
 }
 
-// clientAddr is the address the connection came from, without the port.
-func clientAddr(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+// clientAddr is the address of the person making the request, without the port: behind a trusted proxy, the one it
+// forwards (api.ClientAddr), so the lockout and the sign-in log tell people apart instead of seeing only the proxy.
+func (h *AuthHandlers) clientAddr(r *http.Request) string { return api.ClientAddr(r, h.trustedProxies) }
 
 // browserName turns a User-Agent into a short label for the sessions list, such as "Firefox on Mac". It is only a label.
 func browserName(ua string) string {

@@ -39,13 +39,7 @@ func fromTrustedProxy(r *http.Request, trusted []string) bool {
 	if err != nil {
 		return false
 	}
-	peer = peer.Unmap()
-	for _, entry := range trusted {
-		if prefix, ok := parseProxyEntry(entry); ok && prefix.Contains(peer) {
-			return true
-		}
-	}
-	return false
+	return isTrustedAddr(peer.Unmap(), trusted)
 }
 
 // parseProxyEntry reads "10.0.0.5", "::1" or "10.0.0.0/8" as a range.
@@ -79,4 +73,46 @@ func InvalidProxyEntries(entries []string) []string {
 		}
 	}
 	return bad
+}
+
+// ClientAddr is the address of the browser or script, without a port. It is the connection's peer, unless that peer is a
+// trusted proxy: then the address in X-Forwarded-For, which the sign-in lockout and log use to tell one person from
+// another instead of seeing only the proxy. Each proxy appends the address it saw, so the list is read from the right and
+// the first entry that is not itself a trusted proxy is the client; what a client wrote on its own lies to the left of it.
+// An entry that is not an address ends the walk at the last proxy (nothing past it is believed).
+func ClientAddr(r *http.Request, trusted func() []string) string {
+	peer := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		peer = host
+	}
+	if trusted == nil || !fromTrustedProxy(r, trusted()) {
+		return peer
+	}
+	list := trusted()
+	var entries []string
+	for _, line := range r.Header.Values("X-Forwarded-For") {
+		for _, e := range strings.Split(line, ",") {
+			entries = append(entries, strings.TrimSpace(e))
+		}
+	}
+	for i := len(entries) - 1; i >= 0; i-- {
+		addr, err := netip.ParseAddr(entries[i])
+		if err != nil {
+			return peer
+		}
+		if !isTrustedAddr(addr.Unmap(), list) {
+			return addr.Unmap().String()
+		}
+	}
+	return peer
+}
+
+// isTrustedAddr reports whether addr is one of the listed proxies.
+func isTrustedAddr(addr netip.Addr, trusted []string) bool {
+	for _, entry := range trusted {
+		if prefix, ok := parseProxyEntry(entry); ok && prefix.Contains(addr) {
+			return true
+		}
+	}
+	return false
 }

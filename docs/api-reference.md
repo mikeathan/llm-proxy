@@ -50,7 +50,11 @@ webhook path are not affected.
   proxy or a custom DNS name.
 - **Encrypted (since 0.20.0):** the session cookie is `Secure`, and `/auth/status` reports `"encrypted":true`, when the
   request arrived over TLS or came from an address in `server.trusted_proxies` (`settings.yml`; addresses or ranges,
-  empty by default) with `X-Forwarded-Proto: https`. The header is ignored from any other address. See
+  empty by default) with `X-Forwarded-Proto: https`. The header is ignored from any other address. From a listed proxy
+  `X-Forwarded-For` also names the client for the sign-in lockout and log (read from the right, skipping listed proxies).
+- **`GET /admin/api/system`** returns the model server's `environment` with the value of each secret-looking variable
+  (name contains TOKEN, SECRET, KEY, PASSWORD, PASSWD or CREDENTIAL) as `********`; a save that sends the mask keeps the
+  stored value. See
   [service_setup.md](service_setup.md#encrypted-access-a-tls-front-end).
 - **Cross-site:** a request to `/admin/api/` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site` gets `403`,
   whatever its method; writes with a foreign `Origin` and no Fetch-Metadata also get `403`. Scripts and `curl` send neither
