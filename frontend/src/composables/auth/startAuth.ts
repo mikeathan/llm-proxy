@@ -20,7 +20,9 @@ export function startAuth(router: Router): void {
   })
   setReauthHandler(useReauth().requestReauth)
   router.beforeEach(async (to) => {
-    const status = await auth.ensureStatus()
+    // The sign-in pages ask the server again: what it said at start (no setup code yet, no passphrase yet) goes stale
+    // while the page is open, and a setup page that redirects home would leave no place to enter the code.
+    const status = to.meta.public ? await auth.refresh() : await auth.ensureStatus()
     return status ? decideRoute(status, to) : true
   })
 }
