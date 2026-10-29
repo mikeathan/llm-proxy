@@ -29,6 +29,11 @@ var deepTable = map[string]func(output string, now time.Time) []checkHit{
 	"ssh-auth-methods": evalSSHAuthMethods,
 }
 
+// IsDeepCheck reports whether a check name is one only a deep check produces.
+func IsDeepCheck(check string) bool {
+	return slices.Contains([]string{CheckTLSWeakProtocol, CheckTLSWeakCipher, CheckSSHPasswordLogin}, check)
+}
+
 // DeepScriptNames lists the scripts a deep scan runs, sorted.
 func DeepScriptNames() []string {
 	names := make([]string, 0, len(deepTable))

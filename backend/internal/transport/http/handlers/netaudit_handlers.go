@@ -146,7 +146,7 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 	if !b.ScannedAt.IsZero() {
 		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp, resp.FirstScan = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp, b.FirstScan
 		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
-		views := newFindingViewer(b, h.activeAcks(workspaceID), h.fixRecords(workspaceID))
+		views := newFindingViewer(b, h.activeAcks(workspaceID), h.fixRecords(workspaceID)).withDeepChecks(h.deepTimes(workspaceID))
 		for _, f := range b.Findings {
 			resp.Findings = append(resp.Findings, views.finding(f))
 		}
@@ -164,6 +164,41 @@ type findingViewer struct {
 	isNew map[string]bool
 	acks  map[string]models.ScanAck
 	fixes map[string]models.FixRecord
+	// deepAt is when each device was last checked deeply. A deep finding is carried into every audit without being checked
+	// again, so a fix mark on it is judged against that time and not against the nightly scan's.
+	deepAt map[string]time.Time
+}
+
+// withDeepChecks gives the viewer the time of each device's last deep check.
+func (v findingViewer) withDeepChecks(at map[string]time.Time) findingViewer {
+	v.deepAt = at
+	return v
+}
+
+// checkedAt is the time of the scan that last looked for this finding: the audit's, or for a deep check's finding the deep
+// check's own.
+func (v findingViewer) checkedAt(f models.ScanFinding) time.Time {
+	if at, ok := v.deepAt[f.Device]; ok && netaudit.IsDeepCheck(f.Check) {
+		return at
+	}
+	return v.b.ScannedAt
+}
+
+// deepTimes is the time of the last deep check of each device in a workspace; none when the service is absent or the
+// results cannot be read.
+func (h *NetauditHandlers) deepTimes(workspaceID string) map[string]time.Time {
+	if h.deep == nil {
+		return nil
+	}
+	items, err := h.deep.List(workspaceID)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]time.Time, len(items))
+	for _, c := range items {
+		out[c.Device] = c.At
+	}
+	return out
 }
 
 func newFindingViewer(b models.ScanBaseline, acks map[string]models.ScanAck, fixes map[string]models.FixRecord) findingViewer {
@@ -181,7 +216,7 @@ func (v findingViewer) finding(f models.ScanFinding) findingView {
 	if g, ok := netaudit.GuideFor(f.Check); ok {
 		view.Guide = &g
 		if rec, marked := v.fixes[key]; marked {
-			view.FixState, view.FixNote = string(netaudit.FixStateFor(rec, v.b.ScannedAt)), rec.Note
+			view.FixState, view.FixNote = string(netaudit.FixStateFor(rec, v.checkedAt(f))), rec.Note
 			view.FixMarkedAt = rec.AppliedAt.UTC().Format(time.RFC3339)
 		}
 	}

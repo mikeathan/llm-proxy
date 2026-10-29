@@ -126,3 +126,26 @@ func TestDeepHandler_ListsTheStoredChecks(t *testing.T) {
 		t.Errorf("a missing workspace = %d", rec.Code)
 	}
 }
+
+// A deep finding is carried into every audit without being checked again, so "you marked it fixed and a scan still shows
+// it" is judged against the deep check's own time: an audit that merely carried it does not count as a re-check.
+func TestDeepHandler_FixStateOfADeepFindingFollowsTheDeepCheckNotTheNightlyScan(t *testing.T) {
+	marked := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	nightly := marked.Add(10 * time.Hour)
+	finding := models.ScanFinding{Device: "10.0.0.5", Port: 22, Proto: "tcp", Check: netaudit.CheckSSHPasswordLogin, Severity: "medium", Evidence: "e"}
+	nightlyOnly := models.ScanFinding{Device: "10.0.0.5", Port: 445, Proto: "tcp", Check: netaudit.CheckSMBv1, Severity: "high", Evidence: "e"}
+	fixes := map[string]models.FixRecord{finding.Key(): {Key: finding.Key(), AppliedAt: marked}, nightlyOnly.Key(): {Key: nightlyOnly.Key(), AppliedAt: marked}}
+	base := models.ScanBaseline{ScannedAt: nightly, Findings: []models.ScanFinding{finding, nightlyOnly}}
+
+	checkedBefore := newFindingViewer(base, nil, fixes).withDeepChecks(map[string]time.Time{"10.0.0.5": marked.Add(-time.Hour)})
+	if got := checkedBefore.finding(finding).FixState; got != string(netaudit.FixMarked) {
+		t.Errorf("the deep check is older than the mark, so nothing has re-checked it: %q", got)
+	}
+	if got := checkedBefore.finding(nightlyOnly).FixState; got != string(netaudit.FixStillPresent) {
+		t.Errorf("an ordinary finding is judged by the nightly scan: %q", got)
+	}
+	checkedAfter := newFindingViewer(base, nil, fixes).withDeepChecks(map[string]time.Time{"10.0.0.5": marked.Add(time.Hour)})
+	if got := checkedAfter.finding(finding).FixState; got != string(netaudit.FixStillPresent) {
+		t.Errorf("a deep check after the mark that still shows it: %q", got)
+	}
+}
