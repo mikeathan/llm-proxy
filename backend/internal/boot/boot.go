@@ -160,7 +160,13 @@ func LogStartupRecording() {
 
 // Serve launches the HTTP server in a goroutine and blocks until ctx is
 // cancelled, then performs a bounded graceful shutdown.
-func Serve(ctx context.Context, proxyApp *app.App, bindAddr string) {
+func Serve(ctx context.Context, proxyApp *app.App, bindAddr, rootDir string) {
+	// The data folder says a server is running on it, so `llm-proxy auth …` can tell a setup code written to the wrong
+	// folder from one this server reads. A failure to write it must not stop the server.
+	if err := app.WriteServerMarker(rootDir, bindAddr); err != nil {
+		logging.Warn("could not write the server marker", "error", err)
+	}
+	defer app.RemoveServerMarker(rootDir)
 	go func() {
 		if err := proxyApp.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logging.Error("server exited", "error", err)

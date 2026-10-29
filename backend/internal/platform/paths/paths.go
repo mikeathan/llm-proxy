@@ -53,33 +53,39 @@ type Paths struct {
 	DataDir   string
 }
 
+// Locate returns the single root directory per the precedence chain above without creating or probing it, so a caller can
+// ask where a command would look before it touches anything.
+func Locate(explicitRootDir string) (string, error) {
+	switch {
+	case explicitRootDir != "":
+		root, err := filepath.Abs(explicitRootDir)
+		if err != nil {
+			return "", fmt.Errorf("resolve --data %q: %w", explicitRootDir, err)
+		}
+		return root, nil
+	case os.Getenv(EnvHome) != "":
+		root, err := filepath.Abs(os.Getenv(EnvHome))
+		if err != nil {
+			return "", fmt.Errorf("resolve LLM_PROXY_HOME %q: %w", os.Getenv(EnvHome), err)
+		}
+		return root, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".config", appDirName), nil
+}
+
 // Resolve resolves the single root directory per the precedence chain above,
 // creating it at 0700 and fail-fast probing that it is a real, writable
 // directory (not a symlink or a regular file). The probe runs exactly once per
 // Resolve call, not per lookup. ConfigDir and DataDir both equal the root.
 func Resolve(explicitRootDir string) (Paths, error) {
-	var root string
-	var err error
-
-	switch {
-	case explicitRootDir != "":
-		root, err = filepath.Abs(explicitRootDir)
-		if err != nil {
-			return Paths{}, fmt.Errorf("resolve --data %q: %w", explicitRootDir, err)
-		}
-	case os.Getenv(EnvHome) != "":
-		root, err = filepath.Abs(os.Getenv(EnvHome))
-		if err != nil {
-			return Paths{}, fmt.Errorf("resolve LLM_PROXY_HOME %q: %w", os.Getenv(EnvHome), err)
-		}
-	default:
-		home, herr := os.UserHomeDir()
-		if herr != nil {
-			return Paths{}, fmt.Errorf("resolve home dir: %w", herr)
-		}
-		root = filepath.Join(home, ".config", appDirName)
+	root, err := Locate(explicitRootDir)
+	if err != nil {
+		return Paths{}, err
 	}
-
 	if err := checkRoot(root); err != nil {
 		return Paths{}, fmt.Errorf("data root: %w", err)
 	}

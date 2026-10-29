@@ -74,7 +74,7 @@ onMounted(() => { if (required.value) void s.load() })
     <Panel v-if="!required" title="Sign-in" preserve-case data-test="not-set-up">
       <div class="flex flex-col gap-2">
         <p class="m-0">Sign-in is not set up, so anyone on your network can change settings and run the assistant.</p>
-        <p class="m-0 text-[length:var(--text-small)] text-secondary">On the server, run <code class="font-mono text-primary">{{ PRODUCT_NAME }} auth setup-code</code>, then open <RouterLink :to="{ name: ROUTE_NAMES.setup }" class="underline underline-offset-2">the setup page</RouterLink> and enter the code with the passphrase you choose.</p>
+        <p class="m-0 text-[length:var(--text-small)] text-secondary">On the server, run <code class="font-mono text-primary">{{ PRODUCT_NAME }} auth setup-code</code> (with <code class="font-mono text-primary">sudo</code> if it is installed as a service), then open <RouterLink :to="{ name: ROUTE_NAMES.setup }" class="underline underline-offset-2">the setup page</RouterLink> and enter the code with the passphrase you choose.</p>
       </div>
     </Panel>
 
