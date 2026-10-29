@@ -29,6 +29,8 @@ export const API_ENDPOINTS = {
   authPassphrase: `${API_BASE}/auth/passphrase`,
   authTokens: `${API_BASE}/auth/tokens`,
   authEvents: `${API_BASE}/auth/events`,
+  authExposure: `${API_BASE}/auth/exposure`,
+  authSessionLength: `${API_BASE}/auth/session-length`,
   netauditVulnData: `${API_BASE}/netaudit/vulndata`,
   netauditVulnDownload: `${API_BASE}/netaudit/vulndata/download`,
   netauditVulnCancel: `${API_BASE}/netaudit/vulndata/cancel`,

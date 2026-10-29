@@ -2,7 +2,7 @@
 
 ## Base URL
 
-All API endpoints are served from the server root (default `http://0.0.0.0:4001`).
+All API endpoints are served from the server root (default `http://127.0.0.1:4001` for a new install, `http://0.0.0.0:4001` for one that predates 0.20.0).
 
 ### Sign-in (since 0.18.0)
 
@@ -25,6 +25,8 @@ token; otherwise `401`. `/v1/*` is open until the first **inference** token is m
 | POST | `/admin/api/auth/sessions/revoke-all` | Sign out everywhere, this browser too |
 | POST | `/admin/api/auth/passphrase` | `{old, new}`; ends every other session |
 | GET / POST / DELETE | `/admin/api/auth/tokens[?id]` | List script tokens (no secret); make one `{name, scope: "admin"\|"inference"}` (the secret is in this answer only, and this needs the passphrase again); revoke |
+| GET, PUT | `/admin/api/auth/session-length` | How long a sign-in lasts: `{idle_hours, absolute_days, max_idle_hours, max_absolute_days, default_idle_hours, default_absolute_days}`. `PUT {idle_hours, absolute_days}` saves `server.auth` (whole numbers, 1 to the ceiling, idle no longer than absolute); it needs the passphrase again (step-up) and applies to the next request. |
+| GET | `/admin/api/auth/exposure` | Where the server listens and what protects it: `{listening{address,network}, sign_in_required, encrypted, inference_key_required, webhooks{inbound,with_secret}, sandbox{enabled,filesystem}, attention[{id,text,fix}]}`. No secret. |
 | GET | `/admin/api/auth/events` | The last 20 sign-in events (never a secret) |
 
 **Step-up.** These writes answer `403 {"error":"reauth_required"}` until the session has re-entered the passphrase in the
@@ -44,6 +46,10 @@ webhook path are not affected.
 - **Host:** an IP address, `localhost`, this machine's name (and `<name>.local`) and any name in `server.allowed_hosts`
   (`settings.yml`) are served; any other name gets `421`. Set `allowed_hosts` when the UI is reached through a reverse
   proxy or a custom DNS name.
+- **Encrypted (since 0.20.0):** the session cookie is `Secure`, and `/auth/status` reports `"encrypted":true`, when the
+  request arrived over TLS or came from an address in `server.trusted_proxies` (`settings.yml`; addresses or ranges,
+  empty by default) with `X-Forwarded-Proto: https`. The header is ignored from any other address. See
+  [service_setup.md](service_setup.md#encrypted-access-a-tls-front-end).
 - **Cross-site:** a request to `/admin/api/` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site` gets `403`,
   whatever its method; writes with a foreign `Origin` and no Fetch-Metadata also get `403`. Scripts and `curl` send neither
   header and pass.

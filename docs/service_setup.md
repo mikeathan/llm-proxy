@@ -163,6 +163,13 @@ journalctl -u llm-proxy.service -f
   with `systemd-analyze syscall-filter @system-service | grep landlock`; if it
   prints nothing, the explicit entries are what keep the service alive. Listing
   syscalls already present in the group is harmless.
+- **Where it listens (new installs, since 0.20.0):** the settings file a new install starts with binds `127.0.0.1:4001`,
+  this machine only. An install that already has a `settings.yml` keeps its bind, and a factory reset keeps it too. To
+  reach the UI from another computer, use an SSH tunnel (`ssh -L 4001:127.0.0.1:4001 user@host`), a TLS front end (see
+  *Encrypted access* below), or set `server.bind` (for example `0.0.0.0:4001`) in `settings.yml` and restart.
+- After the first start, set the passphrase: `sudo llm-proxy auth setup-code`, then enter the code with a passphrase on
+  `/admin/setup`. Until you do, anyone who can reach the UI can change settings and run the agent. *Settings → Safety →
+  Sign-in & access → Exposure* shows where the server listens and what protects it.
 - The service listens on an unprivileged port (:4001 default), so it needs no
   capabilities (`CapabilityBoundingSet=` is empty by design).
 - Check effective hardening any time with:
@@ -207,3 +214,27 @@ backend plus every agent-spawned shell/toolchain child — is bounded by real
 cgroup v2 limits; `TasksMax` caps fork-bombs per service without the per-uid
 blast radius of `RLIMIT_NPROC`. Re-verify with `systemd-analyze security` and
 the Phase-3 acceptance (`node -e`, `go build`, `npm install` under the limits).
+
+## Encrypted access (a TLS front end)
+
+The server speaks plain HTTP, so on a network the passphrase and the session cookie travel in clear. Put a TLS front end
+in front of it (Caddy, nginx, or Tailscale) and tell the server which proxy to believe. Two settings in `settings.yml`
+(read on every request, no restart):
+
+```yaml
+server:
+  allowed_hosts: [llm.example.com]   # the name the browser uses; any other Host gets 421
+  trusted_proxies: [127.0.0.1]       # the address the proxy connects from: an address or a range such as 10.0.0.0/24
+```
+
+- The proxy must send `X-Forwarded-Proto: https`. The server believes that header **only** from an address in
+  `trusted_proxies`; from any other address it is ignored, because anyone can send it. With it believed, the session
+  cookie is marked `Secure` and the status reports an encrypted connection. A proxy on another machine means
+  listing that machine's address, so bind the server to a network interface only that proxy can reach.
+- Check the header really arrives: request `/admin/api/auth/status` through the proxy and read `"encrypted":true`; the "not encrypted"
+  sentence in the setup banner disappears when it is. Do not assume a given proxy sends it.
+- Caddy: `llm.example.com { reverse_proxy 127.0.0.1:4001 }` (Caddy sets the header). nginx: add
+  `proxy_set_header X-Forwarded-Proto $scheme;`, `proxy_set_header Host $host;` and `proxy_buffering off;` (the live
+  event stream is long-lived and must not be buffered), and `proxy_read_timeout 1h;`.
+- Not yet followed behind a proxy: `X-Forwarded-For`. The sign-in log and the per-address lockout see the proxy's address,
+  so wrong passphrases from anywhere count against one shared bucket.

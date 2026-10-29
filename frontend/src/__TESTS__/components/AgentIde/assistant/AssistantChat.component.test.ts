@@ -101,6 +101,37 @@ describe('AssistantChat', () => {
     commandService.run.mockResolvedValue({ handled: false, reply: '', failed: false })
   })
 
+  // A 401 sends the user to the sign-in page, which has no shell, so the chat is taken down with its draft in the box.
+  // Coming back after signing in must give the draft back; one that was sent must not return.
+  it('gives back a draft left in the box when the chat was taken down, every time until it is sent', async () => {
+    const first = mountChat()
+    await flushPromises()
+    await first.w.get('textarea').setValue('half a thought I was typing')
+    first.w.unmount()
+
+    const back = mountChat()
+    await flushPromises()
+    expect((back.w.get('textarea').element as HTMLTextAreaElement).value).toBe('half a thought I was typing')
+    back.w.unmount()
+
+    const again = mountChat()
+    await flushPromises()
+    expect((again.w.get('textarea').element as HTMLTextAreaElement).value).toBe('half a thought I was typing')
+  })
+
+  it('does not bring back a message that was sent, or a draft that was emptied', async () => {
+    const first = mountChat()
+    await flushPromises()
+    await first.w.get('textarea').setValue('this one is sent')
+    await first.w.get('textarea').trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    first.w.unmount()
+
+    const back = mountChat()
+    await flushPromises()
+    expect((back.w.get('textarea').element as HTMLTextAreaElement).value).toBe('')
+  })
+
   it('states what the assistant is doing, from the real run state', async () => {
     const { status } = mountChat()
     expect(status()).toBe('Ready')

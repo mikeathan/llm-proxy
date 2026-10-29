@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.17"
+version: "2.18"
 status: stable
-last_updated: 2026-10-23
+last_updated: 2026-10-30
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,10 @@ supersedes:
 
 ## Changelog
 
+- **2.18 (2026-10-30)** — **Sign-in** (plan `admin-api-authentication`). §I: "has no account model" becomes **one operator
+  credential** (a passphrase) plus named script tokens; there are still no users or roles. New §II.9 describes the
+  pages, the 401 handling and the Sign-in settings; §III.2 lists `/login` and `/setup`; §VI says the webhook secret is
+  write-only too. The composer draft is kept across the redirect to the sign-in page.
 - **2.17 (2026-10-23)** — The chat sends its workspace with every command (`workspace_id` on
   `/admin/api/commands/run` and `/preview`), so **`/run <automation>`** works in the web chat: the preview reads
   "Runs 'x' now", and sending it starts the automation and shows its start line as a toast.
@@ -166,8 +170,9 @@ supersedes:
 The admin UI (`frontend/`, served at `/admin`) is the single operator's
 console for the proxy: it shows what the system is doing now, lets the
 operator configure models, providers, guardrails and automations, and gives
-each workspace a file explorer and an assistant. It runs on a LAN, has no
-account model, and makes no network request outside the proxy's own origin.
+each workspace a file explorer and an assistant. It runs on a LAN, has one
+operator credential (a passphrase; no users or roles; scripts use named tokens),
+and makes no network request outside the proxy's own origin.
 
 ## II. Functional Requirements
 
@@ -287,6 +292,22 @@ account model, and makes no network request outside the proxy's own origin.
   automation's network access cuts the scan tool off, and a failed audit run is explained in plain words with the fix, the
   original message behind "Show details". Settings → Network scan lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** is Advanced-only. The report also shows the problems the audit's checks found (SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more): worst first in Simple, with a severity tag in Advanced, each acceptable like an open port. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
 
+### 9. Sign-in
+- Until a passphrase exists the admin API is open (the upgrade state) and every page carries a banner saying so, with a
+  stronger line when the connection is not encrypted. The passphrase is set once, on `/setup`, with a one-time code made
+  on the server by `llm-proxy auth setup-code`; the UI never makes or shows that code.
+- Once a passphrase exists, the router sends every visit without a session to `/login?next=…` and returns to `next`
+  (an address inside the app only) after signing in. A 401 from any request does the same; an event stream that fails
+  without a reason asks `/auth/status` instead of retrying for ever. The message box's draft is kept in memory per
+  workspace across that trip and comes back with the chat.
+- A request the server answers `reauth_required` opens the **confirm it's you** dialog, then repeats once the passphrase is
+  right. These are the destructive actions (wipe, reset, sandbox switches, secrets, MCP servers, new tokens, a longer
+  session) and a settings save that changes what the model server runs. A script token cannot confirm a passphrase.
+- **Settings → Safety → Sign-in & access** holds: the **Exposure** card (where the server listens, sign-in, encryption,
+  inference key, webhook secrets n of m, sandbox; each item that needs attention says what to do), the passphrase, how
+  long a sign-in lasts, where you are signed in (sign out one, or everywhere), script tokens (shown once) and the
+  recent sign-in log. Nothing there shows a secret except a new token, once.
+
 ### 7. Theming
 - Built-in presets: `retro-dark-soft` (default; a faded black, easier on the eyes), `retro-dark` (the original
   near-black ink), `retro-dark-lifted`, `retro-midnight`, `retro-forest`, `retro-plum` (more dark themes, each with its
@@ -346,6 +367,7 @@ History mode under Vite's `base` (`/admin/`). Route names are constants in
 | Path | Name | Notes |
 |---|---|---|
 | `/` | — | redirect → the assistant of the workspace last used, else `/overview` |
+| `/login`, `/setup` | `login`, `setup` | bare (no shell), public: the only routes open to someone not signed in |
 | `/overview` | `overview` | |
 | `/workspaces` | `workspaces` | list; keep-alive |
 | `/workspaces/:ws` | `workspace` | redirect → files |
@@ -438,7 +460,7 @@ loudly instead of receiving HTML.
   `http`, `https`, `mailto` and relative URLs become links. Each table is wrapped in a
   horizontally scrollable box (`.md-table-scroll`, keyboard-focusable) so a wide table never widens
   the page; columns keep a readable width and long URLs wrap.
-- Secrets (provider keys) are write-only in the UI: shown masked, replaced,
-  never read back in clear.
+- Secrets (provider keys, bot tokens, connector webhook secrets) are write-only in the UI: shown masked, replaced,
+  never read back in clear; a masked value sent back means "keep what is stored".
 - Guardrail approvals from the UI go through the same `GuardrailEngine`
   decision as agent calls (SPEC-006); one approval posts once.

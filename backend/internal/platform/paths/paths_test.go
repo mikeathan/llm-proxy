@@ -240,8 +240,13 @@ func TestSeedDefaults_EmptyHome(t *testing.T) {
 	if err := yaml.Unmarshal(cfgData, &cfg); err != nil {
 		t.Fatalf("settings.yml not loadable: %v", err)
 	}
-	if cfg.Server.Bind != "0.0.0.0:4001" {
-		t.Errorf("default bind = %q", cfg.Server.Bind)
+	// A new install listens on this machine only; reaching it from elsewhere is a choice (a TLS front end, or a bind
+	// address in settings.yml). An existing install keeps the bind it has: this file is written only when none exists.
+	if cfg.Server.Bind != "127.0.0.1:4001" {
+		t.Errorf("seeded bind = %q, want loopback only", cfg.Server.Bind)
+	}
+	if got := models.DefaultAppConfig().Server.Bind; got != "0.0.0.0:4001" {
+		t.Errorf("the in-memory default (used to backfill an older settings.yml) = %q: it must not change an existing install", got)
 	}
 	if !cfg.Sandboxing.Enabled {
 		t.Error("default sandboxing should be enabled")

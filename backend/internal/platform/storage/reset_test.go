@@ -60,6 +60,33 @@ func TestFactoryReset_ReseedsDefaults(t *testing.T) {
 	}
 }
 
+// A reset forgets the operator's data, not how the server is reached: widening a loopback-only server to every interface
+// (the in-memory default), or dropping the Host allow-list and the trusted proxies, would make the UI unreachable or
+// exposed the moment the reset ends.
+func TestFactoryReset_KeepsHowTheServerIsReached(t *testing.T) {
+	mgr, _ := resetTestManager(t)
+	if err := mgr.appConfigStore.Update(func(cfg *models.AppConfig) error {
+		cfg.Server.Bind = "127.0.0.1:4001"
+		cfg.Server.AllowedHosts = []string{"llm.example.com"}
+		cfg.Server.TrustedProxies = []string{"127.0.0.1"}
+		cfg.Server.Auth = models.AuthSettings{IdleHours: 2, AbsoluteDays: 3}
+		cfg.Server.IdleTimeoutSecs = 99
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mgr.FactoryReset(); err != nil {
+		t.Fatalf("FactoryReset: %v", err)
+	}
+	srv := mgr.System().Get().Server
+	if srv.Bind != "127.0.0.1:4001" || len(srv.AllowedHosts) != 1 || len(srv.TrustedProxies) != 1 || srv.Auth.IdleHours != 2 {
+		t.Errorf("reset lost how the server is reached: %+v", srv.AppServerConfig)
+	}
+	if srv.IdleTimeoutSecs == 99 {
+		t.Error("other server settings must go back to their defaults")
+	}
+}
+
 func TestFactoryReset_NewKeyDiffersFromOld(t *testing.T) {
 	mgr, _ := resetTestManager(t)
 

@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
-import { del, get, post } from '../httpClient'
-import type { AuthEvent, AuthSession, AuthStatus, AuthToken, NewAuthToken, TokenScope } from '../../types/auth'
+import { del, get, post, put } from '../httpClient'
+import type { AuthEvent, AuthExposure, AuthSession, SessionLength, AuthStatus, AuthToken, NewAuthToken, TokenScope } from '../../types/auth'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -57,5 +57,18 @@ export class AuthService {
 
   static events(): Promise<AuthEvent[]> {
     return get<AuthEvent[]>(API_ENDPOINTS.authEvents)
+  }
+
+  static sessionLength(): Promise<SessionLength> {
+    return get<SessionLength>(API_ENDPOINTS.authSessionLength)
+  }
+
+  /** Saves the two limits. A longer session weakens sign-in, so the server asks for the passphrase again first. */
+  static setSessionLength(idleHours: number, absoluteDays: number): Promise<SessionLength> {
+    return put<SessionLength>(API_ENDPOINTS.authSessionLength, { idle_hours: idleHours, absolute_days: absoluteDays })
+  }
+
+  static exposure(): Promise<AuthExposure> {
+    return get<AuthExposure>(API_ENDPOINTS.authExposure)
   }
 }

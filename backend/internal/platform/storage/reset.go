@@ -66,7 +66,7 @@ func (m *DataManager) FactoryReset() (ResetResult, error) {
 		res.KeyRegenerated = true
 	}
 
-	if err := staged.WriteSettingsFile(filepath.Join(stage, models.SettingsFilename), models.DefaultAppConfig()); err != nil {
+	if err := staged.WriteSettingsFile(filepath.Join(stage, models.SettingsFilename), m.settingsAfterReset()); err != nil {
 		return res, fmt.Errorf("stage settings: %w", err)
 	}
 	if err := staged.WriteRegistryFile(filepath.Join(stage, models.RegistryFilename), models.RegistryData{
@@ -329,4 +329,19 @@ func removeIfExists(path string) {
 	if _, err := os.Stat(path); err == nil {
 		_ = os.RemoveAll(path)
 	}
+}
+
+// settingsAfterReset is the default settings with how the server is reached carried over from the current ones: the bind
+// address, the Host allow-list, the trusted proxies and the sign-in lifetimes. A reset forgets the operator's data, not
+// the network position they chose; going back to the all-interfaces default would expose a loopback-only server.
+func (m *DataManager) settingsAfterReset() models.AppConfig {
+	cfg := models.DefaultAppConfig()
+	cur := m.appConfigStore.Get().Server
+	if cur.Bind != "" {
+		cfg.Server.Bind = cur.Bind
+	}
+	cfg.Server.AllowedHosts = cur.AllowedHosts
+	cfg.Server.TrustedProxies = cur.TrustedProxies
+	cfg.Server.Auth = cur.Auth
+	return cfg
 }

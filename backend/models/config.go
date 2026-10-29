@@ -563,6 +563,10 @@ const (
 	ConnectorTypeTelegram = "telegram"
 )
 
+// MaskedSecret stands for a stored secret in a response: the value is set, and the reader cannot see it. A request that
+// sends it back means "keep what is stored".
+const MaskedSecret = "********"
+
 // ConnectorSettingWebhookToken is the Settings key of the secret an inbound webhook request must carry. A connector
 // without one accepts no inbound call.
 const ConnectorSettingWebhookToken = "webhook_token"
@@ -586,6 +590,47 @@ type ConnectorConfig struct {
 	Settings   map[string]string `json:"settings"`
 	SecretRef  string            `json:"secret_ref,omitempty"`
 	WebhookURL string            `json:"webhook_url,omitempty"`
+}
+
+// MaskedWebhookSecrets is a copy with each connector's webhook secret replaced by MaskedSecret, for a response. A connector
+// without a secret has no such setting in the copy. The receiver is not changed.
+func (c CommunicationConfig) MaskedWebhookSecrets() CommunicationConfig {
+	out := CommunicationConfig{Connectors: make(map[string]ConnectorConfig, len(c.Connectors))}
+	for name, cfg := range c.Connectors {
+		settings := make(map[string]string, len(cfg.Settings))
+		for k, v := range cfg.Settings {
+			settings[k] = v
+		}
+		if settings[ConnectorSettingWebhookToken] != "" {
+			settings[ConnectorSettingWebhookToken] = MaskedSecret
+		}
+		cfg.Settings = settings
+		out.Connectors[name] = cfg
+	}
+	return out
+}
+
+// KeepStoredWebhookSecrets resolves the secrets in a configuration that came from a request: a webhook secret equal to
+// MaskedSecret is the one stored under the same connector name in stored (and is dropped when there is none, so the mask
+// is never saved as a secret). Any other value replaces the stored one. The receiver's settings maps are replaced, not
+// edited, because they may belong to the caller.
+func (c *CommunicationConfig) KeepStoredWebhookSecrets(stored CommunicationConfig) {
+	for name, cfg := range c.Connectors {
+		if cfg.Settings[ConnectorSettingWebhookToken] != MaskedSecret {
+			continue
+		}
+		settings := make(map[string]string, len(cfg.Settings))
+		for k, v := range cfg.Settings {
+			settings[k] = v
+		}
+		if kept := stored.Connectors[name].Settings[ConnectorSettingWebhookToken]; kept != "" {
+			settings[ConnectorSettingWebhookToken] = kept
+		} else {
+			delete(settings, ConnectorSettingWebhookToken)
+		}
+		cfg.Settings = settings
+		c.Connectors[name] = cfg
+	}
 }
 
 // SearchProvider is a fixed-value enum of the supported internet-search

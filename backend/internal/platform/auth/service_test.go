@@ -424,7 +424,7 @@ func TestConfigFrom_DefaultsAndBounds(t *testing.T) {
 	if got := ConfigFrom(-5, -1); got != def {
 		t.Errorf("negative settings: %+v", got)
 	}
-	if got := ConfigFrom(100000, 100000); got.IdleTimeout != maxIdleHours*time.Hour || got.AbsoluteTimeout != maxAbsoluteDays*24*time.Hour {
+	if got := ConfigFrom(100000, 100000); got.IdleTimeout != MaxIdleHours*time.Hour || got.AbsoluteTimeout != MaxAbsoluteDays*24*time.Hour {
 		t.Errorf("huge settings must be capped: %+v", got)
 	}
 	if got := ConfigFrom(24*30, 7); got.IdleTimeout > got.AbsoluteTimeout {
@@ -484,4 +484,20 @@ func setUp2Login(t *testing.T, s *Service) string {
 		t.Fatal(err)
 	}
 	return id
+}
+
+func TestValidateLifetimes(t *testing.T) {
+	for _, tc := range []struct {
+		idle, abs int
+		ok        bool
+	}{
+		{24, 14, true}, {1, 1, true}, {24, 1, true}, {MaxIdleHours, MaxAbsoluteDays, true},
+		{0, 14, false}, {24, 0, false}, {-1, 14, false}, {24, -3, false},
+		{MaxIdleHours + 1, MaxAbsoluteDays, false}, {24, MaxAbsoluteDays + 1, false},
+		{49, 2, false}, // idle 49 h in a session that lives 48 h
+	} {
+		if err := ValidateLifetimes(tc.idle, tc.abs); (err == nil) != tc.ok {
+			t.Errorf("ValidateLifetimes(%d, %d) = %v, want ok=%v", tc.idle, tc.abs, err, tc.ok)
+		}
+	}
 }

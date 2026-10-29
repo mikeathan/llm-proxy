@@ -55,7 +55,7 @@ func (h *SystemHandlers) AdminConfigHandler(w http.ResponseWriter, r *http.Reque
 		FallbackModel: reg.FallbackModel,
 		Providers:     getProvidersView(h.admin),
 		Guardrails:    h.admin.GetGuardrails(),
-		Communication: reg.Communication,
+		Communication: reg.Communication.MaskedWebhookSecrets(),
 		Search:        reg.Search,
 		RunLogging:    &models.RunLoggingConfig{Enabled: h.admin.RunLoggingEnabled()},
 		Memory:        settings.Memory.HotDefaults(),

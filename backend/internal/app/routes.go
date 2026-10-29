@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
 	handlers "llm-proxy/internal/transport/http/handlers"
@@ -39,13 +40,24 @@ type HandlerSet struct {
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 	Auth       *handlers.AuthHandlers
+	Exposure   *handlers.ExposureHandlers
 }
 
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
 func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
 	hs := &HandlerSet{}
 	if s.auth != nil {
-		hs.Auth = handlers.NewAuthHandlers(s.auth)
+		trusted := func() []string { return s.AppCtx.GetSystem().Server.TrustedProxies }
+		warnInvalidTrustedProxies(trusted())
+		hs.Auth = handlers.NewAuthHandlers(s.auth).WithTrustedProxies(trusted).WithSessionLength(
+			func() models.AuthSettings { return s.AppCtx.GetSystem().Server.Auth }, s.AppCtx.SetAuthSettings)
+		hs.Exposure = handlers.NewExposureHandlers(handlers.ExposureSource{
+			Auth:           s.auth,
+			Bind:           func() string { return bindAddress(s.AppCtx.GetSystem()) },
+			Registry:       s.AppCtx.GetRegistry,
+			Host:           s.AppCtx.HostSettings,
+			TrustedProxies: trusted,
+		})
 	}
 	ownerZone := func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone }
 	hs.Turns = chat.New(s, ownerZone)
@@ -387,6 +399,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 		router.Post("/admin/api/auth/tokens", hs.Auth.CreateToken, jsonMethodNotAllowed)
 		router.Delete("/admin/api/auth/tokens", hs.Auth.RevokeToken, jsonMethodNotAllowed)
 		router.Get("/admin/api/auth/events", hs.Auth.Events, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/exposure", hs.Exposure.Get, jsonMethodNotAllowed)
+		router.Get("/admin/api/auth/session-length", hs.Auth.SessionLength, jsonMethodNotAllowed)
+		router.Put("/admin/api/auth/session-length", hs.Auth.SetSessionLength, jsonMethodNotAllowed)
 	}
 
 	// Public webhooks — external platforms POST here (no admin auth)
@@ -419,5 +434,13 @@ func activeWorkChecker(p workProbe) func() bool {
 			}
 		}
 		return p.laneQueued()
+	}
+}
+
+// warnInvalidTrustedProxies names the server.trusted_proxies entries that are neither an address nor a range: they trust
+// nothing, which would otherwise look like a working proxy setting that has no effect.
+func warnInvalidTrustedProxies(entries []string) {
+	if bad := api.InvalidProxyEntries(entries); len(bad) > 0 {
+		logging.Warn("server.trusted_proxies has entries that are not an address or a range; they are ignored", "entries", bad)
 	}
 }

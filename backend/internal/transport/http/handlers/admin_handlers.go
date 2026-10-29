@@ -339,7 +339,7 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 			FallbackModel: reg.FallbackModel,
 			Providers:     getProvidersView(h.admin),
 			Guardrails:    h.admin.GetGuardrails(),
-			Communication: reg.Communication,
+			Communication: reg.Communication.MaskedWebhookSecrets(),
 			Search:        reg.Search,
 			AgentDefaults: func() adminTuningDefaults {
 				d := baseAdminTuningDefaults()

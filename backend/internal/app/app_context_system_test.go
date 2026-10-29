@@ -6,7 +6,9 @@ import (
 	"os"
 	"reflect"
 	"testing"
+	"time"
 
+	"llm-proxy/internal/platform/auth"
 	"llm-proxy/internal/platform/paths"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/testing/mocks"
@@ -308,5 +310,50 @@ func TestSystemUpdateChangesWhatRuns(t *testing.T) {
 		if got := srv.SystemUpdateChangesWhatRuns(c.req); got != c.want {
 			t.Errorf("%s: = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// The settings page reads a masked webhook secret and sends it back on every save of the communication block: the save
+// must keep the stored secret, not store the mask, and a typed replacement must still replace it.
+func TestApplySystemUpdate_MaskedWebhookSecretKeepsTheStoredOne(t *testing.T) {
+	srv := newSystemTestServer(t)
+	conn := func(token string) *models.CommunicationConfig {
+		return &models.CommunicationConfig{Connectors: map[string]models.ConnectorConfig{"tg": {
+			Type: models.ConnectorTypeTelegram, Enabled: true, Settings: map[string]string{"workspace_id": "w", models.ConnectorSettingWebhookToken: token},
+		}}}
+	}
+	stored := func() string {
+		return srv.GetRegistry().Communication.Connectors["tg"].Settings[models.ConnectorSettingWebhookToken]
+	}
+	save := func(c *models.CommunicationConfig) {
+		t.Helper()
+		if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Communication: c}); err != nil {
+			t.Fatalf("ApplySystemUpdate: %v", err)
+		}
+	}
+
+	save(conn("real-secret"))
+	save(conn(models.MaskedSecret))
+	if got := stored(); got != "real-secret" {
+		t.Fatalf("a save that sent the mask changed the secret to %q", got)
+	}
+	save(conn("replacement"))
+	if got := stored(); got != "replacement" {
+		t.Errorf("a typed secret must replace the stored one, got %q", got)
+	}
+}
+
+// The session lifetimes saved from the settings page are what the sign-in reads at its next request.
+func TestSetAuthSettings_ReachesWhatTheSignInReads(t *testing.T) {
+	srv := newSystemTestServer(t)
+	if err := srv.SetAuthSettings(models.AuthSettings{IdleHours: 6, AbsoluteDays: 3}); err != nil {
+		t.Fatalf("SetAuthSettings: %v", err)
+	}
+	a := srv.GetSystem().Server.Auth
+	if a != (models.AuthSettings{IdleHours: 6, AbsoluteDays: 3}) {
+		t.Fatalf("GetSystem().Server.Auth = %+v", a)
+	}
+	if got := auth.ConfigFrom(a.IdleHours, a.AbsoluteDays); got.IdleTimeout != 6*time.Hour || got.AbsoluteTimeout != 72*time.Hour {
+		t.Errorf("the sign-in would use %v / %v", got.IdleTimeout, got.AbsoluteTimeout)
 	}
 }

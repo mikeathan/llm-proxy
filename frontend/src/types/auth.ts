@@ -51,3 +51,32 @@ export interface AuthEvent {
   address?: string
   detail?: string
 }
+
+/** One thing about the setup that needs attention, with what to do about it. */
+export interface ExposureAttention {
+  id: string
+  text: string
+  fix: string
+}
+
+/** Where the server listens and what protects it (the Sign-in page's Exposure card). It holds no secret. */
+export interface AuthExposure {
+  listening: { address: string; /** Other machines can connect. */ network: boolean }
+  sign_in_required: boolean
+  /** The connection this page came over is HTTPS. */
+  encrypted: boolean
+  inference_key_required: boolean
+  webhooks: { inbound: number; with_secret: number }
+  sandbox: { enabled: boolean; /** The file confinement agents run under, or "none". */ filesystem: string }
+  attention: ExposureAttention[]
+}
+
+/** How long a sign-in lasts: the idle limit in hours and the absolute limit in days, with the defaults and the ceilings. */
+export interface SessionLength {
+  idle_hours: number
+  absolute_days: number
+  max_idle_hours: number
+  max_absolute_days: number
+  default_idle_hours: number
+  default_absolute_days: number
+}

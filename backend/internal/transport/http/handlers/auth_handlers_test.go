@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"llm-proxy/internal/platform/auth"
 	api "llm-proxy/internal/transport/http"
+	"llm-proxy/models"
 )
 
 const testPass = "correct horse battery"
@@ -118,6 +120,31 @@ func TestAuthLogin_CookieFlagsAndFailures(t *testing.T) {
 	}
 	if call(h.Login, "POST", "/", `{}`, nil).Code != http.StatusBadRequest {
 		t.Error("an empty body must be a 400")
+	}
+}
+
+// Behind a TLS front end the server sees plain HTTP: the cookie is Secure and the status says "encrypted" only when the
+// proxy is one the operator listed, because anyone can send X-Forwarded-Proto.
+func TestAuthLogin_FollowsATrustedProxyForSecureAndEncrypted(t *testing.T) {
+	h, svc := newAuthHandlers(t)
+	setUpAndSignIn(t, h, svc)
+	h = h.WithTrustedProxies(func() []string { return []string{"10.0.0.0/24"} })
+	login := `{"passphrase":"` + testPass + `"}`
+	forwarded := func(peer string) func(*http.Request) {
+		return func(r *http.Request) { r.RemoteAddr = peer; r.Header.Set("X-Forwarded-Proto", "https") }
+	}
+
+	if c := sessionCookie(call(h.Login, "POST", "/", login, forwarded("10.0.0.7:5555"))); c == nil || !c.Secure {
+		t.Errorf("behind a listed proxy the cookie must be Secure: %+v", c)
+	}
+	if c := sessionCookie(call(h.Login, "POST", "/", login, forwarded("203.0.113.9:5555"))); c == nil || c.Secure {
+		t.Errorf("a header from a stranger must not make the cookie Secure: %+v", c)
+	}
+	if m := decode(t, call(h.Status, "GET", "/", "", forwarded("10.0.0.7:5555"))); m["encrypted"] != true {
+		t.Errorf("status behind a listed proxy: %v", m)
+	}
+	if m := decode(t, call(h.Status, "GET", "/", "", forwarded("203.0.113.9:5555"))); m["encrypted"] != false {
+		t.Errorf("status for a forged header: %v", m)
 	}
 }
 
@@ -257,5 +284,60 @@ func TestBrowserName(t *testing.T) {
 		if got := browserName(ua); got != want {
 			t.Errorf("%q = %q, want %q", ua, got, want)
 		}
+	}
+}
+
+// session length: the stored settings, as the page sees them, and a save that is checked before it is stored.
+type memoryLifetimes struct {
+	cur   models.AuthSettings
+	saved int
+	err   error
+}
+
+func (m *memoryLifetimes) get() models.AuthSettings { return m.cur }
+func (m *memoryLifetimes) set(a models.AuthSettings) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.cur, m.saved = a, m.saved+1
+	return nil
+}
+
+func TestSessionLength_ShowsTheEffectiveValuesAndTheBounds(t *testing.T) {
+	h, _ := newAuthHandlers(t)
+	mem := &memoryLifetimes{}
+	h = h.WithSessionLength(mem.get, mem.set)
+
+	m := decode(t, call(h.SessionLength, "GET", "/", "", nil))
+	if m["idle_hours"] != float64(auth.DefaultIdleHours) || m["absolute_days"] != float64(auth.DefaultAbsoluteDays) {
+		t.Errorf("unset settings must show the defaults: %v", m)
+	}
+	if m["max_idle_hours"] != float64(auth.MaxIdleHours) || m["max_absolute_days"] != float64(auth.MaxAbsoluteDays) {
+		t.Errorf("bounds: %v", m)
+	}
+	mem.cur = models.AuthSettings{IdleHours: 2, AbsoluteDays: 3}
+	if m := decode(t, call(h.SessionLength, "GET", "/", "", nil)); m["idle_hours"] != float64(2) || m["absolute_days"] != float64(3) {
+		t.Errorf("set values: %v", m)
+	}
+}
+
+func TestSessionLength_SavesOnlyWhatIsValid(t *testing.T) {
+	h, _ := newAuthHandlers(t)
+	mem := &memoryLifetimes{}
+	h = h.WithSessionLength(mem.get, mem.set)
+	put := func(body string) *httptest.ResponseRecorder { return call(h.SetSessionLength, "PUT", "/", body, nil) }
+
+	if rec := put(`{"idle_hours":12,"absolute_days":30}`); rec.Code != http.StatusOK || mem.cur != (models.AuthSettings{IdleHours: 12, AbsoluteDays: 30}) {
+		t.Fatalf("valid save = %d %s, stored %+v", rec.Code, rec.Body.String(), mem.cur)
+	}
+	for _, body := range []string{`{"idle_hours":0,"absolute_days":30}`, `{"idle_hours":12,"absolute_days":9999}`, `{"idle_hours":100,"absolute_days":2}`, `{}`, `{bad`} {
+		before := mem.saved
+		if rec := put(body); rec.Code != http.StatusBadRequest || mem.saved != before {
+			t.Errorf("%s: status %d, saves %d -> %d; a refused value must not be stored", body, rec.Code, before, mem.saved)
+		}
+	}
+	mem.err = errors.New("disk full")
+	if rec := put(`{"idle_hours":12,"absolute_days":30}`); rec.Code != http.StatusInternalServerError {
+		t.Errorf("a failed write = %d, want 500", rec.Code)
 	}
 }

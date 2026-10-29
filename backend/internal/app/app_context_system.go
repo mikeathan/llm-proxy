@@ -291,7 +291,9 @@ func applyRegistryFields(reg *models.RegistryData, req models.SystemUpdatePayloa
 		reg.FallbackModel = req.FallbackModel
 	}
 	if req.Communication != nil {
-		reg.Communication = *req.Communication
+		next := *req.Communication
+		next.KeepStoredWebhookSecrets(reg.Communication)
+		reg.Communication = next
 	}
 	if req.Search != nil {
 		reg.Search = *req.Search
@@ -341,4 +343,12 @@ func (s *AppContext) SystemUpdateChangesWhatRuns(req models.SystemUpdatePayload)
 // equalEnvironment compares two environments, an absent one being an empty one.
 func equalEnvironment(a, b map[string]string) bool {
 	return len(a) == len(b) && maps.Equal(a, b) || len(a) == 0 && len(b) == 0
+}
+
+// SetAuthSettings saves how long a sign-in lasts (server.auth). The sign-in reads it at each request, so it applies at once.
+func (s *AppContext) SetAuthSettings(a models.AuthSettings) error {
+	return s.dataMgr.System().Update(func(sys *models.SystemConfig) error {
+		sys.Server.Auth = a
+		return nil
+	})
 }

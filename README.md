@@ -45,7 +45,7 @@ go run main.go
 
 Then open the Admin UI in your browser:
 
-- Admin UI: `http://localhost:4001/admin/`
+- Admin UI: `http://localhost:4001/admin/`. A new install listens on this machine only; set the passphrase with `llm-proxy auth setup-code` (see [docs/service_setup.md](docs/service_setup.md)).
 
 ## Try the API
 

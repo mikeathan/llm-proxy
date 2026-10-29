@@ -179,6 +179,30 @@ func TestAdminConfigHandler_ServiceEnv(t *testing.T) {
 	}
 }
 
+// The webhook secret of a connector is a credential: the config and the state views say it is set (the mask) and never
+// carry its value.
+func TestConfigAndStateViews_MaskTheWebhookSecret(t *testing.T) {
+	registry := models.RegistryData{}
+	registry.Communication.Connectors = map[string]models.ConnectorConfig{
+		"tg": {Type: models.ConnectorTypeTelegram, Enabled: true, Settings: map[string]string{"workspace_id": "w", models.ConnectorSettingWebhookToken: "SECRET-VALUE"}},
+	}
+	admin := &mocks.MockAdminService{GetRegistryFunc: func() models.RegistryData { return registry }}
+
+	rr := httptest.NewRecorder()
+	newSystemHandlers(admin).AdminConfigHandler(rr, httptest.NewRequest(http.MethodGet, "/admin/api/config", nil))
+	if body := rr.Body.String(); strings.Contains(body, "SECRET-VALUE") || !strings.Contains(body, models.MaskedSecret) {
+		t.Errorf("GET /config: %s", body)
+	}
+	rr = httptest.NewRecorder()
+	newAdminHandlers(&mocks.MockManager{}, admin).AdminStateHandler(rr, httptest.NewRequest(http.MethodGet, "/admin/api/state", nil))
+	if body := rr.Body.String(); strings.Contains(body, "SECRET-VALUE") || !strings.Contains(body, models.MaskedSecret) {
+		t.Errorf("GET /state: %s", body)
+	}
+	if registry.Communication.Connectors["tg"].Settings[models.ConnectorSettingWebhookToken] != "SECRET-VALUE" {
+		t.Error("serving the view changed the stored secret")
+	}
+}
+
 // The config view always carries the two resolved hot-memory defaults, so the UI never has to guess what an unset value means.
 func TestAdminConfigHandler_ReturnsMemoryHotDefaults(t *testing.T) {
 	for _, tc := range []struct {

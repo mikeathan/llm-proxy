@@ -315,3 +315,60 @@ func TestHelpersRequest(t *testing.T) {
 		t.Error("a nil context asks for nothing")
 	}
 }
+
+func connectors(token string) CommunicationConfig {
+	s := map[string]string{"chat_id": "1"}
+	if token != "" {
+		s[ConnectorSettingWebhookToken] = token
+	}
+	return CommunicationConfig{Connectors: map[string]ConnectorConfig{"tg": {Type: ConnectorTypeTelegram, Enabled: true, Settings: s}}}
+}
+
+// A read of the configuration says a webhook secret is set, not what it is: any caller of the admin API (a script token,
+// a page on the same origin) would otherwise read a credential that lets it post as Telegram.
+func TestMaskedWebhookSecrets_HidesTheValueButNotThatItExists(t *testing.T) {
+	original := connectors("real-secret")
+	masked := original.MaskedWebhookSecrets()
+	if got := masked.Connectors["tg"].Settings[ConnectorSettingWebhookToken]; got != MaskedSecret {
+		t.Errorf("masked = %q, want %q", got, MaskedSecret)
+	}
+	if masked.Connectors["tg"].Settings["chat_id"] != "1" {
+		t.Error("other settings must be unchanged")
+	}
+	if original.Connectors["tg"].Settings[ConnectorSettingWebhookToken] != "real-secret" {
+		t.Error("masking changed the stored configuration")
+	}
+	if _, set := connectors("").MaskedWebhookSecrets().Connectors["tg"].Settings[ConnectorSettingWebhookToken]; set {
+		t.Error("a connector without a secret must not appear to have one")
+	}
+}
+
+// The page sends back what it read: the mask means "keep what is stored", a new value replaces it, and a connector the
+// page removed or renamed does not inherit another's secret.
+func TestKeepStoredWebhookSecrets(t *testing.T) {
+	stored := connectors("real-secret")
+
+	next := connectors(MaskedSecret)
+	next.KeepStoredWebhookSecrets(stored)
+	if got := next.Connectors["tg"].Settings[ConnectorSettingWebhookToken]; got != "real-secret" {
+		t.Errorf("a masked value must keep the stored secret, got %q", got)
+	}
+
+	replaced := connectors("new-secret")
+	replaced.KeepStoredWebhookSecrets(stored)
+	if got := replaced.Connectors["tg"].Settings[ConnectorSettingWebhookToken]; got != "new-secret" {
+		t.Errorf("a new value must replace the stored one, got %q", got)
+	}
+
+	cleared := connectors("")
+	cleared.KeepStoredWebhookSecrets(stored)
+	if _, set := cleared.Connectors["tg"].Settings[ConnectorSettingWebhookToken]; set {
+		t.Error("a connector sent without a secret has none: the page cleared it")
+	}
+
+	renamed := CommunicationConfig{Connectors: map[string]ConnectorConfig{"other": {Type: ConnectorTypeTelegram, Settings: map[string]string{ConnectorSettingWebhookToken: MaskedSecret}}}}
+	renamed.KeepStoredWebhookSecrets(stored)
+	if _, set := renamed.Connectors["other"].Settings[ConnectorSettingWebhookToken]; set {
+		t.Error("a mask with nothing stored under that name must not become a secret (the mask itself would be the secret)")
+	}
+}

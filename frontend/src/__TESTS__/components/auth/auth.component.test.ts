@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import type { AuthStatus } from '../../../types/auth'
+import type { AuthExposure, AuthStatus, SessionLength } from '../../../types/auth'
 
 const service = vi.hoisted(() => ({
   status: vi.fn(), login: vi.fn(), setup: vi.fn(), logout: vi.fn(), reauth: vi.fn(), sessions: vi.fn(), revokeSession: vi.fn(),
-  revokeAllSessions: vi.fn(), changePassphrase: vi.fn(), tokens: vi.fn(), createToken: vi.fn(), revokeToken: vi.fn(), events: vi.fn(),
+  revokeAllSessions: vi.fn(), changePassphrase: vi.fn(), tokens: vi.fn(), createToken: vi.fn(), revokeToken: vi.fn(), events: vi.fn(), exposure: vi.fn(), sessionLength: vi.fn(), setSessionLength: vi.fn(),
 }))
 vi.mock('../../../services/auth/authService', () => ({ AuthService: service }))
 const replace = vi.hoisted(() => vi.fn())
@@ -22,6 +22,11 @@ import { useAuth } from '../../../composables/auth/useAuth'
 import { useReauth } from '../../../composables/auth/useReauth'
 
 const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ required: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
+const EXPOSED: AuthExposure = {
+  listening: { address: '127.0.0.1:4001', network: false }, sign_in_required: true, encrypted: false, inference_key_required: false,
+  webhooks: { inbound: 0, with_secret: 0 }, sandbox: { enabled: true, filesystem: 'landlock' }, attention: [],
+}
+const LENGTH: SessionLength = { idle_hours: 24, absolute_days: 14, max_idle_hours: 720, max_absolute_days: 90, default_idle_hours: 24, default_absolute_days: 14 }
 const stubs = { global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } } }
 const PASS = 'correct horse battery'
 
@@ -34,6 +39,8 @@ beforeEach(() => {
   service.sessions.mockResolvedValue([])
   service.tokens.mockResolvedValue([])
   service.events.mockResolvedValue([])
+  service.exposure.mockResolvedValue(EXPOSED)
+  service.sessionLength.mockResolvedValue(LENGTH)
   useAuth().status.value = status()
 })
 
@@ -288,5 +295,42 @@ describe('SignInSettings', () => {
     const lines = w.findAll('[data-test="events"] li')
     expect(lines[0]!.text()).toContain('A wrong passphrase was tried')
     expect(lines[1]!.text()).toContain('Signed in')
+  })
+
+  it('shows how long a sign-in lasts, and saves new limits', async () => {
+    service.setSessionLength.mockResolvedValue({ ...LENGTH, idle_hours: 8, absolute_days: 7 })
+    const w = mount(SignInSettings, stubs)
+    await flushPromises()
+    const idle = w.get('[data-test="idle-hours"]')
+    const days = w.get('[data-test="absolute-days"]')
+    expect((idle.element as HTMLInputElement).value).toBe('24')
+    expect((days.element as HTMLInputElement).value).toBe('14')
+    await idle.setValue('8')
+    await days.setValue('7')
+    await w.get('[data-test="session-length-form"]').trigger('submit')
+    await flushPromises()
+    expect(service.setSessionLength).toHaveBeenCalledWith(8, 7)
+    expect(w.get('[data-test="session-length-done"]').text()).toContain('Saved')
+  })
+
+  it('says what is wrong before saving: out of range, or idle longer than the session can live', async () => {
+    const w = mount(SignInSettings, stubs)
+    await flushPromises()
+    await w.get('[data-test="idle-hours"]').setValue('100')
+    await w.get('[data-test="absolute-days"]').setValue('2')
+    expect(w.get('[data-test="session-length-error"]').text()).toContain('cannot be longer')
+    await w.get('[data-test="session-length-form"]').trigger('submit')
+    expect(service.setSessionLength).not.toHaveBeenCalled()
+    await w.get('[data-test="absolute-days"]').setValue('500')
+    expect(w.get('[data-test="session-length-error"]').text()).toContain('90')
+  })
+
+  it('reports a refused save', async () => {
+    service.setSessionLength.mockRejectedValueOnce(new Error('confirm it is you'))
+    const w = mount(SignInSettings, stubs)
+    await flushPromises()
+    await w.get('[data-test="session-length-form"]').trigger('submit')
+    await flushPromises()
+    expect(w.get('[data-test="action-error"]').text()).toContain('confirm it is you')
   })
 })
