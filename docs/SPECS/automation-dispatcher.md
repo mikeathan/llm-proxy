@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.22"
+version: "1.23"
 status: stable
-last_updated: 2026-10-25
+last_updated: 2026-10-30
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -13,6 +13,9 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.23 (2026-10-30)** — §V.1 wording: the operator's cancel route is "behind the admin sign-in", not "admin auth"
+  (there was no auth when it was written; since 0.18.0 every `/admin/api` route needs a session or an admin token once
+  a passphrase exists). No behaviour change.
 - **1.22 (2026-10-25)** — §II.8: connector delivery of an audit is a **code-written summary** and the audit pre-flight also
   refuses a **model that is not local**. A run's report hook can supply `ExecuteResponse.Summary`; when it is set, notify delivery
   sends that instead of the report (no digest, no dedup): for a network audit it is one line of counts (addresses up, new,
@@ -495,7 +498,7 @@ eviction is now a **decided** act, not a side effect:
 - **Cancel** — a held caller may end its wait by closing the connection, or out of
   band with `DELETE /v1/queue/{key}`; the key is cryptographically random and is
   returned to the caller in the busy/queued answer. The operator's
-  `POST /admin/api/queue/{key}/cancel` is the same drop behind admin auth.
+  `POST /admin/api/queue/{key}/cancel` is the same drop, behind the admin sign-in (a session or an admin token).
 - **Settings** (`settings.yml → scheduler`, live): `inbound_wait_seconds`
   (default 60) caps a wait a caller requests with `X-Queue-Wait` and is the park
   duration for a header-less caller (`0` refuses immediately, `-1` unbounded);

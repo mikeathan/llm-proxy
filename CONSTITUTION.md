@@ -1,7 +1,7 @@
 ---
 id: LAW
 status: law
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-30
 ---
 
 # Constitution (The Law)
@@ -17,6 +17,14 @@ This document defines the immutable architectural and security laws of the proje
     *   **Provider Infrastructure Carve-Out**: Inference proxy traffic, provider catalogue listing (`ListModels`), local serving-context probes (`/slots`, `/v1/props`, `/api/v1/models`), and provider connection tests use the dedicated shared pooled client injected through the `providers.HTTPDoer` interface (`proxy.SharedTransport`, 45s timeout; 5s child context for local probes). This client never carries agent-tool guardrails — it is a distinct traffic class. Agent-tool network guardrails remain unchanged and mandatory. No raw `http.DefaultClient` / bare `http.Get` is permitted anywhere; provider infrastructure must go through the injected doer.
 3.  **Boundary Enforcement**: The system must strictly distinguish between LAN access and Internet access. Tools must verify destination safety before the first byte is sent.
 4.  **Inbound Webhook Exemption**: Inbound HTTP handlers that receive messages from external platforms (webhooks, callbacks, bot API requests) are exempt from §I.1–I.3. They use standard `net/http` handlers and require no `NetworkTools` wrapper. The exemption applies only to receiving incoming connections — any outbound network call triggered by the handler (e.g. replying to a Telegram message) must still pass through `NetworkTools`.
+
+5.  **The Control Plane Is Authenticated** (added 2026-10-30, plan `admin-api-authentication`; its design records the threat model and the security review). Everything under `/admin/api/` can run code as the service user, change what the agent may do, or erase the data root, so it answers only to a credential, and every surface that does not is **named in an allowlist**:
+    *   **Default deny.** Once a passphrase exists, a request to `/admin/api/*` needs a session cookie or an admin script token, decided from the path by one middleware (`api.Authenticate`), never per handler. `/v1/*` needs an inference key once one exists. A sign-in store that cannot be read refuses (`503`); it never reads as "sign-in off".
+    *   **The allowlist** is: the UI shell and its assets (they hold no data), `GET /admin/api/auth/status`, `POST /admin/api/auth/{login,setup,logout}`, and `/api/v1/webhooks/{connector}`, which carries its own mandatory secret (a connector without one refuses every call). A route test classifies every registered route and fails on one that is in none of these classes, so a new route cannot be open by accident.
+    *   **Credentials are stored as hashes** (the passphrase with argon2id; tokens and session ids with SHA-256), in a file only the service's account can read, outside every workspace. A secret is never logged and never printed at start. The one-time setup code is made only by the command line on the server, as the server's OS user.
+    *   **Destructive actions ask again.** Wiping data, factory reset, the sandbox and terminal switches, stored secrets, MCP servers, new tokens, a longer session, and a settings save that changes what the model server runs need the passphrase confirmed shortly before (step-up). A script token can never do these.
+    *   **Browser protection** applies to `/admin/` whether or not a passphrase exists: an accepted `Host`, no cross-site request (Fetch-Metadata, then Origin), framing and sniffing headers, and no wildcard CORS.
+    *   **Transitional state.** Until the operator sets a passphrase the API stays open and every page says so (a banner), and a new install listens on this machine only. Making sign-in compulsory is a later amendment, which the operator decides.
 
 ## II. Resource Management (The Bounded Deck)
 
