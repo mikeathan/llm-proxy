@@ -140,11 +140,33 @@ describe('startAuth', () => {
     expect(router.currentRoute.value.name).toBe('workspaces')
   })
 
+  it('shows the setup page when a setup code was made after the app loaded', async () => {
+    // The state is read once at start; the code is made on the server later, while the page is open. Following the link to
+    // the setup page must ask the server again, not trust what it said before the code existed.
+    service.status.mockResolvedValueOnce(status({ required: false, setup_open: false }))
+    const router = appRouter()
+    await router.push('/workspaces')
+    expect(router.currentRoute.value.name).toBe('workspaces')
+    service.status.mockResolvedValue(status({ required: false, setup_open: true }))
+    await router.push('/setup')
+    expect(router.currentRoute.value.name).toBe('setup')
+  })
+
+  it('shows the login page after sign-in was set up while the app was open', async () => {
+    service.status.mockResolvedValueOnce(status({ required: false }))
+    const router = appRouter()
+    await router.push('/workspaces')
+    service.status.mockResolvedValue(status({ required: true }))
+    await router.push('/login')
+    expect(router.currentRoute.value.name).toBe('login')
+  })
+
   it('goes to the login page when any request is answered 401', async () => {
     service.status.mockResolvedValue(status({ authenticated: true }))
     const router = appRouter()
     await router.push('/workspaces')
     expect(router.currentRoute.value.name).toBe('workspaces')
+    service.status.mockResolvedValue(status({ authenticated: false })) // what the server now says: the session ended
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })))
     await apiFetch('/admin/api/state')
     await flushPromises()
