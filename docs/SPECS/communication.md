@@ -1,9 +1,9 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.7"
+version: "1.8"
 status: stable
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,16 @@ supersedes:
 # SPEC: Communication Connector System
 
 ## Changelog
+
+- **1.8 (2026-10-29)** — The inbound webhook secret is mandatory. `POST /api/v1/webhooks/{connector}` answers `401` to
+  every call for an enabled connector whose `webhook_token` setting is empty (the log line names the connector); before
+  this an empty secret meant an open endpoint. Telegram sends the secret as `X-Telegram-Bot-Api-Secret-Token` (any
+  connector may use `X-Webhook-Token`). `POST /admin/api/connectors/{name}/webhook` `create` refuses with `400` when the
+  connector has no secret, so a webhook that would be refused is never registered. A secret is created (64 hex
+  characters) when a connector that names a workspace is added, edited or switched on in Settings · Communication, and
+  by `app.New` at startup for an enabled connector with a registered webhook and no secret, before the connectors are
+  built so their startup `setWebhook` carries it; Settings shows a warning with a "Create a secret" action for any
+  inbound connector still without one.
 
 - **1.7 (2026-10-23)** — `/run <automation>` is a registered slash command (`core/commands/run.go`), not a prefix
   the webhook checks itself: it triggers the automation in the connector's workspace, the chat gets its start line

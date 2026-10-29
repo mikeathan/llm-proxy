@@ -104,6 +104,8 @@ func ResolveBindAddr(dataMgr *storage.DataManager) string {
 }
 
 func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logger, buildInfo *buildinfo.Info, recordEnabled bool, enableRuns bool) *App {
+	// Before the connectors are built, so their startup webhook re-registration carries any secret created here.
+	ensureWebhookSecrets(dataMgr)
 	container := bootstrap(dataMgr, logger, recordEnabled, enableRuns)
 	svc := container.BuildAppServices()
 

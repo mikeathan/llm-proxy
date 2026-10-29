@@ -90,7 +90,7 @@ describe('CommunicationSettings', () => {
       [/chat id/i, /separate from the bot token/i],
       [/^bot token/i, /including the colon/i],
       [/workspace for inbound/i, /workspace ID/i],
-      [/webhook secret token/i, /secret you choose/i],
+      [/webhook secret token/i, /one is created when you add a workspace/i],
     ] as const) {
       const control = fieldByLabel(w, label)
       const hint = w.get(`[id="${control.attributes('aria-describedby')}"]`)
@@ -224,6 +224,57 @@ describe('CommunicationSettings', () => {
     await fieldByLabel(w, /webhook secret token/i).setValue('replacement-secret')
     await w.get('form').trigger('submit')
     expect(connectorsNow().tg?.settings.webhook_token).toBe('replacement-secret')
+  })
+
+  describe('webhook secret (an inbound connector without one receives nothing)', () => {
+    const SECRET = /^[0-9a-f]{64}$/
+
+    it('creates a secret for a new connector that receives messages', async () => {
+      const { w, connectorsNow, button } = await mountCommunication()
+      await button(/add connector/i).trigger('click')
+      await fieldByLabel(w, /connector name/i).setValue('alerts')
+      await fieldByLabel(w, /workspace for inbound/i).setValue('ws')
+      await w.get('form').trigger('submit')
+      expect(connectorsNow().alerts?.settings.webhook_token).toMatch(SECRET)
+    })
+
+    it('keeps a secret the operator typed', async () => {
+      const { w, connectorsNow, button } = await mountCommunication()
+      await button(/add connector/i).trigger('click')
+      await fieldByLabel(w, /connector name/i).setValue('alerts')
+      await fieldByLabel(w, /workspace for inbound/i).setValue('ws')
+      await fieldByLabel(w, /webhook secret token/i).setValue('typed-secret')
+      await w.get('form').trigger('submit')
+      expect(connectorsNow().alerts?.settings.webhook_token).toBe('typed-secret')
+    })
+
+    it('gives a send-only connector no secret', async () => {
+      const { w, connectorsNow, button } = await mountCommunication()
+      await button(/add connector/i).trigger('click')
+      await fieldByLabel(w, /connector name/i).setValue('alerts')
+      await w.get('form').trigger('submit')
+      expect(connectorsNow().alerts?.settings.webhook_token).toBeUndefined()
+    })
+
+    it('creates one when an inbound connector without a secret is switched on', async () => {
+      const { w, connectorsNow } = await mountCommunication({ tg: { ...TELEGRAM, enabled: false } })
+      await w.find('input[type="checkbox"]').setValue(true)
+      expect(connectorsNow().tg?.settings.webhook_token).toMatch(SECRET)
+    })
+
+    it('creates one when an inbound connector without a secret is edited', async () => {
+      const { w, connectorsNow, button } = await mountCommunication({ tg: TELEGRAM })
+      await button(/^edit tg$/i).trigger('click')
+      await w.get('form').trigger('submit')
+      expect(connectorsNow().tg?.settings.webhook_token).toMatch(SECRET)
+    })
+
+    it('warns about an inbound connector without a secret, and not about one that has it', async () => {
+      const { w } = await mountCommunication({ tg: TELEGRAM })
+      expect(w.text()).toMatch(/tg is not receiving messages/i)
+      const ok = await mountCommunication({ tg: { ...TELEGRAM, settings: { ...TELEGRAM.settings, webhook_token: 'x' } } })
+      expect(ok.w.text()).not.toMatch(/not receiving messages/i)
+    })
   })
 
   it('shows that a bot token is absent until one is saved, then displays its returned mask', async () => {

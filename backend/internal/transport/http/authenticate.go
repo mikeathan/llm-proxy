@@ -21,6 +21,7 @@ const (
 type Authenticator interface {
 	State() (auth.State, error)
 	Session(id string) (auth.Session, bool)
+	SessionAlive(id string) bool
 	Elevated(auth.Session) bool
 	Token(plain string) (auth.Token, bool)
 	InferenceRequired() bool
@@ -178,7 +179,38 @@ func authenticateAdmin(w http.ResponseWriter, r *http.Request, next http.Handler
 	}
 	ctx := context.WithValue(r.Context(), principalKey{}, p)
 	ctx = context.WithValue(ctx, stepUpKey{}, p.Kind == PrincipalSession && a.Elevated(sess))
+	ctx = context.WithValue(ctx, stillAuthorizedKey{}, func() bool { return credentialStillValid(r, p, a) })
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+type stillAuthorizedKey struct{}
+
+// StillAuthorized says whether the credential a request was let in with still works. A long-lived response (the live
+// event stream) asks it at intervals and ends when it is false: a session signed out or revoked, a revoked token, or a
+// sign-in store that cannot be read, because the request was checked once, when it began. It is true for a context the
+// middleware did not authenticate (the API is open before a passphrase exists).
+func StillAuthorized(ctx context.Context) bool {
+	if check, ok := ctx.Value(stillAuthorizedKey{}).(func() bool); ok {
+		return check()
+	}
+	return true
+}
+
+// credentialStillValid re-checks p without counting the check as a use of the session. Turning sign-in off with
+// `llm-proxy auth reset` leaves a stream open: nothing is required any more.
+func credentialStillValid(r *http.Request, p Principal, a Authenticator) bool {
+	state, err := a.State()
+	if err != nil {
+		return false
+	}
+	if !state.Required {
+		return true
+	}
+	if p.Kind == PrincipalSession {
+		return a.SessionAlive(p.SessionID)
+	}
+	tok, ok := a.Token(bearerToken(r))
+	return ok && tok.Scope == auth.ScopeAdmin
 }
 
 // stepUpAllowed answers a step-up route: a token cannot confirm a passphrase, and a session must have done so recently.

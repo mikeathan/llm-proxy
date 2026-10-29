@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/persistence"
+	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 	"net/http"
 	"path/filepath"
@@ -78,7 +80,13 @@ type DispatcherHandlers struct {
 	workspace  WorkspaceService
 	logger     logging.Logger
 	profiles   ProfileCatalog // nil: profile ids are not checked
+	// recheckEvery is how often an open live stream asks again whether its credential still works; zero means
+	// liveRecheckInterval.
+	recheckEvery time.Duration
 }
+
+// liveRecheckInterval bounds how long a live stream runs on after its session is signed out or revoked.
+const liveRecheckInterval = 30 * time.Second
 
 func NewDispatcherHandlers(d Dispatcher, ws WorkspaceService, logger logging.Logger) *DispatcherHandlers {
 	return &DispatcherHandlers{dispatcher: d, workspace: ws, logger: logger}
@@ -543,27 +551,46 @@ func (h *DispatcherHandlers) StreamWorkspaceEvents(w http.ResponseWriter, r *htt
 
 	// Replay recent events for current run
 	for _, ev := range recent {
-		data, err := json.Marshal(ev)
-		if err != nil {
-			continue
-		}
-		fmt.Fprintf(w, "event: agent_update\ndata: %s\n\n", string(data))
+		writeAgentUpdate(w, ev)
 	}
 	flusher.Flush()
+
+	h.pumpEvents(ctx, w, flusher, ch)
+}
+
+// writeAgentUpdate writes one event to an open stream; an event that cannot be encoded is skipped.
+func writeAgentUpdate(w http.ResponseWriter, ev assistant.AgentEvent) {
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: agent_update\ndata: %s\n\n", string(data))
+}
+
+// pumpEvents sends events until the client goes away, the bus closes the subscription, or the credential the stream
+// was opened with stops working.
+func (h *DispatcherHandlers) pumpEvents(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, ch <-chan assistant.AgentEvent) {
+	every := h.recheckEvery
+	if every <= 0 {
+		every = liveRecheckInterval
+	}
+	recheck := time.NewTicker(every)
+	defer recheck.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-recheck.C:
+			// The request was checked once, when it began; a session revoked since then must not keep listening.
+			if !api.StillAuthorized(ctx) {
+				return
+			}
 		case ev, ok := <-ch:
 			if !ok {
 				return
 			}
-			data, err := json.Marshal(ev)
-			if err != nil {
-				continue
-			}
-			fmt.Fprintf(w, "event: agent_update\ndata: %s\n\n", string(data))
+			writeAgentUpdate(w, ev)
 			flusher.Flush()
 		}
 	}

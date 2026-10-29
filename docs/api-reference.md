@@ -313,7 +313,7 @@ Supports streaming (SSE) with `stream: true`.
 
 ## Public Webhooks
 
-`POST /api/v1/webhooks/{connector_name}` — External platforms post here. No admin auth.
+`POST /api/v1/webhooks/{connector_name}` — External platforms post here. Not covered by admin sign-in: each connector has its own webhook secret (`webhook_token`, sent as `X-Webhook-Token` or, from Telegram, `X-Telegram-Bot-Api-Secret-Token`), and a request without it, or any request to a connector with no secret, gets `401`.
 
 ---
 
