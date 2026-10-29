@@ -88,18 +88,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.Logger.Info("webhook received", "connector", connectorName, "type", cfg.Type)
 
-	expectedToken := cfg.Settings["webhook_token"]
-	if expectedToken != "" {
-		actualToken := r.Header.Get("X-Webhook-Token")
-		if actualToken == "" {
-			actualToken = r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
-		}
-		// Constant-time compare so the token cannot be recovered via timing.
-		if subtle.ConstantTimeCompare([]byte(actualToken), []byte(expectedToken)) != 1 {
-			h.Logger.Warn("webhook: invalid webhook token", "connector", connectorName)
-			writeJSONError(w, http.StatusUnauthorized, "invalid webhook token")
-			return
-		}
+	if !h.authorized(r, connectorName, cfg) {
+		writeJSONError(w, http.StatusUnauthorized, "invalid webhook token")
+		return
 	}
 
 	message, chatID, err := parseInboundMessage(cfg.Type, r)
@@ -131,6 +122,27 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.Logger.Info("webhook: processed successfully", "connector", connectorName)
 	respondJSON(w, map[string]string{"status": "ok"})
+}
+
+// authorized reports whether the request carries the connector's webhook secret. The endpoint is public, so a connector
+// with no secret accepts nothing: with none set, anyone who found the URL could start agent runs. The log names the
+// connector so the operator can find the one that needs a secret.
+func (h *WebhookHandler) authorized(r *http.Request, connectorName string, cfg models.ConnectorConfig) bool {
+	expected := cfg.Settings[models.ConnectorSettingWebhookToken]
+	if expected == "" {
+		h.Logger.Warn("webhook: refused, the connector has no webhook secret; open its settings and register the webhook", "connector", connectorName)
+		return false
+	}
+	actual := r.Header.Get("X-Webhook-Token")
+	if actual == "" {
+		actual = r.Header.Get("X-Telegram-Bot-Api-Secret-Token")
+	}
+	// Constant-time compare so the token cannot be recovered via timing.
+	if subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) != 1 {
+		h.Logger.Warn("webhook: invalid webhook token", "connector", connectorName)
+		return false
+	}
+	return true
 }
 
 // inbound is where a connector message came from: the workspace its connector serves, the connector, and the chat.

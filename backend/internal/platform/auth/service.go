@@ -236,6 +236,34 @@ func (s *Service) checkPassphrase(ctx context.Context, hash, passphrase, addr, f
 
 // Session finds a live session by the id its cookie carries, and notes that it was used. An unreadable store accepts nothing.
 func (s *Service) Session(id string) (Session, bool) {
+	found, ok := s.lookup(id)
+	if !ok {
+		return Session{}, false
+	}
+	hash := found.ID
+	if s.now().Sub(found.LastSeen) >= touchEvery {
+		found.LastSeen = s.now()
+		_ = s.store.Update(func(r *Record) error {
+			for i := range r.Sessions {
+				if r.Sessions[i].ID == hash {
+					r.Sessions[i].LastSeen = found.LastSeen
+				}
+			}
+			return nil
+		})
+	}
+	return found, true
+}
+
+// SessionAlive reports whether the session is still valid, without using it. An open stream asks this at intervals: a
+// check that counted as use would keep a tab nobody is looking at signed in for ever.
+func (s *Service) SessionAlive(id string) bool {
+	_, ok := s.lookup(id)
+	return ok
+}
+
+// lookup finds the live session for a cookie value. It writes nothing.
+func (s *Service) lookup(id string) (Session, bool) {
 	if id == "" {
 		return Session{}, false
 	}
@@ -250,17 +278,6 @@ func (s *Service) Session(id string) (Session, bool) {
 		}
 	}); err != nil || !ok {
 		return Session{}, false
-	}
-	if s.now().Sub(found.LastSeen) >= touchEvery {
-		found.LastSeen = s.now()
-		_ = s.store.Update(func(r *Record) error {
-			for i := range r.Sessions {
-				if r.Sessions[i].ID == hash {
-					r.Sessions[i].LastSeen = found.LastSeen
-				}
-			}
-			return nil
-		})
 	}
 	return found, true
 }

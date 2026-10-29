@@ -1063,16 +1063,17 @@ func newAdminHandlersWithLogger(runtime *mocks.MockManager, admin *mocks.MockAdm
 }
 
 // The webhook endpoint refuses a request before it reaches Telegram: no name, a connector that is not there, one that
-// is not a Telegram bot, a bot with no stored token, a create with no url, and an unknown action.
+// is not a Telegram bot, a bot with no stored token, a create with no url or no webhook secret, and an unknown action.
 func TestAdminConnectorWebhookHandler_RejectsBadRequests(t *testing.T) {
 	registry := models.RegistryData{}
 	registry.Communication.Connectors = map[string]models.ConnectorConfig{
-		"bot":   {Type: models.ConnectorTypeTelegram},
+		"bot":   {Type: models.ConnectorTypeTelegram, Settings: map[string]string{models.ConnectorSettingWebhookToken: "s3cret"}},
+		"nosec": {Type: models.ConnectorTypeTelegram},
 		"other": {Type: "email"},
 		"blank": {Type: models.ConnectorTypeTelegram},
 	}
 	secrets := &mocks.MockSecretsStore{GetSecretFunc: func(category, name string) string {
-		if name == "bot" {
+		if name == "bot" || name == "nosec" {
 			return "stored-bot-token"
 		}
 		return ""
@@ -1093,6 +1094,8 @@ func TestAdminConnectorWebhookHandler_RejectsBadRequests(t *testing.T) {
 		{"not telegram", "other", `{"action":"verify"}`, http.StatusBadRequest},
 		{"no token", "blank", `{"action":"verify"}`, http.StatusBadRequest},
 		{"create without url", "bot", `{"action":"create"}`, http.StatusBadRequest},
+		// Registering would send Telegram a webhook the endpoint then refuses every call to.
+		{"create without a webhook secret", "nosec", `{"action":"create","url":"https://h/x"}`, http.StatusBadRequest},
 		{"unknown action", "bot", `{"action":"explode"}`, http.StatusBadRequest},
 	}
 	for _, tc := range cases {

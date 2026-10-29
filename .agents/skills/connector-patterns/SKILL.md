@@ -27,7 +27,7 @@ Inbound messages are handled by `WebhookHandler` (`POST /api/v1/webhooks/{connec
 2. A case in the `parseInboundMessage` switch
 
 **Security:**
-- Validate the `X-Webhook-Token` header against `cfg.Settings["webhook_token"]`.
+- Validate the `X-Webhook-Token` header against `cfg.Settings[models.ConnectorSettingWebhookToken]`. The secret is mandatory: a connector without one gets `401` for every call (`WebhookHandler.authorized`), so a new platform must register its webhook with the secret and the Settings form must create one.
 - For Telegram: set a secret token via BotFather, it's sent as `X-Telegram-Bot-Api-Secret-Token`.
 - Health-check payloads (empty messages from Telegram) return 200 with no processing.
 

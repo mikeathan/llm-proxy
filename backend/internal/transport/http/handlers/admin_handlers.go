@@ -540,13 +540,17 @@ func (h *AdminHandlers) telegramForConnector(w http.ResponseWriter, name string)
 	// I.2 carve-out), not agent egress: ride the shared pooled transport rather
 	// than a raw client (I.1). No agent-tool guardrails apply here.
 	client := &http.Client{Transport: network.SharedTransport, Timeout: 15 * time.Second}
-	return notifiers.NewTelegramNotifier(token, cfg.Settings["chat_id"], client), cfg.Settings["webhook_token"], true
+	return notifiers.NewTelegramNotifier(token, cfg.Settings["chat_id"], client), cfg.Settings[models.ConnectorSettingWebhookToken], true
 }
 
 // createConnectorWebhook registers url with Telegram and remembers it on the connector.
 func (h *AdminHandlers) createConnectorWebhook(ctx context.Context, w http.ResponseWriter, tg *notifiers.TelegramNotifier, name, url, secret string) {
 	if url == "" {
 		writeJSONError(w, http.StatusBadRequest, "url required")
+		return
+	}
+	if secret == "" {
+		writeJSONError(w, http.StatusBadRequest, "save a webhook secret for this connector first: the endpoint refuses calls without one")
 		return
 	}
 	if err := tg.RegisterWebhook(ctx, url, secret); err != nil {

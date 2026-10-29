@@ -443,3 +443,45 @@ func TestService_UsesTheConfigItIsGivenAtEachRequest(t *testing.T) {
 		t.Error("a session idle for longer than the new idle limit was accepted")
 	}
 }
+
+// A stream checks its session without using it: an open tab that only listens must not keep a session alive past its
+// idle limit, which is what a use of the session (Session) does.
+func TestService_SessionAliveChecksWithoutUsingTheSession(t *testing.T) {
+	s, ck, _ := newTestService(t)
+	id := setUp(t, s)
+	if !s.SessionAlive(id) || s.SessionAlive("not-a-session") || s.SessionAlive("") {
+		t.Fatal("a fresh session must be alive, an unknown or empty id must not")
+	}
+	for range 3 {
+		ck.advance(DefaultConfig().IdleTimeout / 2)
+		s.SessionAlive(id)
+	}
+	if s.SessionAlive(id) {
+		t.Error("checking kept an idle session alive")
+	}
+}
+
+func TestService_SessionAliveEndsWithTheSession(t *testing.T) {
+	s, _, _ := newTestService(t)
+	id := setUp(t, s)
+	s.Logout(id)
+	if s.SessionAlive(id) {
+		t.Error("a signed-out session was still alive")
+	}
+	other := setUp2Login(t, s)
+	if err := s.RevokeAllSessions(); err != nil {
+		t.Fatal(err)
+	}
+	if s.SessionAlive(other) {
+		t.Error("a session survived signing out everywhere")
+	}
+}
+
+func setUp2Login(t *testing.T, s *Service) string {
+	t.Helper()
+	id, err := s.Login(context.Background(), goodPass, "10.0.0.2", "Chrome")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}

@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -243,5 +245,56 @@ func TestWebhookHandler_RunCommandSendsTheAutomationsResult(t *testing.T) {
 	}
 	if sent := conn.sentMessages(); len(sent) != 2 || sent[0] != "Running 'news'..." || sent[1] != "the news report" {
 		t.Errorf("connector was sent %q, want the start line then the report", sent)
+	}
+}
+
+// webhookCall posts an empty Telegram update to the connector's webhook with the given secret header.
+func webhookCall(cfg models.ConnectorConfig, header, secret string) *httptest.ResponseRecorder {
+	reg := models.RegistryData{Communication: models.CommunicationConfig{Connectors: map[string]models.ConnectorConfig{"tg": cfg}}}
+	h := &WebhookHandler{Registry: func() models.RegistryData { return reg }, Logger: logging.NewNopLogger()}
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/v1/webhooks/{connector_name}", h)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/tg", strings.NewReader("{}"))
+	if header != "" {
+		req.Header.Set(header, secret)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+// An enabled connector with no webhook secret accepts nothing: an open endpoint would let anyone who finds the URL
+// start agent runs.
+func TestWebhookHandler_ConnectorWithoutSecretRefusesEveryCall(t *testing.T) {
+	cfg := models.ConnectorConfig{Type: models.ConnectorTypeTelegram, Enabled: true, Settings: map[string]string{"workspace_id": "ws"}}
+	for _, header := range []string{"", "X-Webhook-Token", "X-Telegram-Bot-Api-Secret-Token"} {
+		if rec := webhookCall(cfg, header, ""); rec.Code != http.StatusUnauthorized {
+			t.Errorf("header %q: status = %d, want 401", header, rec.Code)
+		}
+	}
+}
+
+func TestWebhookHandler_SecretIsChecked(t *testing.T) {
+	cfg := models.ConnectorConfig{Type: models.ConnectorTypeTelegram, Enabled: true, Settings: map[string]string{"workspace_id": "ws", "webhook_token": "s3cret"}}
+	cases := []struct {
+		name, header, secret string
+		want                 int
+	}{
+		{"none sent", "", "", http.StatusUnauthorized},
+		{"wrong", "X-Webhook-Token", "nope", http.StatusUnauthorized},
+		{"right, own header", "X-Webhook-Token", "s3cret", http.StatusOK},
+		{"right, Telegram header", "X-Telegram-Bot-Api-Secret-Token", "s3cret", http.StatusOK},
+	}
+	for _, tc := range cases {
+		if rec := webhookCall(cfg, tc.header, tc.secret); rec.Code != tc.want {
+			t.Errorf("%s: status = %d, want %d", tc.name, rec.Code, tc.want)
+		}
+	}
+}
+
+func TestWebhookHandler_DisabledConnectorIsNotFound(t *testing.T) {
+	cfg := models.ConnectorConfig{Type: models.ConnectorTypeTelegram, Settings: map[string]string{"webhook_token": "s3cret"}}
+	if rec := webhookCall(cfg, "X-Webhook-Token", "s3cret"); rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }

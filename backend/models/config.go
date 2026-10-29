@@ -563,6 +563,10 @@ const (
 	ConnectorTypeTelegram = "telegram"
 )
 
+// ConnectorSettingWebhookToken is the Settings key of the secret an inbound webhook request must carry. A connector
+// without one accepts no inbound call.
+const ConnectorSettingWebhookToken = "webhook_token"
+
 // CommunicationConfig holds configuration for all outbound communication connectors.
 // Each entry in Connectors maps a user-assigned name (e.g. "my-telegram") to a
 // ConnectorConfig that specifies the type, settings, and secret reference.

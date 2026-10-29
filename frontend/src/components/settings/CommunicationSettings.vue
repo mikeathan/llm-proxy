@@ -6,8 +6,10 @@ import { AdminApiService } from "../../services/admin/adminService"
 import { useWebhook } from "../../composables/useWebhook"
 import { useToolSecrets } from "../../composables/useToolSecrets"
 import { useConfirm } from "../../composables/ui/useConfirm"
+import { newWebhookSecret, needsWebhookSecret } from "../../utils/webhookSecret"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import BaseToggle from "../common/buttons/BaseToggle.vue"
+import Callout from "../common/feedback/Callout.vue"
 import Panel from "../common/layout/Panel.vue"
 import DataTable from "../common/display/DataTable.vue"
 import FormField from "../common/forms/FormField.vue"
@@ -49,6 +51,8 @@ const connectors = computed({
   },
 })
 const connectorNames = computed(() => Object.keys(connectors.value))
+// Enabled connectors that receive messages but have no secret: the server refuses every call to them.
+const withoutSecret = computed(() => connectorNames.value.filter((name) => needsWebhookSecret(connectors.value[name]!)))
 const withInbound = computed(() => connectorNames.value.filter((name) => connectors.value[name]?.settings?.workspace_id))
 
 const showForm = ref(false)
@@ -122,6 +126,7 @@ function applyForm() {
   if (form.value.workspace_id) settings.workspace_id = form.value.workspace_id
   if (form.value.webhook_token) settings.webhook_token = form.value.webhook_token
   else if (isEditing.value && existing?.settings?.webhook_token) settings.webhook_token = existing.settings.webhook_token
+  else if (settings.workspace_id) settings.webhook_token = newWebhookSecret()
 
   const updated = { ...connectors.value }
   updated[name] = existing && isEditing.value
@@ -167,7 +172,16 @@ async function removeConnector(name: string) {
 
 function setEnabled(name: string, enabled: boolean) {
   const current = connectors.value[name]
-  if (current) connectors.value = { ...connectors.value, [name]: { ...current, enabled } }
+  if (!current) return
+  const next = { ...current, enabled }
+  if (needsWebhookSecret(next)) next.settings = { ...next.settings, webhook_token: newWebhookSecret() }
+  connectors.value = { ...connectors.value, [name]: next }
+}
+
+// Stages a new secret for a connector that has none (saved by Save; Register then tells Telegram).
+function createSecret(name: string) {
+  const current = connectors.value[name]
+  if (current) connectors.value = { ...connectors.value, [name]: { ...current, settings: { ...current.settings, webhook_token: newWebhookSecret() } } }
 }
 
 function closeForm() {
@@ -201,6 +215,13 @@ const COLUMNS: DataTableColumn<string>[] = [
 
 <template>
   <div class="flex flex-col gap-4">
+    <Callout v-for="name in withoutSecret" :key="`nosecret-${name}`" tone="warning" :title="`${name} is not receiving messages`">
+      It has no webhook secret, and the server refuses inbound calls to a connector without one. Create a secret, save, then register the webhook again so Telegram sends it.
+      <template #actions>
+        <BaseButton variant="secondary" size="sm" @click="createSecret(name)">Create a secret</BaseButton>
+      </template>
+    </Callout>
+
     <Panel title="Connectors" flush>
       <template #actions>
         <BaseButton variant="ghost" size="sm" @click="showTelegramHelp = true">Telegram setup help</BaseButton>
@@ -269,7 +290,7 @@ const COLUMNS: DataTableColumn<string>[] = [
               <input :id="id" v-model="form.token" :placeholder="botTokenPlaceholder" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" data-1p-ignore data-lpignore="true" />
             </template>
           </FormField>
-          <FormField label="Webhook secret token" :hint="isEditing ? 'Optional. Leave empty to keep the configured secret, or enter a new one to replace it. Save, then register the webhook again to apply a replacement at Telegram.' : 'Optional. A separate secret you choose to verify incoming webhook requests. Use letters, numbers, underscores or hyphens (1–256 characters).'">
+          <FormField label="Webhook secret token" :hint="isEditing ? 'Leave empty to keep the configured secret, or enter a new one to replace it. Save, then register the webhook again to apply a replacement at Telegram.' : 'Required to receive messages. Leave empty and one is created when you add a workspace. Or choose your own: letters, numbers, underscores or hyphens (1–256 characters).'">
             <template #tag><span class="font-mono text-[length:var(--text-micro)] text-faint">{{ webhookSecretStatus }}</span></template>
             <template #default="{ id, describedBy }">
               <input :id="id" v-model="form.webhook_token" :placeholder="webhookSecretPlaceholder" :aria-describedby="describedBy" type="password" class="form-control font-mono" autocomplete="new-password" data-1p-ignore data-lpignore="true" />

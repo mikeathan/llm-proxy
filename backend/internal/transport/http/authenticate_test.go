@@ -1,6 +1,8 @@
 package api
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -22,6 +24,10 @@ func (f *fakeAuth) State() (auth.State, error) { return f.state, f.stateErr }
 func (f *fakeAuth) Session(id string) (auth.Session, bool) {
 	s, ok := f.sessions[id]
 	return s, ok
+}
+func (f *fakeAuth) SessionAlive(id string) bool {
+	_, ok := f.sessions[id]
+	return ok
 }
 func (f *fakeAuth) Elevated(s auth.Session) bool { return time.Now().Before(s.ElevatedUntil) }
 func (f *fakeAuth) Token(plain string) (auth.Token, bool) {
@@ -276,5 +282,71 @@ func TestRefuseStepUp_SaysWhatToDo(t *testing.T) {
 		if code != http.StatusForbidden || !strings.Contains(body, c.want) {
 			t.Errorf("%s: %d %q, want 403 containing %q", c.name, code, body, c.want)
 		}
+	}
+}
+
+// handlerSeeing runs the middleware around a handler that records what StillAuthorized says for its request.
+func handlerSeeing(a Authenticator, got *[]bool) http.Handler {
+	return Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*got = append(*got, StillAuthorized(r.Context()))
+	}), a)
+}
+
+func serve(h http.Handler, mod func(*http.Request)) {
+	r := httptest.NewRequest(http.MethodGet, "/admin/api/dispatcher/workspaces/w/live", nil)
+	mod(r)
+	h.ServeHTTP(httptest.NewRecorder(), r)
+}
+
+// An open stream asks again whether the credential it started with still works: a session that was signed out or
+// revoked, a revoked token, and a store that cannot be read all end it.
+func TestStillAuthorized_FollowsTheCredentialTheRequestStartedWith(t *testing.T) {
+	f := newFake()
+	var seen []bool
+	h := handlerSeeing(f, &seen)
+
+	serve(h, cookie("sess"))
+	serve(h, func(r *http.Request) { r.Header.Set("Authorization", "Bearer lp_admin") })
+	if len(seen) != 2 || !seen[0] || !seen[1] {
+		t.Fatalf("a valid session and token must read as authorized: %v", seen)
+	}
+
+	var still func() bool
+	h2 := Authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		still = func() bool { return StillAuthorized(ctx) }
+	}), f)
+	serve(h2, cookie("sess"))
+	delete(f.sessions, "sess")
+	if still() {
+		t.Error("a revoked session still read as authorized")
+	}
+
+	serve(h2, func(r *http.Request) { r.Header.Set("Authorization", "Bearer lp_admin") })
+	delete(f.tokens, "lp_admin")
+	if still() {
+		t.Error("a revoked token still read as authorized")
+	}
+
+	f.sessions["sess"] = auth.Session{}
+	serve(h2, cookie("sess"))
+	f.stateErr = errors.New("unreadable")
+	if still() {
+		t.Error("an unreadable sign-in store read as authorized")
+	}
+}
+
+// Before a passphrase exists nothing is signed in and nothing is revoked; and a request that never went through the
+// middleware (a test, a handler used on its own) has nothing to re-check.
+func TestStillAuthorized_OpenWhenNoSignInIsRequired(t *testing.T) {
+	if !StillAuthorized(context.Background()) {
+		t.Error("a context the middleware never saw must read as authorized")
+	}
+	f := newFake()
+	f.state.Required = false
+	var seen []bool
+	serve(handlerSeeing(f, &seen), func(*http.Request) {})
+	if len(seen) != 1 || !seen[0] {
+		t.Errorf("open API: %v", seen)
 	}
 }
