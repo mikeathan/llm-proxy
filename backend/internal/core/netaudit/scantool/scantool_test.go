@@ -2,8 +2,11 @@ package scantool
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -209,5 +212,38 @@ func TestTool_ARunWithNoSettingsUsesTheModelsArguments(t *testing.T) {
 	}
 	if s.got.Mode != netaudit.ModePorts || s.got.Ports != "80" || len(s.got.Targets) != 1 {
 		t.Errorf("an ordinary run is unchanged: %+v", s.got)
+	}
+}
+
+// The tool's mode list is what a model may ask for; it is exactly the modes an ordinary scan accepts, so the intrusive deep
+// mode cannot be added to the manifest without this test failing (Constitution II.3, "Intrusive runs": never from an agent).
+func TestManifest_ModeEnumIsExactlyTheOrdinaryModes(t *testing.T) {
+	raw, err := os.ReadFile("../../tools/manifests/netaudit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Parameters struct {
+			Properties struct {
+				Mode struct {
+					Enum []string `json:"enum"`
+				} `json:"mode"`
+			} `json:"properties"`
+		} `json:"parameters"`
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, m := range netaudit.Modes() {
+		want = append(want, string(m))
+	}
+	got := slices.Clone(manifest.Parameters.Properties.Mode.Enum)
+	slices.Sort(got)
+	if !slices.Equal(got, want) {
+		t.Errorf("the tool offers %v, the ordinary scan modes are %v", got, want)
+	}
+	if slices.Contains(got, string(netaudit.ModeDeep)) {
+		t.Error("the deep check must never be offered to a model")
 	}
 }

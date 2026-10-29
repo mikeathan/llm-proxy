@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+
+<nmaprun scanner="nmap" args="nmap" start="0" startstr="" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="22"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1793288936" endtime="1793288936"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.10" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="22"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="ssh" product="OpenSSH" version="9.6p1 Ubuntu 3ubuntu13.20" extrainfo="Ubuntu Linux; protocol 2.0" ostype="Linux" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:9.6p1</cpe><cpe>cpe:/o:linux:linux_kernel</cpe></service><script id="ssh-auth-methods" output="&#xa;  Supported authentication methods: &#xa;    publickey&#xa;    password"><table key="Supported authentication methods">
+<elem>publickey</elem>
+<elem>password</elem>
+</table>
+</script></port>
+</ports>
+<times srtt="6070" rttvar="6070" to="400000"/>
+</host>
+<runstats><finished time="0" timestr="" summary="Nmap done at Thu Oct 29 15:48:56 2026; 1 IP address (1 host up) scanned in 0.58 seconds" elapsed="0.58" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

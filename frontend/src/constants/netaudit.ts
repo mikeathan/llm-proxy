@@ -21,6 +21,8 @@ export const ACCEPT_DAY_OPTIONS: ChoiceOption[] = [
   { value: '365', label: '1 year' },
 ]
 export const ACCEPT_NOTE_MAX = 200
+/** The most ports one deep check looks at (the server's netaudit.MaxDeepPorts). */
+export const MAX_DEEP_PORTS = 16
 /** The most ports one device's expectation may list; the server refuses more. */
 export const MAX_EXPECTED_PORTS = 64
 
@@ -30,6 +32,7 @@ export const HELP_TOPIC_LABELS: Record<NetauditHelpTopic, string> = {
   reports: 'Reading a report',
   vulns: 'Known vulnerabilities',
   fixes: 'Fixing a finding',
+  deep: 'The deep check',
   safety: 'Is it safe?',
   words: 'Words explained',
 }
@@ -82,10 +85,21 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'In Advanced, the commands are there to copy. Read each one first: they are written for common systems and yours may differ.',
     ],
   },
+  deep: {
+    title: HELP_TOPIC_LABELS.deep,
+    paragraphs: [
+      'The deep check looks harder at one device, and only when you ask for it from the Advanced view. It is the one thing here that sends more than ordinary connections, so it never runs on a schedule and no assistant can start it. You confirm your passphrase first.',
+      'It reads which ports the last scan found open and looks at those, up to 16. On a service that speaks TLS (secure web pages and similar) it opens about 60 connections in a row to list which TLS versions and ciphers the service still accepts. A fragile device, such as an old printer or camera, can slow down or restart under that.',
+      'On an SSH service it starts one login with a made-up user name, only to learn whether the server accepts passwords. It guesses no password and changes nothing, but the device will log a failed login from this computer.',
+      'It reports old TLS versions, weak ciphers and SSH password login. A device with no TLS or SSH service gives it nothing to look at: the result then says so, which is not the same as nothing being wrong.',
+      'A device can be checked once every ten minutes. The result is kept, and every later nightly audit carries its findings, marked with the date of the deep check, until the device is checked again (after 90 days an old result is dropped).',
+    ],
+  },
   safety: {
     title: HELP_TOPIC_LABELS.safety,
     paragraphs: [
       'Only addresses inside your home or office network can be scanned. Internet addresses are always refused, whatever you type.',
+      'A normal scan or audit only looks: it never signs in to a device or tries a password. The deep check is the one exception, and it is described in its own part of this help.',
       'The scan runs in a private folder, and the program is limited to it by the operating system where that is possible. Where it is not, scans refuse to run unless you allow it for development.',
       'Nightly audits use a model that runs on this computer, so the list of your devices never leaves it.',
     ],

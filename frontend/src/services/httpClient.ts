@@ -54,13 +54,16 @@ export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {})
   return res
 }
 
-// A failed request. `field` is the setting a server-side validation refused, when the server says so.
+// A failed request. `field` is the setting a server-side validation refused, when the server says so; `status` is the HTTP
+// status the server answered with (0 for an error made without a response).
 export class HttpError extends Error {
   field: string
+  status: number
 
-  constructor(message: string, field = '') {
+  constructor(message: string, field = '', status = 0) {
     super(message)
     this.field = field
+    this.status = status
   }
 }
 
@@ -70,7 +73,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as Record<string, string>
-    throw new HttpError(err['error'] || res.statusText, err['field'])
+    throw new HttpError(err['error'] || res.statusText, err['field'], res.status)
   }
   return res.json() as Promise<T>
 }

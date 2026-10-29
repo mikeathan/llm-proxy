@@ -146,6 +146,45 @@ var guides = map[string]FixGuide{
 		Risk: "Remote Desktop clients too old to support Network Level Authentication can no longer connect.",
 		Undo: "Untick the box in System Properties, or run the same command with 0 instead of 1.",
 	},
+	CheckTLSWeakProtocol: {
+		Steps: []string{
+			"Find which program answers on that port (a web server, a router or NAS page, a mail server) and open its TLS settings.",
+			"Allow TLS 1.2 and TLS 1.3 only. Turn off SSL 3.0, TLS 1.0 and TLS 1.1.",
+			"Test the configuration, then restart or reload the service. If the device has no such setting, update its firmware or keep it off the main network.",
+			"Run the deep check again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "# nginx: in the server or http block of its configuration set\n#   ssl_protocols TLSv1.2 TLSv1.3;\nsudo nginx -t && sudo systemctl reload nginx\n# Apache: in the TLS configuration set\n#   SSLProtocol -all +TLSv1.2 +TLSv1.3\nsudo apachectl configtest && sudo systemctl reload apache2"},
+		},
+		Risk: "Clients too old to speak TLS 1.2, such as Windows XP, very old phones and some embedded devices, can no longer connect.",
+		Undo: "Put the saved configuration back (or add the old version to the protocol line again) and reload the service.",
+	},
+	CheckTLSWeakCipher: {
+		Steps: []string{
+			"Find which program answers on that port and open its TLS settings.",
+			"Replace the cipher list with a current recommended one (the 'intermediate' list published by Mozilla is a good start). Remove RC4, 3DES, export-grade and anonymous ciphers.",
+			"Test the configuration, then restart or reload the service.",
+			"Run the deep check again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "# nginx: set ssl_ciphers to the Mozilla 'intermediate' list and\n#   ssl_prefer_server_ciphers off;\nsudo nginx -t && sudo systemctl reload nginx"},
+		},
+		Risk: "Clients that only support the removed ciphers can no longer connect.",
+		Undo: "Put the saved configuration back and reload the service.",
+	},
+	CheckSSHPasswordLogin: {
+		Steps: []string{
+			"Put your public key on the account you use (ssh-copy-id), and confirm a key login works in a new window. Keep the old window open until you have.",
+			"Set PasswordAuthentication to no (and KbdInteractiveAuthentication to no) in the SSH server's configuration.",
+			"Test the configuration, then restart the SSH service.",
+			"Run the deep check again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak\n# in /etc/ssh/sshd_config set:\n#   PasswordAuthentication no\n#   KbdInteractiveAuthentication no\n# files in /etc/ssh/sshd_config.d/ can override this: check them too\nsudo sshd -t && sudo systemctl restart ssh"},
+		},
+		Risk: "An account with no working key can no longer sign in over SSH, so test a key login first and keep a console or an open session as a way back.",
+		Undo: "Put the saved sshd_config.bak back and restart the SSH service.",
+	},
 	CheckSSHWeakHostKey: {
 		Steps: []string{
 			"Check which host keys the server uses: look for HostKey lines in its configuration, and list the key files.",

@@ -20,7 +20,7 @@ var oneTarget = []netip.Addr{netip.MustParseAddr("192.168.1.5"), netip.MustParse
 
 // allowedFlags is every flag nmap may be started with. A flag outside this set is a change to review.
 var allowedFlags = map[string]bool{
-	"-n": true, "--unprivileged": true, "-oX": true, "-T3": true, "--max-retries": true, "--host-timeout": true,
+	"-n": true, "--unprivileged": true, "-oX": true, "-T3": true, "-T2": true, "--max-retries": true, "--host-timeout": true,
 	"--max-rate": true, "-sn": true, "-sT": true, "-Pn": true, "-sV": true, "--version-intensity": true,
 	"--top-ports": true, "-p": true, "-T4": true, "--script": true, "--script-timeout": true, "--min-hostgroup": true, "-PS22,80,443,445,5000,8080": true,
 }
@@ -270,6 +270,77 @@ func TestArgs_DoNotHideDevicesThatHaveNothingOpen(t *testing.T) {
 		args, _ := Args(req(mode, "", true, false))
 		if slices.Contains(args, "--open") {
 			t.Errorf("%s: --open makes nmap leave a device with no open ports out of its output, and the audit would call it unscanned: %v", mode, args)
+		}
+	}
+}
+
+func deepReq(ports string, targets ...netip.Addr) netaudit.ScanRequest {
+	return netaudit.ScanRequest{Targets: targets, Mode: netaudit.ModeDeep, Ports: ports}
+}
+
+var deepTarget = netip.MustParseAddr("192.168.1.5")
+
+// The deep check runs the two reviewed scripts and nothing else, on one device and only the ports it was given, gently.
+func TestArgs_DeepModeIsOneDeviceOnTheGivenPortsWithTheTwoScripts(t *testing.T) {
+	args, err := Args(deepReq("22,443", deepTarget))
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.Index(args, "--script")
+	if i < 0 || args[i+1] != "ssh-auth-methods,ssl-enum-ciphers" || args[i+1] != strings.Join(netaudit.DeepScriptNames(), ",") {
+		t.Errorf("the deep scripts are exactly DeepScriptNames(): %v", args)
+	}
+	for _, want := range []string{"-sT", "-sV", "-Pn", "-T2"} {
+		if !slices.Contains(args, want) {
+			t.Errorf("missing %s: %v", want, args)
+		}
+	}
+	if j := slices.Index(args, "--max-rate"); j < 0 || args[j+1] != "50" {
+		t.Errorf("the deep check is rate limited to 50 packets a second: %v", args)
+	}
+	if j := slices.Index(args, "-p"); j < 0 || args[j+1] != "22,443" {
+		t.Errorf("only the ports it was given: %v", args)
+	}
+	if args[len(args)-1] != "192.168.1.5" || slices.Contains(args, "--min-hostgroup") {
+		t.Errorf("one target, last: %v", args)
+	}
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") && a != "-" && !allowedFlags[a] {
+			t.Errorf("flag %q is not in the allowed set", a)
+		}
+		if slices.Contains(forbiddenFlags, a) {
+			t.Errorf("forbidden flag %q", a)
+		}
+	}
+}
+
+func TestArgs_DeepModeRefusesWhatIsNotOneDeviceWithPorts(t *testing.T) {
+	other := netip.MustParseAddr("192.168.1.6")
+	for name, r := range map[string]netaudit.ScanRequest{
+		"two devices":        deepReq("22", deepTarget, other),
+		"no device":          deepReq("22"),
+		"no ports":           deepReq("", deepTarget),
+		"a port list attack": deepReq("22;--script=ftp-brute", deepTarget),
+	} {
+		if _, err := Args(r); err == nil {
+			t.Errorf("%s: want an error", name)
+		}
+	}
+}
+
+// A nightly audit can never load a deep script: none of the ordinary modes names one.
+func TestArgs_NoOrdinaryModeAsksForADeepScript(t *testing.T) {
+	for _, mode := range netaudit.Modes() {
+		args, err := Args(req(mode, "22,443", false, false))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range args {
+			for _, deep := range netaudit.DeepScriptNames() {
+				if strings.Contains(a, deep) {
+					t.Errorf("%s asks for the deep script %s", mode, deep)
+				}
+			}
 		}
 	}
 }

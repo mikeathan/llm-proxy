@@ -88,6 +88,7 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPut, "/admin/api/host"}, // the sandbox and terminal switches
 	{http.MethodPost, "/admin/api/auth/tokens"},
 	{http.MethodPut, "/admin/api/auth/session-length"}, // a longer session weakens sign-in
+	{http.MethodPost, "/admin/api/netaudit/deep"},      // an intrusive scan of one device (Constitution II.3): the operator, freshly confirmed
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

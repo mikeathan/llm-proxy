@@ -19,6 +19,7 @@ export const API_ENDPOINTS = {
   netauditAcks: `${API_BASE}/netaudit/acks`,
   netauditFixes: `${API_BASE}/netaudit/fixes`,
   netauditExpectations: `${API_BASE}/netaudit/expectations`,
+  netauditDeep: `${API_BASE}/netaudit/deep`,
   authStatus: `${API_BASE}/auth/status`,
   authSetup: `${API_BASE}/auth/setup`,
   authLogin: `${API_BASE}/auth/login`,

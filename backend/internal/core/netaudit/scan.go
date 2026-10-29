@@ -17,6 +17,9 @@ var (
 	ErrBadMode = errors.New("unknown scan mode")
 	// ErrScanBusy means another scan is already running; scans run one at a time.
 	ErrScanBusy = errors.New("another scan is already running")
+	// ErrIntrusiveRefused means the ordinary scan path was asked for an intrusive mode. Only the operator's own deep-check
+	// request may run one (Constitution II.3, "Intrusive runs").
+	ErrIntrusiveRefused = errors.New("this mode is intrusive and cannot be started this way")
 	// ErrNmapRequired means the request needs nmap and it cannot be used: the mode needs it, or the run is
 	// unattended and a limited engine must never stand in silently.
 	ErrNmapRequired = errors.New("nmap is required for this scan")
@@ -188,6 +191,9 @@ func (s *Service) Scan(ctx context.Context, req Request) (Result, error) {
 func (s *Service) prepare(ctx context.Context, req Request) (ScanRequest, error) {
 	if !req.Mode.Valid() {
 		return ScanRequest{}, fmt.Errorf("%w: %q (use one of %v)", ErrBadMode, req.Mode, Modes())
+	}
+	if req.Mode.Spec().Intrusive {
+		return ScanRequest{}, fmt.Errorf("%w: %q (use one of %v)", ErrIntrusiveRefused, req.Mode, Modes())
 	}
 	ports, err := ValidatePorts(req.Ports)
 	if err != nil {

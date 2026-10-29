@@ -23,6 +23,7 @@ type RunReporter struct {
 	fixes  FixStore         // optional: findings the operator marked as fixed
 	vulns  VulnSource       // optional: the vulnerability data known_vulns findings are matched against
 	expect ExpectationStore // optional: what the operator says each device should offer
+	deep   DeepReader       // optional: the operator's last deep check of each device
 	now    func() time.Time
 }
 
@@ -48,6 +49,14 @@ func (r *RunReporter) WithFixes(fixes FixStore) *RunReporter {
 // findings, so they are compared with the last scan, accepted and kept like any other. Without it nothing is compared.
 func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
 	r.expect = store
+	return r
+}
+
+// WithDeepChecks makes the reporter carry the findings of the operator's last deep check of each device into the scan, so
+// they are compared, accepted and kept like any other. A nightly scan does not repeat a deep check, so without this they
+// would vanish from the report the next night. Without it nothing is carried.
+func (r *RunReporter) WithDeepChecks(store DeepReader) *RunReporter {
+	r.deep = store
 	return r
 }
 
@@ -78,7 +87,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		return report
 	}
 	cov := r.addKnownVulns(ctx, &result)
-	expectNote := r.addExpectations(workspaceID, &result)
+	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
@@ -292,4 +301,67 @@ func (r *RunReporter) addExpectations(workspaceID string, result *Result) string
 	}
 	result.Findings = append(result.Findings, ExpectationFindings(items, result.Hosts)...)
 	return ""
+}
+
+// DeepCarryMaxAge is how long a deep check's findings are carried into the audit's reports. After that the device has to be
+// checked again: an old result must not stay in the report for ever as if it were current.
+const DeepCarryMaxAge = 90 * 24 * time.Hour
+
+// DeepReader reads the stored deep checks of a workspace.
+type DeepReader interface {
+	ReadDeepChecks(workspaceID string) ([]models.DeepCheck, error)
+}
+
+// addDeepChecks appends the findings of the stored deep checks to the result, before the comparison with the last scan.
+// A finding is carried only while this scan saw its device up and finished, and its port still open (otherwise it is not
+// known to be true any more), only if it is a deep check's finding, and only for DeepCarryMaxAge. Each carries the date
+// of the deep check in its evidence. A store that cannot be read is stated in the report and never stops the scan from
+// being reported.
+func (r *RunReporter) addDeepChecks(workspaceID string, result *Result) string {
+	if r.deep == nil {
+		return ""
+	}
+	items, err := r.deep.ReadDeepChecks(workspaceID)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: the deep check results could not be read, so they were not carried into this report (%v).", err)
+	}
+	now := r.now()
+	for _, check := range items {
+		if now.Sub(check.At) > DeepCarryMaxAge || !deviceAnswering(result.Hosts, check.Device) {
+			continue
+		}
+		for _, f := range check.Findings {
+			if !IsDeepCheck(f.Check) || !portOpen(result.Hosts, f) {
+				continue
+			}
+			f.Evidence += " (from the deep check of " + check.At.UTC().Format("2006-01-02") + ")"
+			result.Findings = append(result.Findings, f)
+		}
+	}
+	return ""
+}
+
+// deviceAnswering is true when the scan saw the device up and finished looking at it.
+func deviceAnswering(hosts []Host, device string) bool {
+	for _, h := range hosts {
+		if h.Addr.String() == device {
+			return h.Up && !h.Unscanned
+		}
+	}
+	return false
+}
+
+// portOpen is true when the scan found the finding's port open on its device.
+func portOpen(hosts []Host, f Finding) bool {
+	for _, h := range hosts {
+		if h.Addr.String() != f.Device {
+			continue
+		}
+		for _, p := range h.Ports {
+			if p.Number == f.Port && p.Proto == f.Proto && p.State == "open" {
+				return true
+			}
+		}
+	}
+	return false
 }

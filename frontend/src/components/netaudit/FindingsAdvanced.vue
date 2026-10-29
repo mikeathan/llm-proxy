@@ -7,11 +7,11 @@ import { describePort, isCheck } from "../../utils/netaudit/friendly"
 import { openPortsOf } from "../../utils/netaudit/expectations"
 import { groupByDevice, groupProblems } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import type { DeviceExpectation, FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
+import type { DeepCheck, DeviceExpectation, FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
 
 // The Advanced report: a tile for each part (they filter the list), the problems the checks found grouped by kind, then
 // every device with its ports, services and versions. Both views read the same data.
-const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; expectations?: readonly DeviceExpectation[] }>(), { expectations: () => [] })
+const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; expectations?: readonly DeviceExpectation[]; deepChecks?: readonly DeepCheck[]; deepRunning?: string }>(), { expectations: () => [], deepChecks: () => [], deepRunning: "" })
 const emit = defineEmits<{
   (e: "accept", finding: ScanFinding): void
   (e: "revoke", finding: ScanFinding): void
@@ -21,6 +21,7 @@ const emit = defineEmits<{
   (e: "expect", device: string, ports: number[]): void
   (e: "edit-expected", device: string): void
   (e: "unexpect", device: string): void
+  (e: "deep", device: string): void
 }>()
 
 const filter = ref<FindingFilter>("all")
@@ -72,6 +73,7 @@ const pick = (value: FindingFilter) => { filter.value = filter.value === value ?
 const needsLook = (device: string) =>
   props.summary.problems.some((f) => f.device === device) || (!props.summary.baseline && [...props.summary.added, ...props.summary.changed].some((f) => f.device === device))
 const expectedOf = (device: string) => props.expectations.find((e) => e.device === device)
+const deepOf = (device: string) => props.deepChecks.find((c) => c.device === device)
 const problemsOn = (device: string) => props.summary.problems.filter((f) => f.device === device).length
 const isOpen = (device: string) => toggled.value[device] ?? (filter.value !== "all" || needsLook(device))
 const toggle = (device: string) => { toggled.value = { ...toggled.value, [device]: !isOpen(device) } }
@@ -116,6 +118,10 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
         @accept="emit('accept', $event)"
         @revoke="emit('revoke', $event)"
         :expected="expectedOf(g.device)"
+        :deep="deepOf(g.device)"
+        :deep-running="deepRunning === g.device"
+        :deep-busy="deepRunning !== ''"
+        @deep="emit('deep', $event)"
         @expect="emit('expect', $event, openPortsOf(report.findings, $event))"
         @edit-expected="emit('edit-expected', $event)"
         @unexpect="emit('unexpect', $event)"
