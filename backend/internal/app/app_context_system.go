@@ -291,7 +291,9 @@ func applyRegistryFields(reg *models.RegistryData, req models.SystemUpdatePayloa
 		reg.FallbackModel = req.FallbackModel
 	}
 	if req.Communication != nil {
-		reg.Communication = *req.Communication
+		next := *req.Communication
+		next.KeepStoredWebhookSecrets(reg.Communication)
+		reg.Communication = next
 	}
 	if req.Search != nil {
 		reg.Search = *req.Search

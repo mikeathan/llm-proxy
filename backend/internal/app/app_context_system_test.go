@@ -310,3 +310,33 @@ func TestSystemUpdateChangesWhatRuns(t *testing.T) {
 		}
 	}
 }
+
+// The settings page reads a masked webhook secret and sends it back on every save of the communication block: the save
+// must keep the stored secret, not store the mask, and a typed replacement must still replace it.
+func TestApplySystemUpdate_MaskedWebhookSecretKeepsTheStoredOne(t *testing.T) {
+	srv := newSystemTestServer(t)
+	conn := func(token string) *models.CommunicationConfig {
+		return &models.CommunicationConfig{Connectors: map[string]models.ConnectorConfig{"tg": {
+			Type: models.ConnectorTypeTelegram, Enabled: true, Settings: map[string]string{"workspace_id": "w", models.ConnectorSettingWebhookToken: token},
+		}}}
+	}
+	stored := func() string {
+		return srv.GetRegistry().Communication.Connectors["tg"].Settings[models.ConnectorSettingWebhookToken]
+	}
+	save := func(c *models.CommunicationConfig) {
+		t.Helper()
+		if err := srv.ApplySystemUpdate(context.Background(), models.SystemUpdatePayload{Communication: c}); err != nil {
+			t.Fatalf("ApplySystemUpdate: %v", err)
+		}
+	}
+
+	save(conn("real-secret"))
+	save(conn(models.MaskedSecret))
+	if got := stored(); got != "real-secret" {
+		t.Fatalf("a save that sent the mask changed the secret to %q", got)
+	}
+	save(conn("replacement"))
+	if got := stored(); got != "replacement" {
+		t.Errorf("a typed secret must replace the stored one, got %q", got)
+	}
+}
