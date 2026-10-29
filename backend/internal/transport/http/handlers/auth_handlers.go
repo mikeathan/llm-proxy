@@ -38,9 +38,20 @@ type AuthService interface {
 // who is not signed in (the middleware decides); everything else here assumes a signed-in caller.
 type AuthHandlers struct {
 	svc AuthService
+	// trustedProxies lists the addresses whose X-Forwarded-Proto is believed (server.trusted_proxies); nil: none.
+	trustedProxies func() []string
 }
 
 func NewAuthHandlers(svc AuthService) *AuthHandlers { return &AuthHandlers{svc: svc} }
+
+// WithTrustedProxies sets where a reverse proxy's X-Forwarded-Proto is believed from; it is read on every request.
+func (h *AuthHandlers) WithTrustedProxies(list func() []string) *AuthHandlers {
+	h.trustedProxies = list
+	return h
+}
+
+// isHTTPS reports whether the browser's connection is encrypted, following a trusted reverse proxy (api.IsHTTPS).
+func (h *AuthHandlers) isHTTPS(r *http.Request) bool { return api.IsHTTPS(r, h.trustedProxies) }
 
 type passphraseBody struct {
 	Passphrase string `json:"passphrase"`
@@ -57,7 +68,7 @@ func (h *AuthHandlers) Status(w http.ResponseWriter, r *http.Request) {
 	sess, signedIn := h.session(r)
 	respondJSON(w, map[string]bool{
 		"required": state.Required, "setup_open": state.SetupOpen,
-		"authenticated": signedIn, "elevated": signedIn && h.svc.Elevated(sess), "encrypted": isHTTPS(r),
+		"authenticated": signedIn, "elevated": signedIn && h.svc.Elevated(sess), "encrypted": h.isHTTPS(r),
 	})
 }
 
@@ -105,7 +116,7 @@ func (h *AuthHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(api.SessionCookie); err == nil {
 		h.svc.Logout(c.Value)
 	}
-	clearSessionCookie(w, r)
+	h.clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -157,7 +168,7 @@ func (h *AuthHandlers) RevokeAllSessions(w http.ResponseWriter, r *http.Request)
 		h.fail(w, err)
 		return
 	}
-	clearSessionCookie(w, r)
+	h.clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -260,17 +271,13 @@ func (h *AuthHandlers) fail(w http.ResponseWriter, err error) {
 func (h *AuthHandlers) setSessionCookie(w http.ResponseWriter, r *http.Request, id string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: api.SessionCookie, Value: id, Path: "/admin", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-		Secure: isHTTPS(r), MaxAge: int(h.svc.Config().AbsoluteTimeout / time.Second),
+		Secure: h.isHTTPS(r), MaxAge: int(h.svc.Config().AbsoluteTimeout / time.Second),
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{Name: api.SessionCookie, Value: "", Path: "/admin", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: isHTTPS(r), MaxAge: -1})
+func (h *AuthHandlers) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{Name: api.SessionCookie, Value: "", Path: "/admin", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: h.isHTTPS(r), MaxAge: -1})
 }
-
-// isHTTPS reports whether this request arrived over TLS. X-Forwarded-Proto is not believed: anyone can send it, and a
-// reverse proxy's setting is a later, explicit step (server.trusted_proxies).
-func isHTTPS(r *http.Request) bool { return r.TLS != nil }
 
 // clientAddr is the address the connection came from, without the port.
 func clientAddr(r *http.Request) string {

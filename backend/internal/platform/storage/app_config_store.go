@@ -52,6 +52,9 @@ func appConfigToSystem(cfg models.AppConfig) models.SystemConfig {
 				IdleTimeoutSecs: cfg.Server.IdleTimeoutSecs,
 				Environment:     cfg.Server.Environment,
 				LogLevel:        cfg.Server.LogLevel,
+				AllowedHosts:    cfg.Server.AllowedHosts,
+				TrustedProxies:  cfg.Server.TrustedProxies,
+				Auth:            cfg.Server.Auth,
 			},
 			RunLogging: cfg.RunLogging,
 		},
@@ -66,6 +69,9 @@ func applySystemToAppConfig(cfg *models.AppConfig, sys models.SystemConfig) {
 	cfg.Server.IdleTimeoutSecs = sys.Server.IdleTimeoutSecs
 	cfg.Server.Environment = sys.Server.Environment
 	cfg.Server.LogLevel = sys.Server.LogLevel
+	cfg.Server.AllowedHosts = sys.Server.AllowedHosts
+	cfg.Server.TrustedProxies = sys.Server.TrustedProxies
+	cfg.Server.Auth = sys.Server.Auth
 	cfg.RunLogging = sys.Server.RunLogging
 	cfg.WorkspacesDir = sys.WorkspacesDir
 	cfg.Metrics = sys.Metrics

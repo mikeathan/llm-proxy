@@ -32,6 +32,10 @@ type AppServerConfig struct {
 	// AllowedHosts are names the admin interface may be reached under, besides IP addresses, localhost and this machine's
 	// own name (a reverse proxy or a custom DNS name). Any other name is refused, which stops DNS rebinding.
 	AllowedHosts []string `yaml:"allowed_hosts,omitempty" json:"allowed_hosts,omitempty"`
+	// TrustedProxies are the addresses (10.0.0.5, ::1) or ranges (10.0.0.0/8) of reverse proxies in front of the server,
+	// the only connections whose X-Forwarded-Proto is believed. Behind a TLS front end that lists it, the session cookie is
+	// Secure and the sign-in page reports an encrypted connection. Empty (the default): no header is believed.
+	TrustedProxies []string `yaml:"trusted_proxies,omitempty" json:"trusted_proxies,omitempty"`
 	// Auth sets how long a sign-in lasts. Zero means the default, so an existing settings file needs no change.
 	Auth AuthSettings `yaml:"auth,omitempty" json:"auth,omitempty"`
 }

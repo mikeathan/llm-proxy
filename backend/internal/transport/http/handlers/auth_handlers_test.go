@@ -121,6 +121,31 @@ func TestAuthLogin_CookieFlagsAndFailures(t *testing.T) {
 	}
 }
 
+// Behind a TLS front end the server sees plain HTTP: the cookie is Secure and the status says "encrypted" only when the
+// proxy is one the operator listed, because anyone can send X-Forwarded-Proto.
+func TestAuthLogin_FollowsATrustedProxyForSecureAndEncrypted(t *testing.T) {
+	h, svc := newAuthHandlers(t)
+	setUpAndSignIn(t, h, svc)
+	h = h.WithTrustedProxies(func() []string { return []string{"10.0.0.0/24"} })
+	login := `{"passphrase":"` + testPass + `"}`
+	forwarded := func(peer string) func(*http.Request) {
+		return func(r *http.Request) { r.RemoteAddr = peer; r.Header.Set("X-Forwarded-Proto", "https") }
+	}
+
+	if c := sessionCookie(call(h.Login, "POST", "/", login, forwarded("10.0.0.7:5555"))); c == nil || !c.Secure {
+		t.Errorf("behind a listed proxy the cookie must be Secure: %+v", c)
+	}
+	if c := sessionCookie(call(h.Login, "POST", "/", login, forwarded("203.0.113.9:5555"))); c == nil || c.Secure {
+		t.Errorf("a header from a stranger must not make the cookie Secure: %+v", c)
+	}
+	if m := decode(t, call(h.Status, "GET", "/", "", forwarded("10.0.0.7:5555"))); m["encrypted"] != true {
+		t.Errorf("status behind a listed proxy: %v", m)
+	}
+	if m := decode(t, call(h.Status, "GET", "/", "", forwarded("203.0.113.9:5555"))); m["encrypted"] != false {
+		t.Errorf("status for a forged header: %v", m)
+	}
+}
+
 func TestAuthLogin_LockoutIs429WithRetryAfter(t *testing.T) {
 	h, svc := newAuthHandlers(t)
 	setUpAndSignIn(t, h, svc)

@@ -9,6 +9,7 @@ import (
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/ratelimiter"
 	api "llm-proxy/internal/transport/http"
 	handlers "llm-proxy/internal/transport/http/handlers"
@@ -45,7 +46,9 @@ type HandlerSet struct {
 func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo.Info) *HandlerSet {
 	hs := &HandlerSet{}
 	if s.auth != nil {
-		hs.Auth = handlers.NewAuthHandlers(s.auth)
+		trusted := func() []string { return s.AppCtx.GetSystem().Server.TrustedProxies }
+		warnInvalidTrustedProxies(trusted())
+		hs.Auth = handlers.NewAuthHandlers(s.auth).WithTrustedProxies(trusted)
 	}
 	ownerZone := func() string { return s.AppCtx.GetSettings().Reminders.Effective().Timezone }
 	hs.Turns = chat.New(s, ownerZone)
@@ -419,5 +422,13 @@ func activeWorkChecker(p workProbe) func() bool {
 			}
 		}
 		return p.laneQueued()
+	}
+}
+
+// warnInvalidTrustedProxies names the server.trusted_proxies entries that are neither an address nor a range: they trust
+// nothing, which would otherwise look like a working proxy setting that has no effect.
+func warnInvalidTrustedProxies(entries []string) {
+	if bad := api.InvalidProxyEntries(entries); len(bad) > 0 {
+		logging.Warn("server.trusted_proxies has entries that are not an address or a range; they are ignored", "entries", bad)
 	}
 }

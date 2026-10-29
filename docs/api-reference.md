@@ -44,6 +44,10 @@ webhook path are not affected.
 - **Host:** an IP address, `localhost`, this machine's name (and `<name>.local`) and any name in `server.allowed_hosts`
   (`settings.yml`) are served; any other name gets `421`. Set `allowed_hosts` when the UI is reached through a reverse
   proxy or a custom DNS name.
+- **Encrypted (since 0.20.0):** the session cookie is `Secure`, and `/auth/status` reports `"encrypted":true`, when the
+  request arrived over TLS or came from an address in `server.trusted_proxies` (`settings.yml`; addresses or ranges,
+  empty by default) with `X-Forwarded-Proto: https`. The header is ignored from any other address. See
+  [service_setup.md](service_setup.md#encrypted-access-a-tls-front-end).
 - **Cross-site:** a request to `/admin/api/` that the browser marks `Sec-Fetch-Site: cross-site` or `same-site` gets `403`,
   whatever its method; writes with a foreign `Origin` and no Fetch-Metadata also get `403`. Scripts and `curl` send neither
   header and pass.

@@ -46,6 +46,38 @@ func TestSystemConfigView_Projection(t *testing.T) {
 	}
 }
 
+// The settings the sign-in and the Host rule read through System().Get() must be in the projection: a field left out of
+// it reads as empty however the operator set it in settings.yml, and is then ignored without a word.
+func TestSystemConfigView_ProjectsTheSecuritySettings(t *testing.T) {
+	mgr, _ := resetTestManager(t)
+	if err := mgr.appConfigStore.Update(func(cfg *models.AppConfig) error {
+		cfg.Server.AllowedHosts = []string{"vertex.example"}
+		cfg.Server.TrustedProxies = []string{"127.0.0.1"}
+		cfg.Server.Auth = models.AuthSettings{IdleHours: 2, AbsoluteDays: 3}
+		return nil
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	srv := mgr.System().Get().Server
+	if len(srv.AllowedHosts) != 1 || srv.AllowedHosts[0] != "vertex.example" {
+		t.Errorf("allowed_hosts = %v", srv.AllowedHosts)
+	}
+	if len(srv.TrustedProxies) != 1 || srv.TrustedProxies[0] != "127.0.0.1" {
+		t.Errorf("trusted_proxies = %v", srv.TrustedProxies)
+	}
+	if srv.Auth != (models.AuthSettings{IdleHours: 2, AbsoluteDays: 3}) {
+		t.Errorf("auth = %+v", srv.Auth)
+	}
+
+	// An unrelated save through the system view keeps them.
+	if err := mgr.System().Update(func(sys *models.SystemConfig) error { sys.Server.LogLevel = "debug"; return nil }); err != nil {
+		t.Fatalf("System().Update: %v", err)
+	}
+	if got := mgr.System().Get().Server; len(got.AllowedHosts) != 1 || len(got.TrustedProxies) != 1 || got.Auth.IdleHours != 2 {
+		t.Errorf("an unrelated save lost a security setting: %+v", got)
+	}
+}
+
 func TestUserSettingsView_Projection(t *testing.T) {
 	mgr, _ := resetTestManager(t)
 
