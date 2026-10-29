@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -626,4 +627,126 @@ func TestStart_BeforeTheApplicationIsAttachedSaysItIsNotReady(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotReady", err)
 	}
 	m.Close() // closing a manager that never started is fine
+}
+
+func TestImport_AFileTheOperatorSuppliesIsReadAndSavedLikeADownloadedOne(t *testing.T) {
+	store := &memStore{}
+	m := newManager(t, newFeedServer(t), store)
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); err != nil {
+		t.Fatalf("kev: %v", err)
+	}
+	if err := m.Import(SourceNVD, 2026, bytes.NewReader(nvdBody(2026))); err != nil {
+		t.Fatalf("nvd: %v", err)
+	}
+	s := m.Status()
+	if store.writes != 2 || s.KEV.ImportedAt.IsZero() || s.NVD.ImportedAt.IsZero() || !slices.Equal(s.NVD.Years, []int{2026}) || s.FilesDone != 2 {
+		t.Errorf("writes %d status %+v", store.writes, s)
+	}
+	if s.State == StateRunning {
+		t.Errorf("an import that has ended still reads as running: %+v", s)
+	}
+}
+
+func TestImport_AFileThatIsNotDataChangesNothingAndNamesNoneOfItsText(t *testing.T) {
+	store := &memStore{}
+	m := newManager(t, newFeedServer(t), store)
+	err := m.Import(SourceKEV, 0, strings.NewReader("<html>captive portal</html>"))
+	if !errors.Is(err, ErrBadImport) || strings.Contains(err.Error(), "captive") || store.writes != 0 {
+		t.Errorf("err %v writes %d", err, store.writes)
+	}
+	if m.Status().State == StateRunning {
+		t.Error("a refused import left the manager running")
+	}
+}
+
+func TestImport_RefusesAnUnknownSourceAndAYearNobodyWants(t *testing.T) {
+	m := newManager(t, newFeedServer(t), &memStore{})
+	if err := m.Import("vulners", 0, strings.NewReader(kevBody)); !errors.Is(err, ErrBadSource) {
+		t.Errorf("source: %v", err)
+	}
+	for _, year := range []int{0, 1999, clock.Year() + 1, clock.Year() - yearsWanted} {
+		if err := m.Import(SourceNVD, year, bytes.NewReader(nvdBody(2026))); !errors.Is(err, ErrBadYear) {
+			t.Errorf("year %d: %v", year, err)
+		}
+	}
+}
+
+func TestImport_AFileOverTheSizeCapIsRefused(t *testing.T) {
+	store := &memStore{}
+	m := newManager(t, newFeedServer(t), store)
+	m.maxFileBytes = 10
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); !errors.Is(err, ErrBadImport) || store.writes != 0 {
+		t.Errorf("err %v writes %d", err, store.writes)
+	}
+}
+
+func TestImport_SaveFailureIsReportedAndKeepsWhatWasHeld(t *testing.T) {
+	store := &memStore{wErr: errors.New("disk full")}
+	m := newManager(t, newFeedServer(t), store)
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); err == nil || errors.Is(err, ErrBadImport) {
+		t.Errorf("err %v", err)
+	}
+	if !m.Status().KEV.ImportedAt.IsZero() {
+		t.Error("an unsaved import is shown as held")
+	}
+}
+
+func TestImport_OneAtATimeWithDownloadsAndWithItself(t *testing.T) {
+	fs, store := newFeedServer(t), &memStore{}
+	release := make(chan struct{})
+	fs.hook = func(string, http.ResponseWriter) bool { <-release; return true }
+	m := newManager(t, fs, store)
+	if err := m.Start(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); !errors.Is(err, ErrBusy) {
+		t.Errorf("import during a download: %v", err)
+	}
+	close(release)
+	m.Cancel()
+	waitFor(t, m, StateStopped)
+
+	gate := &blockingReader{started: make(chan struct{}), release: make(chan struct{}), data: kevBody}
+	done := make(chan error, 1)
+	go func() { done <- m.Import(SourceKEV, 0, gate) }()
+	<-gate.started
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); !errors.Is(err, ErrBusy) {
+		t.Errorf("second import: %v", err)
+	}
+	if err := m.Start(false); !errors.Is(err, ErrBusy) {
+		t.Errorf("download during an import: %v", err)
+	}
+	m.Cancel() // must not panic: an import has no download to cancel
+	close(gate.release)
+	if err := <-done; err != nil {
+		t.Errorf("first import: %v", err)
+	}
+}
+
+type blockingReader struct {
+	started, release chan struct{}
+	data             string
+	once             sync.Once
+	r                *strings.Reader
+}
+
+func (b *blockingReader) Read(p []byte) (int, error) {
+	b.once.Do(func() { close(b.started); <-b.release; b.r = strings.NewReader(b.data) })
+	return b.r.Read(p)
+}
+
+func TestImport_BeforeTheApplicationIsAttachedSaysItIsNotReady(t *testing.T) {
+	m := New(&memStore{}, nil, DefaultSources())
+	if err := m.Import(SourceKEV, 0, strings.NewReader(kevBody)); !errors.Is(err, ErrNotReady) {
+		t.Errorf("err %v", err)
+	}
+}
+
+func TestImport_AFileCutShortIsAnUnusableFileNotAServerFault(t *testing.T) {
+	store := &memStore{}
+	m := newManager(t, newFeedServer(t), store)
+	whole := nvdBody(2026)
+	if err := m.Import(SourceNVD, 2026, bytes.NewReader(whole[:len(whole)/2])); !errors.Is(err, ErrBadImport) || store.writes != 0 {
+		t.Errorf("err %v writes %d", err, store.writes)
+	}
 }

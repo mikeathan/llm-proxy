@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import type { Automation, AutomationRun } from "../../../types/dispatcher";
 import type { DataTableColumn } from "../../../types/ui";
 import { useLiveConsole } from "../../../composables/automation/useLiveConsole";
@@ -37,6 +37,8 @@ import FailureExplanation from "../../netaudit/FailureExplanation.vue";
 import NetauditToolbar from "../../netaudit/NetauditToolbar.vue";
 import NetauditHelp from "../../netaudit/NetauditHelp.vue";
 import { AUDITOR_PROFILE } from "../../../constants/netaudit";
+import { assessmentOf } from "../../../utils/netaudit/assessment";
+import SegmentedControl from "../../common/forms/SegmentedControl.vue";
 import ScanSummary from "../../netaudit/ScanSummary.vue";
 import GuardrailBanner from "../../common/chat/GuardrailBanner.vue";
 
@@ -77,6 +79,23 @@ const runs = computed(() =>
 // The run whose events replay in the console: the latest.
 const activeRun = computed(() => runs.value[0] ?? null);
 const showLiveUI = computed(() => !!(props.isExecuting || props.automation?.is_running));
+
+// A network audit's page is split by job, so one screen holds one thing: the results, the run as it happens, the history
+// and the setup. Every other automation keeps the single page (`shown` is always true for it).
+type AuditTab = "results" | "live" | "history" | "setup";
+const isAudit = computed(() => props.automation.profile === AUDITOR_PROFILE);
+const auditTab = ref<AuditTab>("results");
+const shown = (tab: AuditTab) => !isAudit.value || auditTab.value === tab;
+const auditTabs = computed(() => [
+  { value: "results", label: "Results" },
+  { value: "live", label: showLiveUI.value ? "Live run · running" : "Live run" },
+  { value: "history", label: "History" },
+  { value: "setup", label: "Setup" },
+]);
+// A different automation starts on its results again.
+watch(() => props.automation.id, () => { auditTab.value = "results"; });
+// The saved report of an audit starts with the scan data, which is the Results tab; here only the model's part is shown.
+const lastResult = computed(() => (isAudit.value ? assessmentOf(props.automation.last_output ?? "") : (props.automation.last_output ?? "")));
 
 // Unified renderer: reuse the assistant ChatMessages view for automation runs.
 // useLiveConsole streams the SSE channel and feeds AgentEvents through the
@@ -187,7 +206,12 @@ const runKey = (run: AutomationRun) => run.id;
 
 <template>
   <div class="flex flex-col gap-4">
-    <Panel title="Configuration">
+    <template v-if="isAudit">
+      <NetauditToolbar />
+      <SegmentedControl :model-value="auditTab" :options="auditTabs" label="Part of the audit" touch @update:model-value="auditTab = $event as AuditTab" />
+    </template>
+
+    <Panel v-if="shown('setup')" title="Configuration">
       <dl class="m-0 grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-x-6 gap-y-3">
         <div class="flex flex-col gap-1">
           <dt class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">Task file</dt>
@@ -199,7 +223,7 @@ const runKey = (run: AutomationRun) => run.id;
           <dt class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">{{ term }}</dt>
           <dd class="m-0 break-words text-secondary">{{ value }}</dd>
         </div>
-        <div v-if="automation.scan" class="flex flex-col gap-1.5 sm:col-span-2" data-test="scans">
+        <div v-if="automation.scan && !isAudit" class="flex flex-col gap-1.5 sm:col-span-2" data-test="scans">
           <dt class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">Scans</dt>
           <dd class="m-0"><ScanSummary :scan="automation.scan" /></dd>
         </div>
@@ -210,14 +234,14 @@ const runKey = (run: AutomationRun) => run.id;
       </dl>
     </Panel>
 
-    <template v-if="automation.profile === AUDITOR_PROFILE">
-      <NetauditToolbar />
+    <template v-if="isAudit && shown('results')">
+      <ScanSummary v-if="automation.scan" :scan="automation.scan" data-test="scans" />
       <AuditSetupCheck :profile="automation.profile" :network-grant="automation.network_grant" :automation-id="automation.id" />
-      <FindingsReport :workspace-id="automation.workspace" :automation="automation.name" :refresh-key="`${showLiveUI}|${activeRun?.id ?? ''}`" />
+      <FindingsReport :workspace-id="automation.workspace" :automation="automation.name" :busy="showLiveUI" :refresh-key="`${showLiveUI}|${activeRun?.id ?? ''}`" @watch-live="auditTab = 'live'" />
       <NetauditHelp />
     </template>
 
-    <Panel v-if="!showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" title="Last result">
+    <Panel v-if="shown('history') && !showLiveUI && (automation.last_error || automation.last_output || automation.last_warnings?.length)" title="Last result">
       <div v-if="!automation.last_error && automation.last_warnings?.length" class="mb-3 flex flex-col gap-2">
         <StatusTag v-bind="runOutcomeTag({ error: '', warnings: automation.last_warnings })" />
         <RunWarnings :warnings="automation.last_warnings" />
@@ -229,23 +253,23 @@ const runKey = (run: AutomationRun) => run.id;
         </span>
         <FailureExplanation :error="automation.last_error" :automation-id="automation.id" />
       </div>
-      <div v-if="automation.last_output" class="flex flex-col gap-1">
+      <div v-if="lastResult" class="flex flex-col gap-1">
         <span class="flex items-baseline justify-between gap-2">
           <span v-if="automation.last_report_path" class="flex min-w-0 flex-wrap items-baseline gap-2 text-[length:var(--text-small)] text-muted">
             Saved as <SavedReportLink :workspace-id="automation.workspace" :path="automation.last_report_path" />
           </span>
           <CopyButton :text="automation.last_output" title="Copy last output" class="ml-auto" />
         </span>
-        <MarkdownViewer :content="automation.last_output" />
+        <MarkdownViewer :content="lastResult" />
       </div>
     </Panel>
 
-    <SavedReportsPanel :workspace-id="automation.workspace" :automation="automation.name" :latest="automation.last_report_path ?? ''" />
+    <SavedReportsPanel v-if="shown('history')" :workspace-id="automation.workspace" :automation="automation.name" :latest="automation.last_report_path ?? ''" />
 
-    <Panel v-if="automation.journal" title="Journal">
+    <Panel v-if="automation.journal && shown('history')" title="Journal">
       <template v-if="journal.journal.value" #actions>
         <CopyButton :text="journal.journal.value" title="Copy journal" />
-        <BaseButton variant="danger" size="sm" icon="trash" @click="clearJournal">Clear journal</BaseButton>
+        <BaseButton variant="danger" size="sm" icon="trash" :disabled="showLiveUI" @click="clearJournal">Clear journal</BaseButton>
       </template>
       <p v-if="journal.error.value" role="alert" class="m-0 mb-3 text-[length:var(--text-small)] text-state-error">{{ journal.error.value }}</p>
       <MarkdownViewer v-if="journal.journal.value" :content="journal.journal.value" />
@@ -254,7 +278,7 @@ const runKey = (run: AutomationRun) => run.id;
       </p>
     </Panel>
 
-    <Panel title="Console">
+    <Panel v-if="shown('live')" title="Console">
       <template #actions>
         <span v-if="runsOnModel" data-test="console-model" class="min-w-0 truncate font-mono text-[length:var(--text-micro)] text-faint" :title="`Runs on ${runsOnModel}`">{{ runsOnModel }}</span>
         <StatusTag :state="showLiveUI && isConnected ? 'running' : 'neutral'" :label="consoleState" />
@@ -291,9 +315,9 @@ const runKey = (run: AutomationRun) => run.id;
       </div>
     </Panel>
 
-    <Panel title="Runs" flush>
+    <Panel v-if="shown('history')" title="Runs" flush>
       <template v-if="runs.length" #actions>
-        <BaseButton variant="danger" size="sm" icon="trash" @click="clearRuns">Clear all runs</BaseButton>
+        <BaseButton variant="danger" size="sm" icon="trash" :disabled="showLiveUI" @click="clearRuns">Clear all runs</BaseButton>
       </template>
       <DataTable :columns="RUN_COLUMNS" :rows="runs" :row-key="runKey" caption="Runs of this automation" activatable @activate="emit('open-run', $event)">
         <template #empty>
@@ -310,7 +334,7 @@ const runKey = (run: AutomationRun) => run.id;
         </template>
         <template #cell-actions="{ row }">
           <span @click.stop>
-            <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete run ${row.id}`" @click="deleteRun(row)" />
+            <BaseButton variant="ghost" size="sm" icon="trash" icon-only :label="`Delete run ${row.id}`" :disabled="showLiveUI" @click="deleteRun(row)" />
           </span>
         </template>
       </DataTable>

@@ -30,6 +30,8 @@ const found: DeepCheck = {
 async function mountReport() {
   const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
   await flushPromises()
+  // A stored deep problem opens the report on Problems; these tests are about the devices.
+  await w.findAll('[role="radio"]').find((b) => b.text().startsWith('Devices'))?.trigger('click')
   return w
 }
 const deepButton = (w: Awaited<ReturnType<typeof mountReport>>, device: string) => w.get(`section[aria-label="${device}"] [data-test="deep-check"]`)
@@ -131,5 +133,47 @@ describe('the Help for the deep check', () => {
     expect(text).toContain('not the same as nothing being wrong')
     expect(text).toContain('the one exception')
     useNetauditHelp().hide()
+  })
+})
+
+describe('deep problems in the report', () => {
+  beforeEach(() => {
+    for (const fn of Object.values(service)) fn.mockReset()
+    service.findings.mockResolvedValue(report)
+    service.expectations.mockResolvedValue([])
+    service.deepChecks.mockResolvedValue([found])
+    useNetauditViewMode().set('advanced')
+  })
+  afterEach(() => { document.body.innerHTML = '' })
+  const open = async () => {
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
+    await flushPromises()
+    return w
+  }
+
+  it('Advanced: lists a stored deep problem under Problems, counted, dated and read-only', async () => {
+    const w = await open()
+    expect(w.get('[role="radio"][aria-checked="true"]').text()).toBe('Problems (1)')
+    expect(w.get('[data-test="scan-meta"]').text()).toContain('1 problem found by checks')
+    const card = w.get('article[data-check="ssh_password_login"]')
+    expect(card.text()).toContain('SSH accepts password login')
+    expect(card.get('[data-test="deep-readonly"]').text()).toContain('From the deep check of')
+    expect(card.findAll('button').filter((b) => b.text().startsWith('Accept'))).toHaveLength(0)
+    expect(card.findAll('button').filter((b) => b.text() === "I've done this")).toHaveLength(0)
+  })
+
+  it('Simple: shows it too', async () => {
+    useNetauditViewMode().set('simple')
+    const w = await open()
+    expect(w.get('[data-test="problems"]').text()).toContain('1 problem found by checks')
+    expect(w.find('article[data-check="ssh_password_login"]').exists()).toBe(true)
+  })
+
+  it('does not list it twice once an audit has carried it into the report', async () => {
+    service.findings.mockResolvedValue({ ...report, findings: [...report.findings, finding({ key: 'dk', port: 22, check: 'ssh_password_login', check_title: 'SSH accepts password login', severity: 'medium', evidence: 'The SSH server accepts password login (from the deep check of 2026-10-30)', fix: 'Turn password login off.' })] })
+    const w = await open()
+    expect(w.get('[role="radio"][aria-checked="true"]').text()).toBe('Problems (1)')
+    expect(w.findAll('[data-test="problem"]')).toHaveLength(1)
+    expect(w.find('[data-test="deep-readonly"]').exists()).toBe(false)
   })
 })

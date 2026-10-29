@@ -3,15 +3,20 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
+	"strconv"
+	"time"
 
 	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/platform/logging"
 )
 
 // VulnData is the part of the vulnerability-data manager the handlers use. *vulnfeed.Manager satisfies it.
 type VulnData interface {
 	Status() vulnfeed.Status
 	Start(restart bool) error
+	Import(source string, year int, r io.Reader) error
 	Cancel()
 	Clear() error
 }
@@ -62,4 +67,42 @@ func (h *VulnDataHandlers) Clear(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	respondJSON(w, h.data.Status())
+}
+
+// importReadWindow is how long one imported file may take to arrive.
+const importReadWindow = 10 * time.Minute
+
+// Import reads one vulnerability data file the operator supplies in the request body, for a host that cannot download
+// it: `?source=nvd&year=2025` for NVD's yearly file (gzip or plain JSON), `?source=kev` for CISA's list. It answers when
+// the file has been read and saved, with the status. It is a step-up route: it replaces what every audit compares with,
+// so a token must not be able to call it. The body is capped, and nothing of the file's text is ever repeated back.
+func (h *VulnDataHandlers) Import(w http.ResponseWriter, r *http.Request) {
+	year := 0
+	if raw := r.URL.Query().Get("year"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, vulnfeed.ErrBadYear.Error())
+			return
+		}
+		year = n
+	}
+	// The server reads a request for 30 seconds; a file of tens of megabytes over a slow link needs longer. Only this route
+	// is given more, and the body is still capped.
+	if err := http.NewResponseController(w).SetReadDeadline(time.Now().Add(importReadWindow)); err != nil {
+		logging.Warn("vulnerability data import: the read deadline could not be extended; a slow upload may be cut at the server default", "error", err.Error())
+	}
+	body := http.MaxBytesReader(w, r.Body, vulnfeed.MaxFileBytes)
+	err := h.data.Import(r.URL.Query().Get("source"), year, body)
+	switch {
+	case err == nil:
+		respondJSON(w, h.data.Status())
+	case errors.Is(err, vulnfeed.ErrBusy):
+		writeJSONError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, vulnfeed.ErrBadSource), errors.Is(err, vulnfeed.ErrBadYear), errors.Is(err, vulnfeed.ErrBadImport):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, vulnfeed.ErrNotReady):
+		writeJSONError(w, http.StatusServiceUnavailable, err.Error())
+	default:
+		writeJSONError(w, http.StatusInternalServerError, "The file could not be imported.")
+	}
 }

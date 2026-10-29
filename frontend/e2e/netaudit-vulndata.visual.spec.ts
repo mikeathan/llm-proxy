@@ -75,3 +75,17 @@ test('old data shows a notice with an Update now button that fits a phone', asyn
   await expectNoSidewaysScroll(page)
   if (testInfo.project.name === 'mobile') expect((await update.boundingBox())?.height).toBeGreaterThanOrEqual(44)
 })
+
+test('the file import fits a phone: long addresses wrap, the file picker and the button are reachable', async ({ page }, testInfo) => {
+  await open(page, 'advanced', STATES['not-downloaded'])
+  const importer = page.locator('[data-test="vuln-import"]')
+  await expect(importer.getByText('Import a file instead')).toBeVisible()
+  await importer.getByLabel('NVD yearly file').check()
+  await expect(importer.getByLabel('Year of the file')).toBeVisible()
+  await expect(importer.getByLabel('The data file')).toBeVisible()
+  const go = importer.getByRole('button', { name: 'Import file' })
+  await expect(go).toBeDisabled()
+  await expectNoSidewaysScroll(page)
+  if (testInfo.project.name === 'mobile') expect((await go.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  await lookAt(importer, testInfo, 'vuln-import')
+})

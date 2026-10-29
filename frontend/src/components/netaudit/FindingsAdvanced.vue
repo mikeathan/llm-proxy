@@ -11,7 +11,7 @@ import type { DeepCheck, DeviceExpectation, FindingFilter, FindingsReport, Repor
 
 // The Advanced report: a tile for each part (they filter the list), the problems the checks found grouped by kind, then
 // every device with its ports, services and versions. Both views read the same data.
-const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; expectations?: readonly DeviceExpectation[]; deepChecks?: readonly DeepCheck[]; deepRunning?: string }>(), { expectations: () => [], deepChecks: () => [], deepRunning: "" })
+const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; expectations?: readonly DeviceExpectation[]; deepChecks?: readonly DeepCheck[]; deepRunning?: string; extraProblems?: readonly ScanFinding[] }>(), { expectations: () => [], deepChecks: () => [], deepRunning: "", extraProblems: () => [] })
 const emit = defineEmits<{
   (e: "accept", finding: ScanFinding): void
   (e: "revoke", finding: ScanFinding): void
@@ -24,29 +24,38 @@ const emit = defineEmits<{
   (e: "deep", device: string): void
 }>()
 
-const filter = ref<FindingFilter>("all")
+// Opens on the problems when the checks found any, otherwise on the devices.
+const allProblems = computed(() => [...props.summary.problems, ...props.extraProblems])
+const filter = ref<FindingFilter>(allProblems.value.length ? "problems" : "all")
 // A device the reader opened or folded by hand; every other device is open only when something there needs a look.
 const toggled = ref<Record<string, boolean>>({})
 
-const TILES: { value: Exclude<FindingFilter, "all">; label: string; count: () => number; dashed?: boolean }[] = [
-  { value: "problems", label: "problems found by checks", count: () => props.summary.problems.length },
-  { value: "new", label: "new since the last scan", count: () => props.summary.added.length },
-  { value: "changed", label: "changed", count: () => props.summary.changed.length },
-  { value: "resolved", label: "resolved", count: () => props.summary.resolved.length },
-  { value: "accepted", label: "accepted (hidden from the assistant)", count: () => props.summary.accepted.length, dashed: true },
+// One row of pills, each a part of the report with its count, so a long report is read one part at a time. Problems come
+// first and are what opens when there are any; "Devices" is every device with its ports.
+const countOf = (value: FindingFilter): number => {
+  switch (value) {
+    case "problems": return allProblems.value.length
+    case "all": return groupByDevice(props.report.findings.filter((f) => !isCheck(f))).length
+    case "new": return props.summary.added.length
+    case "changed": return props.summary.changed.length
+    case "resolved": return props.summary.resolved.length
+    default: return props.summary.accepted.length
+  }
+}
+const PILLS: { value: FindingFilter; label: string }[] = [
+  { value: "problems", label: "Problems" }, { value: "all", label: "Devices" }, { value: "new", label: "New" },
+  { value: "changed", label: "Changed" }, { value: "resolved", label: "Resolved" }, { value: "accepted", label: "Accepted" },
 ]
-const CHIPS: { value: FindingFilter; label: string }[] = [
-  { value: "all", label: "All" }, { value: "problems", label: "Problems" }, { value: "new", label: "New" }, { value: "changed", label: "Changed" },
-  { value: "accepted", label: "Accepted" }, { value: "resolved", label: "Resolved" },
-]
-const countOf = (value: FindingFilter): number => value === "all" ? props.report.findings.length : TILES.find((t) => t.value === value)!.count()
-const chipOptions = computed(() => CHIPS.map((c) => ({ value: c.value, label: `${c.label} (${countOf(c.value)})` })))
+const chipOptions = computed(() => PILLS.map((c) => ({ value: c.value, label: `${c.label} (${countOf(c.value)})` })))
+const EMPTY_TEXT: Record<string, string> = {
+  problems: "The checks found no problems.", new: "Nothing is new since the scan before.", changed: "Nothing has changed since the scan before.",
+  accepted: "Nothing is marked as fine.", all: "No devices were found.",
+}
 
 // The problems a filter lists, grouped; every unaccepted problem is in the Problems block, so a device list never repeats one.
 const problemGroups = computed(() => {
   switch (filter.value) {
-    case "all":
-    case "problems": return props.summary.problemGroups
+    case "problems": return groupProblems(allProblems.value)
     case "new": return groupProblems(props.summary.problems.filter((f) => f.new))
     case "changed": return groupProblems(props.summary.problems.filter((f) => f.changed))
     default: return []
@@ -68,7 +77,6 @@ const resolvedGroups = computed(() => groupByDevice(props.summary.resolved))
 const showDevices = computed(() => filter.value !== "resolved" && filter.value !== "problems")
 
 const setFilter = (value: string) => { filter.value = value as FindingFilter }
-const pick = (value: FindingFilter) => { filter.value = filter.value === value ? "all" : value }
 // Something needs a look on a device when a port is new or changed (never on the first scan, where all are the baseline), or it has an unaccepted problem.
 const needsLook = (device: string) =>
   props.summary.problems.some((f) => f.device === device) || (!props.summary.baseline && [...props.summary.added, ...props.summary.changed].some((f) => f.device === device))
@@ -81,32 +89,19 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
 
 <template>
   <div class="flex flex-col gap-4" data-test="findings-advanced">
-    <div class="grid grid-cols-2 gap-2 lg:grid-cols-5">
-      <button
-        v-for="tile in TILES"
-        :key="tile.value"
-        type="button"
-        :aria-pressed="filter === tile.value"
-        :class="['flex min-h-11 flex-col items-start gap-0.5 rounded-[var(--radius-md)] border px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2', tile.dashed ? 'border-dashed' : '', filter === tile.value ? 'border-accent-info bg-surface-active' : 'border-control hover:bg-surface-hover']"
-        @click="pick(tile.value)"
-      >
-        <span class="text-[22px] font-semibold leading-none text-primary">{{ tile.count() }}</span>
-        <span class="text-[length:var(--text-small)] text-muted">{{ tile.label }}</span>
-      </button>
-    </div>
-
     <slot name="notice" />
 
     <p v-if="summary.baseline" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="baseline-note">
       This is the first scan. What it found is saved as the baseline; from the next scan only changes are marked as new.
     </p>
 
-    <SegmentedControl :model-value="filter" :options="chipOptions" label="Show findings" @update:model-value="setFilter" />
+    <SegmentedControl :model-value="filter" :options="chipOptions" label="Show part of the report" touch @update:model-value="setFilter" />
 
+    <p v-if="filter === 'problems' && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT.problems }}</p>
     <ProblemGroups :groups="problemGroups" advanced @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
 
     <template v-if="showDevices">
-      <p v-if="!groups.length && !problemGroups.length" class="m-0 text-muted">Nothing to show here.</p>
+      <p v-if="!groups.length && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT[filter] ?? "Nothing to show here." }}</p>
       <DeviceFindings
         v-for="g in groups"
         :key="g.device"

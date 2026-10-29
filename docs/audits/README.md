@@ -28,3 +28,4 @@ They identify gaps, regressions, and bugs found during testing or production use
 | `2026-10-22-multi-agent-research.md` | Multi-agent workflows — Hermes (`delegate_task` + Kanban), Claude Code sub-agents, external practice, local-lane deadlock constraint, fit to profiles, decisions for a possible plan | reference |
 | `2026-10-22-architecture-review.md` | Architecture review before multi-agent — every run entry builds its own run (10 duplicates), tool categories in three places (`edit_file_block` drift), target: one resolver, one runner, run record, capability table, `SubRunner` port; ordered refactor steps | reference |
 | `codebase-audit-report.md` | Codebase Audit Report — 88 findings (bugs, architecture/duplication, docs) + resolved backend-duplication appendix | active |
+| `2026-10-29-network-audit-phase-log.md` | Network audit — phase table, Phase 0 findings and phase-by-phase log, harvested from the plan | reference |

@@ -263,8 +263,8 @@ conventions there, not security controls, until Phases 1–2 here land:
 - the scan-scope list, the enabled scan modes and the "allow unconfined scans" switch;
 - approval of intrusive scan modes;
 - scripts and intrusive modes against the host's own addresses (the admin API is reachable on those);
-- the import of vulnerability data for known-vulnerability matching (network-audit §13.G, proposed 2026-10-27): an unauthenticated caller on the LAN could replace the index and silence the matching findings;
-- the fix records of network-audit §13.H Level 1 (`/netaudit/fixes`; low impact, since a record never hides a finding) and everything in its Level 2: managed-host records, stored SSH keys, and the approval of a command on a host. Level 2 must not be built before this plan lands.
+- the import of vulnerability data for known-vulnerability matching (network-audit §13.G): **done 2026-10-29**, `POST /netaudit/vulndata/import` is a step-up route ([ADR-0013](../../decisions/ADR-0013-vulnerability-data-import-is-step-up.md)); `DELETE /netaudit/vulndata` is not (open question for the owner);
+- the fix records of network-audit §13.H Level 1 (`/netaudit/fixes`; low impact, since a record never hides a finding) and everything in its Level 2: managed-host records, stored SSH keys, and the approval of a command on a host. Level 2 was decided against on 2026-10-29 ([ADR-0010](../../decisions/ADR-0010-no-level-2-assisted-fixes.md)); the deep check (Constitution II.3, "Intrusive runs") is built and is a step-up route.
 
 When this plan lands, revisit those items and make them real checks.
 

@@ -24,3 +24,7 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0007](ADR-0007-no-nmap-in-ci.md) | No nmap in CI; verify network scans by hand | accepted | 2026-10-26 | network-audit |
 | [ADR-0008](ADR-0008-terminal-blocks-a-curated-set.md) | The terminal guard blocks a curated sensitive set, not every dot-directory | accepted | 2026-08-20 | guardrails |
 | [ADR-0009](ADR-0009-prompt-profiles-over-a-global-agents-layer.md) | Prompt profiles instead of a global AGENTS.md prompt layer | accepted | 2026-10-17 | prompt-profiles |
+| [ADR-0010](ADR-0010-no-level-2-assisted-fixes.md) | Assisted fixes are guided, not executed by the app | accepted | 2026-10-29 | network-audit |
+| [ADR-0011](ADR-0011-nvd-kev-local-vulnerability-data.md) | Known-vulnerability matching uses local NVD and KEV data, never an online lookup per scan | accepted | 2026-10-29 | network-audit |
+| [ADR-0012](ADR-0012-intrusive-scripts-only-in-the-deep-check.md) | Intrusive scripts run only in an interactive, step-up deep check of one device | accepted | 2026-10-29 | network-audit |
+| [ADR-0013](ADR-0013-vulnerability-data-import-is-step-up.md) | Importing vulnerability data is a step-up route | accepted | 2026-10-29 | network-audit |

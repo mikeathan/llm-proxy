@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { groupByDevice, groupProblems, summarize } from '../../../utils/netaudit/report'
-import type { FindingsReport, ScanFinding } from '../../../types/netaudit'
+import { deepProblemsOf, groupByDevice, groupProblems, summarize } from '../../../utils/netaudit/report'
+import type { DeepCheck, FindingsReport, ScanFinding } from '../../../types/netaudit'
 
 const f = (key: string, over: Partial<ScanFinding> = {}): ScanFinding =>
   ({ key, device: 'a', port: 1, check: 'open_port', severity: 'info', new: false, changed: false, accepted: false, ...over })
@@ -74,5 +74,29 @@ describe('groupProblems', () => {
   it('falls back to the evidence when a server sent no title', () => {
     const [g] = groupProblems([p('a', { check_title: undefined, evidence: 'SMBv1 is on' })])
     expect(g!.title).toBe('SMBv1 is on')
+  })
+})
+
+describe('deepProblemsOf', () => {
+  const NOW = Date.parse('2026-10-30T00:00:00Z')
+  const deepFinding = { device: 'a', port: 22, proto: 'tcp', service: 'ssh', check: 'ssh_password_login', severity: 'medium', evidence: 'x' }
+  const check = (over: Partial<DeepCheck> = {}): DeepCheck => ({ device: 'a', at: '2026-10-29T18:00:00Z', ports: [], findings: [deepFinding], ...over })
+  const open22 = f('p', { port: 22 })
+
+  it('lists a stored deep problem the report does not carry yet, dated and read-only', () => {
+    const [p] = deepProblemsOf(report([open22]), [check()], NOW)
+    expect(p).toMatchObject({ check: 'ssh_password_login', deep_at: '2026-10-29T18:00:00Z', accepted: false, key: 'deep:a:22:ssh_password_login' })
+  })
+
+  it('does not list one the report already carries', () => {
+    expect(deepProblemsOf(report([open22, f('d', { port: 22, check: 'ssh_password_login', severity: 'medium' })]), [check()], NOW)).toEqual([])
+  })
+
+  it('does not list one whose port the scan no longer sees open, as the audit would not carry it either', () => {
+    expect(deepProblemsOf(report([f('q', { port: 80 })]), [check()], NOW)).toEqual([])
+  })
+
+  it('stops listing it after 90 days', () => {
+    expect(deepProblemsOf(report([open22]), [check({ at: '2026-07-01T00:00:00Z' })], NOW)).toEqual([])
   })
 })

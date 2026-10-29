@@ -7,6 +7,7 @@ import FixGuidePanel from "./FixGuidePanel.vue"
 import FixGuideSteps from "./FixGuideSteps.vue"
 import { placeSentence, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { flawsOf, nvdUrl } from "../../utils/netaudit/flaws"
+import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS, SIMPLE_ACCEPT } from "../../constants/netaudit"
 import type { ProblemGroup, ScanFinding } from "../../types/netaudit"
 
@@ -63,9 +64,10 @@ const flawsOpen = ref<Record<string, boolean>>({})
                 </ul>
               </Disclosure>
             </template>
-            <FixGuidePanel :finding="f" :advanced="advanced" :steps="false" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
+            <span v-if="f.deep_at" class="text-[length:var(--text-small)] text-muted" data-test="deep-readonly">From the deep check of {{ formatAbsoluteTime(f.deep_at) }}. You can accept it after the next audit has recorded it.</span>
+            <FixGuidePanel v-else :finding="f" :advanced="advanced" :steps="false" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
           </span>
-          <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('accept', f)">{{ advanced ? ADVANCED_ACCEPT : SIMPLE_ACCEPT }}</BaseButton>
+          <BaseButton v-if="!f.deep_at" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('accept', f)">{{ advanced ? ADVANCED_ACCEPT : SIMPLE_ACCEPT }}</BaseButton>
         </li>
       </ul>
     </article>

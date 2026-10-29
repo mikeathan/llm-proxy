@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
-import { del, get, post, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus } from '../../types/netaudit'
+import { del, get, post, postFile, put } from '../httpClient'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -86,6 +86,13 @@ export class NetauditService {
   /** Deletes all the downloaded vulnerability data (stopping a download that runs); answers with the empty status. */
   static clearVulnData(): Promise<VulnDataStatus> {
     return del<VulnDataStatus>(API_ENDPOINTS.netauditVulnData)
+  }
+
+  /** Hands the server a data file fetched elsewhere (NVD's yearly file needs its year; CISA's list does not). */
+  static importVulnData(source: VulnImportSource, file: File, year?: number): Promise<VulnDataStatus> {
+    const params: Record<string, string> = { source }
+    if (year !== undefined) params.year = String(year)
+    return postFile<VulnDataStatus>(`${API_ENDPOINTS.netauditVulnImport}${query(params)}`, file)
   }
 
   static cancelVulnDownload(): Promise<VulnDataStatus> {

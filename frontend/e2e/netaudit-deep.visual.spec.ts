@@ -47,7 +47,9 @@ async function open(page: Page) {
 
 test('the deep check question says exactly what will be sent, and fits the screen', async ({ page }, testInfo) => {
   await open(page)
-  await page.locator('section[aria-label="192.0.2.12"]').getByRole('button', { name: 'Deep check' }).click()
+  const device = page.locator('section[aria-label="192.0.2.12"]')
+  await device.getByRole('button', { name: 'More' }).click()
+  await device.getByRole('button', { name: 'Deep check' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'Deep check of 192.0.2.12?' })).toBeVisible()
   await expect(dialog.getByText('about 60 connections')).toBeVisible()

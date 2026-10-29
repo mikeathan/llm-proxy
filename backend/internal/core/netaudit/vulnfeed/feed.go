@@ -34,8 +34,10 @@ const (
 // running on a home network exist but are rare, and each year costs 20 to 40 MB.
 const yearsWanted = 5
 
-// defaultMaxFileBytes caps one downloaded file (as sent, compressed). The largest yearly file seen is about 42 MB.
-const defaultMaxFileBytes = 256 << 20
+// MaxFileBytes caps one downloaded or imported file (as sent, compressed). The largest yearly file seen is about 42 MB.
+const MaxFileBytes = 256 << 20
+
+const defaultMaxFileBytes = MaxFileBytes
 
 var (
 	// ErrBusy means a download is already running.
@@ -44,6 +46,13 @@ var (
 	ErrNotReady = errors.New("the application is still starting; try again in a moment")
 	// ErrUpToDate means everything is held and recent, so there is nothing to fetch; Start with restart fetches it anyway.
 	ErrUpToDate = errors.New("the vulnerability data is up to date")
+	// ErrBadSource means an import named a source that is not one of the two the data comes from.
+	ErrBadSource = errors.New("the source must be nvd or kev")
+	// ErrBadYear means an NVD import named a year the data does not cover.
+	ErrBadYear = errors.New("that year is not one of the years the vulnerability data covers")
+	// ErrBadImport means the supplied file could not be used: it is not the expected kind of data, or it is too large.
+	// Nothing of the file's own text is in the message.
+	ErrBadImport = errors.New("that file could not be read as vulnerability data, so it was not used")
 	// errTooBig means a file was larger than the cap.
 	errTooBig = errors.New("file larger than the cap")
 	// errRedirected means the answer came from a different host or scheme than the one asked.
@@ -146,6 +155,7 @@ type Manager struct {
 	index            models.VulnIndex
 	loadNote         string
 	running          bool
+	importing        bool
 	cancel           context.CancelFunc
 	current          string
 	reason           string
@@ -302,13 +312,92 @@ func (m *Manager) Start(restart bool) error {
 	return nil
 }
 
-// Cancel stops a running download; the files already finished stay.
+// Cancel stops a running download; the files already finished stay. An import in progress is not cancelled: it is one
+// file the operator already supplied and ends in moments.
 func (m *Manager) Cancel() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.running {
+	if m.running && !m.importing {
 		m.cancel()
 	}
+}
+
+// The two sources an import may name.
+const (
+	SourceNVD = "nvd"
+	SourceKEV = "kev"
+)
+
+// Import reads one file the operator supplies (NVD's yearly file, gzip or plain, or CISA's exploited list) into the
+// index, as a download of the same file would. It exists for a host that may not reach the Internet: the operator fetches
+// the file elsewhere and hands it over. It runs in the caller's goroutine, one at a time with downloads and other
+// imports. The year of an NVD file is the one the operator says it is, and only the years the data covers are accepted,
+// because the file's own content does not tell it. A file that cannot be used changes nothing.
+func (m *Manager) Import(source string, year int, r io.Reader) error {
+	f, err := m.importTarget(source, year)
+	if err != nil {
+		return err
+	}
+	if err := m.beginImport(f.label); err != nil {
+		return err
+	}
+	defer m.endImport()
+
+	m.mu.Lock()
+	base := m.index
+	m.mu.Unlock()
+	m.bytes.Store(0)
+	m.total.Store(0)
+	body := &countingReader{r: r, n: &m.bytes, limit: m.maxFileBytes}
+	next, err := m.importFile(base, f, body)
+	if err != nil {
+		// Whatever went wrong while reading it (not data, too large, cut short), the file was not used and nothing of its
+		// own text is repeated.
+		return ErrBadImport
+	}
+	if err := m.store.Write(next); err != nil {
+		return fmt.Errorf("the data could not be saved: %w", err)
+	}
+	m.mu.Lock()
+	m.index = next
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *Manager) importTarget(source string, year int) (file, error) {
+	switch source {
+	case SourceKEV:
+		return file{label: "CISA exploited list"}, nil
+	case SourceNVD:
+		now := m.now().Year()
+		if year > now || year <= now-yearsWanted {
+			return file{}, ErrBadYear
+		}
+		return file{label: fmt.Sprintf("NVD %d", year), year: year}, nil
+	}
+	return file{}, ErrBadSource
+}
+
+// beginImport takes the one job slot, or says why it cannot. Cancel and Clear see a job that has no download to stop.
+func (m *Manager) beginImport(label string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.running {
+		return ErrBusy
+	}
+	if m.ctx == nil {
+		return ErrNotReady
+	}
+	m.loadLocked()
+	m.running, m.importing, m.cancel, m.reason, m.current = true, true, func() {}, "", label
+	m.jobSize, m.jobDone = 1, 0
+	return nil
+}
+
+func (m *Manager) endImport() {
+	m.mu.Lock()
+	m.running, m.importing, m.current = false, false, ""
+	m.mu.Unlock()
 }
 
 func (m *Manager) run(ctx context.Context, todo []file) {

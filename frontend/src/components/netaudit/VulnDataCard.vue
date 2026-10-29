@@ -3,6 +3,7 @@ import { computed, onMounted } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Meter from "../common/display/Meter.vue"
+import VulnDataImport from "./VulnDataImport.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useConfirm } from "../../composables/ui/useConfirm"
@@ -40,6 +41,9 @@ async function deleteData() {
   })
   if (ok) await clear()
 }
+
+// The import is for a computer that cannot download: always in Advanced, and in Simple once a download has stopped.
+const showImport = computed(() => !running.value && (advanced.value || status.value?.state === "stopped"))
 
 const reason = computed(() => (running.value ? "" : (status.value?.reason ?? "")))
 
@@ -88,6 +92,8 @@ onMounted(refresh)
             <span v-if="row.skipped" class="text-[length:var(--text-small)] text-faint">{{ row.skipped }}</span>
           </li>
         </ul>
+
+        <VulnDataImport v-if="showImport" />
 
         <div class="flex flex-col gap-1 text-[length:var(--text-small)] text-muted">
           <p class="m-0">{{ VULN_NOT_PROOF }}</p>
