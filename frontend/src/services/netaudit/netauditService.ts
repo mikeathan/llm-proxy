@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { AcceptRequest, DeviceExpectation, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -56,6 +56,19 @@ export class NetauditService {
 
   static removeExpectation(workspaceId: string, device: string): Promise<void> {
     return del(`${API_ENDPOINTS.netauditExpectations}${query({ workspace_id: workspaceId, device })}`)
+  }
+
+  /** The last deep check of each device in the workspace, newest first. */
+  static deepChecks(workspaceId: string): Promise<DeepCheck[]> {
+    return get<DeepCheck[]>(`${API_ENDPOINTS.netauditDeep}${query({ workspace_id: workspaceId })}`)
+  }
+
+  /**
+   * Starts a deep check of one device and answers when it is done, which can take a few minutes. The server asks for the
+   * passphrase again first (the page's usual "confirm it's you" step); it never takes ports or scripts from the page.
+   */
+  static runDeepCheck(workspaceId: string, automation: string, device: string): Promise<DeepCheck> {
+    return post<DeepCheck>(API_ENDPOINTS.netauditDeep, { workspace_id: workspaceId, automation, device })
   }
 
   static vulnData(): Promise<VulnDataStatus> {

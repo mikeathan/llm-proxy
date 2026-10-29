@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.19"
+version: "2.20"
 status: stable
 last_updated: 2026-10-30
 constitution_references: []
@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **2.20 (2026-10-30)** — **Deep check** (network-audit plan 13.J, Constitution II.3 "Intrusive runs"). §II.6: in the Advanced
+  view each device has a **Deep check** button. It opens a question that says exactly what will be sent (about 60 TLS
+  connections per TLS port; one SSH login with a made-up user name that the device logs; no password guessed), then runs
+  one device, shows it as checking and shows the result under the device: problems with their fix and steps, or "No TLS or
+  SSH service answered, so there was nothing to check. This is not the same as nothing wrong." A device is held back for ten
+  minutes after a check and only one runs at a time. It is a step-up action (§II.9), and Help has a part for it.
 - **2.19 (2026-10-30)** — **Sign-in is compulsory** (0.22.0). Until a passphrase exists every page is the setup page (it
   shows the `auth setup-code` command with or without an open code, so the guard cannot loop); the "not set up" banner is
   removed, and a 401 `setup_required` (or `auth reset` under an open page) sends the person to setup, not to a login. The
@@ -306,7 +312,7 @@ and makes no network request outside the proxy's own origin.
   workspace across that trip and comes back with the chat.
 - A request the server answers `reauth_required` opens the **confirm it's you** dialog, then repeats once the passphrase is
   right. These are the destructive actions (wipe, reset, sandbox switches, secrets, MCP servers, new tokens, a longer
-  session) and a settings save that changes what the model server runs. A script token cannot confirm a passphrase.
+  session, a deep check of a device) and a settings save that changes what the model server runs. A script token cannot confirm a passphrase.
 - **Settings → Safety → Sign-in & access** holds: the **Exposure** card (where the server listens, sign-in, encryption,
   inference key, webhook secrets n of m, sandbox; each item that needs attention says what to do), the passphrase, how
   long a sign-in lasts, where you are signed in (sign out one, or everywhere), script tokens (shown once) and the

@@ -6,13 +6,15 @@ import { formatPorts } from "../../utils/netaudit/expectations"
 import { isCheck, isGuessedService, isLowDetail, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
-import type { DeviceExpectation, DeviceGroup, ScanFinding } from "../../types/netaudit"
+import DeepCheckResult from "./DeepCheckResult.vue"
+import { cooldownLeftMs, cooldownText } from "../../utils/netaudit/deepCheck"
+import type { DeepCheck, DeviceExpectation, DeviceGroup, ScanFinding } from "../../types/netaudit"
 
 // One device in the Advanced report: a header that always shows the counts, and its ports underneath, folded when the
 // device has nothing to look at. Ports the scan could say nothing about (a name taken from the port table, no version)
 // fold into one line, because a long run of "http (guess), version unknown" says nothing a count does not. The problems
 // themselves are listed once in ProblemGroups; a check row here is only a pointer, kept so an accepted one can be undone.
-const props = defineProps<{ group: DeviceGroup<ScanFinding>; open: boolean; baseline: boolean; problems: number; expected?: DeviceExpectation }>()
+const props = defineProps<{ group: DeviceGroup<ScanFinding>; open: boolean; baseline: boolean; problems: number; expected?: DeviceExpectation; deep?: DeepCheck; deepRunning?: boolean; deepBusy?: boolean }>()
 const emit = defineEmits<{
   (e: "toggle"): void
   (e: "accept", finding: ScanFinding): void
@@ -21,7 +23,12 @@ const emit = defineEmits<{
   (e: "expect", device: string): void
   (e: "edit-expected", device: string): void
   (e: "unexpect", device: string): void
+  (e: "deep", device: string): void
 }>()
+
+// A device is checked once in a cool-down, judged from the stored time of its last check (the server enforces it too).
+const wait = computed(() => cooldownLeftMs(props.deep?.at, Date.now()))
+const deepTitle = computed(() => (wait.value > 0 ? cooldownText(wait.value) : props.deepBusy ? "Another device is being checked." : ""))
 
 // Folding one port into a line saves nothing; a few do.
 const MIN_FOLDED = 2
@@ -58,10 +65,13 @@ const STATE_CLASS: Record<string, string> = {
         </template>
         <BaseButton v-else variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="set-expected" @click="emit('expect', group.device)">Set as expected</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', group.device)">Rescan this host</BaseButton>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :loading="deepRunning" :disabled="deepBusy || wait > 0 || portCount(group.items) === 0" :title="deepTitle" data-test="deep-check" @click="emit('deep', group.device)">{{ deepRunning ? "Checking…" : "Deep check" }}</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="toggle-device" :aria-expanded="open" @click="emit('toggle')">{{ open ? "Hide ports" : "Show ports" }}</BaseButton>
       </span>
       <p v-if="expected" class="m-0 basis-full break-words text-[length:var(--text-small)] text-secondary" data-test="expected">Expects {{ formatPorts(expected.ports) }}. Anything else open, or a listed port that does not answer, is reported as a problem.</p>
     </header>
+    <DeepCheckResult v-if="deep" :check="deep" />
+    <p v-if="deepRunning" role="status" class="m-0 border-t border-hairline px-3 py-2 text-[length:var(--text-small)] text-secondary" data-test="deep-running">Checking {{ group.device }} slowly. This can take a few minutes; the page stays usable.</p>
     <ul v-if="open" class="m-0 list-none p-0">
       <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS}` : '']">
         <span class="w-20 flex-none font-mono text-[length:var(--text-small)] text-primary">{{ f.port }}/{{ f.proto || "tcp" }}</span>

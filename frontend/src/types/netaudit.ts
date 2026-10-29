@@ -187,7 +187,7 @@ export interface ScanSettings {
 }
 
 /** The parts of the Help panel; a warning opens it on the one that explains it. */
-export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'fixes' | 'safety' | 'words'
+export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'fixes' | 'deep' | 'safety' | 'words'
 
 export interface HelpSection {
   title: string
@@ -313,3 +313,21 @@ export interface ExpectationRequest {
   ports: number[]
   note: string
 }
+
+/** One port a deep check looked at, and whether a TLS or an SSH service answered on it (so something could be judged). */
+export interface DeepPort {
+  port: number
+  tls_answered: boolean
+  ssh_answered: boolean
+}
+
+/** The last deep check of one device: when it ran, what answered, and what it found (each finding with its title, fix and guide). */
+export interface DeepCheck {
+  device: string
+  at: string
+  ports: DeepPort[]
+  findings: Array<Pick<ScanFinding, 'device' | 'port' | 'proto' | 'service' | 'check' | 'check_title' | 'severity' | 'evidence' | 'fix' | 'guide'>>
+}
+
+/** What a deep check came to: problems found, a service judged and clean, or no TLS or SSH service to judge at all. */
+export type DeepOutcomeState = 'problems' | 'clean' | 'nothing'
