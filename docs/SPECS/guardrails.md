@@ -19,7 +19,7 @@ supersedes:
   moves to its own category: `scan_local_network` is replaced by `network_scan` (category `netaudit`). Tool facts
   (category, effect, network reach, gate) now come from one catalog (`models/tool_catalog.go`), from which
   `hostNetworkGatedTools` and `scopeForbiddenTools` are derived. Constitution text for guarded programs is drafted in
-  `docs/PLANS/cross-cutting/network-audit.md` §8 and awaits the security review.
+  `docs/PLANS/ARCHIVE/cross-cutting/network-audit.md` §8 and awaits the security review.
 - **1.6 (2026-10-22)** — An approval covers the call the user was shown, not the tool. "Allow once" (and an "Allow and
   remember" with nothing to remember) used to mark the whole tool for 30 minutes: every other command, path or query in
   that workspace then skipped the guardrails, the secret check included. `MarkApproved` now records the tool with the

@@ -3,7 +3,7 @@
 The as-built design of the network audit: the tool catalog, guarded programs, the netaudit domain, persistence,
 readiness, the report and the UI, the security design, and the features built on it (known-vulnerability matching,
 guided fixes, expectations per device, the deep check). **Harvested on 2026-10-29 from the plan
-[`PLANS/cross-cutting/network-audit.md`](../PLANS/cross-cutting/network-audit.md)** with its section numbers kept, so
+[`PLANS/ARCHIVE/cross-cutting/network-audit.md`](../PLANS/ARCHIVE/cross-cutting/network-audit.md)** with its section numbers kept, so
 a reference such as "§4.3" or "§13.J" still finds its text. The text was moved, not rewritten; read it as the design at
 the time it was merged. Where it says admin-API authentication is parked or that a feature waits for it, that is
 history: sign-in has been compulsory since v0.22.0 (see
