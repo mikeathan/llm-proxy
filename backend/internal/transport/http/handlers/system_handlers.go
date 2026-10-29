@@ -75,7 +75,7 @@ func (h *SystemHandlers) AdminSystemHandler(w http.ResponseWriter, r *http.Reque
 		IdleTimeoutSecs: sys.Server.IdleTimeoutSecs,
 		WorkspacesDir:   sys.WorkspacesDir,
 		GPU:             h.admin.GPUConfig(),
-		Environment:     sys.Server.Environment,
+		Environment:     models.MaskedEnvironment(sys.Server.Environment),
 		Local:           settings.Local,
 	}
 	respondJSON(w, view)

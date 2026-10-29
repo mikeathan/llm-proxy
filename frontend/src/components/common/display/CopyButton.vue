@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue'
 import BaseButton from '../buttons/BaseButton.vue'
+import { copyText } from '../../../utils/clipboard'
 
 // Copies a value (text as-is, anything else as pretty JSON). Icon-only, named
 // by `title`: a copy icon that turns into a green check for a moment once
@@ -20,12 +21,8 @@ const feedback = ref('')
 let timer: ReturnType<typeof setTimeout> | null = null
 
 async function copy() {
-  try {
-    await navigator.clipboard.writeText(typeof props.text === 'string' ? props.text : JSON.stringify(props.text, null, 2))
-    feedback.value = COPIED
-  } catch {
-    feedback.value = COPY_FAILED
-  }
+  const ok = await copyText(typeof props.text === 'string' ? props.text : JSON.stringify(props.text, null, 2))
+  feedback.value = ok ? COPIED : COPY_FAILED
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => (feedback.value = ''), FEEDBACK_MS)
 }

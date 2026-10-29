@@ -234,7 +234,9 @@ server:
 - Check the header really arrives: request `/admin/api/auth/status` through the proxy and read `"encrypted":true`; the "not encrypted"
   sentence in the setup banner disappears when it is. Do not assume a given proxy sends it.
 - Caddy: `llm.example.com { reverse_proxy 127.0.0.1:4001 }` (Caddy sets the header). nginx: add
-  `proxy_set_header X-Forwarded-Proto $scheme;`, `proxy_set_header Host $host;` and `proxy_buffering off;` (the live
+  `proxy_set_header X-Forwarded-Proto $scheme;`, `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, `proxy_set_header Host $host;` and `proxy_buffering off;` (the live
   event stream is long-lived and must not be buffered), and `proxy_read_timeout 1h;`.
-- Not yet followed behind a proxy: `X-Forwarded-For`. The sign-in log and the per-address lockout see the proxy's address,
-  so wrong passphrases from anywhere count against one shared bucket.
+- `X-Forwarded-For` is followed too (since 0.21.0), only from a listed proxy: the sign-in log and the per-address lockout
+  use the browser's own address. The list is read from the right and the first address that is not itself a listed proxy
+  is the client, so a value a client writes on its own is never believed. The proxy must append to the header (Caddy and
+  nginx's `$proxy_add_x_forwarded_for` do); one that does not sends the proxy's address as the client.
