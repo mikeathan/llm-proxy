@@ -68,3 +68,34 @@ func TestInvalidProxyEntries(t *testing.T) {
 		t.Errorf("InvalidProxyEntries = %q", got)
 	}
 }
+
+// Behind a trusted proxy the browser's address is in X-Forwarded-For. It is believed only from a listed proxy, and read
+// from the right: each proxy appends the address it saw, so what a client wrote on its own is at the left and cannot be
+// trusted; the first address from the right that is not itself a trusted proxy is the client.
+func TestClientAddr(t *testing.T) {
+	trusted := func() []string { return []string{"127.0.0.1", "10.0.0.0/24"} }
+	cases := []struct {
+		name string
+		r    *http.Request
+		list func() []string
+		want string
+	}{
+		{"direct, no proxy", fromPeer("203.0.113.9:5555"), trusted, "203.0.113.9"},
+		{"a stranger's header is ignored", fromPeer("203.0.113.9:5555", "X-Forwarded-For", "1.2.3.4"), trusted, "203.0.113.9"},
+		{"one proxy", fromPeer("127.0.0.1:1", "X-Forwarded-For", "192.168.1.20"), trusted, "192.168.1.20"},
+		{"a client's own forged entry is to the left of the real one", fromPeer("127.0.0.1:1", "X-Forwarded-For", "6.6.6.6, 192.168.1.20"), trusted, "192.168.1.20"},
+		{"two proxies", fromPeer("127.0.0.1:1", "X-Forwarded-For", "192.168.1.20, 10.0.0.7"), trusted, "192.168.1.20"},
+		{"header lines are joined", fromPeer("127.0.0.1:1", "X-Forwarded-For", "6.6.6.6", "X-Forwarded-For", "192.168.1.20"), trusted, "192.168.1.20"},
+		{"every address is a proxy", fromPeer("127.0.0.1:1", "X-Forwarded-For", "10.0.0.5, 10.0.0.6"), trusted, "127.0.0.1"},
+		{"an unparseable entry stops the walk at the proxy", fromPeer("127.0.0.1:1", "X-Forwarded-For", "garbage"), trusted, "127.0.0.1"},
+		{"IPv6", fromPeer("[::1]:1", "X-Forwarded-For", "2001:db8::5"), func() []string { return []string{"::1"} }, "2001:db8::5"},
+		{"no proxy trusted", fromPeer("127.0.0.1:1", "X-Forwarded-For", "192.168.1.20"), nil, "127.0.0.1"},
+		{"no header", fromPeer("127.0.0.1:1"), trusted, "127.0.0.1"},
+		{"a peer without a port", func() *http.Request { r := fromPeer("203.0.113.9"); return r }(), trusted, "203.0.113.9"},
+	}
+	for _, tc := range cases {
+		if got := ClientAddr(tc.r, tc.list); got != tc.want {
+			t.Errorf("%s: ClientAddr = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

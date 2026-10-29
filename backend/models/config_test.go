@@ -372,3 +372,47 @@ func TestKeepStoredWebhookSecrets(t *testing.T) {
 		t.Error("a mask with nothing stored under that name must not become a secret (the mask itself would be the secret)")
 	}
 }
+
+// The model server's environment holds whatever the operator put there, often a token for the model host. A read says a
+// secret-looking variable is set, not what it is, and a write that sends the mask back keeps the stored value.
+func TestMaskedEnvironment_HidesTheValuesOfSecretLookingNames(t *testing.T) {
+	env := map[string]string{"HF_TOKEN": "hf_real", "OPENAI_API_KEY": "sk-real", "DB_PASSWORD": "pw", "MY_SECRET": "s", "CUDA_VISIBLE_DEVICES": "0", "OMP_NUM_THREADS": "8", "hf_token_lower": "x"}
+	got := MaskedEnvironment(env)
+	for _, name := range []string{"HF_TOKEN", "OPENAI_API_KEY", "DB_PASSWORD", "MY_SECRET", "hf_token_lower"} {
+		if got[name] != MaskedSecret {
+			t.Errorf("%s = %q, want the mask", name, got[name])
+		}
+	}
+	if got["CUDA_VISIBLE_DEVICES"] != "0" || got["OMP_NUM_THREADS"] != "8" {
+		t.Errorf("an ordinary variable must be shown as it is: %v", got)
+	}
+	if env["HF_TOKEN"] != "hf_real" {
+		t.Error("masking changed the stored environment")
+	}
+	if MaskedEnvironment(nil) != nil {
+		t.Error("no environment stays none")
+	}
+}
+
+func TestKeepStoredEnvironmentSecrets(t *testing.T) {
+	stored := map[string]string{"HF_TOKEN": "hf_real", "CUDA_VISIBLE_DEVICES": "0"}
+	got := KeepStoredEnvironmentSecrets(map[string]string{"HF_TOKEN": MaskedSecret, "CUDA_VISIBLE_DEVICES": "1", "NEW_TOKEN": MaskedSecret}, stored)
+	if got["HF_TOKEN"] != "hf_real" {
+		t.Errorf("a masked value keeps the stored one, got %q", got["HF_TOKEN"])
+	}
+	if got["CUDA_VISIBLE_DEVICES"] != "1" {
+		t.Error("an ordinary value is taken as sent")
+	}
+	if _, set := got["NEW_TOKEN"]; set {
+		t.Error("a mask with nothing stored must not be saved as a value")
+	}
+	if replaced := KeepStoredEnvironmentSecrets(map[string]string{"HF_TOKEN": "new"}, stored); replaced["HF_TOKEN"] != "new" {
+		t.Error("a typed value replaces the stored one")
+	}
+	if got := KeepStoredEnvironmentSecrets(nil, stored); got != nil {
+		t.Errorf("nil stays nil (an update that omits the environment): %v", got)
+	}
+	if stored["HF_TOKEN"] != "hf_real" {
+		t.Error("the stored map was changed")
+	}
+}

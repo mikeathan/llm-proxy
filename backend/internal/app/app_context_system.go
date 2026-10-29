@@ -179,7 +179,7 @@ func (s *AppContext) applyServerFields(sys *models.SystemConfig, req models.Syst
 		sys.Server.IdleTimeoutSecs = *req.IdleTimeoutSecs
 	}
 	if req.Environment != nil {
-		sys.Server.Environment = req.Environment
+		sys.Server.Environment = models.KeepStoredEnvironmentSecrets(req.Environment, sys.Server.Environment)
 	}
 	if req.RunLogging != nil {
 		sys.Server.RunLogging = req.RunLogging
@@ -324,7 +324,7 @@ func applyServiceCredentials(req models.SystemUpdatePayload) {
 // current one is not a change: the settings page sends back what it read, and an ordinary save must not ask.
 func (s *AppContext) SystemUpdateChangesWhatRuns(req models.SystemUpdatePayload) bool {
 	sys, set := s.GetSystem(), s.GetSettings()
-	if req.Environment != nil && !equalEnvironment(req.Environment, sys.Server.Environment) {
+	if req.Environment != nil && !equalEnvironment(models.KeepStoredEnvironmentSecrets(req.Environment, sys.Server.Environment), sys.Server.Environment) {
 		return true
 	}
 	if req.DefaultArgs != nil && !slices.Equal(req.DefaultArgs, set.Local.DefaultArgs) {

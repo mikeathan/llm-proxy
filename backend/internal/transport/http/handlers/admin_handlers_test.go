@@ -203,6 +203,19 @@ func TestConfigAndStateViews_MaskTheWebhookSecret(t *testing.T) {
 	}
 }
 
+// GET /system says a secret-looking model-server variable is set, never what it is.
+func TestAdminSystemHandler_MasksSecretEnvironment(t *testing.T) {
+	sys := models.SystemConfig{}
+	sys.Server.Environment = map[string]string{"HF_TOKEN": "hf_VALUE", "CUDA_VISIBLE_DEVICES": "0"}
+	admin := &mocks.MockAdminService{GetSystemFunc: func() models.SystemConfig { return sys }}
+	rr := httptest.NewRecorder()
+	newSystemHandlers(admin).AdminSystemHandler(rr, httptest.NewRequest(http.MethodGet, "/admin/api/system", nil))
+	body := rr.Body.String()
+	if strings.Contains(body, "hf_VALUE") || !strings.Contains(body, models.MaskedSecret) || !strings.Contains(body, `"CUDA_VISIBLE_DEVICES":"0"`) {
+		t.Errorf("GET /system: %s", body)
+	}
+}
+
 // The config view always carries the two resolved hot-memory defaults, so the UI never has to guess what an unset value means.
 func TestAdminConfigHandler_ReturnsMemoryHotDefaults(t *testing.T) {
 	for _, tc := range []struct {

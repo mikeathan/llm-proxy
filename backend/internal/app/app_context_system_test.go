@@ -357,3 +357,37 @@ func TestSetAuthSettings_ReachesWhatTheSignInReads(t *testing.T) {
 		t.Errorf("the sign-in would use %v / %v", got.IdleTimeout, got.AbsoluteTimeout)
 	}
 }
+
+// The environment is read back with secret-looking values masked. Sending that back unchanged is not a change (no
+// passphrase asked, nothing overwritten), a new value for the secret is one, and the secret is never replaced by the mask.
+func TestEnvironmentSecrets_AMaskedSaveChangesNothing(t *testing.T) {
+	srv := newSystemTestServer(t)
+	ctx := context.Background()
+	if err := srv.ApplySystemUpdate(ctx, models.SystemUpdatePayload{Environment: map[string]string{"HF_TOKEN": "hf_real", "THREADS": "8"}}); err != nil {
+		t.Fatal(err)
+	}
+	read := models.MaskedEnvironment(srv.GetSystem().Server.Environment)
+	if read["HF_TOKEN"] != models.MaskedSecret {
+		t.Fatalf("the read view must be masked: %v", read)
+	}
+
+	back := models.SystemUpdatePayload{Environment: read}
+	if srv.SystemUpdateChangesWhatRuns(back) {
+		t.Error("sending the masked environment back unchanged must not ask for the passphrase")
+	}
+	if err := srv.ApplySystemUpdate(ctx, back); err != nil {
+		t.Fatal(err)
+	}
+	if got := srv.GetSystem().Server.Environment["HF_TOKEN"]; got != "hf_real" {
+		t.Errorf("the save replaced the secret with %q", got)
+	}
+
+	changed := models.SystemUpdatePayload{Environment: map[string]string{"HF_TOKEN": "hf_other", "THREADS": "8"}}
+	if !srv.SystemUpdateChangesWhatRuns(changed) {
+		t.Error("a new secret value changes what the model server runs: it must ask for the passphrase")
+	}
+	edited := models.SystemUpdatePayload{Environment: map[string]string{"HF_TOKEN": models.MaskedSecret, "THREADS": "16"}}
+	if !srv.SystemUpdateChangesWhatRuns(edited) {
+		t.Error("an ordinary variable changed beside a masked one must still count")
+	}
+}

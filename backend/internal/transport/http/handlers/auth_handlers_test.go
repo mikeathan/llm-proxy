@@ -148,6 +148,28 @@ func TestAuthLogin_FollowsATrustedProxyForSecureAndEncrypted(t *testing.T) {
 	}
 }
 
+// Behind a trusted proxy a wrong passphrase is recorded against the person's own address, not the proxy's: otherwise one
+// person's failures would lock everyone out, and the sign-in log could not say who tried.
+func TestAuthLogin_RecordsTheForwardedClientBehindATrustedProxy(t *testing.T) {
+	h, svc := newAuthHandlers(t)
+	setUpAndSignIn(t, h, svc)
+	h = h.WithTrustedProxies(func() []string { return []string{"10.0.0.0/24"} })
+	bad := `{"passphrase":"not the passphrase"}`
+
+	call(h.Login, "POST", "/", bad, func(r *http.Request) { r.RemoteAddr = "10.0.0.7:5555"; r.Header.Set("X-Forwarded-For", "192.168.1.20") })
+	call(h.Login, "POST", "/", bad, func(r *http.Request) { r.RemoteAddr = "203.0.113.9:5555"; r.Header.Set("X-Forwarded-For", "6.6.6.6") })
+
+	var seen []string
+	for _, e := range svc.Events() {
+		if e.Kind == "login_failed" {
+			seen = append(seen, e.Address)
+		}
+	}
+	if len(seen) != 2 || seen[0] != "192.168.1.20" || seen[1] != "203.0.113.9" {
+		t.Errorf("failed sign-ins were recorded against %v, want the forwarded client then the stranger's own address", seen)
+	}
+}
+
 func TestAuthLogin_LockoutIs429WithRetryAfter(t *testing.T) {
 	h, svc := newAuthHandlers(t)
 	setUpAndSignIn(t, h, svc)
