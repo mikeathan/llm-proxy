@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { AuthExposure, AuthStatus, SessionLength } from '../../../types/auth'
 
@@ -332,5 +332,40 @@ describe('SignInSettings', () => {
     await w.get('[data-test="session-length-form"]').trigger('submit')
     await flushPromises()
     expect(w.get('[data-test="action-error"]').text()).toContain('confirm it is you')
+  })
+
+  describe('copying a new token', () => {
+    async function withToken() {
+      service.createToken.mockResolvedValue({ id: 't1', name: 'eval scripts', scope: 'admin', token: 'lp_secretsecretsecret' })
+      const w = mount(SignInSettings, { ...stubs, attachTo: document.body })
+      await flushPromises()
+      await w.get('input[placeholder="eval scripts"]').setValue('eval scripts')
+      await w.get('form[class*="grid"]').trigger('submit')
+      await flushPromises()
+      const copy = () => w.findAll('button').find((b) => b.text() === 'Copy' || b.text() === 'Copied')!
+      return { w, copy }
+    }
+    afterEach(() => { vi.unstubAllGlobals(); document.body.innerHTML = '' })
+
+    it('says Copied when the page can copy', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      vi.stubGlobal('navigator', { clipboard: { writeText } })
+      const { w, copy } = await withToken()
+      await copy().trigger('click')
+      await flushPromises()
+      expect(writeText).toHaveBeenCalledWith('lp_secretsecretsecret')
+      expect(copy().text()).toBe('Copied')
+      expect(w.find('[data-test="copy-failed"]').exists()).toBe(false)
+    })
+
+    it('on a page that cannot copy (plain HTTP), says so and selects the token for Ctrl+C', async () => {
+      vi.stubGlobal('navigator', {})
+      Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true, writable: true })
+      const { w, copy } = await withToken()
+      await copy().trigger('click')
+      await flushPromises()
+      expect(w.get('[data-test="copy-failed"]').text()).toContain('Ctrl+C')
+      expect(window.getSelection()?.toString()).toBe('lp_secretsecretsecret')
+    })
   })
 })

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from "vue"
+import { copyText } from "../../../utils/clipboard"
 
 // A truncated mono ID. The full value is in the tooltip and accessible name;
 // clicking copies it, with the result announced politely.
@@ -14,12 +15,7 @@ const feedback = ref("")
 let timer: ReturnType<typeof setTimeout> | null = null
 
 async function copy() {
-  try {
-    await navigator.clipboard.writeText(props.id)
-    feedback.value = COPIED
-  } catch {
-    feedback.value = COPY_FAILED
-  }
+  feedback.value = (await copyText(props.id)) ? COPIED : COPY_FAILED
   if (timer) clearTimeout(timer)
   timer = setTimeout(() => (feedback.value = ""), FEEDBACK_MS)
 }
