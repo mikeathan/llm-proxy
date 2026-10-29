@@ -154,6 +154,9 @@ type panicRecorder struct {
 	wrote bool
 }
 
+// Unwrap lets http.ResponseController reach the server's own writer, for deadlines and flushing.
+func (w *panicRecorder) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *panicRecorder) WriteHeader(status int) {
 	if !w.wrote {
 		w.wrote = true

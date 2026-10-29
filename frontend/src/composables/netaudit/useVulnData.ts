@@ -2,12 +2,13 @@ import { getCurrentScope, onScopeDispose, ref } from 'vue'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { useNetauditReadiness } from './useNetauditReadiness'
 import { errorMessage } from '../../utils/errors'
-import type { VulnDataStatus } from '../../types/netaudit'
+import type { VulnDataStatus, VulnImportSource } from '../../types/netaudit'
 
 const POLL_MS = 1000
 const READ_FAILED = 'The vulnerability data status could not be read.'
 const START_FAILED = 'The download could not be started.'
 const CANCEL_FAILED = 'The download could not be stopped.'
+const IMPORT_FAILED = 'The file could not be imported.'
 const CLEAR_FAILED = 'The data could not be deleted.'
 
 // One shared status: the settings card and the readiness banner show the same download. The server job keeps going
@@ -90,6 +91,8 @@ export function useVulnData() {
     /** Fetches what is missing, refreshes what is held, or with `restart` fetches every file again. */
     start: (restart = false) => act(() => NetauditService.startVulnDownload(restart), START_FAILED),
     cancel: () => act(NetauditService.cancelVulnDownload, CANCEL_FAILED),
+    /** Reads a data file the person picked, for a computer that cannot download it. */
+    importFile: (source: VulnImportSource, file: File, year?: number) => act(() => NetauditService.importVulnData(source, file, year), IMPORT_FAILED, true),
     /** Deletes the downloaded data. The caller asks the person first. */
     clear: () => act(NetauditService.clearVulnData, CLEAR_FAILED, true),
   }

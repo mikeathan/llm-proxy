@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { flawsOf, nvdUrl } from '../../../utils/netaudit/flaws'
+import { flawsOf, flawSummary, nvdUrl } from '../../../utils/netaudit/flaws'
 
 describe('flawsOf', () => {
   it('lists the exploited first, then the highest score, then the id', () => {
@@ -30,5 +30,16 @@ describe('flawsOf', () => {
 describe('nvdUrl', () => {
   it('points at the flaw on the NVD site', () => {
     expect(nvdUrl('CVE-2024-6387')).toBe('https://nvd.nist.gov/vuln/detail/CVE-2024-6387')
+  })
+})
+
+describe('flawSummary', () => {
+  it('counts the flaws and the ones attackers are using, so a long sentence is not needed for each place', () => {
+    expect(flawSummary({ cves: ['CVE-2024-0001', 'CVE-2024-0002'], exploited: ['CVE-2024-0002'] })).toBe('2 known flaws · 1 exploited by attackers')
+    expect(flawSummary({ cves: ['CVE-2024-0001'] })).toBe('1 known flaw')
+  })
+
+  it('is empty when the finding carries no flaw list, so the caller falls back to the server text', () => {
+    expect(flawSummary({})).toBe('')
   })
 })

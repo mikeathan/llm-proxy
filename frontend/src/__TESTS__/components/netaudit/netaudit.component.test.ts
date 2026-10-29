@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings, VulnDataStatus } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn() }))
+const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), importVulnData: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirmMock = vi.hoisted(() => vi.fn())
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
@@ -41,6 +41,9 @@ const report: Report = {
   resolved: [{ device: '192.168.1.7', port: 80, proto: 'tcp' }],
   unscanned: ['192.168.1.34'], devices_up: 10,
 }
+// The Advanced report is read one part at a time: a pill per part, each with its count.
+const pill = (w: { findAll: (s: string) => { text: () => string; trigger: (e: string) => Promise<void> }[] }, name: string) =>
+  w.findAll('[role="radio"]').find((b) => b.text().startsWith(name))!.trigger('click')
 const NEVER = '0001-01-01T00:00:00Z'
 const emptySource = { imported_at: NEVER, cves: 0, entries: 0 }
 const vulnStatus = (over: Partial<VulnDataStatus> = {}): VulnDataStatus => ({ state: 'idle', files_done: 0, files_total: 6, nvd: emptySource, kev: emptySource, ...over })
@@ -90,8 +93,8 @@ describe('FindingsReport', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountReport()
     expect(w.get('[data-test="scan-meta"]').text()).toContain('nmap · 10 devices up · 5 open ports')
-    const tiles = w.findAll('button[aria-pressed]').map((b) => b.text())
-    expect(tiles).toEqual(['0problems found by checks', '2new since the last scan', '1changed', '1resolved', '1accepted (hidden from the assistant)'])
+    const pills = w.findAll('[role="radio"]').filter((b) => /\(\d+\)$/.test(b.text())).map((b) => b.text())
+    expect(pills).toEqual(['Problems (0)', 'Devices (2)', 'New (2)', 'Changed (1)', 'Resolved (1)', 'Accepted (1)'])
     expect(w.text()).toContain('1 device was not scanned to completion')
     expect(w.text()).toContain('192.168.1.34')
     expect(w.findAll('section[aria-label="192.168.1.5"]')).toHaveLength(1)
@@ -104,12 +107,12 @@ describe('FindingsReport', () => {
     expect(w.get('[data-key="a"]').text()).toContain('Accept…')
   })
 
-  it('filters the list from a tile and shows what resolved', async () => {
+  it('shows one part of the report from its pill, and what resolved', async () => {
     useNetauditViewMode().set('advanced')
     const w = await mountReport()
-    await w.findAll('button[aria-pressed]').find((b) => b.text().includes('changed'))!.trigger('click')
+    await pill(w, 'Changed')
     expect(w.findAll('li[data-key]').map((li) => li.attributes('data-key'))).toEqual(['e'])
-    await w.findAll('button[aria-pressed]').find((b) => b.text().includes('resolved'))!.trigger('click')
+    await pill(w, 'Resolved')
     expect(w.text()).toContain('is no longer there')
     expect(w.text()).toContain('192.168.1.7')
   })
@@ -243,10 +246,9 @@ describe('FindingsReport with checks', () => {
     expect(rows[1]!.get('[data-test="problem-title"]').text()).toContain('The certificate expires on 2026-12-01')
   })
 
-  it('Advanced: the Problems tile and filter list every unaccepted problem, new or not', async () => {
+  it('Advanced: the Problems pill lists every unaccepted problem, new or not, and opens first', async () => {
     useNetauditViewMode().set('advanced')
     const w = await mountChecks()
-    await w.findAll('button[aria-pressed]').find((b) => b.text().includes('problems found by checks'))!.trigger('click')
     expect(w.findAll('[data-test="problem"]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
     const group = w.get('article[data-check="redis_no_auth"]')
     expect(group.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
@@ -268,6 +270,7 @@ describe('FindingsReport with checks', () => {
     expect(w.get('[data-test="scan-meta"]').text()).toContain('2 open ports · 2 problems found by checks')
     expect(w.get('article[data-check="smb_v1"]').text()).toContain('high')
     expect(w.get('[data-key="smb"] [data-test="check"]').text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
+    await pill(w, 'Devices')
     expect(w.get('section[aria-label="192.0.2.10"]').text()).toContain('1 open port, 1 problem')
     // The device list shows the port, not the problem again.
     expect(w.get('section[aria-label="192.0.2.10"]').find('[data-key="smb"]').exists()).toBe(false)
@@ -397,6 +400,32 @@ describe('FindingsReport known vulnerabilities', () => {
     expect(link.attributes('target')).toBe('_blank')
   })
 
+  it('says the long caution once per card and gives each place only its count', async () => {
+    const two: Report = { ...vulns, findings: [vulns.findings[0]!, { ...vulns.findings[0]!, key: 'v2', device: '192.0.2.6' }] }
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(two)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
+    await flushPromises()
+    const card = w.get('article[data-check="known_vulns"]')
+    expect(card.findAll('[data-test="vuln-caution"]')).toHaveLength(1)
+    expect(card.get('[data-test="vuln-caution"]').text()).toContain('not proof')
+    const places = card.findAll('[data-test="problem"]')
+    expect(places).toHaveLength(2)
+    for (const place of places) {
+      expect(place.get('[data-test="check"]').text()).toBe('3 known flaws · 1 exploited by attackers')
+      expect(place.text()).not.toContain('The software on this port may be affected')
+    }
+  })
+
+  it('Simple: the same compact line, with no list', async () => {
+    useNetauditViewMode().set('simple')
+    service.findings.mockResolvedValue(vulns)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    expect(w.get('[data-key="v"] [data-test="check"]').text()).toBe('3 known flaws · 1 exploited by attackers')
+    expect(w.find('[data-test="vuln-caution"]').exists()).toBe(true)
+  })
+
   it('Simple: keeps the one plain line, with no list', async () => {
     useNetauditViewMode().set('simple')
     service.findings.mockResolvedValue(vulns)
@@ -494,7 +523,7 @@ describe('FindingsReport fix guides', () => {
 
   it.each(['simple', 'advanced'] as const)('%s: a fixed finding the scan confirmed gone says so', async (view) => {
     const w = await mountGuide({ ...report(port), resolved: [{ device: '192.0.2.10', port: 445, proto: 'tcp', check: 'smb_v1', evidence: 'SMBv1 is enabled', fixed_at: '2026-10-27T09:00:00Z' }] }, view)
-    if (view === 'advanced') await w.findAll('button[aria-pressed]').find((b) => b.text().includes('resolved'))!.trigger('click')
+    if (view === 'advanced') await pill(w, 'Resolved')
     expect(w.get('[data-test="fixed-confirmed"]').text()).toContain('you marked it on')
     expect(w.get('[data-test="fixed-confirmed"]').text()).toContain('the scan confirms it')
   })
@@ -524,6 +553,7 @@ describe('FindingsReport fixes and rescans', () => {
     useNetauditViewMode().set('advanced')
     const advanced = await mountScanned()
     expect(advanced.get('article[data-check="smb_v1"] [data-test="fix"]').text()).toContain(FIX)
+    await pill(advanced, 'Devices')
     expect(advanced.get('[data-key="p"]').find('[data-test="fix"]').exists()).toBe(false)
   })
 
@@ -546,6 +576,7 @@ describe('FindingsReport fixes and rescans', () => {
   it('Advanced: "Rescan this host" scans just that device', async () => {
     useNetauditViewMode().set('advanced')
     const w = await mountScanned()
+    await pill(w, 'Devices')
     await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
     await flushPromises()
     expect(dispatcher.triggerAutomation).toHaveBeenCalledWith('ws', 'audit', undefined, '192.0.2.10')
@@ -1241,5 +1272,233 @@ describe('FindingsReport expected ports', () => {
     const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
     await flushPromises()
     expect(w.find('[data-test="set-expected"]').exists()).toBe(true)
+  })
+})
+
+describe('FindingsReport while a scan runs', () => {
+  const scanned: Report = {
+    scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 3, resolved: [], unscanned: ['192.0.2.30'],
+    findings: [
+      finding({ key: 'smb', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', fix: 'Turn off SMBv1.', new: true }),
+      finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds', new: true }),
+    ],
+  }
+  async function mountScanned(busy = false) {
+    service.findings.mockResolvedValue(scanned)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit', busy } })
+    await flushPromises()
+    return w
+  }
+  const isOff = (w: Awaited<ReturnType<typeof mountScanned>>) => w.get('[data-test="report-controls"]').attributes('disabled') !== undefined
+
+  it('leaves every control on and shows no scan banner when nothing is running', async () => {
+    const w = await mountScanned()
+    expect(isOff(w)).toBe(false)
+    expect(w.find('[data-test="scan-running"]').exists()).toBe(false)
+  })
+
+  it('turns every control off and says a scan is running while one does', async () => {
+    const w = await mountScanned(true)
+    expect(isOff(w)).toBe(true)
+    expect(w.get('[data-test="scan-running"]').text()).toContain('A scan is running')
+    expect(w.get('[data-test="scan-running"]').text()).toContain('The buttons are off until it finishes')
+  })
+
+  it('asks the page to show the live run from the banner', async () => {
+    const w = await mountScanned(true)
+    await w.get('[data-test="watch-live"]').trigger('click')
+    expect(w.emitted('watch-live')).toHaveLength(1)
+  })
+
+  it('goes busy at the click, naming the device, before the page learns the run started', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountScanned()
+    await pill(w, 'Devices')
+    await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
+    await flushPromises()
+    expect(isOff(w)).toBe(true)
+    expect(w.get('[data-test="scan-running"]').text()).toContain('Scanning 192.0.2.10')
+  })
+
+  it('stays usable when the scan could not start', async () => {
+    dispatcher.triggerAutomation.mockRejectedValue(new Error('nope'))
+    const w = await mountScanned()
+    await w.findAll('button').find((b) => b.text() === 'Scan it again')!.trigger('click')
+    await flushPromises()
+    expect(isOff(w)).toBe(false)
+  })
+
+  it('hands over to the run state once the page reports it, and turns the controls on when it ends', async () => {
+    const w = await mountScanned()
+    await w.findAll('button').find((b) => b.text() === 'Scan it again')!.trigger('click')
+    await flushPromises()
+    await w.setProps({ busy: true })
+    expect(isOff(w)).toBe(true)
+    await w.setProps({ busy: false })
+    expect(isOff(w)).toBe(false)
+    expect(w.find('[data-test="scan-running"]').exists()).toBe(false)
+  })
+})
+
+describe('Advanced device header', () => {
+  const oneDevice: Report = {
+    scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 1, resolved: [], unscanned: [],
+    findings: [finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds', new: true })],
+  }
+  it('shows rescan and the ports toggle, and keeps the rarer actions behind "More"', async () => {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(oneDevice)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
+    await flushPromises()
+    const device = w.get('section[aria-label="192.0.2.10"]')
+    const more = device.get('[data-test="more-actions"]')
+    expect(more.attributes('aria-expanded')).toBe('false')
+    expect((device.get('[data-test="device-more"]').element as HTMLElement).style.display).toBe('none')
+    await more.trigger('click')
+    expect(more.attributes('aria-expanded')).toBe('true')
+    expect((device.get('[data-test="device-more"]').element as HTMLElement).style.display).not.toBe('none')
+    w.unmount()
+  })
+})
+
+describe('VulnDataCard file import', () => {
+  async function mountCard() {
+    const w = mount(VulnDataCard, { attachTo: document.body })
+    await flushPromises()
+    return w
+  }
+  const pick = async (w: Awaited<ReturnType<typeof mountCard>>, file: File) => {
+    const input = w.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+  }
+  const importButton = (w: Awaited<ReturnType<typeof mountCard>>) => w.findAll('button').find((b) => b.text() === 'Import file')!
+
+  it('Simple: offers nothing to import while the download works', async () => {
+    const w = await mountCard()
+    expect(w.find('[data-test="vuln-import"]').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('Simple: offers the import once a download stopped, since the computer may not reach the Internet', async () => {
+    service.vulnData.mockResolvedValue(vulnStatus({ state: 'stopped', files_done: 0, reason: 'Could not download CISA exploited list: blocked.' }))
+    const w = await mountCard()
+    expect(w.get('[data-test="vuln-import"]').text()).toContain('Import a file instead')
+    w.unmount()
+  })
+
+  it('Advanced: imports the KEV list the person picks', async () => {
+    useNetauditViewMode().set('advanced')
+    service.importVulnData.mockResolvedValue(vulnStatus({ state: 'stopped', files_done: 1 }))
+    const w = await mountCard()
+    expect(importButton(w).attributes('disabled')).toBeDefined()
+    const file = new File(['{}'], 'known_exploited_vulnerabilities.json')
+    await pick(w, file)
+    await w.get('[data-test="import-source"] input[value="kev"]').setValue(true)
+    await importButton(w).trigger('click')
+    await flushPromises()
+    expect(service.importVulnData).toHaveBeenCalledWith('kev', file, undefined)
+    w.unmount()
+  })
+
+  it('Advanced: an NVD file is sent with the year the person says it is for', async () => {
+    useNetauditViewMode().set('advanced')
+    service.importVulnData.mockResolvedValue(vulnStatus({ state: 'stopped', files_done: 1 }))
+    const w = await mountCard()
+    const file = new File(['x'], 'nvdcve-2.0-2025.json.gz')
+    await pick(w, file)
+    await w.get('[data-test="import-source"] input[value="nvd"]').setValue(true)
+    await w.get('[data-test="import-year"]').setValue('2025')
+    await importButton(w).trigger('click')
+    await flushPromises()
+    expect(service.importVulnData).toHaveBeenCalledWith('nvd', file, 2025)
+    w.unmount()
+  })
+
+  it('says plainly why a file was refused', async () => {
+    useNetauditViewMode().set('advanced')
+    service.importVulnData.mockRejectedValue(new Error('that file could not be read as vulnerability data, so it was not used'))
+    const w = await mountCard()
+    await pick(w, new File(['x'], 'a.json'))
+    await w.get('[data-test="import-source"] input[value="kev"]').setValue(true)
+    await importButton(w).trigger('click')
+    await flushPromises()
+    expect(w.get('[role="alert"]').text()).toContain('could not be read as vulnerability data')
+    w.unmount()
+  })
+})
+
+describe('SegmentedControl touch size', () => {
+  it('stays compact by default and grows to a touch target on a phone when asked', async () => {
+    const { default: SegmentedControl } = await import('../../../components/common/forms/SegmentedControl.vue')
+    const options = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]
+    const plain = mount(SegmentedControl, { props: { modelValue: 'a', options, label: 'x' } })
+    expect(plain.get('button').classes()).not.toContain('max-sm:h-11')
+    const touch = mount(SegmentedControl, { props: { modelValue: 'a', options, label: 'x', touch: true } })
+    expect(touch.get('button').classes()).toContain('max-sm:h-11')
+  })
+})
+
+describe('Advanced report pills', () => {
+  const base = { scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 1, resolved: [], unscanned: [] } as const
+  const problem = finding({ key: 'smb', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', fix: 'Turn off SMBv1.' })
+  const port = finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds' })
+  async function mountAdvanced(findings: ScanFinding[]) {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue({ ...base, findings })
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    return w
+  }
+  const checked = (w: Awaited<ReturnType<typeof mountAdvanced>>) => w.get('[role="radio"][aria-checked="true"]').text()
+
+  it('opens on the problems when the checks found some, and shows no device list until Devices is chosen', async () => {
+    const w = await mountAdvanced([problem, port])
+    expect(checked(w)).toBe('Problems (1)')
+    expect(w.findAll('[data-test="device"]')).toHaveLength(0)
+    await pill(w, 'Devices')
+    expect(w.findAll('[data-test="device"]')).toHaveLength(1)
+    expect(w.findAll('article[data-check]')).toHaveLength(0)
+  })
+
+  it('opens on the devices when there are no problems, and says so under Problems', async () => {
+    const w = await mountAdvanced([port])
+    expect(checked(w)).toBe('Devices (1)')
+    await pill(w, 'Problems')
+    expect(w.get('[data-test="empty-part"]').text()).toBe('The checks found no problems.')
+  })
+
+  it('says what an empty part is empty of', async () => {
+    const w = await mountAdvanced([port])
+    await pill(w, 'Accepted')
+    expect(w.get('[data-test="empty-part"]').text()).toBe('Nothing is marked as fine.')
+  })
+})
+
+describe('Accepted problems and the counts', () => {
+  const base = { scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 1, resolved: [], unscanned: [] } as const
+  const open1 = finding({ key: 'v1', device: '192.0.2.10', port: 22, check: 'known_vulns', check_title: 'Software with known flaws', severity: 'low', evidence: 'May be affected by 3 flaws', fix: 'Update.' })
+  const accepted = (key: string, port: number) => finding({ key, device: '192.0.2.10', port, check: 'known_vulns', check_title: 'Software with known flaws', severity: 'high', evidence: 'May be affected by 26 flaws', accepted: true, accepted_until: '2027-01-26T00:00:00Z' })
+  async function mountMixed() {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue({ ...base, findings: [finding({ key: 'p', device: '192.0.2.10', port: 22 }), open1, accepted('a1', 139), accepted('a2', 445)] })
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    return w
+  }
+
+  it('says how many problems are open and how many were accepted, so the line and the pills agree', async () => {
+    const w = await mountMixed()
+    expect(w.get('[data-test="scan-meta"]').text()).toContain('1 problem found by checks (2 accepted)')
+    expect(w.get('[role="radio"][aria-checked="true"]').text()).toBe('Problems (1)')
+  })
+
+  it('shows an accepted problem as a quiet row, not as an alarm', async () => {
+    const w = await mountMixed()
+    await pill(w, 'Devices')
+    const row = w.get('li[data-key="a1"]')
+    expect(row.classes()).not.toContain('border-state-error')
+    expect(row.html()).not.toContain('bg-state-error')
+    expect(row.text()).toContain('Accepted until')
   })
 })

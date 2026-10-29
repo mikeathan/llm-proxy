@@ -73,6 +73,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'The list comes from the U.S. National Vulnerability Database (NVD) and, to rank what matters first, CISA\'s Known Exploited Vulnerabilities catalog, which names flaws attackers are already using. Download it from Settings → Network scan. More than 100 MB is fetched, only when you press the button; the scan itself never uses the Internet.',
       'It can only look at what the scan recognised. Many routers, cameras and phones do not say which program or firmware they run, so they are not covered, and the report says how many services were looked at. Silence from this check does not mean a device is safe.',
       'Without the list, audits still run and say that the check was skipped. You can turn the check off for one audit in its settings.',
+      'If this computer cannot reach the Internet, fetch the two files on another computer and pick them under "Import a file instead" (Advanced, or after a download stops). Importing asks for your passphrase again, because it replaces what every audit compares with.',
     ],
   },
   fixes: {
@@ -172,4 +173,10 @@ export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
 /** The wording around the vulnerability data: where it comes from, and what a match does and does not say. */
 export const VULN_ATTRIBUTION = "Data from the U.S. National Vulnerability Database (NVD) and CISA's Known Exploited Vulnerabilities catalog. Not endorsed by NIST or CISA."
 export const VULN_NOT_PROOF = 'A match means the software may be affected, not proof that it is: the maker may have fixed it without changing the version number.'
+export const VULN_IMPORT_INTRO = 'If this computer cannot download the data, fetch the file on another computer and pick it here. It is checked before it is used, and nothing in it is shown.'
+/** The two official files an import takes, with where to get each (the same fixed addresses the download uses). */
+export const VULN_IMPORT_FILES: readonly { source: 'nvd' | 'kev'; name: string; where: string }[] = [
+  { source: 'nvd', name: 'NVD yearly file', where: 'https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-YEAR.json.gz' },
+  { source: 'kev', name: "CISA's exploited list", where: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json' },
+]
 export const VULN_DOWNLOAD_SIZE = 'Downloading fetches more than 100 MB, only when you press the button.'

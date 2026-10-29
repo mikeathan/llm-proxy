@@ -38,4 +38,16 @@ describe('NetauditService', () => {
     respond({ error: 'public address refused' }, 400)
     await expect(NetauditService.updateScope({ entries: ['8.8.8.8'] })).rejects.toThrow('public address refused')
   })
+
+  it('sends an imported data file as the body, naming its source and year', async () => {
+    const fetchMock = respond({ state: 'done', files_done: 1, files_total: 6, nvd: {}, kev: {} })
+    const file = new File(['{}'], 'nvdcve-2.0-2025.json.gz')
+    await NetauditService.importVulnData('nvd', file, 2025)
+    expect(fetchMock.mock.calls[0]![0]).toBe('/admin/api/netaudit/vulndata/import?source=nvd&year=2025')
+    const init = fetchMock.mock.calls[0]![1] as RequestInit
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe(file)
+    await NetauditService.importVulnData('kev', file)
+    expect(fetchMock.mock.calls[1]![0]).toBe('/admin/api/netaudit/vulndata/import?source=kev')
+  })
 })

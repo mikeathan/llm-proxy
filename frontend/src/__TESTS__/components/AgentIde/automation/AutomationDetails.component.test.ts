@@ -293,3 +293,67 @@ describe('AutomationDetails', () => {
     })
   })
 })
+
+// An audit's page is split into tabs so that one screen holds one job: reading results, watching the run, the history,
+// and the setup. Every other automation keeps the single page.
+describe('AutomationDetails of a network audit', () => {
+  afterEach(() => {
+    mounted.splice(0).forEach((w) => w.unmount())
+    document.body.innerHTML = ''
+  })
+  const OBSERVED = '## Observed (generated from the scan data, not written by the model)\n\nScanned 254 addresses.'
+  const ASSESSMENT = '## Assessment (written by the model)\n\nSamba is old.'
+  const AUDIT: Automation = { ...AUTO, profile: 'security-auditor', last_error: '', last_output: `${OBSERVED}\n\n---\n\n${ASSESSMENT}`, scan: { depth: 'quick', checks: false, targets: ['192.168.1.0/24'] } }
+  const tab = (w: VueWrapper, label: string) => w.findAll('[role="radio"]').find((b) => b.text().startsWith(label))!
+
+  it('opens on the results, with the configuration, runs and console on other tabs', async () => {
+    const w = await mountDetails({ automation: AUDIT })
+    expect(tab(w, 'Results').attributes('aria-checked')).toBe('true')
+    expect(w.text()).toContain('Latest network scan')
+    for (const other of ['Task file', 'Saved reports', 'Last result', 'Runs of this automation']) expect(w.text()).not.toContain(other)
+    expect(w.find('[data-test="console"]').exists()).toBe(false)
+  })
+
+  it('says what the audit scans on the results tab, and keeps the rest of the configuration for Setup', async () => {
+    const w = await mountDetails({ automation: AUDIT })
+    expect(w.get('[data-test="scans"]').findAll('[data-test="scan-tag"]').map((t) => t.text())).toEqual(['Quick scan', 'Checks off', '192.168.1.0/24'])
+    await tab(w, 'Setup').trigger('click')
+    expect(w.text()).toContain('Task file')
+    expect(w.text()).not.toContain('Latest network scan')
+  })
+
+  it('shows the console on its own tab and the history on another', async () => {
+    const w = await mountDetails({ automation: AUDIT })
+    await tab(w, 'Live run').trigger('click')
+    expect(w.find('[data-test="console"], [data-test="console-model"]').exists()).toBe(true)
+    await tab(w, 'History').trigger('click')
+    expect(w.text()).toContain('Saved reports')
+    expect(w.text()).toContain('Runs')
+  })
+
+  it('shows only the model\'s assessment as the last result, since the scan data is the Results tab', async () => {
+    const w = await mountDetails({ automation: AUDIT })
+    await tab(w, 'History').trigger('click')
+    const result = w.get('.md')
+    expect(result.text()).toContain('Samba is old.')
+    expect(result.text()).not.toContain('Scanned 254 addresses.')
+  })
+
+  it('turns the report off while it runs, and the banner takes you to the live run', async () => {
+    netaudit.findings.mockResolvedValueOnce({ scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 1, resolved: [], unscanned: [], findings: [{ key: 'p', device: '192.0.2.10', port: 22, proto: 'tcp', service: 'ssh', check: 'open_port', severity: 'info', new: false, changed: false, accepted: false }] })
+    const w = await mountDetails({ automation: AUDIT, isExecuting: true })
+    expect(w.get('[data-test="report-controls"]').attributes('disabled')).toBeDefined()
+    await w.get('[data-test="watch-live"]').trigger('click')
+    expect(tab(w, 'Live run').attributes('aria-checked')).toBe('true')
+  })
+
+  it('turns off clearing runs and the journal while it runs', async () => {
+    const w = await mountDetails({ automation: { ...AUDIT, journal: true }, isExecuting: true })
+    await tab(w, 'History').trigger('click')
+    for (const name of ['Clear all runs', 'Clear journal']) {
+      const b = w.findAll('button').find((x) => x.text().includes(name))
+      if (b) expect(b.attributes('disabled')).toBeDefined()
+    }
+    expect(w.findAll('button').find((x) => x.text().includes('Clear all runs'))!.attributes('disabled')).toBeDefined()
+  })
+})

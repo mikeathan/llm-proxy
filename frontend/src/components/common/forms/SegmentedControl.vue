@@ -4,7 +4,8 @@ import type { ChoiceOption } from "../../../types/ui"
 
 // One-of-n choice drawn as joined segments: a radio group, so only the checked
 // segment is in the tab order and the arrow keys move (and wrap).
-const props = defineProps<{ modelValue: string; options: ChoiceOption[]; label: string }>()
+// `touch` makes each segment 44 px high on a phone, for a control that is the way around a page; the default stays compact.
+const props = defineProps<{ modelValue: string; options: ChoiceOption[]; label: string; touch?: boolean }>()
 const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>()
 
 const buttons = ref<HTMLButtonElement[]>([])
@@ -33,6 +34,7 @@ async function onKeydown(event: KeyboardEvent, index: number) {
       :tabindex="option.value === modelValue ? 0 : -1"
       :class="[
         'h-7 px-3 font-mono text-[length:var(--text-small)] font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset',
+        touch ? 'max-sm:h-11' : '',
         index > 0 ? 'border-l border-hairline' : '',
         option.value === modelValue ? 'bg-surface-active text-primary' : 'text-muted hover:bg-surface-hover hover:text-primary',
       ]"

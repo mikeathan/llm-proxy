@@ -84,6 +84,8 @@ export interface ScanFinding {
   fix_state?: FixState
   fix_marked_at?: string
   fix_note?: string
+  /** Set on a problem taken from a stored deep check that no audit has carried into the report yet: it has no key the server accepts, so it can be read but not accepted. */
+  deep_at?: string
   new: boolean
   /** The version differs from the scan before; `previous_version` is what it was (it may be empty). */
   changed: boolean
@@ -248,6 +250,9 @@ export interface VulnDataStatus {
   nvd: VulnSource
   kev: VulnSource
 }
+
+/** The two files the vulnerability data is made of: NVD's yearly file and CISA's exploited list. */
+export type VulnImportSource = 'nvd' | 'kev'
 
 /** What the card shows and offers for a status. */
 export type VulnDataAction = 'download' | 'resume' | 'cancel' | 'update'

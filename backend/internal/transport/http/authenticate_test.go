@@ -234,7 +234,8 @@ var stepUpProbes = []probe{
 	{"POST", "/admin/api/system/wipeout"}, {"POST", "/admin/api/system/factory-reset"}, {"POST", "/admin/api/system/clear-runtime-data"},
 	{"PUT", "/admin/api/host"}, {"PUT", "/admin/api/secrets/keys"}, {"DELETE", "/admin/api/secrets/keys"}, {"PUT", "/admin/api/secrets/tools"},
 	{"POST", "/admin/api/mcp"}, {"PUT", "/admin/api/mcp"}, {"DELETE", "/admin/api/mcp"}, {"POST", "/admin/api/auth/tokens"},
-	{"POST", "/admin/api/netaudit/deep"},
+	{"POST", "/admin/api/netaudit/deep"}, {"POST", "/admin/api/netaudit/vulndata/import"},
+	{"DELETE", "/admin/api/netaudit/vulndata"},
 }
 
 func TestAuthenticate_ThePrincipalReachesTheHandler(t *testing.T) {

@@ -31,8 +31,9 @@ const pathOf = (input: RequestInfo | URL): string => {
   return raw.split('?')[0] ?? raw
 }
 
-// A body that is a string (or none) can be sent twice; a stream cannot.
-const canResend = (init: RequestInit): boolean => init.body === undefined || init.body === null || typeof init.body === 'string'
+// A body that is a string, a file or bytes (or none) can be sent twice; a stream cannot.
+const canResend = (init: RequestInit): boolean =>
+  init.body === undefined || init.body === null || typeof init.body === 'string' || init.body instanceof Blob || init.body instanceof ArrayBuffer
 
 async function needsPassphrase(res: Response): Promise<boolean> {
   if (res.status !== FORBIDDEN) return false
@@ -103,5 +104,11 @@ export async function put<T>(url: string, body: unknown): Promise<T> {
 
 export async function del<T = void>(url: string): Promise<T> {
   const res = await apiFetch(url, { method: 'DELETE' })
+  return handleResponse<T>(res)
+}
+
+/** Sends a file as the raw request body (a download-sized upload, not JSON). */
+export async function postFile<T>(url: string, file: Blob): Promise<T> {
+  const res = await apiFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file })
   return handleResponse<T>(res)
 }

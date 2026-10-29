@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { onScopeDispose, ref } from 'vue'
 import { DispatcherService } from '../../services/automation/dispatcherService'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
@@ -13,7 +13,10 @@ const EXPECT_FAILED = 'What this device should offer could not be saved.'
 const UNEXPECT_FAILED = 'The expected ports could not be taken back.'
 const RESCAN_FAILED = 'The scan could not be started.'
 const QUEUED_STATUS = 'queued'
+const WHOLE_NETWORK = 'the whole network'
 const SCAN_STARTED = 'The scan has started. The report updates when it finishes.'
+/** How long a scan we started may go unreported by the page before its buttons come back (the page polls the run state). */
+const STARTING_GRACE_MS = 20_000
 const SCAN_QUEUED = 'The scan is waiting for the run before it. The report updates when it finishes.'
 
 /** The latest scan of one automation, and accepting or taking back a finding. Reloads after each change. */
@@ -26,6 +29,17 @@ export function useFindings(workspaceId: () => string, automation: () => string)
   const actionError = ref('')
   /** What to tell the operator after a scan was started; empty when there is nothing to say. */
   const notice = ref('')
+  /**
+   * What a scan we just started is scanning ("192.0.2.10", or "the whole network"); empty when none was. The run state the
+   * page learns by polling lags the click, so this keeps the screen busy from the click until the page reports the run.
+   */
+  const starting = ref('')
+  let startingTimer: ReturnType<typeof setTimeout> | undefined
+  const clearStarting = () => {
+    clearTimeout(startingTimer)
+    starting.value = ''
+  }
+  onScopeDispose(() => clearTimeout(startingTimer))
 
   // The expectations only add a line to a device; a failure to read them must not hide the report, so it leaves none.
   async function loadExpectations(): Promise<void> {
@@ -87,6 +101,9 @@ export function useFindings(workspaceId: () => string, automation: () => string)
       actionError.value = ''
       const what = device ? `Scanning ${device}. ` : ''
       notice.value = what + (started.status === QUEUED_STATUS ? SCAN_QUEUED : SCAN_STARTED)
+      starting.value = device ?? WHOLE_NETWORK
+      clearTimeout(startingTimer)
+      startingTimer = setTimeout(clearStarting, STARTING_GRACE_MS)
       return true
     } catch (err) {
       actionError.value = errorMessage(err, RESCAN_FAILED)
@@ -94,5 +111,5 @@ export function useFindings(workspaceId: () => string, automation: () => string)
     }
   }
 
-  return { report, expectations, loading, error, actionError, notice, load, accept, revoke, markFixed, unmarkFixed, setExpected, removeExpected, rescan }
+  return { report, expectations, loading, error, actionError, notice, starting, clearStarting, load, accept, revoke, markFixed, unmarkFixed, setExpected, removeExpected, rescan }
 }

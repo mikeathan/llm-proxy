@@ -96,6 +96,15 @@ describe('httpClient', () => {
       expect((await apiFetch('/admin/api/x', { method: 'POST' })).status).toBe(403)
     })
 
+    it('sends a file body once more too: a file can be read again', async () => {
+      const ask = vi.fn().mockResolvedValue(true)
+      setReauthHandler(ask)
+      fetchMock.mockImplementationOnce(async () => needsReauth()).mockImplementation(async () => reply(200, { ok: true }))
+      const res = await apiFetch('/admin/api/netaudit/vulndata/import', { method: 'POST', body: new Blob(['x']) })
+      expect(ask).toHaveBeenCalledTimes(1)
+      expect(res.status).toBe(200)
+    })
+
     it('leaves a streamed body alone: it cannot be sent twice', async () => {
       const ask = vi.fn().mockResolvedValue(true)
       setReauthHandler(ask)

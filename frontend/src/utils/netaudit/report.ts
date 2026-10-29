@@ -1,4 +1,4 @@
-import type { DeviceGroup, FindingsReport, ProblemGroup, ReportSummary, ScanFinding } from '../../types/netaudit'
+import type { DeepCheck, DeviceGroup, FindingsReport, ProblemGroup, ReportSummary, ScanFinding } from '../../types/netaudit'
 import { isCheck, severityRank } from './friendly'
 
 // What a report means for the person reading it. A finding needs a look when the latest scan showed it for the first
@@ -23,6 +23,30 @@ export function summarize(report: FindingsReport): ReportSummary {
     resolved: report.resolved,
     problemGroups: groupProblems(problems),
   }
+}
+
+/** How long an audit keeps carrying a deep finding (the server's rule); a stored result older than this is no longer shown as a problem. */
+const DEEP_CARRY_DAYS = 90
+
+/**
+ * The problems of the stored deep checks that the latest audit report does not carry yet. An audit carries a deep finding
+ * into its report on its next run, only while the device is up and the port is still open and for 90 days (and then it is
+ * an ordinary finding, with a key to accept it by), so this lists the same ones: a finding the report already has is not
+ * listed twice, and one whose port the scan no longer sees open is not listed. Until carried it is read-only and dated.
+ */
+export function deepProblemsOf(report: FindingsReport, checks: readonly DeepCheck[], now: number = Date.now()): ScanFinding[] {
+  const id = (f: { device: string; port?: number; check: string }) => `${f.device}|${f.port}|${f.check}`
+  const carried = new Set(report.findings.map(id))
+  const open = new Set(report.findings.filter((f) => !isCheck(f)).map((f) => `${f.device}|${f.port}`))
+  const fresh = (at: string) => now - Date.parse(at) <= DEEP_CARRY_DAYS * 86_400_000
+  return checks
+    .filter((c) => fresh(c.at))
+    .flatMap((c) =>
+      c.findings
+        .filter((f) => !carried.has(id(f)) && open.has(`${f.device}|${f.port}`))
+        .map((f): ScanFinding => ({ ...f, key: `deep:${f.device}:${f.port}:${f.check}`, new: false, changed: false, accepted: false, deep_at: c.at })),
+    )
+    .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))
 }
 
 const UNTITLED = 'A check found a problem'

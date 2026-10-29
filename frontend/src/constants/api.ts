@@ -35,6 +35,7 @@ export const API_ENDPOINTS = {
   netauditVulnData: `${API_BASE}/netaudit/vulndata`,
   netauditVulnDownload: `${API_BASE}/netaudit/vulndata/download`,
   netauditVulnCancel: `${API_BASE}/netaudit/vulndata/cancel`,
+  netauditVulnImport: `${API_BASE}/netaudit/vulndata/import`,
   modelsAll: `${API_BASE}/models/all`,
   start: `${API_BASE}/start`,
   stop: `${API_BASE}/stop`,

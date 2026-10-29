@@ -6,13 +6,13 @@ import ProblemGroups from "./ProblemGroups.vue"
 import { useNetauditHelp } from "../../composables/netaudit/useNetauditHelp"
 import { checkCount, describePort, describeResolved, devicesIn, findingTitle, isCheck, isPlainText, lookSentence, needsLookSentence, portCount, seenSentence } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import { groupByDevice } from "../../utils/netaudit/report"
+import { groupByDevice, groupProblems } from "../../utils/netaudit/report"
 import type { FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
 
 // The Simple report: one plain line saying how many things need a look, the problems the checks found grouped by kind
 // and any new or changed port, each with one decision ("This is fine"), and the rest as counts. The first scan lists no
 // port as new: it says so, and keeps what it found one tap away.
-const props = defineProps<{ report: FindingsReport; summary: ReportSummary }>()
+const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; extraProblems?: readonly ScanFinding[] }>(), { extraProblems: () => [] })
 const emit = defineEmits<{
   (e: "accept", finding: ScanFinding): void
   (e: "revoke", finding: ScanFinding): void
@@ -23,6 +23,9 @@ const emit = defineEmits<{
 const help = useNetauditHelp()
 const whatIs = findingTitle
 // Problems are listed by kind in ProblemGroups; what is left to look at here is a port that is new or changed.
+// Problems a check found, and any from a deep check the audit has not carried into the report yet.
+const problemCount = computed(() => props.summary.problems.length + props.extraProblems.length)
+const problemGroups = computed(() => groupProblems([...props.summary.problems, ...props.extraProblems]))
 const portsToLook = computed(() => props.summary.needLook.filter((f) => !isCheck(f)))
 const inventoryOpen = ref(false)
 const inventory = computed(() => groupByDevice(props.report.findings.filter((f) => !isCheck(f))))
@@ -32,13 +35,13 @@ const inventorySummary = computed(() => seenSentence(devicesIn(props.report.find
 <template>
   <div class="flex flex-col gap-4" data-test="findings-simple">
     <p class="m-0 text-[15px] font-semibold text-primary" data-test="summary">{{ needsLookSentence(summary.needLook.length) }}</p>
-    <p v-if="summary.problems.length" class="m-0 font-semibold text-state-running" data-test="problems">
-      {{ summary.problems.length }} {{ summary.problems.length === 1 ? "problem" : "problems" }} found by checks
+    <p v-if="problemCount" class="m-0 font-semibold text-state-running" data-test="problems">
+      {{ problemCount }} {{ problemCount === 1 ? "problem" : "problems" }} found by checks
     </p>
     <p v-if="summary.baseline" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="baseline-note">
       This is the first scan. What it found is saved as the baseline: from the next scan only what changed is listed here.
     </p>
-    <ProblemGroups :groups="summary.problemGroups" :advanced="false" @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
+    <ProblemGroups :groups="problemGroups" :advanced="false" @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
     <ul v-if="portsToLook.length" class="m-0 flex list-none flex-col gap-2 p-0">
       <li v-for="f in portsToLook" :key="f.key" class="flex flex-wrap items-center justify-between gap-2 border-l-2 border-accent-info bg-surface px-3 py-2.5">
         <span class="flex min-w-0 flex-col gap-1">

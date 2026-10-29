@@ -33,6 +33,8 @@ const deepTitle = computed(() => (wait.value > 0 ? cooldownText(wait.value) : pr
 // Folding one port into a line saves nothing; a few do.
 const MIN_FOLDED = 2
 
+// The rarer actions of a device (expected ports, deep check) sit behind "More", so a header of many devices stays readable.
+const more = ref(false)
 const showLowDetail = ref(false)
 const lowDetail = computed(() => props.group.items.filter(isLowDetail))
 const foldLowDetail = computed(() => lowDetail.value.length >= MIN_FOLDED)
@@ -59,24 +61,27 @@ const STATE_CLASS: Record<string, string> = {
           <span v-if="group.items.some((f) => f.new && !f.accepted)">{{ group.items.filter((f) => f.new && !f.accepted).length }} new</span>
           <span v-if="group.items.some((f) => f.changed && !f.accepted)">{{ group.items.filter((f) => f.changed && !f.accepted).length }} changed</span>
         </template>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', group.device)">Rescan this host</BaseButton>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="more-actions" :aria-expanded="more" @click="more = !more">{{ more ? "Fewer actions" : "More" }}</BaseButton>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="toggle-device" :aria-expanded="open" @click="emit('toggle')">{{ open ? "Hide ports" : "Show ports" }}</BaseButton>
+      </span>
+      <span v-show="more" data-test="device-more" class="flex basis-full flex-wrap items-center gap-1.5 text-[length:var(--text-micro)] text-muted">
         <template v-if="expected">
           <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="edit-expected" @click="emit('edit-expected', group.device)">Edit expected</BaseButton>
           <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="remove-expected" @click="emit('unexpect', group.device)">Remove expected</BaseButton>
         </template>
         <BaseButton v-else variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="set-expected" @click="emit('expect', group.device)">Set as expected</BaseButton>
-        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', group.device)">Rescan this host</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :loading="deepRunning" :disabled="deepBusy || wait > 0 || portCount(group.items) === 0" :title="deepTitle" data-test="deep-check" @click="emit('deep', group.device)">{{ deepRunning ? "Checking…" : "Deep check" }}</BaseButton>
-        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="toggle-device" :aria-expanded="open" @click="emit('toggle')">{{ open ? "Hide ports" : "Show ports" }}</BaseButton>
       </span>
       <p v-if="expected" class="m-0 basis-full break-words text-[length:var(--text-small)] text-secondary" data-test="expected">Expects {{ formatPorts(expected.ports) }}. Anything else open, or a listed port that does not answer, is reported as a problem.</p>
     </header>
     <DeepCheckResult v-if="deep" :check="deep" />
     <p v-if="deepRunning" role="status" class="m-0 border-t border-hairline px-3 py-2 text-[length:var(--text-small)] text-secondary" data-test="deep-running">Checking {{ group.device }} slowly. This can take a few minutes; the page stays usable.</p>
     <ul v-if="open" class="m-0 list-none p-0">
-      <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS}` : '']">
+      <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${f.accepted ? PLAIN_CARD_CLASS : (SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS)}` : '']">
         <span class="w-20 flex-none font-mono text-[length:var(--text-small)] text-primary">{{ f.port }}/{{ f.proto || "tcp" }}</span>
         <span v-if="isCheck(f)" class="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
-          <StatusTag :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" />
+          <StatusTag :state="f.accepted ? 'neutral' : severityState(f.severity)" :label="`Problem · ${f.severity}`" />
           {{ f.evidence || "A check found a problem" }}
         </span>
         <span v-else class="min-w-0 flex-1 break-words font-mono text-[length:var(--text-small)] text-secondary">

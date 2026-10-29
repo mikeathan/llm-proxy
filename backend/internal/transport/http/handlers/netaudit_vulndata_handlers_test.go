@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -12,13 +15,16 @@ import (
 )
 
 type stubVulnData struct {
-	status   vulnfeed.Status
-	startErr error
-	started  int
-	restart  bool
-	canceled int
-	cleared  int
-	clearErr error
+	imported  []string
+	importErr error
+	gotBody   string
+	status    vulnfeed.Status
+	startErr  error
+	started   int
+	restart   bool
+	canceled  int
+	cleared   int
+	clearErr  error
 }
 
 func (s *stubVulnData) Status() vulnfeed.Status { return s.status }
@@ -26,6 +32,12 @@ func (s *stubVulnData) Start(restart bool) error {
 	s.started++
 	s.restart = restart
 	return s.startErr
+}
+func (s *stubVulnData) Import(source string, year int, r io.Reader) error {
+	b, _ := io.ReadAll(r)
+	s.gotBody = string(b)
+	s.imported = append(s.imported, source+":"+strconv.Itoa(year))
+	return s.importErr
 }
 func (s *stubVulnData) Cancel()      { s.canceled++ }
 func (s *stubVulnData) Clear() error { s.cleared++; return s.clearErr }
@@ -103,5 +115,47 @@ func TestVulnDataHandlers_ClearDeletesTheDataAndAnswersWithTheStatus(t *testing.
 	NewVulnDataHandlers(stub).Clear(rec, httptest.NewRequest(http.MethodDelete, "/admin/api/netaudit/vulndata", nil))
 	if rec.Code != http.StatusInternalServerError || !strings.Contains(rec.Body.String(), "read-only") {
 		t.Errorf("a failed delete = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestVulnDataHandlers_ImportReadsTheBodyAsTheNamedFile(t *testing.T) {
+	stub := &stubVulnData{status: vulnfeed.Status{State: vulnfeed.StateDone}}
+	rec := httptest.NewRecorder()
+	NewVulnDataHandlers(stub).Import(rec, httptest.NewRequest(http.MethodPost, "/admin/api/netaudit/vulndata/import?source=nvd&year=2025", bytes.NewReader([]byte("file bytes"))))
+	if rec.Code != http.StatusOK || stub.gotBody != "file bytes" || len(stub.imported) != 1 || stub.imported[0] != "nvd:2025" {
+		t.Errorf("code %d imported %v body %q", rec.Code, stub.imported, stub.gotBody)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got["state"] != "done" {
+		t.Errorf("the answer is the status: %s (%v)", rec.Body.String(), err)
+	}
+}
+
+func TestVulnDataHandlers_ImportSaysWhyInPlainWords(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want int
+	}{
+		{vulnfeed.ErrBusy, http.StatusConflict},
+		{vulnfeed.ErrBadSource, http.StatusBadRequest},
+		{vulnfeed.ErrBadYear, http.StatusBadRequest},
+		{vulnfeed.ErrBadImport, http.StatusBadRequest},
+		{vulnfeed.ErrNotReady, http.StatusServiceUnavailable},
+		{errors.New("the data could not be saved: disk full"), http.StatusInternalServerError},
+	} {
+		rec := httptest.NewRecorder()
+		NewVulnDataHandlers(&stubVulnData{importErr: tc.err}).Import(rec, httptest.NewRequest(http.MethodPost, "/x?source=kev", strings.NewReader("x")))
+		if rec.Code != tc.want || !strings.Contains(rec.Body.String(), "error") {
+			t.Errorf("%v: code %d body %s", tc.err, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestVulnDataHandlers_ImportRefusesABadYearValueBeforeReadingTheBody(t *testing.T) {
+	stub := &stubVulnData{}
+	rec := httptest.NewRecorder()
+	NewVulnDataHandlers(stub).Import(rec, httptest.NewRequest(http.MethodPost, "/x?source=nvd&year=abc", strings.NewReader("x")))
+	if rec.Code != http.StatusBadRequest || len(stub.imported) != 0 {
+		t.Errorf("code %d imported %v", rec.Code, stub.imported)
 	}
 }

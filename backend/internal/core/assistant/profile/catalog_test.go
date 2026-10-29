@@ -248,3 +248,22 @@ func TestSecurityAuditorIsLockedDown(t *testing.T) {
 		t.Error("the auditor must be offered network_scan")
 	}
 }
+
+// The comparison with the last scan is written by code and added above the model's assessment; the model is never given it.
+// A prompt that asked it to say what is new or changed made it invent "this is the first scan, so there is no baseline"
+// under a report that had just compared with the scan before (vertex, 2026-10-29).
+func TestSecurityAuditorIsNotAskedForTheComparisonItDoesNotHave(t *testing.T) {
+	c, _ := newCatalog(t)
+	p, _ := c.Get("security-auditor")
+	text := strings.ToLower(p.Instructions)
+	for _, asked := range []string{"what is new or changed", "if nothing is new or changed"} {
+		if strings.Contains(text, asked) {
+			t.Errorf("the auditor prompt still asks the model about %q, which it has no data for", asked)
+		}
+	}
+	for _, rule := range []string{"first scan", "baseline", "never say whether anything is new"} {
+		if !strings.Contains(text, rule) {
+			t.Errorf("the auditor prompt must tell the model not to talk about %q", rule)
+		}
+	}
+}

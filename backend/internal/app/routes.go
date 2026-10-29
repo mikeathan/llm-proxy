@@ -342,6 +342,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/netaudit/vulndata", hs.VulnData.Clear, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/download", hs.VulnData.Download, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/cancel", hs.VulnData.Cancel, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/vulndata/import", hs.VulnData.Import, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/findings", hs.Netaudit.GetFindings, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/acks", hs.Netaudit.ListAcks, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/acks", hs.Netaudit.AcceptFinding, jsonMethodNotAllowed)
