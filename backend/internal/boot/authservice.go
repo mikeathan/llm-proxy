@@ -29,40 +29,15 @@ type installedService struct {
 	Binary string // the program the unit runs
 }
 
-// Replaceable in tests: how the installed service is found, how this process becomes the service's account, who is running
-// this, and the numeric id of an account.
+// Replaceable in tests: how the installed service is found, how this process becomes another account, who is running
+// this, who owns a folder, and the ids of an account.
 var (
 	locateService = func() (installedService, bool) { return locateUnit(os.ReadFile, homeOf) }
-	becomeService = becomeServiceUser
+	becomeUser    = becomeUserID
 	currentUID    = os.Geteuid
-	uidOf         = lookupUID
+	ownerOf       = ownerOfFolder
+	idsOf         = lookupIDs
 )
-
-type authAction int
-
-const (
-	// actHere: run in this process, on the folder this command resolves.
-	actHere authAction = iota
-	// actAsService: the service's own account and folder are what is meant.
-	actAsService
-	// actRefuse: the service is somewhere this user cannot reach; say how to get there.
-	actRefuse
-)
-
-// planAuth decides where an `auth` command acts. Naming a folder (--data, or LLM_PROXY_HOME in the shell) is believed.
-// Otherwise, with a service installed, the command must act on the service's folder as the service's account, or it would
-// write a sign-in file the service never reads, which is how a setup code goes missing.
-func planAuth(explicit bool, svc installedService, found bool, euid, svcUID int, resolved string) authAction {
-	switch {
-	case explicit || !found:
-		return actHere
-	case euid == svcUID && resolved == svc.Home:
-		return actHere
-	case euid == 0 || euid == svcUID:
-		return actAsService
-	}
-	return actRefuse
-}
 
 // locateUnit finds the installed service from its systemd unit file. Not being on a systemd machine, or having no such
 // unit, is "not found", and the command then acts on the folder it resolves, as before. It reads a file; it starts nothing.
@@ -83,13 +58,14 @@ func homeOf(name string) (string, error) {
 	return u.HomeDir, nil
 }
 
-func lookupUID(name string) (int, bool) {
+func lookupIDs(name string) (uid, gid int, ok bool) {
 	u, err := user.Lookup(name)
 	if err != nil {
-		return 0, false
+		return 0, 0, false
 	}
-	id, err := strconv.Atoi(u.Uid)
-	return id, err == nil
+	uid, err1 := strconv.Atoi(u.Uid)
+	gid, err2 := strconv.Atoi(u.Gid)
+	return uid, gid, err1 == nil && err2 == nil
 }
 
 // unitSettings are the three settings of a unit's [Service] section the command needs.
@@ -169,10 +145,4 @@ func environmentValue(env []string, name string) string {
 		}
 	}
 	return ""
-}
-
-// handByHand is what to type when this command cannot switch to the service's account itself.
-func handByHand(svc installedService, command string, rest []string) string {
-	parts := append([]string{"sudo", "-u", svc.User, svc.Binary, "auth", command}, rest...)
-	return strings.Join(append(parts, "--data", svc.Home), " ")
 }

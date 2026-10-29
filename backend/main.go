@@ -60,5 +60,5 @@ func main() {
 		boot.LogStartupRecording()
 	}
 
-	boot.Serve(ctx, proxyApp, booted.BindAddr)
+	boot.Serve(ctx, proxyApp, booted.BindAddr, booted.DataManager.RootDir())
 }

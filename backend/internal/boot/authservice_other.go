@@ -1,10 +1,12 @@
-//go:build !linux
+//go:build !unix
 
 package boot
 
 import "errors"
 
-// becomeServiceUser is only done on Linux, where the service runs under systemd; elsewhere the operator is told the command.
-func becomeServiceUser(installedService) error {
-	return errors.New("switching to the service's account is only done on Linux")
+func ownerOfFolder(string) (int, int, bool) { return 0, 0, false }
+
+// becomeUserID is only done on Unix, where the service runs under systemd.
+func becomeUserID(int, int) error {
+	return errors.New("switching account is only done on Unix")
 }

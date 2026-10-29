@@ -3,6 +3,7 @@ package boot
 import (
 	"bytes"
 	"errors"
+	"llm-proxy/internal/app"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,77 +90,145 @@ func TestLocateUnit(t *testing.T) {
 	}
 }
 
-func TestPlanAuth(t *testing.T) {
-	svc := installedService{User: "llm-proxy", Home: "/var/lib/llm-proxy", Binary: "/usr/local/bin/llm-proxy"}
-	const svcUID, rootUID, otherUID = 998, 0, 1000
-	cases := []struct {
-		name     string
-		explicit bool
-		found    bool
-		euid     int
-		where    string
-		want     authAction
-	}{
-		{"no installed service: use what this command resolves", false, false, otherUID, "/home/me/.config/llm-proxy", actHere},
-		{"the operator named a directory: believe them", true, true, otherUID, "/somewhere", actHere},
-		{"already the service's account and folder", false, true, svcUID, "/var/lib/llm-proxy", actHere},
-		{"root, with a service installed: act as the service's user", false, true, rootUID, "/root/.config/llm-proxy", actAsService},
-		{"someone else, with a service installed: tell them how", false, true, otherUID, "/home/me/.config/llm-proxy", actRefuse},
-		{"the service's own user but the wrong folder (no env set)", false, true, svcUID, "/home/llm-proxy/.config/llm-proxy", actAsService},
-	}
-	for _, c := range cases {
-		got := planAuth(c.explicit, svc, c.found, c.euid, svcUID, c.where)
-		if got != c.want {
-			t.Errorf("%s: = %v, want %v", c.name, got, c.want)
+// fakes replaces everything the command asks the machine, and restores it afterwards.
+type fakes struct {
+	unit      *installedService
+	euid      int
+	owner     map[string][2]int // folder -> owning uid, gid (a missing entry is a folder that does not exist yet)
+	ids       map[string][2]int // account name -> uid, gid
+	became    [][2]int
+	becomeErr error
+}
+
+func installFakes(t *testing.T, f *fakes) {
+	t.Helper()
+	l, b, u, o, i := locateService, becomeUser, currentUID, ownerOf, idsOf
+	t.Cleanup(func() { locateService, becomeUser, currentUID, ownerOf, idsOf = l, b, u, o, i })
+	locateService = func() (installedService, bool) {
+		if f.unit == nil {
+			return installedService{}, false
 		}
+		return *f.unit, true
+	}
+	becomeUser = func(uid, gid int) error { f.became = append(f.became, [2]int{uid, gid}); return f.becomeErr }
+	currentUID = func() int { return f.euid }
+	ownerOf = func(path string) (int, int, bool) { v, ok := f.owner[path]; return v[0], v[1], ok }
+	idsOf = func(name string) (int, int, bool) { v, ok := f.ids[name]; return v[0], v[1], ok }
+}
+
+func runCLI(args ...string) (int, string, string) {
+	var out, errOut bytes.Buffer
+	code := RunAuthCLI(args, strings.NewReader(""), &out, &errOut)
+	return code, out.String(), errOut.String()
+}
+
+func TestRunAuthCLI_ADeveloperActsOnTheirOwnFolder_AndIsToldAboutTheService(t *testing.T) {
+	// `go run . auth setup-code`: no folder named, a service installed elsewhere. Debugging on the server must keep working.
+	home, svcHome := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LLM_PROXY_HOME", "")
+	f := &fakes{euid: 1000, unit: &installedService{User: "llm-proxy", Home: svcHome, Binary: "/usr/local/bin/llm-proxy"}}
+	installFakes(t, f)
+
+	code, out, errOut := runCLI("setup-code")
+	own := filepath.Join(home, ".config", "llm-proxy", "auth.json")
+	if code != 0 || !strings.Contains(out, own) {
+		t.Fatalf("= %d, stdout %q: a developer acts on their own folder", code, out)
+	}
+	if _, err := os.Stat(own); err != nil {
+		t.Errorf("nothing was written to their folder: %v", err)
+	}
+	if !strings.Contains(errOut, "no running server") || !strings.Contains(errOut, svcHome) || !strings.Contains(errOut, "sudo /usr/local/bin/llm-proxy auth setup-code") {
+		t.Errorf("stderr %q: want the warning, the service's folder and the exact command", errOut)
+	}
+	if len(f.became) != 0 {
+		t.Errorf("a non-root process cannot switch account: %v", f.became)
 	}
 }
 
-func TestRunAuthCLI_WithAServiceInstalledElsewhere(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+func TestRunAuthCLI_RootWithAServiceAndNoFolderNamed_ActsAsTheFolderOwner(t *testing.T) {
+	svcHome := t.TempDir()
 	t.Setenv("LLM_PROXY_HOME", "")
-	svc := installedService{User: "llm-proxy", Home: t.TempDir(), Binary: "/usr/local/bin/llm-proxy"}
-	defer func(l func() (installedService, bool), b func(installedService) error, u func() int, f func(string) (int, bool)) {
-		locateService, becomeService, currentUID, uidOf = l, b, u, f
-	}(locateService, becomeService, currentUID, uidOf)
-	locateService = func() (installedService, bool) { return svc, true }
-	uidOf = func(string) (int, bool) { return 998, true }
+	f := &fakes{euid: 0, unit: &installedService{User: "llm-proxy", Home: svcHome, Binary: "/usr/local/bin/llm-proxy"}, owner: map[string][2]int{svcHome: {998, 997}}}
+	installFakes(t, f)
+	code, out, _ := runCLI("setup-code")
+	if code != 0 || !strings.Contains(out, filepath.Join(svcHome, "auth.json")) {
+		t.Fatalf("= %d %q: root must use the service's folder", code, out)
+	}
+	if len(f.became) != 1 || f.became[0] != [2]int{998, 997} {
+		t.Errorf("became %v, want the folder's owner 998:997", f.became)
+	}
+}
 
-	// Someone who is not root and not the service: nothing is created, and the message gives the exact command.
-	currentUID = func() int { return 1000 }
-	var out, errOut bytes.Buffer
-	code := RunAuthCLI([]string{"setup-code"}, strings.NewReader(""), &out, &errOut)
-	if code == 0 || !strings.Contains(errOut.String(), "sudo /usr/local/bin/llm-proxy auth setup-code") || !strings.Contains(errOut.String(), svc.Home) {
-		t.Errorf("= %d, stderr %q: want a refusal that names the service's folder and the sudo command", code, errOut.String())
+func TestRunAuthCLI_TheAccountIsTheFolderOwner_SoPlainSudoWithDataIsSafe(t *testing.T) {
+	// `sudo llm-proxy auth setup-code --data /var/lib/llm-proxy` must not leave a root-owned 0600 file the service cannot read.
+	dir := t.TempDir()
+	f := &fakes{euid: 0, owner: map[string][2]int{dir: {998, 997}}}
+	installFakes(t, f)
+	if code, _, errOut := runCLI("setup-code", "--data", dir); code != 0 {
+		t.Fatalf("= %d %q", code, errOut)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "llm-proxy")); err == nil {
-		t.Error("a refused command must not create a data folder in the wrong place")
+	if len(f.became) != 1 || f.became[0] != [2]int{998, 997} {
+		t.Errorf("became %v, want 998:997", f.became)
 	}
+	f.became = nil
+	root := t.TempDir()
+	f.owner[root] = [2]int{0, 0}
+	if code, _, _ := runCLI("status", "--data", root); code != 0 || len(f.became) != 0 {
+		t.Errorf("a root-owned folder is acted on as root: %d %v", code, f.became)
+	}
+}
 
-	// Root: this process becomes the service's account, and the command runs on the service's folder.
-	currentUID = func() int { return 0 }
-	var became installedService
-	becomeService = func(s installedService) error { became = s; return nil }
-	out.Reset()
-	errOut.Reset()
-	if code := RunAuthCLI([]string{"setup-code"}, strings.NewReader(""), &out, &errOut); code != 0 {
-		t.Fatalf("as root = %d %q", code, errOut.String())
+func TestRunAuthCLI_ANewFolderOfTheServiceIsCreatedAsTheServicesAccount(t *testing.T) {
+	svcHome := filepath.Join(t.TempDir(), "llm")
+	t.Setenv("LLM_PROXY_HOME", "")
+	f := &fakes{euid: 0, unit: &installedService{User: "llm-proxy", Home: svcHome, Binary: "/b"}, ids: map[string][2]int{"llm-proxy": {998, 997}}}
+	installFakes(t, f)
+	if code, _, errOut := runCLI("status"); code != 0 {
+		t.Fatalf("= %d %q", code, errOut)
 	}
-	if became.User != "llm-proxy" {
-		t.Errorf("became %+v", became)
+	if len(f.became) != 1 || f.became[0] != [2]int{998, 997} {
+		t.Errorf("a folder that does not exist yet is created by the service's account: %v", f.became)
 	}
-	if !strings.Contains(out.String(), filepath.Join(svc.Home, "auth.json")) {
-		t.Errorf("the code must be written in the service's folder: %q", out.String())
-	}
+}
 
-	// Root, but the switch cannot be done here: say how to do it by hand, and write nothing.
-	becomeService = func(installedService) error { return errors.New("not supported here") }
-	other := installedService{User: "llm-proxy", Home: "/var/lib/llm-proxy", Binary: "/usr/local/bin/llm-proxy"}
-	locateService = func() (installedService, bool) { return other, true }
-	errOut.Reset()
-	if code := RunAuthCLI([]string{"setup-code"}, strings.NewReader(""), &out, &errOut); code == 0 || !strings.Contains(errOut.String(), "sudo -u llm-proxy /usr/local/bin/llm-proxy auth setup-code --data /var/lib/llm-proxy") {
-		t.Errorf("= %d %q", code, errOut.String())
+func TestRunAuthCLI_ANamedFolderIsBelieved_EvenFromTheEnvironment(t *testing.T) {
+	// LLM_PROXY_HOME may come from a .env file: it is loaded before the folder is chosen, exactly as the server does.
+	named, svcHome := t.TempDir(), t.TempDir()
+	t.Setenv("LLM_PROXY_HOME", named)
+	f := &fakes{euid: 0, unit: &installedService{User: "llm-proxy", Home: svcHome, Binary: "/b"}, owner: map[string][2]int{named: {0, 0}}}
+	installFakes(t, f)
+	code, out, errOut := runCLI("status")
+	if code != 0 || !strings.Contains(out, filepath.Join(named, "auth.json")) {
+		t.Fatalf("= %d %q: a folder named in the environment must win over the unit's", code, out)
+	}
+	if !strings.Contains(errOut, svcHome) {
+		t.Errorf("a differing service folder is mentioned: %q", errOut)
+	}
+}
+
+func TestRunAuthCLI_SaysWhenARunningServerReadsTheFolder(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeMarker(dir); err != nil {
+		t.Fatal(err)
+	}
+	installFakes(t, &fakes{euid: 1000, owner: map[string][2]int{dir: {1000, 1000}}})
+	code, out, errOut := runCLI("setup-code", "--data", dir)
+	if code != 0 || !strings.Contains(out, "A running server") || strings.Contains(errOut, "no running server") {
+		t.Errorf("= %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
+func TestRunAuthCLI_WhenTheSwitchFails_NothingIsWritten(t *testing.T) {
+	dir := t.TempDir()
+	f := &fakes{euid: 0, owner: map[string][2]int{dir: {998, 997}}, becomeErr: errors.New("operation not permitted")}
+	installFakes(t, f)
+	code, _, errOut := runCLI("setup-code", "--data", dir)
+	if code == 0 || !strings.Contains(errOut, "operation not permitted") || !strings.Contains(errOut, "owns") {
+		t.Errorf("= %d %q", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "auth.json")); err == nil {
+		t.Error("a file was written although the switch failed: it would belong to the wrong account")
 	}
 }
 
@@ -178,5 +247,24 @@ func TestRunAuthCLI_NamingTheFolderIsBelieved_AndTheFileIsAlwaysNamed(t *testing
 	}
 	if !strings.Contains(errOut.String(), "/var/lib/llm-proxy") {
 		t.Errorf("a different folder from the service's must be called out: %q", errOut.String())
+	}
+}
+
+// writeMarker leaves the marker a running server would: this test process stands in for it.
+func writeMarker(dir string) error { return app.WriteServerMarker(dir, ":4001") }
+
+func TestRunAuthCLI_AFolderOfAnotherAccountGetsASudoHint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o500); err != nil { // not writable: stands in for the service's folder
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	if os.Geteuid() == 0 {
+		t.Skip("root can write anywhere")
+	}
+	installFakes(t, &fakes{euid: 1000, unit: &installedService{User: "llm-proxy", Home: dir, Binary: "/usr/local/bin/llm-proxy"}})
+	code, _, errOut := runCLI("setup-code", "--data", dir)
+	if code == 0 || !strings.Contains(errOut, "sudo /usr/local/bin/llm-proxy auth setup-code") {
+		t.Errorf("= %d %q: want the exact sudo command", code, errOut)
 	}
 }

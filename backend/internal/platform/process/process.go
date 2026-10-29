@@ -47,6 +47,9 @@ func isAlive(pid int) bool {
 	return false
 }
 
+// Alive reports whether a process with this id is running (one this user may not signal still counts).
+func Alive(pid int) bool { return isAlive(pid) }
+
 // Kill sends SIGTERM to the process, waits up to 5 seconds for it to exit,
 // and sends SIGKILL if it is still alive.
 func Kill(pid int) error {
