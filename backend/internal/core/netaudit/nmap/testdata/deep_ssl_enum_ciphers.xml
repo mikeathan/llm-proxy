@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+
+<nmaprun scanner="nmap" args="nmap" start="0" startstr="" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="9443"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1793288937" endtime="1793288965"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.10" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="9443"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="tungsten-https" servicefp="SF-Port9443-TCP:V=7.99%T=SSL%I=2%D=10/29%Time=6AE36AF6%P=arm-apple-darwin25.3.0%r(GetRequest,1526,&quot;HTTP/1\.0\x20200\x20ok\r\nContent-type:\x20text/html\r\n\r\n&lt;HTML&gt;&lt;BODY\x20BGCOLOR=\&quot;#ffffff\&quot;&gt;\n&lt;pre&gt;\n\ns_server\x20-accept\x20127\.0\.0\.1:9443\x20-cert\x20run/cert\.pem\x20-key\x20run/key\.pem\x20-www\x20\nThis\x20TLS\x20version\x20forbids\x20renegotiation\.\nCiphers\x20supported\x20in\x20s_server\x20binary\nTLSv1\.3\x20\x20\x20\x20:TLS_AES_256_GCM_SHA384\x20\x20\x20\x20TLSv1\.3\x20\x20\x20\x20:TLS_CHACHA20_POLY1305_SHA256\x20\nTLSv1\.3\x20\x20\x20\x20:TLS_AES_128_GCM_SHA256\x20\x20\x20\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES256-GCM-SHA384\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES256-GCM-SHA384\x20TLSv1\.2\x20\x20\x20\x20:DHE-RSA-AES256-GCM-SHA384\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-CHACHA20-POLY1305\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-CHACHA20-POLY1305\x20\nTLSv1\.2\x20\x20\x20\x20:DHE-RSA-CHACHA20-POLY1305\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES128-GCM-SHA256\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES128-GCM-SHA256\x20TLSv1\.2\x20\x20\x20\x20:DHE-RSA-AES128-GCM-SHA256\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES256-SHA384\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES256-SHA384\x20\x20\x20\nTLSv1\.2\x20\x20\x20\x20:DHE-RSA-AES256-SHA256\x20\x20\x20\x20\x20TLSv1\.2\x20\x20\x20\x20:ECDHE-ECDSA-AES128-SHA256\x20\nTLSv1\.2\x20\x20\x20\x20:ECDHE-RSA-AES128-S&quot;);" tunnel="ssl" method="table" conf="3"/><script id="ssl-enum-ciphers" output="&#xa;  TLSv1.2: &#xa;    ciphers: &#xa;      TLS_DHE_RSA_WITH_AES_128_CBC_SHA (dh 2048) - A&#xa;      TLS_DHE_RSA_WITH_AES_128_CBC_SHA256 (dh 2048) - A&#xa;      TLS_DHE_RSA_WITH_AES_128_GCM_SHA256 (dh 2048) - A&#xa;      TLS_DHE_RSA_WITH_AES_256_CBC_SHA (dh 2048) - A&#xa;      TLS_DHE_RSA_WITH_AES_256_CBC_SHA256 (dh 2048) - A&#xa;      TLS_DHE_RSA_WITH_AES_256_GCM_SHA384 (dh 2048) - A&#xa;      TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256 (dh 2048) - A&#xa;      TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA (secp256r1) - A&#xa;      TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256 (secp256r1) - A&#xa;      TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 (secp256r1) - A&#xa;      TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA (secp256r1) - A&#xa;      TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384 (secp256r1) - A&#xa;      TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384 (secp256r1) - A&#xa;      TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256 (secp256r1) - A&#xa;      TLS_RSA_WITH_AES_128_CBC_SHA (rsa 2048) - A&#xa;      TLS_RSA_WITH_AES_128_CBC_SHA256 (rsa 2048) - A&#xa;      TLS_RSA_WITH_AES_128_GCM_SHA256 (rsa 2048) - A&#xa;      TLS_RSA_WITH_AES_256_CBC_SHA (rsa 2048) - A&#xa;      TLS_RSA_WITH_AES_256_CBC_SHA256 (rsa 2048) - A&#xa;      TLS_RSA_WITH_AES_256_GCM_SHA384 (rsa 2048) - A&#xa;    compressors: &#xa;      NULL&#xa;    cipher preference: client&#xa;  TLSv1.3: &#xa;    ciphers: &#xa;      TLS_AKE_WITH_AES_128_GCM_SHA256 (X25519MLKEM768) - A&#xa;      TLS_AKE_WITH_AES_256_GCM_SHA384 (X25519MLKEM768) - A&#xa;      TLS_AKE_WITH_CHACHA20_POLY1305_SHA256 (X25519MLKEM768) - A&#xa;    cipher preference: client&#xa;  least strength: A"><table key="TLSv1.2">
+<table key="ciphers">
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_AES_128_CBC_SHA</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_AES_128_CBC_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_AES_128_GCM_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_AES_256_CBC_SHA</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_AES_256_CBC_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_AES_256_GCM_SHA384</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">dh 2048</elem>
+<elem key="name">TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA384</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">secp256r1</elem>
+<elem key="name">TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">rsa 2048</elem>
+<elem key="name">TLS_RSA_WITH_AES_128_CBC_SHA</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">rsa 2048</elem>
+<elem key="name">TLS_RSA_WITH_AES_128_CBC_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">rsa 2048</elem>
+<elem key="name">TLS_RSA_WITH_AES_128_GCM_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">rsa 2048</elem>
+<elem key="name">TLS_RSA_WITH_AES_256_CBC_SHA</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">rsa 2048</elem>
+<elem key="name">TLS_RSA_WITH_AES_256_CBC_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">rsa 2048</elem>
+<elem key="name">TLS_RSA_WITH_AES_256_GCM_SHA384</elem>
+<elem key="strength">A</elem>
+</table>
+</table>
+<table key="compressors">
+<elem>NULL</elem>
+</table>
+<elem key="cipher preference">client</elem>
+</table>
+<table key="TLSv1.3">
+<table key="ciphers">
+<table>
+<elem key="kex_info">X25519MLKEM768</elem>
+<elem key="name">TLS_AKE_WITH_AES_128_GCM_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">X25519MLKEM768</elem>
+<elem key="name">TLS_AKE_WITH_AES_256_GCM_SHA384</elem>
+<elem key="strength">A</elem>
+</table>
+<table>
+<elem key="kex_info">X25519MLKEM768</elem>
+<elem key="name">TLS_AKE_WITH_CHACHA20_POLY1305_SHA256</elem>
+<elem key="strength">A</elem>
+</table>
+</table>
+<elem key="cipher preference">client</elem>
+</table>
+<elem key="least strength">A</elem>
+</script><script id="fingerprint-strings" output="&#xa;  GetRequest: &#xa;    HTTP/1.0 200 ok&#xa;    Content-type: text/html&#xa;    &lt;HTML&gt;&lt;BODY BGCOLOR=&quot;#ffffff&quot;&gt;&#xa;    &lt;pre&gt;&#xa;    s_server -accept 192.0.2.10:9443 -cert run/cert.pem -key run/key.pem -www &#xa;    This TLS version forbids renegotiation.&#xa;    Ciphers supported in s_server binary&#xa;    TLSv1.3 :TLS_AES_256_GCM_SHA384 TLSv1.3 :TLS_CHACHA20_POLY1305_SHA256 &#xa;    TLSv1.3 :TLS_AES_128_GCM_SHA256 TLSv1.2 :ECDHE-ECDSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-RSA-AES256-GCM-SHA384 TLSv1.2 :DHE-RSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-ECDSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-RSA-CHACHA20-POLY1305 &#xa;    TLSv1.2 :DHE-RSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-ECDSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 :DHE-RSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-ECDSA-AES256-SHA384 TLSv1.2 :ECDHE-RSA-AES256-SHA384 &#xa;    TLSv1.2 :DHE-RSA-AES256-SHA256 TLSv1.2 :ECDHE-ECDSA-AES128-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-S"><elem key="GetRequest">&#xa;    HTTP/1.0 200 ok&#xa;    Content-type: text/html&#xa;    &lt;HTML&gt;&lt;BODY BGCOLOR=&quot;#ffffff&quot;&gt;&#xa;    &lt;pre&gt;&#xa;    s_server -accept 192.0.2.10:9443 -cert run/cert.pem -key run/key.pem -www &#xa;    This TLS version forbids renegotiation.&#xa;    Ciphers supported in s_server binary&#xa;    TLSv1.3 :TLS_AES_256_GCM_SHA384 TLSv1.3 :TLS_CHACHA20_POLY1305_SHA256 &#xa;    TLSv1.3 :TLS_AES_128_GCM_SHA256 TLSv1.2 :ECDHE-ECDSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-RSA-AES256-GCM-SHA384 TLSv1.2 :DHE-RSA-AES256-GCM-SHA384 &#xa;    TLSv1.2 :ECDHE-ECDSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-RSA-CHACHA20-POLY1305 &#xa;    TLSv1.2 :DHE-RSA-CHACHA20-POLY1305 TLSv1.2 :ECDHE-ECDSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-GCM-SHA256 TLSv1.2 :DHE-RSA-AES128-GCM-SHA256 &#xa;    TLSv1.2 :ECDHE-ECDSA-AES256-SHA384 TLSv1.2 :ECDHE-RSA-AES256-SHA384 &#xa;    TLSv1.2 :DHE-RSA-AES256-SHA256 TLSv1.2 :ECDHE-ECDSA-AES128-SHA256 &#xa;    TLSv1.2 :ECDHE-RSA-AES128-S</elem>
+</script></port>
+</ports>
+<times srtt="134" rttvar="5000" to="400000"/>
+</host>
+<runstats><finished time="0" timestr="" summary="Nmap done at Thu Oct 29 15:49:25 2026; 1 IP address (1 host up) scanned in 27.91 seconds" elapsed="27.91" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

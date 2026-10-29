@@ -380,3 +380,20 @@ func TestService_ADeviceNmapGaveUpOnIsRetriedAndOneWithNothingOpenIsNotFlagged(t
 		}
 	}
 }
+
+// An intrusive mode is refused by the ordinary scan path, whoever asks (an agent's tool call and a nightly audit both come
+// through it), before the network or the authorizer is touched.
+func TestScan_RefusesAnIntrusiveMode(t *testing.T) {
+	primary := &fakeEngine{name: "nmap", modes: []Mode{ModeDeep}}
+	auth := &fixedAuth{addrs: []netip.Addr{netip.MustParseAddr("10.0.0.5")}}
+	svc := NewService(auth, primary, nil)
+	for _, unattended := range []bool{false, true} {
+		_, err := svc.Scan(context.Background(), Request{Targets: []string{"10.0.0.5"}, Mode: ModeDeep, Ports: "22", Unattended: unattended})
+		if !errors.Is(err, ErrIntrusiveRefused) {
+			t.Errorf("unattended=%v: err = %v, want ErrIntrusiveRefused", unattended, err)
+		}
+	}
+	if primary.calls != 0 || auth.got != nil {
+		t.Errorf("a refused mode must not reach the engine (%d calls) or the authorizer (%v)", primary.calls, auth.got)
+	}
+}

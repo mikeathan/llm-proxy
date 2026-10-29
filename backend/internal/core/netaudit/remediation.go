@@ -23,6 +23,9 @@ var remediations = map[string]string{
 	CheckMQTTAnonymous:      "Turn off anonymous access on the MQTT broker and give each device its own user name and password.",
 	CheckTelnetOpen:         "Turn off Telnet and use SSH instead; if a device cannot turn it off, update its firmware or keep it off the main network.",
 	CheckDockerAPI:          "Stop Docker listening on the network (remove the tcp:// address from its hosts setting) and use SSH or a TLS-protected port for remote access.",
+	CheckTLSWeakProtocol:    "Turn off SSL 3.0, TLS 1.0 and TLS 1.1 in the service's TLS settings and allow TLS 1.2 and 1.3 only; update the device's software or firmware if it cannot.",
+	CheckTLSWeakCipher:      "Remove the weak ciphers from the service's TLS settings and use a current recommended cipher list; update the device's software or firmware if it cannot.",
+	CheckSSHPasswordLogin:   "Set up key login for each account that needs SSH, then turn password login off in the SSH server's configuration (PasswordAuthentication no).",
 	CheckUnexpectedPort:     "Close the port on the device if nothing needs it. If it should be open, add it to the device's expected ports so it stops being reported.",
 	CheckExpectedPortClosed: "Check that the service on the device is running. If it was turned off on purpose, remove the port from the device's expected ports.",
 }
@@ -49,6 +52,9 @@ var checkTitles = map[string]string{
 	CheckMQTTAnonymous:      "MQTT broker open to anyone",
 	CheckTelnetOpen:         "Telnet open",
 	CheckDockerAPI:          "Docker remote control open",
+	CheckTLSWeakProtocol:    "Old TLS or SSL versions still accepted",
+	CheckTLSWeakCipher:      "Weak TLS ciphers accepted",
+	CheckSSHPasswordLogin:   "SSH accepts password login",
 	CheckUnexpectedPort:     "Open port that is not expected",
 	CheckExpectedPortClosed: "Expected port not answering",
 }

@@ -189,16 +189,17 @@ func convertCPEs(in []string) []string {
 	return out
 }
 
-// convertScripts keeps the output of the reviewed check scripts on a port, each cleaned and bounded. Any other script
-// nmap ran (it adds some of its own while identifying services) is dropped: nothing reads it, and it is text from the
-// device.
+// convertScripts keeps the output of the reviewed scripts on a port (the nightly checks and the deep check's two), each
+// cleaned and bounded. Any other script nmap ran (it adds some of its own while identifying services) is dropped: nothing
+// reads it, and it is text from the device. A nightly scan never asks for a deep script, and nothing evaluates one on its
+// behalf (checkTable does not list them), so keeping both lists here lets a deep scan's output through and nothing else.
 func convertScripts(in []xmlScript) []netaudit.Script {
 	var out []netaudit.Script
 	for _, s := range in {
 		if len(out) == maxScriptsEach {
 			break
 		}
-		if !slices.Contains(netaudit.CheckScriptNames(), s.ID) {
+		if !slices.Contains(netaudit.CheckScriptNames(), s.ID) && !slices.Contains(netaudit.DeepScriptNames(), s.ID) {
 			continue
 		}
 		out = append(out, netaudit.Script{ID: s.ID, Output: cleanScript(s.Output)})

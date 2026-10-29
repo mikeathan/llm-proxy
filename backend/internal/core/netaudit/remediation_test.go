@@ -11,6 +11,7 @@ var allChecks = []string{
 	CheckNFSExports, CheckCertExpired, CheckCertExpiring, CheckSSHWeakAlgorithms, CheckRDPNoNLA, CheckKnownVulns,
 	CheckSSHWeakHostKey, CheckTLSWeakKey, CheckTLSWeakSignature, CheckMemcachedOpen, CheckMongoNoAuth, CheckMQTTAnonymous,
 	CheckTelnetOpen, CheckDockerAPI, CheckUnexpectedPort, CheckExpectedPortClosed,
+	CheckTLSWeakProtocol, CheckTLSWeakCipher, CheckSSHPasswordLogin,
 }
 
 func TestRemediationFor_EveryCheckHasAFix(t *testing.T) {

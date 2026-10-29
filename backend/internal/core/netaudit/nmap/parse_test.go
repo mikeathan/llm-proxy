@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"llm-proxy/internal/core/netaudit"
 )
 
 func fixture(t *testing.T, name string) *os.File {
@@ -265,5 +267,33 @@ func TestParseXML_CPEsPerPortAreBounded(t *testing.T) {
 	}
 	if got := len(hosts[0].Ports[0].CPEs); got != maxCPEsEach {
 		t.Errorf("kept %d CPEs, want %d", got, maxCPEsEach)
+	}
+}
+
+// Real nmap 7.99 output (testdata, addresses replaced): the deep scripts' output is kept on its port, with the line structure
+// the evaluators read, and the deep findings come out of it.
+func TestParseXML_RealDeepScriptOutputBecomesDeepFindings(t *testing.T) {
+	ssh, err := ParseXML(fixture(t, "deep_ssh_auth_methods.xml"))
+	if err != nil || len(ssh) != 1 || len(ssh[0].Ports) != 1 {
+		t.Fatalf("ssh: %+v %v", ssh, err)
+	}
+	got := netaudit.DeepFindingsOf(ssh)
+	if len(got) != 1 || got[0].Check != netaudit.CheckSSHPasswordLogin || got[0].Port != 22 || got[0].Device != "192.0.2.10" {
+		t.Errorf("a server that lists password among its methods: %+v", got)
+	}
+
+	tls, err := ParseXML(fixture(t, "deep_ssl_enum_ciphers.xml"))
+	if err != nil || len(tls) != 1 || len(tls[0].Ports) != 1 {
+		t.Fatalf("tls: %+v %v", tls, err)
+	}
+	var ids []string
+	for _, s := range tls[0].Ports[0].Scripts {
+		ids = append(ids, s.ID)
+	}
+	if !slices.Equal(ids, []string{"ssl-enum-ciphers"}) { // fingerprint-strings, which nmap added itself, is dropped
+		t.Errorf("scripts kept = %v", ids)
+	}
+	if f := netaudit.DeepFindingsOf(tls); len(f) != 0 {
+		t.Errorf("a server with only TLS 1.2/1.3 and grade A ciphers has no deep finding: %+v", f)
 	}
 }
