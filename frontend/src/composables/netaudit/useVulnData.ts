@@ -1,5 +1,7 @@
 import { getCurrentScope, onScopeDispose, ref } from 'vue'
+import { AuthService } from '../../services/auth/authService'
 import { NetauditService } from '../../services/netaudit/netauditService'
+import { useReauth } from '../auth/useReauth'
 import { useNetauditReadiness } from './useNetauditReadiness'
 import { errorMessage } from '../../utils/errors'
 import type { VulnDataStatus, VulnImportSource } from '../../types/netaudit'
@@ -9,6 +11,7 @@ const READ_FAILED = 'The vulnerability data status could not be read.'
 const START_FAILED = 'The download could not be started.'
 const CANCEL_FAILED = 'The download could not be stopped.'
 const IMPORT_FAILED = 'The file could not be imported.'
+const NOT_CONFIRMED = 'The passphrase was not confirmed, so nothing was sent.'
 const CLEAR_FAILED = 'The data could not be deleted.'
 
 // One shared status: the settings card and the readiness banner show the same download. The server job keeps going
@@ -72,6 +75,16 @@ async function act(call: () => Promise<VulnDataStatus>, failed: string, readines
   }
 }
 
+/** True when the session is freshly confirmed, asking for the passphrase if it is not. A status that cannot be read lets the server decide. */
+async function confirmedBeforeUpload(): Promise<boolean> {
+  try {
+    if ((await AuthService.status()).elevated) return true
+  } catch {
+    return true
+  }
+  return useReauth().requestReauth()
+}
+
 /** The vulnerability-data download as a screen sees it. Call it from a component's setup; leaving it ends this consumer. */
 export function useVulnData() {
   if (getCurrentScope()) {
@@ -92,7 +105,15 @@ export function useVulnData() {
     start: (restart = false) => act(() => NetauditService.startVulnDownload(restart), START_FAILED),
     cancel: () => act(NetauditService.cancelVulnDownload, CANCEL_FAILED),
     /** Reads a data file the person picked, for a computer that cannot download it. */
-    importFile: (source: VulnImportSource, file: File, year?: number) => act(() => NetauditService.importVulnData(source, file, year), IMPORT_FAILED, true),
+    importFile: async (source: VulnImportSource, file: File, year?: number) => {
+      // A step-up route refuses before it reads the body, and a browser still sending tens of megabytes may only see a
+      // dropped connection; so the passphrase is asked for first, and the file is sent once.
+      if (!(await confirmedBeforeUpload())) {
+        actionError.value = NOT_CONFIRMED
+        return
+      }
+      await act(() => NetauditService.importVulnData(source, file, year), IMPORT_FAILED, true)
+    },
     /** Deletes the downloaded data. The caller asks the person first. */
     clear: () => act(NetauditService.clearVulnData, CLEAR_FAILED, true),
   }

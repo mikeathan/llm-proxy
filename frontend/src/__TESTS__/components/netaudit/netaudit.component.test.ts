@@ -6,6 +6,10 @@ const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), s
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirmMock = vi.hoisted(() => vi.fn())
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
+const authService = vi.hoisted(() => ({ status: vi.fn() }))
+vi.mock('../../../services/auth/authService', () => ({ AuthService: authService }))
+const reauth = vi.hoisted(() => ({ requestReauth: vi.fn() }))
+vi.mock('../../../composables/auth/useReauth', () => ({ useReauth: () => reauth }))
 const dispatcher = vi.hoisted(() => ({ listAutomations: vi.fn(), listWorkspaces: vi.fn(), triggerAutomation: vi.fn() }))
 vi.mock('../../../services/automation/dispatcherService', () => ({ DispatcherService: dispatcher }))
 const push = vi.hoisted(() => vi.fn())
@@ -62,6 +66,8 @@ beforeEach(() => {
   routeState.hash = ''
   service.readiness.mockResolvedValue({ ready: true, requirements: [], notices: [] })
   service.vulnData.mockResolvedValue(vulnStatus())
+  authService.status.mockReset().mockResolvedValue({ elevated: true })
+  reauth.requestReauth.mockReset().mockResolvedValue(true)
   service.expectations.mockResolvedValue([])
   // The download's state is shared by every screen, so each test starts from none.
   Object.assign(useVulnData(), {}).status.value = null
@@ -1415,6 +1421,34 @@ describe('VulnDataCard file import', () => {
     w.unmount()
   })
 
+  it('asks for the passphrase before the file is sent, not after it has been uploaded', async () => {
+    useNetauditViewMode().set('advanced')
+    authService.status.mockResolvedValue({ elevated: false })
+    service.importVulnData.mockResolvedValue(vulnStatus({ state: 'stopped', files_done: 1 }))
+    const w = await mountCard()
+    await pick(w, new File(['{}'], 'k.json'))
+    await w.get('[data-test="import-source"] input[value="kev"]').setValue(true)
+    await importButton(w).trigger('click')
+    await flushPromises()
+    expect(reauth.requestReauth).toHaveBeenCalledTimes(1)
+    expect(service.importVulnData).toHaveBeenCalledTimes(1)
+    w.unmount()
+  })
+
+  it('sends nothing when the passphrase is not confirmed', async () => {
+    useNetauditViewMode().set('advanced')
+    authService.status.mockResolvedValue({ elevated: false })
+    reauth.requestReauth.mockResolvedValue(false)
+    const w = await mountCard()
+    await pick(w, new File(['{}'], 'k.json'))
+    await w.get('[data-test="import-source"] input[value="kev"]').setValue(true)
+    await importButton(w).trigger('click')
+    await flushPromises()
+    expect(service.importVulnData).not.toHaveBeenCalled()
+    expect(w.get('[role="alert"]').text()).toContain('passphrase')
+    w.unmount()
+  })
+
   it('says plainly why a file was refused', async () => {
     useNetauditViewMode().set('advanced')
     service.importVulnData.mockRejectedValue(new Error('that file could not be read as vulnerability data, so it was not used'))
@@ -1500,5 +1534,32 @@ describe('Accepted problems and the counts', () => {
     expect(row.classes()).not.toContain('border-state-error')
     expect(row.html()).not.toContain('bg-state-error')
     expect(row.text()).toContain('Accepted until')
+  })
+})
+
+describe('SegmentedControl while something runs', () => {
+  it('marks a live segment with a dot, and tints the chosen one when the control is in the running tone', async () => {
+    const { default: SegmentedControl } = await import('../../../components/common/forms/SegmentedControl.vue')
+    const options = [{ value: 'a', label: 'Results' }, { value: 'b', label: 'Live run', live: true }]
+    const idle = mount(SegmentedControl, { props: { modelValue: 'a', options, label: 'x' } })
+    expect(idle.findAll('[data-test="live-dot"]')).toHaveLength(1)
+    expect(idle.findAll('[role="radio"]')[0]!.classes().join(' ')).not.toContain('state-running')
+    const running = mount(SegmentedControl, { props: { modelValue: 'a', options, label: 'x', tone: 'running' } })
+    expect(running.findAll('[role="radio"]')[0]!.classes().join(' ')).toContain('state-running')
+    expect(running.findAll('[role="radio"]')[1]!.classes().join(' ')).not.toContain('bg-state-running')
+  })
+})
+
+
+describe('ChatMessages width', () => {
+  it('lets an automation console use the page width while chat keeps its reading column', async () => {
+    const { default: ChatMessages } = await import('../../../components/AgentIde/assistant/ChatMessages.vue')
+    const turn = { userMessage: 'x', segments: [{ kind: 'text', content: 'a' }], finalAnswer: 'done', canceled: false }
+    const mountIn = (mode: 'chat' | 'automation') => mount(ChatMessages, {
+      props: { mode, messages: [{ role: 'assistant', content: 'a' }], turns: [turn], loading: false, thinking: false, liveReasoning: '', paused: false, workspaceId: 'ws', turnsCollapsed: {}, expandedSegments: {}, isInsetCollapsed: () => false, isSegExpanded: () => false, phase: 'idle' } as never,
+      global: { stubs: { ChatBubble: true, UserMessage: true, BaseButton: true } },
+    })
+    expect(mountIn('automation').get('section.turn-group').classes()).toContain('turn-group--wide')
+    expect(mountIn('chat').get('section.turn-group').classes()).not.toContain('turn-group--wide')
   })
 })

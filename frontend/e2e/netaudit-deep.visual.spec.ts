@@ -43,6 +43,8 @@ async function open(page: Page) {
   await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/netaudit/deep': deepChecks, '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('heading', { name: 'Latest network scan' })).toBeVisible()
+  // A stored deep problem opens the report on Problems; these checks are about the devices.
+  await page.getByRole('radio', { name: /^Devices/ }).click()
 }
 
 test('the deep check question says exactly what will be sent, and fits the screen', async ({ page }, testInfo) => {

@@ -176,4 +176,27 @@ describe('deep problems in the report', () => {
     expect(w.findAll('[data-test="problem"]')).toHaveLength(1)
     expect(w.find('[data-test="deep-readonly"]').exists()).toBe(false)
   })
+
+  it('Simple: a deep problem is counted as something that needs a look, not "Nothing needs a look"', async () => {
+    useNetauditViewMode().set('simple')
+    const w = await open()
+    expect(w.get('[data-test="summary"]').text()).toBe('1 thing needs a look')
+  })
+
+  it('Advanced: the device with the deep problem is open without being asked', async () => {
+    const w = await open()
+    await w.findAll('[role="radio"]').find((b) => b.text().startsWith('Devices'))!.trigger('click')
+    expect(w.get('section[aria-label="192.0.2.10"] [data-test="toggle-device"]').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('Advanced: opens on Problems even when the deep results arrive after the report', async () => {
+    let release: (v: DeepCheck[]) => void = () => {}
+    service.deepChecks.mockReturnValue(new Promise<DeepCheck[]>((r) => { release = r }))
+    const w = await open()
+    expect(w.get('[role="radio"][aria-checked="true"]').text()).toMatch(/^Devices/)
+    release([found])
+    await flushPromises()
+    expect(w.get('[role="radio"][aria-checked="true"]').text()).toBe('Problems (1)')
+  })
 })
+

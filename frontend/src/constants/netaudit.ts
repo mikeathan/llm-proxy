@@ -173,7 +173,7 @@ export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
 /** The wording around the vulnerability data: where it comes from, and what a match does and does not say. */
 export const VULN_ATTRIBUTION = "Data from the U.S. National Vulnerability Database (NVD) and CISA's Known Exploited Vulnerabilities catalog. Not endorsed by NIST or CISA."
 export const VULN_NOT_PROOF = 'A match means the software may be affected, not proof that it is: the maker may have fixed it without changing the version number.'
-export const VULN_IMPORT_INTRO = 'If this computer cannot download the data, fetch the file on another computer and pick it here. It is checked before it is used, and nothing in it is shown.'
+export const VULN_IMPORT_INTRO = 'If this computer cannot download the data, fetch the file on another computer and pick it here. It is checked before it is used, and nothing in it is shown. Pick the compressed .gz file as NVD publishes it: it is much smaller than the unpacked one.'
 /** The two official files an import takes, with where to get each (the same fixed addresses the download uses). */
 export const VULN_IMPORT_FILES: readonly { source: 'nvd' | 'kev'; name: string; where: string }[] = [
   { source: 'nvd', name: 'NVD yearly file', where: 'https://nvd.nist.gov/feeds/json/cve/2.0/nvdcve-2.0-YEAR.json.gz' },

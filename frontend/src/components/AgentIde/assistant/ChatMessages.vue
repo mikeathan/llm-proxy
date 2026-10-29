@@ -120,7 +120,7 @@ defineExpose({
 
     <!-- One reading column per turn: long answers read as a document, not a
          full-width wall of text. -->
-    <section v-for="(turn, idx) in turns" :key="'turn-' + idx" class="turn-group">
+    <section v-for="(turn, idx) in turns" :key="'turn-' + idx" :class="['turn-group', { 'turn-group--wide': isAutomation }]">
       <UserMessage
         v-if="!isAutomation"
         :content="turn.userMessage"
@@ -160,6 +160,8 @@ defineExpose({
 <style scoped>
 .message-container { @apply relative flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 flex flex-col gap-5; }
 .turn-group { @apply mx-auto flex w-full max-w-[52rem] flex-col gap-6; }
+/* An automation's console is read like a log, not a chat: it may use the width of the page (phones are unaffected). */
+.turn-group--wide { @apply max-w-[88rem]; }
 .chat-empty { @apply mx-auto flex max-w-[56ch] flex-col gap-2 border border-dashed border-control p-5 text-[length:var(--text-small)] text-secondary; }
 .chat-empty p { @apply m-0; }
 .chat-empty-eyebrow { @apply font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted; }

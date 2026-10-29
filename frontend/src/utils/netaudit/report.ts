@@ -30,20 +30,22 @@ const DEEP_CARRY_DAYS = 90
 
 /**
  * The problems of the stored deep checks that the latest audit report does not carry yet. An audit carries a deep finding
- * into its report on its next run, only while the device is up and the port is still open and for 90 days (and then it is
+ * into its report on its next run, only while the device answered the last scan and the port is still open and for 90 days (and then it is
  * an ordinary finding, with a key to accept it by), so this lists the same ones: a finding the report already has is not
  * listed twice, and one whose port the scan no longer sees open is not listed. Until carried it is read-only and dated.
  */
 export function deepProblemsOf(report: FindingsReport, checks: readonly DeepCheck[], now: number = Date.now()): ScanFinding[] {
-  const id = (f: { device: string; port?: number; check: string }) => `${f.device}|${f.port}|${f.check}`
+  const proto = (f: { proto?: string }) => f.proto || 'tcp'
+  const id = (f: { device: string; port?: number; proto?: string; check: string }) => `${f.device}|${f.port}|${proto(f)}|${f.check}`
+  const skipped = new Set(report.unscanned)
   const carried = new Set(report.findings.map(id))
-  const open = new Set(report.findings.filter((f) => !isCheck(f)).map((f) => `${f.device}|${f.port}`))
+  const open = new Set(report.findings.filter((f) => !isCheck(f)).map((f) => `${f.device}|${f.port}|${proto(f)}`))
   const fresh = (at: string) => now - Date.parse(at) <= DEEP_CARRY_DAYS * 86_400_000
   return checks
     .filter((c) => fresh(c.at))
     .flatMap((c) =>
       c.findings
-        .filter((f) => !carried.has(id(f)) && open.has(`${f.device}|${f.port}`))
+        .filter((f) => !carried.has(id(f)) && open.has(`${f.device}|${f.port}|${proto(f)}`) && !skipped.has(f.device))
         .map((f): ScanFinding => ({ ...f, key: `deep:${f.device}:${f.port}:${f.check}`, new: false, changed: false, accepted: false, deep_at: c.at })),
     )
     .sort((a, b) => severityRank(b.severity) - severityRank(a.severity))

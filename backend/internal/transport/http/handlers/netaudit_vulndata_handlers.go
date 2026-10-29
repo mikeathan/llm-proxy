@@ -22,8 +22,8 @@ type VulnData interface {
 }
 
 // VulnDataHandlers serve the "Vulnerability data" card: how much data is held, and the one-click download with its
-// progress. Starting a download is an operator action and, like the rest of the admin API, relies on the unauthenticated
-// admin API's convention (see the admin-api-authentication plan).
+// progress. Starting a download is an operator action behind the admin sign-in like the rest of the admin API; importing
+// or deleting the data is a step-up route (a fresh passphrase, never a token), see the admin-api-authentication plan.
 type VulnDataHandlers struct{ data VulnData }
 
 func NewVulnDataHandlers(data VulnData) *VulnDataHandlers { return &VulnDataHandlers{data: data} }
@@ -63,7 +63,11 @@ func (h *VulnDataHandlers) Cancel(w http.ResponseWriter, _ *http.Request) {
 // is downloaded again.
 func (h *VulnDataHandlers) Clear(w http.ResponseWriter, _ *http.Request) {
 	if err := h.data.Clear(); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, vulnfeed.ErrBusy) {
+			status = http.StatusConflict
+		}
+		writeJSONError(w, status, err.Error())
 		return
 	}
 	respondJSON(w, h.data.Status())
@@ -98,6 +102,8 @@ func (h *VulnDataHandlers) Import(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, h.data.Status())
 	case errors.Is(err, vulnfeed.ErrBusy):
 		writeJSONError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, vulnfeed.ErrImportTooBig):
+		writeJSONError(w, http.StatusRequestEntityTooLarge, err.Error())
 	case errors.Is(err, vulnfeed.ErrBadSource), errors.Is(err, vulnfeed.ErrBadYear), errors.Is(err, vulnfeed.ErrBadImport):
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, vulnfeed.ErrNotReady):

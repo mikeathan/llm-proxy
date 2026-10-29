@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import DeviceFindings from "./DeviceFindings.vue"
 import ProblemGroups from "./ProblemGroups.vue"
@@ -27,6 +27,9 @@ const emit = defineEmits<{
 // Opens on the problems when the checks found any, otherwise on the devices.
 const allProblems = computed(() => [...props.summary.problems, ...props.extraProblems])
 const filter = ref<FindingFilter>(allProblems.value.length ? "problems" : "all")
+// The stored deep results can arrive after the report; until the reader picks a part, the report moves to Problems when they do.
+let picked = false
+watch(() => allProblems.value.length, (n) => { if (n && !picked && filter.value === "all") filter.value = "problems" })
 // A device the reader opened or folded by hand; every other device is open only when something there needs a look.
 const toggled = ref<Record<string, boolean>>({})
 
@@ -76,13 +79,13 @@ const groups = computed(() => groupByDevice(visible.value))
 const resolvedGroups = computed(() => groupByDevice(props.summary.resolved))
 const showDevices = computed(() => filter.value !== "resolved" && filter.value !== "problems")
 
-const setFilter = (value: string) => { filter.value = value as FindingFilter }
+const setFilter = (value: string) => { picked = true; filter.value = value as FindingFilter }
 // Something needs a look on a device when a port is new or changed (never on the first scan, where all are the baseline), or it has an unaccepted problem.
 const needsLook = (device: string) =>
-  props.summary.problems.some((f) => f.device === device) || (!props.summary.baseline && [...props.summary.added, ...props.summary.changed].some((f) => f.device === device))
+  allProblems.value.some((f) => f.device === device) || (!props.summary.baseline && [...props.summary.added, ...props.summary.changed].some((f) => f.device === device))
 const expectedOf = (device: string) => props.expectations.find((e) => e.device === device)
 const deepOf = (device: string) => props.deepChecks.find((c) => c.device === device)
-const problemsOn = (device: string) => props.summary.problems.filter((f) => f.device === device).length
+const problemsOn = (device: string) => allProblems.value.filter((f) => f.device === device).length
 const isOpen = (device: string) => toggled.value[device] ?? (filter.value !== "all" || needsLook(device))
 const toggle = (device: string) => { toggled.value = { ...toggled.value, [device]: !isOpen(device) } }
 </script>
