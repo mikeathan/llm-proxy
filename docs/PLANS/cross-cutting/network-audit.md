@@ -715,6 +715,13 @@ Both appear in `ProblemGroups` with a fix written once ("close it on the device,
 2. **Is `ssh-auth-methods` acceptable at all?** It sends an authentication attempt for a random user. The proposed wording allows it because it guesses no credential, but it is the closest item to II.3's line; dropping it leaves TLS only.
 3. **Real-device safety.** Both scripts have only been read, not run here. Before the list is final, run each once against a device you do not mind disturbing and record what it sent (ADR-0007: fixtures are not evidence).
 
+**Owner decisions 2026-10-30:** the amendment is approved and applied (Constitution II.3, "Intrusive runs"); admin authentication has landed (0.22.0, sign-in compulsory), so question 1 is answered by (a): the deep check needs nothing more; `ssh-auth-methods` stays; the real-device test ran (below).
+
+**Real-device evidence 2026-10-30 (nmap 7.99, the product's flags: `-sT -sV --version-intensity 2 -Pn -T2 --max-retries 1 --script-timeout 30s --unprivileged`, one port at a time).**
+- `ssh-auth-methods` on `192.168.50.60:22` (vertex, OpenSSH 9.6p1 Ubuntu): **2 TCP connections, about 0.6 s**; a normal SSH handshake, then a list of the methods the server accepts, asked for a random five-letter user name (the script source: `rand.random_alpha(5)`; nmap's own description says the abandoned attempt "will likely be logged"). It guessed no password. Result: `publickey`, `password`, so **vertex's SSH accepts password login** (a real finding).
+- `ssl-enum-ciphers` against a throwaway OpenSSL server on this machine (`127.0.0.1:9443`; no device on the network offers TLS): **58 TCP connections (one handshake each) in 28 s** for one port; it lists the protocol versions and ciphers with a grade and its least strength. That is the load a fragile device would see, which is why the deep check takes one port at a time, `-T2`, and the 30 s script limit.
+- The script only runs on a port nmap already knows is TLS: with plain port detection RDP printed nothing; `-sV` is needed (the checks mode already has it). A device that closes the connection at once (RDP on `192.168.50.10:3389`, `tcpwrapped`) or answers plain HTTP (Plex on 32400) gives the script nothing, and the deep check must say "no TLS service answered", not "no problem".
+
 **Phases (after the amendment and the answers above).** (1) amendment text applied; (2) `deep` mode, list and refusal tests; (3) endpoint with grant, limits and cool-down; (4) findings, carry-over and report line; (5) UI button and copy.
 
 ## Remaining Work
