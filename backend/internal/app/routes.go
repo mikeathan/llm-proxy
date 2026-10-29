@@ -101,7 +101,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
-	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations)
+	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 
 	// Register recording routes unconditionally. The handler safely returns
@@ -348,6 +348,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/netaudit/acks", hs.Netaudit.RevokeAck, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/fixes", hs.Netaudit.MarkFixed, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/fixes", hs.Netaudit.UnmarkFixed, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/deep", hs.Netaudit.ListDeepChecks, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/deep", hs.Netaudit.RunDeepCheck, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/expectations", hs.Netaudit.ListExpectations, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/expectations", hs.Netaudit.SetExpectation, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/expectations", hs.Netaudit.RemoveExpectation, jsonMethodNotAllowed)

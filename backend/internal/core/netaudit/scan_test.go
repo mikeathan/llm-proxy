@@ -21,6 +21,7 @@ type fakeEngine struct {
 	started chan struct{}
 	once    sync.Once
 	result  Result
+	onScan  func(context.Context) // when set, called with the engine's context
 }
 
 func (f *fakeEngine) Name() string                    { return f.name }
@@ -33,9 +34,12 @@ func (f *fakeEngine) Supports(m Mode) bool {
 	}
 	return false
 }
-func (f *fakeEngine) Scan(_ context.Context, req ScanRequest) (Result, error) {
+func (f *fakeEngine) Scan(ctx context.Context, req ScanRequest) (Result, error) {
 	f.calls++
 	f.gotReq = req
+	if f.onScan != nil {
+		f.onScan(ctx)
+	}
 	if f.started != nil {
 		f.once.Do(func() { close(f.started) })
 	}

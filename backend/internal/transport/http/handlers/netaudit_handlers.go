@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
@@ -62,6 +63,7 @@ type NetauditHandlers struct {
 	acks      NetauditAcks
 	fixes     NetauditFixes        // optional: without it findings carry guides but no record of what the operator did
 	expects   NetauditExpectations // optional: without it the expectations endpoints answer 404
+	deep      NetauditDeep         // optional: without it the deep-check endpoints answer 404
 }
 
 func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines, acks NetauditAcks) *NetauditHandlers {
@@ -490,4 +492,124 @@ func (h *NetauditHandlers) RemoveExpectation(w http.ResponseWriter, r *http.Requ
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// NetauditDeep is the deep check of one device: run it, and list the stored results.
+type NetauditDeep interface {
+	Run(ctx context.Context, workspaceID, automation, device string) (models.DeepCheck, error)
+	List(workspaceID string) ([]models.DeepCheck, error)
+}
+
+// WithDeepChecks adds the deep check, so the operator can start one and read the last result of each device.
+func (h *NetauditHandlers) WithDeepChecks(deep NetauditDeep) *NetauditHandlers {
+	h.deep = deep
+	return h
+}
+
+// deepRequest is all a deep check is asked: which audit's scan to read the device's ports from, and the device. The ports,
+// the scripts and the flags are never the caller's to choose.
+type deepRequest struct {
+	WorkspaceID string `json:"workspace_id"`
+	Automation  string `json:"automation"`
+	Device      string `json:"device"`
+}
+
+// deepFindingView is a deep finding with its plain title and its fixed-text fix and guide.
+type deepFindingView struct {
+	models.ScanFinding
+	CheckTitle string             `json:"check_title,omitempty"`
+	Fix        string             `json:"fix,omitempty"`
+	Guide      *netaudit.FixGuide `json:"guide,omitempty"`
+}
+
+// deepCheckView is a stored deep check as the page reads it.
+type deepCheckView struct {
+	Device   string                  `json:"device"`
+	At       time.Time               `json:"at"`
+	Ports    []models.DeepPortResult `json:"ports"`
+	Findings []deepFindingView       `json:"findings"`
+}
+
+func newDeepCheckView(c models.DeepCheck) deepCheckView {
+	view := deepCheckView{Device: c.Device, At: c.At, Ports: c.Ports, Findings: make([]deepFindingView, 0, len(c.Findings))}
+	if view.Ports == nil {
+		view.Ports = []models.DeepPortResult{}
+	}
+	for _, f := range c.Findings {
+		fv := deepFindingView{ScanFinding: f, CheckTitle: netaudit.CheckTitle(f.Check), Fix: netaudit.RemediationFor(f.Check)}
+		if g, ok := netaudit.GuideFor(f.Check); ok {
+			fv.Guide = &g
+		}
+		view.Findings = append(view.Findings, fv)
+	}
+	return view
+}
+
+// RunDeepCheck is the operator's request to check one device deeply (Constitution II.3, "Intrusive runs"). It is a step-up
+// route, so it needs a session whose passphrase was confirmed a moment ago, never a script token. It answers when the check
+// is done, which can take a few minutes; the page shows it as running.
+func (h *NetauditHandlers) RunDeepCheck(w http.ResponseWriter, r *http.Request) {
+	var req deepRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if req.WorkspaceID == "" || req.Automation == "" || req.Device == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id, automation and device are required")
+		return
+	}
+	if h.deep == nil {
+		writeJSONError(w, http.StatusNotFound, "the deep check is not available")
+		return
+	}
+	check, err := h.deep.Run(r.Context(), req.WorkspaceID, req.Automation, req.Device)
+	if err != nil {
+		writeDeepError(w, err)
+		return
+	}
+	respondJSON(w, newDeepCheckView(check))
+}
+
+// writeDeepError answers a refused or failed deep check in words the operator can act on.
+func writeDeepError(w http.ResponseWriter, err error) {
+	var cool *netaudit.CooldownError
+	switch {
+	case errors.As(err, &cool):
+		w.Header().Set("Retry-After", strconv.Itoa(int(cool.Remaining/time.Second)))
+		writeJSONError(w, http.StatusTooManyRequests, err.Error())
+	case errors.Is(err, netaudit.ErrBadDevice), errors.Is(err, netaudit.ErrBadPorts), errors.Is(err, scanscope.ErrOutOfScope):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, netaudit.ErrNoPorts), errors.Is(err, netaudit.ErrScanBusy):
+		writeJSONError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, netaudit.ErrIntrusiveRefused):
+		writeJSONError(w, http.StatusForbidden, err.Error())
+	case errors.Is(err, scanscope.ErrScanningOff), errors.Is(err, netaudit.ErrNmapRequired):
+		writeJSONError(w, http.StatusServiceUnavailable, err.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		writeJSONError(w, http.StatusGatewayTimeout, "the deep check ran out of time; nothing was stored")
+	default:
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+// ListDeepChecks returns the last deep check of each device in a workspace, newest first.
+func (h *NetauditHandlers) ListDeepChecks(w http.ResponseWriter, r *http.Request) {
+	workspaceID := r.URL.Query().Get("workspace_id")
+	if workspaceID == "" {
+		writeJSONError(w, http.StatusBadRequest, "workspace_id is required")
+		return
+	}
+	if h.deep == nil {
+		writeJSONError(w, http.StatusNotFound, "the deep check is not available")
+		return
+	}
+	items, err := h.deep.List(workspaceID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out := make([]deepCheckView, 0, len(items))
+	for _, c := range items {
+		out = append(out, newDeepCheckView(c))
+	}
+	respondJSON(w, out)
 }
