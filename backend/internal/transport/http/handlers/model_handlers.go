@@ -111,19 +111,28 @@ func (h *ModelHandlers) AdminListProviderModelsHandler(w http.ResponseWriter, r 
 	respondJSON(w, infos)
 }
 
-// AdminTestProviderConnectionHandler handles GET /admin/api/providers/test
+// providerTestRequest is what a connection test is built from. It is read from the body, never the query string: it can
+// name a stored key and a base URL to send it to, so it must not be something a link or an image tag can carry, and a
+// secret must not end up in a URL (logs, history, Referer).
+type providerTestRequest struct {
+	Provider   string `json:"provider"`
+	APIKey     string `json:"api_key"`
+	APIKeyName string `json:"api_key_name"`
+	BaseURL    string `json:"base_url"`
+}
+
+// AdminTestProviderConnectionHandler handles POST /admin/api/providers/test
 func (h *ModelHandlers) AdminTestProviderConnectionHandler(w http.ResponseWriter, r *http.Request) {
-	provider := r.URL.Query().Get("provider")
-	if provider == "" {
+	var req providerTestRequest
+	if !decodeJSONBody(w, r, &req) {
+		return
+	}
+	if req.Provider == "" {
 		writeJSONError(w, http.StatusBadRequest, "missing provider")
 		return
 	}
 
-	apiKey := r.URL.Query().Get("api_key")
-	apiKeyName := r.URL.Query().Get("api_key_name")
-	baseURL := r.URL.Query().Get("base_url")
-
-	err := h.runtime.TestProviderConnection(r.Context(), provider, apiKey, apiKeyName, baseURL)
+	err := h.runtime.TestProviderConnection(r.Context(), req.Provider, req.APIKey, req.APIKeyName, req.BaseURL)
 	if err != nil {
 		writeJSONError(w, http.StatusServiceUnavailable, "connection test failed: "+err.Error())
 		return

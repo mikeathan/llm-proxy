@@ -47,7 +47,7 @@ export const AdminApiService = {
     get<ProviderManifest[]>(API_ENDPOINTS.providerManifests),
 
   testConnection: (provider: string, apiKey?: string, apiKeyName?: string, baseURL?: string): Promise<{ status: string; message: string }> =>
-    get<{ status: string; message: string }>(`${API_ENDPOINTS.testConnection}?${new URLSearchParams({ provider, ...(apiKey ? { api_key: apiKey } : {}), ...(apiKeyName ? { api_key_name: apiKeyName } : {}), ...(baseURL ? { base_url: baseURL } : {}) })}`),
+    post<{ status: string; message: string }>(API_ENDPOINTS.testConnection, { provider, api_key: apiKey ?? '', api_key_name: apiKeyName ?? '', base_url: baseURL ?? '' }),
 
   fetchProviderKeys: (provider: string): Promise<APIKeyItem[]> =>
     get<APIKeyItem[]>(`${API_ENDPOINTS.secretsKeys}?provider=${encodeURIComponent(provider)}`),

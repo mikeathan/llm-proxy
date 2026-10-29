@@ -103,3 +103,19 @@ func TestDeleteAutomationRuns_ClearsTheConsoleReplay(t *testing.T) {
 		t.Errorf("the heartbeat's replay was touched: %d events", len(replay))
 	}
 }
+
+// The live stream is same-origin: the UI is served by this server. A wildcard CORS header would let any web page read an
+// operator's events (plan admin-api-authentication, E3).
+func TestStreamWorkspaceEvents_IsNotReadableByOtherOrigins(t *testing.T) {
+	bus := eventbus.NewBus()
+	defer bus.Stop()
+	h := NewDispatcherHandlers(&streamDispatcher{bus: bus}, nil, logging.NewNopLogger())
+
+	rec := streamRequest(t, h, "?channel=automation&automation=daily-llm-news")
+	if rec.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("the stream did not open (Content-Type %q): this test would pass for the wrong reason", rec.Header().Get("Content-Type"))
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want none", got)
+	}
+}

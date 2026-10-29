@@ -20,7 +20,13 @@ type ProcessHandlers struct {
 	runtime RuntimeService
 	admin   AdminService
 	logger  logging.Logger
+	// listModelServers and killProcess are the process package's, replaceable so a test never signals a real process.
+	listModelServers func(activePID int) ([]process.Info, error)
+	killProcess      func(pid int) error
 }
+
+// modelServerBinary is the program the Models page lists, and the only one its stop button may signal.
+const modelServerBinary = "llama-server"
 
 // logTailBytes bounds the bytes served for any log endpoint so a growing log
 // file never turns a 10s frontend poll into a full-file read + transfer (ops
@@ -43,7 +49,11 @@ func readTail(f *os.File, maxBytes int64) ([]byte, error) {
 }
 
 func NewProcessHandlers(runtime RuntimeService, admin AdminService, logger logging.Logger) *ProcessHandlers {
-	return &ProcessHandlers{runtime: runtime, admin: admin, logger: logger}
+	return &ProcessHandlers{
+		runtime: runtime, admin: admin, logger: logger,
+		listModelServers: func(activePID int) ([]process.Info, error) { return process.ListByBinary(modelServerBinary, activePID) },
+		killProcess:      process.Kill,
+	}
 }
 
 func (h *ProcessHandlers) AdminStartHandler(w http.ResponseWriter, r *http.Request) {
@@ -275,7 +285,7 @@ func (h *ProcessHandlers) AdminProcessesHandler(w http.ResponseWriter, r *http.R
 		activePID = activeInfo.PID
 	}
 
-	processes, err := process.ListByBinary("llama-server", activePID)
+	processes, err := h.listModelServers(activePID)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -306,12 +316,32 @@ func (h *ProcessHandlers) AdminProcessKillHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := process.Kill(pid); err != nil {
+	// Only a process the Models page lists may be stopped here: the endpoint used to signal any process id the service
+	// user could signal. A list that cannot be read refuses (fails closed).
+	if !h.isListedModelServer(pid, 0) {
+		writeJSONError(w, http.StatusForbidden, "only a listed model server can be stopped here")
+		return
+	}
+	if err := h.killProcess(pid); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	respondJSON(w, map[string]any{"status": "stopped", "pid": pid})
+}
+
+// isListedModelServer reports whether pid is one of the model servers the Models page lists.
+func (h *ProcessHandlers) isListedModelServer(pid, activePID int) bool {
+	listed, err := h.listModelServers(activePID)
+	if err != nil {
+		return false
+	}
+	for _, p := range listed {
+		if p.PID == pid {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *ProcessHandlers) appLogPath() string {

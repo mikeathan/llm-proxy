@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"slices"
 
 	"llm-proxy/internal/platform/logging"
 )
@@ -78,6 +79,19 @@ func (r *Router) Handle(method, path string, handler http.Handler, opts ...Route
 	}
 
 	rt.handlers[method] = recoverHandler(handler)
+}
+
+// Routes lists every registered route as "METHOD path" ("*" for any method), sorted. It exists so a test can check that
+// every route is classified (plan admin-api-authentication, Phase 0): the next route cannot be added unnoticed.
+func (r *Router) Routes() []string {
+	var out []string
+	for path, rt := range r.routes {
+		for method := range rt.handlers {
+			out = append(out, method+" "+path)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func (r *Router) Any(path string, handler http.Handler, opts ...RouteOption) {

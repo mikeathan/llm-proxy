@@ -29,6 +29,9 @@ type AppServerConfig struct {
 	IdleTimeoutSecs int               `yaml:"idle_timeout_seconds" json:"idle_timeout_seconds"`
 	Environment     map[string]string `yaml:"environment,omitempty" json:"environment,omitempty"`
 	LogLevel        string            `yaml:"log_level,omitempty" json:"log_level,omitempty"`
+	// AllowedHosts are names the admin interface may be reached under, besides IP addresses, localhost and this machine's
+	// own name (a reverse proxy or a custom DNS name). Any other name is refused, which stops DNS rebinding.
+	AllowedHosts []string `yaml:"allowed_hosts,omitempty" json:"allowed_hosts,omitempty"`
 }
 
 // DefaultAppConfig returns the canonical first-run configuration. It mirrors
