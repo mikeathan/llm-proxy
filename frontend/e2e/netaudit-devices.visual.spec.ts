@@ -42,6 +42,12 @@ for (const view of ['simple', 'advanced'] as const) {
       await open(page, view, STATES[name])
       await expectNoSidewaysScroll(page)
       const card = page.locator('[data-test="devices"]')
+      if (testInfo.project.name === 'mobile') {
+        // Every segmented control on this screen is a touch target: the Simple/Advanced switch and the IPv4/IPv6 tabs.
+        for (const group of [page.getByRole('radiogroup', { name: 'How much detail' }).first(), card.getByRole('radiogroup', { name: 'Address type' })]) {
+          if (await group.count()) expect((await group.getByRole('radio').first().boundingBox())?.height).toBeGreaterThanOrEqual(44)
+        }
+      }
       if (name === 'new-device') {
         await expect(card.getByText('New', { exact: true })).toBeVisible()
         const claim = card.getByRole('button', { name: "It's mine" })

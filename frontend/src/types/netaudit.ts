@@ -396,6 +396,9 @@ export interface IPv6DiscoveryState {
   problem?: IPv6DiscoveryProblem
 }
 
+/** Which address a device list is read by: a device with both addresses is on both tabs. */
+export type DeviceFamily = 'ipv4' | 'ipv6'
+
 /** What the person did to a device. */
 export type DeviceAction = 'name' | 'approve' | 'forget' | 'confirm-gateway'
 

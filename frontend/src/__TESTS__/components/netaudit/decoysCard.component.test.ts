@@ -67,4 +67,30 @@ describe('DecoysCard', () => {
     const w = await mountCard()
     expect(w.text()).toContain('could not be read')
   })
+
+  it('has nothing to open and is not highlighted when no device connected', async () => {
+    const w = await mountCard()
+    const list = w.get('[data-test="decoy-connections"]')
+    expect(list.find('button[aria-expanded]').exists()).toBe(false)
+    expect(list.text()).toContain('Nothing has connected to a decoy')
+    expect(list.find('[data-test="decoy-alert-tag"]').exists()).toBe(false)
+  })
+
+  it('opens itself and is highlighted as soon as a device has connected', async () => {
+    service.decoys.mockResolvedValue(state({ enabled: true, touches: [{ source: '192.168.50.77', port: 2222, first: '2026-10-30T01:00:00Z', last: '2026-10-30T02:00:00Z', count: 3 }] }))
+    const w = await mountCard()
+    const list = w.get('[data-test="decoy-connections"]')
+    expect(list.get('button[aria-expanded]').attributes('aria-expanded')).toBe('true')
+    expect(list.text()).toContain('1 device connected')
+    expect(list.get('[data-test="decoy-alert-tag"]').text()).toContain('Needs a look')
+    expect(list.get('[data-test="decoy-touches"]').text()).toContain('192.168.50.77')
+  })
+
+  it('can be folded by the person and stays folded while the card is open', async () => {
+    service.decoys.mockResolvedValue(state({ enabled: true, touches: [{ source: '192.168.50.77', port: 2222, first: '2026-10-30T01:00:00Z', last: '2026-10-30T02:00:00Z', count: 1 }] }))
+    const w = await mountCard()
+    const button = w.get('[data-test="decoy-connections"] button[aria-expanded]')
+    await button.trigger('click')
+    expect(button.attributes('aria-expanded')).toBe('false')
+  })
 })

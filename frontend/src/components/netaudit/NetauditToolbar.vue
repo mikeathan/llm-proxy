@@ -13,7 +13,7 @@ const help = useNetauditHelp()
 
 <template>
   <div class="flex flex-wrap items-center justify-end gap-2">
-    <SegmentedControl :model-value="mode" :options="VIEW_MODE_OPTIONS" label="How much detail" @update:model-value="set($event as NetauditViewMode)" />
+    <SegmentedControl :model-value="mode" :options="VIEW_MODE_OPTIONS" label="How much detail" touch @update:model-value="set($event as NetauditViewMode)" />
     <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="help.show()">Help</BaseButton>
   </div>
 </template>
