@@ -78,6 +78,11 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 	}); ok && v.NetauditIdentities() != nil {
 		reporter.WithIdentities(v.NetauditIdentities())
 	}
+	if v, ok := svc.(interface {
+		NetauditRouter() netaudit.RouterFindings
+	}); ok && v.NetauditRouter() != nil {
+		reporter.WithRouter(v.NetauditRouter())
+	}
 	exec.SetReportHook(reporter)
 	return exec
 }

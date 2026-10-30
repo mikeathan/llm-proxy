@@ -26,6 +26,7 @@ type RunReporter struct {
 	deep   DeepReader       // optional: the operator's last deep check of each device
 	look   InventoryLook    // optional: who is on the network, from the host's neighbour table
 	idents IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
+	router RouterFindings   // optional: what the router itself offers (UPnP)
 	now    func() time.Time
 }
 
@@ -57,6 +58,17 @@ func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
 // InventoryLook is a look at who is on the network that also keeps the device inventory up to date: *Inventory.
 type InventoryLook interface {
 	Refresh(ctx context.Context) (Snapshot, error)
+}
+
+// RouterFindings is what the router itself offers: *RouterCheck.
+type RouterFindings interface {
+	Findings(ctx context.Context) ([]Finding, error)
+}
+
+// WithRouter makes the reporter ask the router about UPnP. Without it nothing is asked.
+func (r *RunReporter) WithRouter(c RouterFindings) *RunReporter {
+	r.router = c
+	return r
 }
 
 // IdentityTracker records the SSH host keys and TLS certificates a scan saw and returns the findings for those that changed:
@@ -115,7 +127,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		return report
 	}
 	cov := r.addKnownVulns(ctx, &result)
-	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result)
+	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
@@ -357,6 +369,19 @@ func (r *RunReporter) addIdentities(ctx context.Context, result *Result) string 
 	findings, err := r.idents.Track(ctx, result.Hosts)
 	if err != nil {
 		return fmt.Sprintf("\n\n> Note: whether host keys and certificates changed could not be checked (%v).", err)
+	}
+	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+	return ""
+}
+
+// addRouter appends what the router offers, if this scan looked at the router. Trouble is stated and never hides the scan.
+func (r *RunReporter) addRouter(ctx context.Context, result *Result) string {
+	if r.router == nil {
+		return ""
+	}
+	findings, err := r.router.Findings(ctx)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: what the router offers (UPnP) could not be checked (%v).", err)
 	}
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
 	return ""

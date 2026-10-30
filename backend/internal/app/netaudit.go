@@ -13,6 +13,7 @@ import (
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/scantool"
+	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
@@ -40,6 +41,8 @@ type netauditServices struct {
 	Inventory *netaudit.Inventory
 	// Identities remembers each service's SSH host keys and TLS certificate, to report one that was replaced.
 	Identities *netaudit.Identities
+	// Router asks the router whether it offers UPnP, in the nightly audit only.
+	Router *netaudit.RouterCheck
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
 	PresenceConfig *netaudit.PresenceConfig
 	Presence       *netaudit.Presence
@@ -74,6 +77,14 @@ func (s AppServices) NetauditIdentities() netaudit.IdentityTracker {
 		return nil
 	}
 	return s.netaudit.Identities
+}
+
+// NetauditRouter is where the run reporter asks the router about UPnP; nil until the services are wired.
+func (s AppServices) NetauditRouter() netaudit.RouterFindings {
+	if s.netaudit == nil || s.netaudit.Router == nil {
+		return nil
+	}
+	return s.netaudit.Router
 }
 
 // StartNetauditPresence runs the presence check until ctx ends. It is the one place that starts it (Constitution II.2,
@@ -170,7 +181,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	identityStore := persistence.NewDeviceIdentityStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The remembered SSH host keys and certificates", identityStore.Delete)
 	presenceConfig := netaudit.NewPresenceConfig(store)
-	s.netaudit = &netauditServices{Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	s.netaudit = &netauditServices{Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
@@ -206,3 +217,17 @@ type netauditPresence struct {
 }
 
 func (p netauditPresence) Status() netaudit.PresenceStatus { return p.check.Status() }
+
+// newRouterCheck builds the UPnP check of the router. Both the datagram and the page fetch go through the guarded network
+// client, so the global network guardrails apply, and the router must be inside the declared scan scope.
+func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory, scope *netaudit.Scope) *netaudit.RouterCheck {
+	client := upnp.Client{Dial: netTools.DialContext(), HTTP: netTools.HTTPClient()}
+	gateway := func() (netip.Addr, error) {
+		inv, err := inventory.View()
+		if err != nil || inv.Gateway == "" {
+			return netip.Addr{}, err
+		}
+		return netip.ParseAddr(inv.Gateway)
+	}
+	return netaudit.NewRouterCheck(client, gateway, func(a netip.Addr) error { return scope.Policy().Check(a) })
+}

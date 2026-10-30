@@ -449,6 +449,16 @@ var guides = map[string]FixGuide{
 		Risk: "Accepting a certificate nobody renewed would hide a service being replaced.",
 		Undo: "Take the acceptance back and the finding returns.",
 	},
+	CheckUPnPEnabled: {
+		Steps: []string{
+			"Open the router's settings page (for most routers, its address in a browser) and find the UPnP switch. On many ASUS routers it is under WAN, Internet Connection, \"Enable UPnP\"; other brands put it under Advanced or NAT.",
+			"Check whether anything you use needs it: some games consoles, video calls and torrent programs ask the router for ports through UPnP. If you are unsure, turn it off and see whether anything stops working.",
+			"If you keep it on, look at the router's list of UPnP port mappings (often next to the switch) and remove any you do not recognise.",
+			"Run the audit again to confirm.",
+		},
+		Risk: "Programs that relied on UPnP to open a port stop being reachable from outside until the port is forwarded by hand.",
+		Undo: "Turn the UPnP switch back on in the router's settings.",
+	},
 }
 
 // weakCertificateGuide serves both weak-certificate checks: the fix is a new certificate.
