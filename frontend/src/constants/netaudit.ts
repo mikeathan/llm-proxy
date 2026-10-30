@@ -86,6 +86,9 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       '"Look for new devices" checks every few minutes, not only at night, and sends one short message when something new shows up. The message gives counts, never names. It is off until you turn it on. It needs Linux and at least one chat connector; otherwise it says so here.',
       'If the router\'s own hardware address changes, the report says so in red. A replaced or reset router does this, but so does someone pretending to be the router to read your traffic, so check before you confirm. Confirming asks for your passphrase again.',
       'An address that now belongs to a different device than the one you approved, one device answering for several addresses, and a device that answers the network but nothing else are reported as well. Each has a note on what is harmless and what is not.',
+      'A full audit also asks your router, once, whether it offers UPnP: a setting that lets any device on the network open a port to the internet by itself. It is common and often needed by games and video calls, but malware uses it too, so it is reported as a note you can turn off in the router.',
+      'Decoy services are fake services on a few unused ports (an SSH login, file sharing and Telnet). Nothing on your network should ever use them, so a device that connects to one is probing for services, and you get a message. They are off until you turn them on, and turning them on asks for your passphrase. If this computer has a firewall, allow the ports in. A scanner app on your own phone will also touch them; accept that finding.',
+      'IPv6 addresses are shown beside a device when this computer knows them. It only lists devices it has already talked to, so it finds few that use IPv6 alone; those are listed and you are told about them, but they have no finding of their own.',
       'A full audit also remembers each SSH server\'s host keys and each web service\'s certificate, and reports one that was replaced: a reinstalled server does this, and so does someone pretending to be it. A certificate renewed under the same name and issuer is only a note.',
     ],
   },
@@ -218,3 +221,12 @@ export const FORGET_CONFIRM = {
   message: 'It will come back as a new device if it is still on the network.',
   confirmText: 'Remove',
 } as const
+
+/** Settings · Network scan · Decoy services: the words the card uses. */
+export const DECOYS_TITLE = 'Decoy services'
+export const DECOYS_LOAD_FAILED = 'The decoy services could not be read.'
+export const DECOYS_SAVE_FAILED = 'The decoy services could not be changed.'
+export const DECOYS_HINT = 'Fake services on a few unused ports that nothing on your network should ever use. A device that connects to one is probing for services, which is what an intruder or malware does first. They only note who connected; they read a few bytes, throw them away and run nothing. Off until you turn them on, and turning them on asks for your passphrase.'
+export const DECOYS_FIREWALL = 'If this computer has a firewall, the ports must be allowed in, or connections never arrive.'
+export const DECOYS_NONE = 'Nothing has connected to a decoy.'
+export const DECOYS_SCANNER_NOTE = 'A scanner app on your own phone or laptop will also touch them; accept that finding.'

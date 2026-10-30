@@ -26,6 +26,15 @@ This document defines the immutable architectural and security laws of the proje
     *   **Browser protection** applies to `/admin/` whether or not a passphrase exists: an accepted `Host`, no cross-site request (Fetch-Metadata, then Origin), framing and sniffing headers, and no wildcard CORS.
     *   **Sign-in is compulsory** (amended 2026-10-30; it was open until a passphrase was set, with a banner). The first passphrase is set from the one-time code the server's command line makes, and until then the interface shows only the setup page. A new install listens on this machine only. `/v1` keeps its own rule (an inference key, once one exists) and is a separate decision.
 
+6.  **Decoy Listeners** (proposed 2026-10-30, plan `network-detection` Phase 5; it is in force only when the owner merges the pull request that carries this text, which is the owner's approval of the security review below). I.4 exempts inbound handlers for external platforms; this item allows one more inbound surface, the decoy services of `core/netaudit/decoy`, and nothing else, on these terms:
+    *   **Off until the operator turns it on**, and turning it on or off is a step-up action (`PUT /admin/api/netaudit/decoys`). Switching off closes every socket. A host that cannot bind a port says so; it never retries into another.
+    *   **A fixed table of ports in code** (`decoy.Specs`): unprivileged, never configurable by the operator or a model, and in neither of the scan port lists, which a test pins, so the audit's own scans of the host never touch a decoy.
+    *   **Low interaction.** A connection is read for at most 64 bytes under a deadline and the bytes are discarded; the only thing ever sent is a fixed short string from the table. Nothing a peer sends is parsed, stored, logged, forwarded, shown to a model or executed, and a connection never causes this program to open another.
+    *   **Only who, which decoy and when is kept** (source address, decoy port, count, first and last time; at most 200 entries). A source counts only if it is inside the declared scan networks and not one of this computer's own addresses, so the host's own audit and sweep never look like an intruder.
+    *   **Bounded.** At most 16 connections at once (the rest are closed at once), one connection per source per second per decoy, and a deadline on every read and write.
+    *   **Alerts are counts and fixed words** to the operator's connectors, sent at most every five minutes and marked as told only after they were sent. A touch is a finding in fixed wording; the model never sees one.
+    *   **Residual risks, accepted:** any device on the network can open a connection and so can use up the 16 slots for a moment (the limit is the defence); a host firewall can hide the decoys (the screen says so); the SSH banner may attract scanners (that is its purpose). A change to the table of decoys is a security review.
+
 ## II. Resource Management (The Bounded Deck)
 
 1.  **Parallel Tool Execution**: To improve efficiency and stay within operational turn limits, the agent loop supports executing multiple independent tool calls in a single turn.

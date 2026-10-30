@@ -7,7 +7,9 @@ import "llm-proxy/models"
 const deviceIdentityFileName = "identities.json"
 
 // DeviceIdentityStore keeps the stored identities in one file.
-type DeviceIdentityStore struct{ file rootFile[[]models.DeviceIdentity] }
+type DeviceIdentityStore struct {
+	file rootFile[[]models.DeviceIdentity]
+}
 
 func NewDeviceIdentityStore(dir string) *DeviceIdentityStore {
 	return &DeviceIdentityStore{file: newRootFile[[]models.DeviceIdentity](dir, deviceIdentityFileName, "device identities")}

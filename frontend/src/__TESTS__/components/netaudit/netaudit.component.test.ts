@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings, VulnDataStatus } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), importVulnData: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn(), devices: vi.fn(), presence: vi.fn() }))
+const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), importVulnData: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn(), devices: vi.fn(), presence: vi.fn(), decoys: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirmMock = vi.hoisted(() => vi.fn())
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm: confirmMock }) }))
@@ -71,6 +71,7 @@ beforeEach(() => {
   service.expectations.mockResolvedValue([])
   service.devices.mockResolvedValue({ devices: [], gateway: { changed: false }, baselined: true, updated_at: "" })
   service.presence.mockResolvedValue({ enabled: false, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30] })
+  service.decoys.mockResolvedValue({ enabled: false, listening: [], ports: [], touches: [] })
   // The download's state is shared by every screen, so each test starts from none.
   Object.assign(useVulnData(), {}).status.value = null
   useVulnData().error.value = ''

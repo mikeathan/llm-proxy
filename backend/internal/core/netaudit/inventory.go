@@ -37,6 +37,7 @@ const (
 	MissingAfter = 3 * 24 * time.Hour
 
 	maxInventoryDevices = 1024
+	maxIPv6PerDevice    = 6
 	maxAddressChanges   = 64
 	maxDeviceNameLen    = 40
 	dateLayout          = "2006-01-02"
@@ -56,11 +57,16 @@ type Neighbor struct {
 	Addr netip.Addr
 	// MAC is lower case and colon separated.
 	MAC string
+	// Interface is the network interface the entry was learned on, used to tell which IPv6 neighbours share a segment with
+	// the IPv4 devices in scope.
+	Interface string
 }
 
 // NeighborTable is a read of the host's neighbour table.
 type NeighborTable struct {
 	Entries []Neighbor
+	// Entries6 are the IPv6 neighbours the host knows. The host lists only devices it has talked to, so this is sparse.
+	Entries6 []Neighbor
 	// Gateway is the default route's next hop, or the zero Addr when there is none.
 	Gateway netip.Addr
 }
@@ -106,6 +112,7 @@ func Observe(inv models.DeviceInventory, table NeighborTable, inScope func(netip
 			MAC: e.MAC, IP: ip, FirstSeen: at, LastSeen: at, Approved: !inv.Baselined, Randomized: randomized(e.MAC),
 		})
 	}
+	devices = attachIPv6(devices, scoped6(table.Entries6, entries), inv.Baselined, at)
 	out.Devices = capDevices(devices)
 	out.Changes = recentChanges(changes, at)
 	out.Shared = sharedMACs(entries, table.Gateway)
@@ -114,6 +121,61 @@ func Observe(inv models.DeviceInventory, table NeighborTable, inScope func(netip
 		out.Baselined = true
 	}
 	out.UpdatedAt = at
+	return out
+}
+
+// scoped6 keeps the IPv6 neighbours that share a network interface with an in-scope IPv4 device: the declared scan networks
+// are IPv4, so the interface is what says an IPv6 neighbour is on the same segment and not on a container bridge.
+func scoped6(v6, v4 []Neighbor) []Neighbor {
+	segments := map[string]bool{}
+	for _, e := range v4 {
+		if e.Interface != "" {
+			segments[e.Interface] = true
+		}
+	}
+	var out []Neighbor
+	for _, e := range v6 {
+		if e.Addr.Is6() && segments[e.Interface] && !e.Addr.IsLoopback() && !e.Addr.IsMulticast() {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// attachIPv6 puts each IPv6 address beside the device with the same hardware address, newest first and bounded. A hardware
+// address seen only over IPv6 becomes a device without an IPv4 address: it is listed and reported to the operator, but no
+// finding is keyed by an IPv6 address, because privacy addresses change daily.
+func attachIPv6(devices []models.NetworkDevice, v6 []Neighbor, baselined bool, at time.Time) []models.NetworkDevice {
+	index := map[string]int{}
+	for i, d := range devices {
+		index[d.MAC] = i
+	}
+	for _, e := range v6 {
+		i, known := index[e.MAC]
+		if !known {
+			index[e.MAC] = len(devices)
+			devices = append(devices, models.NetworkDevice{MAC: e.MAC, FirstSeen: at, LastSeen: at, Approved: !baselined, Randomized: randomized(e.MAC)})
+			i = len(devices) - 1
+		}
+		d := &devices[i]
+		d.LastSeen = at
+		d.IPv6 = dedupeKeepFirst(slices.Insert(slices.Clone(d.IPv6), 0, e.Addr.String()))
+		if len(d.IPv6) > maxIPv6PerDevice {
+			d.IPv6 = d.IPv6[:maxIPv6PerDevice]
+		}
+	}
+	return devices
+}
+
+func dedupeKeepFirst(list []string) []string {
+	seen := map[string]bool{}
+	out := list[:0]
+	for _, s := range list {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
 	return out
 }
 
@@ -274,7 +336,7 @@ func InventoryFindings(inv models.DeviceInventory, now time.Time) []Finding {
 		}
 	}
 	for _, d := range inv.Devices {
-		if d.Name != "" && !d.Randomized && !d.LastSeen.IsZero() && now.Sub(d.LastSeen) > MissingAfter {
+		if d.IP != "" && d.Name != "" && !d.Randomized && !d.LastSeen.IsZero() && now.Sub(d.LastSeen) > MissingAfter {
 			out = append(out, Finding{Device: d.IP, Check: CheckDeviceMissing, Severity: SeverityLow,
 				Evidence: fmt.Sprintf("A device you named has not been seen on the network for %d days (last seen %s)", int(now.Sub(d.LastSeen).Hours()/24), d.LastSeen.Format(dateLayout))})
 		}
@@ -285,7 +347,7 @@ func InventoryFindings(inv models.DeviceInventory, now time.Time) []Finding {
 func newDeviceFindings(inv models.DeviceInventory, now time.Time) []Finding {
 	var out []Finding
 	for _, d := range inv.Devices {
-		if !newDeviceIsNews(d, now) {
+		if d.IP == "" || !newDeviceIsNews(d, now) {
 			continue
 		}
 		f := Finding{Device: d.IP, Check: CheckNewDevice, Severity: SeverityMedium,

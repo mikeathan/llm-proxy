@@ -1,6 +1,7 @@
 package neighbors
 
 import (
+	"encoding/binary"
 	"errors"
 	"net/netip"
 	"os"
@@ -106,5 +107,110 @@ func TestReader_ReadsFilesAndReportsUnavailableOffLinux(t *testing.T) {
 	}
 	if _, err := (Reader{ARPPath: dir + "/none", RoutePath: route, goos: "linux"}).Read(); err == nil || errors.Is(err, ErrUnavailable) {
 		t.Errorf("a missing table is a read failure, not 'unavailable': %v", err)
+	}
+}
+
+// testdata/arp_vertex.txt is the real /proc/net/arp of the audit host (a laptop on Wi-Fi, 2026-10-30), trimmed, with the
+// hardware addresses replaced by documentation addresses that keep the locally-administered bit. It shows what the kernel
+// really lists after a sweep: complete entries, many dead addresses (flags 0x0, zero MAC), and one failed entry that still
+// remembers an old MAC (flags 0x0 with a non-zero MAC), which must not count as a device.
+func TestParseARP_RealTableFromTheAuditHost(t *testing.T) {
+	f, err := os.Open("testdata/arp_vertex.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	got, err := ParseARP(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 14 {
+		t.Fatalf("want the 14 complete entries, got %d: %+v", len(got), got)
+	}
+	private := 0
+	for _, e := range got {
+		if e.Addr == netip.MustParseAddr("192.168.50.34") {
+			t.Errorf("a failed entry that remembers an old MAC is not a device: %+v", e)
+		}
+		if e.Interface != "wlp2s0" {
+			t.Errorf("interface = %q", e.Interface)
+		}
+		if LocallyAdministered(e.MAC) {
+			private++
+		}
+	}
+	if private != 4 {
+		t.Errorf("four phones use a private address, got %d", private)
+	}
+	if got[0].Addr != netip.MustParseAddr("192.168.50.1") {
+		t.Errorf("the router is first: %+v", got[0])
+	}
+}
+
+// kernelNeighbor builds one RTM_NEWNEIGH payload in the layout of struct ndmsg and struct rtattr. These bytes are built by
+// this test, so they only show that the parser follows the documented layout; TestRead6_AgainstARealKernel is the check
+// against what a Linux kernel really sends.
+func kernelNeighbor(state uint16, addr string, mac []byte) []byte {
+	order := binary.NativeEndian
+	b := make([]byte, 12)
+	b[0] = afInet6
+	order.PutUint32(b[4:], 3)
+	order.PutUint16(b[8:], state)
+	attr := func(kind uint16, payload []byte) {
+		h := make([]byte, 4)
+		order.PutUint16(h[0:], uint16(4+len(payload)))
+		order.PutUint16(h[2:], kind)
+		b = append(b, h...)
+		b = append(b, payload...)
+		for len(b)%4 != 0 {
+			b = append(b, 0)
+		}
+	}
+	a := netip.MustParseAddr(addr).As16()
+	attr(attrDst, a[:])
+	if mac != nil {
+		attr(attrLLAddr, mac)
+	}
+	return b
+}
+
+func TestParseNeighbor_FollowsTheDocumentedLayout(t *testing.T) {
+	mac := []byte{0x02, 0x00, 0x5e, 0x00, 0x53, 0x07}
+	e, ok := ParseNeighbor(kernelNeighbor(stateReachable, "fe80::1", mac), func(i int) string { return "wlp2s0" })
+	if !ok || e.Addr != netip.MustParseAddr("fe80::1") || e.MAC != "02:00:5e:00:53:07" || e.Interface != "wlp2s0" {
+		t.Fatalf("entry = %+v, %v", e, ok)
+	}
+	if _, ok := ParseNeighbor(kernelNeighbor(stateStale, "2001:db8::5", mac), nil); !ok {
+		t.Error("a stale entry still has an answer")
+	}
+}
+
+func TestParseNeighbor_SkipsWhatIsNotANeighbourThatAnswered(t *testing.T) {
+	mac := []byte{0x02, 0x00, 0x5e, 0x00, 0x53, 0x07}
+	for name, data := range map[string][]byte{
+		"incomplete":   kernelNeighbor(0x01, "fe80::1", nil),
+		"failed":       kernelNeighbor(0x20, "fe80::1", mac),
+		"permanent":    kernelNeighbor(0x80, "fe80::1", mac),
+		"multicast":    kernelNeighbor(stateReachable, "ff02::1", mac),
+		"no hardware":  kernelNeighbor(stateReachable, "fe80::1", nil),
+		"multicast hw": kernelNeighbor(stateReachable, "fe80::1", []byte{0x33, 0x33, 0, 0, 0, 1}),
+		"zero hw":      kernelNeighbor(stateReachable, "fe80::1", make([]byte, 6)),
+		"too short":    {10, 0, 0},
+		"empty":        nil,
+	} {
+		if e, ok := ParseNeighbor(data, nil); ok {
+			t.Errorf("%s must be skipped, got %+v", name, e)
+		}
+	}
+}
+
+func TestParseNeighbor_HostileAttributeLengthsAreRefused(t *testing.T) {
+	good := kernelNeighbor(stateReachable, "fe80::1", []byte{0x02, 0, 0x5e, 0, 0x53, 7})
+	for _, bad := range []uint16{0, 3, 200, 0xffff} {
+		data := append([]byte(nil), good...)
+		binary.NativeEndian.PutUint16(data[ndmsgLen:], bad) // the first attribute's length
+		if _, ok := ParseNeighbor(data, nil); ok {
+			t.Errorf("an attribute length of %d must not parse", bad)
+		}
 	}
 }

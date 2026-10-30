@@ -11,7 +11,8 @@ export function deviceLabel(device: NetworkDevice): string {
 
 /** The line under the name: where it is and when it was last there. */
 export function deviceDetail(device: NetworkDevice, nowMs: number = Date.now()): string {
-  return `${device.ip} · seen ${formatRelativeTime(device.last_seen, nowMs)}`
+  const address = device.ip ?? device.ipv6?.[0] ?? 'no address'
+  return `${address} · seen ${formatRelativeTime(device.last_seen, nowMs)}`
 }
 
 /** What the presence check says about itself: that it is off, what is wrong, or when it last looked. Trouble is never softened. */

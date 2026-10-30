@@ -10,7 +10,8 @@ import (
 // DeviceView is one device as the screen shows it.
 type DeviceView struct {
 	MAC        string    `json:"mac"`
-	IP         string    `json:"ip"`
+	IP         string    `json:"ip,omitempty"`
+	IPv6       []string  `json:"ipv6,omitempty"`
 	Name       string    `json:"name,omitempty"`
 	FirstSeen  time.Time `json:"first_seen"`
 	LastSeen   time.Time `json:"last_seen"`
@@ -46,7 +47,7 @@ func ViewOf(inv models.DeviceInventory, now time.Time) InventoryView {
 	}
 	for _, d := range inv.Devices {
 		view.Devices = append(view.Devices, DeviceView{
-			MAC: d.MAC, IP: d.IP, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
+			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
 			Approved: d.Approved, Randomized: d.Randomized, New: newDeviceIsNews(d, now),
 		})
 	}

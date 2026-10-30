@@ -340,7 +340,10 @@ export type DeepOutcomeState = 'problems' | 'clean' | 'nothing'
 /** One device seen on the network, by its hardware (MAC) address. */
 export interface NetworkDevice {
   mac: string
-  ip: string
+  /** The IPv4 address; absent for a device only seen over IPv6. */
+  ip?: string
+  /** IPv6 addresses, newest first. */
+  ipv6?: string[]
   /** What the person calls it; empty until they name it. */
   name?: string
   first_seen: string
@@ -385,3 +388,27 @@ export interface PresenceUpdate {
 
 /** What the person did to a device. */
 export type DeviceAction = 'name' | 'approve' | 'forget' | 'confirm-gateway'
+
+/** One fake service the decoys offer. */
+export interface DecoyPort {
+  number: number
+  name: string
+}
+
+/** A device that connected to a decoy: who, which decoy, how often. No bytes are kept. */
+export interface DecoyTouch {
+  source: string
+  port: number
+  first: string
+  last: string
+  count: number
+}
+
+/** The decoy services: the switch, which ports listen, any trouble, and who touched them. */
+export interface DecoyState {
+  enabled: boolean
+  listening: number[]
+  problem?: string
+  ports: DecoyPort[]
+  touches: DecoyTouch[]
+}

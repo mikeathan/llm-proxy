@@ -19,4 +19,8 @@ type NetauditConfig struct {
 	// PresenceIntervalMinutes is how often it runs; 0 is the default (netaudit.DefaultPresenceInterval). The allowed values
 	// are netaudit.AllowedPresenceIntervals.
 	PresenceIntervalMinutes int `yaml:"presence_interval_minutes,omitempty" json:"presence_interval_minutes"`
+	// DecoysEnabled turns on the decoy services: fake services on a few high ports that nothing legitimate uses, so a
+	// connection means a device is probing the network. It opens listening sockets, so it is off until the operator turns it
+	// on (a step-up action), and switching it off closes them.
+	DecoysEnabled bool `yaml:"decoys_enabled,omitempty" json:"decoys_enabled"`
 }
