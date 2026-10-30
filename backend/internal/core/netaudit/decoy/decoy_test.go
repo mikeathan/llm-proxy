@@ -111,7 +111,7 @@ func TestManager_ATouchIsRecordedAsSourcePortAndTimeOnly(t *testing.T) {
 	if len(addrs) != 2 {
 		t.Fatalf("addrs = %v", addrs)
 	}
-	banner := touch(t, addrs[0], strings.Repeat("A", 4000))
+	banner := touch(t, addrs[0], "SSH-2.0-test\r\n")
 	if !strings.HasPrefix(banner, "SSH-2.0-") {
 		t.Errorf("the SSH decoy sends its fixed banner: %q", banner)
 	}
@@ -125,6 +125,23 @@ func TestManager_ATouchIsRecordedAsSourcePortAndTimeOnly(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond) // the per-source limit allows one connection a second
 	touch(t, addrs[0], "")
 	eventually(t, func() bool { items, _ := r.store.Read(); return len(items) == 1 && items[0].Count >= 2 })
+}
+
+// A visitor that never speaks (an SSH client waits for the banner) still gets the banner at once, not after the read deadline.
+func TestManager_TheBannerComesBeforeTheVisitorSpeaks(t *testing.T) {
+	r := newRig(specs)
+	r.start(t)
+	c, err := net.Dial("tcp", r.m.Addrs()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	_ = c.SetReadDeadline(time.Now().Add(time.Second))
+	buf := make([]byte, 64)
+	n, err := c.Read(buf)
+	if err != nil || !strings.HasPrefix(string(buf[:n]), "SSH-2.0-") {
+		t.Errorf("banner = %q, %v (it must arrive within a second of connecting, without the client sending anything)", buf[:n], err)
+	}
 }
 
 func TestManager_NothingIsKeptOfWhatWasSent(t *testing.T) {

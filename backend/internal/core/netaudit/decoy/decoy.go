@@ -79,6 +79,7 @@ type Manager struct {
 
 	mu        sync.Mutex
 	listeners map[int]net.Listener
+	order     []int // the ports, in the order the decoys are defined
 	problem   string
 	lastSent  time.Time
 	lastTrbl  string
@@ -146,6 +147,7 @@ func (m *Manager) start(ctx context.Context) {
 		port := ln.Addr().(*net.TCPAddr).Port
 		m.mu.Lock()
 		m.listeners[port] = ln
+		m.order = append(m.order, port)
 		m.mu.Unlock()
 		m.wg.Add(1)
 		go m.serve(ctx, spec, ln, slots)
@@ -172,21 +174,17 @@ func (m *Manager) stop() {
 		_ = ln.Close()
 		delete(m.listeners, port)
 	}
+	m.order = nil
 	m.problem = ""
 	m.mu.Unlock()
 }
 
-// Addrs lists the loopback-reachable addresses of the running listeners, in port order.
+// Addrs lists the loopback-reachable addresses of the running listeners, in the order the decoys are defined.
 func (m *Manager) Addrs() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	ports := make([]int, 0, len(m.listeners))
-	for p := range m.listeners {
-		ports = append(ports, p)
-	}
-	slices.Sort(ports)
-	out := make([]string, len(ports))
-	for i, p := range ports {
+	out := make([]string, len(m.order))
+	for i, p := range m.order {
 		out[i] = "127.0.0.1:" + strconv.Itoa(p)
 	}
 	return out
@@ -227,7 +225,7 @@ func (m *Manager) serve(ctx context.Context, spec Spec, ln net.Listener, slots c
 	}
 }
 
-// handle serves one connection: it reads a few bytes and discards them, sends the decoy's fixed string, closes, and records
+// handle serves one connection: it sends the decoy's fixed string, reads a few bytes and discards them, closes, and records
 // who connected.
 func (m *Manager) handle(ctx context.Context, spec Spec, ln net.Listener, conn net.Conn) {
 	defer conn.Close()
@@ -235,12 +233,14 @@ func (m *Manager) handle(ctx context.Context, spec Spec, ln net.Listener, conn n
 	if !ok || !m.allow(src, ln) {
 		return
 	}
-	_ = conn.SetReadDeadline(time.Now().Add(readWait))
-	_, _ = conn.Read(make([]byte, readLimit))
+	// The banner goes first, as a real server's does: an SSH client sends nothing until it has seen the server's banner, so
+	// waiting for the visitor to speak first would delay it by the whole read deadline.
 	if spec.Banner != "" {
 		_ = conn.SetWriteDeadline(time.Now().Add(writeWait))
 		_, _ = conn.Write([]byte(spec.Banner))
 	}
+	_ = conn.SetReadDeadline(time.Now().Add(readWait))
+	_, _ = conn.Read(make([]byte, readLimit))
 	m.record(ctx, src, ln.Addr().(*net.TCPAddr).Port)
 }
 
