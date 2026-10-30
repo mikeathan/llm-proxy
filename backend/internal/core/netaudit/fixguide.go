@@ -468,6 +468,16 @@ var guides = map[string]FixGuide{
 		Risk: "Disconnecting a device interrupts whatever it does; changing the Wi-Fi password disconnects every device until it has the new one.",
 		Undo: "Reconnect the device, or put the old Wi-Fi password back.",
 	},
+	CheckUPnPForward: {
+		Steps: []string{
+			"Open the router's settings page and find the list of UPnP port mappings (on many ASUS routers: WAN, Internet Connection, or the UPnP table next to the switch). It shows which device asked for which port.",
+			"Find the program on that device that wants the port open: a game, a torrent or video program, a camera, or a home server. If you do not use it from outside your home, close it or turn its UPnP option off.",
+			"Remove the mapping in the router and turn UPnP off if nothing else needs it. If you do need the service from outside, use a VPN to your home instead of an open port.",
+			"Run the audit again to confirm.",
+		},
+		Risk: "Whatever relied on the open port stops being reachable from outside until it is forwarded by hand or reached through a VPN.",
+		Undo: "Turn UPnP back on, or add the port forward in the router by hand.",
+	},
 }
 
 // weakCertificateGuide serves both weak-certificate checks: the fix is a new certificate.

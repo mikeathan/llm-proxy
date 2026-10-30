@@ -66,8 +66,14 @@ type Report struct {
 	Gateway bool
 	// Service is the router's internet connection service, or empty.
 	Service Service
-	// ControlPath is where that service takes commands: a path on the router.
+	// ControlPath is where that service takes commands: a path on the router. ServiceType is the service's full name, checked
+	// against a fixed pattern before it is ever sent back.
 	ControlPath string
+	ServiceType string
+	// Mappings are the ports the router forwards to devices on the network, enabled or not. MappingsErr is why they could not
+	// be listed, in words; the rest of the report still stands.
+	Mappings    []Mapping
+	MappingsErr string
 	// Location is the description page, which is on the router.
 	Location string
 }
@@ -87,7 +93,15 @@ func (c Client) Probe(ctx context.Context, gateway netip.Addr) (Report, error) {
 	if err != nil {
 		return Report{Answered: true, Location: location}, err
 	}
-	return Report{Answered: true, Gateway: desc.Gateway, Service: desc.Service, ControlPath: desc.ControlPath, Location: location}, nil
+	report := Report{Answered: true, Gateway: desc.Gateway, Service: desc.Service, ControlPath: desc.ControlPath, ServiceType: desc.ServiceType, Location: location}
+	if desc.Service != "" {
+		maps, err := c.Mappings(ctx, location, desc.ControlPath, desc.ServiceType)
+		report.Mappings = maps
+		if err != nil {
+			report.MappingsErr = err.Error()
+		}
+	}
+	return report, nil
 }
 
 // discover sends one M-SEARCH to the router and returns its answer, or nil when none came in time.
@@ -190,6 +204,7 @@ type Description struct {
 	Gateway     bool
 	Service     Service
 	ControlPath string
+	ServiceType string
 }
 
 type xmlDevice struct {
@@ -219,26 +234,27 @@ func ParseDescription(r io.Reader) (Description, error) {
 	}
 	d := Description{Gateway: strings.HasPrefix(root.Device.DeviceType, gatewayDeviceType)}
 	if d.Gateway {
-		d.Service, d.ControlPath = findConnection(root.Device)
+		d.Service, d.ControlPath, d.ServiceType = findConnection(root.Device)
 	}
 	return d, nil
 }
 
-// findConnection searches the device tree for the internet connection service.
-func findConnection(dev xmlDevice) (Service, string) {
+// findConnection searches the device tree for the internet connection service and returns it with its control path and its
+// full service type.
+func findConnection(dev xmlDevice) (Service, string, string) {
 	for _, s := range dev.Services {
 		for _, want := range []Service{ServiceWANIP, ServiceWANPPP} {
 			if strings.HasPrefix(s.Type, "urn:schemas-upnp-org:service:"+string(want)+":") && plainPath(s.Control) {
-				return want, s.Control
+				return want, s.Control, s.Type
 			}
 		}
 	}
 	for _, child := range dev.Devices {
-		if svc, path := findConnection(child); svc != "" {
-			return svc, path
+		if svc, path, urn := findConnection(child); svc != "" {
+			return svc, path, urn
 		}
 	}
-	return "", ""
+	return "", "", ""
 }
 
 func plainPath(p string) bool {

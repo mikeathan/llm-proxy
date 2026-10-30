@@ -3,6 +3,7 @@ package netaudit
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,27 @@ func TestPresence_RunStopsWithItsContext(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not stop when its context ended")
+	}
+}
+
+func TestPresenceMessage_NamesWhereTheNewDevicesAre(t *testing.T) {
+	p := Pending{NewDevices: 2, newAddrs: []string{"192.168.50.127 (private address)", "192.168.50.88"}, Changes: 1, movedAddrs: []string{"192.168.50.20"}}
+	got := PresenceMessage(p)
+	for _, want := range []string{"2 new devices: 192.168.50.127 (private address), 192.168.50.88", "1 address now used by a different device: 192.168.50.20"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("message %q lacks %q", got, want)
+		}
+	}
+}
+
+func TestPresenceMessage_ABurstIsCountedNotListedInFull(t *testing.T) {
+	var addrs []string
+	for i := 1; i <= 9; i++ {
+		addrs = append(addrs, "10.0.0."+strconv.Itoa(i))
+	}
+	got := PresenceMessage(Pending{NewDevices: 9, newAddrs: addrs})
+	if !strings.Contains(got, "9 new devices") || !strings.Contains(got, "and 4 more") || strings.Contains(got, "10.0.0.9") {
+		t.Errorf("message = %q", got)
 	}
 }
 

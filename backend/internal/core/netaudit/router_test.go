@@ -110,3 +110,74 @@ func TestRunReporter_RouterTroubleIsStated(t *testing.T) {
 		t.Errorf("report:\n%s", got)
 	}
 }
+
+func mapping(ext, in int, proto, client string) upnp.Mapping {
+	return upnp.Mapping{ExternalPort: ext, InternalPort: in, Protocol: proto, Client: netip.MustParseAddr(client), Enabled: true}
+}
+
+func TestRouterCheck_AForwardedPortIsAFindingOnTheDeviceItGoesTo(t *testing.T) {
+	p := &fakeProber{report: upnp.Report{Answered: true, Gateway: true, Service: upnp.ServiceWANIP, Mappings: []upnp.Mapping{
+		mapping(8080, 8080, "tcp", "192.168.50.77"), mapping(2222, 22, "tcp", "192.168.50.80"), mapping(9, 9, "udp", "192.168.50.77"),
+	}}}
+	got, err := routerCheck(p, "192.168.50.1", nil).Findings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]Finding{}
+	for _, f := range got {
+		by[f.Key()] = f
+	}
+	web, ssh := by["192.168.50.77|tcp|8080|upnp_forward"], by["192.168.50.80|tcp|22|upnp_forward"]
+	if web.Severity != SeverityMedium || ssh.Severity != SeverityHigh {
+		t.Errorf("a web port is medium and an SSH port high: %+v / %+v", web, ssh)
+	}
+	if !strings.Contains(web.Evidence, "8080") || !strings.Contains(ssh.Evidence, "2222") {
+		t.Errorf("evidence names the ports: %q / %q", web.Evidence, ssh.Evidence)
+	}
+	if _, ok := by["192.168.50.77|udp|9|upnp_forward"]; !ok {
+		t.Error("UDP forwards count too")
+	}
+	if _, ok := by["192.168.50.1||0|upnp_enabled"]; !ok {
+		t.Error("UPnP being on is still reported")
+	}
+}
+
+func TestRouterCheck_ADisabledOrOutsideForwardIsHandledHonestly(t *testing.T) {
+	off := mapping(80, 80, "tcp", "192.168.50.77")
+	off.Enabled = false
+	out := mapping(80, 80, "tcp", "203.0.113.9")
+	p := &fakeProber{report: upnp.Report{Answered: true, Gateway: true, Mappings: []upnp.Mapping{off, out}}}
+	got, _ := routerCheck(p, "192.168.50.1", nil).Findings(context.Background())
+	for _, f := range got {
+		if f.Device == "192.168.50.77" {
+			t.Errorf("a disabled mapping forwards nothing: %+v", f)
+		}
+	}
+	var outside *Finding
+	for i := range got {
+		if got[i].Device == "203.0.113.9" {
+			outside = &got[i]
+		}
+	}
+	if outside == nil || outside.Severity != SeverityHigh || !strings.Contains(outside.Evidence, "outside") {
+		t.Errorf("a forward to an address outside the network is high: %+v", outside)
+	}
+}
+
+func TestRouterCheck_NoTextFromTheRouterReachesAFinding(t *testing.T) {
+	p := &fakeProber{report: upnp.Report{Answered: true, Gateway: true, Mappings: []upnp.Mapping{mapping(8080, 8080, "tcp", "192.168.50.77")}}}
+	got, _ := routerCheck(p, "192.168.50.1", nil).Findings(context.Background())
+	for _, f := range got {
+		if strings.ContainsAny(f.Evidence, "<>") {
+			t.Errorf("evidence = %q", f.Evidence)
+		}
+	}
+}
+
+func TestRouterCheck_ListingTroubleKeepsWhatWasFoundAndSaysSo(t *testing.T) {
+	p := &fakeProber{report: upnp.Report{Answered: true, Gateway: true, Mappings: []upnp.Mapping{mapping(80, 80, "tcp", "192.168.50.77")}, MappingsErr: "boom"}}
+	got, err := routerCheck(p, "192.168.50.1", nil).Findings(context.Background())
+	if err == nil || len(got) != 2 {
+		t.Errorf("findings %d, err %v: the findings stand and the trouble is stated", len(got), err)
+	}
+}
