@@ -108,3 +108,40 @@ func TestReader_ReadsFilesAndReportsUnavailableOffLinux(t *testing.T) {
 		t.Errorf("a missing table is a read failure, not 'unavailable': %v", err)
 	}
 }
+
+// testdata/arp_vertex.txt is the real /proc/net/arp of the audit host (a laptop on Wi-Fi, 2026-10-30), trimmed, with the
+// hardware addresses replaced by documentation addresses that keep the locally-administered bit. It shows what the kernel
+// really lists after a sweep: complete entries, many dead addresses (flags 0x0, zero MAC), and one failed entry that still
+// remembers an old MAC (flags 0x0 with a non-zero MAC), which must not count as a device.
+func TestParseARP_RealTableFromTheAuditHost(t *testing.T) {
+	f, err := os.Open("testdata/arp_vertex.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	got, err := ParseARP(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 14 {
+		t.Fatalf("want the 14 complete entries, got %d: %+v", len(got), got)
+	}
+	private := 0
+	for _, e := range got {
+		if e.Addr == netip.MustParseAddr("192.168.50.34") {
+			t.Errorf("a failed entry that remembers an old MAC is not a device: %+v", e)
+		}
+		if e.Interface != "wlp2s0" {
+			t.Errorf("interface = %q", e.Interface)
+		}
+		if LocallyAdministered(e.MAC) {
+			private++
+		}
+	}
+	if private != 4 {
+		t.Errorf("four phones use a private address, got %d", private)
+	}
+	if got[0].Addr != netip.MustParseAddr("192.168.50.1") {
+		t.Errorf("the router is first: %+v", got[0])
+	}
+}
