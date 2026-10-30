@@ -148,4 +148,53 @@ describe('DevicesCard', () => {
     const w = await mountCard()
     expect(w.find('[data-test="ipv6-problem"]').exists()).toBe(false)
   })
+
+  it('folds the list to one summary line when nothing is new', async () => {
+    service.devices.mockResolvedValue(inventory({ devices: [device({ name: 'Printer' }), device({ mac: MAC_NEW, ip: '192.168.1.9' })] }))
+    const w = await mountCard()
+    expect(w.get('[data-test="devices-list"]').text()).toContain('2 devices')
+    const folded = () => (w.get('[data-test="devices-list"] [role="region"]').attributes('style') ?? '').includes('display: none')
+    expect(folded()).toBe(true)
+    await w.get('[data-test="devices-list"] button[aria-expanded]').trigger('click')
+    expect(folded()).toBe(false)
+  })
+
+  it('opens itself when a device is new, so it is never hidden behind a count', async () => {
+    const w = await mountCard()
+    expect(w.get('[data-test="devices-list"]').text()).toContain('1 new')
+    expect(w.get('[data-test="devices-list"] button[aria-expanded]').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('stays open after the last new device is approved', async () => {
+    service.approveDevice.mockResolvedValue(inventory({ devices: [device({ mac: MAC_NEW, approved: true })] }))
+    const w = await mountCard()
+    await w.get(`[data-test="device-${MAC_NEW}"]`).findAll('button').find((b) => b.text() === "It's mine")!.trigger('click')
+    await flushPromises()
+    expect(w.get('[data-test="devices-list"] button[aria-expanded]').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('splits the list into an IPv4 and an IPv6 tab with their counts', async () => {
+    const v6only = device({ mac: 'aa:bb:cc:00:00:07', ip: undefined, ipv6: ['fe80::7'], name: 'Sensor' })
+    const dual = device({ name: 'Printer', ipv6: ['fe80::5', 'fd00::5'] })
+    service.devices.mockResolvedValue(inventory({ devices: [dual, v6only] }))
+    const w = await mountCard()
+    await w.get('[data-test="devices-list"] button[aria-expanded]').trigger('click')
+    const tabs = w.get('[role="radiogroup"][aria-label="Address type"]')
+    expect(tabs.text()).toContain('IPv4 (1)')
+    expect(tabs.text()).toContain('IPv6 (2)')
+    expect(w.text()).toContain('Printer')
+    expect(w.text()).not.toContain('Sensor')
+    await tabs.findAll('[role="radio"]').find((b) => b.text().startsWith('IPv6'))!.trigger('click')
+    expect(w.text()).toContain('Sensor')
+    expect(w.text()).toContain('fe80::7')
+    expect(w.text()).toContain('fe80::5 and 1 more')
+  })
+
+  it('tells the person how to get IPv6 devices when the switch is off and none are listed', async () => {
+    service.devices.mockResolvedValue(inventory({ devices: [device({ name: 'Printer' })] }))
+    const w = await mountCard()
+    await w.get('[data-test="devices-list"] button[aria-expanded]').trigger('click')
+    await w.findAll('[role="radio"]').find((b) => b.text().startsWith('IPv6'))!.trigger('click')
+    expect(w.get('[data-test="devices-empty-ipv6"]').text()).toContain('Look for IPv6 devices')
+  })
 })

@@ -1,5 +1,5 @@
 import type { ChoiceOption } from '../types/ui'
-import type { DeviceAction, HelpSection, IPv6DiscoveryProblem, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
+import type { DeviceAction, DeviceFamily, HelpSection, IPv6DiscoveryProblem, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -88,7 +88,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'An address that now belongs to a different device than the one you approved, one device answering for several addresses, and a device that answers the network but nothing else are reported as well. Each has a note on what is harmless and what is not.',
       'A full audit also asks your router, once, whether it offers UPnP: a setting that lets any device on the network open a port to the internet by itself. It is common and often needed by games and video calls, but malware uses it too, so it is reported as a note you can turn off in the router. It also reads the router\'s list of ports it has opened this way: each one is reported on the device it leads to, because anyone on the internet can try to connect to it.',
       'Decoy services are fake services on a few unused ports (an SSH login, file sharing and Telnet). Nothing on your network should ever use them, so a device that connects to one is probing for services, and you get a message with its address. They are off until you turn them on, and turning them on asks for your passphrase. If this computer has a firewall, allow the ports in. A scanner app on your own phone will also touch them; accept that finding.',
-      'IPv6 addresses are shown beside a device when this computer knows them. It only lists devices it has already talked to, so it finds few that use IPv6 alone; those are listed and you are told about them, but they have no finding of their own.',
+      'The IPv6 tab lists each device by its IPv6 addresses. Without help, this computer only knows devices it has already talked to, so "Look for IPv6 devices" makes each look send one small message to the devices on your network asking them to announce themselves. It needs a one-time setting on this computer (the screen shows the command if it is missing). The first look after you turn it on counts what it finds as yours; later arrivals are reported as new. A device found only over IPv6 is listed and you are told about it, but it has no finding of its own.',
       'A full audit also remembers each SSH server\'s host keys and each web service\'s certificate, and reports one that was replaced: a reinstalled server does this, and so does someone pretending to be it. A certificate renewed under the same name and issuer is only a note.',
     ],
   },
@@ -221,6 +221,14 @@ export const IPV6_PROBLEMS: Record<IPv6DiscoveryProblem, string> = {
   failed: 'The message could not be sent. Check the server log, then look again.',
 }
 export const IPV6_FIX_KEEP_NOTE = 'To keep it after a restart:'
+export const DEVICES_LIST_TITLE = 'Devices'
+export const DEVICES_NONE_YET = 'none yet'
+export const FAMILIES: DeviceFamily[] = ['ipv4', 'ipv6']
+export const FAMILY_LABELS: Record<DeviceFamily, string> = { ipv4: 'IPv4', ipv6: 'IPv6' }
+export const FAMILY_TABS_LABEL = 'Address type'
+export const DEVICES_EMPTY_IPV4 = 'No device with an IPv4 address has been seen yet.'
+export const DEVICES_EMPTY_IPV6_OFF = 'No IPv6 devices listed. Turn on "Look for IPv6 devices" above to find them.'
+export const DEVICES_EMPTY_IPV6_ON = 'No IPv6 devices listed yet. The next look fills this tab.'
 export const DEVICE_NAME_MAX = 40
 export const DEVICE_UNNAMED = 'Unknown device'
 export const DEVICE_PRIVATE = 'Phone or laptop (private address)'
@@ -240,5 +248,7 @@ export const DECOYS_LOAD_FAILED = 'The decoy services could not be read.'
 export const DECOYS_SAVE_FAILED = 'The decoy services could not be changed.'
 export const DECOYS_HINT = 'Fake services on a few unused ports that nothing on your network should ever use. A device that connects to one is probing for services, which is what an intruder or malware does first. They only note who connected; they read a few bytes, throw them away and run nothing. Off until you turn them on, and turning them on asks for your passphrase.'
 export const DECOYS_FIREWALL = 'If this computer has a firewall, the ports must be allowed in, or connections never arrive.'
+export const DECOYS_CONNECTIONS_TITLE = 'Connections'
+export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 export const DECOYS_SCANNER_NOTE = 'A scanner app on your own phone or laptop will also touch them; accept that finding.'

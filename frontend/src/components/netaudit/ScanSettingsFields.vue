@@ -32,7 +32,7 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
   <div class="flex flex-col gap-4" data-test="scan-settings">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="min-w-0" data-test="scan-summary"><ScanSummary :scan="summary" /></div>
-      <SegmentedControl :model-value="mode" :options="VIEW_MODE_OPTIONS" label="How much detail" @update:model-value="set($event as 'simple' | 'advanced')" />
+      <SegmentedControl :model-value="mode" :options="VIEW_MODE_OPTIONS" label="How much detail" touch @update:model-value="set($event as 'simple' | 'advanced')" />
     </div>
     <FormField label="How thoroughly" hint="Thorough looks harder and takes a few minutes; quick checks the common ports in seconds.">
       <template #default="{ id, describedBy }">
