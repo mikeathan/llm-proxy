@@ -218,3 +218,12 @@ export const FORGET_CONFIRM = {
   message: 'It will come back as a new device if it is still on the network.',
   confirmText: 'Remove',
 } as const
+
+/** Settings · Network scan · Decoy services: the words the card uses. */
+export const DECOYS_TITLE = 'Decoy services'
+export const DECOYS_LOAD_FAILED = 'The decoy services could not be read.'
+export const DECOYS_SAVE_FAILED = 'The decoy services could not be changed.'
+export const DECOYS_HINT = 'Fake services on a few unused ports that nothing on your network should ever use. A device that connects to one is probing for services, which is what an intruder or malware does first. They only note who connected; they read a few bytes, throw them away and run nothing. Off until you turn them on, and turning them on asks for your passphrase.'
+export const DECOYS_FIREWALL = 'If this computer has a firewall, the ports must be allowed in, or connections never arrive.'
+export const DECOYS_NONE = 'Nothing has connected to a decoy.'
+export const DECOYS_SCANNER_NOTE = 'A scanner app on your own phone or laptop will also touch them; accept that finding.'

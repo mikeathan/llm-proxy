@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DeviceInventory, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, DeviceInventory, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -128,5 +128,14 @@ export class NetauditService {
 
   static setPresence(update: PresenceUpdate): Promise<PresenceState> {
     return put<PresenceState>(API_ENDPOINTS.netauditPresence, update)
+  }
+
+  static decoys(): Promise<DecoyState> {
+    return get<DecoyState>(API_ENDPOINTS.netauditDecoys)
+  }
+
+  /** Switches the decoy services on or off. They open listening ports, so the server asks for the passphrase again first. */
+  static setDecoys(enabled: boolean): Promise<DecoyState> {
+    return put<DecoyState>(API_ENDPOINTS.netauditDecoys, { enabled })
   }
 }

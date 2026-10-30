@@ -7,6 +7,7 @@ const LIST_ENDPOINTS = ['/manifests', '/mcp', '/workspaces', '/profiles', '/prof
 const READY = { ready: true, requirements: [], notices: [] }
 // No devices seen and the new-device check off, the answers the Devices card needs to draw.
 const DEVICES = { devices: [], gateway: { changed: false }, baselined: true, updated_at: '0001-01-01T00:00:00Z' }
+const DECOYS = { enabled: false, listening: [], ports: [{ number: 2222, name: 'SSH login' }], touches: [] }
 const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30] }
 // Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
 const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
@@ -16,6 +17,7 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/auth/status': SIGNED_IN,
   '/netaudit/devices': DEVICES,
   '/netaudit/presence': PRESENCE,
+  '/netaudit/decoys': DECOYS,
 }
 
 type Answers = Record<string, unknown>

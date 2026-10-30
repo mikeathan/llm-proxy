@@ -385,3 +385,27 @@ export interface PresenceUpdate {
 
 /** What the person did to a device. */
 export type DeviceAction = 'name' | 'approve' | 'forget' | 'confirm-gateway'
+
+/** One fake service the decoys offer. */
+export interface DecoyPort {
+  number: number
+  name: string
+}
+
+/** A device that connected to a decoy: who, which decoy, how often. No bytes are kept. */
+export interface DecoyTouch {
+  source: string
+  port: number
+  first: string
+  last: string
+  count: number
+}
+
+/** The decoy services: the switch, which ports listen, any trouble, and who touched them. */
+export interface DecoyState {
+  enabled: boolean
+  listening: number[]
+  problem?: string
+  ports: DecoyPort[]
+  touches: DecoyTouch[]
+}
