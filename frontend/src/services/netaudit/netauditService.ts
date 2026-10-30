@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, DeviceInventory, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -128,6 +128,15 @@ export class NetauditService {
 
   static setPresence(update: PresenceUpdate): Promise<PresenceState> {
     return put<PresenceState>(API_ENDPOINTS.netauditPresence, update)
+  }
+
+  static ipv6Discovery(): Promise<IPv6DiscoveryState> {
+    return get<IPv6DiscoveryState>(API_ENDPOINTS.netauditIPv6Discovery)
+  }
+
+  /** Switches active IPv6 discovery on or off. It sends one fixed link-local packet per look and opens no port. */
+  static setIpv6Discovery(enabled: boolean): Promise<IPv6DiscoveryState> {
+    return put<IPv6DiscoveryState>(API_ENDPOINTS.netauditIPv6Discovery, { enabled })
   }
 
   static decoys(): Promise<DecoyState> {

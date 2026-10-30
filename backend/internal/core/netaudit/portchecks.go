@@ -19,7 +19,8 @@ type exposure struct {
 	// ports are the numbers that usually carry the service.
 	ports []int
 	// confirmed tells whether the scan itself identified the service. It reads the service and product names to decide
-	// yes or no; neither is copied into a finding.
+	// yes or no; neither is copied into a finding. It is nil for a service nmap has no way to recognise (adb, etcd and
+	// the Kubelet: nmap 7.99's service-probes file has no match for them), where only the port can be judged.
 	confirmed func(Port) bool
 	// sureSeverity and sure are for a confirmed service; portSeverity and port (with the number in %d) are for the
 	// port alone.
@@ -27,9 +28,12 @@ type exposure struct {
 	portSeverity, port string
 }
 
-// serviceIs reports whether the scan identified the service under one of these names.
+// serviceIs reports whether the scan identified the service under one of these names. Names are compared ignoring case,
+// because nmap spells some of them in capitals ("X11", seen in a real capture).
 func serviceIs(names ...string) func(Port) bool {
-	return func(p Port) bool { return !p.Guessed && slices.Contains(names, p.Service) }
+	return func(p Port) bool {
+		return !p.Guessed && slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, p.Service) })
+	}
 }
 
 // productHas reports whether the scan identified a product whose name contains the text, ignoring case.
@@ -42,7 +46,7 @@ func productHas(text string) func(Port) bool {
 // judge applies the exposure to one open port.
 func (e exposure) judge(p Port) (severity, evidence string, ok bool) {
 	switch {
-	case e.confirmed(p):
+	case e.confirmed != nil && e.confirmed(p):
 		return e.sureSeverity, e.sure, true
 	case slices.Contains(e.ports, p.Number):
 		return e.portSeverity, fmt.Sprintf(e.port, p.Number), true
@@ -62,8 +66,7 @@ var exposures = []exposure{
 		portSeverity: SeverityHigh, port: "Port %d is open, which is normally Docker's remote control port with no password",
 	},
 	{
-		check: CheckADBExposed, ports: []int{5555}, confirmed: serviceIs("adb"),
-		sureSeverity: SeverityCritical, sure: "Android's debug bridge is open to the network; anyone on it can install programs and run commands on this device",
+		check: CheckADBExposed, ports: []int{5555},
 		portSeverity: SeverityHigh, port: "Port %d is open, which is normally Android's debug bridge: anyone on the network could run commands on the device",
 	},
 	{
@@ -88,13 +91,11 @@ var exposures = []exposure{
 		portSeverity: SeverityMedium, port: "Port %d is open, which is normally the file-copy service rsync; its shared folders may be readable without a password",
 	},
 	{
-		check: CheckKubeletExposed, ports: []int{10250}, confirmed: productHas("kubelet"),
-		sureSeverity: SeverityCritical, sure: "A Kubernetes node's control port is open to the network; without a login anyone on it can run commands in the containers",
+		check: CheckKubeletExposed, ports: []int{10250},
 		portSeverity: SeverityHigh, port: "Port %d is open, which is normally a Kubernetes node's control port; without a login anyone could run commands in the containers",
 	},
 	{
-		check: CheckEtcdExposed, ports: []int{2379}, confirmed: productHas("etcd"),
-		sureSeverity: SeverityCritical, sure: "A cluster's key store (etcd) is open to the network; it holds the cluster's secrets and anyone on the network may be able to read them",
+		check: CheckEtcdExposed, ports: []int{2379},
 		portSeverity: SeverityHigh, port: "Port %d is open, which is normally etcd, a cluster's key store holding its secrets",
 	},
 }

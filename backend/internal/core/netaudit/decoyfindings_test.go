@@ -56,3 +56,14 @@ func TestDecoyConfig_OffByDefaultAndSaves(t *testing.T) {
 		t.Errorf("off: %v", err)
 	}
 }
+
+func TestDecoyMessage_NamesTheSourcesAndNothingTheyTyped(t *testing.T) {
+	one := DecoyMessage([]string{"192.168.1.77"})
+	if !strings.Contains(one, "1 device connected") || !strings.Contains(one, "192.168.1.77") {
+		t.Errorf("one source: %q", one)
+	}
+	many := DecoyMessage([]string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6", "10.0.0.7"})
+	if !strings.Contains(many, "7 devices connected") || !strings.Contains(many, "10.0.0.5") || strings.Contains(many, "10.0.0.6") || !strings.Contains(many, "and 2 more") {
+		t.Errorf("seven sources show five and count the rest: %q", many)
+	}
+}

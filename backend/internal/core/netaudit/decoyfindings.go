@@ -33,6 +33,13 @@ func DecoyFindings(touches []models.DecoyTouch, now time.Time) []Finding {
 	return out
 }
 
+// DecoyMessage is the alert for devices that connected to a decoy: how many, and their addresses, which are the connection's
+// remote address as the kernel reports it. Nothing the visitor sent, and no name, is in it.
+func DecoyMessage(sources []string) string {
+	return "Network audit: " + plural(len(sources), "device", "devices") + " connected to a decoy service (a fake service nothing legitimate uses)" +
+		listed(sources) + ". Open the network audit to review."
+}
+
 // DecoyReader reads the stored touches: *persistence.DecoyTouchStore.
 type DecoyReader interface {
 	Read() ([]models.DecoyTouch, error)

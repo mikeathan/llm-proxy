@@ -21,11 +21,17 @@ const STATES = {
     devices: { devices: [], gateway: { changed: false }, baselined: false, updated_at: '0001-01-01T00:00:00Z' },
     presence: { ...presence, last_check: undefined, problem: 'this computer cannot list the devices on its network (only Linux can)' },
   },
+  // The computer refuses the IPv6 echo: the plain words and the two long commands must fit a phone.
+  'ipv6-refused': {
+    devices: { devices: [device({ name: 'Printer' })], gateway: { changed: false }, baselined: true, updated_at: seen },
+    presence,
+    ipv6: { enabled: true, problem: 'not_permitted' },
+  },
 } as const
 
 async function open(page: Page, view: 'simple' | 'advanced', state: (typeof STATES)[keyof typeof STATES]) {
   await setNetauditView(page, view)
-  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/devices': state.devices, '/netaudit/presence': state.presence } })
+  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/devices': state.devices, '/netaudit/presence': state.presence, '/netaudit/ipv6-discovery': 'ipv6' in state ? state.ipv6 : { enabled: false } } })
   await page.goto('settings/network-scan')
   await expect(page.getByRole('heading', { name: 'Devices on your network' })).toBeVisible()
 }
@@ -43,6 +49,14 @@ for (const view of ['simple', 'advanced'] as const) {
         if (testInfo.project.name === 'mobile') expect((await claim.boundingBox())?.height).toBeGreaterThanOrEqual(44)
         if (view === 'advanced') await expect(card.getByText('aa:bb:cc:00:00:09')).toBeVisible()
         else await expect(card.getByText('aa:bb:cc:00:00:09')).toHaveCount(0)
+      }
+      if (name === 'ipv6-refused') {
+        await expect(card.locator('[data-test="ipv6-problem"]')).toBeVisible()
+        await expect(card.getByText('sudo sysctl -w net.ipv4.ping_group_range')).toBeVisible()
+        const toggle = card.getByRole('switch', { name: 'Look for IPv6 devices' })
+        // The input is visually hidden; the touch target is the row that holds it.
+        const row = toggle.locator('xpath=ancestor::div[contains(@class, "min-h-11")][1]')
+        if (testInfo.project.name === 'mobile') expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44)
       }
       if (name === 'router-changed') {
         const confirm = card.getByRole('button', { name: /confirm/i })

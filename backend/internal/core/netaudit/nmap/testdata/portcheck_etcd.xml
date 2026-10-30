@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.99 scan initiated Fri Oct 30 18:44:42 2026 as: nmap -sT -sV -&#45;version-intensity 2 -Pn -n -&#45;unprivileged -p 2379 -oX cap_etcd.xml 192.0.2.20 -->
+<nmaprun scanner="nmap" args="nmap -sT -sV -&#45;version-intensity 2 -Pn -n -&#45;unprivileged -p 2379 -oX cap_etcd.xml 192.0.2.20" start="1793385882" startstr="Fri Oct 30 18:44:42 2026" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="2379"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1793385882" endtime="1793385888"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.20" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="2379"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="etcd-client" servicefp="SF-Port2379-TCP:V=7.99%I=2%D=10/30%Time=6AE4E5A0%P=arm-apple-darwin25.3.0%r(docker,A3,&quot;HTTP/1\.1\x20400\x20Bad\x20Request:\x20missing\x20required\x20Host\x20header\r\nContent-Type:\x20text/plain;\x20charset=utf-8\r\nConnection:\x20close\r\n\r\n400\x20Bad\x20Request:\x20missing\x20required\x20Host\x20header&quot;)%r(GetRequest,152,&quot;HTTP/1\.0\x20404\x20Not\x20Found\r\nAccess-Control-Allow-Headers:\x20accept,\x20content-type,\x20authorization\r\nAccess-Control-Allow-Methods:\x20POST,\x20GET,\x20OPTIONS,\x20PUT,\x20DELETE\r\nAccess-Control-Allow-Origin:\x20\*\r\nContent-Type:\x20text/plain;\x20charset=utf-8\r\nX-Content-Type-Options:\x20nosniff\r\nDate:\x20Fri,\x2030\x20Oct\x202026\x2018:44:48\x20GMT\r\nContent-Length:\x2019\r\n\r\n404\x20page\x20not\x20found\n&quot;);" method="table" conf="3"/></port>
+</ports>
+<times srtt="89" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1793385888" timestr="Fri Oct 30 18:44:48 2026" summary="Nmap done at Fri Oct 30 18:44:48 2026; 1 IP address (1 host up) scanned in 6.11 seconds" elapsed="6.11" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

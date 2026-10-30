@@ -69,6 +69,9 @@ type NeighborTable struct {
 	Entries6 []Neighbor
 	// Gateway is the default route's next hop, or the zero Addr when there is none.
 	Gateway netip.Addr
+	// Discovered6 is true when this table was read after active IPv6 discovery ran, so its IPv6 entries are the whole link
+	// and not only the neighbours the host already knew.
+	Discovered6 bool
 }
 
 // NeighborSource reads the neighbour table. An error means the host could not look, which is not the same as nobody being
@@ -112,7 +115,10 @@ func Observe(inv models.DeviceInventory, table NeighborTable, inScope func(netip
 			MAC: e.MAC, IP: ip, FirstSeen: at, LastSeen: at, Approved: !inv.Baselined, Randomized: randomized(e.MAC),
 		})
 	}
-	devices = attachIPv6(devices, scoped6(table.Entries6, entries), inv.Baselined, at)
+	// The first look that ran discovery is a baseline for IPv6-only devices: they were always there, the table did not list them.
+	out.Baselined6 = inv.Baselined6 || table.Discovered6
+	approve6 := !inv.Baselined || (table.Discovered6 && !inv.Baselined6)
+	devices = attachIPv6(devices, scoped6(table.Entries6, entries), approve6, at)
 	out.Devices = capDevices(devices)
 	out.Changes = recentChanges(changes, at)
 	out.Shared = sharedMACs(entries, table.Gateway)
@@ -145,7 +151,7 @@ func scoped6(v6, v4 []Neighbor) []Neighbor {
 // attachIPv6 puts each IPv6 address beside the device with the same hardware address, newest first and bounded. A hardware
 // address seen only over IPv6 becomes a device without an IPv4 address: it is listed and reported to the operator, but no
 // finding is keyed by an IPv6 address, because privacy addresses change daily.
-func attachIPv6(devices []models.NetworkDevice, v6 []Neighbor, baselined bool, at time.Time) []models.NetworkDevice {
+func attachIPv6(devices []models.NetworkDevice, v6 []Neighbor, approve bool, at time.Time) []models.NetworkDevice {
 	index := map[string]int{}
 	for i, d := range devices {
 		index[d.MAC] = i
@@ -154,7 +160,7 @@ func attachIPv6(devices []models.NetworkDevice, v6 []Neighbor, baselined bool, a
 		i, known := index[e.MAC]
 		if !known {
 			index[e.MAC] = len(devices)
-			devices = append(devices, models.NetworkDevice{MAC: e.MAC, FirstSeen: at, LastSeen: at, Approved: !baselined, Randomized: randomized(e.MAC)})
+			devices = append(devices, models.NetworkDevice{MAC: e.MAC, FirstSeen: at, LastSeen: at, Approved: approve, Randomized: randomized(e.MAC)})
 			i = len(devices) - 1
 		}
 		d := &devices[i]
@@ -400,6 +406,12 @@ type Inventory struct {
 	src     NeighborSource
 	inScope func(netip.Addr) bool
 	now     func() time.Time
+
+	// Active IPv6 discovery (discovery6.go): nil until WithDiscovery6.
+	disc        Discoverer6
+	discOn      func() bool
+	discMu      sync.Mutex
+	discProblem string
 }
 
 // NewInventory builds the service. inScope says which addresses belong to the declared scan scope.
@@ -414,6 +426,7 @@ func (v *Inventory) Refresh(ctx context.Context) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
+	table = v.discover(ctx, table)
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	inv, err := v.store.Read()

@@ -80,6 +80,7 @@ func TestPortCheck_ListeningIsTheProblem(t *testing.T) {
 		p.Product = product
 		return p
 	}
+	// confirmSev is empty for the services nmap 7.99 has no match for; the table's names for them are what a future nmap might print.
 	cases := []struct {
 		name       string
 		check      string
@@ -88,14 +89,14 @@ func TestPortCheck_ListeningIsTheProblem(t *testing.T) {
 		confirmed  Port
 		confirmSev string
 	}{
-		{"adb", CheckADBExposed, servicePort(5555, "freeciv", true), SeverityHigh, servicePort(5555, "adb", false), SeverityCritical},
+		{"adb", CheckADBExposed, servicePort(5555, "freeciv", true), SeverityHigh, servicePort(5555, "adb", false), ""},
 		{"proxy socks", CheckOpenProxy, servicePort(1080, "socks", true), SeverityMedium, servicePort(1080, "socks5", false), SeverityHigh},
 		{"proxy squid", CheckOpenProxy, servicePort(3128, "squid-http", true), SeverityMedium, servicePort(8888, "http-proxy", false), SeverityHigh},
 		{"elasticsearch", CheckElasticsearchExposed, servicePort(9200, "wap-wsp", true), SeverityMedium, product(9200, "http", "Elasticsearch REST API"), SeverityHigh},
-		{"x11", CheckX11Exposed, servicePort(6000, "X11", true), SeverityHigh, servicePort(6000, "x11", false), SeverityCritical},
+		{"x11", CheckX11Exposed, servicePort(6000, "X11", true), SeverityHigh, servicePort(6000, "X11", false), SeverityCritical},
 		{"rsync", CheckRsyncExposed, servicePort(873, "rsync", true), SeverityMedium, servicePort(873, "rsync", false), SeverityHigh},
-		{"kubelet", CheckKubeletExposed, servicePort(10250, "unknown", true), SeverityHigh, product(10250, "http", "Kubernetes Kubelet"), SeverityCritical},
-		{"etcd", CheckEtcdExposed, servicePort(2379, "etcd-client", true), SeverityHigh, product(2379, "http", "etcd"), SeverityCritical},
+		{"kubelet", CheckKubeletExposed, servicePort(10250, "unknown", true), SeverityHigh, product(10250, "http", "Kubernetes Kubelet"), ""},
+		{"etcd", CheckEtcdExposed, servicePort(2379, "etcd-client", true), SeverityHigh, product(2379, "http", "etcd"), ""},
 	}
 	for _, c := range cases {
 		port := portChecks(t, c.portOnly)
@@ -103,6 +104,12 @@ func TestPortCheck_ListeningIsTheProblem(t *testing.T) {
 			t.Errorf("%s: the port alone = %+v, want one %s/%s that says \"normally\"", c.name, port, c.check, c.portSev)
 		}
 		sure := portChecks(t, c.confirmed)
+		if c.confirmSev == "" { // nmap cannot recognise this service, so a name it never prints changes nothing
+			if len(sure) != 1 || sure[0].Severity != c.portSev || !strings.Contains(sure[0].Evidence, "normally") {
+				t.Errorf("%s: only the port can be judged, got %+v", c.name, sure)
+			}
+			continue
+		}
 		if len(sure) != 1 || sure[0].Check != c.check || sure[0].Severity != c.confirmSev || strings.Contains(sure[0].Evidence, "normally") {
 			t.Errorf("%s: a confirmed service = %+v, want one %s/%s without \"normally\"", c.name, sure, c.check, c.confirmSev)
 		}

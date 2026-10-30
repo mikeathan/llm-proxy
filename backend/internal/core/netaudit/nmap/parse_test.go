@@ -297,3 +297,49 @@ func TestParseXML_RealDeepScriptOutputBecomesDeepFindings(t *testing.T) {
 		t.Errorf("a server with only TLS 1.2/1.3 and grade A ciphers has no deep finding: %+v", f)
 	}
 }
+
+// Real nmap 7.99 captures of the scanner's own flags (-sT -sV --version-intensity 2) against Elasticsearch 8.15.3, etcd 3.5.16
+// and Xvfb (X.Org) running in containers, addresses replaced. They pin what nmap really prints for the port checks' services:
+// Elasticsearch is identified by product, X11 by the name "X11" (capitals), and etcd only from the port table, which is a
+// guess. Adb and Kubelet could not be captured: nmap 7.99 has no service match for either, so only the port rule can fire.
+func TestParseXML_RealCapturesDecidePortChecksSeverity(t *testing.T) {
+	cases := []struct {
+		fixture, check, severity string
+	}{
+		{"portcheck_elasticsearch.xml", netaudit.CheckElasticsearchExposed, netaudit.SeverityHigh}, // confirmed by product
+		{"portcheck_x11.xml", netaudit.CheckX11Exposed, netaudit.SeverityCritical},                 // confirmed by name
+		{"portcheck_etcd.xml", netaudit.CheckEtcdExposed, netaudit.SeverityHigh},                   // port only: nmap only guessed
+	}
+	for _, c := range cases {
+		hosts, err := ParseXML(fixture(t, c.fixture))
+		if err != nil || len(hosts) != 1 {
+			t.Fatalf("%s: %+v %v", c.fixture, hosts, err)
+		}
+		var got []netaudit.Finding
+		for _, f := range netaudit.FindingsOf(hosts) {
+			if f.Check == c.check {
+				got = append(got, f)
+			}
+		}
+		if len(got) != 1 || got[0].Severity != c.severity {
+			t.Errorf("%s: want one %s finding of severity %s, got %+v", c.fixture, c.check, c.severity, got)
+		}
+	}
+}
+
+// Real nmap 7.99 ssh-hostkey output (OpenSSH 9.7, addresses replaced): the line shape the identity tracking reads.
+func TestParseXML_RealSSHHostKeyOutputGivesOneFingerprintPerKey(t *testing.T) {
+	hosts, err := ParseXML(fixture(t, "scripts_ssh_hostkey.xml"))
+	if err != nil || len(hosts) != 1 {
+		t.Fatalf("%+v %v", hosts, err)
+	}
+	ids := netaudit.ObservedIdentities(hosts)
+	if len(ids) != 1 || ids[0].Kind != netaudit.IdentitySSH || len(ids[0].Prints) != 2 {
+		t.Fatalf("identities = %+v", ids)
+	}
+	for _, p := range ids[0].Prints {
+		if !strings.HasPrefix(p, "ECDSA:") && !strings.HasPrefix(p, "ED25519:") {
+			t.Errorf("print %q", p)
+		}
+	}
+}

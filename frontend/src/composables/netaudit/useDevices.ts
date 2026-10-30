@@ -4,10 +4,12 @@ import { errorMessage } from '../../utils/errors'
 import {
   DEVICES_ACTION_FAILED,
   DEVICES_LOAD_FAILED,
+  IPV6_LOAD_FAILED,
+  IPV6_SAVE_FAILED,
   PRESENCE_LOAD_FAILED,
   PRESENCE_SAVE_FAILED,
 } from '../../constants/netaudit'
-import type { DeviceAction, DeviceInventory, PresenceState } from '../../types/netaudit'
+import type { DeviceAction, DeviceInventory, IPv6DiscoveryState, PresenceState } from '../../types/netaudit'
 
 /**
  * The devices seen on the network and the new-device check, as the settings card shows them. A change answers with the
@@ -16,17 +18,20 @@ import type { DeviceAction, DeviceInventory, PresenceState } from '../../types/n
 export function useDevices() {
   const inventory = ref<DeviceInventory | null>(null)
   const presence = ref<PresenceState | null>(null)
+  const ipv6 = ref<IPv6DiscoveryState | null>(null)
   const loadError = ref('')
   const actionError = ref('')
   const busy = ref(false)
 
   async function load(): Promise<void> {
     loadError.value = ''
-    const [devices, state] = await Promise.allSettled([NetauditService.devices(), NetauditService.presence()])
+    const [devices, state, discovery] = await Promise.allSettled([NetauditService.devices(), NetauditService.presence(), NetauditService.ipv6Discovery()])
     if (devices.status === 'fulfilled') inventory.value = devices.value
     else loadError.value = errorMessage(devices.reason, DEVICES_LOAD_FAILED)
     if (state.status === 'fulfilled') presence.value = state.value
     else if (!loadError.value) loadError.value = errorMessage(state.reason, PRESENCE_LOAD_FAILED)
+    if (discovery.status === 'fulfilled') ipv6.value = discovery.value
+    else if (!loadError.value) loadError.value = errorMessage(discovery.reason, IPV6_LOAD_FAILED)
   }
 
   async function act(action: DeviceAction, call: () => Promise<DeviceInventory>): Promise<boolean> {
@@ -55,14 +60,28 @@ export function useDevices() {
     }
   }
 
+  async function setIPv6(enabled: boolean): Promise<void> {
+    busy.value = true
+    try {
+      ipv6.value = await NetauditService.setIpv6Discovery(enabled)
+      actionError.value = ''
+    } catch (err) {
+      actionError.value = errorMessage(err, IPV6_SAVE_FAILED)
+    } finally {
+      busy.value = false
+    }
+  }
+
   return {
     inventory,
     presence,
+    ipv6,
     loadError,
     actionError,
     busy,
     load,
     setPresence,
+    setIPv6,
     name: (mac: string, name: string) => act('name', () => NetauditService.nameDevice(mac, name)),
     approve: (mac: string) => act('approve', () => NetauditService.approveDevice(mac)),
     forget: (mac: string) => act('forget', () => NetauditService.forgetDevice(mac)),

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///opt/homebrew/bin/../share/nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.99 scan initiated Fri Oct 30 18:44:55 2026 as: nmap -sT -sV -&#45;version-intensity 2 -Pn -n -&#45;unprivileged -p 2200 -&#45;script ssh-hostkey -oX cap_ssh.xml 192.0.2.20 -->
+<nmaprun scanner="nmap" args="nmap -sT -sV -&#45;version-intensity 2 -Pn -n -&#45;unprivileged -p 2200 -&#45;script ssh-hostkey -oX cap_ssh.xml 192.0.2.20" start="1793385895" startstr="Fri Oct 30 18:44:55 2026" version="7.99" xmloutputversion="1.05">
+<scaninfo type="connect" protocol="tcp" numservices="1" services="2200"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1793385895" endtime="1793385895"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.20" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><port protocol="tcp" portid="2200"><state state="open" reason="syn-ack" reason_ttl="0"/><service name="ssh" product="OpenSSH" version="9.7" extrainfo="protocol 2.0" method="probed" conf="10"><cpe>cpe:/a:openbsd:openssh:9.7</cpe></service><script id="ssh-hostkey" output="&#xa;  256 1d:60:1f:0f:88:f8:d1:d1:d8:7e:98:2b:05:ab:7c:5e (ECDSA)&#xa;  256 cb:fc:28:f4:a2:98:6b:b9:aa:fd:48:b2:8d:40:16:95 (ED25519)"><table>
+<elem key="type">ecdsa-sha2-nistp256</elem>
+<elem key="bits">256</elem>
+<elem key="key">AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJfcqBtFCqf28DiV0zkHBjTsGPXw/6XYluSNoxNFdfYDByvLDAJ9uwVTQQuP1+8jcI0re8ARQO6IFqM8HTJxQvU=</elem>
+<elem key="fingerprint">1d601f0f88f8d1d1d87e982b05ab7c5e</elem>
+</table>
+<table>
+<elem key="type">ssh-ed25519</elem>
+<elem key="bits">256</elem>
+<elem key="key">AAAAC3NzaC1lZDI1NTE5AAAAIHVJyXcRihBYI4Y4S2V4Lu1hf0KCqnBzWMN76Lb/qaCl</elem>
+<elem key="fingerprint">cbfc28f4a2986bb9aafd48b28d401695</elem>
+</table>
+</script></port>
+</ports>
+<times srtt="98" rttvar="5000" to="100000"/>
+</host>
+<runstats><finished time="1793385895" timestr="Fri Oct 30 18:44:55 2026" summary="Nmap done at Fri Oct 30 18:44:55 2026; 1 IP address (1 host up) scanned in 0.15 seconds" elapsed="0.15" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

@@ -429,3 +429,35 @@ func TestInventory_PendingNamesWhereTheNewDevicesAreAndMarksPrivateAddresses(t *
 		t.Errorf("no hardware addresses or names in the message: %q", msg)
 	}
 }
+
+// The first look that ran active IPv6 discovery approves the IPv6-only devices it finds (they were always there, the table
+// just did not list them); later ones report a new one like any other device. A passive look never takes that baseline.
+func TestObserve_TheFirstDiscoveryIsABaselineForIPv6OnlyDevices(t *testing.T) {
+	base := Observe(models.DeviceInventory{}, table("192.168.1.1", onLink("192.168.1.1", macRouter, "wlan0")), anywhere, t0)
+
+	passive := table("192.168.1.1", onLink("192.168.1.1", macRouter, "wlan0"))
+	passive.Entries6 = []Neighbor{onLink("fe80::2", macTV, "wlan0")}
+	got := Observe(base, passive, anywhere, t0.Add(time.Hour))
+	if d := find(got, macTV); d == nil || d.Approved || got.Baselined6 {
+		t.Fatalf("a passive look keeps the old rule: device %+v, baselined6 %v", d, got.Baselined6)
+	}
+
+	found := table("192.168.1.1", onLink("192.168.1.1", macRouter, "wlan0"))
+	found.Entries6 = []Neighbor{onLink("fe80::3", macOther, "wlan0")}
+	found.Discovered6 = true
+	first := Observe(base, found, anywhere, t0.Add(time.Hour))
+	if d := find(first, macOther); d == nil || !d.Approved || !first.Baselined6 {
+		t.Fatalf("the first discovery approves what it finds: device %+v, baselined6 %v", d, first.Baselined6)
+	}
+
+	again := found
+	again.Entries6 = []Neighbor{onLink("fe80::3", macOther, "wlan0"), onLink("fe80::4", macPhone, "wlan0")}
+	next := Observe(first, again, anywhere, t0.Add(2*time.Hour))
+	if d := find(next, macPhone); d == nil || d.Approved {
+		t.Errorf("a device found after the baseline is new: %+v", d)
+	}
+}
+
+func onLink(ip, mac, iface string) Neighbor {
+	return Neighbor{Addr: netip.MustParseAddr(ip), MAC: mac, Interface: iface}
+}

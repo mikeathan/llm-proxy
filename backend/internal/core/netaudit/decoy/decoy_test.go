@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -37,7 +38,7 @@ type rig struct {
 	own     func(netip.Addr) bool
 	scope   func(netip.Addr) bool
 	mu      sync.Mutex
-	sent    []string
+	sent    [][]string
 	sendErr error
 	errs    []error
 	now     time.Time
@@ -52,10 +53,10 @@ func newRig(specs []Spec) *rig {
 		InScope: func(a netip.Addr) bool { r.fmu.RLock(); defer r.fmu.RUnlock(); return r.scope(a) },
 		IsOwn:   func(a netip.Addr) bool { r.fmu.RLock(); defer r.fmu.RUnlock(); return r.own(a) },
 		Store:   r.store,
-		Notify: func(_ context.Context, msg string) error {
+		Notify: func(_ context.Context, sources []string) error {
 			r.mu.Lock()
 			defer r.mu.Unlock()
-			r.sent = append(r.sent, msg)
+			r.sent = append(r.sent, sources)
 			return r.sendErr
 		},
 		OnError: func(err error) { r.mu.Lock(); r.errs = append(r.errs, err); r.mu.Unlock() },
@@ -199,20 +200,28 @@ func TestManager_OffByDefaultListensOnNothingAndSwitchingOffStops(t *testing.T) 
 	}
 }
 
-func TestManager_TheOperatorIsToldOnceInCountsAndFixedWords(t *testing.T) {
+func TestManager_TheOperatorIsToldOnceWithTheSourceAddress(t *testing.T) {
 	r := newRig(specs)
 	r.start(t)
 	touch(t, r.m.Addrs()[1], "")
 	eventually(t, func() bool { r.mu.Lock(); defer r.mu.Unlock(); return len(r.sent) == 1 })
 	r.mu.Lock()
-	msg := r.sent[0]
+	got := r.sent[0]
 	r.mu.Unlock()
-	if !strings.Contains(msg, "1 device") || strings.Contains(msg, "127.0.0.1") {
-		t.Errorf("counts, not addresses: %q", msg)
+	if len(got) != 1 || got[0] != "127.0.0.1" {
+		t.Errorf("the alert names the source address the kernel reports: %v", got)
 	}
 	items, _ := r.store.Read()
 	if !items[0].Notified {
 		t.Error("marked as told after it was sent")
+	}
+}
+
+func TestSortedSources_AreInAddressOrderSoTheMessageIsStable(t *testing.T) {
+	got := sortedSources(map[string]bool{"192.168.1.100": true, "192.168.1.9": true, "fe80::1": true, "10.0.0.2": true})
+	want := []string{"10.0.0.2", "192.168.1.9", "192.168.1.100", "fe80::1"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

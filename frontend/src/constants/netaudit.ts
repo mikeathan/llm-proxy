@@ -1,5 +1,5 @@
 import type { ChoiceOption } from '../types/ui'
-import type { DeviceAction, HelpSection, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
+import type { DeviceAction, HelpSection, IPv6DiscoveryProblem, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -87,7 +87,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'If the router\'s own hardware address changes, the report says so in red. A replaced or reset router does this, but so does someone pretending to be the router to read your traffic, so check before you confirm. Confirming asks for your passphrase again.',
       'An address that now belongs to a different device than the one you approved, one device answering for several addresses, and a device that answers the network but nothing else are reported as well. Each has a note on what is harmless and what is not.',
       'A full audit also asks your router, once, whether it offers UPnP: a setting that lets any device on the network open a port to the internet by itself. It is common and often needed by games and video calls, but malware uses it too, so it is reported as a note you can turn off in the router. It also reads the router\'s list of ports it has opened this way: each one is reported on the device it leads to, because anyone on the internet can try to connect to it.',
-      'Decoy services are fake services on a few unused ports (an SSH login, file sharing and Telnet). Nothing on your network should ever use them, so a device that connects to one is probing for services, and you get a message. They are off until you turn them on, and turning them on asks for your passphrase. If this computer has a firewall, allow the ports in. A scanner app on your own phone will also touch them; accept that finding.',
+      'Decoy services are fake services on a few unused ports (an SSH login, file sharing and Telnet). Nothing on your network should ever use them, so a device that connects to one is probing for services, and you get a message with its address. They are off until you turn them on, and turning them on asks for your passphrase. If this computer has a firewall, allow the ports in. A scanner app on your own phone will also touch them; accept that finding.',
       'IPv6 addresses are shown beside a device when this computer knows them. It only lists devices it has already talked to, so it finds few that use IPv6 alone; those are listed and you are told about them, but they have no finding of their own.',
       'A full audit also remembers each SSH server\'s host keys and each web service\'s certificate, and reports one that was replaced: a reinstalled server does this, and so does someone pretending to be it. A certificate renewed under the same name and issuer is only a note.',
     ],
@@ -209,6 +209,18 @@ export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
 export const PRESENCE_LOAD_FAILED = 'The new-device check could not be read.'
 export const PRESENCE_SAVE_FAILED = 'The new-device check could not be changed.'
 export const PRESENCE_HINT = 'Looks for a device that was not on the network before, and sends you a short message the first time one shows up. It only connects to the networks allowed above; it never looks at what a device sends.'
+export const IPV6_LOAD_FAILED = 'The IPv6 setting could not be read.'
+export const IPV6_SAVE_FAILED = 'The IPv6 setting could not be changed.'
+export const IPV6_LABEL = 'Look for IPv6 devices'
+export const IPV6_HINT = 'Some devices only show up over IPv6. Each look sends one small message to the devices on your network asking them to announce themselves, and lists the ones that answer. It does not scan or connect to anything.'
+export const IPV6_FIX_COMMAND = 'sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"'
+export const IPV6_FIX_KEEP_COMMAND = 'echo \'net.ipv4.ping_group_range = 0 2147483647\' | sudo tee /etc/sysctl.d/90-ping-group.conf'
+export const IPV6_PROBLEMS: Record<IPv6DiscoveryProblem, string> = {
+  not_permitted: 'This computer does not let the program send that message (the ping_group_range setting). Run this on the computer, then look again. It also lets other accounts on it send pings.',
+  unavailable: 'Only a Linux computer can look for IPv6 devices.',
+  failed: 'The message could not be sent. Check the server log, then look again.',
+}
+export const IPV6_FIX_KEEP_NOTE = 'To keep it after a restart:'
 export const DEVICE_NAME_MAX = 40
 export const DEVICE_UNNAMED = 'Unknown device'
 export const DEVICE_PRIVATE = 'Phone or laptop (private address)'
