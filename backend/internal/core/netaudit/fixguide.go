@@ -459,6 +459,15 @@ var guides = map[string]FixGuide{
 		Risk: "Programs that relied on UPnP to open a port stop being reachable from outside until the port is forwarded by hand.",
 		Undo: "Turn the UPnP switch back on in the router's settings.",
 	},
+	CheckDecoyTouched: {
+		Steps: []string{
+			"Find the device with the address shown, in the router's list of connected devices or in the device list here.",
+			"Ask who uses it. A network scanner app on a phone, a laptop running a security tool or a smart-home hub scanning for devices will touch a decoy; so will malware looking for services to attack.",
+			"If it is yours and expected, accept the finding. If you do not know what it is, disconnect it from the network, change the Wi-Fi password, and scan it with a security tool before it comes back.",
+		},
+		Risk: "Disconnecting a device interrupts whatever it does; changing the Wi-Fi password disconnects every device until it has the new one.",
+		Undo: "Reconnect the device, or put the old Wi-Fi password back.",
+	},
 }
 
 // weakCertificateGuide serves both weak-certificate checks: the fix is a new certificate.

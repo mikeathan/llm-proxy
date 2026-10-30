@@ -10,6 +10,7 @@ import (
 
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/scantool"
@@ -43,6 +44,10 @@ type netauditServices struct {
 	Identities *netaudit.Identities
 	// Router asks the router whether it offers UPnP, in the nightly audit only.
 	Router *netaudit.RouterCheck
+	// DecoyConfig is the decoy services' switch; Decoys runs the listeners and DecoyStore keeps who connected.
+	DecoyConfig *netaudit.DecoyConfig
+	Decoys      *decoy.Manager
+	DecoyStore  *persistence.DecoyTouchStore
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
 	PresenceConfig *netaudit.PresenceConfig
 	Presence       *netaudit.Presence
@@ -87,11 +92,22 @@ func (s AppServices) NetauditRouter() netaudit.RouterFindings {
 	return s.netaudit.Router
 }
 
+// NetauditDecoys is where the run reporter reads the decoy touches; nil until the services are wired.
+func (s AppServices) NetauditDecoys() netaudit.DecoyReader {
+	if s.netaudit == nil || s.netaudit.DecoyStore == nil {
+		return nil
+	}
+	return s.netaudit.DecoyStore
+}
+
 // StartNetauditPresence runs the presence check until ctx ends. It is the one place that starts it (Constitution II.2,
 // II.14); a check that is switched off in the settings does nothing.
 func (s AppServices) StartNetauditPresence(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.Presence != nil {
 		go s.netaudit.Presence.Run(ctx)
+	}
+	if s.netaudit != nil && s.netaudit.Decoys != nil {
+		go s.netaudit.Decoys.Run(ctx)
 	}
 }
 
@@ -181,7 +197,10 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	identityStore := persistence.NewDeviceIdentityStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The remembered SSH host keys and certificates", identityStore.Delete)
 	presenceConfig := netaudit.NewPresenceConfig(store)
-	s.netaudit = &netauditServices{Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	decoyStore := persistence.NewDecoyTouchStore(s.AppCtx.RootDir())
+	s.AppCtx.AfterFactoryReset("The record of connections to decoy services", decoyStore.Delete)
+	decoyConfig := netaudit.NewDecoyConfig(store)
+	s.netaudit = &netauditServices{DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
@@ -230,4 +249,40 @@ func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory,
 		return netip.ParseAddr(inv.Gateway)
 	}
 	return netaudit.NewRouterCheck(client, gateway, func(a netip.Addr) error { return scope.Policy().Check(a) })
+}
+
+// newDecoys builds the decoy services. A connection counts only from a device inside the declared scan networks and not from
+// this computer itself, whose own audit and sweep must never look like an intruder. The alert goes to every connector.
+func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, scope *netaudit.Scope) *decoy.Manager {
+	return decoy.New(decoy.Deps{
+		Specs:   decoy.Specs,
+		Enabled: config.Enabled,
+		InScope: func(a netip.Addr) bool { return scope.Policy().Check(a) == nil },
+		IsOwn:   ownAddress,
+		Store:   store,
+		Notify: func(ctx context.Context, message string) error {
+			comm := communicationTools(s.toolProvider)
+			if comm == nil || len(comm.Types()) == 0 {
+				return errors.New("no connector is set up to send alerts")
+			}
+			return comm.NotifyAll(ctx, message, "")
+		},
+		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
+	})
+}
+
+// ownAddress reports whether a is one of this computer's own addresses (read from its interfaces; nothing is sent).
+func ownAddress(a netip.Addr) bool {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return false
+	}
+	for _, ia := range addrs {
+		if ipnet, ok := ia.(*net.IPNet); ok {
+			if own, ok := netip.AddrFromSlice(ipnet.IP); ok && own.Unmap() == a {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -83,6 +83,9 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 	}); ok && v.NetauditRouter() != nil {
 		reporter.WithRouter(v.NetauditRouter())
 	}
+	if v, ok := svc.(interface{ NetauditDecoys() netaudit.DecoyReader }); ok && v.NetauditDecoys() != nil {
+		reporter.WithDecoys(v.NetauditDecoys())
+	}
 	exec.SetReportHook(reporter)
 	return exec
 }

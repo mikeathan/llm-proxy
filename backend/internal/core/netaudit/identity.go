@@ -126,7 +126,9 @@ func TrackIdentities(stored []models.DeviceIdentity, seen []ObservedIdentity, no
 		}
 	}
 	for _, o := range seen {
-		i := slices.IndexFunc(out, func(s models.DeviceIdentity) bool { return s.Device == o.Device && s.Port == o.Port && s.Kind == o.Kind })
+		i := slices.IndexFunc(out, func(s models.DeviceIdentity) bool {
+			return s.Device == o.Device && s.Port == o.Port && s.Kind == o.Kind
+		})
 		if i < 0 {
 			out = append(out, models.DeviceIdentity{Device: o.Device, Port: o.Port, Kind: o.Kind, Prints: o.Prints, Shape: o.Shape, Seen: now})
 			continue

@@ -38,6 +38,7 @@ type HandlerSet struct {
 	Netaudit   *handlers.NetauditHandlers
 	VulnData   *handlers.VulnDataHandlers
 	Devices    *handlers.NetauditDevicesHandlers
+	Decoys     *handlers.NetauditDecoyHandlers
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 	Auth       *handlers.AuthHandlers
@@ -104,6 +105,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Helpers = handlers.NewHelpersHandlers(s)
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
+	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence})
 
 	// Register recording routes unconditionally. The handler safely returns
@@ -349,6 +351,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/devices/{mac}", hs.Devices.Update, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/devices/{mac}", hs.Devices.Forget, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/devices/gateway/confirm", hs.Devices.ConfirmGateway, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/decoys", hs.Decoys.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/decoys", hs.Decoys.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/presence", hs.Devices.GetPresence, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/presence", hs.Devices.PutPresence, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/findings", hs.Netaudit.GetFindings, jsonMethodNotAllowed)

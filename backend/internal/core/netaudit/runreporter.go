@@ -27,6 +27,7 @@ type RunReporter struct {
 	look   InventoryLook    // optional: who is on the network, from the host's neighbour table
 	idents IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
 	router RouterFindings   // optional: what the router itself offers (UPnP)
+	decoys DecoyReader      // optional: devices that connected to a decoy service
 	now    func() time.Time
 }
 
@@ -58,6 +59,12 @@ func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
 // InventoryLook is a look at who is on the network that also keeps the device inventory up to date: *Inventory.
 type InventoryLook interface {
 	Refresh(ctx context.Context) (Snapshot, error)
+}
+
+// WithDecoys makes the reporter add the devices that connected to a decoy service. Without it nothing is added.
+func (r *RunReporter) WithDecoys(d DecoyReader) *RunReporter {
+	r.decoys = d
+	return r
 }
 
 // RouterFindings is what the router itself offers: *RouterCheck.
@@ -127,7 +134,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		return report
 	}
 	cov := r.addKnownVulns(ctx, &result)
-	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result)
+	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
@@ -384,6 +391,20 @@ func (r *RunReporter) addRouter(ctx context.Context, result *Result) string {
 		return fmt.Sprintf("\n\n> Note: what the router offers (UPnP) could not be checked (%v).", err)
 	}
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+	return ""
+}
+
+// addDecoys appends the touches of the decoy services for the devices this scan looked at. Trouble is stated and never hides
+// the scan.
+func (r *RunReporter) addDecoys(result *Result) string {
+	if r.decoys == nil {
+		return ""
+	}
+	touches, err := r.decoys.Read()
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: the decoy services' record could not be read, so connections to them were not compared (%v).", err)
+	}
+	result.Findings = append(result.Findings, restrictTo(DecoyFindings(touches, r.now()), scannedDevices(result.Hosts))...)
 	return ""
 }
 
