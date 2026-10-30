@@ -268,3 +268,45 @@ func TestSpecs_ArePortsNothingLegitimateScansAndAreNotPrivileged(t *testing.T) {
 		}
 	}
 }
+
+// A connection still being served when the decoys are switched off and on again must give back a slot of the old set, not
+// take one from the new set, or the new listeners would hang with every slot taken.
+func TestManager_AConnectionHeldAcrossASwitchDoesNotBreakTheNextStart(t *testing.T) {
+	r := newRig([]Spec{{Number: 0}})
+	r.m.maxConns = 1
+	ctx, _ := r.start(t)
+	old, err := net.Dial("tcp", r.m.Addrs()[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	r.enabled = false
+	r.m.Reconcile(ctx)
+	r.enabled = true
+	r.m.Reconcile(ctx)
+	old.Close() // the old connection ends after the new listeners exist
+	time.Sleep(2500 * time.Millisecond)
+	if got := touch(t, r.m.Addrs()[0], ""); got != "" {
+		t.Logf("answer %q", got)
+	}
+	eventually(t, func() bool { items, _ := r.store.Read(); return len(items) >= 1 })
+}
+
+func TestManager_SwitchingOffClearsTheOldProblem(t *testing.T) {
+	busy, err := net.Listen("tcp4", "0.0.0.0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	r := newRig([]Spec{{Number: busy.Addr().(*net.TCPAddr).Port}})
+	ctx, _ := r.start(t)
+	if r.m.Status().Problem == "" {
+		t.Fatal("the busy port is a problem")
+	}
+	r.enabled = false
+	r.m.Reconcile(ctx)
+	r.m.stop()
+	if r.m.Status().Problem != "" {
+		t.Error("a switched-off service has no problem")
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -83,7 +84,6 @@ type Manager struct {
 	lastTrbl  string
 	seen      map[string]time.Time
 	wg        sync.WaitGroup
-	slots     chan struct{}
 	poke      chan struct{}
 }
 
@@ -132,8 +132,8 @@ func (m *Manager) Reconcile(ctx context.Context) {
 }
 
 func (m *Manager) start(ctx context.Context) {
+	slots := make(chan struct{}, m.maxConns)
 	m.mu.Lock()
-	m.slots = make(chan struct{}, m.maxConns)
 	m.problem = ""
 	m.mu.Unlock()
 	var failed []string
@@ -148,11 +148,15 @@ func (m *Manager) start(ctx context.Context) {
 		m.listeners[port] = ln
 		m.mu.Unlock()
 		m.wg.Add(1)
-		go m.serve(ctx, spec, ln)
+		go m.serve(ctx, spec, ln, slots)
 	}
 	if len(failed) > 0 {
-		m.setProblem(fmt.Sprintf("%v", failed))
+		m.setProblem(strings.Join(failed, "; "))
+		return
 	}
+	m.mu.Lock()
+	m.lastTrbl = ""
+	m.mu.Unlock()
 }
 
 func (m *Manager) setProblem(p string) {
@@ -168,6 +172,7 @@ func (m *Manager) stop() {
 		_ = ln.Close()
 		delete(m.listeners, port)
 	}
+	m.problem = ""
 	m.mu.Unlock()
 }
 
@@ -199,7 +204,9 @@ func (m *Manager) Status() Status {
 	return st
 }
 
-func (m *Manager) serve(ctx context.Context, spec Spec, ln net.Listener) {
+// serve accepts connections on one decoy. The slots belong to this start of the listeners: a connection still being served
+// when the decoys are switched off and on again releases a slot of the old set, never of the new one.
+func (m *Manager) serve(ctx context.Context, spec Spec, ln net.Listener, slots chan struct{}) {
 	defer m.wg.Done()
 	for {
 		conn, err := ln.Accept()
@@ -207,11 +214,11 @@ func (m *Manager) serve(ctx context.Context, spec Spec, ln net.Listener) {
 			return // closed by stop
 		}
 		select {
-		case m.slots <- struct{}{}:
+		case slots <- struct{}{}:
 			m.wg.Add(1)
 			go func() {
 				defer m.wg.Done()
-				defer func() { <-m.slots }()
+				defer func() { <-slots }()
 				m.handle(ctx, spec, ln, conn)
 			}()
 		default:

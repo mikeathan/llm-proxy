@@ -7,7 +7,9 @@ import "llm-proxy/models"
 const deviceInventoryFileName = "devices.json"
 
 // DeviceInventoryStore keeps the device inventory in one file.
-type DeviceInventoryStore struct{ file rootFile[models.DeviceInventory] }
+type DeviceInventoryStore struct {
+	file rootFile[models.DeviceInventory]
+}
 
 // NewDeviceInventoryStore keeps the inventory in dir. Nothing is read or created until Read or Write.
 func NewDeviceInventoryStore(dir string) *DeviceInventoryStore {

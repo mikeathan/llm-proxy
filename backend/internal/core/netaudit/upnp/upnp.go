@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -114,10 +115,10 @@ func (c Client) discover(ctx context.Context, gateway netip.Addr) ([]byte, error
 	n, err := conn.Read(buf)
 	if err != nil {
 		var ne net.Error
-		if errors.As(err, &ne) && ne.Timeout() {
-			return nil, nil
+		if (errors.As(err, &ne) && ne.Timeout()) || errors.Is(err, syscall.ECONNREFUSED) {
+			return nil, nil // nothing answered, or nothing is listening (ICMP port unreachable): the same as no answer
 		}
-		return nil, nil // a refusal (ICMP port unreachable) means nothing is listening: the same as no answer
+		return nil, fmt.Errorf("could not read the router's UPnP answer: %w", err)
 	}
 	return buf[:n], nil
 }
