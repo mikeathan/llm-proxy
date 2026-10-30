@@ -12,6 +12,9 @@ type DeviceInventory struct {
 	// Baselined is true once a first look has been taken; that look makes every device it found approved, so a first audit
 	// reports a baseline and not forty "new" devices.
 	Baselined bool `json:"baselined"`
+	// Baselined6 is true once a look that ran active IPv6 discovery has been taken; that look approves the IPv6-only devices
+	// it found, as Baselined does for the first look.
+	Baselined6 bool `json:"baselined6,omitempty"`
 	// Gateway is the router's address, from the default route.
 	Gateway string `json:"gateway,omitempty"`
 	// GatewayMAC is the router's MAC address as last approved. A different one now is the signature of ARP spoofing.

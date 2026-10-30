@@ -19,6 +19,12 @@ import {
   FORGET_CONFIRM,
   GATEWAY_CHANGED_BODY,
   GATEWAY_CHANGED_TITLE,
+  IPV6_FIX_COMMAND,
+  IPV6_FIX_KEEP_COMMAND,
+  IPV6_FIX_KEEP_NOTE,
+  IPV6_HINT,
+  IPV6_LABEL,
+  IPV6_PROBLEMS,
   PRESENCE_HINT,
 } from "../../constants/netaudit"
 import { deviceDetail, deviceLabel, intervalOptions, presenceLine } from "../../utils/netaudit/devices"
@@ -27,7 +33,7 @@ import type { NetworkDevice } from "../../types/netaudit"
 // Settings · Network scan · Devices: who has been seen on the network, and the check that looks for a new one every few
 // minutes. A device nobody approved shows first. Naming a device approves it. Simple shows names and one decision per
 // device; Advanced adds the addresses and how often the check runs.
-const { inventory, presence, loadError, actionError, busy, load, setPresence, name, approve, forget, confirmGateway } = useDevices()
+const { inventory, presence, ipv6, loadError, actionError, busy, load, setPresence, setIPv6, name, approve, forget, confirmGateway } = useDevices()
 const { confirm } = useConfirm()
 const { advanced } = useNetauditViewMode()
 
@@ -73,6 +79,18 @@ onMounted(load)
             label="How often to look"
             @update:model-value="changeInterval"
           />
+        </section>
+
+        <section v-if="ipv6" class="flex flex-col gap-1" aria-label="IPv6 devices" data-test="ipv6-discovery">
+          <ToggleField :model-value="ipv6.enabled" :label="IPV6_LABEL" :hint="IPV6_HINT" :disabled="busy" @update:model-value="setIPv6" />
+          <div v-if="ipv6.enabled && ipv6.problem" role="alert" class="flex flex-col gap-1 text-[length:var(--text-small)] text-state-error" data-test="ipv6-problem">
+            <p class="m-0">{{ IPV6_PROBLEMS[ipv6.problem] }}</p>
+            <template v-if="ipv6.problem === 'not_permitted'">
+              <code class="block break-all rounded-[var(--radius-md)] bg-canvas px-2 py-1 font-mono text-primary">{{ IPV6_FIX_COMMAND }}</code>
+              <p class="m-0 text-muted">{{ IPV6_FIX_KEEP_NOTE }}</p>
+              <code class="block break-all rounded-[var(--radius-md)] bg-canvas px-2 py-1 font-mono text-primary">{{ IPV6_FIX_KEEP_COMMAND }}</code>
+            </template>
+          </div>
         </section>
 
         <Callout v-if="inventory?.gateway.changed" tone="error" :title="GATEWAY_CHANGED_TITLE" data-test="gateway-changed">

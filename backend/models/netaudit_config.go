@@ -23,4 +23,8 @@ type NetauditConfig struct {
 	// connection means a device is probing the network. It opens listening sockets, so it is off until the operator turns it
 	// on (a step-up action), and switching it off closes them.
 	DecoysEnabled bool `yaml:"decoys_enabled,omitempty" json:"decoys_enabled"`
+	// IPv6Discovery turns on active IPv6 discovery: on each presence check and audit the host sends one echo request to the
+	// link-local all-nodes group on the links that hold in-scope devices, so the IPv6 neighbour table lists the whole link.
+	// Off until the operator turns it on (Constitution I.7).
+	IPv6Discovery bool `yaml:"ipv6_discovery,omitempty" json:"ipv6_discovery"`
 }

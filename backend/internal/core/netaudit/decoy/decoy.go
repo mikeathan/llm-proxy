@@ -59,9 +59,10 @@ type Deps struct {
 	// InScope says whether a source belongs to the declared scan networks; others are ignored.
 	InScope func(netip.Addr) bool
 	// IsOwn says whether an address is this computer's own, whose connections (its own audit and sweep) are ignored.
-	IsOwn   func(netip.Addr) bool
-	Store   Store
-	Notify  func(ctx context.Context, message string) error
+	IsOwn func(netip.Addr) bool
+	Store Store
+	// Notify tells the operator which sources touched a decoy, in address order. Wording is the caller's.
+	Notify  func(ctx context.Context, sources []string) error
 	OnError func(error)
 	Now     func() time.Time
 }
@@ -303,13 +304,14 @@ func (m *Manager) record(ctx context.Context, src netip.Addr, port int) {
 	m.alert(ctx, now)
 }
 
-// alert tells the operator about touches they have not yet been told of, at most every alertEvery, in counts only.
+// alert tells the operator about touches they have not yet been told of, at most every alertEvery. The addresses it hands on
+// are the kernel's account of who connected (the connection's remote address), never bytes the visitor sent.
 func (m *Manager) alert(ctx context.Context, now time.Time) {
 	sources := m.untold(now)
 	if len(sources) == 0 || m.deps.Notify == nil {
 		return
 	}
-	if err := m.deps.Notify(ctx, Message(len(sources))); err != nil {
+	if err := m.deps.Notify(ctx, sortedSources(sources)); err != nil {
 		m.trouble(fmt.Errorf("decoy services: could not send the alert: %w", err))
 		return
 	}
@@ -353,13 +355,21 @@ func (m *Manager) markTold(sources map[string]bool, now time.Time) {
 	_ = m.deps.Store.Write(items)
 }
 
-// Message is the alert: a count and fixed words, never an address.
-func Message(devices int) string {
-	noun := "devices"
-	if devices == 1 {
-		noun = "device"
+// sortedSources lists the sources in address order, so the same touches always make the same message.
+func sortedSources(sources map[string]bool) []string {
+	out := make([]string, 0, len(sources))
+	for s := range sources {
+		out = append(out, s)
 	}
-	return fmt.Sprintf("Network audit: %d %s connected to a decoy service, a fake service nothing legitimate uses. Open the network audit to review.", devices, noun)
+	slices.SortFunc(out, func(a, b string) int {
+		x, errX := netip.ParseAddr(a)
+		y, errY := netip.ParseAddr(b)
+		if errX != nil || errY != nil {
+			return strings.Compare(a, b)
+		}
+		return x.Compare(y)
+	})
+	return out
 }
 
 func (m *Manager) trouble(err error) {

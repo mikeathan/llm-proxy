@@ -386,6 +386,16 @@ export interface PresenceUpdate {
   interval_minutes: number
 }
 
+/** Why active IPv6 discovery did not work: the computer's setting forbids the echo, it cannot (not Linux), or it failed. */
+export type IPv6DiscoveryProblem = 'not_permitted' | 'unavailable' | 'failed'
+
+/** Active IPv6 discovery: one echo per look so the IPv6 devices on the link are listed. */
+export interface IPv6DiscoveryState {
+  enabled: boolean
+  /** A code the screen turns into words and a fix; absent when it works or is off. */
+  problem?: IPv6DiscoveryProblem
+}
+
 /** What the person did to a device. */
 export type DeviceAction = 'name' | 'approve' | 'forget' | 'confirm-gateway'
 

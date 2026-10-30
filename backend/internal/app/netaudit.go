@@ -48,6 +48,8 @@ type netauditServices struct {
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
 	DecoyStore  *persistence.DecoyTouchStore
+	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
+	Discovery6 *netaudit.Discovery6Config
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
 	PresenceConfig *netaudit.PresenceConfig
 	Presence       *netaudit.Presence
@@ -63,6 +65,20 @@ func (n neighborSource) Neighbors(context.Context) (netaudit.NeighborTable, erro
 	}
 	out := netaudit.NeighborTable{Gateway: table.Gateway, Entries: neighborsOf(table.Entries), Entries6: neighborsOf(table.Entries6)}
 	return out, nil
+}
+
+// echoDiscoverer adapts the platform's IPv6 echo to the audit's port, turning the platform's errors into the audit's.
+type echoDiscoverer struct{}
+
+func (echoDiscoverer) Discover(ctx context.Context, interfaces []string) error {
+	err := neighbors.Discover6(ctx, interfaces)
+	switch {
+	case errors.Is(err, neighbors.ErrNotPermitted):
+		return netaudit.ErrDiscoveryNotPermitted
+	case errors.Is(err, neighbors.ErrUnavailable):
+		return netaudit.ErrDiscoveryUnavailable
+	}
+	return err
 }
 
 func neighborsOf(entries []neighbors.Entry) []netaudit.Neighbor {
@@ -197,15 +213,16 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
 	inventoryStore := persistence.NewDeviceInventoryStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The list of devices seen on the network", inventoryStore.Delete)
+	discovery6 := netaudit.NewDiscovery6Config(store)
 	inventory := netaudit.NewInventory(inventoryStore, neighborSource{reader: neighbors.NewReader()},
-		func(a netip.Addr) bool { return scope.Policy().Check(a) == nil })
+		func(a netip.Addr) bool { return scope.Policy().Check(a) == nil }).WithDiscovery6(echoDiscoverer{}, discovery6.Enabled)
 	identityStore := persistence.NewDeviceIdentityStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The remembered SSH host keys and certificates", identityStore.Delete)
 	presenceConfig := netaudit.NewPresenceConfig(store)
 	decoyStore := persistence.NewDecoyTouchStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The record of connections to decoy services", decoyStore.Delete)
 	decoyConfig := netaudit.NewDecoyConfig(store)
-	s.netaudit = &netauditServices{DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	s.netaudit = &netauditServices{Discovery6: discovery6, DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
@@ -265,12 +282,12 @@ func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence
 		InScope: func(a netip.Addr) bool { return scope.Policy().Check(a) == nil },
 		IsOwn:   ownAddress,
 		Store:   store,
-		Notify: func(ctx context.Context, message string) error {
+		Notify: func(ctx context.Context, sources []string) error {
 			comm := communicationTools(s.toolProvider)
 			if comm == nil || len(comm.Types()) == 0 {
 				return errors.New("no connector is set up to send alerts")
 			}
-			return comm.NotifyAll(ctx, message, "")
+			return comm.NotifyAll(ctx, netaudit.DecoyMessage(sources), "")
 		},
 		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
 	})

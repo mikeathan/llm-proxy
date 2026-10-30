@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { DeviceInventory, NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
-  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(),
+  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirm = vi.hoisted(() => vi.fn())
@@ -35,6 +35,7 @@ describe('DevicesCard', () => {
     confirm.mockReset()
     service.devices.mockResolvedValue(inventory())
     service.presence.mockResolvedValue(presence())
+    service.ipv6Discovery.mockResolvedValue({ enabled: false })
     useNetauditViewMode().set('simple')
   })
 
@@ -123,5 +124,28 @@ describe('DevicesCard', () => {
     service.presence.mockRejectedValue(new Error('down'))
     const w = await mountCard()
     expect(w.text()).toContain('could not be read')
+  })
+
+  it('switches IPv6 discovery on with one tap', async () => {
+    service.setIpv6Discovery.mockResolvedValue({ enabled: true })
+    const w = await mountCard()
+    await w.get('[data-test="ipv6-discovery"] [role="switch"]').setValue(true)
+    await flushPromises()
+    expect(service.setIpv6Discovery).toHaveBeenCalledWith(true)
+  })
+
+  it('says in plain words what to change when the computer refuses, and shows the exact command', async () => {
+    service.ipv6Discovery.mockResolvedValue({ enabled: true, problem: 'not_permitted' })
+    const w = await mountCard()
+    const note = w.get('[data-test="ipv6-problem"]')
+    expect(note.attributes('role')).toBe('alert')
+    expect(note.text()).toContain('ping_group_range')
+    expect(note.text()).toContain('sudo sysctl')
+  })
+
+  it('shows no IPv6 problem while the switch is off', async () => {
+    service.ipv6Discovery.mockResolvedValue({ enabled: false, problem: 'not_permitted' })
+    const w = await mountCard()
+    expect(w.find('[data-test="ipv6-problem"]').exists()).toBe(false)
   })
 })
