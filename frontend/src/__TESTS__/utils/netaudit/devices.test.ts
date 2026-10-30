@@ -33,3 +33,10 @@ describe('presenceLine', () => {
 describe('intervalOptions', () => {
   it('offers exactly what the server allows', () => expect(intervalOptions(presence()).map((o) => o.value)).toEqual(['5', '10', '15', '30']))
 })
+
+describe('deviceDetail for a device seen only over IPv6', () => {
+  it('shows its IPv6 address instead of an empty one', () => {
+    const d = device({ ip: undefined, ipv6: ['fe80::9'], approved: false, new: true })
+    expect(deviceDetail(d, NOW)).toBe('fe80::9 · seen 5 minutes ago')
+  })
+})

@@ -340,7 +340,10 @@ export type DeepOutcomeState = 'problems' | 'clean' | 'nothing'
 /** One device seen on the network, by its hardware (MAC) address. */
 export interface NetworkDevice {
   mac: string
-  ip: string
+  /** The IPv4 address; absent for a device only seen over IPv6. */
+  ip?: string
+  /** IPv6 addresses, newest first. */
+  ipv6?: string[]
   /** What the person calls it; empty until they name it. */
   name?: string
   first_seen: string

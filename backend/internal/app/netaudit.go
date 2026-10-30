@@ -61,11 +61,16 @@ func (n neighborSource) Neighbors(context.Context) (netaudit.NeighborTable, erro
 	if err != nil {
 		return netaudit.NeighborTable{}, err
 	}
-	out := netaudit.NeighborTable{Gateway: table.Gateway, Entries: make([]netaudit.Neighbor, 0, len(table.Entries))}
-	for _, e := range table.Entries {
-		out.Entries = append(out.Entries, netaudit.Neighbor{Addr: e.Addr, MAC: e.MAC})
-	}
+	out := netaudit.NeighborTable{Gateway: table.Gateway, Entries: neighborsOf(table.Entries), Entries6: neighborsOf(table.Entries6)}
 	return out, nil
+}
+
+func neighborsOf(entries []neighbors.Entry) []netaudit.Neighbor {
+	out := make([]netaudit.Neighbor, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, netaudit.Neighbor{Addr: e.Addr, MAC: e.MAC, Interface: e.Interface})
+	}
+	return out
 }
 
 // NetauditInventory is where the run reporter looks at who is on the network; nil until the services are wired.

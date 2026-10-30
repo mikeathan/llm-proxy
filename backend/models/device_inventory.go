@@ -28,8 +28,12 @@ type DeviceInventory struct {
 // NetworkDevice is one MAC address seen on the network.
 type NetworkDevice struct {
 	MAC string `json:"mac"`
-	// IP is the address it had when last seen.
-	IP string `json:"ip"`
+	// IP is the IPv4 address it had when last seen; empty for a device only ever seen over IPv6. Every finding is keyed by
+	// it, so a device without one cannot have a finding.
+	IP string `json:"ip,omitempty"`
+	// IPv6 are the IPv6 addresses it was seen with, newest first. Privacy addresses change every day, so they are shown
+	// and never used to key anything.
+	IPv6 []string `json:"ipv6,omitempty"`
 	// Name is what the operator calls it; it is shown on screen only and never put in a finding, a prompt or a message.
 	Name      string    `json:"name,omitempty"`
 	FirstSeen time.Time `json:"first_seen"`

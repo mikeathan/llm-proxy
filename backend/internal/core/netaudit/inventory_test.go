@@ -341,3 +341,70 @@ func contains(list []string, s string) bool {
 	}
 	return false
 }
+
+func nb6(ip, mac, iface string) Neighbor {
+	return Neighbor{Addr: netip.MustParseAddr(ip), MAC: mac, Interface: iface}
+}
+
+func withV6(t NeighborTable, v6 ...Neighbor) NeighborTable { t.Entries6 = v6; return t }
+
+func v4(ip, mac string) Neighbor { n := nb(ip, mac); n.Interface = "wlp2s0"; return n }
+
+func TestObserve_ADualStackDeviceKeepsItsIPv4AddressAndGainsIPv6(t *testing.T) {
+	inv := Observe(models.DeviceInventory{}, table("", v4("192.168.1.20", macTV)), anywhere, t0)
+	later := t0.Add(time.Hour)
+	inv = Observe(inv, withV6(table("", v4("192.168.1.20", macTV)), nb6("fe80::1", macTV, "wlp2s0"), nb6("2001:db8::20", macTV, "wlp2s0")), anywhere, later)
+	d := find(inv, macTV)
+	if d.IP != "192.168.1.20" || len(d.IPv6) != 2 || len(inv.Shared) != 0 {
+		t.Fatalf("device = %+v, shared = %+v", d, inv.Shared)
+	}
+	if got := InventoryFindings(inv, later); len(got) != 0 {
+		t.Errorf("one device with two address families is not a duplicate: %+v", got)
+	}
+}
+
+func TestObserve_IPv6OnAnotherSegmentIsIgnored(t *testing.T) {
+	inv := Observe(models.DeviceInventory{}, withV6(table("", v4("192.168.1.20", macTV)), nb6("fe80::1", macOther, "docker0")), anywhere, t0)
+	if find(inv, macOther) != nil {
+		t.Errorf("a docker bridge's neighbour is not on this network: %+v", inv.Devices)
+	}
+}
+
+func TestObserve_ADeviceSeenOnlyOverIPv6IsNewButHasNoFindingKey(t *testing.T) {
+	base := Observe(models.DeviceInventory{}, table("", v4("192.168.1.20", macTV)), anywhere, t0)
+	later := t0.Add(time.Hour)
+	inv := Observe(base, withV6(table("", v4("192.168.1.20", macTV)), nb6("fe80::9", macOther, "wlp2s0")), anywhere, later)
+	d := find(inv, macOther)
+	if d == nil || d.IP != "" || d.Approved || len(d.IPv6) != 1 {
+		t.Fatalf("device = %+v", d)
+	}
+	if got := InventoryFindings(inv, later); len(got) != 0 {
+		t.Errorf("a finding needs an IPv4 address to be keyed by: %+v", got)
+	}
+	p := pendingOf(inv, later)
+	if p.NewDevices != 1 {
+		t.Errorf("the operator is still told about it: %+v", p)
+	}
+	if v := ViewOf(inv, later); !v.Devices[0].New || v.Devices[0].MAC != macOther {
+		t.Errorf("and it is listed first: %+v", v.Devices)
+	}
+}
+
+func TestObserve_AFirstLookWithAnIPv6OnlyDeviceTreatsItAsBaseline(t *testing.T) {
+	inv := Observe(models.DeviceInventory{}, withV6(table("", v4("192.168.1.20", macTV)), nb6("fe80::9", macOther, "wlp2s0")), anywhere, t0)
+	if d := find(inv, macOther); d == nil || !d.Approved {
+		t.Errorf("device = %+v", d)
+	}
+}
+
+func TestObserve_IPv6AddressesAreBoundedAndNewestFirst(t *testing.T) {
+	inv := Observe(models.DeviceInventory{}, table("", v4("192.168.1.20", macTV)), anywhere, t0)
+	for i := 0; i < maxIPv6PerDevice+4; i++ {
+		addr := netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 15: byte(i + 1)}).String()
+		inv = Observe(inv, withV6(table("", v4("192.168.1.20", macTV)), nb6(addr, macTV, "wlp2s0")), anywhere, t0.Add(time.Duration(i+1)*time.Hour))
+	}
+	d := find(inv, macTV)
+	if len(d.IPv6) != maxIPv6PerDevice || d.IPv6[0] != netip.AddrFrom16([16]byte{0x20, 0x01, 0x0d, 0xb8, 15: byte(maxIPv6PerDevice + 4)}).String() {
+		t.Errorf("addresses = %v", d.IPv6)
+	}
+}

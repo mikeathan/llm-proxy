@@ -101,6 +101,7 @@ onMounted(load)
             <p class="m-0 text-[length:var(--text-small)] text-muted">
               {{ deviceDetail(device) }}
               <span v-if="advanced" class="font-mono"> · {{ device.mac }}</span>
+              <span v-if="advanced && device.ipv6?.length" class="break-all font-mono"> · {{ device.ipv6.join(", ") }}</span>
             </p>
             <form v-if="editing === device.mac" class="flex flex-wrap items-center gap-2" @submit.prevent="saveName(device)">
               <input

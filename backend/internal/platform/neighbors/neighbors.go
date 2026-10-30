@@ -38,6 +38,10 @@ type Entry struct {
 // Table is a read of the neighbour table.
 type Table struct {
 	Entries []Entry
+	// Entries6 are the IPv6 neighbours. They are read on a best effort: IPv6 may be switched off or unreadable without the
+	// IPv4 table being any worse, so a failure is in Note6 and does not fail the read.
+	Entries6 []Entry
+	Note6    string
 	// Gateway is the default route's next hop, or the zero Addr when the host has none.
 	Gateway netip.Addr
 }
@@ -139,6 +143,11 @@ func (rd Reader) Read() (Table, error) {
 		return Table{}, fmt.Errorf("failed to read the neighbour table: %w", err)
 	}
 	table := Table{Entries: entries}
+	if e6, err := read6(); err != nil {
+		table.Note6 = err.Error()
+	} else {
+		table.Entries6 = e6
+	}
 	if rf, err := os.Open(rd.RoutePath); err == nil {
 		defer rf.Close()
 		table.Gateway, _ = ParseDefaultGateway(rf)
