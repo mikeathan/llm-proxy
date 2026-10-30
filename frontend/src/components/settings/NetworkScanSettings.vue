@@ -10,6 +10,7 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import AuditList from "../netaudit/AuditList.vue"
 import VulnDataCard from "../netaudit/VulnDataCard.vue"
+import DevicesCard from "../netaudit/DevicesCard.vue"
 import ReadinessBanner from "../netaudit/ReadinessBanner.vue"
 import NetauditToolbar from "../netaudit/NetauditToolbar.vue"
 import NetauditHelp from "../netaudit/NetauditHelp.vue"
@@ -116,6 +117,8 @@ onMounted(async () => {
       </Panel>
 
       <VulnDataCard />
+
+      <DevicesCard />
 
       <Panel title="Network audit">
         <div class="flex flex-col gap-3">

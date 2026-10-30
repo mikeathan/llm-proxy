@@ -392,3 +392,96 @@ func TestRunReporter_ExpectationTroubleIsStatedAndNeverHidesTheScan(t *testing.T
 		t.Errorf("report:\n%s", got)
 	}
 }
+
+type fakeLook struct {
+	snap Snapshot
+	err  error
+}
+
+func (f fakeLook) Refresh(context.Context) (Snapshot, error) { return f.snap, f.err }
+
+func inventoryWith(devices ...models.NetworkDevice) models.DeviceInventory {
+	return models.DeviceInventory{Baselined: true, Devices: devices}
+}
+
+func TestRunReporter_TheDeviceInventoryJoinsTheReportAndTheBaseline(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	snap := Snapshot{Inventory: inventoryWith(models.NetworkDevice{MAC: macTV, IP: "10.0.0.5", FirstSeen: reportTime, LastSeen: reportTime}),
+		Current: []Neighbor{nb("10.0.0.5", macTV)}}
+	r := reporter(store, reportTime).WithInventory(fakeLook{snap: snap})
+	got := r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	if !strings.Contains(got, "New device on the network") {
+		t.Errorf("the new device is in the report:\n%s", got)
+	}
+	if keys := keysOf(Diff(nil, store.data["ws/nightly"].Findings).New); !slices.Contains(keys, "10.0.0.5||0|"+CheckNewDevice) {
+		t.Errorf("the finding is kept in the baseline: %v", keys)
+	}
+}
+
+func TestRunReporter_InventoryFindingsOfDevicesThisScanDidNotLookAtAreLeftOut(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	snap := Snapshot{Inventory: inventoryWith(
+		models.NetworkDevice{MAC: macTV, IP: "10.0.0.5", FirstSeen: reportTime, LastSeen: reportTime},
+		models.NetworkDevice{MAC: macOther, IP: "10.0.0.6", FirstSeen: reportTime, LastSeen: reportTime})}
+	// A rescan of one device must not report every other new device as new.
+	r := reporter(store, reportTime).WithInventory(fakeLook{snap: snap})
+	r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	for _, f := range store.data["ws/nightly"].Findings {
+		if f.Check == CheckNewDevice && f.Device != "10.0.0.5" {
+			t.Errorf("a finding for a device this scan did not look at: %+v", f)
+		}
+	}
+}
+
+func TestRunReporter_ASilentDeviceIsReportedFromTheNeighbourTable(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	snap := Snapshot{Inventory: inventoryWith(), Current: []Neighbor{nb("10.0.0.7", macTV)}}
+	r := reporter(store, reportTime).WithInventory(fakeLook{snap: snap})
+	got := r.Augment(scannedHosts(Host{Addr: netip.MustParseAddr("10.0.0.7")}), "ws", "nightly", "ok")
+	if !strings.Contains(got, "Device that answers but stays silent") {
+		t.Errorf("report:\n%s", got)
+	}
+}
+
+func TestRunReporter_NotBeingAbleToLookIsStatedNeverReadAsClean(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime).WithInventory(fakeLook{err: errors.New("no table")})
+	got := r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	if !strings.Contains(got, "could not be checked") || !strings.Contains(got, "10.0.0.5") {
+		t.Errorf("the trouble is stated and the scan is still reported:\n%s", got)
+	}
+}
+
+type fakeTracker struct {
+	findings []Finding
+	err      error
+}
+
+func (f fakeTracker) Track(context.Context, []Host) ([]Finding, error) { return f.findings, f.err }
+
+func TestRunReporter_AChangedIdentityJoinsTheReportAndIsKept(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	changed := Finding{Device: "10.0.0.5", Port: 22, Proto: "tcp", Check: CheckHostKeyChanged, Severity: SeverityMedium, Evidence: "changed"}
+	r := reporter(store, reportTime).WithIdentities(fakeTracker{findings: []Finding{changed, {Device: "10.0.0.99", Port: 22, Proto: "tcp", Check: CheckHostKeyChanged}}})
+	got := r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	if !strings.Contains(got, "SSH host key") && !strings.Contains(got, "host key") {
+		t.Errorf("report:\n%s", got)
+	}
+	for _, f := range store.data["ws/nightly"].Findings {
+		if f.Device == "10.0.0.99" {
+			t.Errorf("a finding for a device this scan did not look at: %+v", f)
+		}
+	}
+	if keys := keysOf(Diff(nil, store.data["ws/nightly"].Findings).New); !slices.Contains(keys, "10.0.0.5|tcp|22|"+CheckHostKeyChanged) {
+		t.Errorf("not kept: %v", keys)
+	}
+}
+
+func TestRunReporter_IdentityTroubleIsStatedAndNeverHidesTheScan(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime).WithIdentities(fakeTracker{err: errors.New("disk gone")})
+	got := r.Augment(scannedHosts(hostOf("10.0.0.5", true, false, 22)), "ws", "nightly", "ok")
+	if !strings.Contains(got, "could not be checked") || !strings.Contains(got, "10.0.0.5") {
+		t.Errorf("report:\n%s", got)
+	}
+}

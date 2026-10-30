@@ -358,6 +358,19 @@ adds one finding per port: "this software version may be affected by N known fla
 **Review.** Reviewed 2026-10-27 (row 3 of the review log in §12); the owner's acceptance is still needed before Phase 1.
 
 
+## Device inventory and the presence check (as built 2026-10-29, v0.25.0)
+
+Harvested from [`PLANS/cross-cutting/network-detection.md`](../PLANS/cross-cutting/network-detection.md) §5; the reasons are in [ADR-0014](../decisions/ADR-0014-presence-check-and-device-inventory.md).
+
+- **Source.** `platform/neighbors` parses `/proc/net/arp` (complete, unicast entries only; an entry the kernel asked about and nobody answered has flags `0x0` and a zero MAC and is skipped) and the default route in `/proc/net/route`. Off Linux it returns `ErrUnavailable`. `app/netaudit.go` adapts it to the domain's `NeighborSource`.
+- **Inventory.** `core/netaudit/inventory.go`: `Observe` is pure; `Inventory` holds the mutex, the store (`persistence.DeviceInventoryStore`, `devices.json` in the data root, deleted by a factory reset), the scan scope as an `inScope` predicate and the operator's actions (`Name` approves, `Approve`, `Forget`, `ConfirmGateway`). A failed read of the table changes nothing. The first look that finds anything is the baseline.
+- **Findings.** `InventoryFindings(inv, now)` and `HiddenDeviceFindings(current, hosts)`; checks `new_device`, `mac_changed`, `gateway_mac_changed`, `duplicate_mac`, `device_missing`, `hidden_device`, each with title, fix and guide (completeness tests). `RunReporter.WithInventory` calls `Refresh` after the scan and keeps only findings of devices that scan looked at, so a rescan of one device does not report the rest as new.
+- **Presence check.** `core/netaudit/presence.go`; settings in `NetauditConfig` (`presence_check`, `presence_interval_minutes`) through `PresenceConfig`; started by `AppServices.StartNetauditPresence` from `app.New`. Pending alerts are derived from the inventory (`Inventory.Pending`) and marked after a successful send (`MarkNotified`). The message is `PresenceMessage`: counts, no names.
+- **API.** `GET/PUT /admin/api/netaudit/presence`, `GET /admin/api/netaudit/devices`, `PUT`/`DELETE /admin/api/netaudit/devices/{mac}`, `POST /admin/api/netaudit/devices/gateway/confirm` (step-up).
+- **UI.** `components/netaudit/DevicesCard.vue`, `composables/netaudit/useDevices.ts`, `utils/netaudit/devices.ts`.
+- **Identity drift.** `core/netaudit/identity.go` (`ObservedIdentities`, the pure `TrackIdentities`, `IdentityFindings`, the `Identities` service) reads fingerprints from the `ssh-hostkey` and `ssl-cert` output, stores them in `identities.json` (`persistence.DeviceIdentityStore`, deleted by a factory reset), and `RunReporter.WithIdentities` adds `hostkey_changed` and `cert_changed` for the devices that scan looked at.
+- **Port checks.** `portchecks.go` holds one `exposures` table (check, ports, a confirming test, and the words for "confirmed" and "port only"); `DefaultPorts` and `ThoroughPorts` carry the ports.
+
 ## Appendix A — what packet capture (wireshark/tcpdump) would need
 
 A **separate category** (e.g. `netcapture`), not part of `netaudit`: it needs elevated rights (conflicts with the

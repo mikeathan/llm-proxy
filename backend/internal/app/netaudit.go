@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/netip"
@@ -14,6 +15,8 @@ import (
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/progexec"
 	"llm-proxy/internal/platform/storage"
@@ -33,6 +36,52 @@ type netauditServices struct {
 	Deep *netaudit.DeepChecks
 	// Vulns holds the vulnerability data and runs its operator-started download.
 	Vulns *vulnfeed.Manager
+	// Inventory is who has been seen on the network, shared by the nightly audit and the presence check.
+	Inventory *netaudit.Inventory
+	// Identities remembers each service's SSH host keys and TLS certificate, to report one that was replaced.
+	Identities *netaudit.Identities
+	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
+	PresenceConfig *netaudit.PresenceConfig
+	Presence       *netaudit.Presence
+}
+
+// neighborSource adapts the host's neighbour table to the audit's port.
+type neighborSource struct{ reader neighbors.Reader }
+
+func (n neighborSource) Neighbors(context.Context) (netaudit.NeighborTable, error) {
+	table, err := n.reader.Read()
+	if err != nil {
+		return netaudit.NeighborTable{}, err
+	}
+	out := netaudit.NeighborTable{Gateway: table.Gateway, Entries: make([]netaudit.Neighbor, 0, len(table.Entries))}
+	for _, e := range table.Entries {
+		out.Entries = append(out.Entries, netaudit.Neighbor{Addr: e.Addr, MAC: e.MAC})
+	}
+	return out, nil
+}
+
+// NetauditInventory is where the run reporter looks at who is on the network; nil until the services are wired.
+func (s AppServices) NetauditInventory() netaudit.InventoryLook {
+	if s.netaudit == nil || s.netaudit.Inventory == nil {
+		return nil
+	}
+	return s.netaudit.Inventory
+}
+
+// NetauditIdentities is where the run reporter compares host keys and certificates; nil until the services are wired.
+func (s AppServices) NetauditIdentities() netaudit.IdentityTracker {
+	if s.netaudit == nil || s.netaudit.Identities == nil {
+		return nil
+	}
+	return s.netaudit.Identities
+}
+
+// StartNetauditPresence runs the presence check until ctx ends. It is the one place that starts it (Constitution II.2,
+// II.14); a check that is switched off in the settings does nothing.
+func (s AppServices) StartNetauditPresence(ctx context.Context) {
+	if s.netaudit != nil && s.netaudit.Presence != nil {
+		go s.netaudit.Presence.Run(ctx)
+	}
 }
 
 // NetauditVulns is where the run reporter reads the vulnerability data from; nil until the services are wired.
@@ -114,9 +163,46 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	})
 	// The downloaded vulnerability data lives beside the settings, outside what a factory reset replaces; a reset clears it too.
 	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
-	s.netaudit = &netauditServices{Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	inventoryStore := persistence.NewDeviceInventoryStore(s.AppCtx.RootDir())
+	s.AppCtx.AfterFactoryReset("The list of devices seen on the network", inventoryStore.Delete)
+	inventory := netaudit.NewInventory(inventoryStore, neighborSource{reader: neighbors.NewReader()},
+		func(a netip.Addr) bool { return scope.Policy().Check(a) == nil })
+	identityStore := persistence.NewDeviceIdentityStore(s.AppCtx.RootDir())
+	s.AppCtx.AfterFactoryReset("The remembered SSH host keys and certificates", identityStore.Delete)
+	presenceConfig := netaudit.NewPresenceConfig(store)
+	s.netaudit = &netauditServices{Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
 	}
 }
+
+// newPresence builds the presence check. It sweeps through the scan service, so the declared scope and the one-scan-at-a-time
+// rule apply; the alert goes to every connector, in counts and fixed words, and no model is involved.
+func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit.Inventory, config *netaudit.PresenceConfig) *netaudit.Presence {
+	return netaudit.NewPresence(netaudit.PresenceDeps{
+		Settings: config.Settings,
+		Sweep: func(ctx context.Context, targets []string) error {
+			_, err := service.Scan(ctx, netaudit.Request{Targets: targets, Mode: netaudit.ModeDiscover, Unattended: true})
+			return err
+		},
+		Inventory: inventory,
+		Notify: func(ctx context.Context, message string) error {
+			comm := communicationTools(s.toolProvider)
+			if comm == nil || len(comm.Types()) == 0 {
+				// Not marked as told: the alert stays pending until a connector exists, and the screen shows it meanwhile.
+				return errors.New("no connector is set up to send alerts")
+			}
+			return comm.NotifyAll(ctx, message, "")
+		},
+		OnError: func(err error) { logging.Warn("network presence check", "error", err.Error()) },
+	})
+}
+
+// netauditPresence joins the presence check's settings with the check's own status for the handlers.
+type netauditPresence struct {
+	*netaudit.PresenceConfig
+	check *netaudit.Presence
+}
+
+func (p netauditPresence) Status() netaudit.PresenceStatus { return p.check.Status() }

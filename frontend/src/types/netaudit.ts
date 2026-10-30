@@ -189,7 +189,7 @@ export interface ScanSettings {
 }
 
 /** The parts of the Help panel; a warning opens it on the one that explains it. */
-export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'fixes' | 'deep' | 'safety' | 'words'
+export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'devices' | 'fixes' | 'deep' | 'safety' | 'words'
 
 export interface HelpSection {
   title: string
@@ -336,3 +336,52 @@ export interface DeepCheck {
 
 /** What a deep check came to: problems found, a service judged and clean, or no TLS or SSH service to judge at all. */
 export type DeepOutcomeState = 'problems' | 'clean' | 'nothing'
+
+/** One device seen on the network, by its hardware (MAC) address. */
+export interface NetworkDevice {
+  mac: string
+  ip: string
+  /** What the person calls it; empty until they name it. */
+  name?: string
+  first_seen: string
+  last_seen: string
+  approved: boolean
+  /** A private hardware address, as phones and laptops use to hide the real one. */
+  randomized: boolean
+  /** Not approved and seen lately: the same test that makes it a finding. */
+  new: boolean
+}
+
+/** The router's hardware address and whether it is the one on record. */
+export interface DeviceGateway {
+  ip?: string
+  mac?: string
+  changed: boolean
+}
+
+/** The devices seen on the network, those needing a look first. */
+export interface DeviceInventory {
+  devices: NetworkDevice[]
+  gateway: DeviceGateway
+  baselined: boolean
+  updated_at: string
+}
+
+/** The presence check: a light look every few minutes for a device that was not there before. */
+export interface PresenceState {
+  enabled: boolean
+  interval_minutes: number
+  allowed_intervals: number[]
+  /** When the last check finished; absent before the first. */
+  last_check?: string
+  /** Plain words for why the check cannot look; never "nobody is there". */
+  problem?: string
+}
+
+export interface PresenceUpdate {
+  enabled: boolean
+  interval_minutes: number
+}
+
+/** What the person did to a device. */
+export type DeviceAction = 'name' | 'approve' | 'forget' | 'confirm-gateway'
