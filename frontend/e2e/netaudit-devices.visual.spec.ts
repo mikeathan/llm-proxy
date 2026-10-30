@@ -1,0 +1,56 @@
+import { expect, test, type Page } from '@playwright/test'
+import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
+
+// Settings → Network scan → Devices on your network, in the states that matter: a new device waiting for a decision, the
+// router's hardware address changed, and a check that cannot look. At both widths and in Simple and Advanced nothing may
+// scroll sideways and every action is a comfortable touch target. The screenshots are for looking at.
+const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconfined: false, device_timeout_minutes: 0, suggestions: [] }
+const seen = new Date(Date.now() - 5 * 60_000).toISOString()
+const device = (over: object) => ({ mac: 'aa:bb:cc:00:00:01', ip: '192.168.1.5', first_seen: seen, last_seen: seen, approved: true, randomized: false, new: false, ...over })
+const presence = { enabled: true, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30], last_check: seen }
+const STATES = {
+  'new-device': {
+    devices: { devices: [device({ mac: 'aa:bb:cc:00:00:09', ip: '192.168.1.77', approved: false, new: true }), device({ name: 'Printer' }), device({ mac: 'da:a1:19:2c:00:09', ip: '192.168.1.30', randomized: true })], gateway: { ip: '192.168.1.1', mac: 'aa:bb:cc:00:00:02', changed: false }, baselined: true, updated_at: seen },
+    presence,
+  },
+  'router-changed': {
+    devices: { devices: [device({ name: 'Printer' })], gateway: { ip: '192.168.1.1', mac: 'aa:bb:cc:00:00:99', changed: true }, baselined: true, updated_at: seen },
+    presence,
+  },
+  'cannot-look': {
+    devices: { devices: [], gateway: { changed: false }, baselined: false, updated_at: '0001-01-01T00:00:00Z' },
+    presence: { ...presence, last_check: undefined, problem: 'this computer cannot list the devices on its network (only Linux can)' },
+  },
+} as const
+
+async function open(page: Page, view: 'simple' | 'advanced', state: (typeof STATES)[keyof typeof STATES]) {
+  await setNetauditView(page, view)
+  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/devices': state.devices, '/netaudit/presence': state.presence } })
+  await page.goto('settings/network-scan')
+  await expect(page.getByRole('heading', { name: 'Devices on your network' })).toBeVisible()
+}
+
+for (const view of ['simple', 'advanced'] as const) {
+  for (const name of Object.keys(STATES) as (keyof typeof STATES)[]) {
+    test(`devices card, ${name} (${view}), fits the screen`, async ({ page }, testInfo) => {
+      await open(page, view, STATES[name])
+      await expectNoSidewaysScroll(page)
+      const card = page.locator('[data-test="devices"]')
+      if (name === 'new-device') {
+        await expect(card.getByText('New', { exact: true })).toBeVisible()
+        const claim = card.getByRole('button', { name: "It's mine" })
+        await expect(claim).toBeVisible()
+        if (testInfo.project.name === 'mobile') expect((await claim.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+        if (view === 'advanced') await expect(card.getByText('aa:bb:cc:00:00:09')).toBeVisible()
+        else await expect(card.getByText('aa:bb:cc:00:00:09')).toHaveCount(0)
+      }
+      if (name === 'router-changed') {
+        const confirm = card.getByRole('button', { name: /confirm/i })
+        await expect(confirm).toBeVisible()
+        if (testInfo.project.name === 'mobile') expect((await confirm.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+      }
+      if (name === 'cannot-look') await expect(card.getByText('Cannot look right now')).toBeVisible()
+      await lookAt(page.getByRole('region', { name: 'Devices on your network' }), testInfo, `devices-${name}-${view}`)
+    })
+  }
+}

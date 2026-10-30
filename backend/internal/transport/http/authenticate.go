@@ -87,10 +87,11 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/system/clear-runtime-data"},
 	{http.MethodPut, "/admin/api/host"}, // the sandbox and terminal switches
 	{http.MethodPost, "/admin/api/auth/tokens"},
-	{http.MethodPut, "/admin/api/auth/session-length"},       // a longer session weakens sign-in
-	{http.MethodPost, "/admin/api/netaudit/deep"},            // an intrusive scan of one device (Constitution II.3): the operator, freshly confirmed
-	{http.MethodDelete, "/admin/api/netaudit/vulndata"},      // removes what every audit compares with: the same silencing as a hand-made import
-	{http.MethodPost, "/admin/api/netaudit/vulndata/import"}, // replaces what every audit compares with: a hand-made file could silence every known-flaw finding
+	{http.MethodPut, "/admin/api/auth/session-length"},               // a longer session weakens sign-in
+	{http.MethodPost, "/admin/api/netaudit/deep"},                    // an intrusive scan of one device (Constitution II.3): the operator, freshly confirmed
+	{http.MethodPost, "/admin/api/netaudit/devices/gateway/confirm"}, // silences the alarm for a spoofed router: the operator, freshly confirmed
+	{http.MethodDelete, "/admin/api/netaudit/vulndata"},              // removes what every audit compares with: the same silencing as a hand-made import
+	{http.MethodPost, "/admin/api/netaudit/vulndata/import"},         // replaces what every audit compares with: a hand-made file could silence every known-flaw finding
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

@@ -5,8 +5,18 @@ import { DEFAULT_CONFIG } from '../../src/composables/models/useConfig'
 // read as lists answer `[]` (a `{}` there throws in the page and hides the section under test); anything unknown `{}`.
 const LIST_ENDPOINTS = ['/manifests', '/mcp', '/workspaces', '/profiles', '/profile-schema', '/automations']
 const READY = { ready: true, requirements: [], notices: [] }
+// No devices seen and the new-device check off, the answers the Devices card needs to draw.
+const DEVICES = { devices: [], gateway: { changed: false }, baselined: true, updated_at: '0001-01-01T00:00:00Z' }
+const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30] }
 // Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
 const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
+
+const DEFAULT_ANSWERS: Record<string, unknown> = {
+  '/netaudit/readiness': READY,
+  '/auth/status': SIGNED_IN,
+  '/netaudit/devices': DEVICES,
+  '/netaudit/presence': PRESENCE,
+}
 
 type Answers = Record<string, unknown>
 
@@ -22,17 +32,16 @@ export async function mockAdminApi(page: Page, { answers = {}, config = DEFAULT_
   await page.route('**/admin/api/**', async (route) => {
     const path = new URL(route.request().url()).pathname
     const given = Object.keys(answers).find((suffix) => path.endsWith(suffix))
+    const fallback = Object.keys(DEFAULT_ANSWERS).find((suffix) => path.endsWith(suffix))
     const json = given
       ? answers[given]
       : path.endsWith('/state')
         ? state
-        : path.endsWith('/netaudit/readiness')
-          ? READY
-          : path.endsWith('/auth/status')
-            ? SIGNED_IN
-            : LIST_ENDPOINTS.some((suffix) => path.endsWith(suffix))
-              ? []
-              : {}
+        : fallback
+          ? DEFAULT_ANSWERS[fallback]
+          : LIST_ENDPOINTS.some((suffix) => path.endsWith(suffix))
+            ? []
+            : {}
     await route.fulfill({ json })
   })
 }

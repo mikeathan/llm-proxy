@@ -24,6 +24,8 @@ type RunReporter struct {
 	vulns  VulnSource       // optional: the vulnerability data known_vulns findings are matched against
 	expect ExpectationStore // optional: what the operator says each device should offer
 	deep   DeepReader       // optional: the operator's last deep check of each device
+	look   InventoryLook    // optional: who is on the network, from the host's neighbour table
+	idents IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
 	now    func() time.Time
 }
 
@@ -49,6 +51,32 @@ func (r *RunReporter) WithFixes(fixes FixStore) *RunReporter {
 // findings, so they are compared with the last scan, accepted and kept like any other. Without it nothing is compared.
 func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
 	r.expect = store
+	return r
+}
+
+// InventoryLook is a look at who is on the network that also keeps the device inventory up to date: *Inventory.
+type InventoryLook interface {
+	Refresh(ctx context.Context) (Snapshot, error)
+}
+
+// IdentityTracker records the SSH host keys and TLS certificates a scan saw and returns the findings for those that changed:
+// *Identities.
+type IdentityTracker interface {
+	Track(ctx context.Context, hosts []Host) ([]Finding, error)
+}
+
+// WithIdentities makes the reporter compare the host keys and certificates this scan read with the ones it read before.
+// Without it nothing is compared.
+func (r *RunReporter) WithIdentities(t IdentityTracker) *RunReporter {
+	r.idents = t
+	return r
+}
+
+// WithInventory makes the reporter look at the host's neighbour table after the scan and add what the device inventory
+// found (new devices, changed addresses, the router's hardware address and the rest) to the scan's findings. Without it
+// nothing is compared.
+func (r *RunReporter) WithInventory(look InventoryLook) *RunReporter {
+	r.look = look
 	return r
 }
 
@@ -87,7 +115,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		return report
 	}
 	cov := r.addKnownVulns(ctx, &result)
-	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
+	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
@@ -300,6 +328,37 @@ func (r *RunReporter) addExpectations(workspaceID string, result *Result) string
 		return fmt.Sprintf("\n\n> Note: the expected ports could not be read, so they were not compared (%v).", err)
 	}
 	result.Findings = append(result.Findings, ExpectationFindings(items, result.Hosts)...)
+	return ""
+}
+
+// addInventory looks at the neighbour table straight after the scan, which has just made the host talk to every address, and
+// appends the inventory's findings for the devices this scan looked at. A scan of one device must not report every other
+// device as new, so findings of devices outside the result are left for the full audit. If the host cannot look, the report
+// says so: an unreadable table is not an empty network.
+func (r *RunReporter) addInventory(ctx context.Context, result *Result) string {
+	if r.look == nil {
+		return ""
+	}
+	snap, err := r.look.Refresh(ctx)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: who is on the network could not be checked, so new or changed devices were not looked for (%v).", err)
+	}
+	findings := append(InventoryFindings(snap.Inventory, r.now()), HiddenDeviceFindings(snap.Current, result.Hosts)...)
+	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+	return ""
+}
+
+// addIdentities appends the findings for services whose SSH host keys or TLS certificate differ from the last look. Only
+// devices this scan looked at are reported; trouble with the store is stated and never hides the scan.
+func (r *RunReporter) addIdentities(ctx context.Context, result *Result) string {
+	if r.idents == nil {
+		return ""
+	}
+	findings, err := r.idents.Track(ctx, result.Hosts)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: whether host keys and certificates changed could not be checked (%v).", err)
+	}
+	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
 	return ""
 }
 

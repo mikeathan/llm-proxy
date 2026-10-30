@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DeviceInventory, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource } from '../../types/netaudit'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
 
@@ -97,5 +97,36 @@ export class NetauditService {
 
   static cancelVulnDownload(): Promise<VulnDataStatus> {
     return post<VulnDataStatus>(API_ENDPOINTS.netauditVulnCancel, {})
+  }
+
+  /** Who has been seen on the network. */
+  static devices(): Promise<DeviceInventory> {
+    return get<DeviceInventory>(API_ENDPOINTS.netauditDevices)
+  }
+
+  /** Names a device; naming approves it. Answers with the new list. */
+  static nameDevice(mac: string, name: string): Promise<DeviceInventory> {
+    return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { name })
+  }
+
+  static approveDevice(mac: string): Promise<DeviceInventory> {
+    return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { approved: true })
+  }
+
+  static forgetDevice(mac: string): Promise<DeviceInventory> {
+    return del<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`)
+  }
+
+  /** Accepts the router's current hardware address as the right one. The server asks for the passphrase again first. */
+  static confirmGateway(): Promise<DeviceInventory> {
+    return post<DeviceInventory>(API_ENDPOINTS.netauditGatewayConfirm, {})
+  }
+
+  static presence(): Promise<PresenceState> {
+    return get<PresenceState>(API_ENDPOINTS.netauditPresence)
+  }
+
+  static setPresence(update: PresenceUpdate): Promise<PresenceState> {
+    return put<PresenceState>(API_ENDPOINTS.netauditPresence, update)
   }
 }

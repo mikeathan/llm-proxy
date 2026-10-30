@@ -83,7 +83,7 @@ func TestArgs_WhoDecidesWhichAddressesAreLive(t *testing.T) {
 	if !slices.Contains(prefiltered, "-Pn") || !slices.Contains(prefiltered, "-T4") || slices.Contains(prefiltered, "-PS22,80,443,445,5000,8080") {
 		t.Errorf("prefiltered: %v", prefiltered)
 	}
-	if i := slices.Index(prefiltered, "-p"); i < 0 || prefiltered[i+1] != "21,22,23,25,53,80,110,139,143,443,445,515,631,1883,3306,3389,5000,5353,5432,5900,8000,8080,8443,9100,2375,11211,27017" {
+	if i := slices.Index(prefiltered, "-p"); i < 0 || prefiltered[i+1] != "21,22,23,25,53,80,110,139,143,443,445,515,631,1883,3306,3389,5000,5353,5432,5900,8000,8080,8443,9100,2375,11211,27017,873,1080,2323,2379,3128,5555,6000,9200,10250" {
 		t.Errorf("quick must scan the shared default ports: %v", prefiltered)
 	}
 

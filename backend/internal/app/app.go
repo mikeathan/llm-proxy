@@ -146,6 +146,8 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 	if svc.netaudit != nil && svc.netaudit.Vulns != nil {
 		svc.netaudit.Vulns.Attach(ctx)
 	}
+	// The presence check: one loop, tethered to the app context, doing nothing while the operator has it switched off.
+	svc.StartNetauditPresence(ctx)
 
 	// Start the run scheduler before anything can admit runs (Constitution
 	// II.14: tethered to the app root context).

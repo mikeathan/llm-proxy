@@ -70,6 +70,14 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 	if v, ok := svc.(interface{ NetauditVulns() netaudit.VulnSource }); ok && v.NetauditVulns() != nil {
 		reporter.WithVulns(v.NetauditVulns())
 	}
+	if v, ok := svc.(interface{ NetauditInventory() netaudit.InventoryLook }); ok && v.NetauditInventory() != nil {
+		reporter.WithInventory(v.NetauditInventory())
+	}
+	if v, ok := svc.(interface {
+		NetauditIdentities() netaudit.IdentityTracker
+	}); ok && v.NetauditIdentities() != nil {
+		reporter.WithIdentities(v.NetauditIdentities())
+	}
 	exec.SetReportHook(reporter)
 	return exec
 }

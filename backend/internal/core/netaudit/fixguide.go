@@ -284,6 +284,171 @@ var guides = map[string]FixGuide{
 		Risk: "Restarting Docker stops running containers unless live restore is on, and tools that used the open port lose access.",
 		Undo: "Put the saved daemon.json.bak back and restart Docker.",
 	},
+	CheckADBExposed: {
+		Steps: []string{
+			"Find the device. Android phones, TV boxes and tablets open this port when network debugging is on.",
+			"On the device, turn off USB debugging and wireless debugging in Developer options, or restart it, which closes the port on most versions.",
+			"If the device is a TV box or streamer that comes with it open, keep it on a separate guest network or replace it; this port is how many botnets take such devices over.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux + " (from a computer with adb)", "adb connect DEVICE_ADDRESS:5555   # replace with the device's address\nadb usb   # makes the device listen on USB only"},
+		},
+		Risk: "A program or developer tool that used the network connection to the device stops working.",
+		Undo: "Turn wireless debugging back on in Developer options.",
+	},
+	CheckOpenProxy: {
+		Steps: []string{
+			"Find which program is the proxy: on a computer the command below shows it; on a router or other device, look for a proxy or VPN setting.",
+			"Restrict it to the computers that need it (for Squid, an http_access allow line for those addresses only, then http_access deny all), or stop it if nothing uses it.",
+			"A proxy that you did not set up is a sign of a compromised device: change its passwords and update or reset it.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo ss -ltnp | grep -E ':(1080|3128)'   # shows the program that owns the port\nsudo systemctl disable --now squid   # if it is Squid and unused"},
+		},
+		Risk: "Anything configured to use the proxy loses its connection until it is pointed elsewhere.",
+		Undo: "Start the service again and restore its saved configuration.",
+	},
+	CheckElasticsearchExposed: {
+		Steps: []string{
+			"Check whether Elasticsearch needs a login: a request to it should answer 401 without credentials.",
+			"Turn on security in elasticsearch.yml and set the built-in users' passwords.",
+			"Bind it to localhost or the one address that needs it (network.host), and firewall port 9200 from the rest of the network.",
+			"Restart it and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /etc/elasticsearch/elasticsearch.yml /etc/elasticsearch/elasticsearch.yml.bak\n# in elasticsearch.yml set:\n#   xpack.security.enabled: true\n#   network.host: 127.0.0.1\nsudo systemctl restart elasticsearch"},
+		},
+		Risk: "Programs that sent requests without a login are refused until they are given credentials; binding to localhost cuts off other computers.",
+		Undo: "Put the saved elasticsearch.yml.bak back and restart the service.",
+	},
+	CheckX11Exposed: {
+		Steps: []string{
+			"Find the computer. Its display server was started allowing network connections.",
+			"Start it with network connections off (\"-nolisten tcp\"); most current desktops already do, so this is usually an old or custom setting.",
+			"For a remote program window use SSH forwarding (ssh -X) instead.",
+			"Restart the display server and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo ss -ltnp | grep ':6000'   # shows which program listens\n# in the display manager's configuration remove any \"-listen tcp\" and keep \"-nolisten tcp\""},
+		},
+		Risk: "Restarting the display server closes every open window on that computer.",
+		Undo: "Put the saved display manager configuration back and restart it.",
+	},
+	CheckRsyncExposed: {
+		Steps: []string{
+			"Open the rsync daemon's configuration and look at each module (a name in square brackets).",
+			"Limit each module to the hosts that need it (hosts allow) and require a user and a secrets file (auth users, secrets file); make the module read only unless writing is needed.",
+			"If nothing uses the rsync daemon, stop it and use rsync over SSH instead.",
+			"Restart it and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /etc/rsyncd.conf /etc/rsyncd.conf.bak\n# in each module add: hosts allow = ALLOWED_ADDRESS, auth users = a_user, secrets file = /etc/rsyncd.secrets\nsudo systemctl restart rsync"},
+		},
+		Risk: "Backups and syncs that used the module without a login fail until they are given credentials.",
+		Undo: "Put the saved rsyncd.conf.bak back and restart the service.",
+	},
+	CheckKubeletExposed: {
+		Steps: []string{
+			"Check the node's kubelet configuration for anonymous access and the authorization mode.",
+			"Set anonymous authentication off and the authorization mode to Webhook, then restart the kubelet.",
+			"Firewall port 10250 so that only the cluster's own control plane can reach it.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo cp /var/lib/kubelet/config.yaml /var/lib/kubelet/config.yaml.bak\n# in config.yaml set: authentication.anonymous.enabled: false and authorization.mode: Webhook\nsudo systemctl restart kubelet"},
+		},
+		Risk: "Tools that call the kubelet without credentials stop working; a wrong setting can stop the node serving pods.",
+		Undo: "Put the saved config.yaml.bak back and restart the kubelet.",
+	},
+	CheckEtcdExposed: {
+		Steps: []string{
+			"Find how etcd was told to listen: look for listen-client-urls in its configuration.",
+			"Set it to the cluster's own addresses, turn on client certificate checks (client-cert-auth), and firewall port 2379 from everything else.",
+			"Restart etcd one member at a time and run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "sudo ss -ltnp | grep ':2379'\n# in the etcd configuration set listen-client-urls to the cluster addresses only, and client-cert-auth: true"},
+		},
+		Risk: "A cluster whose members or clients cannot reach etcd stops working; change one member at a time.",
+		Undo: "Put the saved etcd configuration back and restart that member.",
+	},
+	CheckNewDevice: {
+		Steps: []string{
+			"Open the device list and look at the address and the first-seen date. Compare it with the devices in the router's list of connected devices; the router shows names for most of them.",
+			"If it is a device of yours or a guest's, approve it (or give it a name) so it stops being reported.",
+			"If you do not know it, remove it from the router's list or block it, change the Wi-Fi password, and reconnect only your own devices.",
+			"Run the audit again to confirm.",
+		},
+		Risk: "Changing the Wi-Fi password disconnects every device until it is given the new one.",
+		Undo: "Approve the device in the list again, or put the old Wi-Fi password back.",
+	},
+	CheckMACChanged: {
+		Steps: []string{
+			"Find out which device had the address before: it is the one you approved. Check that it is on and where it is connected.",
+			"If it simply reconnected and the router gave its address to another device, that is harmless: approve the new device so it stops being reported.",
+			"If you cannot explain it, treat the new device as unknown (see \"New device on the network\"). Giving your important devices fixed addresses in the router stops addresses from changing hands.",
+		},
+		Risk: "A fixed address that is also in use by something else causes a conflict until one of them is changed.",
+		Undo: "Remove the fixed address in the router and let it hand out addresses again.",
+	},
+	CheckGatewayChanged: {
+		Steps: []string{
+			"Think about what changed: a new or reset router, a firmware update, or a router swapped by your provider all give it a new hardware address.",
+			"If that happened, confirm the new address in the device list so it becomes the one on record.",
+			"If nothing changed, assume something is pretending to be the router. Disconnect your own devices from the network, look for an unknown device in the router's list, and change the router's password and the Wi-Fi password.",
+		},
+		Risk: "Disconnecting devices interrupts everything on the network while you check.",
+		Undo: "Reconnect the devices once the network has been checked.",
+	},
+	CheckDuplicateMAC: {
+		Steps: []string{
+			"Find the device that owns the hardware address in the device list; it shows every address it answers for.",
+			"A server with several addresses, a computer running virtual machines or a device on both wired and Wi-Fi networks does this on purpose; if that is what it is, leave it.",
+			"Otherwise something is answering for addresses that are not its own. Unplug it, and check the other devices on the network.",
+		},
+		Risk: "Unplugging a device interrupts whatever it does.",
+		Undo: "Plug it back in.",
+	},
+	CheckDeviceMissing: {
+		Steps: []string{
+			"Check that the device is switched on and connected to the network.",
+			"A device that has stopped answering because it failed or was thrown out should be removed from the device list so it stops being reported.",
+		},
+		Risk: "None: removing a device from the list does not touch the device.",
+		Undo: "A device that comes back appears again as a new device, and can be approved or named again.",
+	},
+	CheckHiddenDevice: {
+		Steps: []string{
+			"Find the device behind the address with the router's list of connected devices.",
+			"Many sleeping devices answer the network's address lookup and nothing else; if it is one of yours, ignore the finding or give the device a fixed address and a name.",
+			"A device you do not recognise that answers nothing at all is worth unplugging until you know what it is.",
+		},
+		Risk: "Unplugging a device interrupts whatever it does.",
+		Undo: "Plug it back in.",
+	},
+	CheckHostKeyChanged: {
+		Steps: []string{
+			"Ask whether anyone reinstalled the server, restored it from a backup, or regenerated its SSH keys. Those are the usual reasons.",
+			"If it was expected, remove the old entry on your computers so they trust the new keys, and accept the finding here.",
+			"If nobody did that, do not log in with a password to it. Check the server from its own console, and look for an unknown device on the network.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux + " (on your own computer)", "ssh-keygen -R SERVER_NAME_OR_ADDRESS   # forgets the old key; the next login asks about the new one"},
+		},
+		Risk: "Trusting the new keys without checking would also trust an impersonator.",
+		Undo: "Nothing is changed on the server; the old entry is only forgotten on your own computer.",
+	},
+	CheckCertChanged: {
+		Steps: []string{
+			"Find out whether the certificate was renewed on purpose. Many devices and web servers renew on a schedule.",
+			"If it was, accept the finding; the next change will be reported again.",
+			"If you did not expect a change, look at who issued the new certificate in a browser, and check the device and the network before trusting it.",
+		},
+		Risk: "Accepting a certificate nobody renewed would hide a service being replaced.",
+		Undo: "Take the acceptance back and the finding returns.",
+	},
 }
 
 // weakCertificateGuide serves both weak-certificate checks: the fix is a new certificate.

@@ -1,5 +1,5 @@
 import type { ChoiceOption } from '../types/ui'
-import type { HelpSection, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
+import type { DeviceAction, HelpSection, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -31,6 +31,7 @@ export const HELP_TOPIC_LABELS: Record<NetauditHelpTopic, string> = {
   setup: 'Setting it up',
   reports: 'Reading a report',
   vulns: 'Known vulnerabilities',
+  devices: 'New devices',
   fixes: 'Fixing a finding',
   deep: 'The deep check',
   safety: 'Is it safe?',
@@ -44,7 +45,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'A network scan looks at the devices on your own network and lists which doors are open on each one: the services that answer when something knocks.',
       'It only looks. It never changes a device, signs in to one or tries passwords.',
       'A nightly audit runs a scan on a schedule and tells you only what is new since the last time.',
-      'Checks look for common weak settings on the services found: SMBv1, anonymous FTP, Telnet, a VNC, Redis, MongoDB, Memcached or MQTT broker with no password, an open Docker control port, expired or weak certificates, weak SSH settings and a few more. They only read; nothing tries a password and nothing changes on a device.',
+      'Checks look for common weak settings on the services found: SMBv1, anonymous FTP, Telnet, a VNC, Redis, MongoDB, Memcached or MQTT broker with no password, an open Docker control port, Android debug bridge, open proxy, Elasticsearch, X11, rsync, Kubernetes or etcd port, expired or weak certificates, weak SSH settings and a few more. They only read; nothing tries a password and nothing changes on a device.',
     ],
   },
   setup: {
@@ -74,6 +75,18 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'It can only look at what the scan recognised. Many routers, cameras and phones do not say which program or firmware they run, so they are not covered, and the report says how many services were looked at. Silence from this check does not mean a device is safe.',
       'Without the list, audits still run and say that the check was skipped. You can turn the check off for one audit in its settings.',
       'If this computer cannot reach the Internet, fetch the two files on another computer and pick them under "Import a file instead" (Advanced, or after a download stops). Importing asks for your passphrase again, because it replaces what every audit compares with.',
+    ],
+  },
+  devices: {
+    title: HELP_TOPIC_LABELS.devices,
+    paragraphs: [
+      'This computer keeps a list of the devices it has seen on your network, told apart by their hardware (MAC) address, which is read from this computer\'s own list of neighbours. It cannot see devices on another network, or what any device sends.',
+      'The first time it looks, every device it finds counts as yours. After that a device it has not seen before is reported as new, until you press "It\'s mine" or give it a name. Naming a device also means you want to hear if it goes missing for three days.',
+      'Phones and laptops often use a private hardware address to avoid being tracked. They are reported as new, but only as a note, and never as missing.',
+      '"Look for new devices" checks every few minutes, not only at night, and sends one short message when something new shows up. The message gives counts, never names. It is off until you turn it on. It needs Linux and at least one chat connector; otherwise it says so here.',
+      'If the router\'s own hardware address changes, the report says so in red. A replaced or reset router does this, but so does someone pretending to be the router to read your traffic, so check before you confirm. Confirming asks for your passphrase again.',
+      'An address that now belongs to a different device than the one you approved, one device answering for several addresses, and a device that answers the network but nothing else are reported as well. Each has a note on what is harmless and what is not.',
+      'A full audit also remembers each SSH server\'s host keys and each web service\'s certificate, and reports one that was replaced: a reinstalled server does this, and so does someone pretending to be it. A certificate renewed under the same name and issuer is only a note.',
     ],
   },
   fixes: {
@@ -180,3 +193,28 @@ export const VULN_IMPORT_FILES: readonly { source: 'nvd' | 'kev'; name: string; 
   { source: 'kev', name: "CISA's exploited list", where: 'https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json' },
 ]
 export const VULN_DOWNLOAD_SIZE = 'Downloading fetches more than 100 MB, only when you press the button.'
+
+/** Settings · Network scan · Devices: the words the card uses. */
+export const DEVICES_TITLE = 'Devices on your network'
+export const DEVICES_LOAD_FAILED = 'The list of devices could not be read.'
+export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
+  name: 'The name could not be saved.',
+  approve: 'The device could not be approved.',
+  forget: 'The device could not be removed from the list.',
+  'confirm-gateway': 'The router\'s address could not be confirmed.',
+}
+export const PRESENCE_LOAD_FAILED = 'The new-device check could not be read.'
+export const PRESENCE_SAVE_FAILED = 'The new-device check could not be changed.'
+export const PRESENCE_HINT = 'Looks for a device that was not on the network before, and sends you a short message the first time one shows up. It only connects to the networks allowed above; it never looks at what a device sends.'
+export const DEVICE_NAME_MAX = 40
+export const DEVICE_UNNAMED = 'Unknown device'
+export const DEVICE_PRIVATE = 'Phone or laptop (private address)'
+export const DEVICES_EMPTY = 'No devices seen yet. Turn on the check above, or run a network audit.'
+export const DEVICES_BASELINE_NOTE = 'The first look is taken as the normal state: every device found then counts as approved, and only later arrivals are reported.'
+export const GATEWAY_CHANGED_TITLE = 'The router\'s hardware address changed'
+export const GATEWAY_CHANGED_BODY = 'Something else may be answering for the router, which would let it read or change the network\'s traffic. A replaced or reset router does this too. If you know why, confirm it.'
+export const FORGET_CONFIRM = {
+  title: 'Remove this device from the list?',
+  message: 'It will come back as a new device if it is still on the network.',
+  confirmText: 'Remove',
+} as const

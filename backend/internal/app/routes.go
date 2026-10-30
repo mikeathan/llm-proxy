@@ -37,6 +37,7 @@ type HandlerSet struct {
 	Helpers    *handlers.HelpersHandlers
 	Netaudit   *handlers.NetauditHandlers
 	VulnData   *handlers.VulnDataHandlers
+	Devices    *handlers.NetauditDevicesHandlers
 	Commands   *handlers.CommandHandlers
 	Webhook    *handlers.WebhookHandler
 	Auth       *handlers.AuthHandlers
@@ -103,6 +104,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Helpers = handlers.NewHelpersHandlers(s)
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
+	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence})
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -343,6 +345,12 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/netaudit/vulndata/download", hs.VulnData.Download, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/cancel", hs.VulnData.Cancel, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/import", hs.VulnData.Import, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/devices", hs.Devices.List, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/devices/{mac}", hs.Devices.Update, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/devices/{mac}", hs.Devices.Forget, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/devices/gateway/confirm", hs.Devices.ConfirmGateway, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/presence", hs.Devices.GetPresence, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/presence", hs.Devices.PutPresence, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/findings", hs.Netaudit.GetFindings, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/acks", hs.Netaudit.ListAcks, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/acks", hs.Netaudit.AcceptFinding, jsonMethodNotAllowed)
