@@ -183,3 +183,10 @@ func TestProbe_NeverFollowsARedirectToAnotherHost(t *testing.T) {
 		t.Errorf("a description that cannot be read must not look like a gateway: %+v", got)
 	}
 }
+
+func TestParseDescription_KeepsTheFullServiceTypeOfTheRealRouter(t *testing.T) {
+	d, err := ParseDescription(strings.NewReader(string(fixture(t, "rootdesc_asus.xml"))))
+	if err != nil || d.ServiceType != "urn:schemas-upnp-org:service:WANIPConnection:1" {
+		t.Errorf("description = %+v, %v", d, err)
+	}
+}

@@ -141,19 +141,39 @@ func (p *Presence) trouble(err error) {
 	}
 }
 
-// PresenceMessage is the alert: counts and fixed words, never what a device calls itself or what the operator named it.
+// maxListed is how many addresses one message names; the rest are counted.
+const maxListed = 5
+
+// PresenceMessage is the alert: counts and fixed words, and where the devices are. Addresses come from this computer's own
+// neighbour table; what a device calls itself, and what the operator named a device, are never in it.
 func PresenceMessage(p Pending) string {
 	var parts []string
 	if p.NewDevices > 0 {
-		parts = append(parts, plural(p.NewDevices, "new device", "new devices"))
+		parts = append(parts, plural(p.NewDevices, "new device", "new devices")+listed(p.newAddrs))
 	}
 	if p.Changes > 0 {
-		parts = append(parts, plural(p.Changes, "address now used by a different device", "addresses now used by a different device"))
+		parts = append(parts, plural(p.Changes, "address now used by a different device", "addresses now used by a different device")+listed(p.movedAddrs))
 	}
 	if p.Gateway {
 		parts = append(parts, "the router's hardware address changed")
 	}
-	return "Network audit: " + strings.Join(parts, ", ") + ". Open the network audit to review."
+	return "Network audit: " + strings.Join(parts, "; ") + ". Open the network audit to review."
+}
+
+// listed names up to maxListed addresses after a colon, then counts the rest. No address list gives no suffix.
+func listed(addrs []string) string {
+	if len(addrs) == 0 {
+		return ""
+	}
+	shown := addrs
+	if len(shown) > maxListed {
+		shown = shown[:maxListed]
+	}
+	out := ": " + strings.Join(shown, ", ")
+	if rest := len(addrs) - len(shown); rest > 0 {
+		out += fmt.Sprintf(" and %d more", rest)
+	}
+	return out
 }
 
 func plural(n int, one, many string) string {

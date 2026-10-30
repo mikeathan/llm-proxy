@@ -536,6 +536,10 @@ type Pending struct {
 	macs       []string
 	changes    []models.AddressChange
 	gatewayMAC string
+	// newAddrs and movedAddrs say where the new devices and the taken-over addresses are, for the message: an address from
+	// this computer's own neighbour table (never a name), with a note when it is a private hardware address.
+	newAddrs   []string
+	movedAddrs []string
 }
 
 // Empty reports whether there is nothing to tell.
@@ -558,11 +562,13 @@ func pendingOf(inv models.DeviceInventory, now time.Time) Pending {
 	for _, d := range inv.Devices {
 		if newDeviceIsNews(d, now) && !d.Alerted {
 			p.macs = append(p.macs, d.MAC)
+			p.newAddrs = append(p.newAddrs, whereIs(d))
 		}
 	}
 	for _, c := range inv.Changes {
 		if !c.Notified && changeIsNotable(inv, c, now) {
 			p.changes = append(p.changes, c)
+			p.movedAddrs = append(p.movedAddrs, c.IP)
 		}
 	}
 	if gatewayChanged(inv) && inv.GatewayAlerted != inv.GatewaySeen {
@@ -570,6 +576,26 @@ func pendingOf(inv models.DeviceInventory, now time.Time) Pending {
 	}
 	p.NewDevices, p.Changes = len(p.macs), len(p.changes)
 	return p
+}
+
+// privateAddressNote marks a device that uses a private hardware address, which is how a phone hides its own.
+const privateAddressNote = " (private address)"
+
+// whereIs names a device in a message by where it is: its IPv4 address, else its first IPv6 address. Both are values this
+// computer read from its own neighbour table, so they are safe to print; the operator's name for it and anything the device
+// said are not used.
+func whereIs(d models.NetworkDevice) string {
+	where := "IPv6 only"
+	switch {
+	case d.IP != "":
+		where = d.IP
+	case len(d.IPv6) > 0:
+		where = d.IPv6[0]
+	}
+	if d.Randomized {
+		where += privateAddressNote
+	}
+	return where
 }
 
 // MarkNotified records that the operator was told about exactly what p holds.

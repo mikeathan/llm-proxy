@@ -408,3 +408,24 @@ func TestObserve_IPv6AddressesAreBoundedAndNewestFirst(t *testing.T) {
 		t.Errorf("addresses = %v", d.IPv6)
 	}
 }
+
+func TestInventory_PendingNamesWhereTheNewDevicesAreAndMarksPrivateAddresses(t *testing.T) {
+	st := &memInventory{}
+	v := newInventory(fakeSource{table: table("", nb("192.168.1.1", macRouter))}, st)
+	_, _ = v.Refresh(context.Background())
+	v.src = fakeSource{table: withV6(table("", nb("192.168.1.1", macRouter), nb("192.168.1.77", macTV), nb("192.168.1.78", macPhone)), nb6("fe80::9", macOther, ""))}
+	_, _ = v.Refresh(context.Background())
+	p, err := v.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := PresenceMessage(p)
+	for _, want := range []string{"192.168.1.77", "192.168.1.78 (private address)"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message %q lacks %q", msg, want)
+		}
+	}
+	if strings.Contains(msg, macTV) || strings.Contains(msg, "Living") {
+		t.Errorf("no hardware addresses or names in the message: %q", msg)
+	}
+}

@@ -387,10 +387,10 @@ func (r *RunReporter) addRouter(ctx context.Context, result *Result) string {
 		return ""
 	}
 	findings, err := r.router.Findings(ctx)
-	if err != nil {
-		return fmt.Sprintf("\n\n> Note: what the router offers (UPnP) could not be checked (%v).", err)
-	}
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: what the router offers (UPnP) could not be checked completely (%v).", err)
+	}
 	return ""
 }
 
