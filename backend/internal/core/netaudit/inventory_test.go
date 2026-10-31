@@ -230,9 +230,22 @@ func TestHiddenDeviceFindings(t *testing.T) {
 		{Addr: netip.MustParseAddr("192.168.1.41"), Up: true}, // normal
 		{Addr: netip.MustParseAddr("192.168.1.42")},           // a phone asleep: private address, ignored
 	}
-	got := HiddenDeviceFindings(current, hosts)
+	got := HiddenDeviceFindings(models.DeviceInventory{}, current, hosts)
 	if len(got) != 1 || got[0].Check != CheckHiddenDevice || got[0].Device != "192.168.1.40" || got[0].Severity != SeverityLow {
 		t.Errorf("findings = %+v (.43 was not swept, so nothing is known about it)", got)
+	}
+}
+
+func TestHiddenDeviceFindings_ADeviceTheOperatorNamedIsKnownAndLeftOut(t *testing.T) {
+	current := []Neighbor{nb("192.168.1.40", macTV), nb("192.168.1.41", macOther)}
+	hosts := []Host{{Addr: netip.MustParseAddr("192.168.1.40")}, {Addr: netip.MustParseAddr("192.168.1.41")}}
+	inv := models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, Name: "Laptop"}, {MAC: macOther}}}
+	got := HiddenDeviceFindings(inv, current, hosts)
+	if len(got) != 1 || got[0].Device != "192.168.1.41" {
+		t.Errorf("findings = %+v (only the unnamed device should be reported)", got)
+	}
+	if strings.Contains(got[0].Evidence, "Laptop") {
+		t.Errorf("a name entered a finding: %q", got[0].Evidence)
 	}
 }
 

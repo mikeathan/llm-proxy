@@ -369,15 +369,21 @@ func newDeviceFindings(inv models.DeviceInventory, now time.Time) []Finding {
 
 // HiddenDeviceFindings reports a device that answered for its address on the network but on which the scan found nothing
 // to talk to: no port answered and none refused. A phone asleep does this, so one with a private hardware address is left
-// out; a machine that is awake and says nothing to anyone is worth a look.
-func HiddenDeviceFindings(current []Neighbor, hosts []Host) []Finding {
+// out; a machine that is awake and says nothing to anyone is worth a look. A device the operator has named is one they
+// know, and a stealth firewall (a laptop's default) looks exactly like this, so it is left out too. The name is only
+// tested for being there; it is never put in the finding.
+func HiddenDeviceFindings(inv models.DeviceInventory, current []Neighbor, hosts []Host) []Finding {
 	swept := map[netip.Addr]Host{}
 	for _, h := range hosts {
 		swept[h.Addr] = h
 	}
+	named := map[string]bool{}
+	for _, d := range inv.Devices {
+		named[d.MAC] = d.Name != ""
+	}
 	var out []Finding
 	for _, n := range current {
-		if h, ok := swept[n.Addr]; ok && !h.Up && !h.Unscanned && !randomized(n.MAC) {
+		if h, ok := swept[n.Addr]; ok && !h.Up && !h.Unscanned && !randomized(n.MAC) && !named[n.MAC] {
 			out = append(out, Finding{Device: n.Addr.String(), Check: CheckHiddenDevice, Severity: SeverityLow,
 				Evidence: "This address answers on the network but no port answered the scan, not even with a refusal. A computer that is awake normally refuses; one that says nothing may be hiding"})
 		}
