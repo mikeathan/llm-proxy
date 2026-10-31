@@ -57,6 +57,7 @@ Archiving: `git mv` the plan here under the same folder name, add a row below, a
 | [`cross-cutting/interactive-user-input.md`](cross-cutting/interactive-user-input.md) | Plan: Interactive User Input (ask_user Tool) | superseded | — | — |
 | [`cross-cutting/llamacpp-grammar-constraint.md`](cross-cutting/llamacpp-grammar-constraint.md) | Plan: Provider-Agnostic Output Constraints for Tool Calls | complete | — | — |
 | [`cross-cutting/network-audit.md`](cross-cutting/network-audit.md) | Network audit — guarded programs, an nmap scan tool, and a nightly auditor agent (design as built: `architecture/network-audit.md`) | complete | 2026-10-29 | SPEC-006, SPEC-007, SPEC-012, SPEC-001, SPEC-003, SPEC-009 |
+| [`cross-cutting/network-alerts-in-ui.md`](cross-cutting/network-alerts-in-ui.md) | Network alerts on the bell, Clear list for the decoys and opt-in browser notices (v0.30.0; SPEC-003 2.22) | complete | 2026-10-31 | SPEC-003, SPEC-006 |
 | [`cross-cutting/per-model-reasoning-overrides-and-settings-layout.md`](cross-cutting/per-model-reasoning-overrides-and-settings-layout.md) | Per-Model Reasoning Overrides and Settings Layout Repair | complete | 2026-08-02 | SPEC-005 |
 | [`cross-cutting/per-run-output-directories.md`](cross-cutting/per-run-output-directories.md) | Plan: Per-Run Output Directories | superseded | — | — |
 | [`cross-cutting/persist-assistant-run-state-for-reload.md`](cross-cutting/persist-assistant-run-state-for-reload.md) | Persist assistant run state (errors/cancels/running) for reliable reload | complete | 2026-08-20 | SPEC-001, SPEC-003 |

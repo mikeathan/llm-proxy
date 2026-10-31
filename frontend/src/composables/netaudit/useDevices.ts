@@ -85,6 +85,7 @@ export function useDevices() {
     name: (mac: string, name: string) => act('name', () => NetauditService.nameDevice(mac, name)),
     approve: (mac: string) => act('approve', () => NetauditService.approveDevice(mac)),
     forget: (mac: string) => act('forget', () => NetauditService.forgetDevice(mac)),
+    dismissSuggestion: (mac: string) => act('dismiss-suggestion', () => NetauditService.dismissSuggestion(mac)),
     confirmGateway: () => act('confirm-gateway', () => NetauditService.confirmGateway()),
   }
 }

@@ -26,6 +26,11 @@ const STATES = {
     devices: { devices: [device({ mac: 'aa:bb:cc:00:00:09', ip: '192.168.1.77', approved: false, new: true, suggested_name: 'Samsung' }), device({ ip: '192.168.1.8', suggested_name: 'example-laptop-with-a-long-name' })], gateway: { ip: '192.168.1.1', mac: 'aa:bb:cc:00:00:02', changed: false }, baselined: true, updated_at: seen },
     presence,
   },
+  // Unnamed devices: the open ports from the last scan help tell them apart, and the prompt opens the naming list.
+  unnamed: {
+    devices: { devices: [device({ ip: '192.168.1.5', open_ports: [22, 80, 8080], ports_scanned_at: seen }), device({ mac: 'aa:bb:cc:00:00:02', ip: '192.168.1.6', open_ports: [], ports_scanned_at: seen }), device({ mac: 'aa:bb:cc:00:00:03', ip: '192.168.1.7', name: 'Printer' })], gateway: { changed: false }, baselined: true, updated_at: seen },
+    presence,
+  },
   // The computer refuses the IPv6 echo: the plain words and the two long commands must fit a phone.
   'ipv6-refused': {
     devices: { devices: [device({ name: 'Printer' })], gateway: { changed: false }, baselined: true, updated_at: seen },
@@ -66,6 +71,20 @@ for (const view of ['simple', 'advanced'] as const) {
         const use = card.getByRole('button', { name: 'Use this name' })
         await expect(use).toHaveCount(1)
         if (testInfo.project.name === 'mobile') expect((await use.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+        const reject = card.getByRole('button', { name: 'Not this' }).first()
+        await expect(reject).toBeVisible()
+        if (testInfo.project.name === 'mobile') expect((await reject.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+      }
+      if (name === 'unnamed') {
+        await expect(card.getByText('2 devices have no name')).toBeVisible()
+        const show = card.getByRole('button', { name: 'Name them' })
+        if (testInfo.project.name === 'mobile') expect((await show.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+        // The device list starts folded when nothing is new; Name them opens it on the unnamed devices alone.
+        await show.click()
+        await expect(card.getByText('Open ports: 22, 80, 8080')).toBeVisible()
+        await expect(card.getByText('No open ports')).toBeVisible()
+        await expect(card.getByText('Printer')).toHaveCount(0)
+        await expectNoSidewaysScroll(page)
       }
       if (name === 'ipv6-refused') {
         await expect(card.locator('[data-test="ipv6-problem"]')).toBeVisible()

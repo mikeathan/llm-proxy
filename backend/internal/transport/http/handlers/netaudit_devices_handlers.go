@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/models"
 )
 
@@ -29,6 +30,12 @@ type PresenceControl interface {
 // NameSuggestions are the names devices gave when asked, by hardware address. *names.Suggester satisfies it.
 type NameSuggestions interface {
 	All() map[string]string
+	Dismiss(mac string) error
+}
+
+// PortRecords are the ports each device had open at its last completed scan, by hardware address. *netaudit.PortLog satisfies it.
+type PortRecords interface {
+	All() map[string]models.DevicePortRecord
 }
 
 // NetauditDevicesHandlers serve the device list and the presence check's settings.
@@ -36,12 +43,19 @@ type NetauditDevicesHandlers struct {
 	devices     DeviceInventory
 	presence    PresenceControl
 	suggestions NameSuggestions
+	ports       PortRecords
 	now         func() time.Time
 }
 
 // WithSuggestions has the list offer, for each device the operator has not named, the name it gave when asked.
 func (h *NetauditDevicesHandlers) WithSuggestions(s NameSuggestions) *NetauditDevicesHandlers {
 	h.suggestions = s
+	return h
+}
+
+// WithPorts has the list show, beside each device, the ports it had open at its last completed scan.
+func (h *NetauditDevicesHandlers) WithPorts(p PortRecords) *NetauditDevicesHandlers {
+	h.ports = p
 	return h
 }
 
@@ -65,7 +79,26 @@ func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, _ *http.Request) {
 			}
 		}
 	}
+	h.addPorts(&view)
 	respondJSON(w, view)
+}
+
+// addPorts puts each scanned device's open ports on its entry.
+func (h *NetauditDevicesHandlers) addPorts(view *netaudit.InventoryView) {
+	if h.ports == nil {
+		return
+	}
+	records := h.ports.All()
+	for i, d := range view.Devices {
+		rec, ok := records[d.MAC]
+		if !ok {
+			continue
+		}
+		for _, p := range rec.Ports {
+			view.Devices[i].OpenPorts = append(view.Devices[i].OpenPorts, p.Port)
+		}
+		view.Devices[i].PortsScannedAt = rec.ScannedAt
+	}
 }
 
 // deviceRequest changes one device. A name approves it too; Approved approves it without a name.
@@ -99,6 +132,16 @@ func (h *NetauditDevicesHandlers) Forget(w http.ResponseWriter, r *http.Request)
 	h.respondChange(w, h.devices.Forget(r.PathValue("mac")))
 }
 
+// DismissSuggestion rejects the name a device gave when asked, so it is not offered again. It names nothing and approves
+// nothing.
+func (h *NetauditDevicesHandlers) DismissSuggestion(w http.ResponseWriter, r *http.Request) {
+	if h.suggestions == nil {
+		writeJSONError(w, http.StatusNotFound, names.ErrNoSuggestion.Error())
+		return
+	}
+	h.respondChange(w, h.suggestions.Dismiss(r.PathValue("mac")))
+}
+
 // ConfirmGateway accepts the router's current hardware address as the right one. It silences the alarm for a spoofed
 // router, so it is a step-up route.
 func (h *NetauditDevicesHandlers) ConfirmGateway(w http.ResponseWriter, _ *http.Request) {
@@ -117,7 +160,7 @@ func deviceStatus(err error) int {
 	switch {
 	case errors.Is(err, netaudit.ErrBadMAC), errors.Is(err, netaudit.ErrBadDeviceName):
 		return http.StatusBadRequest
-	case errors.Is(err, netaudit.ErrNoSuchDevice):
+	case errors.Is(err, netaudit.ErrNoSuchDevice), errors.Is(err, names.ErrNoSuggestion):
 		return http.StatusNotFound
 	}
 	return http.StatusInternalServerError

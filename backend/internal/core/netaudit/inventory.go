@@ -35,6 +35,10 @@ const (
 	// MissingAfter is how long a device the operator named may stay unseen before it is reported: three nights, so a laptop
 	// closed for a weekend is not a finding.
 	MissingAfter = 3 * 24 * time.Hour
+	// PrivateHold is how long a device with a private (locally administered) hardware address must have stayed before the
+	// operator is told it is new. A phone that picks a fresh private address on every rejoin looks like a new device each
+	// time; one that stays is still a visitor worth a message. The owner chose 30 minutes (2026-10-31); no measurement backs it.
+	PrivateHold = 30 * time.Minute
 
 	maxInventoryDevices = 1024
 	maxIPv6PerDevice    = 6
@@ -309,10 +313,22 @@ func newDeviceIsNews(d models.NetworkDevice, now time.Time) bool {
 }
 
 // changeIsNotable reports whether a change of address owner is worth reporting: a device the operator vouched for lost its
-// address to one nobody has. Two approved devices trading a lease is ordinary.
+// address to one nobody has. Two approved devices trading a lease is ordinary, and so is a phone swapping one private
+// address for another at the same IP, which is how it rotates them. The residual risk, accepted by the owner (2026-10-31),
+// is an impostor that takes a phone's address with a random hardware address of its own. The finding and the alert both
+// ask this, so they cannot disagree.
 func changeIsNotable(inv models.DeviceInventory, c models.AddressChange, now time.Time) bool {
 	from, to := deviceByMAC(inv, c.From), deviceByMAC(inv, c.To)
+	if randomized(c.From) && randomized(c.To) {
+		return false
+	}
 	return now.Sub(c.At) <= ChangeWindow && from != nil && from.Approved && to != nil && !to.Approved
+}
+
+// worthTelling reports whether a new device is old enough to be told about now. A device with a real hardware address is
+// told at once; one with a private address only after it has stayed PrivateHold, so a rejoining phone is not repeated.
+func worthTelling(d models.NetworkDevice) bool {
+	return !d.Randomized || d.LastSeen.Sub(d.FirstSeen) >= PrivateHold
 }
 
 func gatewayChanged(inv models.DeviceInventory) bool {
@@ -593,7 +609,7 @@ func (v *Inventory) Pending() (Pending, error) {
 func pendingOf(inv models.DeviceInventory, now time.Time) Pending {
 	var p Pending
 	for _, d := range inv.Devices {
-		if newDeviceIsNews(d, now) && !d.Alerted {
+		if newDeviceIsNews(d, now) && !d.Alerted && worthTelling(d) {
 			p.macs = append(p.macs, d.MAC)
 			p.newAddrs = append(p.newAddrs, whereIs(d))
 		}

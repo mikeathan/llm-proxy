@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceDetail, deviceLabel, devicesIn, deviceSummary, familyOptions, intervalOptions, ipv6Detail, presenceLine } from '../../../utils/netaudit/devices'
+import { deviceDetail, deviceLabel, devicesIn, deviceSummary, familyOptions, intervalOptions, ipv6Detail, nameableDevices, portsLine, presenceLine } from '../../../utils/netaudit/devices'
 import type { NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const NOW = Date.parse('2026-10-30T12:00:00Z')
@@ -73,3 +73,30 @@ describe('ipv6Detail', () => {
   it('lists every address in Advanced', () => expect(ipv6Detail(d, true, NOW)).toBe('fe80::1, fd00::2, fd00::3 · seen 5 minutes ago'))
   it('does not say "and 0 more" for one address', () => expect(ipv6Detail(device({ ipv6: ['fe80::1'] }), false, NOW)).toBe('fe80::1 · seen 5 minutes ago'))
 })
+
+describe('nameableDevices', () => {
+  it('lists the devices the person can name usefully: no name, a real hardware address and an IPv4 address', () => {
+    const list = [
+      device({ mac: 'a1' }),
+      device({ mac: 'a2', name: 'Printer' }),
+      device({ mac: 'a3', randomized: true }),
+      device({ mac: 'a4', ip: undefined, ipv6: ['fe80::1'] }),
+      device({ mac: 'a5', name: '' }),
+    ]
+    expect(nameableDevices(list).map((d) => d.mac)).toEqual(['a1', 'a5'])
+  })
+})
+
+describe('portsLine', () => {
+  it('lists the open ports from the last scan and when it was', () => {
+    const d = device({ open_ports: [22, 80], ports_scanned_at: '2026-10-28T12:00:00Z' })
+    expect(portsLine(d, NOW)).toBe('Open ports: 22, 80 · scanned 2 days ago')
+  })
+  it('says no port was open when a scan finished and found none', () => {
+    expect(portsLine(device({ open_ports: [], ports_scanned_at: '2026-10-30T11:00:00Z' }), NOW)).toBe('No open ports · scanned 1 hour ago')
+  })
+  it('says nothing for a device no scan has finished looking at', () => {
+    expect(portsLine(device(), NOW)).toBe('')
+  })
+})
+

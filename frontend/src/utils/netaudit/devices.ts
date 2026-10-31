@@ -15,6 +15,22 @@ export function deviceDetail(device: NetworkDevice, nowMs: number = Date.now()):
   return `${address} · seen ${formatRelativeTime(device.last_seen, nowMs)}`
 }
 
+/**
+ * The devices naming can do something for: no name, a real hardware address and an IPv4 address. A private-address phone
+ * rotates and an IPv6-only device has no finding key, so the missing-device check cannot follow either.
+ */
+export function nameableDevices(devices: NetworkDevice[]): NetworkDevice[] {
+  return devices.filter((d) => !d.name && !d.randomized && Boolean(d.ip))
+}
+
+/** What a scan found open on a device, as one line, or '' for a device no scan has finished looking at. */
+export function portsLine(device: NetworkDevice, nowMs: number = Date.now()): string {
+  if (!device.ports_scanned_at) return ''
+  const when = `scanned ${formatRelativeTime(device.ports_scanned_at, nowMs)}`
+  const ports = device.open_ports ?? []
+  return ports.length ? `Open ports: ${ports.join(', ')} · ${when}` : `No open ports · ${when}`
+}
+
 /** The devices that belong on one tab: those with an address of that family. A dual-stack device is on both. */
 export function devicesIn(devices: NetworkDevice[], family: DeviceFamily): NetworkDevice[] {
   return devices.filter((d) => (family === 'ipv4' ? Boolean(d.ip) : Boolean(d.ipv6?.length)))

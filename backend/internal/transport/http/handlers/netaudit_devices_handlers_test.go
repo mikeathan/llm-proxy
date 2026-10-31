@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/models"
 )
 
@@ -128,6 +129,17 @@ func TestPresenceHandlers_GetAndSet(t *testing.T) {
 type fakeSuggestions map[string]string
 
 func (f fakeSuggestions) All() map[string]string { return f }
+func (f fakeSuggestions) Dismiss(mac string) error {
+	if _, ok := f[mac]; !ok {
+		return names.ErrNoSuggestion
+	}
+	delete(f, mac)
+	return nil
+}
+
+type fakePorts map[string]models.DevicePortRecord
+
+func (f fakePorts) All() map[string]models.DevicePortRecord { return f }
 
 func TestDevicesHandlers_ListOffersASuggestedNameOnlyForADeviceTheOperatorHasNotNamed(t *testing.T) {
 	now := time.Now()
@@ -147,5 +159,51 @@ func TestDevicesHandlers_ListOffersASuggestedNameOnlyForADeviceTheOperatorHasNot
 	}
 	if by["aa:bb:cc:00:00:01"].SuggestedName != "Samsung" || by["aa:bb:cc:00:00:02"].SuggestedName != "" {
 		t.Errorf("suggestions = %q, %q", by["aa:bb:cc:00:00:01"].SuggestedName, by["aa:bb:cc:00:00:02"].SuggestedName)
+	}
+}
+
+func TestDevicesHandlers_ListShowsTheOpenPortsFromTheLastScanBesideEachDevice(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{
+		{MAC: "aa:bb:cc:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now},
+		{MAC: "aa:bb:cc:00:00:02", IP: "192.168.1.6", FirstSeen: now, LastSeen: now},
+	}}}
+	scanned := now.Add(-time.Hour)
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{}).WithPorts(fakePorts{
+		"aa:bb:cc:00:00:01": {MAC: "aa:bb:cc:00:00:01", ScannedAt: scanned, Ports: []models.PortRef{{Port: 22, Proto: "tcp"}, {Port: 80, Proto: "tcp"}}},
+	})
+	var got netaudit.InventoryView
+	if err := json.Unmarshal(do(h.List, http.MethodGet, "/admin/api/netaudit/devices", "").Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]netaudit.DeviceView{}
+	for _, d := range got.Devices {
+		by[d.MAC] = d
+	}
+	if d := by["aa:bb:cc:00:00:01"]; len(d.OpenPorts) != 2 || d.OpenPorts[0] != 22 || d.PortsScannedAt.IsZero() {
+		t.Errorf("a scanned device lists its ports: %+v", d)
+	}
+	if d := by["aa:bb:cc:00:00:02"]; d.OpenPorts != nil || !d.PortsScannedAt.IsZero() {
+		t.Errorf("a device never scanned has no ports to show: %+v", d)
+	}
+}
+
+func TestDevicesHandlers_DismissSuggestion(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{{MAC: "aa:bb:cc:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now}}}}
+	sugg := fakeSuggestions{"aa:bb:cc:00:00:01": "Samsung"}
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{}).WithSuggestions(sugg)
+	post := func(mac string) int {
+		req := httptest.NewRequest(http.MethodPost, "/admin/api/netaudit/devices/"+mac+"/dismiss-suggestion", nil)
+		req.SetPathValue("mac", mac)
+		rec := httptest.NewRecorder()
+		h.DismissSuggestion(rec, req)
+		return rec.Code
+	}
+	if code := post("aa:bb:cc:00:00:01"); code != http.StatusOK || len(sugg) != 0 {
+		t.Errorf("dismiss = %d, suggestions left = %v", code, sugg)
+	}
+	if code := post("aa:bb:cc:00:00:01"); code != http.StatusNotFound {
+		t.Errorf("nothing left to dismiss is a 404: %d", code)
 	}
 }

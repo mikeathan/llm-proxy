@@ -62,6 +62,8 @@ type netauditServices struct {
 	Alerts *netaudit.AlertLog
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
+	// Ports keeps the ports each scanned device had open at its last scan, for the audit's counts and the Devices card.
+	Ports *netaudit.PortLog
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
 	PresenceConfig *netaudit.PresenceConfig
 	Presence       *netaudit.Presence
@@ -131,6 +133,14 @@ func (s AppServices) NetauditHistory() netaudit.AuditHistory {
 		return nil
 	}
 	return s.netaudit.History
+}
+
+// NetauditPorts is where the run reporter keeps each scanned device's open ports; nil until the services are wired.
+func (s AppServices) NetauditPorts() netaudit.PortRecorder {
+	if s.netaudit == nil || s.netaudit.Ports == nil {
+		return nil
+	}
+	return s.netaudit.Ports
 }
 
 // NetauditDecoys is where the run reporter reads the decoy touches; nil until the services are wired.
@@ -227,6 +237,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		NamesConfig: known.NamesConfig,
 		Summary:     known.Summary,
 		Discovery6:  known.Discovery6,
+		Ports:       known.Ports,
 		Router:      newRouterCheck(netTools, known.Inventory, scope),
 
 		Alerts:         alerts.Log,
@@ -288,12 +299,14 @@ type tracking struct {
 	NamesConfig *netaudit.NamesConfig
 	Summary     *netaudit.SummaryConfig
 	Discovery6  *netaudit.Discovery6Config
+	Ports       *netaudit.PortLog
 }
 
 func (s *AppServices) newTracking(store netaudit.PolicyStore, scope *netaudit.Scope, netTools *tools.NetworkTools) tracking {
 	root := s.AppCtx.RootDir()
 	historyStore := withReset(s.AppCtx, "The daily counts behind the Network page's trends", persistence.NewNetworkHistoryStore(root))
 	history := netaudit.NewHistory(historyStore)
+	portStore := withReset(s.AppCtx, "The ports each device had open at its last scan", persistence.NewDevicePortStore(root))
 	discovery6 := netaudit.NewDiscovery6Config(store)
 	namesConfig := netaudit.NewNamesConfig(store)
 
@@ -316,6 +329,7 @@ func (s *AppServices) newTracking(store netaudit.PolicyStore, scope *netaudit.Sc
 		NamesConfig: namesConfig,
 		Summary:     netaudit.NewSummaryConfig(store),
 		Discovery6:  discovery6,
+		Ports:       netaudit.NewPortLog(portStore).WithHistory(history),
 	}
 }
 

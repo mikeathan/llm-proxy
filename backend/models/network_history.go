@@ -24,4 +24,8 @@ type NetworkDay struct {
 	Serious  int `json:"serious"`
 	// Audited is true once an audit ran that day, so a day without one is not drawn as "no findings".
 	Audited bool `json:"audited,omitempty"`
+	// PortsOpened and PortsClosed are the ports that opened or closed since each device's previous scan, added up over the
+	// day's audits.
+	PortsOpened int `json:"ports_opened,omitempty"`
+	PortsClosed int `json:"ports_closed,omitempty"`
 }

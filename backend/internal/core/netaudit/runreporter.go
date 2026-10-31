@@ -29,6 +29,7 @@ type RunReporter struct {
 	router  RouterFindings   // optional: what the router itself offers (UPnP)
 	decoys  DecoyReader      // optional: devices that connected to a decoy service
 	hist    AuditHistory     // optional: the Network page's daily counts
+	ports   PortRecorder     // optional: the ports each device had open at its last scan
 	histErr func(error)
 	now     func() time.Time
 }
@@ -58,6 +59,11 @@ func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
 	return r
 }
 
+// PortRecorder keeps the ports each device had open at its last scan and says what changed: *PortLog.
+type PortRecorder interface {
+	Record(hosts []Host, macOf func(ip string) string, at time.Time) (PortChange, error)
+}
+
 // AuditHistory records the open findings of a finished audit: *History.
 type AuditHistory interface {
 	RecordAudit(findings []models.ScanFinding) error
@@ -73,6 +79,13 @@ func (r *RunReporter) WithHistory(h AuditHistory, onError func(error)) *RunRepor
 // InventoryLook is a look at who is on the network that also keeps the device inventory up to date: *Inventory.
 type InventoryLook interface {
 	Refresh(ctx context.Context) (Snapshot, error)
+}
+
+// WithPorts has the reporter keep the ports each scanned device had open, so a port that opened or closed can be counted.
+// A failure is reported through the history's error hook and never changes the report.
+func (r *RunReporter) WithPorts(p PortRecorder) *RunReporter {
+	r.ports = p
+	return r
 }
 
 // WithDecoys makes the reporter add the devices that connected to a decoy service. Without it nothing is added.
@@ -149,7 +162,9 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	}
 	cov := r.addKnownVulns(ctx, &result)
 	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
-	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result)
+	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
+	inventoryNote, devices := r.addInventory(ctx, &result)
+	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
@@ -177,10 +192,8 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	observed += fixNote
 	if err := r.store.WriteBaseline(workspaceID, automation, next); err != nil {
 		observed += fmt.Sprintf("\n\n> Note: this scan could not be saved for next time (%v).", err)
-	} else if r.hist != nil {
-		if err := r.hist.RecordAudit(next.Findings); err != nil && r.histErr != nil {
-			r.histErr(err)
-		}
+	} else {
+		r.noteSaved(next.Findings, result.Hosts, devices, at)
 	}
 	return observed + "\n\n---\n\n" + AssessmentHeading + "\n\n" + report
 }
@@ -373,17 +386,45 @@ func (r *RunReporter) addExpectations(workspaceID string, result *Result) string
 // appends the inventory's findings for the devices this scan looked at. A scan of one device must not report every other
 // device as new, so findings of devices outside the result are left for the full audit. If the host cannot look, the report
 // says so: an unreadable table is not an empty network.
-func (r *RunReporter) addInventory(ctx context.Context, result *Result) string {
+func (r *RunReporter) addInventory(ctx context.Context, result *Result) (string, []models.NetworkDevice) {
 	if r.look == nil {
-		return ""
+		return "", nil
 	}
 	snap, err := r.look.Refresh(ctx)
 	if err != nil {
-		return fmt.Sprintf("\n\n> Note: who is on the network could not be checked, so new or changed devices were not looked for (%v).", err)
+		return fmt.Sprintf("\n\n> Note: who is on the network could not be checked, so new or changed devices were not looked for (%v).", err), nil
 	}
 	findings := append(InventoryFindings(snap.Inventory, r.now()), HiddenDeviceFindings(snap.Inventory, snap.Current, result.Hosts)...)
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
-	return ""
+	return "", snap.Inventory.Devices
+}
+
+// noteSaved tells the Network page's history about a scan that was just saved: the open findings, and the ports that opened
+// or closed. A failure is reported and never changes the report.
+func (r *RunReporter) noteSaved(findings []models.ScanFinding, hosts []Host, devices []models.NetworkDevice, at time.Time) {
+	fail := func(err error) {
+		if err != nil && r.histErr != nil {
+			r.histErr(err)
+		}
+	}
+	if r.hist != nil {
+		fail(r.hist.RecordAudit(findings))
+	}
+	if r.ports != nil && len(devices) > 0 {
+		_, err := r.ports.Record(hosts, macByIP(devices), at)
+		fail(err)
+	}
+}
+
+// macByIP looks a device's hardware address up by the IPv4 address it was last seen with.
+func macByIP(devices []models.NetworkDevice) func(ip string) string {
+	byIP := make(map[string]string, len(devices))
+	for _, d := range devices {
+		if d.IP != "" {
+			byIP[d.IP] = d.MAC
+		}
+	}
+	return func(ip string) string { return byIP[ip] }
 }
 
 // addIdentities appends the findings for services whose SSH host keys or TLS certificate differ from the last look. Only

@@ -325,8 +325,8 @@ func TestInventory_PendingAlertsAreCountedOnceAndOnlyMarkedWhenSent(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.NewDevices != 3 || !p.Gateway || p.Empty() {
-		t.Fatalf("pending = %+v", p)
+	if p.NewDevices != 2 || !p.Gateway || p.Empty() {
+		t.Fatalf("the phone with a private address is held for PrivateHold, the other two are told at once: %+v", p)
 	}
 	// Not marked yet (the send could have failed): asking again says the same.
 	if again, _ := v.Pending(); again.NewDevices != p.NewDevices || again.Gateway != p.Gateway {
@@ -337,6 +337,16 @@ func TestInventory_PendingAlertsAreCountedOnceAndOnlyMarkedWhenSent(t *testing.T
 	}
 	if after, _ := v.Pending(); !after.Empty() {
 		t.Errorf("after marking, nothing is pending: %+v", after)
+	}
+	// The phone has stayed past the hold: it is told now, once.
+	v.now = func() time.Time { return t0.Add(PrivateHold) }
+	v.src = fakeSource{table: table("192.168.1.1", nb("192.168.1.1", macOther), nb("192.168.1.78", macPhone))}
+	_, _ = v.Refresh(context.Background())
+	if held, _ := v.Pending(); held.NewDevices != 1 {
+		t.Errorf("the phone that stayed is told: %+v", held)
+	}
+	if err := v.MarkNotified(func() Pending { h, _ := v.Pending(); return h }()); err != nil {
+		t.Fatal(err)
 	}
 	// A device that appears later is pending again.
 	v.src = fakeSource{table: table("192.168.1.1", nb("192.168.1.1", macOther), nb("192.168.1.99", "00:aa:bb:cc:dd:ee"))}
@@ -428,6 +438,9 @@ func TestInventory_PendingNamesWhereTheNewDevicesAreAndMarksPrivateAddresses(t *
 	_, _ = v.Refresh(context.Background())
 	v.src = fakeSource{table: withV6(table("", nb("192.168.1.1", macRouter), nb("192.168.1.77", macTV), nb("192.168.1.78", macPhone)), nb6("fe80::9", macOther, ""))}
 	_, _ = v.Refresh(context.Background())
+	// The private-address phone is held; once it has stayed it is told, marked as private.
+	v.now = func() time.Time { return t0.Add(PrivateHold) }
+	_, _ = v.Refresh(context.Background())
 	p, err := v.Pending()
 	if err != nil {
 		t.Fatal(err)
@@ -489,5 +502,72 @@ func TestInventory_ObserverSeesEverySavedLookAndNoFailedOne(t *testing.T) {
 	_, _ = v.Refresh(context.Background())
 	if len(seen) != 1 {
 		t.Errorf("a look that failed must not be reported as one: %d observations", len(seen))
+	}
+}
+
+const macPhone2 = "da:a1:19:2c:00:10" // the same phone after it rotated its private address
+
+// A phone that rotates its private address at the same IP is not an impostor, so the finding and the alert both stay quiet.
+// Every other swap that took an address from a device you approved is still reported.
+func TestChangeIsNotable_APrivateToPrivateSwapIsARotation(t *testing.T) {
+	cases := []struct {
+		name     string
+		from, to string
+		notable  bool
+	}{
+		{"private to private", macPhone, macPhone2, false},
+		{"private to a real address", macPhone, macOther, true},
+		{"a real address to private", macTV, macPhone2, true},
+		{"a real address to another", macTV, macOther, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			inv := Observe(models.DeviceInventory{}, table("", nb("192.168.1.30", c.from)), anywhere, t0)
+			later := t0.Add(time.Hour)
+			inv = Observe(inv, table("", nb("192.168.1.30", c.to)), anywhere, later)
+			var changed bool
+			for _, f := range InventoryFindings(inv, later) {
+				changed = changed || f.Check == CheckMACChanged
+			}
+			if changed != c.notable {
+				t.Errorf("mac_changed finding = %v, want %v", changed, c.notable)
+			}
+			if alerted := pendingOf(inv, later).Changes > 0; alerted != c.notable {
+				t.Errorf("the alert and the finding must agree: alert = %v, want %v", alerted, c.notable)
+			}
+		})
+	}
+}
+
+// A phone that picks a new private address on every rejoin must not raise a message each time: a private-address device is
+// alerted only once it has stayed PrivateHold, and those that have stayed are told in one message.
+func TestPending_APrivateDeviceIsHeldUntilItHasStayed(t *testing.T) {
+	base := Observe(models.DeviceInventory{}, table("", nb("192.168.1.1", macRouter)), anywhere, t0)
+	inv := Observe(base, table("", nb("192.168.1.30", macPhone), nb("192.168.1.31", macPhone2), nb("192.168.1.77", macTV)), anywhere, t0.Add(time.Hour))
+
+	first := pendingOf(inv, t0.Add(time.Hour))
+	if first.NewDevices != 1 || strings.Contains(PresenceMessage(first), "private") {
+		t.Fatalf("a device with a real address is told at once, a private one is held: %+v", first)
+	}
+	seenAgain := Observe(inv, table("", nb("192.168.1.30", macPhone), nb("192.168.1.31", macPhone2), nb("192.168.1.77", macTV)), anywhere, t0.Add(time.Hour+PrivateHold-time.Minute))
+	if got := pendingOf(seenAgain, t0.Add(time.Hour+PrivateHold-time.Minute)).NewDevices; got != 1 {
+		t.Errorf("29 minutes is not long enough: %d pending", got)
+	}
+	stayed := Observe(seenAgain, table("", nb("192.168.1.30", macPhone), nb("192.168.1.31", macPhone2), nb("192.168.1.77", macTV)), anywhere, t0.Add(time.Hour+PrivateHold))
+	p := pendingOf(stayed, t0.Add(time.Hour+PrivateHold))
+	if p.NewDevices != 3 {
+		t.Fatalf("both private devices have stayed 30 minutes: %+v", p)
+	}
+	if msg := PresenceMessage(p); !strings.Contains(msg, "3 new devices") {
+		t.Errorf("the devices that have stayed go in one message with a count: %q", msg)
+	}
+}
+
+func TestPending_APrivateDeviceThatLeftBeforeTheHoldIsNeverTold(t *testing.T) {
+	base := Observe(models.DeviceInventory{}, table("", nb("192.168.1.1", macRouter)), anywhere, t0)
+	inv := Observe(base, table("", nb("192.168.1.30", macPhone)), anywhere, t0.Add(time.Hour))
+	gone := Observe(inv, table("", nb("192.168.1.1", macRouter)), anywhere, t0.Add(2*time.Hour))
+	if p := pendingOf(gone, t0.Add(3*time.Hour)); !p.Empty() {
+		t.Errorf("a phone that came and went inside the hold is not worth a message: %+v", p)
 	}
 }

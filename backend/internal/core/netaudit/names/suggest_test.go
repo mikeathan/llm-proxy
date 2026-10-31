@@ -195,3 +195,43 @@ func TestSuggester_SwitchedOffAsksNobodyAndOffersNothing(t *testing.T) {
 		t.Error("switching back on offers what was learned")
 	}
 }
+
+const dismissMAC = "aa:00:00:00:00:01"
+
+func TestSuggester_ADismissedNameIsNotOfferedAgainEvenWhenTheDeviceIsAskedAgain(t *testing.T) {
+	store, now := &memStore{}, t0
+	reply := "Samsung"
+	s := suggester(store, func(context.Context, netip.Addr) (string, error) { return reply, nil }, &now)
+	c := []Candidate{cand(dismissMAC, "192.168.1.5")}
+	_ = s.Look(context.Background(), c)
+	if err := s.Dismiss(dismissMAC); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.For(dismissMAC); got != "" {
+		t.Fatalf("the rejected name is no longer offered: %q", got)
+	}
+	// The re-ask after a week gets the same answer; it stays hidden.
+	now = now.Add(answerRetry + time.Hour)
+	_ = s.Look(context.Background(), c)
+	if got := s.For(dismissMAC); got != "" {
+		t.Errorf("a rejected name stays rejected after the device answers again: %q", got)
+	}
+	// A different name later is a new suggestion.
+	reply = "Living room TV"
+	now = now.Add(answerRetry + time.Hour)
+	_ = s.Look(context.Background(), c)
+	if got := s.For(dismissMAC); got != "Living room TV" {
+		t.Errorf("a different name is offered: %q", got)
+	}
+}
+
+func TestSuggester_DismissWithNothingToDismissIsAnError(t *testing.T) {
+	now := t0
+	s := suggester(&memStore{}, silent, &now)
+	_ = s.Look(context.Background(), []Candidate{cand(dismissMAC, "192.168.1.5")})
+	for _, mac := range []string{dismissMAC, "aa:00:00:00:00:99"} {
+		if err := s.Dismiss(mac); !errors.Is(err, ErrNoSuggestion) {
+			t.Errorf("%s: err = %v, want ErrNoSuggestion", mac, err)
+		}
+	}
+}

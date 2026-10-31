@@ -40,23 +40,32 @@ import {
   NAMES_LOAD_FAILED,
   NAMES_SAVE_FAILED,
   SUGGESTION_ACCEPT,
+  SUGGESTION_DISMISS,
+  UNNAMED_HINT,
+  UNNAMED_SHOW,
+  UNNAMED_SHOW_ALL,
+  unnamedPrompt,
   SUGGESTION_APPROVED,
   SUGGESTION_NEW_DEVICE,
 } from "../../constants/netaudit"
-import { deviceDetail, deviceLabel, devicesIn, deviceSummary, familyOptions, intervalOptions, ipv6Detail, presenceLine } from "../../utils/netaudit/devices"
+import { deviceDetail, deviceLabel, devicesIn, deviceSummary, familyOptions, intervalOptions, ipv6Detail, nameableDevices, portsLine, presenceLine } from "../../utils/netaudit/devices"
 import type { DeviceFamily, NetworkDevice } from "../../types/netaudit"
 
 // Settings · Network scan · Devices: who has been seen on the network, and the check that looks for a new one every few
 // minutes. A device nobody approved shows first. Naming a device approves it. Simple shows names and one decision per
 // device; Advanced adds the addresses and how often the check runs.
 const names = useNetauditSwitch(() => NetauditService.deviceNames(), (on) => NetauditService.setDeviceNames(on), { load: NAMES_LOAD_FAILED, save: NAMES_SAVE_FAILED }, true)
-const { inventory, presence, ipv6, loadError, actionError, busy, load, setPresence, setIPv6, name, approve, forget, confirmGateway } = useDevices()
+const { inventory, presence, ipv6, loadError, actionError, busy, load, setPresence, setIPv6, name, approve, forget, dismissSuggestion, confirmGateway } = useDevices()
 const { confirm } = useConfirm()
 const { advanced } = useNetauditViewMode()
 
 const family = ref<DeviceFamily>("ipv4")
 const devices = computed(() => inventory.value?.devices ?? [])
-const shown = computed(() => devicesIn(devices.value, family.value))
+// The naming list: the unnamed devices naming can help, shown alone so each can be told apart and named in turn.
+const unnamed = computed(() => nameableDevices(devices.value))
+const namingList = ref(false)
+watch(unnamed, (list) => { if (!list.length) namingList.value = false })
+const shown = computed(() => (namingList.value ? unnamed.value : devicesIn(devices.value, family.value)))
 const tabs = computed(() => familyOptions(devices.value))
 const emptyText = computed(() => {
   if (devices.value.length === 0) return DEVICES_EMPTY
@@ -69,6 +78,12 @@ const detail = (device: NetworkDevice) => (family.value === "ipv6" ? ipv6Detail(
 // choice is made once, when the list first arrives, so approving the last new device does not fold the list under the person.
 const open = ref<boolean | null>(null)
 watch(inventory, (inv) => { if (open.value === null && inv) open.value = inv.devices.some((d) => d.new) }, { immediate: true })
+
+// Showing the naming list opens the device list, which starts folded when no device is new: the list is what was asked for.
+function toggleNamingList() {
+  namingList.value = !namingList.value
+  if (namingList.value) open.value = true
+}
 
 const editing = ref<string | null>(null)
 const draft = ref("")
@@ -140,6 +155,14 @@ onMounted(load)
 
         <p v-if="inventory && !inventory.baselined" class="m-0 text-[length:var(--text-small)] text-muted">{{ DEVICES_BASELINE_NOTE }}</p>
 
+        <div v-if="unnamed.length" class="flex flex-col gap-1" data-test="unnamed-prompt">
+          <p class="m-0 flex flex-wrap items-center gap-2 text-secondary">
+            <span>{{ unnamedPrompt(unnamed.length) }}</span>
+            <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" data-test="unnamed-show" @click="toggleNamingList">{{ namingList ? UNNAMED_SHOW_ALL : UNNAMED_SHOW }}</BaseButton>
+          </p>
+          <p class="m-0 text-[length:var(--text-small)] text-muted">{{ UNNAMED_HINT }}</p>
+        </div>
+
         <Disclosure v-if="inventory" :title="DEVICES_LIST_TITLE" :summary="deviceSummary(devices)" :open="open ?? false" data-test="devices-list" @update:open="open = $event">
           <SegmentedControl v-model="family" :options="tabs" :label="FAMILY_TABS_LABEL" touch />
           <p v-if="!shown.length" class="m-0 text-secondary" :data-test="`devices-empty-${family}`">{{ emptyText }}</p>
@@ -162,9 +185,11 @@ onMounted(load)
                 <span v-if="advanced" class="font-mono"> · {{ device.mac }}</span>
                 <span v-if="advanced && family === 'ipv4' && device.ipv6?.length" class="font-mono"> · {{ device.ipv6.join(", ") }}</span>
               </p>
+              <p v-if="portsLine(device)" class="m-0 text-[length:var(--text-small)] text-muted" data-test="device-ports">{{ portsLine(device) }}</p>
               <p v-if="device.suggested_name && !device.name" class="m-0 flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary" data-test="suggestion">
                 <span class="min-w-0 break-words">{{ device.approved ? SUGGESTION_APPROVED(device.suggested_name) : SUGGESTION_NEW_DEVICE(device.suggested_name) }}</span>
                 <BaseButton v-if="device.approved" variant="secondary" size="sm" class-name="max-sm:!h-11" :disabled="busy" @click="name(device.mac, device.suggested_name)">{{ SUGGESTION_ACCEPT }}</BaseButton>
+                <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="busy" @click="dismissSuggestion(device.mac)">{{ SUGGESTION_DISMISS }}</BaseButton>
               </p>
               <form v-if="editing === device.mac" class="flex flex-wrap items-center gap-2" @submit.prevent="saveName(device)">
                 <input

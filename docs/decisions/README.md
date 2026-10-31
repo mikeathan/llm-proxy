@@ -31,3 +31,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0014](ADR-0014-presence-check-and-device-inventory.md) | The presence check is a model-free background loop over one app-wide device inventory | accepted | 2026-10-29 | network-audit |
 | [ADR-0015](ADR-0015-decoy-listeners-low-interaction-and-step-up.md) | Decoy services are low-interaction listeners, off by default, switched by a step-up route | accepted | 2026-10-30 | network-audit |
 | [ADR-0016](ADR-0016-active-ipv6-discovery-one-echo-unprivileged.md) | Active IPv6 discovery sends one echo through the unprivileged ICMP socket, off by default | proposed | 2026-10-30 | network-audit |
+| [ADR-0017](ADR-0017-on-link-ipv6-scanning-keyed-by-mac.md) | The audit scans on-link IPv6-only devices, keyed by hardware address, once the Constitution is amended | proposed | 2026-10-31 | network-audit |

@@ -116,6 +116,11 @@ export class NetauditService {
     return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { name })
   }
 
+  /** Rejects the name a device gave when asked, so it is not offered again. Answers with the new list. */
+  static dismissSuggestion(mac: string): Promise<DeviceInventory> {
+    return post<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}/dismiss-suggestion`, {})
+  }
+
   static approveDevice(mac: string): Promise<DeviceInventory> {
     return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { approved: true })
   }

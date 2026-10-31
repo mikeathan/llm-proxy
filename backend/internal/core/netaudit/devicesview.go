@@ -22,6 +22,10 @@ type DeviceView struct {
 	Randomized    bool      `json:"randomized"`
 	// New is true while the device is unapproved and was seen lately: the same test that makes it a finding.
 	New bool `json:"new"`
+	// OpenPorts are the ports the device had open at its last completed scan, and PortsScannedAt when that was; both are
+	// empty for a device no scan has finished looking at. They help tell an unnamed device apart and are shown on screen only.
+	OpenPorts      []int     `json:"open_ports,omitempty"`
+	PortsScannedAt time.Time `json:"ports_scanned_at,omitzero"`
 }
 
 // GatewayView is the router's hardware address and whether it is the one on record.
