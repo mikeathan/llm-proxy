@@ -58,6 +58,8 @@ type netauditServices struct {
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
 	DecoyStore  *persistence.DecoyTouchStore
+	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
+	Alerts *netaudit.AlertLog
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
@@ -248,7 +250,11 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	decoyStore := persistence.NewDecoyTouchStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The record of connections to decoy services", decoyStore.Delete)
 	decoyConfig := netaudit.NewDecoyConfig(store)
-	s.netaudit = &netauditServices{NamesConfig: namesConfig, Summary: summaryConfig, Names: suggester, History: history, Discovery6: discovery6, DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig, s.lookHooks(inventory, history, summaryConfig, suggester)), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	alertStore := persistence.NewNetworkAlertStore(s.AppCtx.RootDir())
+	s.AppCtx.AfterFactoryReset("The log of the Network module's alerts", alertStore.Delete)
+	alerts := netaudit.NewAlertLog(alertStore, time.Now, func(err error) { logging.Warn("network alerts", "error", err.Error()) })
+	digest := s.newDigest(inventory, history, summaryConfig, s.alertNotifier(alerts, models.NetworkAlertSummary))
+	s.netaudit = &netauditServices{NamesConfig: namesConfig, Summary: summaryConfig, Names: suggester, History: history, Discovery6: discovery6, DecoyConfig: decoyConfig, DecoyStore: decoyStore, Alerts: alerts, Decoys: s.newDecoys(decoyConfig, decoyStore, alerts, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig, presenceHooks{OnLook: lookHooks(digest, suggester), Notify: s.alertNotifier(alerts, models.NetworkAlertPresence)}), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
@@ -298,25 +304,35 @@ func nameUnnamed(suggester *names.Suggester) func(context.Context, netaudit.Snap
 	}
 }
 
-// notifyConnectors sends one message to every connector. Without one it fails, so whatever was to be told stays pending
-// (an alert stays on the screen, a summary stays due) until a connector exists.
-func (s *AppServices) notifyConnectors() func(ctx context.Context, message string) error {
-	return func(ctx context.Context, message string) error {
-		comm := communicationTools(s.toolProvider)
-		if comm == nil || len(comm.Types()) == 0 {
-			return errors.New("no connector is set up to send alerts")
-		}
-		return comm.NotifyAll(ctx, message, "")
+// sendToConnectors sends one message to every connector. Without one it fails with netaudit.ErrNoConnector, so whatever was
+// to be told stays pending (an alert stays on the screen, a summary stays due) until a connector exists.
+func (s *AppServices) sendToConnectors(ctx context.Context, message string) error {
+	comm := communicationTools(s.toolProvider)
+	if comm == nil || len(comm.Types()) == 0 {
+		return netaudit.ErrNoConnector
 	}
+	return comm.NotifyAll(ctx, message, "")
+}
+
+// alertNotifier is how an alert of one kind goes out: into the alert log first, so the web UI shows it whether or not a
+// connector exists, then to every connector.
+func (s *AppServices) alertNotifier(alerts *netaudit.AlertLog, kind models.NetworkAlertKind) func(ctx context.Context, message string) error {
+	return func(ctx context.Context, message string) error {
+		return alerts.Send(ctx, kind, message, s.sendToConnectors)
+	}
+}
+
+// newDigest builds the weekly summary, which the presence look sends when it is due.
+func (s *AppServices) newDigest(inventory *netaudit.Inventory, history *netaudit.History, summary *netaudit.SummaryConfig, notify func(context.Context, string) error) *netaudit.WeeklyDigest {
+	return netaudit.NewWeeklyDigest(netaudit.DigestDeps{
+		Enabled: summary.Enabled, View: inventory.View, History: history, Notify: notify,
+		OnError: func(err error) { logging.Warn("network weekly summary", "error", err.Error()) },
+	})
 }
 
 // lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, and sending
 // the weekly summary when it is due. Neither adds a sweep; both stop with the context.
-func (s *AppServices) lookHooks(inventory *netaudit.Inventory, history *netaudit.History, summary *netaudit.SummaryConfig, suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
-	digest := netaudit.NewWeeklyDigest(netaudit.DigestDeps{
-		Enabled: summary.Enabled, View: inventory.View, History: history, Notify: s.notifyConnectors(),
-		OnError: func(err error) { logging.Warn("network weekly summary", "error", err.Error()) },
-	})
+func lookHooks(digest *netaudit.WeeklyDigest, suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
 	name := nameUnnamed(suggester)
 	return func(ctx context.Context, snap netaudit.Snapshot) {
 		name(ctx, snap)
@@ -324,9 +340,15 @@ func (s *AppServices) lookHooks(inventory *netaudit.Inventory, history *netaudit
 	}
 }
 
+// presenceHooks are what rides on the presence check: the work done on each look, and where its alert goes.
+type presenceHooks struct {
+	OnLook func(context.Context, netaudit.Snapshot)
+	Notify func(context.Context, string) error
+}
+
 // newPresence builds the presence check. It sweeps through the scan service, so the declared scope and the one-scan-at-a-time
 // rule apply; the alert goes to every connector, in counts and fixed words, and no model is involved.
-func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit.Inventory, config *netaudit.PresenceConfig, onLook func(context.Context, netaudit.Snapshot)) *netaudit.Presence {
+func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit.Inventory, config *netaudit.PresenceConfig, hooks presenceHooks) *netaudit.Presence {
 	return netaudit.NewPresence(netaudit.PresenceDeps{
 		Settings: config.Settings,
 		Sweep: func(ctx context.Context, targets []string) error {
@@ -334,8 +356,8 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 			return err
 		},
 		Inventory: inventory,
-		OnLook:    onLook,
-		Notify:    s.notifyConnectors(),
+		OnLook:    hooks.OnLook,
+		Notify:    hooks.Notify,
 		OnError:   func(err error) { logging.Warn("network presence check", "error", err.Error()) },
 	})
 }
@@ -364,7 +386,7 @@ func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory,
 
 // newDecoys builds the decoy services. A connection counts only from a device inside the declared scan networks and not from
 // this computer itself, whose own audit and sweep must never look like an intruder. The alert goes to every connector.
-func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, scope *netaudit.Scope) *decoy.Manager {
+func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, alerts *netaudit.AlertLog, scope *netaudit.Scope) *decoy.Manager {
 	return decoy.New(decoy.Deps{
 		Specs:   decoy.Specs,
 		Enabled: config.Enabled,
@@ -372,11 +394,7 @@ func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence
 		IsOwn:   ownAddress,
 		Store:   store,
 		Notify: func(ctx context.Context, sources []string) error {
-			comm := communicationTools(s.toolProvider)
-			if comm == nil || len(comm.Types()) == 0 {
-				return errors.New("no connector is set up to send alerts")
-			}
-			return comm.NotifyAll(ctx, netaudit.DecoyMessage(sources), "")
+			return alerts.Send(ctx, models.NetworkAlertDecoy, netaudit.DecoyMessage(sources), s.sendToConnectors)
 		},
 		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
 	})

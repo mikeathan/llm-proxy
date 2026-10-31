@@ -5,7 +5,7 @@ import { describeNotification, summarizeBatch } from "../../../utils/notificatio
 import Icon from "../../icons/Icon.vue"
 import BaseButton from "../buttons/BaseButton.vue"
 
-// The top-strip bell (plan Phase 4): runs that ended and reminders that fired
+// The top-strip bell (plan Phase 4): runs that ended, reminders that fired and Network alerts
 // while the user was elsewhere, one entry per poll tick. Presentation only — the
 // owner supplies the notifications and handles open / dismiss / clear. On a phone the panel spans the screen under the
 // header (the bell is not at the right edge, so anchoring to it cut the panel off); from `sm` it hangs from the bell.
@@ -115,6 +115,13 @@ onUnmounted(removeListeners)
                 <span class="min-w-0 truncate">{{ describeNotification(item).text }}</span>
               </RouterLink>
               <p v-if="describeNotification(item).detail" class="line-clamp-2 break-words text-[length:var(--text-micro)] text-muted">{{ describeNotification(item).detail }}</p>
+              <RouterLink
+                v-if="describeNotification(item).fix"
+                :to="describeNotification(item).fix!.target"
+                data-test="notification-fix"
+                class="self-start text-[length:var(--text-micro)] text-accent-info-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 max-sm:py-2"
+                @click="onOpen(item)"
+              >{{ describeNotification(item).fix!.label }}</RouterLink>
             </li>
           </ul>
         </li>

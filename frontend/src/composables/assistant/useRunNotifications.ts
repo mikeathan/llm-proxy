@@ -2,7 +2,7 @@ import { computed, ref, watch, type Ref } from "vue"
 import type { Router } from "vue-router"
 import type { GlobalRunTick, LaneHolder } from "../../types/assistant"
 import type { AutomationRun } from "../../types/dispatcher"
-import type { NotificationItem, ReminderAlertItem, RunEndItem, RunEndOutcome, RunNotification } from "../../types/notifications"
+import type { NetworkAlertItem, NotificationItem, ReminderAlertItem, RunEndItem, RunEndOutcome, RunNotification } from "../../types/notifications"
 import { summarizeBatch } from "../../utils/notifications/present"
 import { ROUTE_NAMES } from "../../types/routes"
 import { endedRuns, runIdentity } from "../../utils/runs/runTransitions"
@@ -141,6 +141,13 @@ export function createRunNotifications(deps: Deps) {
     show(items)
   }
 
+  /** Network alerts, on the same list. A repeating alert replaces its earlier row, so the bell does not fill with one source. */
+  function publishNetworkAlerts(items: NetworkAlertItem[]) {
+    const repeats = new Set(items.map((item) => item.repeatKey))
+    dropItems((item) => item.kind === "network" && repeats.has(item.repeatKey))
+    show(items)
+  }
+
   async function processTick(tick: GlobalRunTick) {
     if (tick.status !== "ok") return
     if (baseline === null) {
@@ -164,24 +171,27 @@ export function createRunNotifications(deps: Deps) {
     notifications.value = notifications.value.filter((batch) => batch.id !== batchId)
   }
 
-  function dismissItem(itemId: string) {
+  /** Removes every item the test names, and the batches left empty. */
+  function dropItems(drop: (item: NotificationItem) => boolean) {
     notifications.value = notifications.value
-      .map((batch) => ({ ...batch, items: batch.items.filter((item) => item.id !== itemId) }))
+      .map((batch) => ({ ...batch, items: batch.items.filter((item) => !drop(item)) }))
       .filter((batch) => batch.items.length)
+  }
+
+  function dismissItem(itemId: string) {
+    dropItems((item) => item.id === itemId)
   }
 
   /** Drops the runs whose page the user is now on (called after navigation). */
   function clearShown() {
-    notifications.value = notifications.value
-      .map((batch) => ({ ...batch, items: batch.items.filter((item) => !deps.isShowing(item)) }))
-      .filter((batch) => batch.items.length)
+    dropItems((item) => deps.isShowing(item))
   }
 
   function clear() {
     notifications.value = []
   }
 
-  return { notifications, unreadCount, publishReminders, dismiss, dismissItem, clearShown, clear, stop, settled: () => queue }
+  return { notifications, unreadCount, publishReminders, publishNetworkAlerts, dismiss, dismissItem, clearShown, clear, stop, settled: () => queue }
 }
 
 type RunNotifications = ReturnType<typeof createRunNotifications>
@@ -190,6 +200,8 @@ let instance: RunNotifications | null = null
 /** Whether the current route already shows this item (a run's automation or workspace chat, or the Reminders page). */
 function routeShows(router: Router, item: NotificationItem): boolean {
   const route = router.currentRoute.value
+  // A network alert is never suppressed: the Network cards do not refresh on their own, so the row is the only notice.
+  if (item.kind === "network") return false
   if (item.kind === "reminder") return route.name === ROUTE_NAMES.reminders
   if (item.kind === "automation") return route.name === ROUTE_NAMES.automation && route.params.id === item.automationId
   return route.name === ROUTE_NAMES.workspaceAssistant && route.params.ws === item.workspace

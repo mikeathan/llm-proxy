@@ -24,8 +24,8 @@ func fixture(t *testing.T, name string) []byte {
 	return b
 }
 
-func TestParseReply_ReadsThePhoneAnswerWhichNamesOnlyTheBrand(t *testing.T) {
-	got, err := ParseReply(fixture(t, "mdns_ptr_response_phone.hex"), netip.MustParseAddr("192.168.50.63"), 0x1234)
+func TestParseReply_ReadsTheTVAnswerWhichNamesOnlyTheBrand(t *testing.T) {
+	got, err := ParseReply(fixture(t, "mdns_ptr_response_tv.hex"), netip.MustParseAddr("192.168.50.63"), 0x1234)
 	if err != nil || got != "Samsung" {
 		t.Errorf("name = %q, %v", got, err)
 	}
@@ -106,5 +106,18 @@ func TestClean_KeepsOnlyPlainPrintableTextOfBoundedLength(t *testing.T) {
 		if got := Clean(in); got != want {
 			t.Errorf("Clean(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestParseReply_ReadsTheAndroidPhoneAnswerWithItsGenericName(t *testing.T) {
+	got, err := ParseReply(fixture(t, "mdns_ptr_response_android.hex"), netip.MustParseAddr("192.168.50.127"), 0x1234)
+	if err != nil || got != "Android_EXAMPLE1" {
+		t.Errorf("name = %q, %v", got, err)
+	}
+}
+
+func TestParseReply_AnIdZeroAnswerIsStillRefusedForAnotherAddress(t *testing.T) {
+	if _, err := ParseReply(fixture(t, "mdns_ptr_response_android.hex"), netip.MustParseAddr("192.168.50.7"), 0x1234); err == nil {
+		t.Error("an id 0 answer about another address must be refused")
 	}
 }

@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // Network → Devices → Decoy services, off, on and with a device that touched one: at both widths and in Simple and
-// Advanced nothing may scroll sideways and the switch row is a comfortable touch target.
+// Advanced nothing may scroll sideways and the switch row is a comfortable touch target; Clear list shows only when a device
+// has connected, and is a comfortable touch target on a phone.
 const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconfined: false, device_timeout_minutes: 0, suggestions: [] }
 const ports = [{ number: 2222, name: 'SSH login' }, { number: 4445, name: 'File sharing' }, { number: 8023, name: 'Telnet' }]
 const last = new Date(Date.now() - 20 * 60_000).toISOString()
@@ -30,6 +31,11 @@ for (const view of ['simple', 'advanced'] as const) {
       if (name === 'touched') {
         await expect(card.getByText('192.168.1.77')).toBeVisible()
         await expect(card.getByText(/cannot start/)).toBeVisible()
+        const clear = card.getByRole('button', { name: 'Clear list' })
+        await expect(clear).toBeVisible()
+        if (testInfo.project.name === 'mobile') expect((await clear.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+      } else {
+        await expect(card.getByRole('button', { name: 'Clear list' })).toHaveCount(0)
       }
       if (view === 'advanced') await expect(card.getByText('SSH login')).toBeVisible()
       else await expect(card.getByText('SSH login')).toHaveCount(0)

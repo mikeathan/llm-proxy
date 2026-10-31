@@ -26,6 +26,8 @@ export const API_ENDPOINTS = {
   netauditGatewayConfirm: `${API_BASE}/netaudit/devices/gateway/confirm`,
   netauditPresence: `${API_BASE}/netaudit/presence`,
   netauditDecoys: `${API_BASE}/netaudit/decoys`,
+  netauditDecoyTouches: `${API_BASE}/netaudit/decoys/touches`,
+  netauditAlerts: `${API_BASE}/netaudit/alerts`,
   netauditIPv6Discovery: `${API_BASE}/netaudit/ipv6-discovery`,
   netauditDeep: `${API_BASE}/netaudit/deep`,
   authStatus: `${API_BASE}/auth/status`,

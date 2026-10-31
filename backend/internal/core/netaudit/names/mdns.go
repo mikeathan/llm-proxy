@@ -74,9 +74,15 @@ func ParseReply(raw []byte, addr netip.Addr, id uint16) (string, error) {
 	return "", errBadReply
 }
 
-// isAnswerTo is true for a successful response carrying the transaction id that was sent.
+// isAnswerTo is true for a successful response carrying the transaction id that was sent, or id 0: an mDNS responder
+// that answers as it would to the multicast group (an Android phone did, 2026-10-31) leaves the id at 0 instead of
+// echoing it. The socket is connected to the device and the answer must name the address asked about, so id 0 admits
+// nothing from another host or about another address.
 func isAnswerTo(raw []byte, id uint16) bool {
-	if len(raw) < headerLen || binary.BigEndian.Uint16(raw[0:]) != id {
+	if len(raw) < headerLen {
+		return false
+	}
+	if got := binary.BigEndian.Uint16(raw[0:]); got != id && got != 0 {
 		return false
 	}
 	flags := binary.BigEndian.Uint16(raw[2:])

@@ -8,20 +8,27 @@ import ToggleField from "../common/forms/ToggleField.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useDecoys } from "../../composables/netaudit/useDecoys"
+import { useConfirm } from "../../composables/ui/useConfirm"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
-import { DECOYS_CONNECTIONS_TITLE, DECOYS_FIREWALL, DECOYS_HINT, DECOYS_NEEDS_LOOK, DECOYS_SCANNER_NOTE, DECOYS_TITLE } from "../../constants/netaudit"
+import { DECOYS_CLEAR_LABEL, DECOYS_CLEAR_MESSAGE, DECOYS_CLEAR_TITLE, DECOYS_CONNECTIONS_TITLE, DECOYS_FIREWALL, DECOYS_HINT, DECOYS_NEEDS_LOOK, DECOYS_SCANNER_NOTE, DECOYS_TITLE } from "../../constants/netaudit"
 import { touchSummary } from "../../utils/netaudit/decoys"
 import { formatRelativeTime } from "../../utils/format/time"
 
 // Settings · Network scan · Decoy services: the switch, which fake services listen, and who connected to one. Simple is the
 // switch and the list of who; Advanced adds the ports.
-const { state, error, busy, load, set } = useDecoys()
+const { state, error, busy, load, set, clear } = useDecoys()
+const { confirm } = useConfirm()
 const { advanced } = useNetauditViewMode()
 
 // Who connected is folded to one line, but the moment someone has it opens itself and carries a tag: a connection to a decoy is
 // the one thing here that needs a look. The choice is made once, when the state first arrives, so the person's own fold stays.
 const open = ref<boolean | null>(null)
 watch(state, (s) => { if (open.value === null && s) open.value = s.touches.length > 0 }, { immediate: true })
+
+async function clearList() {
+  const ok = await confirm({ title: DECOYS_CLEAR_TITLE, message: DECOYS_CLEAR_MESSAGE, type: "warning", confirmText: DECOYS_CLEAR_LABEL })
+  if (ok) await clear()
+}
 
 onMounted(load)
 </script>
@@ -55,6 +62,7 @@ onMounted(load)
               <span class="text-[length:var(--text-small)] text-muted">port {{ t.port }} · {{ t.count }} {{ t.count === 1 ? "time" : "times" }} · last {{ formatRelativeTime(t.last) }}</span>
             </li>
           </ul>
+          <BaseButton v-if="state.touches.length" variant="secondary" size="sm" class-name="mt-2 max-sm:!h-11" :disabled="busy" data-test="decoy-clear" @click="clearList">{{ DECOYS_CLEAR_LABEL }}</BaseButton>
         </Disclosure>
         <p class="m-0 text-[length:var(--text-small)] text-muted">{{ DECOYS_SCANNER_NOTE }}</p>
 

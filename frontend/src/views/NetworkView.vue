@@ -16,6 +16,7 @@ import DevicesCard from "../components/netaudit/DevicesCard.vue"
 import DecoysCard from "../components/netaudit/DecoysCard.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
+import BrowserAlertsPanel from "../components/netaudit/BrowserAlertsPanel.vue"
 import ToggleField from "../components/common/forms/ToggleField.vue"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { useNetworkOverview } from "../composables/netaudit/useNetworkOverview"
@@ -76,6 +77,7 @@ onUnmounted(stop)
             <p v-if="summary.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ summary.error.value }}</p>
           </div>
         </Panel>
+        <BrowserAlertsPanel />
         <Panel :title="NETWORK_AUDITS_TITLE">
           <div class="flex flex-col gap-3">
             <AuditList />

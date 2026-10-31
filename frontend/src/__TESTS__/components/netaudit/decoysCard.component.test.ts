@@ -2,11 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { DecoyState } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ decoys: vi.fn(), setDecoys: vi.fn() }))
+const service = vi.hoisted(() => ({ decoys: vi.fn(), setDecoys: vi.fn(), clearDecoyTouches: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
 import DecoysCard from '../../../components/netaudit/DecoysCard.vue'
 import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
+import { useConfirm } from '../../../composables/ui/useConfirm'
 
 const PORTS = [{ number: 2222, name: 'SSH login' }, { number: 8023, name: 'Telnet' }]
 const state = (over: Partial<DecoyState> = {}): DecoyState => ({ enabled: false, listening: [], ports: PORTS, touches: [], ...over })
@@ -21,6 +22,7 @@ describe('DecoysCard', () => {
   beforeEach(() => {
     service.decoys.mockReset().mockResolvedValue(state())
     service.setDecoys.mockReset()
+    service.clearDecoyTouches.mockReset()
     useNetauditViewMode().set('simple')
   })
 
@@ -92,5 +94,43 @@ describe('DecoysCard', () => {
     const button = w.get('[data-test="decoy-connections"] button[aria-expanded]')
     await button.trigger('click')
     expect(button.attributes('aria-expanded')).toBe('false')
+  })
+
+  describe('clearing the list', () => {
+    const touched = state({ enabled: true, touches: [{ source: '192.168.50.77', port: 2222, first: '2026-10-30T01:00:00Z', last: '2026-10-30T02:00:00Z', count: 3 }] })
+    const clearButton = (w: Awaited<ReturnType<typeof mountCard>>) => w.get('[data-test="decoy-clear"]')
+
+    it('offers Clear list only while there is something to clear', async () => {
+      const empty = await mountCard()
+      expect(empty.find('[data-test="decoy-clear"]').exists()).toBe(false)
+      service.decoys.mockResolvedValue(touched)
+      const w = await mountCard()
+      expect(clearButton(w).text()).toContain('Clear list')
+    })
+
+    it('asks first, and clears the list once the person agrees', async () => {
+      service.decoys.mockResolvedValue(touched)
+      service.clearDecoyTouches.mockResolvedValue(state({ enabled: true }))
+      const w = await mountCard()
+      await clearButton(w).trigger('click')
+      await flushPromises()
+      expect(useConfirm().isOpen.value).toBe(true)
+      expect(service.clearDecoyTouches).not.toHaveBeenCalled()
+      useConfirm().handleConfirm()
+      await flushPromises()
+      expect(service.clearDecoyTouches).toHaveBeenCalledTimes(1)
+      expect(w.text()).toContain('Nothing has connected to a decoy')
+    })
+
+    it('leaves the list alone when the person cancels', async () => {
+      service.decoys.mockResolvedValue(touched)
+      const w = await mountCard()
+      await clearButton(w).trigger('click')
+      await flushPromises()
+      useConfirm().handleCancel()
+      await flushPromises()
+      expect(service.clearDecoyTouches).not.toHaveBeenCalled()
+      expect(w.get('[data-test="decoy-touches"]').text()).toContain('192.168.50.77')
+    })
   })
 })

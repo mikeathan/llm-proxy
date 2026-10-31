@@ -17,6 +17,8 @@ type DecoyControl interface {
 type DecoyRuntime interface {
 	Status() decoy.Status
 	Poke()
+	// Clear empties the list of touches and the alert throttle.
+	Clear() error
 }
 
 // DecoyTouches reads who connected to a decoy: *persistence.DecoyTouchStore.
@@ -79,5 +81,14 @@ func (h *NetauditDecoyHandlers) Put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.runtime.Poke()
+	h.Get(w, r)
+}
+
+// Clear empties the list of touches. Nothing else changes: the switch and the listeners stay as they are.
+func (h *NetauditDecoyHandlers) Clear(w http.ResponseWriter, r *http.Request) {
+	if err := h.runtime.Clear(); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	h.Get(w, r)
 }

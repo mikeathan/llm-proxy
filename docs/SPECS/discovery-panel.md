@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.21"
+version: "2.22"
 status: stable
 last_updated: 2026-10-31
 constitution_references: []
@@ -13,6 +13,20 @@ supersedes:
 
 ## Changelog
 
+- **2.22 (2026-10-31)** — **Network alerts on the bell, and Clear list for the decoys** (plan `network-alerts-in-ui`, approved by the
+  owner). (a) The bell lists a third kind of item, a **Network alert** (`NotificationItem` = `RunEndItem | ReminderAlertItem |
+  NetworkAlertItem`): a device that connected to a decoy, a new device or changed address, and the weekly summary. The row text
+  is the exact message sent to the connectors (fixed words; no device name), labelled `decoy`, `devices` or `summary`. Network
+  alerts reach the bell whether or not a connector exists; a row says "Not sent to your connectors: none is set up." (or "sending
+  failed.") with a link to **Settings → Communication**. A decoy alert that repeats for the same sources is one row ("Raised N
+  times"), and a newer alert with the same kind and text replaces the earlier row. Opening a row dismisses it; a Network alert
+  is never hidden because the Network page is on screen (its cards do not refresh themselves). They ride the same global run poll
+  (`useNetworkAlerts`, no new timer) from `GET /admin/api/netaudit/alerts`; the first good poll only learns where the log stands.
+  (b) Decoy services gain **Clear list** (shown only while the list is not empty; asks first; `DELETE
+  /admin/api/netaudit/decoys/touches`); it empties the list and lets the next connection alert at once. There is no age expiry
+  and no per-source removal. (c) Network · Overview gains **Notices in this browser**: an opt-in switch, kept in this browser
+  only, that raises a browser notice with the same words while the tab is hidden. The browser is asked for permission only when
+  the switch is turned on; it works while the browser is open and says it does not once it is closed.
 - **2.21 (2026-10-31)** — **Network** destination (plan `network-guard-module`, Phase 2). An eighth destination, **Network**
   (`/network`, and `/network/devices`, `/network/findings`), after Automations; it is under More on a phone. Overview:
   one verdict (Quiet, Needs a look, or Not looked at, with the reasons in plain words), four figures (devices, open
@@ -273,8 +287,8 @@ and makes no network request outside the proxy's own origin.
   file closes the file.
 
 ### 4. Run notifications
-- The bell also lists reminders that fired or failed (SPEC-011 §Changelog 1.6; Changelog 2.12 here); the rules below are
-  for runs.
+- The bell also lists reminders that fired or failed (SPEC-011 §Changelog 1.6; Changelog 2.12 here) and Network alerts
+  (Changelog 2.22); the rules below are for runs.
 - Only **terminal** transitions notify: a run ending or an automation
   failing. Starting a run updates the pill, not the bell.
 - The lane snapshot cannot tell success from failure, so an assistant run is

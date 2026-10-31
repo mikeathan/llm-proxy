@@ -318,6 +318,15 @@ func (m *Manager) alert(ctx context.Context, now time.Time) {
 	m.markTold(sources, now)
 }
 
+// Clear empties the list of touches and forgets when the operator was last told, since what was left to tell is gone. The
+// next touch alerts at once.
+func (m *Manager) Clear() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastSent = time.Time{}
+	return m.deps.Store.Write(nil)
+}
+
 // untold returns the sources with a touch the operator has not been told of, or none while the last alert is recent.
 func (m *Manager) untold(now time.Time) map[string]bool {
 	m.mu.Lock()
