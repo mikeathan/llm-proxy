@@ -1,9 +1,23 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
-// The panel shares one app-wide instance, so each case loads a fresh module with its own fake Notification.
+// A storage of its own per case: the switch is kept in the browser, and a real localStorage would carry one case's "on" into the next.
+function freshStorage(): Storage {
+  const data = new Map<string, string>()
+  return {
+    get length() { return data.size },
+    clear: () => data.clear(),
+    getItem: (key: string) => data.get(key) ?? null,
+    key: (index: number) => [...data.keys()][index] ?? null,
+    removeItem: (key: string) => { data.delete(key) },
+    setItem: (key: string, value: string) => { data.set(key, value) },
+  }
+}
+
+// The panel shares one app-wide instance, so each case loads a fresh module with its own fake Notification and storage.
 async function mountPanel(notification: unknown) {
   vi.resetModules()
+  vi.stubGlobal('localStorage', freshStorage())
   vi.stubGlobal('Notification', notification)
   const { default: BrowserAlertsPanel } = await import('../../../components/netaudit/BrowserAlertsPanel.vue')
   const w = mount(BrowserAlertsPanel)

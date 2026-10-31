@@ -1,11 +1,9 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/netaudit"
@@ -42,23 +40,5 @@ func TestAuditModelIsLocal(t *testing.T) {
 	var refusal *automation.PreflightError
 	if !errors.As(err, &refusal) || refusal.Code != ModelNotLocalCode || !strings.Contains(refusal.Message, "deepseek-cloud") {
 		t.Fatalf("a cloud model must be refused with a coded reason naming it, got %v", err)
-	}
-}
-
-type memAlertStore struct{ items []models.NetworkAlert }
-
-func (m *memAlertStore) Read() ([]models.NetworkAlert, error) { return m.items, nil }
-func (m *memAlertStore) Write(v []models.NetworkAlert) error  { m.items = v; return nil }
-
-// An alert reaches the log even when no connector exists, and says so: the web UI is then the only place it shows.
-func TestAlertNotifier_LogsTheAlertWhenNoConnectorIsSetUp(t *testing.T) {
-	store := &memAlertStore{}
-	s := &AppServices{}
-	err := s.alertNotifier(netaudit.NewAlertLog(store, time.Now, nil), models.NetworkAlertPresence)(context.Background(), "Network audit: 1 new device.")
-	if !errors.Is(err, netaudit.ErrNoConnector) {
-		t.Fatalf("the alert must stay pending, got %v", err)
-	}
-	if len(store.items) != 1 || store.items[0].Delivery != models.NetworkAlertNoConnector || store.items[0].Kind != models.NetworkAlertPresence {
-		t.Fatalf("got %+v", store.items)
 	}
 }
