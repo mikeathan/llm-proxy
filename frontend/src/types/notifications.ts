@@ -57,6 +57,54 @@ export interface ReminderAlertItem {
   destination: Destination
 }
 
+// What the Network module alerted about, as GET /admin/api/netaudit/alerts reports it. The text is the exact message sent to
+// the operator's connectors; `delivery` says whether it got there.
+export type NetworkAlertKind = 'decoy' | 'presence' | 'summary'
+export type NetworkAlertDelivery = 'sending' | 'sent' | 'no_connector' | 'failed'
+
+export interface NetworkAlertEvent {
+  /** Rises strictly; an entry that is updated (a repeating decoy source, a changed delivery) takes a new one. */
+  id: number
+  kind: NetworkAlertKind
+  message: string
+  delivery: NetworkAlertDelivery
+  /** How many times a repeating decoy alert was raised for the same sources. */
+  count: number
+  /** Unix milliseconds. */
+  at: number
+}
+
+export interface NetworkAlertEvents {
+  /** The newest alert id the server has; send it back as `after`. */
+  cursor: number
+  /** Newest first. Empty on a call with no cursor. */
+  items: NetworkAlertEvent[]
+}
+
+/** A Network alert, as an entry of the bell. */
+export interface NetworkAlertItem {
+  id: string
+  kind: 'network'
+  alertKind: NetworkAlertKind
+  message: string
+  delivery: NetworkAlertDelivery
+  count: number
+  /** Same kind and text: a newer entry replaces the earlier row, so a repeating alert is one row. */
+  repeatKey: string
+  target: RouteLocationNamedRaw
+  destination: Destination
+}
+
+/** What the browser offers for notices, so the logic can be tested without a browser (composables/netaudit/useBrowserAlerts.ts). */
+export interface BrowserAlertsEnv {
+  supported: boolean
+  permission: () => NotificationPermission
+  requestPermission: () => Promise<NotificationPermission>
+  raise: (title: string, options: NotificationOptions) => void
+  /** Whether the tab is hidden, the only time a notice is raised. */
+  hidden: () => boolean
+}
+
 export type NotificationTone = 'success' | 'warning' | 'error' | 'muted'
 
 /** One bell entry in words (utils/notifications/present.ts). */
@@ -65,12 +113,14 @@ export interface NotificationRow {
   label: string
   tone: NotificationTone
   text: string
-  /** A failed run's error, shown under the row. */
+  /** A failed run's error, or what became of an alert's send, shown under the row. */
   detail?: string
+  /** A way to put right what the row says went wrong. */
+  fix?: { label: string; target: RouteLocationNamedRaw }
 }
 
-/** Everything the bell lists: a run that ended, or a reminder that fired. */
-export type NotificationItem = RunEndItem | ReminderAlertItem
+/** Everything the bell lists: a run that ended, a reminder that fired, or a Network alert. */
+export type NotificationItem = RunEndItem | ReminderAlertItem | NetworkAlertItem
 
 /** Items that arrived in the same poll tick, shown as one notification. */
 export interface RunNotification {

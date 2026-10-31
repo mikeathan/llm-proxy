@@ -246,6 +246,10 @@ export const FORGET_CONFIRM = {
 export const DECOYS_TITLE = 'Decoy services'
 export const DECOYS_LOAD_FAILED = 'The decoy services could not be read.'
 export const DECOYS_SAVE_FAILED = 'The decoy services could not be changed.'
+export const DECOYS_CLEAR_FAILED = 'The list could not be cleared.'
+export const DECOYS_CLEAR_LABEL = 'Clear list'
+export const DECOYS_CLEAR_TITLE = 'Clear the list of connections?'
+export const DECOYS_CLEAR_MESSAGE = 'The list of devices that connected to a decoy is emptied. The decoy services stay as they are, and the next connection is listed and alerted again.'
 export const DECOYS_HINT = 'Fake services on a few unused ports that nothing on your network should ever use. A device that connects to one is probing for services, which is what an intruder or malware does first. They only note who connected; they read a few bytes, throw them away and run nothing. Off until you turn them on, and turning them on asks for your passphrase.'
 export const DECOYS_FIREWALL = 'If this computer has a firewall, the ports must be allowed in, or connections never arrive.'
 export const DECOYS_CONNECTIONS_TITLE = 'Connections'
@@ -290,6 +294,11 @@ export const SUMMARY_LOAD_FAILED = 'The weekly summary setting could not be read
 export const SUMMARY_SAVE_FAILED = 'The weekly summary setting could not be changed.'
 export const SUMMARY_LABEL = 'Send a weekly summary'
 export const SUMMARY_HINT = 'Once a week, a short message to your connected messaging apps: how many devices, how many are new or missing, and how many findings are open. Counts only, no names or addresses. It is sent while the new-device check is on.'
+
+/** Network · Overview · Notices in this browser. */
+export const BROWSER_ALERTS_TITLE = 'Notices in this browser'
+export const BROWSER_ALERTS_LABEL = 'Notify me in this browser'
+export const BROWSER_ALERTS_HINT = 'When a network alert is raised while this tab is hidden or in the background, this browser shows a notice with the same words as the bell. It works only while the browser is open: once it is closed nothing is shown, so keep a messaging app connected for that. The setting is kept in this browser only.'
 
 /** Devices · Suggest names for devices. */
 export const NAMES_LOAD_FAILED = 'The device names setting could not be read.'

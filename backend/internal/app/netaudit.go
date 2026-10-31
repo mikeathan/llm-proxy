@@ -58,6 +58,8 @@ type netauditServices struct {
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
 	DecoyStore  *persistence.DecoyTouchStore
+	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
+	Alerts *netaudit.AlertLog
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
@@ -198,24 +200,71 @@ func (s AppServices) auditModelIsLocal(entry *automation.AutomationEntry) error 
 }
 
 // wireNetaudit builds the network-audit services and registers the network_scan tool. It is the one place they are
-// put together: the policy comes from settings, the engines from the sandbox provider, and the tool is hidden
-// whenever the readiness check says a scan cannot run.
+// put together: the policy comes from settings, the engines from the sandbox provider, and the tool is hidden whenever
+// the readiness check says a scan cannot run. Each stage builds one concern and hands back what the next one needs.
 func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	store := dataMgr.Netaudit()
 	scope := netaudit.NewScope(store, net.DefaultResolver, nil)
+	// The vulnerability data, device names and router check reach the network through the guarded client, so the global
+	// network guardrails and the blocked-domain list apply to them like to any agent fetch.
+	netTools := tools.NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return dataMgr.Settings().Get().Guardrails.Network
+	}, s.logger)
 
+	scan := s.newScanning(store, scope, netTools)
+	known := s.newTracking(store, scope, netTools)
+	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known})
+
+	s.netaudit = &netauditServices{
+		Scope:     scope,
+		Readiness: scan.Readiness,
+		Vulns:     scan.Vulns,
+
+		Inventory:   known.Inventory,
+		Identities:  known.Identities,
+		History:     known.History,
+		Names:       known.Names,
+		NamesConfig: known.NamesConfig,
+		Summary:     known.Summary,
+		Discovery6:  known.Discovery6,
+		Router:      newRouterCheck(netTools, known.Inventory, scope),
+
+		Alerts:         alerts.Log,
+		Presence:       alerts.Presence,
+		PresenceConfig: alerts.PresenceConfig,
+		Decoys:         alerts.Decoys,
+		DecoyConfig:    alerts.DecoyConfig,
+		DecoyStore:     alerts.DecoyStore,
+
+		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
+		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),
+		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
+		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()),
+	}
+
+	if registry := localRegistry(s.toolProvider); registry != nil {
+		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))
+	}
+}
+
+// scanning is what runs and vets a scan: the service, the readiness check over it, and the vulnerability data.
+type scanning struct {
+	Service   *netaudit.Service
+	Readiness *netaudit.Readiness
+	Vulns     *vulnfeed.Manager
+}
+
+func (s *AppServices) newScanning(store netaudit.PolicyStore, scope *netaudit.Scope, netTools *tools.NetworkTools) scanning {
 	runner := progexec.Runner{Sandbox: s.AppCtx.sandboxProv, AllowUnconfined: func() bool { return store.Get().AllowUnconfined }}
 	nmapEngine := nmap.New(runner)
 	probe := portprobe.New(func(a netip.Addr) error { return scope.Policy().Check(a) })
 	service := netaudit.NewService(
 		netaudit.PolicyAuthorizer{Policy: scope.Policy, Resolver: net.DefaultResolver}, nmapEngine, probe).WithDeviceTimeout(scope.DeviceTimeout)
 
-	// The vulnerability data is downloaded only when the operator asks. The fetch goes through the guarded network
-	// client, so the global network guardrails and the blocked-domain list apply to it like to any agent fetch.
-	netTools := tools.NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
-		return dataMgr.Settings().Get().Guardrails.Network
-	}, s.logger)
+	// The vulnerability data is downloaded only when the operator asks. It lives beside the settings, outside what a
+	// factory reset replaces, so a reset clears it too.
 	vulns := vulnfeed.New(persistence.NewVulnIndexStore(s.AppCtx.RootDir()), netTools.Open, vulnfeed.DefaultSources())
+	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
 
 	readiness := netaudit.NewReadiness(netaudit.ReadinessDeps{
 		Config:        store.Get,
@@ -227,32 +276,54 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 			return netaudit.VulnDataView{Running: st.State == vulnfeed.StateRunning, FilesDone: st.FilesDone, FilesTotal: st.FilesTotal, Age: st.Age(time.Now())}
 		},
 	})
-	// The downloaded vulnerability data lives beside the settings, outside what a factory reset replaces; a reset clears it too.
-	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
-	inventoryStore := persistence.NewDeviceInventoryStore(s.AppCtx.RootDir())
-	s.AppCtx.AfterFactoryReset("The list of devices seen on the network", inventoryStore.Delete)
-	nameStore := persistence.NewNameSuggestionStore(s.AppCtx.RootDir())
-	s.AppCtx.AfterFactoryReset("The names devices gave when asked", nameStore.Delete)
-	namesConfig := netaudit.NewNamesConfig(store)
-	suggester := names.NewSuggester(nameStore, scopedAsker(names.Prober{Dial: netTools.DialContext()}.Ask, scope)).WithEnabled(namesConfig.Enabled)
-	historyStore := persistence.NewNetworkHistoryStore(s.AppCtx.RootDir())
-	s.AppCtx.AfterFactoryReset("The daily counts behind the Network page's trends", historyStore.Delete)
-	history := netaudit.NewHistory(historyStore)
-	summaryConfig := netaudit.NewSummaryConfig(store)
-	discovery6 := netaudit.NewDiscovery6Config(store)
-	inventory := netaudit.NewInventory(inventoryStore, neighborSource{reader: neighbors.NewReader()},
-		func(a netip.Addr) bool { return scope.Policy().Check(a) == nil }).WithDiscovery6(echoDiscoverer{}, discovery6.Enabled).WithObserver(recordLook(history))
-	identityStore := persistence.NewDeviceIdentityStore(s.AppCtx.RootDir())
-	s.AppCtx.AfterFactoryReset("The remembered SSH host keys and certificates", identityStore.Delete)
-	presenceConfig := netaudit.NewPresenceConfig(store)
-	decoyStore := persistence.NewDecoyTouchStore(s.AppCtx.RootDir())
-	s.AppCtx.AfterFactoryReset("The record of connections to decoy services", decoyStore.Delete)
-	decoyConfig := netaudit.NewDecoyConfig(store)
-	s.netaudit = &netauditServices{NamesConfig: namesConfig, Summary: summaryConfig, Names: suggester, History: history, Discovery6: discovery6, DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig, s.lookHooks(inventory, history, summaryConfig, suggester)), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	return scanning{Service: service, Readiness: readiness, Vulns: vulns}
+}
 
-	if registry := localRegistry(s.toolProvider); registry != nil {
-		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
+// tracking is what the module remembers about the network: who is on it, what they are called, and how it changes.
+type tracking struct {
+	Inventory   *netaudit.Inventory
+	Identities  *netaudit.Identities
+	History     *netaudit.History
+	Names       *names.Suggester
+	NamesConfig *netaudit.NamesConfig
+	Summary     *netaudit.SummaryConfig
+	Discovery6  *netaudit.Discovery6Config
+}
+
+func (s *AppServices) newTracking(store netaudit.PolicyStore, scope *netaudit.Scope, netTools *tools.NetworkTools) tracking {
+	root := s.AppCtx.RootDir()
+	historyStore := withReset(s.AppCtx, "The daily counts behind the Network page's trends", persistence.NewNetworkHistoryStore(root))
+	history := netaudit.NewHistory(historyStore)
+	discovery6 := netaudit.NewDiscovery6Config(store)
+	namesConfig := netaudit.NewNamesConfig(store)
+
+	nameStore := withReset(s.AppCtx, "The names devices gave when asked", persistence.NewNameSuggestionStore(root))
+	ask := scopedAsker(names.Prober{Dial: netTools.DialContext()}.Ask, scope)
+	suggester := names.NewSuggester(nameStore, ask).WithEnabled(namesConfig.Enabled)
+
+	inventoryStore := withReset(s.AppCtx, "The list of devices seen on the network", persistence.NewDeviceInventoryStore(root))
+	inScope := func(a netip.Addr) bool { return scope.Policy().Check(a) == nil }
+	inventory := netaudit.NewInventory(inventoryStore, neighborSource{reader: neighbors.NewReader()}, inScope).
+		WithDiscovery6(echoDiscoverer{}, discovery6.Enabled).
+		WithObserver(recordLook(history))
+
+	identityStore := withReset(s.AppCtx, "The remembered SSH host keys and certificates", persistence.NewDeviceIdentityStore(root))
+	return tracking{
+		Inventory:   inventory,
+		Identities:  netaudit.NewIdentities(identityStore),
+		History:     history,
+		Names:       suggester,
+		NamesConfig: namesConfig,
+		Summary:     netaudit.NewSummaryConfig(store),
+		Discovery6:  discovery6,
 	}
+}
+
+// withReset registers a store's Delete to run on a factory reset and returns the store, so a store and the reset of its
+// file are one expression.
+func withReset[S interface{ Delete() error }](app *AppContext, what string, store S) S {
+	app.AfterFactoryReset(what, store.Delete)
+	return store
 }
 
 // recordLook notes each look at the network in the history: how many devices answered, how many are known, how many of
@@ -298,48 +369,6 @@ func nameUnnamed(suggester *names.Suggester) func(context.Context, netaudit.Snap
 	}
 }
 
-// notifyConnectors sends one message to every connector. Without one it fails, so whatever was to be told stays pending
-// (an alert stays on the screen, a summary stays due) until a connector exists.
-func (s *AppServices) notifyConnectors() func(ctx context.Context, message string) error {
-	return func(ctx context.Context, message string) error {
-		comm := communicationTools(s.toolProvider)
-		if comm == nil || len(comm.Types()) == 0 {
-			return errors.New("no connector is set up to send alerts")
-		}
-		return comm.NotifyAll(ctx, message, "")
-	}
-}
-
-// lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, and sending
-// the weekly summary when it is due. Neither adds a sweep; both stop with the context.
-func (s *AppServices) lookHooks(inventory *netaudit.Inventory, history *netaudit.History, summary *netaudit.SummaryConfig, suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
-	digest := netaudit.NewWeeklyDigest(netaudit.DigestDeps{
-		Enabled: summary.Enabled, View: inventory.View, History: history, Notify: s.notifyConnectors(),
-		OnError: func(err error) { logging.Warn("network weekly summary", "error", err.Error()) },
-	})
-	name := nameUnnamed(suggester)
-	return func(ctx context.Context, snap netaudit.Snapshot) {
-		name(ctx, snap)
-		digest.Tick(ctx)
-	}
-}
-
-// newPresence builds the presence check. It sweeps through the scan service, so the declared scope and the one-scan-at-a-time
-// rule apply; the alert goes to every connector, in counts and fixed words, and no model is involved.
-func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit.Inventory, config *netaudit.PresenceConfig, onLook func(context.Context, netaudit.Snapshot)) *netaudit.Presence {
-	return netaudit.NewPresence(netaudit.PresenceDeps{
-		Settings: config.Settings,
-		Sweep: func(ctx context.Context, targets []string) error {
-			_, err := service.Scan(ctx, netaudit.Request{Targets: targets, Mode: netaudit.ModeDiscover, Unattended: true})
-			return err
-		},
-		Inventory: inventory,
-		OnLook:    onLook,
-		Notify:    s.notifyConnectors(),
-		OnError:   func(err error) { logging.Warn("network presence check", "error", err.Error()) },
-	})
-}
-
 // netauditPresence joins the presence check's settings with the check's own status for the handlers.
 type netauditPresence struct {
 	*netaudit.PresenceConfig
@@ -360,40 +389,4 @@ func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory,
 		return netip.ParseAddr(inv.Gateway)
 	}
 	return netaudit.NewRouterCheck(client, gateway, func(a netip.Addr) error { return scope.Policy().Check(a) })
-}
-
-// newDecoys builds the decoy services. A connection counts only from a device inside the declared scan networks and not from
-// this computer itself, whose own audit and sweep must never look like an intruder. The alert goes to every connector.
-func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, scope *netaudit.Scope) *decoy.Manager {
-	return decoy.New(decoy.Deps{
-		Specs:   decoy.Specs,
-		Enabled: config.Enabled,
-		InScope: func(a netip.Addr) bool { return scope.Policy().Check(a) == nil },
-		IsOwn:   ownAddress,
-		Store:   store,
-		Notify: func(ctx context.Context, sources []string) error {
-			comm := communicationTools(s.toolProvider)
-			if comm == nil || len(comm.Types()) == 0 {
-				return errors.New("no connector is set up to send alerts")
-			}
-			return comm.NotifyAll(ctx, netaudit.DecoyMessage(sources), "")
-		},
-		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
-	})
-}
-
-// ownAddress reports whether a is one of this computer's own addresses (read from its interfaces; nothing is sent).
-func ownAddress(a netip.Addr) bool {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return false
-	}
-	for _, ia := range addrs {
-		if ipnet, ok := ia.(*net.IPNet); ok {
-			if own, ok := netip.AddrFromSlice(ipnet.IP); ok && own.Unmap() == a {
-				return true
-			}
-		}
-	}
-	return false
 }

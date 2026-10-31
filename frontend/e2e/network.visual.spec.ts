@@ -33,6 +33,7 @@ for (const view of ['simple', 'advanced'] as const) {
       await page.goto('network')
       await expect(page.getByRole('heading', { name: 'Network', level: 1 })).toBeVisible()
       await expect(page.locator('[data-test="posture"]')).toBeVisible()
+      await expect(page.locator('[data-test="browser-alerts"]')).toBeVisible()
       await expectNoSidewaysScroll(page)
       if (testInfo.project.name === 'mobile') {
         for (const tab of await page.getByRole('link', { name: /^(Overview|Devices|Findings)$/ }).all()) {

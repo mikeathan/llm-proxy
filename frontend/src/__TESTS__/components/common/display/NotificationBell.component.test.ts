@@ -3,13 +3,15 @@ import { mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../../../../router'
 import NotificationBell from '../../../../components/common/display/NotificationBell.vue'
-import { toAutomation, toReminders, toWorkspace } from '../../../../router/routes'
-import type { ReminderAlertItem, RunEndItem, RunNotification } from '../../../../types/notifications'
+import { toAutomation, toNetwork, toReminders, toSettings, toWorkspace } from '../../../../router/routes'
+import type { NetworkAlertItem, ReminderAlertItem, RunEndItem, RunNotification } from '../../../../types/notifications'
 
 const failed: RunEndItem = { id: 'ws/a@t', kind: 'automation', label: 'ws/a', workspace: 'ws', automationId: 'ws/a', outcome: 'failed', error: 'boom', target: toAutomation('ws/a'), destination: 'automations' }
 const fired: ReminderAlertItem = { id: 'reminder-1-1', kind: 'reminder', message: 'call bank', event: 'due', channel: 'in-app', target: toReminders(), destination: 'reminders' }
 const lost: ReminderAlertItem = { ...fired, id: 'reminder-2-1', message: 'stand up', event: 'failed' }
 const ended: RunEndItem = { id: 'chat:ws@t', kind: 'assistant', label: 'ws', workspace: 'ws', outcome: 'ended', target: toWorkspace('ws'), destination: 'workspaces' }
+
+const decoyAlert: NetworkAlertItem = { id: 'network-1', kind: 'network', alertKind: 'decoy', message: 'Network audit: a device connected to a decoy service.', delivery: 'no_connector', count: 2, repeatKey: 'decoy:m', target: toNetwork('devices'), destination: 'network' }
 
 function mountBell(notifications: RunNotification[]) {
   return mount(NotificationBell, {
@@ -77,6 +79,29 @@ describe('NotificationBell', () => {
     await w.get('button[aria-haspopup]').trigger('click')
     expect(w.text()).toContain('Reminder could not be sent: stand up')
     expect(w.findAll('.text-state-error').map((el) => el.text())).toContain('failed')
+    w.unmount()
+  })
+
+  it('lists a network alert in words, linked to the Network page, and says it was not sent to a connector', async () => {
+    const w = mountBell([{ id: 'b1', createdAt: 0, items: [decoyAlert] }])
+    await w.get('button[aria-haspopup]').trigger('click')
+    const row = w.get('[data-test="notification-item"]')
+    expect(row.text()).toContain('a device connected to a decoy service')
+    expect(row.text()).toContain('Raised 2 times')
+    expect(row.text()).toContain('Not sent to your connectors: none is set up.')
+    expect(row.get('a').attributes('href')).toBe(w.vm.$router.resolve(toNetwork('devices')).href)
+    const fix = row.get('[data-test="notification-fix"]')
+    expect(fix.text()).toBe('Set up a connector')
+    expect(fix.attributes('href')).toBe(w.vm.$router.resolve(toSettings('communication')).href)
+    await fix.trigger('click')
+    expect(w.emitted('open')).toEqual([[decoyAlert]])
+    w.unmount()
+  })
+
+  it('shows no fix link for an alert that was sent', async () => {
+    const w = mountBell([{ id: 'b1', createdAt: 0, items: [{ ...decoyAlert, delivery: 'sent', count: 1 }] }])
+    await w.get('button[aria-haspopup]').trigger('click')
+    expect(w.find('[data-test="notification-fix"]').exists()).toBe(false)
     w.unmount()
   })
 })

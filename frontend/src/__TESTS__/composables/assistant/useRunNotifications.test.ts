@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, shallowRef } from 'vue'
 import { createRunNotifications } from '../../../composables/assistant/useRunNotifications'
-import { toAutomation, toReminders, toWorkspace, toWorkspaceAssistant } from '../../../router/routes'
+import { toAutomation, toNetwork, toReminders, toWorkspace, toWorkspaceAssistant } from '../../../router/routes'
 import type { GlobalRunTick, LaneHolder } from '../../../types/assistant'
 import type { AutomationRun } from '../../../types/dispatcher'
-import type { NotificationItem, ReminderAlertItem, RunEndItem } from '../../../types/notifications'
+import type { NetworkAlertItem, NotificationItem, ReminderAlertItem, RunEndItem } from '../../../types/notifications'
 
 const chat = (ws: string, since: string): LaneHolder => ({ key: `chat:${ws}`, kind: 'interactive', workspace_id: ws, label: ws, since })
 const auto = (ws: string, name: string, since: string): LaneHolder => ({ key: `${ws}/${name}`, kind: 'automation', workspace_id: ws, automation: name, label: `${ws}/${name}`, since })
@@ -35,7 +35,7 @@ function setup(opts: { ledger?: AutomationRun[][]; showing?: (item: Notification
 
 const allItems = (n: ReturnType<typeof createRunNotifications>) => n.notifications.value.flatMap((b) => b.items)
 // The runs on the list: what the run tests below look at.
-const items = (n: ReturnType<typeof createRunNotifications>): RunEndItem[] => allItems(n).filter((i): i is RunEndItem => i.kind !== 'reminder')
+const items = (n: ReturnType<typeof createRunNotifications>): RunEndItem[] => allItems(n).filter((i): i is RunEndItem => i.kind !== 'reminder' && i.kind !== 'network')
 
 describe('run notifications', () => {
   it('takes the first good tick as the baseline: runs finished before load never notify', async () => {
@@ -80,7 +80,7 @@ describe('run notifications', () => {
   })
 
   it('does not notify what the user is already looking at', async () => {
-    const { n, push } = setup({ showing: (item) => item.kind !== 'reminder' && item.workspace === 'ws' })
+    const { n, push } = setup({ showing: (item) => (item.kind === 'automation' || item.kind === 'assistant') && item.workspace === 'ws' })
     await push([chat('ws', 't1'), chat('other', 't1')])
     await push([])
     expect(items(n).map((i) => i.workspace)).toEqual(['other'])
@@ -143,7 +143,7 @@ describe('run notifications', () => {
 
   it('counts unread runs and clears the ones now on screen', async () => {
     let showing = ''
-    const { n, push } = setup({ showing: (item) => item.kind !== 'reminder' && item.workspace === showing })
+    const { n, push } = setup({ showing: (item) => (item.kind === 'automation' || item.kind === 'assistant') && item.workspace === showing })
     await push([chat('a', 't'), chat('b', 't')])
     await push([])
     expect(n.unreadCount.value).toBe(2)
@@ -215,5 +215,32 @@ describe('reminder alerts on the bell', () => {
     n.publishReminders([alert(1), alert(2)])
     n.dismissItem('reminder-1-1')
     expect(allItems(n).map((i) => i.id)).toEqual(['reminder-2-1'])
+  })
+})
+
+describe('network alerts on the bell', () => {
+  const net = (id: number, over: Partial<NetworkAlertItem> = {}): NetworkAlertItem =>
+    ({ id: `network-${id}`, kind: 'network', alertKind: 'decoy', message: 'decoy m', delivery: 'sent', count: 1, repeatKey: 'decoy:decoy m', target: toNetwork('devices'), destination: 'network', ...over })
+
+  it('lists a network alert beside runs, counts it and announces its text', () => {
+    const { n, announce } = setup()
+    n.publishNetworkAlerts([net(1)])
+    expect(allItems(n).map((i) => i.kind)).toEqual(['network'])
+    expect(n.unreadCount.value).toBe(1)
+    expect(announce).toHaveBeenLastCalledWith('decoy m')
+  })
+
+  it('replaces the earlier row of a repeating alert instead of adding another', () => {
+    const { n } = setup()
+    n.publishNetworkAlerts([net(1)])
+    n.publishNetworkAlerts([net(2, { count: 2 })])
+    expect(allItems(n)).toEqual([expect.objectContaining({ id: 'network-2', count: 2 })])
+  })
+
+  it('keeps rows with different text apart', () => {
+    const { n } = setup()
+    n.publishNetworkAlerts([net(1)])
+    n.publishNetworkAlerts([net(2, { message: 'other', repeatKey: 'decoy:other' })])
+    expect(allItems(n).map((i) => i.id)).toEqual(['network-1', 'network-2'])
   })
 })

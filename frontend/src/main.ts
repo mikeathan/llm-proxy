@@ -7,6 +7,7 @@ import { useTheme } from './composables/ui/useTheme'
 import { startRunNotifications } from './composables/assistant/useRunNotifications'
 import { startAuth } from './composables/auth/startAuth'
 import { startReminderAlerts } from './composables/reminders/useReminderAlerts'
+import { startNetworkAlerts } from './composables/netaudit/useNetworkAlerts'
 import { documentTitle } from './utils/documentTitle'
 
 // App bootstrap: the one place app-level lifecycle is wired. theme-boot.js has
@@ -25,6 +26,8 @@ installStaleChunkReload(router)
 const runNotifications = startRunNotifications(router)
 // Reminders that fire (or fail to) join the same bell, on the same poll.
 startReminderAlerts(runNotifications)
+// Network alerts (a decoy touched, a new device, the weekly summary) join it, whether or not a connector exists.
+startNetworkAlerts(runNotifications)
 
 // Page title + unread run count, e.g. "(2) Activity · <app>" (D20, D25).
 const pageTitle = ref<string | undefined>()

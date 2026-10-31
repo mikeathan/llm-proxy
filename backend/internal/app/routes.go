@@ -42,6 +42,7 @@ type HandlerSet struct {
 	Summary     *handlers.NetauditSwitchHandlers
 	DeviceNames *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
+	Alerts      *handlers.NetauditAlertHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
 	Webhook     *handlers.WebhookHandler
@@ -110,6 +111,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
+	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
@@ -366,6 +368,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/netaudit/devices/gateway/confirm", hs.Devices.ConfirmGateway, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/decoys", hs.Decoys.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/decoys", hs.Decoys.Put, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/decoys/touches", hs.Decoys.Clear, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/presence", hs.Devices.GetPresence, jsonMethodNotAllowed)

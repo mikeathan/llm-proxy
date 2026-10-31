@@ -336,3 +336,19 @@ func TestManager_SwitchingOffClearsTheOldProblem(t *testing.T) {
 		t.Error("a switched-off service has no problem")
 	}
 }
+
+func TestManager_ClearEmptiesTheListAndTheAlertThrottle(t *testing.T) {
+	r := newRig(specs)
+	r.start(t)
+	touch(t, r.m.Addrs()[1], "")
+	eventually(t, func() bool { r.mu.Lock(); defer r.mu.Unlock(); return len(r.sent) == 1 })
+	if err := r.m.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := r.store.Read(); len(items) != 0 {
+		t.Fatalf("the list must be empty, got %v", items)
+	}
+	// The clock has not moved, so only a reset throttle lets the next alert out at once.
+	touch(t, r.m.Addrs()[0], "")
+	eventually(t, func() bool { r.mu.Lock(); defer r.mu.Unlock(); return len(r.sent) == 2 })
+}
