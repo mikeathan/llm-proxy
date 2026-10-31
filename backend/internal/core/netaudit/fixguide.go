@@ -422,7 +422,7 @@ var guides = map[string]FixGuide{
 	CheckHiddenDevice: {
 		Steps: []string{
 			"Find the device behind the address with the router's list of connected devices.",
-			"Many sleeping devices answer the network's address lookup and nothing else; if it is one of yours, ignore the finding or give the device a fixed address and a name.",
+			"Many sleeping devices answer the network's address lookup and nothing else; if it is one of yours, give the device a name on the Devices card (a named device is not reported again) or give it a fixed address.",
 			"A device you do not recognise that answers nothing at all is worth unplugging until you know what it is.",
 		},
 		Risk: "Unplugging a device interrupts whatever it does.",

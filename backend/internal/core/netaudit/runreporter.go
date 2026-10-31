@@ -362,7 +362,7 @@ func (r *RunReporter) addInventory(ctx context.Context, result *Result) string {
 	if err != nil {
 		return fmt.Sprintf("\n\n> Note: who is on the network could not be checked, so new or changed devices were not looked for (%v).", err)
 	}
-	findings := append(InventoryFindings(snap.Inventory, r.now()), HiddenDeviceFindings(snap.Current, result.Hosts)...)
+	findings := append(InventoryFindings(snap.Inventory, r.now()), HiddenDeviceFindings(snap.Inventory, snap.Current, result.Hosts)...)
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
 	return ""
 }
