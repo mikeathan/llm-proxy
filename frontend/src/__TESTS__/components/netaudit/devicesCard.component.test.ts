@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { DeviceInventory, NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
-  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(),
+  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirm = vi.hoisted(() => vi.fn())
@@ -36,6 +36,7 @@ describe('DevicesCard', () => {
     service.devices.mockResolvedValue(inventory())
     service.presence.mockResolvedValue(presence())
     service.ipv6Discovery.mockResolvedValue({ enabled: false })
+    service.deviceNames.mockResolvedValue({ enabled: true })
     useNetauditViewMode().set('simple')
   })
 
@@ -196,5 +197,61 @@ describe('DevicesCard', () => {
     await w.get('[data-test="devices-list"] button[aria-expanded]').trigger('click')
     await w.findAll('[role="radio"]').find((b) => b.text().startsWith('IPv6'))!.trigger('click')
     expect(w.get('[data-test="devices-empty-ipv6"]').text()).toContain('Look for IPv6 devices')
+  })
+
+  describe('a name the device gave when asked', () => {
+    const suggestionFor = (over: Partial<NetworkDevice>) => {
+      service.devices.mockResolvedValue(inventory({ devices: [device({ mac: MAC_NEW, ip: '192.168.1.77', suggested_name: 'Samsung', ...over })] }))
+    }
+
+    it('is offered for one tap on an approved device that has no name', async () => {
+      suggestionFor({ approved: true, new: false })
+      service.nameDevice.mockResolvedValue(inventory({ devices: [device({ mac: MAC_NEW, name: 'Samsung' })] }))
+      const w = await mountCard()
+      const row = w.get(`[data-test="device-${MAC_NEW}"]`)
+      expect(row.get('[data-test="suggestion"]').text()).toContain('It calls itself “Samsung”.')
+      await row.findAll('button').find((b) => b.text() === 'Use this name')!.trigger('click')
+      await flushPromises()
+      expect(service.nameDevice).toHaveBeenCalledWith(MAC_NEW, 'Samsung')
+    })
+
+    it('is only information on a new device, because naming a device approves it', async () => {
+      suggestionFor({ approved: false, new: true })
+      const w = await mountCard()
+      const row = w.get(`[data-test="device-${MAC_NEW}"]`)
+      expect(row.get('[data-test="suggestion"]').text()).toContain('check it is yours first')
+      expect(row.findAll('button').some((b) => b.text() === 'Use this name')).toBe(false)
+    })
+
+    it('disappears once the person has named the device, and prefills the naming form while it shows', async () => {
+      suggestionFor({ approved: true, new: false, name: 'Mum phone' })
+      let w = await mountCard()
+      expect(w.find('[data-test="suggestion"]').exists()).toBe(false)
+      suggestionFor({ approved: true, new: false })
+      w = await mountCard()
+      await w.get(`[data-test="device-${MAC_NEW}"]`).findAll('button').find((b) => b.text() === 'Name it')!.trigger('click')
+      expect((w.get('input[aria-label="Device name"]').element as HTMLInputElement).value).toBe('Samsung')
+    })
+  })
+
+  describe('the switch for asking devices their names', () => {
+    it('shows the setting as the server has it and saves a change at once', async () => {
+      service.deviceNames.mockResolvedValue({ enabled: true })
+      service.setDeviceNames.mockResolvedValue({ enabled: false })
+      const w = await mountCard()
+      const toggle = w.get('[data-test="device-names"] input[type="checkbox"], [data-test="device-names"] [role="switch"]')
+      expect((toggle.element as HTMLInputElement).checked).toBe(true)
+      await toggle.setValue(false)
+      await flushPromises()
+      expect(service.setDeviceNames).toHaveBeenCalledWith(false)
+    })
+
+    it('says why it could not be saved', async () => {
+      service.setDeviceNames.mockRejectedValue(new Error('disk full'))
+      const w = await mountCard()
+      await w.get('[data-test="device-names"] input[type="checkbox"], [data-test="device-names"] [role="switch"]').setValue(false)
+      await flushPromises()
+      expect(w.get('[data-test="device-names"] [role="alert"]').text()).toContain('disk full')
+    })
   })
 })

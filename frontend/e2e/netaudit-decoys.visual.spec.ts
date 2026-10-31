@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Settings → Network scan → Decoy services, off, on and with a device that touched one: at both widths and in Simple and
+// Network → Devices → Decoy services, off, on and with a device that touched one: at both widths and in Simple and
 // Advanced nothing may scroll sideways and the switch row is a comfortable touch target.
 const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconfined: false, device_timeout_minutes: 0, suggestions: [] }
 const ports = [{ number: 2222, name: 'SSH login' }, { number: 4445, name: 'File sharing' }, { number: 8023, name: 'Telnet' }]
@@ -15,7 +15,7 @@ const STATES = {
 async function open(page: Page, view: 'simple' | 'advanced', decoys: object) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/decoys': decoys } })
-  await page.goto('settings/network-scan')
+  await page.goto('network/devices')
   await expect(page.getByRole('heading', { name: 'Decoy services' })).toBeVisible()
 }
 

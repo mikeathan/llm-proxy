@@ -1,5 +1,5 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { toActivity, toAutomations, toModels, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
+import { toActivity, toAutomations, toModels, toNetwork, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
 import type { Destination, NavId, NavItem } from '../types/routes'
 import type { NotificationItem } from '../types/notifications'
@@ -48,6 +48,7 @@ const SPECS: readonly NavSpec[] = [
     current: (ctx) => ctx.destination === 'workspaces' && ctx.routeName !== ROUTE_NAMES.workspaceAssistant,
   },
   { id: 'automations', label: 'Automations', icon: 'nav-automations', tab: true, to: toAutomations, current: onDestination('automations') },
+  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, to: () => toNetwork(), current: onDestination('network') },
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: true, to: toReminders, current: onDestination('reminders') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },

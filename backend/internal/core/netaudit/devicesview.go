@@ -9,14 +9,17 @@ import (
 
 // DeviceView is one device as the screen shows it.
 type DeviceView struct {
-	MAC        string    `json:"mac"`
-	IP         string    `json:"ip,omitempty"`
-	IPv6       []string  `json:"ipv6,omitempty"`
-	Name       string    `json:"name,omitempty"`
-	FirstSeen  time.Time `json:"first_seen"`
-	LastSeen   time.Time `json:"last_seen"`
-	Approved   bool      `json:"approved"`
-	Randomized bool      `json:"randomized"`
+	MAC  string   `json:"mac"`
+	IP   string   `json:"ip,omitempty"`
+	IPv6 []string `json:"ipv6,omitempty"`
+	Name string   `json:"name,omitempty"`
+	// SuggestedName is what the device called itself when asked, offered for the operator to confirm. It is shown on screen
+	// only, and only while the device has no name of its own from the operator.
+	SuggestedName string    `json:"suggested_name,omitempty"`
+	FirstSeen     time.Time `json:"first_seen"`
+	LastSeen      time.Time `json:"last_seen"`
+	Approved      bool      `json:"approved"`
+	Randomized    bool      `json:"randomized"`
 	// New is true while the device is unapproved and was seen lately: the same test that makes it a finding.
 	New bool `json:"new"`
 }

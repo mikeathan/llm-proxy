@@ -10,8 +10,6 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import AuditList from "../netaudit/AuditList.vue"
 import VulnDataCard from "../netaudit/VulnDataCard.vue"
-import DevicesCard from "../netaudit/DevicesCard.vue"
-import DecoysCard from "../netaudit/DecoysCard.vue"
 import ReadinessBanner from "../netaudit/ReadinessBanner.vue"
 import NetauditToolbar from "../netaudit/NetauditToolbar.vue"
 import NetauditHelp from "../netaudit/NetauditHelp.vue"
@@ -20,7 +18,7 @@ import { useNetauditReadiness } from "../../composables/netaudit/useNetauditRead
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { useActiveWorkspace } from "../../composables/ui/useActiveWorkspace"
 import { AUDIT_PLAYBOOK, DEVICE_TIME_OPTIONS, SCAN_TIME_ANCHOR, SIMPLE_USE_NETWORK } from "../../constants/netaudit"
-import { toAutomationNew } from "../../router/routes"
+import { toAutomationNew, toNetwork } from "../../router/routes"
 import type { ScanRange } from "../../types/netaudit"
 
 // Settings · Network scan: which networks scans may look at. Every change saves at once, so there is no Save button.
@@ -119,9 +117,10 @@ onMounted(async () => {
 
       <VulnDataCard />
 
-      <DevicesCard />
-
-      <DecoysCard />
+      <p class="m-0 text-[length:var(--text-small)] text-muted">
+        The devices on your network, the new-device check and the decoy services are on the
+        <RouterLink :to="toNetwork('devices')" class="text-accent-info-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2">Network page</RouterLink>.
+      </p>
 
       <Panel title="Network audit">
         <div class="flex flex-col gap-3">

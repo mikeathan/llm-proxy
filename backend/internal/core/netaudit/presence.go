@@ -59,6 +59,9 @@ type PresenceDeps struct {
 	Inventory PresenceInventory
 	// Notify sends one short message to the operator's connectors.
 	Notify func(ctx context.Context, message string) error
+	// OnLook, if set, is given each look the check took (after the inventory is updated), so other work that belongs to a
+	// look can ride on it, such as asking unnamed devices their names. It must stop when ctx ends and must not alert.
+	OnLook func(ctx context.Context, snap Snapshot)
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 	// OnError is told about trouble, once per distinct message until the trouble ends.
@@ -104,28 +107,48 @@ func (p *Presence) Tick(ctx context.Context) {
 		}
 		return
 	}
-	if _, err := p.deps.Inventory.Refresh(ctx); err != nil {
-		p.trouble(fmt.Errorf("presence check: %w", err))
-		return
-	}
-	pending, err := p.deps.Inventory.Pending()
+	snap, err := p.deps.Inventory.Refresh(ctx)
 	if err != nil {
 		p.trouble(fmt.Errorf("presence check: %w", err))
 		return
 	}
-	if !pending.Empty() {
-		if err := p.deps.Notify(ctx, PresenceMessage(pending)); err != nil {
-			p.trouble(fmt.Errorf("presence check: could not send the alert: %w", err))
-			return
-		}
-		if err := p.deps.Inventory.MarkNotified(pending); err != nil {
-			p.trouble(fmt.Errorf("presence check: %w", err))
-			return
-		}
+	// The alert goes first: whatever rides on a look (naming devices, the weekly summary) may be slow, and must never hold
+	// an alert back. It runs even when the alert could not be sent, because it does not depend on a connector.
+	alertErr := p.alert(ctx)
+	if p.deps.OnLook != nil {
+		p.deps.OnLook(ctx, snap)
+	}
+	if alertErr != nil {
+		return
 	}
 	p.mu.Lock()
 	p.last, p.lastCheck = "", p.deps.Now()
 	p.mu.Unlock()
+}
+
+// alert tells the operator about whatever is new and marks it told only once it was sent. A failure is reported once per
+// cause and leaves the alert pending.
+func (p *Presence) alert(ctx context.Context) error {
+	pending, err := p.deps.Inventory.Pending()
+	if err != nil {
+		err = fmt.Errorf("presence check: %w", err)
+		p.trouble(err)
+		return err
+	}
+	if pending.Empty() {
+		return nil
+	}
+	if err := p.deps.Notify(ctx, PresenceMessage(pending)); err != nil {
+		err = fmt.Errorf("presence check: could not send the alert: %w", err)
+		p.trouble(err)
+		return err
+	}
+	if err := p.deps.Inventory.MarkNotified(pending); err != nil {
+		err = fmt.Errorf("presence check: %w", err)
+		p.trouble(err)
+		return err
+	}
+	return nil
 }
 
 func (p *Presence) trouble(err error) {

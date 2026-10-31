@@ -418,11 +418,21 @@ type Inventory struct {
 	discOn      func() bool
 	discMu      sync.Mutex
 	discProblem string
+
+	// observe is told about every completed look (optional): the Network page's history is fed from it.
+	observe func(Snapshot)
 }
 
 // NewInventory builds the service. inScope says which addresses belong to the declared scan scope.
 func NewInventory(store InventoryStore, src NeighborSource, inScope func(netip.Addr) bool) *Inventory {
 	return &Inventory{store: store, src: src, inScope: inScope, now: time.Now}
+}
+
+// WithObserver has fn called after every look that was saved, with what the look found. fn must be quick and must not
+// call back into the Inventory.
+func (v *Inventory) WithObserver(fn func(Snapshot)) *Inventory {
+	v.observe = fn
+	return v
 }
 
 // Refresh reads the neighbour table and folds it into the stored inventory. If the table cannot be read it returns the
@@ -443,7 +453,11 @@ func (v *Inventory) Refresh(ctx context.Context) (Snapshot, error) {
 	if err := v.store.Write(next); err != nil {
 		return Snapshot{}, err
 	}
-	return Snapshot{Inventory: next, Current: scopedEntries(table.Entries, v.inScope)}, nil
+	snap := Snapshot{Inventory: next, Current: scopedEntries(table.Entries, v.inScope)}
+	if v.observe != nil {
+		v.observe(snap)
+	}
+	return snap, nil
 }
 
 // View returns the stored inventory.

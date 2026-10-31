@@ -26,11 +26,23 @@ type PresenceControl interface {
 	Status() netaudit.PresenceStatus
 }
 
+// NameSuggestions are the names devices gave when asked, by hardware address. *names.Suggester satisfies it.
+type NameSuggestions interface {
+	All() map[string]string
+}
+
 // NetauditDevicesHandlers serve the device list and the presence check's settings.
 type NetauditDevicesHandlers struct {
-	devices  DeviceInventory
-	presence PresenceControl
-	now      func() time.Time
+	devices     DeviceInventory
+	presence    PresenceControl
+	suggestions NameSuggestions
+	now         func() time.Time
+}
+
+// WithSuggestions has the list offer, for each device the operator has not named, the name it gave when asked.
+func (h *NetauditDevicesHandlers) WithSuggestions(s NameSuggestions) *NetauditDevicesHandlers {
+	h.suggestions = s
+	return h
 }
 
 func NewNetauditDevicesHandlers(devices DeviceInventory, presence PresenceControl) *NetauditDevicesHandlers {
@@ -44,7 +56,16 @@ func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, _ *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, netaudit.ViewOf(inv, h.now()))
+	view := netaudit.ViewOf(inv, h.now())
+	if h.suggestions != nil {
+		offered := h.suggestions.All()
+		for i, d := range view.Devices {
+			if d.Name == "" {
+				view.Devices[i].SuggestedName = offered[d.MAC]
+			}
+		}
+	}
+	respondJSON(w, view)
 }
 
 // deviceRequest changes one device. A name approves it too; Approved approves it without a name.

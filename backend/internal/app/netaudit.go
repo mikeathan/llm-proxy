@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
+	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/scantool"
@@ -38,6 +39,15 @@ type netauditServices struct {
 	Deep *netaudit.DeepChecks
 	// Vulns holds the vulnerability data and runs its operator-started download.
 	Vulns *vulnfeed.Manager
+	// Names asks devices the operator has not named what they call themselves, once per presence look, and keeps the answers
+	// for the Devices card to offer.
+	Names *names.Suggester
+	// NamesConfig is the switch for asking devices their names (on unless switched off).
+	NamesConfig *netaudit.NamesConfig
+	// Summary is the switch for the weekly summary, which the presence look sends when it is due.
+	Summary *netaudit.SummaryConfig
+	// History keeps the daily counts the Network page draws its trends from.
+	History *netaudit.History
 	// Inventory is who has been seen on the network, shared by the nightly audit and the presence check.
 	Inventory *netaudit.Inventory
 	// Identities remembers each service's SSH host keys and TLS certificate, to report one that was replaced.
@@ -111,6 +121,14 @@ func (s AppServices) NetauditRouter() netaudit.RouterFindings {
 		return nil
 	}
 	return s.netaudit.Router
+}
+
+// NetauditHistory is where the run reporter notes each audit's finding counts; nil until the services are wired.
+func (s AppServices) NetauditHistory() netaudit.AuditHistory {
+	if s.netaudit == nil || s.netaudit.History == nil {
+		return nil
+	}
+	return s.netaudit.History
 }
 
 // NetauditDecoys is where the run reporter reads the decoy touches; nil until the services are wired.
@@ -213,25 +231,102 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
 	inventoryStore := persistence.NewDeviceInventoryStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The list of devices seen on the network", inventoryStore.Delete)
+	nameStore := persistence.NewNameSuggestionStore(s.AppCtx.RootDir())
+	s.AppCtx.AfterFactoryReset("The names devices gave when asked", nameStore.Delete)
+	namesConfig := netaudit.NewNamesConfig(store)
+	suggester := names.NewSuggester(nameStore, scopedAsker(names.Prober{Dial: netTools.DialContext()}.Ask, scope)).WithEnabled(namesConfig.Enabled)
+	historyStore := persistence.NewNetworkHistoryStore(s.AppCtx.RootDir())
+	s.AppCtx.AfterFactoryReset("The daily counts behind the Network page's trends", historyStore.Delete)
+	history := netaudit.NewHistory(historyStore)
+	summaryConfig := netaudit.NewSummaryConfig(store)
 	discovery6 := netaudit.NewDiscovery6Config(store)
 	inventory := netaudit.NewInventory(inventoryStore, neighborSource{reader: neighbors.NewReader()},
-		func(a netip.Addr) bool { return scope.Policy().Check(a) == nil }).WithDiscovery6(echoDiscoverer{}, discovery6.Enabled)
+		func(a netip.Addr) bool { return scope.Policy().Check(a) == nil }).WithDiscovery6(echoDiscoverer{}, discovery6.Enabled).WithObserver(recordLook(history))
 	identityStore := persistence.NewDeviceIdentityStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The remembered SSH host keys and certificates", identityStore.Delete)
 	presenceConfig := netaudit.NewPresenceConfig(store)
 	decoyStore := persistence.NewDecoyTouchStore(s.AppCtx.RootDir())
 	s.AppCtx.AfterFactoryReset("The record of connections to decoy services", decoyStore.Delete)
 	decoyConfig := netaudit.NewDecoyConfig(store)
-	s.netaudit = &netauditServices{Discovery6: discovery6, DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
+	s.netaudit = &netauditServices{NamesConfig: namesConfig, Summary: summaryConfig, Names: suggester, History: history, Discovery6: discovery6, DecoyConfig: decoyConfig, DecoyStore: decoyStore, Decoys: s.newDecoys(decoyConfig, decoyStore, scope), Router: newRouterCheck(netTools, inventory, scope), Inventory: inventory, Identities: netaudit.NewIdentities(identityStore), PresenceConfig: presenceConfig, Presence: s.newPresence(service, inventory, presenceConfig, s.lookHooks(inventory, history, summaryConfig, suggester)), Scope: scope, Readiness: readiness, Acks: netaudit.NewAcks(s.Persistence(), s.Persistence()), Fixes: netaudit.NewFixes(s.Persistence(), s.Persistence()), Expectations: netaudit.NewExpectations(s.Persistence(), scope), Deep: netaudit.NewDeepChecks(service, s.Persistence(), s.Persistence()), Vulns: vulns}
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(service, s.Persistence(), func(context.Context) bool { return len(readiness.Blocking()) == 0 }))
 	}
 }
 
+// recordLook notes each look at the network in the history: how many devices answered, how many are known, how many of
+// those have no name. A failure is logged and never stops the look.
+func recordLook(history *netaudit.History) func(netaudit.Snapshot) {
+	return func(snap netaudit.Snapshot) {
+		unnamed := 0
+		for _, d := range snap.Inventory.Devices {
+			if d.Name == "" {
+				unnamed++
+			}
+		}
+		if err := history.RecordLook(len(snap.Current), len(snap.Inventory.Devices), unnamed); err != nil {
+			logging.Warn("network history", "error", err.Error())
+		}
+	}
+}
+
+// scopedAsker refuses to ask a device outside the declared scan scope, on top of what the guarded dialer refuses.
+func scopedAsker(ask names.Asker, scope *netaudit.Scope) names.Asker {
+	return func(ctx context.Context, addr netip.Addr) (string, error) {
+		if err := scope.Policy().Check(addr); err != nil {
+			return "", err
+		}
+		return ask(ctx, addr)
+	}
+}
+
+// nameUnnamed asks the devices the operator has not named what they call themselves, as part of each presence look. The
+// questions go through the guarded dialer, so only devices inside the declared scan scope are asked; a failure is logged
+// and never stops the look.
+func nameUnnamed(suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
+	return func(ctx context.Context, snap netaudit.Snapshot) {
+		var candidates []names.Candidate
+		for _, d := range snap.Inventory.Devices {
+			if addr, err := netip.ParseAddr(d.IP); d.Name == "" && err == nil && addr.Is4() {
+				candidates = append(candidates, names.Candidate{MAC: d.MAC, Addr: addr})
+			}
+		}
+		if err := suggester.Look(ctx, candidates); err != nil {
+			logging.Warn("network device names", "error", err.Error())
+		}
+	}
+}
+
+// notifyConnectors sends one message to every connector. Without one it fails, so whatever was to be told stays pending
+// (an alert stays on the screen, a summary stays due) until a connector exists.
+func (s *AppServices) notifyConnectors() func(ctx context.Context, message string) error {
+	return func(ctx context.Context, message string) error {
+		comm := communicationTools(s.toolProvider)
+		if comm == nil || len(comm.Types()) == 0 {
+			return errors.New("no connector is set up to send alerts")
+		}
+		return comm.NotifyAll(ctx, message, "")
+	}
+}
+
+// lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, and sending
+// the weekly summary when it is due. Neither adds a sweep; both stop with the context.
+func (s *AppServices) lookHooks(inventory *netaudit.Inventory, history *netaudit.History, summary *netaudit.SummaryConfig, suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
+	digest := netaudit.NewWeeklyDigest(netaudit.DigestDeps{
+		Enabled: summary.Enabled, View: inventory.View, History: history, Notify: s.notifyConnectors(),
+		OnError: func(err error) { logging.Warn("network weekly summary", "error", err.Error()) },
+	})
+	name := nameUnnamed(suggester)
+	return func(ctx context.Context, snap netaudit.Snapshot) {
+		name(ctx, snap)
+		digest.Tick(ctx)
+	}
+}
+
 // newPresence builds the presence check. It sweeps through the scan service, so the declared scope and the one-scan-at-a-time
 // rule apply; the alert goes to every connector, in counts and fixed words, and no model is involved.
-func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit.Inventory, config *netaudit.PresenceConfig) *netaudit.Presence {
+func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit.Inventory, config *netaudit.PresenceConfig, onLook func(context.Context, netaudit.Snapshot)) *netaudit.Presence {
 	return netaudit.NewPresence(netaudit.PresenceDeps{
 		Settings: config.Settings,
 		Sweep: func(ctx context.Context, targets []string) error {
@@ -239,15 +334,9 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 			return err
 		},
 		Inventory: inventory,
-		Notify: func(ctx context.Context, message string) error {
-			comm := communicationTools(s.toolProvider)
-			if comm == nil || len(comm.Types()) == 0 {
-				// Not marked as told: the alert stays pending until a connector exists, and the screen shows it meanwhile.
-				return errors.New("no connector is set up to send alerts")
-			}
-			return comm.NotifyAll(ctx, message, "")
-		},
-		OnError: func(err error) { logging.Warn("network presence check", "error", err.Error()) },
+		OnLook:    onLook,
+		Notify:    s.notifyConnectors(),
+		OnError:   func(err error) { logging.Warn("network presence check", "error", err.Error()) },
 	})
 }
 

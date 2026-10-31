@@ -13,6 +13,8 @@ import StatusTag from "../common/display/StatusTag.vue"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useDevices } from "../../composables/netaudit/useDevices"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
+import { useNetauditSwitch } from "../../composables/netaudit/useNetauditSwitch"
+import { NetauditService } from "../../services/netaudit/netauditService"
 import {
   DEVICES_BASELINE_NOTE,
   DEVICES_EMPTY,
@@ -33,6 +35,13 @@ import {
   IPV6_LABEL,
   IPV6_PROBLEMS,
   PRESENCE_HINT,
+  NAMES_HINT,
+  NAMES_LABEL,
+  NAMES_LOAD_FAILED,
+  NAMES_SAVE_FAILED,
+  SUGGESTION_ACCEPT,
+  SUGGESTION_APPROVED,
+  SUGGESTION_NEW_DEVICE,
 } from "../../constants/netaudit"
 import { deviceDetail, deviceLabel, devicesIn, deviceSummary, familyOptions, intervalOptions, ipv6Detail, presenceLine } from "../../utils/netaudit/devices"
 import type { DeviceFamily, NetworkDevice } from "../../types/netaudit"
@@ -40,6 +49,7 @@ import type { DeviceFamily, NetworkDevice } from "../../types/netaudit"
 // Settings · Network scan · Devices: who has been seen on the network, and the check that looks for a new one every few
 // minutes. A device nobody approved shows first. Naming a device approves it. Simple shows names and one decision per
 // device; Advanced adds the addresses and how often the check runs.
+const names = useNetauditSwitch(() => NetauditService.deviceNames(), (on) => NetauditService.setDeviceNames(on), { load: NAMES_LOAD_FAILED, save: NAMES_SAVE_FAILED }, true)
 const { inventory, presence, ipv6, loadError, actionError, busy, load, setPresence, setIPv6, name, approve, forget, confirmGateway } = useDevices()
 const { confirm } = useConfirm()
 const { advanced } = useNetauditViewMode()
@@ -65,7 +75,7 @@ const draft = ref("")
 
 function startNaming(device: NetworkDevice) {
   editing.value = device.mac
-  draft.value = device.name ?? ""
+  draft.value = device.name ?? device.suggested_name ?? ""
 }
 
 async function saveName(device: NetworkDevice) {
@@ -102,6 +112,11 @@ onMounted(load)
             label="How often to look"
             @update:model-value="changeInterval"
           />
+        </section>
+
+        <section class="flex flex-col gap-1" aria-label="Device names" data-test="device-names">
+          <ToggleField :model-value="names.enabled.value" :label="NAMES_LABEL" :hint="NAMES_HINT" :disabled="names.busy.value" @update:model-value="names.set" />
+          <p v-if="names.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ names.error.value }}</p>
         </section>
 
         <section v-if="ipv6" class="flex flex-col gap-1" aria-label="IPv6 devices" data-test="ipv6-discovery">
@@ -146,6 +161,10 @@ onMounted(load)
                 {{ detail(device) }}
                 <span v-if="advanced" class="font-mono"> · {{ device.mac }}</span>
                 <span v-if="advanced && family === 'ipv4' && device.ipv6?.length" class="font-mono"> · {{ device.ipv6.join(", ") }}</span>
+              </p>
+              <p v-if="device.suggested_name && !device.name" class="m-0 flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary" data-test="suggestion">
+                <span class="min-w-0 break-words">{{ device.approved ? SUGGESTION_APPROVED(device.suggested_name) : SUGGESTION_NEW_DEVICE(device.suggested_name) }}</span>
+                <BaseButton v-if="device.approved" variant="secondary" size="sm" class-name="max-sm:!h-11" :disabled="busy" @click="name(device.mac, device.suggested_name)">{{ SUGGESTION_ACCEPT }}</BaseButton>
               </p>
               <form v-if="editing === device.mac" class="flex flex-wrap items-center gap-2" @submit.prevent="saveName(device)">
                 <input

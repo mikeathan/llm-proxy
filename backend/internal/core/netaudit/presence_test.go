@@ -34,6 +34,7 @@ type presenceRig struct {
 	sendErr  error
 	errs     []error
 	settings PresenceSettings
+	onLook   func(context.Context, Snapshot)
 }
 
 func (r *presenceRig) presence() *Presence {
@@ -46,6 +47,7 @@ func (r *presenceRig) presence() *Presence {
 		Inventory: r.inv,
 		Notify:    func(_ context.Context, msg string) error { r.sent = append(r.sent, msg); return r.sendErr },
 		OnError:   func(err error) { r.errs = append(r.errs, err) },
+		OnLook:    r.onLook,
 	})
 }
 
@@ -194,5 +196,54 @@ func TestPresence_StatusSaysWhenItLastLookedAndWhatIsWrong(t *testing.T) {
 	p.Tick(context.Background())
 	if s := p.Status(); s.Problem != "" || s.LastCheck.IsZero() {
 		t.Errorf("a good cycle clears the trouble: %+v", s)
+	}
+}
+
+func TestPresence_EachLookIsHandedToTheNamingStepAndAFailedLookIsNot(t *testing.T) {
+	r := rig()
+	var looks int
+	r.onLook = func(context.Context, Snapshot) { looks++ }
+	r.presence().Tick(context.Background())
+	if looks != 1 {
+		t.Fatalf("looks = %d, want 1", looks)
+	}
+	r.inv.refreshErr = errors.New("no table")
+	r.presence().Tick(context.Background())
+	if looks != 1 {
+		t.Errorf("a look that failed must not be handed on: %d", looks)
+	}
+}
+
+func TestPresence_TheAlertGoesOutBeforeTheNamingStepStarts(t *testing.T) {
+	r := rig()
+	r.inv.pending = Pending{NewDevices: 1}
+	var order []string
+	r.onLook = func(context.Context, Snapshot) { order = append(order, "look") }
+	p := NewPresence(PresenceDeps{
+		Settings:  func() PresenceSettings { return r.settings },
+		Sweep:     func(context.Context, []string) error { return nil },
+		Inventory: r.inv,
+		Notify:    func(context.Context, string) error { order = append(order, "alert"); return nil },
+		OnLook:    r.onLook,
+	})
+	p.Tick(context.Background())
+	if len(order) != 2 || order[0] != "alert" || order[1] != "look" {
+		t.Errorf("order = %v: a slow naming step must never hold back an alert", order)
+	}
+}
+
+func TestPresence_TheNamingStepStillRunsWhenTheAlertCannotBeSent(t *testing.T) {
+	r := rig()
+	r.inv.pending = Pending{NewDevices: 1}
+	r.sendErr = errors.New("no connector is set up to send alerts")
+	var looks int
+	r.onLook = func(context.Context, Snapshot) { looks++ }
+	p := r.presence()
+	p.Tick(context.Background())
+	if looks != 1 {
+		t.Errorf("looks = %d: with no connector the naming step is still due", looks)
+	}
+	if len(r.errs) != 1 || len(r.inv.marked) != 0 {
+		t.Errorf("errors = %v, marked = %v: the alert must stay pending", r.errs, r.inv.marked)
 	}
 }

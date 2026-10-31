@@ -121,6 +121,19 @@ var guides = map[string]FixGuide{
 		Risk: "Old SSH clients that only know the removed algorithms can no longer log in. A mistake in the file can lock you out, which is why the current session stays open.",
 		Undo: "Delete /etc/ssh/sshd_config.d/10-hardening.conf and reload the service (sudo systemctl reload ssh; on some systems the service is called sshd).",
 	},
+	CheckEndOfLife: {
+		Steps: []string{
+			"Find out which program the finding is about from the software listed under it, and which release you have.",
+			"Look up the makers' current supported release, and whether your system's vendor still patches the version you run: many Linux distributions keep fixing an old number for years, and then there is nothing to do.",
+			"If nothing supports it, take a snapshot or backup, move to a supported release, and restart the service.",
+			"Run the scan again to confirm.",
+		},
+		Commands: []GuideCommand{
+			{platformLinux + " (Debian, Ubuntu)", "apt list --installed 2>/dev/null | grep -i <package>\napt policy <package>"},
+		},
+		Risk: "A newer release can change settings or behaviour that other programs rely on, so test it first where you can.",
+		Undo: "Restore the snapshot or backup, or install the earlier version again (sudo apt install <package>=<version>).",
+	},
 	CheckKnownVulns: {
 		Steps: []string{
 			"Find out which program the finding is about from the software listed under it.",

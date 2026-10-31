@@ -67,6 +67,14 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 	exec := automation.NewLLMTaskExecutor(svc).(*automation.LLMTaskExecutor)
 	exec.SetShellPool(c.Infra.ShellManager)
 	reporter := netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()).WithFixes(svc.Persistence()).WithExpectations(svc.Persistence()).WithDeepChecks(svc.Persistence())
+	withNetauditSources(reporter, svc)
+	exec.SetReportHook(reporter)
+	return exec
+}
+
+// withNetauditSources gives the run reporter the optional sources the application service offers: the vulnerability data,
+// the device inventory and the remembered identities.
+func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
 	if v, ok := svc.(interface{ NetauditVulns() netaudit.VulnSource }); ok && v.NetauditVulns() != nil {
 		reporter.WithVulns(v.NetauditVulns())
 	}
@@ -78,6 +86,11 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 	}); ok && v.NetauditIdentities() != nil {
 		reporter.WithIdentities(v.NetauditIdentities())
 	}
+	withNetauditChecks(reporter, svc)
+}
+
+// withNetauditChecks gives the run reporter the sources of the router check, the decoy touches and the Network page's history.
+func withNetauditChecks(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
 	if v, ok := svc.(interface {
 		NetauditRouter() netaudit.RouterFindings
 	}); ok && v.NetauditRouter() != nil {
@@ -86,8 +99,9 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 	if v, ok := svc.(interface{ NetauditDecoys() netaudit.DecoyReader }); ok && v.NetauditDecoys() != nil {
 		reporter.WithDecoys(v.NetauditDecoys())
 	}
-	exec.SetReportHook(reporter)
-	return exec
+	if v, ok := svc.(interface{ NetauditHistory() netaudit.AuditHistory }); ok && v.NetauditHistory() != nil {
+		reporter.WithHistory(v.NetauditHistory(), func(err error) { logging.Warn("network history", "error", err.Error()) })
+	}
 }
 
 func (c *Container) BuildAppServices() *AppServices {
