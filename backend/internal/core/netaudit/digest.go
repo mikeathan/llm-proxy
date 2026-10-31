@@ -33,7 +33,25 @@ func DigestMessage(inv models.DeviceInventory, series []models.NetworkDay, now t
 	}
 	parts := []string{fmt.Sprintf("%s known (%d new this week, %d not seen this week), %d without a name.", plural(known, "device", "devices"), fresh, unseen, unnamed)}
 	parts = append(parts, digestFindings(series, now))
+	if ports := digestPorts(series, now); ports != "" {
+		parts = append(parts, ports)
+	}
 	return "Network summary for the week: " + strings.Join(parts, " ") + " Open the Network page for details."
+}
+
+// digestPorts says how many ports opened and closed over the week, from the days an audit ran, or "" when none did.
+func digestPorts(series []models.NetworkDay, now time.Time) string {
+	since := now.AddDate(0, 0, -7).Format(historyDateLayout)
+	opened, closed, audited := 0, 0, false
+	for _, d := range series {
+		if d.Date >= since && d.Audited {
+			opened, closed, audited = opened+d.PortsOpened, closed+d.PortsClosed, true
+		}
+	}
+	if !audited {
+		return ""
+	}
+	return fmt.Sprintf("%s opened and %d closed this week.", plural(opened, "port", "ports"), closed)
 }
 
 // digestFindings says how many findings are open at the latest audit and, if the history reaches back a week, how many were.

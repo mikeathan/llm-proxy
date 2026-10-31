@@ -355,6 +355,9 @@ export interface NetworkDevice {
   randomized: boolean
   /** Not approved and seen lately: the same test that makes it a finding. */
   new: boolean
+  /** The ports it had open at its last completed scan, and when; absent until a scan has finished looking at it. */
+  open_ports?: number[]
+  ports_scanned_at?: string
 }
 
 /** The router's hardware address and whether it is the one on record. */
@@ -402,7 +405,7 @@ export interface IPv6DiscoveryState {
 export type DeviceFamily = 'ipv4' | 'ipv6'
 
 /** What the person did to a device. */
-export type DeviceAction = 'name' | 'approve' | 'forget' | 'confirm-gateway'
+export type DeviceAction = 'name' | 'approve' | 'forget' | 'dismiss-suggestion' | 'confirm-gateway'
 
 /** One fake service the decoys offer. */
 export interface DecoyPort {

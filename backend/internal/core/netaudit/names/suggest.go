@@ -2,6 +2,7 @@ package names
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"slices"
 	"sync"
@@ -20,6 +21,9 @@ const (
 	firstMissGap = 6 * time.Hour
 	maxRetryWait = 7 * 24 * time.Hour
 )
+
+// ErrNoSuggestion means there is no name on offer for the device, so there is nothing to dismiss.
+var ErrNoSuggestion = errors.New("no suggested name for that device")
 
 // Asker asks one device what it calls itself. It returns an error for a device that did not give a usable answer.
 type Asker func(ctx context.Context, addr netip.Addr) (string, error)
@@ -200,6 +204,24 @@ func compareMAC(a, b string) int {
 	return 0
 }
 
+// Dismiss rejects the name now on offer for a device. The same name is not offered again, however often the device gives
+// it; a different name later is offered like any other.
+func (s *Suggester) Dismiss(mac string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stored, err := s.store.Read()
+	if err != nil {
+		return err
+	}
+	for i, e := range stored.Entries {
+		if e.MAC == mac && e.Name != "" && e.Name != e.Dismissed {
+			stored.Entries[i].Dismissed = e.Name
+			return s.store.Write(stored)
+		}
+	}
+	return ErrNoSuggestion
+}
+
 // For is the name a device last gave, or empty. It reads the store, so it is for one device; All is for a list.
 func (s *Suggester) For(mac string) string { return s.All()[mac] }
 
@@ -216,7 +238,7 @@ func (s *Suggester) All() map[string]string {
 		return out
 	}
 	for _, e := range stored.Entries {
-		if e.Name != "" {
+		if e.Name != "" && e.Name != e.Dismissed {
 			out[e.MAC] = e.Name
 		}
 	}

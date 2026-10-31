@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.22"
+version: "2.23"
 status: stable
 last_updated: 2026-10-31
 constitution_references: []
@@ -13,7 +13,16 @@ supersedes:
 
 ## Changelog
 
-- **2.22 (2026-10-31)** — **Network alerts on the bell, and Clear list for the decoys** (plan `network-alerts-in-ui`, approved by the
+- **2.23 (2026-10-31)** — **Network · Devices: hints and naming** (plan `network-followups`). Under each device the card shows
+  the ports it had open at its last completed scan ("Open ports: 22, 80 · scanned 2 days ago"; "No open ports" when a scan
+  found none; nothing for a device no scan has finished). A name a device gave when asked can be rejected with **Not this**
+  (`POST /admin/api/netaudit/devices/{mac}/dismiss-suggestion`); the same name is not offered again, a different one is.
+  When devices have no name, a prompt says "N devices have no name" and **Name them** shows only those (no name, a real
+  hardware address, an IPv4 address; a private-address phone or an IPv6-only device is not counted because the
+  missing-device check cannot follow it), each with its hints; naming one removes it from the list. The new-device alert
+  waits 30 minutes for a device with a private address and tells those that stayed in one message; the weekly summary gains
+  "N ports opened and M closed this week".
+- **2.22 (2026-10-31)** — **Network alerts on the bell, and Clear list for the decoys** (plan `ARCHIVE/cross-cutting/network-alerts-in-ui`, approved by the
   owner). (a) The bell lists a third kind of item, a **Network alert** (`NotificationItem` = `RunEndItem | ReminderAlertItem |
   NetworkAlertItem`): a device that connected to a decoy, a new device or changed address, and the weekly summary. The row text
   is the exact message sent to the connectors (fixed words; no device name), labelled `decoy`, `devices` or `summary`. Network

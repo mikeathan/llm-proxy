@@ -204,8 +204,14 @@ export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
   name: 'The name could not be saved.',
   approve: 'The device could not be approved.',
   forget: 'The device could not be removed from the list.',
+  'dismiss-suggestion': 'The suggested name could not be dismissed.',
   'confirm-gateway': 'The router\'s address could not be confirmed.',
 }
+export const SUGGESTION_DISMISS = 'Not this'
+export const UNNAMED_SHOW = 'Name them'
+export const UNNAMED_SHOW_ALL = 'Show all devices'
+export const UNNAMED_HINT = 'A name lets the check tell you when a device you know has not been on the network for days. A phone with a private address, or a device with no IPv4 address, is not counted, because that check cannot follow it.'
+export const unnamedPrompt = (count: number) => `${count} ${count === 1 ? 'device has' : 'devices have'} no name`
 export const PRESENCE_LOAD_FAILED = 'The new-device check could not be read.'
 export const PRESENCE_SAVE_FAILED = 'The new-device check could not be changed.'
 export const PRESENCE_HINT = 'Looks for a device that was not on the network before, and sends you a short message the first time one shows up. It only connects to the networks allowed above; it never looks at what a device sends.'

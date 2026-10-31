@@ -1,15 +1,15 @@
 ---
-status: partial
+status: complete
 date: 2026-10-31
 last_reviewed: 2026-10-31
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [I.1, I.2]
-evidence: Recon of 2026-10-31 (§2), read from the code; built the same day (v0.30.0), tests and visual specs pass; no live check yet.
+evidence: Recon of 2026-10-31 (§2), read from the code; built the same day (v0.30.0, #173) and confirmed live by the owner (2026-10-31, owner's statement; no output captured).
 ---
 
 # Network alerts in the web UI, and clearing the decoy list
 
-**Status:** partial (2026-10-31): built in v0.30.0 and covered by tests; the owner has not yet seen it live. The SPEC-003 change (approved) is recorded as SPEC-003 2.22.
+**Status:** complete (2026-10-31): built in v0.30.0 (#173), tests and visual specs pass, and the owner confirmed both live checks. The SPEC-003 change (approved) is recorded as SPEC-003 2.22.
 **Related plans:** [`network-guard-module.md`](network-guard-module.md), [`network-detection.md`](network-detection.md).
 **Origin:** the owner (2026-10-31), after a decoy alert reached Telegram and the decoy list showed two hits but nothing appeared in the web UI: "I should have an alert or notification in the UI too". Asked in the same message whether the decoy list can be cleared or stays for good. Answers: cover every network alert (decoy touches and presence alerts); write the plan. Later the same day the owner also asked for items 3.6 to 3.9.
 
@@ -80,5 +80,5 @@ No new probe, listener or timer. One small file write per alert; the log is capp
 
 ## Remaining Work
 
-- **Owner check (open):** that a hidden tab shows one browser notice on the owner's browsers (3.10), and that a decoy touch with no connector set up shows on the bell with the "Not sent" link (3.2, 3.7). Neither is verified live; the unit and visual tests use a fake `Notification` and mocked endpoints.
+- Done (2026-10-31): the owner confirmed on the deployed build that a hidden tab shows a browser notice (3.10) and that a decoy alert with no connector set up shows on the bell with the "Not sent" link (3.2, 3.7). Evidence: the owner's statement only; no output captured, and the phone case was not separately reported.
 - Not planned (§6): an age limit on the decoy list, per-source removal, browser notices for reminders.

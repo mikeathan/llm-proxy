@@ -99,6 +99,9 @@ func withNetauditChecks(reporter *netaudit.RunReporter, svc handlers.AssistantSe
 	if v, ok := svc.(interface{ NetauditDecoys() netaudit.DecoyReader }); ok && v.NetauditDecoys() != nil {
 		reporter.WithDecoys(v.NetauditDecoys())
 	}
+	if v, ok := svc.(interface{ NetauditPorts() netaudit.PortRecorder }); ok && v.NetauditPorts() != nil {
+		reporter.WithPorts(v.NetauditPorts())
+	}
 	if v, ok := svc.(interface{ NetauditHistory() netaudit.AuditHistory }); ok && v.NetauditHistory() != nil {
 		reporter.WithHistory(v.NetauditHistory(), func(err error) { logging.Warn("network history", "error", err.Error()) })
 	}

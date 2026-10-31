@@ -14,6 +14,8 @@ type NameSuggestion struct {
 	MAC string `json:"mac"`
 	// Name is the cleaned answer; empty while the device has never answered.
 	Name string `json:"name,omitempty"`
+	// Dismissed is the name the operator rejected; the same name is not offered again.
+	Dismissed string `json:"dismissed,omitempty"`
 	// TriedAt is when the device was last asked, AnsweredAt when it last gave a name.
 	TriedAt    time.Time `json:"tried_at"`
 	AnsweredAt time.Time `json:"answered_at,omitzero"`

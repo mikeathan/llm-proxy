@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { DeviceInventory, NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
-  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
+  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), dismissSuggestion: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirm = vi.hoisted(() => vi.fn())
@@ -252,6 +252,65 @@ describe('DevicesCard', () => {
       await w.get('[data-test="device-names"] input[type="checkbox"], [data-test="device-names"] [role="switch"]').setValue(false)
       await flushPromises()
       expect(w.get('[data-test="device-names"] [role="alert"]').text()).toContain('disk full')
+    })
+  })
+
+  describe('suggestions, hints and the naming list', () => {
+    const unnamed = (mac: string, ip: string, over: Partial<NetworkDevice> = {}) => device({ mac, ip, ...over })
+
+    it('lets the person reject a suggested name, on a new device too', async () => {
+      service.devices.mockResolvedValue(inventory({ devices: [unnamed(MAC_NEW, '192.168.1.77', { approved: false, new: true, suggested_name: 'Samsung' })] }))
+      service.dismissSuggestion.mockResolvedValue(inventory({ devices: [unnamed(MAC_NEW, '192.168.1.77', { approved: false, new: true })] }))
+      const w = await mountCard()
+      const row = w.get(`[data-test="device-${MAC_NEW}"]`)
+      expect(row.find('[data-test="suggestion"]').exists()).toBe(true)
+      await row.findAll('button').find((b) => b.text() === 'Not this')!.trigger('click')
+      await flushPromises()
+      expect(service.dismissSuggestion).toHaveBeenCalledWith(MAC_NEW)
+      expect(w.find('[data-test="suggestion"]').exists()).toBe(false)
+    })
+
+    it('shows what helps tell an unnamed device apart: the open ports from the last scan', async () => {
+      service.devices.mockResolvedValue(inventory({ devices: [unnamed(MAC_OLD, '192.168.1.5', { open_ports: [22, 80], ports_scanned_at: '2026-10-29T12:00:00Z' })] }))
+      const w = await mountCard()
+      expect(w.get(`[data-test="device-${MAC_OLD}"]`).text()).toContain('Open ports: 22, 80')
+    })
+
+    it('offers a naming list only when there are devices the person can name, and counts only those', async () => {
+      service.devices.mockResolvedValue(inventory({ devices: [
+        unnamed('aa:bb:cc:00:00:01', '192.168.1.5'),
+        unnamed('aa:bb:cc:00:00:02', '192.168.1.6'),
+        unnamed('aa:bb:cc:00:00:03', '192.168.1.7', { randomized: true }),
+        unnamed('aa:bb:cc:00:00:04', '192.168.1.8', { name: 'Printer' }),
+      ] }))
+      const w = await mountCard()
+      expect(w.get('[data-test="unnamed-prompt"]').text()).toContain('2 devices have no name')
+      service.devices.mockResolvedValue(inventory({ devices: [unnamed('aa:bb:cc:00:00:04', '192.168.1.8', { name: 'Printer' })] }))
+      const named = await mountCard()
+      expect(named.find('[data-test="unnamed-prompt"]').exists()).toBe(false)
+    })
+
+    it('shows only the unnamed devices in the naming list, and a device leaves it once named', async () => {
+      service.devices.mockResolvedValue(inventory({ devices: [
+        unnamed('aa:bb:cc:00:00:01', '192.168.1.5'),
+        unnamed('aa:bb:cc:00:00:04', '192.168.1.8', { name: 'Printer' }),
+      ] }))
+      service.nameDevice.mockResolvedValue(inventory({ devices: [
+        unnamed('aa:bb:cc:00:00:01', '192.168.1.5', { name: 'Hallway camera' }),
+        unnamed('aa:bb:cc:00:00:04', '192.168.1.8', { name: 'Printer' }),
+      ] }))
+      const w = await mountCard()
+      expect(w.get('[data-test="devices-list"] button[aria-expanded]').attributes('aria-expanded')).toBe('false')
+      await w.get('[data-test="unnamed-show"]').trigger('click')
+      expect(w.get('[data-test="devices-list"] button[aria-expanded]').attributes('aria-expanded')).toBe('true')
+      expect(w.findAll('li[data-test^="device-"]')).toHaveLength(1)
+      await w.get('li[data-test^="device-"]').findAll('button').find((b) => b.text() === 'Name it')!.trigger('click')
+      await w.get('input[aria-label="Device name"]').setValue('Hallway camera')
+      await w.get('form').trigger('submit')
+      await flushPromises()
+      expect(service.nameDevice).toHaveBeenCalledWith('aa:bb:cc:00:00:01', 'Hallway camera')
+      expect(w.find('[data-test="unnamed-prompt"]').exists()).toBe(false)
+      expect(w.findAll('li[data-test^="device-"]')).toHaveLength(2)
     })
   })
 })
