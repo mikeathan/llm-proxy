@@ -124,3 +124,28 @@ func TestPresenceHandlers_GetAndSet(t *testing.T) {
 		t.Errorf("a bad interval is a 400: %d", rec.Code)
 	}
 }
+
+type fakeSuggestions map[string]string
+
+func (f fakeSuggestions) All() map[string]string { return f }
+
+func TestDevicesHandlers_ListOffersASuggestedNameOnlyForADeviceTheOperatorHasNotNamed(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{
+		{MAC: "aa:bb:cc:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now},
+		{MAC: "aa:bb:cc:00:00:02", IP: "192.168.1.6", Name: "Printer", FirstSeen: now, LastSeen: now},
+	}}}
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{}).WithSuggestions(fakeSuggestions{"aa:bb:cc:00:00:01": "Samsung", "aa:bb:cc:00:00:02": "Brother"})
+	rec := do(h.List, http.MethodGet, "/admin/api/netaudit/devices", "")
+	var got netaudit.InventoryView
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]netaudit.DeviceView{}
+	for _, d := range got.Devices {
+		by[d.MAC] = d
+	}
+	if by["aa:bb:cc:00:00:01"].SuggestedName != "Samsung" || by["aa:bb:cc:00:00:02"].SuggestedName != "" {
+		t.Errorf("suggestions = %q, %q", by["aa:bb:cc:00:00:01"].SuggestedName, by["aa:bb:cc:00:00:02"].SuggestedName)
+	}
+}

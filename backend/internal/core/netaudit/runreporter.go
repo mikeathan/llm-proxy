@@ -18,17 +18,19 @@ type BaselineStore interface {
 // RunReporter turns the scans an automation run made into the code-rendered part of its report, and keeps the result
 // as the baseline for the next run. It never reads the model's words: it works from what the scan tool collected.
 type RunReporter struct {
-	store  BaselineStore
-	acks   AckStore         // optional: findings the operator accepted
-	fixes  FixStore         // optional: findings the operator marked as fixed
-	vulns  VulnSource       // optional: the vulnerability data known_vulns findings are matched against
-	expect ExpectationStore // optional: what the operator says each device should offer
-	deep   DeepReader       // optional: the operator's last deep check of each device
-	look   InventoryLook    // optional: who is on the network, from the host's neighbour table
-	idents IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
-	router RouterFindings   // optional: what the router itself offers (UPnP)
-	decoys DecoyReader      // optional: devices that connected to a decoy service
-	now    func() time.Time
+	store   BaselineStore
+	acks    AckStore         // optional: findings the operator accepted
+	fixes   FixStore         // optional: findings the operator marked as fixed
+	vulns   VulnSource       // optional: the vulnerability data known_vulns findings are matched against
+	expect  ExpectationStore // optional: what the operator says each device should offer
+	deep    DeepReader       // optional: the operator's last deep check of each device
+	look    InventoryLook    // optional: who is on the network, from the host's neighbour table
+	idents  IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
+	router  RouterFindings   // optional: what the router itself offers (UPnP)
+	decoys  DecoyReader      // optional: devices that connected to a decoy service
+	hist    AuditHistory     // optional: the Network page's daily counts
+	histErr func(error)
+	now     func() time.Time
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -53,6 +55,18 @@ func (r *RunReporter) WithFixes(fixes FixStore) *RunReporter {
 // findings, so they are compared with the last scan, accepted and kept like any other. Without it nothing is compared.
 func (r *RunReporter) WithExpectations(store ExpectationStore) *RunReporter {
 	r.expect = store
+	return r
+}
+
+// AuditHistory records the open findings of a finished audit: *History.
+type AuditHistory interface {
+	RecordAudit(findings []models.ScanFinding) error
+}
+
+// WithHistory has the reporter note each saved audit's finding counts for the Network page. A failure to note them never
+// changes the report.
+func (r *RunReporter) WithHistory(h AuditHistory, onError func(error)) *RunReporter {
+	r.hist, r.histErr = h, onError
 	return r
 }
 
@@ -134,6 +148,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		return report
 	}
 	cov := r.addKnownVulns(ctx, &result)
+	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result) + r.addInventory(ctx, &result) + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
@@ -162,6 +177,10 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	observed += fixNote
 	if err := r.store.WriteBaseline(workspaceID, automation, next); err != nil {
 		observed += fmt.Sprintf("\n\n> Note: this scan could not be saved for next time (%v).", err)
+	} else if r.hist != nil {
+		if err := r.hist.RecordAudit(next.Findings); err != nil && r.histErr != nil {
+			r.histErr(err)
+		}
 	}
 	return observed + "\n\n---\n\n" + AssessmentHeading + "\n\n" + report
 }

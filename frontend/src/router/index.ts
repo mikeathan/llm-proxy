@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
-import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
+import { NETWORK_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import { toWorkspaceFile, toWorkspaceSection } from './routes'
 import { useLastWorkspace } from '../composables/ui/useLastWorkspace'
 import { homeLocation } from '../utils/navigation'
@@ -11,6 +11,7 @@ import { homeLocation } from '../utils/navigation'
 const OverviewView = () => import('../views/OverviewView.vue')
 const WorkspacesView = () => import('../views/WorkspacesView.vue')
 const AutomationsView = () => import('../views/AutomationsView.vue')
+const NetworkView = () => import('../views/NetworkView.vue')
 const RemindersView = () => import('../views/RemindersView.vue')
 const ModelsView = () => import('../views/ModelsView.vue')
 const ActivityView = () => import('../views/ActivityView.vue')
@@ -23,6 +24,7 @@ const WORKSPACES_META = { destination: 'workspaces', keepAlive: true, fullWidth:
 // The assistant is a Workspaces route (one kept-alive view), titled for what it is.
 const ASSISTANT_META = { ...WORKSPACES_META, title: 'Assistant' } as const
 const AUTOMATIONS_META = { destination: 'automations', fullWidth: true, title: 'Automations' } as const
+const NETWORK_TAB_PATTERN = NETWORK_TABS.join('|')
 const SECTION_PATTERN = WORKSPACE_SECTIONS.join('|')
 
 // Dev-only living design reference (D23): `import.meta.env.DEV` is a build-time
@@ -57,6 +59,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/automations/:id', name: ROUTE_NAMES.automation, component: AutomationsView, meta: AUTOMATIONS_META },
   { path: '/automations/:id/edit', name: ROUTE_NAMES.automationEdit, component: AutomationsView, meta: AUTOMATIONS_META },
 
+  { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', title: 'Network' } },
   { path: '/reminders', name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },

@@ -27,4 +27,10 @@ type NetauditConfig struct {
 	// link-local all-nodes group on the links that hold in-scope devices, so the IPv6 neighbour table lists the whole link.
 	// Off until the operator turns it on (Constitution I.7).
 	IPv6Discovery bool `yaml:"ipv6_discovery,omitempty" json:"ipv6_discovery"`
+	// WeeklySummary sends a short summary (counts only) of the week to every connector, once a week. It rides on the presence
+	// check, so it is sent only while that is on. Off until the operator turns it on.
+	WeeklySummary bool `yaml:"weekly_summary,omitempty" json:"weekly_summary"`
+	// DeviceNamesOff turns off asking unnamed devices what they call themselves (one small question to each, rarely, through
+	// the guarded dialer). It is a negative flag so that the default, with nothing stored, is on.
+	DeviceNamesOff bool `yaml:"device_names_off,omitempty" json:"device_names_off"`
 }

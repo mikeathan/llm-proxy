@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Settings → Network scan → Devices on your network, in the states that matter: a new device waiting for a decision, the
+// Network → Devices → Devices on your network, in the states that matter: a new device waiting for a decision, the
 // router's hardware address changed, and a check that cannot look. At both widths and in Simple and Advanced nothing may
 // scroll sideways and every action is a comfortable touch target. The screenshots are for looking at.
 const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconfined: false, device_timeout_minutes: 0, suggestions: [] }
@@ -21,6 +21,11 @@ const STATES = {
     devices: { devices: [], gateway: { changed: false }, baselined: false, updated_at: '0001-01-01T00:00:00Z' },
     presence: { ...presence, last_check: undefined, problem: 'this computer cannot list the devices on its network (only Linux can)' },
   },
+  // A name a device gave when asked: information on a new device, one tap on an approved one.
+  suggested: {
+    devices: { devices: [device({ mac: 'aa:bb:cc:00:00:09', ip: '192.168.1.77', approved: false, new: true, suggested_name: 'Samsung' }), device({ ip: '192.168.1.8', suggested_name: 'example-laptop-with-a-long-name' })], gateway: { ip: '192.168.1.1', mac: 'aa:bb:cc:00:00:02', changed: false }, baselined: true, updated_at: seen },
+    presence,
+  },
   // The computer refuses the IPv6 echo: the plain words and the two long commands must fit a phone.
   'ipv6-refused': {
     devices: { devices: [device({ name: 'Printer' })], gateway: { changed: false }, baselined: true, updated_at: seen },
@@ -32,7 +37,7 @@ const STATES = {
 async function open(page: Page, view: 'simple' | 'advanced', state: (typeof STATES)[keyof typeof STATES]) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/devices': state.devices, '/netaudit/presence': state.presence, '/netaudit/ipv6-discovery': 'ipv6' in state ? state.ipv6 : { enabled: false } } })
-  await page.goto('settings/network-scan')
+  await page.goto('network/devices')
   await expect(page.getByRole('heading', { name: 'Devices on your network' })).toBeVisible()
 }
 
@@ -55,6 +60,12 @@ for (const view of ['simple', 'advanced'] as const) {
         if (testInfo.project.name === 'mobile') expect((await claim.boundingBox())?.height).toBeGreaterThanOrEqual(44)
         if (view === 'advanced') await expect(card.getByText('aa:bb:cc:00:00:09')).toBeVisible()
         else await expect(card.getByText('aa:bb:cc:00:00:09')).toHaveCount(0)
+      }
+      if (name === 'suggested') {
+        await expect(card.getByText(/It calls itself “Samsung”/)).toBeVisible()
+        const use = card.getByRole('button', { name: 'Use this name' })
+        await expect(use).toHaveCount(1)
+        if (testInfo.project.name === 'mobile') expect((await use.boundingBox())?.height).toBeGreaterThanOrEqual(44)
       }
       if (name === 'ipv6-refused') {
         await expect(card.locator('[data-test="ipv6-problem"]')).toBeVisible()

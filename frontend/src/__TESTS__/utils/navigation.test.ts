@@ -8,7 +8,7 @@ const item = (items: ReturnType<typeof buildNavigation>, id: string) => items.fi
 
 describe('buildNavigation', () => {
   it('lists Assistant first, then the rest, with Workspace singular', () => {
-    expect(buildNavigation(base).map((i) => i.label)).toEqual(['Assistant', 'Overview', 'Workspace', 'Automations', 'Reminders', 'Models', 'Activity', 'Settings'])
+    expect(buildNavigation(base).map((i) => i.label)).toEqual(['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Reminders', 'Models', 'Activity', 'Settings'])
   })
 
   it('opens the assistant and the files of the workspace last used', () => {
@@ -31,6 +31,7 @@ describe('buildNavigation', () => {
     expect(current(ROUTE_NAMES.workspaceSection, 'workspaces')).toEqual(['workspace'])
     expect(current(ROUTE_NAMES.workspaces, 'workspaces')).toEqual(['workspace'])
     expect(current(ROUTE_NAMES.automation, 'automations')).toEqual(['automations'])
+    expect(current(ROUTE_NAMES.network, 'network')).toEqual(['network'])
     expect(current(ROUTE_NAMES.settings, 'settings')).toEqual(['settings'])
   })
 
@@ -40,13 +41,13 @@ describe('buildNavigation', () => {
 
   it('carries each badge count, zero when there is none', () => {
     const items = buildNavigation({ ...base, badges: { assistant: 2, automations: 1 } })
-    expect(items.map((i) => i.badge)).toEqual([2, 0, 0, 1, 0, 0, 0, 0])
+    expect(items.map((i) => i.badge)).toEqual([2, 0, 0, 1, 0, 0, 0, 0, 0])
   })
 
   it('puts four destinations in the phone tab bar and leaves the rest to More', () => {
     const items = buildNavigation(base)
     expect(items.filter((i) => i.tab).map((i) => i.id)).toEqual(['assistant', 'workspace', 'automations', 'reminders'])
-    expect(items.filter((i) => !i.tab).map((i) => i.id)).toEqual(['overview', 'models', 'activity', 'settings'])
+    expect(items.filter((i) => !i.tab).map((i) => i.id)).toEqual(['overview', 'network', 'models', 'activity', 'settings'])
   })
 })
 

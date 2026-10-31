@@ -15,6 +15,7 @@ export const ROUTE_NAMES = {
   automationRecordings: 'automation-recordings',
   automation: 'automation',
   automationEdit: 'automation-edit',
+  network: 'network',
   reminders: 'reminders',
   models: 'models',
   activity: 'activity',
@@ -28,12 +29,12 @@ export const ROUTE_NAMES = {
 export type RouteName = (typeof ROUTE_NAMES)[keyof typeof ROUTE_NAMES]
 
 // The top-level destinations shown in the sidebar (plan D9).
-export type Destination = 'overview' | 'workspaces' | 'automations' | 'reminders' | 'models' | 'activity' | 'settings'
+export type Destination = 'overview' | 'workspaces' | 'automations' | 'network' | 'reminders' | 'models' | 'activity' | 'settings'
 
 // The entries of the shell navigation (sidebar and phone tab bar). Assistant and
 // Workspace both live under the `workspaces` route destination; the entry that is
 // current is told apart by route name (utils/navigation.ts).
-export type NavId = 'assistant' | 'workspace' | 'overview' | 'automations' | 'reminders' | 'models' | 'activity' | 'settings'
+export type NavId = 'assistant' | 'workspace' | 'overview' | 'automations' | 'network' | 'reminders' | 'models' | 'activity' | 'settings'
 
 export interface NavItem {
   id: NavId
@@ -46,6 +47,10 @@ export interface NavItem {
   /** Shown in the phone tab bar (the rest sit under More). */
   tab: boolean
 }
+
+// The tabs of the Network page, addressable at /network/:tab. Overview is the page without a tab.
+export const NETWORK_TABS = ['devices', 'findings'] as const
+export type NetworkTab = (typeof NETWORK_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the
 // assistant have their own routes; `settings` is the workspace guardrail layer.

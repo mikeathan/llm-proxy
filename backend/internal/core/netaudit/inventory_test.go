@@ -474,3 +474,20 @@ func TestObserve_TheFirstDiscoveryIsABaselineForIPv6OnlyDevices(t *testing.T) {
 func onLink(ip, mac, iface string) Neighbor {
 	return Neighbor{Addr: netip.MustParseAddr(ip), MAC: mac, Interface: iface}
 }
+
+func TestInventory_ObserverSeesEverySavedLookAndNoFailedOne(t *testing.T) {
+	st := &memInventory{}
+	var seen []Snapshot
+	v := newInventory(fakeSource{table: table("", nb("192.168.1.1", macRouter), nb("192.168.1.77", macTV))}, st).WithObserver(func(s Snapshot) { seen = append(seen, s) })
+	if _, err := v.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 1 || len(seen[0].Current) != 2 || len(seen[0].Inventory.Devices) != 2 {
+		t.Fatalf("observed = %+v", seen)
+	}
+	v.src = fakeSource{err: errors.New("no table")}
+	_, _ = v.Refresh(context.Background())
+	if len(seen) != 1 {
+		t.Errorf("a look that failed must not be reported as one: %d observations", len(seen))
+	}
+}

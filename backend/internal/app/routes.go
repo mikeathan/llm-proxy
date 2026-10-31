@@ -19,31 +19,34 @@ import (
 
 // HandlerSet bundles all constructed HTTP handler types.
 type HandlerSet struct {
-	Admin      *handlers.AdminHandlers
-	System     *handlers.SystemHandlers
-	Secrets    *handlers.SecretsHandlers
-	Process    *handlers.ProcessHandlers
-	MCP        *handlers.MCPHandlers
-	Model      *handlers.ModelHandlers
-	Proxy      *handlers.ProxyHandlers
-	Turns      *chat.Service
-	Assistant  *handlers.AssistantMessageHandler
-	ActiveRuns *handlers.ActiveRunsHandler
-	Dispatcher *handlers.DispatcherHandlers
-	Recordings *handlers.RecordingHandlers
-	Memory     *handlers.MemoryHandlers
-	Reminders  *handlers.ReminderHandlers
-	Profiles   *handlers.ProfileHandlers
-	Helpers    *handlers.HelpersHandlers
-	Netaudit   *handlers.NetauditHandlers
-	VulnData   *handlers.VulnDataHandlers
-	Devices    *handlers.NetauditDevicesHandlers
-	Decoys     *handlers.NetauditDecoyHandlers
-	Discovery6 *handlers.NetauditDiscovery6Handlers
-	Commands   *handlers.CommandHandlers
-	Webhook    *handlers.WebhookHandler
-	Auth       *handlers.AuthHandlers
-	Exposure   *handlers.ExposureHandlers
+	Admin       *handlers.AdminHandlers
+	System      *handlers.SystemHandlers
+	Secrets     *handlers.SecretsHandlers
+	Process     *handlers.ProcessHandlers
+	MCP         *handlers.MCPHandlers
+	Model       *handlers.ModelHandlers
+	Proxy       *handlers.ProxyHandlers
+	Turns       *chat.Service
+	Assistant   *handlers.AssistantMessageHandler
+	ActiveRuns  *handlers.ActiveRunsHandler
+	Dispatcher  *handlers.DispatcherHandlers
+	Recordings  *handlers.RecordingHandlers
+	Memory      *handlers.MemoryHandlers
+	Reminders   *handlers.ReminderHandlers
+	Profiles    *handlers.ProfileHandlers
+	Helpers     *handlers.HelpersHandlers
+	Netaudit    *handlers.NetauditHandlers
+	VulnData    *handlers.VulnDataHandlers
+	Devices     *handlers.NetauditDevicesHandlers
+	Overview    *handlers.NetauditOverviewHandlers
+	Summary     *handlers.NetauditSwitchHandlers
+	DeviceNames *handlers.NetauditSwitchHandlers
+	Decoys      *handlers.NetauditDecoyHandlers
+	Discovery6  *handlers.NetauditDiscovery6Handlers
+	Commands    *handlers.CommandHandlers
+	Webhook     *handlers.WebhookHandler
+	Auth        *handlers.AuthHandlers
+	Exposure    *handlers.ExposureHandlers
 }
 
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
@@ -108,7 +111,10 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
-	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence})
+	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names)
+	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
+	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
+	hs.Overview = handlers.NewNetauditOverviewHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}, s.netaudit.History, s.Persistence())
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -349,6 +355,11 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/netaudit/vulndata/download", hs.VulnData.Download, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/cancel", hs.VulnData.Cancel, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/import", hs.VulnData.Import, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/overview", hs.Overview.Get, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/weekly-summary", hs.Summary.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/weekly-summary", hs.Summary.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/device-names", hs.DeviceNames.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/device-names", hs.DeviceNames.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/devices", hs.Devices.List, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/devices/{mac}", hs.Devices.Update, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/devices/{mac}", hs.Devices.Forget, jsonMethodNotAllowed)

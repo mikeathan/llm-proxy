@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.20"
+version: "2.21"
 status: stable
-last_updated: 2026-10-30
+last_updated: 2026-10-31
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,18 @@ supersedes:
 
 ## Changelog
 
+- **2.21 (2026-10-31)** — **Network** destination (plan `network-guard-module`, Phase 2). An eighth destination, **Network**
+  (`/network`, and `/network/devices`, `/network/findings`), after Automations; it is under More on a phone. Overview:
+  one verdict (Quiet, Needs a look, or Not looked at, with the reasons in plain words), four figures (devices, open
+  findings, last audit, new-device check) with a 30-day trend, and what changed lately. Devices: the devices card and the
+  decoy services, moved from Settings → Network scan. Findings: the last audit's findings (the page picks the first
+  security-auditor automation; without one it offers to set one up). Settings → Network scan keeps what may be scanned
+  (allowed networks, scan time, confinement, vulnerability data, audit setup) and points to the Network page. The audit
+  automation's page keeps the run controls and gains a pointer to Network. The overview is one read endpoint,
+  `GET /admin/api/netaudit/overview`, that starts no scan; the page re-reads it every minute only while it is open and
+  visible. No other automation page changes. Devices also shows, under a device the person has not named, the name it gave when
+  asked ("It calls itself …"): on an approved device with a **Use this name** button, on a new device as information only,
+  because naming a device approves it. Devices has a **Suggest names for devices** switch (on by default; `/admin/api/netaudit/device-names`) and Overview a **Weekly summary** switch (off by default; `/admin/api/netaudit/weekly-summary`).
 - **2.20 (2026-10-30)** — **Deep check** (network-audit plan 13.J, Constitution II.3 "Intrusive runs"). §II.6: in the Advanced
   view each device has a **Deep check** button. It opens a question that says exactly what will be sent (about 60 TLS
   connections per TLS port; one SSH login with a made-up user name that the device logs; no password guessed), then runs
@@ -225,6 +237,8 @@ and makes no network request outside the proxy's own origin.
   replacing a file that has different content (a missing or empty file is simply written).
 - **Automations** — list without a workspace requirement, detail with run
   history, create/edit form, recordings.
+- **Network** — the home network as a security view: Overview, Devices, Findings (see 2.21). It reads data the audit and the
+  new-device check already keep, and adds no scanning.
 - **Models** — local runtimes and remote provider catalogues.
 - **Activity** — the global run ledger; filters live in the query string so
   a filtered view is shareable, and so does the open run (`?run=<id>`), so

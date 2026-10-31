@@ -252,3 +252,47 @@ export const DECOYS_CONNECTIONS_TITLE = 'Connections'
 export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 export const DECOYS_SCANNER_NOTE = 'A scanner app on your own phone or laptop will also touch them; accept that finding.'
+
+/** The Network page: tabs, headlines and the words around the numbers. */
+export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings' } as const
+export const NETWORK_OVERVIEW_LABEL = 'Overview'
+export const NETWORK_TITLE = 'Network'
+export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
+export const NETWORK_OVERVIEW_LOAD_FAILED = 'The network overview could not be read.'
+export const NETWORK_REFRESH_MS = 60_000
+export const NETWORK_TREND_DAYS = 30
+export const NETWORK_POSTURE_HEADLINES = {
+  unknown: 'Not looked at yet',
+  quiet: 'Your network looks as you left it',
+  attention: 'Something needs a look',
+} as const
+export const NETWORK_POSTURE_UNKNOWN_NEXT = 'Turn on the new-device check in Devices, or set up a network audit, and this page fills in.'
+export const NETWORK_NO_AUDIT = 'No network audit is set up, so findings are not shown.'
+export const NETWORK_SET_UP_AUDIT = 'Set up a network audit'
+export const NETWORK_CHECK_PROBLEM = 'The new-device check cannot look right now'
+export const NETWORK_RECENT_TITLE = 'What changed lately'
+export const NETWORK_RECENT_NONE = 'Nothing has changed in the last two weeks.'
+export const NETWORK_AUDITS_TITLE = 'Network audits'
+export const NETWORK_SETUP_LINK = 'Allowed networks, scan time and vulnerability data are in Settings'
+export const NETWORK_FINDINGS_NEEDS_AUDIT = 'Findings come from a network audit. Set one up and its results appear here.'
+export const NETWORK_TREND_NOTE = 'Counts only, kept for 13 months. Looking never adds scanning: these come from checks that already run.'
+export const NETWORK_POINTER_TITLE = 'This audit is part of Network'
+export const NETWORK_POINTER_BODY = 'The devices on your network, trends over time and what changed lately are on the Network page. This page runs and schedules the audit.'
+export const NETWORK_NO_AUDIT_PANEL = 'A network audit scans on a schedule and reports only what is new, changed or gone. Setting one up opens the new-automation form with everything filled in.'
+
+/** The name a device gave when asked: a hint, never the device's identity. */
+export const SUGGESTION_NEW_DEVICE = (name: string): string => `It calls itself “${name}”. Anyone can choose that, so check it is yours first.`
+export const SUGGESTION_APPROVED = (name: string): string => `It calls itself “${name}”.`
+export const SUGGESTION_ACCEPT = 'Use this name'
+
+/** Network · Overview · Weekly summary. */
+export const SUMMARY_LOAD_FAILED = 'The weekly summary setting could not be read.'
+export const SUMMARY_SAVE_FAILED = 'The weekly summary setting could not be changed.'
+export const SUMMARY_LABEL = 'Send a weekly summary'
+export const SUMMARY_HINT = 'Once a week, a short message to your connected messaging apps: how many devices, how many are new or missing, and how many findings are open. Counts only, no names or addresses. It is sent while the new-device check is on.'
+
+/** Devices · Suggest names for devices. */
+export const NAMES_LOAD_FAILED = 'The device names setting could not be read.'
+export const NAMES_SAVE_FAILED = 'The device names setting could not be changed.'
+export const NAMES_LABEL = 'Suggest names for devices'
+export const NAMES_HINT = 'Each look asks a device you have not named what it calls itself: one small question, no more than once a week for a device that answers, and less and less often for one that does not. The answer is only offered to you to confirm.'

@@ -1,6 +1,6 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
-import type { ActivityFilters, AutomationStart, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AutomationStart, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -44,6 +44,12 @@ export const toAutomation = (id: string): RouteLocationNamedRaw => ({ name: ROUT
 export const toAutomationEdit = (id: string): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.automationEdit,
   params: { id },
+})
+
+/** The Network page; without a tab it opens on the overview. */
+export const toNetwork = (tab?: NetworkTab): RouteLocationNamedRaw => ({
+  name: ROUTE_NAMES.network,
+  params: tab ? { tab } : {},
 })
 
 export const toReminders = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders })

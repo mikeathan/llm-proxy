@@ -10,7 +10,7 @@ vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: { fetchVersion: () => Promise.resolve({ version: 'v1.2.3' }) },
 }))
 
-const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Reminders', 'Models', 'Activity', 'Settings']
+const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Reminders', 'Models', 'Activity', 'Settings']
 
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())

@@ -346,6 +346,8 @@ export interface NetworkDevice {
   ipv6?: string[]
   /** What the person calls it; empty until they name it. */
   name?: string
+  /** What the device called itself when asked; a hint to confirm, shown only while the person has not named it. */
+  suggested_name?: string
   first_seen: string
   last_seen: string
   approved: boolean
@@ -424,4 +426,54 @@ export interface DecoyState {
   problem?: string
   ports: DecoyPort[]
   touches: DecoyTouch[]
+}
+
+/** The one word at the top of the Network page. */
+export type NetworkPosture = 'unknown' | 'quiet' | 'attention'
+
+/** What one day looked like: counts only (the server's models.NetworkDay). */
+export interface NetworkDay {
+  /** YYYY-MM-DD, in the host's local time. */
+  date: string
+  devices_up: number
+  devices: number
+  unnamed: number
+  findings: number
+  serious: number
+  /** True once an audit ran that day, so a day without one is not drawn as "no findings". */
+  audited?: boolean
+}
+
+export type NetworkChangeKind = 'new_device' | 'address_changed'
+
+/** One thing that changed lately; the screen composes the words. */
+export interface NetworkChange {
+  kind: NetworkChangeKind
+  at: string
+  mac?: string
+  ip?: string
+  name?: string
+}
+
+/** The Network page's first screen (the server's netaudit.Overview). */
+export interface NetworkOverview {
+  posture: NetworkPosture
+  devices: { known: number; unnamed: number; new: number; active: number }
+  findings: { scanned: boolean; scanned_at?: string; open: number; serious: number; new: number }
+  gateway_changed: boolean
+  shared_address: boolean
+  presence: { last_check?: string; problem?: string }
+  series: NetworkDay[]
+  recent: NetworkChange[]
+}
+
+/** The audit whose last result the overview counts. */
+export interface NetworkAudit {
+  workspaceId: string
+  automation: string
+}
+
+/** One on/off setting of the network feature: the weekly summary, asking devices their names. */
+export interface NetauditSwitch {
+  enabled: boolean
 }

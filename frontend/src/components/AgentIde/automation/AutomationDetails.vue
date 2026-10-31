@@ -17,7 +17,8 @@ import { nextRunLabel, triggerLabel } from "../../../utils/automation/automation
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
-import { toWorkspaceFile } from "../../../router/routes";
+import { useRouter } from "vue-router";
+import { toNetwork, toWorkspaceFile } from "../../../router/routes";
 import SavedReportLink from "./SavedReportLink.vue";
 import SavedReportsPanel from "./SavedReportsPanel.vue";
 import Panel from "../../common/layout/Panel.vue";
@@ -37,7 +38,7 @@ import AuditSetupCheck from "../../netaudit/AuditSetupCheck.vue";
 import FailureExplanation from "../../netaudit/FailureExplanation.vue";
 import NetauditToolbar from "../../netaudit/NetauditToolbar.vue";
 import NetauditHelp from "../../netaudit/NetauditHelp.vue";
-import { AUDITOR_PROFILE } from "../../../constants/netaudit";
+import { AUDITOR_PROFILE, NETWORK_POINTER_BODY, NETWORK_POINTER_TITLE } from "../../../constants/netaudit";
 import { assessmentOf } from "../../../utils/netaudit/assessment";
 import SegmentedControl from "../../common/forms/SegmentedControl.vue";
 import ScanSummary from "../../netaudit/ScanSummary.vue";
@@ -202,12 +203,17 @@ const RUN_COLUMNS: DataTableColumn<AutomationRun>[] = [
   { key: "id", label: "ID" },
   { key: "actions", label: "Actions" },
 ];
+const router = useRouter();
 const runKey = (run: AutomationRun) => run.id;
 </script>
 
 <template>
   <div class="flex flex-col gap-4">
     <template v-if="isAudit">
+      <Callout tone="info" :title="NETWORK_POINTER_TITLE" data-test="network-pointer">
+        {{ NETWORK_POINTER_BODY }}
+        <template #actions><BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="router.push(toNetwork())">Open Network</BaseButton></template>
+      </Callout>
       <NetauditToolbar />
       <SegmentedControl :model-value="auditTab" :options="auditTabs" label="Part of the audit" touch :tone="showLiveUI ? 'running' : undefined" @update:model-value="auditTab = $event as AuditTab" />
     </template>

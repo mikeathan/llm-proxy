@@ -48,7 +48,7 @@ describe('BottomTabs', () => {
     expect(more(wrapper).attributes('aria-expanded')).toBe('false')
     await more(wrapper).trigger('click')
     const sheet = wrapper.get('[role="dialog"]')
-    expect(sheet.findAll('a').map((a) => a.attributes('aria-label'))).toEqual(['Overview', 'Models', 'Activity', 'Settings'])
+    expect(sheet.findAll('a').map((a) => a.attributes('aria-label'))).toEqual(['Overview', 'Network', 'Models', 'Activity', 'Settings'])
     expect(more(wrapper).attributes('aria-expanded')).toBe('true')
   })
 
