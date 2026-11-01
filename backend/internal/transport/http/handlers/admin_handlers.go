@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"mime"
 	"net/http"
-	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -31,14 +32,35 @@ func init() {
 
 var frontendFS = api.FrontendFS
 
-// modelDiscoveryCache caches the result of a model directory scan.
-// It is invalidated automatically when the directory mtime changes
-// (i.e. a file was added or removed).
+// modelDiscoveryCache caches the result of a model directory scan: every GGUF file under it, whether or not it is registered
+// (which files are offered is decided on each request). It is invalidated automatically when the change time of the model
+// directory or of any folder under it moves (a file was added, removed or moved, at any depth).
 type modelDiscoveryCache struct {
 	mu      sync.Mutex
 	dir     string
-	dirMod  time.Time
+	stamps  map[string]time.Time
 	results []adminAvailableModel
+}
+
+// folderStamps is the change time of dir and of every folder under it. Only folders are visited, so it is cheap next to
+// reading the files' headers.
+func folderStamps(dir string) (map[string]time.Time, bool) {
+	stamps := map[string]time.Time{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if path == dir {
+				return err
+			}
+			return nil
+		}
+		if d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				stamps[path] = info.ModTime()
+			}
+		}
+		return nil
+	})
+	return stamps, err == nil
 }
 
 func (c *modelDiscoveryCache) get(dir string) ([]adminAvailableModel, bool) {
@@ -47,8 +69,9 @@ func (c *modelDiscoveryCache) get(dir string) ([]adminAvailableModel, bool) {
 	if c.dir != dir {
 		return nil, false
 	}
-	if info, err := os.Stat(dir); err != nil || !info.ModTime().Equal(c.dirMod) {
-		return nil, false // directory changed or gone
+	now, ok := folderStamps(dir)
+	if !ok || !maps.EqualFunc(now, c.stamps, time.Time.Equal) {
+		return nil, false // a folder changed or is gone
 	}
 	return c.results, true
 }
@@ -56,12 +79,12 @@ func (c *modelDiscoveryCache) get(dir string) ([]adminAvailableModel, bool) {
 func (c *modelDiscoveryCache) set(dir string, results []adminAvailableModel) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	info, err := os.Stat(dir)
-	if err != nil {
+	stamps, ok := folderStamps(dir)
+	if !ok {
 		return
 	}
 	c.dir = dir
-	c.dirMod = info.ModTime()
+	c.stamps = stamps
 	c.results = results
 }
 
@@ -279,12 +302,12 @@ func (h *AdminHandlers) AdminStateHandler(w http.ResponseWriter, r *http.Request
 	var available []adminAvailableModel
 	if v := strings.ToLower(r.URL.Query().Get("available")); v == "1" || v == "true" {
 		modelDir := settings.Local.ModelDir
-		if cached, ok := h.discoveryCache.get(modelDir); ok {
-			available = cached
-		} else {
-			available = discoverModelFiles(r.Context(), modelDir, modelsList)
-			h.discoveryCache.set(modelDir, available)
+		files, ok := h.discoveryCache.get(modelDir)
+		if !ok {
+			files = scanModelFiles(r.Context(), modelDir)
+			h.discoveryCache.set(modelDir, files)
 		}
+		available = withoutRegistered(files, modelsList)
 	}
 
 	sort.Slice(modelsList, func(i, j int) bool {

@@ -74,6 +74,8 @@ export interface Model {
   model_id?: string
   filename?: string
   resolved_path?: string
+  /** The file's full path, sent when adding a file found in a subfolder; the server otherwise looks in the model folder itself. */
+  path?: string
   args?: string[]
   port?: number
   endpoint: string
