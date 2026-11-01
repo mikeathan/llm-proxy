@@ -17,9 +17,9 @@ A router that has been taken over can answer DNS with attacker addresses. The ro
 - **Record only.** The collector logs each comparison (name, outcome, whether the answers shared an address, both address lists) and raises no finding, alert or notification. It stays this way until the owner has seen a week of results and chosen a rule; no check title, remediation or guide exists until then.
 - **Off by default, step-up to switch on** (`PUT /admin/api/netaudit/dns-check`, in `stepUpExact`): the outside resolver learns the names asked and the public address. The switch says so.
 - **Compare sets, not order**; IPv4 address records only; each answer capped at 16 addresses.
-- **A side that gave nothing is "could not compare"**, with a fixed reason (`no_router`, `router_no_answer`, `outside_failed`), never a match and never a difference. The outside resolver is not asked when the router gave no answer. With internet access off the cycle stops and logs nothing, and the card says so.
+- **A side that gave nothing is "could not compare"**, with a fixed reason (`no_router`, `router_no_answer`, `outside_failed`), never a match and never a difference. The outside resolver is not asked when the router gave no answer. With internet access off, or local network access off (both are off by default in Guardrails), the cycle stops and logs nothing and the card says which setting stopped it; a refusal is not a comparison.
 - **The outside question is DNS-over-HTTPS through the guarded client** (`NetworkTools.OpenAccepting`, Constitution I.2; no amendment). A plain UDP query to an outside address could be answered by the compromised router itself and would hide the thing being looked for. The router is asked with the standard library's resolver over the guarded dialer, port 53 of the default gateway only.
-- **Everything is a setting**: names (1 to 5, validated host names), the resolver address (https only), the interval (15 minutes to 6 hours, default 60). The router is the default gateway found from the host's routing table, so it works the same on macOS and Linux.
+- **Everything is a setting**: names (1 to 5, validated host names), the resolver address (https only), the interval (15 minutes to 6 hours, default 60), and the router's DNS address (empty means the default gateway found from the host's routing table, so it works the same on macOS and Linux; when set it must be a private IPv4 address, so a loopback stub such as systemd-resolved's `127.0.0.53` and any public address are refused, and plain UDP never leaves the local network).
 - **Nothing a resolver says is kept** except parsed addresses; names come from the operator's list.
 - The log is one file, bounded to 2000 rows. The owner brings back the summary (counts and the newest differences), which the card can copy.
 
@@ -27,6 +27,7 @@ A router that has been taken over can answer DNS with attacker addresses. The ro
 It catches wholesale redirection of the chosen names, not a router that lies about one site, and not one that proxies the outside question too. A name pinned in `/etc/hosts` on the host is answered locally by the Go resolver. About 72 outside requests a day at the default interval for three names. Whether a rule can be quiet is unknown until the week's data is read; if it cannot be, the phase is dropped and the collector removed.
 
 ## Alternatives considered
+- **Read the router's address only from the gateway** — a network that hands out a different DNS server (a Pi-hole, a mesh system) would read "could not compare" for ever.
 - **Plain UDP to a public resolver** — interceptable by the router under test.
 - **Compare against the system resolver** — on Linux it is often a local stub (systemd-resolved) and on macOS mDNSResponder, not the router.
 - **A hand-written DNS parser** — the ledger records hand-decoding errors; the standard library does it.

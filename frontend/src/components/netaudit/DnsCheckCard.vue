@@ -9,11 +9,11 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import { useDnsCheck } from "../../composables/netaudit/useDnsCheck"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import {
-  DNS_CHECK_COPIED, DNS_CHECK_COPY, DNS_CHECK_COPY_FAILED, DNS_CHECK_COPY_HINT, DNS_CHECK_DETAILS, DNS_CHECK_HINT, DNS_CHECK_INTERNET_OFF,
+  DNS_CHECK_COPIED, DNS_CHECK_COPY, DNS_CHECK_COPY_FAILED, DNS_CHECK_COPY_HINT, DNS_CHECK_DETAILS, DNS_CHECK_HINT, DNS_CHECK_INTERNET_OFF, DNS_CHECK_LAN_OFF, DNS_CHECK_SERVER_HINT, DNS_CHECK_SERVER_LABEL,
   DNS_CHECK_INTERVAL_LABEL, DNS_CHECK_LABEL, DNS_CHECK_NAMES_HINT, DNS_CHECK_NAMES_LABEL, DNS_CHECK_OPEN_SETTINGS, DNS_CHECK_READ_FAILED_NEXT,
   DNS_CHECK_READ_FAILED_TITLE, DNS_CHECK_READING, DNS_CHECK_RETRY, DNS_CHECK_SAVE, DNS_CHECK_TITLE, DNS_CHECK_URL_HINT, DNS_CHECK_URL_LABEL,
 } from "../../constants/netaudit"
-import { dnsCheckLine } from "../../utils/netaudit/dnsCheck"
+import { dnsCheckLine, dnsCheckReport } from "../../utils/netaudit/dnsCheck"
 import { formatRelativeTime } from "../../utils/format/time"
 import { copyText } from "../../utils/clipboard"
 import { toSettings } from "../../router/routes"
@@ -25,6 +25,7 @@ const { state, error, busy, load, set, save } = useDnsCheck()
 const { advanced } = useNetauditViewMode()
 const names = ref("")
 const url = ref("")
+const server = ref("")
 const interval = ref("")
 const copied = ref("")
 
@@ -39,16 +40,18 @@ watch(state, (s) => {
   if (!s) return
   names.value = s.names.join("\n")
   url.value = s.resolver_url === s.default_resolver_url ? "" : s.resolver_url
+  server.value = s.server
   interval.value = String(s.interval_minutes)
 }, { immediate: true })
 
 const submit = () => save({
   names: names.value.split("\n").map((n) => n.trim()).filter(Boolean),
+  server: server.value,
   resolver_url: url.value,
   interval_minutes: Number(interval.value),
 })
 const copy = async () => {
-  copied.value = (await copyText(JSON.stringify(state.value?.summary, null, 2))) ? DNS_CHECK_COPIED : DNS_CHECK_COPY_FAILED
+  copied.value = (await copyText(JSON.stringify(state.value ? dnsCheckReport(state.value) : {}, null, 2))) ? DNS_CHECK_COPIED : DNS_CHECK_COPY_FAILED
 }
 onMounted(load)
 </script>
@@ -66,7 +69,7 @@ onMounted(load)
 
         <p v-if="state.enabled" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="dns-check-status">{{ line }}</p>
 
-        <RouterLink v-if="state.enabled && state.status.problem === DNS_CHECK_INTERNET_OFF" :to="toSettings('guardrails')" data-test="dns-check-settings" class="inline-flex min-h-11 items-center self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8">{{ DNS_CHECK_OPEN_SETTINGS }}</RouterLink>
+        <RouterLink v-if="state.enabled && (state.status.problem === DNS_CHECK_INTERNET_OFF || state.status.problem === DNS_CHECK_LAN_OFF)" :to="toSettings('guardrails')" data-test="dns-check-settings" class="inline-flex min-h-11 items-center self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8">{{ DNS_CHECK_OPEN_SETTINGS }}</RouterLink>
 
         <form v-if="advanced" class="flex flex-col gap-3" @submit.prevent="submit">
           <FormField :label="DNS_CHECK_NAMES_LABEL" :hint="DNS_CHECK_NAMES_HINT">
@@ -79,6 +82,11 @@ onMounted(load)
               <select :id="id" v-model="interval" data-test="dns-check-interval" class="h-11 min-w-0 self-start rounded-[var(--radius-md)] border border-control bg-canvas px-2 font-mono text-[length:var(--text-small)] text-primary focus-visible:outline-none focus-visible:ring-2 sm:h-8">
                 <option v-for="minutes in state.allowed_intervals" :key="minutes" :value="String(minutes)">Every {{ minutes }} minutes</option>
               </select>
+            </template>
+          </FormField>
+          <FormField :label="DNS_CHECK_SERVER_LABEL" :hint="DNS_CHECK_SERVER_HINT">
+            <template #default="{ id, describedBy }">
+              <input :id="id" v-model="server" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" placeholder="192.168.1.1" :aria-describedby="describedBy" data-test="dns-check-server" class="h-11 min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 font-mono text-[length:var(--text-small)] text-primary focus-visible:outline-none focus-visible:ring-2 sm:h-8" />
             </template>
           </FormField>
           <FormField :label="DNS_CHECK_URL_LABEL" :hint="DNS_CHECK_URL_HINT">

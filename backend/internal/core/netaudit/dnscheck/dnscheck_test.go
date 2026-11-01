@@ -2,6 +2,8 @@ package dnscheck
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -10,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/core/tools"
 )
 
 func addrs(t *testing.T, in ...string) []netip.Addr {
@@ -200,5 +204,39 @@ func TestRouter_NoAddressForTheRouterIsAnErrorAndDialsNothing(t *testing.T) {
 	}
 	if _, err := r.LookupA(context.Background(), "dns.google"); err != ErrNoRouter {
 		t.Errorf("err = %v, want ErrNoRouter", err)
+	}
+}
+
+// When the network settings refuse the router's address, that is a settings problem and not a silent router.
+func TestRouter_APrivateAddressRefusedByTheSettingsIsErrLANOff(t *testing.T) {
+	refuse := func(err error) Router {
+		return Router{
+			Server: func() netip.Addr { return netip.MustParseAddr("192.168.1.1") },
+			Dial:   func(context.Context, string, string) (net.Conn, error) { return nil, err },
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if _, err := refuse(fmt.Errorf("refused: %w", tools.ErrLANBlocked)).LookupA(ctx, "dns.google"); !errors.Is(err, ErrLANOff) {
+		t.Errorf("err = %v, want ErrLANOff", err)
+	}
+	if _, err := refuse(errors.New("connection refused")).LookupA(ctx, "dns.google"); err == nil || errors.Is(err, ErrLANOff) {
+		t.Errorf("another failure is just a failure: %v", err)
+	}
+}
+
+func TestValidateServer_AcceptsOnlyAPrivateIPv4Address(t *testing.T) {
+	for in, want := range map[string]string{" 192.168.50.1 ": "192.168.50.1", "10.0.0.2": "10.0.0.2", "172.16.4.9": "172.16.4.9", "": ""} {
+		if got, err := ValidateServer(in); err != nil || got != want {
+			t.Errorf("%q: got %q, %v", in, got, err)
+		}
+	}
+	for _, bad := range []string{
+		"127.0.0.53", "8.8.8.8", "100.64.0.1", "169.254.1.1", "0.0.0.0", "224.0.0.1",
+		"router.local", "192.168.1.1:53", "fe80::1", "192.168.1.1/24", "fd00::1",
+	} {
+		if got, err := ValidateServer(bad); err == nil {
+			t.Errorf("%q must be refused, got %q", bad, got)
+		}
 	}
 }

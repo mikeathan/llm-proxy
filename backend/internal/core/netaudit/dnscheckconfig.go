@@ -17,13 +17,15 @@ const DefaultDNSCheckInterval = 60
 
 // DNSCheckView is the DNS check's settings as the operator sees them.
 type DNSCheckView struct {
-	Enabled            bool     `json:"enabled"`
-	IntervalMinutes    int      `json:"interval_minutes"`
-	AllowedIntervals   []int    `json:"allowed_intervals"`
-	Names              []string `json:"names"`
-	DefaultNames       []string `json:"default_names"`
-	ResolverURL        string   `json:"resolver_url"`
-	DefaultResolverURL string   `json:"default_resolver_url"`
+	Enabled          bool     `json:"enabled"`
+	IntervalMinutes  int      `json:"interval_minutes"`
+	AllowedIntervals []int    `json:"allowed_intervals"`
+	Names            []string `json:"names"`
+	DefaultNames     []string `json:"default_names"`
+	// Server is the router's DNS server; empty means the default gateway.
+	Server             string `json:"server"`
+	ResolverURL        string `json:"resolver_url"`
+	DefaultResolverURL string `json:"default_resolver_url"`
 }
 
 // DNSCheckConfig reads and changes the DNS check's settings in the network-audit policy.
@@ -58,6 +60,7 @@ func (c *DNSCheckConfig) View() DNSCheckView {
 		AllowedIntervals:   AllowedDNSCheckIntervals,
 		Names:              c.names(),
 		DefaultNames:       slices.Clone(dnscheck.DefaultNames),
+		Server:             cfg.DNSCheckServer,
 		ResolverURL:        url,
 		DefaultResolverURL: dnscheck.DefaultResolverURL,
 	}
@@ -111,6 +114,18 @@ func (c *DNSCheckConfig) SetNames(in []string) error {
 	}
 	return c.update(func(cfg *models.NetauditConfig) error {
 		cfg.DNSCheckNames = kept
+		return nil
+	})
+}
+
+// SetServer keeps the router's DNS server after checking it is a private IPv4 address. An empty one goes back to the gateway.
+func (c *DNSCheckConfig) SetServer(raw string) error {
+	kept, err := dnscheck.ValidateServer(raw)
+	if err != nil {
+		return err
+	}
+	return c.update(func(cfg *models.NetauditConfig) error {
+		cfg.DNSCheckServer = kept
 		return nil
 	})
 }

@@ -13,6 +13,7 @@ type DNSCheckControl interface {
 	SetInterval(minutes int) error
 	SetNames(names []string) error
 	SetResolverURL(raw string) error
+	SetServer(raw string) error
 }
 
 // DNSCheckReport is what the check has done so far: *netaudit.DNSCollector.
@@ -43,6 +44,7 @@ type dnsCheckRequest struct {
 	IntervalMinutes *int      `json:"interval_minutes"`
 	Names           *[]string `json:"names"`
 	ResolverURL     *string   `json:"resolver_url"`
+	Server          *string   `json:"server"`
 }
 
 // Get returns the settings, the latest cycle and the summary of the log.
@@ -69,6 +71,9 @@ func (h *NetauditDNSCheckHandlers) Put(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ResolverURL != nil {
 		steps = append(steps, func() error { return h.control.SetResolverURL(*req.ResolverURL) })
+	}
+	if req.Server != nil {
+		steps = append(steps, func() error { return h.control.SetServer(*req.Server) })
 	}
 	if req.IntervalMinutes != nil {
 		steps = append(steps, func() error { return h.control.SetInterval(*req.IntervalMinutes) })

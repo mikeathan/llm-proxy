@@ -297,3 +297,26 @@ func TestDNSCollector_RunLooksOnlyWhileEnabledAndStopsWithTheContext(t *testing.
 		t.Errorf("an enabled collector looks once at once, then waits its interval: %d", router.count())
 	}
 }
+
+// With local network access off the router cannot be asked: nothing is logged and the outside resolver is not asked either, and
+// the status says why, so the log does not fill with rows that blame the router.
+func TestDNSCollector_LocalNetworkAccessOffLogsNothingAndSaysSo(t *testing.T) {
+	router := &fakeDNS{err: dnscheck.ErrLANOff}
+	outside := &fakeDNS{by: map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8")}}
+	store := &memDNSStore{}
+	c, _ := newTestCollector(router, outside, store, "dns.google", "one.one.one.one")
+	c.Tick(context.Background())
+
+	if len(store.items) != 0 || store.writes != 0 || outside.count() != 0 || router.count() != 1 {
+		t.Errorf("rows %v, writes %d, outside asked %d, router asked %d", store.items, store.writes, outside.count(), router.count())
+	}
+	if got := c.Status().Problem; got != DNSProblemLANOff {
+		t.Errorf("problem = %q", got)
+	}
+	router.err, router.by = nil, map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8"), "one.one.one.one": dnsIPs("1.1.1.1")}
+	outside.by["one.one.one.one"] = dnsIPs("1.1.1.1")
+	c.Tick(context.Background())
+	if c.Status().Problem != "" || len(store.items) != 2 {
+		t.Errorf("after access came back: %+v %+v", c.Status(), store.items)
+	}
+}

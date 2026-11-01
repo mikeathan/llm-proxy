@@ -114,8 +114,8 @@ func (c *DNSCollector) Tick(ctx context.Context) {
 	problem := ""
 	for _, name := range s.Names {
 		row, err := c.compare(ctx, name, now)
-		if errors.Is(err, dnscheck.ErrInternetOff) {
-			problem = DNSProblemInternetOff
+		if p := refusedBySettings(err); p != "" {
+			problem = p
 			break
 		}
 		rows = append(rows, row)
@@ -128,6 +128,17 @@ func (c *DNSCollector) Tick(ctx context.Context) {
 	}
 }
 
+// refusedBySettings names the setting that stopped a question, or is empty: a refusal is not a comparison, so nothing is logged.
+func refusedBySettings(err error) string {
+	switch {
+	case errors.Is(err, dnscheck.ErrInternetOff):
+		return DNSProblemInternetOff
+	case errors.Is(err, dnscheck.ErrLANOff):
+		return DNSProblemLANOff
+	}
+	return ""
+}
+
 // compare asks the router first: with no answer from it there is nothing to compare, so the outside resolver is not asked.
 func (c *DNSCollector) compare(ctx context.Context, name string, at time.Time) (models.DNSComparison, error) {
 	row := models.DNSComparison{At: at, Name: name, Outcome: models.DNSCannotCompare}
@@ -137,7 +148,7 @@ func (c *DNSCollector) compare(ctx context.Context, name string, at time.Time) (
 		if errors.Is(err, dnscheck.ErrNoRouter) {
 			row.Reason = models.DNSReasonNoRouter
 		}
-		return row, nil
+		return row, refusedErr(err)
 	}
 	fromOutside, err := c.deps.Outside.LookupA(ctx, name)
 	if err != nil {
@@ -151,6 +162,14 @@ func (c *DNSCollector) compare(ctx context.Context, name string, at time.Time) (
 	}
 	row.Router, row.Outside = addressText(fromRouter), addressText(fromOutside)
 	return row, nil
+}
+
+// refusedErr is err when a setting refused the question, so Tick can stop; any other failure is a row, not an error.
+func refusedErr(err error) error {
+	if refusedBySettings(err) != "" {
+		return err
+	}
+	return nil
 }
 
 func addressText(in []netip.Addr) []string {
@@ -234,3 +253,6 @@ func (c *DNSCollector) Summary() (DNSSummary, error) {
 
 // DNSProblemInternetOff is the status phrase when the network settings do not allow the outside resolver to be asked.
 const DNSProblemInternetOff = "internet_off"
+
+// DNSProblemLANOff is the status phrase when the network settings do not allow the router to be asked.
+const DNSProblemLANOff = "lan_off"

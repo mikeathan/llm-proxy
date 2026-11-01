@@ -531,3 +531,19 @@ func TestNetworkTools_OpenAccepting_AsksForTheFormatThroughTheSameGuard(t *testi
 		t.Errorf("the same guard must apply, got %v", err)
 	}
 }
+
+// A caller that must say "local network access is off" (the DNS check asks the router) reads the reason from the error; the
+// words stay as they were.
+func TestNetworkTools_DialContext_NamesWhyAPrivateAddressIsRefused(t *testing.T) {
+	cfg := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, logging.NewNopLogger())
+	_, err := n.DialContext()(context.Background(), "udp", "192.168.1.1:53")
+	if !errors.Is(err, ErrLANBlocked) || !strings.Contains(err.Error(), "access to private address '192.168.1.1' is blocked") {
+		t.Fatalf("err = %v, want ErrLANBlocked with the same words", err)
+	}
+	cfg.AllowLanAccess = true
+	cfg.BlockedIPs = []string{"192.168.1.1"}
+	if _, err := n.DialContext()(context.Background(), "udp", "192.168.1.1:53"); errors.Is(err, ErrLANBlocked) {
+		t.Errorf("an address that is blocked by name is not 'LAN access is off': %v", err)
+	}
+}

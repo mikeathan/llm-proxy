@@ -14,7 +14,7 @@ const OUTSIDE_LOOKUP = { enabled: false, url: 'https://internetdb.shodan.io', de
 const NEVER = '0001-01-01T00:00:00Z'
 const DNS_CHECK = {
   enabled: false, interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
-  names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], default_names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'],
+  names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], default_names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], server: '',
   resolver_url: 'https://cloudflare-dns.com/dns-query', default_resolver_url: 'https://cloudflare-dns.com/dns-query',
   status: { last_run: NEVER },
   summary: { comparisons: 0, matches: 0, differs: 0, cannot_compare: 0, overlapping: 0, first: NEVER, last: NEVER, differences: [] },

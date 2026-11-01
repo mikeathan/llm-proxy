@@ -17,6 +17,7 @@ const state = (over: Partial<DnsCheckState> = {}, summary: Partial<DnsCheckState
   allowed_intervals: [15, 30, 60, 120, 360],
   names: ['dns.google', 'one.one.one.one'],
   default_names: ['dns.google', 'one.one.one.one'],
+  server: '',
   resolver_url: 'https://cloudflare-dns.com/dns-query',
   default_resolver_url: 'https://cloudflare-dns.com/dns-query',
   status: { last_run: NEVER },
@@ -85,6 +86,14 @@ describe('DnsCheckCard', () => {
     w.unmount()
   })
 
+  it('links to the guardrail settings when local network access is off, and says the router was not asked', async () => {
+    service.dnsCheck.mockResolvedValue(state({ enabled: true, status: { last_run: NEVER, problem: 'lan_off' } }))
+    const w = await mountCard()
+    expect(w.get('[data-test="dns-check-status"]').text()).toContain('Local network access is off')
+    expect(w.find('[data-test="dns-check-settings"]').exists()).toBe(true)
+    w.unmount()
+  })
+
   it('offers the names, interval and resolver only in Advanced, and sends them as one change', async () => {
     const w = await mountCard()
     expect(w.find('[data-test="dns-check-names"]').exists()).toBe(false)
@@ -96,9 +105,12 @@ describe('DnsCheckCard', () => {
     await adv.get('[data-test="dns-check-names"]').setValue(' a.example \n\n b.example ')
     await adv.get('[data-test="dns-check-interval"]').setValue('30')
     await adv.get('[data-test="dns-check-url"]').setValue('https://dns.example.org/q')
+    await adv.get('[data-test="dns-check-server"]').setValue('192.168.1.53')
     await adv.get('form').trigger('submit')
     await flushPromises()
-    expect(service.setDnsCheck).toHaveBeenCalledWith({ names: ['a.example', 'b.example'], resolver_url: 'https://dns.example.org/q', interval_minutes: 30 })
+    expect(service.setDnsCheck).toHaveBeenCalledWith({
+      names: ['a.example', 'b.example'], server: '192.168.1.53', resolver_url: 'https://dns.example.org/q', interval_minutes: 30,
+    })
     adv.unmount()
   })
 
@@ -119,7 +131,9 @@ describe('DnsCheckCard', () => {
     const w = await mountCard()
     await w.get('[data-test="dns-check-copy"]').trigger('click')
     await flushPromises()
-    expect(JSON.parse(clipboard.copyText.mock.calls[0]![0] as string).comparisons).toBe(3)
+    const copiedReport = JSON.parse(clipboard.copyText.mock.calls[0]![0] as string)
+    expect(copiedReport.summary.comparisons).toBe(3)
+    expect(copiedReport).toMatchObject({ names: ['dns.google', 'one.one.one.one'], server: 'default gateway', interval_minutes: 60 })
     expect(w.get('[data-test="dns-check-copy-note"]').text()).toBe('Copied')
     clipboard.copyText.mockResolvedValue(false)
     await w.get('[data-test="dns-check-copy"]').trigger('click')

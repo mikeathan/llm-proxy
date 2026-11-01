@@ -51,6 +51,8 @@ type NetauditConfig struct {
 	DNSCheckIntervalMinutes int `yaml:"dns_check_interval_minutes,omitempty" json:"dns_check_interval_minutes"`
 	// DNSCheckNames are the names compared. Empty means netaudit's defaults.
 	DNSCheckNames []string `yaml:"dns_check_names,omitempty" json:"dns_check_names"`
+	// DNSCheckServer is the router's DNS server (a private IPv4 address). Empty means the default gateway.
+	DNSCheckServer string `yaml:"dns_check_server,omitempty" json:"dns_check_server"`
 	// DNSCheckResolverURL is the outside resolver's DNS-over-HTTPS address (https only). Empty means netaudit's default.
 	DNSCheckResolverURL string `yaml:"dns_check_resolver_url,omitempty" json:"dns_check_resolver_url"`
 }

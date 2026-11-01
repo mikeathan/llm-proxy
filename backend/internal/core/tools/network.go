@@ -271,7 +271,7 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	isPrivate := network.IsLAN(ip)
 
 	if isPrivate && !cfg.AllowLanAccess {
-		return fmt.Errorf("access to private address '%s' is blocked", ip.String())
+		return lanBlockedError{ip: ip.String()}
 	}
 	if !isPrivate && !cfg.AllowInternetAccess {
 		return fmt.Errorf("outbound internet access to '%s' is blocked: %w", ip.String(), ErrInternetBlocked)
@@ -284,6 +284,16 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	}
 	return nil
 }
+
+// ErrLANBlocked is what a refused private address is: the network settings do not allow local network access.
+var ErrLANBlocked = errors.New("local network access is blocked")
+
+// lanBlockedError keeps the refusal's words and answers errors.Is(err, ErrLANBlocked).
+type lanBlockedError struct{ ip string }
+
+func (e lanBlockedError) Error() string { return "access to private address '" + e.ip + "' is blocked" }
+
+func (e lanBlockedError) Is(target error) bool { return target == ErrLANBlocked }
 
 // maxRedirects bounds how many redirects a fetch follows.
 const maxRedirects = 5

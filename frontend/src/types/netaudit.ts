@@ -481,13 +481,15 @@ export interface DnsCheckSummary {
   differences: DnsCheckComparison[]
 }
 
-/** The DNS check: its settings, the latest cycle and the summary. `problem` is a fixed code (`internet_off`). */
+/** The DNS check: its settings, the latest cycle and the summary. `problem` is a fixed code (`internet_off`, `lan_off`). */
 export interface DnsCheckState {
   enabled: boolean
   interval_minutes: number
   allowed_intervals: number[]
   names: string[]
   default_names: string[]
+  /** The router's DNS address; empty means the default gateway. */
+  server: string
   resolver_url: string
   default_resolver_url: string
   status: { last_run: string; problem?: string }
@@ -499,6 +501,7 @@ export interface DnsCheckUpdate {
   enabled?: boolean
   interval_minutes?: number
   names?: string[]
+  server?: string
   resolver_url?: string
 }
 

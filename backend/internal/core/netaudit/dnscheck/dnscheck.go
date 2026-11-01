@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"llm-proxy/internal/core/tools"
 )
 
 // DefaultResolverURL is the outside resolver asked when none is set: Cloudflare's DNS-over-HTTPS JSON endpoint.
@@ -30,6 +32,8 @@ const MaxAddresses = 16
 var (
 	// ErrNoRouter means the router's address is not known, so its DNS cannot be asked.
 	ErrNoRouter = errors.New("the router's address is not known")
+	// ErrLANOff means the network settings do not allow local network access, so the router was not asked.
+	ErrLANOff = errors.New("the network settings do not allow local network access")
 	// ErrBadAnswer means an answer could not be read as addresses.
 	ErrBadAnswer = errors.New("the answer did not hold addresses")
 )
@@ -50,18 +54,41 @@ func (r Router) LookupA(ctx context.Context, name string) ([]netip.Addr, error) 
 		return nil, ErrNoRouter
 	}
 	target := net.JoinHostPort(server.String(), "53")
+	var refused error // the resolver reports a failed dial as plain text, so the dial's own error is kept here
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return r.Dial(ctx, network, target)
+			conn, err := r.Dial(ctx, network, target)
+			if errors.Is(err, tools.ErrLANBlocked) {
+				refused = err
+			}
+			return conn, err
 		},
 	}
 	// The trailing dot keeps the system's search domains out of the question.
 	found, err := resolver.LookupNetIP(ctx, "ip4", name+".")
+	if refused != nil {
+		return nil, ErrLANOff
+	}
 	if err != nil {
 		return nil, fmt.Errorf("the router's DNS did not answer: %w", err)
 	}
 	return tidy(found), nil
+}
+
+// ValidateServer checks a DNS server address typed by the operator: empty (the router, found as the default gateway) or a
+// private IPv4 address. Loopback is refused because a local stub resolver is not the router, and a public address because the
+// router's DNS is asked in plain UDP, which must never leave the local network.
+func ValidateServer(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	a, err := netip.ParseAddr(raw)
+	if err != nil || !a.Is4() || !a.IsPrivate() {
+		return "", errors.New("the router's DNS address must be a private IPv4 address such as 192.168.1.1, or empty to use your router")
+	}
+	return a.String(), nil
 }
 
 // tidy drops anything that is not an IPv4 address, repeats and the surplus beyond MaxAddresses.

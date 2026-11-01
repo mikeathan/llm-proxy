@@ -104,12 +104,22 @@ func (s *AppServices) newDNSCheck(store netaudit.PolicyStore, netTools *tools.Ne
 	gateway := cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now)
 	collector := netaudit.NewDNSCollector(netaudit.DNSCollectorDeps{
 		Settings: config.Settings,
-		Router:   dnscheck.Router{Dial: netTools.DialContext(), Server: gateway},
+		Router:   dnscheck.Router{Dial: netTools.DialContext(), Server: dnsServer(config, gateway)},
 		Outside:  dnscheck.Outside{Opener: netTools, URL: func() string { return config.View().ResolverURL }},
 		Store:    log,
 		OnError:  func(err error) { logging.Warn("network dns check", "error", err.Error()) },
 	})
 	return dnsCheck{Config: config, Collector: collector}
+}
+
+// dnsServer is the router's DNS server: the one the operator set, or else the default gateway.
+func dnsServer(config *netaudit.DNSCheckConfig, gateway func() netip.Addr) func() netip.Addr {
+	return func() netip.Addr {
+		if set, err := netip.ParseAddr(config.View().Server); err == nil {
+			return set
+		}
+		return gateway()
+	}
 }
 
 // gatewayTTL is how long the router's address is remembered before the routing table is read again.

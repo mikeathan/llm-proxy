@@ -15,6 +15,7 @@ type fakeDNSControl struct {
 	interval int
 	names    []string
 	url      *string
+	server   *string
 	err      error
 }
 
@@ -22,6 +23,10 @@ func (f *fakeDNSControl) View() netaudit.DNSCheckView { return f.view }
 func (f *fakeDNSControl) SetEnabled(on bool) error    { f.view.Enabled = on; return nil }
 func (f *fakeDNSControl) SetInterval(m int) error     { f.interval = m; return f.err }
 func (f *fakeDNSControl) SetNames(n []string) error   { f.names = n; return f.err }
+func (f *fakeDNSControl) SetServer(s string) error {
+	f.server = &s
+	return f.err
+}
 func (f *fakeDNSControl) SetResolverURL(u string) error {
 	f.url = &u
 	return f.err
@@ -46,7 +51,8 @@ func TestDNSCheckHandlers_GetShowsSettingsStatusAndTheSummaryToBringBack(t *test
 			t.Errorf("missing %q in %d %s", want, rec.Code, rec.Body.String())
 		}
 	}
-	if rec = do(NewNetauditDNSCheckHandlers(c, fakeDNSReport{err: errors.New("disk")}).Get, http.MethodGet, "/x", ""); rec.Code != http.StatusInternalServerError {
+	broken := NewNetauditDNSCheckHandlers(c, fakeDNSReport{err: errors.New("disk")})
+	if rec = do(broken.Get, http.MethodGet, "/x", ""); rec.Code != http.StatusInternalServerError {
 		t.Errorf("an unreadable log is an error, not an empty summary: %d", rec.Code)
 	}
 }
@@ -54,12 +60,17 @@ func TestDNSCheckHandlers_GetShowsSettingsStatusAndTheSummaryToBringBack(t *test
 func TestDNSCheckHandlers_PutChangesOnlyWhatIsSent(t *testing.T) {
 	c := &fakeDNSControl{}
 	h := NewNetauditDNSCheckHandlers(c, fakeDNSReport{})
-	if rec := do(h.Put, http.MethodPut, "/x", `{"enabled":true}`); rec.Code != http.StatusOK || !c.view.Enabled || c.interval != 0 || c.names != nil || c.url != nil {
+	rec := do(h.Put, http.MethodPut, "/x", `{"enabled":true}`)
+	if rec.Code != http.StatusOK || !c.view.Enabled || c.interval != 0 || c.names != nil || c.url != nil {
 		t.Errorf("enabled only: %d %+v", rec.Code, c)
 	}
-	rec := do(h.Put, http.MethodPut, "/x", `{"interval_minutes":30,"names":["a.example"],"resolver_url":"https://r.example/q"}`)
+	rec = do(h.Put, http.MethodPut, "/x", `{"interval_minutes":30,"names":["a.example"],"resolver_url":"https://r.example/q"}`)
 	if rec.Code != http.StatusOK || c.interval != 30 || len(c.names) != 1 || c.url == nil || *c.url != "https://r.example/q" {
 		t.Errorf("the rest: %d %+v", rec.Code, c)
+	}
+	rec = do(h.Put, http.MethodPut, "/x", `{"server":"192.168.1.53"}`)
+	if rec.Code != http.StatusOK || c.server == nil || *c.server != "192.168.1.53" {
+		t.Errorf("the router's DNS address: %d %v", rec.Code, c.server)
 	}
 	if rec = do(h.Put, http.MethodPut, "/x", `{"names":[]}`); rec.Code != http.StatusOK || c.names == nil || len(c.names) != 0 {
 		t.Errorf("an empty list resets to the defaults and is passed on: %d %v", rec.Code, c.names)

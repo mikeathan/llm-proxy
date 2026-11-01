@@ -9,7 +9,8 @@ import (
 func TestDNSCheckConfig_IsOffAndUsesTheDefaultsUntilSet(t *testing.T) {
 	c := NewDNSCheckConfig(&memPolicy{})
 	v := c.View()
-	if v.Enabled || v.IntervalMinutes != DefaultDNSCheckInterval || !slices.Equal(v.Names, v.DefaultNames) || v.ResolverURL != v.DefaultResolverURL {
+	usesDefaults := slices.Equal(v.Names, v.DefaultNames) && v.ResolverURL == v.DefaultResolverURL
+	if v.Enabled || v.IntervalMinutes != DefaultDNSCheckInterval || !usesDefaults {
 		t.Errorf("defaults: %+v", v)
 	}
 	if len(v.Names) == 0 || v.DefaultResolverURL == "" || !slices.Equal(v.AllowedIntervals, AllowedDNSCheckIntervals) {
@@ -41,7 +42,8 @@ func TestDNSCheckConfig_AnIntervalOutsideTheChoicesChangesNothing(t *testing.T) 
 func TestDNSCheckConfig_NamesAreCheckedBeforeTheyAreKept(t *testing.T) {
 	store := &memPolicy{}
 	c := NewDNSCheckConfig(store)
-	if err := c.SetNames([]string{" Example.COM ", "example.com", "iana.org."}); err != nil || !slices.Equal(c.View().Names, []string{"example.com", "iana.org"}) {
+	err := c.SetNames([]string{" Example.COM ", "example.com", "iana.org."})
+	if err != nil || !slices.Equal(c.View().Names, []string{"example.com", "iana.org"}) {
 		t.Fatalf("names: %v %v", c.View().Names, err)
 	}
 	if err := c.SetNames([]string{"not a name"}); err == nil || !slices.Equal(c.View().Names, []string{"example.com", "iana.org"}) {
@@ -61,7 +63,8 @@ func TestDNSCheckConfig_TheResolverAddressIsCheckedBeforeItIsKept(t *testing.T) 
 	if err := c.SetResolverURL(" https://dns.example.org/q/ "); err != nil || c.View().ResolverURL != "https://dns.example.org/q" {
 		t.Fatalf("url = %q, %v", c.View().ResolverURL, err)
 	}
-	for _, bad := range []string{"http://dns.example.org/q", "dns.example.org", "https://u:p@dns.example.org/q", "https://dns.example.org/q?x=1"} {
+	refused := []string{"http://dns.example.org/q", "dns.example.org", "https://u:p@dns.example.org/q", "https://dns.example.org/q?x=1"}
+	for _, bad := range refused {
 		if err := c.SetResolverURL(bad); err == nil {
 			t.Errorf("%q must be refused", bad)
 		}
@@ -74,5 +77,27 @@ func TestDNSCheckConfig_TheResolverAddressIsCheckedBeforeItIsKept(t *testing.T) 
 	}
 	if err := c.SetResolverURL(c.View().DefaultResolverURL); err != nil || store.cfg.DNSCheckResolverURL != "" {
 		t.Errorf("the default address is stored as nothing: %q %v", store.cfg.DNSCheckResolverURL, err)
+	}
+}
+
+func TestDNSCheckConfig_TheRoutersDNSAddressIsCheckedAndEmptyMeansTheGateway(t *testing.T) {
+	store := &memPolicy{}
+	c := NewDNSCheckConfig(store)
+	if c.View().Server != "" {
+		t.Fatalf("by default the router is the default gateway: %q", c.View().Server)
+	}
+	if err := c.SetServer(" 192.168.1.53 "); err != nil || c.View().Server != "192.168.1.53" {
+		t.Fatalf("server = %q, %v", c.View().Server, err)
+	}
+	for _, bad := range []string{"127.0.0.53", "8.8.8.8", "router.local", "192.168.1.53:53"} {
+		if err := c.SetServer(bad); err == nil {
+			t.Errorf("%q must be refused", bad)
+		}
+	}
+	if c.View().Server != "192.168.1.53" {
+		t.Errorf("a refused address must not replace the kept one: %q", c.View().Server)
+	}
+	if err := c.SetServer(""); err != nil || store.cfg.DNSCheckServer != "" || c.View().Server != "" {
+		t.Errorf("empty goes back to the gateway: %q %v", store.cfg.DNSCheckServer, err)
 	}
 }
