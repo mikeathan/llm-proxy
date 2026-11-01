@@ -119,7 +119,8 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'A normal scan or audit only looks: it never signs in to a device or tries a password. The deep check is the one exception, and it is described in its own part of this help.',
       'The scan runs in a private folder, and the program is limited to it by the operating system where that is possible. Where it is not, scans refuse to run unless you allow it for development.',
       'Nightly audits use a model that runs on this computer, so the list of your devices never leaves it.',
-      'The Internet view is the one exception to that. It is off until you turn it on. When it is on, each nightly audit asks your router for its internet address and sends that address, and nothing else, to an outside scan database, which learns your public internet address and lists the ports it has seen open there. Its information can be up to a week old. If the router does not share its address, or the service cannot be reached, the audit says it could not look, which does not mean nothing is open.',
+      'The Internet view is one of two exceptions to that. It is off until you turn it on. When it is on, each nightly audit asks your router for its internet address and sends that address, and nothing else, to an outside scan database, which learns your public internet address and lists the ports it has seen open there. Its information can be up to a week old. If the router does not share its address, or the service cannot be reached, the audit says it could not look, which does not mean nothing is open.',
+      'The Router DNS check is the other. It is off until you turn it on, and turning it on asks for your passphrase. When it is on, this computer asks your router for the address of a few well-known names, asks an outside resolver the same, and records whether the answers agree. The outside resolver learns the names it asks and your public internet address. It only keeps a record and raises no alert. If either side does not answer, that is recorded as not compared, which does not mean the answers agree.',
     ],
   },
   words: {
@@ -376,5 +377,31 @@ export const OUTSIDE_LOOKUP_REASON_OTHER = 'Could not look. Nothing was sent.'
 export const OUTSIDE_LOOKUP_URL_LABEL = 'Service address'
 export const OUTSIDE_LOOKUP_URL_HINT = 'Must start with https://. Leave empty to use the default service.'
 export const OUTSIDE_LOOKUP_URL_SAVE = 'Save address'
+export const DNS_CHECK_TITLE = 'Router DNS check'
+export const DNS_CHECK_LABEL = "Compare your router's DNS with an outside one"
+export const DNS_CHECK_HINT = 'Records whether your router and an outside resolver agree. It raises no alerts yet.'
+export const DNS_CHECK_DETAILS = "Every so often this computer asks your router's DNS for a few names, then asks an outside resolver the same questions over HTTPS, and records whether the answers agree. A router that has been taken over can send you to the wrong place for a name; this is one way to notice. The outside resolver learns which names are asked and your public internet address. Names whose addresses never change are used, so a difference means something, and a connection that cannot be made is recorded as \"could not compare\", never as a match. It catches a router that redirects everything, not one that lies about a single site. For now it only keeps a record: after a week of results it will be decided whether a difference should raise an alert. Off until you turn it on, and turning it on asks for your passphrase."
+export const DNS_CHECK_LOAD_FAILED = 'The DNS check setting could not be read.'
+export const DNS_CHECK_SAVE_FAILED = 'The DNS check setting could not be changed.'
+export const DNS_CHECK_READ_FAILED_TITLE = 'The DNS check setting could not be read'
+export const DNS_CHECK_READ_FAILED_NEXT = 'Check that the server is running, then retry.'
+export const DNS_CHECK_READING = 'Reading the DNS check setting'
+export const DNS_CHECK_RETRY = 'Retry'
+export const DNS_CHECK_INTERNET_OFF = 'internet_off'
+export const DNS_CHECK_INTERNET_OFF_LINE = 'Internet access is off, so nothing could be compared and nothing was sent. Allow "Internet" under "Agent network access" in Settings → Guardrails.'
+export const DNS_CHECK_OPEN_SETTINGS = 'Open the guardrail settings'
+export const DNS_CHECK_NOT_YET = 'Nothing compared yet. The first comparison is made soon after you turn it on.'
+export const DNS_CHECK_NONE_COMPARABLE = 'Nothing could be compared yet: your router or the outside resolver did not answer. That does not mean the answers agree.'
+export const DNS_CHECK_RECORD_ONLY = 'This only keeps a record.'
+export const DNS_CHECK_NAMES_LABEL = 'Names to compare'
+export const DNS_CHECK_NAMES_HINT = 'One per line, up to 5. Use names whose address never changes. Leave empty for the defaults.'
+export const DNS_CHECK_INTERVAL_LABEL = 'How often to compare'
+export const DNS_CHECK_URL_LABEL = 'Outside resolver address'
+export const DNS_CHECK_URL_HINT = 'A DNS-over-HTTPS address that starts with https://. Leave empty to use the default.'
+export const DNS_CHECK_SAVE = 'Save settings'
+export const DNS_CHECK_COPY = 'Copy the results'
+export const DNS_CHECK_COPY_HINT = 'Copies the counts and any differences, to bring back after a week.'
+export const DNS_CHECK_COPIED = 'Copied'
+export const DNS_CHECK_COPY_FAILED = 'Copy failed'
 export const SCAN_UNCONFINED_HINT = 'For development only.'
 export const SCAN_UNCONFINED_DETAILS = 'Normally nmap is kept inside its own folder by the operating system, and refuses to run where that is not possible.'

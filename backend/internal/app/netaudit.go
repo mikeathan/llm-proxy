@@ -62,6 +62,9 @@ type netauditServices struct {
 	// OutsideLookupConfig is that lookup's switch and service; Exposure is the check, which keeps what its last look did.
 	OutsideLookupConfig *netaudit.OutsideLookupConfig
 	Exposure            *netaudit.Exposure
+	// DNSCheckConfig is the DNS comparison's switch and settings; DNSCollector logs the comparisons and is started with the app.
+	DNSCheckConfig *netaudit.DNSCheckConfig
+	DNSCollector   *netaudit.DNSCollector
 	// DecoyConfig is the decoy services' switch; Decoys runs the listeners and DecoyStore keeps who connected.
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
@@ -193,6 +196,9 @@ func (s AppServices) StartNetauditPresence(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.RouterLog != nil {
 		go s.netaudit.RouterLog.Run(ctx)
 	}
+	if s.netaudit != nil && s.netaudit.DNSCollector != nil {
+		go s.netaudit.DNSCollector.Run(ctx)
+	}
 	if s.netaudit != nil && s.netaudit.Decoys != nil {
 		go s.netaudit.Decoys.Run(ctx)
 	}
@@ -262,6 +268,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known})
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
+	dns := s.newDNSCheck(store, netTools)
 
 	s.netaudit = &netauditServices{
 		Scope:     scope,
@@ -281,6 +288,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 		OutsideLookupConfig: outside.Config,
 		Exposure:            outside.Exposure,
+		DNSCheckConfig:      dns.Config,
+		DNSCollector:        dns.Collector,
 
 		Alerts:         alerts.Log,
 		Presence:       alerts.Presence,

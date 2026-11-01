@@ -14,4 +14,12 @@ describe('network help', () => {
   it('says a look that could not be made is not the same as nothing being open', () => {
     expect(safety).toContain('does not mean nothing is open')
   })
+
+  it('names the Router DNS check too: what it sends, to whom, that it only records, and that a missed comparison is not agreement', () => {
+    expect(safety).toContain('Router DNS check')
+    expect(safety).toContain('learns the names it asks and your public internet address')
+    expect(safety).toContain('only keeps a record')
+    expect(safety).toContain('does not mean the answers agree')
+    expect(safety).not.toContain('Internet view is the one exception')
+  })
 })

@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -194,6 +194,15 @@ export class NetauditService {
   /** Changes the outside lookup's switch or service address. Switching it on sends the public address to an outside service, so the server asks for the passphrase again first. */
   static setOutsideLookup(update: OutsideLookupUpdate): Promise<OutsideLookupState> {
     return put<OutsideLookupState>(API_ENDPOINTS.netauditOutsideLookup, update)
+  }
+
+  static dnsCheck(): Promise<DnsCheckState> {
+    return get<DnsCheckState>(API_ENDPOINTS.netauditDnsCheck)
+  }
+
+  /** Changes the DNS check's switch or settings. Switching it on lets an outside resolver learn the names and the public address, so the server asks for the passphrase again first. */
+  static setDnsCheck(update: DnsCheckUpdate): Promise<DnsCheckState> {
+    return put<DnsCheckState>(API_ENDPOINTS.netauditDnsCheck, update)
   }
 
   /** Empties the list of devices that connected to a decoy. The switch and the listeners stay as they are. */

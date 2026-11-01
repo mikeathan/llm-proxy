@@ -129,6 +129,12 @@ func (e *StatusError) Error() string { return "server returned unexpected status
 // FetchURL reads such a response as capped text; a caller that needs more (an operator-triggered download of a data file)
 // streams the body itself and sets its own cap.
 func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Response, error) {
+	return n.OpenAccepting(ctx, targetURL, "")
+}
+
+// OpenAccepting is Open for a service that serves several formats from one address: accept, if not empty, is sent as the
+// Accept header. The guard path is the same.
+func (n *NetworkTools) OpenAccepting(ctx context.Context, targetURL, accept string) (*http.Response, error) {
 	cfg := n.configProvider(ctx)
 	if !cfg.Enabled {
 		return nil, ErrNetworkDisabled
@@ -155,6 +161,9 @@ func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Respon
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
 	req.Header.Set("User-Agent", "LLM-Proxy-Agent/1.0")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 
 	resp, err := n.httpClient.Do(req)
 	if err != nil {

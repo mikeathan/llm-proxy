@@ -27,4 +27,21 @@ describe('BaseToggle', () => {
     const w = mount(BaseToggle, { props: { modelValue: false, label: 'Prefill', disabled: true } })
     expect(w.get('input').attributes('disabled')).toBeDefined()
   })
+
+  // A change the parent refuses or that fails to save (a cancelled passphrase prompt) leaves the model as it was, and the
+  // switch must show that, not the state the person clicked.
+  it('shows the model, not the click, when the parent leaves the model unchanged', async () => {
+    const w = mount(BaseToggle, { props: { modelValue: false, label: 'Lookup' }, attachTo: document.body })
+    await w.get('input').setValue(true)
+    await w.vm.$nextTick()
+    expect((w.get('input').element as HTMLInputElement).checked).toBe(false)
+    w.unmount()
+  })
+
+  it('follows the model when the parent accepts the change', async () => {
+    const w = mount(BaseToggle, { props: { modelValue: false, label: 'Lookup', 'onUpdate:modelValue': (v: boolean) => w.setProps({ modelValue: v }) } })
+    await w.get('input').setValue(true)
+    await w.vm.$nextTick()
+    expect((w.get('input').element as HTMLInputElement).checked).toBe(true)
+  })
 })

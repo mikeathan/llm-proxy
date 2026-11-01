@@ -16,6 +16,7 @@ import DevicesCard from "../components/netaudit/DevicesCard.vue"
 import DecoysCard from "../components/netaudit/DecoysCard.vue"
 import RouterLogCard from "../components/netaudit/RouterLogCard.vue"
 import OutsideLookupCard from "../components/netaudit/OutsideLookupCard.vue"
+import DnsCheckCard from "../components/netaudit/DnsCheckCard.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import BrowserAlertsPanel from "../components/netaudit/BrowserAlertsPanel.vue"
@@ -99,6 +100,7 @@ onUnmounted(stop)
       <DecoysCard />
       <RouterLogCard />
       <OutsideLookupCard />
+      <DnsCheckCard />
     </template>
 
     <template v-else-if="audit">

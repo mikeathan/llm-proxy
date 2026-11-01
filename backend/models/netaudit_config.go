@@ -43,4 +43,14 @@ type NetauditConfig struct {
 	OutsideLookupEnabled bool `yaml:"outside_lookup_enabled,omitempty" json:"outside_lookup_enabled"`
 	// OutsideLookupURL is the service's address (https only). Empty means netaudit's default service.
 	OutsideLookupURL string `yaml:"outside_lookup_url,omitempty" json:"outside_lookup_url"`
+	// DNSCheckEnabled has the host compare, every DNSCheckIntervalMinutes, what the router's DNS and an outside resolver answer
+	// for a few names, and log the result (it raises no finding). The outside resolver learns the names and the network's public
+	// address, so it is off until the operator turns it on (a step-up action).
+	DNSCheckEnabled bool `yaml:"dns_check_enabled,omitempty" json:"dns_check_enabled"`
+	// DNSCheckIntervalMinutes is how often it runs; 0 is the default (netaudit.DefaultDNSCheckInterval).
+	DNSCheckIntervalMinutes int `yaml:"dns_check_interval_minutes,omitempty" json:"dns_check_interval_minutes"`
+	// DNSCheckNames are the names compared. Empty means netaudit's defaults.
+	DNSCheckNames []string `yaml:"dns_check_names,omitempty" json:"dns_check_names"`
+	// DNSCheckResolverURL is the outside resolver's DNS-over-HTTPS address (https only). Empty means netaudit's default.
+	DNSCheckResolverURL string `yaml:"dns_check_resolver_url,omitempty" json:"dns_check_resolver_url"`
 }

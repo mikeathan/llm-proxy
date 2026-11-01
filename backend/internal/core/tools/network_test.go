@@ -495,3 +495,39 @@ func TestNetworkTools_Open_NamesWhyAccessIsRefused(t *testing.T) {
 		t.Errorf("a blocked domain is not 'internet off': %v", err)
 	}
 }
+
+// A service that serves several formats from one address (a DNS-over-HTTPS resolver) is asked for the one the caller reads;
+// the guard path is the same as Open's, and Open itself names no format.
+func TestNetworkTools_OpenAccepting_AsksForTheFormatThroughTheSameGuard(t *testing.T) {
+	var gotAccept string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		w.Write([]byte("ok"))
+	}))
+	defer proxy.Close()
+	cfg := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, logging.NewNopLogger())
+	pu, _ := url.Parse(proxy.URL)
+	n.SetProxy(pu)
+
+	resp, err := n.OpenAccepting(context.Background(), "http://1.2.3.4/x", "application/dns-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAccept != "application/dns-json" {
+		t.Errorf("Accept = %q", gotAccept)
+	}
+	if resp, err = n.Open(context.Background(), "http://1.2.3.4/x"); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAccept != "" {
+		t.Errorf("Open must not name a format, sent %q", gotAccept)
+	}
+
+	cfg.AllowInternetAccess = false
+	if _, err := n.OpenAccepting(context.Background(), "http://1.2.3.4/x", "application/dns-json"); !errors.Is(err, ErrInternetBlocked) {
+		t.Errorf("the same guard must apply, got %v", err)
+	}
+}

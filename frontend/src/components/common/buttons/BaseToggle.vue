@@ -3,7 +3,9 @@
 // so click, Space and form semantics come for free. The label is always the
 // accessible name; `hideLabel` keeps it for assistive tech only, when the row
 // already shows it. `id` / `describedBy` let a FormField own the label.
-defineProps<{
+import { nextTick } from 'vue'
+
+const props = defineProps<{
   modelValue: boolean
   label: string
   hideLabel?: boolean
@@ -11,7 +13,15 @@ defineProps<{
   id?: string
   describedBy?: string
 }>()
-defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
+const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
+
+// The checkbox flips as soon as it is clicked; the model is the truth. If the parent leaves the model as it was (a change that
+// was refused, or a save that failed), the box goes back to match it instead of showing a state that was never kept.
+function change(event: Event) {
+  const input = event.target as HTMLInputElement
+  emit('update:modelValue', input.checked)
+  void nextTick(() => { input.checked = props.modelValue })
+}
 </script>
 
 <template>
@@ -27,7 +37,7 @@ defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
       :checked="modelValue"
       :disabled="disabled"
       :aria-describedby="describedBy"
-      @change="$emit('update:modelValue', ($event.target as HTMLInputElement).checked)"
+      @change="change"
     />
     <span
       aria-hidden="true"
