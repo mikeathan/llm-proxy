@@ -1,0 +1,1 @@
+{"Status":0,"TC":false,"RD":true,"RA":true,"AD":true,"CD":false,"Question":[{"name":"dns.quad9.net","type":1}],"Answer":[{"name":"dns.quad9.net","type":1,"TTL":89,"data":"9.9.9.9"},{"name":"dns.quad9.net","type":1,"TTL":89,"data":"149.112.112.112"}]}

@@ -5,7 +5,7 @@ import ToggleField from "../common/forms/ToggleField.vue"
 import Callout from "../common/feedback/Callout.vue"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { useTargetCheck } from "../../composables/netaudit/useTargetCheck"
-import { SCAN_DEPTH_OPTIONS, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
+import { SCAN_CHECKS_DETAILS, SCAN_CHECKS_HINT, SCAN_DEPTH_OPTIONS, SCAN_KNOWN_VULNS_DETAILS, SCAN_KNOWN_VULNS_HINT, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
 import ScanSummary from "./ScanSummary.vue"
 import { scanFromForm } from "../../utils/netaudit/scan"
 import { toSettings } from "../../router/routes"
@@ -41,8 +41,8 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
         </select>
       </template>
     </FormField>
-    <ToggleField v-model="checks" label="Check for common weak settings" hint="SMBv1, anonymous FTP, a VNC or Redis with no password, exposed NFS shares, expired certificates and a few more. They only read; nothing tries a password and nothing changes on a device." />
-    <ToggleField v-model="knownVulns" label="Look for known vulnerabilities" hint="Compares the software the scan recognises with a list of publicly known flaws kept on this computer. A match means it may be affected, not that it is. The list is downloaded in Settings → Network scan; without it the audit still runs and says this check was skipped." />
+    <ToggleField v-model="checks" label="Check for common weak settings" :hint="SCAN_CHECKS_HINT" :details="SCAN_CHECKS_DETAILS" />
+    <ToggleField v-model="knownVulns" label="Look for known vulnerabilities" :hint="SCAN_KNOWN_VULNS_HINT" :details="SCAN_KNOWN_VULNS_DETAILS" />
     <template v-if="advanced">
       <FormField label="Networks to scan" hint="Leave empty to scan every network you allowed in Settings → Network scan. Or list addresses, ranges or device names, separated by commas; anything outside the allowed networks is refused when the audit runs.">
         <template #default="{ id, describedBy }">

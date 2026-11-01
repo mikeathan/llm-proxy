@@ -48,14 +48,10 @@ type Mapping struct {
 // request is a read; the router's own description text for an entry is never read at all. location is the description page
 // (it names the router's address and port) and controlPath where the connection service takes commands.
 func (c Client) Mappings(ctx context.Context, location, controlPath, serviceType string) ([]Mapping, error) {
-	if !serviceURN.MatchString(serviceType) {
-		return nil, errors.New("the router named a connection service this program does not recognise")
+	endpoint, err := controlEndpoint(location, controlPath, serviceType)
+	if err != nil {
+		return nil, err
 	}
-	base, err := url.Parse(location)
-	if err != nil || base.Host == "" || !plainPath(controlPath) {
-		return nil, errors.New("the router's UPnP control address is not usable")
-	}
-	endpoint := (&url.URL{Scheme: base.Scheme, Host: base.Host, Path: controlPath}).String()
 	var out []Mapping
 	for index := 0; index < maxMappings; index++ {
 		m, end, err := c.entry(ctx, endpoint, serviceType, index)
@@ -73,22 +69,7 @@ func (c Client) Mappings(ctx context.Context, location, controlPath, serviceType
 }
 
 func (c Client) entry(ctx context.Context, endpoint, serviceType string, index int) (*Mapping, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, mappingWait)
-	defer cancel()
-	body := `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:` +
-		mappingAction + ` xmlns:u="` + serviceType + `"><NewPortMappingIndex>` + strconv.Itoa(index) + `</NewPortMappingIndex></u:` + mappingAction + `></s:Body></s:Envelope>`
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader([]byte(body)))
-	if err != nil {
-		return nil, false, err
-	}
-	req.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
-	req.Header.Set("SOAPAction", `"`+serviceType+`#`+mappingAction+`"`)
-	resp, err := noRedirects(c.HTTP).Do(req)
-	if err != nil {
-		return nil, false, fmt.Errorf("could not list the router's forwarded ports: %w", err)
-	}
-	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxSOAPBytes))
+	raw, err := c.soapCall(ctx, endpoint, serviceType, mappingAction, "<NewPortMappingIndex>"+strconv.Itoa(index)+"</NewPortMappingIndex>", mappingWait)
 	if err != nil {
 		return nil, false, fmt.Errorf("could not list the router's forwarded ports: %w", err)
 	}
@@ -150,4 +131,39 @@ func atoiPort(s string) int {
 		return 0
 	}
 	return n
+}
+
+// controlEndpoint builds the address commands are sent to from the description page's host and the control path, after
+// checking the service type is one of the fixed shapes (the router's own text must not be able to add a header line).
+func controlEndpoint(location, controlPath, serviceType string) (string, error) {
+	if !serviceURN.MatchString(serviceType) {
+		return "", errors.New("the router named a connection service this program does not recognise")
+	}
+	base, err := url.Parse(location)
+	if err != nil || base.Host == "" || !plainPath(controlPath) {
+		return "", errors.New("the router's UPnP control address is not usable")
+	}
+	return (&url.URL{Scheme: base.Scheme, Host: base.Host, Path: controlPath}).String(), nil
+}
+
+// soapCall sends one action to the router's control address and returns the reply body, read up to a fixed size. The reply is
+// returned whatever the HTTP status is, because a UPnP fault (such as "no entry at that index") arrives as a 500 with a body
+// the caller must read.
+func (c Client) soapCall(ctx context.Context, endpoint, serviceType, action, args string, wait time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, wait)
+	defer cancel()
+	body := `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:` +
+		action + ` xmlns:u="` + serviceType + `">` + args + `</u:` + action + `></s:Body></s:Envelope>`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader([]byte(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
+	req.Header.Set("SOAPAction", `"`+serviceType+`#`+action+`"`)
+	resp, err := noRedirects(c.HTTP).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, maxSOAPBytes))
 }

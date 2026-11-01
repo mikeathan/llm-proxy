@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence } from '../../../utils/netaudit/friendly'
+import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, portLabel, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence } from '../../../utils/netaudit/friendly'
 
 describe('friendly wording', () => {
   it('says what a port is usually for, then falls back to the service, then the number', () => {
@@ -16,7 +16,10 @@ describe('friendly wording', () => {
 
   it('writes the technical form for the Advanced view', () => {
     expect(describePort({ port: 22, proto: 'tcp', service: 'ssh' })).toBe('22/tcp ssh')
-    expect(describePort({ port: 53 })).toBe('53/tcp')
+    // No protocol is not "tcp": a port an outside database lists has none, and none is shown.
+    expect(describePort({ port: 53 })).toBe('53')
+    expect(portLabel({ port: 53, proto: 'udp' })).toBe('53/udp')
+    expect(portLabel({})).toBe('')
     expect(describePort({})).toBe('')
   })
 

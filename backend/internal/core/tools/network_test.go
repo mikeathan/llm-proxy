@@ -451,3 +451,99 @@ func TestNetworkTools_Open_RefusesWhatTheGuardrailsRefuse(t *testing.T) {
 		}
 	}
 }
+
+// A caller that must tell "the server said 404" from "the request failed" (an outside lookup for an address the service has
+// no data on) reads the status from the error instead of matching its text.
+func TestNetworkTools_Open_ANon200AnswerCarriesItsStatus(t *testing.T) {
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"detail":"No information available"}`, http.StatusNotFound)
+	}))
+	defer proxy.Close()
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	}, logging.NewNopLogger())
+	pu, _ := url.Parse(proxy.URL)
+	n.SetProxy(pu)
+
+	_, err := n.Open(context.Background(), "http://1.2.3.4/x")
+	var status *StatusError
+	if !errors.As(err, &status) || status.Code != http.StatusNotFound {
+		t.Fatalf("err = %v, want a *StatusError with code 404", err)
+	}
+	if !strings.Contains(err.Error(), "server returned unexpected status: 404") {
+		t.Errorf("the message must stay as it was: %q", err)
+	}
+}
+
+// A caller that must say "internet access is off" instead of "the service is down" reads the reason from the error.
+func TestNetworkTools_Open_NamesWhyAccessIsRefused(t *testing.T) {
+	open := func(cfg models.NetworkGuardrailsConfig) error {
+		n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, logging.NewNopLogger())
+		_, err := n.Open(context.Background(), "http://1.2.3.4/x")
+		return err
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: false, AllowInternetAccess: true}); !errors.Is(err, ErrNetworkDisabled) {
+		t.Errorf("tools off: %v", err)
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: true}); !errors.Is(err, ErrInternetBlocked) {
+		t.Errorf("everything blocked: %v", err)
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: true, AllowLanAccess: true}); !errors.Is(err, ErrInternetBlocked) || !strings.Contains(err.Error(), "outbound internet access to '1.2.3.4' is blocked") {
+		t.Errorf("only the LAN allowed: %v", err)
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true, BlockedDomains: []string{"1.2.3.4"}}); errors.Is(err, ErrInternetBlocked) || errors.Is(err, ErrNetworkDisabled) {
+		t.Errorf("a blocked domain is not 'internet off': %v", err)
+	}
+}
+
+// A service that serves several formats from one address (a DNS-over-HTTPS resolver) is asked for the one the caller reads;
+// the guard path is the same as Open's, and Open itself names no format.
+func TestNetworkTools_OpenAccepting_AsksForTheFormatThroughTheSameGuard(t *testing.T) {
+	var gotAccept string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		w.Write([]byte("ok"))
+	}))
+	defer proxy.Close()
+	cfg := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, logging.NewNopLogger())
+	pu, _ := url.Parse(proxy.URL)
+	n.SetProxy(pu)
+
+	resp, err := n.OpenAccepting(context.Background(), "http://1.2.3.4/x", "application/dns-json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAccept != "application/dns-json" {
+		t.Errorf("Accept = %q", gotAccept)
+	}
+	if resp, err = n.Open(context.Background(), "http://1.2.3.4/x"); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotAccept != "" {
+		t.Errorf("Open must not name a format, sent %q", gotAccept)
+	}
+
+	cfg.AllowInternetAccess = false
+	if _, err := n.OpenAccepting(context.Background(), "http://1.2.3.4/x", "application/dns-json"); !errors.Is(err, ErrInternetBlocked) {
+		t.Errorf("the same guard must apply, got %v", err)
+	}
+}
+
+// A caller that must say "local network access is off" (the DNS check asks the router) reads the reason from the error; the
+// words stay as they were.
+func TestNetworkTools_DialContext_NamesWhyAPrivateAddressIsRefused(t *testing.T) {
+	cfg := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, logging.NewNopLogger())
+	_, err := n.DialContext()(context.Background(), "udp", "192.168.1.1:53")
+	if !errors.Is(err, ErrLANBlocked) || !strings.Contains(err.Error(), "access to private address '192.168.1.1' is blocked") {
+		t.Fatalf("err = %v, want ErrLANBlocked with the same words", err)
+	}
+	cfg.AllowLanAccess = true
+	cfg.BlockedIPs = []string{"192.168.1.1"}
+	if _, err := n.DialContext()(context.Background(), "udp", "192.168.1.1:53"); errors.Is(err, ErrLANBlocked) {
+		t.Errorf("an address that is blocked by name is not 'LAN access is off': %v", err)
+	}
+}

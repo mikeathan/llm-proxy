@@ -15,6 +15,8 @@ import AuditList from "../components/netaudit/AuditList.vue"
 import DevicesCard from "../components/netaudit/DevicesCard.vue"
 import DecoysCard from "../components/netaudit/DecoysCard.vue"
 import RouterLogCard from "../components/netaudit/RouterLogCard.vue"
+import OutsideLookupCard from "../components/netaudit/OutsideLookupCard.vue"
+import DnsCheckCard from "../components/netaudit/DnsCheckCard.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import BrowserAlertsPanel from "../components/netaudit/BrowserAlertsPanel.vue"
@@ -23,7 +25,7 @@ import { useDispatcher } from "../composables/automation/useDispatcher"
 import { useNetworkOverview } from "../composables/netaudit/useNetworkOverview"
 import { useNetauditSwitch } from "../composables/netaudit/useNetauditSwitch"
 import { NetauditService } from "../services/netaudit/netauditService"
-import { AUDITOR_PROFILE, NETWORK_AUDITS_TITLE, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_NO_AUDIT_PANEL, NETWORK_SET_UP_AUDIT, NETWORK_SETUP_LINK, NETWORK_SUBTITLE, NETWORK_TITLE, SUMMARY_HINT, SUMMARY_LABEL, SUMMARY_LOAD_FAILED, SUMMARY_SAVE_FAILED } from "../constants/netaudit"
+import { AUDITOR_PROFILE, NETWORK_AUDITS_TITLE, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_NO_AUDIT_PANEL, NETWORK_SET_UP_AUDIT, NETWORK_SETUP_LINK, NETWORK_SUBTITLE, NETWORK_TITLE, SUMMARY_DETAILS, SUMMARY_HINT, SUMMARY_LABEL, SUMMARY_LOAD_FAILED, SUMMARY_SAVE_FAILED } from "../constants/netaudit"
 import { toSettings } from "../router/routes"
 import { NETWORK_TABS } from "../types/routes"
 import type { NetworkAudit } from "../types/netaudit"
@@ -74,7 +76,7 @@ onUnmounted(stop)
         <NetworkOverviewPanel :overview="overview" :has-audit="audit !== null" />
         <Panel title="Weekly summary">
           <div class="flex flex-col gap-2">
-            <ToggleField :model-value="summary.enabled.value" :label="SUMMARY_LABEL" :hint="SUMMARY_HINT" :disabled="summary.busy.value" @update:model-value="summary.set" />
+            <ToggleField :model-value="summary.enabled.value" :label="SUMMARY_LABEL" :hint="SUMMARY_HINT" :details="SUMMARY_DETAILS" :disabled="summary.busy.value" @update:model-value="summary.set" />
             <p v-if="summary.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ summary.error.value }}</p>
           </div>
         </Panel>
@@ -97,6 +99,8 @@ onUnmounted(stop)
       <DevicesCard />
       <DecoysCard />
       <RouterLogCard />
+      <OutsideLookupCard />
+      <DnsCheckCard />
     </template>
 
     <template v-else-if="audit">

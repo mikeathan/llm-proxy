@@ -43,6 +43,8 @@ type HandlerSet struct {
 	DeviceNames *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
 	RouterLog   *handlers.NetauditRouterLogHandlers
+	OutsideLook *handlers.NetauditOutsideLookupHandlers
+	DNSCheck    *handlers.NetauditDNSCheckHandlers
 	Alerts      *handlers.NetauditAlertHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
@@ -113,6 +115,8 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
+	hs.OutsideLook = handlers.NewNetauditOutsideLookupHandlers(s.netaudit.OutsideLookupConfig, s.netaudit.Exposure)
+	hs.DNSCheck = handlers.NewNetauditDNSCheckHandlers(s.netaudit.DNSCheckConfig, s.netaudit.DNSCollector)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
@@ -374,6 +378,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/netaudit/decoys/touches", hs.Decoys.Clear, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/router-log", hs.RouterLog.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/router-log", hs.RouterLog.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/dns-check", hs.DNSCheck.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/dns-check", hs.DNSCheck.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Put, jsonMethodNotAllowed)

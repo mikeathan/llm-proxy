@@ -431,6 +431,80 @@ export interface RouterLogState {
   port: number
 }
 
+/** What the last look at the internet-facing ports did. `outcome` is absent until one was tried; `at` is the server's zero date then. */
+export type OutsideLookupOutcome = 'looked' | 'cannot_look' | 'failed'
+export interface OutsideLookupLast {
+  at: string
+  outcome?: OutsideLookupOutcome
+  /** A fixed code from the server (for example `private_address`); the words for it are in constants/netaudit. */
+  reason?: string
+  ports: number
+}
+
+/** The outside lookup: the switch, which service it asks, and what the last look did. */
+export interface OutsideLookupState {
+  enabled: boolean
+  url: string
+  default_url: string
+  last: OutsideLookupLast
+}
+
+/** A change to the outside lookup: either field alone. An empty `url` goes back to the default service. */
+export interface OutsideLookupUpdate {
+  enabled?: boolean
+  url?: string
+}
+
+/** One name asked of the router's DNS and of an outside resolver. Addresses are parsed addresses; no answer text is kept. */
+export type DnsCheckOutcome = 'match' | 'differ' | 'cannot_compare'
+export interface DnsCheckComparison {
+  at: string
+  name: string
+  outcome: DnsCheckOutcome
+  /** A fixed code for why nothing could be compared. */
+  reason?: string
+  /** True when the two answers still shared an address. */
+  overlap?: boolean
+  router?: string[]
+  outside?: string[]
+}
+
+/** The log boiled down: what to bring back after a week. Dates are the server's zero date when there is none. */
+export interface DnsCheckSummary {
+  comparisons: number
+  matches: number
+  differs: number
+  cannot_compare: number
+  overlapping: number
+  first: string
+  last: string
+  differences: DnsCheckComparison[]
+}
+
+/** The DNS check: its settings, the latest cycle and the summary. `problem` is a fixed code (`internet_off`, `lan_off`). */
+export interface DnsCheckState {
+  enabled: boolean
+  interval_minutes: number
+  allowed_intervals: number[]
+  names: string[]
+  default_names: string[]
+  /** The router's DNS address; empty means the default gateway. */
+  server: string
+  resolver_url: string
+  default_resolver_url: string
+  status: { last_run: string; problem?: string }
+  summary: DnsCheckSummary
+}
+
+/** A change to the DNS check; any field alone. An empty `names` list or `resolver_url` goes back to the default. */
+export interface DnsCheckUpdate {
+  enabled?: boolean
+  interval_minutes?: number
+  names?: string[]
+  server?: string
+  resolver_url?: string
+}
+
 /** The decoy services: the switch, which ports listen, any trouble, and who touched them. */
 export interface DecoyState {
   enabled: boolean

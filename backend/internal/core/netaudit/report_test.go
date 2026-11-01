@@ -138,3 +138,23 @@ func TestSummaryOf_CountsChecksWithoutNamingThem(t *testing.T) {
 		t.Errorf("a connector message carries counts only: %q", got)
 	}
 }
+
+// The outside database lists a port number and no protocol, and a router-level finding has no port: neither may be written as
+// "1194/" or as a protocol nobody measured.
+func TestRenderObserved_AFindingWithoutAProtocolOrPortIsWrittenWithoutThem(t *testing.T) {
+	findings := []Finding{
+		{Device: "192.168.50.1", Port: 1194, Check: CheckInternetExposedPort, Severity: SeverityMedium, Evidence: "listed"},
+		{Device: "192.168.50.1", Check: CheckUPnPEnabled, Severity: SeverityLow, Evidence: "on"},
+	}
+	got := RenderObserved(Observed{ScannedAt: reportTime, Result: Result{Engine: "nmap", Findings: findings}})
+	for _, want := range []string{"| 192.168.50.1 1194 |", "| 192.168.50.1 |"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"1194/", "1194/tcp", " 0/"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("must not contain %q:\n%s", bad, got)
+		}
+	}
+}

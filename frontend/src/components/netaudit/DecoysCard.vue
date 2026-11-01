@@ -10,7 +10,7 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import { useDecoys } from "../../composables/netaudit/useDecoys"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
-import { DECOYS_CLEAR_LABEL, DECOYS_CLEAR_MESSAGE, DECOYS_CLEAR_TITLE, DECOYS_CONNECTIONS_TITLE, DECOYS_FIREWALL, DECOYS_HINT, DECOYS_NEEDS_LOOK, DECOYS_SCANNER_NOTE, DECOYS_TITLE } from "../../constants/netaudit"
+import { DECOYS_CLEAR_LABEL, DECOYS_CLEAR_MESSAGE, DECOYS_CLEAR_TITLE, DECOYS_CONNECTIONS_TITLE, DECOYS_DETAILS, DECOYS_FIREWALL, DECOYS_HINT, DECOYS_NEEDS_LOOK, DECOYS_TITLE } from "../../constants/netaudit"
 import { touchSummary } from "../../utils/netaudit/decoys"
 import { formatRelativeTime } from "../../utils/format/time"
 
@@ -42,7 +42,7 @@ onMounted(load)
       <LoadingState v-else-if="!state" label="Reading the decoy services" />
 
       <template v-else>
-        <ToggleField :model-value="state.enabled" label="Run decoy services" :hint="DECOYS_HINT" :disabled="busy" @update:model-value="set" />
+        <ToggleField :model-value="state.enabled" label="Run decoy services" :hint="DECOYS_HINT" :details="DECOYS_DETAILS" :disabled="busy" @update:model-value="set" />
 
         <p v-if="state.enabled && state.problem" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="decoy-problem">Some decoys cannot start: {{ state.problem }}</p>
         <p v-if="state.enabled" class="m-0 text-[length:var(--text-small)] text-muted">{{ DECOYS_FIREWALL }}</p>
@@ -64,7 +64,6 @@ onMounted(load)
           </ul>
           <BaseButton v-if="state.touches.length" variant="secondary" size="sm" class-name="mt-2 max-sm:!h-11" :disabled="busy" data-test="decoy-clear" @click="clearList">{{ DECOYS_CLEAR_LABEL }}</BaseButton>
         </Disclosure>
-        <p class="m-0 text-[length:var(--text-small)] text-muted">{{ DECOYS_SCANNER_NOTE }}</p>
 
         <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
       </template>

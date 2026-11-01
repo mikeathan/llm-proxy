@@ -56,8 +56,15 @@ type netauditServices struct {
 	Inventory *netaudit.Inventory
 	// Identities remembers each service's SSH host keys and TLS certificate, to report one that was replaced.
 	Identities *netaudit.Identities
-	// Router asks the router whether it offers UPnP, in the nightly audit only.
+	// Router asks the router whether it offers UPnP, in the nightly audit only; with the outside lookup switched on it also asks
+	// an outside scan database what the internet can reach.
 	Router *netaudit.RouterCheck
+	// OutsideLookupConfig is that lookup's switch and service; Exposure is the check, which keeps what its last look did.
+	OutsideLookupConfig *netaudit.OutsideLookupConfig
+	Exposure            *netaudit.Exposure
+	// DNSCheckConfig is the DNS comparison's switch and settings; DNSCollector logs the comparisons and is started with the app.
+	DNSCheckConfig *netaudit.DNSCheckConfig
+	DNSCollector   *netaudit.DNSCollector
 	// DecoyConfig is the decoy services' switch; Decoys runs the listeners and DecoyStore keeps who connected.
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
@@ -189,6 +196,9 @@ func (s AppServices) StartNetauditPresence(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.RouterLog != nil {
 		go s.netaudit.RouterLog.Run(ctx)
 	}
+	if s.netaudit != nil && s.netaudit.DNSCollector != nil {
+		go s.netaudit.DNSCollector.Run(ctx)
+	}
 	if s.netaudit != nil && s.netaudit.Decoys != nil {
 		go s.netaudit.Decoys.Run(ctx)
 	}
@@ -257,6 +267,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	known := s.newTracking(store, scope, netTools)
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known})
 
+	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
+	dns := s.newDNSCheck(store, netTools)
+
 	s.netaudit = &netauditServices{
 		Scope:     scope,
 		Readiness: scan.Readiness,
@@ -271,7 +284,12 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Discovery6:  known.Discovery6,
 		Ports:       known.Ports,
 		Host:        known.Host,
-		Router:      newRouterCheck(netTools, known.Inventory, scope),
+		Router:      newRouterCheck(netTools, known.Inventory, scope).WithExposure(outside.Exposure),
+
+		OutsideLookupConfig: outside.Config,
+		Exposure:            outside.Exposure,
+		DNSCheckConfig:      dns.Config,
+		DNSCollector:        dns.Collector,
 
 		Alerts:         alerts.Log,
 		Presence:       alerts.Presence,
@@ -430,10 +448,15 @@ type netauditPresence struct {
 
 func (p netauditPresence) Status() netaudit.PresenceStatus { return p.check.Status() }
 
+// upnpClient talks to the router. Both the datagram and the page fetch go through the guarded network client.
+func upnpClient(netTools *tools.NetworkTools) upnp.Client {
+	return upnp.Client{Dial: netTools.DialContext(), HTTP: netTools.HTTPClient()}
+}
+
 // newRouterCheck builds the UPnP check of the router. Both the datagram and the page fetch go through the guarded network
 // client, so the global network guardrails apply, and the router must be inside the declared scan scope.
 func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory, scope *netaudit.Scope) *netaudit.RouterCheck {
-	client := upnp.Client{Dial: netTools.DialContext(), HTTP: netTools.HTTPClient()}
+	client := upnpClient(netTools)
 	gateway := func() (netip.Addr, error) {
 		inv, err := inventory.View()
 		if err != nil || inv.Gateway == "" {

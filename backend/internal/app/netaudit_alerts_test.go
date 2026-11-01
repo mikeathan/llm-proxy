@@ -3,11 +3,15 @@ package app
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/models"
 )
 
@@ -103,5 +107,70 @@ func TestCachedDevices_AFailedReadIsAnErrorAndIsRetriedNotRemembered(t *testing.
 	fail = false
 	if known, _, err := device("aa:bb:cc:dd:ee:01"); err != nil || !known {
 		t.Errorf("after the disk came back: %v %v", known, err)
+	}
+}
+
+type memPolicyStore struct{ cfg models.NetauditConfig }
+
+func (m *memPolicyStore) Get() models.NetauditConfig { return m.cfg }
+func (m *memPolicyStore) Update(fn func(*models.NetauditConfig) error) error {
+	return fn(&m.cfg)
+}
+
+type askedOpener struct{ asked []string }
+
+func (o *askedOpener) Open(_ context.Context, target string) (*http.Response, error) {
+	o.asked = append(o.asked, target)
+	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"ports":[1194]}`))}, nil
+}
+
+type fixedAddress struct{ addr netip.Addr }
+
+func (f fixedAddress) ExternalIP(context.Context, string, string, string) (netip.Addr, error) {
+	return f.addr, nil
+}
+
+// The look is off until switched on, and then asks the service the operator set, not a fixed one.
+func TestOutsideLookup_AsksNobodyUntilSwitchedOnAndThenTheServiceSet(t *testing.T) {
+	store, opener := &memPolicyStore{}, &askedOpener{}
+	ol := newOutsideLookup(store, opener, fixedAddress{netip.MustParseAddr("203.0.113.7")})
+	report := upnp.Report{Answered: true, Gateway: true, Service: upnp.ServiceWANIP}
+	gw := netip.MustParseAddr("192.168.50.1")
+
+	if got := ol.Exposure.Findings(context.Background(), gw, report); got != nil || len(opener.asked) != 0 {
+		t.Fatalf("off by default: %+v, asked %v", got, opener.asked)
+	}
+	if err := ol.Config.Set(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := ol.Config.SetURL("https://lookup.example.org/db"); err != nil {
+		t.Fatal(err)
+	}
+	got := ol.Exposure.Findings(context.Background(), gw, report)
+	if len(got) != 1 || got[0].Port != 1194 || len(opener.asked) != 1 || opener.asked[0] != "https://lookup.example.org/db/203.0.113.7" {
+		t.Errorf("got %+v, asked %v", got, opener.asked)
+	}
+}
+
+// The router's DNS server is the one the operator set, or else the default gateway, read each time.
+func TestDNSServer_IsTheOneSetOrElseTheGateway(t *testing.T) {
+	store := &memPolicyStore{}
+	config := netaudit.NewDNSCheckConfig(store)
+	gateway := netip.MustParseAddr("192.0.2.1")
+	server := dnsServer(config, func() netip.Addr { return gateway })
+	if got := server(); got != gateway {
+		t.Errorf("by default the gateway: %v", got)
+	}
+	if err := config.SetServer("192.168.1.53"); err != nil {
+		t.Fatal(err)
+	}
+	if got := server(); got.String() != "192.168.1.53" {
+		t.Errorf("the one set: %v", got)
+	}
+	if err := config.SetServer(""); err != nil {
+		t.Fatal(err)
+	}
+	if got := server(); got != gateway {
+		t.Errorf("empty goes back to the gateway: %v", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/models"
@@ -179,5 +180,135 @@ func TestRouterCheck_ListingTroubleKeepsWhatWasFoundAndSaysSo(t *testing.T) {
 	got, err := routerCheck(p, "192.168.50.1", nil).Findings(context.Background())
 	if err == nil || len(got) != 2 {
 		t.Errorf("findings %d, err %v: the findings stand and the trouble is stated", len(got), err)
+	}
+}
+
+func TestRouterCheck_TheOutsideLookupJoinsTheRoutersFindings(t *testing.T) {
+	p := &fakeProber{report: answering("203.0.113.7", mapping(8080, 80, "tcp", "192.168.50.77"))}
+	e := exposureOf(true, &fakeLookup{ports: []int{8080}})
+	got, err := routerCheck(p, "192.168.50.1", nil).WithExposure(e).Findings(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, f := range got {
+		kinds = append(kinds, f.Check)
+	}
+	if !strings.Contains(strings.Join(kinds, ","), CheckInternetExposedPort) || !strings.Contains(strings.Join(kinds, ","), CheckUPnPEnabled) {
+		t.Errorf("findings = %v", kinds)
+	}
+}
+
+// A router with UPnP off says nothing: the outside lookup must still be told, so its status says why it could not look.
+func TestRouterCheck_AQuietRouterStillRecordsWhyTheOutsideLookupCouldNotLook(t *testing.T) {
+	e := exposureOf(true, &fakeLookup{ports: []int{1194}})
+	got, err := routerCheck(&fakeProber{}, "192.168.50.1", nil).WithExposure(e).Findings(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if s := e.Status(); s.Outcome != OutcomeCannotLook || s.Reason != ReasonUPnPOff {
+		t.Errorf("status = %+v", s)
+	}
+}
+
+func exposedBefore() models.ScanBaseline {
+	return models.ScanBaseline{ScannedAt: reportTime.Add(-24 * time.Hour), Findings: []Finding{
+		{Device: "10.0.0.1", Port: 1194, Check: CheckInternetExposedPort, Severity: SeverityMedium, Evidence: "e"},
+	}}
+}
+
+func TestRunReporter_AnExposureIsNotResolvedByANightTheServiceCouldNotBeAsked(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{"ws/nightly": exposedBefore()}}
+	check := NewRouterCheck(&fakeProber{report: answering("203.0.113.7")}, func() (netip.Addr, error) { return netip.MustParseAddr("10.0.0.1"), nil },
+		func(netip.Addr) error { return nil }).WithExposure(exposureOf(true, &fakeLookup{err: errors.New("down")}))
+	r := reporter(store, reportTime).WithRouter(check)
+	r.Augment(scannedHosts(hostOf("10.0.0.1", true, false, 80)), "ws", "nightly", "ok")
+	got := store.data["ws/nightly"]
+	if len(got.Resolved) != 0 {
+		t.Errorf("resolved = %+v", got.Resolved)
+	}
+	var kept bool
+	for _, f := range got.Findings {
+		kept = kept || f.Check == CheckInternetExposedPort
+	}
+	if !kept {
+		t.Errorf("the exposure must stay in the baseline: %+v", got.Findings)
+	}
+}
+
+func TestRunReporter_AnExposureThatIsReallyGoneIsResolved(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{"ws/nightly": exposedBefore()}}
+	check := NewRouterCheck(&fakeProber{report: answering("203.0.113.7")}, func() (netip.Addr, error) { return netip.MustParseAddr("10.0.0.1"), nil },
+		func(netip.Addr) error { return nil }).WithExposure(exposureOf(true, &fakeLookup{}))
+	reporter(store, reportTime).WithRouter(check).Augment(scannedHosts(hostOf("10.0.0.1", true, false, 80)), "ws", "nightly", "ok")
+	if got := store.data["ws/nightly"]; len(got.Resolved) != 1 || got.Resolved[0].Check != CheckInternetExposedPort {
+		t.Errorf("resolved = %+v", got.Resolved)
+	}
+}
+
+// Whatever stops the router check before it can look must leave the earlier exposure standing, from a fresh program and from
+// one that had looked before.
+func TestRunReporter_AnExposureSurvivesEveryWayTheRouterCheckCanFailBeforeLooking(t *testing.T) {
+	gwOf := func(addr string, err error) func() (netip.Addr, error) {
+		return func() (netip.Addr, error) {
+			if addr == "" {
+				return netip.Addr{}, err
+			}
+			return netip.MustParseAddr(addr), err
+		}
+	}
+	allow := func(netip.Addr) error { return nil }
+	cases := map[string]*RouterCheck{
+		"probe fails":       NewRouterCheck(&fakeProber{err: errors.New("blocked")}, gwOf("10.0.0.1", nil), allow),
+		"gateway unknown":   NewRouterCheck(&fakeProber{}, gwOf("", nil), allow),
+		"gateway unread":    NewRouterCheck(&fakeProber{}, gwOf("", errors.New("no table")), allow),
+		"outside the scope": NewRouterCheck(&fakeProber{}, gwOf("10.0.0.1", nil), func(netip.Addr) error { return errors.New("no") }),
+	}
+	for name, check := range cases {
+		for _, warm := range []bool{false, true} {
+			e := exposureOf(true, &fakeLookup{ports: []int{1194}})
+			if warm { // an earlier night's look was made in this very program
+				e.Findings(context.Background(), gateway, answering("203.0.113.7"))
+			}
+			store := &memBaselines{data: map[string]models.ScanBaseline{"ws/nightly": exposedBefore()}}
+			reporter(store, reportTime).WithRouter(check.WithExposure(e)).Augment(scannedHosts(hostOf("10.0.0.1", true, false, 80)), "ws", "nightly", "ok")
+			got := store.data["ws/nightly"]
+			if len(got.Resolved) != 0 || countCheck(got.Findings, CheckInternetExposedPort) != 1 {
+				t.Errorf("%s (warm=%v): resolved %+v, findings %+v", name, warm, got.Resolved, got.Findings)
+			}
+		}
+	}
+}
+
+func countCheck(findings []Finding, check string) int {
+	n := 0
+	for _, f := range findings {
+		if f.Check == check {
+			n++
+		}
+	}
+	return n
+}
+
+// A look made, then a night the router said nothing, then a night it answered again within the reuse window: the reused answer
+// is the finding, and the earlier one is not carried on top of it.
+func TestRunReporter_AReusedLookIsNotCarriedOnTopOfItself(t *testing.T) {
+	prober := &fakeProber{report: answering("203.0.113.7")}
+	e := exposureOf(true, &fakeLookup{ports: []int{1194}})
+	check := NewRouterCheck(prober, func() (netip.Addr, error) { return netip.MustParseAddr("10.0.0.1"), nil }, func(netip.Addr) error { return nil }).WithExposure(e)
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	run := func() {
+		reporter(store, reportTime).WithRouter(check).Augment(scannedHosts(hostOf("10.0.0.1", true, false, 80)), "ws", "nightly", "ok")
+	}
+	run() // looked
+	prober.report = upnp.Report{}
+	run() // the router says nothing: carried
+	prober.report = answering("203.0.113.7")
+	run() // answers again, the cached look is reused
+	if n := countCheck(store.data["ws/nightly"].Findings, CheckInternetExposedPort); n != 1 {
+		t.Errorf("one exposure, not %d: %+v", n, store.data["ws/nightly"].Findings)
+	}
+	if s := e.Status(); s.Outcome != OutcomeLooked {
+		t.Errorf("a reused look is a look that was made: %+v", s)
 	}
 }

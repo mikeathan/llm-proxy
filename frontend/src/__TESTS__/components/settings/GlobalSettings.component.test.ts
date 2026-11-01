@@ -86,11 +86,13 @@ describe('GlobalSettings tool result size', () => {
   })
 
   it('saves an explicit false and an explicit true', async () => {
-    const { w, last } = mountGlobal({}, 'runs')
-    await toggle(w).setValue(false)
-    expect(last().agent).toEqual({ adaptive_result_cap: false })
-    await toggle(w).setValue(true)
-    expect(last().agent).toEqual({ adaptive_result_cap: true })
+    // The switch shows what the parent holds, so each direction starts from its own mount.
+    const on = mountGlobal({}, 'runs')
+    await toggle(on.w).setValue(false)
+    expect(on.last().agent).toEqual({ adaptive_result_cap: false })
+    const off = mountGlobal({ agent: { adaptive_result_cap: false } }, 'runs')
+    await toggle(off.w).setValue(true)
+    expect(off.last().agent).toEqual({ adaptive_result_cap: true })
   })
 })
 

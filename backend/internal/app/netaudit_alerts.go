@@ -9,8 +9,11 @@ import (
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
+	"llm-proxy/internal/core/netaudit/dnscheck"
 	"llm-proxy/internal/core/netaudit/names"
+	"llm-proxy/internal/core/netaudit/outsidelookup"
 	"llm-proxy/internal/core/netaudit/routerlog"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
@@ -70,6 +73,52 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 
 		RouterLogConfig: routerLogConfig,
 		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence),
+	}
+}
+
+// outsideLookup is the opt-in look at what the internet can reach: its setting, and the check the router check runs.
+type outsideLookup struct {
+	Config   *netaudit.OutsideLookupConfig
+	Exposure *netaudit.Exposure
+}
+
+// newOutsideLookup builds the setting and the check. The one request goes through opener (the guarded network client), to the
+// service the setting names, read on every look; address is how the router is asked for its internet address.
+func newOutsideLookup(store netaudit.PolicyStore, opener outsidelookup.Opener, address netaudit.AddressReader) outsideLookup {
+	config := netaudit.NewOutsideLookupConfig(store)
+	client := outsidelookup.Client{Opener: opener, BaseURL: config.URL}
+	return outsideLookup{Config: config, Exposure: netaudit.NewExposure(config.Enabled, client, address, time.Now)}
+}
+
+// dnsCheck is the opt-in comparison of the router's DNS with an outside resolver: its setting, and the collector that logs it.
+type dnsCheck struct {
+	Config    *netaudit.DNSCheckConfig
+	Collector *netaudit.DNSCollector
+}
+
+// newDNSCheck builds the setting and the collector. The router is asked over the guarded dialer on port 53 of the default
+// gateway; the outside resolver over HTTPS through the guarded network client, at the address the setting names.
+func (s *AppServices) newDNSCheck(store netaudit.PolicyStore, netTools *tools.NetworkTools) dnsCheck {
+	config := netaudit.NewDNSCheckConfig(store)
+	log := withReset(s.AppCtx, "The log of DNS comparisons", persistence.NewNetworkDNSStore(s.AppCtx.RootDir()))
+	gateway := cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now)
+	collector := netaudit.NewDNSCollector(netaudit.DNSCollectorDeps{
+		Settings: config.Settings,
+		Router:   dnscheck.Router{Dial: netTools.DialContext(), Server: dnsServer(config, gateway)},
+		Outside:  dnscheck.Outside{Opener: netTools, URL: func() string { return config.View().ResolverURL }},
+		Store:    log,
+		OnError:  func(err error) { logging.Warn("network dns check", "error", err.Error()) },
+	})
+	return dnsCheck{Config: config, Collector: collector}
+}
+
+// dnsServer is the router's DNS server: the one the operator set, or else the default gateway.
+func dnsServer(config *netaudit.DNSCheckConfig, gateway func() netip.Addr) func() netip.Addr {
+	return func() netip.Addr {
+		if set, err := netip.ParseAddr(config.View().Server); err == nil {
+			return set
+		}
+		return gateway()
 	}
 }
 

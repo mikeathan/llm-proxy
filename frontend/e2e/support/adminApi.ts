@@ -10,6 +10,15 @@ const DEVICES = { devices: [], gateway: { changed: false }, baselined: true, upd
 const DECOYS = { enabled: false, listening: [], ports: [{ number: 2222, name: 'SSH login' }], touches: [] }
 const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30] }
 const IPV6_DISCOVERY = { enabled: false }
+const OUTSIDE_LOOKUP = { enabled: false, url: 'https://internetdb.shodan.io', default_url: 'https://internetdb.shodan.io', last: { at: '0001-01-01T00:00:00Z', ports: 0 } }
+const NEVER = '0001-01-01T00:00:00Z'
+const DNS_CHECK = {
+  enabled: false, interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
+  names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], default_names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], server: '',
+  resolver_url: 'https://cloudflare-dns.com/dns-query', default_resolver_url: 'https://cloudflare-dns.com/dns-query',
+  status: { last_run: NEVER },
+  summary: { comparisons: 0, matches: 0, differs: 0, cannot_compare: 0, overlapping: 0, first: NEVER, last: NEVER, differences: [] },
+}
 // Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
 const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
 
@@ -20,6 +29,8 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/netaudit/presence': PRESENCE,
   '/netaudit/ipv6-discovery': IPV6_DISCOVERY,
   '/netaudit/decoys': DECOYS,
+  '/netaudit/outside-lookup': OUTSIDE_LOOKUP,
+  '/netaudit/dns-check': DNS_CHECK,
 }
 
 type Answers = Record<string, unknown>

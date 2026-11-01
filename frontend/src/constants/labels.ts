@@ -126,3 +126,12 @@ export const NETWORK_GRANT_LABEL: Record<string, string> = {
   internet_only: 'Internet only',
   internet: 'Local network + Internet',
 }
+
+// The expander under a switch: the one-line hint stays visible, the longer explanation opens under this.
+export const MORE_ABOUT_THIS = 'More about this'
+
+// Automation form switches: one short sentence stays visible, the rest opens under "More about this".
+export const AUTOMATION_JOURNAL_HINT = 'The run keeps its own notes between runs.'
+export const AUTOMATION_JOURNAL_DETAILS = 'The run reads its own notes from earlier runs and rewrites them before it finishes: queries that surfaced new items, sources to skip, topics already covered. You can read or clear the journal on the automation\'s page.'
+export const AUTOMATION_SKIP_BUSY_HINT = 'Skips a run when the model is in use.'
+export const AUTOMATION_SKIP_BUSY_DETAILS = 'If a chat or another run is using the model when this fires, skip it and wait for the next one. Manual runs always wait their turn. The workspace Heartbeat does this on its own.'

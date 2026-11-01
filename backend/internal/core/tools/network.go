@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -108,18 +109,39 @@ func (n *NetworkTools) Config(ctx context.Context) models.NetworkGuardrailsConfi
 	return n.configProvider(ctx)
 }
 
+// ErrNetworkDisabled and ErrInternetBlocked are why a request was refused before it was made: the network tools are switched
+// off, or the guardrails allow no internet access. A caller wraps them with its own wording; errors.Is finds them.
+var (
+	ErrNetworkDisabled = errors.New("network tools are disabled")
+	ErrInternetBlocked = errors.New("internet access is blocked")
+)
+
+// StatusError is the error Open returns for an answer that is not a 200, so a caller can act on the status without matching text.
+type StatusError struct {
+	Code   int
+	Status string
+}
+
+func (e *StatusError) Error() string { return "server returned unexpected status: " + e.Status }
+
 // Open makes a guarded GET and returns the response for the caller to stream and close: network tools on, internet
 // access allowed, the host not blocked, every resolved address and redirect target vetted. Only a 200 answer is returned.
 // FetchURL reads such a response as capped text; a caller that needs more (an operator-triggered download of a data file)
 // streams the body itself and sets its own cap.
 func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Response, error) {
+	return n.OpenAccepting(ctx, targetURL, "")
+}
+
+// OpenAccepting is Open for a service that serves several formats from one address: accept, if not empty, is sent as the
+// Accept header. The guard path is the same.
+func (n *NetworkTools) OpenAccepting(ctx context.Context, targetURL, accept string) (*http.Response, error) {
 	cfg := n.configProvider(ctx)
 	if !cfg.Enabled {
-		return nil, fmt.Errorf("network tools are disabled")
+		return nil, ErrNetworkDisabled
 	}
 
 	if !cfg.AllowInternetAccess && !cfg.AllowLanAccess {
-		return nil, fmt.Errorf("network access is fully blocked by guardrails")
+		return nil, fmt.Errorf("network access is fully blocked by guardrails: %w", ErrInternetBlocked)
 	}
 
 	// Security Check: Blocked Domains
@@ -139,6 +161,9 @@ func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Respon
 		return nil, fmt.Errorf("failed to prepare request: %w", err)
 	}
 	req.Header.Set("User-Agent", "LLM-Proxy-Agent/1.0")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 
 	resp, err := n.httpClient.Do(req)
 	if err != nil {
@@ -147,7 +172,7 @@ func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Respon
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("server returned unexpected status: %s", resp.Status)
+		return nil, &StatusError{Code: resp.StatusCode, Status: resp.Status}
 	}
 	return resp, nil
 }
@@ -246,10 +271,10 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	isPrivate := network.IsLAN(ip)
 
 	if isPrivate && !cfg.AllowLanAccess {
-		return fmt.Errorf("access to private address '%s' is blocked", ip.String())
+		return lanBlockedError{ip: ip.String()}
 	}
 	if !isPrivate && !cfg.AllowInternetAccess {
-		return fmt.Errorf("outbound internet access to '%s' is blocked", ip.String())
+		return fmt.Errorf("outbound internet access to '%s' is blocked: %w", ip.String(), ErrInternetBlocked)
 	}
 
 	for _, blocked := range cfg.BlockedIPs {
@@ -259,6 +284,16 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	}
 	return nil
 }
+
+// ErrLANBlocked is what a refused private address is: the network settings do not allow local network access.
+var ErrLANBlocked = errors.New("local network access is blocked")
+
+// lanBlockedError keeps the refusal's words and answers errors.Is(err, ErrLANBlocked).
+type lanBlockedError struct{ ip string }
+
+func (e lanBlockedError) Error() string { return "access to private address '" + e.ip + "' is blocked" }
+
+func (e lanBlockedError) Is(target error) bool { return target == ErrLANBlocked }
 
 // maxRedirects bounds how many redirects a fetch follows.
 const maxRedirects = 5

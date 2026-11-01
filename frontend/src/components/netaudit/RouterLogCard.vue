@@ -8,7 +8,7 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useRouterLog } from "../../composables/netaudit/useRouterLog"
 import {
-  ROUTER_LOG_HINT, ROUTER_LOG_HINTS_NOTE, ROUTER_LOG_NOT_HEARD, ROUTER_LOG_SETUP_AFTER, ROUTER_LOG_SETUP_COMMAND, ROUTER_LOG_SETUP_STEPS,
+  ROUTER_LOG_DETAILS, ROUTER_LOG_HINT, ROUTER_LOG_NOT_HEARD, ROUTER_LOG_SETUP_AFTER, ROUTER_LOG_SETUP_COMMAND, ROUTER_LOG_SETUP_STEPS,
   ROUTER_LOG_SETUP_TITLE, ROUTER_LOG_TITLE, ROUTER_LOG_UNDO_COMMAND,
 } from "../../constants/netaudit"
 import { formatRelativeTime } from "../../utils/format/time"
@@ -30,7 +30,7 @@ onMounted(load)
       <LoadingState v-else-if="!state" label="Reading the router log setting" />
 
       <template v-else>
-        <ToggleField :model-value="state.enabled" label="Take the router's log" :hint="ROUTER_LOG_HINT" :disabled="busy" @update:model-value="set" />
+        <ToggleField :model-value="state.enabled" label="Take the router's log" :hint="ROUTER_LOG_HINT" :details="ROUTER_LOG_DETAILS" :disabled="busy" @update:model-value="set" />
 
         <p v-if="state.enabled && state.problem" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="router-log-problem">The program cannot listen on port {{ state.port }}: {{ state.problem }}</p>
         <p v-else-if="state.enabled && state.last_heard" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="router-log-heard">Listening on port {{ state.port }}. The router was last heard {{ formatRelativeTime(state.last_heard) }}.</p>
@@ -44,7 +44,6 @@ onMounted(load)
           <p class="m-0 mt-2 text-[length:var(--text-small)] text-muted">{{ ROUTER_LOG_SETUP_AFTER }}</p>
           <pre class="m-0 mt-1 overflow-x-auto rounded-[var(--radius-md)] bg-surface-raised p-2 font-mono text-[length:var(--text-small)] text-primary" tabindex="0">{{ ROUTER_LOG_UNDO_COMMAND }}</pre>
         </Disclosure>
-        <p class="m-0 text-[length:var(--text-small)] text-muted">{{ ROUTER_LOG_HINTS_NOTE }}</p>
 
         <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
       </template>
