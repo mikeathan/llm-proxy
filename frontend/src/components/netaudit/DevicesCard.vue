@@ -31,10 +31,13 @@ import {
   IPV6_FIX_COMMAND,
   IPV6_FIX_KEEP_COMMAND,
   IPV6_FIX_KEEP_NOTE,
+  IPV6_DETAILS,
   IPV6_HINT,
   IPV6_LABEL,
   IPV6_PROBLEMS,
+  PRESENCE_DETAILS,
   PRESENCE_HINT,
+  NAMES_DETAILS,
   NAMES_HINT,
   NAMES_LABEL,
   NAMES_LOAD_FAILED,
@@ -118,7 +121,7 @@ onMounted(load)
 
       <template v-else>
         <section v-if="presence" class="flex flex-col gap-1" aria-label="New-device check">
-          <ToggleField :model-value="presence.enabled" label="Look for new devices" :hint="PRESENCE_HINT" :disabled="busy" @update:model-value="toggle" />
+          <ToggleField :model-value="presence.enabled" label="Look for new devices" :hint="PRESENCE_HINT" :details="PRESENCE_DETAILS" :disabled="busy" @update:model-value="toggle" />
           <p :class="['m-0 text-[length:var(--text-small)]', presence.problem && presence.enabled ? 'text-state-error' : 'text-muted']" data-test="presence-line">{{ presenceLine(presence) }}</p>
           <SelectInput
             v-if="advanced && presence.enabled"
@@ -130,12 +133,12 @@ onMounted(load)
         </section>
 
         <section class="flex flex-col gap-1" aria-label="Device names" data-test="device-names">
-          <ToggleField :model-value="names.enabled.value" :label="NAMES_LABEL" :hint="NAMES_HINT" :disabled="names.busy.value" @update:model-value="names.set" />
+          <ToggleField :model-value="names.enabled.value" :label="NAMES_LABEL" :hint="NAMES_HINT" :details="NAMES_DETAILS" :disabled="names.busy.value" @update:model-value="names.set" />
           <p v-if="names.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ names.error.value }}</p>
         </section>
 
         <section v-if="ipv6" class="flex flex-col gap-1" aria-label="IPv6 devices" data-test="ipv6-discovery">
-          <ToggleField :model-value="ipv6.enabled" :label="IPV6_LABEL" :hint="IPV6_HINT" :disabled="busy" @update:model-value="setIPv6" />
+          <ToggleField :model-value="ipv6.enabled" :label="IPV6_LABEL" :hint="IPV6_HINT" :details="IPV6_DETAILS" :disabled="busy" @update:model-value="setIPv6" />
           <div v-if="ipv6.enabled && ipv6.problem" role="alert" class="flex flex-col gap-1 text-[length:var(--text-small)] text-state-error" data-test="ipv6-problem">
             <p class="m-0">{{ IPV6_PROBLEMS[ipv6.problem] }}</p>
             <template v-if="ipv6.problem === 'not_permitted'">

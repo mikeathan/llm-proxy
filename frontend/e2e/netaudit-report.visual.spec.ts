@@ -58,3 +58,19 @@ for (const view of ['simple', 'advanced'] as const) {
     await lookAt(page, testInfo, `report-${view}.png`, true)
   })
 }
+
+// A port row holds the port, what runs on it, its state and a button. On a phone the text must drop to its own line, not be
+// squeezed to a column one letter wide (seen on a real phone, 2026-11-01, with a long Samba version).
+test('a port row keeps its service text readable on a phone', async ({ page }, testInfo) => {
+  const long = finding({ key: 'samba-139', device: '192.0.2.10', port: 139, service: 'netbios-ssn', version: 'Samba smbd 4.6.2 ubuntu3ubuntu3.2' })
+  await setNetauditView(page, 'advanced')
+  await mockAdminApi(page, { answers: { '/netaudit/findings': { ...report, findings: [long] }, '/netaudit/expectations': [], '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
+  await page.goto('automations/ws%2Fnetwork-audit')
+  await page.getByRole('button', { name: 'Show ports' }).click()
+  const text = page.locator('[data-key="samba-139"]').getByText(/netbios-ssn/)
+  await expect(text).toBeVisible()
+  const box = await text.boundingBox()
+  expect(box?.width).toBeGreaterThanOrEqual(120)
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'port-row-long-service.png', true)
+})

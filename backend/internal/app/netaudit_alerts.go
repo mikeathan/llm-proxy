@@ -10,6 +10,7 @@ import (
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/names"
+	"llm-proxy/internal/core/netaudit/outsidelookup"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/neighbors"
@@ -71,6 +72,20 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		RouterLogConfig: routerLogConfig,
 		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence),
 	}
+}
+
+// outsideLookup is the opt-in look at what the internet can reach: its setting, and the check the router check runs.
+type outsideLookup struct {
+	Config   *netaudit.OutsideLookupConfig
+	Exposure *netaudit.Exposure
+}
+
+// newOutsideLookup builds the setting and the check. The one request goes through opener (the guarded network client), to the
+// service the setting names, read on every look; address is how the router is asked for its internet address.
+func newOutsideLookup(store netaudit.PolicyStore, opener outsidelookup.Opener, address netaudit.AddressReader) outsideLookup {
+	config := netaudit.NewOutsideLookupConfig(store)
+	client := outsidelookup.Client{Opener: opener, BaseURL: config.URL}
+	return outsideLookup{Config: config, Exposure: netaudit.NewExposure(config.Enabled, client, address, time.Now)}
 }
 
 // gatewayTTL is how long the router's address is remembered before the routing table is read again.

@@ -26,3 +26,22 @@ describe('DeviceFindings for the computer the program runs on', () => {
     expect(w.find('[data-test="more-actions"]').exists()).toBe(true)
   })
 })
+
+// The outside database lists a port number and no protocol: showing "1194/tcp" would state something nobody measured.
+describe('DeviceFindings for a port that has no protocol', () => {
+  const exposed: ScanFinding = {
+    key: '192.168.50.1||1194|internet_exposed_port', device: '192.168.50.1', port: 1194, check: 'internet_exposed_port',
+    severity: 'medium', evidence: 'An outside scan database lists port 1194 as open', new: true, changed: false, accepted: false,
+  } as ScanFinding
+
+  it('shows the bare port number, not a guessed protocol', () => {
+    const w = mount(DeviceFindings, { props: props('192.168.50.1', [exposed]) })
+    expect(w.text()).toContain('1194')
+    expect(w.text()).not.toContain('1194/tcp')
+  })
+
+  it('still shows the protocol of a port a scan measured', () => {
+    const w = mount(DeviceFindings, { props: props('192.168.50.1', [{ ...exposed, proto: 'udp', key: 'y' }]) })
+    expect(w.text()).toContain('1194/udp')
+  })
+})

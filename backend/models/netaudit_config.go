@@ -37,4 +37,10 @@ type NetauditConfig struct {
 	// DeviceNamesOff turns off asking unnamed devices what they call themselves (one small question to each, rarely, through
 	// the guarded dialer). It is a negative flag so that the default, with nothing stored, is on.
 	DeviceNamesOff bool `yaml:"device_names_off,omitempty" json:"device_names_off"`
+	// OutsideLookupEnabled lets the nightly audit send the network's public address (as the router states it) to an outside scan
+	// database and list what it says the internet can reach. The service learns the address, so it is off until the operator
+	// turns it on (a step-up action).
+	OutsideLookupEnabled bool `yaml:"outside_lookup_enabled,omitempty" json:"outside_lookup_enabled"`
+	// OutsideLookupURL is the service's address (https only). Empty means netaudit's default service.
+	OutsideLookupURL string `yaml:"outside_lookup_url,omitempty" json:"outside_lookup_url"`
 }

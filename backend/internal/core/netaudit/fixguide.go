@@ -481,6 +481,17 @@ var guides = map[string]FixGuide{
 		Risk: "Disconnecting a device interrupts whatever it does; changing the Wi-Fi password disconnects every device until it has the new one.",
 		Undo: "Reconnect the device, or put the old Wi-Fi password back.",
 	},
+	CheckInternetExposedPort: {
+		Steps: []string{
+			"Open the router's settings page and look at its port-forwarding list (often called virtual server), the UPnP table, and any setting called DMZ or exposed host. Find the port named in the finding.",
+			"If the port is not there, look at any modem or provider box in front of your router: it may pass the port on to the router or to a device.",
+			"Find what answers on that port. If you do not use it from outside your home, remove the forward, close the program, or turn the setting off.",
+			"If you do need it from outside, reach it through a VPN to your home instead of an open port. If the open port is the VPN server itself, accept the finding with a note.",
+			"The outside database is refreshed about once a week, so the finding can take that long to go after a fix. Run the audit again after that to confirm.",
+		},
+		Risk: "Whatever relied on the open port stops being reachable from outside until it is reached through a VPN or forwarded again.",
+		Undo: "Add the port forward back in the router, or turn the setting back on.",
+	},
 	CheckUPnPForward: {
 		Steps: []string{
 			"Open the router's settings page and find the list of UPnP port mappings (on many ASUS routers: WAN, Internet Connection, or the UPnP table next to the switch). It shows which device asked for which port.",

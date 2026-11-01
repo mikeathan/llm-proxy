@@ -54,11 +54,14 @@ export function describeService(ref: PortRef & { proto?: string }): string {
   return `${meaning} (port ${ref.port})`
 }
 
+/** "22/tcp", or just "1194" for a port with no protocol: an outside database lists a number only, and no protocol is assumed. */
+export const portLabel = (ref: { port?: number; proto?: string }): string =>
+  ref.port === undefined ? '' : ref.proto ? `${ref.port}/${ref.proto}` : `${ref.port}`
+
 /** The technical form for the Advanced view: "22/tcp ssh". */
 export function describePort(ref: PortRef & { proto?: string }): string {
-  if (ref.port === undefined) return ''
-  const base = `${ref.port}/${ref.proto || 'tcp'}`
-  return ref.service ? `${base} ${ref.service}` : base
+  const base = portLabel(ref)
+  return base && ref.service ? `${base} ${ref.service}` : base
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many)

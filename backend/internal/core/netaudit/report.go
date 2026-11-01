@@ -167,10 +167,22 @@ func groupChecks(findings []Finding) []checkGroup {
 			index[key] = i
 			groups = append(groups, checkGroup{check: f.Check, severity: f.Severity, evidence: f.Evidence})
 		}
-		groups[i].where = append(groups[i].where, fmt.Sprintf("%s %d/%s", f.Device, f.Port, f.Proto))
+		groups[i].where = append(groups[i].where, where(f))
 	}
 	slices.SortStableFunc(groups, func(a, b checkGroup) int { return severityRank(b.severity) - severityRank(a.severity) })
 	return groups
+}
+
+// where is "192.0.2.10 445/tcp": the device, then the port and its protocol when the finding has them. A finding with no
+// protocol (the outside database lists a number only) or no port (UPnP being on) is written without them, never with a guess.
+func where(f Finding) string {
+	switch {
+	case f.Port == 0:
+		return f.Device
+	case f.Proto == "":
+		return fmt.Sprintf("%s %d", f.Device, f.Port)
+	}
+	return fmt.Sprintf("%s %d/%s", f.Device, f.Port, f.Proto)
 }
 
 // severityOrder ranks severities from the mildest; an unknown one ranks below them all.

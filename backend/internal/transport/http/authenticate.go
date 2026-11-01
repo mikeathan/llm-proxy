@@ -92,6 +92,7 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/netaudit/devices/gateway/confirm"}, // silences the alarm for a spoofed router: the operator, freshly confirmed
 	{http.MethodPut, "/admin/api/netaudit/decoys"},                   // opens or closes listening sockets on this computer
 	{http.MethodPut, "/admin/api/netaudit/router-log"},               // opens or closes the listening socket for the router's log (Constitution I.8)
+	{http.MethodPut, "/admin/api/netaudit/outside-lookup"},           // sends the network's public address to an outside service, and sets which one
 	{http.MethodDelete, "/admin/api/netaudit/vulndata"},              // removes what every audit compares with: the same silencing as a hand-made import
 	{http.MethodPost, "/admin/api/netaudit/vulndata/import"},         // replaces what every audit compares with: a hand-made file could silence every known-flaw finding
 }

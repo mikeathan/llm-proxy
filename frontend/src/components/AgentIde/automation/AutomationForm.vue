@@ -15,7 +15,7 @@ import { triggerLabel } from "../../../utils/automation/automationDisplay";
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { defaultProfile, profileLabel } from "../../../utils/assistant/profileChoice";
 import { useProfiles } from "../../../composables/assistant/useProfiles";
-import { AGENT_LABEL, NETWORK_GRANT_LABEL } from "../../../constants/labels";
+import { AGENT_LABEL, AUTOMATION_JOURNAL_DETAILS, AUTOMATION_JOURNAL_HINT, AUTOMATION_SKIP_BUSY_DETAILS, AUTOMATION_SKIP_BUSY_HINT, NETWORK_GRANT_LABEL } from "../../../constants/labels";
 import AuditSetupCheck from "../../netaudit/AuditSetupCheck.vue";
 import ScanSettingsFields from "../../netaudit/ScanSettingsFields.vue";
 import { AUDITOR_PROFILE } from "../../../constants/netaudit";
@@ -386,7 +386,8 @@ const review = computed(() => [
         v-model="form.journal"
         class="mt-3"
         label="Keep a journal between runs"
-        hint="The run reads its own notes from earlier runs and rewrites them before it finishes: queries that surfaced new items, sources to skip, topics already covered. You can read or clear the journal on the automation's page."
+        :hint="AUTOMATION_JOURNAL_HINT"
+        :details="AUTOMATION_JOURNAL_DETAILS"
       />
       <p v-if="wakeNotice" data-test="wake-notice" role="note" class="m-0 mt-3 text-[length:var(--text-small)] text-state-running">{{ wakeNotice }}</p>
       <p v-if="hostNetworkKnown && hostNetworkOff" role="note" class="m-0 mt-3 text-[length:var(--text-small)] text-state-running">
@@ -469,7 +470,8 @@ const review = computed(() => [
           v-if="form.triggerType !== 'manual'"
           v-model="form.skipIfBusy"
           label="Skip a run if the model is busy"
-          hint="If a chat or another run is using the model when this fires, skip it and wait for the next one. Manual runs always wait their turn. The workspace Heartbeat does this on its own."
+          :hint="AUTOMATION_SKIP_BUSY_HINT"
+          :details="AUTOMATION_SKIP_BUSY_DETAILS"
         />
       </div>
     </Panel>

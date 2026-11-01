@@ -3,7 +3,7 @@ import { computed } from "vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import FixGuideSteps from "./FixGuideSteps.vue"
 import { deepOutcome } from "../../utils/netaudit/deepCheck"
-import { severityState } from "../../utils/netaudit/friendly"
+import { portLabel, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import type { DeepCheck } from "../../types/netaudit"
 import type { StatusState } from "../../types/ui"
@@ -29,7 +29,7 @@ const TAG: Record<string, { state: StatusState; label: string }> = {
       <li v-for="f in check.findings" :key="`${f.port}-${f.check}`" class="flex flex-col gap-1 border-l-4 border-hairline pl-3" data-test="deep-finding">
         <span class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] font-semibold text-primary">
           <StatusTag :state="severityState(f.severity)" :label="`Problem · ${f.severity}`" />
-          {{ f.check_title || f.check }} · {{ f.port }}/{{ f.proto || "tcp" }}
+          {{ f.check_title || f.check }} · {{ portLabel(f) }}
         </span>
         <span class="text-[length:var(--text-small)] text-secondary">{{ f.evidence }}</span>
         <span v-if="f.fix" class="text-[length:var(--text-small)] text-muted">{{ f.fix }}</span>

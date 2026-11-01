@@ -3,7 +3,7 @@ import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import { formatPorts } from "../../utils/netaudit/expectations"
-import { deviceLabel, isCheck, isGuessedService, isHostDevice, isLowDetail, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
+import { deviceLabel, isCheck, isGuessedService, isHostDevice, isLowDetail, portCount, portLabel, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
 import DeepCheckResult from "./DeepCheckResult.vue"
@@ -81,12 +81,12 @@ const STATE_CLASS: Record<string, string> = {
     <p v-if="deepRunning" role="status" class="m-0 border-t border-hairline px-3 py-2 text-[length:var(--text-small)] text-secondary" data-test="deep-running">Checking {{ group.device }} slowly. This can take a few minutes; the page stays usable.</p>
     <ul v-if="open" class="m-0 list-none p-0">
       <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${f.accepted ? PLAIN_CARD_CLASS : (SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS)}` : '']">
-        <span class="w-20 flex-none font-mono text-[length:var(--text-small)] text-primary">{{ f.port }}/{{ f.proto || "tcp" }}</span>
-        <span v-if="isCheck(f)" class="flex min-w-0 flex-1 flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
+        <span class="w-20 flex-none font-mono text-[length:var(--text-small)] text-primary">{{ portLabel(f) }}</span>
+        <span v-if="isCheck(f)" class="flex min-w-0 flex-[1_1_10rem] flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
           <StatusTag :state="f.accepted ? 'neutral' : severityState(f.severity)" :label="`Problem · ${f.severity}`" />
           {{ f.evidence || "A check found a problem" }}
         </span>
-        <span v-else class="min-w-0 flex-1 break-words font-mono text-[length:var(--text-small)] text-secondary">
+        <span v-else class="min-w-0 flex-[1_1_10rem] break-words font-mono text-[length:var(--text-small)] text-secondary">
           {{ serviceName(f.service) }}<template v-if="isGuessedService(f.service)"> (guess)</template> ·
           <template v-if="f.changed && f.previous_version"><s class="text-muted">{{ f.previous_version }}</s> </template>{{ f.version || "version unknown" }}
         </span>

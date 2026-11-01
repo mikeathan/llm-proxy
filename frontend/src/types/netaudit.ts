@@ -431,6 +431,30 @@ export interface RouterLogState {
   port: number
 }
 
+/** What the last look at the internet-facing ports did. `outcome` is absent until one was tried; `at` is the server's zero date then. */
+export type OutsideLookupOutcome = 'looked' | 'cannot_look' | 'failed'
+export interface OutsideLookupLast {
+  at: string
+  outcome?: OutsideLookupOutcome
+  /** A fixed code from the server (for example `private_address`); the words for it are in constants/netaudit. */
+  reason?: string
+  ports: number
+}
+
+/** The outside lookup: the switch, which service it asks, and what the last look did. */
+export interface OutsideLookupState {
+  enabled: boolean
+  url: string
+  default_url: string
+  last: OutsideLookupLast
+}
+
+/** A change to the outside lookup: either field alone. An empty `url` goes back to the default service. */
+export interface OutsideLookupUpdate {
+  enabled?: boolean
+  url?: string
+}
+
 /** The decoy services: the switch, which ports listen, any trouble, and who touched them. */
 export interface DecoyState {
   enabled: boolean

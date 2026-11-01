@@ -14,7 +14,7 @@ var allChecks = []string{
 	CheckTLSWeakProtocol, CheckTLSWeakCipher, CheckSSHPasswordLogin,
 	CheckADBExposed, CheckOpenProxy, CheckElasticsearchExposed, CheckX11Exposed, CheckRsyncExposed, CheckKubeletExposed, CheckEtcdExposed,
 	CheckNewDevice, CheckMACChanged, CheckGatewayChanged, CheckDuplicateMAC, CheckDeviceMissing, CheckHiddenDevice,
-	CheckHostKeyChanged, CheckCertChanged, CheckUPnPEnabled, CheckUPnPForward, CheckDecoyTouched, CheckEndOfLife,
+	CheckHostKeyChanged, CheckCertChanged, CheckUPnPEnabled, CheckUPnPForward, CheckInternetExposedPort, CheckDecoyTouched, CheckEndOfLife,
 }
 
 func TestRemediationFor_EveryCheckHasAFix(t *testing.T) {

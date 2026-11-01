@@ -98,7 +98,7 @@ Phases 1 to 3 add no listening socket and no new probe of other devices; Phase 2
 |---|---|
 | Stock RT-AX86U remote syslog (existence, content) | captured 2026-10-31 (ledger); custom port above 1024 unchecked |
 | Merlin/softflowd NetFlow export | unchecked; not needed unless flow intake is chosen |
-| Shodan InternetDB terms, limits, keyless access | unchecked |
+| Shodan InternetDB terms, limits, keyless access | keyless and "free for non-commercial use" (its page, 2026-11-01); weekly refresh; no limit stated; the full terms page returned 404, so **not read** |
 | `gopsutil` and `lsof` on macOS | unchecked |
 | Passive ARP/DHCP visibility on a switched port | doubted (§4 Phase 6); needs a capture |
 | Noise of `new_listener` on a Docker host | unmeasured |
@@ -109,5 +109,5 @@ Phases 1 to 3 add no listening socket and no new probe of other devices; Phase 2
 - **Phase 1a and 1b built 2026-11-01 (v0.32.0), uncommitted** on this branch, at the owner's go-ahead (`/proc/net` capture pasted; host label chosen as `this-computer`). Differences from the plan are in the ledger (audit-time not presence-tick, no process names, non-loopback only, own sockets and ephemeral UDP left out). Mutation-checked; all backend and front-end tests, lint, build and a new visual spec pass. **Not yet seen on the owner's server.**
 - **Phase 1c built 2026-11-01 (v0.32.0), uncommitted:** sshd password, root and empty-password login and `rp_filter` off, from the owner's real `sshd_config` and sysctl values (`ip_forward` 1, `rp_filter` 2 and 2, so neither is a finding). macOS checks (`csrutil`, `socketfilterfw`) stay a separate step needing a Constitution II.3 review; the owner runs Ubuntu.
 - **Phase 4 built 2026-11-01 (v0.33.0), branch `router-log-intake`, uncommitted:** the router's log only wakes the presence check early (ledger and ADR-0018). Constitution I.8 is a proposal in force only if the owner merges it. Left out: the DHCP name, firewall drops, lease expiry.
-- **Phase 2 first step done as evidence:** the router's UPnP returned the public IP `90.212.129.56` (ledger). The feature itself (`internet_exposed_port`, an opt-in outside lookup) is not built.
-- Phases 3, 5 and 6: not started.
+- **Phase 2 built 2026-11-01 (v0.35.0), branch `network-outside-exposure`, uncommitted (ADR-0019):** the router's own UPnP answer gives the public address (never guessed; private, CGNAT, link-local and "UPnP off" are stated as "cannot look"); an opt-in, step-up switch sends it once per audit to a configurable https service (default Shodan InternetDB); `internet_exposed_port` is keyed on the router's LAN address; a look that could not be made carries earlier findings instead of resolving them. Real captures from the owner's address are the fixtures. **Not yet run by the program on vertex.** The service's full terms and rate limit are unread. The same branch fixes a phone layout bug in the port rows and folds the long text under each Network switch (and three others elsewhere) into a "More about this" expander; the router is asked for its address only when the lookup is on; "internet access off" has its own reason; Help says what the Internet view sends.
+- Phases 3 and 6: next, in that order, each on its own branch. Phase 5: not started.

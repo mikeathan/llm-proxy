@@ -10,6 +10,7 @@ const DEVICES = { devices: [], gateway: { changed: false }, baselined: true, upd
 const DECOYS = { enabled: false, listening: [], ports: [{ number: 2222, name: 'SSH login' }], touches: [] }
 const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30] }
 const IPV6_DISCOVERY = { enabled: false }
+const OUTSIDE_LOOKUP = { enabled: false, url: 'https://internetdb.shodan.io', default_url: 'https://internetdb.shodan.io', last: { at: '0001-01-01T00:00:00Z', ports: 0 } }
 // Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
 const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
 
@@ -20,6 +21,7 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/netaudit/presence': PRESENCE,
   '/netaudit/ipv6-discovery': IPV6_DISCOVERY,
   '/netaudit/decoys': DECOYS,
+  '/netaudit/outside-lookup': OUTSIDE_LOOKUP,
 }
 
 type Answers = Record<string, unknown>

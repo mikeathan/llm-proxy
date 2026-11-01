@@ -451,3 +451,47 @@ func TestNetworkTools_Open_RefusesWhatTheGuardrailsRefuse(t *testing.T) {
 		}
 	}
 }
+
+// A caller that must tell "the server said 404" from "the request failed" (an outside lookup for an address the service has
+// no data on) reads the status from the error instead of matching its text.
+func TestNetworkTools_Open_ANon200AnswerCarriesItsStatus(t *testing.T) {
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"detail":"No information available"}`, http.StatusNotFound)
+	}))
+	defer proxy.Close()
+	n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
+		return models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	}, logging.NewNopLogger())
+	pu, _ := url.Parse(proxy.URL)
+	n.SetProxy(pu)
+
+	_, err := n.Open(context.Background(), "http://1.2.3.4/x")
+	var status *StatusError
+	if !errors.As(err, &status) || status.Code != http.StatusNotFound {
+		t.Fatalf("err = %v, want a *StatusError with code 404", err)
+	}
+	if !strings.Contains(err.Error(), "server returned unexpected status: 404") {
+		t.Errorf("the message must stay as it was: %q", err)
+	}
+}
+
+// A caller that must say "internet access is off" instead of "the service is down" reads the reason from the error.
+func TestNetworkTools_Open_NamesWhyAccessIsRefused(t *testing.T) {
+	open := func(cfg models.NetworkGuardrailsConfig) error {
+		n := NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return cfg }, logging.NewNopLogger())
+		_, err := n.Open(context.Background(), "http://1.2.3.4/x")
+		return err
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: false, AllowInternetAccess: true}); !errors.Is(err, ErrNetworkDisabled) {
+		t.Errorf("tools off: %v", err)
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: true}); !errors.Is(err, ErrInternetBlocked) {
+		t.Errorf("everything blocked: %v", err)
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: true, AllowLanAccess: true}); !errors.Is(err, ErrInternetBlocked) || !strings.Contains(err.Error(), "outbound internet access to '1.2.3.4' is blocked") {
+		t.Errorf("only the LAN allowed: %v", err)
+	}
+	if err := open(models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true, BlockedDomains: []string{"1.2.3.4"}}); errors.Is(err, ErrInternetBlocked) || errors.Is(err, ErrNetworkDisabled) {
+		t.Errorf("a blocked domain is not 'internet off': %v", err)
+	}
+}

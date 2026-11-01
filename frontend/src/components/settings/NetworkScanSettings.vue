@@ -17,7 +17,7 @@ import { useScanScope } from "../../composables/netaudit/useScanScope"
 import { useNetauditReadiness } from "../../composables/netaudit/useNetauditReadiness"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { useActiveWorkspace } from "../../composables/ui/useActiveWorkspace"
-import { AUDIT_PLAYBOOK, DEVICE_TIME_OPTIONS, SCAN_TIME_ANCHOR, SIMPLE_USE_NETWORK } from "../../constants/netaudit"
+import { AUDIT_PLAYBOOK, DEVICE_TIME_OPTIONS, SCAN_TIME_ANCHOR, SCAN_UNCONFINED_DETAILS, SCAN_UNCONFINED_HINT, SIMPLE_USE_NETWORK } from "../../constants/netaudit"
 import { toAutomationNew, toNetwork } from "../../router/routes"
 import type { ScanRange } from "../../types/netaudit"
 
@@ -158,7 +158,8 @@ onMounted(async () => {
         <ToggleField
           :model-value="scope.scope.value.allow_unconfined"
           label="Allow scans without file confinement"
-          hint="For development only. Normally nmap is kept inside its own folder by the operating system, and refuses to run where that is not possible."
+          :hint="SCAN_UNCONFINED_HINT"
+          :details="SCAN_UNCONFINED_DETAILS"
           @update:model-value="scope.setAllowUnconfined"
         />
       </Panel>

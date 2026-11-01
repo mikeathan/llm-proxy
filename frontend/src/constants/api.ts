@@ -28,6 +28,7 @@ export const API_ENDPOINTS = {
   netauditDecoys: `${API_BASE}/netaudit/decoys`,
   netauditDecoyTouches: `${API_BASE}/netaudit/decoys/touches`,
   netauditRouterLog: `${API_BASE}/netaudit/router-log`,
+  netauditOutsideLookup: `${API_BASE}/netaudit/outside-lookup`,
   netauditAlerts: `${API_BASE}/netaudit/alerts`,
   netauditIPv6Discovery: `${API_BASE}/netaudit/ipv6-discovery`,
   netauditDeep: `${API_BASE}/netaudit/deep`,

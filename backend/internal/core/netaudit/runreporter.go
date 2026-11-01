@@ -111,6 +111,11 @@ type RouterFindings interface {
 	Findings(ctx context.Context) ([]Finding, error)
 }
 
+// RouterCarrier is a router check that can keep earlier findings through a night it could not look: *RouterCheck.
+type RouterCarrier interface {
+	Carry(earlier []Finding) []Finding
+}
+
 // WithRouter makes the reporter ask the router about UPnP. Without it nothing is asked.
 func (r *RunReporter) WithRouter(c RouterFindings) *RunReporter {
 	r.router = c
@@ -183,6 +188,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
 	scanned := scannedDevices(result.Hosts)
+	result.Findings = append(result.Findings, restrictTo(r.carriedByRouter(prev.Findings), scanned)...)
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}
@@ -469,6 +475,14 @@ func (r *RunReporter) addRouter(ctx context.Context, result *Result) string {
 		return fmt.Sprintf("\n\n> Note: what the router offers (UPnP) could not be checked completely (%v).", err)
 	}
 	return ""
+}
+
+// carriedByRouter is what the router check keeps from the last scan when it could not make its look this time.
+func (r *RunReporter) carriedByRouter(earlier []Finding) []Finding {
+	if c, ok := r.router.(RouterCarrier); ok {
+		return c.Carry(earlier)
+	}
+	return nil
 }
 
 // addDecoys appends the touches of the decoy services for the devices this scan looked at. Trouble is stated and never hides

@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -185,6 +185,15 @@ export class NetauditService {
   /** Switches the router log listener on or off. It opens a listening port, so the server asks for the passphrase again first. */
   static setRouterLog(enabled: boolean): Promise<RouterLogState> {
     return put<RouterLogState>(API_ENDPOINTS.netauditRouterLog, { enabled })
+  }
+
+  static outsideLookup(): Promise<OutsideLookupState> {
+    return get<OutsideLookupState>(API_ENDPOINTS.netauditOutsideLookup)
+  }
+
+  /** Changes the outside lookup's switch or service address. Switching it on sends the public address to an outside service, so the server asks for the passphrase again first. */
+  static setOutsideLookup(update: OutsideLookupUpdate): Promise<OutsideLookupState> {
+    return put<OutsideLookupState>(API_ENDPOINTS.netauditOutsideLookup, update)
   }
 
   /** Empties the list of devices that connected to a decoy. The switch and the listeners stay as they are. */

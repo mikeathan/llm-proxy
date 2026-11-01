@@ -35,6 +35,8 @@ type RouterCheck struct {
 	probe   RouterProber
 	gateway func() (netip.Addr, error)
 	allowed func(netip.Addr) error
+	// exposure is the optional look at what the internet can reach, made from what the router says about its own address.
+	exposure *Exposure
 }
 
 // NewRouterCheck builds the check. gateway reads the router's address (the zero Addr when unknown); allowed is the scan
@@ -43,11 +45,28 @@ func NewRouterCheck(probe RouterProber, gateway func() (netip.Addr, error), allo
 	return &RouterCheck{probe: probe, gateway: gateway, allowed: allowed}
 }
 
+// WithExposure adds the outside lookup to what the check reports. Without it nothing is asked of an outside service.
+func (c *RouterCheck) WithExposure(e *Exposure) *RouterCheck {
+	c.exposure = e
+	return c
+}
+
+// Carry returns the earlier outside-lookup findings that a look which could not be made must not drop (see Exposure.Carry).
+func (c *RouterCheck) Carry(earlier []Finding) []Finding {
+	if c.exposure == nil {
+		return nil
+	}
+	return c.exposure.Carry(earlier)
+}
+
 // Findings probes the router and returns its findings: UPnP being on, and each port it forwards. A router that does not
 // answer gives none: it may have UPnP off, or the datagram may have been lost, so nothing is claimed either way. Trouble is
 // an error. If only the list of forwarded ports could not be read, the findings that were read are returned with the error,
 // so a partly readable router is neither hidden nor reported as clean.
 func (c *RouterCheck) Findings(ctx context.Context) ([]Finding, error) {
+	if c.exposure != nil {
+		c.exposure.Begin()
+	}
 	gw, err := c.gateway()
 	if err != nil {
 		return nil, err
@@ -62,6 +81,7 @@ func (c *RouterCheck) Findings(ctx context.Context) ([]Finding, error) {
 	if err != nil {
 		return nil, err
 	}
+	exposed := c.exposedPorts(ctx, gw, report)
 	if !report.Answered || !report.Gateway {
 		return nil, nil
 	}
@@ -77,6 +97,7 @@ func (c *RouterCheck) Findings(ctx context.Context) ([]Finding, error) {
 			out = append(out, f)
 		}
 	}
+	out = append(out, exposed...)
 	if report.MappingsErr != "" {
 		return out, fmt.Errorf("the router's forwarded ports could not be listed: %s", report.MappingsErr)
 	}
@@ -99,4 +120,12 @@ func forwardFinding(m upnp.Mapping) (Finding, bool) {
 		f.Evidence = fmt.Sprintf("The router forwards port %d from the internet to an address outside your network (port %d, %s). That is how a router is made to relay traffic for someone else", m.ExternalPort, m.InternalPort, m.Protocol)
 	}
 	return f, true
+}
+
+// exposedPorts is the outside lookup's findings, none when it is not set up or not switched on.
+func (c *RouterCheck) exposedPorts(ctx context.Context, gw netip.Addr, report upnp.Report) []Finding {
+	if c.exposure == nil {
+		return nil
+	}
+	return c.exposure.Findings(ctx, gw, report)
 }
