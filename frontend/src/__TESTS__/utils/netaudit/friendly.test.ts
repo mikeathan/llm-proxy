@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence } from '../../../utils/netaudit/friendly'
+import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence } from '../../../utils/netaudit/friendly'
 
 describe('friendly wording', () => {
   it('says what a port is usually for, then falls back to the service, then the number', () => {
@@ -66,5 +66,19 @@ describe('friendly wording', () => {
     expect(severityState('medium')).toBe('warning')
     expect(severityState('low')).toBe('warning')
     expect(severityState('info')).toBe('neutral')
+  })
+})
+
+describe('the computer the program runs on', () => {
+  it('is named in words, not by the server\'s label, and is never a network address', () => {
+    expect(isHostDevice('this-computer')).toBe(true)
+    expect(isHostDevice('192.168.50.60')).toBe(false)
+    expect(deviceLabel('this-computer')).toBe('This computer')
+    expect(deviceLabel('192.168.50.60')).toBe('192.168.50.60')
+  })
+
+  it('reads as a sentence in a finding title', () => {
+    const f = { device: 'this-computer', check: 'new_listener', evidence: 'Something is listening' }
+    expect(findingTitle(f)).toBe('This computer: Something is listening')
   })
 })
