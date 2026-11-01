@@ -174,7 +174,12 @@ export function useProviderModels(
     }
   }
 
+  // The file picked from "Discovered on disk": its name and its full path. The path is sent only while the file name is still
+  // the picked one, so a name typed by hand is looked up in the model folder as before.
+  const discovered = ref<{ filename: string; path: string } | null>(null)
+
   function startAdd() {
+    discovered.value = null
     const defaults = getDefaultModelSettings(props.provider, agentDefaults.value)
     modelForm.value = createEmptyModelForm(props.provider, props.models, agentDefaults.value)
     editingModel.value = {
@@ -202,6 +207,7 @@ export function useProviderModels(
   }
 
   function cancelEdit() {
+    discovered.value = null
     editingModel.value = null
     isAddingNew.value = false
   }
@@ -233,10 +239,12 @@ export function useProviderModels(
     const finalName = name || deriveModelName(id, filename)
     if (props.provider === 'local') {
       if (!filename) return
+      const picked = discovered.value?.filename === filename ? discovered.value.path : ''
       await addModel({
         name: finalName,
         provider: 'local',
         filename,
+        ...(picked ? { path: picked } : {}),
         port,
         args: args ? args.split(/\s+/).filter(Boolean) : [],
         ...tuning,
@@ -287,6 +295,7 @@ export function useProviderModels(
     modelForm.value = createEmptyModelForm('local', props.models, agentDefaults.value)
     modelForm.value.name = name
     modelForm.value.filename = m.filename
+    discovered.value = m.resolved_path ? { filename: m.filename, path: m.resolved_path } : null
     editingModel.value = {
       name,
       provider: 'local',

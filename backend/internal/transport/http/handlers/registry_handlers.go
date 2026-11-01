@@ -12,17 +12,13 @@ import (
 	"llm-proxy/models"
 )
 
-// discoverModelFiles scans modelDir for GGUF files not yet registered in current,
-// extracting metadata via native GGUF header parsing (fast, header-only).
+// discoverModelFiles lists the GGUF files under modelDir that are not yet registered in current.
 func discoverModelFiles(ctx context.Context, modelDir string, current []models.ModelConfig) []adminAvailableModel {
-	if modelDir == "" {
-		return nil
-	}
+	return withoutRegistered(scanModelFiles(ctx, modelDir), current)
+}
 
-	if info, err := os.Stat(modelDir); err != nil || !info.IsDir() {
-		return nil
-	}
-
+// withoutRegistered drops the files that are already a registered model, by path or by name.
+func withoutRegistered(files []adminAvailableModel, current []models.ModelConfig) []adminAvailableModel {
 	seenNames := make(map[string]struct{}, len(current))
 	seenPaths := make(map[string]struct{}, len(current))
 	for _, m := range current {
@@ -30,6 +26,27 @@ func discoverModelFiles(ctx context.Context, modelDir string, current []models.M
 		if m.Path != "" {
 			seenPaths[m.Path] = struct{}{}
 		}
+	}
+	var out []adminAvailableModel
+	for _, f := range files {
+		_, byPath := seenPaths[f.ResolvedPath]
+		_, byName := seenNames[f.Name]
+		if !byPath && !byName {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// scanModelFiles finds every GGUF file under modelDir, in any subfolder, extracting metadata via native GGUF header parsing
+// (fast, header-only).
+func scanModelFiles(ctx context.Context, modelDir string) []adminAvailableModel {
+	if modelDir == "" {
+		return nil
+	}
+
+	if info, err := os.Stat(modelDir); err != nil || !info.IsDir() {
+		return nil
 	}
 
 	scanner := metadata.NewGGUFScanner()
@@ -46,19 +63,12 @@ func discoverModelFiles(ctx context.Context, modelDir string, current []models.M
 			return nil
 		}
 		fullPath := path
-		if _, ok := seenPaths[fullPath]; ok {
-			return nil
-		}
 
 		// Use native GGUF metadata parsing
 		meta, err := scanner.Scan(ctx, fullPath)
 		if err != nil {
 			// Fallback to filename-based name if parsing fails
 			meta.Name = strings.TrimSuffix(d.Name(), ext)
-		}
-
-		if _, ok := seenNames[meta.Name]; ok {
-			return nil
 		}
 
 		var sizeBytes int64
