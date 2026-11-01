@@ -16,9 +16,16 @@ import (
 type Presence struct {
 	deps PresenceDeps
 
+	// wake asks Run to look early (see Wake). wakeDelay is the pause before an early look, so a device that has just joined can
+	// answer, and minGap the least time between the end of one look and the start of an early one.
+	wake      chan struct{}
+	wakeDelay time.Duration
+	minGap    time.Duration
+
 	mu        sync.Mutex
 	last      string // the trouble reported last, so a repeating failure is logged once
 	lastCheck time.Time
+	lastRun   time.Time // when the latest cycle ended, whether or not it succeeded
 }
 
 // PresenceStatus says when the check last completed and what, if anything, is wrong with it now.
@@ -76,7 +83,41 @@ func NewPresence(deps PresenceDeps) *Presence {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	return &Presence{deps: deps}
+	return &Presence{deps: deps, wake: make(chan struct{}, 1), wakeDelay: defaultWakeDelay, minGap: defaultMinGap}
+}
+
+// Early looks are paced: a short pause after the wake, and never closer than minGap to the previous cycle, so a stream of
+// wakes (a forged one included) is at most one sweep per gap.
+const (
+	defaultWakeDelay = 5 * time.Second
+	defaultMinGap    = 60 * time.Second
+)
+
+// Wake asks the check to look soon instead of at its next turn. It never blocks and never looks by itself: Run does, after
+// the pause, and wakes that arrive meanwhile are merged into that one look. A disabled check ignores it.
+func (p *Presence) Wake() {
+	select {
+	case p.wake <- struct{}{}:
+	default:
+	}
+}
+
+// waitForEarlyLook pauses before an early look and reports whether to go on (false when ctx ended).
+func (p *Presence) waitForEarlyLook(ctx context.Context) bool {
+	p.mu.Lock()
+	since := p.deps.Now().Sub(p.lastRun)
+	p.mu.Unlock()
+	delay := max(p.wakeDelay, p.minGap-since)
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(delay):
+	}
+	select { // wakes that came in during the pause are covered by the look that follows
+	case <-p.wake:
+	default:
+	}
+	return true
 }
 
 // Run does a cycle every Every while enabled, and stops when ctx ends.
@@ -91,6 +132,10 @@ func (p *Presence) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
+		case <-p.wake:
+			if !p.waitForEarlyLook(ctx) {
+				return
+			}
 		}
 	}
 }
@@ -101,6 +146,11 @@ func (p *Presence) Tick(ctx context.Context) {
 	if !s.Enabled {
 		return
 	}
+	defer func() {
+		p.mu.Lock()
+		p.lastRun = p.deps.Now()
+		p.mu.Unlock()
+	}()
 	if err := p.deps.Sweep(ctx, s.Targets); err != nil {
 		if !errors.Is(err, ErrScanBusy) {
 			p.trouble(fmt.Errorf("presence check: %w", err))

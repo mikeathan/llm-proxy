@@ -16,6 +16,7 @@ import (
 	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/portprobe"
+	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
@@ -61,6 +62,9 @@ type netauditServices struct {
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
 	DecoyStore  *persistence.DecoyTouchStore
+	// RouterLogConfig is the switch for taking the router's log; RouterLog is the listener, which only wakes the presence check.
+	RouterLogConfig *netaudit.RouterLogConfig
+	RouterLog       *routerlog.Manager
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
@@ -182,6 +186,9 @@ func (s AppServices) StartNetauditPresence(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.Presence != nil {
 		go s.netaudit.Presence.Run(ctx)
 	}
+	if s.netaudit != nil && s.netaudit.RouterLog != nil {
+		go s.netaudit.RouterLog.Run(ctx)
+	}
 	if s.netaudit != nil && s.netaudit.Decoys != nil {
 		go s.netaudit.Decoys.Run(ctx)
 	}
@@ -272,6 +279,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Decoys:         alerts.Decoys,
 		DecoyConfig:    alerts.DecoyConfig,
 		DecoyStore:     alerts.DecoyStore,
+
+		RouterLogConfig: alerts.RouterLogConfig,
+		RouterLog:       alerts.RouterLog,
 
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),

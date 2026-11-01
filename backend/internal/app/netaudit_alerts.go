@@ -4,12 +4,15 @@ import (
 	"context"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/names"
+	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/platform/logging"
+	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
@@ -36,6 +39,9 @@ type alerting struct {
 	Decoys         *decoy.Manager
 	DecoyConfig    *netaudit.DecoyConfig
 	DecoyStore     *persistence.DecoyTouchStore
+
+	RouterLogConfig *netaudit.RouterLogConfig
+	RouterLog       *routerlog.Manager
 }
 
 func (s *AppServices) newAlerting(deps alertingDeps) alerting {
@@ -53,6 +59,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 
 	decoyStore := withReset(s.AppCtx, "The record of connections to decoy services", persistence.NewDecoyTouchStore(root))
 	decoyConfig := netaudit.NewDecoyConfig(deps.Store)
+	routerLogConfig := netaudit.NewRouterLogConfig(deps.Store)
 	return alerting{
 		Log:            log,
 		Presence:       presence,
@@ -60,6 +67,64 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope),
 		DecoyConfig:    decoyConfig,
 		DecoyStore:     decoyStore,
+
+		RouterLogConfig: routerLogConfig,
+		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, presence),
+	}
+}
+
+// gatewayTTL is how long the router's address is remembered before the routing table is read again.
+const gatewayTTL = 30 * time.Second
+
+// newRouterLog builds the listener for the router's log. A datagram counts only from the default gateway, and its only effect
+// is to wake the presence check when the device list does not know the hardware address in it.
+func (s *AppServices) newRouterLog(config *netaudit.RouterLogConfig, inventory *netaudit.Inventory, presence *netaudit.Presence) *routerlog.Manager {
+	return routerlog.New(routerlog.Deps{
+		Enabled: config.Enabled,
+		Gateway: cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now),
+		Known:   knownDevice(inventory),
+		Wake:    presence.Wake,
+		OnError: func(err error) { logging.Warn("network router log", "error", err.Error()) },
+	})
+}
+
+// cachedGateway reads the default gateway from the neighbour source and keeps it for ttl, so a burst of datagrams does not read
+// the routing table once each.
+func cachedGateway(src netaudit.NeighborSource, ttl time.Duration, now func() time.Time) func() netip.Addr {
+	var (
+		mu   sync.Mutex
+		addr netip.Addr
+		read time.Time
+	)
+	return func() netip.Addr {
+		mu.Lock()
+		defer mu.Unlock()
+		if !read.IsZero() && now().Sub(read) < ttl {
+			return addr
+		}
+		table, err := src.Neighbors(context.Background())
+		read = now()
+		addr = netip.Addr{}
+		if err == nil {
+			addr = table.Gateway
+		}
+		return addr
+	}
+}
+
+// knownDevice says whether the device list already holds a hardware address, approved or not.
+func knownDevice(inventory *netaudit.Inventory) func(mac string) (bool, error) {
+	return func(mac string) (bool, error) {
+		view, err := inventory.View()
+		if err != nil {
+			return false, err
+		}
+		for _, d := range view.Devices {
+			if d.MAC == mac {
+				return true, nil
+			}
+		}
+		return false, nil
 	}
 }
 

@@ -42,6 +42,7 @@ type HandlerSet struct {
 	Summary     *handlers.NetauditSwitchHandlers
 	DeviceNames *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
+	RouterLog   *handlers.NetauditRouterLogHandlers
 	Alerts      *handlers.NetauditAlertHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
@@ -111,6 +112,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
+	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
@@ -370,6 +372,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/netaudit/decoys", hs.Decoys.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/decoys", hs.Decoys.Put, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/decoys/touches", hs.Decoys.Clear, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/router-log", hs.RouterLog.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/router-log", hs.RouterLog.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Put, jsonMethodNotAllowed)

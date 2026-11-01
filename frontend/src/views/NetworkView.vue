@@ -14,6 +14,7 @@ import ReadinessBanner from "../components/netaudit/ReadinessBanner.vue"
 import AuditList from "../components/netaudit/AuditList.vue"
 import DevicesCard from "../components/netaudit/DevicesCard.vue"
 import DecoysCard from "../components/netaudit/DecoysCard.vue"
+import RouterLogCard from "../components/netaudit/RouterLogCard.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import BrowserAlertsPanel from "../components/netaudit/BrowserAlertsPanel.vue"
@@ -95,6 +96,7 @@ onUnmounted(stop)
       <NetauditToolbar />
       <DevicesCard />
       <DecoysCard />
+      <RouterLogCard />
     </template>
 
     <template v-else-if="audit">
