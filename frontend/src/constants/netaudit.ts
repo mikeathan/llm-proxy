@@ -315,7 +315,7 @@ export const NAMES_HINT = 'Each look asks a device you have not named what it ca
 export const ROUTER_LOG_TITLE = 'Router log'
 export const ROUTER_LOG_LOAD_FAILED = 'The router log setting could not be read.'
 export const ROUTER_LOG_SAVE_FAILED = 'The router log setting could not be changed.'
-export const ROUTER_LOG_HINT = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check: nothing from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase.'
+export const ROUTER_LOG_HINT = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check, and a device\'s own host name in the log may be offered as a name suggestion on the Devices card, which you confirm. Nothing else from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase.'
 export const ROUTER_LOG_NOT_HEARD = 'Nothing has been heard from your router yet. Check the router setting and the redirect below.'
 export const ROUTER_LOG_SETUP_TITLE = 'Point the router at this computer'
 export const ROUTER_LOG_SETUP_STEPS = [
@@ -327,6 +327,6 @@ export const ROUTER_LOG_SETUP_COMMAND = [
   "sudo nft 'add chain ip syslogredirect prerouting { type nat hook prerouting priority dstnat; policy accept; }'",
   'sudo nft add rule ip syslogredirect prerouting udp dport 514 redirect to :5514',
 ].join('\n')
-export const ROUTER_LOG_SETUP_AFTER = 'These commands last until the next restart. To keep them, add the same table to /etc/nftables.conf and enable the nftables service. They were not tried on your server: check with "sudo nft list ruleset". To undo, run:'
+export const ROUTER_LOG_SETUP_AFTER = 'These commands last until the next restart. To keep them, add the same table to /etc/nftables.conf and enable the nftables service. To check them, run "sudo nft list ruleset", or listen on port 5514 and see datagrams from the router arrive. To undo, run:'
 export const ROUTER_LOG_UNDO_COMMAND = 'sudo nft delete table ip syslogredirect'
 export const ROUTER_LOG_HINTS_NOTE = 'Anything on your network can send a message that looks like the router. At worst that makes the check look early, never more than once a minute.'

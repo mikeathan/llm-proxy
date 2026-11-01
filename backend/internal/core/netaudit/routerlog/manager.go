@@ -11,6 +11,14 @@ import (
 	"time"
 )
 
+func listenUDP4(addr string) (*net.UDPConn, error) {
+	a, err := net.ResolveUDPAddr("udp4", addr)
+	if err != nil {
+		return nil, err
+	}
+	return net.ListenUDP("udp4", a)
+}
+
 // Port is the UDP port the program listens on, unprivileged and fixed in code. The router's own setting is 514, so the
 // computer redirects 514 to this port (the screen shows the command); the redirect keeps the sender's address.
 const Port = 5514
@@ -21,6 +29,15 @@ const (
 	perSecond = 10
 	// defaultWakeGap is the least time between two wakes this listener asks for.
 	defaultWakeGap = 5 * time.Second
+	// receiveBuffer is the kernel's queue for this socket. It is small on purpose: when lines come faster than they are read
+	// the kernel drops the surplus, so memory use is fixed whatever is sent.
+	receiveBuffer = 64 << 10
+	// A name is offered for at most suggestBurst devices in suggestWindow; the same device and name is not offered again within
+	// suggestSame. The name store is rewritten by an offer, so this keeps a stream of forged leases from rewriting it.
+	suggestBurst  = 5
+	suggestWindow = 10 * time.Second
+	suggestSame   = time.Hour
+	maxOffered    = 256
 )
 
 // Deps are what the manager needs; the application wires them in one place.
@@ -28,14 +45,17 @@ type Deps struct {
 	Enabled func() bool
 	// Gateway is the router's address. Datagrams from any other address, and all datagrams while it is unknown, are dropped.
 	Gateway func() netip.Addr
-	// Known says whether the device inventory already has this hardware address.
-	Known func(mac string) (bool, error)
+	// Device says whether the device list holds this hardware address and whether the operator has named it.
+	Device func(mac string) (known, named bool, err error)
+	// Suggest offers a host name for a device to the operator, who confirms it. It cleans the name itself and must never
+	// show or send it as it is. May be nil.
+	Suggest func(mac, name string) error
 	// Wake asks the presence check to look now. It must not block.
 	Wake    func()
 	OnError func(error)
 	Now     func() time.Time
 	// Listen opens the socket; nil means a UDP socket on Port. Tests replace it.
-	Listen func(addr string) (net.PacketConn, error)
+	Listen func(addr string) (*net.UDPConn, error)
 }
 
 // Status says whether the program is listening, what is wrong, and when the router was last heard.
@@ -51,13 +71,16 @@ type Manager struct {
 	wakeGap time.Duration
 
 	mu         sync.Mutex
-	conn       net.PacketConn
+	conn       *net.UDPConn
 	problem    string
 	lastTrbl   string
 	lastHeard  time.Time
 	lastWake   time.Time
 	windowFrom time.Time
 	inWindow   int
+	offerFrom  time.Time
+	offerCount int
+	offered    map[string]time.Time // device and name offered lately, so a repeat is not offered again; bounded by maxOffered
 	wg         sync.WaitGroup
 	poke       chan struct{}
 }
@@ -68,9 +91,9 @@ func New(deps Deps) *Manager {
 		deps.Now = time.Now
 	}
 	if deps.Listen == nil {
-		deps.Listen = func(addr string) (net.PacketConn, error) { return net.ListenPacket("udp4", addr) }
+		deps.Listen = listenUDP4
 	}
-	return &Manager{deps: deps, wakeGap: defaultWakeGap, poke: make(chan struct{}, 1)}
+	return &Manager{deps: deps, wakeGap: defaultWakeGap, poke: make(chan struct{}, 1), offered: map[string]time.Time{}}
 }
 
 // Run keeps the socket matching the operator's switch, and closes it when ctx ends.
@@ -115,6 +138,7 @@ func (m *Manager) start(ctx context.Context) {
 		m.setProblem(fmt.Sprintf("port %d is in use or not allowed", Port))
 		return
 	}
+	_ = conn.SetReadBuffer(receiveBuffer) // a failure leaves the system default, which is still bounded
 	m.mu.Lock()
 	m.conn, m.problem, m.lastTrbl = conn, "", ""
 	m.mu.Unlock()
@@ -159,11 +183,11 @@ func (m *Manager) Status() Status {
 
 // serve reads datagrams until the socket is closed. The buffer is one byte longer than the longest line read, so a longer
 // datagram is seen as too long and dropped; nothing is kept between datagrams except two times and a counter.
-func (m *Manager) serve(ctx context.Context, conn net.PacketConn) {
+func (m *Manager) serve(ctx context.Context, conn *net.UDPConn) {
 	defer m.wg.Done()
 	buf := make([]byte, maxDatagram+1)
 	for {
-		n, from, err := conn.ReadFrom(buf)
+		n, from, err := conn.ReadFromUDPAddrPort(buf) // no allocation per datagram
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) || ctx.Err() != nil {
 				return
@@ -174,35 +198,65 @@ func (m *Manager) serve(ctx context.Context, conn net.PacketConn) {
 	}
 }
 
-func (m *Manager) handle(datagram []byte, from net.Addr) {
-	udp, ok := from.(*net.UDPAddr)
-	if !ok {
-		return
-	}
-	src := udp.AddrPort().Addr().Unmap()
-	if gw := m.deps.Gateway(); !gw.IsValid() || src != gw {
-		return
-	}
+func (m *Manager) handle(datagram []byte, from netip.AddrPort) {
 	now := m.deps.Now()
-	if !m.within(now) {
-		return
+	if ev, ok := m.accept(datagram, from, now); ok {
+		m.act(ev, now)
+	}
+}
+
+// accept is everything that happens to a datagram before it can do anything: the sender check, the cheap search that
+// turns the firewall lines away without using any of the allowance, the allowance, and the parse.
+func (m *Manager) accept(datagram []byte, from netip.AddrPort, now time.Time) (Event, bool) {
+	if gw := m.deps.Gateway(); !gw.IsValid() || from.Addr().Unmap() != gw {
+		return Event{}, false
 	}
 	m.mu.Lock()
-	m.lastHeard = now
+	m.lastHeard = now // anything from the router shows that its log is arriving
 	m.mu.Unlock()
-	ev, ok := Parse(datagram)
-	if !ok {
-		return
+	if !Interesting(datagram) || !m.within(now) {
+		return Event{}, false
 	}
-	known, err := m.deps.Known(ev.MAC)
+	return Parse(datagram)
+}
+
+// act applies an event: offer the device's name if it is worth offering, and wake the check if the device is new.
+func (m *Manager) act(ev Event, now time.Time) {
+	known, named, err := m.deps.Device(ev.MAC)
 	if err != nil {
 		m.trouble(fmt.Errorf("router log: could not check the device list: %w", err))
 		return
 	}
-	if known {
-		return
+	if ev.Name != "" && m.deps.Suggest != nil && (!known || !named) && m.mayOffer(ev, now) {
+		if err := m.deps.Suggest(ev.MAC, ev.Name); err != nil {
+			m.trouble(fmt.Errorf("router log: could not offer a device name: %w", err))
+		}
 	}
-	m.wake(now)
+	if !known {
+		m.wake(now)
+	}
+}
+
+// mayOffer says whether a name may be offered now: not the same device and name as lately, and within the burst allowance.
+func (m *Manager) mayOffer(ev Event, now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := ev.MAC + " " + ev.Name
+	if at, ok := m.offered[key]; ok && now.Sub(at) < suggestSame {
+		return false
+	}
+	if now.Sub(m.offerFrom) >= suggestWindow {
+		m.offerFrom, m.offerCount = now, 0
+	}
+	if m.offerCount >= suggestBurst {
+		return false
+	}
+	m.offerCount++
+	if len(m.offered) >= maxOffered {
+		clear(m.offered)
+	}
+	m.offered[key] = now
+	return true
 }
 
 // within counts a datagram against this second's allowance.

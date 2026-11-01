@@ -235,3 +235,60 @@ func TestSuggester_DismissWithNothingToDismissIsAnError(t *testing.T) {
 		}
 	}
 }
+
+func TestSuggester_OfferKeepsACleanedRouterNameForTheOperatorToConfirm(t *testing.T) {
+	store, now := &memStore{}, t0
+	s := suggester(store, silent, &now)
+	if err := s.Offer("aa:bb:cc:dd:ee:01", "  Mikes-iPhone.local "); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.For("aa:bb:cc:dd:ee:01"); got != "Mikes-iPhone" {
+		t.Errorf("offered %q, want the cleaned name", got)
+	}
+	writes := store.writes
+	s.Offer("aa:bb:cc:dd:ee:01", "Mikes-iPhone")
+	if store.writes != writes {
+		t.Error("an unchanged name must write nothing")
+	}
+	for _, empty := range []string{"", "*", "   "} {
+		s.Offer("aa:bb:cc:dd:ee:02", empty)
+	}
+	if s.For("aa:bb:cc:dd:ee:02") != "" {
+		t.Error("an empty or placeholder name is not a suggestion")
+	}
+}
+
+func TestSuggester_OfferDoesNotBringBackADismissedNameButTakesANewOne(t *testing.T) {
+	store, now := &memStore{}, t0
+	s := suggester(store, silent, &now)
+	s.Offer("aa:bb:cc:dd:ee:01", "Old-Name")
+	if err := s.Dismiss("aa:bb:cc:dd:ee:01"); err != nil {
+		t.Fatal(err)
+	}
+	s.Offer("aa:bb:cc:dd:ee:01", "Old-Name")
+	if s.For("aa:bb:cc:dd:ee:01") != "" {
+		t.Error("a dismissed name must not come back")
+	}
+	s.Offer("aa:bb:cc:dd:ee:01", "New-Name")
+	if s.For("aa:bb:cc:dd:ee:01") != "New-Name" {
+		t.Error("a different name is offered")
+	}
+}
+
+func TestSuggester_OfferIsBoundedAndOffWhenNamingIsOff(t *testing.T) {
+	store, now := &memStore{}, t0
+	on := true
+	s := suggester(store, silent, &now).WithEnabled(func() bool { return on })
+	for i := 0; i < maxEntries+50; i++ {
+		s.Offer("aa:bb:cc:dd:"+string(rune('a'+i%26))+":"+string(rune('a'+i/26%26))+string(rune('0'+i/676)), "n")
+	}
+	if len(store.s.Entries) > maxEntries {
+		t.Errorf("%d entries, want at most %d", len(store.s.Entries), maxEntries)
+	}
+	on = false
+	writes := store.writes
+	s.Offer("aa:bb:cc:dd:ee:99", "ignored")
+	if store.writes != writes {
+		t.Error("with naming switched off nothing is recorded")
+	}
+}

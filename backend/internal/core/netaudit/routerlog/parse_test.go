@@ -18,7 +18,7 @@ func TestParse_TheTwoShapesGiveOnlyAKindAndAHardwareAddress(t *testing.T) {
 		line string
 		want Event
 	}{
-		{ackLine, Event{Kind: Lease, MAC: "aa:bb:cc:dd:ee:01"}},
+		{ackLine, Event{Kind: Lease, MAC: "aa:bb:cc:dd:ee:01", Name: "PHONE-1"}},
 		{ackNoName, Event{Kind: Lease, MAC: "aa:bb:cc:dd:ee:01"}},
 		{joinedLine, Event{Kind: Joined, MAC: "aa:bb:cc:dd:ee:02"}},
 	}
@@ -62,16 +62,34 @@ func TestParse_EverythingElseTheRouterSaysIsIgnored(t *testing.T) {
 	}
 }
 
-func TestParse_TheRouterNameAndTheDeviceNameAreNeverRead(t *testing.T) {
-	// Whatever the router calls itself, and whatever a device calls itself, is text a device chose: it can neither make an
-	// event nor reach one.
+func TestParse_TheRouterNameIsNeverReadAndADeviceNameOnlyIfItIsPlain(t *testing.T) {
 	long := strings.Repeat("A", 4000)
-	ev, ok := Parse([]byte("<30>Oct 31 20:02:50 " + long + " dnsmasq-dhcp[8548]: DHCPACK(br0) 192.168.50.127 aa:bb:cc:dd:ee:01 " + long))
-	if ok {
+	if ev, ok := Parse([]byte("<30>Oct 31 20:02:50 " + long + " dnsmasq-dhcp[8548]: DHCPACK(br0) 192.168.50.127 aa:bb:cc:dd:ee:01 PHONE-1")); ok {
 		t.Errorf("a datagram longer than a syslog line can be is ignored: %+v", ev)
 	}
-	ev, ok = Parse([]byte("<30>Oct 31 20:02:50 ../../etc/passwd dnsmasq-dhcp[8548]: DHCPACK(br0) 192.168.50.127 aa:bb:cc:dd:ee:01 <script>"))
-	if !ok || ev != (Event{Kind: Lease, MAC: "aa:bb:cc:dd:ee:01"}) {
-		t.Errorf("the event holds a kind and a hardware address only: %+v %v", ev, ok)
+	// The router's name is whatever it likes, even a path: it is not an event and not part of one.
+	ev, ok := Parse([]byte("<30>Oct 31 20:02:50 ../../etc/passwd dnsmasq-dhcp[8548]: DHCPACK(br0) 192.168.50.127 aa:bb:cc:dd:ee:01 PHONE-1"))
+	if !ok || ev != (Event{Kind: Lease, MAC: "aa:bb:cc:dd:ee:01", Name: "PHONE-1"}) {
+		t.Errorf("got %+v %v", ev, ok)
+	}
+	// A device name that is not a plain host name still counts as a lease but is dropped.
+	for _, name := range []string{"<script>", "a;b", "名前", strings.Repeat("a", 64), "*", "x\x00y"} {
+		ev, ok := Parse([]byte("<30>Oct 31 20:02:50 ROUTER dnsmasq-dhcp[8548]: DHCPACK(br0) 192.168.50.127 aa:bb:cc:dd:ee:01 " + name))
+		if !ok || ev.Name != "" || ev.MAC != "aa:bb:cc:dd:ee:01" {
+			t.Errorf("name %q: got %+v %v, want the lease with no name", name, ev, ok)
+		}
+	}
+}
+
+func TestInteresting_TheFirewallLinesFailAtOnce(t *testing.T) {
+	drop := "<12>Oct 31 20:02:33 ROUTER kernel: DROP IN=eth0 OUT= SRC=203.0.113.9 DST=192.0.2.1 PROTO=TCP SPT=40408 DPT=58376 SYN"
+	for line, want := range map[string]bool{ackLine: true, joinedLine: true, drop: false, "": false, "short": false} {
+		if got := Interesting([]byte(line)); got != want {
+			t.Errorf("Interesting(%q) = %v, want %v", line, got, want)
+		}
+	}
+	// A tag far into a long line is not looked for.
+	if Interesting([]byte("<12>Oct 31 20:02:33 ROUTER kernel: " + strings.Repeat("x", 300) + " hostapd: ")) {
+		t.Error("only the start of a line is searched")
 	}
 }
