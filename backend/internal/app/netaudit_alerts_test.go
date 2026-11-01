@@ -61,3 +61,47 @@ func TestCachedGateway_ReadsTheRoutingTableOncePerTTLAndNeverTrustsAFailure(t *t
 		t.Errorf("reads = %d, want 2 after the cache expired", src.reads)
 	}
 }
+
+func TestCachedDevices_ReadsTheListOncePerTTLAndAnswersKnownAndNamed(t *testing.T) {
+	reads := 0
+	inv := models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: "aa:bb:cc:dd:ee:01", Name: "Laptop"}, {MAC: "aa:bb:cc:dd:ee:02"}}}
+	now := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
+	device := cachedDevices(func() (models.DeviceInventory, error) { reads++; return inv, nil }, 5*time.Second, func() time.Time { return now })
+	for i := 0; i < 100; i++ {
+		known, named, err := device("aa:bb:cc:dd:ee:01")
+		if err != nil || !known || !named {
+			t.Fatalf("named device = %v %v %v", known, named, err)
+		}
+	}
+	if known, named, _ := device("aa:bb:cc:dd:ee:02"); !known || named {
+		t.Errorf("an unnamed device is known and not named, got %v %v", known, named)
+	}
+	if known, _, _ := device("aa:bb:cc:dd:ee:03"); known {
+		t.Error("an address not in the list is unknown")
+	}
+	if reads != 1 {
+		t.Errorf("reads = %d: a stream of lookups must not read the list each time", reads)
+	}
+	now = now.Add(6 * time.Second)
+	inv.Devices = append(inv.Devices, models.NetworkDevice{MAC: "aa:bb:cc:dd:ee:03"})
+	if known, _, _ := device("aa:bb:cc:dd:ee:03"); !known || reads != 2 {
+		t.Errorf("after the TTL the list is read again: known %v, reads %d", known, reads)
+	}
+}
+
+func TestCachedDevices_AFailedReadIsAnErrorAndIsRetriedNotRemembered(t *testing.T) {
+	fail := true
+	device := cachedDevices(func() (models.DeviceInventory, error) {
+		if fail {
+			return models.DeviceInventory{}, errors.New("disk gone")
+		}
+		return models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: "aa:bb:cc:dd:ee:01"}}}, nil
+	}, time.Hour, time.Now)
+	if _, _, err := device("aa:bb:cc:dd:ee:01"); err == nil {
+		t.Fatal("expected the read error")
+	}
+	fail = false
+	if known, _, err := device("aa:bb:cc:dd:ee:01"); err != nil || !known {
+		t.Errorf("after the disk came back: %v %v", known, err)
+	}
+}

@@ -69,7 +69,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		DecoyStore:     decoyStore,
 
 		RouterLogConfig: routerLogConfig,
-		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, presence),
+		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence),
 	}
 }
 
@@ -78,11 +78,13 @@ const gatewayTTL = 30 * time.Second
 
 // newRouterLog builds the listener for the router's log. A datagram counts only from the default gateway, and its only effect
 // is to wake the presence check when the device list does not know the hardware address in it.
-func (s *AppServices) newRouterLog(config *netaudit.RouterLogConfig, inventory *netaudit.Inventory, presence *netaudit.Presence) *routerlog.Manager {
+func (s *AppServices) newRouterLog(config *netaudit.RouterLogConfig, inventory *netaudit.Inventory, suggester *names.Suggester,
+	presence *netaudit.Presence) *routerlog.Manager {
 	return routerlog.New(routerlog.Deps{
 		Enabled: config.Enabled,
 		Gateway: cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now),
-		Known:   knownDevice(inventory),
+		Device:  cachedDevices(inventory.View, deviceListTTL, time.Now),
+		Suggest: suggester.Offer,
 		Wake:    presence.Wake,
 		OnError: func(err error) { logging.Warn("network router log", "error", err.Error()) },
 	})
@@ -112,19 +114,35 @@ func cachedGateway(src netaudit.NeighborSource, ttl time.Duration, now func() ti
 	}
 }
 
-// knownDevice says whether the device list already holds a hardware address, approved or not.
-func knownDevice(inventory *netaudit.Inventory) func(mac string) (bool, error) {
-	return func(mac string) (bool, error) {
-		view, err := inventory.View()
-		if err != nil {
-			return false, err
-		}
-		for _, d := range view.Devices {
-			if d.MAC == mac {
-				return true, nil
+// deviceListTTL is how long the device list is remembered between lookups for the router log. Leases and Wi-Fi joins come in
+// bursts, and reading the whole list from disk for each would let a stream of forged lines keep the disk and the decoder busy.
+const deviceListTTL = 5 * time.Second
+
+// cachedDevices answers "is this hardware address in the device list, and has the operator named it" from a copy of the list
+// that is at most ttl old. A stale answer is harmless: the worst case is a wake that the pacing already limits, or a name offer
+// for a device that was named a moment ago, which the name store drops at its next look.
+func cachedDevices(view func() (models.DeviceInventory, error), ttl time.Duration, now func() time.Time) func(string) (bool, bool, error) {
+	var (
+		mu   sync.Mutex
+		read time.Time
+		list map[string]bool // hardware address -> named
+	)
+	return func(mac string) (known, named bool, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if list == nil || now().Sub(read) >= ttl {
+			inv, err := view()
+			if err != nil {
+				return false, false, err
 			}
+			list = make(map[string]bool, len(inv.Devices))
+			for _, d := range inv.Devices {
+				list[d.MAC] = d.Name != ""
+			}
+			read = now()
 		}
-		return false, nil
+		named, known = list[mac]
+		return known, named, nil
 	}
 }
 

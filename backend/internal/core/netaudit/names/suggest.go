@@ -204,6 +204,49 @@ func compareMAC(a, b string) int {
 	return 0
 }
 
+// Offer records a host name the router handed out with a device's address, to be offered to the operator like a name the
+// device gave when asked. The name is cleaned here; it is the device's own text, so it is never used as it came. A name the
+// operator already dismissed is not offered again, and an unchanged one writes nothing. It does not ask the device anything,
+// so the device is not asked again sooner or later because of it.
+func (s *Suggester) Offer(mac, name string) error {
+	if !s.enabled() {
+		return nil
+	}
+	name = Clean(name)
+	if name == "" || name == "*" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stored, err := s.store.Read()
+	if err != nil {
+		return err
+	}
+	now := s.now()
+	for i, e := range stored.Entries {
+		if e.MAC != mac {
+			continue
+		}
+		if e.Name == name || e.Dismissed == name {
+			return nil
+		}
+		stored.Entries[i].Name, stored.Entries[i].AnsweredAt, stored.Entries[i].Misses = name, now, 0
+		return s.store.Write(stored)
+	}
+	stored.Entries = bounded(withEntry(stored.Entries, models.NameSuggestion{MAC: mac, Name: name, TriedAt: now, AnsweredAt: now}))
+	return s.store.Write(stored)
+}
+
+// withEntry returns the entries with one more, as the map the bounding works on.
+func withEntry(entries []models.NameSuggestion, e models.NameSuggestion) map[string]models.NameSuggestion {
+	m := make(map[string]models.NameSuggestion, len(entries)+1)
+	for _, x := range entries {
+		m[x.MAC] = x
+	}
+	m[e.MAC] = e
+	return m
+}
+
 // Dismiss rejects the name now on offer for a device. The same name is not offered again, however often the device gives
 // it; a different name later is offered like any other.
 func (s *Suggester) Dismiss(mac string) error {
