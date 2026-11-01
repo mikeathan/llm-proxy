@@ -141,4 +141,55 @@ describe('DnsCheckCard', () => {
     expect(w.get('[data-test="dns-check-copy-note"]').text()).toBe('Copy failed')
     w.unmount()
   })
+
+  describe('showing that it is alive and what differed', () => {
+    const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString()
+
+    it('says when it last checked, so a person can see it is running without copying anything', async () => {
+      service.dnsCheck.mockResolvedValue(state({ enabled: true, status: { last_run: ago(12) } }, { comparisons: 6, matches: 6, last: ago(12), first: ago(60) }))
+      const w = await mountCard()
+      const line = w.get('[data-test="dns-check-fresh"]')
+      expect(line.text()).toContain('Last checked')
+      expect(line.text()).toContain('12 minutes ago')
+      expect(line.attributes('role')).toBeUndefined()
+      w.unmount()
+    })
+
+    it('warns as an alert when no check was made for more than twice the interval', async () => {
+      service.dnsCheck.mockResolvedValue(state({ enabled: true, status: { last_run: ago(300) } }, { comparisons: 6, matches: 6, last: ago(300), first: ago(400) }))
+      const w = await mountCard()
+      const line = w.get('[data-test="dns-check-fresh"]')
+      expect(line.text()).toContain('may have stopped')
+      expect(line.attributes('role')).toBe('alert')
+      w.unmount()
+    })
+
+    it('shows nothing about the last check while it is switched off', async () => {
+      service.dnsCheck.mockResolvedValue(state({ enabled: false, status: { last_run: ago(5) } }))
+      const w = await mountCard()
+      expect(w.find('[data-test="dns-check-fresh"]').exists()).toBe(false)
+      w.unmount()
+    })
+
+    it('lists the newest differences with both address lists, in the simple view, when there are any', async () => {
+      const differences = [{ at: ago(3), name: 'dns.google', outcome: 'differ' as const, overlap: true, router: ['10.0.0.1', '8.8.8.8'], outside: ['8.8.8.8', '8.8.4.4'] }]
+      service.dnsCheck.mockResolvedValue(state({ enabled: true, status: { last_run: ago(3) } }, { comparisons: 6, matches: 5, differs: 1, last: ago(3), first: ago(60), differences }))
+      const w = await mountCard()
+      const rows = w.findAll('[data-test="dns-check-difference"]')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]!.text()).toContain('dns.google')
+      expect(rows[0]!.text()).toContain('10.0.0.1, 8.8.8.8')
+      expect(rows[0]!.text()).toContain('8.8.8.8, 8.8.4.4')
+      expect(rows[0]!.text()).toContain('partly differed')
+      expect(w.get('[data-test="dns-check-differences"]').text()).toContain('not proof of a problem')
+      w.unmount()
+    })
+
+    it('shows no differences section when nothing differed', async () => {
+      service.dnsCheck.mockResolvedValue(state({ enabled: true, status: { last_run: ago(3) } }, { comparisons: 6, matches: 6 }))
+      const w = await mountCard()
+      expect(w.find('[data-test="dns-check-differences"]').exists()).toBe(false)
+      w.unmount()
+    })
+  })
 })

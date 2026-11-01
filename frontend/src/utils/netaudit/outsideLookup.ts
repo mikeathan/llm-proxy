@@ -1,5 +1,5 @@
 import {
-  OUTSIDE_LOOKUP_FAILED, OUTSIDE_LOOKUP_INTERNET_OFF, OUTSIDE_LOOKUP_LAST_LOOKED, OUTSIDE_LOOKUP_LISTS, OUTSIDE_LOOKUP_NO_PORTS, OUTSIDE_LOOKUP_NOT_YET, OUTSIDE_LOOKUP_ON_ADDRESS,
+  OUTSIDE_LOOKUP_AT_ENTERED, OUTSIDE_LOOKUP_NEEDS_ADDRESS, OUTSIDE_LOOKUP_FAILED, OUTSIDE_LOOKUP_INTERNET_OFF, OUTSIDE_LOOKUP_LAST_LOOKED, OUTSIDE_LOOKUP_LISTS, OUTSIDE_LOOKUP_NO_PORTS, OUTSIDE_LOOKUP_NOT_YET, OUTSIDE_LOOKUP_ON_ADDRESS,
   OUTSIDE_LOOKUP_PORTS_SEEN, OUTSIDE_LOOKUP_REASON_OTHER, OUTSIDE_LOOKUP_REASONS, OUTSIDE_LOOKUP_UNKNOWN,
 } from '../../constants/netaudit'
 import type { OutsideLookupLast } from '../../types/netaudit'
@@ -10,10 +10,12 @@ import type { OutsideLookupLast } from '../../types/netaudit'
  */
 export function outsideLookupLine(last: OutsideLookupLast, when: string): string {
   switch (last.outcome) {
-    case 'looked':
+    case 'looked': {
+      const looked = `${OUTSIDE_LOOKUP_LAST_LOOKED} ${when}${last.source === 'entered' ? `, ${OUTSIDE_LOOKUP_AT_ENTERED}` : ''}:`
       return last.ports === 0
-        ? `${OUTSIDE_LOOKUP_LAST_LOOKED} ${when}: ${OUTSIDE_LOOKUP_LISTS} ${OUTSIDE_LOOKUP_NO_PORTS} ${OUTSIDE_LOOKUP_ON_ADDRESS}`
-        : `${OUTSIDE_LOOKUP_LAST_LOOKED} ${when}: ${OUTSIDE_LOOKUP_LISTS} ${last.ports} open ${last.ports === 1 ? 'port' : 'ports'} ${OUTSIDE_LOOKUP_ON_ADDRESS} ${OUTSIDE_LOOKUP_PORTS_SEEN}`
+        ? `${looked} ${OUTSIDE_LOOKUP_LISTS} ${OUTSIDE_LOOKUP_NO_PORTS} ${OUTSIDE_LOOKUP_ON_ADDRESS}`
+        : `${looked} ${OUTSIDE_LOOKUP_LISTS} ${last.ports} open ${last.ports === 1 ? 'port' : 'ports'} ${OUTSIDE_LOOKUP_ON_ADDRESS} ${OUTSIDE_LOOKUP_PORTS_SEEN}`
+    }
     case 'cannot_look':
       return `${OUTSIDE_LOOKUP_REASONS[last.reason ?? ''] ?? OUTSIDE_LOOKUP_REASON_OTHER} ${OUTSIDE_LOOKUP_UNKNOWN}`
     case 'failed':
@@ -21,4 +23,9 @@ export function outsideLookupLine(last: OutsideLookupLast, when: string): string
     default:
       return OUTSIDE_LOOKUP_NOT_YET
   }
+}
+
+/** True when the last look could not be made because the router gave no usable address, which is when typing one in helps. */
+export function outsideLookupNeedsAddress(last: OutsideLookupLast): boolean {
+  return last.outcome === 'cannot_look' && OUTSIDE_LOOKUP_NEEDS_ADDRESS.includes(last.reason ?? '')
 }

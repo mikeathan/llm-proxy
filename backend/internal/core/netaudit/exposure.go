@@ -31,6 +31,10 @@ const (
 	ReasonLinkLocal    = "link_local_address"
 	ReasonLookupFailed = "lookup_failed"
 	ReasonInternetOff  = "internet_off"
+
+	// SourceRouter and SourceEntered say where the address of a look came from.
+	SourceRouter  = "router"
+	SourceEntered = "entered"
 )
 
 // exposureReuse is how long a look that was made is reused for the same address. The outside service refreshes about weekly, and
@@ -50,6 +54,10 @@ type ExposureStatus struct {
 	Reason  string    `json:"reason,omitempty"`
 	// Ports is how many open ports the service listed on a look that was made.
 	Ports int `json:"ports"`
+	// Source is where the address came from on a look that was tried: the router's own statement, or the one the operator entered.
+	Source string `json:"source,omitempty"`
+	// Differs is set when the router states a public address other than the one entered, so the entered one may be out of date.
+	Differs bool `json:"differs,omitempty"`
 }
 
 // AddressReader asks the router for the address of its internet side: *upnp.Client. It is called only when the lookup is
@@ -65,6 +73,8 @@ type Exposure struct {
 	enabled func() bool
 	lookup  OutsideLookup
 	address AddressReader
+	// entered is the address the operator typed in; nil when none can be.
+	entered func() string
 	now     func() time.Time
 	mu      sync.Mutex
 	status  ExposureStatus
@@ -81,6 +91,12 @@ func NewExposure(enabled func() bool, lookup OutsideLookup, address AddressReade
 	return &Exposure{enabled: enabled, lookup: lookup, address: address, now: now}
 }
 
+// WithEnteredAddress gives the check the address the operator typed in, used only when the router states no public address.
+func (e *Exposure) WithEnteredAddress(entered func() string) *Exposure {
+	e.entered = entered
+	return e
+}
+
 // Status is what the last look did.
 func (e *Exposure) Status() ExposureStatus {
 	e.mu.Lock()
@@ -88,14 +104,14 @@ func (e *Exposure) Status() ExposureStatus {
 	return e.status
 }
 
-func (e *Exposure) record(outcome, reason string, ports int) {
-	e.recordAt(e.now(), outcome, reason, ports)
-}
-
-func (e *Exposure) recordAt(at time.Time, outcome, reason string, ports int) {
+// record keeps what a look did, stamped now unless st carries the time of the look it reuses.
+func (e *Exposure) record(st ExposureStatus) {
+	if st.At.IsZero() {
+		st.At = e.now()
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.status = ExposureStatus{At: at, Outcome: outcome, Reason: reason, Ports: ports}
+	e.status = st
 }
 
 // Begin marks a new attempt as not yet looked. The router check calls it first on every run, so that whatever stops the run
@@ -104,7 +120,7 @@ func (e *Exposure) recordAt(at time.Time, outcome, reason string, ports int) {
 // or an earlier one reused, sets it to looked.
 func (e *Exposure) Begin() {
 	if e.enabled() {
-		e.record(OutcomeCannotLook, ReasonRouterAsk, 0)
+		e.record(ExposureStatus{Outcome: OutcomeCannotLook, Reason: ReasonRouterAsk})
 	}
 }
 
@@ -115,22 +131,26 @@ func (e *Exposure) Findings(ctx context.Context, gw netip.Addr, report upnp.Repo
 	if !e.enabled() {
 		return nil
 	}
-	addr, reason := e.publicAddress(ctx, report)
+	pick, reason := e.choose(ctx, report)
 	if reason != "" {
-		e.record(OutcomeCannotLook, reason, 0)
+		e.record(ExposureStatus{Outcome: OutcomeCannotLook, Reason: reason})
 		return nil
 	}
-	ports, at, reused := e.reusable(addr)
+	made := ExposureStatus{Outcome: OutcomeLooked, Source: pick.source, Differs: pick.differs}
+	ports, at, reused := e.reusable(pick.addr)
 	if reused {
-		e.recordAt(at, OutcomeLooked, "", len(ports))
+		made.At, made.Ports = at, len(ports)
+		e.record(made)
 	} else {
 		var err error
-		if ports, err = e.lookup.OpenPorts(ctx, addr); err != nil {
-			e.record(OutcomeFailed, failureReason(err), 0)
+		if ports, err = e.lookup.OpenPorts(ctx, pick.addr); err != nil {
+			made.Outcome, made.Reason = OutcomeFailed, failureReason(err)
+			e.record(made)
 			return nil
 		}
-		e.record(OutcomeLooked, "", len(ports))
-		e.remember(addr, ports)
+		made.Ports = len(ports)
+		e.record(made)
+		e.remember(pick.addr, ports)
 	}
 	out := make([]Finding, 0, len(ports))
 	for _, p := range ports {
@@ -163,9 +183,44 @@ func (e *Exposure) remember(addr netip.Addr, ports []int) {
 	e.last.addr, e.last.ports, e.last.at = addr, ports, e.now()
 }
 
-// publicAddress is the router's internet address if it is one the outside world can reach, or the reason it is not. The router is
+// address is the one a look is made for and where it came from. differs is set when the router's address is not the entered one.
+type address struct {
+	addr    netip.Addr
+	source  string
+	differs bool
+}
+
+// choose picks the address to look up. The router's own public statement wins; the entered address is used only when the router
+// gives no public one (UPnP off, or an address behind another router or a provider's shared one). Without either, the reason
+// the router could not help is returned.
+func (e *Exposure) choose(ctx context.Context, report upnp.Report) (address, string) {
+	fromRouter, reason := e.routerAddress(ctx, report)
+	entered := e.enteredAddress()
+	switch {
+	case reason == "":
+		return address{addr: fromRouter, source: SourceRouter, differs: entered.IsValid() && entered != fromRouter}, ""
+	case entered.IsValid():
+		return address{addr: entered, source: SourceEntered}, ""
+	}
+	return address{}, reason
+}
+
+// enteredAddress is the address the operator typed, if there is one and it is public: a stored value that no longer is one is
+// ignored, so nothing but a public address is ever sent.
+func (e *Exposure) enteredAddress() netip.Addr {
+	if e.entered == nil {
+		return netip.Addr{}
+	}
+	addr, err := netip.ParseAddr(e.entered())
+	if err != nil || outside.Classify(addr) != outside.Public {
+		return netip.Addr{}
+	}
+	return addr
+}
+
+// routerAddress is the router's internet address if it is one the outside world can reach, or the reason it is not. The router is
 // asked for it here and nowhere else.
-func (e *Exposure) publicAddress(ctx context.Context, report upnp.Report) (netip.Addr, string) {
+func (e *Exposure) routerAddress(ctx context.Context, report upnp.Report) (netip.Addr, string) {
 	if !report.Answered || !report.Gateway {
 		return netip.Addr{}, ReasonUPnPOff
 	}

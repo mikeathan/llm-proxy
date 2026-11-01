@@ -13,6 +13,7 @@ const state = (over: Partial<OutsideLookupState> = {}, last: Partial<OutsideLook
   enabled: false,
   url: 'https://internetdb.shodan.io',
   default_url: 'https://internetdb.shodan.io',
+  address: '',
   last: { at: NEVER, ports: 0, ...last },
   ...over,
 })
@@ -133,5 +134,72 @@ describe('OutsideLookupCard', () => {
     await flushPromises()
     expect(w.text()).toContain('must start with https://')
     w.unmount()
+  })
+
+  describe('the public address a person can enter', () => {
+    it('offers it, in the simple view, when the router cannot say what it is (and says what it is for)', async () => {
+      service.outsideLookup.mockResolvedValue(state({ enabled: true }, { outcome: 'cannot_look', reason: 'upnp_off' }))
+      const w = await mountCard()
+      expect(w.find('[data-test="outside-lookup-address"]').exists()).toBe(true)
+      expect(w.text()).toContain('Used only when your router does not share it')
+      w.unmount()
+    })
+
+    it('does not offer it when the router is not the problem', async () => {
+      service.outsideLookup.mockResolvedValue(state({ enabled: true }, { outcome: 'cannot_look', reason: 'shared_address' }))
+      const w = await mountCard()
+      expect(w.find('[data-test="outside-lookup-address"]').exists()).toBe(false)
+      w.unmount()
+    })
+
+    it('keeps showing an address that is set, and always in the advanced view', async () => {
+      service.outsideLookup.mockResolvedValue(state({ enabled: true, address: '203.0.113.7' }, { outcome: 'looked', ports: 1, source: 'router' }))
+      const w = await mountCard()
+      expect((w.get('[data-test="outside-lookup-address"]').element as HTMLInputElement).value).toBe('203.0.113.7')
+      w.unmount()
+      service.outsideLookup.mockResolvedValue(state({ enabled: true }, { outcome: 'looked', ports: 1, source: 'router' }))
+      useNetauditViewMode().set('advanced')
+      const adv = await mountCard()
+      expect(adv.find('[data-test="outside-lookup-address"]').exists()).toBe(true)
+      adv.unmount()
+    })
+
+    it('saves it on its own, and an empty box clears it', async () => {
+      service.outsideLookup.mockResolvedValue(state({ enabled: true }, { outcome: 'cannot_look', reason: 'upnp_off' }))
+      service.setOutsideLookup.mockResolvedValue(state({ enabled: true, address: '203.0.113.7' }))
+      const w = await mountCard()
+      await w.get('[data-test="outside-lookup-address"]').setValue(' 203.0.113.7 ')
+      await w.get('[data-test="outside-lookup-address-save"]').trigger('click')
+      await flushPromises()
+      expect(service.setOutsideLookup).toHaveBeenCalledWith({ address: '203.0.113.7' })
+      await w.get('[data-test="outside-lookup-address"]').setValue('')
+      await w.get('[data-test="outside-lookup-address-save"]').trigger('click')
+      await flushPromises()
+      expect(service.setOutsideLookup).toHaveBeenLastCalledWith({ address: '' })
+      w.unmount()
+    })
+
+    it('shows why an address was refused', async () => {
+      service.outsideLookup.mockResolvedValue(state({ enabled: true }, { outcome: 'cannot_look', reason: 'upnp_off' }))
+      service.setOutsideLookup.mockRejectedValue(new Error('that is not a public IPv4 address'))
+      const w = await mountCard()
+      await w.get('[data-test="outside-lookup-address"]').setValue('192.168.0.1')
+      await w.get('[data-test="outside-lookup-address-save"]').trigger('click')
+      await flushPromises()
+      expect(w.get('[role="alert"]').text()).toContain('public IPv4')
+      w.unmount()
+    })
+
+    it('says when the look used the address that was entered, and warns when the router says another', async () => {
+      service.outsideLookup.mockResolvedValue(state({ enabled: true, address: '198.51.100.9' }, { outcome: 'looked', ports: 1, source: 'entered', at: new Date().toISOString() }))
+      const w = await mountCard()
+      expect(w.get('[data-test="outside-lookup-status"]').text()).toContain('at the address you entered')
+      expect(w.find('[data-test="outside-lookup-differs"]').exists()).toBe(false)
+      w.unmount()
+      service.outsideLookup.mockResolvedValue(state({ enabled: true, address: '198.51.100.9' }, { outcome: 'looked', ports: 1, source: 'router', differs: true, at: new Date().toISOString() }))
+      const d = await mountCard()
+      expect(d.get('[data-test="outside-lookup-differs"]').text()).toContain('different public address')
+      d.unmount()
+    })
   })
 })

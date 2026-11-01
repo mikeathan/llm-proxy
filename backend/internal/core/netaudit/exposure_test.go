@@ -277,3 +277,69 @@ func TestExposure_TheRouterIsAskedForItsAddressOnlyWhenTheLookupIsOnAndThereIsAS
 		t.Errorf("switched on: asked %d times, want 1", a.calls)
 	}
 }
+
+// withEntered is the check with an address the operator typed, for when the router gives none.
+func withEntered(l *fakeLookup, entered string) *Exposure {
+	return exposureOf(true, l).WithEnteredAddress(func() string { return entered })
+}
+
+func TestExposure_AnEnteredAddressIsUsedWhenTheRouterGivesNone(t *testing.T) {
+	l := &fakeLookup{ports: []int{1194}}
+	e := withEntered(l, "203.0.113.7")
+	got := e.Findings(context.Background(), gateway, upnp.Report{})
+	if len(got) != 1 || got[0].Port != 1194 || len(l.asked) != 1 || l.asked[0] != publicAddr {
+		t.Fatalf("got %+v asked %v", got, l.asked)
+	}
+	if s := e.Status(); s.Outcome != OutcomeLooked || s.Source != SourceEntered || s.Differs {
+		t.Errorf("status = %+v", s)
+	}
+}
+
+func TestExposure_AnEnteredAddressIsUsedWhenTheRoutersIsNotPublic(t *testing.T) {
+	for _, ext := range []string{"192.168.0.137", "100.64.3.2", "169.254.1.1", "unreadable"} {
+		l := &fakeLookup{ports: []int{1194}}
+		e := withEntered(l, "203.0.113.7")
+		if got := e.Findings(context.Background(), gateway, answering(ext)); len(got) != 1 || e.Status().Source != SourceEntered {
+			t.Errorf("router said %q: got %+v status %+v", ext, got, e.Status())
+		}
+	}
+}
+
+func TestExposure_ThePublicAddressTheRouterStatesWinsOverAnEnteredOne(t *testing.T) {
+	l := &fakeLookup{ports: []int{1194}}
+	e := withEntered(l, "198.51.100.9")
+	e.Findings(context.Background(), gateway, answering("203.0.113.7"))
+	if len(l.asked) != 1 || l.asked[0] != publicAddr {
+		t.Errorf("asked %v", l.asked)
+	}
+	if s := e.Status(); s.Source != SourceRouter || !s.Differs {
+		t.Errorf("a different entered address is flagged: %+v", s)
+	}
+}
+
+func TestExposure_ARouterAddressThatMatchesTheEnteredOneIsNotFlagged(t *testing.T) {
+	e := withEntered(&fakeLookup{}, "203.0.113.7")
+	e.Findings(context.Background(), gateway, answering("203.0.113.7"))
+	if s := e.Status(); s.Source != SourceRouter || s.Differs {
+		t.Errorf("status = %+v", s)
+	}
+}
+
+func TestExposure_AnEnteredAddressThatIsNotPublicIsIgnored(t *testing.T) {
+	l := &fakeLookup{ports: []int{1194}}
+	e := withEntered(l, "192.168.0.9")
+	if got := e.Findings(context.Background(), gateway, upnp.Report{}); len(got) != 0 || len(l.asked) != 0 {
+		t.Fatalf("nothing may be sent: %+v %v", got, l.asked)
+	}
+	if s := e.Status(); s.Outcome != OutcomeCannotLook || s.Reason != ReasonUPnPOff {
+		t.Errorf("status = %+v", s)
+	}
+}
+
+func TestExposure_ALookAtAnEnteredAddressThatFailsKeepsTheSource(t *testing.T) {
+	e := withEntered(&fakeLookup{err: errors.New("down")}, "203.0.113.7")
+	e.Findings(context.Background(), gateway, upnp.Report{})
+	if s := e.Status(); s.Outcome != OutcomeFailed || s.Source != SourceEntered {
+		t.Errorf("status = %+v", s)
+	}
+}

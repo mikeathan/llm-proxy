@@ -11,9 +11,20 @@ import (
 )
 
 type fakeOutsideControl struct {
-	on     bool
-	url    string
-	setErr error
+	on      bool
+	url     string
+	address string
+	setErr  error
+	addrErr error
+}
+
+func (f *fakeOutsideControl) Address() string { return f.address }
+func (f *fakeOutsideControl) SetAddress(a string) error {
+	if f.addrErr != nil {
+		return f.addrErr
+	}
+	f.address = a
+	return nil
 }
 
 func (f *fakeOutsideControl) Enabled() bool      { return f.on }
@@ -67,5 +78,31 @@ func TestOutsideLookupHandlers_ABadAddressIsRefusedAndChangesNothing(t *testing.
 	}
 	if rec := do(h.Put, http.MethodPut, "/x", `nope`); rec.Code != http.StatusBadRequest {
 		t.Errorf("a malformed body must be refused, got %d", rec.Code)
+	}
+}
+
+func TestOutsideLookupHandlers_TheEnteredPublicAddressIsShownAndChangedAlone(t *testing.T) {
+	c := &fakeOutsideControl{url: "https://svc.example", address: "203.0.113.7"}
+	h := NewNetauditOutsideLookupHandlers(c, fakeOutsideStatus{})
+	if rec := do(h.Get, http.MethodGet, "/x", ""); !strings.Contains(rec.Body.String(), `"address":"203.0.113.7"`) {
+		t.Errorf("the entered address is shown: %s", rec.Body.String())
+	}
+	if rec := do(h.Put, http.MethodPut, "/x", `{"address":"198.51.100.9"}`); rec.Code != http.StatusOK || c.address != "198.51.100.9" || c.on || c.url != "https://svc.example" {
+		t.Errorf("address only: %d %+v", rec.Code, c)
+	}
+	if rec := do(h.Put, http.MethodPut, "/x", `{"enabled":true}`); rec.Code != http.StatusOK || c.address != "198.51.100.9" {
+		t.Errorf("an absent address leaves it alone: %d %q", rec.Code, c.address)
+	}
+	if rec := do(h.Put, http.MethodPut, "/x", `{"address":""}`); rec.Code != http.StatusOK || c.address != "" {
+		t.Errorf("an empty address clears it: %d %q", rec.Code, c.address)
+	}
+}
+
+func TestOutsideLookupHandlers_ARefusedEnteredAddressStopsTheWholeChange(t *testing.T) {
+	c := &fakeOutsideControl{addrErr: errors.New("that is not a public IPv4 address")}
+	h := NewNetauditOutsideLookupHandlers(c, fakeOutsideStatus{})
+	rec := do(h.Put, http.MethodPut, "/x", `{"enabled":true,"address":"192.168.0.1"}`)
+	if rec.Code != http.StatusBadRequest || c.on || !strings.Contains(rec.Body.String(), "public IPv4") {
+		t.Errorf("%d on=%v %s", rec.Code, c.on, rec.Body.String())
 	}
 }
