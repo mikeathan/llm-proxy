@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dnsCheckLine, dnsCheckReport } from '../../../utils/netaudit/dnsCheck'
+import { dnsCheckFreshness, dnsCheckLine, dnsCheckReport, dnsDifferenceRows } from '../../../utils/netaudit/dnsCheck'
 import type { DnsCheckState } from '../../../types/netaudit'
 
 const NEVER = '0001-01-01T00:00:00Z'
@@ -50,5 +50,64 @@ describe('dnsCheckReport', () => {
   })
   it('says the default gateway when no address is set, and an empty problem when there is none', () => {
     expect(dnsCheckReport(state())).toMatchObject({ server: 'default gateway', problem: '' })
+  })
+})
+
+const NOW = Date.parse('2026-11-01T20:00:00Z')
+const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString()
+const withRun = (lastRun: string, last = NEVER, interval = 60): DnsCheckState => ({ ...state({ last }), interval_minutes: interval, status: { last_run: lastRun } })
+
+describe('dnsCheckFreshness', () => {
+  it('says when the last check was made', () => {
+    const got = dnsCheckFreshness(withRun(at(12)), NOW)
+    expect(got.text).toBe('Last checked 12 minutes ago.')
+    expect(got.late).toBe(false)
+  })
+  it('stays quiet on the due time itself and up to twice the interval', () => {
+    expect(dnsCheckFreshness(withRun(at(119)), NOW).late).toBe(false)
+  })
+  it('warns when no check was made for more than twice the interval, saying how often one is due', () => {
+    const got = dnsCheckFreshness(withRun(at(121)), NOW)
+    expect(got.late).toBe(true)
+    expect(got.text).toContain('every 60 minutes')
+    expect(got.text).toContain('may have stopped')
+  })
+  it('follows the interval that is set', () => {
+    expect(dnsCheckFreshness(withRun(at(40), NEVER, 15), NOW).late).toBe(true)
+    expect(dnsCheckFreshness(withRun(at(40), NEVER, 30), NOW).late).toBe(false)
+  })
+  it('says no check has run since the program started, and when the last comparison was, rather than "never"', () => {
+    const got = dnsCheckFreshness(withRun(NEVER, at(300)), NOW)
+    expect(got.text).toContain('since the program started')
+    expect(got.text).toContain('5 hours ago')
+    expect(got.late).toBe(false)
+  })
+  it('says nothing when there has been nothing at all', () => {
+    expect(dnsCheckFreshness(withRun(NEVER), NOW)).toEqual({ text: '', late: false })
+  })
+})
+
+const diff = (name: string, minutesAgo: number, router: string[], outside: string[], overlap = false) => ({
+  at: at(minutesAgo), name, outcome: 'differ' as const, overlap, router, outside,
+})
+
+describe('dnsDifferenceRows', () => {
+  it('lists the newest differences with both address lists, in the order given', () => {
+    const { rows, hidden } = dnsDifferenceRows(state({ differs: 2, differences: [diff('dns.google', 5, ['10.0.0.1'], ['8.8.8.8', '8.8.4.4']), diff('dns.quad9.net', 70, ['1.2.3.4'], ['9.9.9.9'], true)] }).summary, NOW)
+    expect(hidden).toBe(0)
+    expect(rows.map((r) => r.name)).toEqual(['dns.google', 'dns.quad9.net'])
+    expect(rows[0]).toMatchObject({ router: '10.0.0.1', outside: '8.8.8.8, 8.8.4.4', partly: false })
+    expect(rows[0]!.when).toContain('5 minutes ago')
+    expect(rows[1]!.partly).toBe(true)
+  })
+  it('shows at most five and counts the rest from the total', () => {
+    const many = Array.from({ length: 8 }, (_, i) => diff('dns.google', i + 1, ['1.1.1.1'], ['2.2.2.2']))
+    const { rows, hidden } = dnsDifferenceRows(state({ differs: 12, differences: many }).summary, NOW)
+    expect(rows).toHaveLength(5)
+    expect(hidden).toBe(7)
+  })
+  it('says "no address" for an empty list and shows nothing when there is no difference', () => {
+    expect(dnsDifferenceRows(state({ differs: 1, differences: [diff('dns.google', 1, [], ['8.8.8.8'])] }).summary, NOW).rows[0]!.router).toBe('no address')
+    expect(dnsDifferenceRows(state().summary, NOW)).toEqual({ rows: [], hidden: 0 })
   })
 })

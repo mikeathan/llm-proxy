@@ -1,7 +1,10 @@
 package netaudit
 
 import (
+	"errors"
 	"fmt"
+	"net/netip"
+	"strings"
 
 	outside "llm-proxy/internal/core/netaudit/outsidelookup"
 	"llm-proxy/models"
@@ -61,3 +64,25 @@ func (c *OutsideLookupConfig) update(fn func(*models.NetauditConfig) error) erro
 	}
 	return nil
 }
+
+// Address is the public address the operator entered, or empty.
+func (c *OutsideLookupConfig) Address() string { return c.store.Get().OutsideLookupAddress }
+
+// SetAddress keeps the network's public address, for when the router states none. Only a public IPv4 address is kept; an empty
+// one clears it.
+func (c *OutsideLookupConfig) SetAddress(raw string) error {
+	kept := strings.TrimSpace(raw)
+	if kept != "" {
+		addr, err := netip.ParseAddr(kept)
+		if err != nil || outside.Classify(addr) != outside.Public {
+			return errNotPublicAddress
+		}
+		kept = addr.String()
+	}
+	return c.update(func(cfg *models.NetauditConfig) error {
+		cfg.OutsideLookupAddress = kept
+		return nil
+	})
+}
+
+var errNotPublicAddress = errors.New("that is not a public IPv4 address: enter the address the internet sees for your network (not one that starts with 192.168, 10, 172.16 to 172.31, 100.64 to 100.127 or 169.254)")

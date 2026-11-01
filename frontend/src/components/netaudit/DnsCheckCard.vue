@@ -11,9 +11,10 @@ import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewM
 import {
   DNS_CHECK_COPIED, DNS_CHECK_COPY, DNS_CHECK_COPY_FAILED, DNS_CHECK_COPY_HINT, DNS_CHECK_DETAILS, DNS_CHECK_HINT, DNS_CHECK_INTERNET_OFF, DNS_CHECK_LAN_OFF, DNS_CHECK_SERVER_HINT, DNS_CHECK_SERVER_LABEL,
   DNS_CHECK_INTERVAL_LABEL, DNS_CHECK_LABEL, DNS_CHECK_NAMES_HINT, DNS_CHECK_NAMES_LABEL, DNS_CHECK_OPEN_SETTINGS, DNS_CHECK_READ_FAILED_NEXT,
+  DNS_CHECK_DIFFERENCES_HINT, DNS_CHECK_DIFFERENCES_TITLE, DNS_CHECK_MORE_DIFFERENCES, DNS_CHECK_OUTSIDE_SAID, DNS_CHECK_PARTLY, DNS_CHECK_ROUTER_SAID,
   DNS_CHECK_READ_FAILED_TITLE, DNS_CHECK_READING, DNS_CHECK_RETRY, DNS_CHECK_SAVE, DNS_CHECK_TITLE, DNS_CHECK_URL_HINT, DNS_CHECK_URL_LABEL,
 } from "../../constants/netaudit"
-import { dnsCheckLine, dnsCheckReport } from "../../utils/netaudit/dnsCheck"
+import { dnsCheckFreshness, dnsCheckLine, dnsCheckReport, dnsDifferenceRows } from "../../utils/netaudit/dnsCheck"
 import { formatRelativeTime } from "../../utils/format/time"
 import { copyText } from "../../utils/clipboard"
 import { toSettings } from "../../router/routes"
@@ -35,6 +36,8 @@ const since = computed(() => {
   return first && new Date(first).getUTCFullYear() > NEVER_YEAR ? formatRelativeTime(first) : ""
 })
 const line = computed(() => (state.value ? dnsCheckLine(state.value, since.value) : ""))
+const fresh = computed(() => (state.value?.enabled ? dnsCheckFreshness(state.value, Date.now()) : { text: "", late: false }))
+const differences = computed(() => (state.value ? dnsDifferenceRows(state.value.summary, Date.now()) : { rows: [], hidden: 0 }))
 
 watch(state, (s) => {
   if (!s) return
@@ -68,6 +71,21 @@ onMounted(load)
         <ToggleField :model-value="state.enabled" :label="DNS_CHECK_LABEL" :hint="DNS_CHECK_HINT" :details="DNS_CHECK_DETAILS" :disabled="busy" @update:model-value="set" />
 
         <p v-if="state.enabled" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="dns-check-status">{{ line }}</p>
+
+        <p v-if="fresh.text" :role="fresh.late ? 'alert' : undefined" class="m-0 text-[length:var(--text-small)]" :class="fresh.late ? 'text-state-error' : 'text-secondary'" data-test="dns-check-fresh">{{ fresh.text }}</p>
+
+        <section v-if="differences.rows.length" class="flex flex-col gap-2" data-test="dns-check-differences">
+          <h3 class="m-0 text-[length:var(--text-small)] font-semibold text-primary">{{ DNS_CHECK_DIFFERENCES_TITLE }}</h3>
+          <p class="m-0 text-[length:var(--text-small)] text-muted">{{ DNS_CHECK_DIFFERENCES_HINT }}</p>
+          <ul class="m-0 flex list-none flex-col gap-2 p-0">
+            <li v-for="row in differences.rows" :key="row.key" class="flex min-w-0 flex-col gap-0.5 rounded-[var(--radius-md)] border border-control px-3 py-2 text-[length:var(--text-small)]" data-test="dns-check-difference">
+              <span class="break-words font-medium text-primary">{{ row.name }} <span class="font-normal text-muted">· {{ row.when }}<template v-if="row.partly"> · {{ DNS_CHECK_PARTLY }}</template></span></span>
+              <span class="break-words font-mono text-secondary">{{ DNS_CHECK_ROUTER_SAID }} {{ row.router }}</span>
+              <span class="break-words font-mono text-secondary">{{ DNS_CHECK_OUTSIDE_SAID }} {{ row.outside }}</span>
+            </li>
+          </ul>
+          <p v-if="differences.hidden > 0" class="m-0 text-[length:var(--text-small)] text-muted">{{ differences.hidden }} {{ DNS_CHECK_MORE_DIFFERENCES }}</p>
+        </section>
 
         <RouterLink v-if="state.enabled && (state.status.problem === DNS_CHECK_INTERNET_OFF || state.status.problem === DNS_CHECK_LAN_OFF)" :to="toSettings('guardrails')" data-test="dns-check-settings" class="inline-flex min-h-11 items-center self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8">{{ DNS_CHECK_OPEN_SETTINGS }}</RouterLink>
 

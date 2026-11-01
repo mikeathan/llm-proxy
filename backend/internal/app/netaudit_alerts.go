@@ -87,7 +87,7 @@ type outsideLookup struct {
 func newOutsideLookup(store netaudit.PolicyStore, opener outsidelookup.Opener, address netaudit.AddressReader) outsideLookup {
 	config := netaudit.NewOutsideLookupConfig(store)
 	client := outsidelookup.Client{Opener: opener, BaseURL: config.URL}
-	return outsideLookup{Config: config, Exposure: netaudit.NewExposure(config.Enabled, client, address, time.Now)}
+	return outsideLookup{Config: config, Exposure: netaudit.NewExposure(config.Enabled, client, address, time.Now).WithEnteredAddress(config.Address)}
 }
 
 // dnsCheck is the opt-in comparison of the router's DNS with an outside resolver: its setting, and the collector that logs it.

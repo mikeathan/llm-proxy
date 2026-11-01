@@ -119,7 +119,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'A normal scan or audit only looks: it never signs in to a device or tries a password. The deep check is the one exception, and it is described in its own part of this help.',
       'The scan runs in a private folder, and the program is limited to it by the operating system where that is possible. Where it is not, scans refuse to run unless you allow it for development.',
       'Nightly audits use a model that runs on this computer, so the list of your devices never leaves it.',
-      'The Internet view is one of two exceptions to that. It is off until you turn it on. When it is on, each nightly audit asks your router for its internet address and sends that address, and nothing else, to an outside scan database, which learns your public internet address and lists the ports it has seen open there. Its information can be up to a week old. If the router does not share its address, or the service cannot be reached, the audit says it could not look, which does not mean nothing is open.',
+      'The Internet view is one of two exceptions to that. It is off until you turn it on. When it is on, each nightly audit asks your router for its internet address (or uses the one you typed in) and sends that address, and nothing else, to an outside scan database, which learns your public internet address and lists the ports it has seen open there. Its information can be up to a week old. If the router does not share its address and you have not entered it, or the service cannot be reached, the audit says it could not look, which does not mean nothing is open.',
       'The Router DNS check is the other. It is off until you turn it on, and turning it on asks for your passphrase. When it is on, this computer asks your router for the address of a few well-known names, asks an outside resolver the same, and records whether the answers agree. The outside resolver learns the names it asks and your public internet address. It only keeps a record and raises no alert. If either side does not answer, that is recorded as not compared, which does not mean the answers agree.',
     ],
   },
@@ -347,7 +347,7 @@ export const SCAN_KNOWN_VULNS_DETAILS = 'Compares the software the scan recognis
 export const OUTSIDE_LOOKUP_TITLE = 'Internet view'
 export const OUTSIDE_LOOKUP_LABEL = 'Check what the internet can reach'
 export const OUTSIDE_LOOKUP_HINT = 'Asks an outside service which of your ports it can see open.'
-export const OUTSIDE_LOOKUP_DETAILS = 'Each nightly audit asks your router for its internet address, then sends that address, and nothing else, to an outside scan database. That service learns your public internet address and that it is looked up from a home network. It answers with the ports it has seen open there; its information can be up to a week old, and it can miss a port. Any port it lists is reported as a finding on the router. It works only when your router tells this computer its internet address (UPnP), and it says so when it cannot look. Off until you turn it on, and turning it on asks for your passphrase.'
+export const OUTSIDE_LOOKUP_DETAILS = 'Each nightly audit asks your router for its internet address, then sends that address, and nothing else, to an outside scan database. That service learns your public internet address and that it is looked up from a home network. It answers with the ports it has seen open there; its information can be up to a week old, and it can miss a port. Any port it lists is reported as a finding on the router. It works only when your router tells this computer its internet address (UPnP) or you type that address in below, and it says so when it cannot look. Off until you turn it on, and turning it on asks for your passphrase.'
 export const OUTSIDE_LOOKUP_LOAD_FAILED = 'The internet view setting could not be read.'
 export const OUTSIDE_LOOKUP_SAVE_FAILED = 'The internet view setting could not be changed.'
 export const OUTSIDE_LOOKUP_NOT_YET = 'Not looked yet. The next nightly audit makes the first look.'
@@ -374,6 +374,12 @@ export const OUTSIDE_LOOKUP_REASONS: Record<string, string> = {
   link_local_address: 'Could not look: your router has no internet address yet. Nothing was sent.',
 }
 export const OUTSIDE_LOOKUP_REASON_OTHER = 'Could not look. Nothing was sent.'
+export const OUTSIDE_LOOKUP_AT_ENTERED = 'at the address you entered'
+export const OUTSIDE_LOOKUP_DIFFERS = "Your router reports a different public address than the one you entered, so the one you entered may be out of date. The router's was used."
+export const OUTSIDE_LOOKUP_ADDRESS_LABEL = 'Your public internet address (optional)'
+export const OUTSIDE_LOOKUP_ADDRESS_HINT = 'Used only when your router does not share it (UPnP is off). Find it on your router\'s status page, often called "WAN IP" or "Internet IP". If your provider changes it, update it here. It is sent to the outside service like the one the router gives.'
+export const OUTSIDE_LOOKUP_ADDRESS_SAVE = 'Save address'
+export const OUTSIDE_LOOKUP_NEEDS_ADDRESS = ['upnp_off', 'no_address', 'private_address']
 export const OUTSIDE_LOOKUP_URL_LABEL = 'Service address'
 export const OUTSIDE_LOOKUP_URL_HINT = 'Must start with https://. Leave empty to use the default service.'
 export const OUTSIDE_LOOKUP_URL_SAVE = 'Save address'
@@ -402,6 +408,20 @@ export const DNS_CHECK_NAMES_HINT = 'One per line, up to 5. Use names whose addr
 export const DNS_CHECK_INTERVAL_LABEL = 'How often to compare'
 export const DNS_CHECK_URL_LABEL = 'Outside resolver address'
 export const DNS_CHECK_URL_HINT = 'A DNS-over-HTTPS address that starts with https://. Leave empty to use the default.'
+export const DNS_CHECK_LAST_CHECKED = 'Last checked'
+export const DNS_CHECK_STOPPED_AFTER_RESTART = 'No check has run since the program started.'
+export const DNS_CHECK_LAST_COMPARISON = 'The last comparison was'
+export const DNS_CHECK_LATE_BUT = 'but one is due every'
+export const DNS_CHECK_LATE_MAY_HAVE_STOPPED = 'minutes, so it may have stopped. If this stays, restart the program.'
+export const DNS_CHECK_LAST_CHECK_WAS = 'The last check was'
+export const DNS_CHECK_MAX_DIFFERENCES = 5
+export const DNS_CHECK_NO_ADDRESS = 'no address'
+export const DNS_CHECK_DIFFERENCES_TITLE = 'Differences'
+export const DNS_CHECK_DIFFERENCES_HINT = 'A difference is not proof of a problem: some names answer differently by place and time. Only a difference that keeps coming back for a name that should not change is worth acting on.'
+export const DNS_CHECK_ROUTER_SAID = 'Router:'
+export const DNS_CHECK_OUTSIDE_SAID = 'Outside:'
+export const DNS_CHECK_PARTLY = 'partly differed'
+export const DNS_CHECK_MORE_DIFFERENCES = 'more differences are recorded. The newest 20 are in the results you can copy (Advanced view).'
 export const DNS_CHECK_SAVE = 'Save settings'
 export const DNS_CHECK_COPY = 'Copy the results'
 export const DNS_CHECK_COPY_HINT = 'Copies the counts and any differences, to bring back after a week.'

@@ -6,6 +6,11 @@ import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from '.
 const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconfined: false, device_timeout_minutes: 0, suggestions: [] }
 const NEVER = '0001-01-01T00:00:00Z'
 const when = new Date(Date.now() - 2 * 86400_000).toISOString()
+const recent = new Date(Date.now() - 12 * 60_000).toISOString()
+const differences = [
+  { at: recent, name: 'dns.google', outcome: 'differ', overlap: true, router: ['10.0.0.1', '8.8.8.8'], outside: ['8.8.8.8', '8.8.4.4'] },
+  { at: when, name: 'one.one.one.one', outcome: 'differ', router: [], outside: ['1.1.1.1', '1.0.0.1'] },
+]
 const base = {
   interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
   names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], default_names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], server: '',
@@ -16,6 +21,8 @@ const STATES = {
   off: { ...base, enabled: false, status: { last_run: NEVER }, summary: none },
   never: { ...base, enabled: true, status: { last_run: NEVER }, summary: none },
   compared: { ...base, enabled: true, status: { last_run: when }, summary: { ...none, comparisons: 48, matches: 47, differs: 1, cannot_compare: 2, overlapping: 1, first: when, last: when } },
+  alive: { ...base, enabled: true, status: { last_run: recent }, summary: { ...none, comparisons: 48, matches: 48, first: when, last: recent } },
+  differing: { ...base, enabled: true, status: { last_run: recent }, summary: { ...none, comparisons: 48, matches: 46, differs: 8, overlapping: 1, first: when, last: recent, differences } },
   nothingComparable: { ...base, enabled: true, status: { last_run: when }, summary: { ...none, cannot_compare: 3, first: when, last: when } },
   internetOff: { ...base, enabled: true, status: { last_run: when, problem: 'internet_off' }, summary: none },
   lanOff: { ...base, enabled: true, status: { last_run: when, problem: 'lan_off' }, summary: none },
@@ -37,7 +44,15 @@ for (const view of ['simple', 'advanced'] as const) {
       const status = card.locator('[data-test="dns-check-status"]')
       if (name === 'off') await expect(status).toHaveCount(0)
       else await expect(status).toBeVisible()
-      if (name === 'compared') await expect(status).toContainText('Compared 48 times')
+      if (name === 'compared') {
+        await expect(status).toContainText('Compared 48 times')
+        await expect(card.locator('[data-test="dns-check-fresh"]')).toContainText('may have stopped')
+      }
+      if (name === 'alive') await expect(card.locator('[data-test="dns-check-fresh"]')).toContainText('Last checked 12 minutes ago')
+      if (name === 'differing') {
+        await expect(card.locator('[data-test="dns-check-difference"]')).toHaveCount(2)
+        await expect(card.locator('[data-test="dns-check-differences"]')).toContainText('6 more differences are recorded')
+      }
       if (name === 'nothingComparable') await expect(status).toContainText('does not mean the answers agree')
       if (name === 'internetOff' || name === 'lanOff') {
         await expect(status).toContainText(name === 'lanOff' ? 'Local network access is off' : 'nothing was sent')

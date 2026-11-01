@@ -439,6 +439,10 @@ export interface OutsideLookupLast {
   /** A fixed code from the server (for example `private_address`); the words for it are in constants/netaudit. */
   reason?: string
   ports: number
+  /** Where the address of a look came from: the router's own statement, or the one the operator entered. */
+  source?: 'router' | 'entered'
+  /** True when the router states a public address other than the one entered, so the entered one may be out of date. */
+  differs?: boolean
 }
 
 /** The outside lookup: the switch, which service it asks, and what the last look did. */
@@ -446,6 +450,8 @@ export interface OutsideLookupState {
   enabled: boolean
   url: string
   default_url: string
+  /** The public address the operator entered, or empty. */
+  address: string
   last: OutsideLookupLast
 }
 
@@ -453,6 +459,8 @@ export interface OutsideLookupState {
 export interface OutsideLookupUpdate {
   enabled?: boolean
   url?: string
+  /** An empty `address` clears the one entered. */
+  address?: string
 }
 
 /** One name asked of the router's DNS and of an outside resolver. Addresses are parsed addresses; no answer text is kept. */
@@ -494,6 +502,22 @@ export interface DnsCheckState {
   default_resolver_url: string
   status: { last_run: string; problem?: string }
   summary: DnsCheckSummary
+}
+
+/** When the DNS check last ran, in words, and whether it looks stopped (nothing for over twice the interval). */
+export interface DnsFreshness {
+  text: string
+  late: boolean
+}
+
+/** One differing comparison written for a person: both address lists as text, and whether they still shared an address. */
+export interface DnsDifferenceRow {
+  key: string
+  name: string
+  when: string
+  router: string
+  outside: string
+  partly: boolean
 }
 
 /** A change to the DNS check; any field alone. An empty `names` list or `resolver_url` goes back to the default. */

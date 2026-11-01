@@ -15,7 +15,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "cronstrue": "^3.14.0",
     "marked": "^18.0.0",
-    "vue": "^3.5.25",
+    "vue": "^3.5.44",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
@@ -28,7 +28,7 @@
     "autoprefixer": "^10.4.27",
     "eslint": "^9.39.4",
     "eslint-plugin-vue": "^9.33.0",
-    "happy-dom": "^20.11.2",
+    "happy-dom": "^21.0.4",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",

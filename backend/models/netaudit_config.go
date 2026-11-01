@@ -43,6 +43,9 @@ type NetauditConfig struct {
 	OutsideLookupEnabled bool `yaml:"outside_lookup_enabled,omitempty" json:"outside_lookup_enabled"`
 	// OutsideLookupURL is the service's address (https only). Empty means netaudit's default service.
 	OutsideLookupURL string `yaml:"outside_lookup_url,omitempty" json:"outside_lookup_url"`
+	// OutsideLookupAddress is the network's public IPv4 address as the operator typed it, used only when the router states none
+	// (UPnP off). Empty means none entered.
+	OutsideLookupAddress string `yaml:"outside_lookup_address,omitempty" json:"outside_lookup_address"`
 	// DNSCheckEnabled has the host compare, every DNSCheckIntervalMinutes, what the router's DNS and an outside resolver answer
 	// for a few names, and log the result (it raises no finding). The outside resolver learns the names and the network's public
 	// address, so it is off until the operator turns it on (a step-up action).
