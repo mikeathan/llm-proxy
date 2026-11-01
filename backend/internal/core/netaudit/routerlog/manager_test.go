@@ -14,29 +14,37 @@ type rig struct {
 	m      *Manager
 	wakes  atomic.Int32
 	known  map[string]bool
+	named  map[string]bool
+	offers [][2]string
 	gw     atomic.Value // netip.Addr
 	mu     sync.Mutex
 	errs   []error
-	conn   net.PacketConn
+	conn   *net.UDPConn
 	enable atomic.Bool
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
-	r := &rig{known: map[string]bool{"aa:bb:cc:dd:ee:09": true}}
+	r := &rig{known: map[string]bool{"aa:bb:cc:dd:ee:09": true, "aa:bb:cc:dd:ee:08": true}, named: map[string]bool{"aa:bb:cc:dd:ee:08": true}}
 	r.gw.Store(netip.MustParseAddr("127.0.0.1"))
 	r.enable.Store(true)
 	r.m = New(Deps{
 		Enabled: r.enable.Load,
 		Gateway: func() netip.Addr { return r.gw.Load().(netip.Addr) },
-		Known: func(mac string) (bool, error) {
+		Device: func(mac string) (bool, bool, error) {
 			r.mu.Lock()
 			defer r.mu.Unlock()
-			return r.known[mac], nil
+			return r.known[mac], r.named[mac], nil
+		},
+		Suggest: func(mac, name string) error {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.offers = append(r.offers, [2]string{mac, name})
+			return nil
 		},
 		Wake:    func() { r.wakes.Add(1) },
 		OnError: func(err error) { r.mu.Lock(); r.errs = append(r.errs, err); r.mu.Unlock() },
-		Listen:  func(string) (net.PacketConn, error) { return net.ListenPacket("udp4", "127.0.0.1:0") },
+		Listen:  func(string) (*net.UDPConn, error) { return listenUDP4("127.0.0.1:0") },
 	})
 	r.m.wakeGap = time.Hour // one wake is all a test needs unless it says otherwise
 	return r
@@ -186,13 +194,13 @@ func TestManager_SwitchingOffClosesTheSocket(t *testing.T) {
 }
 
 func TestManager_APortThatCannotBeBoundIsAStatedProblemNotARetry(t *testing.T) {
-	taken, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	taken, err := listenUDP4("127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer taken.Close()
 	r := newRig(t)
-	r.m.deps.Listen = func(string) (net.PacketConn, error) { return net.ListenPacket("udp4", taken.LocalAddr().String()) }
+	r.m.deps.Listen = func(string) (*net.UDPConn, error) { return listenUDP4(taken.LocalAddr().String()) }
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	r.m.Reconcile(ctx)
@@ -221,4 +229,53 @@ func TestManager_OnlyTenDatagramsASecondAreLookedAt(t *testing.T) {
 	if got := r.wakes.Load(); got == 0 || got > 2*perSecond {
 		t.Errorf("wakes = %d, want between 1 and %d", got, 2*perSecond)
 	}
+}
+
+func (r *rig) offered() [][2]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([][2]string(nil), r.offers...)
+}
+
+func lease(mac, name string) string {
+	return "<30>Oct 31 20:02:50 ROUTER dnsmasq-dhcp[8548]: DHCPACK(br0) 192.168.50.127 " + mac + " " + name
+}
+
+func TestManager_ANameIsOfferedForANewOrUnnamedDeviceAndNeverForANamedOne(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))    // not in the list
+	send(t, addr, lease("aa:bb:cc:dd:ee:09", "KNOWN-TV"))     // in the list, no name
+	send(t, addr, lease("aa:bb:cc:dd:ee:08", "NAMED-LAPTOP")) // in the list and named by the operator
+	r.waitHeard(t)
+	r.quiet()
+	got := r.offered()
+	want := [][2]string{{"aa:bb:cc:dd:ee:01", "NEW-PHONE"}, {"aa:bb:cc:dd:ee:09", "KNOWN-TV"}}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("offered %v, want %v", got, want)
+	}
+}
+
+func TestManager_FirewallLinesNeverUseUpTheAllowanceSoALeaseStillGetsThrough(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	drop := "<12>Oct 31 20:02:33 ROUTER kernel: DROP IN=eth0 OUT= SRC=203.0.113.9 DST=192.168.0.137 PROTO=TCP SPT=40408 DPT=58376 SYN"
+	for i := 0; i < 500; i++ {
+		send(t, addr, drop)
+	}
+	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && r.wakes.Load() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if r.wakes.Load() != 1 {
+		t.Errorf("wakes = %d: a lease after a flood of drops must still wake the check", r.wakes.Load())
+	}
+}
+
+func TestManager_AnyLineFromTheRouterShowsItWasHeard(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, "<12>Oct 31 20:02:33 ROUTER kernel: DROP IN=eth0 SRC=203.0.113.9 PROTO=TCP")
+	r.waitHeard(t)
 }
