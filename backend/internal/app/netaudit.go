@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"strconv"
 	"time"
 
 	"llm-proxy/internal/core/automation"
@@ -18,6 +20,7 @@ import (
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/hostwatch"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
@@ -64,6 +67,8 @@ type netauditServices struct {
 	Discovery6 *netaudit.Discovery6Config
 	// Ports keeps the ports each scanned device had open at its last scan, for the audit's counts and the Devices card.
 	Ports *netaudit.PortLog
+	// Host compares this computer's open ports and the files that survive a reboot with its first look, in the nightly audit.
+	Host *netaudit.HostWatcher
 	// PresenceConfig holds the presence check's switch and interval; Presence is the check itself, started with the app.
 	PresenceConfig *netaudit.PresenceConfig
 	Presence       *netaudit.Presence
@@ -141,6 +146,26 @@ func (s AppServices) NetauditPorts() netaudit.PortRecorder {
 		return nil
 	}
 	return s.netaudit.Ports
+}
+
+// NetauditHost is where the run reporter compares this computer's open ports and startup files; nil until the services are wired.
+func (s AppServices) NetauditHost() netaudit.HostLooker {
+	if s.netaudit == nil || s.netaudit.Host == nil {
+		return nil
+	}
+	return s.netaudit.Host
+}
+
+// newHostSource reads this computer's sockets from /proc and the closed list of watched files. startedAt identifies this run
+// of the program, so replacing its file and restarting is not reported as tampering.
+func newHostSource(startedAt time.Time) hostwatch.Source {
+	home, _ := os.UserHomeDir() // an unknown home only leaves the account's own key file out
+	exe, _ := os.Executable()
+	return hostwatch.Source{
+		Proc:   hostwatch.Proc{Root: "/proc"},
+		Watch:  hostwatch.Files{Specs: hostwatch.DefaultFileSpecs(home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
+		Harden: hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys"},
+	}
 }
 
 // NetauditDecoys is where the run reporter reads the decoy touches; nil until the services are wired.
@@ -238,6 +263,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Summary:     known.Summary,
 		Discovery6:  known.Discovery6,
 		Ports:       known.Ports,
+		Host:        known.Host,
 		Router:      newRouterCheck(netTools, known.Inventory, scope),
 
 		Alerts:         alerts.Log,
@@ -300,6 +326,7 @@ type tracking struct {
 	Summary     *netaudit.SummaryConfig
 	Discovery6  *netaudit.Discovery6Config
 	Ports       *netaudit.PortLog
+	Host        *netaudit.HostWatcher
 }
 
 func (s *AppServices) newTracking(store netaudit.PolicyStore, scope *netaudit.Scope, netTools *tools.NetworkTools) tracking {
@@ -321,7 +348,9 @@ func (s *AppServices) newTracking(store netaudit.PolicyStore, scope *netaudit.Sc
 		WithObserver(recordLook(history))
 
 	identityStore := withReset(s.AppCtx, "The remembered SSH host keys and certificates", persistence.NewDeviceIdentityStore(root))
+	hostStore := withReset(s.AppCtx, "The first look of the host watch (open ports and watched files)", persistence.NewHostWatchStore(root))
 	return tracking{
+		Host:        netaudit.NewHostWatcher(newHostSource(time.Now()), hostStore),
 		Inventory:   inventory,
 		Identities:  netaudit.NewIdentities(identityStore),
 		History:     history,

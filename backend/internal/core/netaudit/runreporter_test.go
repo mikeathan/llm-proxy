@@ -485,3 +485,68 @@ func TestRunReporter_IdentityTroubleIsStatedAndNeverHidesTheScan(t *testing.T) {
 		t.Errorf("report:\n%s", got)
 	}
 }
+
+type fakeHostLooker struct {
+	look HostLook
+	err  error
+}
+
+func (f fakeHostLooker) Look() (HostLook, error) { return f.look, f.err }
+
+var listenerOn8080 = Finding{Device: HostDevice, Port: 8080, Proto: "tcp", Check: CheckNewListener, Severity: SeverityMedium}
+
+func TestRunReporter_HostFindingsAreKeptThoughTheComputerIsNotAScannedDevice(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime).WithHost(fakeHostLooker{look: HostLook{Findings: []Finding{listenerOn8080}}})
+	got := r.Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	if !strings.Contains(got, "8080") {
+		t.Errorf("the host finding must be in the report:\n%s", got)
+	}
+	b := store.data["ws/nightly"]
+	if !slices.ContainsFunc(b.Findings, func(f Finding) bool { return f.Key() == listenerOn8080.Key() }) {
+		t.Fatalf("baseline lacks the host finding: %+v", b.Findings)
+	}
+	if b.DevicesUp != 1 {
+		t.Errorf("DevicesUp = %d: the computer itself is not a device that answered", b.DevicesUp)
+	}
+}
+
+func TestRunReporter_AHostFindingThatWentAwayIsResolvedNotCarriedForever(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime).WithHost(fakeHostLooker{look: HostLook{Findings: []Finding{listenerOn8080}}})
+	r.Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+
+	r = reporter(store, reportTime.Add(24*time.Hour)).WithHost(fakeHostLooker{})
+	r.Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	b := store.data["ws/nightly"]
+	if slices.ContainsFunc(b.Findings, func(f Finding) bool { return f.Device == HostDevice }) {
+		t.Errorf("a closed port must leave the baseline: %+v", b.Findings)
+	}
+	if len(b.Resolved) != 1 || b.Resolved[0].Key() != listenerOn8080.Key() {
+		t.Errorf("Resolved = %+v", b.Resolved)
+	}
+}
+
+func TestRunReporter_AHostWatchThatCouldNotLookKeepsEarlierFindingsAndSaysSo(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	reporter(store, reportTime).WithHost(fakeHostLooker{look: HostLook{Findings: []Finding{listenerOn8080}}}).
+		Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+
+	r := reporter(store, reportTime.Add(24*time.Hour)).WithHost(fakeHostLooker{err: errors.New("no /proc")})
+	got := r.Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	if !strings.Contains(got, "this computer could not be checked") {
+		t.Errorf("the report must say the host was not checked:\n%s", got)
+	}
+	if !slices.ContainsFunc(store.data["ws/nightly"].Findings, func(f Finding) bool { return f.Key() == listenerOn8080.Key() }) {
+		t.Error("a look that failed says nothing about whether the port closed: the earlier finding stands")
+	}
+}
+
+func TestRunReporter_SaysHowManyWatchedPlacesItCouldNotRead(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime).WithHost(fakeHostLooker{look: HostLook{Unreadable: 3}})
+	got := r.Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	if !strings.Contains(got, "3 watched locations") {
+		t.Errorf("report:\n%s", got)
+	}
+}

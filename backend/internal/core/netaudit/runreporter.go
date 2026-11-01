@@ -29,6 +29,7 @@ type RunReporter struct {
 	router  RouterFindings   // optional: what the router itself offers (UPnP)
 	decoys  DecoyReader      // optional: devices that connected to a decoy service
 	hist    AuditHistory     // optional: the Network page's daily counts
+	host    HostLooker       // optional: this computer's open ports and the files that survive a reboot
 	ports   PortRecorder     // optional: the ports each device had open at its last scan
 	histErr func(error)
 	now     func() time.Time
@@ -91,6 +92,17 @@ func (r *RunReporter) WithPorts(p PortRecorder) *RunReporter {
 // WithDecoys makes the reporter add the devices that connected to a decoy service. Without it nothing is added.
 func (r *RunReporter) WithDecoys(d DecoyReader) *RunReporter {
 	r.decoys = d
+	return r
+}
+
+// HostLooker compares this computer's open ports and the files that survive a reboot with the first look: *HostWatcher.
+type HostLooker interface {
+	Look() (HostLook, error)
+}
+
+// WithHost makes the reporter add what changed on the computer it runs on. Without it nothing is looked at.
+func (r *RunReporter) WithHost(h HostLooker) *RunReporter {
+	r.host = h
 	return r
 }
 
@@ -165,10 +177,15 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	inventoryNote, devices := r.addInventory(ctx, &result)
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result)
+	hostNote, hostChecked := r.addHost(&result)
+	expectNote += hostNote
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
 	scanned := scannedDevices(result.Hosts)
+	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
+		scanned[HostDevice] = true
+	}
 	delta := Diff(restrictTo(prev.Findings, scanned), result.Findings)
 	shown, accepted, ackNote := r.applyAcks(workspaceID, result, delta, at)
 	view := Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted, Vulns: cov}
@@ -240,7 +257,7 @@ func carryOver(prev models.ScanBaseline, hosts []Host) ([]string, int) {
 		}
 	}
 	for _, f := range prev.Findings {
-		if !seen[f.Device] && !kept[f.Device] {
+		if !seen[f.Device] && !kept[f.Device] && f.Device != HostDevice { // the computer itself is not a device that answered
 			kept[f.Device] = true
 		}
 	}
@@ -466,6 +483,23 @@ func (r *RunReporter) addDecoys(result *Result) string {
 	}
 	result.Findings = append(result.Findings, restrictTo(DecoyFindings(touches, r.now()), scannedDevices(result.Hosts))...)
 	return ""
+}
+
+// addHost appends what changed on this computer. It reports whether the look was taken, so that the earlier findings of this
+// computer are replaced only by a look that really happened. Trouble is stated and never hides the scan.
+func (r *RunReporter) addHost(result *Result) (note string, checked bool) {
+	if r.host == nil {
+		return "", false
+	}
+	look, err := r.host.Look()
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: this computer could not be checked, so its open ports and startup files were not compared (%v).", err), false
+	}
+	result.Findings = append(result.Findings, look.Findings...)
+	if look.Unreadable > 0 {
+		note = fmt.Sprintf("\n\n> Note: %d watched locations could not be read by the account this program runs as, so changes there are not seen.", look.Unreadable)
+	}
+	return note, true
 }
 
 // DeepCarryMaxAge is how long a deep check's findings are carried into the audit's reports. After that the device has to be

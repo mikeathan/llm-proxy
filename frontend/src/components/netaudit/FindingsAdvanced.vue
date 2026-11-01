@@ -3,7 +3,7 @@ import { computed, ref, watch } from "vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import DeviceFindings from "./DeviceFindings.vue"
 import ProblemGroups from "./ProblemGroups.vue"
-import { describePort, isCheck } from "../../utils/netaudit/friendly"
+import { describePort, deviceLabel, isCheck } from "../../utils/netaudit/friendly"
 import { openPortsOf } from "../../utils/netaudit/expectations"
 import { groupByDevice, groupProblems } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
@@ -130,7 +130,7 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
     <template v-else-if="filter === 'resolved'">
       <p v-if="!resolvedGroups.length" class="m-0 text-muted">Nothing has gone away since the scan before.</p>
       <section v-for="g in resolvedGroups" :key="g.device" :aria-label="g.device" class="rounded-[var(--radius-md)] border border-hairline">
-        <header class="bg-surface-raised px-3 py-2 font-mono font-semibold text-primary">{{ g.device }}</header>
+        <header class="bg-surface-raised px-3 py-2 font-mono font-semibold text-primary">{{ deviceLabel(g.device) }}</header>
         <p v-for="r in g.items" :key="`${describePort(r)}|${r.check ?? ''}`" class="m-0 border-t border-hairline px-3 py-2 font-mono text-[length:var(--text-small)] text-secondary">{{ isCheck(r) ? (r.evidence || "A check finding") : describePort(r) }} <span class="text-muted">is no longer there</span><template v-if="r.fixed_at"> <span class="text-state-success" data-test="fixed-confirmed">· fixed: you marked it on {{ formatAbsoluteTime(r.fixed_at) }} and the scan confirms it</span></template></p>
       </section>
     </template>

@@ -3,7 +3,7 @@ import { computed, ref } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import { formatPorts } from "../../utils/netaudit/expectations"
-import { isCheck, isGuessedService, isLowDetail, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
+import { deviceLabel, isCheck, isGuessedService, isHostDevice, isLowDetail, portCount, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
 import DeepCheckResult from "./DeepCheckResult.vue"
@@ -35,6 +35,8 @@ const MIN_FOLDED = 2
 
 // The rarer actions of a device (expected ports, deep check) sit behind "More", so a header of many devices stays readable.
 const more = ref(false)
+// The computer the program runs on has no network address to scan, expect ports on or deep check: it shows its problems only.
+const isHost = computed(() => isHostDevice(props.group.device))
 const showLowDetail = ref(false)
 const lowDetail = computed(() => props.group.items.filter(isLowDetail))
 const foldLowDetail = computed(() => lowDetail.value.length >= MIN_FOLDED)
@@ -55,15 +57,15 @@ const STATE_CLASS: Record<string, string> = {
 <template>
   <section :aria-label="group.device" class="min-w-0 rounded-[var(--radius-md)] border border-hairline" data-test="device">
     <header class="flex flex-wrap items-center justify-between gap-2 bg-surface-raised px-3 py-2">
-      <span class="min-w-0 break-all"><span class="font-mono font-semibold text-primary">{{ group.device }}</span> <span class="text-muted">· {{ portsLabel(portCount(group.items)) }}<template v-if="problems">, {{ problems }} {{ problems === 1 ? "problem" : "problems" }}</template></span></span>
+      <span class="min-w-0 break-all"><span class="font-mono font-semibold text-primary">{{ deviceLabel(group.device) }}</span> <span class="text-muted"><template v-if="!isHost">· {{ portsLabel(portCount(group.items)) }}</template><template v-if="problems">{{ isHost ? "·" : "," }} {{ problems }} {{ problems === 1 ? "problem" : "problems" }}</template></span></span>
       <span class="flex flex-wrap items-center gap-1.5 text-[length:var(--text-micro)] text-muted">
         <template v-if="!baseline">
           <span v-if="group.items.some((f) => f.new && !f.accepted)">{{ group.items.filter((f) => f.new && !f.accepted).length }} new</span>
           <span v-if="group.items.some((f) => f.changed && !f.accepted)">{{ group.items.filter((f) => f.changed && !f.accepted).length }} changed</span>
         </template>
-        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', group.device)">Rescan this host</BaseButton>
-        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="more-actions" :aria-expanded="more" @click="more = !more">{{ more ? "Fewer actions" : "More" }}</BaseButton>
-        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="toggle-device" :aria-expanded="open" @click="emit('toggle')">{{ open ? "Hide ports" : "Show ports" }}</BaseButton>
+        <BaseButton v-if="!isHost" variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="rescan-host" @click="emit('rescan', group.device)">Rescan this host</BaseButton>
+        <BaseButton v-if="!isHost" variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="more-actions" :aria-expanded="more" @click="more = !more">{{ more ? "Fewer actions" : "More" }}</BaseButton>
+        <BaseButton v-if="!isHost" variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="toggle-device" :aria-expanded="open" @click="emit('toggle')">{{ open ? "Hide ports" : "Show ports" }}</BaseButton>
       </span>
       <span v-show="more" data-test="device-more" class="flex basis-full flex-wrap items-center gap-1.5 text-[length:var(--text-micro)] text-muted">
         <template v-if="expected">

@@ -80,6 +80,15 @@ export function devicesIn(findings: readonly Pick<ScanFinding, 'device'>[]): num
 
 const OPEN_PORT = 'open_port'
 
+/** What the server calls the computer it runs on in a finding's `device`: it is not a network address, so it cannot be scanned or given expected ports. */
+export const HOST_DEVICE = 'this-computer'
+const HOST_LABEL = 'This computer'
+
+export const isHostDevice = (device: string): boolean => device === HOST_DEVICE
+
+/** A device as a person reads it: an address, or "This computer" for the machine the program runs on. */
+export const deviceLabel = (device: string): string => (isHostDevice(device) ? HOST_LABEL : device)
+
 /** A check is a finding beyond "this port is open": a weak setting a safe script found. */
 export const isCheck = (f: { check?: string }): boolean => !!f.check && f.check !== OPEN_PORT
 
@@ -95,11 +104,11 @@ type Titled = { device: string; port?: number; service?: string; check?: string;
  * ("10.0.0.1: SMBv1 is enabled"); an open port is what the port is for, and where.
  */
 export function findingTitle(f: Titled): string {
-  return isCheck(f) ? `${f.device}: ${f.evidence || CHECK_FALLBACK}` : `${describeService(f)} on ${f.device}`
+  return isCheck(f) ? `${deviceLabel(f.device)}: ${f.evidence || CHECK_FALLBACK}` : `${describeService(f)} on ${deviceLabel(f.device)}`
 }
 
 /** Where a problem is, in one phrase: "File sharing (port 445) on 10.0.0.5". */
-export const placeSentence = (f: Titled): string => `${describeService(f)} on ${f.device}`
+export const placeSentence = (f: Titled): string => `${describeService(f)} on ${deviceLabel(f.device)}`
 
 /**
  * A port the scan could not say anything about: its name is only the usual one for the number (or tcpwrapped, or
@@ -111,7 +120,7 @@ export function isLowDetail(f: { check?: string; service?: string; version?: str
 }
 
 export function describeResolved(r: ResolvedFinding): string {
-  return isCheck(r) ? `${r.device}: ${r.evidence || CHECK_FALLBACK}` : `${r.device}: ${describeService(r)}`
+  return isCheck(r) ? `${deviceLabel(r.device)}: ${r.evidence || CHECK_FALLBACK}` : `${deviceLabel(r.device)}: ${describeService(r)}`
 }
 
 /** The sentence for one thing that needs a look: what it is, where, and (when only its version moved) what changed. */

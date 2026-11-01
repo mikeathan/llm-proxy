@@ -99,6 +99,9 @@ func withNetauditChecks(reporter *netaudit.RunReporter, svc handlers.AssistantSe
 	if v, ok := svc.(interface{ NetauditDecoys() netaudit.DecoyReader }); ok && v.NetauditDecoys() != nil {
 		reporter.WithDecoys(v.NetauditDecoys())
 	}
+	if v, ok := svc.(interface{ NetauditHost() netaudit.HostLooker }); ok && v.NetauditHost() != nil {
+		reporter.WithHost(v.NetauditHost())
+	}
 	if v, ok := svc.(interface{ NetauditPorts() netaudit.PortRecorder }); ok && v.NetauditPorts() != nil {
 		reporter.WithPorts(v.NetauditPorts())
 	}

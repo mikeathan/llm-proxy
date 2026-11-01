@@ -2,6 +2,7 @@
 import BaseButton from "../common/buttons/BaseButton.vue"
 import FixGuideSteps from "./FixGuideSteps.vue"
 import { formatAbsoluteTime } from "../../utils/format/time"
+import { isHostDevice } from "../../utils/netaudit/friendly"
 import type { ScanFinding } from "../../types/netaudit"
 
 // What to do about a problem a check found: the steps, what could go wrong and how to undo it, folded to one line; and the
@@ -27,7 +28,7 @@ const markedOn = () => formatAbsoluteTime(props.finding.fix_marked_at ?? "")
       </template>
       <template v-else>
         <span class="font-semibold text-state-running">Still showing after you marked it fixed on {{ markedOn() }}. Check the steps again, or mark it as fine.</span>
-        <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('rescan', finding.device)">Scan this device again</BaseButton>
+        <BaseButton v-if="!isHostDevice(finding.device)" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('rescan', finding.device)">Scan this device again</BaseButton>
       </template>
       <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" @click="emit('unmark', finding)">Take back</BaseButton>
     </div>

@@ -78,5 +78,6 @@ See the report to the owner of 2026-10-31. Short form: a list can only be checke
 ## Remaining Work
 
 - **IPv6 scanning (3.5):** the PR that carries the Constitution II.3(3)/I.7 change and the code. Needs first: one real `nmap -6` run against an on-link device (argument shape, zone id of a link-local target, XML address type), then widening `Finding.Device` to "IPv4 address or MAC" through `ack.go`, `diff.go`, the report, the fix guide and the UI.
-- **Unverified:** the 30-minute hold on the owner's phones; that the port counts match what the owner sees; the first scan after upgrading records a baseline, so ports opened/closed start counting from the second audit.
+- **Done (2026-10-31):** the owner deployed v0.31.0 and confirmed the open-ports line under each device, the "N devices have no name" prompt and the naming list (owner's statement; no output captured). The ports line appeared after the first audit and the prompt needs the list and a nameable device, as designed.
+- **Unverified:** that naming a device makes the missing-device finding fire (it needs three days unseen); the 30-minute hold on the owner's phones; that the port counts match what the owner sees; the first scan after upgrading records a baseline, so ports opened/closed start counting from the second audit.
 - **Not done:** adb and Kubelet service names (§5); a vendor (OUI) table and `device_missing` for unnamed devices (§1).
