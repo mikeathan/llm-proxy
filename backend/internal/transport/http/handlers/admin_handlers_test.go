@@ -1188,3 +1188,82 @@ func TestAdminSystemPutHandler_ReturnsTheSavedSystem(t *testing.T) {
 		t.Fatalf("status %d body %s", rr.Code, rr.Body.String())
 	}
 }
+
+// availableFiles asks the state handler for the GGUF files on disk that are not yet added.
+func availableFiles(t *testing.T, h *handlers.AdminHandlers) []struct{ Filename, ResolvedPath string } {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	h.AdminStateHandler(rr, httptest.NewRequest(http.MethodGet, "/admin/api/state?available=1", nil))
+	var resp struct {
+		Available []struct {
+			Filename     string `json:"filename"`
+			ResolvedPath string `json:"resolved_path"`
+		} `json:"available"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("state: %v: %s", err, rr.Body.String())
+	}
+	out := make([]struct{ Filename, ResolvedPath string }, 0, len(resp.Available))
+	for _, a := range resp.Available {
+		out = append(out, struct{ Filename, ResolvedPath string }{a.Filename, a.ResolvedPath})
+	}
+	return out
+}
+
+func newDiscoveryHandlers(t *testing.T, dir string, registered *[]models.ModelConfig) *handlers.AdminHandlers {
+	t.Helper()
+	settings := models.UserSettings{}
+	settings.Local.ModelDir = dir
+	return newAdminHandlers(&mocks.MockManager{ListModelsFunc: func() []models.ModelConfig { return *registered }},
+		&mocks.MockAdminService{GetSettingsFunc: func() models.UserSettings { return settings }})
+}
+
+// A file put into a folder that already existed shows up on the next rescan: the folder's own change time moves, the model
+// folder's does not, so watching only the model folder keeps showing the old list.
+func TestAdminStateHandler_AvailableSeesAFileAddedInsideAnExistingSubfolder(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "qwen")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var registered []models.ModelConfig
+	h := newDiscoveryHandlers(t, dir, &registered)
+	if got := availableFiles(t, h); len(got) != 0 {
+		t.Fatalf("nothing is there yet: %v", got)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.gguf"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := availableFiles(t, h)
+	if len(got) != 1 || got[0].Filename != "a.gguf" || got[0].ResolvedPath != filepath.Join(sub, "a.gguf") {
+		t.Fatalf("the new file must be listed with its full path: %v", got)
+	}
+	if err := os.Remove(filepath.Join(sub, "a.gguf")); err != nil {
+		t.Fatal(err)
+	}
+	if got := availableFiles(t, h); len(got) != 0 {
+		t.Errorf("a removed file must go: %v", got)
+	}
+}
+
+// A model that is added stops being offered, and one that is removed is offered again, without anything on disk changing.
+func TestAdminStateHandler_AvailableFollowsWhichModelsAreRegistered(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a.gguf")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var registered []models.ModelConfig
+	h := newDiscoveryHandlers(t, dir, &registered)
+	if got := availableFiles(t, h); len(got) != 1 {
+		t.Fatalf("offered at first: %v", got)
+	}
+	registered = []models.ModelConfig{{Name: "my-own-name", Path: path}}
+	if got := availableFiles(t, h); len(got) != 0 {
+		t.Errorf("an added model is not offered again: %v", got)
+	}
+	registered = nil
+	if got := availableFiles(t, h); len(got) != 1 {
+		t.Errorf("a removed model is offered again: %v", got)
+	}
+}

@@ -94,6 +94,44 @@ describe('ProviderModelsCard', () => {
     expect((fieldByLabel(w, /filename/i).element as HTMLInputElement).value).toBe('llama.gguf')
   })
 
+  // A file in a subfolder is found by its full path; sending only its name made the server look in the model folder itself.
+  describe('adding a file found on disk', () => {
+    const IN_SUBFOLDER: AvailableModel[] = [
+      { name: 'qwen3', filename: 'qwen3.gguf', resolved_path: '/models/qwen/qwen3.gguf', size_bytes: 1, metadata: { name: 'Qwen 3' } } as AvailableModel,
+    ]
+
+    it('sends the full path, so a file in a subfolder is found', async () => {
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: IN_SUBFOLDER })
+      await button(/^add qwen 3$/i)!.trigger('click')
+      await w.get('form').trigger('submit')
+      await flushPromises()
+      expect(models.addModel).toHaveBeenCalledWith(expect.objectContaining({ filename: 'qwen3.gguf', path: '/models/qwen/qwen3.gguf' }))
+    })
+
+    it('does not send the path once the file name was changed by hand', async () => {
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: IN_SUBFOLDER })
+      await button(/^add qwen 3$/i)!.trigger('click')
+      await fieldByLabel(w, /filename/i).setValue('other.gguf')
+      await w.get('form').trigger('submit')
+      await flushPromises()
+      const sent = models.addModel.mock.lastCall![0]
+      expect(sent.filename).toBe('other.gguf')
+      expect(sent.path).toBeUndefined()
+    })
+
+    it('does not carry a path from one add to the next', async () => {
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: IN_SUBFOLDER })
+      await button(/^add qwen 3$/i)!.trigger('click')
+      await button(/^cancel$/i)!.trigger('click')
+      await button(/^add model$/i)!.trigger('click')
+      expect((fieldByLabel(w, /filename|gguf/i).element as HTMLInputElement).value).toBe('')
+      await fieldByLabel(w, /filename|gguf/i).setValue('qwen3.gguf')
+      await w.get('form').trigger('submit')
+      await flushPromises()
+      expect(models.addModel.mock.lastCall![0].path).toBeUndefined()
+    })
+  })
+
   it('says when the local engine has no model yet', () => {
     const { w } = mountCard({ provider: 'local', apiKeys: [], models: [] })
     expect(w.text()).toContain('No local models')
