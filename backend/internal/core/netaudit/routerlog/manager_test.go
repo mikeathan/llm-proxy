@@ -1,0 +1,224 @@
+package routerlog
+
+import (
+	"context"
+	"net"
+	"net/netip"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+type rig struct {
+	m      *Manager
+	wakes  atomic.Int32
+	known  map[string]bool
+	gw     atomic.Value // netip.Addr
+	mu     sync.Mutex
+	errs   []error
+	conn   net.PacketConn
+	enable atomic.Bool
+}
+
+func newRig(t *testing.T) *rig {
+	t.Helper()
+	r := &rig{known: map[string]bool{"aa:bb:cc:dd:ee:09": true}}
+	r.gw.Store(netip.MustParseAddr("127.0.0.1"))
+	r.enable.Store(true)
+	r.m = New(Deps{
+		Enabled: r.enable.Load,
+		Gateway: func() netip.Addr { return r.gw.Load().(netip.Addr) },
+		Known: func(mac string) (bool, error) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			return r.known[mac], nil
+		},
+		Wake:    func() { r.wakes.Add(1) },
+		OnError: func(err error) { r.mu.Lock(); r.errs = append(r.errs, err); r.mu.Unlock() },
+		Listen:  func(string) (net.PacketConn, error) { return net.ListenPacket("udp4", "127.0.0.1:0") },
+	})
+	r.m.wakeGap = time.Hour // one wake is all a test needs unless it says otherwise
+	return r
+}
+
+// start runs the manager until the test ends and returns the address it listens on.
+func (r *rig) start(t *testing.T) *net.UDPAddr {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { r.m.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if a := r.m.Addr(); a != nil {
+			return a
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the listener did not start")
+	return nil
+}
+
+func send(t *testing.T, to *net.UDPAddr, line string) {
+	t.Helper()
+	c, err := net.DialUDP("udp4", nil, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Write([]byte(line)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// settle waits for the manager to have read what was sent: it has no output to wait on, so it waits for the counter.
+func (r *rig) waitHeard(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !r.m.Status().LastHeard.IsZero() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("nothing was heard")
+}
+
+func (r *rig) quiet() { time.Sleep(60 * time.Millisecond) }
+
+func TestManager_AnUnknownDeviceFromTheRouterWakesTheCheckOnce(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, ackLine)
+	r.waitHeard(t)
+	r.quiet()
+	if got := r.wakes.Load(); got != 1 {
+		t.Errorf("wakes = %d, want 1", got)
+	}
+}
+
+func TestManager_ADeviceTheInventoryKnowsDoesNothing(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, "<30>Oct 31 20:02:50 ROUTER hostapd: eth7: STA aa:bb:cc:dd:ee:09 IEEE 802.11: associated")
+	r.waitHeard(t)
+	r.quiet()
+	if got := r.wakes.Load(); got != 0 {
+		t.Errorf("a known phone roaming must not cause a sweep, wakes = %d", got)
+	}
+}
+
+func TestManager_OnlyTheRoutersAddressIsHeard(t *testing.T) {
+	r := newRig(t)
+	r.gw.Store(netip.MustParseAddr("192.0.2.1")) // not the sender
+	addr := r.start(t)
+	send(t, addr, ackLine)
+	r.quiet()
+	if r.wakes.Load() != 0 || !r.m.Status().LastHeard.IsZero() {
+		t.Error("a datagram from another address is dropped before it is looked at")
+	}
+	r.gw.Store(netip.Addr{}) // no gateway known
+	send(t, addr, ackLine)
+	r.quiet()
+	if r.wakes.Load() != 0 {
+		t.Error("with no gateway known nothing is trusted")
+	}
+}
+
+func TestManager_AFloodOfNewDevicesWakesAtMostOncePerGap(t *testing.T) {
+	r := newRig(t)
+	r.m.wakeGap = 200 * time.Millisecond
+	addr := r.start(t)
+	for i := 0; i < 200; i++ {
+		send(t, addr, "<30>Oct 31 20:02:50 ROUTER hostapd: eth7: STA aa:bb:cc:dd:ee:"+hex2(i)+" IEEE 802.11: associated")
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := r.wakes.Load(); got != 1 {
+		t.Errorf("wakes = %d inside one gap, want 1", got)
+	}
+}
+
+func hex2(i int) string {
+	const digits = "0123456789abcdef"
+	return string([]byte{digits[(i>>4)&15], digits[i&15]})
+}
+
+func TestManager_Garbage_AndOversizeDatagramsAreIgnored(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, "not syslog at all")
+	big := make([]byte, 3000)
+	for i := range big {
+		big[i] = 'A'
+	}
+	send(t, addr, string(big))
+	r.waitHeard(t)
+	r.quiet()
+	if r.wakes.Load() != 0 {
+		t.Error("only the two recognised messages can wake the check")
+	}
+}
+
+func TestManager_SwitchingOffClosesTheSocket(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	r.enable.Store(false)
+	r.m.Poke()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && r.m.Addr() != nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if r.m.Addr() != nil || r.m.Status().Listening {
+		t.Fatal("still listening after the switch went off")
+	}
+	c, err := net.DialUDP("udp4", nil, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Write([]byte("x"))
+	c.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	buf := make([]byte, 1)
+	if _, err := c.Read(buf); err == nil {
+		t.Error("expected a refusal or silence from a closed port")
+	}
+}
+
+func TestManager_APortThatCannotBeBoundIsAStatedProblemNotARetry(t *testing.T) {
+	taken, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer taken.Close()
+	r := newRig(t)
+	r.m.deps.Listen = func(string) (net.PacketConn, error) { return net.ListenPacket("udp4", taken.LocalAddr().String()) }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.m.Reconcile(ctx)
+	if st := r.m.Status(); st.Listening || st.Problem == "" {
+		t.Errorf("status = %+v, want a stated problem", st)
+	}
+}
+
+func TestPort_IsNotAnotherPartOfTheProgramsPort(t *testing.T) {
+	for _, taken := range []int{4001, 2222, 4445, 8023, 22, 514} {
+		if Port == taken {
+			t.Errorf("Port %d collides with a port used elsewhere", Port)
+		}
+	}
+}
+
+func TestManager_OnlyTenDatagramsASecondAreLookedAt(t *testing.T) {
+	r := newRig(t)
+	r.m.wakeGap = 0 // so only the allowance limits the wakes
+	addr := r.start(t)
+	for i := 0; i < 300; i++ {
+		send(t, addr, "<30>Oct 31 20:02:50 ROUTER hostapd: eth7: STA aa:bb:cc:dd:ee:"+hex2(i)+" IEEE 802.11: associated")
+	}
+	time.Sleep(200 * time.Millisecond)
+	// The run may straddle one change of second, so up to two allowances.
+	if got := r.wakes.Load(); got == 0 || got > 2*perSecond {
+		t.Errorf("wakes = %d, want between 1 and %d", got, 2*perSecond)
+	}
+}

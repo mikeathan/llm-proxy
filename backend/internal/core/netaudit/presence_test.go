@@ -247,3 +247,62 @@ func TestPresence_TheNamingStepStillRunsWhenTheAlertCannotBeSent(t *testing.T) {
 		t.Errorf("errors = %v, marked = %v: the alert must stay pending", r.errs, r.inv.marked)
 	}
 }
+
+// runFor runs the presence loop until the time is up and returns once it has stopped.
+func runFor(p *Presence, d time.Duration, during func()) {
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { p.Run(ctx); close(done) }()
+	during()
+	<-done
+}
+
+func TestPresence_AWakeLooksEarlyButAFloodOfWakesIsOneLookPerGap(t *testing.T) {
+	r := rig()
+	r.settings.Every = time.Hour // only the first cycle and wakes can sweep
+	p := r.presence()
+	p.wakeDelay, p.minGap = time.Millisecond, 100*time.Millisecond
+	runFor(p, 450*time.Millisecond, func() {
+		time.Sleep(20 * time.Millisecond) // the first cycle has run
+		for i := 0; i < 200; i++ {
+			p.Wake()
+			time.Sleep(2 * time.Millisecond)
+		}
+	})
+	// One cycle at the start, then no closer than 100 ms apart in the 450 ms: at most 5 in all, and a wake did cause more
+	// than the one at the start.
+	if n := len(r.sweeps); n < 2 || n > 5 {
+		t.Errorf("sweeps = %d, want between 2 and 5", n)
+	}
+}
+
+func TestPresence_AWakeWhileSwitchedOffSweepsNothing(t *testing.T) {
+	r := rig()
+	r.settings.Enabled = false
+	p := r.presence()
+	p.wakeDelay, p.minGap = time.Millisecond, time.Millisecond
+	runFor(p, 100*time.Millisecond, func() {
+		for i := 0; i < 20; i++ {
+			p.Wake()
+			time.Sleep(time.Millisecond)
+		}
+	})
+	if len(r.sweeps) != 0 {
+		t.Errorf("a switched-off check must not sweep because of a wake: %v", r.sweeps)
+	}
+}
+
+func TestPresence_AWakeAfterTheScheduledCycleStillWaitsOutTheGap(t *testing.T) {
+	r := rig()
+	r.settings.Every = time.Hour
+	p := r.presence()
+	p.wakeDelay, p.minGap = time.Millisecond, 200*time.Millisecond
+	runFor(p, 120*time.Millisecond, func() {
+		time.Sleep(20 * time.Millisecond)
+		p.Wake()
+	})
+	if len(r.sweeps) != 1 {
+		t.Errorf("a wake right after a cycle must wait for the gap, sweeps = %d", len(r.sweeps))
+	}
+}

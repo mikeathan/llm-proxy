@@ -23,6 +23,10 @@ type NetauditConfig struct {
 	// connection means a device is probing the network. It opens listening sockets, so it is off until the operator turns it
 	// on (a step-up action), and switching it off closes them.
 	DecoysEnabled bool `yaml:"decoys_enabled,omitempty" json:"decoys_enabled"`
+	// RouterLogEnabled opens a UDP port that takes the router's remote syslog, only to wake the presence check early when the
+	// router hands an address to, or sees join the Wi-Fi, a device the list does not know. It opens a listening socket, so it
+	// is off until the operator turns it on (a step-up action) and switching it off closes it (Constitution I.8).
+	RouterLogEnabled bool `yaml:"router_log_enabled,omitempty" json:"router_log_enabled"`
 	// IPv6Discovery turns on active IPv6 discovery: on each presence check and audit the host sends one echo request to the
 	// link-local all-nodes group on the links that hold in-scope devices, so the IPv6 neighbour table lists the whole link.
 	// Off until the operator turns it on (Constitution I.7).

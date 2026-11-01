@@ -311,3 +311,22 @@ export const NAMES_LOAD_FAILED = 'The device names setting could not be read.'
 export const NAMES_SAVE_FAILED = 'The device names setting could not be changed.'
 export const NAMES_LABEL = 'Suggest names for devices'
 export const NAMES_HINT = 'Each look asks a device you have not named what it calls itself: one small question, no more than once a week for a device that answers, and less and less often for one that does not. The answer is only offered to you to confirm.'
+
+export const ROUTER_LOG_TITLE = 'Router log'
+export const ROUTER_LOG_LOAD_FAILED = 'The router log setting could not be read.'
+export const ROUTER_LOG_SAVE_FAILED = 'The router log setting could not be changed.'
+export const ROUTER_LOG_HINT = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check: nothing from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase.'
+export const ROUTER_LOG_NOT_HEARD = 'Nothing has been heard from your router yet. Check the router setting and the redirect below.'
+export const ROUTER_LOG_SETUP_TITLE = 'Point the router at this computer'
+export const ROUTER_LOG_SETUP_STEPS = [
+  "In the router's settings, open the system log and set the remote log server to this computer's address (the port stays 514).",
+  'The router can only send to port 514, which the program may not open, so this computer passes it on to a port the program may use. Run the commands below once, on this computer. They are shown, not run for you.',
+]
+export const ROUTER_LOG_SETUP_COMMAND = [
+  'sudo nft add table ip syslogredirect',
+  "sudo nft 'add chain ip syslogredirect prerouting { type nat hook prerouting priority dstnat; policy accept; }'",
+  'sudo nft add rule ip syslogredirect prerouting udp dport 514 redirect to :5514',
+].join('\n')
+export const ROUTER_LOG_SETUP_AFTER = 'These commands last until the next restart. To keep them, add the same table to /etc/nftables.conf and enable the nftables service. They were not tried on your server: check with "sudo nft list ruleset". To undo, run:'
+export const ROUTER_LOG_UNDO_COMMAND = 'sudo nft delete table ip syslogredirect'
+export const ROUTER_LOG_HINTS_NOTE = 'Anything on your network can send a message that looks like the router. At worst that makes the check look early, never more than once a minute.'

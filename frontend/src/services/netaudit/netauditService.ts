@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -176,6 +176,15 @@ export class NetauditService {
   /** Switches the decoy services on or off. They open listening ports, so the server asks for the passphrase again first. */
   static setDecoys(enabled: boolean): Promise<DecoyState> {
     return put<DecoyState>(API_ENDPOINTS.netauditDecoys, { enabled })
+  }
+
+  static routerLog(): Promise<RouterLogState> {
+    return get<RouterLogState>(API_ENDPOINTS.netauditRouterLog)
+  }
+
+  /** Switches the router log listener on or off. It opens a listening port, so the server asks for the passphrase again first. */
+  static setRouterLog(enabled: boolean): Promise<RouterLogState> {
+    return put<RouterLogState>(API_ENDPOINTS.netauditRouterLog, { enabled })
   }
 
   /** Empties the list of devices that connected to a decoy. The switch and the listeners stay as they are. */

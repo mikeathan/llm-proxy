@@ -422,6 +422,15 @@ export interface DecoyTouch {
   count: number
 }
 
+/** The router log listener: the switch, whether it listens, any trouble, and when the router was last heard. Nothing the router said is kept. */
+export interface RouterLogState {
+  enabled: boolean
+  listening: boolean
+  problem?: string
+  last_heard?: string
+  port: number
+}
+
 /** The decoy services: the switch, which ports listen, any trouble, and who touched them. */
 export interface DecoyState {
   enabled: boolean

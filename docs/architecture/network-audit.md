@@ -388,6 +388,16 @@ Plan: [`PLANS/cross-cutting/network-security-roadmap.md`](../PLANS/cross-cutting
 - **UI.** `deviceLabel`/`isHostDevice` (`utils/netaudit/friendly.ts`) show "This computer" and hide rescan, expected ports, deep check and "Scan this device again" for it.
 - **Hardening (roadmap 1c).** `platform/hostwatch/hardening.go` (`Hardener.Check`) reads `/etc/ssh/sshd_config` and the files it includes and two `/proc/sys` values; nothing but bools leaves it. sshd rules it follows: the first value of a keyword wins, an `Include` is read where it stands and may not leave the SSH folder, everything after a `Match` line is ignored (it applies to some connections only), keywords are case-insensitive and `=` separates like a space; defaults are sshd's (`PasswordAuthentication yes`, `PermitRootLogin prohibit-password`, `PermitEmptyPasswords no`). Pinned by the stock Ubuntu file in `testdata/sshd_config_ubuntu`. Checks `host_ssh_password_login` (low), `host_ssh_root_login` and `host_ssh_empty_passwords` (high), `host_rp_filter_off` (medium; only when `all` and `default` are both 0). They compare with nothing: they are there while the setting is weak, from the first audit. **Deliberately absent:** a check on `ip_forward` (Docker needs 1; it is 1 on the owner's server) and on `rp_filter=2` (the Ubuntu default).
 
+## Router log listener (as built 2026-11-01, v0.33.0; roadmap Phase 4, ADR-0018, Constitution I.8 proposed)
+
+The router's remote syslog is used for one thing: waking the presence check early for a device the list does not know.
+
+- **Parser.** `core/netaudit/routerlog/parse.go` recognises two shapes from the stock RT-AX86U (`dnsmasq-dhcp[pid]: DHCPACK(iface) <ipv4> <mac> [name]` and `hostapd: <iface>: STA <mac> IEEE 802.11: associated`) and returns a kind and a lower-case unicast MAC. Everything else, including `DROP` lines, `DHCPDISCOVER`/`DHCPOFFER` (never captured) and the `wl0: random key value` line, is ignored; the router's name and the device's name are never read. Pinned by lines shaped like the captured datagrams.
+- **Manager.** `routerlog.Manager` mirrors `decoy.Manager` (`Run`, `Reconcile`, `Poke`): a UDP socket on `routerlog.Port` (5514) while `NetauditConfig.RouterLogEnabled`; only the default gateway is heard (`cachedGateway`, 30 s); ten datagrams a second; `Known` (the device list, any status) filters out phones that roam; one `Wake` per gap. `Status` is whether it listens, any problem, and when the router was last heard.
+- **Wake.** `Presence.Wake` fills a buffered-1 channel; `Run` pauses `wakeDelay` (5 s), waits out `minGap` (60 s since the previous cycle ended, scheduled cycles included), merges wakes that came meanwhile, and runs `Tick`. A disabled check ignores it. `Tick` is never called from the listener, so two sweeps never overlap.
+- **API and UI.** `GET/PUT /admin/api/netaudit/router-log` (PUT is step-up, listed in `stepUpExact`); `RouterLogCard.vue` under Network, Devices, with the setup steps and the nftables redirect (shown, never run; **not tried on the owner's server**).
+- **Not built:** using the DHCP name, counting firewall drops, `DHCPDISCOVER`/`DHCPOFFER`/lease expiry (no capture of them).
+
 ## Appendix A — what packet capture (wireshark/tcpdump) would need
 
 A **separate category** (e.g. `netcapture`), not part of `netaudit`: it needs elevated rights (conflicts with the
