@@ -1,0 +1,24 @@
+2026-11-01 06:02:54,480 INFO Starting unattended upgrades script
+2026-11-01 06:02:54,480 INFO Allowed origins are: o=Ubuntu,a=noble, o=Ubuntu,a=noble-security, o=UbuntuESMApps,a=noble-apps-security, o=UbuntuESM,a=noble-infra-security
+2026-11-01 06:02:54,480 INFO Initial blacklist:
+2026-11-01 06:02:54,481 INFO Initial whitelist (not strict):
+2026-11-01 06:02:54,972 INFO No packages found that can be upgraded unattended and no pending auto-removals
+2026-11-01 06:02:54,989 INFO Package hipcc is kept back because a related package is kept back or due to local apt_preferences(5).
+2026-11-01 06:02:55,051 INFO Package rocm-cmake is kept back because a related package is kept back or due to local apt_preferences(5).
+2026-11-01 06:02:55,052 INFO Package rocminfo is kept back because a related package is kept back or due to local apt_preferences(5).
+2026-11-01 09:28:51,790 INFO Starting unattended upgrades script
+2026-11-01 09:28:51,790 INFO Allowed origins are: o=Ubuntu,a=noble, o=Ubuntu,a=noble-security, o=UbuntuESMApps,a=noble-apps-security, o=UbuntuESM,a=noble-infra-security
+2026-11-01 09:28:51,790 INFO Initial blacklist:
+2026-11-01 09:28:51,790 INFO Initial whitelist (not strict):
+2026-11-02 06:32:41,178 INFO Starting unattended upgrades script
+2026-11-02 06:32:41,178 INFO Allowed origins are: o=Ubuntu,a=noble, o=Ubuntu,a=noble-security, o=UbuntuESMApps,a=noble-apps-security, o=UbuntuESM,a=noble-infra-security
+2026-11-02 06:32:41,178 INFO Initial blacklist:
+2026-11-02 06:32:41,178 INFO Initial whitelist (not strict):
+2026-11-02 06:32:41,700 INFO No packages found that can be upgraded unattended and no pending auto-removals
+2026-11-02 06:32:41,717 INFO Package hipcc is kept back because a related package is kept back or due to local apt_preferences(5).
+2026-11-02 06:32:41,781 INFO Package rocm-cmake is kept back because a related package is kept back or due to local apt_preferences(5).
+2026-11-02 06:32:41,781 INFO Package rocminfo is kept back because a related package is kept back or due to local apt_preferences(5).
+2026-11-02 15:13:52,302 INFO Starting unattended upgrades script
+2026-11-02 15:13:52,302 INFO Allowed origins are: o=Ubuntu,a=noble, o=Ubuntu,a=noble-security, o=UbuntuESMApps,a=noble-apps-security, o=UbuntuESM,a=noble-infra-security
+2026-11-02 15:13:52,302 INFO Initial blacklist:
+2026-11-02 15:13:52,302 INFO Initial whitelist (not strict):

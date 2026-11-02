@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -22,6 +23,10 @@ type FileSpec struct {
 	// Program marks the running program's own file, which is replaced at every upgrade: it is compared only within one run of
 	// the program (see Files.ProgramTag), so an upgrade followed by a restart is not a change.
 	Program bool
+	// SkipNames are path.Match patterns for file and link names (not folders) that are left out of the digest wherever they
+	// appear under a folder in Paths or Globs. They exist for files a program writes by itself and routinely, such as snapd's
+	// snap-<name>-<revision>.mount units; the patterns are written in code and must be as narrow as the noise they remove.
+	SkipNames []string
 	// MaxBytes caps how much of one file is read (the default is DefaultMaxBytes).
 	MaxBytes int64
 }
@@ -83,7 +88,7 @@ func (f Files) observe(spec FileSpec) FileState {
 	slices.Sort(paths)
 	budget := maxEntries
 	for _, p := range paths {
-		walk(h, p, limit, 0, &budget, &st)
+		walk(h, p, limit, 0, &budget, &st, spec.SkipNames)
 	}
 	st.Hash = hex.EncodeToString(h.Sum(nil))
 	if spec.Program {
@@ -94,7 +99,7 @@ func (f Files) observe(spec FileSpec) FileState {
 
 // walk adds one path to the digest: its name, what it is, and for a file its content (up to limit bytes and its size), for
 // a symlink its target text (the link is not followed), for a folder its entries in name order.
-func walk(h io.Writer, path string, limit int64, depth int, budget *int, st *FileState) {
+func walk(h io.Writer, path string, limit int64, depth int, budget *int, st *FileState, skip []string) {
 	fmt.Fprintf(h, "%s\x00", path)
 	if *budget <= 0 {
 		io.WriteString(h, "over-budget\x00")
@@ -121,7 +126,7 @@ func walk(h io.Writer, path string, limit int64, depth int, budget *int, st *Fil
 		}
 		fmt.Fprintf(h, "link\x00%s\x00", target)
 	case info.IsDir():
-		walkDir(h, path, limit, depth, budget, st)
+		walkDir(h, path, limit, depth, budget, st, skip)
 	case info.Mode().IsRegular():
 		hashFile(h, path, info.Size(), limit, st)
 	default:
@@ -129,7 +134,7 @@ func walk(h io.Writer, path string, limit int64, depth int, budget *int, st *Fil
 	}
 }
 
-func walkDir(h io.Writer, path string, limit int64, depth int, budget *int, st *FileState) {
+func walkDir(h io.Writer, path string, limit int64, depth int, budget *int, st *FileState, skip []string) {
 	io.WriteString(h, "dir\x00")
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -138,13 +143,26 @@ func walkDir(h io.Writer, path string, limit int64, depth int, budget *int, st *
 		return
 	}
 	for _, e := range entries { // ReadDir returns them sorted by name
+		if !e.IsDir() && skipped(skip, e.Name()) {
+			continue
+		}
 		child := filepath.Join(path, e.Name())
 		if e.IsDir() && depth+1 >= maxDepth { // deeper folders are named but not opened
 			fmt.Fprintf(h, "%s\x00dir-not-opened\x00", child)
 			continue
 		}
-		walk(h, child, limit, depth+1, budget, st)
+		walk(h, child, limit, depth+1, budget, st, skip)
 	}
+}
+
+// skipped reports whether name matches one of the SkipNames patterns. A pattern that does not parse never matches.
+func skipped(patterns []string, name string) bool {
+	for _, p := range patterns {
+		if ok, _ := path.Match(p, name); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func hashFile(h io.Writer, path string, size, limit int64, st *FileState) {
@@ -170,7 +188,9 @@ func DefaultFileSpecs(home, executable string) []FileSpec {
 		keys.Paths = append(keys.Paths, filepath.Join(home, ".ssh", "authorized_keys"))
 	}
 	specs := []FileSpec{
-		{ID: "systemd_units", Paths: []string{"/etc/systemd/system"}},
+		// snapd writes a mount unit (and a link enabling it) for every snap revision, so each refresh would otherwise raise a
+		// finding; only that exact name shape is skipped, so a service, a timer or any other mount is still caught.
+		{ID: "systemd_units", Paths: []string{"/etc/systemd/system"}, SkipNames: []string{"snap-*.mount"}},
 		{ID: "cron", Paths: []string{
 			"/etc/crontab", "/etc/cron.d", "/etc/cron.hourly", "/etc/cron.daily", "/etc/cron.weekly", "/etc/cron.monthly",
 			"/var/spool/cron/crontabs",

@@ -55,6 +55,14 @@ describe('DevicesCard', () => {
   afterEach(() => vi.useRealTimers())
 
   describe('the list', () => {
+    it('shows the maker of the card in the open row, and calls an unnamed device by it', async () => {
+      service.devices.mockResolvedValue(inventory({ devices: [device({ mac: MAC_NEW, ip: '192.168.1.77', approved: false, new: true, vendor: 'Espressif Inc.' })] }))
+      const w = await mountCard()
+      const r = await open(w, MAC_NEW)
+      expect(r.text()).toContain('Espressif Inc. device')
+      expect(r.get('[data-test="device-maker"]').text()).toBe('Made by Espressif Inc.')
+    })
+
     it('puts a device nobody approved first, in Needs a look, open, with a way to claim it', async () => {
       const w = await mountCard()
       const groups = w.findAll('[data-test^="group-"]').map((g) => g.attributes('data-test'))

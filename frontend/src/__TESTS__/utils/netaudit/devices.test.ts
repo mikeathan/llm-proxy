@@ -13,6 +13,9 @@ describe('deviceLabel', () => {
   it('prefers the name the person gave', () => expect(deviceLabel(device({ name: 'Printer', randomized: true }))).toBe('Printer'))
   it('explains a private address instead of calling it unknown', () => expect(deviceLabel(device({ randomized: true }))).toContain('private address'))
   it('says unknown for a device nobody named', () => expect(deviceLabel(device())).toBe('Unknown device'))
+  it('names the maker of an unnamed device when the registry knows it', () => expect(deviceLabel(device({ vendor: 'Espressif Inc.' }))).toBe('Espressif Inc. device'))
+  it('still prefers the name the person gave over the maker', () => expect(deviceLabel(device({ name: 'Plug', vendor: 'Espressif Inc.' }))).toBe('Plug'))
+  it('does not use the maker for a private address, which says nothing about the card', () => expect(deviceLabel(device({ randomized: true, vendor: 'Espressif Inc.' }))).toContain('private address'))
 })
 
 describe('presenceLine', () => {
@@ -105,6 +108,10 @@ describe('deviceStatus', () => {
   it('leaves an old visitor nobody approved offline, not in the news', () => {
     expect(deviceStatus(device({ approved: false, new: false, last_seen: '2026-10-01T00:00:00Z' }), NOW)).toBe('offline')
   })
+})
+
+describe('matchesQuery by maker', () => {
+  it('finds a device by its maker', () => expect(matchesQuery(device({ vendor: 'Espressif Inc.' }), 'espressif')).toBe(true))
 })
 
 describe('matchesQuery', () => {

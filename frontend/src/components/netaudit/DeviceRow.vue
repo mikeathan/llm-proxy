@@ -67,6 +67,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
         First seen {{ formatRelativeTime(device.first_seen) }}
         <span v-if="advanced" class="font-mono"> · {{ device.mac }}</span>
       </p>
+      <p v-if="device.vendor && !device.randomized" class="m-0 text-[length:var(--text-small)] text-muted" data-test="device-maker">Made by {{ device.vendor }}</p>
       <p v-if="advanced && !device.ip" class="m-0 break-all font-mono text-[length:var(--text-small)] text-muted" data-test="device-ipv6">{{ deviceAddress(device, true) }}</p>
       <p v-if="extraIPv6" class="m-0 break-all font-mono text-[length:var(--text-small)] text-muted" data-test="device-ipv6">{{ extraIPv6 }}</p>
       <p v-if="ports" class="m-0 text-[length:var(--text-small)] text-muted" data-test="device-ports">{{ ports }}</p>

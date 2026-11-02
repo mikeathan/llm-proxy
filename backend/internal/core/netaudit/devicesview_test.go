@@ -52,3 +52,21 @@ func TestViewOf_GatewayChangedIsShown(t *testing.T) {
 		t.Errorf("gateway = %+v", v.Gateway)
 	}
 }
+
+func TestViewOf_NamesTheMakerOfAKnownCardAndNothingForARandomizedOne(t *testing.T) {
+	// e8:0a:b9 is a Cisco prefix in the IEEE registry; 92:... has the locally administered bit set, so says nothing.
+	const cisco, private = "e8:0a:b9:12:34:56", "92:4b:fe:30:5a:61"
+	inv := Observe(models.DeviceInventory{}, table("", nb("192.168.1.30", cisco), nb("192.168.1.31", private)), anywhere, t0)
+	for _, d := range ViewOf(inv, t0).Devices {
+		switch d.MAC {
+		case cisco:
+			if d.Vendor != "Cisco Systems, Inc" {
+				t.Errorf("vendor = %q", d.Vendor)
+			}
+		case private:
+			if d.Vendor != "" {
+				t.Errorf("a randomized address has no vendor, got %q", d.Vendor)
+			}
+		}
+	}
+}

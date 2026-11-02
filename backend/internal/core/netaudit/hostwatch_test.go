@@ -209,14 +209,14 @@ func TestHostFileTable_CoversEverythingTheReaderWatchesAndNothingElse(t *testing
 }
 
 func TestHostWatch_WeakSettingsAreFindingsFromTheFirstLookWithFixedWords(t *testing.T) {
-	src := &fakeHost{hard: hostwatch.Hardening{SSHFound: true, PasswordLogin: true, RootLogin: true, EmptyPasswords: true, RPFilterOff: true, AutoUpdatesOff: true, FirewallOff: true}}
+	src := &fakeHost{hard: hostwatch.Hardening{SSHFound: true, PasswordLogin: true, RootLogin: true, EmptyPasswords: true, RPFilterOff: true, AutoUpdatesOff: true, FirewallOff: true, OpenKeyFiles: 2}}
 	look, err := newWatcher(src, &memHostStore{}).Look()
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
 		CheckHostSSHPasswordLogin: SeverityLow, CheckHostSSHRootLogin: SeverityHigh, CheckHostSSHEmptyPasswords: SeverityHigh, CheckHostRPFilterOff: SeverityMedium,
-		CheckHostAutoUpdatesOff: SeverityLow, CheckHostFirewallOff: SeverityLow,
+		CheckHostAutoUpdatesOff: SeverityLow, CheckHostFirewallOff: SeverityLow, CheckHostKeyFilesOpen: SeverityHigh,
 	}
 	if len(look.Findings) != len(want) {
 		t.Fatalf("got %+v", look.Findings)
@@ -244,5 +244,20 @@ func TestHostSettings_EveryCheckIsRegistered(t *testing.T) {
 		if g, ok := GuideFor(check); !ok || len(g.Steps) == 0 || g.Risk == "" || g.Undo == "" {
 			t.Errorf("%q has no complete guide", check)
 		}
+	}
+}
+
+func TestHostWatch_FullDiskIsLowThenMediumInFixedWords(t *testing.T) {
+	for level, want := range map[int]string{hostwatch.DiskLow: SeverityLow, hostwatch.DiskCritical: SeverityMedium} {
+		look, err := newWatcher(&fakeHost{hard: hostwatch.Hardening{DiskLow: level}}, &memHostStore{}).Look()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(look.Findings) != 1 || look.Findings[0].Check != CheckHostDiskLow || look.Findings[0].Severity != want || look.Findings[0].Evidence == "" {
+			t.Errorf("level %d: %+v", level, look.Findings)
+		}
+	}
+	if look, _ := newWatcher(&fakeHost{hard: hostwatch.Hardening{}}, &memHostStore{}).Look(); len(look.Findings) != 0 {
+		t.Errorf("a disk with room is not a finding: %+v", look.Findings)
 	}
 }

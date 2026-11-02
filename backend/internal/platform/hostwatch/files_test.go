@@ -158,3 +158,55 @@ func TestObserve_StopsTwoFoldersDown(t *testing.T) {
 		t.Error("a folder two levels down is named but not opened, so a bounded look cannot be sent through a deep tree")
 	}
 }
+
+// snapd writes a snap-<name>-<rev>.mount unit (and enables it with a link in multi-user.target.wants) at every snap refresh.
+// Those are routine, so the watch skips them by file name; anything else a person or a program adds must still be caught.
+func TestObserve_SnapMountUnitsAreSkippedEverythingElseIsCaught(t *testing.T) {
+	dir := t.TempDir()
+	units := filepath.Join(dir, "system")
+	write(t, filepath.Join(units, "app.service"), "[Service]\n")
+	write(t, filepath.Join(units, "snap-core22-2955.mount"), "[Mount]\nWhat=/var/lib/snapd/snaps/core22_2955.snap\n")
+	wants := filepath.Join(units, "multi-user.target.wants")
+	if err := os.MkdirAll(wants, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := func(name string) {
+		t.Helper()
+		if err := os.Symlink(filepath.Join(units, name), filepath.Join(wants, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link("snap-core22-2955.mount")
+	spec := FileSpec{ID: "systemd_units", Paths: []string{units}, SkipNames: []string{"snap-*.mount"}}
+	before := hashOf(t, spec).Hash
+
+	// A snap refresh: new revisions arrive, old ones go, and the text of a unit may differ.
+	for _, name := range []string{"snap-core22-2987.mount", "snap-firefox-9036.mount", "snap-firefox-9057.mount"} {
+		write(t, filepath.Join(units, name), "[Mount]\nWhat=/var/lib/snapd/snaps/"+name+"\n")
+		link(name)
+	}
+	if err := os.Remove(filepath.Join(units, "snap-core22-2955.mount")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(wants, "snap-core22-2955.mount")); err != nil {
+		t.Fatal(err)
+	}
+	if got := hashOf(t, spec).Hash; got != before {
+		t.Error("snapd's mount units and their links must not change the hash")
+	}
+
+	for name, path := range map[string]string{
+		"a service named like a snap": filepath.Join(units, "snap-evil.service"),
+		"a timer":                     filepath.Join(units, "snap-core22.timer"),
+		"a mount with another name":   filepath.Join(units, "mnt-data.mount"),
+		"a drop-in for a snap mount":  filepath.Join(units, "snap-core22-2955.mount.d", "override.conf"),
+	} {
+		write(t, path, "[Service]\n")
+		now := hashOf(t, spec).Hash
+		if now == before {
+			t.Errorf("%s must change the hash", name)
+		}
+		os.RemoveAll(path)
+		os.Remove(filepath.Dir(path)) // an emptied drop-in folder, so it cannot colour the next case
+	}
+}

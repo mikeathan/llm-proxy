@@ -27,7 +27,7 @@ type hostFileInfo struct{ Title, Fix, Severity string }
 // hostFiles is keyed by hostwatch.FileSpec.ID; a test pins that the two lists are the same.
 var hostFiles = map[string]hostFileInfo{
 	"systemd_units": {"Startup services changed on this computer",
-		"Look at the unit files under /etc/systemd/system (ls -lt lists the newest first). If you added or enabled one, accept the finding; if not, find out how it got there before the next reboot.", SeverityMedium},
+		"Look at the unit files under /etc/systemd/system (ls -lt lists the newest first). The mount units snapd writes for each snap (snap-NAME-REVISION.mount) are not watched, so a snap refresh does not raise this. If you added or enabled one, accept the finding; if not, find out how it got there before the next reboot.", SeverityMedium},
 	"cron": {"Scheduled jobs changed on this computer",
 		"Look at /etc/crontab, the /etc/cron.* folders and the users' crontabs. If you added a job, accept the finding; if not, find out who did before the next time it runs.", SeverityMedium},
 	"ssh_server_config": {"SSH server settings changed on this computer",
@@ -64,6 +64,8 @@ const (
 	CheckHostRPFilterOff       = "host_rp_filter_off"
 	CheckHostAutoUpdatesOff    = "host_auto_updates_off"
 	CheckHostFirewallOff       = "host_firewall_off"
+	CheckHostKeyFilesOpen      = "host_key_files_open"
+	CheckHostDiskLow           = "host_disk_low"
 )
 
 // hostSetting is the fixed wording of one weak setting.
@@ -88,6 +90,13 @@ var hostSettings = map[string]hostSetting{
 	CheckHostFirewallOff: {"The firewall on this computer is switched off",
 		"This computer's own firewall (ufw) is installed but switched off, so only the router stands between its open ports and the network. Ports that Docker publishes bypass ufw even when it is on",
 		"Allow what you use first (sudo ufw allow 22/tcp for SSH, plus the service ports you need), then switch it on with sudo ufw enable. Keep a session open while you test.", SeverityLow},
+	CheckHostKeyFilesOpen: {"A private key on this computer can be read by other users",
+		"At least one SSH private key file on this computer (a host key or an account's key) can be read by other users of this computer, so any of them could copy it and act as its owner",
+		"List the keys (ls -l) and set each private key to owner-only access with chmod 600. If the key may have been read by someone you do not trust, replace it.", SeverityHigh},
+	// The severity and evidence of the disk finding depend on how full it is; see diskFinding. The values here are the low ones.
+	CheckHostDiskLow: {"A disk on this computer is getting full",
+		"A disk on this computer has little room left (under 10% free and under 50 GB). Models, logs and downloads fill a disk quietly, and a full disk stops services and the audit's own records",
+		"Find what takes the room (du -xh --max-depth=1 /, ollama list for model files, docker system df) and remove what you no longer need, or move the models to a bigger disk.", SeverityLow},
 }
 
 var hostSettingGuides = map[string]FixGuide{
@@ -151,6 +160,26 @@ var hostSettingGuides = map[string]FixGuide{
 		Risk:     "Anything you did not allow stops being reachable from other computers, and a missing SSH rule locks you out over SSH.",
 		Undo:     "sudo ufw disable",
 	},
+	CheckHostKeyFilesOpen: {
+		Steps: []string{
+			"List the private keys with their owner and access: the host keys in /etc/ssh (ssh_host_*_key) and the id_* files in each account's .ssh folder. A private key should read -rw------- (600).",
+			"Set each one that is more open to owner-only access with chmod 600. A key file that another account could read should be treated as copied: for an account key, make a new key pair and replace it in authorized_keys.",
+			"If a distribution deliberately gives a key to a group (some give host keys to an ssh_keys group) and you accept that, accept the finding with a note.",
+		},
+		Commands: []GuideCommand{{platformLinux, "sudo ls -l /etc/ssh/ssh_host_*_key ~/.ssh/id_*\nchmod 600 ~/.ssh/id_*\nsudo chmod 600 /etc/ssh/ssh_host_*_key"}},
+		Risk:     "A tool that runs as another account and needs the key will stop working until it is given its own key.",
+		Undo:     "chmod the file back to its earlier mode (the listing above shows it).",
+	},
+	CheckHostDiskLow: {
+		Steps: []string{
+			"See which disk is short and what takes the room. Model files, container images and logs are the usual causes on a computer that runs models.",
+			"Remove what you do not need: unused models, old container images and build cache, old logs. Look at what a command will delete before you agree.",
+			"If the models need more room than the disk has, move them to a bigger disk and point the model folder there.",
+		},
+		Commands: []GuideCommand{{platformLinux, "df -h /\nsudo du -xh --max-depth=1 / 2>/dev/null | sort -h | tail\ndocker system df\nollama list"}},
+		Risk:     "Removing a model or an image means downloading it again; deleting the wrong folder can lose data you wanted.",
+		Undo:     "Deleted files are gone unless you have a backup; download models and images again if needed.",
+	},
 }
 
 func init() {
@@ -176,7 +205,23 @@ func hardeningFindings(h hostwatch.Hardening) []Finding {
 	add(h.RPFilterOff, CheckHostRPFilterOff)
 	add(h.AutoUpdatesOff, CheckHostAutoUpdatesOff)
 	add(h.FirewallOff, CheckHostFirewallOff)
+	add(h.OpenKeyFiles > 0, CheckHostKeyFilesOpen)
+	out = append(out, diskFinding(h.DiskLow)...)
 	return out
+}
+
+// diskFinding is the disk finding for a level: low when a volume is getting full, medium when it is nearly full.
+func diskFinding(level int) []Finding {
+	s := hostSettings[CheckHostDiskLow]
+	switch level {
+	case hostwatch.DiskLow:
+	case hostwatch.DiskCritical:
+		s.Severity = SeverityMedium
+		s.Evidence = "A disk on this computer is nearly full (under 3% free or under 2 GB). Services that write to it, this program included, can start to fail"
+	default:
+		return nil
+	}
+	return []Finding{{Device: HostDevice, Check: CheckHostDiskLow, Severity: s.Severity, Evidence: s.Evidence}}
 }
 
 const (

@@ -3,9 +3,10 @@ import { formatRelativeTime, isRecorded } from '../format/time'
 import type { DeviceFilter, DeviceListGroup, DeviceStatus, NetworkDevice, PresenceState } from '../../types/netaudit'
 import type { ChoiceOption } from '../../types/ui'
 
-/** What a device is called on screen: the person's name, else what its address suggests. */
+/** What a device is called on screen: the person's name, else the maker of its card, else what its address suggests. */
 export function deviceLabel(device: NetworkDevice): string {
   if (device.name) return device.name
+  if (device.vendor && !device.randomized) return `${device.vendor} device`
   return device.randomized ? DEVICE_PRIVATE : DEVICE_UNNAMED
 }
 
@@ -83,7 +84,7 @@ export function filterCounts(devices: NetworkDevice[], nowMs: number = Date.now(
 export function matchesQuery(device: NetworkDevice, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
-  return [device.name, device.suggested_name, device.mac, device.ip, ...(device.ipv6 ?? [])].some((field) => field?.toLowerCase().includes(q))
+  return [device.name, device.suggested_name, device.vendor, device.mac, device.ip, ...(device.ipv6 ?? [])].some((field) => field?.toLowerCase().includes(q))
 }
 
 const ipKey = (device: NetworkDevice) => (device.ip ?? '').split('.').map((n) => n.padStart(3, '0')).join('.')
