@@ -296,8 +296,8 @@ export const NETWORK_RECENT_NONE = 'Nothing has changed in the last two weeks.'
 export const NETWORK_AUDITS_TITLE = 'Network audits'
 export const NETWORK_FINDINGS_NEEDS_AUDIT = 'Findings come from a network audit. Set one up and its results appear here.'
 export const NETWORK_TREND_NOTE = 'Counts only, kept for 13 months. Looking never adds scanning: these come from checks that already run.'
-export const NETWORK_POINTER_TITLE = 'This audit is part of Network'
-export const NETWORK_POINTER_BODY = 'The devices on your network, trends over time and what changed lately are on the Network page. This page runs and schedules the audit.'
+export const NETWORK_POINTER_BODY = 'Part of Network: the devices, trends and what changed are on that page; this one runs and schedules the audit.'
+export const NETWORK_POINTER_LINK = 'Open Network'
 
 /** The name a device gave when asked: a hint, never the device's identity. */
 export const SUGGESTION_NEW_DEVICE = (name: string): string => `It calls itself “${name}”. Anyone can choose that, so check it is yours first.`
