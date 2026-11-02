@@ -4,6 +4,7 @@ import (
 	"slices"
 	"time"
 
+	"llm-proxy/internal/core/netaudit/oui"
 	"llm-proxy/models"
 )
 
@@ -13,6 +14,9 @@ type DeviceView struct {
 	IP   string   `json:"ip,omitempty"`
 	IPv6 []string `json:"ipv6,omitempty"`
 	Name string   `json:"name,omitempty"`
+	// Vendor is the maker of the network card, read from the bundled IEEE registry by the first three bytes of the address. It is
+	// empty for a randomized address and for a prefix the registry does not list. It never comes from the device.
+	Vendor string `json:"vendor,omitempty"`
 	// SuggestedName is what the device called itself when asked, offered for the operator to confirm. It is shown on screen
 	// only, and only while the device has no name of its own from the operator.
 	SuggestedName string    `json:"suggested_name,omitempty"`
@@ -55,7 +59,7 @@ func ViewOf(inv models.DeviceInventory, now time.Time) InventoryView {
 	for _, d := range inv.Devices {
 		view.Devices = append(view.Devices, DeviceView{
 			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
-			Approved: d.Approved, Randomized: d.Randomized, New: newDeviceIsNews(d, now),
+			Approved: d.Approved, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: oui.Vendor(d.MAC),
 		})
 	}
 	slices.SortStableFunc(view.Devices, func(a, b DeviceView) int {

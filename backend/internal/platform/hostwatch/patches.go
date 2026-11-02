@@ -16,6 +16,11 @@ type Patcher struct {
 	// path leaves that part out.
 	RebootFile  string
 	UpdatesFile string
+	// AutoUpgradeLog is "/var/log/unattended-upgrades/unattended-upgrades.log" on Ubuntu (readable by every account). Only the
+	// date of the last "Starting unattended upgrades script" line is used. Zone is the time zone its timestamps are written in
+	// (the computer's own; time.Local when nil).
+	AutoUpgradeLog string
+	Zone           *time.Location
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
 }
@@ -33,6 +38,10 @@ type Patches struct {
 	Updates         int
 	SecurityUpdates int
 	ESMUpdates      int
+	// AutoRunRead is true only when the log held a start line, and AutoRunDays is the whole days since the last one. A missing,
+	// empty or just-rotated log is unknown, never "stalled".
+	AutoRunRead bool
+	AutoRunDays int
 	// Unreadable counts the files that exist but this account may not read.
 	Unreadable int
 }
@@ -56,6 +65,9 @@ func (p Patcher) Check() Patches {
 	}
 	if p.UpdatesFile != "" {
 		p.updates(&out)
+	}
+	if p.AutoUpgradeLog != "" {
+		p.autoRun(&out)
 	}
 	return out
 }
@@ -96,6 +108,53 @@ func (p Patcher) updates(out *Patches) {
 	out.Updates, out.SecurityUpdates, out.ESMUpdates = firstNumber(updatesWaiting, text), firstNumber(securityWaiting, text), firstNumber(esmWaiting, text)
 	// A file with none of the three lines is not a statement that nothing is waiting: the wording may have changed.
 	out.UpdatesRead = updatesWaiting.MatchString(text) || securityWaiting.MatchString(text) || esmWaiting.MatchString(text)
+}
+
+// maxLogTail is how much of the end of the unattended-upgrades log is read: a month of runs is a few kilobytes.
+const maxLogTail = 256 << 10
+
+// The wording and the date layout are the package's own (the capture in testdata/unattended_upgrades_log_ubuntu).
+var autoRunStart = regexp.MustCompile(`(?m)^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d{3} INFO Starting unattended upgrades script$`)
+
+func (p Patcher) autoRun(out *Patches) {
+	f, err := os.Open(p.AutoUpgradeLog)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			out.Unreadable++
+		}
+		return
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > maxLogTail {
+		if _, err := f.Seek(info.Size()-maxLogTail, io.SeekStart); err != nil {
+			out.Unreadable++
+			return
+		}
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, maxLogTail))
+	if err != nil {
+		out.Unreadable++
+		return
+	}
+	matches := autoRunStart.FindAllStringSubmatch(string(raw), -1)
+	if len(matches) == 0 {
+		return
+	}
+	zone, now := p.Zone, time.Now
+	if zone == nil {
+		zone = time.Local
+	}
+	if p.Now != nil {
+		now = p.Now
+	}
+	last, err := time.ParseInLocation("2006-01-02 15:04:05", matches[len(matches)-1][1], zone)
+	if err != nil {
+		return
+	}
+	out.AutoRunRead = true
+	if age := now().Sub(last); age > 0 {
+		out.AutoRunDays = int(age / (24 * time.Hour))
+	}
 }
 
 // firstNumber is the number in the first match of re, or 0 when there is none or it does not fit.

@@ -18,6 +18,13 @@ type Hardener struct {
 	// AptDir is "/etc/apt/apt.conf.d" and UfwConf "/etc/ufw/ufw.conf". An empty path leaves that setting out.
 	AptDir  string
 	UfwConf string
+	// KeyGlobs match private key files to look at: the host keys under SSHDir and each account's id_* files. Only the access
+	// mode of a file is read, never its content. An empty list leaves the check out.
+	KeyGlobs []string
+	// DiskPaths are folders whose volume's free space is checked ("/" and the service account's home). An empty list leaves the
+	// check out. Space reads one volume's free and total bytes; the real statfs when nil.
+	DiskPaths []string
+	Space     func(path string) (free, total uint64, err error)
 }
 
 // Hardening is what one look found. A bool is true only when the setting was read and is the weak one; a setting that could
@@ -38,6 +45,10 @@ type Hardening struct {
 	// finding on its own.
 	AutoUpdatesOff bool
 	FirewallOff    bool
+	// OpenKeyFiles counts private key files that group or other users can access. The file names are not kept.
+	OpenKeyFiles int
+	// DiskLow is 0, DiskLow (a volume is getting full) or DiskCritical (nearly full), for the fullest volume looked at.
+	DiskLow int
 	// Unreadable counts the files that exist but this account may not read.
 	Unreadable int
 }
@@ -59,6 +70,8 @@ func (h Hardener) Check() Hardening {
 		out.RPFilterOff = h.rpFilterOff()
 	}
 	h.protection(&out)
+	h.keyFiles(&out)
+	h.diskLow(&out)
 	return out
 }
 

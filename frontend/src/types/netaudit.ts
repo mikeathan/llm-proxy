@@ -350,6 +350,8 @@ export interface NetworkDevice {
   ipv6?: string[]
   /** What the person calls it; empty until they name it. */
   name?: string
+  /** The maker of the network card, from the IEEE registry bundled with the program; absent for a private address or an unlisted prefix. */
+  vendor?: string
   /** What the device called itself when asked; a hint to confirm, shown only while the person has not named it. */
   suggested_name?: string
   first_seen: string

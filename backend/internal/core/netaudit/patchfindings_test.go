@@ -73,3 +73,27 @@ func TestPatchFindings_EveryCheckIsRegistered(t *testing.T) {
 		}
 	}
 }
+
+func TestPatchFindings_AutomaticUpdatesThatHaveNotRunForAWeekAreAFinding(t *testing.T) {
+	// Vertex's log (2026-11-02) shows a run every day or so; a run 7 or more days ago is the finding, and a log that says
+	// nothing is not.
+	for days, want := range map[int]bool{0: false, 6: false, 7: true, 30: true} {
+		_, got := findingFor(patchLook(t, hostwatch.Patches{AutoRunRead: true, AutoRunDays: days}), CheckHostAutoUpdatesStalled)
+		if got != want {
+			t.Errorf("%d days: finding = %v, want %v", days, got, want)
+		}
+	}
+	if _, got := findingFor(patchLook(t, hostwatch.Patches{AutoRunDays: 90}), CheckHostAutoUpdatesStalled); got {
+		t.Error("an unread log says nothing")
+	}
+	f, _ := findingFor(patchLook(t, hostwatch.Patches{AutoRunRead: true, AutoRunDays: 12}), CheckHostAutoUpdatesStalled)
+	if f.Severity != SeverityLow || f.Device != HostDevice || !strings.Contains(f.Evidence, "12 days") {
+		t.Errorf("finding = %+v", f)
+	}
+	if RemediationFor(CheckHostAutoUpdatesStalled) == "" || CheckTitle(CheckHostAutoUpdatesStalled) == "" {
+		t.Error("not registered")
+	}
+	if g, ok := GuideFor(CheckHostAutoUpdatesStalled); !ok || len(g.Steps) == 0 || g.Risk == "" || g.Undo == "" {
+		t.Errorf("guide = %+v", g)
+	}
+}

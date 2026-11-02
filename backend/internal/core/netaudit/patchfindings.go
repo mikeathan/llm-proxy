@@ -11,7 +11,13 @@ import (
 const (
 	CheckHostRebootPending  = "host_reboot_pending"
 	CheckHostUpdatesPending = "host_updates_pending"
+	// CheckHostAutoUpdatesStalled is raised when the last start of the automatic update service was a week or more ago.
+	CheckHostAutoUpdatesStalled = "host_auto_updates_stalled"
 )
+
+// autoRunStaleDays is how long the automatic update service may go without starting before it is a finding. The service starts
+// about daily; a computer that is switched off for a few days misses runs, so a week is the line.
+const autoRunStaleDays = 7
 
 // rebootStaleDays is how long a waiting restart can wait before it is a medium finding: an update that needs a restart has been
 // installed, but the old, flawed version keeps running until then.
@@ -24,6 +30,20 @@ func init() {
 	checkTitles[CheckHostUpdatesPending] = "Updates are waiting on this computer"
 	remediations[CheckHostUpdatesPending] = "Install the waiting updates (sudo apt update, then sudo apt upgrade). Security updates close holes that are already known to attackers."
 	guides[CheckHostUpdatesPending] = updatesPendingGuide
+	checkTitles[CheckHostAutoUpdatesStalled] = "Automatic updates have not run on this computer for a week"
+	remediations[CheckHostAutoUpdatesStalled] = "The automatic update service has not started in a week. If automatic updates are switched off, this finding is expected: switch them on (see the other finding). Otherwise check that the update timers are running (systemctl list-timers apt-daily-upgrade) and look at the end of the unattended-upgrades log."
+	guides[CheckHostAutoUpdatesStalled] = autoUpdatesStalledGuide
+}
+
+var autoUpdatesStalledGuide = FixGuide{
+	Steps: []string{
+		"A computer that was switched off or asleep for a few days misses runs; if that is the reason, the finding goes away after the next run.",
+		"Otherwise check that the two apt timers are active and when they last ran, and read the end of the unattended-upgrades log for a reason.",
+		"Start the timers if they are stopped, and run the service once by hand to see it work.",
+	},
+	Commands: []GuideCommand{{platformLinux, "systemctl list-timers 'apt-daily*'\nsudo tail -30 /var/log/unattended-upgrades/unattended-upgrades.log\nsudo unattended-upgrade --dry-run --debug"}},
+	Risk:     "Running the service by hand installs the waiting security updates, which can change how a service behaves or need a restart.",
+	Undo:     "Updates cannot be undone with one command; use --dry-run first to see what it would do.",
 }
 
 var rebootPendingGuide = FixGuide{
@@ -66,6 +86,10 @@ func patchFindings(p hostwatch.Patches) []Finding {
 			severity = SeverityMedium
 		}
 		out = append(out, Finding{Device: HostDevice, Check: CheckHostUpdatesPending, Severity: severity, Evidence: updatesEvidence(p)})
+	}
+	if p.AutoRunRead && p.AutoRunDays >= autoRunStaleDays {
+		out = append(out, Finding{Device: HostDevice, Check: CheckHostAutoUpdatesStalled, Severity: SeverityLow,
+			Evidence: fmt.Sprintf("The automatic update service last started %d days ago, so security fixes may be waiting without anyone being told", p.AutoRunDays)})
 	}
 	return out
 }

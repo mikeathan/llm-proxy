@@ -3,6 +3,7 @@ package hostwatch
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -82,5 +83,45 @@ func TestPatches_HugeOrGarbageNumbersAreIgnored(t *testing.T) {
 	body := "99999999999999999999 updates can be applied immediately.\n" + string(make([]byte, 2<<20))
 	if got := patchDirs(t, nil, &body, 0).Check(); got.Updates != 0 {
 		t.Fatalf("got %+v, want the unreadable number ignored", got)
+	}
+}
+
+func autoRun(t *testing.T, file string, now time.Time) Patches {
+	t.Helper()
+	return Patcher{AutoUpgradeLog: file, Zone: time.UTC, Now: func() time.Time { return now }}.Check()
+}
+
+func TestAutoRun_LastStartOfTheRealLogIsRead(t *testing.T) {
+	// The capture is vertex's own log (2026-11-02); its last run started at 15:13 on 2 November.
+	same := time.Date(2026, 11, 2, 18, 0, 0, 0, time.UTC)
+	if got := autoRun(t, "testdata/unattended_upgrades_log_ubuntu", same); !got.AutoRunRead || got.AutoRunDays != 0 {
+		t.Errorf("same day: %+v", got)
+	}
+	later := time.Date(2026, 11, 12, 16, 0, 0, 0, time.UTC)
+	if got := autoRun(t, "testdata/unattended_upgrades_log_ubuntu", later); !got.AutoRunRead || got.AutoRunDays != 10 {
+		t.Errorf("ten days on: %+v", got)
+	}
+}
+
+func TestAutoRun_NothingReadIsNothingKnown(t *testing.T) {
+	now := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "empty.log"), "")
+	write(t, filepath.Join(dir, "other.log"), "2026-11-01 06:02:54,972 INFO No packages found\n")
+	for name, file := range map[string]string{"missing": filepath.Join(dir, "none.log"), "empty": filepath.Join(dir, "empty.log"), "no start line": filepath.Join(dir, "other.log")} {
+		got := autoRun(t, file, now)
+		if got.AutoRunRead || got.Unreadable != 0 {
+			t.Errorf("%s: %+v", name, got)
+		}
+	}
+}
+
+func TestAutoRun_OnlyTheEndOfALongLogIsRead(t *testing.T) {
+	dir := t.TempDir()
+	long := "2026-01-01 06:00:00,000 INFO Starting unattended upgrades script\n" + strings.Repeat("2026-10-01 06:00:00,000 INFO filler line of some length to fill the file up\n", 8000) +
+		"2026-11-05 06:00:00,000 INFO Starting unattended upgrades script\n"
+	write(t, filepath.Join(dir, "big.log"), long)
+	if got := autoRun(t, filepath.Join(dir, "big.log"), time.Date(2026, 11, 7, 6, 0, 0, 0, time.UTC)); !got.AutoRunRead || got.AutoRunDays != 2 {
+		t.Errorf("got %+v", got)
 	}
 }

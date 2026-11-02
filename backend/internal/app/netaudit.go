@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -175,9 +176,28 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 	return hostwatch.Source{
 		Proc:    hostwatch.Proc{Root: "/proc"},
 		Watch:   hostwatch.Files{Specs: hostwatch.DefaultFileSpecs(home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
-		Harden:  hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf"},
-		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available"},
+		Harden:  hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf", KeyGlobs: keyGlobs(home), DiskPaths: diskPaths(home)},
+		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available", AutoUpgradeLog: "/var/log/unattended-upgrades/unattended-upgrades.log"},
 	}
+}
+
+// keyGlobs lists the private key files the host watch checks the access of: the host keys, every account's id_* files and the
+// service account's own.
+func keyGlobs(home string) []string {
+	globs := []string{"/etc/ssh/ssh_host_*_key", "/root/.ssh/id_*", "/home/*/.ssh/id_*"}
+	if home != "" {
+		globs = append(globs, filepath.Join(home, ".ssh", "id_*"))
+	}
+	return globs
+}
+
+// diskPaths are the folders whose volume's free space is checked: the system disk and the one holding the service account's home
+// (where the program's data and, by default, the model files live).
+func diskPaths(home string) []string {
+	if home == "" {
+		return []string{"/"}
+	}
+	return []string{"/", home}
 }
 
 // NetauditDecoys is where the run reporter reads the decoy touches; nil until the services are wired.
