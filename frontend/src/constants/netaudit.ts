@@ -316,12 +316,6 @@ export const SUMMARY_LABEL = 'Send a weekly summary'
 export const SUMMARY_HINT = 'A short weekly message with counts only.'
 export const SUMMARY_DETAILS = 'Once a week, a short message to your connected messaging apps: how many devices, how many are new or missing, and how many findings are open. Counts only, no names or addresses. It is sent while the new-device check is on.'
 
-/** Network · Overview · Notices in this browser. */
-export const BROWSER_ALERTS_TITLE = 'Notices in this browser'
-export const BROWSER_ALERTS_LABEL = 'Notify me in this browser'
-export const BROWSER_ALERTS_HINT = 'Shows a browser notice when an alert comes while this tab is hidden.'
-export const BROWSER_ALERTS_DETAILS = 'When a network alert is raised while this tab is hidden or in the background, this browser shows a notice with the same words as the bell. It works only while the browser is open: once it is closed nothing is shown, so keep a messaging app connected for that. The setting is kept in this browser only.'
-
 /** Devices · Suggest names for devices. */
 export const NAMES_LOAD_FAILED = 'The device names setting could not be read.'
 export const NAMES_SAVE_FAILED = 'The device names setting could not be changed.'

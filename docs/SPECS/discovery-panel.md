@@ -20,7 +20,7 @@ supersedes:
   (2) The Network page has five tabs, **Overview, Devices, Findings, Audits, Settings** (`/network`, `/network/devices`,
   `/network/findings`, `/network/audits`, `/network/settings`). **Settings → Safety → Network scan is removed** (no redirect:
   the product is new); its content, and every switch of the Network page (new-device check, device names, IPv6, decoys, router
-  log, internet view, DNS check, weekly summary, notices in this browser), is the Network **Settings** tab, and every link that
+  log, internet view, DNS check, weekly summary), is the Network **Settings** tab, and every link that
   pointed at it (the readiness banner, the scan-time shortcut, the scan summary, a failed audit) points there. The server still
   names the old section `network-scan` in a requirement's fix; the UI reads it as the Network Settings tab. **Audits** holds the
   audit list and the one way to make another (Advanced adds **Add another audit** and the recent runs with how long each took).
@@ -31,7 +31,7 @@ supersedes:
   IPv6 address. "Online" means seen in the last 30 minutes (the server stores when a device was last seen, not whether it is
   there). Groups are by status, not by device type: a device has no type or vendor on the server. (5) Findings and audit cards are
   one neutral surface; severity is said by the tag inside, with no thick coloured edge. The overview's verdict card offers one next
-  step. The Appearance tokens are unchanged: no new colour.
+  step. The Appearance tokens are unchanged: no new colour. **Notices in this browser is removed** (2.22's opt-in browser notification, which needed the browser's permission): a network alert reaches the person through the bell and the connectors only.
 - **2.23 (2026-10-31)** — **Network · Devices: hints and naming** (plan `network-followups`). Under each device the card shows
   the ports it had open at its last completed scan ("Open ports: 22, 80 · scanned 2 days ago"; "No open ports" when a scan
   found none; nothing for a device no scan has finished). A name a device gave when asked can be rejected with **Not this**

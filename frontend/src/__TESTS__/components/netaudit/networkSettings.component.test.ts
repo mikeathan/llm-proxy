@@ -27,7 +27,7 @@ describe('NetworkSettings', () => {
     expect(watching.get('h2').text()).toBe('Watching for changes')
     expect(watching.html()).toContain('device-check-settings-stub')
     expect(watching.html()).toContain('title="Weekly summary"')
-    expect(watching.html()).toContain('browser-alerts-panel-stub')
+    expect(watching.html()).not.toContain('browser')
     const extras = w.get('[data-test="group-extras"]')
     expect(extras.get('h2').text()).toBe('Optional extras')
     for (const card of ['decoys-card-stub', 'router-log-card-stub', 'outside-lookup-card-stub', 'dns-check-card-stub']) expect(extras.html()).toContain(card)

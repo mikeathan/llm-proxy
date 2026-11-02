@@ -95,16 +95,6 @@ export interface NetworkAlertItem {
   destination: Destination
 }
 
-/** What the browser offers for notices, so the logic can be tested without a browser (composables/netaudit/useBrowserAlerts.ts). */
-export interface BrowserAlertsEnv {
-  supported: boolean
-  permission: () => NotificationPermission
-  requestPermission: () => Promise<NotificationPermission>
-  raise: (title: string, options: NotificationOptions) => void
-  /** Whether the tab is hidden, the only time a notice is raised. */
-  hidden: () => boolean
-}
-
 export type NotificationTone = 'success' | 'warning' | 'error' | 'muted'
 
 /** One bell entry in words (utils/notifications/present.ts). */

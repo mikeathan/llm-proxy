@@ -7,7 +7,6 @@ import DecoysCard from "./DecoysCard.vue"
 import RouterLogCard from "./RouterLogCard.vue"
 import OutsideLookupCard from "./OutsideLookupCard.vue"
 import DnsCheckCard from "./DnsCheckCard.vue"
-import BrowserAlertsPanel from "./BrowserAlertsPanel.vue"
 import Panel from "../common/layout/Panel.vue"
 import ToggleField from "../common/forms/ToggleField.vue"
 import { useNetauditSwitch } from "../../composables/netaudit/useNetauditSwitch"
@@ -35,7 +34,6 @@ const GROUP_HEADING = "m-0 font-mono text-[length:var(--text-micro)] font-medium
           <p v-if="summary.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ summary.error.value }}</p>
         </div>
       </Panel>
-      <BrowserAlertsPanel />
     </section>
 
     <section :aria-label="SETTINGS_EXTRAS_TITLE" class="flex flex-col gap-3" data-test="group-extras">

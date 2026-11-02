@@ -4,7 +4,6 @@ import { NetauditService } from '../../services/netaudit/netauditService'
 import type { GlobalRunTick } from '../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../types/notifications'
 import { useGlobalRunActivity } from '../assistant/useGlobalRunActivity'
-import { useBrowserAlerts } from './useBrowserAlerts'
 import { usePersistedState } from '../ui/usePersistedState'
 
 // Tells the bell what the Network module alerted about (a device that connected to a decoy, a new device, the weekly
@@ -94,7 +93,6 @@ export function startNetworkAlerts(notifications: { publishNetworkAlerts: (items
   if (started) return
   started = true
   const { lastTick } = useGlobalRunActivity()
-  const browser = useBrowserAlerts()
   const cursor = usePersistedState<number | null>(CURSOR_KEY, {
     version: CURSOR_VERSION,
     fallback: null,
@@ -104,9 +102,6 @@ export function startNetworkAlerts(notifications: { publishNetworkAlerts: (items
     lastTick,
     fetchEvents: (after) => NetauditService.alerts(after),
     cursor,
-    publish: (items) => {
-      notifications.publishNetworkAlerts(items)
-      browser.announce(items)
-    },
+    publish: (items) => notifications.publishNetworkAlerts(items),
   })
 }
