@@ -69,4 +69,25 @@ describe('NetworkOverviewPanel', () => {
     const advanced = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } }).text()
     expect(advanced).toBe(simple)
   })
+
+  it('says a check that never ran has not looked, instead of counting days from the year 1', () => {
+    const NEVER = '0001-01-01T00:00:00Z'
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview({ presence: { last_check: NEVER }, findings: { scanned: true, scanned_at: NEVER, open: 0, serious: 0, new: 0 } }), hasAudit: true } })
+    expect(w.text()).not.toMatch(/\d{3},\d{3}/)
+    const values = w.findAll('[data-test="stat-value"]').map((v) => v.text())
+    expect(values[2]).toBe('Never')
+    expect(values[3]).toBe('–')
+    expect(w.text()).toContain('has not looked yet')
+  })
+
+  it('draws a value that is words in body type and regular weight, not as a bold figure', () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } })
+    const values = w.findAll('[data-test="stat-value"]')
+    expect(values[0]!.classes()).toContain('font-mono')
+    for (const v of [values[2]!, values[3]!]) {
+      expect(v.classes()).toContain('font-normal')
+      expect(v.classes()).not.toContain('font-mono')
+      expect(v.classes()).not.toContain('font-medium')
+    }
+  })
 })

@@ -1,5 +1,5 @@
 import { DEVICES_NONE_YET, DEVICE_ONLINE_WINDOW_MS, DEVICE_PRIVATE, DEVICE_UNNAMED } from '../../constants/netaudit'
-import { formatRelativeTime } from '../format/time'
+import { formatRelativeTime, isRecorded } from '../format/time'
 import type { DeviceFilter, DeviceListGroup, DeviceStatus, NetworkDevice, PresenceState } from '../../types/netaudit'
 import type { ChoiceOption } from '../../types/ui'
 
@@ -34,8 +34,8 @@ export function nameableDevices(devices: NetworkDevice[]): NetworkDevice[] {
 
 /** What a scan found open on a device, as one line, or '' for a device no scan has finished looking at. */
 export function portsLine(device: NetworkDevice, nowMs: number = Date.now()): string {
-  if (!device.ports_scanned_at) return ''
-  const when = `scanned ${formatRelativeTime(device.ports_scanned_at, nowMs)}`
+  if (!isRecorded(device.ports_scanned_at)) return ''
+  const when = `scanned ${formatRelativeTime(device.ports_scanned_at!, nowMs)}`
   const ports = device.open_ports ?? []
   return ports.length ? `Open ports: ${ports.join(', ')} · ${when}` : `No open ports · ${when}`
 }
@@ -50,9 +50,9 @@ export function deviceSummary(devices: NetworkDevice[]): string {
 
 /** What a scan found open on a device, as a count (Simple), or '' for a device no scan has finished looking at. */
 export function portsSummary(device: NetworkDevice, nowMs: number = Date.now()): string {
-  if (!device.ports_scanned_at) return ''
+  if (!isRecorded(device.ports_scanned_at)) return ''
   const count = device.open_ports?.length ?? 0
-  return `${count ? `${count} open ${count === 1 ? 'port' : 'ports'}` : 'No open ports'} · scanned ${formatRelativeTime(device.ports_scanned_at, nowMs)}`
+  return `${count ? `${count} open ${count === 1 ? 'port' : 'ports'}` : 'No open ports'} · scanned ${formatRelativeTime(device.ports_scanned_at!, nowMs)}`
 }
 
 /**
@@ -109,7 +109,7 @@ export function groupDevices(devices: NetworkDevice[], filter: DeviceFilter, que
 export function presenceLine(state: PresenceState, nowMs: number = Date.now()): string {
   if (!state.enabled) return 'Off.'
   if (state.problem) return `Cannot look right now: ${state.problem}`
-  if (!state.last_check) return `On. The first check runs within ${state.interval_minutes} minutes.`
+  if (!isRecorded(state.last_check)) return `On. The first check runs within ${state.interval_minutes} minutes.`
   return `On. Last checked ${formatRelativeTime(state.last_check, nowMs)}.`
 }
 

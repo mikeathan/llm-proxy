@@ -59,7 +59,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/automations/:id', name: ROUTE_NAMES.automation, component: AutomationsView, meta: AUTOMATIONS_META },
   { path: '/automations/:id/edit', name: ROUTE_NAMES.automationEdit, component: AutomationsView, meta: AUTOMATIONS_META },
 
-  { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', title: 'Network' } },
+  { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', fullWidth: true, title: 'Network' } },
   { path: '/reminders', name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },

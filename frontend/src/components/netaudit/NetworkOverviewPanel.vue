@@ -6,7 +6,7 @@ import Sparkline from "../common/display/Sparkline.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { attentionReasons, changeText, nextAction, postureHeadline, seriesOf } from "../../utils/netaudit/networkOverview"
-import { formatRelativeTime } from "../../utils/format/time"
+import { formatRelativeTime, isRecorded } from "../../utils/format/time"
 import { NETWORK_CHECK_PROBLEM, NETWORK_NO_AUDIT, NETWORK_POSTURE_UNKNOWN_NEXT, NETWORK_RECENT_NONE, NETWORK_RECENT_TITLE, NETWORK_TREND_NOTE } from "../../constants/netaudit"
 import type { NetworkOverview, NetworkPosture } from "../../types/netaudit"
 import type { NetworkTab } from "../../types/routes"
@@ -29,8 +29,8 @@ const tag = computed(() => POSTURE_TAG[props.overview.posture])
 const next = computed(() => nextAction(props.overview, props.hasAudit))
 const devicesTrend = computed(() => seriesOf(props.overview.series, (d) => d.devices))
 const findingsTrend = computed(() => seriesOf(props.overview.series.filter((d) => d.audited), (d) => d.findings))
-const lastAudit = computed(() => (props.overview.findings.scanned && props.overview.findings.scanned_at ? formatRelativeTime(props.overview.findings.scanned_at) : "Never"))
-const lastCheck = computed(() => (props.overview.presence.last_check ? formatRelativeTime(props.overview.presence.last_check) : NO_VALUE))
+const lastAudit = computed(() => (props.overview.findings.scanned && isRecorded(props.overview.findings.scanned_at) ? formatRelativeTime(props.overview.findings.scanned_at) : "Never"))
+const lastCheck = computed(() => (isRecorded(props.overview.presence.last_check) ? formatRelativeTime(props.overview.presence.last_check) : NO_VALUE))
 const devicesCaption = computed(() => {
   const d = props.overview.devices
   return [`${d.active} seen in the last day`, d.unnamed ? `${d.unnamed} unnamed` : ""].filter(Boolean).join(" · ")
@@ -61,8 +61,8 @@ const devicesCaption = computed(() => {
       <StatCard label="Open findings" :value="hasAudit ? String(overview.findings.open) : NO_VALUE" :caption="hasAudit ? `${overview.findings.serious} serious · ${overview.findings.new} new` : NETWORK_NO_AUDIT">
         <Sparkline v-if="hasAudit" :values="findingsTrend" label="Open findings" unit="findings" state="success" />
       </StatCard>
-      <StatCard label="Last audit" :value="lastAudit" />
-      <StatCard label="New-device check" :value="lastCheck" :caption="overview.presence.last_check ? 'last look' : 'has not looked yet'" />
+      <StatCard label="Last audit" :value="lastAudit" plain />
+      <StatCard label="New-device check" :value="lastCheck" plain :caption="isRecorded(overview.presence.last_check) ? 'last look' : 'has not looked yet'" />
     </div>
     <p class="m-0 text-[length:var(--text-small)] text-muted">{{ NETWORK_TREND_NOTE }}</p>
 

@@ -26,6 +26,15 @@ describe('presenceLine', () => {
   it('says when it last looked', () => expect(presenceLine(presence({ last_check: '2026-10-30T11:58:00Z' }), NOW)).toBe('On. Last checked 2 minutes ago.'))
 })
 
+describe('a time the server never recorded', () => {
+  const NEVER = '0001-01-01T00:00:00Z'
+  it('is not shown as thousands of days ago', () => {
+    expect(presenceLine(presence({ last_check: NEVER }), NOW)).toContain('first check runs within')
+    expect(portsLine(device({ ports_scanned_at: NEVER }), NOW)).toBe('')
+    expect(portsSummary(device({ ports_scanned_at: NEVER }), NOW)).toBe('')
+  })
+})
+
 describe('intervalOptions', () => {
   it('offers exactly what the server allows', () => expect(intervalOptions(presence()).map((o) => o.value)).toEqual(['5', '10', '15', '30']))
 })
