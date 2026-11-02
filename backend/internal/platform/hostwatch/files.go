@@ -177,6 +177,11 @@ func DefaultFileSpecs(home, executable string) []FileSpec {
 		}},
 		{ID: "ssh_server_config", Paths: []string{"/etc/ssh/sshd_config", "/etc/ssh/sshd_config.d"}},
 		{ID: "sudoers", Paths: []string{"/etc/sudoers", "/etc/sudoers.d"}},
+		// Where this computer sends its name lookups. A changed list is how traffic is quietly redirected. The systemd file lists
+		// the real servers behind the 127.0.0.53 stub that /etc/resolv.conf names.
+		{ID: "dns_settings", Paths: []string{
+			"/etc/resolv.conf", "/run/systemd/resolve/resolv.conf", "/etc/systemd/resolved.conf", "/etc/systemd/resolved.conf.d",
+		}},
 		keys,
 	}
 	if executable != "" {
@@ -187,13 +192,17 @@ func DefaultFileSpecs(home, executable string) []FileSpec {
 
 // Source is what the host watch reads: this computer's open ports and its watched files.
 type Source struct {
-	Proc   Proc
-	Watch  Files
-	Harden Hardener
+	Proc    Proc
+	Watch   Files
+	Harden  Hardener
+	Patcher Patcher
 }
 
 // Hardening returns the few weak settings this computer may have.
 func (s Source) Hardening() Hardening { return s.Harden.Check() }
+
+// Patches returns whether this computer is behind on updates or waiting for a restart.
+func (s Source) Patches() Patches { return s.Patcher.Check() }
 
 // Listeners returns the ports open to other computers.
 func (s Source) Listeners() ([]Listener, error) { return s.Proc.Listeners() }

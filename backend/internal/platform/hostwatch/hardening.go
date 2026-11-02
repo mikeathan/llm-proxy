@@ -15,6 +15,9 @@ type Hardener struct {
 	// SSHDir is "/etc/ssh" and SysDir "/proc/sys" on a real computer.
 	SSHDir string
 	SysDir string
+	// AptDir is "/etc/apt/apt.conf.d" and UfwConf "/etc/ufw/ufw.conf". An empty path leaves that setting out.
+	AptDir  string
+	UfwConf string
 }
 
 // Hardening is what one look found. A bool is true only when the setting was read and is the weak one; a setting that could
@@ -30,6 +33,11 @@ type Hardening struct {
 	// RPFilterOff is true when reverse-path filtering is 0 for both "all" and "default". The value 2 (loose) is Ubuntu's own
 	// default.
 	RPFilterOff bool
+	// AutoUpdatesOff is true on a computer that uses apt when nothing there installs updates by itself, and FirewallOff when
+	// ufw is installed and switched off. Another firewall (nftables, firewalld) is not looked for, so its absence is not a
+	// finding on its own.
+	AutoUpdatesOff bool
+	FirewallOff    bool
 	// Unreadable counts the files that exist but this account may not read.
 	Unreadable int
 }
@@ -50,6 +58,7 @@ func (h Hardener) Check() Hardening {
 	if h.SysDir != "" {
 		out.RPFilterOff = h.rpFilterOff()
 	}
+	h.protection(&out)
 	return out
 }
 

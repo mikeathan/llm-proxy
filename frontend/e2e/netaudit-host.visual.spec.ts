@@ -28,6 +28,16 @@ const report = {
       evidence: 'A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed). The audit does not show what changed',
       fix: 'Check sudoers.', fix_state: 'still_present', fix_marked_at: '2026-10-31T09:00:00Z', guide,
     }),
+    finding({
+      key: 'this-computer||0|host_updates_pending', device: 'this-computer', port: 0, proto: '', service: '', check: 'host_updates_pending', check_title: 'Updates are waiting on this computer', severity: 'low', new: true,
+      evidence: '12 updates are waiting to be installed on this computer. 29 more security updates are offered only with Ubuntu Pro',
+      fix: 'Install the waiting updates.', guide,
+    }),
+    finding({
+      key: 'this-computer||0|host_reboot_pending', device: 'this-computer', port: 0, proto: '', service: '', check: 'host_reboot_pending', check_title: 'This computer is waiting for a restart', severity: 'medium', new: true,
+      evidence: 'An update that needs a restart was installed on this computer, and the restart has been waiting for 15 days. Until then the old version of that software keeps running',
+      fix: 'Restart this computer.', guide,
+    }),
   ],
 }
 const automation = {

@@ -110,8 +110,12 @@ export function findingTitle(f: Titled): string {
   return isCheck(f) ? `${deviceLabel(f.device)}: ${f.evidence || CHECK_FALLBACK}` : `${describeService(f)} on ${deviceLabel(f.device)}`
 }
 
-/** Where a problem is, in one phrase: "File sharing (port 445) on 10.0.0.5". */
-export const placeSentence = (f: Titled): string => `${describeService(f)} on ${deviceLabel(f.device)}`
+/**
+ * Where a problem is, in one phrase: "File sharing (port 445) on 10.0.0.5". A finding with no port (the server sends 0 for the
+ * ones about this computer's own settings, updates and files) is just the place: "This computer".
+ */
+export const placeSentence = (f: Titled): string =>
+  f.port ? `${describeService(f)} on ${deviceLabel(f.device)}` : deviceLabel(f.device)
 
 /**
  * A port the scan could not say anything about: its name is only the usual one for the number (or tcpwrapped, or

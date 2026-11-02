@@ -15,11 +15,13 @@ type fakeHost struct {
 	lerr      error
 	files     []hostwatch.FileState
 	hard      hostwatch.Hardening
+	patches   hostwatch.Patches
 }
 
 func (f *fakeHost) Listeners() ([]hostwatch.Listener, error) { return f.listeners, f.lerr }
 func (f *fakeHost) Files() []hostwatch.FileState             { return f.files }
 func (f *fakeHost) Hardening() hostwatch.Hardening           { return f.hard }
+func (f *fakeHost) Patches() hostwatch.Patches               { return f.patches }
 
 type memHostStore struct {
 	w      models.HostWatch
@@ -207,13 +209,14 @@ func TestHostFileTable_CoversEverythingTheReaderWatchesAndNothingElse(t *testing
 }
 
 func TestHostWatch_WeakSettingsAreFindingsFromTheFirstLookWithFixedWords(t *testing.T) {
-	src := &fakeHost{hard: hostwatch.Hardening{SSHFound: true, PasswordLogin: true, RootLogin: true, EmptyPasswords: true, RPFilterOff: true}}
+	src := &fakeHost{hard: hostwatch.Hardening{SSHFound: true, PasswordLogin: true, RootLogin: true, EmptyPasswords: true, RPFilterOff: true, AutoUpdatesOff: true, FirewallOff: true}}
 	look, err := newWatcher(src, &memHostStore{}).Look()
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
 		CheckHostSSHPasswordLogin: SeverityLow, CheckHostSSHRootLogin: SeverityHigh, CheckHostSSHEmptyPasswords: SeverityHigh, CheckHostRPFilterOff: SeverityMedium,
+		CheckHostAutoUpdatesOff: SeverityLow, CheckHostFirewallOff: SeverityLow,
 	}
 	if len(look.Findings) != len(want) {
 		t.Fatalf("got %+v", look.Findings)

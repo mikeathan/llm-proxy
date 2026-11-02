@@ -34,6 +34,8 @@ var hostFiles = map[string]hostFileInfo{
 		"Compare /etc/ssh/sshd_config and the files in /etc/ssh/sshd_config.d with what you expect. If you changed them, accept the finding; if not, restore them and find out who did.", SeverityMedium},
 	"sudoers": {"Administrator rights changed on this computer",
 		"Check /etc/sudoers and /etc/sudoers.d (visudo -c checks the syntax). If you changed them, accept the finding; if not, remove what you do not recognise and find out how it was added.", SeverityHigh},
+	"dns_settings": {"DNS settings changed on this computer",
+		"Look at /etc/resolv.conf and, on Ubuntu, resolvectl status: they show which servers answer this computer's name lookups. Network changes (a new router, a VPN, a DHCP lease) change them legitimately; if you did not expect it, find out who changed them. Whoever answers name lookups decides where every name leads.", SeverityMedium},
 	"authorized_keys": {"SSH login keys changed on this computer",
 		"Read the authorized_keys file of each account and remove any key you do not recognise. If you added a key, accept the finding; if not, treat the account as possibly taken over and change its credentials.", SeverityHigh},
 	"program": {"The audit program's own file changed on this computer",
@@ -60,6 +62,8 @@ const (
 	CheckHostSSHRootLogin      = "host_ssh_root_login"
 	CheckHostSSHEmptyPasswords = "host_ssh_empty_passwords"
 	CheckHostRPFilterOff       = "host_rp_filter_off"
+	CheckHostAutoUpdatesOff    = "host_auto_updates_off"
+	CheckHostFirewallOff       = "host_firewall_off"
 )
 
 // hostSetting is the fixed wording of one weak setting.
@@ -78,6 +82,12 @@ var hostSettings = map[string]hostSetting{
 	CheckHostRPFilterOff: {"Spoofed-address filtering is off on this computer",
 		"The kernel's reverse-path filter is switched off for every interface, so packets with a forged sender address are not dropped",
 		"Set net.ipv4.conf.all.rp_filter and net.ipv4.conf.default.rp_filter to 2 (loose, the Ubuntu default) or 1 in a file under /etc/sysctl.d/ and run sysctl --system. Docker and VPNs work with 2.", SeverityMedium},
+	CheckHostAutoUpdatesOff: {"This computer does not install security updates by itself",
+		"Nothing on this computer is set to install updates automatically, so a fix for a known hole waits until someone installs it by hand",
+		"Install the unattended-upgrades package and switch it on (sudo dpkg-reconfigure -plow unattended-upgrades). It installs security updates only and can leave restarts to you.", SeverityLow},
+	CheckHostFirewallOff: {"The firewall on this computer is switched off",
+		"This computer's own firewall (ufw) is installed but switched off, so only the router stands between its open ports and the network. Ports that Docker publishes bypass ufw even when it is on",
+		"Allow what you use first (sudo ufw allow 22/tcp for SSH, plus the service ports you need), then switch it on with sudo ufw enable. Keep a session open while you test.", SeverityLow},
 }
 
 var hostSettingGuides = map[string]FixGuide{
@@ -120,6 +130,27 @@ var hostSettingGuides = map[string]FixGuide{
 		Risk:     "Strict filtering drops traffic on setups with more than one route to the same network.",
 		Undo:     "Delete the file you added and run sudo sysctl --system, or set the values back to 0.",
 	},
+	CheckHostAutoUpdatesOff: {
+		Steps: []string{
+			"Install the unattended-upgrades package and switch it on. By default it installs only security updates.",
+			"It does not restart the computer by itself unless you ask it to; the 'waiting for a restart' finding still tells you when one is due.",
+			"If you install updates by hand on a schedule and would rather keep it that way, accept the finding with a note.",
+		},
+		Commands: []GuideCommand{{platformLinux, "sudo apt install unattended-upgrades\nsudo dpkg-reconfigure -plow unattended-upgrades\ncat /etc/apt/apt.conf.d/20auto-upgrades"}},
+		Risk:     "An update can change how a service behaves. Security-only updates rarely do, but a service may need a restart afterwards.",
+		Undo:     "Set APT::Periodic::Unattended-Upgrade to \"0\" in /etc/apt/apt.conf.d/20auto-upgrades.",
+	},
+	CheckHostFirewallOff: {
+		Steps: []string{
+			"List what listens on this computer, and decide which of those ports should be reachable from the network.",
+			"Allow SSH first if you use it, then each service port you need, and only then switch the firewall on. Switching it on without an SSH rule locks you out over SSH.",
+			"Docker publishes its ports through its own rules, which ufw does not control. A published port stays reachable even with ufw on; bind it to 127.0.0.1 in the container settings if it should not be.",
+			"If the router already blocks everything you do not forward and you accept that, accept the finding with a note.",
+		},
+		Commands: []GuideCommand{{platformLinux, "sudo ss -ltn\nsudo ufw allow 22/tcp\nsudo ufw enable\nsudo ufw status verbose"}},
+		Risk:     "Anything you did not allow stops being reachable from other computers, and a missing SSH rule locks you out over SSH.",
+		Undo:     "sudo ufw disable",
+	},
 }
 
 func init() {
@@ -143,6 +174,8 @@ func hardeningFindings(h hostwatch.Hardening) []Finding {
 	add(h.RootLogin, CheckHostSSHRootLogin)
 	add(h.EmptyPasswords, CheckHostSSHEmptyPasswords)
 	add(h.RPFilterOff, CheckHostRPFilterOff)
+	add(h.AutoUpdatesOff, CheckHostAutoUpdatesOff)
+	add(h.FirewallOff, CheckHostFirewallOff)
 	return out
 }
 
@@ -158,6 +191,7 @@ type HostSource interface {
 	Listeners() ([]hostwatch.Listener, error)
 	Files() []hostwatch.FileState
 	Hardening() hostwatch.Hardening
+	Patches() hostwatch.Patches
 }
 
 // HostStore keeps the first look the later ones are compared with: *persistence.HostWatchStore.
@@ -203,6 +237,9 @@ func (w *HostWatcher) Look() (HostLook, error) {
 	hardening := w.src.Hardening()
 	look.Unreadable += hardening.Unreadable
 	look.Findings = append(look.Findings, hardeningFindings(hardening)...)
+	patches := w.src.Patches()
+	look.Unreadable += patches.Unreadable
+	look.Findings = append(look.Findings, patchFindings(patches)...)
 	if changed {
 		if err := w.store.Write(base); err != nil {
 			return HostLook{}, fmt.Errorf("failed to save the host watch baseline: %w", err)
@@ -311,6 +348,19 @@ var hostFileGuides = map[string]FixGuide{
 		},
 		Risk: "A wrong setting can lock you out of the computer over SSH.",
 		Undo: "Restore the previous file (keep a copy before editing), check it with sshd -t, and reload the SSH service.",
+	},
+	"dns_settings": {
+		Steps: []string{
+			"See which servers this computer asks for names, and compare with the ones you set (your router, or a service such as AdGuard DNS).",
+			"A DHCP lease from your router, a VPN or a new network can change the list legitimately. A server you do not recognise, or a changed list on a computer that has not moved, is the one to worry about.",
+			"If a setting was changed by something you did not do, put it back in the place that owns it (the network settings or /etc/systemd/resolved.conf.d) and find out how it was changed.",
+			acceptHint,
+		},
+		Commands: []GuideCommand{
+			{platformLinux, "resolvectl status | head -40\ncat /etc/resolv.conf\nls -l /etc/systemd/resolved.conf.d"},
+		},
+		Risk: "A wrong DNS server can make every name lookup fail, so the computer seems offline.",
+		Undo: "Put the previous servers back in the same place and run sudo systemctl restart systemd-resolved.",
 	},
 	"sudoers": {
 		Steps: []string{
