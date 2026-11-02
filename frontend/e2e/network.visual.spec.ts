@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Network → Overview: one verdict, four figures with their trend, and what changed. At both widths and in both views
+// Network → Overview: one verdict, four figures with their trend, one next step, and what changed. At both widths and in both views
 // nothing may scroll sideways; the tabs and the actions are comfortable touch targets. The screenshots are for looking at.
 const seen = new Date(Date.now() - 5 * 60_000).toISOString()
 const day = (offset: number, up: number, devices: number, findings: number) => ({
@@ -33,10 +33,9 @@ for (const view of ['simple', 'advanced'] as const) {
       await page.goto('network')
       await expect(page.getByRole('heading', { name: 'Network', level: 1 })).toBeVisible()
       await expect(page.locator('[data-test="posture"]')).toBeVisible()
-      await expect(page.locator('[data-test="browser-alerts"]')).toBeVisible()
       await expectNoSidewaysScroll(page)
       if (testInfo.project.name === 'mobile') {
-        for (const tab of await page.getByRole('link', { name: /^(Overview|Devices|Findings)$/ }).all()) {
+        for (const tab of await page.getByRole('link', { name: /^(Overview|Devices|Findings|Audits|Settings)$/ }).all()) {
           expect((await tab.boundingBox())?.height).toBeGreaterThanOrEqual(44)
         }
       }

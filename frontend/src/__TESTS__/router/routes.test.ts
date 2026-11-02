@@ -9,7 +9,9 @@ import {
   toAutomationRecordings,
   toAutomations,
   toModels,
+  toNetwork,
   toOverview,
+  toRequirementFix,
   toSettings,
   toWorkspace,
   toWorkspaceAssistant,
@@ -41,6 +43,11 @@ describe('typed route builders', () => {
     ['models', toModels(), '/models'],
     ['settings', toSettings(), '/settings'],
     ['settings section', toSettings('mcp'), '/settings/mcp'],
+    ['network overview', toNetwork(), '/network'],
+    ['network audits', toNetwork('audits'), '/network/audits'],
+    ['network settings with an anchor', toNetwork('settings', '#scan-time'), '/network/settings#scan-time'],
+    ['a fix the server sends to network-scan', toRequirementFix('network-scan'), '/network/settings'],
+    ['a fix in another settings section', toRequirementFix('guardrails'), '/settings/guardrails'],
   ])('%s', (_label, to, path) => {
     expect(pathOf(to)).toBe(path)
   })

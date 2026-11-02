@@ -4,7 +4,7 @@ import Callout from "../common/feedback/Callout.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { SCAN_TIME_ANCHOR } from "../../constants/netaudit"
-import { toSettings } from "../../router/routes"
+import { toNetwork } from "../../router/routes"
 import { unscannedSentence } from "../../utils/netaudit/friendly"
 
 // A scan that ran out of time on a device knows nothing about its ports, which is not the same as none being open.
@@ -21,7 +21,7 @@ const scanAgain = () => emit("rescan", props.devices.length === 1 ? props.device
 
 function allowMoreTime() {
   view.set("advanced")
-  void router.push({ ...toSettings("network-scan"), hash: `#${SCAN_TIME_ANCHOR}` })
+  void router.push(toNetwork("settings", `#${SCAN_TIME_ANCHOR}`))
 }
 </script>
 

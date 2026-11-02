@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings, VulnDataStatus } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), importVulnData: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn(), devices: vi.fn(), presence: vi.fn(), ipv6Discovery: vi.fn(), decoys: vi.fn() }))
@@ -20,7 +20,10 @@ import VulnDataCard from '../../../components/netaudit/VulnDataCard.vue'
 import ScanSettingsFields from '../../../components/netaudit/ScanSettingsFields.vue'
 import FindingsReport from '../../../components/netaudit/FindingsReport.vue'
 import ReadinessBanner from '../../../components/netaudit/ReadinessBanner.vue'
-import NetworkScanSettings from '../../../components/settings/NetworkScanSettings.vue'
+import ScanScopeSettings from '../../../components/netaudit/ScanScopeSettings.vue'
+import ScanLimitsSettings from '../../../components/netaudit/ScanLimitsSettings.vue'
+import { useScanScope } from '../../../composables/netaudit/useScanScope'
+import AuditsPanel from '../../../components/netaudit/AuditsPanel.vue'
 import ScanSummary from '../../../components/netaudit/ScanSummary.vue'
 import AuditSetupCheck from '../../../components/netaudit/AuditSetupCheck.vue'
 import FailureExplanation from '../../../components/netaudit/FailureExplanation.vue'
@@ -142,7 +145,7 @@ describe('FindingsReport', () => {
     const w = await mountReport()
     await w.findAll('button').find((b) => b.text() === 'Allow more time')!.trigger('click')
     expect(useNetauditViewMode().mode.value).toBe('advanced')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' }, hash: '#scan-time' })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' }, hash: '#scan-time' })
   })
 
   it('reads the report again when a run starts or finishes, in either view', async () => {
@@ -233,6 +236,19 @@ describe('FindingsReport with checks', () => {
     expect(w.text()).not.toContain('smb_v1')
   })
 
+  it('Advanced only adds: every problem Simple lists is in Advanced, each with a way to accept it', async () => {
+    const simple = await mountChecks()
+    const simpleKeys = simple.findAll('[data-test="problem"]').map((li) => li.attributes('data-key')).sort()
+    const simpleAccepts = simple.findAll('[data-test="problem"]').map((li) => li.findAll('button').some((b) => b.text() === 'This is fine'))
+    expect(simpleKeys).toEqual(['redis', 'smb'])
+    expect(simpleAccepts).toEqual([true, true])
+    useNetauditViewMode().set('advanced')
+    const advanced = await mountChecks()
+    const advancedKeys = advanced.findAll('[data-test="problem"]').map((li) => li.attributes('data-key')).sort()
+    expect(advancedKeys).toEqual(simpleKeys)
+    expect(advanced.findAll('[data-test="problem"]').every((li) => li.findAll('button').some((b) => b.text() === 'Accept…'))).toBe(true)
+  })
+
   it('Simple: a problem stands out by colour and tag, and stays listed after the scan it was found in', async () => {
     const old: Report = {
       ...withChecks,
@@ -250,8 +266,12 @@ describe('FindingsReport with checks', () => {
     expect(w.get('[data-test="problems"]').text()).toBe('2 problems found by checks')
     const rows = w.findAll('article[data-severity]')
     expect(rows.map((r) => r.attributes('data-severity'))).toEqual(['high', 'low'])
-    expect(rows[0]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
-    expect(rows[1]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-running']))
+    // The card is the same neutral surface whatever the severity: the tag inside says it, in colour and in words.
+    for (const r of rows) {
+      expect(r.classes()).toEqual(expect.arrayContaining(['border', 'border-hairline', 'bg-surface']))
+      expect(r.classes().some((c) => c.startsWith('border-l') || c.startsWith('border-state'))).toBe(false)
+    }
+    expect(rows[0]!.text()).toContain('Problem · high')
     expect(rows[1]!.text()).toContain('Problem · low')
     expect(rows[1]!.get('[data-test="problem-title"]').text()).toContain('The certificate expires on 2026-12-01')
   })
@@ -261,7 +281,7 @@ describe('FindingsReport with checks', () => {
     const w = await mountChecks()
     expect(w.findAll('[data-test="problem"]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
     const group = w.get('article[data-check="redis_no_auth"]')
-    expect(group.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
+    expect(group.classes().some((c) => c.startsWith('border-l') || c.startsWith('border-state'))).toBe(false)
     expect(group.text()).toContain('Problem · critical')
     // The problems are listed once, in the Problems block; the filter shows no device list under them.
     expect(w.findAll('[data-test="device"]')).toHaveLength(0)
@@ -846,7 +866,7 @@ describe('ReadinessBanner vulnerability notice', () => {
     expect(w.text()).toContain('Known-vulnerability data is not downloaded')
     expect(w.get('[data-tone]').attributes('data-tone')).toBe('info')
     await w.findAll('button').find((b) => b.text() === 'Open settings')!.trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' } })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' } })
   })
 
   it('does not link to the page it is already on', async () => {
@@ -945,7 +965,7 @@ describe('ReadinessBanner', () => {
     expect(w.text()).toContain('Choose which network to look at')
     expect(w.text()).toContain('brew install nmap')
     await w.findAll('button').find((b) => b.text() === 'Open settings')!.trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' } })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' } })
   })
 
   it('does not link to the page it is already on', async () => {
@@ -973,22 +993,14 @@ describe('ReadinessBanner', () => {
   })
 })
 
-describe('NetworkScanSettings', () => {
-  it('has the vulnerability data card under the allowed networks', async () => {
-    service.scope.mockResolvedValue(emptyScope)
-    const w = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(w.text()).toContain('Vulnerability data')
-    expect(w.text()).toContain('Not downloaded')
-  })
-
+describe('ScanScopeSettings', () => {
   it('turns scanning on with one button in the Simple view', async () => {
     service.scope.mockResolvedValue(emptyScope)
     service.updateScope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }], suggestions: [lan] })
-    const w = mount(NetworkScanSettings)
+    const w = mount(ScanScopeSettings)
     await flushPromises()
     expect(w.text()).toContain('Scanning is off')
-    expect(w.text()).not.toContain('Allow scans without file confinement')
+    expect(w.text()).not.toContain('Time allowed per device')
     await w.findAll('button').find((b) => b.text() === 'Use my network')!.trigger('click')
     await flushPromises()
     expect(service.updateScope).toHaveBeenCalledWith({ entries: ['192.168.1.0/24'] })
@@ -999,9 +1011,8 @@ describe('NetworkScanSettings', () => {
     service.scope.mockResolvedValue(emptyScope)
     service.updateScope.mockRejectedValue(new Error('8.8.8.8 is a public address'))
     useNetauditViewMode().set('advanced')
-    const w = mount(NetworkScanSettings)
+    const w = mount(ScanScopeSettings)
     await flushPromises()
-    expect(w.text()).toContain('Allow scans without file confinement')
     await w.get('input[type="text"]').setValue('8.8.8.8')
     await w.get('form').trigger('submit')
     await flushPromises()
@@ -1009,9 +1020,67 @@ describe('NetworkScanSettings', () => {
     expect(w.get('[role="alert"]').text()).toContain('public address')
   })
 
+  it('says why the networks could not be read', async () => {
+    service.scope.mockRejectedValue(new Error('down'))
+    const w = mount(ScanScopeSettings)
+    await flushPromises()
+    expect(w.text()).toContain('down')
+  })
+})
+
+describe('ScanLimitsSettings', () => {
+  // A wrapper left mounted by an earlier test would also react when the view mode changes, and scroll too.
+  enableAutoUnmount(afterEach)
+  const load = async () => {
+    service.scope.mockResolvedValue(emptyScope)
+    await useScanScope().load()
+  }
+
+  it('draws nothing in Simple: the limits are Advanced only', async () => {
+    await load()
+    const w = mount(ScanLimitsSettings)
+    await flushPromises()
+    expect(w.find('[data-test="scan-limits"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('Time allowed per device')
+    expect(w.text()).not.toContain('Allow scans without file confinement')
+  })
+
+  it('offers the time allowed per device and the confinement switch in Advanced, and saves a change at once', async () => {
+    service.updateScope.mockResolvedValue({ ...emptyScope, device_timeout_minutes: 5 })
+    await load()
+    useNetauditViewMode().set('advanced')
+    const w = mount(ScanLimitsSettings)
+    await flushPromises()
+    expect(w.text()).toContain('Time allowed per device')
+    expect(w.text()).toContain('A whole scan may take up to 12 minutes')
+    expect(w.text()).toContain('Allow scans without file confinement')
+    await w.get('select[aria-label="Time allowed per device"]').setValue('5')
+    await flushPromises()
+    expect(service.updateScope).toHaveBeenCalledWith({ device_timeout_minutes: 5 })
+    expect((w.get('select[aria-label="Time allowed per device"]').element as HTMLSelectElement).value).toBe('5')
+  })
+
+  it('scrolls to the time setting when the page is opened on its anchor', async () => {
+    await load()
+    useNetauditViewMode().set('advanced')
+    routeState.hash = '#scan-time'
+    const scrolled = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrolled
+    const w = mount(ScanLimitsSettings, { attachTo: document.body })
+    await flushPromises()
+    Element.prototype.scrollIntoView = original
+    routeState.hash = ''
+    expect(scrolled).toHaveBeenCalledTimes(1)
+    expect(w.find('#scan-time').exists()).toBe(true)
+    w.unmount()
+  })
+})
+
+describe('AuditsPanel', () => {
   it('opens the ordinary new-automation form from the nightly audit playbook, once a network is allowed', async () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     await w.findAll('button').find((b) => b.text() === 'Set up a network audit')!.trigger('click')
     expect(push).toHaveBeenCalledWith({ name: expect.any(String), query: expect.objectContaining({ playbook: 'network-audit' }) })
@@ -1025,7 +1094,7 @@ describe('NetworkScanSettings', () => {
   it('shows the audit that exists instead of offering to set one up, with a way to open it', async () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
     dispatcher.listAutomations.mockResolvedValue([audit(), audit({ id: 'ws/other', name: 'other', profile: 'research' })])
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     const list = w.get('[data-test="audits"]')
     expect(list.findAll('li')).toHaveLength(1)
@@ -1042,7 +1111,7 @@ describe('NetworkScanSettings', () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
     dispatcher.listAutomations.mockResolvedValue([audit()])
     useNetauditViewMode().set('advanced')
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     await w.findAll('button').find((b) => b.text() === 'Add another audit')!.trigger('click')
     expect(push).toHaveBeenCalledWith({ name: expect.any(String), query: expect.objectContaining({ playbook: 'network-audit' }) })
@@ -1051,55 +1120,16 @@ describe('NetworkScanSettings', () => {
   it('does not offer to set up an audit before it knows whether one exists', async () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
     dispatcher.listAutomations.mockReturnValue(new Promise(() => {}))
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     expect(w.findAll('button').some((b) => b.text() === 'Set up a network audit')).toBe(false)
   })
 
   it('keeps the nightly audit button off until a network is allowed', async () => {
     service.scope.mockResolvedValue(emptyScope)
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     expect(w.findAll('button').find((b) => b.text() === 'Set up a network audit')!.attributes('disabled')).toBeDefined()
-  })
-
-  it('offers the time allowed per device in Advanced only, and saves the choice at once', async () => {
-    service.scope.mockResolvedValue(emptyScope)
-    service.updateScope.mockResolvedValue({ ...emptyScope, device_timeout_minutes: 5 })
-    const simple = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(simple.text()).not.toContain('Time allowed per device')
-    useNetauditViewMode().set('advanced')
-    const w = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(w.text()).toContain('Time allowed per device')
-    expect(w.text()).toContain('A whole scan may take up to 12 minutes')
-    await w.get('select[aria-label="Time allowed per device"]').setValue('5')
-    await flushPromises()
-    expect(service.updateScope).toHaveBeenCalledWith({ device_timeout_minutes: 5 })
-    expect((w.get('select[aria-label="Time allowed per device"]').element as HTMLSelectElement).value).toBe('5')
-  })
-
-  it('scrolls to the time setting when the page is opened on its anchor', async () => {
-    service.scope.mockResolvedValue(emptyScope)
-    useNetauditViewMode().set('advanced')
-    routeState.hash = '#scan-time'
-    const scrolled = vi.fn()
-    const original = Element.prototype.scrollIntoView
-    Element.prototype.scrollIntoView = scrolled
-    const w = mount(NetworkScanSettings, { attachTo: document.body })
-    await flushPromises()
-    Element.prototype.scrollIntoView = original
-    expect(scrolled).toHaveBeenCalledTimes(1)
-    expect(w.find('#scan-time').exists()).toBe(true)
-    w.unmount()
-  })
-
-  it('says why the networks could not be read', async () => {
-    service.scope.mockRejectedValue(new Error('down'))
-    const w = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(w.text()).toContain('down')
   })
 })
 
@@ -1193,7 +1223,7 @@ describe('FailureExplanation', () => {
     await w.findAll('button').find((b) => b.text() === 'Show details')!.trigger('click')
     expect(w.text()).toContain('operator action required')
     await w.findAll('button').find((b) => b.text() === 'Open network settings')!.trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' } })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' } })
   })
 
   it('shows a failure it does not know exactly as it came', async () => {
@@ -1215,7 +1245,7 @@ describe('ScanSummary', () => {
     expect(tags).toEqual(['Thorough scan', 'Safe checks on'])
     const link = w.get('a')
     expect(link.text()).toBe('Every allowed network')
-    expect(JSON.parse(link.attributes('data-to')!)).toMatchObject({ params: { section: 'network-scan' } })
+    expect(JSON.parse(link.attributes('data-to')!)).toMatchObject({ params: { tab: 'settings' } })
   })
 
   it('shows what was chosen: quick, checks off, the ports and each network on its own', () => {

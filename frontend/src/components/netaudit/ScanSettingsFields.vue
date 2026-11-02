@@ -8,7 +8,7 @@ import { useTargetCheck } from "../../composables/netaudit/useTargetCheck"
 import { SCAN_CHECKS_DETAILS, SCAN_CHECKS_HINT, SCAN_DEPTH_OPTIONS, SCAN_KNOWN_VULNS_DETAILS, SCAN_KNOWN_VULNS_HINT, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
 import ScanSummary from "./ScanSummary.vue"
 import { scanFromForm } from "../../utils/netaudit/scan"
-import { toSettings } from "../../router/routes"
+import { toNetwork } from "../../router/routes"
 import type { ScanDepth } from "../../types/netaudit"
 import { computed } from "vue"
 
@@ -44,7 +44,7 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
     <ToggleField v-model="checks" label="Check for common weak settings" :hint="SCAN_CHECKS_HINT" :details="SCAN_CHECKS_DETAILS" />
     <ToggleField v-model="knownVulns" label="Look for known vulnerabilities" :hint="SCAN_KNOWN_VULNS_HINT" :details="SCAN_KNOWN_VULNS_DETAILS" />
     <template v-if="advanced">
-      <FormField label="Networks to scan" hint="Leave empty to scan every network you allowed in Settings → Network scan. Or list addresses, ranges or device names, separated by commas; anything outside the allowed networks is refused when the audit runs.">
+      <FormField label="Networks to scan" hint="Leave empty to scan every network you allowed in Network → Settings. Or list addresses, ranges or device names, separated by commas; anything outside the allowed networks is refused when the audit runs.">
         <template #default="{ id, describedBy }">
           <input :id="id" v-model="targets" type="text" autocomplete="off" spellcheck="false" placeholder="every allowed network" :aria-describedby="describedBy" :class="INPUT_CLASS" />
         </template>
@@ -54,10 +54,10 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
           <li v-for="p in problems" :key="p.entry ?? p.reason" class="break-words"><span v-if="p.entry" class="font-mono">{{ p.entry }}</span><template v-if="p.entry">: </template>{{ p.reason }}</li>
         </ul>
         <template #actions>
-          <RouterLink :to="toSettings('network-scan')" class="text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline">Choose the allowed networks</RouterLink>
+          <RouterLink :to="toNetwork('settings')" class="text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline">Choose the allowed networks</RouterLink>
         </template>
       </Callout>
-      <RouterLink :to="toSettings('network-scan')" class="-mt-2 self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline">Choose the allowed networks in Settings</RouterLink>
+      <RouterLink :to="toNetwork('settings')" class="-mt-2 self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline">Choose the allowed networks</RouterLink>
       <FormField label="Ports" hint="Leave empty for the common ports, or list them, for example 22,80,8000-8100.">
         <template #default="{ id, describedBy }">
           <input :id="id" v-model="ports" type="text" autocomplete="off" spellcheck="false" placeholder="common ports" :aria-describedby="describedBy" :class="INPUT_CLASS" />

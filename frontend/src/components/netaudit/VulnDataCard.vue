@@ -13,7 +13,7 @@ import { VULN_ATTRIBUTION, VULN_DOWNLOAD_SIZE, VULN_NOT_PROOF } from "../../cons
 import { vulnProgress, vulnSources, vulnSummary } from "../../utils/netaudit/vulnData"
 import type { VulnDataAction } from "../../types/netaudit"
 
-// Settings · Network scan · Vulnerability data: whether the list of known flaws is on this computer, and the one button
+// Network · Settings · Vulnerability data: whether the list of known flaws is on this computer, and the one button
 // that fetches it. Simple is a status line and a button; Advanced adds a row per source. The download runs on the
 // server, so closing this page does not stop it and a reload shows where it is.
 const { status, error, actionError, busy, refresh, start, cancel, clear } = useVulnData()

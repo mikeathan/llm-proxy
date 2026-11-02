@@ -91,7 +91,7 @@ onMounted(() => { void findings.load(); void deepCheck.load() })
 
 <template>
   <Panel title="Latest network scan" preserve-case>
-    <div v-if="running" role="status" data-test="scan-running" class="mb-3 flex flex-wrap items-center justify-between gap-2 border-l-2 border-state-running bg-surface px-3 py-2.5">
+    <div v-if="running" role="status" data-test="scan-running" class="mb-3 flex flex-wrap items-center justify-between gap-2 border border-hairline bg-surface px-3 py-2.5">
       <span class="min-w-0 break-words text-primary"><span class="font-semibold">{{ runningText }}</span> The buttons are off until it finishes.</span>
       <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" data-test="watch-live" @click="emit('watch-live')">Watch it live</BaseButton>
     </div>

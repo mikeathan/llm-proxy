@@ -1,5 +1,6 @@
 // Network scan (plan network-audit): the shapes the /admin/api/netaudit endpoints return and take.
 import type { SettingsTab } from './admin'
+import type { NetworkTab } from './routes'
 
 /** Simple shows plain sentences and what needs a look; Advanced shows ports, versions and the full list. */
 export type NetauditViewMode = 'simple' | 'advanced'
@@ -7,9 +8,12 @@ export type NetauditViewMode = 'simple' | 'advanced'
 /** What a requirement is about; the server names them, the UI picks the wording around them. */
 export type RequirementCode = 'scope_empty' | 'host_network_off' | 'nmap_missing' | 'no_sandbox' | 'vuln_data_missing' | 'vuln_data_old'
 
+/** Where a requirement's fix lives: a Settings section, or `network-scan`, which the server still names and the Network page's own Settings tab now holds. */
+export type RequirementFixSection = SettingsTab | 'network-scan'
+
 /** The one step that meets a requirement. */
 export type RequirementFix =
-  | { kind: 'open_settings'; section: SettingsTab }
+  | { kind: 'open_settings'; section: RequirementFixSection }
   | { kind: 'copy'; text: string }
   | { kind: 'confirm'; action: string }
 
@@ -401,8 +405,16 @@ export interface IPv6DiscoveryState {
   problem?: IPv6DiscoveryProblem
 }
 
-/** Which address a device list is read by: a device with both addresses is on both tabs. */
-export type DeviceFamily = 'ipv4' | 'ipv6'
+/** Where a device sits in the list: needs a decision, was on the network lately, or was not. */
+export type DeviceStatus = 'attention' | 'online' | 'offline'
+
+/** The chips above the device list. */
+export type DeviceFilter = 'all' | 'attention' | 'online' | 'offline' | 'unnamed'
+
+export interface DeviceListGroup {
+  status: DeviceStatus
+  devices: NetworkDevice[]
+}
 
 /** What the person did to a device. */
 export type DeviceAction = 'name' | 'approve' | 'forget' | 'dismiss-suggestion' | 'confirm-gateway'
@@ -575,6 +587,12 @@ export interface NetworkOverview {
   presence: { last_check?: string; problem?: string }
   series: NetworkDay[]
   recent: NetworkChange[]
+}
+
+/** The one thing the verdict card suggests doing next, and the Network tab it happens on. */
+export interface NetworkNextAction {
+  label: string
+  tab: NetworkTab
 }
 
 /** The audit whose last result the overview counts. */

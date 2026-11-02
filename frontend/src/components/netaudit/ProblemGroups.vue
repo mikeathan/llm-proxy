@@ -8,7 +8,7 @@ import FixGuideSteps from "./FixGuideSteps.vue"
 import { placeSentence, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { flawsOf, flawSummary, nvdUrl } from "../../utils/netaudit/flaws"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS, SIMPLE_ACCEPT, VULN_NOT_PROOF } from "../../constants/netaudit"
+import { FINDING_CARD_CLASS, SIMPLE_ACCEPT, VULN_NOT_PROOF } from "../../constants/netaudit"
 import type { ProblemGroup, ScanFinding } from "../../types/netaudit"
 
 // The problems the checks found, one card per kind of problem: what it is and how to fix it written once, then every
@@ -40,7 +40,7 @@ const flawsOpen = ref<Record<string, boolean>>({})
       :key="g.check"
       :data-severity="g.severity"
       :data-check="g.check"
-      :class="['flex min-w-0 flex-col gap-2 border-l-4 px-3 py-2.5', SEVERITY_CARD_CLASS[g.severity] ?? PLAIN_CARD_CLASS]"
+      :class="['flex min-w-0 flex-col gap-2 px-3 py-2.5', FINDING_CARD_CLASS]"
     >
       <header class="flex flex-wrap items-center gap-2">
         <StatusTag :state="severityState(g.severity)" :label="`Problem · ${g.severity}`" />

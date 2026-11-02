@@ -5,7 +5,6 @@ import StatusTag from "../common/display/StatusTag.vue"
 import { formatPorts } from "../../utils/netaudit/expectations"
 import { deviceLabel, isCheck, isGuessedService, isHostDevice, isLowDetail, portCount, portLabel, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import { PLAIN_CARD_CLASS, SEVERITY_CARD_CLASS } from "../../constants/netaudit"
 import DeepCheckResult from "./DeepCheckResult.vue"
 import { cooldownLeftMs, cooldownText } from "../../utils/netaudit/deepCheck"
 import type { DeepCheck, DeviceExpectation, DeviceGroup, ScanFinding } from "../../types/netaudit"
@@ -80,7 +79,7 @@ const STATE_CLASS: Record<string, string> = {
     <DeepCheckResult v-if="deep" :check="deep" />
     <p v-if="deepRunning" role="status" class="m-0 border-t border-hairline px-3 py-2 text-[length:var(--text-small)] text-secondary" data-test="deep-running">Checking {{ group.device }} slowly. This can take a few minutes; the page stays usable.</p>
     <ul v-if="open" class="m-0 list-none p-0">
-      <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2', isCheck(f) ? `border-l-4 ${f.accepted ? PLAIN_CARD_CLASS : (SEVERITY_CARD_CLASS[f.severity] ?? PLAIN_CARD_CLASS)}` : '']">
+      <li v-for="f in rows" :key="f.key" :data-key="f.key" :class="['flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-hairline px-3 py-2']">
         <span class="w-20 flex-none font-mono text-[length:var(--text-small)] text-primary">{{ portLabel(f) }}</span>
         <span v-if="isCheck(f)" class="flex min-w-0 flex-[1_1_10rem] flex-wrap items-center gap-2 break-words text-[length:var(--text-small)] font-semibold text-primary" data-test="check">
           <StatusTag :state="f.accepted ? 'neutral' : severityState(f.severity)" :label="`Problem · ${f.severity}`" />

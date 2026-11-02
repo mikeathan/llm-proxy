@@ -46,7 +46,6 @@ const STUBS = {
   McpServers: true,
   GuardrailSettings: true,
   AppearanceSettings: true,
-  NetworkScanSettings: true,
   AgentsSettings: true,
 }
 

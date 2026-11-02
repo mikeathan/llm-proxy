@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import NetworkOverviewPanel from '../../../components/netaudit/NetworkOverviewPanel.vue'
+import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 import type { NetworkOverview } from '../../../types/netaudit'
 
 const overview = (over: Partial<NetworkOverview> = {}): NetworkOverview => ({
@@ -46,5 +47,26 @@ describe('NetworkOverviewPanel', () => {
   it('shows why the new-device check cannot look, as an alert', () => {
     const w = mount(NetworkOverviewPanel, { props: { overview: overview({ presence: { problem: 'only Linux can list devices' } }), hasAudit: true } })
     expect(w.get('[role="alert"]').text()).toContain('only Linux can list devices')
+  })
+
+  it('offers one next step on the verdict card and says where it goes', async () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview({ posture: 'attention', devices: { known: 12, unnamed: 3, new: 1, active: 9 } }), hasAudit: true } })
+    const button = w.get('[data-test="next-action"]')
+    expect(button.text()).toBe('Review devices')
+    await button.trigger('click')
+    expect(w.emitted('open-tab')).toEqual([['devices']])
+  })
+
+  it('offers nothing to do while the network is quiet', () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview({ findings: { scanned: true, open: 1, serious: 0, new: 0 } }), hasAudit: true } })
+    expect(w.find('[data-test="next-action"]').exists()).toBe(false)
+  })
+
+  it('reads the same in Simple and Advanced: the overview has one verdict and no detail to fold', () => {
+    useNetauditViewMode().set('simple')
+    const simple = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } }).text()
+    useNetauditViewMode().set('advanced')
+    const advanced = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } }).text()
+    expect(advanced).toBe(simple)
   })
 })

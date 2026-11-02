@@ -4,15 +4,19 @@ import Panel from "../common/layout/Panel.vue"
 import StatCard from "../common/display/StatCard.vue"
 import Sparkline from "../common/display/Sparkline.vue"
 import StatusTag from "../common/display/StatusTag.vue"
-import { attentionReasons, changeText, postureHeadline, seriesOf } from "../../utils/netaudit/networkOverview"
+import BaseButton from "../common/buttons/BaseButton.vue"
+import { attentionReasons, changeText, nextAction, postureHeadline, seriesOf } from "../../utils/netaudit/networkOverview"
 import { formatRelativeTime } from "../../utils/format/time"
 import { NETWORK_CHECK_PROBLEM, NETWORK_NO_AUDIT, NETWORK_POSTURE_UNKNOWN_NEXT, NETWORK_RECENT_NONE, NETWORK_RECENT_TITLE, NETWORK_TREND_NOTE } from "../../constants/netaudit"
 import type { NetworkOverview, NetworkPosture } from "../../types/netaudit"
+import type { NetworkTab } from "../../types/routes"
 import type { StatusState } from "../../types/ui"
 
 // The Network page's first screen: one verdict, four figures with their trend, and what changed lately. It only shows
 // what the server already knows, so it adds no scanning.
 const props = defineProps<{ overview: NetworkOverview; hasAudit: boolean }>()
+// The page owns navigation; this card only says where to go.
+const emit = defineEmits<{ (e: "open-tab", tab: NetworkTab): void }>()
 
 const NO_VALUE = "–"
 const POSTURE_TAG: Record<NetworkPosture, { state: StatusState; label: string }> = {
@@ -22,6 +26,7 @@ const POSTURE_TAG: Record<NetworkPosture, { state: StatusState; label: string }>
 }
 const reasons = computed(() => attentionReasons(props.overview))
 const tag = computed(() => POSTURE_TAG[props.overview.posture])
+const next = computed(() => nextAction(props.overview, props.hasAudit))
 const devicesTrend = computed(() => seriesOf(props.overview.series, (d) => d.devices))
 const findingsTrend = computed(() => seriesOf(props.overview.series.filter((d) => d.audited), (d) => d.findings))
 const lastAudit = computed(() => (props.overview.findings.scanned && props.overview.findings.scanned_at ? formatRelativeTime(props.overview.findings.scanned_at) : "Never"))
@@ -45,6 +50,7 @@ const devicesCaption = computed(() => {
         </ul>
         <p v-else-if="overview.posture === 'unknown'" class="m-0 text-muted">{{ NETWORK_POSTURE_UNKNOWN_NEXT }}</p>
         <p v-if="overview.presence.problem" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ NETWORK_CHECK_PROBLEM }}: {{ overview.presence.problem }}</p>
+        <BaseButton v-if="next" variant="primary" class-name="self-start max-sm:!h-11" data-test="next-action" @click="emit('open-tab', next.tab)">{{ next.label }}</BaseButton>
       </div>
     </Panel>
 

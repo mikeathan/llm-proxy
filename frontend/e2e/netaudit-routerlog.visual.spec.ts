@@ -15,7 +15,7 @@ const STATES = {
 async function open(page: Page, view: 'simple' | 'advanced', routerLog: object) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/router-log': routerLog } })
-  await page.goto('network/devices')
+  await page.goto('network/settings')
   await expect(page.getByRole('heading', { name: 'Router log' })).toBeVisible()
 }
 

@@ -43,7 +43,7 @@ const inventorySummary = computed(() => seenSentence(devicesIn(props.report.find
     </p>
     <ProblemGroups :groups="problemGroups" :advanced="false" @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
     <ul v-if="portsToLook.length" class="m-0 flex list-none flex-col gap-2 p-0">
-      <li v-for="f in portsToLook" :key="f.key" class="flex flex-wrap items-center justify-between gap-2 border-l-2 border-accent-info bg-surface px-3 py-2.5">
+      <li v-for="f in portsToLook" :key="f.key" class="flex flex-wrap items-center justify-between gap-2 border border-hairline bg-surface px-3 py-2.5">
         <span class="flex min-w-0 flex-col gap-1">
           <span class="block break-words text-primary">{{ lookSentence(f) }}</span>
           <span v-if="isPlainText(f)" class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-state-error">

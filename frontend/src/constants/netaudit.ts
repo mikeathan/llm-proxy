@@ -1,5 +1,5 @@
 import type { ChoiceOption } from '../types/ui'
-import type { DeviceAction, DeviceFamily, HelpSection, IPv6DiscoveryProblem, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
+import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -71,7 +71,7 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
     paragraphs: [
       'When a scan recognises a program and its version, such as OpenSSH 9.6, the audit can compare it with a list of publicly known security flaws kept on this computer. If the version is on the list, the report says the software may be affected by those flaws.',
       '"May be affected" is not proof. A version number can look old while the maker has already fixed the flaw (Linux distributions often do), and some flaws only matter in a particular setup. If you have checked, use "This is fine" and it stays quiet until a new flaw appears for that version.',
-      'The list comes from the U.S. National Vulnerability Database (NVD) and, to rank what matters first, CISA\'s Known Exploited Vulnerabilities catalog, which names flaws attackers are already using. Download it from Settings → Network scan. More than 100 MB is fetched, only when you press the button; the scan itself never uses the Internet.',
+      'The list comes from the U.S. National Vulnerability Database (NVD) and, to rank what matters first, CISA\'s Known Exploited Vulnerabilities catalog, which names flaws attackers are already using. Download it from Network → Settings. More than 100 MB is fetched, only when you press the button; the scan itself never uses the Internet.',
       'It can only look at what the scan recognised. Many routers, cameras and phones do not say which program or firmware they run, so they are not covered, and the report says how many services were looked at. Silence from this check does not mean a device is safe.',
       'Without the list, audits still run and say that the check was skipped. You can turn the check off for one audit in its settings.',
       'If this computer cannot reach the Internet, fetch the two files on another computer and pick them under "Import a file instead" (Advanced, or after a download stops). Importing asks for your passphrase again, because it replaces what every audit compares with.',
@@ -171,16 +171,10 @@ export const DEVICE_TIME_OPTIONS: ChoiceOption[] = [
 ]
 
 /**
- * How a finding's severity looks. A check stands out from the plain open ports around it: a thick coloured edge and a
- * tint (red for critical and high, amber for medium and low); open ports stay plain.
+ * How a finding card looks. Every card is the same neutral surface; severity is said by the tag inside it (its colour and its
+ * word), so a page of findings reads as a list, not as a wall of alarms.
  */
-export const SEVERITY_CARD_CLASS: Record<string, string> = {
-  critical: 'border-state-error bg-state-error/[0.10]',
-  high: 'border-state-error bg-state-error/[0.10]',
-  medium: 'border-state-running bg-state-running/[0.10]',
-  low: 'border-state-running bg-state-running/[0.10]',
-}
-export const PLAIN_CARD_CLASS = 'border-hairline bg-surface'
+export const FINDING_CARD_CLASS = 'border border-hairline bg-surface'
 
 /** The depths an audit may scan at. */
 export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
@@ -199,7 +193,7 @@ export const VULN_IMPORT_FILES: readonly { source: 'nvd' | 'kev'; name: string; 
 ]
 export const VULN_DOWNLOAD_SIZE = 'Downloading fetches more than 100 MB, only when you press the button.'
 
-/** Settings · Network scan · Devices: the words the card uses. */
+/** Network · Devices: the words the card uses. */
 export const DEVICES_TITLE = 'Devices on your network'
 export const DEVICES_LOAD_FAILED = 'The list of devices could not be read.'
 export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
@@ -210,10 +204,7 @@ export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
   'confirm-gateway': 'The router\'s address could not be confirmed.',
 }
 export const SUGGESTION_DISMISS = 'Not this'
-export const UNNAMED_SHOW = 'Name them'
-export const UNNAMED_SHOW_ALL = 'Show all devices'
 export const UNNAMED_HINT = 'A name lets the check tell you when a device you know has not been on the network for days. A phone with a private address, or a device with no IPv4 address, is not counted, because that check cannot follow it.'
-export const unnamedPrompt = (count: number) => `${count} ${count === 1 ? 'device has' : 'devices have'} no name`
 export const PRESENCE_LOAD_FAILED = 'The new-device check could not be read.'
 export const PRESENCE_SAVE_FAILED = 'The new-device check could not be changed.'
 export const PRESENCE_HINT = 'Notices a device that was not on the network before and messages you.'
@@ -231,18 +222,22 @@ export const IPV6_PROBLEMS: Record<IPv6DiscoveryProblem, string> = {
   failed: 'The message could not be sent. Check the server log, then look again.',
 }
 export const IPV6_FIX_KEEP_NOTE = 'To keep it after a restart:'
-export const DEVICES_LIST_TITLE = 'Devices'
 export const DEVICES_NONE_YET = 'none yet'
-export const FAMILIES: DeviceFamily[] = ['ipv4', 'ipv6']
-export const FAMILY_LABELS: Record<DeviceFamily, string> = { ipv4: 'IPv4', ipv6: 'IPv6' }
-export const FAMILY_TABS_LABEL = 'Address type'
-export const DEVICES_EMPTY_IPV4 = 'No device with an IPv4 address has been seen yet.'
-export const DEVICES_EMPTY_IPV6_OFF = 'No IPv6 devices listed. Turn on "Look for IPv6 devices" above to find them.'
-export const DEVICES_EMPTY_IPV6_ON = 'No IPv6 devices listed yet. The next look fills this tab.'
+/** A device counts as online when it was seen this recently. The server keeps when a device was last seen, not whether it is there now; 30 minutes is the longest gap the new-device check can be set to. */
+export const DEVICE_ONLINE_WINDOW_MS = 30 * 60 * 1000
+export const DEVICE_FILTER_LABEL = 'Show devices'
+export const DEVICE_FILTERS: readonly DeviceFilter[] = ['all', 'attention', 'online', 'offline', 'unnamed']
+export const DEVICE_FILTER_LABELS: Record<DeviceFilter, string> = { all: 'All', attention: 'Needs a look', online: 'Online', offline: 'Offline', unnamed: 'Unnamed' }
+export const DEVICE_GROUP_TITLES: Record<DeviceStatus, string> = { attention: 'Needs a look', online: 'Online', offline: 'Offline' }
+export const DEVICE_SEARCH_LABEL = 'Search devices'
+export const DEVICE_SEARCH_PLACEHOLDER = 'Search by name or address'
+export const DEVICES_NO_MATCH = 'No device matches. Clear the search or choose All.'
+export const DEVICES_CHECK_OFF = 'The new-device check is off, so Online is only as fresh as the last scan. Turn it on in Network → Settings.'
+export const deviceCount = (count: number) => `${count} ${count === 1 ? 'device' : 'devices'}`
 export const DEVICE_NAME_MAX = 40
 export const DEVICE_UNNAMED = 'Unknown device'
 export const DEVICE_PRIVATE = 'Phone or laptop (private address)'
-export const DEVICES_EMPTY = 'No devices seen yet. Turn on the check above, or run a network audit.'
+export const DEVICES_EMPTY = 'No devices seen yet. Turn on the new-device check in Network → Settings, or run a network audit.'
 export const DEVICES_BASELINE_NOTE = 'The first look is taken as the normal state: every device found then counts as approved, and only later arrivals are reported.'
 export const GATEWAY_CHANGED_TITLE = 'The router\'s hardware address changed'
 export const GATEWAY_CHANGED_BODY = 'Something else may be answering for the router, which would let it read or change the network\'s traffic. A replaced or reset router does this too. If you know why, confirm it.'
@@ -252,7 +247,7 @@ export const FORGET_CONFIRM = {
   confirmText: 'Remove',
 } as const
 
-/** Settings · Network scan · Decoy services: the words the card uses. */
+/** Network · Settings · Decoy services: the words the card uses. */
 export const DECOYS_TITLE = 'Decoy services'
 export const DECOYS_LOAD_FAILED = 'The decoy services could not be read.'
 export const DECOYS_SAVE_FAILED = 'The decoy services could not be changed.'
@@ -268,7 +263,7 @@ export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
-export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings' } as const
+export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', audits: 'Audits', settings: 'Settings' } as const
 export const NETWORK_OVERVIEW_LABEL = 'Overview'
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
@@ -282,17 +277,32 @@ export const NETWORK_POSTURE_HEADLINES = {
 } as const
 export const NETWORK_POSTURE_UNKNOWN_NEXT = 'Turn on the new-device check in Devices, or set up a network audit, and this page fills in.'
 export const NETWORK_NO_AUDIT = 'No network audit is set up, so findings are not shown.'
-export const NETWORK_SET_UP_AUDIT = 'Set up a network audit'
+export const DEVICE_SETTINGS_TITLE = 'Devices'
+export const AUDIT_HISTORY_SHOWN = 5
+export const AUDIT_HISTORY_LABEL = 'Recent runs'
+export const SETTINGS_SAVES_AT_ONCE = 'Every change saves at once.'
+export const SETTINGS_WATCHING_TITLE = 'Watching for changes'
+export const SETTINGS_EXTRAS_TITLE = 'Optional extras'
+export const ADVANCED_SETTINGS_TITLE = 'Advanced'
+export const AUDITS_NONE = 'Scan on a schedule and be told only what is new, changed or gone. This opens the new automation form with everything filled in; you can change any of it.'
+export const AUDITS_SET_UP = 'Set up a network audit'
+export const AUDITS_ADD_ANOTHER = 'Add another audit'
+export const AUDITS_ADD_ANOTHER_HINT = 'Another audit can use a different schedule, depth or ports. All audits use the networks allowed in Network → Settings.'
+export const AUDITS_FIX_FIRST = 'Fix the items at the top of the page first.'
+export const AUDITS_NEED_NETWORK = 'Scanning is off until a network is allowed.'
+export const AUDITS_OPEN_SETTINGS = 'Choose the networks in Settings'
+export const NETWORK_NEXT_DEVICES = 'Review devices'
+export const NETWORK_NEXT_FINDINGS = 'Review findings'
+export const NETWORK_NEXT_SET_UP_AUDIT = 'Set up a network audit'
+export const NETWORK_NEXT_TURN_ON_CHECK = 'Turn on the new-device check'
 export const NETWORK_CHECK_PROBLEM = 'The new-device check cannot look right now'
 export const NETWORK_RECENT_TITLE = 'What changed lately'
 export const NETWORK_RECENT_NONE = 'Nothing has changed in the last two weeks.'
 export const NETWORK_AUDITS_TITLE = 'Network audits'
-export const NETWORK_SETUP_LINK = 'Allowed networks, scan time and vulnerability data are in Settings'
 export const NETWORK_FINDINGS_NEEDS_AUDIT = 'Findings come from a network audit. Set one up and its results appear here.'
 export const NETWORK_TREND_NOTE = 'Counts only, kept for 13 months. Looking never adds scanning: these come from checks that already run.'
 export const NETWORK_POINTER_TITLE = 'This audit is part of Network'
 export const NETWORK_POINTER_BODY = 'The devices on your network, trends over time and what changed lately are on the Network page. This page runs and schedules the audit.'
-export const NETWORK_NO_AUDIT_PANEL = 'A network audit scans on a schedule and reports only what is new, changed or gone. Setting one up opens the new-automation form with everything filled in.'
 
 /** The name a device gave when asked: a hint, never the device's identity. */
 export const SUGGESTION_NEW_DEVICE = (name: string): string => `It calls itself “${name}”. Anyone can choose that, so check it is yours first.`
@@ -341,7 +351,7 @@ export const ROUTER_LOG_UNDO_COMMAND = 'sudo nft delete table ip syslogredirect'
 export const SCAN_CHECKS_HINT = 'Looks for common weak settings, read only.'
 export const SCAN_CHECKS_DETAILS = 'SMBv1, anonymous FTP, a VNC or Redis with no password, exposed NFS shares, expired certificates and a few more. They only read; nothing tries a password and nothing changes on a device.'
 export const SCAN_KNOWN_VULNS_HINT = 'Matches recognised software against publicly known flaws.'
-export const SCAN_KNOWN_VULNS_DETAILS = 'Compares the software the scan recognises with a list of publicly known flaws kept on this computer. A match means it may be affected, not that it is. The list is downloaded in Settings → Network scan; without it the audit still runs and says this check was skipped.'
+export const SCAN_KNOWN_VULNS_DETAILS = 'Compares the software the scan recognises with a list of publicly known flaws kept on this computer. A match means it may be affected, not that it is. The list is downloaded in Network → Settings; without it the audit still runs and says this check was skipped.'
 
 // Network → Devices → Internet view: the opt-in look at what the internet can reach.
 export const OUTSIDE_LOOKUP_TITLE = 'Internet view'

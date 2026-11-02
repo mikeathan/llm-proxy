@@ -5,7 +5,7 @@ import Callout from "../common/feedback/Callout.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useScanScope } from "../../composables/netaudit/useScanScope"
 import { explainFailure } from "../../utils/netaudit/explainFailure"
-import { toAutomationEdit, toSettings } from "../../router/routes"
+import { toAutomationEdit, toNetwork } from "../../router/routes"
 
 // A failed run, in plain words with the one thing to do. The original message stays one tap away, and a failure this
 // does not know is shown exactly as it came.
@@ -22,7 +22,7 @@ onMounted(() => {
 })
 
 function fix() {
-  if (explanation.value?.fix === "network-settings") void router.push(toSettings("network-scan"))
+  if (explanation.value?.fix === "network-settings") void router.push(toNetwork("settings"))
   else if (explanation.value?.fix === "edit-automation" && props.automationId) void router.push(toAutomationEdit(props.automationId))
 }
 const fixLabel = computed(() => (explanation.value?.fix === "network-settings" ? "Open network settings" : "Edit automation"))

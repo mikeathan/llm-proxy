@@ -36,6 +36,11 @@ export type Destination = 'overview' | 'workspaces' | 'automations' | 'network' 
 // current is told apart by route name (utils/navigation.ts).
 export type NavId = 'assistant' | 'workspace' | 'overview' | 'automations' | 'network' | 'reminders' | 'models' | 'activity' | 'settings'
 
+// A named set of destinations the shell folds under one heading: a sidebar group, a heading in
+// the phone's More sheet. Modules is the umbrella for self-contained feature areas; Network is
+// its first child.
+export type NavGroupId = 'modules'
+
 export interface NavItem {
   id: NavId
   label: string
@@ -46,10 +51,26 @@ export interface NavItem {
   badge: number
   /** Shown in the phone tab bar (the rest sit under More). */
   tab: boolean
+  /** The group this destination is listed under; absent for a top-level entry. */
+  group?: NavGroupId
 }
 
+export interface NavGroup {
+  id: NavGroupId
+  label: string
+  icon: string
+  items: NavItem[]
+  /** True while one of its destinations is open. */
+  current: boolean
+  /** Unread run notifications across its destinations. */
+  badge: number
+}
+
+/** One row of the shell navigation: a destination or a group of them, in display order. */
+export type NavEntry = { kind: 'item'; item: NavItem } | { kind: 'group'; group: NavGroup }
+
 // The tabs of the Network page, addressable at /network/:tab. Overview is the page without a tab.
-export const NETWORK_TABS = ['devices', 'findings'] as const
+export const NETWORK_TABS = ['devices', 'findings', 'audits', 'settings'] as const
 export type NetworkTab = (typeof NETWORK_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the
