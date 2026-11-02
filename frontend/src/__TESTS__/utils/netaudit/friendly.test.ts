@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, portLabel, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence } from '../../../utils/netaudit/friendly'
+import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, portLabel, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence, placeSentence } from '../../../utils/netaudit/friendly'
 
 describe('friendly wording', () => {
   it('says what a port is usually for, then falls back to the service, then the number', () => {
@@ -83,5 +83,15 @@ describe('the computer the program runs on', () => {
   it('reads as a sentence in a finding title', () => {
     const f = { device: 'this-computer', check: 'new_listener', evidence: 'Something is listening' }
     expect(findingTitle(f)).toBe('This computer: Something is listening')
+  })
+})
+
+describe('placeSentence', () => {
+  it('names a port and the device it is on', () => {
+    expect(placeSentence({ device: '192.0.2.10', port: 22, service: 'ssh' })).toBe('Remote login (port 22) on 192.0.2.10')
+  })
+  it('names only the computer for a finding that has no port (the server sends port 0)', () => {
+    expect(placeSentence({ device: 'this-computer', port: 0, service: '' })).toBe('This computer')
+    expect(placeSentence({ device: 'this-computer', service: '' })).toBe('This computer')
   })
 })

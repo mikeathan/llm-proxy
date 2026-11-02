@@ -173,9 +173,10 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 	home, _ := os.UserHomeDir() // an unknown home only leaves the account's own key file out
 	exe, _ := os.Executable()
 	return hostwatch.Source{
-		Proc:   hostwatch.Proc{Root: "/proc"},
-		Watch:  hostwatch.Files{Specs: hostwatch.DefaultFileSpecs(home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
-		Harden: hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys"},
+		Proc:    hostwatch.Proc{Root: "/proc"},
+		Watch:   hostwatch.Files{Specs: hostwatch.DefaultFileSpecs(home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
+		Harden:  hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf"},
+		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available"},
 	}
 }
 
