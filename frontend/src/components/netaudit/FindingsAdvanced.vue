@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
+import BaseButton from "../common/buttons/BaseButton.vue"
+import CollapsibleCard from "../common/layout/CollapsibleCard.vue"
 import DeviceFindings from "./DeviceFindings.vue"
 import ProblemGroups from "./ProblemGroups.vue"
 import { describePort, deviceLabel, isCheck } from "../../utils/netaudit/friendly"
@@ -30,8 +32,11 @@ const filter = ref<FindingFilter>(allProblems.value.length ? "problems" : "all")
 // The stored deep results can arrive after the report; until the reader picks a part, the report moves to Problems when they do.
 let picked = false
 watch(() => allProblems.value.length, (n) => { if (n && !picked && filter.value === "all") filter.value = "problems" })
-// A device the reader opened or folded by hand; every other device is open only when something there needs a look.
+// A device the reader opened or folded by hand; every other device is open, so nothing is hidden until it is folded.
 const toggled = ref<Record<string, boolean>>({})
+// Collapse all / Expand all: `n` changes on each press so the problem cards fold too.
+const fold = ref({ all: false, n: 0 })
+const foldAll = (all: boolean) => { fold.value = { all, n: fold.value.n + 1 }; toggled.value = Object.fromEntries([...groups.value, ...resolvedGroups.value].map((g) => [g.device, !all])) }
 
 // One row of pills, each a part of the report with its count, so a long report is read one part at a time. Problems come
 // first and are what opens when there are any; "Devices" is every device with its ports.
@@ -80,13 +85,10 @@ const resolvedGroups = computed(() => groupByDevice(props.summary.resolved))
 const showDevices = computed(() => filter.value !== "resolved" && filter.value !== "problems")
 
 const setFilter = (value: string) => { picked = true; filter.value = value as FindingFilter }
-// Something needs a look on a device when a port is new or changed (never on the first scan, where all are the baseline), or it has an unaccepted problem.
-const needsLook = (device: string) =>
-  allProblems.value.some((f) => f.device === device) || (!props.summary.baseline && [...props.summary.added, ...props.summary.changed].some((f) => f.device === device))
 const expectedOf = (device: string) => props.expectations.find((e) => e.device === device)
 const deepOf = (device: string) => props.deepChecks.find((c) => c.device === device)
 const problemsOn = (device: string) => allProblems.value.filter((f) => f.device === device).length
-const isOpen = (device: string) => toggled.value[device] ?? (filter.value !== "all" || needsLook(device))
+const isOpen = (device: string) => toggled.value[device] ?? true
 const toggle = (device: string) => { toggled.value = { ...toggled.value, [device]: !isOpen(device) } }
 </script>
 
@@ -98,10 +100,16 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
       This is the first scan. What it found is saved as the baseline; from the next scan only changes are marked as new.
     </p>
 
-    <SegmentedControl :model-value="filter" :options="chipOptions" label="Show part of the report" touch @update:model-value="setFilter" />
+    <div class="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <SegmentedControl class="min-w-0 flex-1" :model-value="filter" :options="chipOptions" label="Show part of the report" variant="tabs" @update:model-value="setFilter" />
+      <span class="flex flex-none gap-1.5 max-sm:w-full max-sm:justify-end">
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="collapse-all" @click="foldAll(true)">Collapse all</BaseButton>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="expand-all" @click="foldAll(false)">Expand all</BaseButton>
+      </span>
+    </div>
 
     <p v-if="filter === 'problems' && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT.problems }}</p>
-    <ProblemGroups :groups="problemGroups" advanced @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
+    <ProblemGroups :groups="problemGroups" :fold="fold" advanced @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
 
     <template v-if="showDevices">
       <p v-if="!groups.length && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT[filter] ?? "Nothing to show here." }}</p>
@@ -129,10 +137,10 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
 
     <template v-else-if="filter === 'resolved'">
       <p v-if="!resolvedGroups.length" class="m-0 text-muted">Nothing has gone away since the scan before.</p>
-      <section v-for="g in resolvedGroups" :key="g.device" :aria-label="g.device" class="rounded-[var(--radius-md)] border border-hairline">
-        <header class="bg-surface-raised px-3 py-2 font-mono font-semibold text-primary">{{ deviceLabel(g.device) }}</header>
-        <p v-for="r in g.items" :key="`${describePort(r)}|${r.check ?? ''}`" class="m-0 border-t border-hairline px-3 py-2 font-mono text-[length:var(--text-small)] text-secondary">{{ isCheck(r) ? (r.evidence || "A check finding") : describePort(r) }} <span class="text-muted">is no longer there</span><template v-if="r.fixed_at"> <span class="text-state-success" data-test="fixed-confirmed">· fixed: you marked it on {{ formatAbsoluteTime(r.fixed_at) }} and the scan confirms it</span></template></p>
-      </section>
+      <CollapsibleCard v-for="g in resolvedGroups" :key="g.device" :label="g.device" :open="isOpen(g.device)" @update:open="toggle(g.device)">
+        <template #title><span class="font-mono text-[length:var(--text-heading)] text-primary">{{ deviceLabel(g.device) }}</span></template>
+        <p v-for="r in g.items" :key="`${describePort(r)}|${r.check ?? ''}`" class="m-0 border-t border-hairline px-4 py-2.5 text-[length:var(--text-small)] text-secondary first:border-t-0"><span class="font-mono text-primary">{{ isCheck(r) ? (r.evidence || "A check finding") : describePort(r) }}</span> <span class="text-muted">is no longer there</span><template v-if="r.fixed_at"> <span class="text-state-success" data-test="fixed-confirmed">· fixed: you marked it on {{ formatAbsoluteTime(r.fixed_at) }} and the scan confirms it</span></template></p>
+      </CollapsibleCard>
     </template>
   </div>
 </template>

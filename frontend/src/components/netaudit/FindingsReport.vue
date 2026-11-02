@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue"
-import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
@@ -90,8 +89,9 @@ onMounted(() => { void findings.load(); void deepCheck.load() })
 </script>
 
 <template>
-  <Panel title="Latest network scan" preserve-case>
-    <div v-if="running" role="status" data-test="scan-running" class="mb-3 flex flex-wrap items-center justify-between gap-2 border-l-2 border-state-running bg-surface px-3 py-2.5">
+  <section aria-label="Latest network scan" class="min-w-0">
+    <h2 class="sr-only">Latest network scan</h2>
+    <div v-if="running" role="status" data-test="scan-running" class="mb-3 flex flex-wrap items-center justify-between gap-2 border border-hairline bg-surface px-3 py-2.5">
       <span class="min-w-0 break-words text-primary"><span class="font-semibold">{{ runningText }}</span> The buttons are off until it finishes.</span>
       <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" data-test="watch-live" @click="emit('watch-live')">Watch it live</BaseButton>
     </div>
@@ -102,7 +102,7 @@ onMounted(() => { void findings.load(); void deepCheck.load() })
     <EmptyState v-else-if="!report?.scanned || !summary" title="Not scanned yet" body="The first report appears here after the automation's first scan." />
 
     <fieldset v-else :disabled="running" data-test="report-controls" class="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
-      <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="scan-meta">{{ meta }}</p>
+      <p class="m-0 text-secondary" data-test="scan-meta">{{ meta }}</p>
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
 
@@ -118,5 +118,5 @@ onMounted(() => { void findings.load(); void deepCheck.load() })
     <DeepCheckDialog :open="deepDevice !== ''" :device="deepDevice" :ports="deepPorts" :running="deepCheck.running.value !== ''" :error="deepCheck.error.value" @run="runDeep" @cancel="deepDevice = ''" />
     <ExpectedPortsDialog :open="editing !== ''" :device="editing" :ports="editingPorts" :saving="saving || running" :error="actionError" @save="saveExpected" @cancel="editing = ''" />
     <AcceptDialog :open="accepting !== null" :what="accepting ? findingTitle(accepting) : ''" :saving="saving || running" :error="actionError" @accept="accept" @cancel="accepting = null" />
-  </Panel>
+  </section>
 </template>

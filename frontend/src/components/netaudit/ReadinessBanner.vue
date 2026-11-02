@@ -10,13 +10,12 @@ import { useNetauditHelp } from "../../composables/netaudit/useNetauditHelp"
 import { useScanScope } from "../../composables/netaudit/useScanScope"
 import { useVulnData } from "../../composables/netaudit/useVulnData"
 import { REQUIREMENT_COPY, VULN_NOTICES, VULN_OLD_NOTICE } from "../../constants/netaudit"
-import { toSettings } from "../../router/routes"
-import type { SettingsTab } from "../../types/admin"
-import type { Requirement } from "../../types/netaudit"
+import { toRequirementFix } from "../../router/routes"
+import type { Requirement, RequirementFixSection } from "../../types/netaudit"
 
 // What is missing before a scan can run, each with the one step that meets it. Blocking ones are warnings; the ones
-// that only limit scans are notes. `here` is the settings section this sits on, so it does not offer a link to itself.
-const props = defineProps<{ here?: SettingsTab }>()
+// that only limit scans are notes. `here` is the fix target this sits on (the Network settings tab), so it does not offer a link to itself.
+const props = defineProps<{ here?: RequirementFixSection }>()
 
 const router = useRouter()
 const { readiness, error, refresh } = useNetauditReadiness()
@@ -64,7 +63,7 @@ onMounted(refresh)
       <p v-if="req.code === VULN_OLD_NOTICE && vuln.actionError.value" role="alert" class="m-0 mt-1 text-state-error">{{ vuln.actionError.value }}</p>
       <template #actions>
         <BaseButton v-if="canUpdateHere(req)" variant="primary" size="sm" class-name="max-sm:!h-11" :loading="vuln.busy.value" @click="vuln.start()">Update now</BaseButton>
-        <BaseButton v-if="settingsFix(req)" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="router.push(toSettings(settingsFix(req)!))">Open settings</BaseButton>
+        <BaseButton v-if="settingsFix(req)" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="router.push(toRequirementFix(settingsFix(req)!))">Open settings</BaseButton>
         <BaseButton v-if="req.fix?.kind === 'confirm'" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="confirmFix(req.fix.action)">Allow anyway</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" @click="help.show(copyOf(req).help)">Learn more</BaseButton>
       </template>

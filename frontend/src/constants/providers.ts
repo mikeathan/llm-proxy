@@ -34,6 +34,5 @@ export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   communication: "Communication",
   search: "Search",
   agents: "Agents",
-  "network-scan": "Network scan",
   "sign-in": "Sign-in & access",
 };

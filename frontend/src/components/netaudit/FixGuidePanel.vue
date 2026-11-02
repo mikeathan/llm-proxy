@@ -9,7 +9,8 @@ import type { ScanFinding } from "../../types/netaudit"
 // operator's own word that they did it. Nothing here changes a device. The guide is fixed text from the server; the app
 // only records "I've done this" and the next scan says whether it worked. A group of the same problem shows the steps
 // once above its places and passes `steps: false`, so each place keeps only its own record.
-const props = withDefaults(defineProps<{ finding: ScanFinding; advanced: boolean; steps?: boolean }>(), { steps: true })
+// `showMark` is whether the "I've done this" button is offered while nothing is recorded; a list that keeps it behind a "⋯" turns it on with the "⋯".
+const props = withDefaults(defineProps<{ finding: ScanFinding; advanced: boolean; steps?: boolean; showMark?: boolean }>(), { steps: true, showMark: true })
 const emit = defineEmits<{ (e: "mark", finding: ScanFinding): void; (e: "unmark", finding: ScanFinding): void; (e: "rescan", device: string): void }>()
 
 const markedOn = () => formatAbsoluteTime(props.finding.fix_marked_at ?? "")
@@ -19,10 +20,10 @@ const markedOn = () => formatAbsoluteTime(props.finding.fix_marked_at ?? "")
   <div v-if="finding.guide" class="flex w-full min-w-0 flex-col gap-2 font-normal" data-test="fix-guide-block">
     <FixGuideSteps v-if="steps" :guide="finding.guide" :advanced="advanced" />
 
-    <div v-if="!finding.fix_state" class="flex flex-wrap items-center gap-2">
+    <div v-if="!finding.fix_state && showMark" class="flex flex-wrap items-center gap-2">
       <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('mark', finding)">I've done this</BaseButton>
     </div>
-    <div v-else data-test="fix-state" class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)]">
+    <div v-else-if="finding.fix_state" data-test="fix-state" class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)]">
       <template v-if="finding.fix_state === 'marked'">
         <span class="text-secondary">You marked this as fixed on {{ markedOn() }}. The next scan will confirm it.</span>
       </template>

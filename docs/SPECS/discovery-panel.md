@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.23"
+version: "2.24"
 status: stable
-last_updated: 2026-10-31
+last_updated: 2026-11-02
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,25 @@ supersedes:
 
 ## Changelog
 
+- **2.24 (2026-11-02)** — **Modules group and a calmer Network page** (plan `network-modules-redesign`, owner-approved;
+  [ADR-0022](../decisions/ADR-0022-modules-is-the-navigation-group-for-feature-areas.md)). (1) Navigation gains a **Modules**
+  group, an expandable heading in the sidebar (open by default, the fold remembered, always open while a destination inside it
+  is) and a heading in the phone's More sheet; **Network** is its first destination and moves into it. The routes stay.
+  (2) The Network page has five tabs, **Overview, Devices, Findings, Audits, Settings** (`/network`, `/network/devices`,
+  `/network/findings`, `/network/audits`, `/network/settings`). **Settings → Safety → Network scan is removed** (no redirect:
+  the product is new); its content, and every switch of the Network page (new-device check, device names, IPv6, decoys, router
+  log, internet view, DNS check, weekly summary), is the Network **Settings** tab, and every link that
+  pointed at it (the readiness banner, the scan-time shortcut, the scan summary, a failed audit) points there. The server still
+  names the old section `network-scan` in a requirement's fix; the UI reads it as the Network Settings tab. **Audits** holds the
+  audit list and the one way to make another (Advanced adds **Add another audit** and the recent runs with how long each took).
+  (3) **Simple or Advanced** and **Help** sit once in the page header and mean the same on every tab; Advanced only adds in place.
+  (4) **Devices** is a search box, filter chips (All, Needs a look, Online, Offline, Unnamed, each with its count) and three
+  collapsible groups, Needs a look, Online and Offline; a device is one row (name, address, status) that opens in place, and a
+  device that needs a decision starts open and is never hidden. The IPv4/IPv6 tabs are gone: an IPv6-only device is listed by its
+  IPv6 address. "Online" means seen in the last 30 minutes (the server stores when a device was last seen, not whether it is
+  there). Groups are by status, not by device type: a device has no type or vendor on the server. (5) Findings and audit cards are
+  one neutral surface; severity is said by the tag inside, with no thick coloured edge. The overview's verdict card offers one next
+  step. The Appearance tokens are unchanged: no new colour. (6) The **Findings report** (Network → Findings and an audit automation's Results tab, one component) has one layout: a summary line, underlined parts with counts, and **Collapse all / Expand all**. Problem cards, devices and resolved groups are collapsible cards, all open until folded. A row has its name, its evidence and one aligned action column: the main button (**Accept…** / **This is fine**) and a **⋯** that opens the rest under that row, one at a time (a problem's *I've done this* and *Rescan this host*; a device's *Rescan this host*, *Set as expected* / *Edit expected* / *Remove expected* and *Deep check*). An *unchanged* port says nothing; *new*, *changed* and *accepted* carry a tag. While a scan runs the **⋯** is off with the other buttons. **Notices in this browser is removed** (2.22's opt-in browser notification, which needed the browser's permission): a network alert reaches the person through the bell and the connectors only.
 - **2.23 (2026-10-31)** — **Network · Devices: hints and naming** (plan `network-followups`). Under each device the card shows
   the ports it had open at its last completed scan ("Open ports: 22, 80 · scanned 2 days ago"; "No open ports" when a scan
   found none; nothing for a device no scan has finished). A name a device gave when asked can be rejected with **Not this**
@@ -222,8 +241,9 @@ and makes no network request outside the proxy's own origin.
 ## II. Functional Requirements
 
 ### 1. Shell and navigation
-- Eight entries in a persistent, collapsible left sidebar: **Assistant, Overview, Workspace, Automations, Reminders,
-  Models, Activity, Settings**. The collapse state persists. Assistant and Workspace open the workspace last used
+- Entries in a persistent, collapsible left sidebar: **Assistant, Overview, Workspace, Automations, Modules** (a group; Network
+  is inside it), **Reminders, Models, Activity, Settings**. The group folds (remembered through `usePersistedState`), is open while
+  a destination inside it is open, and a collapsed rail lists its destinations flat. The collapse state persists. Assistant and Workspace open the workspace last used
   (`/workspaces/<ws>/assistant`, `/workspaces/<ws>/files`), or the workspace list while none is known; the current entry
   comes from the route (an assistant route is Assistant, any other workspace route is Workspace). Run-end badges go to
   Assistant for an assistant run and otherwise to the owning destination.
@@ -231,7 +251,7 @@ and makes no network request outside the proxy's own origin.
   workspace is remembered through `usePersistedState`; one place (`useActiveWorkspace`, started from `App.vue`) keeps it
   valid: a workspace that no longer exists is forgotten, and when none is remembered the first is used.
 - Below the desktop breakpoint the sidebar is replaced by a **bottom tab bar**: Assistant, Workspace, Automations,
-  Reminders, and **More**, a sheet holding Overview, Models, Activity and Settings. It respects the safe area
+  Reminders, and **More**, a sheet holding Overview, Models, Activity and Settings, and the **Modules** heading with Network under it. It respects the safe area
   (`viewport-fit=cover`); the content is padded clear of it, and the assistant fills the space between the top strip
   and the bar so its message box stays in reach.
 - A header carries the **workspace chip** (the workspace the shell opens; a menu switches it, keeping the section on a
@@ -260,8 +280,8 @@ and makes no network request outside the proxy's own origin.
   replacing a file that has different content (a missing or empty file is simply written).
 - **Automations** — list without a workspace requirement, detail with run
   history, create/edit form, recordings.
-- **Network** — the home network as a security view: Overview, Devices, Findings (see 2.21). It reads data the audit and the
-  new-device check already keep, and adds no scanning.
+- **Network** (under **Modules**) — the home network as a security view: Overview, Devices, Findings, Audits and Settings (see
+  2.21 and 2.24). It reads data the audit and the new-device check already keep, and adds no scanning.
 - **Models** — local runtimes and remote provider catalogues.
 - **Activity** — the global run ledger; filters live in the query string so
   a filtered view is shareable, and so does the open run (`?run=<id>`), so
@@ -328,16 +348,16 @@ and makes no network request outside the proxy's own origin.
   only turn on, numbers > 0 replace); the UI shows each effective value's
   source. A shared fixture keeps the TypeScript mirror and the Go merge in
   step (SPEC-006).
-- **Network scan** (Settings → Safety → Network scan, and an automation whose agent is `security-auditor`): every screen has a
+- **Network scan** (the Network page, and an automation whose agent is `security-auditor`; the page's Settings tab holds what was Settings → Network scan): every screen has a
   **Simple** view (default; plain sentences, one decision at a time) and an **Advanced** view (ports, versions, the full
-  list, ranges, the unconfined switch), switched at its top right, remembered per person and shared by all of them, over
+  list, ranges, the unconfined switch), switched in the page header, remembered per person and shared by all of them, over
   the same data. A **Help** button on each screen opens one side panel; a warning's "Learn more" opens the right part.
   The scope saves on every action (no Save bar); the readiness banner names each missing step and its one fix.
   Accepting a finding ("This is fine") asks how long (30 days, 90 days, 1 year) and takes an optional note.
   What an audit scans (how thoroughly, whether the safe checks run, and under Advanced the networks and ports) is set in the form's "What the audit scans" panel and shown as one line on the audit's page; the server applies it, not the agent. Creating an audit is the ordinary new-automation form started from the **Network audit** playbook (the playbook library lists
   what each playbook sets up); the form and the automation page show what the computer is missing and whether the
   automation's network access cuts the scan tool off, and a failed audit run is explained in plain words with the fix, the
-  original message behind "Show details". Settings → Network scan lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** is Advanced-only. The report also shows the problems the audit's checks found (SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more): worst first in Simple, with a severity tag in Advanced, each acceptable like an open port. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
+  original message behind "Show details". Network → Audits lists the audits that already exist (name, status, schedule, last run, **Open**) instead of offering to set one up; **Add another audit** and the recent runs are Advanced-only. The report also shows the problems the audit's checks found (SMBv1, anonymous FTP, a VNC or Redis with no password, expired certificates and a few more): worst first in Simple, with a severity tag in Advanced, each acceptable like an open port. A device the scan ran out of time on is flagged with an **Allow more time** shortcut to the Advanced "Time allowed per device" setting, and the report reads itself again when a run finishes.
 
 ### 9. Sign-in
 - Sign-in is compulsory. Until a passphrase exists the admin API answers only the sign-in routes and every page is the
@@ -426,6 +446,7 @@ History mode under Vite's `base` (`/admin/`). Route names are constants in
 | `/automations/recordings` | `automation-recordings` | static segment ranks above `:id` |
 | `/automations/:id` | `automation` | |
 | `/automations/:id/edit` | `automation-edit` | |
+| `/network/:tab(devices\|findings\|audits\|settings)?` | `network` | under Modules; no tab is the Overview |
 | `/models` | `models` | |
 | `/activity` | `activity` | query: `kind`, `status`, `workspace`, `q`, `from`, `to`; keep-alive |
 | `/settings/:section?` | `settings` | `workspaceScope: 'all'` (the header chip says "All workspaces") |

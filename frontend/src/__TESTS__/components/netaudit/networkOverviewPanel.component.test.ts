@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import NetworkOverviewPanel from '../../../components/netaudit/NetworkOverviewPanel.vue'
+import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 import type { NetworkOverview } from '../../../types/netaudit'
 
 const overview = (over: Partial<NetworkOverview> = {}): NetworkOverview => ({
@@ -46,5 +47,47 @@ describe('NetworkOverviewPanel', () => {
   it('shows why the new-device check cannot look, as an alert', () => {
     const w = mount(NetworkOverviewPanel, { props: { overview: overview({ presence: { problem: 'only Linux can list devices' } }), hasAudit: true } })
     expect(w.get('[role="alert"]').text()).toContain('only Linux can list devices')
+  })
+
+  it('offers one next step on the verdict card and says where it goes', async () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview({ posture: 'attention', devices: { known: 12, unnamed: 3, new: 1, active: 9 } }), hasAudit: true } })
+    const button = w.get('[data-test="next-action"]')
+    expect(button.text()).toBe('Review devices')
+    await button.trigger('click')
+    expect(w.emitted('open-tab')).toEqual([['devices']])
+  })
+
+  it('offers nothing to do while the network is quiet', () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview({ findings: { scanned: true, open: 1, serious: 0, new: 0 } }), hasAudit: true } })
+    expect(w.find('[data-test="next-action"]').exists()).toBe(false)
+  })
+
+  it('reads the same in Simple and Advanced: the overview has one verdict and no detail to fold', () => {
+    useNetauditViewMode().set('simple')
+    const simple = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } }).text()
+    useNetauditViewMode().set('advanced')
+    const advanced = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } }).text()
+    expect(advanced).toBe(simple)
+  })
+
+  it('says a check that never ran has not looked, instead of counting days from the year 1', () => {
+    const NEVER = '0001-01-01T00:00:00Z'
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview({ presence: { last_check: NEVER }, findings: { scanned: true, scanned_at: NEVER, open: 0, serious: 0, new: 0 } }), hasAudit: true } })
+    expect(w.text()).not.toMatch(/\d{3},\d{3}/)
+    const values = w.findAll('[data-test="stat-value"]').map((v) => v.text())
+    expect(values[2]).toBe('Never')
+    expect(values[3]).toBe('–')
+    expect(w.text()).toContain('has not looked yet')
+  })
+
+  it('draws a value that is words in body type and regular weight, not as a bold figure', () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } })
+    const values = w.findAll('[data-test="stat-value"]')
+    expect(values[0]!.classes()).toContain('font-mono')
+    for (const v of [values[2]!, values[3]!]) {
+      expect(v.classes()).toContain('font-normal')
+      expect(v.classes()).not.toContain('font-mono')
+      expect(v.classes()).not.toContain('font-medium')
+    }
   })
 })

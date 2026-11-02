@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, toRef, watch } from "vue"
 import { useRoute } from "vue-router"
-import type { NavId, NavItem } from "../../types/routes"
+import type { NavEntry, NavId, NavItem } from "../../types/routes"
 import { useShellNavigation } from "../../composables/ui/useShellNavigation"
 import Icon from "../icons/Icon.vue"
 import NotificationDot from "../common/NotificationDot.vue"
@@ -15,9 +15,16 @@ const props = defineProps<{
   badges?: Partial<Record<NavId, number>>
 }>()
 
-const { items } = useShellNavigation(toRef(() => props.badges ?? {}))
+const { items, entries } = useShellNavigation(toRef(() => props.badges ?? {}))
 const tabItems = computed(() => items.value.filter((i) => i.tab))
 const moreItems = computed(() => items.value.filter((i) => !i.tab))
+// The sheet lists what the bar does not, folded the same way as the sidebar: a group is a heading over its destinations.
+const moreEntries = computed<NavEntry[]>(() =>
+  entries.value.flatMap((e): NavEntry[] => {
+    if (e.kind === 'item') return e.item.tab ? [] : [e]
+    return [{ kind: 'group', group: { ...e.group, items: e.group.items.filter((i) => !i.tab) } }]
+  }),
+)
 const moreCurrent = computed(() => moreItems.value.some((i) => i.current))
 const moreBadge = computed(() => moreItems.value.reduce((n, i) => n + i.badge, 0))
 
@@ -90,20 +97,38 @@ watch(open, async (isOpen) => {
       class="fixed inset-x-0 bottom-0 z-40 flex flex-col gap-1 rounded-t-[var(--radius-md)] bg-surface-raised p-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
       @keydown.escape="open = false"
     >
-      <RouterLink
-        v-for="item in moreItems"
-        :key="item.id"
-        :to="item.to"
-        :aria-label="itemName(item)"
-        :aria-current="item.current ? 'page' : undefined"
-        :class="['sheet-link', { 'sheet-link--current': item.current }]"
-      >
-        <span class="relative flex-none">
-          <Icon :name="item.icon" size="md" />
-          <NotificationDot v-if="item.badge" :count="item.badge" />
-        </span>
-        <span aria-hidden="true">{{ item.label }}</span>
-      </RouterLink>
+      <template v-for="entry in moreEntries" :key="entry.kind === 'item' ? entry.item.id : entry.group.id">
+        <RouterLink
+          v-if="entry.kind === 'item'"
+          :to="entry.item.to"
+          :aria-label="itemName(entry.item)"
+          :aria-current="entry.item.current ? 'page' : undefined"
+          :class="['sheet-link', { 'sheet-link--current': entry.item.current }]"
+        >
+          <span class="relative flex-none">
+            <Icon :name="entry.item.icon" size="md" />
+            <NotificationDot v-if="entry.item.badge" :count="entry.item.badge" />
+          </span>
+          <span aria-hidden="true">{{ entry.item.label }}</span>
+        </RouterLink>
+        <div v-else role="group" :aria-labelledby="`sheet-heading-${entry.group.id}`" class="flex flex-col gap-1">
+          <p :id="`sheet-heading-${entry.group.id}`" :data-test="`sheet-heading-${entry.group.id}`" class="px-3 pt-2 font-mono text-[length:var(--text-micro)] uppercase tracking-[0.08em] text-muted">{{ entry.group.label }}</p>
+          <RouterLink
+            v-for="child in entry.group.items"
+            :key="child.id"
+            :to="child.to"
+            :aria-label="itemName(child)"
+            :aria-current="child.current ? 'page' : undefined"
+            :class="['sheet-link', { 'sheet-link--current': child.current }]"
+          >
+            <span class="relative flex-none">
+              <Icon :name="child.icon" size="md" />
+              <NotificationDot v-if="child.badge" :count="child.badge" />
+            </span>
+            <span aria-hidden="true">{{ child.label }}</span>
+          </RouterLink>
+        </div>
+      </template>
     </div>
   </template>
 </template>

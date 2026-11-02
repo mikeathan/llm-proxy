@@ -14,7 +14,7 @@ import { DECOYS_CLEAR_LABEL, DECOYS_CLEAR_MESSAGE, DECOYS_CLEAR_TITLE, DECOYS_CO
 import { touchSummary } from "../../utils/netaudit/decoys"
 import { formatRelativeTime } from "../../utils/format/time"
 
-// Settings · Network scan · Decoy services: the switch, which fake services listen, and who connected to one. Simple is the
+// Network · Settings · Decoy services: the switch, which fake services listen, and who connected to one. Simple is the
 // switch and the list of who; Advanced adds the ports.
 const { state, error, busy, load, set, clear } = useDecoys()
 const { confirm } = useConfirm()

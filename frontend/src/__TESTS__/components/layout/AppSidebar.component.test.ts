@@ -39,6 +39,27 @@ describe('AppSidebar', () => {
     expect(navLinks(wrapper).every((a) => a.attributes('href'))).toBe(true)
   })
 
+  it('keeps Network under an expandable Modules group, open by default and remembered when closed', async () => {
+    const { wrapper } = await mountAt('/overview')
+    const toggle = wrapper.get('[data-test="group-modules"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('#group-modules a[data-destination="network"]').attributes('href')).toBe('/network')
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('a[data-destination="network"]').exists()).toBe(false)
+
+    const again = await mountAt('/overview')
+    expect(again.wrapper.get('[data-test="group-modules"]').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('opens Modules and marks it current while a child is open, even if it was closed', async () => {
+    const closed = await mountAt('/overview')
+    await closed.wrapper.get('[data-test="group-modules"]').trigger('click')
+    const { wrapper } = await mountAt('/network/devices')
+    expect(wrapper.get('[data-test="group-modules"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('a[data-destination="network"]').attributes('aria-current')).toBe('page')
+  })
+
   it('opens the assistant and the files of the workspace last used, or the list while none is known', async () => {
     const none = await mountAt('/overview')
     expect(none.wrapper.get('a[data-destination="assistant"]').attributes('href')).toBe('/workspaces')

@@ -20,7 +20,7 @@ const STATES = {
 async function open(page: Page, view: 'simple' | 'advanced', outside: object) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/outside-lookup': outside } })
-  await page.goto('network/devices')
+  await page.goto('network/settings')
   await expect(page.getByRole('heading', { name: 'Internet view' })).toBeVisible()
 }
 

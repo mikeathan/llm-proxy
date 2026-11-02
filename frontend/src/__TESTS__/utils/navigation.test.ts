@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { badgeTarget, buildNavigation, homeLocation } from '../../utils/navigation'
+import { badgeTarget, buildNavigation, groupNavigation, homeLocation } from '../../utils/navigation'
 import { ROUTE_NAMES } from '../../types/routes'
 import type { RunEndItem } from '../../types/notifications'
 
@@ -48,6 +48,30 @@ describe('buildNavigation', () => {
     const items = buildNavigation(base)
     expect(items.filter((i) => i.tab).map((i) => i.id)).toEqual(['assistant', 'workspace', 'automations', 'reminders'])
     expect(items.filter((i) => !i.tab).map((i) => i.id)).toEqual(['overview', 'network', 'models', 'activity', 'settings'])
+  })
+})
+
+describe('groupNavigation', () => {
+  const entries = (over: Partial<Parameters<typeof buildNavigation>[0]> = {}) => groupNavigation(buildNavigation({ ...base, ...over }))
+
+  it('places Modules where its first child sat, with Network inside it', () => {
+    const list = entries()
+    expect(list.map((e) => (e.kind === 'group' ? `[${e.group.label}]` : e.item.label))).toEqual([
+      'Assistant', 'Overview', 'Workspace', 'Automations', '[Modules]', 'Reminders', 'Models', 'Activity', 'Settings',
+    ])
+    const group = list.find((e) => e.kind === 'group')
+    expect(group?.kind === 'group' && group.group.items.map((i) => i.id)).toEqual(['network'])
+  })
+
+  it('is current, and carries the unread count, when a child is', () => {
+    const group = (over: Partial<Parameters<typeof buildNavigation>[0]>) => {
+      const found = entries(over).find((e) => e.kind === 'group')
+      if (found?.kind !== 'group') throw new Error('no group')
+      return found.group
+    }
+    expect(group({ routeName: ROUTE_NAMES.network, destination: 'network' }).current).toBe(true)
+    expect(group({}).current).toBe(false)
+    expect(group({ badges: { network: 3 } }).badge).toBe(3)
   })
 })
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import StatusTag from "../common/display/StatusTag.vue"
-import { toSettings } from "../../router/routes"
+import { toNetwork } from "../../router/routes"
 import type { ScanSettings } from "../../types/netaudit"
 
 // What an audit scans, as tags that are quick to read: how hard, whether the safe checks run, the ports when it is not
@@ -19,6 +19,6 @@ const TAG_CLASS = "inline-flex h-5 items-center border border-hairline px-[7px] 
     <template v-if="scan?.targets?.length">
       <span v-for="t in scan.targets" :key="t" data-test="scan-tag" :class="TAG_CLASS">{{ t }}</span>
     </template>
-    <RouterLink v-else :to="toSettings('network-scan')" class="text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring" title="Choose which networks may be scanned">Every allowed network</RouterLink>
+    <RouterLink v-else :to="toNetwork('settings')" class="text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring" title="Choose which networks may be scanned">Every allowed network</RouterLink>
   </span>
 </template>

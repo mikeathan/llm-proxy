@@ -1,5 +1,6 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
+import type { RequirementFixSection } from '../types/netaudit'
 import type { ActivityFilters, AutomationStart, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
@@ -46,11 +47,16 @@ export const toAutomationEdit = (id: string): RouteLocationNamedRaw => ({
   params: { id },
 })
 
-/** The Network page; without a tab it opens on the overview. */
-export const toNetwork = (tab?: NetworkTab): RouteLocationNamedRaw => ({
+/** The Network page; without a tab it opens on the overview. A hash scrolls to a control on that tab. */
+export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.network,
   params: tab ? { tab } : {},
+  ...(hash ? { hash } : {}),
 })
+
+/** The place a requirement's fix points at: `network-scan` is the Network page's Settings tab, anything else a Settings section. */
+export const toRequirementFix = (section: RequirementFixSection): RouteLocationNamedRaw =>
+  section === 'network-scan' ? toNetwork('settings') : toSettings(section)
 
 export const toReminders = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.reminders })
 

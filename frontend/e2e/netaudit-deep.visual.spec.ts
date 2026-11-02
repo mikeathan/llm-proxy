@@ -49,8 +49,8 @@ async function open(page: Page) {
 
 test('the deep check question says exactly what will be sent, and fits the screen', async ({ page }, testInfo) => {
   await open(page)
-  const device = page.locator('section[aria-label="192.0.2.12"]')
-  await device.getByRole('button', { name: 'More' }).click()
+  const device = page.locator('article[aria-label="192.0.2.12"]')
+  await device.getByRole('button', { name: 'More actions' }).click()
   await device.getByRole('button', { name: 'Deep check' }).click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByRole('heading', { name: 'Deep check of 192.0.2.12?' })).toBeVisible()
@@ -68,13 +68,13 @@ test('the deep check question says exactly what will be sent, and fits the scree
 
 test('stored deep results show their problems and fixes, and a device with nothing to judge is not called fine', async ({ page }, testInfo) => {
   await open(page)
-  const first = page.locator('section[aria-label="192.0.2.10"]')
+  const first = page.locator('article[aria-label="192.0.2.10"]')
   await expect(first.getByText('2 problems found.')).toBeVisible()
   await expect(first.getByText('SSH accepts password login')).toBeVisible()
-  const second = page.locator('section[aria-label="192.0.2.11"]')
+  const second = page.locator('article[aria-label="192.0.2.11"]')
   await expect(second.getByText('Nothing to check', { exact: true })).toBeVisible()
   await expect(second.getByText('not the same as nothing wrong')).toBeVisible()
   await expectNoSidewaysScroll(page)
-  await page.locator('section[aria-label="192.0.2.10"]').scrollIntoViewIfNeeded()
+  await page.locator('article[aria-label="192.0.2.10"]').scrollIntoViewIfNeeded()
   await lookAt(page, testInfo, 'deep-results.png', true)
 })

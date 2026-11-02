@@ -51,6 +51,12 @@ export const formatElapsedSeconds = (total: number): string => {
  * Relative time in the user's locale (`5 minutes ago`) — for lists, with the
  * absolute value in a tooltip (formatAbsoluteTime).
  */
+/** False for a time that was never recorded: absent, unparseable, or the zero time the server sends for "never" (year 1). */
+export const isRecorded = (iso?: string): iso is string => {
+  const ms = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(ms) && new Date(ms).getUTCFullYear() > 1;
+};
+
 export const formatRelativeTime = (iso: string, nowMs: number = Date.now(), locale?: string): string => {
   const diff = Math.round((Date.parse(iso) - nowMs) / MS_PER_SECOND);
   const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });

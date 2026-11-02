@@ -20,7 +20,7 @@ The single root contains:
 ```
 {root}/
 ├── settings.yml, registry.json, secrets.json, master.key(.hash), orchestrator.db
-├── vulnindex.json      the downloaded vulnerability data (network audit; Settings → Network scan; deletable there)
+├── vulnindex.json      the downloaded vulnerability data (network audit; Network → Settings; deletable there)
 ├── decoys.json         who connected to a decoy service: source, port, count, times; no bytes (network audit; a factory reset deletes it)
 ├── identities.json     the SSH host key and TLS certificate fingerprints each service presented (network audit; fingerprints only; a factory reset deletes it)
 ├── devices.json        the devices seen on the network, by MAC address (network audit; names, approval, router MAC; a factory reset deletes it)

@@ -32,9 +32,11 @@ async function mountReport() {
   await flushPromises()
   // A stored deep problem opens the report on Problems; these tests are about the devices.
   await w.findAll('[role="radio"]').find((b) => b.text().startsWith('Devices'))?.trigger('click')
+  // Every action of a device sits behind its "⋯"; these tests are about the actions, so open them all.
+  for (const more of w.findAll('[data-test="more-actions"]')) await more.trigger('click')
   return w
 }
-const deepButton = (w: Awaited<ReturnType<typeof mountReport>>, device: string) => w.get(`section[aria-label="${device}"] [data-test="deep-check"]`)
+const deepButton = (w: Awaited<ReturnType<typeof mountReport>>, device: string) => w.get(`article[aria-label="${device}"] [data-test="deep-check"]`)
 
 describe('the deep check on a device', () => {
   beforeEach(() => {
@@ -93,7 +95,7 @@ describe('the deep check on a device', () => {
   it('says a device with no TLS or SSH service gave it nothing to check, and not that it is fine', async () => {
     service.deepChecks.mockResolvedValue([{ device: '192.0.2.11', at: '2026-10-30T12:00:00Z', ports: [{ port: 3389, tls_answered: false, ssh_answered: false }], findings: [] }])
     const w = await mountReport()
-    const result = w.get('section[aria-label="192.0.2.11"] [data-test="deep-result"]')
+    const result = w.get('article[aria-label="192.0.2.11"] [data-test="deep-result"]')
     expect(result.text()).toContain('Nothing to check')
     expect(result.text()).toContain('not the same as nothing wrong')
     expect(result.text()).not.toContain('Nothing wrong was found')
@@ -186,7 +188,7 @@ describe('deep problems in the report', () => {
   it('Advanced: the device with the deep problem is open without being asked', async () => {
     const w = await open()
     await w.findAll('[role="radio"]').find((b) => b.text().startsWith('Devices'))!.trigger('click')
-    expect(w.get('section[aria-label="192.0.2.10"] [data-test="toggle-device"]').attributes('aria-expanded')).toBe('true')
+    expect(w.get('article[aria-label="192.0.2.10"] [data-test="card-toggle"]').attributes('aria-expanded')).toBe('true')
   })
 
   it('Advanced: opens on Problems even when the deep results arrive after the report', async () => {

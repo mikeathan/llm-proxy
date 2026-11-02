@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Settings → Network scan at both widths, Simple and Advanced: nothing may scroll sideways and the main button is a
+// Network → Settings and Audits at both widths, Simple and Advanced: nothing may scroll sideways and the main button is a
 // comfortable touch target. The screenshots are for looking at; they are not compared.
 const scope = {
   ranges: [{ cidr: '192.168.1.0/24', devices: 254 }],
@@ -23,13 +23,29 @@ const readiness = {
 async function open(page: Page, view: 'simple' | 'advanced') {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/readiness': readiness, '/automations': [audit] } })
-  await page.goto('settings/network-scan')
+  await page.goto('network/settings')
   await expect(page.getByRole('heading', { name: 'What may be scanned' })).toBeVisible()
 }
 
+async function openAudits(page: Page, view: 'simple' | 'advanced') {
+  await setNetauditView(page, view)
+  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/readiness': readiness, '/automations': [audit] } })
+  await page.goto('network/audits')
+  await expect(page.getByRole('heading', { name: 'Network audits' })).toBeVisible()
+}
+
 for (const view of ['simple', 'advanced'] as const) {
-  test(`network scan settings (${view}) fit the screen`, async ({ page }, testInfo) => {
+  test(`network settings (${view}) fit the screen`, async ({ page }, testInfo) => {
     await open(page, view)
+    await expectNoSidewaysScroll(page)
+    // Advanced only adds: the scan time and the confinement switch appear, and nothing Simple shows goes away.
+    await expect(page.getByRole('heading', { name: 'What may be scanned' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Scan time' })).toHaveCount(view === 'advanced' ? 1 : 0)
+    await lookAt(page, testInfo, `network-settings-${view}.png`, true)
+  })
+
+  test(`network audits (${view}) fit the screen`, async ({ page }, testInfo) => {
+    await openAudits(page, view)
     await expectNoSidewaysScroll(page)
     if (testInfo.project.name === 'mobile') {
       const open = await page.getByRole('button', { name: 'Open', exact: true }).boundingBox()
@@ -39,6 +55,6 @@ for (const view of ['simple', 'advanced'] as const) {
         expect(another?.height).toBeGreaterThanOrEqual(44)
       }
     }
-    await lookAt(page, testInfo, `network-scan-${view}.png`, true)
+    await lookAt(page, testInfo, `network-audits-${view}.png`, true)
   })
 }

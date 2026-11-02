@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import type { FindingsReport as Report, ScanFinding, ScanScope, ScanSettings, VulnDataStatus } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({ checkTargets: vi.fn(), readiness: vi.fn(), scope: vi.fn(), updateScope: vi.fn(), findings: vi.fn(), accept: vi.fn(), revoke: vi.fn(), vulnData: vi.fn(), startVulnDownload: vi.fn(), importVulnData: vi.fn(), cancelVulnDownload: vi.fn(), markFixed: vi.fn(), unmarkFixed: vi.fn(), clearVulnData: vi.fn(), expectations: vi.fn(), setExpectation: vi.fn(), removeExpectation: vi.fn(), devices: vi.fn(), presence: vi.fn(), ipv6Discovery: vi.fn(), decoys: vi.fn() }))
@@ -20,7 +20,10 @@ import VulnDataCard from '../../../components/netaudit/VulnDataCard.vue'
 import ScanSettingsFields from '../../../components/netaudit/ScanSettingsFields.vue'
 import FindingsReport from '../../../components/netaudit/FindingsReport.vue'
 import ReadinessBanner from '../../../components/netaudit/ReadinessBanner.vue'
-import NetworkScanSettings from '../../../components/settings/NetworkScanSettings.vue'
+import ScanScopeSettings from '../../../components/netaudit/ScanScopeSettings.vue'
+import ScanLimitsSettings from '../../../components/netaudit/ScanLimitsSettings.vue'
+import { useScanScope } from '../../../composables/netaudit/useScanScope'
+import AuditsPanel from '../../../components/netaudit/AuditsPanel.vue'
 import ScanSummary from '../../../components/netaudit/ScanSummary.vue'
 import AuditSetupCheck from '../../../components/netaudit/AuditSetupCheck.vue'
 import FailureExplanation from '../../../components/netaudit/FailureExplanation.vue'
@@ -46,6 +49,10 @@ const report: Report = {
   unscanned: ['192.168.1.34'], devices_up: 10,
 }
 // The Advanced report is read one part at a time: a pill per part, each with its count.
+// A device's actions sit behind its "⋯": press every one that is closed.
+const showActions = async (w: { findAll: (s: string) => { attributes: (n: string) => string | undefined; trigger: (e: string) => Promise<void> }[] }) => {
+  for (const more of w.findAll('[data-test="more-actions"]')) if (more.attributes('aria-expanded') !== 'true') await more.trigger('click')
+}
 const pill = (w: { findAll: (s: string) => { text: () => string; trigger: (e: string) => Promise<void> }[] }, name: string) =>
   w.findAll('[role="radio"]').find((b) => b.text().startsWith(name))!.trigger('click')
 const NEVER = '0001-01-01T00:00:00Z'
@@ -107,11 +114,12 @@ describe('FindingsReport', () => {
     expect(pills).toEqual(['Problems (0)', 'Devices (2)', 'New (2)', 'Changed (1)', 'Resolved (1)', 'Accepted (1)'])
     expect(w.text()).toContain('1 device was not scanned to completion')
     expect(w.text()).toContain('192.168.1.34')
-    expect(w.findAll('section[aria-label="192.168.1.5"]')).toHaveLength(1)
+    expect(w.findAll('article[aria-label="192.168.1.5"]')).toHaveLength(1)
     expect(w.get('[data-key="e"]').text()).toContain('OpenSSH 9.6p1')
     expect(w.get('[data-key="e"] s').text()).toBe('OpenSSH 9.6p1')
     expect(w.get('[data-key="e"]').text()).toContain('changed')
-    expect(w.get('[data-key="d"]').text()).toContain('Accepted until')
+    expect(w.get('[data-key="d"]').text()).toContain('accepted')
+    expect(w.get('[data-key="d"]').text()).toContain('until')
     expect(w.get('[data-key="d"]').text()).toContain('my NAS')
     expect(w.get('[data-key="d"]').text()).toContain('Undo')
     expect(w.get('[data-key="a"]').text()).toContain('Accept…')
@@ -142,7 +150,7 @@ describe('FindingsReport', () => {
     const w = await mountReport()
     await w.findAll('button').find((b) => b.text() === 'Allow more time')!.trigger('click')
     expect(useNetauditViewMode().mode.value).toBe('advanced')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' }, hash: '#scan-time' })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' }, hash: '#scan-time' })
   })
 
   it('reads the report again when a run starts or finishes, in either view', async () => {
@@ -233,6 +241,19 @@ describe('FindingsReport with checks', () => {
     expect(w.text()).not.toContain('smb_v1')
   })
 
+  it('Advanced only adds: every problem Simple lists is in Advanced, each with a way to accept it', async () => {
+    const simple = await mountChecks()
+    const simpleKeys = simple.findAll('[data-test="problem"]').map((li) => li.attributes('data-key')).sort()
+    const simpleAccepts = simple.findAll('[data-test="problem"]').map((li) => li.findAll('button').some((b) => b.text() === 'This is fine'))
+    expect(simpleKeys).toEqual(['redis', 'smb'])
+    expect(simpleAccepts).toEqual([true, true])
+    useNetauditViewMode().set('advanced')
+    const advanced = await mountChecks()
+    const advancedKeys = advanced.findAll('[data-test="problem"]').map((li) => li.attributes('data-key')).sort()
+    expect(advancedKeys).toEqual(simpleKeys)
+    expect(advanced.findAll('[data-test="problem"]').every((li) => li.findAll('button').some((b) => b.text() === 'Accept…'))).toBe(true)
+  })
+
   it('Simple: a problem stands out by colour and tag, and stays listed after the scan it was found in', async () => {
     const old: Report = {
       ...withChecks,
@@ -250,8 +271,12 @@ describe('FindingsReport with checks', () => {
     expect(w.get('[data-test="problems"]').text()).toBe('2 problems found by checks')
     const rows = w.findAll('article[data-severity]')
     expect(rows.map((r) => r.attributes('data-severity'))).toEqual(['high', 'low'])
-    expect(rows[0]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
-    expect(rows[1]!.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-running']))
+    // The card is the same neutral surface whatever the severity: the tag inside says it, in colour and in words.
+    for (const r of rows) {
+      expect(r.classes()).toEqual(expect.arrayContaining(['border', 'border-hairline', 'bg-surface']))
+      expect(r.classes().some((c) => c.startsWith('border-l') || c.startsWith('border-state'))).toBe(false)
+    }
+    expect(rows[0]!.text()).toContain('Problem · high')
     expect(rows[1]!.text()).toContain('Problem · low')
     expect(rows[1]!.get('[data-test="problem-title"]').text()).toContain('The certificate expires on 2026-12-01')
   })
@@ -261,7 +286,7 @@ describe('FindingsReport with checks', () => {
     const w = await mountChecks()
     expect(w.findAll('[data-test="problem"]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
     const group = w.get('article[data-check="redis_no_auth"]')
-    expect(group.classes()).toEqual(expect.arrayContaining(['border-l-4', 'border-state-error']))
+    expect(group.classes().some((c) => c.startsWith('border-l') || c.startsWith('border-state'))).toBe(false)
     expect(group.text()).toContain('Problem · critical')
     // The problems are listed once, in the Problems block; the filter shows no device list under them.
     expect(w.findAll('[data-test="device"]')).toHaveLength(0)
@@ -281,9 +306,10 @@ describe('FindingsReport with checks', () => {
     expect(w.get('article[data-check="smb_v1"]').text()).toContain('high')
     expect(w.get('[data-key="smb"] [data-test="check"]').text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
     await pill(w, 'Devices')
-    expect(w.get('section[aria-label="192.0.2.10"]').text()).toContain('1 open port, 1 problem')
+    expect(w.get('article[aria-label="192.0.2.10"]').text()).toContain('1 open port')
+    expect(w.get('article[aria-label="192.0.2.10"]').text()).toContain('1 problem')
     // The device list shows the port, not the problem again.
-    expect(w.get('section[aria-label="192.0.2.10"]').find('[data-key="smb"]').exists()).toBe(false)
+    expect(w.get('article[aria-label="192.0.2.10"]').find('[data-key="smb"]').exists()).toBe(false)
     expect(w.get('[data-key="p"]').text()).toContain('microsoft-ds')
   })
 })
@@ -337,18 +363,34 @@ describe('FindingsReport grouped problems', () => {
     expect(w.get('[data-test="summary"]').text()).toBe('3 things need a look')
   })
 
-  it('Advanced: a device with nothing to look at is folded behind "Show ports", and opens on demand', async () => {
+  it('Advanced: every device is open until it is folded, and folds from its header', async () => {
     useNetauditViewMode().set('advanced')
     const w = await mountGrouped({
       first_scan: true,
       findings: [finding({ key: 'p1', device: '192.0.2.10', port: 22, version: 'OpenSSH 9.6p1' }), finding({ key: 'p2', device: '192.0.2.10', port: 80, service: 'http', version: 'nginx 1.2' })],
     })
-    const section = w.get('section[aria-label="192.0.2.10"]')
-    expect(section.find('[data-key="p1"]').exists()).toBe(false)
-    expect(section.text()).toContain('2 open ports')
-    await section.get('[data-test="toggle-device"]').trigger('click')
+    const section = w.get('article[aria-label="192.0.2.10"]')
     expect(section.find('[data-key="p1"]').exists()).toBe(true)
-    expect(section.get('[data-test="toggle-device"]').text()).toBe('Hide ports')
+    expect(section.text()).toContain('2 open ports')
+    await section.get('[data-test="card-toggle"]').trigger('click')
+    expect(section.find('[data-key="p1"]').exists()).toBe(false)
+    await section.get('[data-test="card-toggle"]').trigger('click')
+    expect(section.find('[data-key="p1"]').exists()).toBe(true)
+  })
+
+  it('Advanced: Collapse all folds every device and problem card, and Expand all opens them again', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountGrouped({
+      first_scan: true,
+      findings: [finding({ key: 'p1', device: '192.0.2.10', port: 22 }), finding({ key: 'q1', device: '192.0.2.11', port: 22 })],
+    })
+    await pill(w, 'Devices')
+    expect(w.findAll('[data-test="device"] [data-key]').length).toBeGreaterThan(0)
+    await w.get('[data-test="collapse-all"]').trigger('click')
+    expect(w.findAll('[data-test="device"] [data-key]')).toHaveLength(0)
+    expect(w.findAll('[data-test="card-toggle"]').every((b) => b.attributes('aria-expanded') === 'false')).toBe(true)
+    await w.get('[data-test="expand-all"]').trigger('click')
+    expect(w.findAll('[data-test="device"] [data-key]').length).toBeGreaterThan(0)
   })
 
   it('Advanced: ports the scan could not identify fold into one line, and can be shown', async () => {
@@ -360,7 +402,7 @@ describe('FindingsReport grouped problems', () => {
         finding({ key: 'ok', device: '192.0.2.40', port: 22, version: 'OpenSSH 9.6p1', new: true }),
       ],
     })
-    const section = w.get('section[aria-label="192.0.2.40"]')
+    const section = w.get('article[aria-label="192.0.2.40"]')
     expect(section.find('[data-key="u1"]').exists()).toBe(false)
     expect(section.get('[data-test="low-detail"]').text()).toContain('2 ports the scan could not identify: 8443, 49152')
     expect(section.find('[data-key="ok"]').exists()).toBe(true)
@@ -422,7 +464,7 @@ describe('FindingsReport known vulnerabilities', () => {
     const places = card.findAll('[data-test="problem"]')
     expect(places).toHaveLength(2)
     for (const place of places) {
-      expect(place.get('[data-test="check"]').text()).toBe('3 known flaws · 1 exploited by attackers')
+      expect(place.get('[data-test="check"]').text()).toContain('3 known flaws · 1 exploited by attackers')
       expect(place.text()).not.toContain('The software on this port may be affected')
     }
   })
@@ -464,6 +506,10 @@ describe('FindingsReport fix guides', () => {
   }
   const toggle = (w: Awaited<ReturnType<typeof mountGuide>>) => w.get('[data-test="fix-guide"] button[aria-expanded]')
   const named = (w: Awaited<ReturnType<typeof mountGuide>>, text: string) => w.findAll('button').find((b) => b.text() === text)
+  // "I've done this" sits behind each place's "⋯": open them before asking for it.
+  const openMore = async (w: Awaited<ReturnType<typeof mountGuide>>) => {
+    for (const more of w.findAll('[data-test="problem-more"]')) if (more.attributes('aria-expanded') !== 'true') await more.trigger('click')
+  }
 
   it('Simple: the steps, the risk and the way back are one tap away, without commands', async () => {
     const w = await mountGuide(report(smb(), port))
@@ -491,6 +537,7 @@ describe('FindingsReport fix guides', () => {
     service.markFixed.mockResolvedValue({ key: 'smb' })
     const w = await mountGuide(report(smb()))
     service.findings.mockClear()
+    await openMore(w)
     await named(w, "I've done this")!.trigger('click')
     await flushPromises()
     expect(service.markFixed).toHaveBeenCalledWith({ workspace_id: 'ws', automation: 'audit', key: 'smb', note: '' })
@@ -526,6 +573,7 @@ describe('FindingsReport fix guides', () => {
   it('shows why marking failed and keeps the screen as it was', async () => {
     service.markFixed.mockRejectedValue(new Error('no such finding in the latest scan'))
     const w = await mountGuide(report(smb()))
+    await openMore(w)
     await named(w, "I've done this")!.trigger('click')
     await flushPromises()
     expect(w.get('[role="alert"]').text()).toContain('no such finding')
@@ -587,7 +635,8 @@ describe('FindingsReport fixes and rescans', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountScanned()
     await pill(w, 'Devices')
-    await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
+    await showActions(w)
+    await w.get('article[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
     await flushPromises()
     expect(dispatcher.triggerAutomation).toHaveBeenCalledWith('ws', 'audit', undefined, '192.0.2.10')
   })
@@ -846,7 +895,7 @@ describe('ReadinessBanner vulnerability notice', () => {
     expect(w.text()).toContain('Known-vulnerability data is not downloaded')
     expect(w.get('[data-tone]').attributes('data-tone')).toBe('info')
     await w.findAll('button').find((b) => b.text() === 'Open settings')!.trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' } })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' } })
   })
 
   it('does not link to the page it is already on', async () => {
@@ -945,7 +994,7 @@ describe('ReadinessBanner', () => {
     expect(w.text()).toContain('Choose which network to look at')
     expect(w.text()).toContain('brew install nmap')
     await w.findAll('button').find((b) => b.text() === 'Open settings')!.trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' } })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' } })
   })
 
   it('does not link to the page it is already on', async () => {
@@ -973,22 +1022,14 @@ describe('ReadinessBanner', () => {
   })
 })
 
-describe('NetworkScanSettings', () => {
-  it('has the vulnerability data card under the allowed networks', async () => {
-    service.scope.mockResolvedValue(emptyScope)
-    const w = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(w.text()).toContain('Vulnerability data')
-    expect(w.text()).toContain('Not downloaded')
-  })
-
+describe('ScanScopeSettings', () => {
   it('turns scanning on with one button in the Simple view', async () => {
     service.scope.mockResolvedValue(emptyScope)
     service.updateScope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }], suggestions: [lan] })
-    const w = mount(NetworkScanSettings)
+    const w = mount(ScanScopeSettings)
     await flushPromises()
     expect(w.text()).toContain('Scanning is off')
-    expect(w.text()).not.toContain('Allow scans without file confinement')
+    expect(w.text()).not.toContain('Time allowed per device')
     await w.findAll('button').find((b) => b.text() === 'Use my network')!.trigger('click')
     await flushPromises()
     expect(service.updateScope).toHaveBeenCalledWith({ entries: ['192.168.1.0/24'] })
@@ -999,9 +1040,8 @@ describe('NetworkScanSettings', () => {
     service.scope.mockResolvedValue(emptyScope)
     service.updateScope.mockRejectedValue(new Error('8.8.8.8 is a public address'))
     useNetauditViewMode().set('advanced')
-    const w = mount(NetworkScanSettings)
+    const w = mount(ScanScopeSettings)
     await flushPromises()
-    expect(w.text()).toContain('Allow scans without file confinement')
     await w.get('input[type="text"]').setValue('8.8.8.8')
     await w.get('form').trigger('submit')
     await flushPromises()
@@ -1009,9 +1049,67 @@ describe('NetworkScanSettings', () => {
     expect(w.get('[role="alert"]').text()).toContain('public address')
   })
 
+  it('says why the networks could not be read', async () => {
+    service.scope.mockRejectedValue(new Error('down'))
+    const w = mount(ScanScopeSettings)
+    await flushPromises()
+    expect(w.text()).toContain('down')
+  })
+})
+
+describe('ScanLimitsSettings', () => {
+  // A wrapper left mounted by an earlier test would also react when the view mode changes, and scroll too.
+  enableAutoUnmount(afterEach)
+  const load = async () => {
+    service.scope.mockResolvedValue(emptyScope)
+    await useScanScope().load()
+  }
+
+  it('draws nothing in Simple: the limits are Advanced only', async () => {
+    await load()
+    const w = mount(ScanLimitsSettings)
+    await flushPromises()
+    expect(w.find('[data-test="scan-limits"]').exists()).toBe(false)
+    expect(w.text()).not.toContain('Time allowed per device')
+    expect(w.text()).not.toContain('Allow scans without file confinement')
+  })
+
+  it('offers the time allowed per device and the confinement switch in Advanced, and saves a change at once', async () => {
+    service.updateScope.mockResolvedValue({ ...emptyScope, device_timeout_minutes: 5 })
+    await load()
+    useNetauditViewMode().set('advanced')
+    const w = mount(ScanLimitsSettings)
+    await flushPromises()
+    expect(w.text()).toContain('Time allowed per device')
+    expect(w.text()).toContain('A whole scan may take up to 12 minutes')
+    expect(w.text()).toContain('Allow scans without file confinement')
+    await w.get('select[aria-label="Time allowed per device"]').setValue('5')
+    await flushPromises()
+    expect(service.updateScope).toHaveBeenCalledWith({ device_timeout_minutes: 5 })
+    expect((w.get('select[aria-label="Time allowed per device"]').element as HTMLSelectElement).value).toBe('5')
+  })
+
+  it('scrolls to the time setting when the page is opened on its anchor', async () => {
+    await load()
+    useNetauditViewMode().set('advanced')
+    routeState.hash = '#scan-time'
+    const scrolled = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrolled
+    const w = mount(ScanLimitsSettings, { attachTo: document.body })
+    await flushPromises()
+    Element.prototype.scrollIntoView = original
+    routeState.hash = ''
+    expect(scrolled).toHaveBeenCalledTimes(1)
+    expect(w.find('#scan-time').exists()).toBe(true)
+    w.unmount()
+  })
+})
+
+describe('AuditsPanel', () => {
   it('opens the ordinary new-automation form from the nightly audit playbook, once a network is allowed', async () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     await w.findAll('button').find((b) => b.text() === 'Set up a network audit')!.trigger('click')
     expect(push).toHaveBeenCalledWith({ name: expect.any(String), query: expect.objectContaining({ playbook: 'network-audit' }) })
@@ -1025,7 +1123,7 @@ describe('NetworkScanSettings', () => {
   it('shows the audit that exists instead of offering to set one up, with a way to open it', async () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
     dispatcher.listAutomations.mockResolvedValue([audit(), audit({ id: 'ws/other', name: 'other', profile: 'research' })])
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     const list = w.get('[data-test="audits"]')
     expect(list.findAll('li')).toHaveLength(1)
@@ -1042,7 +1140,7 @@ describe('NetworkScanSettings', () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
     dispatcher.listAutomations.mockResolvedValue([audit()])
     useNetauditViewMode().set('advanced')
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     await w.findAll('button').find((b) => b.text() === 'Add another audit')!.trigger('click')
     expect(push).toHaveBeenCalledWith({ name: expect.any(String), query: expect.objectContaining({ playbook: 'network-audit' }) })
@@ -1051,55 +1149,16 @@ describe('NetworkScanSettings', () => {
   it('does not offer to set up an audit before it knows whether one exists', async () => {
     service.scope.mockResolvedValue({ ...emptyScope, ranges: [{ cidr: lan.cidr, devices: 254 }] })
     dispatcher.listAutomations.mockReturnValue(new Promise(() => {}))
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     expect(w.findAll('button').some((b) => b.text() === 'Set up a network audit')).toBe(false)
   })
 
   it('keeps the nightly audit button off until a network is allowed', async () => {
     service.scope.mockResolvedValue(emptyScope)
-    const w = mount(NetworkScanSettings)
+    const w = mount(AuditsPanel)
     await flushPromises()
     expect(w.findAll('button').find((b) => b.text() === 'Set up a network audit')!.attributes('disabled')).toBeDefined()
-  })
-
-  it('offers the time allowed per device in Advanced only, and saves the choice at once', async () => {
-    service.scope.mockResolvedValue(emptyScope)
-    service.updateScope.mockResolvedValue({ ...emptyScope, device_timeout_minutes: 5 })
-    const simple = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(simple.text()).not.toContain('Time allowed per device')
-    useNetauditViewMode().set('advanced')
-    const w = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(w.text()).toContain('Time allowed per device')
-    expect(w.text()).toContain('A whole scan may take up to 12 minutes')
-    await w.get('select[aria-label="Time allowed per device"]').setValue('5')
-    await flushPromises()
-    expect(service.updateScope).toHaveBeenCalledWith({ device_timeout_minutes: 5 })
-    expect((w.get('select[aria-label="Time allowed per device"]').element as HTMLSelectElement).value).toBe('5')
-  })
-
-  it('scrolls to the time setting when the page is opened on its anchor', async () => {
-    service.scope.mockResolvedValue(emptyScope)
-    useNetauditViewMode().set('advanced')
-    routeState.hash = '#scan-time'
-    const scrolled = vi.fn()
-    const original = Element.prototype.scrollIntoView
-    Element.prototype.scrollIntoView = scrolled
-    const w = mount(NetworkScanSettings, { attachTo: document.body })
-    await flushPromises()
-    Element.prototype.scrollIntoView = original
-    expect(scrolled).toHaveBeenCalledTimes(1)
-    expect(w.find('#scan-time').exists()).toBe(true)
-    w.unmount()
-  })
-
-  it('says why the networks could not be read', async () => {
-    service.scope.mockRejectedValue(new Error('down'))
-    const w = mount(NetworkScanSettings)
-    await flushPromises()
-    expect(w.text()).toContain('down')
   })
 })
 
@@ -1193,7 +1252,7 @@ describe('FailureExplanation', () => {
     await w.findAll('button').find((b) => b.text() === 'Show details')!.trigger('click')
     expect(w.text()).toContain('operator action required')
     await w.findAll('button').find((b) => b.text() === 'Open network settings')!.trigger('click')
-    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { section: 'network-scan' } })
+    expect(push).toHaveBeenCalledWith({ name: expect.any(String), params: { tab: 'settings' } })
   })
 
   it('shows a failure it does not know exactly as it came', async () => {
@@ -1215,7 +1274,7 @@ describe('ScanSummary', () => {
     expect(tags).toEqual(['Thorough scan', 'Safe checks on'])
     const link = w.get('a')
     expect(link.text()).toBe('Every allowed network')
-    expect(JSON.parse(link.attributes('data-to')!)).toMatchObject({ params: { section: 'network-scan' } })
+    expect(JSON.parse(link.attributes('data-to')!)).toMatchObject({ params: { tab: 'settings' } })
   })
 
   it('shows what was chosen: quick, checks off, the ports and each network on its own', () => {
@@ -1243,6 +1302,7 @@ describe('FindingsReport expected ports', () => {
   it('sets what is open now as the expectation with one click, then reloads', async () => {
     service.setExpectation.mockResolvedValue({})
     const w = await mountAdvanced()
+    await showActions(w)
     await w.get('[data-test="set-expected"]').trigger('click')
     await flushPromises()
     expect(service.setExpectation).toHaveBeenCalledWith({ workspace_id: 'ws', device: DEVICE, ports: [22, 631], note: '' })
@@ -1253,6 +1313,7 @@ describe('FindingsReport expected ports', () => {
     service.removeExpectation.mockResolvedValue(undefined)
     const w = await mountAdvanced([{ device: DEVICE, ports: [22], set_at: '2026-10-28T01:00:00Z' }])
     expect(w.get('[data-test="expected"]').text()).toContain('Expects 22')
+    await showActions(w)
     expect(w.find('[data-test="set-expected"]').exists()).toBe(false)
     await w.get('[data-test="remove-expected"]').trigger('click')
     await flushPromises()
@@ -1262,6 +1323,7 @@ describe('FindingsReport expected ports', () => {
   it('edits the ports by typing and refuses a bad list', async () => {
     service.setExpectation.mockResolvedValue({})
     const w = await mountAdvanced([{ device: DEVICE, ports: [22], set_at: '2026-10-28T01:00:00Z' }])
+    await showActions(w)
     await w.get('[data-test="edit-expected"]').trigger('click')
     const dialog = w.get('[role="dialog"]')
     const input = dialog.get('input[type="text"]')
@@ -1281,6 +1343,7 @@ describe('FindingsReport expected ports', () => {
     service.expectations.mockRejectedValue(new Error('nope'))
     const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
     await flushPromises()
+    await showActions(w)
     expect(w.find('[data-test="set-expected"]').exists()).toBe(true)
   })
 })
@@ -1324,7 +1387,8 @@ describe('FindingsReport while a scan runs', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountScanned()
     await pill(w, 'Devices')
-    await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
+    await showActions(w)
+    await w.get('article[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
     await flushPromises()
     expect(isOff(w)).toBe(true)
     expect(w.get('[data-test="scan-running"]').text()).toContain('Scanning 192.0.2.10')
@@ -1350,23 +1414,63 @@ describe('FindingsReport while a scan runs', () => {
   })
 })
 
+describe('The "⋯" on a problem place', () => {
+  const two: Report = {
+    scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 2, resolved: [], unscanned: [],
+    findings: [
+      finding({ key: 's1', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', check_title: 'SMBv1' }),
+      finding({ key: 's2', device: '192.0.2.11', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', check_title: 'SMBv1' }),
+    ],
+  }
+  it('opens the rest of one place at a time, and closes it when pressed again', async () => {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(two)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    const mores = () => w.findAll('[data-test="problem-more"]')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(0)
+    await mores()[0]!.trigger('click')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(1)
+    expect(mores()[0]!.attributes('aria-expanded')).toBe('true')
+    await mores()[1]!.trigger('click')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(1)
+    expect(mores()[0]!.attributes('aria-expanded')).toBe('false')
+    await mores()[1]!.trigger('click')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(0)
+  })
+
+  it('keeps Accept as the one visible button on a row', async () => {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(two)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    const labels = w.get('[data-key="s1"]').findAll('button').map((b) => b.attributes('aria-label') ?? b.text())
+    expect(labels).toEqual(['Accept…', 'More actions'])
+  })
+})
+
 describe('Advanced device header', () => {
   const oneDevice: Report = {
     scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 1, resolved: [], unscanned: [],
     findings: [finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds', new: true })],
   }
-  it('shows rescan and the ports toggle, and keeps the rarer actions behind "More"', async () => {
+  it('keeps every action behind one "⋯", and folds the device from its header', async () => {
     useNetauditViewMode().set('advanced')
     service.findings.mockResolvedValue(oneDevice)
     const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
     await flushPromises()
-    const device = w.get('section[aria-label="192.0.2.10"]')
+    const device = w.get('article[aria-label="192.0.2.10"]')
     const more = device.get('[data-test="more-actions"]')
     expect(more.attributes('aria-expanded')).toBe('false')
-    expect((device.get('[data-test="device-more"]').element as HTMLElement).style.display).toBe('none')
+    expect(device.find('[data-test="device-more"]').exists()).toBe(false)
     await more.trigger('click')
     expect(more.attributes('aria-expanded')).toBe('true')
-    expect((device.get('[data-test="device-more"]').element as HTMLElement).style.display).not.toBe('none')
+    const actions = device.get('[data-test="device-more"]').findAll('button').map((b) => b.text())
+    expect(actions).toEqual(['Rescan this host', 'Set as expected', 'Deep check'])
+    const toggle = device.get('[data-test="card-toggle"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await toggle.trigger('click')
+    expect(device.find('[data-key="p"]').exists()).toBe(false)
     w.unmount()
   })
 })
@@ -1537,7 +1641,8 @@ describe('Accepted problems and the counts', () => {
     const row = w.get('li[data-key="a1"]')
     expect(row.classes()).not.toContain('border-state-error')
     expect(row.html()).not.toContain('bg-state-error')
-    expect(row.text()).toContain('Accepted until')
+    expect(row.text()).toContain('accepted')
+    expect(row.text()).toContain('until')
   })
 })
 

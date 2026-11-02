@@ -9,7 +9,6 @@ const SWITCHES: Array<[string, string, string]> = [
   ['IPV6', netaudit.IPV6_HINT, netaudit.IPV6_DETAILS],
   ['NAMES', netaudit.NAMES_HINT, netaudit.NAMES_DETAILS],
   ['SUMMARY', netaudit.SUMMARY_HINT, netaudit.SUMMARY_DETAILS],
-  ['BROWSER_ALERTS', netaudit.BROWSER_ALERTS_HINT, netaudit.BROWSER_ALERTS_DETAILS],
   ['DECOYS', netaudit.DECOYS_HINT, netaudit.DECOYS_DETAILS],
   ['ROUTER_LOG', netaudit.ROUTER_LOG_HINT, netaudit.ROUTER_LOG_DETAILS],
   ['OUTSIDE_LOOKUP', netaudit.OUTSIDE_LOOKUP_HINT, netaudit.OUTSIDE_LOOKUP_DETAILS],

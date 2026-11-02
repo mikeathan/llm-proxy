@@ -52,6 +52,14 @@ describe('BottomTabs', () => {
     expect(more(wrapper).attributes('aria-expanded')).toBe('true')
   })
 
+  it('shows Network under a Modules heading in the More sheet', async () => {
+    const { wrapper } = await mountAt('/automations')
+    await more(wrapper).trigger('click')
+    const sheet = wrapper.get('[role="dialog"]')
+    expect(sheet.get('[data-test="sheet-heading-modules"]').text()).toBe('Modules')
+    expect(sheet.get('[role="group"][aria-labelledby="sheet-heading-modules"] a').attributes('aria-label')).toBe('Network')
+  })
+
   it('closes the sheet on Escape, on the scrim and after choosing a destination', async () => {
     const { wrapper, router } = await mountAt('/automations')
     await more(wrapper).trigger('click')

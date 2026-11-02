@@ -45,7 +45,8 @@ test('while a scan runs the report says so, its buttons are off, and the banner 
   await open(page, true, 'advanced')
   const banner = page.getByRole('status').filter({ hasText: 'A scan is running.' })
   await expect(banner).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Rescan this host' }).first()).toBeDisabled()
+  // Every action of a device is behind its "⋯", and that is off too while a scan runs.
+  await expect(page.getByRole('button', { name: 'More actions' }).first()).toBeDisabled()
   const watch = page.getByRole('button', { name: 'Watch it live' })
   if (testInfo.project.name === 'mobile') expect((await watch.boundingBox())?.height).toBeGreaterThanOrEqual(44)
   // The tab bar says the page is live: a dot on Live run, and the chosen tab is tinted instead of plain.
@@ -65,11 +66,11 @@ test('the report opens on its problems and each part is one pill away', async ({
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('radio', { name: /^Problems \(1\)/ })).toBeChecked()
   await expect(page.getByText('Software with known flaws')).toBeVisible()
-  await expect(page.locator('section[aria-label="192.0.2.10"]')).toHaveCount(0)
+  await expect(page.locator('article[aria-label="192.0.2.10"]')).toHaveCount(0)
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'report-problems.png', true)
   await page.getByRole('radio', { name: /^Devices/ }).click()
-  await expect(page.locator('section[aria-label="192.0.2.10"]')).toBeVisible()
+  await expect(page.locator('article[aria-label="192.0.2.10"]')).toBeVisible()
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'report-devices.png', true)
 })

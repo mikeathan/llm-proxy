@@ -22,8 +22,16 @@ describe('DeviceFindings for the computer the program runs on', () => {
 
   it('still offers them for a real device', () => {
     const w = mount(DeviceFindings, { props: props('192.168.50.20', [{ ...listener, device: '192.168.50.20', key: 'x' }]) })
-    expect(w.find('[data-test="rescan-host"]').exists()).toBe(true)
     expect(w.find('[data-test="more-actions"]').exists()).toBe(true)
+    expect(w.find('[data-test="rescan-host"]').exists()).toBe(false) // behind the "⋯" until it is pressed
+  })
+
+  it('opens every action of a real device behind one "⋯"', async () => {
+    const w = mount(DeviceFindings, { props: props('192.168.50.20', [{ ...listener, device: '192.168.50.20', key: 'x' }]) })
+    await w.get('[data-test="more-actions"]').trigger('click')
+    for (const test of ['rescan-host', 'set-expected', 'deep-check']) expect(w.find(`[data-test="${test}"]`).exists()).toBe(true)
+    await w.get('[data-test="more-actions"]').trigger('click')
+    expect(w.find('[data-test="rescan-host"]').exists()).toBe(false)
   })
 })
 

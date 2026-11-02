@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Settings → Network scan → Vulnerability data, in each state it can be in, at both widths and in Simple and Advanced:
+// Network → Settings → Vulnerability data, in each state it can be in, at both widths and in Simple and Advanced:
 // nothing may scroll sideways and the button is a comfortable touch target. The screenshots are for looking at.
 const NEVER = '0001-01-01T00:00:00Z'
 const none = { imported_at: NEVER, cves: 0, entries: 0 }
@@ -25,7 +25,7 @@ const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconf
 async function open(page: Page, view: 'simple' | 'advanced', vuln: object, readiness?: object) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/vulndata': vuln, ...(readiness ? { '/netaudit/readiness': readiness } : {}) } })
-  await page.goto('settings/network-scan')
+  await page.goto('network/settings')
   await expect(page.getByRole('heading', { name: 'Vulnerability data' })).toBeVisible()
 }
 

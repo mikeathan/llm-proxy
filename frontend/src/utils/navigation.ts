@@ -1,7 +1,7 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { toActivity, toAutomations, toModels, toNetwork, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
-import type { Destination, NavId, NavItem } from '../types/routes'
+import type { Destination, NavEntry, NavGroup, NavGroupId, NavId, NavItem } from '../types/routes'
 import type { NotificationItem } from '../types/notifications'
 
 // The shell's destinations (plan frontend-redesign-v2, V1/V6), built once for both
@@ -23,6 +23,7 @@ interface NavSpec {
   icon: string
   /** Shown in the phone tab bar; the rest sit under More. */
   tab: boolean
+  group?: NavGroupId
   to: (ws: string | null) => RouteLocationNamedRaw
   current: (ctx: NavContext) => boolean
 }
@@ -48,7 +49,7 @@ const SPECS: readonly NavSpec[] = [
     current: (ctx) => ctx.destination === 'workspaces' && ctx.routeName !== ROUTE_NAMES.workspaceAssistant,
   },
   { id: 'automations', label: 'Automations', icon: 'nav-automations', tab: true, to: toAutomations, current: onDestination('automations') },
-  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, to: () => toNetwork(), current: onDestination('network') },
+  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'modules', to: () => toNetwork(), current: onDestination('network') },
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: true, to: toReminders, current: onDestination('reminders') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },
@@ -61,10 +62,38 @@ export function buildNavigation(ctx: NavContext): NavItem[] {
     label: spec.label,
     icon: spec.icon,
     tab: spec.tab,
+    ...(spec.group ? { group: spec.group } : {}),
     to: spec.to(ctx.lastWorkspace),
     current: spec.current(ctx),
     badge: ctx.badges[spec.id] ?? 0,
   }))
+}
+
+const GROUPS: Record<NavGroupId, Pick<NavGroup, 'label' | 'icon'>> = {
+  modules: { label: 'Modules', icon: 'nav-modules' },
+}
+
+// Folds the flat list into display rows: a group appears once, where its first destination
+// sat, and holds all of its destinations. Pure, shared by the sidebar and the More sheet.
+export function groupNavigation(items: readonly NavItem[]): NavEntry[] {
+  const entries: NavEntry[] = []
+  const groups = new Map<NavGroupId, NavGroup>()
+  for (const item of items) {
+    if (!item.group) {
+      entries.push({ kind: 'item', item })
+      continue
+    }
+    let group = groups.get(item.group)
+    if (!group) {
+      group = { id: item.group, ...GROUPS[item.group], items: [], current: false, badge: 0 }
+      groups.set(item.group, group)
+      entries.push({ kind: 'group', group })
+    }
+    group.items.push(item)
+    group.current ||= item.current
+    group.badge += item.badge
+  }
+  return entries
 }
 
 // Which entry an unread item badges: an assistant run the Assistant, anything else the

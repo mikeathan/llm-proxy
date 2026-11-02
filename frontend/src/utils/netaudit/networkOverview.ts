@@ -1,7 +1,11 @@
 import {
+  NETWORK_NEXT_DEVICES,
+  NETWORK_NEXT_FINDINGS,
+  NETWORK_NEXT_SET_UP_AUDIT,
+  NETWORK_NEXT_TURN_ON_CHECK,
   NETWORK_POSTURE_HEADLINES,
 } from '../../constants/netaudit'
-import type { NetworkChange, NetworkDay, NetworkOverview } from '../../types/netaudit'
+import type { NetworkChange, NetworkDay, NetworkNextAction, NetworkOverview } from '../../types/netaudit'
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
@@ -13,6 +17,18 @@ export function attentionReasons(o: NetworkOverview): string[] {
   if (o.devices.new > 0) out.push(`${plural(o.devices.new, 'new device', 'new devices')} nobody has approved`)
   if (o.shared_address) out.push('Two addresses answer as one device')
   return out
+}
+
+/**
+ * The one step the verdict card offers, or none when there is nothing to do. What can hurt comes first (a changed router, a
+ * device nobody approved), then serious findings; a page that has not looked at anything yet points at the way to start.
+ */
+export function nextAction(o: NetworkOverview, hasAudit: boolean): NetworkNextAction | null {
+  if (o.gateway_changed || o.devices.new > 0) return { label: NETWORK_NEXT_DEVICES, tab: 'devices' }
+  if (o.findings.serious > 0) return { label: NETWORK_NEXT_FINDINGS, tab: 'findings' }
+  if (o.posture === 'attention') return { label: NETWORK_NEXT_DEVICES, tab: 'devices' }
+  if (o.posture !== 'unknown') return null
+  return hasAudit ? { label: NETWORK_NEXT_TURN_ON_CHECK, tab: 'settings' } : { label: NETWORK_NEXT_SET_UP_AUDIT, tab: 'audits' }
 }
 
 export const postureHeadline = (o: NetworkOverview): string => NETWORK_POSTURE_HEADLINES[o.posture]
