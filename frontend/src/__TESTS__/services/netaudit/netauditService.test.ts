@@ -10,6 +10,13 @@ function respond(body: unknown, status = 200) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('NetauditService', () => {
+  it('reads an overview whose empty lists the server sent as null', async () => {
+    respond({ posture: 'quiet', devices: { known: 0, unnamed: 0, new: 0, active: 0 }, findings: { scanned: false, open: 0, serious: 0, new: 0 }, series: null, recent: null })
+    const overview = await NetauditService.overview()
+    expect(overview.recent).toEqual([])
+    expect(overview.series).toEqual([])
+  })
+
   it('reads findings for one automation', async () => {
     const fetchMock = respond({ scanned: false, findings: [], resolved: [] })
     await NetauditService.findings('ws 1', 'audit')

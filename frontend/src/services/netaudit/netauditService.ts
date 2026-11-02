@@ -23,9 +23,11 @@ export class NetauditService {
   }
 
   /** The Network page's first screen. Without an audit it still shows the devices and the trend. */
-  static overview(audit?: { workspaceId: string; automation: string }): Promise<NetworkOverview> {
+  static async overview(audit?: { workspaceId: string; automation: string }): Promise<NetworkOverview> {
     const params = audit ? query({ workspace_id: audit.workspaceId, automation: audit.automation }) : ''
-    return get<NetworkOverview>(`${API_ENDPOINTS.netauditOverview}${params}`)
+    const overview = await get<NetworkOverview>(`${API_ENDPOINTS.netauditOverview}${params}`)
+    // The server encodes an empty list as null; the page reads them as lists.
+    return { ...overview, series: overview.series ?? [], recent: overview.recent ?? [] }
   }
 
   static async checkTargets(targets: string[]): Promise<TargetProblem[]> {
