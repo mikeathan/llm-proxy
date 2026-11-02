@@ -49,6 +49,10 @@ const report: Report = {
   unscanned: ['192.168.1.34'], devices_up: 10,
 }
 // The Advanced report is read one part at a time: a pill per part, each with its count.
+// A device's actions sit behind its "⋯": press every one that is closed.
+const showActions = async (w: { findAll: (s: string) => { attributes: (n: string) => string | undefined; trigger: (e: string) => Promise<void> }[] }) => {
+  for (const more of w.findAll('[data-test="more-actions"]')) if (more.attributes('aria-expanded') !== 'true') await more.trigger('click')
+}
 const pill = (w: { findAll: (s: string) => { text: () => string; trigger: (e: string) => Promise<void> }[] }, name: string) =>
   w.findAll('[role="radio"]').find((b) => b.text().startsWith(name))!.trigger('click')
 const NEVER = '0001-01-01T00:00:00Z'
@@ -110,11 +114,12 @@ describe('FindingsReport', () => {
     expect(pills).toEqual(['Problems (0)', 'Devices (2)', 'New (2)', 'Changed (1)', 'Resolved (1)', 'Accepted (1)'])
     expect(w.text()).toContain('1 device was not scanned to completion')
     expect(w.text()).toContain('192.168.1.34')
-    expect(w.findAll('section[aria-label="192.168.1.5"]')).toHaveLength(1)
+    expect(w.findAll('article[aria-label="192.168.1.5"]')).toHaveLength(1)
     expect(w.get('[data-key="e"]').text()).toContain('OpenSSH 9.6p1')
     expect(w.get('[data-key="e"] s').text()).toBe('OpenSSH 9.6p1')
     expect(w.get('[data-key="e"]').text()).toContain('changed')
-    expect(w.get('[data-key="d"]').text()).toContain('Accepted until')
+    expect(w.get('[data-key="d"]').text()).toContain('accepted')
+    expect(w.get('[data-key="d"]').text()).toContain('until')
     expect(w.get('[data-key="d"]').text()).toContain('my NAS')
     expect(w.get('[data-key="d"]').text()).toContain('Undo')
     expect(w.get('[data-key="a"]').text()).toContain('Accept…')
@@ -301,9 +306,10 @@ describe('FindingsReport with checks', () => {
     expect(w.get('article[data-check="smb_v1"]').text()).toContain('high')
     expect(w.get('[data-key="smb"] [data-test="check"]').text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
     await pill(w, 'Devices')
-    expect(w.get('section[aria-label="192.0.2.10"]').text()).toContain('1 open port, 1 problem')
+    expect(w.get('article[aria-label="192.0.2.10"]').text()).toContain('1 open port')
+    expect(w.get('article[aria-label="192.0.2.10"]').text()).toContain('1 problem')
     // The device list shows the port, not the problem again.
-    expect(w.get('section[aria-label="192.0.2.10"]').find('[data-key="smb"]').exists()).toBe(false)
+    expect(w.get('article[aria-label="192.0.2.10"]').find('[data-key="smb"]').exists()).toBe(false)
     expect(w.get('[data-key="p"]').text()).toContain('microsoft-ds')
   })
 })
@@ -357,18 +363,34 @@ describe('FindingsReport grouped problems', () => {
     expect(w.get('[data-test="summary"]').text()).toBe('3 things need a look')
   })
 
-  it('Advanced: a device with nothing to look at is folded behind "Show ports", and opens on demand', async () => {
+  it('Advanced: every device is open until it is folded, and folds from its header', async () => {
     useNetauditViewMode().set('advanced')
     const w = await mountGrouped({
       first_scan: true,
       findings: [finding({ key: 'p1', device: '192.0.2.10', port: 22, version: 'OpenSSH 9.6p1' }), finding({ key: 'p2', device: '192.0.2.10', port: 80, service: 'http', version: 'nginx 1.2' })],
     })
-    const section = w.get('section[aria-label="192.0.2.10"]')
-    expect(section.find('[data-key="p1"]').exists()).toBe(false)
-    expect(section.text()).toContain('2 open ports')
-    await section.get('[data-test="toggle-device"]').trigger('click')
+    const section = w.get('article[aria-label="192.0.2.10"]')
     expect(section.find('[data-key="p1"]').exists()).toBe(true)
-    expect(section.get('[data-test="toggle-device"]').text()).toBe('Hide ports')
+    expect(section.text()).toContain('2 open ports')
+    await section.get('[data-test="card-toggle"]').trigger('click')
+    expect(section.find('[data-key="p1"]').exists()).toBe(false)
+    await section.get('[data-test="card-toggle"]').trigger('click')
+    expect(section.find('[data-key="p1"]').exists()).toBe(true)
+  })
+
+  it('Advanced: Collapse all folds every device and problem card, and Expand all opens them again', async () => {
+    useNetauditViewMode().set('advanced')
+    const w = await mountGrouped({
+      first_scan: true,
+      findings: [finding({ key: 'p1', device: '192.0.2.10', port: 22 }), finding({ key: 'q1', device: '192.0.2.11', port: 22 })],
+    })
+    await pill(w, 'Devices')
+    expect(w.findAll('[data-test="device"] [data-key]').length).toBeGreaterThan(0)
+    await w.get('[data-test="collapse-all"]').trigger('click')
+    expect(w.findAll('[data-test="device"] [data-key]')).toHaveLength(0)
+    expect(w.findAll('[data-test="card-toggle"]').every((b) => b.attributes('aria-expanded') === 'false')).toBe(true)
+    await w.get('[data-test="expand-all"]').trigger('click')
+    expect(w.findAll('[data-test="device"] [data-key]').length).toBeGreaterThan(0)
   })
 
   it('Advanced: ports the scan could not identify fold into one line, and can be shown', async () => {
@@ -380,7 +402,7 @@ describe('FindingsReport grouped problems', () => {
         finding({ key: 'ok', device: '192.0.2.40', port: 22, version: 'OpenSSH 9.6p1', new: true }),
       ],
     })
-    const section = w.get('section[aria-label="192.0.2.40"]')
+    const section = w.get('article[aria-label="192.0.2.40"]')
     expect(section.find('[data-key="u1"]').exists()).toBe(false)
     expect(section.get('[data-test="low-detail"]').text()).toContain('2 ports the scan could not identify: 8443, 49152')
     expect(section.find('[data-key="ok"]').exists()).toBe(true)
@@ -442,7 +464,7 @@ describe('FindingsReport known vulnerabilities', () => {
     const places = card.findAll('[data-test="problem"]')
     expect(places).toHaveLength(2)
     for (const place of places) {
-      expect(place.get('[data-test="check"]').text()).toBe('3 known flaws · 1 exploited by attackers')
+      expect(place.get('[data-test="check"]').text()).toContain('3 known flaws · 1 exploited by attackers')
       expect(place.text()).not.toContain('The software on this port may be affected')
     }
   })
@@ -484,6 +506,10 @@ describe('FindingsReport fix guides', () => {
   }
   const toggle = (w: Awaited<ReturnType<typeof mountGuide>>) => w.get('[data-test="fix-guide"] button[aria-expanded]')
   const named = (w: Awaited<ReturnType<typeof mountGuide>>, text: string) => w.findAll('button').find((b) => b.text() === text)
+  // "I've done this" sits behind each place's "⋯": open them before asking for it.
+  const openMore = async (w: Awaited<ReturnType<typeof mountGuide>>) => {
+    for (const more of w.findAll('[data-test="problem-more"]')) if (more.attributes('aria-expanded') !== 'true') await more.trigger('click')
+  }
 
   it('Simple: the steps, the risk and the way back are one tap away, without commands', async () => {
     const w = await mountGuide(report(smb(), port))
@@ -511,6 +537,7 @@ describe('FindingsReport fix guides', () => {
     service.markFixed.mockResolvedValue({ key: 'smb' })
     const w = await mountGuide(report(smb()))
     service.findings.mockClear()
+    await openMore(w)
     await named(w, "I've done this")!.trigger('click')
     await flushPromises()
     expect(service.markFixed).toHaveBeenCalledWith({ workspace_id: 'ws', automation: 'audit', key: 'smb', note: '' })
@@ -546,6 +573,7 @@ describe('FindingsReport fix guides', () => {
   it('shows why marking failed and keeps the screen as it was', async () => {
     service.markFixed.mockRejectedValue(new Error('no such finding in the latest scan'))
     const w = await mountGuide(report(smb()))
+    await openMore(w)
     await named(w, "I've done this")!.trigger('click')
     await flushPromises()
     expect(w.get('[role="alert"]').text()).toContain('no such finding')
@@ -607,7 +635,8 @@ describe('FindingsReport fixes and rescans', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountScanned()
     await pill(w, 'Devices')
-    await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
+    await showActions(w)
+    await w.get('article[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
     await flushPromises()
     expect(dispatcher.triggerAutomation).toHaveBeenCalledWith('ws', 'audit', undefined, '192.0.2.10')
   })
@@ -1273,6 +1302,7 @@ describe('FindingsReport expected ports', () => {
   it('sets what is open now as the expectation with one click, then reloads', async () => {
     service.setExpectation.mockResolvedValue({})
     const w = await mountAdvanced()
+    await showActions(w)
     await w.get('[data-test="set-expected"]').trigger('click')
     await flushPromises()
     expect(service.setExpectation).toHaveBeenCalledWith({ workspace_id: 'ws', device: DEVICE, ports: [22, 631], note: '' })
@@ -1283,6 +1313,7 @@ describe('FindingsReport expected ports', () => {
     service.removeExpectation.mockResolvedValue(undefined)
     const w = await mountAdvanced([{ device: DEVICE, ports: [22], set_at: '2026-10-28T01:00:00Z' }])
     expect(w.get('[data-test="expected"]').text()).toContain('Expects 22')
+    await showActions(w)
     expect(w.find('[data-test="set-expected"]').exists()).toBe(false)
     await w.get('[data-test="remove-expected"]').trigger('click')
     await flushPromises()
@@ -1292,6 +1323,7 @@ describe('FindingsReport expected ports', () => {
   it('edits the ports by typing and refuses a bad list', async () => {
     service.setExpectation.mockResolvedValue({})
     const w = await mountAdvanced([{ device: DEVICE, ports: [22], set_at: '2026-10-28T01:00:00Z' }])
+    await showActions(w)
     await w.get('[data-test="edit-expected"]').trigger('click')
     const dialog = w.get('[role="dialog"]')
     const input = dialog.get('input[type="text"]')
@@ -1311,6 +1343,7 @@ describe('FindingsReport expected ports', () => {
     service.expectations.mockRejectedValue(new Error('nope'))
     const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
     await flushPromises()
+    await showActions(w)
     expect(w.find('[data-test="set-expected"]').exists()).toBe(true)
   })
 })
@@ -1354,7 +1387,8 @@ describe('FindingsReport while a scan runs', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountScanned()
     await pill(w, 'Devices')
-    await w.get('section[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
+    await showActions(w)
+    await w.get('article[aria-label="192.0.2.10"] [data-test="rescan-host"]').trigger('click')
     await flushPromises()
     expect(isOff(w)).toBe(true)
     expect(w.get('[data-test="scan-running"]').text()).toContain('Scanning 192.0.2.10')
@@ -1380,23 +1414,63 @@ describe('FindingsReport while a scan runs', () => {
   })
 })
 
+describe('The "⋯" on a problem place', () => {
+  const two: Report = {
+    scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 2, resolved: [], unscanned: [],
+    findings: [
+      finding({ key: 's1', device: '192.0.2.10', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', check_title: 'SMBv1' }),
+      finding({ key: 's2', device: '192.0.2.11', port: 445, check: 'smb_v1', severity: 'high', evidence: 'SMBv1 is enabled', check_title: 'SMBv1' }),
+    ],
+  }
+  it('opens the rest of one place at a time, and closes it when pressed again', async () => {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(two)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    const mores = () => w.findAll('[data-test="problem-more"]')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(0)
+    await mores()[0]!.trigger('click')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(1)
+    expect(mores()[0]!.attributes('aria-expanded')).toBe('true')
+    await mores()[1]!.trigger('click')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(1)
+    expect(mores()[0]!.attributes('aria-expanded')).toBe('false')
+    await mores()[1]!.trigger('click')
+    expect(w.findAll('[data-test="problem-extras"]')).toHaveLength(0)
+  })
+
+  it('keeps Accept as the one visible button on a row', async () => {
+    useNetauditViewMode().set('advanced')
+    service.findings.mockResolvedValue(two)
+    const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
+    await flushPromises()
+    const labels = w.get('[data-key="s1"]').findAll('button').map((b) => b.attributes('aria-label') ?? b.text())
+    expect(labels).toEqual(['Accept…', 'More actions'])
+  })
+})
+
 describe('Advanced device header', () => {
   const oneDevice: Report = {
     scanned: true, scanned_at: '2026-10-26T02:00:00Z', engine: 'nmap', devices_up: 1, resolved: [], unscanned: [],
     findings: [finding({ key: 'p', device: '192.0.2.10', port: 445, service: 'microsoft-ds', new: true })],
   }
-  it('shows rescan and the ports toggle, and keeps the rarer actions behind "More"', async () => {
+  it('keeps every action behind one "⋯", and folds the device from its header', async () => {
     useNetauditViewMode().set('advanced')
     service.findings.mockResolvedValue(oneDevice)
     const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' }, attachTo: document.body })
     await flushPromises()
-    const device = w.get('section[aria-label="192.0.2.10"]')
+    const device = w.get('article[aria-label="192.0.2.10"]')
     const more = device.get('[data-test="more-actions"]')
     expect(more.attributes('aria-expanded')).toBe('false')
-    expect((device.get('[data-test="device-more"]').element as HTMLElement).style.display).toBe('none')
+    expect(device.find('[data-test="device-more"]').exists()).toBe(false)
     await more.trigger('click')
     expect(more.attributes('aria-expanded')).toBe('true')
-    expect((device.get('[data-test="device-more"]').element as HTMLElement).style.display).not.toBe('none')
+    const actions = device.get('[data-test="device-more"]').findAll('button').map((b) => b.text())
+    expect(actions).toEqual(['Rescan this host', 'Set as expected', 'Deep check'])
+    const toggle = device.get('[data-test="card-toggle"]')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    await toggle.trigger('click')
+    expect(device.find('[data-key="p"]').exists()).toBe(false)
     w.unmount()
   })
 })
@@ -1567,7 +1641,8 @@ describe('Accepted problems and the counts', () => {
     const row = w.get('li[data-key="a1"]')
     expect(row.classes()).not.toContain('border-state-error')
     expect(row.html()).not.toContain('bg-state-error')
-    expect(row.text()).toContain('Accepted until')
+    expect(row.text()).toContain('accepted')
+    expect(row.text()).toContain('until')
   })
 })
 

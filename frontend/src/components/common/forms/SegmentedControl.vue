@@ -7,7 +7,8 @@ import type { ChoiceOption } from "../../../types/ui"
 // `tone="running"` tints the chosen segment amber while something runs, so it is clear at a glance that the page is live;
 // an option marked `live` carries a pulsing dot (still while motion is reduced).
 // `touch` makes each segment 44 px high on a phone, for a control that is the way around a page; the default stays compact.
-const props = defineProps<{ modelValue: string; options: ChoiceOption[]; label: string; touch?: boolean; tone?: 'running' }>()
+// `variant="tabs"` draws the same radio group as an underlined row (quiet, scrolls sideways on a phone) for the parts of one page.
+const props = defineProps<{ modelValue: string; options: ChoiceOption[]; label: string; touch?: boolean; tone?: 'running'; variant?: 'tabs' }>()
 const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>()
 
 const buttons = ref<HTMLButtonElement[]>([])
@@ -25,7 +26,7 @@ async function onKeydown(event: KeyboardEvent, index: number) {
 </script>
 
 <template>
-  <div role="radiogroup" :aria-label="label" class="inline-flex flex-wrap overflow-hidden rounded-[var(--radius-md)] border border-control">
+  <div role="radiogroup" :aria-label="label" :class="variant === 'tabs' ? 'flex max-w-full overflow-x-auto border-b border-hairline' : 'inline-flex flex-wrap overflow-hidden rounded-[var(--radius-md)] border border-control'">
     <button
       v-for="(option, index) in options"
       :key="option.value"
@@ -34,7 +35,10 @@ async function onKeydown(event: KeyboardEvent, index: number) {
       role="radio"
       :aria-checked="option.value === modelValue"
       :tabindex="option.value === modelValue ? 0 : -1"
-      :class="[
+      :class="variant === 'tabs' ? [
+        'h-11 flex-none whitespace-nowrap border-b-2 px-3.5 text-[length:var(--text-body)] transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset',
+        option.value === modelValue ? 'border-accent-brand font-medium text-primary' : 'border-transparent text-muted hover:text-primary',
+      ] : [
         'h-7 px-3 font-mono text-[length:var(--text-small)] font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset',
         touch ? 'max-sm:h-11' : '',
         index > 0 ? 'border-l border-hairline' : '',

@@ -170,12 +170,6 @@ export const DEVICE_TIME_OPTIONS: ChoiceOption[] = [
   { value: '10', label: '10 minutes' },
 ]
 
-/**
- * How a finding card looks. Every card is the same neutral surface; severity is said by the tag inside it (its colour and its
- * word), so a page of findings reads as a list, not as a wall of alarms.
- */
-export const FINDING_CARD_CLASS = 'border border-hairline bg-surface'
-
 /** The depths an audit may scan at. */
 export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
   { value: 'thorough', label: 'Thorough (a few minutes)' },
@@ -284,6 +278,7 @@ export const SETTINGS_SAVES_AT_ONCE = 'Every change saves at once.'
 export const SETTINGS_WATCHING_TITLE = 'Watching for changes'
 export const SETTINGS_EXTRAS_TITLE = 'Optional extras'
 export const ADVANCED_SETTINGS_TITLE = 'Advanced'
+export const MORE_ACTIONS_LABEL = 'More actions'
 export const AUDITS_NONE = 'Scan on a schedule and be told only what is new, changed or gone. This opens the new automation form with everything filled in; you can change any of it.'
 export const AUDITS_SET_UP = 'Set up a network audit'
 export const AUDITS_ADD_ANOTHER = 'Add another audit'
