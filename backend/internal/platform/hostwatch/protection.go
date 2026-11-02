@@ -52,13 +52,21 @@ func (h Hardener) autoUpdatesOff(out *Hardening) bool {
 		if !ok {
 			return false // one file could not be read, so the effective value is unknown
 		}
-		for _, line := range strings.Split(text, "\n") {
-			if m := autoUpgrade.FindStringSubmatch(line); m != nil {
-				value, set = strings.TrimSpace(m[1]), true
-			}
+		if v, found := lastAutoUpgrade(text); found {
+			value, set = v, true
 		}
 	}
 	return !set || value == "" || value == "0"
+}
+
+// lastAutoUpgrade is the value of the last Unattended-Upgrade setting in one file's text.
+func lastAutoUpgrade(text string) (value string, found bool) {
+	for _, line := range strings.Split(text, "\n") {
+		if m := autoUpgrade.FindStringSubmatch(line); m != nil {
+			value, found = strings.TrimSpace(m[1]), true
+		}
+	}
+	return value, found
 }
 
 // firewallOff is true when ufw's configuration says ENABLED=no (the last such line wins, as in a shell).
