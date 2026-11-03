@@ -1,9 +1,9 @@
 package app
 
 import (
-	"net"
 	"net/netip"
 	"slices"
+	"sync"
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
@@ -57,13 +57,14 @@ func (s *AppServices) newNearby(store netaudit.PolicyStore, scope *netaudit.Scop
 	state := withReset(s.AppCtx, "What devices said about themselves (Nearby)", persistence.NewNearbyStore(s.AppCtx.RootDir()))
 	gateway := cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now)
 	inScope := func(a netip.Addr) bool { return scope.Policy().Check(a) == nil }
+	own := cachedOwnAddress(scope, ownAddressTTL, time.Now)
 	collector := nearby.New(nearby.Deps{
 		Enabled:    config.Enabled,
 		LANAllowed: func() bool { return guard().AllowLanAccess },
-		Interfaces: func() ([]mcast.Interface, error) { return mcast.Interfaces(inScope) },
+		Interfaces: func() ([]mcast.Interface, error) { return nearbyInterfaces(scope, inScope) },
 		Exchange:   mcast.Exchange,
 		Accept: func(a netip.Addr) bool {
-			return inScope(a) && !slices.Contains(guard().BlockedIPs, a.String()) && !isOwnAddress(a)
+			return inScope(a) && !slices.Contains(guard().BlockedIPs, a.String()) && !own(a)
 		},
 		Identify: upnpClient(netTools).Identify,
 		Store:    state,
@@ -80,18 +81,47 @@ func (s *AppServices) newNearby(store netaudit.PolicyStore, scope *netaudit.Scop
 	}
 }
 
-// isOwnAddress is true for an address of this computer.
-func isOwnAddress(a netip.Addr) bool {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return true // cannot tell, so do not count it as a device
+// nearbyInterfaces lists the interfaces to ask on. Where the service may not open a netlink socket (a systemd unit with
+// RestrictAddressFamilies; the deployment on vertex is one) the system list fails, so the addresses the scan scope reads, with its
+// default-route fallback, stand in: only the address is needed to send from it.
+func nearbyInterfaces(scope *netaudit.Scope, inScope func(netip.Addr) bool) ([]mcast.Interface, error) {
+	if ifs, err := mcast.Interfaces(inScope); err == nil {
+		return ifs, nil
 	}
-	for _, x := range addrs {
-		if p, ok := x.(*net.IPNet); ok {
-			if own, good := netip.AddrFromSlice(p.IP); good && own.Unmap() == a {
-				return true
-			}
+	addrs, err := scope.LocalAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var out []mcast.Interface
+	for _, a := range addrs {
+		if inScope(a.Addr) && len(out) < mcast.MaxInterfaces {
+			out = append(out, mcast.Interface{Name: a.Name, Addr: a.Addr})
 		}
 	}
-	return false
+	return out, nil
+}
+
+// ownAddressTTL is how long this computer's addresses are remembered: one look asks about hundreds of datagrams.
+const ownAddressTTL = 10 * time.Second
+
+// cachedOwnAddress says whether an address is this computer's own, reading the addresses at most once per ttl. When they cannot be
+// read it says no: the collector itself drops anything that comes from the address it sends from, which is the case that matters
+// (the local responder answering).
+func cachedOwnAddress(scope *netaudit.Scope, ttl time.Duration, now func() time.Time) func(netip.Addr) bool {
+	var (
+		mu   sync.Mutex
+		at   time.Time
+		held []netaudit.LocalAddr
+	)
+	return func(a netip.Addr) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if at.IsZero() || now().Sub(at) > ttl {
+			if addrs, err := scope.LocalAddrs(); err == nil {
+				held = addrs
+			}
+			at = now()
+		}
+		return slices.ContainsFunc(held, func(l netaudit.LocalAddr) bool { return l.Addr == a })
+	}
 }

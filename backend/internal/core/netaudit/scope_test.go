@@ -189,3 +189,25 @@ func TestScope_CheckTargetsWithNoTargetsMeansEveryAllowedNetworkAndIsFine(t *tes
 		t.Errorf("got %+v", got)
 	}
 }
+
+func TestScope_LocalAddrsReadsIPv4NonLoopbackAndFallsBackWhereNetlinkIsRestricted(t *testing.T) {
+	list := func() (map[string][]net.Addr, error) {
+		return map[string][]net.Addr{
+			"lo":    {&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)}},
+			"wlan0": {&net.IPNet{IP: net.ParseIP("192.168.50.60"), Mask: net.CIDRMask(24, 32)}, &net.IPNet{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)}},
+		}, nil
+	}
+	got, err := NewScope(&memPolicy{}, nil, list).LocalAddrs()
+	if err != nil || len(got) != 1 || got[0].Name != "wlan0" || got[0].Addr.String() != "192.168.50.60" {
+		t.Fatalf("%+v %v", got, err)
+	}
+	// The default-route fallback is what a unit without a netlink socket gets.
+	fallback := func() (map[string][]net.Addr, error) {
+		return interfacesWithFallback(func() (map[string][]net.Addr, error) { return nil, errors.New("netlink refused") },
+			func() (net.IP, error) { return net.ParseIP("192.168.50.60"), nil })
+	}
+	got, err = NewScope(&memPolicy{}, nil, fallback).LocalAddrs()
+	if err != nil || len(got) != 1 || got[0].Name != "default route" {
+		t.Fatalf("%+v %v", got, err)
+	}
+}

@@ -170,7 +170,9 @@ func (c *Collector) run(ctx context.Context, res *lookResult) string {
 	locations := map[netip.Addr]string{}
 	qs := []mcast.Question{{To: MDNSGroup, Payload: MDNSQuestion}, {To: SSDPGroup, Payload: SSDPSearch}}
 	for _, ifc := range ifaces {
-		replies, err := c.deps.Exchange(ctx, ifc, qs, mcast.Limits{Window: window}, c.deps.Accept)
+		// A reply from the address we send from is this computer's own responder answering, never another device.
+		accept := func(a netip.Addr) bool { return a != ifc.Addr && c.deps.Accept(a) }
+		replies, err := c.deps.Exchange(ctx, ifc, qs, mcast.Limits{Window: window}, accept)
 		if err != nil {
 			return refusalOutcome(err)
 		}
