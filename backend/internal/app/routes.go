@@ -45,6 +45,7 @@ type HandlerSet struct {
 	RouterLog   *handlers.NetauditRouterLogHandlers
 	OutsideLook *handlers.NetauditOutsideLookupHandlers
 	DNSCheck    *handlers.NetauditDNSCheckHandlers
+	Nearby      *handlers.NetauditNearbyHandlers
 	Alerts      *handlers.NetauditAlertHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
@@ -117,6 +118,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
 	hs.OutsideLook = handlers.NewNetauditOutsideLookupHandlers(s.netaudit.OutsideLookupConfig, s.netaudit.Exposure)
 	hs.DNSCheck = handlers.NewNetauditDNSCheckHandlers(s.netaudit.DNSCheckConfig, s.netaudit.DNSCollector)
+	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
@@ -382,6 +384,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/dns-check", hs.DNSCheck.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/dns-check", hs.DNSCheck.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/nearby", hs.Nearby.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/nearby", hs.Nearby.Put, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/nearby/look", hs.Nearby.Look, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Put, jsonMethodNotAllowed)

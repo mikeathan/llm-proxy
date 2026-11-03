@@ -462,6 +462,48 @@ var guides = map[string]FixGuide{
 		Risk: "Accepting a certificate nobody renewed would hide a service being replaced.",
 		Undo: "Take the acceptance back and the finding returns.",
 	},
+	CheckRogueGateway: {
+		Steps: []string{
+			"Find the device with the address shown, in the router's list of connected devices or in the device list here.",
+			"If it is an access point, mesh node or second router that you installed, open its settings and switch it to access-point (bridge) mode so only your main router routes. If it is your internet provider's box in front of the router, that is the usual double-router setup and you can accept the finding with a note.",
+			"If you do not know the device, disconnect it, change the Wi-Fi password and check the router's list of connected devices.",
+			"Run Nearby again to confirm: the finding goes when the device no longer says it is a gateway.",
+		},
+		Risk: "Switching a device to access-point mode can change its address and the devices that join through it; disconnecting it interrupts whatever uses it.",
+		Undo: "Put the device back in router mode in its settings, or reconnect it.",
+	},
+	CheckRTSPNoAuth: {
+		Steps: []string{
+			"Open the camera's settings (its web page or its app) and find the account or security section.",
+			"Set a password for the video stream and turn off any anonymous or guest viewing. Change a default password if the camera still has one.",
+			"Check that the camera is not forwarded to the internet in the router's port-forwarding list or UPnP table.",
+			"Run the audit again to confirm.",
+		},
+		Risk: "Apps and recorders that read the stream without a password stop working until they are given the new one.",
+		Undo: "Remove the stream password in the camera's settings.",
+	},
+	CheckAIAPIExposed: {
+		Steps: []string{
+			"Find what runs on the device at the port shown (Ollama, llama.cpp, vLLM or another OpenAI-compatible server).",
+			"Make it listen on 127.0.0.1 only (for Ollama set OLLAMA_HOST=127.0.0.1; for llama.cpp use --host 127.0.0.1), or put a reverse proxy with a login or key in front of it.",
+			"If other computers must use it, allow only those addresses in the device's firewall.",
+			"Run the audit again to confirm.",
+		},
+		Commands: []GuideCommand{{platformLinux, `ss -ltnp | grep -E ':(11434|8000|8080|8081)\b'
+sudo ufw allow from <your-network> to any port 11434   # example: use your own network and port`}},
+		Risk: "Programs on other computers that use the server stop working until they are allowed or given the key.",
+		Undo: "Set the listen address back and restart the server.",
+	},
+	CheckAdminServiceOpen: {
+		Steps: []string{
+			"Find what runs on the device at the port shown (a notebook server, Consul, Prometheus, a metrics exporter or a container registry).",
+			"Turn on its own login or token, or make it listen on 127.0.0.1 only and reach it through an SSH tunnel or a VPN.",
+			"Firewall the port from the rest of the network if it must stay on a public address.",
+			"Run the audit again to confirm.",
+		},
+		Risk: "Dashboards, scrapers and colleagues that reach the service directly stop working until they are given access.",
+		Undo: "Set the listen address and login back in the service's settings.",
+	},
 	CheckUPnPEnabled: {
 		Steps: []string{
 			"Open the router's settings page (for most routers, its address in a browser) and find the UPnP switch. On many ASUS routers it is under WAN, Internet Connection, \"Enable UPnP\"; other brands put it under Advanced or NAT.",

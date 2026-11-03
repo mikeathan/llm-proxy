@@ -1,5 +1,5 @@
 import type { ChoiceOption } from '../types/ui'
-import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
+import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -32,6 +32,7 @@ export const HELP_TOPIC_LABELS: Record<NetauditHelpTopic, string> = {
   reports: 'Reading a report',
   vulns: 'Known vulnerabilities',
   devices: 'New devices',
+  nearby: 'Nearby devices',
   fixes: 'Fixing a finding',
   deep: 'The deep check',
   safety: 'Is it safe?',
@@ -75,6 +76,16 @@ export const HELP_SECTIONS: Record<NetauditHelpTopic, HelpSection> = {
       'It can only look at what the scan recognised. Many routers, cameras and phones do not say which program or firmware they run, so they are not covered, and the report says how many services were looked at. Silence from this check does not mean a device is safe.',
       'Without the list, audits still run and say that the check was skipped. You can turn the check off for one audit in its settings.',
       'If this computer cannot reach the Internet, fetch the two files on another computer and pick them under "Import a file instead" (Advanced, or after a download stops). Importing asks for your passphrase again, because it replaces what every audit compares with.',
+    ],
+  },
+  nearby: {
+    title: HELP_TOPIC_LABELS.nearby,
+    paragraphs: [
+      'Nearby asks the whole network what each device is. It sends two small questions at once: one over mDNS ("which services do you offer?", how printers, TVs and cameras announce themselves) and one over UPnP ("who are you?"). It listens for about five seconds and keeps only the device type, the services, port numbers and a cleaned name, maker and model.',
+      'It is off until you turn it on in Settings, and turning it on asks for your passphrase. Nothing is sent to the internet.',
+      'What a device says is only a claim, so a type is shown as "advertises as". A device can say anything, which is why the problems Nearby reports use fixed words and never repeat what a device said.',
+      'Silence is not proof. Some routers and access points block these questions, and some devices stay quiet, so a device that did not answer is shown as "not heard", never as gone, and a problem does not clear just because a look was quiet.',
+      'A problem Nearby can report: a device that says it is an internet gateway but is not your router. The Fix button opens the steps.',
     ],
   },
   devices: {
@@ -428,3 +439,51 @@ export const DNS_CHECK_COPIED = 'Copied'
 export const DNS_CHECK_COPY_FAILED = 'Copy failed'
 export const SCAN_UNCONFINED_HINT = 'For development only.'
 export const SCAN_UNCONFINED_DETAILS = 'Normally nmap is kept inside its own folder by the operating system, and refuses to run where that is not possible.'
+
+// ---- Nearby: what devices say they are (mDNS and SSDP) ----
+
+export const NEARBY_TITLE = 'Nearby'
+export const NEARBY_SETTINGS_TITLE = 'Nearby devices'
+export const NEARBY_LABEL = 'Ask the network what each device is'
+export const NEARBY_HINT = 'Sends two small questions to the whole network and listens for the answers. Off until you turn it on.'
+export const NEARBY_DETAILS = 'When you check, this computer sends two questions to every device on your network at once: one over mDNS ("which services do you offer?", the way printers and TVs announce themselves) and one over UPnP ("who are you?"). It then listens for about five seconds and reads the answers, and may read a short description page from a device that says where it is. Only the device type, services, port numbers and a cleaned name, maker and model are kept. Nothing else a device sends is stored, and nothing is ever sent to the internet. What a device says is only a claim: a device can say anything, so it is shown as "advertises as". Some routers and access points block these questions, and some devices stay quiet, so a device that does not answer is not gone. Off until you turn it on, and turning it on asks for your passphrase.'
+export const NEARBY_CHECK_NOW = 'Check now'
+export const NEARBY_CHECKING = 'Looking…'
+export const NEARBY_OFF_BODY = 'Nearby is off. When it is on, this computer sends two small questions to everything on your network ("which services do you offer?" and "who are you?") and listens for a few seconds for the answers. Nothing is sent while it is off.'
+export const NEARBY_TURN_ON = 'Turn it on in Settings'
+export const NEARBY_NEVER = 'Nearby is on but has not looked yet. Press Check now.'
+export const NEARBY_RUNNING = 'Looking… this takes a few seconds.'
+export const NEARBY_NOTHING = 'Nothing answered. That does not mean nothing is there: some routers and access points block these questions, and some devices stay quiet.'
+export const NEARBY_FAILED: Record<string, string> = {
+  lan_off: 'Could not look: local network access is off in Guardrails. Turn it on in Settings, then check again.',
+  no_interface: 'Could not look: no network connection inside the networks you allowed is up.',
+  refused: 'Could not look: the system would not let this program send the questions.',
+  unavailable: 'Nearby is not available on this system.',
+}
+export const NEARBY_READ_FAILED_TITLE = 'Nearby could not be read'
+export const NEARBY_LOAD_FAILED = 'Failed to read what devices said about themselves.'
+export const NEARBY_SAVE_FAILED = 'Failed to save the Nearby setting.'
+export const NEARBY_LOOK_FAILED = 'Failed to start a look.'
+export const NEARBY_NO_MATCH = 'No device matches this filter.'
+export const NEARBY_SILENCE_NOTE = 'A device that did not answer is not gone: some do not answer every time.'
+export const NEARBY_ADVERTISES_AS = 'Advertises as'
+export const NEARBY_FILTER_LABEL = 'Show nearby devices'
+export const NEARBY_FILTERS: readonly NearbyFilter[] = ['all', 'attention', 'new', 'quiet']
+export const NEARBY_FILTER_LABELS: Record<NearbyFilter, string> = { all: 'All', attention: 'Needs a look', new: 'New', quiet: 'Not heard' }
+export const NEARBY_STATUS_LABELS: Record<NearbyStatus, string> = { attention: 'Needs a look', new: 'New', heard: 'Heard in the last look', quiet: 'Not heard in the last look' }
+export const NEARBY_GROUP_TITLES: Record<NearbyStatus, string> = { attention: 'Needs a look', new: 'New', heard: 'Heard in the last look', quiet: 'Not heard in the last look' }
+export const NEARBY_KIND_LABELS: Record<NearbyKind, string> = { printer: 'Printer', tv: 'TV or speaker', camera: 'Camera', computer: 'Computer or server', gateway: 'Internet gateway', other: 'Something else' }
+export const NEARBY_KIND_ICONS: Record<NearbyKind, string> = { printer: 'printer', tv: 'tv', camera: 'camera', computer: 'computer', gateway: 'globe', other: 'device' }
+export const NEARBY_NOT_LISTED = 'Not in your device list'
+export const NEARBY_FIX = 'Fix'
+export const NEARBY_CLOSE_DETAIL = 'Close details'
+export const NEARBY_COPY = 'Copy the results'
+export const NEARBY_COPY_HINT = 'Copies a short summary of what was heard, to bring back for review.'
+export const NEARBY_COPIED = 'Copied.'
+export const NEARBY_COPY_FAILED = 'Could not copy. Select and copy it by hand.'
+export const NEARBY_SERVICE_NAMES: Record<string, string> = {
+  '_ipp._tcp': 'Printing (IPP)', '_ipps._tcp': 'Printing (IPP)', '_printer._tcp': 'Printing', '_pdl-datastream._tcp': 'Printing', '_airplay._tcp': 'AirPlay',
+  '_googlecast._tcp': 'Google Cast', '_raop._tcp': 'AirPlay audio', '_spotify-connect._tcp': 'Spotify Connect', '_rtsp._tcp': 'Video stream (RTSP)', '_ssh._tcp': 'SSH',
+  '_smb._tcp': 'File sharing (SMB)', '_afpovertcp._tcp': 'File sharing (AFP)', '_http._tcp': 'Web page', '_https._tcp': 'Web page (secure)', '_workstation._tcp': 'Computer',
+  '_companion-link._tcp': 'Apple device', '_homekit._tcp': 'HomeKit', '_hap._tcp': 'HomeKit',
+}

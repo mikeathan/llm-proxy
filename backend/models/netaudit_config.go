@@ -58,4 +58,7 @@ type NetauditConfig struct {
 	DNSCheckServer string `yaml:"dns_check_server,omitempty" json:"dns_check_server"`
 	// DNSCheckResolverURL is the outside resolver's DNS-over-HTTPS address (https only). Empty means netaudit's default.
 	DNSCheckResolverURL string `yaml:"dns_check_resolver_url,omitempty" json:"dns_check_resolver_url"`
+	// NearbyEnabled lets the host send two multicast questions (mDNS and SSDP) and read the answers, to learn what the devices on
+	// the network say they are (Constitution I.9). It is off until the operator turns it on (a step-up action).
+	NearbyEnabled bool `yaml:"nearby_enabled,omitempty" json:"nearby_enabled"`
 }

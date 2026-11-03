@@ -66,6 +66,10 @@ type netauditServices struct {
 	// DNSCheckConfig is the DNS comparison's switch and settings; DNSCollector logs the comparisons and is started with the app.
 	DNSCheckConfig *netaudit.DNSCheckConfig
 	DNSCollector   *netaudit.DNSCollector
+	// Nearby is discovery over mDNS and SSDP (Constitution I.9) and the service checks that probe open ports.
+	Nearby       *nearbyServices
+	NearbyConfig *netaudit.NearbyConfig
+	NearbyLooks  *nearbyLooks
 	// DecoyConfig is the decoy services' switch; Decoys runs the listeners and DecoyStore keeps who connected.
 	DecoyConfig *netaudit.DecoyConfig
 	Decoys      *decoy.Manager
@@ -142,6 +146,22 @@ func (s AppServices) NetauditRouter() netaudit.RouterFindings {
 		return nil
 	}
 	return s.netaudit.Router
+}
+
+// NetauditNearby is where the run reporter reads what devices said about themselves; nil until the services are wired.
+func (s AppServices) NetauditNearby() netaudit.NearbyFinder {
+	if s.netaudit == nil || s.netaudit.Nearby == nil {
+		return nil
+	}
+	return s.netaudit.Nearby.Findings
+}
+
+// NetauditServices is the service checks the run reporter runs over a scan's open ports; nil until the services are wired.
+func (s AppServices) NetauditServices() netaudit.ServiceFinder {
+	if s.netaudit == nil || s.netaudit.Nearby == nil {
+		return nil
+	}
+	return s.netaudit.Nearby.Services
 }
 
 // NetauditHistory is where the run reporter notes each audit's finding counts; nil until the services are wired.
@@ -223,6 +243,9 @@ func (s AppServices) StartNetauditPresence(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.Decoys != nil {
 		go s.netaudit.Decoys.Run(ctx)
 	}
+	if s.netaudit != nil && s.netaudit.Nearby != nil {
+		go s.netaudit.Nearby.Collector.Run(ctx)
+	}
 }
 
 // NetauditVulns is where the run reporter reads the vulnerability data from; nil until the services are wired.
@@ -280,9 +303,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	scope := netaudit.NewScope(store, net.DefaultResolver, nil)
 	// The vulnerability data, device names and router check reach the network through the guarded client, so the global
 	// network guardrails and the blocked-domain list apply to them like to any agent fetch.
-	netTools := tools.NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig {
-		return dataMgr.Settings().Get().Guardrails.Network
-	}, s.logger)
+	guard := func() models.NetworkGuardrailsConfig { return dataMgr.Settings().Get().Guardrails.Network }
+	netTools := tools.NewNetworkTools(func(context.Context) models.NetworkGuardrailsConfig { return guard() }, s.logger)
 
 	scan := s.newScanning(store, scope, netTools)
 	known := s.newTracking(store, scope, netTools)
@@ -290,6 +312,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
 	dns := s.newDNSCheck(store, netTools)
+	near := s.newNearby(store, scope, netTools, guard, known.Inventory)
 
 	s.netaudit = &netauditServices{
 		Scope:     scope,
@@ -311,6 +334,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Exposure:            outside.Exposure,
 		DNSCheckConfig:      dns.Config,
 		DNSCollector:        dns.Collector,
+		Nearby:              &near,
+		NearbyConfig:        near.Config,
+		NearbyLooks:         near.Looks,
 
 		Alerts:         alerts.Log,
 		Presence:       alerts.Presence,

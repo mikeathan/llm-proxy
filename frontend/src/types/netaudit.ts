@@ -193,7 +193,7 @@ export interface ScanSettings {
 }
 
 /** The parts of the Help panel; a warning opens it on the one that explains it. */
-export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'devices' | 'fixes' | 'deep' | 'safety' | 'words'
+export type NetauditHelpTopic = 'basics' | 'setup' | 'reports' | 'vulns' | 'devices' | 'nearby' | 'fixes' | 'deep' | 'safety' | 'words'
 
 export interface HelpSection {
   title: string
@@ -607,3 +607,55 @@ export interface NetworkAudit {
 export interface NetauditSwitch {
   enabled: boolean
 }
+
+/** The outcome of the latest Nearby look: a fixed code, never text a device sent. */
+export type NearbyOutcome = 'heard' | 'nothing_heard' | 'off' | 'lan_off' | 'no_interface' | 'refused' | 'unavailable' | ''
+
+/** One problem with a device that said what it is: a fixed sentence and the guide that fixes it. */
+export interface NearbyProblem {
+  check: string
+  title: string
+  text: string
+  guide?: FixGuide
+}
+
+/**
+ * One device that answered a Nearby question. Every text field (names, maker, model) came from the device: show it as plain
+ * text only, never as markup, and never put it in a message of our own.
+ */
+export interface NearbyDevice {
+  ip: string
+  names?: string[]
+  services?: string[]
+  ports?: number[]
+  upnp_type?: string
+  maker?: string
+  model?: string
+  gateway?: boolean
+  sources?: string[]
+  first_heard: string
+  last_heard: string
+  /** From the device list, when it knows this address. */
+  mac?: string
+  name?: string
+  known: boolean
+  /** The device list's own "new" flag. */
+  new: boolean
+  problem?: NearbyProblem
+}
+
+export interface NearbyState {
+  enabled: boolean
+  running: boolean
+  last_look?: string
+  last_outcome?: NearbyOutcome
+  devices: NearbyDevice[]
+}
+
+/** What a device says it is, from its service types; it is a claim, so the screen says "advertises as". */
+export type NearbyKind = 'printer' | 'tv' | 'camera' | 'computer' | 'gateway' | 'other'
+
+/** Where a device sits after the latest look: has a problem, is new, was heard in that look, or was not. */
+export type NearbyStatus = 'attention' | 'new' | 'heard' | 'quiet'
+
+export type NearbyFilter = 'all' | 'attention' | 'new' | 'quiet'

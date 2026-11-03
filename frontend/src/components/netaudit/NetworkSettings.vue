@@ -7,6 +7,7 @@ import DecoysCard from "./DecoysCard.vue"
 import RouterLogCard from "./RouterLogCard.vue"
 import OutsideLookupCard from "./OutsideLookupCard.vue"
 import DnsCheckCard from "./DnsCheckCard.vue"
+import NearbyCard from "./NearbyCard.vue"
 import Panel from "../common/layout/Panel.vue"
 import ToggleField from "../common/forms/ToggleField.vue"
 import { useNetauditSwitch } from "../../composables/netaudit/useNetauditSwitch"
@@ -42,6 +43,7 @@ const GROUP_HEADING = "m-0 font-mono text-[length:var(--text-micro)] font-medium
       <RouterLogCard />
       <OutsideLookupCard />
       <DnsCheckCard />
+      <NearbyCard />
     </section>
 
     <VulnDataCard />

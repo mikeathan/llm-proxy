@@ -13,6 +13,7 @@ import ReadinessBanner from "../components/netaudit/ReadinessBanner.vue"
 import AuditsPanel from "../components/netaudit/AuditsPanel.vue"
 import NetworkSettings from "../components/netaudit/NetworkSettings.vue"
 import DevicesCard from "../components/netaudit/DevicesCard.vue"
+import NearbySection from "../components/netaudit/NearbySection.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import { useDispatcher } from "../composables/automation/useDispatcher"
@@ -71,6 +72,7 @@ onUnmounted(stop)
 
     <template v-else-if="tab === 'devices'">
       <DevicesCard />
+      <NearbySection />
     </template>
 
     <template v-else-if="tab === 'findings'">
