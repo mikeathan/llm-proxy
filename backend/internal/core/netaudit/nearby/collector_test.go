@@ -102,6 +102,16 @@ func TestLook_KeepsWhatWasHeardAndDropsWhatIsNotAccepted(t *testing.T) {
 	}
 }
 
+func TestLook_AReplyFromTheAddressItSendsFromIsNotADevice(t *testing.T) {
+	r := newRig()
+	r.c.deps.Accept = func(netip.Addr) bool { return true }
+	r.replies = []mcast.Datagram{mdnsReply("192.168.50.60", "_workstation._tcp"), mdnsReply("192.168.50.20", "_ipp._tcp")}
+	r.c.look(context.Background())
+	if st, _ := r.c.State(); len(st.Devices) != 1 || st.Devices[0].IP != "192.168.50.20" {
+		t.Fatalf("%+v", st.Devices)
+	}
+}
+
 func TestLook_SilenceIsNotAbsence(t *testing.T) {
 	r := newRig()
 	r.replies = []mcast.Datagram{mdnsReply("192.168.50.20", "_ipp._tcp")}

@@ -168,6 +168,41 @@ func (s *Scope) Suggestions() ([]Suggestion, error) {
 	return out, nil
 }
 
+// LocalAddr is one IPv4 address of this machine and the interface it is on.
+type LocalAddr struct {
+	Name string
+	Addr netip.Addr
+}
+
+// LocalAddrs lists this machine's IPv4 addresses, loopback left out, read the same way Suggestions reads them: where the service
+// may not open a netlink socket (a systemd unit with RestrictAddressFamilies) it falls back to the one address the default route
+// sends from. The list is in name and address order.
+func (s *Scope) LocalAddrs() ([]LocalAddr, error) {
+	byName, err := s.interfaces()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list network interfaces: %w", err)
+	}
+	var out []LocalAddr
+	for name, addrs := range byName {
+		for _, a := range addrs {
+			ipnet, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			if addr, good := netip.AddrFromSlice(ipnet.IP.To4()); good && !addr.IsLoopback() {
+				out = append(out, LocalAddr{Name: name, Addr: addr})
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b LocalAddr) int {
+		if a.Name != b.Name {
+			return strings.Compare(a.Name, b.Name)
+		}
+		return a.Addr.Compare(b.Addr)
+	})
+	return out, nil
+}
+
 // suggestionFor turns an interface address into a scannable suggestion, or reports that it is not one.
 func suggestionFor(name string, a net.Addr) (Suggestion, bool) {
 	ipnet, ok := a.(*net.IPNet)
