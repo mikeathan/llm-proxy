@@ -45,7 +45,7 @@ func ValidatePorts(raw string) (string, error) {
 
 // DefaultPorts are scanned when a request names none: the services a home or office network most often exposes. Both
 // engines use the same list, so a quick scan means the same thing whichever one runs it.
-var DefaultPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 515, 631, 1883, 3306, 3389, 5000, 5353, 5432, 5900, 8000, 8080, 8443, 9100, 2375, 11211, 27017, 873, 1080, 2323, 2379, 3128, 5555, 6000, 9200, 10250}
+var DefaultPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 515, 631, 1883, 3306, 3389, 5000, 5353, 5432, 5900, 8000, 8080, 8443, 9100, 2375, 11211, 27017, 873, 1080, 2323, 2379, 3128, 5555, 6000, 9200, 10250, 554, 8554, 8081, 1234, 8888, 9090, 8500, 11434}
 
 // ThoroughPorts are scanned by a thorough request that names none: nmap 7.99's 300 most common TCP ports, plus 2323, 2375,
 // 2379, 9200, 10250, 11211 and 27017 (an alternate Telnet port, an unprotected Docker API, etcd, Elasticsearch, a Kubernetes node,
@@ -73,6 +73,8 @@ var ThoroughPorts = []int{
 	10000, 10001, 10010, 10250, 11211, 13782, 15000, 16992, 16993, 20828, 23502, 27017, 32768, 32769, 32770, 32771,
 	32772, 33354, 35500, 42510, 49152, 49153, 49154, 49155, 49156, 49157, 50000, 50001, 52869, 55555, 55600, 64623,
 	64680, 65000, 65389,
+	// Added for the service checks (an RTSP stream, a Consul agent, an Ollama server), which no scan list had.
+	8500, 8554, 11434,
 }
 
 // DiscoverPorts are the ports tried to see whether an address is alive: any answer, even a refusal, means it is. Both

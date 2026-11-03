@@ -22,4 +22,13 @@ describe('network help', () => {
     expect(safety).toContain('does not mean the answers agree')
     expect(safety).not.toContain('Internet view is the one exception')
   })
+
+  it('explains Nearby: what is sent, that it is off until switched on, that a device only claims what it is, and that silence is not proof', () => {
+    const nearby = HELP_SECTIONS.nearby.paragraphs.join('\n')
+    expect(nearby).toContain('two small questions')
+    expect(nearby).toContain('off until you turn it on')
+    expect(nearby).toContain('only a claim')
+    expect(nearby).toContain('Silence is not proof')
+    expect(nearby).toContain('Nothing is sent to the internet')
+  })
 })

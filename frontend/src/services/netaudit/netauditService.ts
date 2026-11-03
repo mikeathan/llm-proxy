@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -205,6 +205,21 @@ export class NetauditService {
   /** Changes the DNS check's switch or settings. Switching it on lets an outside resolver learn the names and the public address, so the server asks for the passphrase again first. */
   static setDnsCheck(update: DnsCheckUpdate): Promise<DnsCheckState> {
     return put<DnsCheckState>(API_ENDPOINTS.netauditDnsCheck, update)
+  }
+
+  /** What devices said about themselves, the switch, and whether a look is running. */
+  static nearby(): Promise<NearbyState> {
+    return get<NearbyState>(API_ENDPOINTS.netauditNearby)
+  }
+
+  /** Switches Nearby on or off. Switching it on sends two multicast questions and reads the answers, so the server asks for the passphrase again first. */
+  static setNearby(enabled: boolean): Promise<NearbyState> {
+    return put<NearbyState>(API_ENDPOINTS.netauditNearby, { enabled })
+  }
+
+  /** Starts a look and returns at once; the state says when it has ended. A second look too soon is refused with a plain message. */
+  static nearbyLook(): Promise<NearbyState> {
+    return post<NearbyState>(API_ENDPOINTS.netauditNearbyLook, {})
   }
 
   /** Empties the list of devices that connected to a decoy. The switch and the listeners stay as they are. */

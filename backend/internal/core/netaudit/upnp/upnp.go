@@ -172,21 +172,27 @@ func checkLocation(location string, gateway netip.Addr) (string, error) {
 
 // describe fetches the description page, which is on the router, without following a redirect.
 func (c Client) describe(ctx context.Context, location string) (Description, error) {
+	return fetchPage(ctx, c.HTTP, location, ParseDescription)
+}
+
+// fetchPage reads one description page through the guarded client without following a redirect and parses it.
+func fetchPage[T any](ctx context.Context, doer Doer, location string, parse func(io.Reader) (T, error)) (T, error) {
+	var zero T
 	ctx, cancel := context.WithTimeout(ctx, 2*defaultWait)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
-		return Description{}, err
+		return zero, err
 	}
-	resp, err := noRedirects(c.HTTP).Do(req)
+	resp, err := noRedirects(doer).Do(req)
 	if err != nil {
-		return Description{}, fmt.Errorf("could not read the router's UPnP page: %w", err)
+		return zero, fmt.Errorf("could not read the UPnP page: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return Description{}, fmt.Errorf("the router's UPnP page answered %d", resp.StatusCode)
+		return zero, fmt.Errorf("the UPnP page answered %d", resp.StatusCode)
 	}
-	return ParseDescription(resp.Body)
+	return parse(resp.Body)
 }
 
 // noRedirects wraps a client so a redirect is an answer, not a journey: the page must be on the router.

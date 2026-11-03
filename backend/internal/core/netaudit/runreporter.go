@@ -30,6 +30,8 @@ type RunReporter struct {
 	decoys  DecoyReader      // optional: devices that connected to a decoy service
 	hist    AuditHistory     // optional: the Network page's daily counts
 	host    HostLooker       // optional: this computer's open ports and the files that survive a reboot
+	nearby  NearbyFinder     // optional: what devices said about themselves (a second gateway)
+	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
 	ports   PortRecorder     // optional: the ports each device had open at its last scan
 	histErr func(error)
 	now     func() time.Time
@@ -181,14 +183,14 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	inventoryNote, devices := r.addInventory(ctx, &result)
-	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result)
+	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addServices(ctx, &result)
 	hostNote, hostChecked := r.addHost(&result)
 	expectNote += hostNote
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
 	scanned := scannedDevices(result.Hosts)
-	result.Findings = append(result.Findings, restrictTo(r.carriedByRouter(prev.Findings), scanned)...)
+	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings), scanned)...)
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}

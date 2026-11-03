@@ -30,6 +30,8 @@ export const API_ENDPOINTS = {
   netauditRouterLog: `${API_BASE}/netaudit/router-log`,
   netauditOutsideLookup: `${API_BASE}/netaudit/outside-lookup`,
   netauditDnsCheck: `${API_BASE}/netaudit/dns-check`,
+  netauditNearby: `${API_BASE}/netaudit/nearby`,
+  netauditNearbyLook: `${API_BASE}/netaudit/nearby/look`,
   netauditAlerts: `${API_BASE}/netaudit/alerts`,
   netauditIPv6Discovery: `${API_BASE}/netaudit/ipv6-discovery`,
   netauditDeep: `${API_BASE}/netaudit/deep`,

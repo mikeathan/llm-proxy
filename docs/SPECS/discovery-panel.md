@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.24"
+version: "2.25"
 status: stable
-last_updated: 2026-11-02
+last_updated: 2026-11-03
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,18 @@ supersedes:
 
 ## Changelog
 
+- **2.25 (2026-11-03)** — **Nearby** (plan `network-nearby-discovery`, owner-approved;
+  [ADR-0024](../decisions/ADR-0024-nearby-discovery-two-multicast-datagrams-bounded-replies.md), Constitution I.9 proposed).
+  (1) The Network **Devices** tab gains a **Nearby** card under the device list: Simple is one summary line ("N devices heard, M need
+  a look. Last checked …"), **Check now**, a problem pinned above the list with its guide behind a **Fix** button, and a row per device
+  (best name, what it **advertises as**, status, service chips); Advanced is a table of the raw facts (service types, UPnP device
+  type, ports, address, name source, last heard) and **Copy the results**. A row opens its details beside the list on a wide
+  screen and in a bottom sheet on a phone; on a phone the filter is one select. Statuses are Needs a look, New (the device list's
+  own flag), Heard in the last look, Not heard in the last look; never "offline" or "gone". States: off, never run, running, nothing
+  heard, failed (fixed reasons), empty filter. (2) **The switch is on the Network Settings tab** (card "Nearby devices", step-up),
+  as ADR-0022 requires; the Devices card points there when Nearby is off. (3) Everything a device sent is shown as plain text, with
+  control and direction-reversing characters stripped; findings use fixed wording. New routes: `GET/PUT /admin/api/netaudit/nearby`,
+  `POST /admin/api/netaudit/nearby/look`.
 - **2.24 (2026-11-02)** — **Modules group and a calmer Network page** (plan `network-modules-redesign`, owner-approved;
   [ADR-0022](../decisions/ADR-0022-modules-is-the-navigation-group-for-feature-areas.md)). (1) Navigation gains a **Modules**
   group, an expandable heading in the sidebar (open by default, the fold remembered, always open while a destination inside it
@@ -281,7 +293,7 @@ and makes no network request outside the proxy's own origin.
 - **Automations** — list without a workspace requirement, detail with run
   history, create/edit form, recordings.
 - **Network** (under **Modules**) — the home network as a security view: Overview, Devices, Findings, Audits and Settings (see
-  2.21 and 2.24). It reads data the audit and the new-device check already keep, and adds no scanning.
+  2.21, 2.24 and 2.25). It reads data the audit and the new-device check already keep; the one thing it adds that sends anything is the opt-in Nearby look (Constitution I.9).
 - **Models** — local runtimes and remote provider catalogues.
 - **Activity** — the global run ledger; filters live in the query string so
   a filtered view is shareable, and so does the open run (`?run=<id>`), so

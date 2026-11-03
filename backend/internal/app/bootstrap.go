@@ -87,6 +87,17 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 		reporter.WithIdentities(v.NetauditIdentities())
 	}
 	withNetauditChecks(reporter, svc)
+	withNetauditProbes(reporter, svc)
+}
+
+// withNetauditProbes gives the run reporter what devices said about themselves (Nearby) and the checks that probe open ports.
+func withNetauditProbes(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
+	if v, ok := svc.(interface{ NetauditNearby() netaudit.NearbyFinder }); ok && v.NetauditNearby() != nil {
+		reporter.WithNearby(v.NetauditNearby())
+	}
+	if v, ok := svc.(interface{ NetauditServices() netaudit.ServiceFinder }); ok && v.NetauditServices() != nil {
+		reporter.WithServiceChecks(v.NetauditServices())
+	}
 }
 
 // withNetauditChecks gives the run reporter the sources of the router check, the decoy touches and the Network page's history.
