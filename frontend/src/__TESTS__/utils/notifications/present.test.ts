@@ -62,6 +62,7 @@ describe('describeNotification for a network alert', () => {
     ['summary', 'summary', 'muted'],
     ['monitor', 'monitor', 'warning'],
     ['sign_in', 'sign-in', 'error'],
+    ['follow_up', 'new device', 'warning'],
   ] as const)('labels a %s alert in words with the message as its text', (alertKind, label, tone) => {
     expect(describeNotification(network({ alertKind }))).toEqual({ label, tone, text: 'Network audit: a decoy was touched.' })
   })

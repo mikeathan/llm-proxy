@@ -119,43 +119,69 @@ func init() {
 }
 
 // comparePrivilege turns one look at the privilege marks into findings and learns each list the first time it was read in full.
-// A list that could not be read neither learns nor reports. It returns true when the baseline changed.
+// A list that could not be read learns nothing and keeps the finding it gave last time, like a program-file pass cut short: only a
+// list read in full can say an addition is gone. It returns true when the baseline changed.
 func comparePrivilege(base *models.HostPrivilege, p hostwatch.Privilege, look *HostLook) bool {
 	look.Unreadable += p.Unreadable
 	if !p.Checked {
 		look.PrivilegeUnchecked = true
-		return false
 	}
-	if p.Preload {
-		look.Findings = append(look.Findings, privilegeFinding(CheckHostPreload, "", shortDigest(p.PreloadDigest)))
-	}
-	if len(p.ExtraRoot) > 0 {
-		look.Findings = append(look.Findings, privilegeFinding(CheckHostExtraRoot, namesPhrase("Accounts", p.ExtraRoot), digestOf(p.ExtraRoot)))
-	}
-	changed := false
-	if !base.AccountsSeen {
-		base.AccountsSeen, base.LoginAccounts, base.Admins = true, slices.Clone(p.LoginAccounts), slices.Clone(p.Admins)
-		changed = true
-	} else {
-		look.Findings = append(look.Findings, added(CheckHostNewLoginAccount, "New accounts", base.LoginAccounts, p.LoginAccounts)...)
-		look.Findings = append(look.Findings, added(CheckHostNewAdmin, "New members (group:account)", base.Admins, p.Admins)...)
-	}
-	if p.ModulesRead {
-		if !base.ModulesSeen {
-			base.ModulesSeen, base.Modules = true, slices.Clone(p.Modules)
-			changed = true
-		} else {
-			look.Findings = append(look.Findings, added(CheckHostNewModule, "New modules", base.Modules, p.Modules)...)
+	learned := learnPrivilege(base, p)
+	var now []Finding
+	keep := func(read bool, checks []string, fresh []Finding) {
+		if read {
+			now = append(now, fresh...)
+			return
+		}
+		for _, f := range base.Reported {
+			if slices.Contains(checks, f.Check) {
+				now = append(now, f)
+			}
 		}
 	}
-	switch {
-	case base.SetIDSeen:
-		look.Findings = append(look.Findings, added(CheckHostNewSetID, "New files", base.SetID, p.SetID)...)
-	case p.SetIDComplete:
-		base.SetIDSeen, base.SetID = true, slices.Clone(p.SetID)
-		changed = true
+	keep(p.Checked, []string{CheckHostPreload, CheckHostExtraRoot, CheckHostNewLoginAccount, CheckHostNewAdmin}, accountFindings(base, p))
+	keep(p.Checked && p.ModulesRead, []string{CheckHostNewModule}, added(CheckHostNewModule, "New modules", base.Modules, p.Modules))
+	setID := added(CheckHostNewSetID, "New files", base.SetID, p.SetID)
+	keep(p.Checked && (p.SetIDComplete || len(setID) > 0), []string{CheckHostNewSetID}, setID)
+	look.Findings = append(look.Findings, now...)
+	if slices.EqualFunc(base.Reported, now, func(a, b Finding) bool { return a.Key() == b.Key() && a.Version == b.Version }) {
+		return learned
 	}
-	return changed
+	base.Reported = now
+	return true
+}
+
+// learnPrivilege records each list the first time it was read in full, and reports whether it recorded any. A list learned now
+// has nothing added yet, which the comparisons that follow find.
+func learnPrivilege(base *models.HostPrivilege, p hostwatch.Privilege) bool {
+	learned := false
+	if p.Checked && !base.AccountsSeen {
+		base.AccountsSeen, base.LoginAccounts, base.Admins = true, slices.Clone(p.LoginAccounts), slices.Clone(p.Admins)
+		learned = true
+	}
+	if p.Checked && p.ModulesRead && !base.ModulesSeen {
+		base.ModulesSeen, base.Modules = true, slices.Clone(p.Modules)
+		learned = true
+	}
+	if p.Checked && p.SetIDComplete && !base.SetIDSeen {
+		base.SetIDSeen, base.SetID = true, slices.Clone(p.SetID)
+		learned = true
+	}
+	return learned
+}
+
+// accountFindings are the marks read from the account files: the two reported while present, and the two compared with the first
+// look.
+func accountFindings(base *models.HostPrivilege, p hostwatch.Privilege) []Finding {
+	var out []Finding
+	if p.Preload {
+		out = append(out, privilegeFinding(CheckHostPreload, "", shortDigest(p.PreloadDigest)))
+	}
+	if len(p.ExtraRoot) > 0 {
+		out = append(out, privilegeFinding(CheckHostExtraRoot, namesPhrase("Accounts", p.ExtraRoot), digestOf(p.ExtraRoot)))
+	}
+	out = append(out, added(CheckHostNewLoginAccount, "New accounts", base.LoginAccounts, p.LoginAccounts)...)
+	return append(out, added(CheckHostNewAdmin, "New members (group:account)", base.Admins, p.Admins)...)
 }
 
 // added is one finding listing what now has that the first look did not, or none.

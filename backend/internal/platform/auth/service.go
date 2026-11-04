@@ -218,6 +218,7 @@ func (s *Service) Login(ctx context.Context, passphrase, addr, browser string) (
 	now := s.now()
 	newAddress := false
 	err = s.store.Update(func(r *Record) error {
+		seedKnownAddresses(r)
 		r.Sessions = append(s.live(r.Sessions), Session{ID: hashSecret(id), CreatedAt: now, LastSeen: now, Address: addr, Browser: trim(browser, maxBrowserLength)})
 		if len(r.Sessions) > maxSessions {
 			r.Sessions = r.Sessions[len(r.Sessions)-maxSessions:]

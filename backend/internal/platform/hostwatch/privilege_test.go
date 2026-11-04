@@ -118,3 +118,28 @@ func TestPrivileger_SetIDFilesUnderTheRootsAreListed(t *testing.T) {
 		t.Fatal("a walk cut short by its limit must say it is incomplete")
 	}
 }
+
+func TestPrivileger_AClosedSubfolderIsCountedAndTheWalkStaysComplete(t *testing.T) {
+	r := privilegeFixture(t, "", "")
+	root := t.TempDir()
+	closed := filepath.Join(root, "containerd")
+	if err := os.MkdirAll(filepath.Join(closed, "inner"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(closed, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o755) })
+	r.SetIDRoots = []string{root, filepath.Join(root, "missing")}
+	got := r.Check()
+	if !got.SetIDComplete || got.Unreadable != 1 {
+		t.Fatalf("complete = %v, unreadable = %d; a closed folder below a root is one unreadable place, not an unfinished walk", got.SetIDComplete, got.Unreadable)
+	}
+	if err := os.Chmod(root, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+	if got := r.Check(); got.SetIDComplete {
+		t.Fatal("a root that cannot be read leaves the walk incomplete")
+	}
+}

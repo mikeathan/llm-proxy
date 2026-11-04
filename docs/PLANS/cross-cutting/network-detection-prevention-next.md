@@ -121,18 +121,26 @@ looks new each time (ledger 2026-10-30), so it needs the private-address rule ap
 The architecture doc holds the design (`docs/architecture/network-audit.md` → "Detection and prevention additions"); SPEC-003 2.31 the
 behaviour. Decisions where the plan left a choice, all on the conservative side:
 
-- **P1:** the nightly audit is watched through the daily history (an audited day in the last 30 means "in use"; stalled after 48 h),
+- **P1:** the presence part reads `PresenceStatus.LastLook` (a sweep and refresh that worked), not `LastCheck`, which an undelivered
+  alert holds back. The nightly audit is watched through the daily history (an audited day in the last 30 means "in use"; stalled after 48 h),
   because the baseline is per workspace and automation. Nearby is not watched: it looks only when the audit asks. **Data collected
   (vertex API, 2026-11-04 22:26):** the router log was heard 3 minutes before the read and the day already held 1,363 refused attempts, so
   the 24 h quiet limit is very loose for this router; presence every 10 min, DNS every 60 min, all three decoys listening.
 - **P2:** a loader preload and a second UID-0 account are reported from the first look (a normal system has neither); the other four marks
   compare with the first look. Kernel modules are `low`: plugging in hardware loads modules. Linux only; macOS notes "not checked".
-- **P3:** the incident is a finding in the nightly report and a fixed sentence in the decoy alert; no separate alert fires at once.
+  A list that cannot be read keeps its last finding (`HostPrivilege.Reported`); a closed folder below a set-id root counts as unreadable
+  and does not stop the list from being learned.
+- **P3:** the incident is a finding in the nightly report and a fixed sentence in the decoy alert; no separate alert fires at once. It
+  is looser than "within a day": the touch is any still in the report (30 days) and `new_device` means unapproved and active now; the
+  evidence says so. Tightening it to 24 h needs the touch's time in the reporter.
 - **P4:** a listener the audit cannot name gets no rule and is listed (the plan's "refuses and says so"); no declared network means no
   allow rule at all.
 - **P5:** lockout and new-address alerts carry **no address**, so I.5 needed no new wording; the Security page lists the addresses.
+  An existing record is seeded from its sessions and sign-in events, so the first deploy does not call the owner's other devices new.
 - **P6:** off by default, step-up to switch on, private hardware addresses skipped, at most once a day per device and three an hour;
-  the result is told as counts and **not stored** (the nightly audit compares). Uses `ModeServices`, never the deep check.
+  the result is its own alert kind (`follow_up`), so the Timeline does not fold it into the new-device row; it is told as counts and **not stored** (the nightly audit compares). Uses `ModeServices`, never the deep check. Scans run
+  one at a time, so a nightly audit that starts during a follow-up scan gets `ErrScanBusy` from the scan tool, as it can during a
+  presence sweep; a follow-up of one device is longer than a sweep. Not measured; the switch's details say so.
 - **P7:** clearing the decoy touches is step-up; the page's request already asks for the passphrase and resends. The Internet view's
   details say it covers the IPv4 address only; counting devices with a global IPv6 address was not built (see Remaining Work).
 

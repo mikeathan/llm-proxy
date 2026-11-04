@@ -25,12 +25,16 @@ type Presence struct {
 	mu        sync.Mutex
 	last      string // the trouble reported last, so a repeating failure is logged once
 	lastCheck time.Time
+	lastLook  time.Time // the last sweep and refresh that worked, whatever became of the alert
 	lastRun   time.Time // when the latest cycle ended, whether or not it succeeded
 }
 
 // PresenceStatus says when the check last completed and what, if anything, is wrong with it now.
 type PresenceStatus struct {
 	LastCheck time.Time `json:"last_check,omitempty"`
+	// LastLook is the last sweep and device-list refresh that worked, even when the cycle's alert could not be sent: what the
+	// watch over the module reads, so an undelivered alert is not mistaken for a stopped check.
+	LastLook time.Time `json:"last_look,omitzero"`
 	// Problem is plain words for why the check cannot look, or empty. It is never "nobody is there".
 	Problem string `json:"problem,omitempty"`
 }
@@ -39,7 +43,7 @@ type PresenceStatus struct {
 func (p *Presence) Status() PresenceStatus {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return PresenceStatus{LastCheck: p.lastCheck, Problem: p.last}
+	return PresenceStatus{LastCheck: p.lastCheck, LastLook: p.lastLook, Problem: p.last}
 }
 
 // PresenceSettings are the operator's choices, read for every cycle so a change applies to the next one.
@@ -162,6 +166,9 @@ func (p *Presence) Tick(ctx context.Context) {
 		p.trouble(fmt.Errorf("presence check: %w", err))
 		return
 	}
+	p.mu.Lock()
+	p.lastLook = p.deps.Now()
+	p.mu.Unlock()
 	// The alert goes first: whatever rides on a look (naming devices, the weekly summary) may be slow, and must never hold
 	// an alert back. It runs even when the alert could not be sent, because it does not depend on a connector.
 	alertErr := p.alert(ctx)

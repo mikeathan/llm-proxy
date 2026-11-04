@@ -27,6 +27,33 @@ func (s *Service) tell(a SignInAlert) {
 	}
 }
 
+// seedKnownAddresses fills an empty list from what the record already holds (the sessions' and the sign-in events' addresses), so
+// a record written before the list existed does not call the operator's own second device new. It runs before the sign-in being
+// made is recorded.
+func seedKnownAddresses(r *Record) {
+	if len(r.SignedInFrom) > 0 {
+		return
+	}
+	seen := map[string]bool{}
+	add := func(addr string) {
+		if addr != "" && !seen[addr] {
+			seen[addr] = true
+			r.SignedInFrom = append(r.SignedInFrom, addr)
+		}
+	}
+	for _, e := range r.Events {
+		if e.Kind == "login" {
+			add(e.Address)
+		}
+	}
+	for _, sess := range r.Sessions {
+		add(sess.Address)
+	}
+	if len(r.SignedInFrom) > maxKnownAddresses {
+		r.SignedInFrom = r.SignedInFrom[len(r.SignedInFrom)-maxKnownAddresses:]
+	}
+}
+
 // rememberAddress adds addr to the addresses that have signed in, and reports whether it is new while others were known.
 func rememberAddress(r *Record, addr string) bool {
 	for i, a := range r.SignedInFrom {

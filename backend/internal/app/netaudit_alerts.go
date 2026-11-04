@@ -60,7 +60,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 	digest := s.newDigest(known.Inventory, known.History, known.Summary, s.alertNotifier(log, models.NetworkAlertSummary))
 	presenceConfig := netaudit.NewPresenceConfig(deps.Store)
 	followUpConfig := netaudit.NewFollowUpConfig(deps.Store)
-	followUp := newFollowUp(deps.Service, followUpConfig, s.alertNotifier(log, models.NetworkAlertPresence))
+	followUp := newFollowUp(deps.Service, followUpConfig, s.alertNotifier(log, models.NetworkAlertFollowUp))
 	presence := s.newPresence(deps.Service, known.Inventory, presenceConfig, presenceHooks{
 		OnLook: lookHooks(digest, known.Names, followUp),
 		Notify: s.alertNotifier(log, models.NetworkAlertPresence),
@@ -87,7 +87,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 }
 
 // newFollowUp builds the scan on arrival. It scans through the scan service, so the declared scope and the one-scan-at-a-time
-// rule apply; the mode is the ordinary service scan, never the deep check; the alert goes out as a device alert.
+// rule apply; the mode is the ordinary service scan, never the deep check; the alert has its own kind.
 func newFollowUp(service *netaudit.Service, config *netaudit.FollowUpConfig, notify notifyFunc) *netaudit.FollowUp {
 	return netaudit.NewFollowUp(netaudit.FollowUpDeps{
 		Enabled: config.Enabled,

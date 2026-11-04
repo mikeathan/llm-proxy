@@ -245,6 +245,7 @@ func (p Privileger) setID(out *Privilege) {
 	}
 	out.SetIDComplete = true
 	for _, root := range p.SetIDRoots {
+		w.root = root
 		if errors.Is(filepath.WalkDir(root, w.visit), errWalkLimit) {
 			out.SetIDComplete = false
 			break
@@ -259,15 +260,23 @@ var errWalkLimit = errors.New("set-id walk limit reached")
 // setIDWalk is one walk over the set-id roots.
 type setIDWalk struct {
 	out     *Privilege
+	root    string
 	limit   int
 	entries int
 }
 
-// visit looks at one entry. A folder that cannot be read makes the walk incomplete and is skipped; a missing root is not trouble.
+// visit looks at one entry. A missing root is not trouble; a root that cannot be read leaves the walk incomplete. A folder below a
+// root that this account may not open (a container runtime's state, under /opt) is counted as unreadable and skipped: what is
+// inside is not seen, which the report's count of unreadable places says, and treating it as an unfinished walk would leave the
+// list never learned on a computer that has one.
 func (w *setIDWalk) visit(path string, d fs.DirEntry, err error) error {
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case path == w.root:
 			w.out.SetIDComplete = false
+		default:
+			w.out.Unreadable++
 		}
 		if d != nil && d.IsDir() {
 			return fs.SkipDir

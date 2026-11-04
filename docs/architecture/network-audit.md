@@ -409,7 +409,7 @@ The router's remote syslog is used for one thing: waking the presence check earl
   5 min from statuses already in memory and the daily history: presence (`LastCheck`, limit 3× interval, min 30 min), router-log socket
   (open and no problem, 15 min), router log quiet (`LastHeard`, 24 h), DNS comparison (`LastRun` of a cycle without a problem, 3× interval),
   decoys (listening and no problem, 15 min), nightly audit (end of the latest `Audited` day, 48 h; "on" means an audited day in the last 30).
-  A part is watched only while its switch is on; its limit starts when it is first seen on, so a restart or a switch-on never alerts at once.
+  Presence reads `LastLook` (the sweep worked), not `LastCheck` (held back by an undelivered alert). A part is watched only while its switch is on; its limit starts when it is first seen on, so a restart or a switch-on never alerts at once.
   One `monitor` alert per stall, cleared by the next success; state is in memory, so a restart can tell one stall again. `MonitorFindings`
   gives one `monitor_stalled` finding (one, because a finding's key has no room for the part), added by the reporter only when this
   computer was looked at.
@@ -418,7 +418,8 @@ The router's remote syslog is used for one thing: waking the presence check earl
   `/etc/group` (sudo, admin, wheel, adm, docker, lxd, including primary-group members), `/proc/modules`, `/etc/ld.so.preload` (digest only)
   and a walk of `/usr/local`, `/opt`, `/srv` for set-id files (200,000 entries at most, 50 paths kept). Names must match
   `^[A-Za-z0-9_][A-Za-z0-9._-]{0,31}$`; others are counted, never kept. Each list is learned once (`models.HostPrivilege`), the first time it
-  was read in full, and never updated; a finding's Version is a digest of the added names, so an acceptance holds until one more appears.
+  was read in full, and never updated; a list that cannot be read keeps the finding it gave last (`Reported`), and a closed folder
+  below a set-id root is counted as unreadable without making the walk incomplete; a finding's Version is a digest of the added names, so an acceptance holds until one more appears.
 - **One story per device** (`core/netaudit/incident.go`). In `Augment`, after the carried checks and before the diff: a device with
   `decoy_touched` plus `new_device`, `class_mismatch`, `mac_changed`, or an `open_port` absent from the last audit (which must have seen the
   device) gets one `device_incident` (high). The decoy alert adds `DecoyNewDevicePhrase` when a source is an unapproved device first seen in
@@ -428,12 +429,12 @@ The router's remote syslog is used for one thing: waking the presence check earl
   listening), this program's port (unless bound to loopback), mDNS, the decoys (while on) and 5514/udp from the gateway (while the router log
   is on), then enable. Listeners it cannot name get no rule and are listed; only parsed prefixes reach a command; nothing is run.
 - **Sign-in alerts** (`platform/auth/alerts.go`, `core/netaudit/signin.go`). `auth.Service.WithAlerts` is told the failure that locks an
-  address and a right passphrase from an address not in `Record.SignedInFrom` (32 kept; the first sign-in ever is not news). `SignInAlerts`
+  address and a right passphrase from an address not in `Record.SignedInFrom` (32 kept, seeded from the sessions and sign-in events of an older record; the first sign-in ever is not news). `SignInAlerts`
   queues without blocking and sends from its own loop, at most one per kind every 5 min, with no address in the words (I.5 not amended).
 - **Scan on arrival** (`core/netaudit/followup.go`). Off by default (`NetauditConfig.FollowUpScan`, step-up). `lookHooks` offers each presence
   snapshot; a device unapproved, unnamed, not randomized and first seen within the hour is queued (16 at most); `FollowUp.Run` scans one at a
   time through `Service.Scan` (`ModeServices`, unattended), at most once a day per hardware address and three an hour, and defers on
-  `ErrScanBusy`. The result is told as counts in a presence-kind alert and not stored.
+  `ErrScanBusy`. The result is told as counts in a `follow_up` alert (its own kind, so the Timeline keeps it beside the new-device row) and not stored.
 - All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`) start from `netauditLoops`.
 
 ## Appendix A — what packet capture (wireshark/tcpdump) would need

@@ -43,6 +43,9 @@ type HostPrivilege struct {
 	Modules       []string `json:"modules,omitempty"`
 	SetIDSeen     bool     `json:"set_id_seen,omitempty"`
 	SetID         []string `json:"set_id,omitempty"`
+	// Reported are the privilege findings of the last look, so a list that cannot be read on a later look keeps its finding (with
+	// its version, so an acceptance still holds) instead of resolving it.
+	Reported []ScanFinding `json:"reported,omitempty"`
 }
 
 // HostFlaws is what the last judgement of the installed packages found: how many are older than the version that fixed a

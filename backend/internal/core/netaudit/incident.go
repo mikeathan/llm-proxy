@@ -4,9 +4,9 @@ import (
 	"strings"
 )
 
-// CheckDeviceIncident is one device that touched a decoy and, in the same audit, shows another sign of trouble: it is new on the
-// network, it looks like one kind of device but offers another's services, its address was taken over from a device the operator
-// approved, or it opened a port since the last audit. Each alone is a lower finding; together they are the likeliest sign of a
+// CheckDeviceIncident is one device whose decoy touch is still in the report (the last DecoyReportFor) and that, in this audit,
+// shows another sign of trouble: it is a device nobody approved that is active now, it looks like one kind of device but offers
+// another's services, its address was taken over from a device the operator approved, or it opened a port since the last audit. Each alone is a lower finding; together they are the likeliest sign of a
 // compromised or hostile device, so they are told as one story. It is built from the findings the audit already has: no probe.
 const CheckDeviceIncident = "device_incident"
 
@@ -15,7 +15,7 @@ var incidentSignals = []struct {
 	check string
 	words string
 }{
-	{CheckNewDevice, "it is new on the network"},
+	{CheckNewDevice, "it is a new device nobody has approved"},
 	{CheckClassMismatch, "it looks like one kind of device but offers the services of another kind"},
 	{CheckMACChanged, "its address now belongs to a different device than the one you approved"},
 }
@@ -42,7 +42,7 @@ func IncidentFindings(current, previous []Finding) []Finding {
 		if words := incidentWords(device, current, previous); len(words) > 0 {
 			out = append(out, Finding{
 				Device: device, Check: CheckDeviceIncident, Severity: SeverityHigh,
-				Evidence: "This device connected to a decoy service and, at the same time, " + strings.Join(words, "; ") +
+				Evidence: "This device connected to a decoy service (in the last 30 days), and in this audit " + strings.Join(words, "; ") +
 					". Together these are the likeliest sign of a compromised or hostile device",
 			})
 		}

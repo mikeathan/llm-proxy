@@ -69,6 +69,13 @@ describe('network alerts', () => {
     expect(published[0]![0]!.target).toEqual(toNetwork())
   })
 
+  it('aims a scan-on-arrival alert at the devices', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'follow_up', message: 'follow m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toNetwork('devices'))
+  })
+
   it('aims a sign-in alert at the sign-in events', async () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 2, items: [alert(2, { kind: 'sign_in', message: 'sign-in m' })] })

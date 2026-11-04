@@ -60,8 +60,10 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 // cycleLimit is how long a part on an interval may go without a cycle: three intervals, never less than minMonitorLimit.
 func cycleLimit(every time.Duration) time.Duration { return max(3*every, minMonitorLimit) }
 
+// presenceReading counts a look that worked, whether or not its alert could be sent: an undelivered alert is the connectors'
+// trouble, which the alert log already shows, not a stopped check.
 func presenceReading(s netaudit.PresenceSettings, st netaudit.PresenceStatus) netaudit.MonitorReading {
-	return netaudit.MonitorReading{On: s.Enabled, LastGood: st.LastCheck, Limit: cycleLimit(s.Every)}
+	return netaudit.MonitorReading{On: s.Enabled, LastGood: st.LastLook, Limit: cycleLimit(s.Every)}
 }
 
 // dnsReading counts a cycle that compared as working; a cycle the settings refused did nothing. A check with no names never

@@ -56,7 +56,7 @@ func TestRouterLogReadings_TheSocketAndTheQuietAreWatchedApart(t *testing.T) {
 }
 
 func TestPresenceAndDNSReadings_TheLimitFollowsTheInterval(t *testing.T) {
-	p := presenceReading(netaudit.PresenceSettings{Enabled: true, Every: time.Hour}, netaudit.PresenceStatus{LastCheck: monitorNow})
+	p := presenceReading(netaudit.PresenceSettings{Enabled: true, Every: time.Hour}, netaudit.PresenceStatus{LastLook: monitorNow})
 	if p.Limit != 3*time.Hour || !p.LastGood.Equal(monitorNow) {
 		t.Fatalf("presence = %+v", p)
 	}

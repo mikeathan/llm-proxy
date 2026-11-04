@@ -23,7 +23,7 @@ supersedes:
   accounts were not checked. `device_incident` (high) on a device that touched a decoy and is also new, mis-classed, took over an approved
   device's address or opened a port. The firewall-off finding's guide is now a ufw plan built from this computer's listeners and scan networks
   (SSH first, ports it cannot name listed without a rule). Network → Settings → Devices gains **Scan new devices when they arrive** (off;
-  `GET`/`PUT /admin/api/netaudit/follow-up-scan`, `PUT` step-up). `DELETE /admin/api/netaudit/decoys/touches` is now step-up. The Internet
+  `GET`/`PUT /admin/api/netaudit/follow-up-scan`, `PUT` step-up; its result is a `follow_up` alert). `DELETE /admin/api/netaudit/decoys/touches` is now step-up. The Internet
   view's details say it covers the IPv4 address only.
 - **2.30 (2026-11-04)** — **Network module review fixes (v0.45.1, ledger 2026-11-04).** No new screen or route. Behaviour the operator can see:
   the router's refused-attempt counts are written every five minutes by a timer and once more at shutdown, so the Overview figure and the

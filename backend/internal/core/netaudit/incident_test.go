@@ -20,7 +20,7 @@ func TestIncidentFindings_ADecoyTouchJoinedByAnotherSignalIsOneIncident(t *testi
 		want     string // a phrase of the evidence, or "" for no incident
 	}{
 		{"a touch alone stays what it is", []Finding{touch}, nil, ""},
-		{"a new device", []Finding{touch, {Device: "10.0.0.5", Check: CheckNewDevice}}, nil, "new on the network"},
+		{"a new device", []Finding{touch, {Device: "10.0.0.5", Check: CheckNewDevice}}, nil, "nobody has approved"},
 		{"a class mismatch", []Finding{touch, {Device: "10.0.0.5", Check: CheckClassMismatch}}, nil, "services of another kind"},
 		{"an address taken over", []Finding{touch, {Device: "10.0.0.5", Check: CheckMACChanged}}, nil, "a different device"},
 		{"a port opened since the last audit", []Finding{touch, port(22), port(8080)}, []Finding{port(22)}, "opened a port"},
@@ -52,7 +52,7 @@ func TestIncidentFindings_EverySignalThatJoinedIsNamed(t *testing.T) {
 		{Device: "10.0.0.5", Port: 2222, Proto: "tcp", Check: CheckDecoyTouched},
 		{Device: "10.0.0.5", Check: CheckNewDevice}, {Device: "10.0.0.5", Check: CheckClassMismatch},
 	}, nil)
-	if len(got) != 1 || !strings.Contains(got[0].Evidence, "new on the network") || !strings.Contains(got[0].Evidence, "another kind") {
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "nobody has approved") || !strings.Contains(got[0].Evidence, "another kind") {
 		t.Fatalf("incidents = %+v", got)
 	}
 }
