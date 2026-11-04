@@ -69,7 +69,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		Log:            log,
 		Presence:       presence,
 		PresenceConfig: presenceConfig,
-		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope, cachedOwnAddress(deps.Scope, ownAddressTTL, time.Now)),
+		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope, cachedOwnAddress(deps.Scope, ownAddressTTL, time.Now), decoyAlertText(known.Inventory.View, time.Now)),
 		DecoyConfig:    decoyConfig,
 		DecoyStore:     decoyStore,
 
@@ -260,12 +260,24 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 	})
 }
 
+// decoyAlertText words the decoy alert, saying so when a visitor is a device that is new on the network. A device list that cannot
+// be read leaves the phrase out; the alert itself never waits on it.
+func decoyAlertText(view func() (models.DeviceInventory, error), now func() time.Time) func([]string) string {
+	return func(sources []string) string {
+		inv, err := view()
+		if err != nil {
+			return netaudit.DecoyMessage(sources)
+		}
+		return netaudit.DecoyAlertMessage(sources, inv, now())
+	}
+}
+
 // newDecoys builds the decoy services. A connection counts only from a device inside the declared scan networks and not from
 // this computer itself (own), whose own audit and sweep must never look like an intruder. own reads the addresses the scan scope
-// reads, with its fallback for a service that may not list interfaces, so the guard holds where netlink is refused. The alert
-// goes to every connector.
+// reads, with its fallback for a service that may not list interfaces, so the guard holds where netlink is refused. The alert,
+// worded by text, goes to every connector.
 func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, alerts *netaudit.AlertLog,
-	scope *netaudit.Scope, own func(netip.Addr) bool) *decoy.Manager {
+	scope *netaudit.Scope, own func(netip.Addr) bool, text func([]string) string) *decoy.Manager {
 	return decoy.New(decoy.Deps{
 		Specs:   decoy.Specs,
 		Enabled: config.Enabled,
@@ -273,7 +285,7 @@ func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence
 		IsOwn:   own,
 		Store:   store,
 		Notify: func(ctx context.Context, sources []string) error {
-			return alerts.Send(ctx, models.NetworkAlertDecoy, netaudit.DecoyMessage(sources), s.sendToConnectors)
+			return alerts.Send(ctx, models.NetworkAlertDecoy, text(sources), s.sendToConnectors)
 		},
 		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
 	})

@@ -201,6 +201,8 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 
 	scanned := scannedDevices(result.Hosts)
 	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings, services), scanned)...)
+	// A decoy touch joined by another sign of trouble on the same device is told as one incident.
+	result.Findings = append(result.Findings, IncidentFindings(result.Findings, restrictTo(prev.Findings, scanned))...)
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}

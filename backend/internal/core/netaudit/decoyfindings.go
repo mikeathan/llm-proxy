@@ -2,6 +2,7 @@ package netaudit
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"llm-proxy/models"
@@ -35,9 +36,29 @@ func DecoyFindings(touches []models.DecoyTouch, now time.Time) []Finding {
 
 // DecoyMessage is the alert for devices that connected to a decoy: how many, and their addresses, which are the connection's
 // remote address as the kernel reports it. Nothing the visitor sent, and no name, is in it.
-func DecoyMessage(sources []string) string {
+func DecoyMessage(sources []string) string { return decoyMessage(sources, "") }
+
+// decoyMessage is the alert with an optional fixed sentence before the closing one.
+func decoyMessage(sources []string, extra string) string {
 	return "Network audit: " + plural(len(sources), "device", "devices") + " connected to a decoy service (a fake service nothing legitimate uses)" +
-		listed(sources) + ". Open the network audit to review."
+		listed(sources) + "." + extra + " Open the network audit to review."
+}
+
+// DecoyNewDevicePhrase is added to the decoy alert when a visitor is a device nobody approved that first appeared in the last day:
+// the touch and the arrival together are the likeliest sign of a hostile device, which the nightly report calls an incident.
+const DecoyNewDevicePhrase = " At least one of them appeared on the network in the last day and nobody has approved it."
+
+// newVisitorWindow is how recent a device's first sighting must be for the alert to call it new.
+const newVisitorWindow = 24 * time.Hour
+
+// DecoyAlertMessage is DecoyMessage, with DecoyNewDevicePhrase when a source is a new device in the inventory.
+func DecoyAlertMessage(sources []string, inv models.DeviceInventory, now time.Time) string {
+	for _, d := range inv.Devices {
+		if !d.Approved && d.IP != "" && now.Sub(d.FirstSeen) <= newVisitorWindow && slices.Contains(sources, d.IP) {
+			return decoyMessage(sources, DecoyNewDevicePhrase)
+		}
+	}
+	return DecoyMessage(sources)
 }
 
 // DecoyReader reads the stored touches: *persistence.DecoyTouchStore.

@@ -5,8 +5,11 @@ import (
 	"net/netip"
 	"slices"
 	"testing"
+	"time"
 
+	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/platform/hostwatch"
+	"llm-proxy/models"
 )
 
 func TestFirewallFacts_ReadsTheSwitchesAndTheOwnPort(t *testing.T) {
@@ -29,5 +32,12 @@ func TestFirewallFacts_ReadsTheSwitchesAndTheOwnPort(t *testing.T) {
 	src.listeners = func() ([]hostwatch.Listener, error) { return nil, errors.New("no /proc") }
 	if _, err := src.facts(); err == nil {
 		t.Fatal("without the listeners there is no plan; the fixed guide is shown instead")
+	}
+}
+
+func TestDecoyAlertText_AnUnreadableDeviceListStillSendsThePlainAlert(t *testing.T) {
+	text := decoyAlertText(func() (models.DeviceInventory, error) { return models.DeviceInventory{}, errors.New("disk") }, time.Now)
+	if got := text([]string{"10.0.0.5"}); got != netaudit.DecoyMessage([]string{"10.0.0.5"}) {
+		t.Fatalf("got %q", got)
 	}
 }
