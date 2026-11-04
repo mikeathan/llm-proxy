@@ -63,6 +63,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 	decoyStore := withReset(s.AppCtx, "The record of connections to decoy services", persistence.NewDecoyTouchStore(root))
 	decoyConfig := netaudit.NewDecoyConfig(deps.Store)
 	routerLogConfig := netaudit.NewRouterLogConfig(deps.Store)
+	blocks := netaudit.NewBlocks(known.History, func(err error) { logging.Warn("network router blocks", "error", err.Error()) })
 	return alerting{
 		Log:            log,
 		Presence:       presence,
@@ -72,7 +73,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		DecoyStore:     decoyStore,
 
 		RouterLogConfig: routerLogConfig,
-		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence),
+		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence, blocks),
 	}
 }
 
@@ -125,15 +126,17 @@ func dnsServer(config *netaudit.DNSCheckConfig, gateway func() netip.Addr) func(
 // gatewayTTL is how long the router's address is remembered before the routing table is read again.
 const gatewayTTL = 30 * time.Second
 
-// newRouterLog builds the listener for the router's log. A datagram counts only from the default gateway, and its only effect
-// is to wake the presence check when the device list does not know the hardware address in it.
+// newRouterLog builds the listener for the router's log. A datagram counts only from the default gateway. A device message can
+// only wake the presence check when the device list does not know the hardware address in it, and a firewall drop is only
+// counted (protocol and port, into the day's history); neither starts anything else (Constitution I.8).
 func (s *AppServices) newRouterLog(config *netaudit.RouterLogConfig, inventory *netaudit.Inventory, suggester *names.Suggester,
-	presence *netaudit.Presence) *routerlog.Manager {
+	presence *netaudit.Presence, blocks *netaudit.Blocks) *routerlog.Manager {
 	return routerlog.New(routerlog.Deps{
 		Enabled: config.Enabled,
 		Gateway: cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now),
 		Device:  cachedDevices(inventory.View, deviceListTTL, time.Now),
 		Suggest: suggester.Offer,
+		Drop:    blocks.Add,
 		Wake:    presence.Wake,
 		OnError: func(err error) { logging.Warn("network router log", "error", err.Error()) },
 	})

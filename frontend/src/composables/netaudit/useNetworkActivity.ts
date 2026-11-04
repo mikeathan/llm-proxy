@@ -2,7 +2,7 @@ import { ref, watch, type Ref } from 'vue'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
 import { ACTIVITY_LOAD_FAILED } from '../../constants/netaudit'
-import type { ActivityRow, NetworkAudit } from '../../types/netaudit'
+import type { ActivityRow, NetworkAudit, RouterBlocks } from '../../types/netaudit'
 
 /**
  * The Activity tab's timeline. It reads one cheap endpoint (nothing in it starts a scan or a probe) when the tab opens, when
@@ -11,6 +11,7 @@ import type { ActivityRow, NetworkAudit } from '../../types/netaudit'
  */
 export function useNetworkActivity(audit: Ref<NetworkAudit | null>, limit: Ref<number>) {
   const rows = ref<ActivityRow[]>([])
+  const router = ref<RouterBlocks | null>(null)
   const loaded = ref(false)
   const loading = ref(false)
   const error = ref('')
@@ -23,6 +24,7 @@ export function useNetworkActivity(audit: Ref<NetworkAudit | null>, limit: Ref<n
       const activity = await NetauditService.activity(audit.value ?? undefined, limit.value)
       if (mine !== latest) return
       rows.value = activity.rows
+      router.value = activity.router ?? null
       loaded.value = true
       error.value = ''
     } catch (err) {
@@ -34,5 +36,5 @@ export function useNetworkActivity(audit: Ref<NetworkAudit | null>, limit: Ref<n
   }
 
   watch([() => audit.value?.automation, () => audit.value?.workspaceId, limit], () => void load())
-  return { rows, loaded, loading, error, load }
+  return { rows, router, loaded, loading, error, load }
 }

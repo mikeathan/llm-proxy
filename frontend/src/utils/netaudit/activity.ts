@@ -1,8 +1,31 @@
+import { PORT_NAMES, ROUTER_PORTS_SHOWN } from '../../constants/netaudit'
 import type { ActivityFilter, ActivityGroupOfRows, ActivityItem, ActivityRow } from '../../types/netaudit'
 
 const MS_PER_DAY = 86_400_000
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
+
+/** A port by what it is when that is well known ("SSH (22)"), else by its number. */
+export function portLabel(port: number): string {
+  const name = PORT_NAMES[port]
+  return name ? `${name} (${port})` : `port ${port}`
+}
+
+/** The busiest ports and how often each was tried, on one line: "SSH (22) 700 · MySQL (3306) 300". */
+export function portsLine(ports: ActivityRow['ports']): string {
+  return (ports ?? []).slice(0, ROUTER_PORTS_SHOWN).map((p) => `${portLabel(p.port)} ${p.count.toLocaleString('en-US')}`).join(' · ')
+}
+
+function listWords(items: string[]): string {
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+function blocksText(count: number, ports: ActivityRow['ports']): string {
+  const attempts = count === 1 ? 'connection attempt' : 'connection attempts'
+  const base = `The router refused ${count.toLocaleString('en-US')} ${attempts} from the internet`
+  const busiest = (ports ?? []).slice(0, ROUTER_PORTS_SHOWN).map((p) => portLabel(p.port))
+  return busiest.length ? `${base}, mostly to ${listWords(busiest)}` : base
+}
 
 function who(row: ActivityRow): string {
   return row.name || row.ip || row.mac || 'A device'
@@ -36,6 +59,8 @@ export function activityText(row: ActivityRow): string {
       return auditText(row.opened ?? 0, row.closed ?? 0)
     case 'related':
       return `${who(row)} appeared within an hour before a decoy service was touched`
+    case 'router_blocks':
+      return blocksText(row.count ?? 0, row.ports)
   }
 }
 
@@ -85,6 +110,7 @@ export function daySummary(rows: ActivityRow[]): string {
   const count = (kind: ActivityRow['kind']) => rows.filter((r) => r.kind === kind).length
   const sum = (field: 'opened' | 'closed') => rows.filter((r) => r.kind === 'ports_changed').reduce((n, r) => n + (r[field] ?? 0), 0)
   const alerts = rows.filter((r) => r.kind === 'alert').reduce((n, r) => n + (r.count ?? 1), 0)
+  const refused = rows.filter((r) => r.kind === 'router_blocks').reduce((n, r) => n + (r.count ?? 0), 0)
   const parts = [
     count('new_device') ? plural(count('new_device'), 'new device', 'new devices') : '',
     count('address_changed') ? plural(count('address_changed'), 'moved address', 'moved addresses') : '',
@@ -92,6 +118,7 @@ export function daySummary(rows: ActivityRow[]): string {
     count('audit') ? 'audit result' : '',
     alerts ? plural(alerts, 'alert', 'alerts') : '',
     count('related') ? 'possibly related' : '',
+    refused ? `${refused.toLocaleString('en-US')} refused at the router` : '',
   ]
   return parts.filter(Boolean).join(' · ')
 }

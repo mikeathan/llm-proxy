@@ -1,6 +1,7 @@
 package netaudit
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -146,5 +147,56 @@ func TestActivity_TheLimitKeepsTheNewestAndAnUnreasonableOneIsBounded(t *testing
 	}
 	if n := len(ActivityOf(in, 0).Rows); n != DefaultActivityRows {
 		t.Errorf("no limit means the default %d, got %d", DefaultActivityRows, n)
+	}
+}
+
+func TestActivity_ADayTheRouterRefusedAttemptsIsOneRowWithItsCountAndPorts(t *testing.T) {
+	series := []models.NetworkDay{
+		{Date: "2026-11-02"},
+		{Date: "2026-11-03", Blocked: 1200, BlockedPorts: []models.PortCount{{Port: 22, Count: 700}, {Port: 3306, Count: 300}}},
+	}
+	got := ActivityOf(ActivityInput{Now: activityNow, Series: series}, 20)
+	if len(got.Rows) != 1 {
+		t.Fatalf("rows = %+v", got.Rows)
+	}
+	r := got.Rows[0]
+	if r.Kind != ActivityRouterBlocks || r.Group != ActivityGroupRouter || !r.Day || r.Count != 1200 || len(r.Ports) != 2 || r.Ports[0].Port != 22 {
+		t.Errorf("row = %+v", r)
+	}
+}
+
+func TestActivity_TheRouterCardHasTodaysTotalAndPortsAndTheLastDaysAndIsAbsentWithoutData(t *testing.T) {
+	if got := ActivityOf(ActivityInput{Now: activityNow, Series: []models.NetworkDay{{Date: "2026-11-03"}}}, 20); got.Router != nil {
+		t.Errorf("nothing was counted, so there is no card: %+v", got.Router)
+	}
+	var series []models.NetworkDay
+	for d := 1; d <= 20; d++ {
+		series = append(series, models.NetworkDay{Date: time.Date(2026, 10, d, 0, 0, 0, 0, time.UTC).Format("2006-01-02"), Blocked: d})
+	}
+	series = append(series, models.NetworkDay{Date: "2026-11-04", Blocked: 55, BlockedPorts: []models.PortCount{{Port: 23, Count: 40}}})
+	got := ActivityOf(ActivityInput{Now: activityNow, Series: series}, 20).Router
+	if got == nil || got.Today != 55 || len(got.TodayPorts) != 1 || got.TodayPorts[0].Port != 23 {
+		t.Fatalf("router = %+v", got)
+	}
+	if len(got.Days) != RouterCardDays || got.Days[len(got.Days)-1].Total != 55 || got.Days[0].Total != 8 {
+		t.Errorf("days = %+v", got.Days)
+	}
+}
+
+func TestActivity_TheRouterCardShowsZeroForTodayWhenTodayHasNoCountYet(t *testing.T) {
+	got := ActivityOf(ActivityInput{Now: activityNow, Series: []models.NetworkDay{{Date: "2026-11-03", Blocked: 9}}}, 20).Router
+	if got == nil || got.Today != 0 || len(got.Days) != 1 {
+		t.Errorf("router = %+v", got)
+	}
+}
+
+func TestSummaryPrompt_TheRouterCountIsANumberAndItsPortsAreLeftOut(t *testing.T) {
+	rows := []ActivityRow{{Kind: ActivityRouterBlocks, Day: true, At: activityNow.Add(-5 * time.Hour), Count: 1200, Ports: []models.PortCount{{Port: 22, Count: 700}}}}
+	got := SummaryPrompt(rows, activityNow)
+	if !strings.Contains(got, "the router refused connection attempts from the internet (1200)") {
+		t.Errorf("prompt = %q", got)
+	}
+	if strings.Contains(got, "22") || strings.Contains(got, "700") {
+		t.Errorf("a port reached the prompt: %q", got)
 	}
 }

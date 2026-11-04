@@ -15,6 +15,9 @@ const (
 	ActivityAlert          = "alert"
 	ActivityPortsChanged   = "ports_changed"
 	ActivityAudit          = "audit"
+	// ActivityRouterBlocks is a day on which the router's log said it refused connection attempts from the internet: a count and
+	// the ports most tried. It is a hint from an unauthenticated log, never a finding.
+	ActivityRouterBlocks = "router_blocks"
 	// ActivityRelated says a new device appeared within an hour before a decoy service was touched. It states the timing and
 	// nothing more: the alert does not name its source in a typed field, so the two may be unrelated.
 	ActivityRelated = "related"
@@ -26,6 +29,7 @@ const (
 	ActivityGroupPorts    = "ports"
 	ActivityGroupFindings = "findings"
 	ActivityGroupAlerts   = "alerts"
+	ActivityGroupRouter   = "router"
 )
 
 // DefaultActivityRows is how many rows a request without a limit gets, and MaxActivityRows the most it can get.
@@ -34,7 +38,9 @@ const (
 	MaxActivityRows     = 200
 	// relatedWindow is how long before a decoy touch a new device still counts as appearing shortly before it.
 	relatedWindow = time.Hour
-	dayLayout     = historyDateLayout
+	// RouterCardDays is how many days the router card draws.
+	RouterCardDays = 14
+	dayLayout      = historyDateLayout
 )
 
 // ActivityRow is one thing that happened. Day is true for a row that stands for a whole day (its time is the end of that
@@ -52,11 +58,28 @@ type ActivityRow struct {
 	Count     int       `json:"count,omitempty"`
 	Opened    int       `json:"opened,omitempty"`
 	Closed    int       `json:"closed,omitempty"`
+	// Ports are the ports most tried on a router_blocks day, busiest first.
+	Ports []models.PortCount `json:"ports,omitempty"`
+}
+
+// BlockDay is one day's count of attempts the router refused.
+type BlockDay struct {
+	Date  string `json:"date"`
+	Total int    `json:"total"`
+}
+
+// RouterBlocks is what the router card draws: today's count and busiest ports, and the last days' counts. It exists only once
+// the router's log has been counted on some day, so a house whose router does not send its log sees no card.
+type RouterBlocks struct {
+	Today      int                `json:"today"`
+	TodayPorts []models.PortCount `json:"today_ports,omitempty"`
+	Days       []BlockDay         `json:"days"`
 }
 
 // Activity is the Network page's timeline: the records the program already keeps, as one list.
 type Activity struct {
-	Rows []ActivityRow `json:"rows"`
+	Rows   []ActivityRow `json:"rows"`
+	Router *RouterBlocks `json:"router,omitempty"`
 }
 
 // ActivityInput is what the timeline is built from; the caller reads each part from where it already lives.
@@ -81,6 +104,7 @@ func ActivityOf(in ActivityInput, limit int) Activity {
 	}
 	rows = append(rows, relatedRows(in.Inventory, in.Alerts, in.Now)...)
 	rows = append(rows, portRows(in.Series, in.Now)...)
+	rows = append(rows, blockRows(in.Series, in.Now)...)
 	if r, ok := auditRow(in.Baseline); ok {
 		rows = append(rows, r)
 	}
@@ -88,7 +112,7 @@ func ActivityOf(in ActivityInput, limit int) Activity {
 	if len(rows) > limit {
 		rows = rows[:limit]
 	}
-	return Activity{Rows: rows}
+	return Activity{Rows: rows, Router: routerCard(in.Series, in.Now)}
 }
 
 func boundedLimit(limit int) int {
@@ -130,6 +154,55 @@ func relatedRows(inv models.DeviceInventory, alerts []models.NetworkAlert, now t
 	return out
 }
 
+// blockRows is one row per day on which the router refused attempts. A day's time is the end of that day, and today's is now.
+func blockRows(series []models.NetworkDay, now time.Time) []ActivityRow {
+	var out []ActivityRow
+	for _, d := range series {
+		if d.Blocked <= 0 {
+			continue
+		}
+		out = append(out, ActivityRow{Kind: ActivityRouterBlocks, Group: ActivityGroupRouter, At: endOfDay(d.Date, now), Day: true, Count: d.Blocked, Ports: d.BlockedPorts})
+	}
+	return out
+}
+
+// routerCard is the router card, or nil when no day in the series has a count.
+func routerCard(series []models.NetworkDay, now time.Time) *RouterBlocks {
+	var days []BlockDay
+	any := false
+	card := &RouterBlocks{}
+	today := now.Format(dayLayout)
+	for _, d := range series {
+		if d.Blocked > 0 {
+			any = true
+		}
+		days = append(days, BlockDay{Date: d.Date, Total: d.Blocked})
+		if d.Date == today {
+			card.Today, card.TodayPorts = d.Blocked, d.BlockedPorts
+		}
+	}
+	if !any {
+		return nil
+	}
+	if len(days) > RouterCardDays {
+		days = days[len(days)-RouterCardDays:]
+	}
+	card.Days = days
+	return card
+}
+
+// endOfDay is the last second of a YYYY-MM-DD day, or now if that is still ahead; a day that cannot be read is now.
+func endOfDay(date string, now time.Time) time.Time {
+	day, err := time.ParseInLocation(dayLayout, date, now.Location())
+	if err != nil {
+		return now
+	}
+	if end := day.AddDate(0, 0, 1).Add(-time.Second); end.Before(now) {
+		return end
+	}
+	return now
+}
+
 // portRows is one row per day on which a port opened or closed. A day's time is the end of that day, and today's is now, so
 // no row is in the future.
 func portRows(series []models.NetworkDay, now time.Time) []ActivityRow {
@@ -138,15 +211,7 @@ func portRows(series []models.NetworkDay, now time.Time) []ActivityRow {
 		if d.PortsOpened == 0 && d.PortsClosed == 0 {
 			continue
 		}
-		day, err := time.ParseInLocation(dayLayout, d.Date, now.Location())
-		if err != nil {
-			continue
-		}
-		at := day.AddDate(0, 0, 1).Add(-time.Second)
-		if at.After(now) {
-			at = now
-		}
-		out = append(out, ActivityRow{Kind: ActivityPortsChanged, Group: ActivityGroupPorts, At: at, Day: true, Opened: d.PortsOpened, Closed: d.PortsClosed})
+		out = append(out, ActivityRow{Kind: ActivityPortsChanged, Group: ActivityGroupPorts, At: endOfDay(d.Date, now), Day: true, Opened: d.PortsOpened, Closed: d.PortsClosed})
 	}
 	return out
 }

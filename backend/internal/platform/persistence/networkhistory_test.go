@@ -1,6 +1,7 @@
 package persistence
 
 import (
+	"reflect"
 	"testing"
 
 	"llm-proxy/models"
@@ -11,11 +12,11 @@ func TestNetworkHistoryStore_RoundTripMissingFileAndDelete(t *testing.T) {
 	if h, err := s.Read(); err != nil || len(h.Days) != 0 {
 		t.Fatalf("a missing file is an empty history: %+v, %v", h, err)
 	}
-	want := models.NetworkHistory{Days: []models.NetworkDay{{Date: "2026-10-31", DevicesUp: 5, Devices: 9, Unnamed: 2, Findings: 3, Serious: 1, Audited: true}}}
+	want := models.NetworkHistory{Days: []models.NetworkDay{{Date: "2026-10-31", DevicesUp: 5, Devices: 9, Unnamed: 2, Findings: 3, Serious: 1, Audited: true, Blocked: 1204, BlockedPorts: []models.PortCount{{Port: 22, Count: 700}, {Port: 3306, Count: 300}}}}}
 	if err := s.Write(want); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := s.Read(); err != nil || len(got.Days) != 1 || got.Days[0] != want.Days[0] {
+	if got, err := s.Read(); err != nil || len(got.Days) != 1 || !reflect.DeepEqual(got.Days[0], want.Days[0]) {
 		t.Errorf("round trip = %+v, %v", got, err)
 	}
 	if err := s.Delete(); err != nil {

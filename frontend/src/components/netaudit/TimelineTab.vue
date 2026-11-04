@@ -3,6 +3,7 @@ import { computed, onMounted, ref, toRef } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import RouterBlocksCard from "./RouterBlocksCard.vue"
 import Icon from "../icons/Icon.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
@@ -13,7 +14,7 @@ import { useTimelineSummary } from "../../composables/netaudit/useTimelineSummar
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { activityText, clockTime, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay } from "../../utils/netaudit/activity"
 import {
-  ACTIVITY_EMPTY, ACTIVITY_EMPTY_FILTERED, ACTIVITY_FILTER_LABEL, ACTIVITY_FILTER_OPTIONS, ACTIVITY_LIMIT_ADVANCED, ACTIVITY_LIMIT_SIMPLE,
+  ACTIVITY_EMPTY, ACTIVITY_EMPTY_FILTERED, ROUTER_FILTER_OPTION, ACTIVITY_FILTER_LABEL, ACTIVITY_FILTER_OPTIONS, ACTIVITY_LIMIT_ADVANCED, ACTIVITY_LIMIT_SIMPLE,
   ACTIVITY_RELATED_NOTE, ACTIVITY_RELATED_TAG, ACTIVITY_TITLE, TIMELINE_EXPLAIN_HINT, TIMELINE_EXPLAIN_LABEL, TIMELINE_EXPLAIN_NOTE, TIMELINE_EXPLAINING, TIMELINE_EXPLAIN_NOTHING,
 } from "../../constants/netaudit"
 import type { ActivityFilter, ActivityItem, ActivityRow, NetworkAudit } from "../../types/netaudit"
@@ -24,7 +25,7 @@ import type { ActivityFilter, ActivityItem, ActivityRow, NetworkAudit } from "..
 const props = defineProps<{ audit: NetworkAudit | null }>()
 const { advanced } = useNetauditViewMode()
 const limit = computed(() => (advanced.value ? ACTIVITY_LIMIT_ADVANCED : ACTIVITY_LIMIT_SIMPLE))
-const { rows, loaded, loading, error, load } = useNetworkActivity(toRef(props, "audit"), limit)
+const { rows, router, loaded, loading, error, load } = useNetworkActivity(toRef(props, "audit"), limit)
 const filter = ref<ActivityFilter>("all")
 const auditRef = toRef(props, "audit")
 const explain = useTimelineSummary(auditRef)
@@ -37,6 +38,8 @@ const visibleRows = computed(() => {
   const filtered = filterRows(rows.value, filter.value)
   return advanced.value ? filtered : dropEchoedAlerts(filtered)
 })
+// The Router filter is offered only once the router's log has been counted: a house whose router sends nothing never sees it.
+const filterOptions = computed(() => (router.value || rows.value.some((r) => r.group === "router") ? [...ACTIVITY_FILTER_OPTIONS, ROUTER_FILTER_OPTION] : ACTIVITY_FILTER_OPTIONS))
 const groups = computed(() =>
   groupByDay(visibleRows.value).map((g) => ({
     heading: g.heading,
@@ -57,7 +60,7 @@ onMounted(() => void load())
       <BaseButton variant="ghost" size="sm" icon="refresh" :loading="loading" class-name="max-sm:!h-11" @click="load">Refresh</BaseButton>
     </template>
     <div class="border-b border-hairline/60 px-4 py-3">
-      <SegmentedControl v-model="filter" :options="ACTIVITY_FILTER_OPTIONS" :label="ACTIVITY_FILTER_LABEL" variant="quiet" touch />
+      <SegmentedControl v-model="filter" :options="filterOptions" :label="ACTIVITY_FILTER_LABEL" variant="quiet" touch />
     </div>
     <div v-if="audit" class="flex flex-col gap-2 border-b border-hairline/60 px-4 py-3" data-test="explain">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -71,6 +74,7 @@ onMounted(() => void load())
         <p class="m-0 text-[length:var(--text-small)] text-muted">{{ TIMELINE_EXPLAIN_NOTE }}<template v-if="explain.model.value"> ({{ explain.model.value }})</template></p>
       </div>
     </div>
+    <RouterBlocksCard v-if="router" :router="router" />
     <ErrorState v-if="error && !loaded" title="The activity could not be read" :cause="error" next="Check that the server is running, then refresh.">
       <template #action><BaseButton variant="secondary" icon="refresh" @click="load">Retry</BaseButton></template>
     </ErrorState>

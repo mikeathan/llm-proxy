@@ -228,4 +228,32 @@ describe('TimelineTab', () => {
       expect(days(w).every((d) => d.find('ul').exists())).toBe(true)
     })
   })
+
+  describe('the router card', () => {
+    const router = { today: 1204, today_ports: [{ port: 22, count: 700 }, { port: 3306, count: 300 }], days: [{ date: '2026-11-03', total: 800 }, { date: '2026-11-04', total: 1204 }] }
+    const blockRow: ActivityRow = { kind: 'router_blocks', group: 'router', at: at(12), day: true, count: 800, ports: [{ port: 22, count: 500 }] }
+
+    it('is absent, and so is the Router filter, when the router has never been counted', async () => {
+      vi.spyOn(NetauditService, 'activity').mockResolvedValue({ rows: ROWS })
+      const w = mountTab()
+      await flushPromises()
+      expect(w.find('[data-test="router-card"]').exists()).toBe(false)
+      expect(w.findAll('[role="radio"]').map((b) => b.text())).not.toContain('Router')
+    })
+
+    it('shows today\'s count, the busiest ports and what the number is, and offers the Router filter', async () => {
+      vi.spyOn(NetauditService, 'activity').mockResolvedValue({ rows: [...ROWS, blockRow], router })
+      const w = mountTab()
+      await flushPromises()
+      const card = w.get('[data-test="router-card"]')
+      expect(card.text()).toContain('1,204')
+      expect(card.text()).toContain('SSH (22) 700 · MySQL (3306) 300')
+      expect(card.text()).toContain('cannot check')
+      expect(w.findAll('[role="radio"]').map((b) => b.text())).toContain('Router')
+      await w.findAll('[role="radio"]').find((b) => b.text() === 'Router')!.trigger('click')
+      expect(w.findAll('li')).toHaveLength(1)
+      expect(w.text()).toContain('The router refused 800 connection attempts from the internet, mostly to SSH (22)')
+    })
+  })
 })
+

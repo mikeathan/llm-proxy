@@ -28,4 +28,15 @@ type NetworkDay struct {
 	// day's audits.
 	PortsOpened int `json:"ports_opened,omitempty"`
 	PortsClosed int `json:"ports_closed,omitempty"`
+	// Blocked is how many connection attempts from the internet the router refused that day, as its own log said, and
+	// BlockedPorts the ports most often tried (at most ten). Counts only: no address and no line of the log is kept. The log
+	// is unauthenticated UDP, so these are hints.
+	Blocked      int         `json:"blocked,omitempty"`
+	BlockedPorts []PortCount `json:"blocked_ports,omitempty"`
+}
+
+// PortCount is how many times a destination port was tried.
+type PortCount struct {
+	Port  int `json:"port"`
+	Count int `json:"count"`
 }

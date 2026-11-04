@@ -24,6 +24,7 @@ var summaryWords = map[string]string{
 	ActivityPortsChanged:   "ports opened or closed",
 	ActivityAudit:          "an audit finished",
 	ActivityRelated:        "a new device appeared within an hour before a decoy service was touched",
+	ActivityRouterBlocks:   "the router refused connection attempts from the internet",
 }
 
 var thinkBlock = regexp.MustCompile(`(?s)<think>.*?</think>`)
@@ -61,6 +62,8 @@ func summaryDetail(r ActivityRow) string {
 		out += fmt.Sprintf(" (%d opened, %d closed)", r.Opened, r.Closed)
 	case ActivityAudit:
 		out += fmt.Sprintf(" (%d new)", r.Opened)
+	case ActivityRouterBlocks:
+		out += fmt.Sprintf(" (%d)", r.Count)
 	}
 	return out
 }
