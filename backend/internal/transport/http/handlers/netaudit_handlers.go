@@ -64,6 +64,27 @@ type NetauditHandlers struct {
 	fixes     NetauditFixes        // optional: without it findings carry guides but no record of what the operator did
 	expects   NetauditExpectations // optional: without it the expectations endpoints answer 404
 	deep      NetauditDeep         // optional: without it the deep-check endpoints answer 404
+	guides    NetauditGuides       // optional: without it every finding gets its fixed guide
+}
+
+// NetauditGuides gives a finding its guide, built for this computer where that helps (the firewall plan). netaudit.HostGuides
+// satisfies it.
+type NetauditGuides interface {
+	Guide(check string) (netaudit.FixGuide, bool)
+}
+
+// WithGuides makes the findings carry guides built for this computer.
+func (h *NetauditHandlers) WithGuides(g NetauditGuides) *NetauditHandlers {
+	h.guides = g
+	return h
+}
+
+// guideFor is the guide source in use.
+func (h *NetauditHandlers) guideFor() func(string) (netaudit.FixGuide, bool) {
+	if h.guides == nil {
+		return netaudit.GuideFor
+	}
+	return h.guides.Guide
 }
 
 func NewNetauditHandlers(scope NetauditScope, readiness NetauditReadiness, baselines NetauditBaselines, acks NetauditAcks) *NetauditHandlers {
@@ -147,6 +168,7 @@ func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp, resp.FirstScan = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp, b.FirstScan
 		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
 		views := newFindingViewer(b, h.activeAcks(workspaceID), h.fixRecords(workspaceID)).withDeepChecks(h.deepTimes(workspaceID))
+		views.guide = h.guideFor()
 		for _, f := range b.Findings {
 			resp.Findings = append(resp.Findings, views.finding(f))
 		}
@@ -164,6 +186,8 @@ type findingViewer struct {
 	isNew map[string]bool
 	acks  map[string]models.ScanAck
 	fixes map[string]models.FixRecord
+	// guide gives a finding its guide; netaudit.GuideFor unless the handlers have one built for this computer.
+	guide func(string) (netaudit.FixGuide, bool)
 	// deepAt is when each device was last checked deeply. A deep finding is carried into every audit without being checked
 	// again, so a fix mark on it is judged against that time and not against the nightly scan's.
 	deepAt map[string]time.Time
@@ -206,14 +230,14 @@ func newFindingViewer(b models.ScanBaseline, acks map[string]models.ScanAck, fix
 	for _, k := range b.NewKeys {
 		isNew[k] = true
 	}
-	return findingViewer{b: b, isNew: isNew, acks: acks, fixes: fixes}
+	return findingViewer{b: b, isNew: isNew, acks: acks, fixes: fixes, guide: netaudit.GuideFor}
 }
 
 func (v findingViewer) finding(f models.ScanFinding) findingView {
 	key := f.Key()
 	view := findingView{ScanFinding: f, Key: key, New: v.isNew[key], CheckTitle: netaudit.CheckTitle(f.Check), Fix: netaudit.RemediationFor(f.Check)}
 	view.PreviousVersion, view.Changed = v.b.ChangedFrom[key]
-	if g, ok := netaudit.GuideFor(f.Check); ok {
+	if g, ok := v.guide(f.Check); ok {
 		view.Guide = &g
 		if rec, marked := v.fixes[key]; marked {
 			view.FixState, view.FixNote = string(netaudit.FixStateFor(rec, v.checkedAt(f))), rec.Note
