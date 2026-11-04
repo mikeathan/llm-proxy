@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -224,6 +225,20 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 		Pkgs:           hostPackages,
 		Packages:       hostwatch.Integrity{InfoDir: "/var/lib/dpkg/info", Root: "/"},
 		PackagesBudget: hostIntegrityBudget,
+		Privileges:     privilegeReader(runtime.GOOS),
+	}
+}
+
+// privilegeReader reads the privilege marks on Linux only. macOS has an /etc/passwd that leaves out the real accounts (they live in
+// its directory service) and no /proc/modules, so reading it there would look like a check that found nothing; with no paths
+// the check says "not checked" instead.
+func privilegeReader(goos string) hostwatch.Privileger {
+	if goos != "linux" {
+		return hostwatch.Privileger{}
+	}
+	return hostwatch.Privileger{
+		Passwd: "/etc/passwd", Group: "/etc/group", Modules: "/proc/modules", Preload: "/etc/ld.so.preload",
+		SetIDRoots: []string{"/usr/local", "/opt", "/srv"},
 	}
 }
 

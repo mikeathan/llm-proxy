@@ -528,6 +528,9 @@ func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string,
 	if look.Unreadable > 0 {
 		note = fmt.Sprintf("\n\n> Note: %d watched locations could not be read by the account this program runs as, so changes there are not seen.", look.Unreadable)
 	}
+	if look.PrivilegeUnchecked {
+		note += "\n\n> Note: this computer's accounts, admin groups and kernel modules were not checked: that check reads Linux files this computer does not have."
+	}
 	return note, true
 }
 

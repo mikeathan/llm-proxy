@@ -67,3 +67,12 @@ func TestPresenceAndDNSReadings_TheLimitFollowsTheInterval(t *testing.T) {
 		t.Fatalf("a DNS check with no names does nothing, so it is not watched: %+v", r)
 	}
 }
+
+func TestPrivilegeReader_OnlyLinuxIsRead(t *testing.T) {
+	if got := privilegeReader("darwin").Check(); got.Checked {
+		t.Fatalf("macOS must read as not checked: %+v", got)
+	}
+	if r := privilegeReader("linux"); r.Passwd != "/etc/passwd" || len(r.SetIDRoots) != 3 {
+		t.Fatalf("linux reader = %+v", r)
+	}
+}

@@ -224,6 +224,8 @@ type Source struct {
 	PackagesBudget time.Duration
 	// Pkgs reads the installed packages and the Ubuntu release.
 	Pkgs Packages
+	// Privileges reads the accounts, admin groups, kernel modules, loader preload and set-id programs.
+	Privileges Privileger
 }
 
 // Hardening returns the few weak settings this computer may have.
@@ -242,6 +244,9 @@ func (s Source) Integrity(ctx context.Context) IntegrityResult {
 	}
 	return s.Packages.Check(ctx)
 }
+
+// Privilege returns the marks of privilege and persistence this computer has.
+func (s Source) Privilege() Privilege { return s.Privileges.Check() }
 
 // Installed lists the installed packages with their versions.
 func (s Source) Installed() (map[string]string, error) { return s.Pkgs.Installed() }

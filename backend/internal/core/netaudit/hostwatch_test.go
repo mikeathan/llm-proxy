@@ -23,6 +23,7 @@ type fakeHost struct {
 	integrityErr error // the state of its context when it was
 	packages     map[string]string
 	packagesErr  error
+	privilege    hostwatch.Privilege
 }
 
 func (f *fakeHost) Listeners() ([]hostwatch.Listener, error) { return f.listeners, f.lerr }
@@ -35,6 +36,7 @@ func (f *fakeHost) Integrity(ctx context.Context) hostwatch.IntegrityResult {
 	return f.integrity
 }
 func (f *fakeHost) Installed() (map[string]string, error) { return f.packages, f.packagesErr }
+func (f *fakeHost) Privilege() hostwatch.Privilege        { return f.privilege }
 
 type memHostStore struct {
 	w      models.HostWatch

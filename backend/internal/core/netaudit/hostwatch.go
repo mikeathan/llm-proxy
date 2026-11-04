@@ -253,6 +253,7 @@ type HostSource interface {
 	DockerBridge() bool
 	Integrity(ctx context.Context) hostwatch.IntegrityResult
 	Installed() (map[string]string, error)
+	Privilege() hostwatch.Privilege
 }
 
 // HostStore keeps the first look the later ones are compared with: *persistence.HostWatchStore.
@@ -284,6 +285,9 @@ func NewHostWatcher(src HostSource, store HostStore) *HostWatcher {
 type HostLook struct {
 	Findings   []Finding
 	Unreadable int
+	// PrivilegeUnchecked is true when the accounts, groups and kernel modules could not be looked at (no account file, as on
+	// macOS), so the report says "not checked" rather than nothing.
+	PrivilegeUnchecked bool
 }
 
 // Look takes one look. The first builds the baseline and reports nothing. A look that could not be taken, or whose baseline
@@ -316,6 +320,9 @@ func (w *HostWatcher) Look(ctx context.Context) (HostLook, error) {
 		changed = true
 	}
 	if w.compareFlaws(&base, &look) {
+		changed = true
+	}
+	if comparePrivilege(&base.Privilege, w.src.Privilege(), &look) {
 		changed = true
 	}
 	if changed {
