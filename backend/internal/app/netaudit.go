@@ -156,6 +156,14 @@ func (s AppServices) NetauditNearby() netaudit.NearbyFinder {
 	return s.netaudit.Nearby.Findings
 }
 
+// NetauditClasses is the device-kind check the run reporter runs over a scan; nil until the services are wired.
+func (s AppServices) NetauditClasses() netaudit.ClassFinder {
+	if s.netaudit == nil || s.netaudit.Nearby == nil {
+		return netaudit.ClassChecks{}
+	}
+	return netaudit.ClassChecks{State: s.netaudit.Nearby.Collector.State}
+}
+
 // NetauditServices is the service checks the run reporter runs over a scan's open ports; nil until the services are wired.
 func (s AppServices) NetauditServices() netaudit.ServiceFinder {
 	if s.netaudit == nil || s.netaudit.Nearby == nil {

@@ -95,6 +95,9 @@ func withNetauditProbes(reporter *netaudit.RunReporter, svc handlers.AssistantSe
 	if v, ok := svc.(interface{ NetauditNearby() netaudit.NearbyFinder }); ok && v.NetauditNearby() != nil {
 		reporter.WithNearby(v.NetauditNearby())
 	}
+	if v, ok := svc.(interface{ NetauditClasses() netaudit.ClassFinder }); ok && v.NetauditClasses() != nil {
+		reporter.WithClassChecks(v.NetauditClasses())
+	}
 	if v, ok := svc.(interface{ NetauditServices() netaudit.ServiceFinder }); ok && v.NetauditServices() != nil {
 		reporter.WithServiceChecks(v.NetauditServices())
 	}

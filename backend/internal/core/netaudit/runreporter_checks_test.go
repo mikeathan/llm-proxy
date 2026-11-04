@@ -89,3 +89,55 @@ func TestRunReporter_AServiceFindingThatCouldNotBeJudgedIsCarried(t *testing.T) 
 		}
 	}
 }
+
+type fakeClasses struct {
+	findings []Finding
+	err      error
+	seen     []models.NetworkDevice
+}
+
+func (f *fakeClasses) Findings(devices []models.NetworkDevice, _ []Host) ([]Finding, error) {
+	f.seen = devices
+	return f.findings, f.err
+}
+
+func classFinding(device string) Finding {
+	return Finding{Device: device, Check: CheckClassMismatch, Severity: SeverityMedium, Evidence: classMismatchEvidence(ClassCamera, []string{adminPortWords[22]})}
+}
+
+func TestRunReporter_ClassFindingsJoinTheReportOnlyForScannedDevices(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	c := &fakeClasses{findings: []Finding{classFinding("10.0.0.7"), classFinding("10.0.0.99")}}
+	reporter(store, reportTime).WithClassChecks(c).Augment(scannedHosts(hostOf("10.0.0.7", true, false, 80)), "ws", "nightly", "")
+	var got []string
+	for _, f := range store.data["ws/nightly"].Findings {
+		if f.Check == CheckClassMismatch {
+			got = append(got, f.Device)
+		}
+	}
+	if len(got) != 1 || got[0] != "10.0.0.7" {
+		t.Errorf("class findings = %v", got)
+	}
+}
+
+func TestRunReporter_ATroubleReadingWhatDevicesAnnouncedIsStatedAndNeverHidesTheScan(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	c := &fakeClasses{err: errors.New("disk")}
+	out := reporter(store, reportTime).WithClassChecks(c).Augment(scannedHosts(hostOf("10.0.0.7", true, false, 80)), "ws", "nightly", "")
+	if !strings.Contains(out, "what devices announced could not be read") {
+		t.Errorf("the trouble was not stated:\n%s", out)
+	}
+	if store.data["ws/nightly"].ScannedAt.IsZero() {
+		t.Error("the scan was not saved")
+	}
+}
+
+func TestRunReporter_WithoutAClassCheckNothingIsJudged(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	reporter(store, reportTime).Augment(scannedHosts(hostOf("10.0.0.7", true, false, 80)), "ws", "nightly", "")
+	for _, f := range store.data["ws/nightly"].Findings {
+		if f.Check == CheckClassMismatch {
+			t.Errorf("unexpected %+v", f)
+		}
+	}
+}
