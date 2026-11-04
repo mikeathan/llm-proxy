@@ -1,9 +1,11 @@
 package hostwatch
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, path, content string) {
@@ -208,5 +210,20 @@ func TestObserve_SnapMountUnitsAreSkippedEverythingElseIsCaught(t *testing.T) {
 		}
 		os.RemoveAll(path)
 		os.Remove(filepath.Dir(path)) // an emptied drop-in folder, so it cannot colour the next case
+	}
+}
+
+func TestSource_IntegrityStopsWhenTheCallersContextEnds(t *testing.T) {
+	tr := newTree(t)
+	tr.write("coreutils", "usr/bin/ls", "ls", sum("ls"))
+	src := Source{Packages: Integrity{InfoDir: tr.info, Root: tr.root, Prefixes: DefaultIntegrityPrefixes}, PackagesBudget: time.Hour}
+
+	if got := src.Integrity(t.Context()); !got.Complete || got.Checked != 1 {
+		t.Fatalf("a live context: got %+v, want a complete pass over one file", got)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // the run or the application stopped
+	if got := src.Integrity(ctx); got.Complete {
+		t.Fatalf("a pass whose caller has stopped must say it did not finish, got %+v", got)
 	}
 }

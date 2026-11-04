@@ -16,12 +16,17 @@ export function useNearby() {
   const error = ref('')
   const busy = ref(false)
   let timer: ReturnType<typeof setTimeout> | undefined
+  // Set once the owner is gone: an answer that arrives afterwards must not start the poll again.
+  let disposed = false
 
   const stop = () => {
     if (timer) clearTimeout(timer)
     timer = undefined
   }
-  onScopeDispose(stop)
+  onScopeDispose(() => {
+    disposed = true
+    stop()
+  })
 
   async function load(): Promise<void> {
     try {
@@ -35,7 +40,7 @@ export function useNearby() {
 
   function poll() {
     stop()
-    timer = setTimeout(load, POLL_MS)
+    if (!disposed) timer = setTimeout(load, POLL_MS)
   }
 
   async function run(call: () => Promise<NearbyState>, failed: string): Promise<boolean> {

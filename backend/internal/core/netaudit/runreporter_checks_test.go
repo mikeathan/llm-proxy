@@ -21,8 +21,14 @@ type fakeServices struct {
 	found, kept []Finding
 }
 
-func (f *fakeServices) Findings(context.Context, []Host) []Finding { return f.found }
-func (f *fakeServices) Carry([]Finding) []Finding                  { return f.kept }
+// Findings returns found, and reports the ports of kept as the ones it could not judge, so the reporter carries them.
+func (f *fakeServices) Findings(context.Context, []Host) ServiceResult {
+	unknown := map[string]bool{}
+	for _, k := range f.kept {
+		unknown[serviceKey(k.Device, k.Port, k.Check)] = true
+	}
+	return ServiceResult{Findings: f.found, unknown: unknown}
+}
 
 func rogue(device string) Finding {
 	return Finding{Device: device, Check: CheckRogueGateway, Severity: SeverityMedium, Evidence: rogueGatewayWords}

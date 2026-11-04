@@ -80,6 +80,8 @@ type netauditServices struct {
 	// RouterLogConfig is the switch for taking the router's log; RouterLog is the listener, which only wakes the presence check.
 	RouterLogConfig *netaudit.RouterLogConfig
 	RouterLog       *routerlog.Manager
+	// Blocks is the count of the attempts the router refused; it writes them to the history every few minutes and at shutdown.
+	Blocks *netaudit.Blocks
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
@@ -250,24 +252,34 @@ func (s AppServices) NetauditDecoys() netaudit.DecoyReader {
 	return s.netaudit.DecoyStore
 }
 
-// StartNetauditPresence runs the presence check until ctx ends. It is the one place that starts it (Constitution II.2,
-// II.14); a check that is switched off in the settings does nothing.
+// StartNetauditPresence runs the Network module's background work until ctx ends: the presence check, the router log listener
+// and its counter of refused attempts, the DNS comparison, the decoys and Nearby. It is the one place that starts them
+// (Constitution II.2, II.14); work that is switched off in the settings does nothing.
 func (s AppServices) StartNetauditPresence(ctx context.Context) {
-	if s.netaudit != nil && s.netaudit.Presence != nil {
-		go s.netaudit.Presence.Run(ctx)
+	for _, run := range s.netauditLoops() {
+		go run(ctx)
 	}
-	if s.netaudit != nil && s.netaudit.RouterLog != nil {
-		go s.netaudit.RouterLog.Run(ctx)
+}
+
+// netauditLoops lists the Network module's background loops that are wired; each runs until its context ends.
+func (s AppServices) netauditLoops() []func(context.Context) {
+	n := s.netaudit
+	if n == nil {
+		return nil
 	}
-	if s.netaudit != nil && s.netaudit.DNSCollector != nil {
-		go s.netaudit.DNSCollector.Run(ctx)
+	var loops []func(context.Context)
+	add := func(wired bool, run func(context.Context)) {
+		if wired {
+			loops = append(loops, run)
+		}
 	}
-	if s.netaudit != nil && s.netaudit.Decoys != nil {
-		go s.netaudit.Decoys.Run(ctx)
-	}
-	if s.netaudit != nil && s.netaudit.Nearby != nil {
-		go s.netaudit.Nearby.Collector.Run(ctx)
-	}
+	add(n.Presence != nil, func(ctx context.Context) { n.Presence.Run(ctx) })
+	add(n.RouterLog != nil, func(ctx context.Context) { n.RouterLog.Run(ctx) })
+	add(n.Blocks != nil, func(ctx context.Context) { n.Blocks.Run(ctx) })
+	add(n.DNSCollector != nil, func(ctx context.Context) { n.DNSCollector.Run(ctx) })
+	add(n.Decoys != nil, func(ctx context.Context) { n.Decoys.Run(ctx) })
+	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
+	return loops
 }
 
 // NetauditVulns is where the run reporter reads the vulnerability data from; nil until the services are wired.
@@ -308,7 +320,7 @@ func (s AppServices) auditModelIsLocal(entry *automation.AutomationEntry) error 
 		name, _ = s.SelectModels()
 	}
 	cfg, known := s.ModelConfig(name)
-	if !known || cfg.WorkloadClass == models.WorkloadLocal {
+	if !known || s.isLocalModel(cfg) {
 		return nil
 	}
 	return &automation.PreflightError{
@@ -321,7 +333,16 @@ func (s AppServices) auditModelIsLocal(entry *automation.AutomationEntry) error 
 // leaves that to fail in its run, but the timeline summary sends its data at once, so it only goes where it is known to stay.
 func (s AppServices) modelIsLocal(name string) bool {
 	cfg, known := s.ModelConfig(name)
-	return known && s.workloadClassifier.Classify(cfg) == models.WorkloadLocal
+	return known && s.isLocalModel(cfg)
+}
+
+// isLocalModel is the one answer to "does this model run on this machine" for the Network module: the class the runtime resolved
+// from the model's effective endpoint, or, for a model it has not resolved yet, the classifier's answer from the stored config.
+func (s AppServices) isLocalModel(cfg models.ModelConfig) bool {
+	if cfg.WorkloadClass != "" {
+		return cfg.WorkloadClass == models.WorkloadLocal
+	}
+	return s.workloadClassifier.Classify(cfg) == models.WorkloadLocal
 }
 
 // wireNetaudit builds the network-audit services and registers the network_scan tool. It is the one place they are
@@ -382,6 +403,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 		RouterLogConfig: alerts.RouterLogConfig,
 		RouterLog:       alerts.RouterLog,
+		Blocks:          alerts.Blocks,
 
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),

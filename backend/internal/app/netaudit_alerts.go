@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -45,6 +44,8 @@ type alerting struct {
 
 	RouterLogConfig *netaudit.RouterLogConfig
 	RouterLog       *routerlog.Manager
+	// Blocks counts the refused attempts the router's log reports and writes them to the history on its own timer.
+	Blocks *netaudit.Blocks
 }
 
 func (s *AppServices) newAlerting(deps alertingDeps) alerting {
@@ -68,12 +69,13 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		Log:            log,
 		Presence:       presence,
 		PresenceConfig: presenceConfig,
-		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope),
+		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope, cachedOwnAddress(deps.Scope, ownAddressTTL, time.Now)),
 		DecoyConfig:    decoyConfig,
 		DecoyStore:     decoyStore,
 
 		RouterLogConfig: routerLogConfig,
 		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence, blocks),
+		Blocks:          blocks,
 	}
 }
 
@@ -259,34 +261,20 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 }
 
 // newDecoys builds the decoy services. A connection counts only from a device inside the declared scan networks and not from
-// this computer itself, whose own audit and sweep must never look like an intruder. The alert goes to every connector.
+// this computer itself (own), whose own audit and sweep must never look like an intruder. own reads the addresses the scan scope
+// reads, with its fallback for a service that may not list interfaces, so the guard holds where netlink is refused. The alert
+// goes to every connector.
 func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, alerts *netaudit.AlertLog,
-	scope *netaudit.Scope) *decoy.Manager {
+	scope *netaudit.Scope, own func(netip.Addr) bool) *decoy.Manager {
 	return decoy.New(decoy.Deps{
 		Specs:   decoy.Specs,
 		Enabled: config.Enabled,
 		InScope: func(a netip.Addr) bool { return scope.Policy().Check(a) == nil },
-		IsOwn:   ownAddress,
+		IsOwn:   own,
 		Store:   store,
 		Notify: func(ctx context.Context, sources []string) error {
 			return alerts.Send(ctx, models.NetworkAlertDecoy, netaudit.DecoyMessage(sources), s.sendToConnectors)
 		},
 		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
 	})
-}
-
-// ownAddress reports whether a is one of this computer's own addresses (read from its interfaces; nothing is sent).
-func ownAddress(a netip.Addr) bool {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return false
-	}
-	for _, ia := range addrs {
-		if ipnet, ok := ia.(*net.IPNet); ok {
-			if own, ok := netip.AddrFromSlice(ipnet.IP); ok && own.Unmap() == a {
-				return true
-			}
-		}
-	}
-	return false
 }

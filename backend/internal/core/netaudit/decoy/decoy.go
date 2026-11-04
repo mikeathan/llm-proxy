@@ -82,7 +82,8 @@ type Manager struct {
 	listeners map[int]net.Listener
 	order     []int // the ports, in the order the decoys are defined
 	problem   string
-	lastSent  time.Time
+	lastTried time.Time // when the latest alert was attempted, sent or not; the next waits alertEvery after it
+	sending   bool      // an alert is being sent; touches meanwhile wait for it instead of sending their own
 	lastTrbl  string
 	seen      map[string]time.Time
 	wg        sync.WaitGroup
@@ -120,7 +121,9 @@ func (m *Manager) Poke() {
 	}
 }
 
-// Reconcile starts the listeners when the switch is on and none run, and stops them when it is off.
+// Reconcile starts the listeners when the switch is on and none run, and stops them when it is off. It then sends the alert
+// for touches that came while the last one was recent, once the quiet window has passed, so a single touch is never left untold
+// for want of a later one.
 func (m *Manager) Reconcile(ctx context.Context) {
 	m.mu.Lock()
 	running := len(m.listeners) > 0
@@ -131,6 +134,7 @@ func (m *Manager) Reconcile(ctx context.Context) {
 	case !enabled && running:
 		m.stop()
 	}
+	m.alert(ctx, m.deps.Now())
 }
 
 func (m *Manager) start(ctx context.Context) {
@@ -306,16 +310,22 @@ func (m *Manager) record(ctx context.Context, src netip.Addr, port int) {
 
 // alert tells the operator about touches they have not yet been told of, at most every alertEvery. The addresses it hands on
 // are the kernel's account of who connected (the connection's remote address), never bytes the visitor sent.
+//
+// Only one alert is in flight at a time: a scan touches every decoy at once, and the touches that finish while the first message
+// is being sent are covered by it (or by the next one), never sent as messages of their own.
 func (m *Manager) alert(ctx context.Context, now time.Time) {
+	if m.deps.Notify == nil {
+		return
+	}
 	sources := m.untold(now)
-	if len(sources) == 0 || m.deps.Notify == nil {
+	if len(sources) == 0 {
 		return
 	}
-	if err := m.deps.Notify(ctx, sortedSources(sources)); err != nil {
+	err := m.deps.Notify(ctx, sortedSources(sources))
+	if err != nil {
 		m.trouble(fmt.Errorf("decoy services: could not send the alert: %w", err))
-		return
 	}
-	m.markTold(sources, now)
+	m.settle(sources, err == nil)
 }
 
 // Clear empties the list of touches and forgets when the operator was last told, since what was left to tell is gone. The
@@ -323,15 +333,17 @@ func (m *Manager) alert(ctx context.Context, now time.Time) {
 func (m *Manager) Clear() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.lastSent = time.Time{}
+	m.lastTried = time.Time{}
 	return m.deps.Store.Write(nil)
 }
 
-// untold returns the sources with a touch the operator has not been told of, or none while the last alert is recent.
+// untold returns the sources with a touch the operator has not been told of, or none while an alert is being sent or the last
+// attempt is recent (sent or failed, so a connector that is down is not tried every turn). Returning some claims the alert:
+// the caller must settle it.
 func (m *Manager) untold(now time.Time) map[string]bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.lastSent.IsZero() && now.Sub(m.lastSent) < alertEvery {
+	if m.sending || (!m.lastTried.IsZero() && now.Sub(m.lastTried) < alertEvery) {
 		return nil
 	}
 	items, err := m.deps.Store.Read()
@@ -344,14 +356,21 @@ func (m *Manager) untold(now time.Time) map[string]bool {
 			sources[t.Source] = true
 		}
 	}
+	if len(sources) > 0 {
+		m.sending, m.lastTried = true, now
+	}
 	return sources
 }
 
-// markTold records that the operator was told about these sources, after the message went out.
-func (m *Manager) markTold(sources map[string]bool, now time.Time) {
+// settle releases the alert that untold claimed and, when the message went out, records that the operator was told about these
+// sources. A message that failed leaves them untold, to be tried again once the window has passed.
+func (m *Manager) settle(sources map[string]bool, sent bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.lastSent = now
+	m.sending = false
+	if !sent {
+		return
+	}
 	items, err := m.deps.Store.Read()
 	if err != nil {
 		return

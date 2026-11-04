@@ -9,7 +9,7 @@ import (
 
 func patchLook(t *testing.T, p hostwatch.Patches) HostLook {
 	t.Helper()
-	look, err := newWatcher(&fakeHost{patches: p}, &memHostStore{}).Look()
+	look, err := newWatcher(&fakeHost{patches: p}, &memHostStore{}).Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

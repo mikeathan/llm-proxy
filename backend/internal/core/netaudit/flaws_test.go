@@ -125,7 +125,7 @@ func (f fakeJudge) Judge(map[string]string) (FlawResult, bool) { return f.result
 
 func flawLook(t *testing.T, src *fakeHost, store *memHostStore, j FlawJudge) HostLook {
 	t.Helper()
-	look, err := newWatcher(src, store).WithFlaws(j).Look()
+	look, err := newWatcher(src, store).WithFlaws(j).Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

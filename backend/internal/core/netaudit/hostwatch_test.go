@@ -1,6 +1,7 @@
 package netaudit
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -11,15 +12,17 @@ import (
 )
 
 type fakeHost struct {
-	listeners   []hostwatch.Listener
-	lerr        error
-	files       []hostwatch.FileState
-	hard        hostwatch.Hardening
-	patches     hostwatch.Patches
-	docker      bool
-	integrity   hostwatch.IntegrityResult
-	packages    map[string]string
-	packagesErr error
+	listeners    []hostwatch.Listener
+	lerr         error
+	files        []hostwatch.FileState
+	hard         hostwatch.Hardening
+	patches      hostwatch.Patches
+	docker       bool
+	integrity    hostwatch.IntegrityResult
+	integrityRan bool  // whether the integrity pass was asked for
+	integrityErr error // the state of its context when it was
+	packages     map[string]string
+	packagesErr  error
 }
 
 func (f *fakeHost) Listeners() ([]hostwatch.Listener, error) { return f.listeners, f.lerr }
@@ -27,8 +30,11 @@ func (f *fakeHost) Files() []hostwatch.FileState             { return f.files }
 func (f *fakeHost) Hardening() hostwatch.Hardening           { return f.hard }
 func (f *fakeHost) Patches() hostwatch.Patches               { return f.patches }
 func (f *fakeHost) DockerBridge() bool                       { return f.docker }
-func (f *fakeHost) Integrity() hostwatch.IntegrityResult     { return f.integrity }
-func (f *fakeHost) Installed() (map[string]string, error)    { return f.packages, f.packagesErr }
+func (f *fakeHost) Integrity(ctx context.Context) hostwatch.IntegrityResult {
+	f.integrityRan, f.integrityErr = true, ctx.Err()
+	return f.integrity
+}
+func (f *fakeHost) Installed() (map[string]string, error) { return f.packages, f.packagesErr }
 
 type memHostStore struct {
 	w      models.HostWatch
@@ -57,7 +63,7 @@ var ssh = hostwatch.Listener{Proto: "tcp", Port: 22}
 func TestHostWatch_FirstLookBuildsABaselineAndReportsNothing(t *testing.T) {
 	src := &fakeHost{listeners: []hostwatch.Listener{ssh, {Proto: "udp", Port: 5353}}, files: []hostwatch.FileState{{ID: "sudoers", Hash: "aa"}}}
 	store := &memHostStore{}
-	look, err := newWatcher(src, store).Look()
+	look, err := newWatcher(src, store).Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +79,11 @@ func TestHostWatch_ANewListenerIsOneFindingAndAnUnchangedOneIsNone(t *testing.T)
 	src := &fakeHost{listeners: []hostwatch.Listener{ssh}}
 	store := &memHostStore{}
 	w := newWatcher(src, store)
-	if _, err := w.Look(); err != nil {
+	if _, err := w.Look(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	src.listeners = []hostwatch.Listener{ssh, {Proto: "tcp", Port: 8080}}
-	look, err := w.Look()
+	look, err := w.Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,12 +94,12 @@ func TestHostWatch_ANewListenerIsOneFindingAndAnUnchangedOneIsNone(t *testing.T)
 	if f.Device != HostDevice || f.Check != CheckNewListener || f.Port != 8080 || f.Proto != "tcp" || f.Severity != SeverityMedium {
 		t.Errorf("finding = %+v", f)
 	}
-	again, _ := w.Look()
+	again, _ := w.Look(t.Context())
 	if len(again.Findings) != 1 || again.Findings[0].Key() != f.Key() {
 		t.Errorf("an open listener stays one finding with the same key until it is accepted or gone: %+v", again.Findings)
 	}
 	src.listeners = []hostwatch.Listener{ssh}
-	if gone, _ := w.Look(); len(gone.Findings) != 0 {
+	if gone, _ := w.Look(t.Context()); len(gone.Findings) != 0 {
 		t.Errorf("a listener that closed is not a finding: %+v", gone.Findings)
 	}
 }
@@ -102,11 +108,11 @@ func TestHostWatch_ANewListenerNamesDockerOnlyWhereDockerIsInstalled(t *testing.
 	for _, docker := range []bool{false, true} {
 		src := &fakeHost{listeners: []hostwatch.Listener{ssh}, docker: docker}
 		w := newWatcher(src, &memHostStore{})
-		if _, err := w.Look(); err != nil {
+		if _, err := w.Look(t.Context()); err != nil {
 			t.Fatal(err)
 		}
 		src.listeners = []hostwatch.Listener{ssh, {Proto: "tcp", Port: 8080}}
-		look, _ := w.Look()
+		look, _ := w.Look(t.Context())
 		if len(look.Findings) != 1 {
 			t.Fatalf("docker=%v: want one finding, got %+v", docker, look.Findings)
 		}
@@ -124,11 +130,11 @@ func TestHostWatch_AChangedFileIsOneFindingWithItsOwnCheckAndKey(t *testing.T) {
 	src := &fakeHost{files: []hostwatch.FileState{{ID: "sudoers", Hash: "aaaaaaaaaaaaaaaaaaaa"}, {ID: "cron", Hash: "cc"}}}
 	store := &memHostStore{}
 	w := newWatcher(src, store)
-	if _, err := w.Look(); err != nil {
+	if _, err := w.Look(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	src.files = []hostwatch.FileState{{ID: "sudoers", Hash: "bbbbbbbbbbbbbbbbbbbb"}, {ID: "cron", Hash: "cc"}}
-	look, err := w.Look()
+	look, err := w.Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,9 +156,9 @@ func TestHostWatch_AChangedFileIsOneFindingWithItsOwnCheckAndKey(t *testing.T) {
 func TestHostWatch_TwoChangedFilesDoNotShareAKey(t *testing.T) {
 	src := &fakeHost{files: []hostwatch.FileState{{ID: "sudoers", Hash: "a"}, {ID: "cron", Hash: "a"}}}
 	w := newWatcher(src, &memHostStore{})
-	w.Look()
+	w.Look(t.Context())
 	src.files = []hostwatch.FileState{{ID: "sudoers", Hash: "b"}, {ID: "cron", Hash: "b"}}
-	look, _ := w.Look()
+	look, _ := w.Look(t.Context())
 	if len(look.Findings) != 2 || look.Findings[0].Key() == look.Findings[1].Key() {
 		t.Errorf("accepting one must not accept the other: %+v", look.Findings)
 	}
@@ -162,9 +168,9 @@ func TestHostWatch_AnUpgradeOfTheProgramIsNotAChange(t *testing.T) {
 	src := &fakeHost{files: []hostwatch.FileState{{ID: "program", Hash: "old", Tag: "0.31.0"}}}
 	store := &memHostStore{}
 	w := newWatcher(src, store)
-	w.Look()
+	w.Look(t.Context())
 	src.files = []hostwatch.FileState{{ID: "program", Hash: "new", Tag: "0.32.0"}}
-	look, _ := w.Look()
+	look, _ := w.Look(t.Context())
 	if len(look.Findings) != 0 {
 		t.Fatalf("a new version replaces the program's file on purpose: %+v", look.Findings)
 	}
@@ -172,7 +178,7 @@ func TestHostWatch_AnUpgradeOfTheProgramIsNotAChange(t *testing.T) {
 		t.Errorf("the baseline must move to the new version: %+v", store.w.Files)
 	}
 	src.files = []hostwatch.FileState{{ID: "program", Hash: "tampered", Tag: "0.32.0"}}
-	if look, _ := w.Look(); len(look.Findings) != 1 {
+	if look, _ := w.Look(t.Context()); len(look.Findings) != 1 {
 		t.Errorf("a change inside one version is a finding: %+v", look.Findings)
 	}
 }
@@ -180,9 +186,9 @@ func TestHostWatch_AnUpgradeOfTheProgramIsNotAChange(t *testing.T) {
 func TestHostWatch_ANewlyWatchedPlaceIsRecordedNotReported(t *testing.T) {
 	src := &fakeHost{files: []hostwatch.FileState{{ID: "cron", Hash: "a"}}}
 	w := newWatcher(src, &memHostStore{})
-	w.Look()
+	w.Look(t.Context())
 	src.files = []hostwatch.FileState{{ID: "cron", Hash: "a"}, {ID: "sudoers", Hash: "x"}}
-	if look, _ := w.Look(); len(look.Findings) != 0 {
+	if look, _ := w.Look(t.Context()); len(look.Findings) != 0 {
 		t.Errorf("a place added to the list in a later version has no earlier look to differ from: %+v", look.Findings)
 	}
 }
@@ -190,7 +196,7 @@ func TestHostWatch_ANewlyWatchedPlaceIsRecordedNotReported(t *testing.T) {
 func TestHostWatch_ACannotCheckIsAnErrorAndNeverABaseline(t *testing.T) {
 	src := &fakeHost{lerr: hostwatch.ErrUnavailable, files: []hostwatch.FileState{{ID: "cron", Hash: "a"}}}
 	store := &memHostStore{}
-	_, err := newWatcher(src, store).Look()
+	_, err := newWatcher(src, store).Look(t.Context())
 	if !errors.Is(err, hostwatch.ErrUnavailable) {
 		t.Fatalf("err = %v", err)
 	}
@@ -201,14 +207,14 @@ func TestHostWatch_ACannotCheckIsAnErrorAndNeverABaseline(t *testing.T) {
 
 func TestHostWatch_AnUnsavedBaselineIsAnErrorSoNothingIsClaimed(t *testing.T) {
 	store := &memHostStore{werr: errors.New("disk full")}
-	if _, err := newWatcher(&fakeHost{listeners: []hostwatch.Listener{ssh}}, store).Look(); err == nil {
+	if _, err := newWatcher(&fakeHost{listeners: []hostwatch.Listener{ssh}}, store).Look(t.Context()); err == nil {
 		t.Error("expected the failed save to be reported")
 	}
 }
 
 func TestHostWatch_CountsWhatItCannotRead(t *testing.T) {
 	src := &fakeHost{files: []hostwatch.FileState{{ID: "sudoers", Hash: "a", Unreadable: 2}, {ID: "cron", Hash: "b", Unreadable: 1}}}
-	look, _ := newWatcher(src, &memHostStore{}).Look()
+	look, _ := newWatcher(src, &memHostStore{}).Look(t.Context())
 	if look.Unreadable != 3 {
 		t.Errorf("Unreadable = %d, want 3", look.Unreadable)
 	}
@@ -239,7 +245,7 @@ func TestHostFileTable_CoversEverythingTheReaderWatchesAndNothingElse(t *testing
 
 func TestHostWatch_WeakSettingsAreFindingsFromTheFirstLookWithFixedWords(t *testing.T) {
 	src := &fakeHost{hard: hostwatch.Hardening{SSHFound: true, PasswordLogin: true, RootLogin: true, EmptyPasswords: true, RPFilterOff: true, AutoUpdatesOff: true, FirewallOff: true, OpenKeyFiles: 2}}
-	look, err := newWatcher(src, &memHostStore{}).Look()
+	look, err := newWatcher(src, &memHostStore{}).Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +265,7 @@ func TestHostWatch_WeakSettingsAreFindingsFromTheFirstLookWithFixedWords(t *test
 
 func TestHostWatch_AGoodConfigurationHasNoSettingFindingsAndUnreadableIsCounted(t *testing.T) {
 	src := &fakeHost{hard: hostwatch.Hardening{SSHFound: true, Unreadable: 2}}
-	look, _ := newWatcher(src, &memHostStore{}).Look()
+	look, _ := newWatcher(src, &memHostStore{}).Look(t.Context())
 	if len(look.Findings) != 0 || look.Unreadable != 2 {
 		t.Errorf("got %+v", look)
 	}
@@ -278,7 +284,7 @@ func TestHostSettings_EveryCheckIsRegistered(t *testing.T) {
 
 func TestHostWatch_FullDiskIsLowThenMediumInFixedWords(t *testing.T) {
 	for level, want := range map[int]string{hostwatch.DiskLow: SeverityLow, hostwatch.DiskCritical: SeverityMedium} {
-		look, err := newWatcher(&fakeHost{hard: hostwatch.Hardening{DiskLow: level}}, &memHostStore{}).Look()
+		look, err := newWatcher(&fakeHost{hard: hostwatch.Hardening{DiskLow: level}}, &memHostStore{}).Look(t.Context())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,14 +292,14 @@ func TestHostWatch_FullDiskIsLowThenMediumInFixedWords(t *testing.T) {
 			t.Errorf("level %d: %+v", level, look.Findings)
 		}
 	}
-	if look, _ := newWatcher(&fakeHost{hard: hostwatch.Hardening{}}, &memHostStore{}).Look(); len(look.Findings) != 0 {
+	if look, _ := newWatcher(&fakeHost{hard: hostwatch.Hardening{}}, &memHostStore{}).Look(t.Context()); len(look.Findings) != 0 {
 		t.Errorf("a disk with room is not a finding: %+v", look.Findings)
 	}
 }
 
 func integrityLook(t *testing.T, src *fakeHost, store *memHostStore) HostLook {
 	t.Helper()
-	look, err := newWatcher(src, store).Look()
+	look, err := newWatcher(src, store).Look(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,5 +376,32 @@ func TestHostWatch_FilesThatCouldNotBeReadAreCountedWithTheOtherUnreadablePlaces
 	look := integrityLook(t, &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Checked: 5, Unreadable: 3}}, &memHostStore{})
 	if look.Unreadable != 3 {
 		t.Errorf("unreadable = %d", look.Unreadable)
+	}
+}
+
+func TestHostWatcher_LookGivesItsContextToTheProgramFilePass(t *testing.T) {
+	src := &fakeHost{}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := newWatcher(src, &memHostStore{}).Look(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !src.integrityRan || src.integrityErr == nil {
+		t.Fatal("the pass over the program files must run under the look's context, so a stopped run stops it")
+	}
+}
+
+// The pass over the program files runs at the end of an audit, after the scan and the model. A run that used most of its time
+// cap must still get the pass's own budget: the run's deadline is not a reason to stop it, only a stop or a shutdown is.
+func TestHostWatcher_ARunNearItsTimeCapStillGetsTheWholePass(t *testing.T) {
+	src := &fakeHost{}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer cancel()
+	<-ctx.Done() // the run's cap has passed
+	if _, err := newWatcher(src, &memHostStore{}).Look(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !src.integrityRan || src.integrityErr != nil {
+		t.Fatalf("the run's time cap cut the pass short: %v", src.integrityErr)
 	}
 }

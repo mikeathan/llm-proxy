@@ -320,3 +320,17 @@ func TestDNSCollector_LocalNetworkAccessOffLogsNothingAndSaysSo(t *testing.T) {
 		t.Errorf("after access came back: %+v %+v", c.Status(), store.items)
 	}
 }
+
+// A cycle cut short by the application stopping is not a router that went silent: its failed questions are not comparisons,
+// and the week of comparisons a rule will be judged on must not gain a "cannot compare" row for every shutdown.
+func TestDNSCollector_ACycleTheContextStoppedLogsNothing(t *testing.T) {
+	router := &fakeDNS{err: context.Canceled}
+	store := &memDNSStore{}
+	c, _ := newTestCollector(router, &fakeDNS{}, store, "example.com", "example.org")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	c.Tick(ctx)
+	if store.writes != 0 || len(store.items) != 0 {
+		t.Fatalf("a stopped cycle logged %+v", store.items)
+	}
+}

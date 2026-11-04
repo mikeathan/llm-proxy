@@ -430,6 +430,13 @@ func (s AppServices) Shutdown(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.Vulns != nil {
 		s.netaudit.Vulns.Close()
 	}
+	// The router's refused attempts of the last minutes are written now, synchronously, rather than trusting the counter's own
+	// goroutine to finish before the process exits (the same rule as the memory usage counts).
+	if s.netaudit != nil && s.netaudit.Blocks != nil {
+		if err := s.netaudit.Blocks.Flush(); err != nil {
+			logging.Warn("network router blocks", "error", err.Error())
+		}
+	}
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")
 		s.Runtime.Shutdown()

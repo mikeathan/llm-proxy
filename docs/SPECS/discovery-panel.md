@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.29"
+version: "2.30"
 status: stable
 last_updated: 2026-11-04
 constitution_references: []
@@ -13,6 +13,13 @@ supersedes:
 
 ## Changelog
 
+- **2.30 (2026-11-04)** — **Network module review fixes (v0.45.1, ledger 2026-11-04).** No new screen or route. Behaviour the operator can see:
+  the router's refused-attempt counts are written every five minutes by a timer and once more at shutdown, so the Overview figure and the
+  Timeline no longer wait for a later drop and survive a restart; a scan that touches every decoy sends one message, a touch inside the
+  five-minute window is told when the window ends, and a failing connector is retried at most every five minutes (it was retried at the
+  next touch); the host's own connections to a decoy are recognised on a server that may not list its interfaces; the Timeline summary and
+  the audit's pre-flight agree on which models are local; a DNS-check cycle stopped by shutdown logs nothing; the program-file check ends
+  when a run is stopped but keeps its own three minutes when the run is near its time cap; the Nearby card stops polling when it closes.
 - **2.29 (2026-11-04)** — **Packages behind a security fix** (plan `network-attempts-integrity-timeline` P6;
   [ADR-0027](../decisions/ADR-0027-installed-packages-are-judged-against-canonicals-usn-oval.md)). Network → Settings gains an **Ubuntu security data** card:
   "Download notices" / "Update notices" fetch Canonical's USN OVAL file for this computer's release (about 1.3 MB, from `security-metadata.canonical.com` only,

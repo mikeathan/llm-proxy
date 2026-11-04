@@ -1,6 +1,8 @@
 package netaudit
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -249,7 +251,7 @@ type HostSource interface {
 	Hardening() hostwatch.Hardening
 	Patches() hostwatch.Patches
 	DockerBridge() bool
-	Integrity() hostwatch.IntegrityResult
+	Integrity(ctx context.Context) hostwatch.IntegrityResult
 	Installed() (map[string]string, error)
 }
 
@@ -286,7 +288,8 @@ type HostLook struct {
 
 // Look takes one look. The first builds the baseline and reports nothing. A look that could not be taken, or whose baseline
 // could not be saved, is an error and reports nothing: a computer that could not be read is never reported as a quiet one.
-func (w *HostWatcher) Look() (HostLook, error) {
+// ctx bounds the slow part (the pass over the program files), so a run or an application that stops does not leave it hashing.
+func (w *HostWatcher) Look(ctx context.Context) (HostLook, error) {
 	base, err := w.store.Read()
 	if err != nil {
 		return HostLook{}, fmt.Errorf("failed to read the host watch baseline: %w", err)
@@ -306,7 +309,10 @@ func (w *HostWatcher) Look() (HostLook, error) {
 	patches := w.src.Patches()
 	look.Unreadable += patches.Unreadable
 	look.Findings = append(look.Findings, patchFindings(patches)...)
-	if w.compareIntegrity(&base, w.src.Integrity(), &look) {
+	passCtx, endPass := untilStopped(ctx)
+	integrity := w.src.Integrity(passCtx)
+	endPass()
+	if w.compareIntegrity(&base, integrity, &look) {
 		changed = true
 	}
 	if w.compareFlaws(&base, &look) {
@@ -318,6 +324,27 @@ func (w *HostWatcher) Look() (HostLook, error) {
 		}
 	}
 	return look, nil
+}
+
+// untilStopped is ctx without its deadline: it ends when ctx is cancelled (the operator stopped the run, or the application is
+// shutting down) but not when the run's time cap passes. The pass over the program files runs last and has its own budget
+// (PackagesBudget), so a run that spent most of its cap on the scan and the model must not lose the pass every night. A
+// shutdown after the cap has already passed is not seen; the pass's own budget still bounds it.
+func untilStopped(ctx context.Context) (context.Context, context.CancelFunc) {
+	out, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	stopped := func() {
+		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			cancel(context.Cause(ctx))
+		}
+	}
+	if ctx.Err() != nil { // already over: AfterFunc would act only later, on its own goroutine
+		stopped()
+	}
+	stop := context.AfterFunc(ctx, stopped)
+	return out, func() {
+		stop()
+		cancel(context.Canceled)
+	}
 }
 
 func (w *HostWatcher) compareListeners(base *models.HostWatch, now []hostwatch.Listener, look *HostLook) bool {

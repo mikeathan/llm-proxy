@@ -232,10 +232,9 @@ func (s Source) Hardening() Hardening { return s.Harden.Check() }
 // Patches returns whether this computer is behind on updates or waiting for a restart.
 func (s Source) Patches() Patches { return s.Patcher.Check() }
 
-// Integrity compares the packaged program files with their packages' checksums within PackagesBudget. A pass that runs out of
-// time is returned incomplete, never as a clean one.
-func (s Source) Integrity() IntegrityResult {
-	ctx := context.Background()
+// Integrity compares the packaged program files with their packages' checksums within PackagesBudget, and stops when ctx ends
+// (the run or the application stopping). A pass that runs out of time is returned incomplete, never as a clean one.
+func (s Source) Integrity(ctx context.Context) IntegrityResult {
 	if s.PackagesBudget > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, s.PackagesBudget)

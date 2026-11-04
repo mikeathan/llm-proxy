@@ -12,11 +12,10 @@ type NearbyFinder interface {
 	Findings() ([]Finding, error)
 }
 
-// ServiceFinder probes the open ports of a scan that a service check covers: *ServiceChecks. Carry keeps the earlier finding of
-// a port it could not judge this time.
+// ServiceFinder probes the open ports of a scan that a service check covers: *ServiceChecks. The result's Carry keeps the
+// earlier finding of a port that run could not judge.
 type ServiceFinder interface {
-	Findings(ctx context.Context, hosts []Host) []Finding
-	Carry(earlier []Finding) []Finding
+	Findings(ctx context.Context, hosts []Host) ServiceResult
 }
 
 // ClassFinder says which devices look like a kind that has no use for an administration service they have open:
@@ -89,20 +88,17 @@ func (r *RunReporter) addNearby(result *Result) string {
 	return ""
 }
 
-// addServices appends the findings of the service checks.
-func (r *RunReporter) addServices(ctx context.Context, result *Result) string {
+// addServices appends the findings of the service checks and returns this run's result, whose Carry keeps what it could not judge.
+func (r *RunReporter) addServices(ctx context.Context, result *Result) ServiceResult {
 	if r.service == nil {
-		return ""
+		return ServiceResult{}
 	}
-	result.Findings = append(result.Findings, r.service.Findings(ctx, result.Hosts)...)
-	return ""
+	services := r.service.Findings(ctx, result.Hosts)
+	result.Findings = append(result.Findings, services.Findings...)
+	return services
 }
 
-// carriedByChecks is what the router check and the service checks keep from the last scan when they could not judge this time.
-func (r *RunReporter) carriedByChecks(earlier []Finding) []Finding {
-	out := r.carriedByRouter(earlier)
-	if r.service != nil {
-		out = append(out, r.service.Carry(earlier)...)
-	}
-	return out
+// carriedByChecks is what the router check and this run's service checks keep from the last scan when they could not judge.
+func (r *RunReporter) carriedByChecks(earlier []Finding, services ServiceResult) []Finding {
+	return append(r.carriedByRouter(earlier), services.Carry(earlier)...)
 }

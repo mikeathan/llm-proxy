@@ -100,7 +100,7 @@ func (r *RunReporter) WithDecoys(d DecoyReader) *RunReporter {
 
 // HostLooker compares this computer's open ports and the files that survive a reboot with the first look: *HostWatcher.
 type HostLooker interface {
-	Look() (HostLook, error)
+	Look(ctx context.Context) (HostLook, error)
 }
 
 // WithHost makes the reporter add what changed on the computer it runs on. Without it nothing is looked at.
@@ -184,14 +184,15 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	inventoryNote, devices := r.addInventory(ctx, &result)
-	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices) + r.addServices(ctx, &result)
-	hostNote, hostChecked := r.addHost(&result)
+	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
+	services := r.addServices(ctx, &result)
+	hostNote, hostChecked := r.addHost(ctx, &result)
 	expectNote += hostNote
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
 	scanned := scannedDevices(result.Hosts)
-	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings), scanned)...)
+	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings, services), scanned)...)
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}
@@ -504,11 +505,11 @@ func (r *RunReporter) addDecoys(result *Result) string {
 
 // addHost appends what changed on this computer. It reports whether the look was taken, so that the earlier findings of this
 // computer are replaced only by a look that really happened. Trouble is stated and never hides the scan.
-func (r *RunReporter) addHost(result *Result) (note string, checked bool) {
+func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string, checked bool) {
 	if r.host == nil {
 		return "", false
 	}
-	look, err := r.host.Look()
+	look, err := r.host.Look(ctx)
 	if err != nil {
 		return fmt.Sprintf("\n\n> Note: this computer could not be checked, so its open ports and startup files were not compared (%v).", err), false
 	}
