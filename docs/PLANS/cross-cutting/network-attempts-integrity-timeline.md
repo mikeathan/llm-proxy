@@ -1,0 +1,75 @@
+---
+status: approved
+date: 2026-11-04
+last_reviewed: 2026-11-04
+related_specs: [SPEC-003]
+constitution_references: [I.2, I.6, I.8, II.3, V.1]
+evidence: Owner's request of 2026-11-04 (quoted in §1), checked against the repo at v0.41.1 (origin/main 8775f9f7) and the ledger entries of 2026-10-31 and 2026-11-01 (router log). Nothing here has run on vertex.
+---
+
+# Network: attempts at the edge, host integrity, one timeline, device classes
+
+**Status:** approved by the owner 2026-11-04 (the four design answers in §2). Branch `network-attempts-integrity-timeline`, fresh from origin/main at v0.41.1, no upstream. P0 (the header) and P1 (Docker wording) are built; the rest is not.
+**Related:** [`network-security-roadmap.md`](network-security-roadmap.md) (Phase 4 router log; Phase 1 host watch), [`network-modules-redesign.md`](network-modules-redesign.md) (the tabs this plan adds one to), [ADR-0018](../../decisions/ADR-0018-router-log-only-wakes-the-presence-check.md), [ADR-0023](../../decisions/ADR-0023-network-ideas-rejected-or-already-built.md) (read before adding an idea).
+
+## 1. Goal and non-goals
+
+**Request (owner, 2026-11-04):** "i like all but 6 … consider ui changes for all that, how these new features are going to fit in the current ui … how will it look on mobile. is it going to be too noisy … lets do the work for all but 6 in this new branch fresh from main … make the simple/advance/help nav buttons smaller or place them somewhere else as in mobile view it takes too much space."
+
+**Goal.** Add seven things without a new product, a new privilege or a new probe of other devices: (P0) a calmer page header; (P1) Docker wording on the listener finding; (P2) a count of what the router blocks; (P3) a nightly check that system programs still match their packages; (P4) an Activity tab with one timeline and an opt-in model summary; (P5) device classes; (P6) known flaws in installed packages from Ubuntu's own data.
+
+**Non-goals.** A second sensor (the owner has one subnet); failed-login counts and `adm` (ADR-0023); anything that blocks traffic (ADR-0010); address-level router data (§2, answer 3).
+
+## 2. Decisions (owner, 2026-11-04)
+
+1. **Header:** Simple/Advanced and Help stay in the page header but on the title's row; Help is a "?" (name "Help"); the subtitle is hidden on a phone. Shared with the audit automation page, which uses the same toolbar.
+2. **Placement:** a new **Activity** tab holds the timeline and the router card. Overview keeps its five recent changes with "See all" and gets one "Blocked at the router" figure.
+3. **Router drops:** counts and ports only. No address and no log text is stored or shown. A hint, never an alert. Needs I.8 and ADR-0018 amended (see P2).
+4. **Model summary:** yes, off by default, a button; typed fields only.
+
+## 3. Where each thing goes, and the noise budget
+
+| Feature | Where (Simple) | Where (Advanced) | Noise rule |
+|---|---|---|---|
+| P0 header | One row: title, `Simple\|Advanced`, `?` | same | nothing new |
+| P1 Docker wording | The existing `new_listener` finding's text | same | no new finding |
+| P2 router blocks | Overview: one stat "Blocked at the router, today". Activity: a card with today's total, top ports, a 14-day sparkline | plus the number of distinct sources, the window and the sender | **never a finding or an alert**; a figure only |
+| P3 integrity | The existing "This computer" findings group (`host_file_modified`) | plus the changed paths (fixed wording: a path, never content) | one finding per run listing a count, not one per file; first run is a baseline and says nothing |
+| P4 timeline | Activity tab: 20 rows, filter chips Devices, Ports, Host, Router; Overview shows 5 | 100 rows, adds device keys and times | grouped by day; repeats of the same kind within an hour fold into "×N"; correlation rows are the only highlighted ones |
+| P5 classes | A small label on the device row ("Camera"); one finding kind `class_mismatch` | the evidence (maker, ports, Nearby type) | at most one `class_mismatch` per device; a named device the owner marked as intended is skipped |
+| P6 package flaws | The "This computer" group, one finding per package with a fixed-wording summary | CVE ids and the fixed version | only flaws Ubuntu says are fixed in a newer version and still unfixed here; never NVD-by-version |
+
+**Mobile.** Every control is 44 px high on a phone (existing rule); no figure needs a sideways scroll; the Activity tab is the sixth in a strip that already scrolls (`ScrollStrip`); chips wrap. Each feature gets a visual spec at both widths in both views (e2e/netaudit-*.visual.spec.ts pattern); the header has one (`netaudit-header.visual.spec.ts`).
+
+**Noise test, applied to every phase before it ships:** run the check against a real sample and count how many findings or rows a quiet night produces. The target is zero new findings on a healthy host and one row per kind per day in the timeline.
+
+## 4. Phases (de-risk first)
+
+**P0. Header (built 2026-11-04).** `NetauditToolbar` is one non-wrapping row with a "?" Help button; `PageHeader` takes `subtitleHiddenOnPhone`; `NetworkView` sets it. *Verify:* `netaudit-header.visual.spec.ts` (title, switch and Help centres within 12 px on a phone, Help at least 44 px; failed with a 104 px gap when the prop was removed); `Network.component.test.ts` finds Help by its name.
+
+**P1. Docker wording (small; built 2026-11-04).** Unprivileged code cannot tell a Docker port from another: `docker-proxy` runs as root (its `/proc/<pid>/fd` is unreadable) and Docker's rules and `docker.sock` need root or the `docker` group. So the finding does not claim "this is Docker's"; when `/sys/class/net/docker0` or a `br-*` bridge exists, the listener finding's guide adds one fixed sentence: Docker's published ports bypass ufw; bind to 127.0.0.1 in the container's `-p`. *Accept:* test with a fake `/sys` tree (with and without a bridge); wording in the fix guide; no new finding code.
+
+**P2. Router blocks (amendment).** Count `kernel: DROP IN= ... DPT=` lines from the router (sender must be the gateway; already checked by the intake). Per day: total, a capped table of destination ports (top 10, counts), and a capped set size for "distinct sources" (a count only; the addresses are dropped at parse time). Memory bounded (fixed map sizes; a flood cannot grow it); stored like the daily history (`history.go` pattern); factory reset removes it. The line's text is never kept. Needs: **Constitution I.8 amended** (the router's log may also be counted into capped daily summaries; still no storage or display of text or addresses; still a hint), **ADR-0018 amended or a new ADR-0025**. *Phase 0 of P2:* a real DROP datagram from the wire (tcpdump on vertex, UDP 5514 after the redirect, `-A`, redact MACs) as the fixture; the ledger holds the System Log shape only (no `<PRI>`), which the 2026-10-31 entry says must not be parsed from. *Accept:* parser fuzzed; a 10,000-line flood leaves memory unchanged; a forged source is ignored; nothing but counts reaches the API. *Wording:* the card says "reported by the router's log, which cannot be checked"; with double NAT (every sampled DROP has a private destination, 2026-10-31) it says these are packets that reached the router, not your public address.
+
+**P3. Package integrity.** A nightly pass over files that `dpkg` lists with a checksum (`/var/lib/dpkg/info/*.md5sums`) in `/usr/bin`, `/usr/sbin`, `/usr/lib` and `/lib`, skipping config files. One finding `host_file_modified` with the number of files and, in Advanced, up to 20 paths (a path is the app's own listing of a package file, bounded and escaped). **Capture done 2026-11-04** (see Remaining Work): the checksum files are world-readable and the format is `<md5>  <relative path>`. Still to measure on vertex: how long `md5sum -c` takes over `/usr/bin` (assumed tens of seconds), and a package whose files a normal update changed. *Accept:* fixture from the real files; a changed file yields one finding; an unreadable file is "could not check", never "unchanged"; a package update that changes a file is not a finding (the database changes with it); a bounded run time with a context.
+
+**P4. Activity tab and timeline.** Backend: one reader that merges the alert log, the inventory changes, the port record, host-watch findings and P2's day counts into typed rows (`kind`, `at`, `device`, `count`); no new store. Correlation rules in code, each with a positive and a negative test: new device then decoy touch from it within an hour; a port opened on a device then a finding of its kind. Frontend: `ActivityTab`, filter chips, "See all" from Overview. Model summary: an "Explain this week" button, off unless a model is set; the prompt is built from typed rows only (never a device name's text without the existing escaping), the answer is shown as text with the existing escaping; needs a short prompt in `core/assistant/prompts/templates.go` (its only home) and a test that hostile device names cannot reach the prompt verbatim. *Accept:* visual spec at both widths in both views, including an empty state and a long list; a mutation check per correlation rule; Overview still shows 5.
+
+**P5. Device classes.** From the MAC maker, the open ports and the Nearby type (needs Nearby live data; probes 1 to 3 of the Nearby plan first) assign a class from a small closed table; classes never come from text the device sends. `class_mismatch` (for example camera with SSH open, printer with Telnet) uses the existing typed-finding path. *Accept:* table-driven tests; no class from untrusted text; a manual class always wins.
+
+**P6. Package flaws from Ubuntu's data (last; data source undecided).** The comparison must use Ubuntu's own fixed-in versions (Ubuntu Security Notices or the OVAL/CVE tracker), not NVD ranges against package versions: a distribution backports fixes, which is the false-"high" trap already in the ledger (Samba, 2026-10-28). Phase 0: choose the feed, read its licence, measure its size and decide a step-up import like ADR-0013. *Accept:* the feed's licence in the ledger, a real fixture, a step-up route, one finding per package. If no suitable feed is found, this phase is dropped and recorded here.
+
+## 5. Constitution and records
+
+- I.8 and ADR-0018: amended for P2 (counts into capped summaries). A new ADR (0025) for the Activity tab (timeline reads existing records, no new store) and one for P3 if the file walk needs a rule.
+- SPEC-003: a new section per phase when it merges (2.26 onward); version 0.42.0 for the first merged phase, minor each.
+- Docs per phase: ledger line in `docs/learnings/network-audit.md`, hub row, plan Remaining Work, `./scripts/check-agent-harness.sh`.
+
+## Remaining Work
+
+- **P0 built 2026-11-04** on branch `network-attempts-integrity-timeline` (uncommitted): `NetauditToolbar.vue`, `PageHeader.vue`, `NetworkView.vue`, constants, the header visual spec, the updated component test. `npm run build`, the full unit suite (246 files, 2553 tests) and the harness check pass.
+- **P3 capture received 2026-11-04 (owner, vertex):** `/var/lib/dpkg/info/openssh-server.md5sums` is `-rw-r--r-- root`, 1.0 KB, lines are `<md5>  <path without leading slash>` (for example `usr/lib/openssh/ssh-session-cleanup`); `llm-proxy` is uid 995 in groups `llm-proxy`, `video`, `render` (not `adm`, not `docker`). So the checksum files need no new privilege; whether the files they list are readable by `llm-proxy`, and how long a pass takes, are still unmeasured.
+- **Next (needs the owner):** a real router DROP datagram for P2, approval of the I.8 wording, and the Nearby probes for P5.
+- **P1 built 2026-11-04** (uncommitted): `platform/hostwatch/docker.go` (`Docker.Bridge()` reads `/sys/class/net` for `docker0` or `br-<12 hex>`), `HostSource.DockerBridge()`, the note on `new_listener` evidence and one guide step. Mutation-checked (the Docker branch disabled fails the test). `go test ./...`, `go vet` on the touched packages and `check-complexity` pass. SPEC-003 text and the version bump wait for the first phase that merges.
+- **Not started:** P2 to P6. Order: P2, P3, P4, P5, P6.
+- **Unverified:** the header on a real phone (geometry is tested in a headless phone viewport only); `docker0`/`br-*` presence on vertex (the note appears only if a bridge exists there).

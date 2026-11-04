@@ -216,6 +216,7 @@ type Source struct {
 	Watch   Files
 	Harden  Hardener
 	Patcher Patcher
+	Docker  Docker
 }
 
 // Hardening returns the few weak settings this computer may have.
@@ -223,6 +224,9 @@ func (s Source) Hardening() Hardening { return s.Harden.Check() }
 
 // Patches returns whether this computer is behind on updates or waiting for a restart.
 func (s Source) Patches() Patches { return s.Patcher.Check() }
+
+// DockerBridge returns whether Docker has a network on this computer.
+func (s Source) DockerBridge() bool { return s.Docker.Bridge() }
 
 // Listeners returns the ports open to other computers.
 func (s Source) Listeners() ([]Listener, error) { return s.Proc.Listeners() }

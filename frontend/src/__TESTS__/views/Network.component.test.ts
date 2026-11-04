@@ -60,8 +60,8 @@ describe('NetworkView', () => {
   it('keeps Simple/Advanced and Help in the page header, once, on every tab', async () => {
     for (const path of ['/network', '/network/devices', '/network/findings', '/network/audits', '/network/settings']) {
       const { wrapper } = await mountAt(path)
-      expect(wrapper.get('header').findAll('[role="radio"], [role="tab"], button').some((b) => b.text() === 'Help')).toBe(true)
-      expect(wrapper.findAll('button').filter((b) => b.text() === 'Help')).toHaveLength(1)
+      expect(wrapper.get('header').findAll('[role="radio"], [role="tab"], button').some((b) => b.attributes('aria-label') === 'Help')).toBe(true)
+      expect(wrapper.findAll('button').filter((b) => b.attributes('aria-label') === 'Help')).toHaveLength(1)
     }
   })
 

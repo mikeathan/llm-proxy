@@ -3,17 +3,18 @@ import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { useNetauditHelp } from "../../composables/netaudit/useNetauditHelp"
-import { VIEW_MODE_OPTIONS } from "../../constants/netaudit"
+import { HELP_LABEL, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
 import type { NetauditViewMode } from "../../types/netaudit"
 
-// Top right of every network scan screen: Simple or Advanced (remembered, shared by all the screens) and Help.
+// Top right of every network scan screen: Simple or Advanced (remembered, shared by all the screens) and Help. It is one
+// short row that never wraps, so on a phone it can sit beside the page title; Help is a "?" to save the width.
 const { mode, set } = useNetauditViewMode()
 const help = useNetauditHelp()
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center justify-end gap-1">
+  <div class="flex flex-none flex-nowrap items-center justify-end gap-0.5">
     <SegmentedControl :model-value="mode" :options="VIEW_MODE_OPTIONS" label="How much detail" variant="quiet" touch @update:model-value="set($event as NetauditViewMode)" />
-    <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" @click="help.show()">Help</BaseButton>
+    <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11 max-sm:min-w-11" :aria-label="HELP_LABEL" :title="HELP_LABEL" @click="help.show()">?</BaseButton>
   </div>
 </template>

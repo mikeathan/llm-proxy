@@ -16,12 +16,14 @@ type fakeHost struct {
 	files     []hostwatch.FileState
 	hard      hostwatch.Hardening
 	patches   hostwatch.Patches
+	docker    bool
 }
 
 func (f *fakeHost) Listeners() ([]hostwatch.Listener, error) { return f.listeners, f.lerr }
 func (f *fakeHost) Files() []hostwatch.FileState             { return f.files }
 func (f *fakeHost) Hardening() hostwatch.Hardening           { return f.hard }
 func (f *fakeHost) Patches() hostwatch.Patches               { return f.patches }
+func (f *fakeHost) DockerBridge() bool                       { return f.docker }
 
 type memHostStore struct {
 	w      models.HostWatch
@@ -88,6 +90,28 @@ func TestHostWatch_ANewListenerIsOneFindingAndAnUnchangedOneIsNone(t *testing.T)
 	src.listeners = []hostwatch.Listener{ssh}
 	if gone, _ := w.Look(); len(gone.Findings) != 0 {
 		t.Errorf("a listener that closed is not a finding: %+v", gone.Findings)
+	}
+}
+
+func TestHostWatch_ANewListenerNamesDockerOnlyWhereDockerIsInstalled(t *testing.T) {
+	for _, docker := range []bool{false, true} {
+		src := &fakeHost{listeners: []hostwatch.Listener{ssh}, docker: docker}
+		w := newWatcher(src, &memHostStore{})
+		if _, err := w.Look(); err != nil {
+			t.Fatal(err)
+		}
+		src.listeners = []hostwatch.Listener{ssh, {Proto: "tcp", Port: 8080}}
+		look, _ := w.Look()
+		if len(look.Findings) != 1 {
+			t.Fatalf("docker=%v: want one finding, got %+v", docker, look.Findings)
+		}
+		got := strings.Contains(look.Findings[0].Evidence, "Docker")
+		if got != docker {
+			t.Errorf("docker=%v: evidence mentions Docker = %v: %q", docker, got, look.Findings[0].Evidence)
+		}
+		if docker && !strings.Contains(look.Findings[0].Evidence, "firewall") {
+			t.Errorf("the note must say the computer's firewall does not cover a published port: %q", look.Findings[0].Evidence)
+		}
 	}
 }
 

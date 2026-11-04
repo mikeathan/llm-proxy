@@ -226,7 +226,9 @@ func diskFinding(level int) []Finding {
 
 const (
 	newListenerEvidence = "Something on this computer is waiting for connections on this port, and it was not when the audit first looked. The audit does not say which program it is"
-	hostFileEvidence    = "A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed). The audit does not show what changed"
+	// dockerListenerNote is added when Docker has a network here: the port may be a container's, and those bypass ufw.
+	dockerListenerNote = ". Docker is installed on this computer: a port a container publishes is open to the network even when the computer's firewall is on"
+	hostFileEvidence   = "A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed). The audit does not show what changed"
 	// shortHash is how much of a digest goes in a finding's version.
 	shortHash = 12
 )
@@ -237,6 +239,7 @@ type HostSource interface {
 	Files() []hostwatch.FileState
 	Hardening() hostwatch.Hardening
 	Patches() hostwatch.Patches
+	DockerBridge() bool
 }
 
 // HostStore keeps the first look the later ones are compared with: *persistence.HostWatchStore.
@@ -306,10 +309,14 @@ func (w *HostWatcher) compareListeners(base *models.HostWatch, now []hostwatch.L
 	for _, l := range base.Listeners {
 		known[l] = true
 	}
+	evidence := newListenerEvidence
+	if w.src.DockerBridge() {
+		evidence += dockerListenerNote
+	}
 	for _, l := range now {
 		if !known[models.HostListener{Proto: l.Proto, Port: l.Port}] {
 			look.Findings = append(look.Findings, Finding{
-				Device: HostDevice, Port: l.Port, Proto: l.Proto, Check: CheckNewListener, Severity: SeverityMedium, Evidence: newListenerEvidence,
+				Device: HostDevice, Port: l.Port, Proto: l.Proto, Check: CheckNewListener, Severity: SeverityMedium, Evidence: evidence,
 			})
 		}
 	}
@@ -453,9 +460,10 @@ var newListenerGuide = FixGuide{
 		"If you started it (a development server, a database, a new service), accept the finding with a note. A program you did not start should be stopped.",
 		"If you cannot explain it, stop the program, find out how it started (check the startup services and scheduled jobs), and treat the computer as possibly compromised.",
 		"Close ports that nothing needs with the computer's firewall, even for programs you trust.",
+		"If the port belongs to a container, the firewall does not close it: Docker publishes ports through its own rules. Publish it on 127.0.0.1 only (-p 127.0.0.1:8080:80) or stop publishing it.",
 	},
 	Commands: []GuideCommand{
-		{platformLinux, "sudo ss -ltnup"},
+		{platformLinux, "sudo ss -ltnup\ndocker ps --format '{{.Names}}  {{.Ports}}'"},
 	},
 	Risk: "Stopping a program stops what it serves; a port closed by the firewall can no longer be reached from other computers.",
 	Undo: "Start the program again, or remove the firewall rule.",

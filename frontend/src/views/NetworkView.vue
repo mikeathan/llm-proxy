@@ -56,7 +56,7 @@ onUnmounted(stop)
 
 <template>
   <div class="flex flex-col gap-4">
-    <PageHeader :title="NETWORK_TITLE" :subtitle="NETWORK_SUBTITLE">
+    <PageHeader :title="NETWORK_TITLE" :subtitle="NETWORK_SUBTITLE" subtitle-hidden-on-phone>
       <template #actions><NetauditToolbar /></template>
     </PageHeader>
     <NetworkTabs :active="tab" />

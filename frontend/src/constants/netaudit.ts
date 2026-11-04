@@ -8,6 +8,9 @@ export const NETAUDIT_VIEW_KEY = 'netaudit-view'
 export const NETAUDIT_VIEW_VERSION = 1
 export const DEFAULT_VIEW_MODE: NetauditViewMode = 'simple'
 
+/** The Help button shows only a "?" to save width, so this is its name for a screen reader and its tooltip. */
+export const HELP_LABEL = 'Help'
+
 export const VIEW_MODE_OPTIONS: ChoiceOption[] = [
   { value: 'simple', label: 'Simple' },
   { value: 'advanced', label: 'Advanced' },
