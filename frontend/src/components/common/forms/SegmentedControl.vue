@@ -8,10 +8,14 @@ import type { ChoiceOption } from "../../../types/ui"
 // an option marked `live` carries a pulsing dot (still while motion is reduced).
 // `touch` makes each segment 44 px high on a phone, for a control that is the way around a page; the default stays compact.
 // `variant="tabs"` draws the same radio group as an underlined row (scrolls sideways on a phone) for the parts of one page;
+// `variant="compact"` is the quiet look at 28 px high on every screen, whose tap area is still 44 px: an invisible layer reaches 8 px
+// above and below each word, so a control in a page header does not make the header taller.
 // `variant="quiet"` as plain words with the chosen one softly filled, no frame, for a setting that sits beside a title.
-const props = defineProps<{ modelValue: string; options: ChoiceOption[]; label: string; touch?: boolean; tone?: 'running'; variant?: 'tabs' | 'quiet' }>()
+const props = defineProps<{ modelValue: string; options: ChoiceOption[]; label: string; touch?: boolean; tone?: 'running'; variant?: 'tabs' | 'quiet' | 'compact' }>()
 const emit = defineEmits<{ (e: "update:modelValue", value: string): void }>()
 
+// 28 px high, with a layer 8 px above and below that makes the tap area 44 px (see `variant="compact"` above).
+const COMPACT_SEGMENT = "relative h-7 rounded-[var(--radius-sm)] px-2 text-[length:var(--text-small)] transition-colors duration-fast before:absolute before:inset-x-0 before:-inset-y-2 before:content-[''] focus-visible:outline-none focus-visible:ring-2"
 const buttons = ref<HTMLButtonElement[]>([])
 const STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }
 
@@ -27,7 +31,7 @@ async function onKeydown(event: KeyboardEvent, index: number) {
 </script>
 
 <template>
-  <div role="radiogroup" :aria-label="label" :class="variant === 'tabs' ? 'flex max-w-full overflow-x-auto border-b border-hairline' : variant === 'quiet' ? 'inline-flex gap-0.5' : 'inline-flex flex-wrap overflow-hidden rounded-[var(--radius-md)] border border-control'">
+  <div role="radiogroup" :aria-label="label" :class="variant === 'tabs' ? 'flex max-w-full overflow-x-auto border-b border-hairline' : variant === 'quiet' || variant === 'compact' ? 'inline-flex gap-0.5' : 'inline-flex flex-wrap overflow-hidden rounded-[var(--radius-md)] border border-control'">
     <button
       v-for="(option, index) in options"
       :key="option.value"
@@ -36,7 +40,10 @@ async function onKeydown(event: KeyboardEvent, index: number) {
       role="radio"
       :aria-checked="option.value === modelValue"
       :tabindex="option.value === modelValue ? 0 : -1"
-      :class="variant === 'quiet' ? [
+      :class="variant === 'compact' ? [
+        COMPACT_SEGMENT,
+        option.value === modelValue ? 'bg-surface-active text-primary' : 'text-muted hover:bg-surface-hover hover:text-primary',
+      ] : variant === 'quiet' ? [
         'h-7 rounded-[var(--radius-sm)] px-2.5 text-[length:var(--text-small)] transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2',
         touch ? 'max-sm:h-11' : '',
         option.value === modelValue ? 'bg-surface-active text-primary' : 'text-muted hover:bg-surface-hover hover:text-primary',
