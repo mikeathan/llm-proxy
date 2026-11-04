@@ -615,6 +615,11 @@ export interface ActivityGroupOfRows {
   rows: ActivityRow[]
 }
 
+/** What the timeline draws for a day: a row as it is, or several new devices folded into one line. */
+export type ActivityItem =
+  | { kind: 'row'; row: ActivityRow }
+  | { kind: 'fold'; rows: ActivityRow[]; text: string }
+
 /** The Activity timeline, newest first. */
 export interface NetworkActivity {
   rows: ActivityRow[]

@@ -171,4 +171,61 @@ describe('TimelineTab', () => {
       expect(w.get('[data-test="explain-nothing"]').text()).toContain('nothing from the last week')
     })
   })
+
+  describe('reading a long timeline', () => {
+    const DAY = 86_400_000
+    const daysAgo = (d: number, h = 10, m = 0) => new Date(new Date(Date.now() - d * DAY).setHours(h, m, 0, 0)).toISOString()
+    const device = (n: number, d: number): ActivityRow => ({ kind: 'new_device', group: 'devices', at: daysAgo(d, 8 + n), name: `Dev${n}`, ip: `192.168.1.${n}`, mac: `aa:bb:cc:00:00:0${n}` })
+    const LONG: ActivityRow[] = [
+      { kind: 'alert', group: 'alerts', at: daysAgo(0, 11, 30), alert_kind: 'presence', text: 'Network audit: 1 new device: 192.168.1.9', count: 1 },
+      { kind: 'new_device', group: 'devices', at: daysAgo(0, 11), name: 'Today device', ip: '192.168.1.9' },
+      { kind: 'ports_changed', group: 'ports', at: daysAgo(1, 23), day: true, opened: 1, closed: 0 },
+      { kind: 'address_changed', group: 'devices', at: daysAgo(2, 9), ip: '192.168.1.2' },
+      device(1, 5), device(2, 5), device(3, 5), device(4, 5),
+    ]
+    const days = (w: VueWrapper) => w.findAll('[data-test="activity-day"]')
+
+    beforeEach(() => vi.spyOn(NetauditService, 'activity').mockResolvedValue({ rows: LONG }))
+
+    it('opens the latest two days and shows an older day as one line of counts until it is opened', async () => {
+      const w = mountTab()
+      await flushPromises()
+      const all = days(w)
+      expect(all).toHaveLength(4)
+      expect(all[0]!.find('ul').exists()).toBe(true)
+      expect(all[1]!.find('ul').exists()).toBe(true)
+      expect(all[2]!.find('ul').exists()).toBe(false)
+      expect(all[3]!.find('[data-test="day-summary"]').text()).toBe('4 new devices')
+      expect(all[3]!.find('ul').exists()).toBe(false)
+      await all[3]!.get('[data-test="day-toggle"]').trigger('click')
+      expect(days(w)[3]!.find('ul').exists()).toBe(true)
+      expect(days(w)[3]!.get('[data-test="day-toggle"]').attributes('aria-expanded')).toBe('true')
+    })
+
+    it('in Simple folds four new devices into one line and leaves out the alert that repeats a device', async () => {
+      const w = mountTab()
+      await flushPromises()
+      await days(w)[3]!.get('[data-test="day-toggle"]').trigger('click')
+      const last = days(w)[3]!
+      expect(last.findAll('li')).toHaveLength(1)
+      expect(last.text()).toContain('4 new devices appeared: Dev1, Dev2, Dev3 and 1 more')
+      expect(w.text()).not.toContain('Network audit: 1 new device')
+    })
+
+    it('in Advanced lists every row, with the repeated alert too', async () => {
+      useNetauditViewMode().set('advanced')
+      const w = mountTab()
+      await flushPromises()
+      await days(w)[3]!.get('[data-test="day-toggle"]').trigger('click')
+      expect(days(w)[3]!.findAll('li')).toHaveLength(4)
+      expect(w.text()).toContain('Network audit: 1 new device')
+    })
+
+    it('opens every day when a filter is chosen, because the person is looking for something', async () => {
+      const w = mountTab()
+      await flushPromises()
+      await w.findAll('[role="radio"]').find((b) => b.text() === 'Devices')!.trigger('click')
+      expect(days(w).every((d) => d.find('ul').exists())).toBe(true)
+    })
+  })
 })
