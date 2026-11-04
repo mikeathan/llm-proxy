@@ -109,6 +109,7 @@ type Service struct {
 	cfgFn   func() Config // when set, read at every request so a settings change applies at once
 	now     func() time.Time
 	limiter *limiter
+	alerts  func(SignInAlert) // optional: told about lockouts and sign-ins from new addresses
 }
 
 func NewService(store *Store, hasher *Hasher, cfg Config) *Service {
@@ -215,14 +216,19 @@ func (s *Service) Login(ctx context.Context, passphrase, addr, browser string) (
 		return "", err
 	}
 	now := s.now()
+	newAddress := false
 	err = s.store.Update(func(r *Record) error {
 		r.Sessions = append(s.live(r.Sessions), Session{ID: hashSecret(id), CreatedAt: now, LastSeen: now, Address: addr, Browser: trim(browser, maxBrowserLength)})
 		if len(r.Sessions) > maxSessions {
 			r.Sessions = r.Sessions[len(r.Sessions)-maxSessions:]
 		}
 		s.record(r, "login", addr, "")
+		newAddress = rememberAddress(r, addr)
 		return nil
 	})
+	if err == nil && newAddress {
+		s.tell(SignInNewAddress)
+	}
 	return id, err
 }
 
@@ -249,6 +255,9 @@ func (s *Service) checkPassphrase(ctx context.Context, hash, passphrase, addr, f
 	if !ok {
 		s.limiter.fail(addr, s.now())
 		_ = s.store.Update(func(r *Record) error { s.record(r, failEvent, addr, ""); return nil })
+		if s.limiter.wait(addr, s.now()) > 0 { // this failure is the one that locked the address
+			s.tell(SignInLocked)
+		}
 		return ErrBadCredentials
 	}
 	s.limiter.succeed(addr)

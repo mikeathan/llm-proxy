@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, ref, shallowRef } from 'vue'
 import { createNetworkAlerts } from '../../../composables/netaudit/useNetworkAlerts'
-import { toNetwork } from '../../../router/routes'
+import { toNetwork, toSettings } from '../../../router/routes'
 import type { GlobalRunTick } from '../../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../../types/notifications'
 
@@ -67,6 +67,13 @@ describe('network alerts', () => {
     replies.push({ cursor: 2, items: [alert(2, { kind: 'monitor', message: 'monitor m' })] })
     await poll()
     expect(published[0]![0]!.target).toEqual(toNetwork())
+  })
+
+  it('aims a sign-in alert at the sign-in events', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'sign_in', message: 'sign-in m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toSettings('sign-in'))
   })
 
   it('carries what became of the send and how often a decoy alert repeated', async () => {

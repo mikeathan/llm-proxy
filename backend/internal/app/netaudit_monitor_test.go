@@ -8,6 +8,7 @@ import (
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/routerlog"
+	"llm-proxy/internal/platform/auth"
 	"llm-proxy/models"
 )
 
@@ -74,5 +75,11 @@ func TestPrivilegeReader_OnlyLinuxIsRead(t *testing.T) {
 	}
 	if r := privilegeReader("linux"); r.Passwd != "/etc/passwd" || len(r.SetIDRoots) != 3 {
 		t.Fatalf("linux reader = %+v", r)
+	}
+}
+
+func TestSignInAlertNames_TheSignInAndTheAlertsAgree(t *testing.T) {
+	if string(auth.SignInLocked) != netaudit.SignInLockedOut || string(auth.SignInNewAddress) != netaudit.SignInFromNewAddress {
+		t.Fatal("the sign-in's event names must be the ones the Network alerts know")
 	}
 }

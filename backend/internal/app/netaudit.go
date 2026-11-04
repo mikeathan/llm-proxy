@@ -85,6 +85,8 @@ type netauditServices struct {
 	Blocks *netaudit.Blocks
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
+	// SignIns sends the admin sign-in's lockouts and sign-ins from new addresses, from its own loop.
+	SignIns *netaudit.SignInAlerts
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
 	Monitors *netaudit.MonitorWatch
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
@@ -297,6 +299,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Decoys != nil, func(ctx context.Context) { n.Decoys.Run(ctx) })
 	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
 	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
+	add(n.SignIns != nil, func(ctx context.Context) { n.SignIns.Run(ctx) })
 	return loops
 }
 
@@ -437,6 +440,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()),
 	}
 	s.netaudit.Monitors = newMonitorWatch(s.netaudit, s.alertNotifier(alerts.Log, models.NetworkAlertMonitor))
+	s.netaudit.SignIns = netaudit.NewSignInAlerts(s.alertNotifier(alerts.Log, models.NetworkAlertSignIn), time.Now)
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))

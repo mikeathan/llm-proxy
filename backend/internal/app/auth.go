@@ -14,10 +14,14 @@ const authFileName = "auth.json"
 // file, as the server's OS user.
 func AuthFilePath(rootDir string) string { return filepath.Join(rootDir, authFileName) }
 
-// wireAuth opens the sign-in. It never fails at start: an unreadable file is reported on the first request, which refuses.
+// wireAuth opens the sign-in. It never fails at start: an unreadable file is reported on the first request, which refuses. A
+// lockout and a sign-in from a new address are told through the Network alerts, which must be wired first.
 func (s *AppServices) wireAuth(rootDir string) {
 	s.auth = auth.NewService(auth.OpenStore(AuthFilePath(rootDir)), auth.NewHasher(auth.DefaultParams()), auth.DefaultConfig()).WithConfig(func() auth.Config {
 		a := s.AppCtx.GetSystem().Server.Auth
 		return auth.ConfigFrom(a.IdleHours, a.AbsoluteDays)
 	})
+	if s.netaudit != nil && s.netaudit.SignIns != nil {
+		s.auth.WithAlerts(func(a auth.SignInAlert) { s.netaudit.SignIns.Tell(string(a)) })
+	}
 }

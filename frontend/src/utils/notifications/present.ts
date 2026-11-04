@@ -31,6 +31,7 @@ const NETWORK_LABEL: Record<NetworkAlertKind, string> = {
   presence: 'devices',
   summary: 'summary',
   monitor: 'monitor',
+  sign_in: 'sign-in',
 }
 
 const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
@@ -38,6 +39,7 @@ const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
   presence: 'warning',
   summary: 'muted',
   monitor: 'warning',
+  sign_in: 'error',
 }
 
 const NETWORK_DETAIL_SEPARATOR = ' · '

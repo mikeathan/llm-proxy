@@ -11,12 +11,14 @@ const (
 	NetworkAlertSummary  NetworkAlertKind = "summary"
 	// NetworkAlertMonitor is a part of the module that is switched on and stopped working (monitor_stalled).
 	NetworkAlertMonitor NetworkAlertKind = "monitor"
+	// NetworkAlertSignIn is an admin sign-in event: an address locked out, or a sign-in from a new address.
+	NetworkAlertSignIn NetworkAlertKind = "sign_in"
 )
 
 // Valid reports whether k is one of the known kinds.
 func (k NetworkAlertKind) Valid() bool {
 	switch k {
-	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor:
+	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn:
 		return true
 	}
 	return false
