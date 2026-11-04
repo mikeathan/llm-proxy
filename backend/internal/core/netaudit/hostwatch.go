@@ -2,6 +2,8 @@ package netaudit
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/platform/hostwatch"
@@ -14,6 +16,9 @@ const HostDevice = "this-computer"
 
 // CheckNewListener is a port that other computers can reach and that was not open when the host watch first looked.
 const CheckNewListener = "new_listener"
+
+// CheckHostFilesModified is a program file that a package installed and that no longer matches the checksum the package shipped.
+const CheckHostFilesModified = "host_file_modified"
 
 const hostFileCheckPrefix = "host_changed_"
 
@@ -51,6 +56,9 @@ func init() {
 		guides[HostFileCheck(id)] = guide
 	}
 	guides[CheckNewListener] = newListenerGuide
+	guides[CheckHostFilesModified] = filesModifiedGuide
+	checkTitles[CheckHostFilesModified] = "A program file on this computer no longer matches its package"
+	remediations[CheckHostFilesModified] = "Find which package owns each file (dpkg -S), and reinstall it from the official archive (apt install --reinstall). If you did not change the file yourself, treat the computer as possibly compromised."
 	checkTitles[CheckNewListener] = "New open port on this computer"
 	remediations[CheckNewListener] = "Find out what is listening (ss -ltnp shows the program for each port). If you started it, accept the finding; if not, stop it and find out how it got there."
 }
@@ -240,6 +248,7 @@ type HostSource interface {
 	Hardening() hostwatch.Hardening
 	Patches() hostwatch.Patches
 	DockerBridge() bool
+	Integrity() hostwatch.IntegrityResult
 }
 
 // HostStore keeps the first look the later ones are compared with: *persistence.HostWatchStore.
@@ -288,6 +297,9 @@ func (w *HostWatcher) Look() (HostLook, error) {
 	patches := w.src.Patches()
 	look.Unreadable += patches.Unreadable
 	look.Findings = append(look.Findings, patchFindings(patches)...)
+	if w.compareIntegrity(&base, w.src.Integrity(), &look) {
+		changed = true
+	}
 	if changed {
 		if err := w.store.Write(base); err != nil {
 			return HostLook{}, fmt.Errorf("failed to save the host watch baseline: %w", err)
@@ -321,6 +333,45 @@ func (w *HostWatcher) compareListeners(base *models.HostWatch, now []hostwatch.L
 		}
 	}
 	return false
+}
+
+// compareIntegrity turns a pass over the packaged program files into a finding. Only a complete pass can say a finding is gone:
+// a pass cut short keeps the earlier finding, and a computer where nothing could be compared (no dpkg lists) says nothing at
+// all. It returns true when the stored outcome changed.
+func (w *HostWatcher) compareIntegrity(base *models.HostWatch, res hostwatch.IntegrityResult, look *HostLook) bool {
+	look.Unreadable += res.Unreadable
+	modified, paths := res.Modified, res.Paths
+	stored := false
+	switch {
+	case res.Complete:
+		if base.Integrity.Modified != modified || !slices.Equal(base.Integrity.Paths, paths) {
+			base.Integrity = models.HostIntegrity{Modified: modified, Paths: slices.Clone(paths), At: w.now()}
+			stored = true
+		}
+	case modified == 0:
+		modified, paths = base.Integrity.Modified, base.Integrity.Paths
+	}
+	if modified > 0 {
+		look.Findings = append(look.Findings, Finding{Device: HostDevice, Check: CheckHostFilesModified, Severity: SeverityHigh, Evidence: integrityEvidence(modified, paths)})
+	}
+	return stored
+}
+
+// integrityEvidence is the finding's words: how many files, up to ten plain paths the reader already vetted, and what the
+// audit cannot tell.
+func integrityEvidence(modified int, paths []string) string {
+	verb := "no longer match"
+	if modified == 1 {
+		verb = "no longer matches"
+	}
+	out := plural(modified, "program file", "program files") + " that packages installed on this computer " + verb + " the checksum the package shipped"
+	if len(paths) > 0 {
+		out += ": " + strings.Join(paths, ", ")
+		if more := modified - len(paths); more > 0 {
+			out += fmt.Sprintf(", and %d more", more)
+		}
+	}
+	return out + ". A change by hand, by an attack or by a failing disk looks the same; the audit cannot tell which"
 }
 
 func (w *HostWatcher) compareFiles(base *models.HostWatch, now []hostwatch.FileState, look *HostLook) bool {
@@ -467,4 +518,18 @@ var newListenerGuide = FixGuide{
 	},
 	Risk: "Stopping a program stops what it serves; a port closed by the firewall can no longer be reached from other computers.",
 	Undo: "Start the program again, or remove the firewall rule.",
+}
+
+var filesModifiedGuide = FixGuide{
+	Steps: []string{
+		"List the files that differ (dpkg --verify). Each line names a file; a 5 in the third column means its contents changed.",
+		"If you patched a file yourself or an update was cut off, reinstall its package (apt install --reinstall) and run the check again, or accept the finding with a note.",
+		"If you cannot explain the change, do not trust this computer: disconnect it, copy off what you need, and reinstall from media you trust. A changed system program can hide itself from the tools you would use to look.",
+		"Change the passwords and keys that were used on this computer.",
+	},
+	Commands: []GuideCommand{
+		{platformLinux, "dpkg --verify 2>/dev/null | grep -v ' c /'\ndpkg -S /usr/sbin/sshd\nsudo apt install --reinstall openssh-server"},
+	},
+	Risk: "Reinstalling a package restarts nothing by itself, but a running service keeps using the old file until it is restarted.",
+	Undo: "None needed: a reinstall puts back the file the package ships.",
 }

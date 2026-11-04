@@ -25,7 +25,8 @@ supersedes:
   `POST /admin/api/netaudit/activity/summary?workspace_id=&automation=` asks the workspace's model once; the model must run on this machine
   (409 otherwise), the prompt holds no device name, address or alert text, one at a time (429), busy 503, failure 502 with fixed words.
   (4) The listener finding says when Docker has a network on the computer that a published container port bypasses the firewall.
-  Visual specs: `netaudit-header`, `netaudit-timeline` at both widths in both views.
+  (5) **A changed program file is a finding** (`host_file_modified`, high, in "This computer"; [ADR-0026](../decisions/ADR-0026-program-files-are-compared-with-the-checksums-dpkg-keeps.md)): the nightly audit compares packaged programs with the checksums dpkg keeps, shows the count and up to ten paths, and never reads a pass that ran out of time as clean.
+  Visual specs: `netaudit-header`, `netaudit-timeline` at both widths in both views; `netaudit-host` carries the new finding.
 - **2.25 (2026-11-03)** — **Nearby** (plan `network-nearby-discovery`, owner-approved;
   [ADR-0024](../decisions/ADR-0024-nearby-discovery-two-multicast-datagrams-bounded-replies.md), Constitution I.9 proposed).
   (1) The Network **Devices** tab gains a **Nearby** card under the device list: Simple is one summary line ("N devices heard, M need

@@ -22,4 +22,15 @@ type HostWatch struct {
 	ListenersAt time.Time      `json:"listeners_at,omitzero"`
 	Listeners   []HostListener `json:"listeners,omitempty"`
 	Files       []HostFile     `json:"files,omitempty"`
+	// Integrity is the last complete comparison of the program files with their packages' checksums, kept so a later pass
+	// that is cut short does not resolve a finding the earlier one raised.
+	Integrity HostIntegrity `json:"integrity,omitzero"`
+}
+
+// HostIntegrity is the outcome of the last complete pass over the packaged program files: how many differed and up to ten of
+// their paths, which the platform reader has already limited to plain absolute paths.
+type HostIntegrity struct {
+	Modified int       `json:"modified,omitempty"`
+	Paths    []string  `json:"paths,omitempty"`
+	At       time.Time `json:"at,omitzero"`
 }

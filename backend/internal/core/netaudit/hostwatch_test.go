@@ -17,6 +17,7 @@ type fakeHost struct {
 	hard      hostwatch.Hardening
 	patches   hostwatch.Patches
 	docker    bool
+	integrity hostwatch.IntegrityResult
 }
 
 func (f *fakeHost) Listeners() ([]hostwatch.Listener, error) { return f.listeners, f.lerr }
@@ -24,6 +25,7 @@ func (f *fakeHost) Files() []hostwatch.FileState             { return f.files }
 func (f *fakeHost) Hardening() hostwatch.Hardening           { return f.hard }
 func (f *fakeHost) Patches() hostwatch.Patches               { return f.patches }
 func (f *fakeHost) DockerBridge() bool                       { return f.docker }
+func (f *fakeHost) Integrity() hostwatch.IntegrityResult     { return f.integrity }
 
 type memHostStore struct {
 	w      models.HostWatch
@@ -283,5 +285,87 @@ func TestHostWatch_FullDiskIsLowThenMediumInFixedWords(t *testing.T) {
 	}
 	if look, _ := newWatcher(&fakeHost{hard: hostwatch.Hardening{}}, &memHostStore{}).Look(); len(look.Findings) != 0 {
 		t.Errorf("a disk with room is not a finding: %+v", look.Findings)
+	}
+}
+
+func integrityLook(t *testing.T, src *fakeHost, store *memHostStore) HostLook {
+	t.Helper()
+	look, err := newWatcher(src, store).Look()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return look
+}
+
+func integrityFindings(look HostLook) []Finding {
+	var out []Finding
+	for _, f := range look.Findings {
+		if f.Check == CheckHostFilesModified {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func TestHostWatch_AChangedProgramFileIsOneHighFindingWithTheCountAndThePaths(t *testing.T) {
+	src := &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Checked: 9000, Modified: 12, Paths: []string{"/usr/sbin/sshd", "/usr/bin/sudo"}}}
+	got := integrityFindings(integrityLook(t, src, &memHostStore{}))
+	if len(got) != 1 {
+		t.Fatalf("want one finding, got %+v", got)
+	}
+	f := got[0]
+	if f.Device != HostDevice || f.Severity != SeverityHigh || f.Port != 0 {
+		t.Errorf("finding = %+v", f)
+	}
+	for _, want := range []string{"12 program files", "/usr/sbin/sshd", "/usr/bin/sudo", "and 10 more"} {
+		if !strings.Contains(f.Evidence, want) {
+			t.Errorf("evidence lacks %q: %s", want, f.Evidence)
+		}
+	}
+	if _, ok := GuideFor(CheckHostFilesModified); !ok || CheckTitle(CheckHostFilesModified) == "" {
+		t.Error("the check needs a title and a fix guide")
+	}
+}
+
+func TestHostWatch_ACleanCompletePassIsNoFindingAndOneFileIsSingular(t *testing.T) {
+	if got := integrityFindings(integrityLook(t, &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Checked: 9000}}, &memHostStore{})); len(got) != 0 {
+		t.Errorf("a clean pass is not a finding: %+v", got)
+	}
+	one := integrityFindings(integrityLook(t, &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Checked: 5, Modified: 1, Paths: []string{"/usr/bin/x"}}}, &memHostStore{}))
+	if len(one) != 1 || !strings.Contains(one[0].Evidence, "1 program file ") || strings.Contains(one[0].Evidence, "more") {
+		t.Errorf("one file: %+v", one)
+	}
+}
+
+func TestHostWatch_APassCutShortKeepsTheEarlierFindingAndNeverResolvesIt(t *testing.T) {
+	store := &memHostStore{}
+	src := &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Checked: 9000, Modified: 2, Paths: []string{"/usr/sbin/sshd"}}}
+	integrityLook(t, src, store)
+	src.integrity = hostwatch.IntegrityResult{Complete: false, Checked: 300}
+	got := integrityFindings(integrityLook(t, src, store))
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "2 program files") {
+		t.Errorf("an incomplete pass resolved the finding: %+v", got)
+	}
+	src.integrity = hostwatch.IntegrityResult{Complete: true, Checked: 9000}
+	if gone := integrityFindings(integrityLook(t, src, store)); len(gone) != 0 {
+		t.Errorf("a complete clean pass resolves it: %+v", gone)
+	}
+	src.integrity = hostwatch.IntegrityResult{Complete: false, Checked: 10}
+	if again := integrityFindings(integrityLook(t, src, store)); len(again) != 0 {
+		t.Errorf("after a clean pass an incomplete one has nothing to carry: %+v", again)
+	}
+}
+
+func TestHostWatch_AComputerWithoutDpkgSaysNothingAboutItsProgramFiles(t *testing.T) {
+	store := &memHostStore{}
+	if got := integrityFindings(integrityLook(t, &fakeHost{}, store)); len(got) != 0 {
+		t.Errorf("nothing was checked and nothing is reported: %+v", got)
+	}
+}
+
+func TestHostWatch_FilesThatCouldNotBeReadAreCountedWithTheOtherUnreadablePlaces(t *testing.T) {
+	look := integrityLook(t, &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Checked: 5, Unreadable: 3}}, &memHostStore{})
+	if look.Unreadable != 3 {
+		t.Errorf("unreadable = %d", look.Unreadable)
 	}
 }

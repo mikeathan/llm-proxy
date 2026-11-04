@@ -188,6 +188,9 @@ func (s AppServices) NetauditHost() netaudit.HostLooker {
 	return s.netaudit.Host
 }
 
+// hostIntegrityBudget is how long the nightly comparison of program files with their packages may take.
+const hostIntegrityBudget = 3 * time.Minute
+
 // newHostSource reads this computer's sockets from /proc and the closed list of watched files. startedAt identifies this run
 // of the program, so replacing its file and restarting is not reported as tampering.
 func newHostSource(startedAt time.Time) hostwatch.Source {
@@ -199,6 +202,9 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 		Harden:  hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf", KeyGlobs: keyGlobs(home), DiskPaths: diskPaths(home)},
 		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available", AutoUpgradeLog: "/var/log/unattended-upgrades/unattended-upgrades.log"},
 		Docker:  hostwatch.Docker{NetDir: "/sys/class/net"},
+		// A pass over the packaged program files; a longer one is cut short and reported as not finished.
+		Packages:       hostwatch.Integrity{InfoDir: "/var/lib/dpkg/info", Root: "/"},
+		PackagesBudget: hostIntegrityBudget,
 	}
 }
 
