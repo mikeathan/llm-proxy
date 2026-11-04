@@ -3,6 +3,8 @@ package netaudit
 import (
 	"context"
 	"fmt"
+
+	"llm-proxy/models"
 )
 
 // NearbyFinder reads the kept Nearby state and says what is wrong in it: NearbyFindings.
@@ -15,6 +17,50 @@ type NearbyFinder interface {
 type ServiceFinder interface {
 	Findings(ctx context.Context, hosts []Host) []Finding
 	Carry(earlier []Finding) []Finding
+}
+
+// ClassFinder says which devices look like a kind that has no use for an administration service they have open:
+// ClassChecks.
+type ClassFinder interface {
+	Findings(devices []models.NetworkDevice, hosts []Host) ([]Finding, error)
+}
+
+// ClassChecks judges devices by their maker, their open ports and what Nearby heard them announce. State reads the kept Nearby
+// state; when it cannot, the judgement still runs on the maker and the ports, and the error is returned for the report to state.
+type ClassChecks struct {
+	State func() (models.NearbyState, error)
+}
+
+// Findings returns the class_mismatch findings and, separately, trouble reading what devices announced.
+func (c ClassChecks) Findings(devices []models.NetworkDevice, hosts []Host) ([]Finding, error) {
+	var state models.NearbyState
+	var err error
+	if c.State != nil {
+		if state, err = c.State(); err != nil {
+			state = models.NearbyState{}
+		}
+	}
+	return ClassMismatchFindings(devices, hosts, state), err
+}
+
+// WithClassChecks makes the reporter judge what kind of device each scanned device looks like. Without it nothing is judged.
+func (r *RunReporter) WithClassChecks(c ClassFinder) *RunReporter {
+	r.classes = c
+	return r
+}
+
+// addClasses appends the class findings for the devices this scan looked at. Trouble reading Nearby is stated; the findings
+// that the maker and the ports alone support are still added.
+func (r *RunReporter) addClasses(result *Result, devices []models.NetworkDevice) string {
+	if r.classes == nil {
+		return ""
+	}
+	findings, err := r.classes.Findings(devices, result.Hosts)
+	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: what devices announced could not be read, so a kind that only that would show was not judged (%v).", err)
+	}
+	return ""
 }
 
 // WithNearby makes the reporter add what the Nearby state says is wrong. Without it nothing is read.

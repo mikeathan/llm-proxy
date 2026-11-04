@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.27"
+version: "2.28"
 status: stable
 last_updated: 2026-11-04
 constitution_references: []
@@ -13,6 +13,11 @@ supersedes:
 
 ## Changelog
 
+- **2.28 (2026-11-04)** — **Device kinds** (plan `network-attempts-integrity-timeline` P5). A scanned device that looks like a camera, printer, media
+  player or smart-home device, judged from its maker (the bundled registry, whole words only), its open TCP ports and the service types Nearby heard it
+  announce, and that has remote login, Telnet, file sharing, remote desktop or screen sharing open, gets one `class_mismatch` finding (medium) that
+  lists each such service, with a fix guide. A device whose signals name two kinds, or none, has no kind. Types shared with computers and phones (AirPlay,
+  Spotify Connect, SMB) never name a kind. It appears in the existing per-device findings; accept it to say the service is intended.
 - **2.27 (2026-11-04)** — **Router refusals** (plan `network-attempts-integrity-timeline` P2; Constitution I.8 amended and
   [ADR-0018](../decisions/ADR-0018-router-log-only-wakes-the-presence-check.md) amended, owner-approved). The router log listener also counts the
   router's `kernel: DROP` lines for packets from the internet (public IPv4 source; protocol and destination port only, no address or line kept)

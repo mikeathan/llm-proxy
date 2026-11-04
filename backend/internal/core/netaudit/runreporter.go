@@ -31,6 +31,7 @@ type RunReporter struct {
 	hist    AuditHistory     // optional: the Network page's daily counts
 	host    HostLooker       // optional: this computer's open ports and the files that survive a reboot
 	nearby  NearbyFinder     // optional: what devices said about themselves (a second gateway)
+	classes ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
 	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
 	ports   PortRecorder     // optional: the ports each device had open at its last scan
 	histErr func(error)
@@ -183,7 +184,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	inventoryNote, devices := r.addInventory(ctx, &result)
-	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addServices(ctx, &result)
+	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices) + r.addServices(ctx, &result)
 	hostNote, hostChecked := r.addHost(&result)
 	expectNote += hostNote
 	at := r.now()
