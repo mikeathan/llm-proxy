@@ -16,12 +16,12 @@ func (r *rig) waitCounted(t *testing.T, n int) []Drop {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if got := r.counted(); len(got) >= n {
-			return got
+		if int(r.nDrops.Load()) >= n {
+			return r.counted()
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("only %d of %d drops were counted", len(r.counted()), n)
+	t.Fatalf("only %d of %d drops were counted", r.nDrops.Load(), n)
 	return nil
 }
 

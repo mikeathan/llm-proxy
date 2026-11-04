@@ -21,8 +21,13 @@ type rig struct {
 	errs   []error
 	conn   *net.UDPConn
 	enable atomic.Bool
+	// drops keeps the first maxKeptDrops drops and nDrops counts them all: the soak test sends tens of thousands of firewall
+	// lines, and a rig that kept each one would be the heap growth the test looks for.
 	drops  []Drop
+	nDrops atomic.Int64
 }
+
+const maxKeptDrops = 100
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
@@ -44,9 +49,12 @@ func newRig(t *testing.T) *rig {
 			return nil
 		},
 		Drop: func(d Drop, _ time.Time) {
+			r.nDrops.Add(1)
 			r.mu.Lock()
 			defer r.mu.Unlock()
-			r.drops = append(r.drops, d)
+			if len(r.drops) < maxKeptDrops {
+				r.drops = append(r.drops, d)
+			}
 		},
 		Wake:    func() { r.wakes.Add(1) },
 		OnError: func(err error) { r.mu.Lock(); r.errs = append(r.errs, err); r.mu.Unlock() },
