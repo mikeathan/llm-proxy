@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: partial
 date: 2026-11-04
 last_reviewed: 2026-11-04
 related_specs: [SPEC-003]
@@ -9,9 +9,10 @@ evidence: A review of the Network module at v0.45.0 (origin/main 71620cc4, 2026-
 
 # Network: the next detection, monitoring and prevention work
 
-**Status:** proposed (2026-11-04). Nothing here is approved. Each phase needs the owner's go-ahead; the ones marked
-*owner decision* change what the product does on the network or in the control plane, and none needs a Constitution
-amendment unless it says so.
+**Status:** partial (2026-11-04). The owner asked for every phase to be built on branch `network-audit-review-fixes` (v0.46.0) and
+for the open decisions to be taken on the conservative side; §2a says what was decided. All seven phases are built and tested; none
+has run on vertex yet, and the "verify first" facts below are still open unless §2a says otherwise. No Constitution amendment was
+needed.
 **Related:** [`network-security-roadmap.md`](network-security-roadmap.md) (Phases 5 and 6 still open there; nothing here
 repeats them), [ADR-0023](../../decisions/ADR-0023-network-ideas-rejected-or-already-built.md) (read before adding an idea),
 [`network-attempts-integrity-timeline.md`](network-attempts-integrity-timeline.md) (the Timeline and host integrity this
@@ -115,6 +116,26 @@ looks new each time (ledger 2026-10-30), so it needs the private-address rule ap
   global IPv6 address is not covered. Say so on the card, and count such devices if the inventory keeps global addresses
   (**verify first:** whether `scoped6` keeps them).
 
+## 2a. As built (2026-11-04, v0.46.0) and the decisions taken
+
+The architecture doc holds the design (`docs/architecture/network-audit.md` → "Detection and prevention additions"); SPEC-003 2.31 the
+behaviour. Decisions where the plan left a choice, all on the conservative side:
+
+- **P1:** the nightly audit is watched through the daily history (an audited day in the last 30 means "in use"; stalled after 48 h),
+  because the baseline is per workspace and automation. Nearby is not watched: it looks only when the audit asks. **Data collected
+  (vertex API, 2026-11-04 22:26):** the router log was heard 3 minutes before the read and the day already held 1,363 refused attempts, so
+  the 24 h quiet limit is very loose for this router; presence every 10 min, DNS every 60 min, all three decoys listening.
+- **P2:** a loader preload and a second UID-0 account are reported from the first look (a normal system has neither); the other four marks
+  compare with the first look. Kernel modules are `low`: plugging in hardware loads modules. Linux only; macOS notes "not checked".
+- **P3:** the incident is a finding in the nightly report and a fixed sentence in the decoy alert; no separate alert fires at once.
+- **P4:** a listener the audit cannot name gets no rule and is listed (the plan's "refuses and says so"); no declared network means no
+  allow rule at all.
+- **P5:** lockout and new-address alerts carry **no address**, so I.5 needed no new wording; the Security page lists the addresses.
+- **P6:** off by default, step-up to switch on, private hardware addresses skipped, at most once a day per device and three an hour;
+  the result is told as counts and **not stored** (the nightly audit compares). Uses `ModeServices`, never the deep check.
+- **P7:** clearing the decoy touches is step-up; the page's request already asks for the passphrase and resends. The Internet view's
+  details say it covers the IPv4 address only; counting devices with a global IPv6 address was not built (see Remaining Work).
+
 ## 3. Follow-ups found in the 2026-11-04 review and not fixed
 
 | Item | Why it was left | Where |
@@ -135,7 +156,13 @@ log or file wrote reaches a message or a model verbatim.
 
 ## Remaining Work
 
-- **Next (owner):** choose which of P1 to P7 to build, and answer the decisions in P3, P5, P6 and P7.
-- **Verify first (before building the phase that needs it):** `LastHeard` gaps of the router log over a week (P1);
-  `/proc/modules` readability, the SUID walk's size and time, Docker/snap group noise on vertex (P2); vertex's listener
-  capture for the firewall plan (P4); whether the inventory keeps global IPv6 addresses (P7).
+- **Next (owner):** deploy v0.46.0 on vertex and look at: the first `monitor` alert after a restart (none is expected), the "This
+  computer" group after the first look (no privilege finding is expected unless vertex really has a preload or a second root), the firewall
+  guide on the `host_firewall_off` finding (check the commands against `sudo ss -lntup`), one sign-in from a new address (one `sign_in`
+  alert), and, if wanted, the scan-on-arrival switch.
+- **Verify on vertex:** `/proc/modules` readable by `llm-proxy`; the set-id walk's size and time over `/usr/local`, `/opt`, `/srv` (model
+  folders under `/opt` count towards the 200,000-entry limit); whether Docker or snap add group members or modules on their own (noise);
+  whether `Proc.Listeners` leaves out this program's own sockets as the firewall plan assumes (it should: matched by inode).
+- **Not built:** counting devices with a global IPv6 address on the Internet view (needs to know whether `scoped6` keeps them); a
+  `monitor` status line per part on the overview (today the alert and the finding say it).
+- **Follow-ups of the review** in §3 are still open.

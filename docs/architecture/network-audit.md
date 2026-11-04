@@ -403,6 +403,39 @@ The router's remote syslog is used for one thing: waking the presence check earl
 - **Cost.** The read loop blocks on one socket (`ReadFromUDPAddrPort`, one reused 1,025-byte buffer, 64 KB kernel queue); a firewall line is told apart by `Interesting` (one search of the first 160 bytes, about 0.2 µs, no allocation) before it uses any of the ten-a-second allowance; `Parse` runs only for the rest (about 0.2 µs, 5 small allocations); the device list is read from disk at most once per 5 s (`cachedDevices`); the gateway at most once per 30 s. A soak test sends 60,000 mixed datagrams and checks that heap and goroutines do not grow.
 - **Not built:** counting firewall drops, router admin logins (only the success shape was captured; a failed login must be captured first), `DHCPDISCOVER`/`DHCPOFFER`/lease expiry (no capture of them).
 
+## Detection and prevention additions (as built 2026-11-04, v0.46.0; plan `network-detection-prevention-next`)
+
+- **Watch the watchers** (`core/netaudit/monitorwatch.go`, readings in `app/netaudit_monitor.go`). `MonitorWatch` reads each part every
+  5 min from statuses already in memory and the daily history: presence (`LastCheck`, limit 3× interval, min 30 min), router-log socket
+  (open and no problem, 15 min), router log quiet (`LastHeard`, 24 h), DNS comparison (`LastRun` of a cycle without a problem, 3× interval),
+  decoys (listening and no problem, 15 min), nightly audit (end of the latest `Audited` day, 48 h; "on" means an audited day in the last 30).
+  A part is watched only while its switch is on; its limit starts when it is first seen on, so a restart or a switch-on never alerts at once.
+  One `monitor` alert per stall, cleared by the next success; state is in memory, so a restart can tell one stall again. `MonitorFindings`
+  gives one `monitor_stalled` finding (one, because a finding's key has no room for the part), added by the reporter only when this
+  computer was looked at.
+- **Privilege marks** (`platform/hostwatch/privilege.go`, `core/netaudit/hostprivilege.go`). Linux only (`app.privilegeReader`): macOS has an
+  `/etc/passwd` without its real accounts, so the reader gets no paths there and the report notes "not checked". Reads `/etc/passwd`,
+  `/etc/group` (sudo, admin, wheel, adm, docker, lxd, including primary-group members), `/proc/modules`, `/etc/ld.so.preload` (digest only)
+  and a walk of `/usr/local`, `/opt`, `/srv` for set-id files (200,000 entries at most, 50 paths kept). Names must match
+  `^[A-Za-z0-9_][A-Za-z0-9._-]{0,31}$`; others are counted, never kept. Each list is learned once (`models.HostPrivilege`), the first time it
+  was read in full, and never updated; a finding's Version is a digest of the added names, so an acceptance holds until one more appears.
+- **One story per device** (`core/netaudit/incident.go`). In `Augment`, after the carried checks and before the diff: a device with
+  `decoy_touched` plus `new_device`, `class_mismatch`, `mac_changed`, or an `open_port` absent from the last audit (which must have seen the
+  device) gets one `device_incident` (high). The decoy alert adds `DecoyNewDevicePhrase` when a source is an unapproved device first seen in
+  the last day (`app.decoyAlertText`).
+- **Firewall plan** (`core/netaudit/firewallguide.go`, facts in `app/netaudit_firewall.go`). `HostGuides` replaces the fixed guide of
+  `host_firewall_off` when the findings are served (`NetauditHandlers.WithGuides`): deny incoming, allow from each declared network SSH (if
+  listening), this program's port (unless bound to loopback), mDNS, the decoys (while on) and 5514/udp from the gateway (while the router log
+  is on), then enable. Listeners it cannot name get no rule and are listed; only parsed prefixes reach a command; nothing is run.
+- **Sign-in alerts** (`platform/auth/alerts.go`, `core/netaudit/signin.go`). `auth.Service.WithAlerts` is told the failure that locks an
+  address and a right passphrase from an address not in `Record.SignedInFrom` (32 kept; the first sign-in ever is not news). `SignInAlerts`
+  queues without blocking and sends from its own loop, at most one per kind every 5 min, with no address in the words (I.5 not amended).
+- **Scan on arrival** (`core/netaudit/followup.go`). Off by default (`NetauditConfig.FollowUpScan`, step-up). `lookHooks` offers each presence
+  snapshot; a device unapproved, unnamed, not randomized and first seen within the hour is queued (16 at most); `FollowUp.Run` scans one at a
+  time through `Service.Scan` (`ModeServices`, unattended), at most once a day per hardware address and three an hour, and defers on
+  `ErrScanBusy`. The result is told as counts in a presence-kind alert and not stored.
+- All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`) start from `netauditLoops`.
+
 ## Appendix A — what packet capture (wireshark/tcpdump) would need
 
 A **separate category** (e.g. `netcapture`), not part of `netaudit`: it needs elevated rights (conflicts with the
