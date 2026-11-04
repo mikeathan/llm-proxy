@@ -32,7 +32,7 @@ for (const view of ['simple', 'advanced'] as const) {
   test(`activity, busy (${view}), fits the screen`, async ({ page }, testInfo) => {
     await open(page, view, BUSY)
     const card = page.locator('[data-test="activity"]')
-    await expect(card.getByText('Possibly related')).toBeVisible()
+    await expect(card.getByText('Possibly related', { exact: true })).toBeVisible()
     await expect(card.getByText('Today')).toBeVisible()
     await expect(card.getByText('Yesterday')).toBeVisible()
     await expectNoSidewaysScroll(page)
@@ -94,3 +94,99 @@ for (const view of ['simple', 'advanced'] as const) {
     await lookAt(card, testInfo, `timeline-explain-refused-${view}`)
   })
 }
+
+// A week of real-looking activity: the page must read as a short list, not a wall.
+const day = (d: number, h: number) => new Date(new Date(Date.now() - d * 86_400_000).setHours(h, 0, 0, 0)).toISOString()
+const WEEK = {
+  rows: [
+    { kind: 'ports_changed', group: 'ports', at: day(0, 12), day: true, opened: 1, closed: 0 },
+    { kind: 'audit', group: 'findings', at: day(0, 2), opened: 2, closed: 2 },
+    { kind: 'ports_changed', group: 'ports', at: day(2, 23), day: true, opened: 0, closed: 1 },
+    { kind: 'ports_changed', group: 'ports', at: day(3, 23), day: true, opened: 1, closed: 1 },
+    { kind: 'alert', group: 'alerts', at: day(3, 14), alert_kind: 'presence', text: 'Network audit: 1 new device: 192.168.50.161 (private address). Open the network audit to review.', count: 1 },
+    { kind: 'new_device', group: 'devices', at: day(3, 13), mac: '5a:72:d3:96:a8:2f', ip: '192.168.50.161', name: 'Lenovo-Tab-M11' },
+    { kind: 'alert', group: 'alerts', at: day(3, 9), alert_kind: 'decoy', text: 'Network audit: 1 device connected to a decoy service (a fake service nothing legitimate uses): 192.168.50.127. Open the network audit to review.', count: 1 },
+    { kind: 'new_device', group: 'devices', at: day(5, 11), mac: 'f0:24:f9:ee:81:1c', ip: '192.168.50.160', name: 'eveything presence lite' },
+    { kind: 'new_device', group: 'devices', at: day(5, 10), mac: '66:75:cb:6a:b9:d6', ip: '192.168.50.64', name: 'iPhone' },
+    { kind: 'new_device', group: 'devices', at: day(5, 9), mac: '5a:b5:3a:c5:d7:e5', ip: '192.168.50.235' },
+    { kind: 'new_device', group: 'devices', at: day(5, 8), mac: 'be:b4:ca:64:66:8f', ip: '192.168.50.124', name: 'Redmi-Pad-2' },
+  ],
+}
+
+for (const view of ['simple', 'advanced'] as const) {
+  test(`a week of activity (${view}) reads as a short list`, async ({ page }, testInfo) => {
+    await open(page, view, WEEK)
+    const card = page.locator('[data-test="activity"]')
+    const days = card.locator('[data-test="activity-day"]')
+    await expect(days.first()).toBeVisible()
+    // The latest two days are open; the older ones are one line of counts each.
+    expect(await days.locator('ul').count()).toBe(2)
+    await expect(card.locator('[data-test="day-summary"]').last()).toContainText('4 new devices')
+    if (view === 'simple') await expect(card.getByText('Network audit: 1 new device')).toHaveCount(0)
+    await expectNoSidewaysScroll(page)
+    if (testInfo.project.name === 'mobile') expect((await days.first().getByRole('button').boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await lookAt(card, testInfo, `timeline-week-${view}`)
+    await card.locator('[data-test="day-toggle"]').last().click()
+    await expect(card.locator('[data-test="day-toggle"]').last()).toHaveAttribute('aria-expanded', 'true')
+    await expectNoSidewaysScroll(page)
+    await lookAt(card, testInfo, `timeline-week-opened-${view}`)
+  })
+}
+
+const iso = (d: number) => {
+  const t = new Date(Date.now() - d * 86_400_000)
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+}
+const ROUTER = {
+  rows: [
+    { kind: 'router_blocks', group: 'router', at: day(0, 12), day: true, count: 1204, ports: [{ port: 22, count: 700 }, { port: 3306, count: 300 }, { port: 8123, count: 100 }] },
+    { kind: 'router_blocks', group: 'router', at: day(1, 23), day: true, count: 2310, ports: [{ port: 23, count: 1500 }, { port: 22, count: 400 }] },
+    { kind: 'new_device', group: 'devices', at: day(1, 9), mac: '5a:72:d3:96:a8:2f', ip: '192.168.50.161', name: 'Lenovo-Tab-M11' },
+  ],
+  router: {
+    today: 1204,
+    today_ports: [{ port: 22, count: 700 }, { port: 3306, count: 300 }, { port: 8123, count: 100 }],
+    days: Array.from({ length: 14 }, (_, i) => ({ date: iso(13 - i), total: 400 + ((i * 337) % 1900) })),
+  },
+}
+
+for (const view of ['simple', 'advanced'] as const) {
+  test(`the router card and filter (${view}) fit the screen`, async ({ page }, testInfo) => {
+    await open(page, view, ROUTER)
+    const card = page.locator('[data-test="activity"]')
+    const router = card.locator('[data-test="router-card"]')
+    await expect(router).toContainText('1,204')
+    await expect(router).toContainText('SSH (22) 700')
+    await expectNoSidewaysScroll(page)
+    await expect(router.getByText('cannot check')).toBeHidden()
+    await router.getByText('What is this number?').click()
+    await expect(router.getByText('cannot check')).toBeVisible()
+    await expectNoSidewaysScroll(page)
+    const chip = card.getByRole('radio', { name: 'Router' })
+    await expect(chip).toBeVisible()
+    if (testInfo.project.name === 'mobile') expect((await chip.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await lookAt(card, testInfo, `timeline-router-${view}`)
+    await chip.click()
+    await expect(card.locator('li')).toHaveCount(2)
+    await expectNoSidewaysScroll(page)
+  })
+}
+
+test('the Overview shows the router figure only when the router has been counted', async ({ page }, testInfo) => {
+  await setNetauditView(page, 'simple')
+  const overview = (withBlocks: boolean) => ({
+    posture: 'quiet', devices: { known: 9, unnamed: 1, new: 0, active: 8 }, findings: { scanned: true, scanned_at: new Date().toISOString(), open: 3, serious: 0, new: 0 },
+    gateway_changed: false, shared_address: false, presence: { last_check: new Date().toISOString() }, recent: [],
+    series: [iso(1), iso(0)].map((date, i) => ({ date, devices_up: 8, devices: 9, unnamed: 1, findings: 3, serious: 0, audited: true, ...(withBlocks ? { blocked: i ? 1204 : 2310 } : {}) })),
+  })
+  await mockAdminApi(page, { answers: { '/automations': [AUDIT], '/netaudit/overview': overview(true) } })
+  await page.goto('network')
+  await expect(page.locator('[data-test="stats"]').getByText('Refused at the router')).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await lookAt(page.locator('[data-test="stats"]'), testInfo, 'overview-router-stat')
+  await mockAdminApi(page, { answers: { '/automations': [AUDIT], '/netaudit/overview': overview(false) } })
+  await page.goto('network')
+  await expect(page.locator('[data-test="stats"]')).toBeVisible()
+  await expect(page.locator('[data-test="stats"]').getByText('Refused at the router')).toHaveCount(0)
+})
+

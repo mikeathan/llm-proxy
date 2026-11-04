@@ -12,6 +12,7 @@ const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 
 const IPV6_DISCOVERY = { enabled: false }
 const OUTSIDE_LOOKUP = { enabled: false, url: 'https://internetdb.shodan.io', default_url: 'https://internetdb.shodan.io', last: { at: '0001-01-01T00:00:00Z', ports: 0 } }
 const NEARBY = { enabled: false, running: false, devices: [] }
+const UBUNTU_DATA = { supported: true, host_release: 'noble', running: false, notices: 0, packages: 0 }
 const NEVER = '0001-01-01T00:00:00Z'
 const DNS_CHECK = {
   enabled: false, interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
@@ -33,6 +34,7 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/netaudit/outside-lookup': OUTSIDE_LOOKUP,
   '/netaudit/dns-check': DNS_CHECK,
   '/netaudit/nearby': NEARBY,
+  '/netaudit/ubuntu-data': UBUNTU_DATA,
 }
 
 type Answers = Record<string, unknown>
@@ -80,4 +82,21 @@ export async function lookAt(target: Page | Locator, testInfo: TestInfo, name: s
   if (!process.env.SCREENSHOTS) return
   const path = testInfo.outputPath(`${name}.png`)
   await ('goto' in target ? target.screenshot({ path, fullPage }) : target.screenshot({ path }))
+}
+
+/**
+ * A control may be drawn small and still be a touch target if the area around it answers for it. Asks the browser what is
+ * under a point 22 px above, below, left and right of the control's centre (a 44 px target), and expects the control itself.
+ */
+export async function expectTapArea(target: Locator, size = 44) {
+  const box = await target.boundingBox()
+  expect(box).not.toBeNull()
+  const half = size / 2 - 1
+  const cx = box!.x + box!.width / 2
+  const cy = box!.y + box!.height / 2
+  const hit = await target.evaluate((el, pts) => pts.map(([x, y]) => {
+    const found = document.elementFromPoint(x, y)
+    return !!found && (found === el || el.contains(found))
+  }), [[cx, cy - half], [cx, cy + half], [cx - Math.min(half, box!.width / 2 - 1), cy], [cx + Math.min(half, box!.width / 2 - 1), cy]] as [number, number][])
+  expect(hit, 'the area around the control answers for it').toEqual([true, true, true, true])
 }

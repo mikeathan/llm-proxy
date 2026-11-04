@@ -50,6 +50,9 @@ type Deps struct {
 	// Suggest offers a host name for a device to the operator, who confirms it. It cleans the name itself and must never
 	// show or send it as it is. May be nil.
 	Suggest func(mac, name string) error
+	// Drop counts one firewall drop from the internet (its protocol and destination port, nothing else) at the time it was heard.
+	// It must not block and may be nil, in which case drop lines are ignored.
+	Drop func(d Drop, at time.Time)
 	// Wake asks the presence check to look now. It must not block.
 	Wake    func()
 	OnError func(error)
@@ -202,6 +205,23 @@ func (m *Manager) handle(datagram []byte, from netip.AddrPort) {
 	now := m.deps.Now()
 	if ev, ok := m.accept(datagram, from, now); ok {
 		m.act(ev, now)
+		return
+	}
+	m.countDrop(datagram, from, now)
+}
+
+// countDrop counts a firewall drop line from the router's own address. It is not held to the allowance of device messages:
+// parsing one costs a few dozen string operations, the socket's small queue bounds how many arrive, and what it keeps is two
+// numbers in a counter whose size is fixed.
+func (m *Manager) countDrop(datagram []byte, from netip.AddrPort, now time.Time) {
+	if m.deps.Drop == nil || !IsDrop(datagram) {
+		return
+	}
+	if gw := m.deps.Gateway(); !gw.IsValid() || from.Addr().Unmap() != gw {
+		return
+	}
+	if d, ok := ParseDrop(datagram); ok {
+		m.deps.Drop(d, now)
 	}
 }
 

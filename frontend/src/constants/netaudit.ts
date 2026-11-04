@@ -336,7 +336,7 @@ export const ROUTER_LOG_TITLE = 'Router log'
 export const ROUTER_LOG_LOAD_FAILED = 'The router log setting could not be read.'
 export const ROUTER_LOG_SAVE_FAILED = 'The router log setting could not be changed.'
 export const ROUTER_LOG_HINT = 'Lets the router tell this computer at once when a device joins.'
-export const ROUTER_LOG_DETAILS = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check, and a device\'s own host name in the log may be offered as a name suggestion on the Devices card, which you confirm. Nothing else from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase. Anything on your network can send a message that looks like the router; at worst that makes the check look early, never more than once a minute.'
+export const ROUTER_LOG_DETAILS = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check, and a device\'s own host name in the log may be offered as a name suggestion on the Devices card, which you confirm. The log also tells this computer when the router refuses a connection attempt from the internet: only the protocol and the port are counted, as a number for the day (shown on the Overview and the Timeline, never as an alert), and no address and no line of the log is kept. Nothing else from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase. Anything on your network can send a message that looks like the router; at worst that makes the check look early, never more than once a minute, or makes the day\'s count of refused attempts wrong.'
 export const ROUTER_LOG_NOT_HEARD = 'Nothing has been heard from your router yet. Check the router setting and the redirect below.'
 export const ROUTER_LOG_SETUP_TITLE = 'Point the router at this computer'
 export const ROUTER_LOG_SETUP_STEPS = [
@@ -504,6 +504,20 @@ export const ACTIVITY_FILTER_OPTIONS = [
   { value: 'findings', label: 'Findings' },
   { value: 'alerts', label: 'Alerts' },
 ]
+/** Ports a person would know by name; any other port is shown as its number. */
+export const PORT_NAMES: Record<number, string> = {
+  21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'mail', 53: 'DNS', 80: 'web', 110: 'POP3', 143: 'IMAP', 443: 'HTTPS', 445: 'file sharing',
+  1433: 'SQL Server', 3306: 'MySQL', 3389: 'remote desktop', 5060: 'SIP', 5432: 'PostgreSQL', 5900: 'VNC', 6379: 'Redis', 8080: 'web',
+}
+/** How many of the busiest ports a row or the card names. */
+export const ROUTER_PORTS_SHOWN = 3
+export const ROUTER_FILTER_OPTION = { value: 'router', label: 'Router' }
+export const ROUTER_CARD_TITLE = 'At the router'
+export const ROUTER_CARD_LABEL = 'Refused today'
+export const ROUTER_CARD_NOTE = 'Counted from the router\u2019s own log, which this program cannot check. These are attempts that reached your router from the internet side; if the router sits behind another device, the number says nothing about your public address. It is a figure to watch, never an alert.'
+export const ROUTER_CARD_NO_PORTS = 'No port is named yet today.'
+export const ROUTER_STAT_LABEL = 'Refused at the router'
+export const ROUTER_STAT_CAPTION = 'attempts from the internet today'
 export const ACTIVITY_LOAD_FAILED = 'The activity could not be read.'
 export const ACTIVITY_EMPTY = 'Nothing has happened lately. New devices, changed ports, new findings and alerts show up here.'
 export const ACTIVITY_EMPTY_FILTERED = 'Nothing of this kind has happened lately.'
@@ -516,3 +530,17 @@ export const TIMELINE_EXPLAIN_FAILED = 'The summary could not be written.'
 export const TIMELINE_EXPLAIN_NOTHING = 'There is nothing from the last week to explain.'
 export const TIMELINE_EXPLAIN_NOTE = 'Written by a model on this machine from the list of events only. It was not shown any device name or address, and it can be wrong.'
 export const TIMELINE_EXPLAIN_HINT = 'Uses the audit workspace’s model, and only if that model runs on this machine.'
+
+// Network · Settings · Ubuntu security data: Canonical's notices for this computer's release, which the audit compares the
+// installed packages with.
+export const UBUNTU_TITLE = 'Ubuntu security data'
+export const UBUNTU_LOAD_FAILED = 'The Ubuntu security data could not be checked.'
+export const UBUNTU_UPDATE_FAILED = 'The Ubuntu security data could not be updated.'
+export const UBUNTU_CLEAR_FAILED = 'The Ubuntu security data could not be deleted.'
+export const UBUNTU_UNSUPPORTED = 'This computer is not running Ubuntu, so there are no security notices to compare its packages with.'
+export const UBUNTU_EMPTY = 'Not downloaded yet. With it, the audit can say which installed packages are behind a security fix.'
+export const UBUNTU_SIZE = 'One download of about 1.3 MB from security-metadata.canonical.com, only when you press Update.'
+export const UBUNTU_NOTE = 'Fixes that only an Ubuntu Pro subscription installs are not counted, so a package can be behind a fix this list does not show. A flaw that CISA lists as exploited makes the finding high.'
+export const UBUNTU_ATTRIBUTION = 'Security notices © Canonical Ltd., from security-metadata.canonical.com. Canonical states no licence for this data; it is fetched once, kept on this computer and never sent anywhere.'
+export const UBUNTU_OLD_DAYS = 14
+export const UBUNTU_OLD_NOTE = 'This data is more than two weeks old, so newer fixes are missing. Update it.'

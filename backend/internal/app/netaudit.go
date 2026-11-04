@@ -19,6 +19,7 @@ import (
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
+	"llm-proxy/internal/core/netaudit/ubuntuoval"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
 	"llm-proxy/internal/core/tools"
@@ -44,6 +45,8 @@ type netauditServices struct {
 	Deep *netaudit.DeepChecks
 	// Vulns holds the vulnerability data and runs its operator-started download.
 	Vulns *vulnfeed.Manager
+	// Ubuntu holds Canonical's security notices for this computer's release and runs the operator-started update.
+	Ubuntu *ubuntuoval.Manager
 	// Names asks devices the operator has not named what they call themselves, once per presence look, and keeps the answers
 	// for the Devices card to offer.
 	Names *names.Suggester
@@ -156,6 +159,14 @@ func (s AppServices) NetauditNearby() netaudit.NearbyFinder {
 	return s.netaudit.Nearby.Findings
 }
 
+// NetauditClasses is the device-kind check the run reporter runs over a scan; nil until the services are wired.
+func (s AppServices) NetauditClasses() netaudit.ClassFinder {
+	if s.netaudit == nil || s.netaudit.Nearby == nil {
+		return netaudit.ClassChecks{}
+	}
+	return netaudit.ClassChecks{State: s.netaudit.Nearby.Collector.State}
+}
+
 // NetauditServices is the service checks the run reporter runs over a scan's open ports; nil until the services are wired.
 func (s AppServices) NetauditServices() netaudit.ServiceFinder {
 	if s.netaudit == nil || s.netaudit.Nearby == nil {
@@ -193,6 +204,9 @@ const hostIntegrityBudget = 3 * time.Minute
 
 // newHostSource reads this computer's sockets from /proc and the closed list of watched files. startedAt identifies this run
 // of the program, so replacing its file and restarting is not reported as tampering.
+// hostPackages reads the installed packages and the Ubuntu release from the two files every account can read.
+var hostPackages = hostwatch.Packages{StatusFile: "/var/lib/dpkg/status", OSRelease: "/etc/os-release"}
+
 func newHostSource(startedAt time.Time) hostwatch.Source {
 	home, _ := os.UserHomeDir() // an unknown home only leaves the account's own key file out
 	exe, _ := os.Executable()
@@ -203,6 +217,7 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available", AutoUpgradeLog: "/var/log/unattended-upgrades/unattended-upgrades.log"},
 		Docker:  hostwatch.Docker{NetDir: "/sys/class/net"},
 		// A pass over the packaged program files; a longer one is cut short and reported as not finished.
+		Pkgs:           hostPackages,
 		Packages:       hostwatch.Integrity{InfoDir: "/var/lib/dpkg/info", Root: "/"},
 		PackagesBudget: hostIntegrityBudget,
 	}
@@ -328,10 +343,16 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	dns := s.newDNSCheck(store, netTools)
 	near := s.newNearby(store, scope, netTools, guard, known.Inventory)
 
+	// Canonical's notices for this release are fetched only when the operator asks, and judge the installed packages once held.
+	ubuntu := ubuntuoval.New(persistence.NewUbuntuIndexStore(s.AppCtx.RootDir()), netTools.Open, hostPackages.Release)
+	s.AppCtx.AfterFactoryReset("The downloaded Ubuntu security data", ubuntu.Clear)
+	known.Host.WithFlaws(netaudit.PackageFlaws{Index: ubuntu.Index, Exploited: func() map[string]string { return scan.Vulns.Index().Exploited }, Release: hostPackages.Release})
+
 	s.netaudit = &netauditServices{
 		Scope:     scope,
 		Readiness: scan.Readiness,
 		Vulns:     scan.Vulns,
+		Ubuntu:    ubuntu,
 
 		Inventory:   known.Inventory,
 		Identities:  known.Identities,

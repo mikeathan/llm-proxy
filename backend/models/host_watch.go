@@ -25,6 +25,19 @@ type HostWatch struct {
 	// Integrity is the last complete comparison of the program files with their packages' checksums, kept so a later pass
 	// that is cut short does not resolve a finding the earlier one raised.
 	Integrity HostIntegrity `json:"integrity,omitzero"`
+	// Flaws is the last judgement of the installed packages against Ubuntu's security notices, kept for the same reason.
+	Flaws HostFlaws `json:"flaws,omitzero"`
+}
+
+// HostFlaws is what the last judgement of the installed packages found: how many are older than the version that fixed a
+// published flaw, up to ten of their names, how many flaws that is and how many of those CISA lists as exploited, and the worst
+// severity among them.
+type HostFlaws struct {
+	Packages  int      `json:"packages,omitempty"`
+	Names     []string `json:"names,omitempty"`
+	Flaws     int      `json:"flaws,omitempty"`
+	Exploited int      `json:"exploited,omitempty"`
+	Severity  string   `json:"severity,omitempty"`
 }
 
 // HostIntegrity is the outcome of the last complete pass over the packaged program files: how many differed and up to ten of

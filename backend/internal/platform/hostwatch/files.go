@@ -222,6 +222,8 @@ type Source struct {
 	// Packages compares the program files with their packages' checksums; PackagesBudget is how long one pass may take.
 	Packages       Integrity
 	PackagesBudget time.Duration
+	// Pkgs reads the installed packages and the Ubuntu release.
+	Pkgs Packages
 }
 
 // Hardening returns the few weak settings this computer may have.
@@ -241,6 +243,9 @@ func (s Source) Integrity() IntegrityResult {
 	}
 	return s.Packages.Check(ctx)
 }
+
+// Installed lists the installed packages with their versions.
+func (s Source) Installed() (map[string]string, error) { return s.Pkgs.Installed() }
 
 // DockerBridge returns whether Docker has a network on this computer.
 func (s Source) DockerBridge() bool { return s.Docker.Bridge() }
