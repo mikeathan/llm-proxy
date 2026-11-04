@@ -4,6 +4,7 @@ import type { PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
   devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
+  followUpScan: vi.fn(), setFollowUpScan: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
@@ -25,6 +26,7 @@ describe('DeviceCheckSettings', () => {
     service.presence.mockResolvedValue(presence())
     service.ipv6Discovery.mockResolvedValue({ enabled: false })
     service.deviceNames.mockResolvedValue({ enabled: true })
+    service.followUpScan.mockResolvedValue({ enabled: false })
     useNetauditViewMode().set('simple')
   })
 
@@ -44,6 +46,16 @@ describe('DeviceCheckSettings', () => {
     useNetauditViewMode().set('advanced')
     const w = await mountSettings()
     expect(w.find('select[aria-label="How often to look"]').exists()).toBe(true)
+  })
+
+  it('offers the scan on arrival off by default and switches it on with one tap', async () => {
+    service.setFollowUpScan.mockResolvedValue({ enabled: true })
+    const w = await mountSettings()
+    const toggle = w.get('[data-test="follow-up-scan"] [role="switch"]')
+    expect((toggle.element as HTMLInputElement).checked).toBe(false)
+    await toggle.setValue(true)
+    await flushPromises()
+    expect(service.setFollowUpScan).toHaveBeenCalledWith(true)
   })
 
   it('switches IPv6 discovery on with one tap', async () => {

@@ -85,6 +85,9 @@ type netauditServices struct {
 	Blocks *netaudit.Blocks
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
+	// FollowUp scans a device that just arrived, once, while FollowUpConfig (off by default) allows it.
+	FollowUp       *netaudit.FollowUp
+	FollowUpConfig *netaudit.FollowUpConfig
 	// SignIns sends the admin sign-in's lockouts and sign-ins from new addresses, from its own loop.
 	SignIns *netaudit.SignInAlerts
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
@@ -300,6 +303,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
 	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
 	add(n.SignIns != nil, func(ctx context.Context) { n.SignIns.Run(ctx) })
+	add(n.FollowUp != nil, func(ctx context.Context) { n.FollowUp.Run(ctx) })
 	return loops
 }
 
@@ -433,6 +437,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		RouterLogConfig: alerts.RouterLogConfig,
 		RouterLog:       alerts.RouterLog,
 		Blocks:          alerts.Blocks,
+		FollowUp:        alerts.FollowUp,
+		FollowUpConfig:  alerts.FollowUpConfig,
 
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),

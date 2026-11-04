@@ -46,6 +46,9 @@ type alerting struct {
 	RouterLog       *routerlog.Manager
 	// Blocks counts the refused attempts the router's log reports and writes them to the history on its own timer.
 	Blocks *netaudit.Blocks
+	// FollowUp scans a device that just arrived, once, when its switch is on; FollowUpConfig is that switch.
+	FollowUp       *netaudit.FollowUp
+	FollowUpConfig *netaudit.FollowUpConfig
 }
 
 func (s *AppServices) newAlerting(deps alertingDeps) alerting {
@@ -56,8 +59,10 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 	known := deps.Tracking
 	digest := s.newDigest(known.Inventory, known.History, known.Summary, s.alertNotifier(log, models.NetworkAlertSummary))
 	presenceConfig := netaudit.NewPresenceConfig(deps.Store)
+	followUpConfig := netaudit.NewFollowUpConfig(deps.Store)
+	followUp := newFollowUp(deps.Service, followUpConfig, s.alertNotifier(log, models.NetworkAlertPresence))
 	presence := s.newPresence(deps.Service, known.Inventory, presenceConfig, presenceHooks{
-		OnLook: lookHooks(digest, known.Names),
+		OnLook: lookHooks(digest, known.Names, followUp),
 		Notify: s.alertNotifier(log, models.NetworkAlertPresence),
 	})
 
@@ -76,7 +81,22 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		RouterLogConfig: routerLogConfig,
 		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence, blocks),
 		Blocks:          blocks,
+		FollowUp:        followUp,
+		FollowUpConfig:  followUpConfig,
 	}
+}
+
+// newFollowUp builds the scan on arrival. It scans through the scan service, so the declared scope and the one-scan-at-a-time
+// rule apply; the mode is the ordinary service scan, never the deep check; the alert goes out as a device alert.
+func newFollowUp(service *netaudit.Service, config *netaudit.FollowUpConfig, notify notifyFunc) *netaudit.FollowUp {
+	return netaudit.NewFollowUp(netaudit.FollowUpDeps{
+		Enabled: config.Enabled,
+		Scan: func(ctx context.Context, addr string) (netaudit.Result, error) {
+			return service.Scan(ctx, netaudit.Request{Targets: []string{addr}, Mode: netaudit.ModeServices, Unattended: true})
+		},
+		Notify:  notify,
+		OnError: func(err error) { logging.Warn("network follow-up scan", "error", err.Error()) },
+	})
 }
 
 // outsideLookup is the opt-in look at what the internet can reach: its setting, and the check the router check runs.
@@ -227,13 +247,15 @@ func (s *AppServices) newDigest(inventory *netaudit.Inventory, history *netaudit
 	})
 }
 
-// lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, and sending
-// the weekly summary when it is due. Neither adds a sweep; both stop with the context.
-func lookHooks(digest *netaudit.WeeklyDigest, suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
+// lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, sending the weekly
+// summary when it is due, and queueing a scan of the devices that just arrived (which runs from its own loop, so the look never
+// waits on it). None adds a sweep; all stop with the context.
+func lookHooks(digest *netaudit.WeeklyDigest, suggester *names.Suggester, followUp *netaudit.FollowUp) func(context.Context, netaudit.Snapshot) {
 	name := nameUnnamed(suggester)
 	return func(ctx context.Context, snap netaudit.Snapshot) {
 		name(ctx, snap)
 		digest.Tick(ctx)
+		followUp.Offer(snap)
 	}
 }
 

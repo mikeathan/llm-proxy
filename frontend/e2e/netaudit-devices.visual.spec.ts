@@ -110,5 +110,10 @@ test('the IPv6 switch is on the Settings tab, and its refusal fits a phone', asy
   // The input is visually hidden; the touch target is the row that holds it.
   const row = toggle.locator('xpath=ancestor::div[contains(@class, "min-h-11")][1]')
   if (testInfo.project.name === 'mobile') expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  // The scan on arrival sits beside it, off until switched on.
+  const followUp = card.getByRole('switch', { name: 'Scan new devices when they arrive' })
+  await expect(followUp).not.toBeChecked()
+  const followUpRow = followUp.locator('xpath=ancestor::div[contains(@class, "min-h-11")][1]')
+  if (testInfo.project.name === 'mobile') expect((await followUpRow.boundingBox())?.height).toBeGreaterThanOrEqual(44)
   await expectNoSidewaysScroll(page)
 })
