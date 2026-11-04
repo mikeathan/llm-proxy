@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attentionReasons, changeText, nextAction, postureHeadline, seriesOf } from '../../../utils/netaudit/networkOverview'
+import { attentionReasons, changeText, hasRouterCounts, nextAction, postureHeadline, refusedToday, seriesOf } from '../../../utils/netaudit/networkOverview'
 import type { NetworkDay, NetworkOverview } from '../../../types/netaudit'
 
 const overview = (over: Partial<NetworkOverview> = {}): NetworkOverview => ({
@@ -70,5 +70,21 @@ describe('nextAction', () => {
   it('shows a network nobody has looked at how to start', () => {
     expect(nextAction(withOver({ posture: 'unknown' }), false)).toEqual({ label: 'Set up a network audit', tab: 'audits' })
     expect(nextAction(withOver({ posture: 'unknown' }), true)).toEqual({ label: 'Turn on the new-device check', tab: 'settings' })
+  })
+})
+
+describe('the router count on the overview', () => {
+  const day = (date: string, blocked?: number): NetworkDay => ({ date, devices_up: 1, devices: 1, unnamed: 0, findings: 0, serious: 0, blocked })
+
+  it('is shown only once the router has been counted on some day', () => {
+    expect(hasRouterCounts([day('2026-11-03'), day('2026-11-04')])).toBe(false)
+    expect(hasRouterCounts([day('2026-11-03', 5), day('2026-11-04')])).toBe(true)
+    expect(hasRouterCounts([])).toBe(false)
+  })
+
+  it('is today\'s count, and zero when today has none yet', () => {
+    const now = new Date(2026, 10, 4, 15, 0).getTime()
+    expect(refusedToday([day('2026-11-03', 9), day('2026-11-04', 40)], now)).toBe(40)
+    expect(refusedToday([day('2026-11-03', 9)], now)).toBe(0)
   })
 })

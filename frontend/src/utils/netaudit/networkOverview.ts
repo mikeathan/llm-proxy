@@ -50,3 +50,17 @@ export function changeText(c: NetworkChange): string {
   const who = c.name || c.ip || c.mac || 'A device'
   return c.kind === 'new_device' ? `${who} appeared on the network` : `${c.ip ?? 'An address'} moved to a different device`
 }
+
+/** True once the router's log has been counted on some day, which is when the overview shows its figure. */
+export function hasRouterCounts(days: NetworkDay[]): boolean {
+  return days.some((d) => (d.blocked ?? 0) > 0)
+}
+
+const pad = (n: number): string => String(n).padStart(2, '0')
+
+/** How many attempts the router refused today (the browser's day); zero when today has no count yet. */
+export function refusedToday(days: NetworkDay[], nowMs: number = Date.now()): number {
+  const d = new Date(nowMs)
+  const today = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return days.find((x) => x.date === today)?.blocked ?? 0
+}

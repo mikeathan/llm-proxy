@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityText, clockTime, dayHeading, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay } from '../../../utils/netaudit/activity'
+import { activityText, clockTime, dayHeading, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay, portLabel, portsLine } from '../../../utils/netaudit/activity'
 import type { ActivityRow } from '../../../types/netaudit'
 
 const row = (over: Partial<ActivityRow>): ActivityRow => ({ kind: 'new_device', group: 'devices', at: '2026-11-04T10:00:00Z', ...over })
@@ -140,5 +140,36 @@ describe('dropEchoedAlerts', () => {
   it('keeps a presence alert that came before the device, which it cannot be about', () => {
     const early = row({ kind: 'alert', group: 'alerts', alert_kind: 'presence', at: at(0) })
     expect(dropEchoedAlerts([early, row({ kind: 'new_device', at: at(10) })])).toHaveLength(2)
+  })
+})
+
+describe('router blocks', () => {
+  const blocks = (over: Partial<ActivityRow> = {}): ActivityRow => row({ kind: 'router_blocks', group: 'router', day: true, count: 1204, ports: [{ port: 22, count: 700 }, { port: 3306, count: 300 }, { port: 8123, count: 100 }, { port: 23, count: 50 }], ...over })
+
+  it('names a port by what it is when that is well known, and by its number when it is not', () => {
+    expect(portLabel(22)).toBe('SSH (22)')
+    expect(portLabel(3306)).toBe('MySQL (3306)')
+    expect(portLabel(8123)).toBe('port 8123')
+  })
+
+  it('says how many attempts the router refused and the three most tried ports', () => {
+    expect(activityText(blocks())).toBe('The router refused 1,204 connection attempts from the internet, mostly to SSH (22), MySQL (3306) and port 8123')
+  })
+
+  it('leaves out the ports when there are none, and uses the singular', () => {
+    expect(activityText(blocks({ ports: undefined, count: 1 }))).toBe('The router refused 1 connection attempt from the internet')
+  })
+
+  it('counts a day of refusals in the day summary', () => {
+    expect(daySummary([blocks()])).toBe('1,204 refused at the router')
+  })
+
+  it('lists the busiest ports with their counts on one line', () => {
+    expect(portsLine([{ port: 22, count: 700 }, { port: 3306, count: 1300 }, { port: 8123, count: 5 }, { port: 23, count: 1 }])).toBe('SSH (22) 700 · MySQL (3306) 1,300 · port 8123 5')
+    expect(portsLine(undefined)).toBe('')
+  })
+
+  it('is its own filter group', () => {
+    expect(filterRows([blocks(), row({})], 'router')).toHaveLength(1)
   })
 })

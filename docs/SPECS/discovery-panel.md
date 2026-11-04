@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.26"
+version: "2.27"
 status: stable
 last_updated: 2026-11-04
 constitution_references: []
@@ -13,6 +13,13 @@ supersedes:
 
 ## Changelog
 
+- **2.27 (2026-11-04)** — **Router refusals** (plan `network-attempts-integrity-timeline` P2; Constitution I.8 amended and
+  [ADR-0018](../decisions/ADR-0018-router-log-only-wakes-the-presence-check.md) amended, owner-approved). The router log listener also counts the
+  router's `kernel: DROP` lines for packets from the internet (public IPv4 source; protocol and destination port only, no address or line kept)
+  into a bounded counter that adds a day's total and ten busiest ports to the Network history every five minutes (`NetworkDay.blocked`,
+  `blocked_ports`). Shown as figures only, never a finding or an alert: the Overview gains "Refused at the router" (only once counted), the Timeline gains
+  a router card ("Refused today", the busiest ports, 14 days, and a folded "What is this number?"), a day row and a Router filter chip, and the summary
+  prompt may say how many were refused (a number, no ports). `GET /admin/api/netaudit/activity` carries `router` and `router_blocks` rows.
 - **2.26 (2026-11-04)** — **Network header, Timeline tab, Docker wording** (plan `network-attempts-integrity-timeline`, owner-approved
   2026-11-04; [ADR-0025](../decisions/ADR-0025-network-timeline-reads-existing-records-summary-is-local-and-typed.md)).
   (1) **The page header is one row on a phone:** the title, Simple/Advanced and a "?" Help button (accessible name "Help") share a row; the

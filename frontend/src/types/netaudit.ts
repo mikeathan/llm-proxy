@@ -566,6 +566,9 @@ export interface NetworkDay {
   serious: number
   /** True once an audit ran that day, so a day without one is not drawn as "no findings". */
   audited?: boolean
+  /** Connection attempts from the internet that the router's log said it refused that day, and the ports most tried. */
+  blocked?: number
+  blocked_ports?: PortCount[]
 }
 
 export type NetworkChangeKind = 'new_device' | 'address_changed'
@@ -579,8 +582,8 @@ export interface NetworkChange {
   name?: string
 }
 
-export type ActivityKind = 'new_device' | 'address_changed' | 'alert' | 'ports_changed' | 'audit' | 'related'
-export type ActivityGroup = 'devices' | 'ports' | 'findings' | 'alerts'
+export type ActivityKind = 'new_device' | 'address_changed' | 'alert' | 'ports_changed' | 'audit' | 'related' | 'router_blocks'
+export type ActivityGroup = 'devices' | 'ports' | 'findings' | 'alerts' | 'router'
 export type ActivityFilter = 'all' | ActivityGroup
 
 /**
@@ -601,6 +604,21 @@ export interface ActivityRow {
   count?: number
   opened?: number
   closed?: number
+  /** The ports most tried on a router_blocks day, busiest first. */
+  ports?: PortCount[]
+}
+
+/** How many times a destination port was tried. */
+export interface PortCount {
+  port: number
+  count: number
+}
+
+/** The router card: today's refused attempts and busiest ports, and the last days' totals (the server's netaudit.RouterBlocks). */
+export interface RouterBlocks {
+  today: number
+  today_ports?: PortCount[]
+  days: { date: string; total: number }[]
 }
 
 /** The model's plain-words summary of the timeline (the server's summaryResponse); empty when there was nothing to explain. */
@@ -623,6 +641,8 @@ export type ActivityItem =
 /** The Activity timeline, newest first. */
 export interface NetworkActivity {
   rows: ActivityRow[]
+  /** Present only once the router's log has been counted on some day. */
+  router?: RouterBlocks
 }
 
 /** The Network page's first screen (the server's netaudit.Overview). */

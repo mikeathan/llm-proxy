@@ -21,6 +21,7 @@ type rig struct {
 	errs   []error
 	conn   *net.UDPConn
 	enable atomic.Bool
+	drops  []Drop
 }
 
 func newRig(t *testing.T) *rig {
@@ -41,6 +42,11 @@ func newRig(t *testing.T) *rig {
 			defer r.mu.Unlock()
 			r.offers = append(r.offers, [2]string{mac, name})
 			return nil
+		},
+		Drop: func(d Drop, _ time.Time) {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.drops = append(r.drops, d)
 		},
 		Wake:    func() { r.wakes.Add(1) },
 		OnError: func(err error) { r.mu.Lock(); r.errs = append(r.errs, err); r.mu.Unlock() },

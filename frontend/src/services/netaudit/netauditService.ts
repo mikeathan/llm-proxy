@@ -34,7 +34,7 @@ export class NetauditService {
   static async activity(audit: { workspaceId: string; automation: string } | undefined, limit: number): Promise<NetworkActivity> {
     const params = query({ limit: String(limit), ...(audit ? { workspace_id: audit.workspaceId, automation: audit.automation } : {}) })
     const activity = await get<NetworkActivity>(`${API_ENDPOINTS.netauditActivity}${params}`)
-    return { rows: activity.rows ?? [] }
+    return { rows: activity.rows ?? [], router: activity.router }
   }
 
   /** Asks the audit workspace's model, once, to explain the last week. It must be a model on this machine; the server says if not. */

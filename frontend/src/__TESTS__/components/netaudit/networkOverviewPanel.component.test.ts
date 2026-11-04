@@ -96,4 +96,17 @@ describe('NetworkOverviewPanel', () => {
     await w.get('[data-test="see-all-activity"]').trigger('click')
     expect(w.emitted('open-tab')).toEqual([['timeline']])
   })
+
+  it('shows the router figure only once the router has been counted', () => {
+    const none = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } })
+    expect(none.find('[data-test="router-stat"]').exists()).toBe(false)
+    const day = (date: string, blocked?: number) => ({ date, devices_up: 1, devices: 1, unnamed: 0, findings: 0, serious: 0, blocked })
+    const today = new Date()
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const some = mount(NetworkOverviewPanel, { props: { overview: overview({ series: [day('2026-11-01', 5), day(iso, 1204)] }), hasAudit: true } })
+    const stat = some.get('[data-test="router-stat"]')
+    expect(stat.text()).toContain('Refused at the router')
+    expect(stat.text()).toContain('1,204')
+  })
 })
+

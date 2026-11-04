@@ -2,6 +2,7 @@ package netaudit
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -70,13 +71,18 @@ func (h *History) Series(n int) ([]models.NetworkDay, error) {
 
 // edit applies a change to today's entry, creating it, and writes only if the entry changed.
 func (h *History) edit(change func(*models.NetworkDay)) error {
+	return h.editDay(h.now().Format(historyDateLayout), change)
+}
+
+// editDay applies a change to the entry of the given day, creating it, and writes only if the entry changed.
+func (h *History) editDay(day string, change func(*models.NetworkDay)) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	hist, err := h.store.Read()
 	if err != nil {
 		return fmt.Errorf("failed to read the network history: %w", err)
 	}
-	today := h.now().Format(historyDateLayout)
+	today := day
 	i := slices.IndexFunc(hist.Days, func(d models.NetworkDay) bool { return d.Date == today })
 	created := i < 0
 	if created {
@@ -84,9 +90,9 @@ func (h *History) edit(change func(*models.NetworkDay)) error {
 		slices.SortFunc(hist.Days, func(a, b models.NetworkDay) int { return compareDates(a.Date, b.Date) })
 		i = slices.IndexFunc(hist.Days, func(d models.NetworkDay) bool { return d.Date == today })
 	}
-	before := hist.Days[i]
+	before := cloneDay(hist.Days[i])
 	change(&hist.Days[i])
-	if !created && hist.Days[i] == before {
+	if !created && reflect.DeepEqual(hist.Days[i], before) {
 		return nil
 	}
 	if len(hist.Days) > maxHistoryDays {
@@ -126,4 +132,47 @@ func (h *History) MarkDigest(at time.Time) error {
 	}
 	hist.DigestAt = at
 	return h.store.Write(hist)
+}
+
+func cloneDay(d models.NetworkDay) models.NetworkDay {
+	d.BlockedPorts = slices.Clone(d.BlockedPorts)
+	return d
+}
+
+// MaxBlockedPorts is how many of a day's most tried ports are kept.
+const MaxBlockedPorts = 10
+
+// RecordBlocks adds connection attempts the router refused to the given day (YYYY-MM-DD, the day they were heard): a total
+// and the ports tried. The ports are merged with the day's earlier ones and only the ten busiest are kept, so the top of a
+// day is approximate: a port that was always just outside the ten is not counted. It is a hint, never a finding.
+func (h *History) RecordBlocks(day string, total int, ports []models.PortCount) error {
+	if total <= 0 {
+		return nil
+	}
+	return h.editDay(day, func(d *models.NetworkDay) {
+		d.Blocked += total
+		d.BlockedPorts = topPorts(append(d.BlockedPorts, ports...), MaxBlockedPorts)
+	})
+}
+
+// topPorts merges counts of the same port and keeps the n most tried, busiest first, the lower port first on a tie.
+func topPorts(in []models.PortCount, n int) []models.PortCount {
+	sum := map[int]int{}
+	for _, p := range in {
+		sum[p.Port] += p.Count
+	}
+	out := make([]models.PortCount, 0, len(sum))
+	for port, count := range sum {
+		out = append(out, models.PortCount{Port: port, Count: count})
+	}
+	slices.SortFunc(out, func(a, b models.PortCount) int {
+		if a.Count != b.Count {
+			return b.Count - a.Count
+		}
+		return a.Port - b.Port
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
 }
