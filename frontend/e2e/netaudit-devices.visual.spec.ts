@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
+import { expectNoSidewaysScroll, expectTapArea, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // Network → Devices → Devices on your network, in the states that matter: a new device waiting for a decision, the
 // router's hardware address changed, and a check that cannot look. The IPv6 switch is on the Settings tab (last test). At both widths and in Simple and Advanced nothing may
@@ -48,9 +48,10 @@ for (const view of ['simple', 'advanced'] as const) {
       const card = page.locator('[data-test="devices"]')
       if (testInfo.project.name === 'mobile') {
         // Every control on this screen is a touch target: the Simple/Advanced switch, the filter chips, the search box and a row.
-        for (const group of [page.getByRole('radiogroup', { name: 'How much detail' }).first(), card.getByRole('radiogroup', { name: 'Show devices' })]) {
-          if (await group.count()) expect((await group.getByRole('radio').first().boundingBox())?.height).toBeGreaterThanOrEqual(44)
-        }
+        // The switch is drawn small in the header and answers for a 44 px area; the filter chips are 44 px themselves.
+        await expectTapArea(page.getByRole('radiogroup', { name: 'How much detail' }).first().getByRole('radio').first())
+        const chips = card.getByRole('radiogroup', { name: 'Show devices' })
+        if (await chips.count()) expect((await chips.getByRole('radio').first().boundingBox())?.height).toBeGreaterThanOrEqual(44)
         const search = card.getByRole('searchbox', { name: 'Search devices' })
         if (await search.count()) expect((await search.boundingBox())?.height).toBeGreaterThanOrEqual(44)
         const toggle = card.locator('[data-test="device-toggle"]').first()
