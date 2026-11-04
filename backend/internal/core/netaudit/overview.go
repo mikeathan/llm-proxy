@@ -132,6 +132,16 @@ func postureOf(o Overview, baselined bool) string {
 }
 
 func recentActivity(inv models.DeviceInventory, now time.Time) []RecentChange {
+	out := allRecentChanges(inv, now)
+	if len(out) > maxRecent {
+		out = out[:maxRecent]
+	}
+	return out
+}
+
+// allRecentChanges lists every recent change, newest first and not cut: the overview shows the first few, the activity list
+// the whole of it.
+func allRecentChanges(inv models.DeviceInventory, now time.Time) []RecentChange {
 	var out []RecentChange
 	if inv.Baselined {
 		for _, d := range inv.Devices {
@@ -144,8 +154,5 @@ func recentActivity(inv models.DeviceInventory, now time.Time) []RecentChange {
 		out = append(out, RecentChange{Kind: RecentAddressChanged, At: c.At, MAC: c.To, IP: c.IP})
 	}
 	slices.SortStableFunc(out, func(a, b RecentChange) int { return b.At.Compare(a.At) })
-	if len(out) > maxRecent {
-		out = out[:maxRecent]
-	}
 	return out
 }

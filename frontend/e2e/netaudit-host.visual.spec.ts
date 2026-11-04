@@ -38,6 +38,11 @@ const report = {
       evidence: 'An update that needs a restart was installed on this computer, and the restart has been waiting for 15 days. Until then the old version of that software keeps running',
       fix: 'Restart this computer.', guide,
     }),
+    finding({
+      key: 'this-computer||0|host_file_modified', device: 'this-computer', port: 0, proto: '', service: '', check: 'host_file_modified', check_title: 'A program file on this computer no longer matches its package', severity: 'high', new: true,
+      evidence: '12 program files that packages installed on this computer no longer match the checksum the package shipped: /usr/sbin/sshd, /usr/bin/sudo, /usr/lib/x86_64-linux-gnu/some-library-with-a-rather-long-name-1.2.3.so, and 9 more. A change by hand, by an attack or by a failing disk looks the same; the audit cannot tell which',
+      fix: 'Find which package owns each file and reinstall it.', guide,
+    }),
   ],
 }
 const automation = {

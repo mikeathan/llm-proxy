@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkOverview, Readiness, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -28,6 +28,18 @@ export class NetauditService {
     const overview = await get<NetworkOverview>(`${API_ENDPOINTS.netauditOverview}${params}`)
     // The server encodes an empty list as null; the page reads them as lists.
     return { ...overview, series: overview.series ?? [], recent: overview.recent ?? [] }
+  }
+
+  /** The Activity timeline: what happened lately, newest first. `limit` is how many rows. */
+  static async activity(audit: { workspaceId: string; automation: string } | undefined, limit: number): Promise<NetworkActivity> {
+    const params = query({ limit: String(limit), ...(audit ? { workspace_id: audit.workspaceId, automation: audit.automation } : {}) })
+    const activity = await get<NetworkActivity>(`${API_ENDPOINTS.netauditActivity}${params}`)
+    return { rows: activity.rows ?? [] }
+  }
+
+  /** Asks the audit workspace's model, once, to explain the last week. It must be a model on this machine; the server says if not. */
+  static explainTimeline(audit: { workspaceId: string; automation: string }): Promise<TimelineSummary> {
+    return post<TimelineSummary>(`${API_ENDPOINTS.netauditActivitySummary}${query({ workspace_id: audit.workspaceId, automation: audit.automation })}`)
   }
 
   static async checkTargets(targets: string[]): Promise<TargetProblem[]> {

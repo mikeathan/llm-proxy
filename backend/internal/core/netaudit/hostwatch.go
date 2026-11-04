@@ -2,6 +2,8 @@ package netaudit
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/platform/hostwatch"
@@ -14,6 +16,9 @@ const HostDevice = "this-computer"
 
 // CheckNewListener is a port that other computers can reach and that was not open when the host watch first looked.
 const CheckNewListener = "new_listener"
+
+// CheckHostFilesModified is a program file that a package installed and that no longer matches the checksum the package shipped.
+const CheckHostFilesModified = "host_file_modified"
 
 const hostFileCheckPrefix = "host_changed_"
 
@@ -51,6 +56,9 @@ func init() {
 		guides[HostFileCheck(id)] = guide
 	}
 	guides[CheckNewListener] = newListenerGuide
+	guides[CheckHostFilesModified] = filesModifiedGuide
+	checkTitles[CheckHostFilesModified] = "A program file on this computer no longer matches its package"
+	remediations[CheckHostFilesModified] = "Find which package owns each file (dpkg -S), and reinstall it from the official archive (apt install --reinstall). If you did not change the file yourself, treat the computer as possibly compromised."
 	checkTitles[CheckNewListener] = "New open port on this computer"
 	remediations[CheckNewListener] = "Find out what is listening (ss -ltnp shows the program for each port). If you started it, accept the finding; if not, stop it and find out how it got there."
 }
@@ -226,7 +234,9 @@ func diskFinding(level int) []Finding {
 
 const (
 	newListenerEvidence = "Something on this computer is waiting for connections on this port, and it was not when the audit first looked. The audit does not say which program it is"
-	hostFileEvidence    = "A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed). The audit does not show what changed"
+	// dockerListenerNote is added when Docker has a network here: the port may be a container's, and those bypass ufw.
+	dockerListenerNote = ". Docker is installed on this computer: a port a container publishes is open to the network even when the computer's firewall is on"
+	hostFileEvidence   = "A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed). The audit does not show what changed"
 	// shortHash is how much of a digest goes in a finding's version.
 	shortHash = 12
 )
@@ -237,6 +247,8 @@ type HostSource interface {
 	Files() []hostwatch.FileState
 	Hardening() hostwatch.Hardening
 	Patches() hostwatch.Patches
+	DockerBridge() bool
+	Integrity() hostwatch.IntegrityResult
 }
 
 // HostStore keeps the first look the later ones are compared with: *persistence.HostWatchStore.
@@ -285,6 +297,9 @@ func (w *HostWatcher) Look() (HostLook, error) {
 	patches := w.src.Patches()
 	look.Unreadable += patches.Unreadable
 	look.Findings = append(look.Findings, patchFindings(patches)...)
+	if w.compareIntegrity(&base, w.src.Integrity(), &look) {
+		changed = true
+	}
 	if changed {
 		if err := w.store.Write(base); err != nil {
 			return HostLook{}, fmt.Errorf("failed to save the host watch baseline: %w", err)
@@ -306,14 +321,57 @@ func (w *HostWatcher) compareListeners(base *models.HostWatch, now []hostwatch.L
 	for _, l := range base.Listeners {
 		known[l] = true
 	}
+	evidence := newListenerEvidence
+	if w.src.DockerBridge() {
+		evidence += dockerListenerNote
+	}
 	for _, l := range now {
 		if !known[models.HostListener{Proto: l.Proto, Port: l.Port}] {
 			look.Findings = append(look.Findings, Finding{
-				Device: HostDevice, Port: l.Port, Proto: l.Proto, Check: CheckNewListener, Severity: SeverityMedium, Evidence: newListenerEvidence,
+				Device: HostDevice, Port: l.Port, Proto: l.Proto, Check: CheckNewListener, Severity: SeverityMedium, Evidence: evidence,
 			})
 		}
 	}
 	return false
+}
+
+// compareIntegrity turns a pass over the packaged program files into a finding. Only a complete pass can say a finding is gone:
+// a pass cut short keeps the earlier finding, and a computer where nothing could be compared (no dpkg lists) says nothing at
+// all. It returns true when the stored outcome changed.
+func (w *HostWatcher) compareIntegrity(base *models.HostWatch, res hostwatch.IntegrityResult, look *HostLook) bool {
+	look.Unreadable += res.Unreadable
+	modified, paths := res.Modified, res.Paths
+	stored := false
+	switch {
+	case res.Complete:
+		if base.Integrity.Modified != modified || !slices.Equal(base.Integrity.Paths, paths) {
+			base.Integrity = models.HostIntegrity{Modified: modified, Paths: slices.Clone(paths), At: w.now()}
+			stored = true
+		}
+	case modified == 0:
+		modified, paths = base.Integrity.Modified, base.Integrity.Paths
+	}
+	if modified > 0 {
+		look.Findings = append(look.Findings, Finding{Device: HostDevice, Check: CheckHostFilesModified, Severity: SeverityHigh, Evidence: integrityEvidence(modified, paths)})
+	}
+	return stored
+}
+
+// integrityEvidence is the finding's words: how many files, up to ten plain paths the reader already vetted, and what the
+// audit cannot tell.
+func integrityEvidence(modified int, paths []string) string {
+	verb := "no longer match"
+	if modified == 1 {
+		verb = "no longer matches"
+	}
+	out := plural(modified, "program file", "program files") + " that packages installed on this computer " + verb + " the checksum the package shipped"
+	if len(paths) > 0 {
+		out += ": " + strings.Join(paths, ", ")
+		if more := modified - len(paths); more > 0 {
+			out += fmt.Sprintf(", and %d more", more)
+		}
+	}
+	return out + ". A change by hand, by an attack or by a failing disk looks the same; the audit cannot tell which"
 }
 
 func (w *HostWatcher) compareFiles(base *models.HostWatch, now []hostwatch.FileState, look *HostLook) bool {
@@ -453,10 +511,25 @@ var newListenerGuide = FixGuide{
 		"If you started it (a development server, a database, a new service), accept the finding with a note. A program you did not start should be stopped.",
 		"If you cannot explain it, stop the program, find out how it started (check the startup services and scheduled jobs), and treat the computer as possibly compromised.",
 		"Close ports that nothing needs with the computer's firewall, even for programs you trust.",
+		"If the port belongs to a container, the firewall does not close it: Docker publishes ports through its own rules. Publish it on 127.0.0.1 only (-p 127.0.0.1:8080:80) or stop publishing it.",
 	},
 	Commands: []GuideCommand{
-		{platformLinux, "sudo ss -ltnup"},
+		{platformLinux, "sudo ss -ltnup\ndocker ps --format '{{.Names}}  {{.Ports}}'"},
 	},
 	Risk: "Stopping a program stops what it serves; a port closed by the firewall can no longer be reached from other computers.",
 	Undo: "Start the program again, or remove the firewall rule.",
+}
+
+var filesModifiedGuide = FixGuide{
+	Steps: []string{
+		"List the files that differ (dpkg --verify). Each line names a file; a 5 in the third column means its contents changed.",
+		"If you patched a file yourself or an update was cut off, reinstall its package (apt install --reinstall) and run the check again, or accept the finding with a note.",
+		"If you cannot explain the change, do not trust this computer: disconnect it, copy off what you need, and reinstall from media you trust. A changed system program can hide itself from the tools you would use to look.",
+		"Change the passwords and keys that were used on this computer.",
+	},
+	Commands: []GuideCommand{
+		{platformLinux, "dpkg --verify 2>/dev/null | grep -v ' c /'\ndpkg -S /usr/sbin/sshd\nsudo apt install --reinstall openssh-server"},
+	},
+	Risk: "Reinstalling a package restarts nothing by itself, but a running service keeps using the old file until it is restarted.",
+	Undo: "None needed: a reinstall puts back the file the package ships.",
 }

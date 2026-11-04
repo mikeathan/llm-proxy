@@ -1,6 +1,7 @@
 package hostwatch
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"time"
 )
 
 // FileSpec is one entry of the closed list of places that decide what runs on this computer after a reboot. Paths and globs
@@ -216,6 +218,10 @@ type Source struct {
 	Watch   Files
 	Harden  Hardener
 	Patcher Patcher
+	Docker  Docker
+	// Packages compares the program files with their packages' checksums; PackagesBudget is how long one pass may take.
+	Packages       Integrity
+	PackagesBudget time.Duration
 }
 
 // Hardening returns the few weak settings this computer may have.
@@ -223,6 +229,21 @@ func (s Source) Hardening() Hardening { return s.Harden.Check() }
 
 // Patches returns whether this computer is behind on updates or waiting for a restart.
 func (s Source) Patches() Patches { return s.Patcher.Check() }
+
+// Integrity compares the packaged program files with their packages' checksums within PackagesBudget. A pass that runs out of
+// time is returned incomplete, never as a clean one.
+func (s Source) Integrity() IntegrityResult {
+	ctx := context.Background()
+	if s.PackagesBudget > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.PackagesBudget)
+		defer cancel()
+	}
+	return s.Packages.Check(ctx)
+}
+
+// DockerBridge returns whether Docker has a network on this computer.
+func (s Source) DockerBridge() bool { return s.Docker.Bridge() }
 
 // Listeners returns the ports open to other computers.
 func (s Source) Listeners() ([]Listener, error) { return s.Proc.Listeners() }

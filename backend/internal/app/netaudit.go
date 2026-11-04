@@ -188,6 +188,9 @@ func (s AppServices) NetauditHost() netaudit.HostLooker {
 	return s.netaudit.Host
 }
 
+// hostIntegrityBudget is how long the nightly comparison of program files with their packages may take.
+const hostIntegrityBudget = 3 * time.Minute
+
 // newHostSource reads this computer's sockets from /proc and the closed list of watched files. startedAt identifies this run
 // of the program, so replacing its file and restarting is not reported as tampering.
 func newHostSource(startedAt time.Time) hostwatch.Source {
@@ -198,6 +201,10 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 		Watch:   hostwatch.Files{Specs: hostwatch.DefaultFileSpecs(home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
 		Harden:  hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf", KeyGlobs: keyGlobs(home), DiskPaths: diskPaths(home)},
 		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available", AutoUpgradeLog: "/var/log/unattended-upgrades/unattended-upgrades.log"},
+		Docker:  hostwatch.Docker{NetDir: "/sys/class/net"},
+		// A pass over the packaged program files; a longer one is cut short and reported as not finished.
+		Packages:       hostwatch.Integrity{InfoDir: "/var/lib/dpkg/info", Root: "/"},
+		PackagesBudget: hostIntegrityBudget,
 	}
 }
 
@@ -293,6 +300,13 @@ func (s AppServices) auditModelIsLocal(entry *automation.AutomationEntry) error 
 		Code:    ModelNotLocalCode,
 		Message: fmt.Sprintf("The model %q runs in the cloud, and a network audit may only use a model on this machine. Choose a local model for the automation.", name),
 	}
+}
+
+// modelIsLocal reports whether a model runs on this machine. A model that cannot be found is not local: a scheduled audit
+// leaves that to fail in its run, but the timeline summary sends its data at once, so it only goes where it is known to stay.
+func (s AppServices) modelIsLocal(name string) bool {
+	cfg, known := s.ModelConfig(name)
+	return known && s.workloadClassifier.Classify(cfg) == models.WorkloadLocal
 }
 
 // wireNetaudit builds the network-audit services and registers the network_scan tool. It is the one place they are
