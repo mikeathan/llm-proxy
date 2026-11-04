@@ -30,6 +30,7 @@ type RunReporter struct {
 	decoys  DecoyReader      // optional: devices that connected to a decoy service
 	hist    AuditHistory     // optional: the Network page's daily counts
 	host    HostLooker       // optional: this computer's open ports and the files that survive a reboot
+	watch   MonitorStalls    // optional: the module's own parts that are switched on and stopped working
 	nearby  NearbyFinder     // optional: what devices said about themselves (a second gateway)
 	classes ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
 	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
@@ -106,6 +107,13 @@ type HostLooker interface {
 // WithHost makes the reporter add what changed on the computer it runs on. Without it nothing is looked at.
 func (r *RunReporter) WithHost(h HostLooker) *RunReporter {
 	r.host = h
+	return r
+}
+
+// WithMonitors makes the reporter add the module's own parts that stopped working, as one finding about this computer. It is
+// added only when this computer was looked at, like every finding about it. Without it nothing is added.
+func (r *RunReporter) WithMonitors(m MonitorStalls) *RunReporter {
+	r.watch = m
 	return r
 }
 
@@ -514,6 +522,9 @@ func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string,
 		return fmt.Sprintf("\n\n> Note: this computer could not be checked, so its open ports and startup files were not compared (%v).", err), false
 	}
 	result.Findings = append(result.Findings, look.Findings...)
+	if r.watch != nil {
+		result.Findings = append(result.Findings, MonitorFindings(r.watch.Stalled())...)
+	}
 	if look.Unreadable > 0 {
 		note = fmt.Sprintf("\n\n> Note: %d watched locations could not be read by the account this program runs as, so changes there are not seen.", look.Unreadable)
 	}

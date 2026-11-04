@@ -84,6 +84,8 @@ type netauditServices struct {
 	Blocks *netaudit.Blocks
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
+	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
+	Monitors *netaudit.MonitorWatch
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
 	// Ports keeps the ports each scanned device had open at its last scan, for the audit's counts and the Devices card.
@@ -253,8 +255,8 @@ func (s AppServices) NetauditDecoys() netaudit.DecoyReader {
 }
 
 // StartNetauditPresence runs the Network module's background work until ctx ends: the presence check, the router log listener
-// and its counter of refused attempts, the DNS comparison, the decoys and Nearby. It is the one place that starts them
-// (Constitution II.2, II.14); work that is switched off in the settings does nothing.
+// and its counter of refused attempts, the DNS comparison, the decoys, Nearby and the watch over them all. It is the one place
+// that starts them (Constitution II.2, II.14); work that is switched off in the settings does nothing.
 func (s AppServices) StartNetauditPresence(ctx context.Context) {
 	for _, run := range s.netauditLoops() {
 		go run(ctx)
@@ -279,7 +281,16 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.DNSCollector != nil, func(ctx context.Context) { n.DNSCollector.Run(ctx) })
 	add(n.Decoys != nil, func(ctx context.Context) { n.Decoys.Run(ctx) })
 	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
+	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
 	return loops
+}
+
+// NetauditMonitors is what the nightly report reads about the module's own parts that stopped; nil until the services are wired.
+func (s AppServices) NetauditMonitors() netaudit.MonitorStalls {
+	if s.netaudit == nil || s.netaudit.Monitors == nil {
+		return nil
+	}
+	return s.netaudit.Monitors
 }
 
 // NetauditVulns is where the run reporter reads the vulnerability data from; nil until the services are wired.
@@ -410,6 +421,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
 		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()),
 	}
+	s.netaudit.Monitors = newMonitorWatch(s.netaudit, s.alertNotifier(alerts.Log, models.NetworkAlertMonitor))
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))

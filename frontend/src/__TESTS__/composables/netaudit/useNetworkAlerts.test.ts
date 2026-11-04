@@ -62,6 +62,13 @@ describe('network alerts', () => {
     expect(cursor.value).toBe(900)
   })
 
+  it('aims a stopped-monitor alert at the overview, where each part says why', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'monitor', message: 'monitor m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toNetwork())
+  })
+
   it('carries what became of the send and how often a decoy alert repeated', async () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 5, items: [alert(5, { kind: 'decoy', delivery: 'no_connector', count: 3 })] })

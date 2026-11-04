@@ -37,7 +37,7 @@ function alertOf(event: NetworkAlertEvent): NetworkAlertItem {
     delivery: event.delivery,
     count: event.count,
     repeatKey: `${event.kind}:${event.message}`,
-    target: event.kind === 'summary' ? toNetwork() : toNetwork(DEVICES_TAB),
+    target: event.kind === 'summary' || event.kind === 'monitor' ? toNetwork() : toNetwork(DEVICES_TAB),
     destination: 'network',
   }
 }
