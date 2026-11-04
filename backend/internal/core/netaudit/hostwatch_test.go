@@ -11,13 +11,15 @@ import (
 )
 
 type fakeHost struct {
-	listeners []hostwatch.Listener
-	lerr      error
-	files     []hostwatch.FileState
-	hard      hostwatch.Hardening
-	patches   hostwatch.Patches
-	docker    bool
-	integrity hostwatch.IntegrityResult
+	listeners   []hostwatch.Listener
+	lerr        error
+	files       []hostwatch.FileState
+	hard        hostwatch.Hardening
+	patches     hostwatch.Patches
+	docker      bool
+	integrity   hostwatch.IntegrityResult
+	packages    map[string]string
+	packagesErr error
 }
 
 func (f *fakeHost) Listeners() ([]hostwatch.Listener, error) { return f.listeners, f.lerr }
@@ -26,6 +28,7 @@ func (f *fakeHost) Hardening() hostwatch.Hardening           { return f.hard }
 func (f *fakeHost) Patches() hostwatch.Patches               { return f.patches }
 func (f *fakeHost) DockerBridge() bool                       { return f.docker }
 func (f *fakeHost) Integrity() hostwatch.IntegrityResult     { return f.integrity }
+func (f *fakeHost) Installed() (map[string]string, error)    { return f.packages, f.packagesErr }
 
 type memHostStore struct {
 	w      models.HostWatch

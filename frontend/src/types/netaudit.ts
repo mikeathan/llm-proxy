@@ -645,6 +645,20 @@ export interface NetworkActivity {
   router?: RouterBlocks
 }
 
+/** What the program holds of Canonical's security notices for this computer's Ubuntu release (the server's ubuntuoval.Status). */
+export interface UbuntuDataStatus {
+  /** False on a computer that is not Ubuntu: there is nothing to fetch for it. */
+  supported: boolean
+  host_release?: string
+  running: boolean
+  release?: string
+  notices: number
+  packages: number
+  generated_at?: string
+  imported_at?: string
+  reason?: string
+}
+
 /** The Network page's first screen (the server's netaudit.Overview). */
 export interface NetworkOverview {
   posture: NetworkPosture

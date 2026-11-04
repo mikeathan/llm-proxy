@@ -2,6 +2,7 @@ package netaudit
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -249,6 +250,7 @@ type HostSource interface {
 	Patches() hostwatch.Patches
 	DockerBridge() bool
 	Integrity() hostwatch.IntegrityResult
+	Installed() (map[string]string, error)
 }
 
 // HostStore keeps the first look the later ones are compared with: *persistence.HostWatchStore.
@@ -263,6 +265,13 @@ type HostWatcher struct {
 	src   HostSource
 	store HostStore
 	now   func() time.Time
+	flaws FlawJudge // optional: judges the installed packages against Ubuntu's security notices
+}
+
+// WithFlaws makes the watcher judge the installed packages against the downloaded notices. Without it nothing is judged.
+func (w *HostWatcher) WithFlaws(j FlawJudge) *HostWatcher {
+	w.flaws = j
+	return w
 }
 
 func NewHostWatcher(src HostSource, store HostStore) *HostWatcher {
@@ -298,6 +307,9 @@ func (w *HostWatcher) Look() (HostLook, error) {
 	look.Unreadable += patches.Unreadable
 	look.Findings = append(look.Findings, patchFindings(patches)...)
 	if w.compareIntegrity(&base, w.src.Integrity(), &look) {
+		changed = true
+	}
+	if w.compareFlaws(&base, &look) {
 		changed = true
 	}
 	if changed {
@@ -355,6 +367,37 @@ func (w *HostWatcher) compareIntegrity(base *models.HostWatch, res hostwatch.Int
 		look.Findings = append(look.Findings, Finding{Device: HostDevice, Check: CheckHostFilesModified, Severity: SeverityHigh, Evidence: integrityEvidence(modified, paths)})
 	}
 	return stored
+}
+
+// compareFlaws turns the installed packages into a finding when they are behind a fix. Only a judgement that was made can say the
+// finding is gone: a package list that could not be read keeps the earlier finding (and counts as an unreadable place), and a
+// computer with nothing to judge against (no data downloaded, or data for another release) says nothing and keeps nothing.
+// It returns true when the stored outcome changed.
+func (w *HostWatcher) compareFlaws(base *models.HostWatch, look *HostLook) bool {
+	if w.flaws == nil {
+		return false
+	}
+	installed, err := w.src.Installed()
+	if err != nil {
+		look.Unreadable++
+		if base.Flaws.Packages > 0 {
+			look.Findings = append(look.Findings, flawFinding(base.Flaws))
+		}
+		return false
+	}
+	res, ok := w.flaws.Judge(installed)
+	now := models.HostFlaws{}
+	if ok {
+		now = flawsOf(res)
+	}
+	if now.Packages > 0 {
+		look.Findings = append(look.Findings, flawFinding(now))
+	}
+	if reflect.DeepEqual(base.Flaws, now) {
+		return false
+	}
+	base.Flaws = now
+	return true
 }
 
 // integrityEvidence is the finding's words: how many files, up to ten plain paths the reader already vetted, and what the

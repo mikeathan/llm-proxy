@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.28"
+version: "2.29"
 status: stable
 last_updated: 2026-11-04
 constitution_references: []
@@ -13,6 +13,14 @@ supersedes:
 
 ## Changelog
 
+- **2.29 (2026-11-04)** — **Packages behind a security fix** (plan `network-attempts-integrity-timeline` P6;
+  [ADR-0027](../decisions/ADR-0027-installed-packages-are-judged-against-canonicals-usn-oval.md)). Network → Settings gains an **Ubuntu security data** card:
+  "Download notices" / "Update notices" fetch Canonical's USN OVAL file for this computer's release (about 1.3 MB, from `security-metadata.canonical.com` only,
+  one click, nothing automatic), and "Delete data" (step-up) removes it; the card says when it is not Ubuntu, how old the data is, and that fixes only Ubuntu
+  Pro installs are not counted; Advanced adds the counts and the build date. `GET /admin/api/netaudit/ubuntu-data`, `POST .../ubuntu-data/update`,
+  `DELETE .../ubuntu-data` (step-up). With data held for this release, the nightly audit compares `/var/lib/dpkg/status` with it (dpkg version ordering, notices
+  under 48 hours old not counted) and gives one `host_packages_vulnerable` finding in "This computer": the number of packages and flaws, up to ten names, high
+  when a flaw is on CISA's exploited list, medium for a critical or high flaw, low otherwise. A package list that cannot be read keeps the earlier finding.
 - **2.28 (2026-11-04)** — **Device kinds** (plan `network-attempts-integrity-timeline` P5). A scanned device that looks like a camera, printer, media
   player or smart-home device, judged from its maker (the bundled registry, whole words only), its open TCP ports and the service types Nearby heard it
   announce, and that has remote login, Telnet, file sharing, remote desktop or screen sharing open, gets one `class_mismatch` finding (medium) that

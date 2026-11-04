@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
+import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -40,6 +40,21 @@ export class NetauditService {
   /** Asks the audit workspace's model, once, to explain the last week. It must be a model on this machine; the server says if not. */
   static explainTimeline(audit: { workspaceId: string; automation: string }): Promise<TimelineSummary> {
     return post<TimelineSummary>(`${API_ENDPOINTS.netauditActivitySummary}${query({ workspace_id: audit.workspaceId, automation: audit.automation })}`)
+  }
+
+  /** What is held of Canonical's security notices, and whether this computer can use them. */
+  static ubuntuData(): Promise<UbuntuDataStatus> {
+    return get<UbuntuDataStatus>(API_ENDPOINTS.netauditUbuntuData)
+  }
+
+  /** Fetches this release's notices (about 1.3 MB) from Canonical's fixed address and replaces what is held. */
+  static updateUbuntuData(): Promise<UbuntuDataStatus> {
+    return post<UbuntuDataStatus>(API_ENDPOINTS.netauditUbuntuDataUpdate)
+  }
+
+  /** Deletes the notices held. The person is asked for the passphrase again. */
+  static clearUbuntuData(): Promise<UbuntuDataStatus> {
+    return del<UbuntuDataStatus>(API_ENDPOINTS.netauditUbuntuData)
   }
 
   static async checkTargets(targets: string[]): Promise<TargetProblem[]> {
