@@ -90,4 +90,10 @@ describe('NetworkOverviewPanel', () => {
       expect(v.classes()).not.toContain('font-medium')
     }
   })
+
+  it('offers to see the timeline, and says where to go without going there itself', async () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } })
+    await w.get('[data-test="see-all-activity"]').trigger('click')
+    expect(w.emitted('open-tab')).toEqual([['timeline']])
+  })
 })

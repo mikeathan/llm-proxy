@@ -19,6 +19,7 @@ const STUBS = {
   NetworkOverviewPanel: { emits: ['open-tab'], template: '<div data-test="stub-overview" @click="$emit(\'open-tab\', \'devices\')" />' },
   DevicesCard: { template: '<div data-test="stub-devices" />' },
   FindingsReport: { template: '<div data-test="stub-findings" />' },
+  TimelineTab: { props: ['audit'], template: '<div data-test="stub-timeline" />' },
   AuditsPanel: { template: '<div data-test="stub-audits" />' },
   NetworkSettings: { template: '<div data-test="stub-settings" />' },
   ReadinessBanner: { props: ['here'], template: '<div data-test="stub-readiness" :data-here="here" />' },
@@ -40,25 +41,26 @@ describe('NetworkView', () => {
     automations.value = []
   })
 
-  it('has the tabs Overview, Devices, Findings, Audits and Settings', async () => {
+  it('has the tabs Overview, Devices, Findings, Timeline, Audits and Settings', async () => {
     const { wrapper } = await mountAt('/network')
-    expect(tabLabels(wrapper)).toEqual(['Overview', 'Devices', 'Findings', 'Audits', 'Settings'])
-    expect(wrapper.findAll('a.network-tab').map((a) => a.attributes('href'))).toEqual(['/network', '/network/devices', '/network/findings', '/network/audits', '/network/settings'])
+    expect(tabLabels(wrapper)).toEqual(['Overview', 'Devices', 'Findings', 'Timeline', 'Audits', 'Settings'])
+    expect(wrapper.findAll('a.network-tab').map((a) => a.attributes('href'))).toEqual(['/network', '/network/devices', '/network/findings', '/network/timeline', '/network/audits', '/network/settings'])
   })
 
   it.each([
     ['/network', 'stub-overview'],
     ['/network/devices', 'stub-devices'],
+    ['/network/timeline', 'stub-timeline'],
     ['/network/audits', 'stub-audits'],
     ['/network/settings', 'stub-settings'],
   ])('shows one thing on %s', async (path, shown) => {
     const { wrapper } = await mountAt(path)
-    const all = ['stub-overview', 'stub-devices', 'stub-findings', 'stub-audits', 'stub-settings']
+    const all = ['stub-overview', 'stub-devices', 'stub-findings', 'stub-timeline', 'stub-audits', 'stub-settings']
     expect(all.filter((id) => wrapper.find(`[data-test="${id}"]`).exists())).toEqual([shown])
   })
 
   it('keeps Simple/Advanced and Help in the page header, once, on every tab', async () => {
-    for (const path of ['/network', '/network/devices', '/network/findings', '/network/audits', '/network/settings']) {
+    for (const path of ['/network', '/network/devices', '/network/findings', '/network/timeline', '/network/audits', '/network/settings']) {
       const { wrapper } = await mountAt(path)
       expect(wrapper.get('header').findAll('[role="radio"], [role="tab"], button').some((b) => b.attributes('aria-label') === 'Help')).toBe(true)
       expect(wrapper.findAll('button').filter((b) => b.attributes('aria-label') === 'Help')).toHaveLength(1)

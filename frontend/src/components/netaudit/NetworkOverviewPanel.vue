@@ -7,7 +7,7 @@ import StatusTag from "../common/display/StatusTag.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { attentionReasons, changeText, nextAction, postureHeadline, seriesOf } from "../../utils/netaudit/networkOverview"
 import { formatRelativeTime, isRecorded } from "../../utils/format/time"
-import { NETWORK_CHECK_PROBLEM, NETWORK_NO_AUDIT, NETWORK_POSTURE_UNKNOWN_NEXT, NETWORK_RECENT_NONE, NETWORK_RECENT_TITLE, NETWORK_TREND_NOTE } from "../../constants/netaudit"
+import { ACTIVITY_SEE_ALL, NETWORK_CHECK_PROBLEM, NETWORK_NO_AUDIT, NETWORK_POSTURE_UNKNOWN_NEXT, NETWORK_RECENT_NONE, NETWORK_RECENT_TITLE, NETWORK_TREND_NOTE } from "../../constants/netaudit"
 import type { NetworkOverview, NetworkPosture } from "../../types/netaudit"
 import type { NetworkTab } from "../../types/routes"
 import type { StatusState } from "../../types/ui"
@@ -67,6 +67,9 @@ const devicesCaption = computed(() => {
     <p class="m-0 text-[length:var(--text-small)] text-muted">{{ NETWORK_TREND_NOTE }}</p>
 
     <Panel :title="NETWORK_RECENT_TITLE" flush>
+      <template #actions>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="see-all-activity" @click="emit('open-tab', 'timeline')">{{ ACTIVITY_SEE_ALL }}</BaseButton>
+      </template>
       <p v-if="!overview.recent.length" class="m-0 px-4 py-3 text-muted">{{ NETWORK_RECENT_NONE }}</p>
       <ul v-else class="m-0 flex list-none flex-col p-0" aria-label="Recent changes">
         <li v-for="c in overview.recent" :key="`${c.kind}|${c.at}|${c.mac ?? c.ip}`" class="flex flex-wrap items-baseline justify-between gap-2 border-b border-hairline/60 px-4 py-2 last:border-b-0">

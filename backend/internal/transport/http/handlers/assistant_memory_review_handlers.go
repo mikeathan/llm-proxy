@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"llm-proxy/internal/core/assistant/reasoning"
@@ -100,14 +101,17 @@ func reviewItems(suggestions []memorycapture.Suggestion) []memoryReviewItem {
 type chatCompleter struct {
 	client proxy.Client
 	model  string
+	// maxTokens and temperature are the review's when zero.
+	maxTokens   int
+	temperature float64
 }
 
 func (c chatCompleter) Complete(ctx context.Context, system, user string) (string, error) {
 	req := proxy.ChatRequest{
 		Model:       c.model,
 		Messages:    []proxy.Message{{Role: proxy.SystemRole, Content: system}, {Role: proxy.UserRole, Content: user}},
-		MaxTokens:   memoryReviewMaxTokens,
-		Temperature: memoryReviewTemperature,
+		MaxTokens:   cmp.Or(c.maxTokens, memoryReviewMaxTokens),
+		Temperature: cmp.Or(c.temperature, memoryReviewTemperature),
 	}
 	// Extracting a few facts needs no thinking; a local thinking model would
 	// spend the whole allowance on it and answer nothing.

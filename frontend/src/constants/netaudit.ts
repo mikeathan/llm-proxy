@@ -271,7 +271,7 @@ export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
-export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', audits: 'Audits', settings: 'Settings' } as const
+export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', timeline: 'Timeline', audits: 'Audits', settings: 'Settings' } as const
 export const NETWORK_OVERVIEW_LABEL = 'Overview'
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
@@ -490,3 +490,29 @@ export const NEARBY_SERVICE_NAMES: Record<string, string> = {
   '_smb._tcp': 'File sharing (SMB)', '_afpovertcp._tcp': 'File sharing (AFP)', '_http._tcp': 'Web page', '_https._tcp': 'Web page (secure)', '_workstation._tcp': 'Computer',
   '_companion-link._tcp': 'Apple device', '_homekit._tcp': 'HomeKit', '_hap._tcp': 'HomeKit',
 }
+
+// The Timeline tab: one timeline of what happened lately. Simple shows the latest few rows, Advanced a long list with each
+// device's address.
+export const ACTIVITY_TITLE = 'What happened lately'
+export const ACTIVITY_LIMIT_SIMPLE = 20
+export const ACTIVITY_LIMIT_ADVANCED = 100
+export const ACTIVITY_FILTER_LABEL = 'Show activity'
+export const ACTIVITY_FILTER_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'devices', label: 'Devices' },
+  { value: 'ports', label: 'Ports' },
+  { value: 'findings', label: 'Findings' },
+  { value: 'alerts', label: 'Alerts' },
+]
+export const ACTIVITY_LOAD_FAILED = 'The activity could not be read.'
+export const ACTIVITY_EMPTY = 'Nothing has happened lately. New devices, changed ports, new findings and alerts show up here.'
+export const ACTIVITY_EMPTY_FILTERED = 'Nothing of this kind has happened lately.'
+export const ACTIVITY_SEE_ALL = 'See the timeline'
+export const ACTIVITY_RELATED_TAG = 'Possibly related'
+export const ACTIVITY_RELATED_NOTE = 'The timing is all the program can say; the two may be unrelated.'
+export const TIMELINE_EXPLAIN_LABEL = 'Explain this week'
+export const TIMELINE_EXPLAINING = 'Writing the summary'
+export const TIMELINE_EXPLAIN_FAILED = 'The summary could not be written.'
+export const TIMELINE_EXPLAIN_NOTHING = 'There is nothing from the last week to explain.'
+export const TIMELINE_EXPLAIN_NOTE = 'Written by a model on this machine from the list of events only. It was not shown any device name or address, and it can be wrong.'
+export const TIMELINE_EXPLAIN_HINT = 'Uses the audit workspace’s model, and only if that model runs on this machine.'

@@ -10,6 +10,7 @@ import NetworkTabs from "../components/netaudit/NetworkTabs.vue"
 import NetworkOverviewPanel from "../components/netaudit/NetworkOverviewPanel.vue"
 import NetauditToolbar from "../components/netaudit/NetauditToolbar.vue"
 import ReadinessBanner from "../components/netaudit/ReadinessBanner.vue"
+import TimelineTab from "../components/netaudit/TimelineTab.vue"
 import AuditsPanel from "../components/netaudit/AuditsPanel.vue"
 import NetworkSettings from "../components/netaudit/NetworkSettings.vue"
 import DevicesCard from "../components/netaudit/DevicesCard.vue"
@@ -25,7 +26,7 @@ import type { NetworkAudit } from "../types/netaudit"
 import type { NetworkTab } from "../types/routes"
 
 // Network: the home network as a security feature of its own, under the Modules group. Overview (one verdict, the numbers,
-// what changed), Devices (who is on it), Findings (the last audit), Audits (the scans that run on a schedule) and Settings
+// what changed), Devices (who is on it), Findings (the last audit), Timeline (one list of what happened), Audits (the scans that run on a schedule) and Settings
 // (every switch and limit). The audit itself stays an ordinary automation, and this page reads its results. Simple or
 // Advanced, and Help, are in the page header and mean the same on every tab.
 const route = useRoute()
@@ -83,6 +84,7 @@ onUnmounted(stop)
       </EmptyState>
     </template>
 
+    <TimelineTab v-else-if="tab === 'timeline'" :audit="audit" />
     <AuditsPanel v-else-if="tab === 'audits'" />
     <NetworkSettings v-else />
 

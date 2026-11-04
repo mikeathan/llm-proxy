@@ -296,6 +296,13 @@ func (s AppServices) auditModelIsLocal(entry *automation.AutomationEntry) error 
 	}
 }
 
+// modelIsLocal reports whether a model runs on this machine. A model that cannot be found is not local: a scheduled audit
+// leaves that to fail in its run, but the timeline summary sends its data at once, so it only goes where it is known to stay.
+func (s AppServices) modelIsLocal(name string) bool {
+	cfg, known := s.ModelConfig(name)
+	return known && s.workloadClassifier.Classify(cfg) == models.WorkloadLocal
+}
+
 // wireNetaudit builds the network-audit services and registers the network_scan tool. It is the one place they are
 // put together: the policy comes from settings, the engines from the sandbox provider, and the tool is hidden whenever
 // the readiness check says a scan cannot run. Each stage builds one concern and hands back what the next one needs.

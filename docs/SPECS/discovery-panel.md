@@ -1,9 +1,9 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.25"
+version: "2.26"
 status: stable
-last_updated: 2026-11-03
+last_updated: 2026-11-04
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,19 @@ supersedes:
 
 ## Changelog
 
+- **2.26 (2026-11-04)** — **Network header, Timeline tab, Docker wording** (plan `network-attempts-integrity-timeline`, owner-approved
+  2026-11-04; [ADR-0025](../decisions/ADR-0025-network-timeline-reads-existing-records-summary-is-local-and-typed.md)).
+  (1) **The page header is one row on a phone:** the title, Simple/Advanced and a "?" Help button (accessible name "Help") share a row; the
+  page subtitle is hidden below the `sm` breakpoint (`PageHeader` `subtitleHiddenOnPhone`). The audit automation page shares the toolbar.
+  (2) **A sixth tab, Timeline** (`/network/timeline`, after Findings): one list, newest first, under Today / Yesterday / date headings, of new devices,
+  address changes, alerts, a day's opened and closed ports, the last audit's new and gone findings, and a "possibly related" row when a new
+  device appeared within an hour before a decoy touch. Filter chips (All, Devices, Ports, Findings, Alerts) work in the browser; Simple reads
+  20 rows, Advanced 100 with each device's addresses. `GET /admin/api/netaudit/activity?limit=&workspace_id=&automation=` builds it from existing
+  records and starts nothing. The Overview's "What changed lately" gains "See the timeline". (3) **"Explain this week"** (shown when an audit exists):
+  `POST /admin/api/netaudit/activity/summary?workspace_id=&automation=` asks the workspace's model once; the model must run on this machine
+  (409 otherwise), the prompt holds no device name, address or alert text, one at a time (429), busy 503, failure 502 with fixed words.
+  (4) The listener finding says when Docker has a network on the computer that a published container port bypasses the firewall.
+  Visual specs: `netaudit-header`, `netaudit-timeline` at both widths in both views.
 - **2.25 (2026-11-03)** — **Nearby** (plan `network-nearby-discovery`, owner-approved;
   [ADR-0024](../decisions/ADR-0024-nearby-discovery-two-multicast-datagrams-bounded-replies.md), Constitution I.9 proposed).
   (1) The Network **Devices** tab gains a **Nearby** card under the device list: Simple is one summary line ("N devices heard, M need

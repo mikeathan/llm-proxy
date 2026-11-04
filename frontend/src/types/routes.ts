@@ -70,7 +70,7 @@ export interface NavGroup {
 export type NavEntry = { kind: 'item'; item: NavItem } | { kind: 'group'; group: NavGroup }
 
 // The tabs of the Network page, addressable at /network/:tab. Overview is the page without a tab.
-export const NETWORK_TABS = ['devices', 'findings', 'audits', 'settings'] as const
+export const NETWORK_TABS = ['devices', 'findings', 'timeline', 'audits', 'settings'] as const
 export type NetworkTab = (typeof NETWORK_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the

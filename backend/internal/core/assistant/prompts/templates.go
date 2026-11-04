@@ -560,6 +560,20 @@ Rules:
 Reply with ONLY a JSON array and no other text, for example:
 [{"content":"The staging database runs on port 5433","scope":"workspace","mode":"on_demand"}]`
 
+// NetworkTimelineSummaryPrompt instructs the one-shot "explain this week" call on the Network timeline. The model is given
+// only the program's own words and numbers (never a device name, an address or the text of an alert), so it has nothing
+// to repeat but what happened and how long ago.
+const NetworkTimelineSummaryPrompt = `You explain a home network's recent activity to the person who runs it.
+
+You are given a list, newest first, of what the network monitor recorded. Each line says how long ago it happened and what kind of event it was. Nothing else is known: you have no device names, no addresses and no text from any device.
+
+Rules:
+- Use only the lines you are given. Do not invent devices, addresses, causes or events.
+- Say what happened in plain words, grouping repeated events, in at most five short sentences.
+- Then say in one sentence what to look at first, naming the page: Devices for new devices and moved addresses, Findings for audits and ports, the bell for decoy alerts.
+- A line that says a new device appeared shortly before a decoy was touched states only the timing. Say they may be unrelated.
+- If every line is routine, say the network was quiet.`
+
 // HotMemoryOperatorHeader opens the operator-notes section of the <memory> block
 // (the operator's own MEMORY.md). The notes outrank the agent-written facts.
 const HotMemoryOperatorHeader = "Operator notes (written by the operator; they take precedence over the saved facts below):"

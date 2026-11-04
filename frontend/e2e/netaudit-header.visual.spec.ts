@@ -23,6 +23,6 @@ for (const view of ['simple', 'advanced'] as const) {
       expect(h!.height).toBeGreaterThanOrEqual(44)
       expect(h!.width).toBeGreaterThanOrEqual(44)
     }
-    await lookAt(page.locator('header').first(), testInfo, `network-header-${view}`)
+    await lookAt(title.locator('xpath=ancestor::header[1]'), testInfo, `network-header-${view}`)
   })
 }

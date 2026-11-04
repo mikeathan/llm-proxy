@@ -39,6 +39,8 @@ type HandlerSet struct {
 	VulnData    *handlers.VulnDataHandlers
 	Devices     *handlers.NetauditDevicesHandlers
 	Overview    *handlers.NetauditOverviewHandlers
+	Activity    *handlers.NetauditActivityHandlers
+	Timeline    *handlers.NetauditSummaryHandlers
 	Summary     *handlers.NetauditSwitchHandlers
 	DeviceNames *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
@@ -124,6 +126,8 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
 	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
+	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence())
+	hs.Timeline = handlers.NewNetauditSummaryHandlers(hs.Activity, hs.Turns, s.modelIsLocal)
 	hs.Overview = handlers.NewNetauditOverviewHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}, s.netaudit.History, s.Persistence())
 
 	// Register recording routes unconditionally. The handler safely returns
@@ -366,6 +370,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/netaudit/vulndata/cancel", hs.VulnData.Cancel, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/vulndata/import", hs.VulnData.Import, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/overview", hs.Overview.Get, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/activity", hs.Activity.Get, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/activity/summary", hs.Timeline.Post, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/weekly-summary", hs.Summary.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/weekly-summary", hs.Summary.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/device-names", hs.DeviceNames.Get, jsonMethodNotAllowed)

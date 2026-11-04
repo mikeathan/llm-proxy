@@ -579,6 +579,47 @@ export interface NetworkChange {
   name?: string
 }
 
+export type ActivityKind = 'new_device' | 'address_changed' | 'alert' | 'ports_changed' | 'audit' | 'related'
+export type ActivityGroup = 'devices' | 'ports' | 'findings' | 'alerts'
+export type ActivityFilter = 'all' | ActivityGroup
+
+/**
+ * One row of the Activity timeline (the server's netaudit.ActivityRow); the screen composes the words from the kind and
+ * its typed fields. `text` is only on an alert row: the alert's own wording, which the program wrote.
+ */
+export interface ActivityRow {
+  kind: ActivityKind
+  group: ActivityGroup
+  at: string
+  /** True for a row that stands for a whole day; its date is shown and not its time. */
+  day?: boolean
+  mac?: string
+  ip?: string
+  name?: string
+  alert_kind?: string
+  text?: string
+  count?: number
+  opened?: number
+  closed?: number
+}
+
+/** The model's plain-words summary of the timeline (the server's summaryResponse); empty when there was nothing to explain. */
+export interface TimelineSummary {
+  summary: string
+  model?: string
+}
+
+/** Rows of the timeline that fall on one day, under that day's heading. */
+export interface ActivityGroupOfRows {
+  heading: string
+  rows: ActivityRow[]
+}
+
+/** The Activity timeline, newest first. */
+export interface NetworkActivity {
+  rows: ActivityRow[]
+}
+
 /** The Network page's first screen (the server's netaudit.Overview). */
 export interface NetworkOverview {
   posture: NetworkPosture
