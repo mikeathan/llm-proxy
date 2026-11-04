@@ -40,6 +40,7 @@ type HandlerSet struct {
 	Devices     *handlers.NetauditDevicesHandlers
 	Overview    *handlers.NetauditOverviewHandlers
 	Activity    *handlers.NetauditActivityHandlers
+	UbuntuData  *handlers.UbuntuDataHandlers
 	Timeline    *handlers.NetauditSummaryHandlers
 	Summary     *handlers.NetauditSwitchHandlers
 	DeviceNames *handlers.NetauditSwitchHandlers
@@ -126,6 +127,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
 	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
+	hs.UbuntuData = handlers.NewUbuntuDataHandlers(s.netaudit.Ubuntu)
 	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence())
 	hs.Timeline = handlers.NewNetauditSummaryHandlers(hs.Activity, hs.Turns, s.modelIsLocal)
 	hs.Overview = handlers.NewNetauditOverviewHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}, s.netaudit.History, s.Persistence())
@@ -371,6 +373,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/netaudit/vulndata/import", hs.VulnData.Import, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/overview", hs.Overview.Get, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/activity", hs.Activity.Get, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/ubuntu-data", hs.UbuntuData.Get, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/ubuntu-data", hs.UbuntuData.Clear, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/ubuntu-data/update", hs.UbuntuData.Update, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/activity/summary", hs.Timeline.Post, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/weekly-summary", hs.Summary.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/weekly-summary", hs.Summary.Put, jsonMethodNotAllowed)

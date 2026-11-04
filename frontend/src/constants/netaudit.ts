@@ -530,3 +530,17 @@ export const TIMELINE_EXPLAIN_FAILED = 'The summary could not be written.'
 export const TIMELINE_EXPLAIN_NOTHING = 'There is nothing from the last week to explain.'
 export const TIMELINE_EXPLAIN_NOTE = 'Written by a model on this machine from the list of events only. It was not shown any device name or address, and it can be wrong.'
 export const TIMELINE_EXPLAIN_HINT = 'Uses the audit workspace’s model, and only if that model runs on this machine.'
+
+// Network · Settings · Ubuntu security data: Canonical's notices for this computer's release, which the audit compares the
+// installed packages with.
+export const UBUNTU_TITLE = 'Ubuntu security data'
+export const UBUNTU_LOAD_FAILED = 'The Ubuntu security data could not be checked.'
+export const UBUNTU_UPDATE_FAILED = 'The Ubuntu security data could not be updated.'
+export const UBUNTU_CLEAR_FAILED = 'The Ubuntu security data could not be deleted.'
+export const UBUNTU_UNSUPPORTED = 'This computer is not running Ubuntu, so there are no security notices to compare its packages with.'
+export const UBUNTU_EMPTY = 'Not downloaded yet. With it, the audit can say which installed packages are behind a security fix.'
+export const UBUNTU_SIZE = 'One download of about 1.3 MB from security-metadata.canonical.com, only when you press Update.'
+export const UBUNTU_NOTE = 'Fixes that only an Ubuntu Pro subscription installs are not counted, so a package can be behind a fix this list does not show. A flaw that CISA lists as exploited makes the finding high.'
+export const UBUNTU_ATTRIBUTION = 'Security notices © Canonical Ltd., from security-metadata.canonical.com. Canonical states no licence for this data; it is fetched once, kept on this computer and never sent anywhere.'
+export const UBUNTU_OLD_DAYS = 14
+export const UBUNTU_OLD_NOTE = 'This data is more than two weeks old, so newer fixes are missing. Update it.'
