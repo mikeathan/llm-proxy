@@ -176,7 +176,7 @@ type AgentStackContext interface {
 	SessionRetention() time.Duration // how long a session fact lives (settings memory.retention_days, read live)
 	HostSettings() models.HostSettings
 	SetSandboxProvider(sandbox.Provider)
-	// LockedDown reports whether lock down is on: the guardrails then refuse the terminal and the network.
+	// LockedDown reports whether lock down is on: the guardrails then refuse the terminal, the network and MCP tools.
 	LockedDown() bool
 }
 

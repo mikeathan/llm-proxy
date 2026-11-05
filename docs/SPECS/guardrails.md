@@ -14,8 +14,8 @@ supersedes:
 ## Changelog
 
 - **1.8 (2026-11-05)** — **Lock down** (plan `security-self-protection-and-agent-watch` P6): while the operator's lock down switch is on
-  (`core/lockdown`, `lockdown.json` in the data root, step-up `POST`/`DELETE /admin/api/lockdown`), the hard gate refuses the terminal and
-  every host-network-gated tool with `lockdown.ErrLockedDown` before any override or approval, and the agent loop treats it as a security
+  (`core/lockdown`, `lockdown.json` in the data root, step-up `POST`/`DELETE /admin/api/lockdown`), the hard gate refuses the terminal,
+  every host-network-gated tool and every tool outside the built-in catalog (MCP tools) with `lockdown.ErrLockedDown` before any override or approval, and the agent loop treats it as a security
   boundary (no approval prompt). Reading and writing the workspace stays allowed. A switch file that cannot be read keeps lock down on.
   Guardrail refusals and approval prompts are also recorded, by name only, in the agent security record (`core/agentwatch`).
 - **1.7 (2026-10-25)** — Guarded programs (new §II.7.6): a known external program (nmap first) is started only by

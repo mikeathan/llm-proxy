@@ -450,8 +450,8 @@ The router's remote syslog is used for one thing: waking the presence check earl
   `NetauditConfig.DailyCheckIn` is on, naming the stopped monitors (`MonitorWatch.Stalled`); the last send time is
   `NetworkHistory.CheckInAt`. The monitor part `alerts` reads the alert log: healthy while the newest alert went out or had no connector,
   stalled when sends kept failing for an hour.
-- **Lock down** (`core/lockdown`, `lockdown.json`, v0.47.0). One flag on `AppContext`, read by the guardrail hard gate (terminal and
-  network-gated tools), the automation pre-flight (`AppServices.RunPreflight`, code `locked_down`) and the webhook handler. Switching it on
+- **Lock down** (`core/lockdown`, `lockdown.json`, v0.47.0). One flag on `AppContext`, read by the guardrail hard gate (terminal,
+  network-gated tools and MCP tools), the automation pre-flight (`AppServices.RunPreflight`, code `locked_down`) and the webhook handler. Switching it on
   (step-up) also ends every other session (`auth.RevokeOtherSessions`) and, if asked, every token (`auth.RevokeAllTokens`). No setting is
   changed, so lifting it restores everything; an unreadable switch file keeps it on.
 - All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`, `agentwatch.Watch`, `CheckIn`) start from `netauditLoops`.

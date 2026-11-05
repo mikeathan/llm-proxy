@@ -40,3 +40,13 @@ func TestOwnModelServer_WithoutSourcesChangesNothing(t *testing.T) {
 		t.Errorf("got %+v", got[0])
 	}
 }
+
+// A night the AI-server probe cannot judge this computer's model port keeps the earlier own-model-server finding, as it keeps
+// any probe's finding: the stored finding carries the relabelled check, and must not be dropped (resolved one night, new the next).
+func TestOwnModelServer_AnUnsureProbeKeepsTheRelabelledFinding(t *testing.T) {
+	earlier := []Finding{{Device: "192.168.50.60", Port: 8081, Proto: "tcp", Check: CheckOwnModelServerOpen, Severity: SeverityHigh}}
+	unsure := ServiceResult{unknown: map[string]bool{serviceKey("192.168.50.60", 8081, CheckAIAPIExposed): true}}
+	if got := unsure.Carry(earlier); len(got) != 1 || got[0].Check != CheckOwnModelServerOpen {
+		t.Errorf("carried %+v; want the own-model-server finding kept", got)
+	}
+}

@@ -18,11 +18,13 @@ supersedes:
   said once (the guide's steps when there is a guide, the one line when there is not), a place row on a phone is its name, its evidence and
   quiet text actions under them, and below the problems each list (ports to look at, marked as fine, gone since last time) is one folded
   section with its count; "marked as fine" names the check and the place, never the evidence; the "Seen in total" line is gone (the meta line
-  says the counts once). The Overview tile is **Problems**: the check findings the operator has not accepted, with "N serious · M open ports"
+  says the counts once). Network → Devices → Nearby: a row no longer repeats its group's "heard" tag and shows at most two
+  services in one quiet line (the rest in the detail it opens); on a phone Advanced shows these rows instead of its table, whose service
+  column was a letter or two wide, and keeps its Copy button. The Overview tile is **Problems**: the check findings the operator has not accepted, with "N serious · M open ports"
   (it counted open ports and accepted findings before, so it said 50 where the Findings tab said 9). Network → Settings: "Regular messages"
   holds the weekly summary and a new **daily check-in** switch. The audit names this program's own model server
   (`own_model_server_open`) instead of the generic AI-server finding. Settings → Safety → **Agent activity** (new section): **Lock down**
-  (step-up; automations do not start, agents lose the terminal and every network tool, connector messages are dropped, every other session
+  (step-up; automations do not start, agents lose the terminal, every network tool and MCP tools, connector messages are dropped, every other session
   is signed out, optionally every script token revoked; lifting it changes nothing back because nothing was changed) and the agent record
   (refused tool calls, approvals asked, a stable automation's new fetch host, keys found in files agents wrote), newest first, ten shown, one
   line each. New alert kind `agent` (leads to Agent activity). Sign-in → Exposure adds `model_server_open` and `token_unused`.

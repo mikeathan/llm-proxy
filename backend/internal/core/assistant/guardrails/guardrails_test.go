@@ -799,7 +799,9 @@ func TestValidateToolCall_LockDownRefusesTerminalAndNetworkWhateverIsApproved(t 
 	fetch := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkFetch, Arguments: `{"url":"https://example.com"}`}}
 	read := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolDirectoryList, Arguments: `{"path":"."}`}}
 	e.MarkOverride("ws1", models.ToolNetworkFetch)
-	for _, call := range []proxy.ToolCall{terminal, fetch} {
+	// A tool from an MCP server runs outside the catalog and may reach the network through its own server: refused too.
+	mcpTool := proxy.ToolCall{Function: proxy.FunctionCall{Name: "github_create_issue", Arguments: `{}`}}
+	for _, call := range []proxy.ToolCall{terminal, fetch, mcpTool} {
 		if err := e.ValidateToolCall(context.Background(), call, "ws1"); !errors.Is(err, lockdown.ErrLockedDown) {
 			t.Errorf("%s: err = %v; want the lock down refusal before any approval", call.Function.Name, err)
 		}

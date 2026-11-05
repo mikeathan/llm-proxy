@@ -506,7 +506,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.CheckInConfig = netaudit.NewCheckInConfig(store)
 	s.netaudit.CheckIn = netaudit.NewCheckIn(netaudit.CheckInDeps{
 		Enabled: s.netaudit.CheckInConfig.Enabled, History: known.History, Stalled: s.netaudit.Monitors.Stalled,
-		Notify:  s.alertNotifier(alerts.Log, models.NetworkAlertSummary),
+		// Straight to the connectors, not through the alert log: its only reader is the operator's phone, and a daily entry would
+		// be noise in the bell and the Timeline.
+		Notify:  s.sendToConnectors,
 		OnError: func(err error) { logging.Warn("network daily check-in", "error", err.Error()) },
 	})
 	s.netaudit.AgentWatch = agentwatch.New(agentwatch.Deps{

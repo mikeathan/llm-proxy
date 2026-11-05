@@ -96,8 +96,14 @@ for (const theme of Object.keys(SCHEMES) as (keyof typeof SCHEMES)[]) {
   test(`nearby advanced table and filter (${theme})`, async ({ page }, testInfo) => {
     await open(page, 'advanced', STATES.heard, theme)
     const card = page.locator('[data-test="nearby"]')
-    await expect(card.locator('[data-test="nearby-table"]')).toContainText('_ipp._tcp, _printer._tcp')
-    await expect(card.locator('[data-test="nearby-table"]')).toContainText('InternetGatewayDevice:1')
+    if (testInfo.project.name === 'mobile') {
+      // A phone shows the rows in Advanced too: the table's service column was a letter or two wide there (vertex, 2026-11-05).
+      await expect(card.locator('[data-test="nearby-table"]')).toHaveCount(0)
+      await expect(card.locator('[data-test="nearby-row"]').first()).toBeVisible()
+    } else {
+      await expect(card.locator('[data-test="nearby-table"]')).toContainText('_ipp._tcp, _printer._tcp')
+      await expect(card.locator('[data-test="nearby-table"]')).toContainText('InternetGatewayDevice:1')
+    }
     await expect(card.locator('[data-test="nearby-copy"]')).toBeVisible()
     await expectNoSidewaysScroll(page)
     await lookAt(page, testInfo, `nearby-advanced-${theme}`, true)

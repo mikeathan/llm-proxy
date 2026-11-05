@@ -15,7 +15,7 @@ import (
 )
 
 // Message is the fixed reason a refused action gives.
-const Message = "Lock down is on: automations do not run and agents may not use the terminal or the network until it is lifted in Settings, Safety."
+const Message = "Lock down is on: automations do not run and agents may not use the terminal, the network or tools from MCP servers until it is lifted in Settings, Safety."
 
 // ErrLockedDown is the refusal while the switch is on.
 var ErrLockedDown = errors.New(Message)

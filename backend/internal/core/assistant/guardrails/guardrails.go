@@ -89,8 +89,12 @@ func (e *GuardrailEngine) SetLockedDown(on func() bool) {
 	e.lockedDown = on
 }
 
-// lockedDownRefuses reports whether a tool is refused while lock down is on: the terminal and every tool that needs agent egress.
+// lockedDownRefuses reports whether a tool is refused while lock down is on: the terminal, every tool that needs agent egress, and
+// every tool outside the built-in catalog (an MCP tool runs in its own server and may reach the network from there).
 func lockedDownRefuses(name string) bool {
+	if _, builtin := models.SpecOf(name); !builtin {
+		return true
+	}
 	return name == models.ToolTerminalExecute || hostNetworkGatedSet[name]
 }
 

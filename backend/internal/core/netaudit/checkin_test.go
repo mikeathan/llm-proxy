@@ -43,12 +43,18 @@ func TestCheckIn_SendsOnceADayOnlyWhenOnAndSaysWhatStopped(t *testing.T) {
 
 func TestCheckIn_AFailedSendIsNotMarked(t *testing.T) {
 	hist := &checkInClock{}
+	reported := 0
 	c := NewCheckIn(CheckInDeps{
 		Enabled: func() bool { return true }, History: hist, Stalled: func() []MonitorStall { return nil },
-		Notify: func(context.Context, string) error { return errors.New("down") },
+		Notify:  func(context.Context, string) error { return errors.New("down") },
+		OnError: func(error) { reported++ },
 	})
+	c.Tick(t.Context())
 	c.Tick(t.Context())
 	if !hist.last.IsZero() {
 		t.Error("a check-in that was not sent is tried again at the next tick")
+	}
+	if reported != 1 {
+		t.Errorf("reported %d times; a failure that repeats every tick is reported once", reported)
 	}
 }

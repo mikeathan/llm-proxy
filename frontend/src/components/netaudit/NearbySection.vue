@@ -6,10 +6,10 @@ import Callout from "../common/feedback/Callout.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
-import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
 import NearbyDeviceDetail from "./NearbyDeviceDetail.vue"
 import { useNearby } from "../../composables/netaudit/useNearby"
+import { useResponsiveLayout } from "../../composables/ui/useResponsiveLayout"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { copyText } from "../../utils/clipboard"
 import { toNetwork } from "../../router/routes"
@@ -17,9 +17,9 @@ import {
   NEARBY_ADVERTISES_AS, NEARBY_CHECK_NOW, NEARBY_CHECKING, NEARBY_CLOSE_DETAIL, NEARBY_COPIED, NEARBY_COPY, NEARBY_COPY_FAILED, NEARBY_COPY_HINT, NEARBY_FILTER_LABEL,
   NEARBY_FILTER_LABELS, NEARBY_FILTERS, NEARBY_GROUP_TITLES, NEARBY_KIND_ICONS, NEARBY_NO_MATCH, NEARBY_OFF_BODY, NEARBY_READ_FAILED_TITLE, NEARBY_TITLE, NEARBY_TURN_ON,
 } from "../../constants/netaudit"
-import { filterNearby, groupNearby, nearbyCounts, nearbyKind, nearbyKindLabel, nearbyName, nearbyNote, nearbyReport, nearbyStatus, nearbySummary, serviceLabel } from "../../utils/netaudit/nearby"
+import { filterNearby, groupNearby, nearbyCounts, nearbyKind, nearbyKindLabel, nearbyName, nearbyNote, nearbyReport, nearbySummary, serviceLabel } from "../../utils/netaudit/nearby"
 import { formatRelativeTime } from "../../utils/format/time"
-import type { NearbyDevice, NearbyFilter, NearbyStatus } from "../../types/netaudit"
+import type { NearbyDevice, NearbyFilter } from "../../types/netaudit"
 
 // Network · Devices · Nearby: what the devices on the network say they are. Simple is one line (how many were heard and how many
 // need a look), a problem pinned above the list, and a row per device; Advanced is a table of the raw facts with a button that
@@ -27,6 +27,10 @@ import type { NearbyDevice, NearbyFilter, NearbyStatus } from "../../types/netau
 // on the Settings tab. Everything a device said is shown as text only.
 const { state, error, busy, load, check } = useNearby()
 const { advanced } = useNetauditViewMode()
+// Advanced's table needs width: on a phone its service column was a letter or two wide (vertex, 2026-11-05), so a phone shows the
+// rows in both views and the detail a row opens carries the rest.
+const { breakpoint } = useResponsiveLayout()
+const onPhone = computed(() => breakpoint.value === "base")
 const filter = ref<NearbyFilter>("all")
 const selected = ref<string | null>(null)
 const copied = ref("")
@@ -38,12 +42,17 @@ const filterOptions = computed(() => NEARBY_FILTERS.map((value) => ({ value, lab
 const pinned = computed(() => state.value?.devices.find((d) => d.problem))
 const current = computed(() => state.value?.devices.find((d) => d.ip === selected.value) ?? null)
 const busyLooking = computed(() => busy.value || !!state.value?.running)
-const TAG: Record<NearbyStatus, "error" | "info" | "success" | "warning"> = { attention: "error", new: "info", heard: "success", quiet: "warning" }
-const MAX_CHIPS = 3
+// A row is its name, what it advertises as and its address, and its first services in one quiet line: the group heading already
+// says whether it was heard, so the row does not repeat it (a tag on every row was noise on a phone, vertex 2026-11-05), and the
+// rest of the services are in the detail the row opens.
+const MAX_SERVICES = 2
 
 const open = (d: NearbyDevice) => (selected.value = selected.value === d.ip ? null : d.ip)
-const statusOf = (d: NearbyDevice) => nearbyStatus(d, state.value?.last_look)
-const shown = (d: NearbyDevice) => (d.services ?? []).slice(0, MAX_CHIPS)
+const servicesLine = (d: NearbyDevice) => {
+  const all = d.services ?? []
+  const named = all.slice(0, MAX_SERVICES).map(serviceLabel).join(" · ")
+  return all.length > MAX_SERVICES ? `${named} · +${all.length - MAX_SERVICES}` : named
+}
 const copy = async () => {
   copied.value = (await copyText(JSON.stringify(state.value ? nearbyReport(state.value) : {}, null, 2))) ? NEARBY_COPIED : NEARBY_COPY_FAILED
 }
@@ -91,7 +100,7 @@ onMounted(load)
 
           <p v-if="!devices.length" class="m-0 text-secondary" data-test="nearby-no-match">{{ NEARBY_NO_MATCH }}</p>
 
-          <div v-else-if="advanced" class="flex flex-col gap-2">
+          <div v-else-if="advanced && !onPhone" class="flex flex-col gap-2">
             <div class="overflow-x-auto" data-test="nearby-table">
               <table class="w-full border-collapse text-[length:var(--text-small)]">
                 <thead>
@@ -130,17 +139,17 @@ onMounted(load)
                       <span class="flex min-w-0 flex-1 flex-col gap-1">
                         <span class="break-words font-semibold text-primary" data-test="nearby-name">{{ nearbyName(d) }}</span>
                         <span class="text-[length:var(--text-small)] text-muted">{{ NEARBY_ADVERTISES_AS }} {{ nearbyKindLabel(d) }} · {{ d.ip }}</span>
-                        <span class="flex flex-wrap items-center gap-1.5">
-                          <StatusTag :state="TAG[statusOf(d)]" :label="NEARBY_GROUP_TITLES[statusOf(d)]" />
-                          <span v-for="s in shown(d)" :key="s" class="bg-surface-hover px-1.5 text-[length:var(--text-micro)] text-secondary">{{ serviceLabel(s) }}</span>
-                          <span v-if="(d.services?.length ?? 0) > MAX_CHIPS" class="text-[length:var(--text-micro)] text-muted">+{{ (d.services?.length ?? 0) - MAX_CHIPS }}</span>
-                        </span>
+                        <span v-if="d.services?.length" class="break-words text-[length:var(--text-small)] text-secondary" data-test="nearby-services">{{ servicesLine(d) }}</span>
                         <span v-if="d.problem" class="text-[length:var(--text-small)] text-state-error">{{ d.problem.text }}</span>
                       </span>
                     </button>
                   </li>
                 </ul>
               </section>
+              <div v-if="advanced" class="flex flex-wrap items-center gap-2">
+                <BaseButton variant="ghost" size="sm" icon="copy" class-name="max-sm:!h-11" data-test="nearby-copy" @click="copy">{{ NEARBY_COPY }}</BaseButton>
+                <span role="status" class="text-[length:var(--text-small)] text-muted">{{ copied || NEARBY_COPY_HINT }}</span>
+              </div>
             </div>
             <div v-if="current" class="hidden h-fit border border-hairline p-3 lg:block" data-test="nearby-panel">
               <NearbyDeviceDetail :device="current" :advanced="advanced" />
@@ -150,7 +159,7 @@ onMounted(load)
       </template>
     </div>
 
-    <div v-if="current && !advanced" class="fixed inset-0 z-40 flex items-end bg-scrim/50 lg:hidden" data-test="nearby-sheet" @click.self="selected = null">
+    <div v-if="current && (!advanced || onPhone)" class="fixed inset-0 z-40 flex items-end bg-scrim/50 lg:hidden" data-test="nearby-sheet" @click.self="selected = null">
       <div role="dialog" aria-modal="true" :aria-label="nearbyName(current)" class="flex max-h-[85vh] w-full flex-col gap-3 overflow-y-auto border-t border-strong bg-surface p-4">
         <NearbyDeviceDetail :device="current" :advanced="advanced" />
         <BaseButton variant="secondary" class-name="max-sm:!h-11" data-test="nearby-close" @click="selected = null">{{ NEARBY_CLOSE_DETAIL }}</BaseButton>

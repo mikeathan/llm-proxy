@@ -111,6 +111,20 @@ func secretKindOfFile(path string, d fs.DirEntry) string {
 	return tools.SecretKindIn(string(body))
 }
 
+// forgetOldest removes the oldest entries until at most keep are left, so a long-lived record keeps reporting new places (an old
+// place found again is then reported again, which is the lesser fault).
+func forgetOldest(seen map[string]time.Time, keep int) {
+	for len(seen) > keep {
+		oldest, at := "", time.Time{}
+		for k, t := range seen {
+			if oldest == "" || t.Before(at) {
+				oldest, at = k, t
+			}
+		}
+		delete(seen, oldest)
+	}
+}
+
 // recordSecrets keeps the places not reported before and alerts once for them.
 func (w *Watch) recordSecrets(ctx context.Context, workspace string, found []secretFound) {
 	w.update(ctx, func(r *models.AgentWatch, now time.Time) string {
@@ -123,9 +137,7 @@ func (w *Watch) recordSecrets(ctx context.Context, workspace string, found []sec
 			if _, seen := r.SecretsSeen[key]; seen {
 				continue
 			}
-			if len(r.SecretsSeen) >= maxSeenSecrets {
-				break
-			}
+			forgetOldest(r.SecretsSeen, maxSeenSecrets-1)
 			r.SecretsSeen[key] = now
 			addEvent(r, models.AgentWatchEvent{At: now, Kind: models.AgentSecretFound, Workspace: workspace, Where: f.where, Detail: f.kind})
 			fresh++

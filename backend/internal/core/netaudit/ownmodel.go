@@ -28,6 +28,15 @@ func init() {
 	}
 }
 
+// probeCheckOf is the check of the probe that found a finding: the own-model-server finding is the AI-server probe's, relabelled
+// after the probe ran, so a night that probe could not judge must keep it (ServiceResult.Carry).
+func probeCheckOf(check string) string {
+	if check == CheckOwnModelServerOpen {
+		return CheckAIAPIExposed
+	}
+	return check
+}
+
 // OwnModelServer says which address and ports are this program's own model server. Both are read at the moment of the report.
 type OwnModelServer struct {
 	IsOwnAddr func(netip.Addr) bool

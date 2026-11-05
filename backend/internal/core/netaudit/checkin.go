@@ -37,7 +37,10 @@ type CheckInDeps struct {
 
 // CheckIn sends one short note a day while it is switched on, so a computer that went down is noticed by the note that did not
 // come ("silence is never absence", applied to the program itself). It reads only what the monitor watch already holds.
-type CheckIn struct{ deps CheckInDeps }
+type CheckIn struct {
+	deps CheckInDeps
+	last string // the trouble reported last, so a failure that repeats every tick is reported once
+}
 
 func NewCheckIn(deps CheckInDeps) *CheckIn {
 	if deps.Now == nil {
@@ -79,12 +82,17 @@ func (c *CheckIn) Tick(ctx context.Context) {
 		c.report(fmt.Errorf("daily check-in: could not send: %w", err))
 		return
 	}
+	c.last = ""
 	if err := c.deps.History.MarkCheckIn(now); err != nil {
 		c.report(err)
 	}
 }
 
 func (c *CheckIn) report(err error) {
+	if err.Error() == c.last {
+		return
+	}
+	c.last = err.Error()
 	if c.deps.OnError != nil {
 		c.deps.OnError(err)
 	}

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/models"
 )
@@ -57,5 +58,14 @@ func TestScanSecrets_SkipsLinksAndLargeFiles(t *testing.T) {
 	w.scanSecrets(t.Context())
 	if len(store.rec.Events) != 0 {
 		t.Errorf("events = %+v; a link is not followed and a file over the size limit is not read", store.rec.Events)
+	}
+}
+
+func TestForgetOldest_KeepsTheNewest(t *testing.T) {
+	t0 := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	seen := map[string]time.Time{"a": t0, "b": t0.Add(time.Hour), "c": t0.Add(2 * time.Hour)}
+	forgetOldest(seen, 2)
+	if _, ok := seen["a"]; ok || len(seen) != 2 {
+		t.Errorf("seen = %v; want the oldest gone", seen)
 	}
 }
