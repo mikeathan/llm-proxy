@@ -181,6 +181,12 @@ devices are not marked important.
 
 - Owner: install nuclei on vertex and press Download; decide on the abuse.ch list (§6).
 - Optional later: an immediate alert for a new place or a beacon.
+- **To do: known-bad names (abuse.ch), approved by the owner on 2026-11-05, not started.** Design agreed in conversation:
+  - **Card** Network → Settings → "Known-bad names": a plain-words description, a link to `https://urlhaus.abuse.ch/api/` (where the key is made), a short "how to" under "More about this" (sign in, create an Auth-Key in the profile, paste it here), a field for the key (stored encrypted in the secrets store, never shown again; the box says only "Key saved" or "No key yet"), a **Download list** button and a line saying how many names were loaded and when.
+  - **Module** "Known-bad names" (Listen layer, off by default, needs `phone_home`): a name a device asks for that is on the list becomes a high-severity finding (`phone_home_known_bad`, Version a digest of the names) for that device, matched locally; the key only ever goes to abuse.ch.
+  - **Constitution:** one sentence under I.8 for the owner's approval (the list is matched on this computer; the key is a stored secret sent only to abuse.ch, through the guarded client, only when the operator presses Download).
+  - **Blocked on:** the exact file address from the "host file (domains only)" section of the logged-in URLhaus API page (the owner pastes the URL, never the key). The file is documented as host-file format, so the parser accepts `IP name` lines and bare names, vets every name like the DNS parser, and is checked against the first real download. abuse.ch says its data is free under fair use and commercial use may need a licence; this is a home network.
+  - **Facts already checked (2026-11-05):** the old keyless host-file address answers 410 Gone; the documentation says a login and an Auth-Key are required; the list is limited to active hosts and ones added in the last 48 hours, with names under the Tranco top million left out.
 ## 6. For the owner's approval: the P3 and P4 texts and the nuclei template list (drafted 2026-11-05)
 
 **State of the work.** Approved on 2026-11-05 and built (see "P3 and P4 as built" above).
