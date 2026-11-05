@@ -58,3 +58,20 @@ func TestPresenceConfig_TargetsAreTheDeclaredRanges(t *testing.T) {
 		t.Errorf("settings = %+v", got)
 	}
 }
+
+func TestPresenceConfig_SetEnabledKeepsTheChosenInterval(t *testing.T) {
+	store := &memConfig{}
+	c := NewPresenceConfig(store)
+	if err := c.Set(false, 30); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SetEnabled(true); err != nil {
+		t.Fatalf("SetEnabled: %v", err)
+	}
+	if v := c.View(); !v.Enabled || v.IntervalMinutes != 30 {
+		t.Fatalf("view = %+v, want on every 30 minutes (the switch must not reset the interval)", v)
+	}
+	if err := c.SetEnabled(false); err != nil || c.View().Enabled || c.View().IntervalMinutes != 30 {
+		t.Fatalf("off: err = %v, view = %+v", err, c.View())
+	}
+}

@@ -361,6 +361,8 @@ export interface NetworkDevice {
   randomized: boolean
   /** Not approved and seen lately: the same test that makes it a finding. */
   new: boolean
+  /** The person marked it as one they care most about; the attack paths treat it as a prize. */
+  important?: boolean
   /** The ports it had open at its last completed scan, and when; absent until a scan has finished looking at it. */
   open_ports?: number[]
   ports_scanned_at?: string
@@ -419,7 +421,7 @@ export interface DeviceListGroup {
 }
 
 /** What the person did to a device. */
-export type DeviceAction = 'name' | 'approve' | 'forget' | 'dismiss-suggestion' | 'confirm-gateway'
+export type DeviceAction = 'name' | 'approve' | 'important' | 'forget' | 'dismiss-suggestion' | 'confirm-gateway'
 
 /** One fake service the decoys offer. */
 export interface DecoyPort {
@@ -670,6 +672,54 @@ export interface NetworkOverview {
   presence: { last_check?: string; problem?: string }
   series: NetworkDay[]
   recent: NetworkChange[]
+  /** The few ways in that matter, best first; empty while there are none or the module is off. */
+  attack_paths?: AttackPath[]
+  /** Whether the attack paths module is on, so the card can tell "nothing found" from "switched off". */
+  attack_paths_on?: boolean
+}
+
+/** The reviewed templates of the web checks: how many are on disk with the reviewed checksum, and whether the checks can run. */
+export interface WebTemplatesState {
+  present: number
+  total: number
+  /** The release of the template collection the list was reviewed at. */
+  tag: string
+  ready: boolean
+  /** In plain words, why the checks cannot run (nuclei missing, templates not downloaded). */
+  reason?: string
+}
+
+export type AttackPathEntryKind = 'internet' | 'network'
+export type AttackPathPrizeKind = 'computer' | 'router' | 'important'
+
+export interface AttackPathStep {
+  key: string
+  check: string
+  title: string
+  port?: number
+  severity: string
+  /** The person accepted this finding: it stays in the path, quietly. */
+  accepted?: boolean
+}
+
+export interface AttackPathPrize {
+  kind: AttackPathPrizeKind
+  /** `this-computer`, or the device's address. */
+  where: string
+  /** What the person calls an important device; shown as text. */
+  name?: string
+}
+
+/** One way in to one prize: where it starts, the real findings it passes through, what it ends at, and the one fix. */
+export interface AttackPath {
+  id: string
+  entry: { kind: AttackPathEntryKind; text: string; probing?: boolean }
+  steps: AttackPathStep[]
+  prize: AttackPathPrize
+  fix: { key: string; text: string }
+  /** How many of the listed paths the fix breaks, itself included. */
+  breaks: number
+  all_accepted?: boolean
 }
 
 /** The one thing the verdict card suggests doing next, and the Network tab it happens on. */

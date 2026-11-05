@@ -21,46 +21,48 @@ import (
 
 // HandlerSet bundles all constructed HTTP handler types.
 type HandlerSet struct {
-	Admin       *handlers.AdminHandlers
-	System      *handlers.SystemHandlers
-	Secrets     *handlers.SecretsHandlers
-	Process     *handlers.ProcessHandlers
-	MCP         *handlers.MCPHandlers
-	Model       *handlers.ModelHandlers
-	Proxy       *handlers.ProxyHandlers
-	Turns       *chat.Service
-	Assistant   *handlers.AssistantMessageHandler
-	ActiveRuns  *handlers.ActiveRunsHandler
-	Dispatcher  *handlers.DispatcherHandlers
-	Recordings  *handlers.RecordingHandlers
-	Memory      *handlers.MemoryHandlers
-	Reminders   *handlers.ReminderHandlers
-	Profiles    *handlers.ProfileHandlers
-	Helpers     *handlers.HelpersHandlers
-	Netaudit    *handlers.NetauditHandlers
-	VulnData    *handlers.VulnDataHandlers
-	Devices     *handlers.NetauditDevicesHandlers
-	Overview    *handlers.NetauditOverviewHandlers
-	Activity    *handlers.NetauditActivityHandlers
-	UbuntuData  *handlers.UbuntuDataHandlers
-	Timeline    *handlers.NetauditSummaryHandlers
-	Summary     *handlers.NetauditSwitchHandlers
-	DeviceNames *handlers.NetauditSwitchHandlers
-	FollowUp    *handlers.NetauditSwitchHandlers
-	CheckIn     *handlers.NetauditSwitchHandlers
-	Decoys      *handlers.NetauditDecoyHandlers
-	RouterLog   *handlers.NetauditRouterLogHandlers
-	OutsideLook *handlers.NetauditOutsideLookupHandlers
-	DNSCheck    *handlers.NetauditDNSCheckHandlers
-	Nearby      *handlers.NetauditNearbyHandlers
-	Alerts      *handlers.NetauditAlertHandlers
-	AgentWatch  *handlers.AgentWatchHandlers
-	Lockdown    *handlers.LockdownHandlers
-	Discovery6  *handlers.NetauditDiscovery6Handlers
-	Commands    *handlers.CommandHandlers
-	Webhook     *handlers.WebhookHandler
-	Auth        *handlers.AuthHandlers
-	Exposure    *handlers.ExposureHandlers
+	Admin        *handlers.AdminHandlers
+	System       *handlers.SystemHandlers
+	Secrets      *handlers.SecretsHandlers
+	Process      *handlers.ProcessHandlers
+	MCP          *handlers.MCPHandlers
+	Model        *handlers.ModelHandlers
+	Proxy        *handlers.ProxyHandlers
+	Turns        *chat.Service
+	Assistant    *handlers.AssistantMessageHandler
+	ActiveRuns   *handlers.ActiveRunsHandler
+	Dispatcher   *handlers.DispatcherHandlers
+	Recordings   *handlers.RecordingHandlers
+	Memory       *handlers.MemoryHandlers
+	Reminders    *handlers.ReminderHandlers
+	Profiles     *handlers.ProfileHandlers
+	Helpers      *handlers.HelpersHandlers
+	Netaudit     *handlers.NetauditHandlers
+	Stacks       *handlers.StackHandlers
+	WebTemplates *handlers.NetauditWebTemplatesHandlers
+	VulnData     *handlers.VulnDataHandlers
+	Devices      *handlers.NetauditDevicesHandlers
+	Overview     *handlers.NetauditOverviewHandlers
+	Activity     *handlers.NetauditActivityHandlers
+	UbuntuData   *handlers.UbuntuDataHandlers
+	Timeline     *handlers.NetauditSummaryHandlers
+	Summary      *handlers.NetauditSwitchHandlers
+	DeviceNames  *handlers.NetauditSwitchHandlers
+	FollowUp     *handlers.NetauditSwitchHandlers
+	CheckIn      *handlers.NetauditSwitchHandlers
+	Decoys       *handlers.NetauditDecoyHandlers
+	RouterLog    *handlers.NetauditRouterLogHandlers
+	OutsideLook  *handlers.NetauditOutsideLookupHandlers
+	DNSCheck     *handlers.NetauditDNSCheckHandlers
+	Nearby       *handlers.NetauditNearbyHandlers
+	Alerts       *handlers.NetauditAlertHandlers
+	AgentWatch   *handlers.AgentWatchHandlers
+	Lockdown     *handlers.LockdownHandlers
+	Discovery6   *handlers.NetauditDiscovery6Handlers
+	Commands     *handlers.CommandHandlers
+	Webhook      *handlers.WebhookHandler
+	Auth         *handlers.AuthHandlers
+	Exposure     *handlers.ExposureHandlers
 }
 
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
@@ -124,6 +126,8 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep).WithGuides(s.netauditGuides())
+	hs.WebTemplates = handlers.NewNetauditWebTemplatesHandlers(s.netaudit.WebTemplates)
+	hs.Stacks = handlers.NewStackHandlers(s.netaudit.Stacks, s.stalledMonitors)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
@@ -142,7 +146,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.UbuntuData = handlers.NewUbuntuDataHandlers(s.netaudit.Ubuntu)
 	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence())
 	hs.Timeline = handlers.NewNetauditSummaryHandlers(hs.Activity, hs.Turns, s.modelIsLocal)
-	hs.Overview = handlers.NewNetauditOverviewHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}, s.netaudit.History, s.Persistence())
+	hs.Overview = handlers.NewNetauditOverviewHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}, s.netaudit.History, s.Persistence()).WithAttackPaths(s.netaudit.AttackPathsConfig.Enabled, s.netaudit.DecoyStore)
 
 	// Register recording routes unconditionally. The handler safely returns
 	// enabled:false when no --record is configured.
@@ -375,6 +379,11 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/profiles/{id}", hs.Profiles.Put, jsonMethodNotAllowed)
 	router.Delete("/admin/api/profiles/{id}", hs.Profiles.Delete, jsonMethodNotAllowed)
 	router.Get("/admin/api/helpers", hs.Helpers.Status, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/web-templates", hs.WebTemplates.Get, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/web-templates/download", hs.WebTemplates.Download, jsonMethodNotAllowed)
+	router.Get("/admin/api/stacks", hs.Stacks.List, jsonMethodNotAllowed)
+	router.Get("/admin/api/stacks/{stack}", hs.Stacks.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/stacks/{stack}/modules/{id}", hs.Stacks.PutModule, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/scope", hs.Netaudit.GetScope, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/scope", hs.Netaudit.PutScope, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/targets/check", hs.Netaudit.CheckTargets, jsonMethodNotAllowed)

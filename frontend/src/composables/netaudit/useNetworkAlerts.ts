@@ -1,5 +1,5 @@
 import { watch, type Ref } from 'vue'
-import { toNetwork, toSettings } from '../../router/routes'
+import { toAgents, toNetwork, toSettings } from '../../router/routes'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import type { GlobalRunTick } from '../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../types/notifications'
@@ -32,7 +32,7 @@ interface Deps {
  * monitor to the overview, the rest to Devices. */
 function targetOf(kind: NetworkAlertEvent['kind']) {
   if (kind === 'sign_in') return toSettings('sign-in')
-  if (kind === 'agent') return toSettings('agent-activity')
+  if (kind === 'agent') return toAgents()
   return kind === 'summary' || kind === 'monitor' ? toNetwork() : toNetwork(DEVICES_TAB)
 }
 
@@ -46,7 +46,7 @@ function alertOf(event: NetworkAlertEvent): NetworkAlertItem {
     count: event.count,
     repeatKey: `${event.kind}:${event.message}`,
     target: targetOf(event.kind),
-    destination: 'network',
+    destination: event.kind === 'agent' ? 'agents' : 'network',
   }
 }
 

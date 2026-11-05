@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { NearbyDevice, NearbyState } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ nearby: vi.fn(), setNearby: vi.fn(), nearbyLook: vi.fn() }))
+const service = vi.hoisted(() => ({ nearby: vi.fn(), nearbyLook: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const clipboard = vi.hoisted(() => ({ copyText: vi.fn() }))
 vi.mock('../../../utils/clipboard', () => clipboard)
@@ -28,7 +28,6 @@ async function mountSection() {
 describe('Nearby section', () => {
   beforeEach(() => {
     service.nearby.mockReset().mockResolvedValue(state([]))
-    service.setNearby.mockReset()
     service.nearbyLook.mockReset()
     clipboard.copyText.mockReset().mockResolvedValue(true)
     useNetauditViewMode().set('simple')
@@ -157,20 +156,18 @@ describe('Nearby section', () => {
 describe('Nearby switch card', () => {
   beforeEach(() => {
     service.nearby.mockReset().mockResolvedValue(state([], { enabled: false }))
-    service.setNearby.mockReset().mockResolvedValue(state([], { enabled: true }))
   })
 
-  it('is off until switched on, says what is sent, and saves at once', async () => {
+  it('says it is off, has no switch of its own, and says what is sent', async () => {
     const w = mount(NearbyCard, { attachTo: document.body })
     await flushPromises()
-    expect((w.get('[role="switch"]').element as HTMLInputElement).checked).toBe(false)
+    expect(w.find('[role="switch"]').exists()).toBe(false)
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched off.')
     await w.get('[data-test="toggle-details"]').trigger('click')
     const text = w.get('[data-test="toggle-details-text"]').text()
     expect(text).toContain('two questions')
     expect(text).toContain('Nothing else a device sends is stored')
     expect(text).toContain('asks for your passphrase')
-    await w.get('[role="switch"]').setValue(true)
-    expect(service.setNearby).toHaveBeenCalledWith(true)
     w.unmount()
   })
 })

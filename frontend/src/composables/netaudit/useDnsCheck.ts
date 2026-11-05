@@ -33,5 +33,5 @@ export function useDnsCheck() {
     }
   }
 
-  return { state, error, busy, load, set: (enabled: boolean) => save({ enabled }), save }
+  return { state, error, busy, load, save }
 }

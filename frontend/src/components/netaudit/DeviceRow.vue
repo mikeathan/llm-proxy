@@ -3,7 +3,7 @@ import { computed, useId } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
-import { DEVICE_NAME_MAX, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
+import { DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
 import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, portsLine, portsSummary } from "../../utils/netaudit/devices"
 import { formatRelativeTime } from "../../utils/format/time"
 import type { NetworkDevice } from "../../types/netaudit"
@@ -27,6 +27,7 @@ const emit = defineEmits<{
   (e: "save-name"): void
   (e: "cancel-naming"): void
   (e: "remove"): void
+  (e: "toggle-important"): void
   (e: "accept-suggestion"): void
   (e: "dismiss-suggestion"): void
   (e: "update:draft", value: string): void
@@ -71,6 +72,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
       <p v-if="advanced && !device.ip" class="m-0 break-all font-mono text-[length:var(--text-small)] text-muted" data-test="device-ipv6">{{ deviceAddress(device, true) }}</p>
       <p v-if="extraIPv6" class="m-0 break-all font-mono text-[length:var(--text-small)] text-muted" data-test="device-ipv6">{{ extraIPv6 }}</p>
       <p v-if="ports" class="m-0 text-[length:var(--text-small)] text-muted" data-test="device-ports">{{ ports }}</p>
+      <p v-if="device.important" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="device-important">{{ DEVICE_IMPORTANT_NOTE }}</p>
 
       <p v-if="device.suggested_name && !device.name" class="m-0 flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary" data-test="suggestion">
         <span class="min-w-0 break-words">{{ device.approved ? SUGGESTION_APPROVED(device.suggested_name) : SUGGESTION_NEW_DEVICE(device.suggested_name) }}</span>
@@ -94,6 +96,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
       <div v-else class="flex flex-wrap gap-2">
         <BaseButton v-if="!device.approved" variant="secondary" size="sm" class-name="max-sm:!h-11" :disabled="busy" @click="emit('approve')">It's mine</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="busy" @click="emit('start-naming')">{{ device.name ? "Rename" : "Name it" }}</BaseButton>
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="busy" data-test="device-important-toggle" @click="emit('toggle-important')">{{ device.important ? DEVICE_UNMARK_IMPORTANT : DEVICE_MARK_IMPORTANT }}</BaseButton>
         <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="busy" @click="emit('remove')">Remove</BaseButton>
       </div>
     </div>

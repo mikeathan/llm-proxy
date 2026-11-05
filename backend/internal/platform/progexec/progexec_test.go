@@ -183,3 +183,14 @@ func TestDetect(t *testing.T) {
 		t.Errorf("err = %v, want a NotInstalledError with the hint", err)
 	}
 }
+
+func TestLocate_FindsAProgramWithoutStartingItAndNamesAMissingOne(t *testing.T) {
+	if _, err := Locate(Program{Name: "sh", Binary: "sh"}); err != nil {
+		t.Fatalf("Locate(sh) = %v", err)
+	}
+	_, err := Locate(Program{Name: "nothing-like-it", Binary: "nothing-like-it-xyz", InstallHint: map[string]string{runtime.GOOS: "install it"}})
+	var missing *NotInstalledError
+	if !errors.As(err, &missing) || missing.Hint != "install it" {
+		t.Fatalf("err = %v, want a NotInstalledError with the hint", err)
+	}
+}

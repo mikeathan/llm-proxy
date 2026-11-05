@@ -403,6 +403,61 @@ The router's remote syslog is used for one thing: waking the presence check earl
 - **Cost.** The read loop blocks on one socket (`ReadFromUDPAddrPort`, one reused 1,025-byte buffer, 64 KB kernel queue); a firewall line is told apart by `Interesting` (one search of the first 160 bytes, about 0.2 µs, no allocation) before it uses any of the ten-a-second allowance; `Parse` runs only for the rest (about 0.2 µs, 5 small allocations); the device list is read from disk at most once per 5 s (`cachedDevices`); the gateway at most once per 30 s. A soak test sends 60,000 mixed datagrams and checks that heap and goroutines do not grow.
 - **Not built:** counting firewall drops, router admin logins (only the success shape was captured; a failed login must be captured first), `DHCPDISCOVER`/`DHCPOFFER`/lease expiry (no capture of them).
 
+## Stacks and modules (as built 2026-11-05, v0.48.0; ADR-0028, plan `stack-modules-and-new-detection` P1)
+
+Every switchable capability is a **module** of a **layer** of a **stack**, described once and switched in one place.
+
+- **Registry.** `internal/core/stack` is a leaf (it imports none of the features): `Stack` (layers bottom first, actions), `Module` (id, title, purpose,
+  `Sends` = nothing / lan / internet / message / listens, `StepUp`, `Needs`, `Monitors`, a `Switch`, an optional `Ready`) and `Registry`. `New` refuses an
+  inconsistent description (duplicate ids, an unknown layer, a need that is missing, in another stack, itself or on a higher layer, no switch), so a
+  wiring mistake fails at start. `View` draws a stack with its layers top first and leaves an empty layer out; `Switch` refuses switching on while a
+  module it needs is off (`*NeedError`, which names it) and answers a switch-off with the titles of the modules left waiting. A module's `Ready` (the
+  Guardrails for Nearby, the DNS check and the Internet view) only shows as "blocked": it never refuses a switch, as Nearby could always be switched on.
+- **Wiring.** `app/stacks.go` is the one place the modules are described: each `Switch` is an adapter over the config type that already owned the setting
+  (`presenceSwitch` keeps the chosen interval, `dnsCheckSwitch` touches the switch alone, `withPoke` wakes the decoys' and router log's loops after a
+  change as their own routes did). No persisted setting moved. **Eleven** Network switches existed when the registry was built (the plan said twelve: the nightly audit is an automation,
+  not a switch) and two Agents parts. `TestStackRegistry_NetworkModulesAndTheirLayers` pins the ids and layers.
+- **Health.** A module's `Monitors` are `MonitorPart` ids; the handlers hand the registry the ids `MonitorWatch.Stalled()` reports, and a module that
+  is on shows Working or Stopped only when it has a monitor (presence, router log: its socket and its quiet part, DNS check, decoys).
+- **Step-up per module.** `PUT /admin/api/stacks/{stack}/modules/{id}` is one route, so `api.stepUpExact` cannot list it per module: the handler asks
+  `api.StepUpGranted` for a module with `StepUp` and answers `api.RefuseStepUp` (403 `reauth_required`, which the UI turns into the passphrase prompt).
+  `TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase` walks every such module; `TestStackRegistry_StepUpMatchesTheOldRoutes` pins each
+  module's flag to its old route's entry in `stepUpExact`, so the two lists cannot drift. `api.WithStepUp` is the one place a request's step-up status is set.
+- **Agents.** `models.AgentsConfig` (settings.yml `agents:`, its own `storage` view like `netaudit:`) holds `activity_off` and `secrets_pass_off`; both parts
+  always ran, so an absent field keeps them on. `agentwatch.Deps.ActivityOn` is read on every `Observe` and `SecretsPassOn` on every pass. Both modules
+  need the passphrase to switch (switching one off silences a security record). Lock down is the stack's action: listed on the stack, never a module,
+  and still served by `/admin/api/lockdown`.
+- **UI.** `components/stacks/` (`StackModules`, `ModuleTile`, `StackTabs`, `ModuleSwitchNote`), `composables/stacks/useStack.ts`, `utils/stacks/modules.ts`
+  (the one status line). `ModuleSwitchNote` is what a detail card shows where its switch was.
+
+## Attack paths (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P2)
+
+`core/netaudit/attackpaths.go`: `AttackPaths(PathInput)` is a pure function over what the audit already holds (the findings split into visible and accepted by
+`ApplyAcks`, the inventory, the decoys' touches). It probes nothing and no model builds a path.
+
+- **Steps** are findings in a fixed table (`stepChecks`): a service with no real login, a weak login, a flaw known to be attacked (`known_vulns` only when
+  `Exploited` is not empty). An open port, a certificate or an old version is not a step, so **no path is drawn from an open port alone**.
+- **Prizes**: this computer (`HostDevice`), the router (the inventory's gateway address) and a device the operator marked **important** (`NetworkDevice.Important`,
+  set by `PUT /admin/api/netaudit/devices/{mac}` `{"important": bool}`, which approves nothing). A weakness on any other device makes no path.
+- **Ways in**: any device on the network (worded "already probed a decoy" while a decoy has a touch), and the internet, only for the router and only while the Internet
+  view found a reachable port.
+- **Ranking**: each path's fix is the step found in the most paths (a live step before an accepted one, then the more serious); paths are ordered live before
+  all-accepted, then by how many paths that fix breaks, then severity; at most `MaxAttackPaths` (3). An accepted step stays in its path with `accepted`.
+- **Where it shows**: `Overview.AttackPaths` (and `AttackPathsOn`) in `GET /admin/api/netaudit/overview`, drawn by `AttackPathsCard.vue`; and a "Ways in that matter" section
+  in the nightly report from `RunReporter.attackPathsNote` (`PathsText`, fixed words, address or fixed label only, never a device name, which only the JSON carries).
+- **Module**: `attack_paths` in the Understand layer, sends nothing, on unless switched off (`NetauditConfig.AttackPathsOff`, `AttackPathsConfig`), no passphrase.
+
+## Phone-home watch and web checks (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P3, P4; Constitution I.8 and II.3 amended)
+
+Both were approved by the owner on 2026-11-05 and are wired (details in the plan's "P3 and P4 as built"). The listener hands DNS query lines to `phoneHomeIntake` under its own limit; `web_checks` runs nuclei only through `progexec` and the sandbox.
+
+- **Phone-home.** `routerlog/dnsparse.go`, `phonehome/` (watch, signals), `phonehomefindings.go`, `models.PhoneHome`, `persistence.PhoneHomeStore`. Devices are keyed by hardware address,
+  never by IP address; names are vetted plain DNS names shown as text and never sent to a model; the findings are hints (any device can forge a log line) the operator can accept.
+  The bounds (256 devices, 512 names, 32 times) are judgements until the router's real line rate is captured.
+- **Web checks.** `nuclei/` is a guarded program under II.3 items (1) to (6): the arguments are a fixed table verified against `nuclei -h` of v3.11.1, the targets are private IPv4 addresses
+  and ports, the templates are files whose SHA-256 equals the reviewed one, and the result lines are parsed into typed facts (template id, host, port, severity) with this repository's
+  own title. No download or update happens in the program.
+
 ## Detection and prevention additions (as built 2026-11-04, v0.46.0; plan `network-detection-prevention-next`)
 
 - **Watch the watchers** (`core/netaudit/monitorwatch.go`, readings in `app/netaudit_monitor.go`). `MonitorWatch` reads each part every

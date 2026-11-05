@@ -35,6 +35,9 @@ type OverviewInput struct {
 	Acks     []models.ScanAck
 	Presence PresenceStatus
 	Series   []models.NetworkDay
+	// AttackPaths is true while the attack paths module is on; Touches are the devices that connected to a decoy.
+	AttackPaths bool
+	Touches     []models.DecoyTouch
 }
 
 // DeviceCounts are the device numbers of the overview.
@@ -80,6 +83,10 @@ type Overview struct {
 	Presence       PresenceStatus      `json:"presence"`
 	Series         []models.NetworkDay `json:"series"`
 	Recent         []RecentChange      `json:"recent"`
+	// AttackPaths are the few ways in that matter, best first; an empty list while there are none or the module is off.
+	AttackPaths []AttackPath `json:"attack_paths"`
+	// AttackPathsOn says whether the module is on, so the card can tell "nothing found" from "switched off".
+	AttackPathsOn bool `json:"attack_paths_on"`
 }
 
 // OverviewOf builds the overview.
@@ -92,6 +99,7 @@ func OverviewOf(in OverviewInput) Overview {
 	if o.Series == nil {
 		o.Series = []models.NetworkDay{}
 	}
+	o.AttackPaths, o.AttackPathsOn = overviewPaths(in), in.AttackPaths
 	o.Posture = postureOf(o, in.Inventory.Baselined)
 	return o
 }
@@ -165,4 +173,18 @@ func allRecentChanges(inv models.DeviceInventory, now time.Time) []RecentChange 
 	}
 	slices.SortStableFunc(out, func(a, b RecentChange) int { return b.At.Compare(a.At) })
 	return out
+}
+
+// overviewPaths are the attack paths of the last audit, with the operator's acceptances applied; empty while the module is off or
+// no audit has run.
+func overviewPaths(in OverviewInput) []AttackPath {
+	if !in.AttackPaths || in.Baseline.ScannedAt.IsZero() {
+		return []AttackPath{}
+	}
+	applied := ApplyAcks(in.Baseline.Findings, in.Acks, in.Now)
+	paths := AttackPaths(PathInput{Visible: applied.Visible, Accepted: applied.Accepted, Inventory: in.Inventory, Touches: in.Touches})
+	if paths == nil {
+		return []AttackPath{}
+	}
+	return paths
 }

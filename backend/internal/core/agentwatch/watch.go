@@ -59,6 +59,10 @@ type Deps struct {
 	Now     func() time.Time
 	// Workspaces lists the workspace folders the nightly secrets pass reads; nil turns the pass off.
 	Workspaces func() ([]WorkspaceDir, error)
+	// ActivityOn and SecretsPassOn are the operator's switches for the record and the secrets pass (the Agents stack's
+	// modules). They are read on every event and every pass, never cached, and nil means on.
+	ActivityOn    func() bool
+	SecretsPassOn func() bool
 }
 
 // Watch is the agent security record and its alerts.
@@ -84,6 +88,9 @@ func New(deps Deps) *Watch {
 // Observe hands one published event to the watch. It never blocks: an event that does not fit is dropped and counted. Only the
 // event types the record uses are queued.
 func (w *Watch) Observe(workspaceID string, ev assistant.AgentEvent) {
+	if !isOn(w.deps.ActivityOn) {
+		return
+	}
 	switch ev.Type {
 	case assistant.EventGuardrailViolation, assistant.EventGuardrailBlocked, assistant.EventToolCall:
 	default:
@@ -95,6 +102,9 @@ func (w *Watch) Observe(workspaceID string, ev assistant.AgentEvent) {
 		w.dropped.Add(1)
 	}
 }
+
+// isOn reads a switch that is on when it is not wired.
+func isOn(f func() bool) bool { return f == nil || f() }
 
 // Dropped is how many events did not fit the queue since the program started.
 func (w *Watch) Dropped() int64 { return w.dropped.Load() }

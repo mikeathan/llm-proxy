@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { DecoyState } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ decoys: vi.fn(), setDecoys: vi.fn(), clearDecoyTouches: vi.fn() }))
+const service = vi.hoisted(() => ({ decoys: vi.fn(), clearDecoyTouches: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
 import DecoysCard from '../../../components/netaudit/DecoysCard.vue'
@@ -21,23 +21,21 @@ async function mountCard() {
 describe('DecoysCard', () => {
   beforeEach(() => {
     service.decoys.mockReset().mockResolvedValue(state())
-    service.setDecoys.mockReset()
     service.clearDecoyTouches.mockReset()
     useNetauditViewMode().set('simple')
   })
 
-  it('is off until the person turns it on, and says nothing has connected', async () => {
+  it('says it is switched off, has no switch of its own, and says nothing has connected', async () => {
     const w = await mountCard()
-    expect((w.get('[role="switch"]').element as HTMLInputElement).checked).toBe(false)
+    expect(w.find('[role="switch"]').exists()).toBe(false)
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched off.')
     expect(w.text()).toContain('Nothing has connected to a decoy')
   })
 
-  it('turns the decoys on and shows the firewall note', async () => {
-    service.setDecoys.mockResolvedValue(state({ enabled: true, listening: [2222, 8023] }))
+  it('shows the firewall note while the decoys are on', async () => {
+    service.decoys.mockResolvedValue(state({ enabled: true, listening: [2222, 8023] }))
     const w = await mountCard()
-    await w.get('[role="switch"]').setValue(true)
-    await flushPromises()
-    expect(service.setDecoys).toHaveBeenCalledWith(true)
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched on.')
     expect(w.text()).toContain('firewall')
   })
 

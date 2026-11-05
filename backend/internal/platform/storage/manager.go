@@ -39,6 +39,7 @@ type DataManager struct {
 	settingsView *UserSettingsView
 	hostView     *hostSettingsView
 	netauditView *netauditView
+	agentsView   *agentsView
 
 	// Secrets (Credentials)
 	encSecretStore *Store[models.EncryptedSecretData]
@@ -92,6 +93,7 @@ func NewDataManager(p paths.Paths) (*DataManager, error) {
 	m.settingsView = &UserSettingsView{mgr: m}
 	m.hostView = &hostSettingsView{mgr: m}
 	m.netauditView = &netauditView{mgr: m}
+	m.agentsView = &agentsView{mgr: m}
 
 	return m, nil
 }
@@ -361,6 +363,9 @@ func (m *DataManager) HostSettings() *hostSettingsView { return m.hostView }
 
 // Netaudit is the host-wide network-audit policy view.
 func (m *DataManager) Netaudit() *netauditView { return m.netauditView }
+
+// Agents is the host-wide Agents stack policy view.
+func (m *DataManager) Agents() *agentsView { return m.agentsView }
 
 func (m *DataManager) Secrets() models.SecretsStore {
 	m.secretsMu.RLock()

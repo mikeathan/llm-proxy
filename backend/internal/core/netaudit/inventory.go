@@ -551,6 +551,23 @@ func (v *Inventory) Approve(mac string) error {
 	})
 }
 
+// SetImportant marks a device as one the operator cares most about, or clears the mark. It decides only what the attack paths
+// treat as a prize; it neither approves the device nor changes any alert.
+func (v *Inventory) SetImportant(mac string, important bool) error {
+	mac, err := normalizeMAC(mac)
+	if err != nil {
+		return err
+	}
+	return v.edit(func(inv *models.DeviceInventory) error {
+		d := deviceByMAC(*inv, mac)
+		if d == nil {
+			return ErrNoSuchDevice
+		}
+		d.Important = important
+		return nil
+	})
+}
+
 // Forget removes a device from the inventory. If it is on the network it comes back as a new device.
 func (v *Inventory) Forget(mac string) error {
 	mac, err := normalizeMAC(mac)

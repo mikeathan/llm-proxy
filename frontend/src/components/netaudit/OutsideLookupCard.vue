@@ -3,22 +3,22 @@ import { computed, onMounted, ref, watch } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import FormField from "../common/forms/FormField.vue"
-import ToggleField from "../common/forms/ToggleField.vue"
+import ModuleSwitchNote from "../stacks/ModuleSwitchNote.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useOutsideLookup } from "../../composables/netaudit/useOutsideLookup"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import {
-  OUTSIDE_LOOKUP_ADDRESS_HINT, OUTSIDE_LOOKUP_ADDRESS_LABEL, OUTSIDE_LOOKUP_ADDRESS_SAVE, OUTSIDE_LOOKUP_DETAILS, OUTSIDE_LOOKUP_DIFFERS, OUTSIDE_LOOKUP_HINT, OUTSIDE_LOOKUP_INTERNET_OFF, OUTSIDE_LOOKUP_LABEL, OUTSIDE_LOOKUP_OPEN_SETTINGS, OUTSIDE_LOOKUP_READ_FAILED_NEXT, OUTSIDE_LOOKUP_READ_FAILED_TITLE, OUTSIDE_LOOKUP_READING,
+  OUTSIDE_LOOKUP_ADDRESS_HINT, OUTSIDE_LOOKUP_ADDRESS_LABEL, OUTSIDE_LOOKUP_ADDRESS_SAVE, OUTSIDE_LOOKUP_DETAILS, OUTSIDE_LOOKUP_DIFFERS, OUTSIDE_LOOKUP_HINT, OUTSIDE_LOOKUP_INTERNET_OFF, OUTSIDE_LOOKUP_OPEN_SETTINGS, OUTSIDE_LOOKUP_READ_FAILED_NEXT, OUTSIDE_LOOKUP_READ_FAILED_TITLE, OUTSIDE_LOOKUP_READING,
   OUTSIDE_LOOKUP_RETRY, OUTSIDE_LOOKUP_TITLE, OUTSIDE_LOOKUP_URL_HINT, OUTSIDE_LOOKUP_URL_LABEL, OUTSIDE_LOOKUP_URL_SAVE,
 } from "../../constants/netaudit"
 import { outsideLookupLine, outsideLookupNeedsAddress } from "../../utils/netaudit/outsideLookup"
 import { formatRelativeTime } from "../../utils/format/time"
 import { toSettings } from "../../router/routes"
 
-// Network → Devices → Internet view: the switch for asking an outside scan database what the internet can reach, and what the
+// Network → Settings → Internet view: asking an outside scan database what the internet can reach (switched on the Modules tab), and what the
 // last look did. Findings appear with the others. Simple is the switch and one status line; Advanced adds which service is asked.
-const { state, error, busy, load, set, setUrl, setAddress } = useOutsideLookup()
+const { state, error, busy, load, setUrl, setAddress } = useOutsideLookup()
 const { advanced } = useNetauditViewMode()
 const url = ref("")
 const address = ref("")
@@ -42,7 +42,7 @@ onMounted(load)
       <LoadingState v-else-if="!state" :label="OUTSIDE_LOOKUP_READING" />
 
       <template v-else>
-        <ToggleField :model-value="state.enabled" :label="OUTSIDE_LOOKUP_LABEL" :hint="OUTSIDE_LOOKUP_HINT" :details="OUTSIDE_LOOKUP_DETAILS" :disabled="busy" @update:model-value="set" />
+        <ModuleSwitchNote :enabled="state.enabled" :hint="OUTSIDE_LOOKUP_HINT" :details="OUTSIDE_LOOKUP_DETAILS" />
 
         <p v-if="state.enabled" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="outside-lookup-status">{{ outsideLookupLine(state.last, state.last.outcome ? formatRelativeTime(state.last.at) : "") }}</p>
 

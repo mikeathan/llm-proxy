@@ -40,7 +40,8 @@ for (const view of ['simple', 'advanced'] as const) {
     test(`router DNS check card, ${name} (${view}), fits the screen`, async ({ page }, testInfo) => {
       await open(page, view, STATES[name])
       const card = page.locator('[data-test="dns-check"]')
-      await expect(card.getByRole('switch', { name: "Compare your router's DNS with an outside one" })).toBeVisible()
+      await expect(card.locator('[data-test="module-switch-state"]')).toBeVisible()
+      await expect(card.getByRole('switch')).toHaveCount(0)
       const status = card.locator('[data-test="dns-check-status"]')
       if (name === 'off') await expect(status).toHaveCount(0)
       else await expect(status).toBeVisible()

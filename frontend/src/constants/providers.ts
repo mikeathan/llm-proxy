@@ -35,5 +35,4 @@ export const PROVIDER_LABELS: Record<SettingsTab, string> = {
   search: "Search",
   agents: "Agents",
   "sign-in": "Sign-in & access",
-  "agent-activity": "Agent activity",
 };

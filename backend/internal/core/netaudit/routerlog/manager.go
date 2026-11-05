@@ -27,6 +27,11 @@ const (
 	reconcileEvery = 30 * time.Second
 	// perSecond is how many datagrams from the router are looked at in one second; the rest are dropped unread.
 	perSecond = 10
+	// queriesPerSecond is how many DNS query lines are read in one second, under a counter of their own: they are far more numerous
+	// than the device messages, and they must neither use that allowance nor be starved by it. The owner's capture on 2026-11-05
+	// (10 minutes of everything the router sends to port 514: 362 lines, none dropped, about 0.6 a second) puts the ordinary rate
+	// far below this; the limit leaves room for a burst of page loads, which one capture of a quiet network does not show.
+	queriesPerSecond = 50
 	// defaultWakeGap is the least time between two wakes this listener asks for.
 	defaultWakeGap = 5 * time.Second
 	// receiveBuffer is the kernel's queue for this socket. It is small on purpose: when lines come faster than they are read
@@ -53,6 +58,9 @@ type Deps struct {
 	// Drop counts one firewall drop from the internet (its protocol and destination port, nothing else) at the time it was heard.
 	// It must not block and may be nil, in which case drop lines are ignored.
 	Drop func(d Drop, at time.Time)
+	// Query is handed one DNS query line from the router (its type, vetted name and sender, nothing else) at the time it was heard.
+	// It must not block. Nil means query lines are not read at all.
+	Query func(q Query, at time.Time)
 	// Wake asks the presence check to look now. It must not block.
 	Wake    func()
 	OnError func(error)
@@ -81,6 +89,8 @@ type Manager struct {
 	lastWake   time.Time
 	windowFrom time.Time
 	inWindow   int
+	queryFrom  time.Time
+	inQueries  int
 	offerFrom  time.Time
 	offerCount int
 	offered    map[string]time.Time // device and name offered lately, so a repeat is not offered again; bounded by maxOffered
@@ -208,6 +218,7 @@ func (m *Manager) handle(datagram []byte, from netip.AddrPort) {
 		return
 	}
 	m.countDrop(datagram, from, now)
+	m.readQuery(datagram, from, now)
 }
 
 // countDrop counts a firewall drop line from the router's own address. It is not held to the allowance of device messages:
@@ -223,6 +234,34 @@ func (m *Manager) countDrop(datagram []byte, from netip.AddrPort, now time.Time)
 	if d, ok := ParseDrop(datagram); ok {
 		m.deps.Drop(d, now)
 	}
+}
+
+// readQuery hands on a DNS query line from the router's own address. It has its own limit, apart from the device allowance, and
+// the cheap search turns every other line away before anything is parsed.
+func (m *Manager) readQuery(datagram []byte, from netip.AddrPort, now time.Time) {
+	if m.deps.Query == nil || !IsQuery(datagram) {
+		return
+	}
+	if gw := m.deps.Gateway(); !gw.IsValid() || from.Addr().Unmap() != gw || !m.withinQueries(now) {
+		return
+	}
+	if q, ok := ParseQuery(datagram); ok {
+		m.deps.Query(q, now)
+	}
+}
+
+// withinQueries counts a query line against this second's allowance for query lines.
+func (m *Manager) withinQueries(now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if now.Sub(m.queryFrom) >= time.Second {
+		m.queryFrom, m.inQueries = now, 0
+	}
+	if m.inQueries >= queriesPerSecond {
+		return false
+	}
+	m.inQueries++
+	return true
 }
 
 // accept is everything that happens to a datagram before it can do anything: the sender check, the cheap search that

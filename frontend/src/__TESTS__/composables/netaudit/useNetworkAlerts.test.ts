@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, ref, shallowRef } from 'vue'
 import { createNetworkAlerts } from '../../../composables/netaudit/useNetworkAlerts'
-import { toNetwork, toSettings } from '../../../router/routes'
+import { toAgents, toNetwork, toSettings } from '../../../router/routes'
 import type { GlobalRunTick } from '../../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../../types/notifications'
 
@@ -87,7 +87,8 @@ describe('network alerts', () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 2, items: [alert(2, { kind: 'agent', message: 'agent m' })] })
     await poll()
-    expect(published[0]![0]!.target).toEqual(toSettings('agent-activity'))
+    expect(published[0]![0]!.target).toEqual(toAgents())
+    expect(published[0]![0]!.destination).toBe('agents')
   })
 
   it('carries what became of the send and how often a decoy alert repeated', async () => {

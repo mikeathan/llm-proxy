@@ -62,6 +62,17 @@ func (c *PresenceConfig) Set(enabled bool, minutes int) error {
 	return nil
 }
 
+// SetEnabled turns the check on or off and leaves the chosen interval as it is.
+func (c *PresenceConfig) SetEnabled(enabled bool) error {
+	if err := c.store.Update(func(cfg *models.NetauditConfig) error {
+		cfg.PresenceCheck = enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the presence check switch: %w", err)
+	}
+	return nil
+}
+
 // Settings is what the check itself reads for each cycle: its switch, its interval and the declared scan ranges it sweeps.
 func (c *PresenceConfig) Settings() PresenceSettings {
 	cfg := c.store.Get()

@@ -37,7 +37,7 @@ import type { DeviceFilter, DeviceStatus, NetworkDevice } from "../../types/neta
 // approves it. A new device is never hidden: it is in the first group, open, and All shows it. The switches that control the
 // check are on the Settings tab. Simple shows names and one decision per device; Advanced adds hardware and IPv6 addresses
 // and the open-port list.
-const { inventory, presence, loadError, actionError, busy, load, name, approve, forget, dismissSuggestion, confirmGateway } = useDevices()
+const { inventory, presence, loadError, actionError, busy, load, name, approve, markImportant, forget, dismissSuggestion, confirmGateway } = useDevices()
 const { confirm } = useConfirm()
 const { advanced } = useNetauditViewMode()
 
@@ -156,6 +156,7 @@ onMounted(load)
                   @save-name="saveName(device)"
                   @cancel-naming="editing = null"
                   @remove="remove(device)"
+                  @toggle-important="markImportant(device.mac, !device.important)"
                   @accept-suggestion="name(device.mac, device.suggested_name ?? '')"
                   @dismiss-suggestion="dismissSuggestion(device.mac)"
                   @update:draft="draft = $event"

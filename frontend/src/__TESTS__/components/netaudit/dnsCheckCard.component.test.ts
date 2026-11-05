@@ -42,9 +42,10 @@ describe('DnsCheckCard', () => {
     useNetauditViewMode().set('simple')
   })
 
-  it('is off until the person turns it on, and says nothing about comparisons that never happened', async () => {
+  it('says it is switched off, has no switch of its own, and says nothing about comparisons that never happened', async () => {
     const w = await mountCard()
-    expect((w.get('[role="switch"]').element as HTMLInputElement).checked).toBe(false)
+    expect(w.find('[role="switch"]').exists()).toBe(false)
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched off.')
     expect(w.find('[data-test="dns-check-status"]').exists()).toBe(false)
     w.unmount()
   })
@@ -58,23 +59,11 @@ describe('DnsCheckCard', () => {
     w.unmount()
   })
 
-  it('turns it on through the service and shows the state the server confirmed', async () => {
-    service.setDnsCheck.mockResolvedValue(state({ enabled: true }))
+  it('shows what it has compared once it is on', async () => {
+    service.dnsCheck.mockResolvedValue(state({ enabled: true }))
     const w = await mountCard()
-    await w.get('[role="switch"]').trigger('click')
-    await flushPromises()
-    expect(service.setDnsCheck).toHaveBeenCalledWith({ enabled: true })
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched on.')
     expect(w.get('[data-test="dns-check-status"]').text()).toContain('Nothing compared yet')
-    w.unmount()
-  })
-
-  it('shows a failed change as an error and keeps the old state', async () => {
-    service.setDnsCheck.mockRejectedValue(new Error('A passphrase is needed'))
-    const w = await mountCard()
-    await w.get('[role="switch"]').trigger('click')
-    await flushPromises()
-    expect(w.get('[role="alert"]').text()).toContain('passphrase')
-    expect((w.get('[role="switch"]').element as HTMLInputElement).checked).toBe(false)
     w.unmount()
   })
 

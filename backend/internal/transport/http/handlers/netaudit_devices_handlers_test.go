@@ -20,6 +20,7 @@ type fakeDevices struct {
 	approved  string
 	forgotten string
 	confirmed bool
+	important map[string]bool
 	err       error
 }
 
@@ -28,6 +29,10 @@ func (f *fakeDevices) Name(mac, name string) error           { f.named = [2]stri
 func (f *fakeDevices) Approve(mac string) error              { f.approved = mac; return f.err }
 func (f *fakeDevices) Forget(mac string) error               { f.forgotten = mac; return f.err }
 func (f *fakeDevices) ConfirmGateway() error                 { f.confirmed = true; return f.err }
+func (f *fakeDevices) SetImportant(mac string, on bool) error {
+	f.important = map[string]bool{mac: on}
+	return f.err
+}
 
 type fakePresence struct {
 	enabled bool
@@ -205,5 +210,16 @@ func TestDevicesHandlers_DismissSuggestion(t *testing.T) {
 	}
 	if code := post("aa:bb:cc:00:00:01"); code != http.StatusNotFound {
 		t.Errorf("nothing left to dismiss is a 404: %d", code)
+	}
+}
+
+func TestDevicesHandlers_MarkingADeviceImportantApprovesNothing(t *testing.T) {
+	devices := &fakeDevices{}
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{})
+	if rec := withMAC(h.Update, http.MethodPut, `{"important":true}`, "aa:bb:cc:00:00:01"); rec.Code != http.StatusOK || !devices.important["aa:bb:cc:00:00:01"] || devices.approved != "" {
+		t.Errorf("mark = %d %s %v approved=%q", rec.Code, rec.Body.String(), devices.important, devices.approved)
+	}
+	if rec := withMAC(h.Update, http.MethodPut, `{"important":false}`, "aa:bb:cc:00:00:01"); rec.Code != http.StatusOK || devices.important["aa:bb:cc:00:00:01"] {
+		t.Errorf("unmark = %d %v", rec.Code, devices.important)
 	}
 }

@@ -1,11 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { shallowMount } from '@vue/test-utils'
-
-const service = vi.hoisted(() => ({
-  weeklySummary: vi.fn().mockResolvedValue({ enabled: false }), setWeeklySummary: vi.fn(),
-  dailyCheckIn: vi.fn().mockResolvedValue({ enabled: false }), setDailyCheckIn: vi.fn(),
-}))
-vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
 import NetworkSettings from '../../../components/netaudit/NetworkSettings.vue'
 
@@ -29,12 +23,12 @@ describe('NetworkSettings', () => {
     const watching = w.get('[data-test="group-watching"]')
     expect(watching.get('h2').text()).toBe('Watching for changes')
     expect(watching.html()).toContain('device-check-settings-stub')
-    // The weekly summary and the daily check-in share one panel: both are messages the program sends on its own.
-    expect(watching.html()).toContain('title="Regular messages"')
-    expect(watching.html()).not.toContain('browser')
+    // The weekly summary and the daily check-in are switches, and every switch is on the Modules tab: nothing here switches them.
+    expect(watching.html()).not.toContain('Regular messages')
+    expect(w.find('[role="switch"]').exists()).toBe(false)
     const extras = w.get('[data-test="group-extras"]')
     expect(extras.get('h2').text()).toBe('Optional extras')
-    for (const card of ['decoys-card-stub', 'router-log-card-stub', 'outside-lookup-card-stub', 'dns-check-card-stub']) expect(extras.html()).toContain(card)
+    for (const card of ['decoys-card-stub', 'router-log-card-stub', 'outside-lookup-card-stub', 'dns-check-card-stub', 'nearby-card-stub']) expect(extras.html()).toContain(card)
   })
 
   it('says that every change saves at once, and has no Save button of its own', () => {

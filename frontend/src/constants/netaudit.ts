@@ -207,6 +207,7 @@ export const DEVICES_LOAD_FAILED = 'The list of devices could not be read.'
 export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
   name: 'The name could not be saved.',
   approve: 'The device could not be approved.',
+  important: 'The mark could not be saved.',
   forget: 'The device could not be removed from the list.',
   'dismiss-suggestion': 'The suggested name could not be dismissed.',
   'confirm-gateway': 'The router\'s address could not be confirmed.',
@@ -218,8 +219,6 @@ export const PRESENCE_SAVE_FAILED = 'The new-device check could not be changed.'
 export const PRESENCE_HINT = 'Notices a device that was not on the network before and messages you.'
 export const PRESENCE_DETAILS = 'Looks for a device that was not on the network before, and sends you a short message the first time one shows up. It only connects to the networks allowed above; it never looks at what a device sends.'
 export const IPV6_LOAD_FAILED = 'The IPv6 setting could not be read.'
-export const IPV6_SAVE_FAILED = 'The IPv6 setting could not be changed.'
-export const IPV6_LABEL = 'Look for IPv6 devices'
 export const IPV6_HINT = 'Finds devices that only show up over IPv6.'
 export const IPV6_DETAILS = 'Some devices only show up over IPv6. Each look sends one small message to the devices on your network asking them to announce themselves, and lists the ones that answer. It does not scan or connect to anything.'
 export const IPV6_FIX_COMMAND = 'sudo sysctl -w net.ipv4.ping_group_range="0 2147483647"'
@@ -258,7 +257,6 @@ export const FORGET_CONFIRM = {
 /** Network · Settings · Decoy services: the words the card uses. */
 export const DECOYS_TITLE = 'Decoy services'
 export const DECOYS_LOAD_FAILED = 'The decoy services could not be read.'
-export const DECOYS_SAVE_FAILED = 'The decoy services could not be changed.'
 export const DECOYS_CLEAR_FAILED = 'The list could not be cleared.'
 export const DECOYS_CLEAR_LABEL = 'Clear list'
 export const DECOYS_CLEAR_TITLE = 'Clear the list of connections?'
@@ -271,7 +269,7 @@ export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
-export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', timeline: 'Timeline', audits: 'Audits', settings: 'Settings' } as const
+export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', timeline: 'Timeline', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
 export const NETWORK_OVERVIEW_LABEL = 'Overview'
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
@@ -318,34 +316,16 @@ export const SUGGESTION_NEW_DEVICE = (name: string): string => `It calls itself 
 export const SUGGESTION_APPROVED = (name: string): string => `It calls itself “${name}”.`
 export const SUGGESTION_ACCEPT = 'Use this name'
 
-/** Network · Overview · Weekly summary. */
-export const SUMMARY_LOAD_FAILED = 'The weekly summary setting could not be read.'
-export const SUMMARY_SAVE_FAILED = 'The weekly summary setting could not be changed.'
-export const SUMMARY_LABEL = 'Send a weekly summary'
-export const SUMMARY_HINT = 'A short weekly message with counts only.'
-export const SUMMARY_DETAILS = 'Once a week, a short message to your connected messaging apps: how many devices, how many are new or missing, and how many problems the audit found. Counts only, no names or addresses. It is sent while the new-device check is on.'
-export const MESSAGES_PANEL_TITLE = 'Regular messages'
-export const CHECK_IN_LOAD_FAILED = 'The daily check-in setting could not be read.'
-export const CHECK_IN_SAVE_FAILED = 'The daily check-in setting could not be changed.'
-export const CHECK_IN_LABEL = 'Send a daily check-in'
-export const CHECK_IN_HINT = 'One short message a day saying the program is running.'
-export const CHECK_IN_DETAILS = 'Once a day, a short message to your connected messaging apps saying this program is running and naming any monitor that has stopped. If the message stops coming, the computer is down or cut off: nothing else would tell you, because a stopped computer sends no alerts.'
-
 /** Devices · Suggest names for devices. */
 export const NAMES_LOAD_FAILED = 'The device names setting could not be read.'
-export const NAMES_SAVE_FAILED = 'The device names setting could not be changed.'
-export const NAMES_LABEL = 'Suggest names for devices'
 export const NAMES_HINT = 'Asks devices you have not named what they call themselves.'
 export const NAMES_DETAILS = 'Each look asks a device you have not named what it calls itself: one small question, no more than once a week for a device that answers, and less and less often for one that does not. The answer is only offered to you to confirm.'
-export const FOLLOW_UP_LABEL = 'Scan new devices when they arrive'
 export const FOLLOW_UP_HINT = 'Scans a device once, as soon as the new-device check finds it.'
 export const FOLLOW_UP_DETAILS = 'When the new-device check finds a device nobody has approved or named, this runs one ordinary scan of that device alone, so you learn within minutes what it offers (an open Telnet port, a camera stream) instead of at the next nightly audit. The alert gives the count of open ports and what is worth a look; the nightly audit still compares it with the rest. It scans only inside your scan networks, one scan at a time, never the deep check, and no model is involved. Devices with a private hardware address (phones and laptops that change it) are left out, each device is scanned at most once a day, and no more than three an hour. Scans run one at a time, so a nightly audit that starts while one runs is told a scan is already running, as it is during a new-device sweep. It adds scan traffic during the day, so it is off until you turn it on, and turning it on asks for your passphrase. It needs the new-device check on.'
 export const FOLLOW_UP_LOAD_FAILED = 'The scan-on-arrival setting could not be read.'
-export const FOLLOW_UP_SAVE_FAILED = 'The scan-on-arrival setting could not be changed.'
 
 export const ROUTER_LOG_TITLE = 'Router log'
 export const ROUTER_LOG_LOAD_FAILED = 'The router log setting could not be read.'
-export const ROUTER_LOG_SAVE_FAILED = 'The router log setting could not be changed.'
 export const ROUTER_LOG_HINT = 'Lets the router tell this computer at once when a device joins.'
 export const ROUTER_LOG_DETAILS = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check, and a device\'s own host name in the log may be offered as a name suggestion on the Devices card, which you confirm. The log also tells this computer when the router refuses a connection attempt from the internet: only the protocol and the port are counted, as a number for the day (shown on the Overview and the Timeline, never as an alert), and no address and no line of the log is kept. Nothing else from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase. Anything on your network can send a message that looks like the router; at worst that makes the check look early, never more than once a minute, or makes the day\'s count of refused attempts wrong.'
 export const ROUTER_LOG_NOT_HEARD = 'Nothing has been heard from your router yet. Check the router setting and the redirect below.'
@@ -369,7 +349,6 @@ export const SCAN_KNOWN_VULNS_DETAILS = 'Compares the software the scan recognis
 
 // Network → Devices → Internet view: the opt-in look at what the internet can reach.
 export const OUTSIDE_LOOKUP_TITLE = 'Internet view'
-export const OUTSIDE_LOOKUP_LABEL = 'Check what the internet can reach'
 export const OUTSIDE_LOOKUP_HINT = 'Asks an outside service which of your ports it can see open.'
 export const OUTSIDE_LOOKUP_DETAILS = 'Each nightly audit asks your router for its internet address, then sends that address, and nothing else, to an outside scan database. That service learns your public internet address and that it is looked up from a home network. It answers with the ports it has seen open there; its information can be up to a week old, and it can miss a port. Any port it lists is reported as a finding on the router. It works only when your router tells this computer its internet address (UPnP) or you type that address in below, and it says so when it cannot look. It looks at your IPv4 address only: a device with its own public IPv6 address is reachable in other ways this check does not see. Off until you turn it on, and turning it on asks for your passphrase.'
 export const OUTSIDE_LOOKUP_LOAD_FAILED = 'The internet view setting could not be read.'
@@ -408,7 +387,6 @@ export const OUTSIDE_LOOKUP_URL_LABEL = 'Service address'
 export const OUTSIDE_LOOKUP_URL_HINT = 'Must start with https://. Leave empty to use the default service.'
 export const OUTSIDE_LOOKUP_URL_SAVE = 'Save address'
 export const DNS_CHECK_TITLE = 'Router DNS check'
-export const DNS_CHECK_LABEL = "Compare your router's DNS with an outside one"
 export const DNS_CHECK_HINT = 'Records whether your router and an outside resolver agree. It raises no alerts yet.'
 export const DNS_CHECK_DETAILS = "Every so often this computer asks your router's DNS for a few names, then asks an outside resolver the same questions over HTTPS, and records whether the answers agree. A router that has been taken over can send you to the wrong place for a name; this is one way to notice. The outside resolver learns which names are asked and your public internet address. Names whose addresses never change are used, so a difference means something, and a connection that cannot be made is recorded as \"could not compare\", never as a match. It catches a router that redirects everything, not one that lies about a single site. For now it only keeps a record: after a week of results it will be decided whether a difference should raise an alert. Off until you turn it on, and turning it on asks for your passphrase."
 export const DNS_CHECK_LOAD_FAILED = 'The DNS check setting could not be read.'
@@ -458,7 +436,6 @@ export const SCAN_UNCONFINED_DETAILS = 'Normally nmap is kept inside its own fol
 
 export const NEARBY_TITLE = 'Nearby'
 export const NEARBY_SETTINGS_TITLE = 'Nearby devices'
-export const NEARBY_LABEL = 'Ask the network what each device is'
 export const NEARBY_HINT = 'Sends two small questions to the whole network and listens for the answers. Off until you turn it on.'
 export const NEARBY_DETAILS = 'When you check, this computer sends two questions to every device on your network at once: one over mDNS ("which services do you offer?", the way printers and TVs announce themselves) and one over UPnP ("who are you?"). It then listens for about five seconds and reads the answers, and may read a short description page from a device that says where it is. Only the device type, services, port numbers and a cleaned name, maker and model are kept. Nothing else a device sends is stored, and nothing is ever sent to the internet. What a device says is only a claim: a device can say anything, so it is shown as "advertises as". Some routers and access points block these questions, and some devices stay quiet, so a device that does not answer is not gone. Off until you turn it on, and turning it on asks for your passphrase.'
 export const NEARBY_CHECK_NOW = 'Check now'
@@ -476,7 +453,6 @@ export const NEARBY_FAILED: Record<string, string> = {
 }
 export const NEARBY_READ_FAILED_TITLE = 'Nearby could not be read'
 export const NEARBY_LOAD_FAILED = 'Failed to read what devices said about themselves.'
-export const NEARBY_SAVE_FAILED = 'Failed to save the Nearby setting.'
 export const NEARBY_LOOK_FAILED = 'Failed to start a look.'
 export const NEARBY_NO_MATCH = 'No device matches this filter.'
 export const NEARBY_SILENCE_NOTE = 'A device that did not answer is not gone: some do not answer every time.'
@@ -555,3 +531,20 @@ export const UBUNTU_NOTE = 'Fixes that only an Ubuntu Pro subscription installs 
 export const UBUNTU_ATTRIBUTION = 'Security notices © Canonical Ltd., from security-metadata.canonical.com. Canonical states no licence for this data; it is fetched once, kept on this computer and never sent anywhere.'
 export const UBUNTU_OLD_DAYS = 14
 export const UBUNTU_OLD_NOTE = 'This data is more than two weeks old, so newer fixes are missing. Update it.'
+
+/** The Overview's attack paths card. */
+export const ATTACK_PATHS_TITLE = 'Ways in that matter'
+export const ATTACK_PATHS_NONE = 'No way in found that leads to this computer, your router or a device you marked as important.'
+export const ATTACK_PATHS_MARK_HINT = 'A device you mark as important gets its own paths. Mark one on the Devices tab.'
+export const ATTACK_PATHS_FIX_LABEL = 'The one fix'
+export const DEVICE_MARK_IMPORTANT = 'Mark as important'
+export const DEVICE_UNMARK_IMPORTANT = 'Not important'
+export const DEVICE_IMPORTANT_NOTE = 'Marked as important.'
+
+/** Network · Settings · Web check templates. */
+export const WEB_TEMPLATES_TITLE = 'Web check templates'
+export const WEB_TEMPLATES_LOAD_FAILED = 'The web check templates could not be read.'
+export const WEB_TEMPLATES_DOWNLOAD_FAILED = 'The web check templates could not be downloaded.'
+export const WEB_TEMPLATES_NOTE = 'A short, reviewed list of web page checks. They are fetched only when you press the button, from one fixed release, and each file is kept only if it is exactly the file that was reviewed. The program never updates them by itself.'
+export const webTemplatesLine = (present: number, total: number, tag: string): string =>
+  present >= total ? `All ${total} reviewed checks are downloaded (release ${tag}).` : `${present} of ${total} reviewed checks are downloaded (release ${tag}).`

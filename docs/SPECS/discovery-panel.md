@@ -13,6 +13,34 @@ supersedes:
 
 ## Changelog
 
+- **2.35 (2026-11-05)** — **Phone-home watch and web checks (v0.48.0, plan `stack-modules-and-new-detection` P3 and P4; Constitution I.8 and II.3 amended).** Two new
+  modules on the Modules tab: **Phone-home watch** (Listen layer, needs the router log, off by default) remembers which DNS names each device asks the router for, and the nightly
+  report gains findings for a name a device asked for for the first time after its first week, a new name asked for at a steady beat, and a device that is online and never asks the
+  router's DNS (a Chromecast does this on purpose, so each can be accepted); **Web checks, nightly** (Test layer, off by default, needs the passphrase, blocked with a plain reason
+  until nuclei is installed and its templates are downloaded) runs a reviewed list of 24 web page checks against the web pages the audit found, and the operator's deep check of
+  one device runs them too. Network → Settings gains **Web check templates**: how many reviewed checks are on this computer and one button that downloads them (nothing else does).
+  New findings: `phone_home_new_place`, `phone_home_beaconing`, `phone_home_around_dns`, `web_exposure`.
+- **2.34 (2026-11-05)** — **Attack paths (v0.48.0, plan `stack-modules-and-new-detection` P2).** Network → Overview gains **Ways in that matter**: at most three
+  paths, each read top to bottom (where it starts, the weaknesses on it with their ports, what it ends at, the one fix and, when it breaks more than its own path, how
+  many), built from the last audit's real findings by fixed rules; a path of accepted findings stays, dimmer and marked "accepted". No path comes from an open port alone;
+  the ends are this computer, the router and any device marked important. A device row's open details gain **Mark as important** / **Not important** (it approves
+  nothing). With no path the card says so. The nightly report gets the same section in fixed words. A new module, **Attack paths** (Understand layer, sends nothing,
+  on by default), is switched on the Modules tab.
+- **2.33 (2026-11-05)** — **Stacks and modules (v0.48.0, ADR-0028, plan `stack-modules-and-new-detection` P1).** The navigation group
+  **Modules** is renamed **Stacks** and holds **Network** and a new **Agents** page (`/agents`, tabs Activity and Modules). Each stack's
+  **Modules** tab (`/network/modules`, `/agents/modules`) is the one place its modules are switched: layers are drawn top to bottom (numbered from
+  the bottom, 01), each module is a tile (a row on a phone) with its name, one line of purpose, a switch and one quiet status line
+  ("Working · LAN", "Off · sends a message · needs Presence check", "Blocked · …"), a blocked module is dimmed, and a switch the server refuses
+  goes back and says why beside the module. The stack's summary line counts on, stopped and blocked. **Network → Settings loses every switch**:
+  the weekly summary and daily check-in panel is gone, and each card (new-device check, scan on arrival, device names, IPv6, decoys, router log,
+  Internet view, DNS check, Nearby) says "Switched on/off" with a link to the Modules tab and keeps its details (interval, address, URL, names,
+  problems, the explanation under "More about this"). **Settings → Safety → Agent activity moves to Agents → Activity** (lock down is the page's
+  first panel); an agent alert on the bell leads there and badges the Agents entry. The Agents stack's two parts, **Agent activity** and the
+  **Secrets pass**, are modules that can now be switched off (settings.yml `agents:`, stored as `activity_off` and `secrets_pass_off`, so an
+  install with nothing stored keeps both on); switching either needs the passphrase. API: `GET /admin/api/stacks`, `GET /admin/api/stacks/{stack}`,
+  `PUT /admin/api/stacks/{stack}/modules/{id}` `{"enabled": bool}` (404 unknown, 400 without `enabled`, 403 `reauth_required` without the
+  passphrase for a step-up module, 409 naming the need when a module is switched on while one it needs is off, 200 with the stack and the modules
+  the change left waiting). The old per-feature routes stay for their details and keep their step-up.
 - **2.32 (2026-11-05)** — **Protect this program, watch its agents, calmer findings (v0.47.0, plan `security-self-protection-and-agent-watch`,
   ledger 2026-11-05).** Network → Findings: three or more kinds of problem start folded to their titles (two or fewer stay open), the fix is
   said once (the guide's steps when there is a guide, the one line when there is not), a place row on a phone is its name, its evidence and

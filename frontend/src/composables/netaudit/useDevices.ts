@@ -5,7 +5,6 @@ import {
   DEVICES_ACTION_FAILED,
   DEVICES_LOAD_FAILED,
   IPV6_LOAD_FAILED,
-  IPV6_SAVE_FAILED,
   PRESENCE_LOAD_FAILED,
   PRESENCE_SAVE_FAILED,
 } from '../../constants/netaudit'
@@ -60,18 +59,6 @@ export function useDevices() {
     }
   }
 
-  async function setIPv6(enabled: boolean): Promise<void> {
-    busy.value = true
-    try {
-      ipv6.value = await NetauditService.setIpv6Discovery(enabled)
-      actionError.value = ''
-    } catch (err) {
-      actionError.value = errorMessage(err, IPV6_SAVE_FAILED)
-    } finally {
-      busy.value = false
-    }
-  }
-
   return {
     inventory,
     presence,
@@ -81,8 +68,8 @@ export function useDevices() {
     busy,
     load,
     setPresence,
-    setIPv6,
     name: (mac: string, name: string) => act('name', () => NetauditService.nameDevice(mac, name)),
+    markImportant: (mac: string, important: boolean) => act('important', () => NetauditService.markImportant(mac, important)),
     approve: (mac: string) => act('approve', () => NetauditService.approveDevice(mac)),
     forget: (mac: string) => act('forget', () => NetauditService.forgetDevice(mac)),
     dismissSuggestion: (mac: string) => act('dismiss-suggestion', () => NetauditService.dismissSuggestion(mac)),

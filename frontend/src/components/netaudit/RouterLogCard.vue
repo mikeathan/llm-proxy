@@ -3,7 +3,7 @@ import { onMounted, ref } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Disclosure from "../common/layout/Disclosure.vue"
-import ToggleField from "../common/forms/ToggleField.vue"
+import ModuleSwitchNote from "../stacks/ModuleSwitchNote.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useRouterLog } from "../../composables/netaudit/useRouterLog"
@@ -13,9 +13,9 @@ import {
 } from "../../constants/netaudit"
 import { formatRelativeTime } from "../../utils/format/time"
 
-// Settings · Network · Router log: the switch for taking the router's log, whether it is arriving, and how to point the router
+// Settings · Network · Router log: whether the router's log is arriving (it is switched on the Modules tab), and how to point the router
 // at this computer. The log is only a nudge for the presence check, so there is nothing to list here.
-const { state, error, busy, load, set } = useRouterLog()
+const { state, error, load } = useRouterLog()
 const setupOpen = ref(false)
 
 onMounted(load)
@@ -30,7 +30,7 @@ onMounted(load)
       <LoadingState v-else-if="!state" label="Reading the router log setting" />
 
       <template v-else>
-        <ToggleField :model-value="state.enabled" label="Take the router's log" :hint="ROUTER_LOG_HINT" :details="ROUTER_LOG_DETAILS" :disabled="busy" @update:model-value="set" />
+        <ModuleSwitchNote :enabled="state.enabled" :hint="ROUTER_LOG_HINT" :details="ROUTER_LOG_DETAILS" />
 
         <p v-if="state.enabled && state.problem" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="router-log-problem">The program cannot listen on port {{ state.port }}: {{ state.problem }}</p>
         <p v-else-if="state.enabled && state.last_heard" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="router-log-heard">Listening on port {{ state.port }}. The router was last heard {{ formatRelativeTime(state.last_heard) }}.</p>

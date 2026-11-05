@@ -33,3 +33,6 @@ A new device is noticed in seconds instead of minutes, when the presence check i
 ## Links
 - Plan: [`network-security-roadmap.md`](../PLANS/cross-cutting/network-security-roadmap.md) Phase 4; Constitution I.8.
 - Related: [ADR-0014](ADR-0014-presence-check-and-device-inventory.md), [ADR-0015](ADR-0015-decoy-listeners-low-interaction-and-step-up.md), [ADR-0010](ADR-0010-no-level-2-assisted-fixes.md).
+
+## Amendment 2026-11-05
+The listener also reads one more exact shape, the router's `dnsmasq[pid]: query[TYPE] name from address` lines, under its own limit and apart from the device allowance. Only the hardware address (from the neighbour table), a plain DNS name and the time are kept, in the phone-home watch, and the only effect is a finding to review. Constitution I.8 carries the text; plan `stack-modules-and-new-detection` P3 has the design.
