@@ -9,7 +9,7 @@ evidence: Investigation of origin/main 4b76bacc (v0.47.1) on 2026-11-05; the own
 
 # The stack: modules you switch on and off, attack paths, a phone-home watch and web checks
 
-**Status:** approved (2026-11-05); **P1 and P2 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`), P3 and P4 not yet. The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
+**Status:** approved (2026-11-05); **P1 and P2 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`); **P3 and P4: the parts that need no approval are built and tested but not wired; the listener, the modules and nuclei wait for the owner (§6).** The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
 modular … think of the UI as well", noting the service may be renamed to something like OneStack, "a stack platform". Owner decisions:
 **D1** the stack's Modules tab owns every module's switch (Network → Settings keeps only the details); **D2** nuclei runs in the deep check, with a
 nightly switch that is off by default; **D3** the rename is a later PR of its own, so new code uses neutral names (`stack`, `module`) and
@@ -160,8 +160,73 @@ vertex's real findings of 2026-11-05 (read-only, not committed): one path, SSH a
 path too; vertex's SMB entries are `known_vulns` with no flaw known to be exploited, which the rule deliberately leaves out (a possible match is not a way in), and its other
 devices are not marked important.
 
+## P3 and P4 as built so far (v0.48.0, not wired)
+
+- **P3.** `routerlog.ParseQuery` / `IsQuery` (a query line to type, vetted lower-case name and sender; the router's own lookups, every `*.arpa` name and any name that is not plain DNS are
+  dropped; 216 ns and 3 allocations a line), `core/netaudit/phonehome` (names per device keyed by hardware address, bounded, the A/AAAA pair counted once, flushed to `phone-home.json`;
+  `Evaluate`: new place after the learning week, beaconing for new names only, a device online and silent for a day), and `netaudit.PhoneHomeFindings` (one finding per device and
+  kind keyed by the device's address, evidence in fixed words plus at most five names, the Version a digest of the name set so an acceptance holds until the set grows, a fix guide each).
+  **Not built, waiting for the approval of the I.8 text:** the listener reading the lines (its own bounded counter, apart from the 10-a-second allowance), the owner's switch, the module
+  (Listen layer, needs the router log), the report hook and the alert.
+- **P4.** `core/netaudit/nuclei` (the fixed argument table, `Args`, `Verify` of reviewed checksums with links refused, `ParseHits` that keeps only typed facts). **Not built, waiting for the
+  approval of the II.3 text and the template list:** the runner through `progexec` and the sandbox, the operator's deep-check step, the "web checks, nightly" module (off by default), the
+  template download, and the readiness line (nuclei is not installed on vertex).
+
 ## Remaining Work
 
-- P3 phone-home watch, P4 nuclei (see §5).
+- Owner: approve §4 (I.8 and II.3) and the template list in §6, and run the DNS capture; then wire P3 and P4 as above.
 - Owner: approve the two §4 texts and, for P4, the template list.
 - Measure the DNS line rate on vertex (P3 bounds); install nuclei on vertex (P4 readiness).
+
+
+## 6. For the owner's approval: the P3 and P4 texts and the nuclei template list (drafted 2026-11-05)
+
+**State of the work.** P3's parser, store, signals and findings are built and tested but **not wired**: the listener does not read the DNS lines, and no module is registered
+for the phone-home watch, until you approve the I.8 text in §4. P4's argument table, template verification and result parser are built and tested (package
+`core/netaudit/nuclei`) but **not wired**: nothing runs nuclei, nothing downloads templates, and no "web checks" module exists, until you approve the II.3 text in §4 and the list below.
+
+**What I verified.** nuclei **v3.11.1** (official release, SHA-256 checked against the release's checksum file) was run with `-h` and then once, with exactly the flags in `nuclei.fixedFlags`,
+against a local test server. Each flag is in its help: `-duc` (no update check), `-ni` (no interactsh), `-pt http`, `-dr` (no redirects), `-nmhe`, `-rl 5 -c 2 -bs 2 -timeout 8 -retries 0 -rsr 262144`,
+`-mt <limit>`, `-j -or -ot -silent -nc`, `-u` and `-t`. The real output line (a `.DS_Store` hit) is the test fixture, and the parser keeps only the template id, host, port and severity, so a template's own text never reaches the screen.
+nuclei is **not installed on vertex**; its install and its readiness line come with the wiring.
+
+**Rules the draft list was filtered by** (templates repository v10.5.1, 14,104 files, 2,447 passed the rules, 24 hand-picked below): HTTP templates only in `http/exposures`, `http/misconfiguration`, `http/technologies`, `http/exposed-panels`;
+severity info or low; GET or HEAD only; every path under `{{BaseURL}}` or `{{RootURL}}` (a request cannot name another host); no `raw`, `payloads`, `fuzzing`, `attack`, no username or password variables,
+no interactsh or OAST, no redirect-following to other hosts; no tag among fuzz, dos, intrusive, bruteforce, default-login, oast, ssrf, rce, sqli, xss, lfi, cve, kev, exploit, takeover.
+The program runs each as `-t <file>` of a file whose SHA-256 equals the one below, so a changed template is refused and named.
+
+| id | file | severity | sha256 |
+|---|---|---|---|
+| `ds-store-file` | `http/exposures/files/ds-store-file.yaml` | low | `eeaa88a701796f263e8e4c32a5d16ae3e18b2cc97d65338632e4ac8b9e49b7a8` |
+| `apache-server-status` | `http/misconfiguration/apache/apache-server-status.yaml` | low | `a0b401b09818e26203a06fdfdffdfd3a5a1af18a7b3ebd72eaaa982adb27f456` |
+| `nginx-status` | `http/misconfiguration/nginx/nginx-status.yaml` | info | `931c4e8049b9d94d2a79d9a476f295db87fe5f5b65d760491a5ca2b4cb80b307` |
+| `openapi` | `http/exposures/apis/openapi.yaml` | info | `1a5541ec8f60d5a5fe56cc15a20b95e7609ebec177ec0ac910b99df8d114981b` |
+| `grafana-detect` | `http/exposed-panels/grafana-detect.yaml` | info | `7e9829d7f57dee46f723de23f9f4c95f97ba3855b19e4466080f6d78e606b4d0` |
+| `home-assistant-panel` | `http/exposed-panels/home-assistant-panel.yaml` | info | `62dbd8aec3c995d7643dd0a463e6c060d8431fc7cc3f1ef45a3139753668b017` |
+| `jellyfin-detect` | `http/technologies/jellyfin-detect.yaml` | info | `2ce8d5a45bdbd93220e4627e2c5dfd29246815b1923217ca7be1f92404ff8578` |
+| `kubernetes-dashboard` | `http/exposed-panels/kubernetes-dashboard.yaml` | info | `e794c21a6b83a5273ac22645102b30d4d8049ef996fd5ef9901a8977cdf1700e` |
+| `prometheus-exporter` | `http/misconfiguration/prometheus/prometheus-exporter.yaml` | info | `130836c9ff0f5cc58d92b1c41c5ef564c9a2d88c4b1fef17589750b0c4d67a6e` |
+| `default-apache-test-page` | `http/technologies/apache/default-apache-test-page.yaml` | info | `f4cdf5e2f3b2b65b5683a26c5d979d5d2011854e7dbd50eab4b4c8299b76feec` |
+| `default-nginx-page` | `http/technologies/nginx/default-nginx-page.yaml` | info | `35a39e681f7dd41ddfb06712ec207adb18d676e0c4d2a3d83c3fbdab103c2c2d` |
+| `luci-login-detection` | `http/exposed-panels/luci-login-detection.yaml` | info | `1b4a00abedd2f48635cee42219ce4b8d0155bfaac9eb43ab9537b400e21a6290` |
+| `asus-router-panel` | `http/exposed-panels/asus-router-panel.yaml` | info | `638808b4b1c68b842067a7820cb0652b4076dc1697167b393d0b5386eb6e393c` |
+| `unifi-os-panel` | `http/exposed-panels/unifi-os-panel.yaml` | info | `a995965438ef4bda69162a7cddd9f57790de9fc63e71c3a8817cf300b5db3164` |
+| `unifi-securitygateway-panel` | `http/exposed-panels/unifi-securitygateway-panel.yaml` | info | `41ec6b0facc21fd0500711d9a1b1403c7ecfbd4b9d4b50aa60dd6c2ff72de982` |
+| `zyxel-router-panel` | `http/exposed-panels/zyxel-router-panel.yaml` | info | `29b89db73d43c363bb89b6a7cb1d237ceb556a990d83e5a57f4f4168cd4fef1e` |
+| `ubiquiti-edgerouter-panel` | `http/exposed-panels/ubiquiti-edgerouter-panel.yaml` | info | `e4f15410f5616b5ab9f6ff9a4c0839eff0bfd6f39454dd661944c76aec3cc435` |
+| `openvpn-router-management` | `http/exposed-panels/openvpn-router-management.yaml` | info | `0667d1db7f3db3c09a0b648181579b40d2b5d45a390f2ac947c61897e399d630` |
+| `truenas-panel` | `http/exposed-panels/truenas-scale-panel.yaml` | info | `bc6a29d94beb01dbc97583f0e0aeebf3357374380fac817b74737239ccf178f1` |
+| `qnap-qts-panel` | `http/exposed-panels/qnap/qnap-qts-panel.yaml` | info | `c9652f806bc4832c30c0f61abdf5be9466f92d747f8f9b9d489ccf82b10a77fe` |
+| `synology-dsm-system-info` | `http/misconfiguration/synology-dsm-system-info.yaml` | info | `460c13c8f72697021ec8a3ff6b1e808f434ec91fe741d116d36c5cb72c2d1b11` |
+| `brother-printer-panel` | `http/exposed-panels/brother-printer-panel.yaml` | info | `ed990f3b20dab167bec8316f2450206f12d05eb92e9e046304595706f1ece875` |
+| `samsung-printer-detect` | `http/exposed-panels/samsung-printer-detect.yaml` | info | `c455324209f2ddee8674bdf29268769504eaadfc6b0e0efeb9c99bf5b0a2bc51` |
+| `fuji-xerox-printer-detect` | `http/exposed-panels/fuji-xerox-printer-detect.yaml` | info | `54c3addc1d83ffdc16c51f1b163875b8000ce10cbf077c660247927dcaa69c2f` |
+
+Two things to decide with it: whether a smaller list is wanted (the router, NAS and printer panels are the ones most likely to be on a home network), and that a template the project later changes is **not** picked up
+until a person reviews it and the checksum here is replaced (the same rule as the vulnerability data: downloaded when you ask, checked, never updated by the program).
+
+**The DNS line rate (P3 bounds).** I cannot reach vertex, so the bounds in `phonehome` (256 devices, 512 names a device, 32 times a name) are judgements, and the listener's own limit for query lines is not set. To measure,
+on vertex for ten minutes: `sudo timeout 600 tcpdump -l -n -i any -A udp port 514 > /tmp/syslog.txt`, then `grep -c 'query\[' /tmp/syslog.txt` and the count of all lines. Port 514, not 5514 (ledger 2026-11-04).
+
+**Known-bad names (abuse.ch).** Not decided. A search found no authoritative page for the size or the licence of abuse.ch's domain list (a third-party project says the data it builds from is CC0, which is not abuse.ch saying so).
+Nothing is built. If you want it, the size and licence must be read from abuse.ch's own pages first.
