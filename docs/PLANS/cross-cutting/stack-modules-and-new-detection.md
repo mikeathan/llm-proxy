@@ -162,7 +162,7 @@ devices are not marked important.
 
 ## P3 and P4 as built (v0.48.0)
 
-- **P3.** `routerlog.ParseQuery` / `IsQuery` and a second intake in the listener (`Deps.Query`, its own limit of `queriesPerSecond` = 200 lines a second, apart from the 10-a-second device
+- **P3.** `routerlog.ParseQuery` / `IsQuery` and a second intake in the listener (`Deps.Query`, its own limit of `queriesPerSecond` = 50 lines a second (the owner's 10-minute capture on 2026-11-05 held 362 lines of every kind, about 0.6 a second), apart from the 10-a-second device
   allowance, so a flood of query lines cannot starve a lease; the limit is a judgement until the owner's capture), `core/netaudit/phonehome` (names per device keyed by hardware
   address, bounded, an A and AAAA pair counted once, flushed every five minutes and at shutdown to `phone-home.json`; `Evaluate`: a new place after the learning week, beaconing for new
   names only, a device online that asks nothing for a day), `netaudit.PhoneHomeFindings` (one finding per device and kind keyed by the device's address, evidence in fixed words with
@@ -179,7 +179,7 @@ devices are not marked important.
 
 ## Remaining Work
 
-- Owner: send the DNS capture (tune `queriesPerSecond` and the `phonehome` bounds); install nuclei on vertex and press Download; decide on the abuse.ch list (§6).
+- Owner: install nuclei on vertex and press Download; decide on the abuse.ch list (§6).
 - Optional later: an immediate alert for a new place or a beacon.
 ## 6. For the owner's approval: the P3 and P4 texts and the nuclei template list (drafted 2026-11-05)
 

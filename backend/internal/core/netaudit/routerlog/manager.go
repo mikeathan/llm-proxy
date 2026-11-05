@@ -28,9 +28,10 @@ const (
 	// perSecond is how many datagrams from the router are looked at in one second; the rest are dropped unread.
 	perSecond = 10
 	// queriesPerSecond is how many DNS query lines are read in one second, under a counter of their own: they are far more numerous
-	// than the device messages, and they must neither use that allowance nor be starved by it. The router's real rate has not
-	// been measured yet, so this is a judgement, set generously and to be tuned from a capture.
-	queriesPerSecond = 200
+	// than the device messages, and they must neither use that allowance nor be starved by it. The owner's capture on 2026-11-05
+	// (10 minutes of everything the router sends to port 514: 362 lines, none dropped, about 0.6 a second) puts the ordinary rate
+	// far below this; the limit leaves room for a burst of page loads, which one capture of a quiet network does not show.
+	queriesPerSecond = 50
 	// defaultWakeGap is the least time between two wakes this listener asks for.
 	defaultWakeGap = 5 * time.Second
 	// receiveBuffer is the kernel's queue for this socket. It is small on purpose: when lines come faster than they are read
