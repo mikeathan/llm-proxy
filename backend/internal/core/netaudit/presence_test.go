@@ -109,6 +109,23 @@ func TestPresence_AFailedSendIsNotMarkedSoItIsTriedAgain(t *testing.T) {
 	}
 }
 
+func TestPresence_ALookThatWorkedIsRecordedEvenWhenItsAlertCouldNotBeSent(t *testing.T) {
+	r := rig()
+	r.inv.pending = Pending{NewDevices: 1}
+	r.sendErr = errors.New("no connector")
+	p := r.presence()
+	p.Tick(context.Background())
+	if st := p.Status(); st.LastLook.IsZero() || !st.LastCheck.IsZero() {
+		t.Fatalf("status = %+v: the look worked (LastLook) though the cycle did not finish (LastCheck)", st)
+	}
+	r.sweepErr = errors.New("nmap missing")
+	q := r.presence()
+	q.Tick(context.Background())
+	if !q.Status().LastLook.IsZero() {
+		t.Fatal("a sweep that failed is not a look that worked")
+	}
+}
+
 func TestPresence_ABusyScannerSkipsTheCycleQuietly(t *testing.T) {
 	r := rig()
 	r.sweepErr = ErrScanBusy

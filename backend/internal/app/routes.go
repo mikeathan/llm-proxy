@@ -44,6 +44,7 @@ type HandlerSet struct {
 	Timeline    *handlers.NetauditSummaryHandlers
 	Summary     *handlers.NetauditSwitchHandlers
 	DeviceNames *handlers.NetauditSwitchHandlers
+	FollowUp    *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
 	RouterLog   *handlers.NetauditRouterLogHandlers
 	OutsideLook *handlers.NetauditOutsideLookupHandlers
@@ -115,7 +116,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
-	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep)
+	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep).WithGuides(s.netauditGuides())
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
@@ -127,6 +128,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
 	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
+	hs.FollowUp = handlers.NewNetauditSwitchHandlers(s.netaudit.FollowUpConfig)
 	hs.UbuntuData = handlers.NewUbuntuDataHandlers(s.netaudit.Ubuntu)
 	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence())
 	hs.Timeline = handlers.NewNetauditSummaryHandlers(hs.Activity, hs.Turns, s.modelIsLocal)
@@ -381,6 +383,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/weekly-summary", hs.Summary.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/device-names", hs.DeviceNames.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/device-names", hs.DeviceNames.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/follow-up-scan", hs.FollowUp.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/follow-up-scan", hs.FollowUp.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/devices", hs.Devices.List, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/devices/{mac}", hs.Devices.Update, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/devices/{mac}", hs.Devices.Forget, jsonMethodNotAllowed)

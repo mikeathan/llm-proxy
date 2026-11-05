@@ -92,11 +92,17 @@ func ServiceProbePorts() []int {
 	return out
 }
 
-// ServiceChecks runs the service checks over the open ports of a scan.
+// ServiceChecks runs the service checks over the open ports of a scan. It holds no state between runs: one instance serves every
+// audit, and two audits may report at the same time.
 type ServiceChecks struct {
-	deps    ServiceDeps
-	probes  []serviceProbe
-	unknown map[string]bool
+	deps   ServiceDeps
+	probes []serviceProbe
+}
+
+// ServiceResult is what one run of the service checks found: the findings, and the ports it could not judge, which Carry uses.
+type ServiceResult struct {
+	Findings []Finding
+	unknown  map[string]bool
 }
 
 func NewServiceChecks(deps ServiceDeps) *ServiceChecks {
@@ -108,9 +114,9 @@ func serviceKey(device string, port int, check string) string {
 }
 
 // Findings probes every open port of a scanned host that a check covers, at most maxServiceProbes of them, and returns the
-// findings of the services that answered without a login.
-func (s *ServiceChecks) Findings(ctx context.Context, hosts []Host) []Finding {
-	s.unknown = map[string]bool{}
+// findings of the services that answered without a login, with the ports that gave no answer it could judge.
+func (s *ServiceChecks) Findings(ctx context.Context, hosts []Host) ServiceResult {
+	unknown := map[string]bool{}
 	var out []Finding
 	probes := 0
 	for _, h := range hosts {
@@ -127,20 +133,20 @@ func (s *ServiceChecks) Findings(ctx context.Context, hosts []Host) []Finding {
 				case verdictOpen:
 					out = append(out, Finding{Device: h.Addr.String(), Port: p.Number, Proto: "tcp", Service: sp.name, Check: sp.check, Severity: sp.severity, Evidence: sp.words})
 				case verdictUnknown:
-					s.unknown[serviceKey(h.Addr.String(), p.Number, sp.check)] = true
+					unknown[serviceKey(h.Addr.String(), p.Number, sp.check)] = true
 				}
 			}
 		}
 	}
-	return out
+	return ServiceResult{Findings: out, unknown: unknown}
 }
 
-// Carry returns the earlier findings of a port that could not be judged this time (no answer, an unreadable one): a camera or a
-// notebook server that did not answer tonight has not been fixed, and the diff must not read it as resolved.
-func (s *ServiceChecks) Carry(earlier []Finding) []Finding {
+// Carry returns the earlier findings of a port this run could not judge (no answer, an unreadable one): a camera or a notebook
+// server that did not answer tonight has not been fixed, and the diff must not read it as resolved.
+func (r ServiceResult) Carry(earlier []Finding) []Finding {
 	var out []Finding
 	for _, f := range earlier {
-		if s.unknown[serviceKey(f.Device, f.Port, f.Check)] {
+		if r.unknown[serviceKey(f.Device, f.Port, f.Check)] {
 			out = append(out, f)
 		}
 	}

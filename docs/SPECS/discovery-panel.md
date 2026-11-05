@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.29"
+version: "2.31"
 status: stable
 last_updated: 2026-11-04
 constitution_references: []
@@ -13,6 +13,25 @@ supersedes:
 
 ## Changelog
 
+- **2.31 (2026-11-04)** — **Network detection and prevention (v0.46.0, plan `network-detection-prevention-next`, ledger 2026-11-04).**
+  New alert kinds in the bell and the alert log: `monitor` (a Network part that is switched on stopped working: the presence check, the
+  router-log listener, a day with nothing from the router, the DNS comparison, the decoys, or two nights with no audit; one alert per stall,
+  leads to the Network overview) and `sign_in` (an address locked out of the admin sign-in, or a sign-in from an address that never signed in
+  before; no address in the text, at most one per kind every five minutes, leads to Settings → Sign-in & access). New findings in "This
+  computer": `monitor_stalled`, and on Linux `host_preload`, `host_extra_root` (reported while present), `host_new_login_account`,
+  `host_new_admin`, `host_new_kernel_module`, `host_new_setid` (compared with the first look, accepted like a new open port); macOS says the
+  accounts were not checked. `device_incident` (high) on a device that touched a decoy and is also new, mis-classed, took over an approved
+  device's address or opened a port. The firewall-off finding's guide is now a ufw plan built from this computer's listeners and scan networks
+  (SSH first, ports it cannot name listed without a rule). Network → Settings → Devices gains **Scan new devices when they arrive** (off;
+  `GET`/`PUT /admin/api/netaudit/follow-up-scan`, `PUT` step-up; its result is a `follow_up` alert). `DELETE /admin/api/netaudit/decoys/touches` is now step-up. The Internet
+  view's details say it covers the IPv4 address only.
+- **2.30 (2026-11-04)** — **Network module review fixes (v0.45.1, ledger 2026-11-04).** No new screen or route. Behaviour the operator can see:
+  the router's refused-attempt counts are written every five minutes by a timer and once more at shutdown, so the Overview figure and the
+  Timeline no longer wait for a later drop and survive a restart; a scan that touches every decoy sends one message, a touch inside the
+  five-minute window is told when the window ends, and a failing connector is retried at most every five minutes (it was retried at the
+  next touch); the host's own connections to a decoy are recognised on a server that may not list its interfaces; the Timeline summary and
+  the audit's pre-flight agree on which models are local; a DNS-check cycle stopped by shutdown logs nothing; the program-file check ends
+  when a run is stopped but keeps its own three minutes when the run is near its time cap; the Nearby card stops polling when it closes.
 - **2.29 (2026-11-04)** — **Packages behind a security fix** (plan `network-attempts-integrity-timeline` P6;
   [ADR-0027](../decisions/ADR-0027-installed-packages-are-judged-against-canonicals-usn-oval.md)). Network → Settings gains an **Ubuntu security data** card:
   "Download notices" / "Update notices" fetch Canonical's USN OVAL file for this computer's release (about 1.3 MB, from `security-metadata.canonical.com` only,

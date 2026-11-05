@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -45,6 +44,11 @@ type alerting struct {
 
 	RouterLogConfig *netaudit.RouterLogConfig
 	RouterLog       *routerlog.Manager
+	// Blocks counts the refused attempts the router's log reports and writes them to the history on its own timer.
+	Blocks *netaudit.Blocks
+	// FollowUp scans a device that just arrived, once, when its switch is on; FollowUpConfig is that switch.
+	FollowUp       *netaudit.FollowUp
+	FollowUpConfig *netaudit.FollowUpConfig
 }
 
 func (s *AppServices) newAlerting(deps alertingDeps) alerting {
@@ -55,8 +59,10 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 	known := deps.Tracking
 	digest := s.newDigest(known.Inventory, known.History, known.Summary, s.alertNotifier(log, models.NetworkAlertSummary))
 	presenceConfig := netaudit.NewPresenceConfig(deps.Store)
+	followUpConfig := netaudit.NewFollowUpConfig(deps.Store)
+	followUp := newFollowUp(deps.Service, followUpConfig, s.alertNotifier(log, models.NetworkAlertFollowUp))
 	presence := s.newPresence(deps.Service, known.Inventory, presenceConfig, presenceHooks{
-		OnLook: lookHooks(digest, known.Names),
+		OnLook: lookHooks(digest, known.Names, followUp),
 		Notify: s.alertNotifier(log, models.NetworkAlertPresence),
 	})
 
@@ -68,13 +74,29 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		Log:            log,
 		Presence:       presence,
 		PresenceConfig: presenceConfig,
-		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope),
+		Decoys:         s.newDecoys(decoyConfig, decoyStore, log, deps.Scope, cachedOwnAddress(deps.Scope, ownAddressTTL, time.Now), decoyAlertText(known.Inventory.View, time.Now)),
 		DecoyConfig:    decoyConfig,
 		DecoyStore:     decoyStore,
 
 		RouterLogConfig: routerLogConfig,
 		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence, blocks),
+		Blocks:          blocks,
+		FollowUp:        followUp,
+		FollowUpConfig:  followUpConfig,
 	}
+}
+
+// newFollowUp builds the scan on arrival. It scans through the scan service, so the declared scope and the one-scan-at-a-time
+// rule apply; the mode is the ordinary service scan, never the deep check; the alert has its own kind.
+func newFollowUp(service *netaudit.Service, config *netaudit.FollowUpConfig, notify notifyFunc) *netaudit.FollowUp {
+	return netaudit.NewFollowUp(netaudit.FollowUpDeps{
+		Enabled: config.Enabled,
+		Scan: func(ctx context.Context, addr string) (netaudit.Result, error) {
+			return service.Scan(ctx, netaudit.Request{Targets: []string{addr}, Mode: netaudit.ModeServices, Unattended: true})
+		},
+		Notify:  notify,
+		OnError: func(err error) { logging.Warn("network follow-up scan", "error", err.Error()) },
+	})
 }
 
 // outsideLookup is the opt-in look at what the internet can reach: its setting, and the check the router check runs.
@@ -225,13 +247,15 @@ func (s *AppServices) newDigest(inventory *netaudit.Inventory, history *netaudit
 	})
 }
 
-// lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, and sending
-// the weekly summary when it is due. Neither adds a sweep; both stop with the context.
-func lookHooks(digest *netaudit.WeeklyDigest, suggester *names.Suggester) func(context.Context, netaudit.Snapshot) {
+// lookHooks is the work that rides on each presence look, in one place: asking unnamed devices their names, sending the weekly
+// summary when it is due, and queueing a scan of the devices that just arrived (which runs from its own loop, so the look never
+// waits on it). None adds a sweep; all stop with the context.
+func lookHooks(digest *netaudit.WeeklyDigest, suggester *names.Suggester, followUp *netaudit.FollowUp) func(context.Context, netaudit.Snapshot) {
 	name := nameUnnamed(suggester)
 	return func(ctx context.Context, snap netaudit.Snapshot) {
 		name(ctx, snap)
 		digest.Tick(ctx)
+		followUp.Offer(snap)
 	}
 }
 
@@ -258,35 +282,33 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 	})
 }
 
+// decoyAlertText words the decoy alert, saying so when a visitor is a device that is new on the network. A device list that cannot
+// be read leaves the phrase out; the alert itself never waits on it.
+func decoyAlertText(view func() (models.DeviceInventory, error), now func() time.Time) func([]string) string {
+	return func(sources []string) string {
+		inv, err := view()
+		if err != nil {
+			return netaudit.DecoyMessage(sources)
+		}
+		return netaudit.DecoyAlertMessage(sources, inv, now())
+	}
+}
+
 // newDecoys builds the decoy services. A connection counts only from a device inside the declared scan networks and not from
-// this computer itself, whose own audit and sweep must never look like an intruder. The alert goes to every connector.
+// this computer itself (own), whose own audit and sweep must never look like an intruder. own reads the addresses the scan scope
+// reads, with its fallback for a service that may not list interfaces, so the guard holds where netlink is refused. The alert,
+// worded by text, goes to every connector.
 func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence.DecoyTouchStore, alerts *netaudit.AlertLog,
-	scope *netaudit.Scope) *decoy.Manager {
+	scope *netaudit.Scope, own func(netip.Addr) bool, text func([]string) string) *decoy.Manager {
 	return decoy.New(decoy.Deps{
 		Specs:   decoy.Specs,
 		Enabled: config.Enabled,
 		InScope: func(a netip.Addr) bool { return scope.Policy().Check(a) == nil },
-		IsOwn:   ownAddress,
+		IsOwn:   own,
 		Store:   store,
 		Notify: func(ctx context.Context, sources []string) error {
-			return alerts.Send(ctx, models.NetworkAlertDecoy, netaudit.DecoyMessage(sources), s.sendToConnectors)
+			return alerts.Send(ctx, models.NetworkAlertDecoy, text(sources), s.sendToConnectors)
 		},
 		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
 	})
-}
-
-// ownAddress reports whether a is one of this computer's own addresses (read from its interfaces; nothing is sent).
-func ownAddress(a netip.Addr) bool {
-	addrs, err := net.InterfaceAddrs()
-	if err != nil {
-		return false
-	}
-	for _, ia := range addrs {
-		if ipnet, ok := ia.(*net.IPNet); ok {
-			if own, ok := netip.AddrFromSlice(ipnet.IP); ok && own.Unmap() == a {
-				return true
-			}
-		}
-	}
-	return false
 }

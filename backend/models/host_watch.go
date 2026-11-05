@@ -27,6 +27,25 @@ type HostWatch struct {
 	Integrity HostIntegrity `json:"integrity,omitzero"`
 	// Flaws is the last judgement of the installed packages against Ubuntu's security notices, kept for the same reason.
 	Flaws HostFlaws `json:"flaws,omitzero"`
+	// Privilege is the first look at the accounts, the admin groups, the kernel modules and the set-id programs, which later looks
+	// are compared with.
+	Privilege HostPrivilege `json:"privilege,omitzero"`
+}
+
+// HostPrivilege is what the first look at this computer's privilege marks found. Each list is learned once, the first time it
+// could be read in full, and never updated: an addition stays a finding until the operator accepts it, like a new open port.
+// The names are plain tokens and the paths plain absolute paths, which the platform reader has already checked.
+type HostPrivilege struct {
+	AccountsSeen  bool     `json:"accounts_seen,omitempty"`
+	LoginAccounts []string `json:"login_accounts,omitempty"`
+	Admins        []string `json:"admins,omitempty"`
+	ModulesSeen   bool     `json:"modules_seen,omitempty"`
+	Modules       []string `json:"modules,omitempty"`
+	SetIDSeen     bool     `json:"set_id_seen,omitempty"`
+	SetID         []string `json:"set_id,omitempty"`
+	// Reported are the privilege findings of the last look, so a list that cannot be read on a later look keeps its finding (with
+	// its version, so an acceptance still holds) instead of resolving it.
+	Reported []ScanFinding `json:"reported,omitempty"`
 }
 
 // HostFlaws is what the last judgement of the installed packages found: how many are older than the version that fixed a

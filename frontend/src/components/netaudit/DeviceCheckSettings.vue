@@ -11,15 +11,16 @@ import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewM
 import { useNetauditSwitch } from "../../composables/netaudit/useNetauditSwitch"
 import { NetauditService } from "../../services/netaudit/netauditService"
 import {
-  DEVICE_SETTINGS_TITLE, IPV6_DETAILS, IPV6_FIX_COMMAND, IPV6_FIX_KEEP_COMMAND, IPV6_FIX_KEEP_NOTE, IPV6_HINT, IPV6_LABEL, IPV6_PROBLEMS,
+  DEVICE_SETTINGS_TITLE, FOLLOW_UP_DETAILS, FOLLOW_UP_HINT, FOLLOW_UP_LABEL, FOLLOW_UP_LOAD_FAILED, FOLLOW_UP_SAVE_FAILED, IPV6_DETAILS, IPV6_FIX_COMMAND, IPV6_FIX_KEEP_COMMAND, IPV6_FIX_KEEP_NOTE, IPV6_HINT, IPV6_LABEL, IPV6_PROBLEMS,
   NAMES_DETAILS, NAMES_HINT, NAMES_LABEL, NAMES_LOAD_FAILED, NAMES_SAVE_FAILED, PRESENCE_DETAILS, PRESENCE_HINT,
 } from "../../constants/netaudit"
 import { intervalOptions, presenceLine } from "../../utils/netaudit/devices"
 
-// Network · Settings · Devices: the three switches behind the device list — look for new devices, ask devices their names,
-// and find the ones that only speak IPv6. The list itself, and what to do about a device, are on the Devices tab. Simple is
+// Network · Settings · Devices: the switches behind the device list — look for new devices, scan them when they arrive, ask
+// devices their names, and find the ones that only speak IPv6. The list itself, and what to do about a device, are on the Devices tab. Simple is
 // the switches; Advanced adds how often the check looks.
 const names = useNetauditSwitch(() => NetauditService.deviceNames(), (on) => NetauditService.setDeviceNames(on), { load: NAMES_LOAD_FAILED, save: NAMES_SAVE_FAILED }, true)
+const followUp = useNetauditSwitch(() => NetauditService.followUpScan(), (on) => NetauditService.setFollowUpScan(on), { load: FOLLOW_UP_LOAD_FAILED, save: FOLLOW_UP_SAVE_FAILED })
 const { presence, ipv6, loadError, actionError, busy, load, setPresence, setIPv6 } = useDevices()
 const { advanced } = useNetauditViewMode()
 
@@ -48,6 +49,11 @@ onMounted(load)
             label="How often to look"
             @update:model-value="changeInterval"
           />
+        </section>
+
+        <section class="flex flex-col gap-1" aria-label="Scan on arrival" data-test="follow-up-scan">
+          <ToggleField :model-value="followUp.enabled.value" :label="FOLLOW_UP_LABEL" :hint="FOLLOW_UP_HINT" :details="FOLLOW_UP_DETAILS" :disabled="followUp.busy.value" @update:model-value="followUp.set" />
+          <p v-if="followUp.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ followUp.error.value }}</p>
         </section>
 
         <section class="flex flex-col gap-1" aria-label="Device names" data-test="device-names">

@@ -30,6 +30,7 @@ type RunReporter struct {
 	decoys  DecoyReader      // optional: devices that connected to a decoy service
 	hist    AuditHistory     // optional: the Network page's daily counts
 	host    HostLooker       // optional: this computer's open ports and the files that survive a reboot
+	watch   MonitorStalls    // optional: the module's own parts that are switched on and stopped working
 	nearby  NearbyFinder     // optional: what devices said about themselves (a second gateway)
 	classes ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
 	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
@@ -100,12 +101,19 @@ func (r *RunReporter) WithDecoys(d DecoyReader) *RunReporter {
 
 // HostLooker compares this computer's open ports and the files that survive a reboot with the first look: *HostWatcher.
 type HostLooker interface {
-	Look() (HostLook, error)
+	Look(ctx context.Context) (HostLook, error)
 }
 
 // WithHost makes the reporter add what changed on the computer it runs on. Without it nothing is looked at.
 func (r *RunReporter) WithHost(h HostLooker) *RunReporter {
 	r.host = h
+	return r
+}
+
+// WithMonitors makes the reporter add the module's own parts that stopped working, as one finding about this computer. It is
+// added only when this computer was looked at, like every finding about it. Without it nothing is added.
+func (r *RunReporter) WithMonitors(m MonitorStalls) *RunReporter {
+	r.watch = m
 	return r
 }
 
@@ -184,14 +192,17 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	inventoryNote, devices := r.addInventory(ctx, &result)
-	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices) + r.addServices(ctx, &result)
-	hostNote, hostChecked := r.addHost(&result)
+	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
+	services := r.addServices(ctx, &result)
+	hostNote, hostChecked := r.addHost(ctx, &result)
 	expectNote += hostNote
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
 	scanned := scannedDevices(result.Hosts)
-	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings), scanned)...)
+	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings, services), scanned)...)
+	// A decoy touch joined by another sign of trouble on the same device is told as one incident.
+	result.Findings = append(result.Findings, IncidentFindings(result.Findings, restrictTo(prev.Findings, scanned))...)
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}
@@ -504,17 +515,23 @@ func (r *RunReporter) addDecoys(result *Result) string {
 
 // addHost appends what changed on this computer. It reports whether the look was taken, so that the earlier findings of this
 // computer are replaced only by a look that really happened. Trouble is stated and never hides the scan.
-func (r *RunReporter) addHost(result *Result) (note string, checked bool) {
+func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string, checked bool) {
 	if r.host == nil {
 		return "", false
 	}
-	look, err := r.host.Look()
+	look, err := r.host.Look(ctx)
 	if err != nil {
 		return fmt.Sprintf("\n\n> Note: this computer could not be checked, so its open ports and startup files were not compared (%v).", err), false
 	}
 	result.Findings = append(result.Findings, look.Findings...)
+	if r.watch != nil {
+		result.Findings = append(result.Findings, MonitorFindings(r.watch.Stalled())...)
+	}
 	if look.Unreadable > 0 {
 		note = fmt.Sprintf("\n\n> Note: %d watched locations could not be read by the account this program runs as, so changes there are not seen.", look.Unreadable)
+	}
+	if look.PrivilegeUnchecked {
+		note += "\n\n> Note: this computer's accounts, admin groups and kernel modules were not checked: that check reads Linux files this computer does not have."
 	}
 	return note, true
 }

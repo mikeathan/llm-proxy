@@ -120,6 +120,9 @@ func (c *DNSCollector) Tick(ctx context.Context) {
 		}
 		rows = append(rows, row)
 	}
+	if ctx.Err() != nil {
+		return // stopped mid-cycle: the failed questions are the stop, not a silent router, and are not comparisons
+	}
 	c.mu.Lock()
 	c.status = DNSStatus{LastRun: now, Problem: problem}
 	c.mu.Unlock()

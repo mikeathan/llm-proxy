@@ -73,7 +73,7 @@ func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.
 }
 
 // withNetauditSources gives the run reporter the optional sources the application service offers: the vulnerability data,
-// the device inventory and the remembered identities.
+// the device inventory, the remembered identities and the module's own parts that stopped working.
 func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
 	if v, ok := svc.(interface{ NetauditVulns() netaudit.VulnSource }); ok && v.NetauditVulns() != nil {
 		reporter.WithVulns(v.NetauditVulns())
@@ -88,6 +88,9 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}
 	withNetauditChecks(reporter, svc)
 	withNetauditProbes(reporter, svc)
+	if v, ok := svc.(interface{ NetauditMonitors() netaudit.MonitorStalls }); ok && v.NetauditMonitors() != nil {
+		reporter.WithMonitors(v.NetauditMonitors())
+	}
 }
 
 // withNetauditProbes gives the run reporter what devices said about themselves (Nearby) and the checks that probe open ports.
@@ -429,6 +432,13 @@ func (s AppServices) Shutdown(ctx context.Context) {
 	}
 	if s.netaudit != nil && s.netaudit.Vulns != nil {
 		s.netaudit.Vulns.Close()
+	}
+	// The router's refused attempts of the last minutes are written now, synchronously, rather than trusting the counter's own
+	// goroutine to finish before the process exits (the same rule as the memory usage counts).
+	if s.netaudit != nil && s.netaudit.Blocks != nil {
+		if err := s.netaudit.Blocks.Flush(); err != nil {
+			logging.Warn("network router blocks", "error", err.Error())
+		}
 	}
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")

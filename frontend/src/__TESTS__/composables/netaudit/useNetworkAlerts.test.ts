@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, ref, shallowRef } from 'vue'
 import { createNetworkAlerts } from '../../../composables/netaudit/useNetworkAlerts'
-import { toNetwork } from '../../../router/routes'
+import { toNetwork, toSettings } from '../../../router/routes'
 import type { GlobalRunTick } from '../../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../../types/notifications'
 
@@ -60,6 +60,27 @@ describe('network alerts', () => {
     expect(published[0]![1]).toMatchObject({ kind: 'network', message: 'decoy m', repeatKey: 'decoy:decoy m', destination: 'network', target: toNetwork('devices') })
     expect(published[0]![0]!.target).toEqual(toNetwork())
     expect(cursor.value).toBe(900)
+  })
+
+  it('aims a stopped-monitor alert at the overview, where each part says why', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'monitor', message: 'monitor m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toNetwork())
+  })
+
+  it('aims a scan-on-arrival alert at the devices', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'follow_up', message: 'follow m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toNetwork('devices'))
+  })
+
+  it('aims a sign-in alert at the sign-in events', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'sign_in', message: 'sign-in m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toSettings('sign-in'))
   })
 
   it('carries what became of the send and how often a decoy alert repeated', async () => {

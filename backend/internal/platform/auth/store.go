@@ -19,6 +19,9 @@ type Record struct {
 	Tokens     []Token    `json:"tokens,omitempty"`
 	Sessions   []Session  `json:"sessions,omitempty"`
 	Events     []Event    `json:"events,omitempty"`
+	// SignedInFrom are the addresses that have signed in with the right passphrase, most recent last (bounded), so a sign-in
+	// from a new one can be told.
+	SignedInFrom []string `json:"signed_in_from,omitempty"`
 }
 
 // Store keeps the Record in a file. It notices a change made by another process (the command line) and reads again.

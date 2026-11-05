@@ -37,16 +37,16 @@ func TestServiceCheck_OllamaOpenProtectedAndUnreadable(t *testing.T) {
 	host, port := serverHost(t, srv)
 	sc := checks(httpProbe("Ollama", CheckAIAPIExposed, SeverityHigh, []int{port}, "/api/tags", jsonHasKey("models"), "words"))
 
-	if got := sc.Findings(context.Background(), []Host{host}); len(got) != 1 || got[0].Check != CheckAIAPIExposed || got[0].Evidence != "words" {
+	if got, _ := run(sc, []Host{host}); len(got) != 1 || got[0].Check != CheckAIAPIExposed || got[0].Evidence != "words" {
 		t.Fatalf("open: %+v", got)
 	}
 	status = http.StatusUnauthorized
-	if got := sc.Findings(context.Background(), []Host{host}); len(got) != 0 || len(sc.unknown) != 0 {
-		t.Fatalf("protected is neither a finding nor unknown: %+v %v", got, sc.unknown)
+	if got, unknown := run(sc, []Host{host}); len(got) != 0 || len(unknown) != 0 {
+		t.Fatalf("protected is neither a finding nor unknown: %+v %v", got, unknown)
 	}
 	status, body = http.StatusOK, `<html>some other service</html>`
-	if got := sc.Findings(context.Background(), []Host{host}); len(got) != 0 || len(sc.unknown) != 1 {
-		t.Fatalf("an unreadable answer is unknown, not a finding: %+v %v", got, sc.unknown)
+	if got, unknown := run(sc, []Host{host}); len(got) != 0 || len(unknown) != 1 {
+		t.Fatalf("an unreadable answer is unknown, not a finding: %+v %v", got, unknown)
 	}
 }
 
@@ -56,15 +56,15 @@ func TestServiceCheck_AFindingIsKeptThroughAnUnreadableNightAndGoesWhenProtected
 	defer srv.Close()
 	host, port := serverHost(t, srv)
 	sc := checks(httpProbe("x", CheckAIAPIExposed, SeverityHigh, []int{port}, "/", func([]byte) bool { return true }, "w"))
-	earlier := sc.Findings(context.Background(), []Host{host})
+	earlier := sc.Findings(context.Background(), []Host{host}).Findings
 	status = http.StatusInternalServerError
-	sc.Findings(context.Background(), []Host{host})
-	if kept := sc.Carry(earlier); len(kept) != 1 {
+	tonight := sc.Findings(context.Background(), []Host{host})
+	if kept := tonight.Carry(earlier); len(kept) != 1 {
 		t.Fatalf("an unknown answer must keep the earlier finding: %+v", kept)
 	}
 	status = http.StatusForbidden
-	sc.Findings(context.Background(), []Host{host})
-	if kept := sc.Carry(earlier); len(kept) != 0 {
+	tonight = sc.Findings(context.Background(), []Host{host})
+	if kept := tonight.Carry(earlier); len(kept) != 0 {
 		t.Fatalf("a protected answer resolves it: %+v", kept)
 	}
 }
@@ -76,7 +76,7 @@ func TestServiceCheck_ARedirectIsNotFollowed(t *testing.T) {
 	defer srv.Close()
 	host, port := serverHost(t, srv)
 	sc := checks(httpProbe("x", CheckAIAPIExposed, SeverityHigh, []int{port}, "/", func([]byte) bool { return true }, "w"))
-	if got := sc.Findings(context.Background(), []Host{host}); len(got) != 0 {
+	if got, _ := run(sc, []Host{host}); len(got) != 0 {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -140,7 +140,7 @@ func fakeRTSP(t *testing.T, options, describe string) (Host, *ServiceChecks, *[]
 
 func TestServiceCheck_RTSPReadableWithoutAPasswordIsAFinding(t *testing.T) {
 	host, sc, seen := fakeRTSP(t, "200 OK", "200 OK")
-	got := sc.Findings(context.Background(), []Host{host})
+	got, _ := run(sc, []Host{host})
 	if len(got) != 1 || got[0].Check != CheckRTSPNoAuth {
 		t.Fatalf("%+v", got)
 	}
@@ -157,9 +157,9 @@ func TestServiceCheck_RTSPWithALoginOrANeededPathIsNotAFinding(t *testing.T) {
 		{"200 OK", "401 Unauthorized", false}, {"401 Unauthorized", "401 Unauthorized", false}, {"200 OK", "404 Not Found", true},
 	} {
 		host, sc, _ := fakeRTSP(t, tc.opt, tc.desc)
-		got := sc.Findings(context.Background(), []Host{host})
-		if len(got) != 0 || (len(sc.unknown) == 1) != tc.unknown {
-			t.Errorf("%v: %+v unknown=%v", tc, got, sc.unknown)
+		got, unknown := run(sc, []Host{host})
+		if len(got) != 0 || (len(unknown) == 1) != tc.unknown {
+			t.Errorf("%v: %+v unknown=%v", tc, got, unknown)
 		}
 	}
 }
@@ -176,8 +176,8 @@ func TestServiceCheck_ANonRTSPAnswerIsUnknown(t *testing.T) {
 	}()
 	ap := netip.MustParseAddrPort(ln.Addr().String())
 	sc := checks(serviceProbe{check: CheckRTSPNoAuth, ports: []int{int(ap.Port())}, ask: askRTSP})
-	if got := sc.Findings(context.Background(), []Host{{Addr: ap.Addr(), Ports: []Port{{Number: int(ap.Port()), State: "open"}}}}); len(got) != 0 || len(sc.unknown) != 1 {
-		t.Fatalf("%+v %v", got, sc.unknown)
+	if got, unknown := run(sc, []Host{{Addr: ap.Addr(), Ports: []Port{{Number: int(ap.Port()), State: "open"}}}}); len(got) != 0 || len(unknown) != 1 {
+		t.Fatalf("%+v %v", got, unknown)
 	}
 }
 
@@ -195,9 +195,9 @@ func TestServiceCheck_ThePortCapHolds(t *testing.T) {
 	for i := range 200 {
 		hosts = append(hosts, Host{Addr: netip.AddrFrom4([4]byte{10, 0, 0, byte(i)}), Ports: []Port{{Number: 1, State: "open"}}})
 	}
-	sc.Findings(context.Background(), hosts)
-	if len(sc.unknown) != maxServiceProbes {
-		t.Fatalf("probed %d", len(sc.unknown))
+	_, unknown := run(sc, hosts)
+	if len(unknown) != maxServiceProbes {
+		t.Fatalf("probed %d", len(unknown))
 	}
 }
 
@@ -208,4 +208,29 @@ func slicesContains(s []int, v int) bool {
 		}
 	}
 	return false
+}
+
+// run is one run of the checks: its findings and the ports it could not judge.
+func run(sc *ServiceChecks, hosts []Host) ([]Finding, map[string]bool) {
+	r := sc.Findings(context.Background(), hosts)
+	return r.Findings, r.unknown
+}
+
+// Two audits share the one set of checks (one per workspace, or a rescan beside the nightly run). What one run could not judge
+// must stay with that run: a later run must neither erase it nor lend it its own.
+func TestServiceCheck_EachRunKeepsItsOwnPortsItCouldNotJudge(t *testing.T) {
+	answer := verdictUnknown
+	sc := checks(serviceProbe{check: CheckAIAPIExposed, ports: []int{1}, ask: func(context.Context, ServiceDeps, netip.Addr, int) verdict { return answer }})
+	camera := Host{Addr: netip.MustParseAddr("10.0.0.7"), Ports: []Port{{Number: 1, State: "open"}}}
+	earlier := []Finding{{Device: "10.0.0.7", Port: 1, Check: CheckAIAPIExposed}}
+
+	first := sc.Findings(context.Background(), []Host{camera})
+	answer = verdictProtected
+	second := sc.Findings(context.Background(), []Host{camera})
+	if kept := first.Carry(earlier); len(kept) != 1 {
+		t.Fatalf("a later run erased what the first could not judge: %+v", kept)
+	}
+	if kept := second.Carry(earlier); len(kept) != 0 {
+		t.Fatalf("the second run judged the port and must not keep the finding: %+v", kept)
+	}
 }

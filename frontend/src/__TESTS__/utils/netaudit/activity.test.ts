@@ -130,6 +130,14 @@ describe('dropEchoedAlerts', () => {
     expect(dropEchoedAlerts(rows).map((r) => r.alert_kind ?? r.kind)).toEqual(['decoy', 'new_device'])
   })
 
+  it('keeps the scan-on-arrival result that follows the new device it is about', () => {
+    const rows = [
+      row({ kind: 'alert', group: 'alerts', alert_kind: 'follow_up', text: 'scanned on arrival', at: at(15) }),
+      row({ kind: 'new_device', at: at(10) }),
+    ]
+    expect(dropEchoedAlerts(rows)).toHaveLength(2)
+  })
+
   it('keeps a presence alert with no new device before it, or one an hour or more later', () => {
     const lone = row({ kind: 'alert', group: 'alerts', alert_kind: 'presence', at: at(5) })
     expect(dropEchoedAlerts([lone])).toHaveLength(1)

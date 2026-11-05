@@ -198,6 +198,15 @@ export class NetauditService {
     return put<NetauditSwitch>(API_ENDPOINTS.netauditDeviceNames, { enabled })
   }
 
+  static followUpScan(): Promise<NetauditSwitch> {
+    return get<NetauditSwitch>(API_ENDPOINTS.netauditFollowUpScan)
+  }
+
+  /** Switches the scan on arrival on or off: one ordinary scan of each device that just appeared, through the scan service. */
+  static setFollowUpScan(enabled: boolean): Promise<NetauditSwitch> {
+    return put<NetauditSwitch>(API_ENDPOINTS.netauditFollowUpScan, { enabled })
+  }
+
   static decoys(): Promise<DecoyState> {
     return get<DecoyState>(API_ENDPOINTS.netauditDecoys)
   }

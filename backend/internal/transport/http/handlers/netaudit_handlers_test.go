@@ -358,3 +358,19 @@ func TestNetauditHandlers_CheckTargetsListsWhatTheAuditCouldNotScan(t *testing.T
 		t.Errorf("no problems is an empty list, not null: %s", rec.Body.String())
 	}
 }
+
+func TestNetauditFindings_TheFirewallFindingCarriesThePlanBuiltForThisComputer(t *testing.T) {
+	off := models.ScanFinding{Device: netaudit.HostDevice, Check: netaudit.CheckHostFirewallOff, Severity: "low"}
+	guides := netaudit.HostGuides{Facts: func() (netaudit.FirewallFacts, error) {
+		return netaudit.FirewallFacts{Networks: []string{"10.0.0.0/24"}, AppPort: 4001}, nil
+	}}
+	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: models.ScanBaseline{ScannedAt: time.Now(), Findings: []models.ScanFinding{off}}}, nil).WithGuides(guides)
+	var got findingsResponse
+	rec := getFindings(h, "?workspace_id=ws&automation=nightly")
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Findings) != 1 || got.Findings[0].Guide == nil {
+		t.Fatalf("code %d: %s (%v)", rec.Code, rec.Body.String(), err)
+	}
+	if cmd := got.Findings[0].Guide.Commands[0].Command; !strings.Contains(cmd, "sudo ufw allow from 10.0.0.0/24 to any port 4001 proto tcp") {
+		t.Errorf("the guide must be the plan for this computer:\n%s", cmd)
+	}
+}

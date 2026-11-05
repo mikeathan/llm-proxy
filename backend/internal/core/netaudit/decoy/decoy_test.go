@@ -352,3 +352,110 @@ func TestManager_ClearEmptiesTheListAndTheAlertThrottle(t *testing.T) {
 	touch(t, r.m.Addrs()[0], "")
 	eventually(t, func() bool { r.mu.Lock(); defer r.mu.Unlock(); return len(r.sent) == 2 })
 }
+
+// A port scan touches every decoy within a millisecond, so their connections finish together and each one records a touch while
+// the first alert is still being sent. The operator must get one message for the burst, not one per decoy.
+func TestManager_ABurstOfTouchesWhileTheAlertIsBeingSentIsToldOnce(t *testing.T) {
+	var mu sync.Mutex
+	sends := 0
+	release := make(chan struct{})
+	m := New(Deps{
+		Specs: Specs, Enabled: func() bool { return true }, Store: &memStore{},
+		InScope: func(netip.Addr) bool { return true }, IsOwn: func(netip.Addr) bool { return false },
+		Notify: func(context.Context, []string) error {
+			mu.Lock()
+			sends++
+			mu.Unlock()
+			<-release // a connector that takes a moment to deliver
+			return nil
+		},
+	})
+	src := netip.MustParseAddr("192.168.1.66")
+	var wg sync.WaitGroup
+	for _, spec := range Specs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			m.record(t.Context(), src, spec.Number)
+		}()
+	}
+	eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return sends >= 1 })
+	time.Sleep(50 * time.Millisecond) // the other touches arrive while the first message is in flight
+	close(release)
+	wg.Wait()
+	if sends != 1 {
+		t.Fatalf("one scan of the decoys sent %d messages, want 1", sends)
+	}
+}
+
+// An alert goes out at most every five minutes. A touch inside that window waits; it must be told when the window ends, not
+// only if yet another touch happens to arrive later (a careful intruder touches once).
+func TestManager_ATouchInsideTheQuietWindowIsToldWhenTheWindowEnds(t *testing.T) {
+	var mu sync.Mutex
+	var sent [][]string
+	now := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	m := New(Deps{
+		Specs: Specs, Enabled: func() bool { return false }, Store: &memStore{}, Now: clock,
+		InScope: func(netip.Addr) bool { return true }, IsOwn: func(netip.Addr) bool { return false },
+		Notify: func(_ context.Context, sources []string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			sent = append(sent, sources)
+			return nil
+		},
+	})
+	m.record(t.Context(), netip.MustParseAddr("192.168.1.66"), 2222)
+	mu.Lock()
+	now = now.Add(time.Minute)
+	mu.Unlock()
+	m.record(t.Context(), netip.MustParseAddr("192.168.1.77"), 8023) // inside the window: waits
+	mu.Lock()
+	now = now.Add(5 * time.Minute)
+	mu.Unlock()
+
+	m.Reconcile(t.Context()) // one turn of Run, with no further touch
+	mu.Lock()
+	defer mu.Unlock()
+	if len(sent) != 2 || !slices.Equal(sent[1], []string{"192.168.1.77"}) {
+		t.Fatalf("the touch that waited was never told: %v", sent)
+	}
+}
+
+// A connector that is down must not be tried every turn: an alert is attempted at most every five minutes, sent or not, and
+// stays untold until one attempt goes out.
+func TestManager_AFailedAlertIsTriedAgainOnlyAfterTheWindow(t *testing.T) {
+	var mu sync.Mutex
+	attempts := 0
+	sendErr := errors.New("telegram down")
+	now := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(d time.Duration) { mu.Lock(); now = now.Add(d); mu.Unlock() }
+	store := &memStore{}
+	m := New(Deps{
+		Specs: Specs, Enabled: func() bool { return false }, Store: store, Now: clock,
+		InScope: func(netip.Addr) bool { return true }, IsOwn: func(netip.Addr) bool { return false },
+		Notify: func(context.Context, []string) error {
+			mu.Lock()
+			defer mu.Unlock()
+			attempts++
+			return sendErr
+		},
+	})
+	m.record(t.Context(), netip.MustParseAddr("192.168.1.66"), 2222)
+	for range 10 { // ten turns of Run within the window
+		advance(15 * time.Second)
+		m.Reconcile(t.Context())
+	}
+	if attempts != 1 {
+		t.Fatalf("a failing connector was tried %d times in under five minutes, want 1", attempts)
+	}
+	mu.Lock()
+	sendErr = nil
+	mu.Unlock()
+	advance(5 * time.Minute)
+	m.Reconcile(t.Context())
+	if items, _ := store.Read(); attempts != 2 || !items[0].Notified {
+		t.Fatalf("after the window the alert is tried again and marked once sent: attempts=%d items=%+v", attempts, items)
+	}
+}

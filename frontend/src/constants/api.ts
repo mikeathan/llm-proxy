@@ -26,6 +26,7 @@ export const API_ENDPOINTS = {
   netauditUbuntuDataUpdate: `${API_BASE}/netaudit/ubuntu-data/update`,
   netauditWeeklySummary: `${API_BASE}/netaudit/weekly-summary`,
   netauditDeviceNames: `${API_BASE}/netaudit/device-names`,
+  netauditFollowUpScan: `${API_BASE}/netaudit/follow-up-scan`,
   netauditDevices: `${API_BASE}/netaudit/devices`,
   netauditGatewayConfirm: `${API_BASE}/netaudit/devices/gateway/confirm`,
   netauditPresence: `${API_BASE}/netaudit/presence`,

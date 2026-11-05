@@ -42,3 +42,37 @@ func TestAuditModelIsLocal(t *testing.T) {
 		t.Fatalf("a cloud model must be refused with a coded reason naming it, got %v", err)
 	}
 }
+
+// The audit's pre-flight and the timeline summary ask the same question, so they must give the same answer: the class the
+// runtime resolved, or, for a model it has not resolved yet, the classifier's. A local model whose class is not filled in yet
+// must not be refused as "in the cloud", and a model the runtime marked cloud must not be sent the summary.
+func TestModelLocality_TheAuditAndTheSummaryAgree(t *testing.T) {
+	s := servicesWithModels(
+		models.ModelConfig{Name: "unresolved-gguf", Provider: "local", Filename: "qwen.gguf"},
+		models.ModelConfig{Name: "resolved-cloud", Provider: "openai", WorkloadClass: models.WorkloadCloud},
+		models.ModelConfig{Name: "resolved-local", Provider: "openai", WorkloadClass: models.WorkloadLocal},
+	)
+	audit := func(model string) *automation.AutomationEntry {
+		return &automation.AutomationEntry{Profile: netaudit.AuditorProfileID, Model: model}
+	}
+	for name, local := range map[string]bool{"unresolved-gguf": true, "resolved-cloud": false, "resolved-local": true} {
+		if got := s.modelIsLocal(name); got != local {
+			t.Errorf("summary: modelIsLocal(%s) = %v, want %v", name, got, local)
+		}
+		if refused := s.auditModelIsLocal(audit(name)) != nil; refused == local {
+			t.Errorf("audit: %s refused = %v, want %v", name, refused, !local)
+		}
+	}
+}
+
+// Every wired background loop of the Network module is started from the one place, including the counter of the router's refused
+// attempts, whose timed write is what keeps a quiet log's counts from waiting for the next drop.
+func TestNetauditLoops_StartsWhatIsWiredAndNothingElse(t *testing.T) {
+	if loops := (AppServices{}).netauditLoops(); len(loops) != 0 {
+		t.Fatalf("no services wired, %d loops", len(loops))
+	}
+	s := AppServices{netaudit: &netauditServices{Blocks: netaudit.NewBlocks(nil, nil)}}
+	if loops := s.netauditLoops(); len(loops) != 1 {
+		t.Fatalf("only the counter is wired, got %d loops", len(loops))
+	}
+}

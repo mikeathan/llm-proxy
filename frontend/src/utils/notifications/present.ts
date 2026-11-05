@@ -30,12 +30,18 @@ const NETWORK_LABEL: Record<NetworkAlertKind, string> = {
   decoy: 'decoy',
   presence: 'devices',
   summary: 'summary',
+  monitor: 'monitor',
+  sign_in: 'sign-in',
+  follow_up: 'new device',
 }
 
 const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
   decoy: 'error',
   presence: 'warning',
   summary: 'muted',
+  monitor: 'warning',
+  sign_in: 'error',
+  follow_up: 'warning',
 }
 
 const NETWORK_DETAIL_SEPARATOR = ' · '

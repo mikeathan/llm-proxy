@@ -491,7 +491,7 @@ type fakeHostLooker struct {
 	err  error
 }
 
-func (f fakeHostLooker) Look() (HostLook, error) { return f.look, f.err }
+func (f fakeHostLooker) Look(context.Context) (HostLook, error) { return f.look, f.err }
 
 var listenerOn8080 = Finding{Device: HostDevice, Port: 8080, Proto: "tcp", Check: CheckNewListener, Severity: SeverityMedium}
 

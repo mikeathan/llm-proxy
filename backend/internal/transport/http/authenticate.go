@@ -91,8 +91,10 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/netaudit/deep"},                    // an intrusive scan of one device (Constitution II.3): the operator, freshly confirmed
 	{http.MethodPost, "/admin/api/netaudit/devices/gateway/confirm"}, // silences the alarm for a spoofed router: the operator, freshly confirmed
 	{http.MethodPut, "/admin/api/netaudit/decoys"},                   // opens or closes listening sockets on this computer
+	{http.MethodDelete, "/admin/api/netaudit/decoys/touches"},        // erases the record of who probed the decoys: intrusion evidence, the same silencing
 	{http.MethodPut, "/admin/api/netaudit/router-log"},               // opens or closes the listening socket for the router's log (Constitution I.8)
 	{http.MethodPut, "/admin/api/netaudit/outside-lookup"},           // sends the network's public address to an outside service, and sets which one
+	{http.MethodPut, "/admin/api/netaudit/follow-up-scan"},           // scans each new device on arrival: scan traffic during the day
 	{http.MethodPut, "/admin/api/netaudit/nearby"},                   // sends two multicast questions and reads the answers from every device (Constitution I.9)
 	{http.MethodPut, "/admin/api/netaudit/dns-check"},                // sends the names it compares, and this network's public address, to an outside resolver
 	{http.MethodDelete, "/admin/api/netaudit/vulndata"},              // removes what every audit compares with: the same silencing as a hand-made import
