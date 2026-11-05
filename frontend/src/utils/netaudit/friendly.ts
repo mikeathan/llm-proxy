@@ -110,6 +110,10 @@ export function findingTitle(f: Titled): string {
   return isCheck(f) ? `${deviceLabel(f.device)}: ${f.evidence || CHECK_FALLBACK}` : `${describeService(f)} on ${deviceLabel(f.device)}`
 }
 
+/** A finding in a few words for a quiet list (the ones marked as fine): the check's name and the place, never the evidence. */
+export const shortTitle = (f: Titled & { check_title?: string }): string =>
+  isCheck(f) ? `${f.check_title || CHECK_FALLBACK} · ${placeSentence(f)}` : placeSentence(f)
+
 /**
  * Where a problem is, in one phrase: "File sharing (port 445) on 10.0.0.5". A finding with no port (the server sends 0 for the
  * ones about this computer's own settings, updates and files) is just the place: "This computer".

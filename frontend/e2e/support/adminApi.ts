@@ -100,3 +100,13 @@ export async function expectTapArea(target: Locator, size = 44) {
   }), [[cx, cy - half], [cx, cy + half], [cx - Math.min(half, box!.width / 2 - 1), cy], [cx + Math.min(half, box!.width / 2 - 1), cy]] as [number, number][])
   expect(hit, 'the area around the control answers for it').toEqual([true, true, true, true])
 }
+
+/**
+ * A long list of problems starts folded to its titles; opens every problem card. It is setup, not the thing under test, so it
+ * clicks in the page: on a phone the fixed bottom bar can sit over a header Playwright scrolled to, and the click then waits.
+ */
+export async function openProblemCards(page: Page) {
+  await page.locator('[data-test="problem-groups"]').first().waitFor()
+  const folded = page.locator('[data-test="problem-groups"] [data-test="card-toggle"][aria-expanded="false"]')
+  while ((await folded.count()) > 0) await folded.first().evaluate((el) => (el as HTMLElement).click())
+}

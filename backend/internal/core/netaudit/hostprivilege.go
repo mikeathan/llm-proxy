@@ -126,7 +126,10 @@ func comparePrivilege(base *models.HostPrivilege, p hostwatch.Privilege, look *H
 	if !p.Checked {
 		look.PrivilegeUnchecked = true
 	}
+	look.ModulesUnread = p.Checked && !p.ModulesRead
+	look.SetIDIncomplete = p.Checked && !p.SetIDComplete
 	learned := learnPrivilege(base, p)
+	look.PrivilegeLearned = learned
 	var now []Finding
 	keep := func(read bool, checks []string, fresh []Finding) {
 		if read {

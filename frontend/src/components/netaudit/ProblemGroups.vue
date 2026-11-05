@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import CollapsibleCard from "../common/layout/CollapsibleCard.vue"
 import StatusTag from "../common/display/StatusTag.vue"
@@ -15,9 +15,11 @@ import type { ProblemGroup, ScanFinding } from "../../types/netaudit"
 
 // The problems the checks found, one card per kind of problem: what it is and how to fix it written once, then every
 // place it was found as a row: its name and evidence, one main button ("This is fine" / "Accept…") and a "⋯" that opens the
-// rest ("I've done this", a rescan) under that row, one row at a time. Every card is open until the reader folds it; `fold`
-// folds or opens them all (the page's Collapse all). Simple shows the plain line; Advanced adds the software that was
-// compared, the full flaw list and the commands.
+// rest ("I've done this", a rescan) under that row, one row at a time. A short list (FOLD_ABOVE cards or fewer) is open; a
+// longer one starts folded to its titles, so the reader sees every kind of problem on one screen and opens the one to act on
+// (vertex, 2026-11-05: nine open cards made a 5,000 px page on a phone). `fold` folds or opens them all (the page's Collapse
+// all). The fix is said once: as the guide's steps when there is a guide, as a line when there is not. Simple shows the plain
+// line; Advanced adds the software that was compared, the full flaw list and the commands.
 const props = defineProps<{ groups: readonly ProblemGroup[]; advanced: boolean; fold?: { all: boolean; n: number } }>()
 const emit = defineEmits<{
   (e: "accept", finding: ScanFinding): void
@@ -27,6 +29,8 @@ const emit = defineEmits<{
 }>()
 
 const KNOWN_VULNS = "known_vulns"
+// FOLD_ABOVE is the most cards that start open.
+const FOLD_ABOVE = 2
 const ADVANCED_ACCEPT = "Accept…"
 // Every place of a check carries the same guide (it is keyed by the check), so the group shows the first one it finds.
 const guideOf = (g: ProblemGroup) => g.items.find((f) => f.guide)?.guide
@@ -35,11 +39,14 @@ const placeLine = (f: ScanFinding) => (f.check === KNOWN_VULNS ? flawSummary(f) 
 const placesLabel = (n: number) => `${n} ${n === 1 ? "place" : "places"}`
 // Which findings have their flaw list open; folded by default, since a port can have dozens.
 const flawsOpen = ref<Record<string, boolean>>({})
-// A card the reader folded by hand; every other card is open. The row whose "⋯" is open is the only one open.
-const folded = ref<Record<string, boolean>>({})
+// A card the reader opened or folded by hand; every other card follows the list's length. The row whose "⋯" is open is the only
+// one open.
+const toggled = ref<Record<string, boolean>>({})
+const startOpen = computed(() => props.groups.length <= FOLD_ABOVE)
+const isOpen = (check: string) => toggled.value[check] ?? startOpen.value
 const moreOpen = ref("")
 const toggleMore = (key: string) => { moreOpen.value = moreOpen.value === key ? "" : key }
-watch(() => props.fold?.n, () => { folded.value = Object.fromEntries(props.groups.map((g) => [g.check, props.fold?.all === true])) })
+watch(() => props.fold?.n, () => { toggled.value = Object.fromEntries(props.groups.map((g) => [g.check, props.fold?.all !== true])) })
 </script>
 
 <template>
@@ -49,31 +56,31 @@ watch(() => props.fold?.n, () => { folded.value = Object.fromEntries(props.group
       :key="g.check"
       :data-severity="g.severity"
       :data-check="g.check"
-      :open="!folded[g.check]"
-      @update:open="folded[g.check] = !$event"
+      :open="isOpen(g.check)"
+      @update:open="toggled[g.check] = $event"
     >
       <template #title>
-        <StatusTag :state="severityState(g.severity)" :label="`Problem · ${g.severity}`" />
-        <span class="text-[length:var(--text-heading)] font-semibold text-primary" data-test="problem-title">{{ g.title }}</span>
-        <span class="text-[length:var(--text-small)] text-muted">{{ placesLabel(g.items.length) }}</span>
+        <StatusTag :state="severityState(g.severity)" :label="g.severity" />
+        <span class="min-w-0 break-words font-semibold text-primary" data-test="problem-title">{{ g.title }}</span>
+        <span v-if="g.items.length > 1" class="text-[length:var(--text-small)] text-muted">{{ placesLabel(g.items.length) }}</span>
       </template>
       <div class="flex flex-col gap-2 px-4 pb-1 pt-3">
-        <p v-if="g.fix" class="m-0 break-words text-secondary" data-test="fix"><span class="text-muted">How to fix it:</span> {{ g.fix }}</p>
+        <p v-if="g.fix && !guideOf(g)" class="m-0 break-words text-secondary" data-test="fix"><span class="text-muted">How to fix it:</span> {{ g.fix }}</p>
         <p v-if="g.check === KNOWN_VULNS" class="m-0 text-[length:var(--text-small)] text-muted" data-test="vuln-caution">{{ VULN_NOT_PROOF }}</p>
         <FixGuideSteps v-if="guideOf(g)" :guide="guideOf(g)!" :advanced="advanced" />
       </div>
       <ul class="m-0 flex list-none flex-col p-0">
         <li v-for="f in g.items" :key="f.key" :data-key="f.key" data-test="problem" class="flex flex-col gap-2 border-t border-hairline px-4 py-3 first:border-t-0">
-          <div class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)_auto] sm:items-center">
+          <div class="grid grid-cols-1 gap-y-1 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1.7fr)_auto] sm:items-center sm:gap-x-4">
             <span class="min-w-0 break-words font-medium text-primary" data-test="problem-place">{{ placeSentence(f) }}</span>
-            <span class="flex min-w-0 flex-col gap-1 break-words text-[length:var(--text-small)] text-secondary max-sm:order-3 max-sm:col-span-2" data-test="check">
+            <span class="flex min-w-0 flex-col gap-1 break-words text-[length:var(--text-small)] text-secondary" data-test="check">
               {{ placeLine(f) }}
               <template v-if="advanced && f.check === KNOWN_VULNS">
                 <span class="break-words font-mono text-muted" data-test="vuln-software">Compared: {{ [serviceName(f.service), f.version].filter(Boolean).join(" · ") }}</span>
               </template>
             </span>
-            <span class="flex flex-none items-center justify-end gap-1.5">
-              <BaseButton v-if="!f.deep_at" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('accept', f)">{{ advanced ? ADVANCED_ACCEPT : SIMPLE_ACCEPT }}</BaseButton>
+            <span class="flex flex-none items-center gap-1.5 max-sm:-ml-2 sm:justify-end">
+              <BaseButton v-if="!f.deep_at" variant="ghost" size="sm" class-name="max-sm:!h-11" @click="emit('accept', f)">{{ advanced ? ADVANCED_ACCEPT : SIMPLE_ACCEPT }}</BaseButton>
               <BaseButton variant="ghost" size="sm" icon="more" icon-only :label="MORE_ACTIONS_LABEL" class-name="max-sm:!h-11 max-sm:!w-11" data-test="problem-more" :aria-expanded="moreOpen === f.key" @click="toggleMore(f.key)" />
             </span>
           </div>

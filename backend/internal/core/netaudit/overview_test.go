@@ -50,10 +50,28 @@ func TestOverview_CountsFindingsUnnamedDevicesAndNewKeys(t *testing.T) {
 		dev("aa:bb:cc:00:00:01", "Router", true, overviewNow.AddDate(0, -3, 0), overviewNow),
 		dev("aa:bb:cc:00:00:02", "", true, overviewNow.AddDate(0, -3, 0), overviewNow),
 	}}
-	b := models.ScanBaseline{ScannedAt: overviewNow, NewKeys: []string{"a", "b"}, Findings: []models.ScanFinding{{Severity: SeverityCritical}, {Severity: SeverityLow}, {Severity: SeverityMedium}}}
+	b := models.ScanBaseline{ScannedAt: overviewNow, NewKeys: []string{"a", "b"}, Findings: []models.ScanFinding{{Check: CheckSMBv1, Severity: SeverityCritical}, {Check: CheckFTPAnonymous, Severity: SeverityLow}, {Check: CheckSMBSigning, Severity: SeverityMedium}}}
 	o := OverviewOf(OverviewInput{Now: overviewNow, Inventory: inv, Baseline: b})
 	if o.Devices.Unnamed != 1 || o.Findings.Open != 3 || o.Findings.Serious != 1 || o.Findings.New != 2 {
 		t.Errorf("overview = %+v", o)
+	}
+}
+
+// The overview counts what the Findings tab calls problems: not the open ports, and not what the operator accepted. On vertex
+// (2026-11-05) the tile said "50 open findings, 4 serious" while the tab said "9 problems": 37 of the 50 were open ports and two
+// of the serious ones were accepted.
+func TestOverview_CountsProblemsNotPortsAndLeavesAcceptedOut(t *testing.T) {
+	port := models.ScanFinding{Device: "192.0.2.1", Port: 22, Proto: "tcp", Check: CheckOpenPort, Severity: SeverityInfo}
+	open := models.ScanFinding{Device: "192.0.2.1", Port: 8081, Proto: "tcp", Check: CheckAIAPIExposed, Severity: SeverityHigh}
+	accepted := models.ScanFinding{Device: "192.0.2.2", Port: 445, Proto: "tcp", Check: CheckSMBv1, Severity: SeverityHigh}
+	ack, err := NewAck(accepted, "old NAS", 30, overviewNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := models.ScanBaseline{ScannedAt: overviewNow, Findings: []models.ScanFinding{port, open, accepted}}
+	o := OverviewOf(OverviewInput{Now: overviewNow, Baseline: b, Acks: []models.ScanAck{ack}})
+	if o.Findings.Open != 1 || o.Findings.Serious != 1 || o.Findings.Ports != 1 {
+		t.Errorf("findings = %+v; want one problem, one serious, one open port", o.Findings)
 	}
 }
 

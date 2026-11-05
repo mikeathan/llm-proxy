@@ -51,6 +51,8 @@ type WebhookHandler struct {
 	OwnerTimezone func() string
 	// Commands are the slash commands (/remind, ...) answered without the assistant.
 	Commands *commands.Registry
+	// LockedDown, when it reports true, drops every inbound message after its secret is checked (lock down).
+	LockedDown func() bool
 }
 
 // agentTimezone is the zone a connector-originated run reports to the agent: the
@@ -92,6 +94,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusUnauthorized, "invalid webhook token")
 		return
 	}
+	if h.droppedWhileLockedDown(w, connectorName) {
+		return
+	}
 
 	message, chatID, err := parseInboundMessage(cfg.Type, r)
 	if err != nil {
@@ -122,6 +127,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.Logger.Info("webhook: processed successfully", "connector", connectorName)
 	respondJSON(w, map[string]string{"status": "ok"})
+}
+
+// droppedWhileLockedDown answers a message that arrives during lock down and reports whether it did. The message is dropped but
+// answered with a success, so the platform does not keep retrying it.
+func (h *WebhookHandler) droppedWhileLockedDown(w http.ResponseWriter, connectorName string) bool {
+	if h.LockedDown == nil || !h.LockedDown() {
+		return false
+	}
+	h.Logger.Warn("webhook: message dropped, lock down is on", "connector", connectorName)
+	respondJSON(w, map[string]string{"status": "locked_down"})
+	return true
 }
 
 // authorized reports whether the request carries the connector's webhook secret. The endpoint is public, so a connector

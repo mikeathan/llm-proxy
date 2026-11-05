@@ -160,6 +160,8 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 	} else {
 		container.Dispatcher = disp
 		svc.SetDispatcher(disp)
+		// The agent security record reads the events the dispatcher's bus publishes.
+		svc.AttachAgentWatch(disp.Events())
 		// Start dispatcher in background, tethered to app context
 		go disp.Start(ctx)
 	}

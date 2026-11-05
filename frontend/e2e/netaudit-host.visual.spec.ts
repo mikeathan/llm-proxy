@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
+import { expectNoSidewaysScroll, openProblemCards, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // Findings about the computer the program runs on (open ports it did not have, startup files that changed) sit in the same
 // report as the devices'. They are labelled "This computer", offer no rescan, expected ports or deep check (there is no
@@ -55,6 +55,7 @@ async function open(page: Page, view: 'simple' | 'advanced') {
   await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('heading', { name: 'Latest network scan' })).toBeVisible()
+  await openProblemCards(page)
 }
 
 for (const view of ['simple', 'advanced'] as const) {

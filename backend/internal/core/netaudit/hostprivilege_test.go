@@ -54,6 +54,29 @@ func TestHostPrivilege_AFirstLookReportsNothingAndLaterAdditionsAreFindings(t *t
 	}
 }
 
+// A part of the privilege look that could not be done in full is said, and so is the first look that records the starting
+// point: on vertex (2026-11-05) the report only grew its unreadable count by two, so nobody could tell whether the kernel
+// modules were read or the raised-rights walk finished.
+func TestHostPrivilege_TheLookSaysWhatItCouldNotFinishAndWhenItLearned(t *testing.T) {
+	p := stockPrivilege()
+	p.ModulesRead, p.SetIDComplete = false, false
+	src := &fakeHost{privilege: p}
+	w := newWatcher(src, &memHostStore{})
+	look, _ := w.Look(t.Context())
+	if !look.ModulesUnread || !look.SetIDIncomplete || !look.PrivilegeLearned {
+		t.Fatalf("look = %+v; want modules unread, set-id incomplete and the accounts learned", look)
+	}
+	src.privilege = stockPrivilege()
+	look, _ = w.Look(t.Context())
+	if look.ModulesUnread || look.SetIDIncomplete || !look.PrivilegeLearned {
+		t.Fatalf("second look = %+v; want the modules and set-id lists learned now", look)
+	}
+	look, _ = w.Look(t.Context())
+	if look.PrivilegeLearned {
+		t.Error("a look that learns nothing new must not say it recorded a starting point")
+	}
+}
+
 func TestHostPrivilege_ASecondRootAccountAndAPreloadAreReportedEvenOnTheFirstLook(t *testing.T) {
 	p := stockPrivilege()
 	p.ExtraRoot, p.Preload, p.PreloadDigest = []string{"toor"}, true, "abcdef0123456789"

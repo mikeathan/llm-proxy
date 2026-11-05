@@ -198,6 +198,14 @@ export class NetauditService {
     return put<NetauditSwitch>(API_ENDPOINTS.netauditDeviceNames, { enabled })
   }
 
+  static dailyCheckIn(): Promise<NetauditSwitch> {
+    return get<NetauditSwitch>(API_ENDPOINTS.netauditDailyCheckIn)
+  }
+
+  static setDailyCheckIn(enabled: boolean): Promise<NetauditSwitch> {
+    return put<NetauditSwitch>(API_ENDPOINTS.netauditDailyCheckIn, { enabled })
+  }
+
   static followUpScan(): Promise<NetauditSwitch> {
     return get<NetauditSwitch>(API_ENDPOINTS.netauditFollowUpScan)
   }

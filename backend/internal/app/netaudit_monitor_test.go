@@ -83,3 +83,27 @@ func TestSignInAlertNames_TheSignInAndTheAlertsAgree(t *testing.T) {
 		t.Fatal("the sign-in's event names must be the ones the Network alerts know")
 	}
 }
+
+func TestAlertDeliveryReading_StallsOnlyWhileTheNewestSendsFailed(t *testing.T) {
+	now := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	at := func(h int) time.Time { return now.Add(time.Duration(-h) * time.Hour) }
+	if r := alertDeliveryReading(nil, now); r.On {
+		t.Error("no alert yet: nothing to watch")
+	}
+	sent := []models.NetworkAlert{{At: at(30), Delivery: models.NetworkAlertSent}}
+	if r := alertDeliveryReading(sent, now); !r.On || !r.LastGood.Equal(now) {
+		t.Errorf("the newest went out: healthy now, got %+v", r)
+	}
+	none := []models.NetworkAlert{{At: at(1), Delivery: models.NetworkAlertNoConnector}}
+	if r := alertDeliveryReading(none, now); !r.LastGood.Equal(now) {
+		t.Error("no connector is its own finding (alert_no_channel), not a stopped monitor")
+	}
+	failing := []models.NetworkAlert{ // newest first
+		{At: at(1), Delivery: models.NetworkAlertFailed},
+		{At: at(3), Delivery: models.NetworkAlertFailed},
+		{At: at(30), Delivery: models.NetworkAlertSent},
+	}
+	if r := alertDeliveryReading(failing, now); !r.LastGood.Equal(at(3)) || r.Limit != alertDeliveryLimit {
+		t.Errorf("failing since the oldest failure of the streak, got %+v", r)
+	}
+}

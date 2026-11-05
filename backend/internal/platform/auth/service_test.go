@@ -232,6 +232,35 @@ func TestService_RevokeAll(t *testing.T) {
 	}
 }
 
+// Lock down signs out every other session and may revoke every script token, keeping the operator who pressed it signed in.
+func TestService_RevokeOthersAndAllTokens(t *testing.T) {
+	s, _, _ := newTestService(t)
+	a := setUp(t, s)
+	b, _ := s.Login(context.Background(), goodPass, "10.0.0.2", "Safari")
+	c, _ := s.Login(context.Background(), goodPass, "10.0.0.3", "Chrome")
+	others := len(s.Sessions(a)) - 1 // the setup's own sign-in counts too
+	n, err := s.RevokeOtherSessions(a)
+	if err != nil || n != others || n < 2 {
+		t.Fatalf("revoked %d, %v; want every other session (%d)", n, err, others)
+	}
+	if _, ok := s.Session(a); !ok {
+		t.Error("the session that asked must stay signed in")
+	}
+	for _, id := range []string{b, c} {
+		if _, ok := s.Session(id); ok {
+			t.Error("another session survived")
+		}
+	}
+	for _, name := range []string{"one", "two"} {
+		if _, _, err := s.CreateToken(name, ScopeAdmin); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := s.RevokeAllTokens(); err != nil || n != 2 || len(s.Tokens()) != 0 {
+		t.Fatalf("revoked %d tokens, %v; %d left", n, err, len(s.Tokens()))
+	}
+}
+
 func TestService_ReauthRotatesTheSessionAndOpensAWindow(t *testing.T) {
 	s, ck, _ := newTestService(t)
 	old := setUp(t, s)

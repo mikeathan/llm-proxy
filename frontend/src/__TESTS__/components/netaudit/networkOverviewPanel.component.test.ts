@@ -7,7 +7,7 @@ import type { NetworkOverview } from '../../../types/netaudit'
 const overview = (over: Partial<NetworkOverview> = {}): NetworkOverview => ({
   posture: 'quiet',
   devices: { known: 12, unnamed: 3, new: 0, active: 9 },
-  findings: { scanned: true, scanned_at: '2026-10-30T02:00:00Z', open: 4, serious: 1, new: 2 },
+  findings: { scanned: true, scanned_at: '2026-10-30T02:00:00Z', open: 4, serious: 1, ports: 31, new: 2 },
   gateway_changed: false, shared_address: false, presence: { last_check: '2026-10-30T11:50:00Z' },
   series: [{ date: '2026-10-29', devices_up: 8, devices: 11, unnamed: 3, findings: 5, serious: 1, audited: true }, { date: '2026-10-30', devices_up: 9, devices: 12, unnamed: 3, findings: 4, serious: 1, audited: true }],
   recent: [{ kind: 'new_device', at: '2026-10-30T10:00:00Z', ip: '192.168.1.77' }], ...over,
@@ -21,7 +21,9 @@ describe('NetworkOverviewPanel', () => {
     expect(values[0]).toBe('12')
     expect(values[1]).toBe('4')
     expect(w.text()).toContain('9 seen in the last day · 3 unnamed')
-    expect(w.text()).toContain('1 serious · 2 new')
+    // The tile counts problems, as the Findings tab does, and says the open ports apart.
+    expect(w.text()).toContain('Problems')
+    expect(w.text()).toContain('1 serious · 31 open ports')
     expect(w.text()).toContain('192.168.1.77 appeared on the network')
   })
 

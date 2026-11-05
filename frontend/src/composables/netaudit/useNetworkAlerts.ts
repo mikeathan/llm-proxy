@@ -28,9 +28,11 @@ interface Deps {
   publish: (items: NetworkAlertItem[]) => void
 }
 
-/** Where an alert leads: a sign-in alert to the sign-in events, a summary or a stopped monitor to the overview, the rest to Devices. */
+/** Where an alert leads: a sign-in alert to the sign-in events, an agent alert to the agent activity, a summary or a stopped
+ * monitor to the overview, the rest to Devices. */
 function targetOf(kind: NetworkAlertEvent['kind']) {
   if (kind === 'sign_in') return toSettings('sign-in')
+  if (kind === 'agent') return toSettings('agent-activity')
   return kind === 'summary' || kind === 'monitor' ? toNetwork() : toNetwork(DEVICES_TAB)
 }
 

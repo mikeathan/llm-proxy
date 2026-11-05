@@ -8,6 +8,8 @@ type NetworkHistory struct {
 	Days []NetworkDay `json:"days"`
 	// DigestAt is when the last weekly summary was sent; zero before the first.
 	DigestAt time.Time `json:"digest_at,omitzero"`
+	// CheckInAt is when the last daily check-in was sent; zero before the first.
+	CheckInAt time.Time `json:"check_in_at,omitzero"`
 }
 
 // NetworkDay is what one calendar day (in the host's local time) looked like.

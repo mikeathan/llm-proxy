@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, portLabel, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence, placeSentence } from '../../../utils/netaudit/friendly'
+import { deviceLabel, isHostDevice, findingTitle, isCheck, severityRank, severityState, portCount, checkCount, lookSentence, unscannedSentence, describePort, portLabel, describeService, devicesIn, isGuessedService, isPlainText, needsLookSentence, portMeaning, seenSentence, placeSentence, shortTitle } from '../../../utils/netaudit/friendly'
 
 describe('friendly wording', () => {
   it('says what a port is usually for, then falls back to the service, then the number', () => {
@@ -93,5 +93,14 @@ describe('placeSentence', () => {
   it('names only the computer for a finding that has no port (the server sends port 0)', () => {
     expect(placeSentence({ device: 'this-computer', port: 0, service: '' })).toBe('This computer')
     expect(placeSentence({ device: 'this-computer', service: '' })).toBe('This computer')
+  })
+})
+
+describe('shortTitle', () => {
+  it('names a problem by its check and place, never by its evidence', () => {
+    const f = { device: '192.0.2.10', port: 445, service: 'microsoft-ds', check: 'known_vulns', check_title: 'Software with known flaws', evidence: 'CVE-2022-45141, CVE-2023-3961 and 21 more' }
+    expect(shortTitle(f)).toBe('Software with known flaws · File sharing (port 445) on 192.0.2.10')
+    expect(shortTitle({ device: 'this-computer', check: 'host_updates_pending', check_title: 'Updates are waiting on this computer' })).toBe('Updates are waiting on this computer · This computer')
+    expect(shortTitle({ device: '192.0.2.10', port: 22, service: 'ssh', check: 'open_port' })).toBe('Remote login (port 22) on 192.0.2.10')
   })
 })

@@ -54,7 +54,37 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 	add(n.History != nil, netaudit.MonitorAudit, "the nightly audit", func() netaudit.MonitorReading {
 		return auditReading(n.History.Series)
 	})
+	add(n.Alerts != nil, netaudit.MonitorAlerts, "sending alerts to your connectors", func() netaudit.MonitorReading {
+		items, err := n.Alerts.After(0, alertDeliveryWindow)
+		if err != nil {
+			return netaudit.MonitorReading{}
+		}
+		return alertDeliveryReading(items, time.Now())
+	})
 	return netaudit.NewMonitorWatch(netaudit.MonitorWatchDeps{Parts: parts, Notify: notify})
+}
+
+// alertDeliveryWindow is how many of the newest alerts the delivery reading looks at; alertDeliveryLimit how long sends may
+// keep failing before the part counts as stopped (a connector that is down for a moment recovers on the next send).
+const (
+	alertDeliveryWindow = 10
+	alertDeliveryLimit  = time.Hour
+)
+
+// alertDeliveryReading is healthy while the newest alert went out (or had no connector, which alert_no_channel already says).
+// While the newest sends failed, the part last worked when that run of failures began.
+func alertDeliveryReading(newestFirst []models.NetworkAlert, now time.Time) netaudit.MonitorReading {
+	if len(newestFirst) == 0 {
+		return netaudit.MonitorReading{}
+	}
+	r := netaudit.MonitorReading{On: true, LastGood: now, Limit: alertDeliveryLimit}
+	for _, a := range newestFirst {
+		if a.Delivery != models.NetworkAlertFailed {
+			break
+		}
+		r.LastGood = a.At
+	}
+	return r
 }
 
 // cycleLimit is how long a part on an interval may go without a cycle: three intervals, never less than minMonitorLimit.

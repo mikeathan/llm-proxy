@@ -237,7 +237,8 @@ describe('FindingsReport with checks', () => {
     expect(groups[0]!.text()).toContain('Redis answers without a password')
     expect(groups[0]!.text()).toContain('on 192.0.2.20')
     expect(groups[1]!.text()).toContain('SMBv1, an old and unsafe file-sharing version, is enabled')
-    expect(w.text()).toContain('2 services on 2 devices, 2 problems found by checks')
+    expect(w.get('[data-test="scan-meta"]').text()).toContain('2 problems found by checks')
+    expect(w.text()).not.toContain('Seen in total') // the meta line says the counts once
     expect(w.text()).not.toContain('smb_v1')
   })
 
@@ -276,8 +277,8 @@ describe('FindingsReport with checks', () => {
       expect(r.classes()).toEqual(expect.arrayContaining(['border', 'border-hairline', 'bg-surface']))
       expect(r.classes().some((c) => c.startsWith('border-l') || c.startsWith('border-state'))).toBe(false)
     }
-    expect(rows[0]!.text()).toContain('Problem · high')
-    expect(rows[1]!.text()).toContain('Problem · low')
+    expect(rows[0]!.text().startsWith('high')).toBe(true)
+    expect(rows[1]!.text().startsWith('low')).toBe(true)
     expect(rows[1]!.get('[data-test="problem-title"]').text()).toContain('The certificate expires on 2026-12-01')
   })
 
@@ -287,7 +288,7 @@ describe('FindingsReport with checks', () => {
     expect(w.findAll('[data-test="problem"]').map((li) => li.attributes('data-key'))).toEqual(['redis', 'smb'])
     const group = w.get('article[data-check="redis_no_auth"]')
     expect(group.classes().some((c) => c.startsWith('border-l') || c.startsWith('border-state'))).toBe(false)
-    expect(group.text()).toContain('Problem · critical')
+    expect(group.text().startsWith('critical')).toBe(true)
     // The problems are listed once, in the Problems block; the filter shows no device list under them.
     expect(w.findAll('[data-test="device"]')).toHaveLength(0)
   })

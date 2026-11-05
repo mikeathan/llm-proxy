@@ -663,7 +663,8 @@ export interface UbuntuDataStatus {
 export interface NetworkOverview {
   posture: NetworkPosture
   devices: { known: number; unnamed: number; new: number; active: number }
-  findings: { scanned: boolean; scanned_at?: string; open: number; serious: number; new: number }
+  /** `open` counts the problems the checks found that are not accepted (what the Findings tab lists); `ports` the open ports. */
+  findings: { scanned: boolean; scanned_at?: string; open: number; serious: number; ports?: number; new: number }
   gateway_changed: boolean
   shared_address: boolean
   presence: { last_check?: string; problem?: string }

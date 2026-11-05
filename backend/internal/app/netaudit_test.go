@@ -76,3 +76,26 @@ func TestNetauditLoops_StartsWhatIsWiredAndNothingElse(t *testing.T) {
 		t.Fatalf("only the counter is wired, got %d loops", len(loops))
 	}
 }
+
+// While lock down is on no automation starts, whatever its profile; lifted, the Network checks run as before.
+func TestRunPreflight_LockDownRefusesEveryAutomation(t *testing.T) {
+	srv := newSystemTestServer(t)
+	s := AppServices{AppCtx: srv}
+	entry := &automation.AutomationEntry{Profile: "task-runner", Model: "any"}
+	if err := s.RunPreflight()(t.Context(), entry); err != nil {
+		t.Fatalf("not locked: %v", err)
+	}
+	if _, err := srv.Lockdown().Engage("", false); err != nil {
+		t.Fatal(err)
+	}
+	var pf *automation.PreflightError
+	if err := s.RunPreflight()(t.Context(), entry); !errors.As(err, &pf) || pf.Code != LockedDownCode {
+		t.Fatalf("err = %v; want the lock down refusal", err)
+	}
+	if _, err := srv.Lockdown().Release(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunPreflight()(t.Context(), entry); err != nil {
+		t.Errorf("lifted: %v", err)
+	}
+}

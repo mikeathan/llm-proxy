@@ -1,9 +1,9 @@
 ---
 id: SPEC-009
 title: Communication Connector System
-version: "1.8"
+version: "1.9"
 status: stable
-last_updated: 2026-10-29
+last_updated: 2026-11-05
 constitution_references: [II.4, II.5, V]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -13,6 +13,9 @@ supersedes:
 
 ## Changelog
 
+- **1.9 (2026-11-05)** — While lock down is on, `POST /api/v1/webhooks/{connector}` checks the secret as before and then drops the
+  message with `200 {"status":"locked_down"}`, so the platform does not retry it; nothing reaches the agent or a command. Outbound sends
+  (alerts) are unaffected.
 - **1.8 (2026-10-29)** — The inbound webhook secret is mandatory. `POST /api/v1/webhooks/{connector}` answers `401` to
   every call for an enabled connector whose `webhook_token` setting is empty (the log line names the connector); before
   this an empty secret meant an open endpoint. Telegram sends the secret as `X-Telegram-Bot-Api-Secret-Token` (any

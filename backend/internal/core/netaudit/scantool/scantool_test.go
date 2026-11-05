@@ -140,6 +140,28 @@ func TestTool_IsHiddenWhileUnavailable(t *testing.T) {
 	}
 }
 
+// The header names what the checks established in fixed words, and says so when they established nothing: a model shown only
+// "37 finding(s)" counted open ports as problems and named checks from the tool's own description (vertex, 2026-11-05).
+func TestRender_HeaderSeparatesOpenPortsFromCheckFindings(t *testing.T) {
+	ports := []netaudit.Finding{
+		{Device: "192.168.1.5", Port: 22, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: netaudit.SeverityInfo},
+		{Device: "192.168.1.5", Port: 445, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: netaudit.SeverityInfo},
+	}
+	text, err := render(netaudit.ModeChecks, netaudit.Result{Engine: "nmap", Findings: ports}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "2 open port(s)") || !strings.Contains(text, noCheckFindings) {
+		t.Errorf("no check finding must be said plainly:\n%s", text)
+	}
+
+	smb := netaudit.Finding{Device: "192.168.1.5", Port: 445, Proto: "tcp", Check: netaudit.CheckSMBv1, Severity: netaudit.SeverityHigh}
+	text, _ = render(netaudit.ModeChecks, netaudit.Result{Engine: "nmap", Findings: append(ports, smb, smb)}, 0)
+	if strings.Contains(text, noCheckFindings) || !strings.Contains(text, "2 check finding(s): "+netaudit.CheckTitle(netaudit.CheckSMBv1)+" (2)") {
+		t.Errorf("the checks' findings must be counted and named once each:\n%s", text)
+	}
+}
+
 type fixedAcks struct {
 	acks []models.ScanAck
 	err  error

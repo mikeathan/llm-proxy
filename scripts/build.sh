@@ -108,8 +108,27 @@ else
   ui_die "Backend compilation failed!"
 fi
 
-# --- Summary -----------------------------------------------------------------
+# --- Keep the committed page --------------------------------------------------
+# The binary embedded the page it was just built with, so the tracked index.html on disk is no longer needed by it. A
+# different Node version names the bundle differently (vertex on Node 20 makes index-D2IzYLA9.js where the committed
+# file, built on Node 26, names index-Bj9taPdJ.js), which left index.html modified after every deploy and blocked the
+# next pull. When the frontend sources are the committed ones, that difference is the toolchain's alone, so the committed
+# file is put back. A build after a frontend edit keeps its new index.html, to be committed with the edit. The file is
+# read from git with `git show`, which changes neither the index nor anything else.
 cd "$PRJ_ROOT"
+INDEX_HTML="backend/internal/transport/http/frontend_dist/index.html"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  && git diff --quiet HEAD -- frontend 2>/dev/null \
+  && ! git diff --quiet HEAD -- "$INDEX_HTML" 2>/dev/null; then
+  if git show "HEAD:$INDEX_HTML" >"$INDEX_HTML.tmp" 2>/dev/null; then
+    mv "$INDEX_HTML.tmp" "$INDEX_HTML"
+    ui_info "Kept the committed index.html (this Node version names the bundle differently; the binary has its own copy)."
+  else
+    rm -f "$INDEX_HTML.tmp"
+  fi
+fi
+
+# --- Summary -----------------------------------------------------------------
 ELAPSED=$((SECONDS - START_SECONDS))
 
 if [[ $INLINE == 1 ]]; then

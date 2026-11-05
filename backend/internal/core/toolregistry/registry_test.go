@@ -343,6 +343,7 @@ func (m *mockAppContext) Secrets() models.SecretsStore {
 func (m *mockAppContext) MemoryStore() *memory.Store          { return nil }
 func (m *mockAppContext) SessionRetention() time.Duration     { return 0 }
 func (m *mockAppContext) SetSandboxProvider(sandbox.Provider) {}
+func (m *mockAppContext) LockedDown() bool                    { return false }
 
 // HostSettings returns the LEGACY posture (sandboxing section zero → network
 // undecided → allowed) so registry wiring tests behave like a pre-change
@@ -367,6 +368,7 @@ func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 func (m *mockAppContextWithDirs) MemoryStore() *memory.Store          { return nil }
 func (m *mockAppContextWithDirs) SessionRetention() time.Duration     { return 0 }
 func (m *mockAppContextWithDirs) SetSandboxProvider(sandbox.Provider) {}
+func (m *mockAppContextWithDirs) LockedDown() bool                    { return false }
 
 // HostSettings: legacy posture (network undecided → allowed); host gate inert.
 func (m *mockAppContextWithDirs) HostSettings() models.HostSettings {

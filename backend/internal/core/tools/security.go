@@ -19,6 +19,24 @@ var SecretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`lp_[a-z2-7]{52}`),
 }
 
+// SecretPatternNames name SecretPatterns in fixed words, index for index, for a finding that says what kind of secret it saw.
+var SecretPatternNames = []string{
+	"an OpenAI-style API key",
+	"an AWS access key",
+	"a Google API key",
+	"a script token of this program",
+}
+
+// SecretKindIn names the first secret shape in s, or "" when there is none.
+func SecretKindIn(s string) string {
+	for i, re := range SecretPatterns {
+		if re.MatchString(s) {
+			return SecretPatternNames[i]
+		}
+	}
+	return ""
+}
+
 // credentialAssignments match a credential word followed by "is", "=" or ":" and a value ("the password is hunter2",
 // "api_key: abc"). A bare "token" is only a credential when its value looks like one: tokens are everywhere in
 // legitimate project facts ("the context window is 16K tokens", "max_tokens is 8192").

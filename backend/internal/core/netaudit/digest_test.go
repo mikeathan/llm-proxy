@@ -28,7 +28,7 @@ func day(offset int, findings, serious int, audited bool) models.NetworkDay {
 func TestDigestMessage_CountsTheWeekInFixedWordsWithoutNamesOrAddresses(t *testing.T) {
 	series := []models.NetworkDay{day(7, 6, 2, true), day(3, 5, 1, true), day(0, 4, 1, true)}
 	got := DigestMessage(digestInv(), series, digestNow)
-	for _, want := range []string{"3 devices known", "1 new this week", "1 not seen this week", "1 without a name", "Open findings: 4", "was 6 a week ago", "1 serious"} {
+	for _, want := range []string{"3 devices known", "1 new this week", "1 not seen this week", "1 without a name", "Problems found by the audit: 4", "was 6 a week ago", "1 serious"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in %q", want, got)
 		}
@@ -44,7 +44,7 @@ func TestDigestMessage_SaysSoWhenNoAuditHasRunAndOmitsTheComparisonItCannotMake(
 	if got := DigestMessage(digestInv(), nil, digestNow); !strings.Contains(got, "No network audit has run yet") || strings.Contains(got, "a week ago") {
 		t.Errorf("message = %q", got)
 	}
-	if got := DigestMessage(digestInv(), []models.NetworkDay{day(0, 4, 0, true)}, digestNow); strings.Contains(got, "a week ago") || !strings.Contains(got, "Open findings: 4") {
+	if got := DigestMessage(digestInv(), []models.NetworkDay{day(0, 4, 0, true)}, digestNow); strings.Contains(got, "a week ago") || !strings.Contains(got, "Problems found by the audit: 4") {
 		t.Errorf("without an older day there is nothing to compare: %q", got)
 	}
 }

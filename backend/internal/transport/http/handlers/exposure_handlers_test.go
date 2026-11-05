@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"testing"
+	"time"
 
 	"llm-proxy/models"
 )
@@ -99,5 +100,48 @@ func TestExposure_SandboxOffIsFlagged(t *testing.T) {
 	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001"})
 	if !hasAttention(v, "sandbox_off") {
 		t.Errorf("sandbox off: %v", attentionIDs(v))
+	}
+}
+
+// The model server's own port is not behind /v1, so its key does not protect it: vertex (2026-11-05) had an inference-free
+// /v1 warning but nothing about llama-server listening on 0.0.0.0:8081, which the nightly audit then found open.
+func TestExposure_ModelServerOnTheNetworkIsFlaggedEvenWithAKey(t *testing.T) {
+	v := buildExposure(exposureInput{Bind: "127.0.0.1:4001", ModelHost: "0.0.0.0", Sandbox: true})
+	if !hasAttention(v, "model_server_open") {
+		t.Errorf("attention = %v; want model_server_open", attentionIDs(v))
+	}
+	keyed := buildExposure(exposureInput{Bind: "0.0.0.0:4001", ModelHost: "0.0.0.0", Encrypted: true, InferenceKeyRequired: true, Sandbox: true})
+	if !hasAttention(keyed, "model_server_open") {
+		t.Error("an inference key does not protect the model server's own port")
+	}
+	for _, host := range []string{"127.0.0.1", "::1", "localhost"} {
+		if hasAttention(buildExposure(exposureInput{Bind: "127.0.0.1:4001", ModelHost: host, Sandbox: true}), "model_server_open") {
+			t.Errorf("model host %q listens on this machine only", host)
+		}
+	}
+}
+
+func TestExposure_TokensUnusedForAMonthAreFlagged(t *testing.T) {
+	now := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	month := 31 * 24 * time.Hour
+	fresh := exposureToken{CreatedAt: now.Add(-month), LastUsed: now.Add(-time.Hour)}
+	idle := exposureToken{CreatedAt: now.Add(-2 * month), LastUsed: now.Add(-month)}
+	never := exposureToken{CreatedAt: now.Add(-month)}
+	young := exposureToken{CreatedAt: now.Add(-time.Hour)}
+	in := exposureInput{Bind: "127.0.0.1:4001", ModelHost: "127.0.0.1", Sandbox: true, Now: now}
+
+	in.Tokens = []exposureToken{fresh, young}
+	if hasAttention(buildExposure(in), "token_unused") {
+		t.Error("tokens in use, or made today, are fine")
+	}
+	in.Tokens = []exposureToken{fresh, idle, never}
+	v := buildExposure(in)
+	if !hasAttention(v, "token_unused") {
+		t.Fatalf("attention = %v; want token_unused", attentionIDs(v))
+	}
+	for _, a := range v.Attention {
+		if a.ID == "token_unused" && a.Text != "2 script tokens have not been used for 30 days. A token nobody uses is a key nobody watches." {
+			t.Errorf("text = %q", a.Text)
+		}
 	}
 }

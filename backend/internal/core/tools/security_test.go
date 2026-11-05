@@ -1,6 +1,9 @@
 package tools
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestContainsSecret(t *testing.T) {
 	cases := []struct {
@@ -20,5 +23,17 @@ func TestContainsSecret(t *testing.T) {
 		if got := ContainsSecret(c.in); got != c.want {
 			t.Errorf("ContainsSecret(%q) = %v, want %v", c.in, got, c.want)
 		}
+	}
+}
+
+func TestSecretPatternNames_OneFixedNamePerPattern(t *testing.T) {
+	if len(SecretPatternNames) != len(SecretPatterns) {
+		t.Fatalf("%d names for %d patterns", len(SecretPatternNames), len(SecretPatterns))
+	}
+	if got := SecretKindIn("key: lp_" + strings.Repeat("a", 52)); got != "a script token of this program" {
+		t.Errorf("kind = %q", got)
+	}
+	if got := SecretKindIn("nothing here"); got != "" {
+		t.Errorf("kind = %q, want none", got)
 	}
 }

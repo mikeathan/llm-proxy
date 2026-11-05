@@ -16,12 +16,16 @@ const (
 	// NetworkAlertFollowUp is the result of the scan on arrival of one new device. It is its own kind so the Timeline does not
 	// fold it into the new-device row it follows.
 	NetworkAlertFollowUp NetworkAlertKind = "follow_up"
+	// NetworkAlertAgent is from the agent security record: an unattended run refused by the safety rules, or a stable automation
+	// fetching from a new host.
+	NetworkAlertAgent NetworkAlertKind = "agent"
 )
 
 // Valid reports whether k is one of the known kinds.
 func (k NetworkAlertKind) Valid() bool {
 	switch k {
-	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn, NetworkAlertFollowUp:
+	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn, NetworkAlertFollowUp,
+		NetworkAlertAgent:
 		return true
 	}
 	return false

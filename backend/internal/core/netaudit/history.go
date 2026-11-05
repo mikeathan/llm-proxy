@@ -43,14 +43,18 @@ func (h *History) RecordLook(up, devices, unnamed int) error {
 
 // RecordAudit notes the open findings of an audit that just finished.
 func (h *History) RecordAudit(findings []models.ScanFinding) error {
-	serious := 0
+	problems, serious := 0, 0
 	for _, f := range findings {
+		if f.Check == CheckOpenPort { // an open port is a fact, not a problem; the overview counts the same way
+			continue
+		}
+		problems++
 		if f.Severity == SeverityHigh || f.Severity == SeverityCritical {
 			serious++
 		}
 	}
 	return h.edit(func(d *models.NetworkDay) {
-		d.Findings, d.Serious, d.Audited = len(findings), serious, true
+		d.Findings, d.Serious, d.Audited = problems, serious, true
 	})
 }
 
@@ -131,6 +135,29 @@ func (h *History) MarkDigest(at time.Time) error {
 		return fmt.Errorf("failed to read the network history: %w", err)
 	}
 	hist.DigestAt = at
+	return h.store.Write(hist)
+}
+
+// LastCheckIn is when the last daily check-in was sent; the zero time if none was.
+func (h *History) LastCheckIn() (time.Time, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hist, err := h.store.Read()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("failed to read the network history: %w", err)
+	}
+	return hist.CheckInAt, nil
+}
+
+// MarkCheckIn records that a daily check-in was sent at the given time.
+func (h *History) MarkCheckIn(at time.Time) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	hist, err := h.store.Read()
+	if err != nil {
+		return fmt.Errorf("failed to read the network history: %w", err)
+	}
+	hist.CheckInAt = at
 	return h.store.Write(hist)
 }
 

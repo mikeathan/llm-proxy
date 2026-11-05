@@ -176,6 +176,8 @@ type AgentStackContext interface {
 	SessionRetention() time.Duration // how long a session fact lives (settings memory.retention_days, read live)
 	HostSettings() models.HostSettings
 	SetSandboxProvider(sandbox.Provider)
+	// LockedDown reports whether lock down is on: the guardrails then refuse the terminal and the network.
+	LockedDown() bool
 }
 
 // stackCtx is the shared wiring for the tool-provider constructors, built once
@@ -452,6 +454,7 @@ func InitializeAgentStack(
 	// predicate over registry + secrets — takes effect on the next run without a
 	// restart).
 	grEngine.SetSearchAvailable(searchAvailable)
+	grEngine.SetLockedDown(appCtx.LockedDown)
 	comm := initCommunicationTools(appCtx, network)
 	fsTools := initFileSystemTools(stack)
 	memTools := initMemoryTools(appCtx.MemoryStore(), appCtx.SessionRetention)

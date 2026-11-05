@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { shallowMount } from '@vue/test-utils'
 
-const service = vi.hoisted(() => ({ weeklySummary: vi.fn().mockResolvedValue({ enabled: false }), setWeeklySummary: vi.fn() }))
+const service = vi.hoisted(() => ({
+  weeklySummary: vi.fn().mockResolvedValue({ enabled: false }), setWeeklySummary: vi.fn(),
+  dailyCheckIn: vi.fn().mockResolvedValue({ enabled: false }), setDailyCheckIn: vi.fn(),
+}))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
 import NetworkSettings from '../../../components/netaudit/NetworkSettings.vue'
@@ -26,7 +29,8 @@ describe('NetworkSettings', () => {
     const watching = w.get('[data-test="group-watching"]')
     expect(watching.get('h2').text()).toBe('Watching for changes')
     expect(watching.html()).toContain('device-check-settings-stub')
-    expect(watching.html()).toContain('title="Weekly summary"')
+    // The weekly summary and the daily check-in share one panel: both are messages the program sends on its own.
+    expect(watching.html()).toContain('title="Regular messages"')
     expect(watching.html()).not.toContain('browser')
     const extras = w.get('[data-test="group-extras"]')
     expect(extras.get('h2').text()).toBe('Optional extras')

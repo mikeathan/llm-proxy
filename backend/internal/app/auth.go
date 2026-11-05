@@ -24,4 +24,8 @@ func (s *AppServices) wireAuth(rootDir string) {
 	if s.netaudit != nil && s.netaudit.SignIns != nil {
 		s.auth.WithAlerts(func(a auth.SignInAlert) { s.netaudit.SignIns.Tell(string(a)) })
 	}
+	// Lock down ends the other sessions (and, if asked, the tokens) through the sign-in.
+	if l := s.AppCtx.Lockdown(); l != nil {
+		l.SetAuth(s.auth)
+	}
 }

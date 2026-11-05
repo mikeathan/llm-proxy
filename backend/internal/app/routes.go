@@ -5,8 +5,10 @@ import (
 	"llm-proxy/internal/core/eventbus"
 	"net/http"
 	"os"
+	"time"
 
 	"llm-proxy/internal/buildinfo"
+	"llm-proxy/internal/core/agentwatch"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
@@ -45,12 +47,15 @@ type HandlerSet struct {
 	Summary     *handlers.NetauditSwitchHandlers
 	DeviceNames *handlers.NetauditSwitchHandlers
 	FollowUp    *handlers.NetauditSwitchHandlers
+	CheckIn     *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
 	RouterLog   *handlers.NetauditRouterLogHandlers
 	OutsideLook *handlers.NetauditOutsideLookupHandlers
 	DNSCheck    *handlers.NetauditDNSCheckHandlers
 	Nearby      *handlers.NetauditNearbyHandlers
 	Alerts      *handlers.NetauditAlertHandlers
+	AgentWatch  *handlers.AgentWatchHandlers
+	Lockdown    *handlers.LockdownHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
 	Webhook     *handlers.WebhookHandler
@@ -69,6 +74,8 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		hs.Exposure = handlers.NewExposureHandlers(handlers.ExposureSource{
 			Auth:           s.auth,
 			Bind:           func() string { return bindAddress(s.AppCtx.GetSystem()) },
+			ModelHost:      func() string { return s.AppCtx.GetSystem().Server.ModelHost },
+			Tokens:         s.auth.Tokens,
 			Registry:       s.AppCtx.GetRegistry,
 			Host:           s.AppCtx.HostSettings,
 			TrustedProxies: trusted,
@@ -124,11 +131,14 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.DNSCheck = handlers.NewNetauditDNSCheckHandlers(s.netaudit.DNSCheckConfig, s.netaudit.DNSCollector)
 	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
+	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
+	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
 	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
 	hs.FollowUp = handlers.NewNetauditSwitchHandlers(s.netaudit.FollowUpConfig)
+	hs.CheckIn = handlers.NewNetauditSwitchHandlers(s.netaudit.CheckInConfig)
 	hs.UbuntuData = handlers.NewUbuntuDataHandlers(s.netaudit.Ubuntu)
 	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence())
 	hs.Timeline = handlers.NewNetauditSummaryHandlers(hs.Activity, hs.Turns, s.modelIsLocal)
@@ -167,6 +177,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 		// Connector messages carry no browser timezone; the owner's configured zone
 		// keeps "tomorrow morning" meaning the owner's morning.
 		OwnerTimezone: ownerZone,
+		LockedDown:    s.AppCtx.LockedDown,
 	}
 
 	return hs
@@ -385,6 +396,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/device-names", hs.DeviceNames.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/follow-up-scan", hs.FollowUp.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/follow-up-scan", hs.FollowUp.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/daily-check-in", hs.CheckIn.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/daily-check-in", hs.CheckIn.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/devices", hs.Devices.List, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/devices/{mac}", hs.Devices.Update, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/devices/{mac}", hs.Devices.Forget, jsonMethodNotAllowed)
@@ -403,6 +416,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/nearby", hs.Nearby.Put, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/nearby/look", hs.Nearby.Look, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
+	router.Get("/admin/api/agent-watch", hs.AgentWatch.Get, jsonMethodNotAllowed)
+	router.Get("/admin/api/lockdown", hs.Lockdown.Get, jsonMethodNotAllowed)
+	router.Post("/admin/api/lockdown", hs.Lockdown.Engage, jsonMethodNotAllowed)
+	router.Delete("/admin/api/lockdown", hs.Lockdown.Release, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/ipv6-discovery", hs.Discovery6.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/presence", hs.Devices.GetPresence, jsonMethodNotAllowed)
