@@ -124,7 +124,7 @@ with a fixed reason.
   privilege facts (`/proc/modules`, the set-id walk) are still open: the next report now says them.
 - **P1.** Built as two extensions, not a new group: the existing Sign-in → Exposure card gains `model_server_open` and `token_unused`, and
   the audit relabels the AI-server finding on this computer's own model port as `own_model_server_open` (`core/netaudit/ownmodel.go`). No
-  in-app "fix" button: the setting already exists in Settings → System and the guide names it. `app_admin_plain_http` was already the
+  in-app "fix" button: the setting already exists (Settings → General → Routing & engine → Local engine → Model host IP) and the guide names it. `app_admin_plain_http` was already the
   Exposure card's `unencrypted` item, so it was not added again. The new-install default of `model_host` is now 127.0.0.1 (Constitution
   I.5 says a new install listens on this machine only); existing settings keep their value.
 - **P2.** `core/agentwatch` fed by `Bus.SetTap`. Kinds kept: `tool_refused`, `approval_asked` (and P3/P4's). **Alert rule changed from the
@@ -158,7 +158,7 @@ same, because every source is this program's own state.
 ## Remaining Work
 
 - **Next (owner):** deploy v0.47.0 on vertex; then (1) read the next audit's notes for the kernel modules and the set-id walk, (2) set
-  Settings → System → model server address to 127.0.0.1 (vertex keeps 0.0.0.0 from its old settings) and see `own_model_server_open`
+  Settings → General → Routing & engine → Model host IP to 127.0.0.1 (vertex keeps 0.0.0.0 from its old settings) and see `own_model_server_open`
   resolve, (3) open Settings → Safety → Agent activity, try Lock down and lift it, (4) switch on the daily check-in if wanted.
 - **Unverified:** the secrets pass on vertex's real workspaces (false positives: run it, then read the record); the agent alert's noise on
   a real week; that no LAN client called llama-server's port directly before the default changed.

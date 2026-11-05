@@ -15,16 +15,16 @@ const ownModelServerWords = "This program's own model server listens on every ne
 
 func init() {
 	checkTitles[CheckOwnModelServerOpen] = "This program's model server is open to the network"
-	remediations[CheckOwnModelServerOpen] = "Open Settings, System, and set the model server address to 127.0.0.1. The program reaches its model server on this computer, so nothing it does needs the server open to the network."
+	remediations[CheckOwnModelServerOpen] = "Open Settings, General, Routing & engine (the Local engine panel) and set Model host IP to 127.0.0.1. The program reaches its model server on this computer, so nothing it does needs the server open to the network."
 	guides[CheckOwnModelServerOpen] = FixGuide{
 		Steps: []string{
-			"Open Settings, System, and set the model server address to 127.0.0.1, then save.",
+			"Open Settings, General, Routing & engine (the Local engine panel), set Model host IP to 127.0.0.1, and save.",
 			"The next time a model starts it listens on this computer only. Stop the running model on the Models page if you want the change at once.",
 			"If another computer used the model server directly, point it at this program's /v1 address with an inference key instead.",
 			"Run the audit again to confirm.",
 		},
 		Risk: "A program on another computer that called the model server's port directly stops working until it uses /v1.",
-		Undo: "Set the model server address back to what it was in Settings, System.",
+		Undo: "Set Model host IP back to what it was in Settings, General, Routing & engine (the Local engine panel).",
 	}
 }
 
