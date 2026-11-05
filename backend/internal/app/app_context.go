@@ -6,11 +6,13 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/llm"
+	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/db"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
+	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
@@ -54,6 +56,9 @@ type AppContext struct {
 	// FileLogger runs a 1s syncLoop until closed).
 	procLogMu   sync.Mutex
 	procLoggers map[string]*logging.FileLogger
+
+	// lockdown is the lock down switch, read on every tool call and before every automation starts.
+	lockdown *lockdown.Manager
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -70,6 +75,12 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 		gpuConfig:   sys.Metrics.GPU,
 		procLoggers: make(map[string]*logging.FileLogger),
 	}
+	s.lockdown = lockdown.New(persistence.NewLockdownStore(rootDir), nil, time.Now)
+	if err := s.lockdown.Load(); err != nil {
+		logging.Error("lock down", "error", err.Error())
+	}
+	// A factory reset starts from nothing, lock down included.
+	s.AfterFactoryReset("The lock down switch", func() error { _, err := s.lockdown.Release(); return err })
 
 	s.initOrchestrator()
 
@@ -241,3 +252,9 @@ type resetCleanup struct {
 func (s *AppContext) AfterFactoryReset(what string, run func() error) {
 	s.resets = append(s.resets, resetCleanup{what: what, run: run})
 }
+
+// LockedDown reports whether lock down is on; the guardrails and the automation pre-flight read it.
+func (s *AppContext) LockedDown() bool { return s.lockdown != nil && s.lockdown.On() }
+
+// Lockdown is the lock down switch, for its handlers.
+func (s *AppContext) Lockdown() *lockdown.Manager { return s.lockdown }

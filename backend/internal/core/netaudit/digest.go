@@ -66,7 +66,7 @@ func digestFindings(series []models.NetworkDay, now time.Time) string {
 	if latest == nil {
 		return "No network audit has run yet."
 	}
-	out := fmt.Sprintf("Open findings: %d", latest.Findings)
+	out := fmt.Sprintf("Problems found by the audit: %d", latest.Findings)
 	weekAgo := now.AddDate(0, 0, -7).Format(historyDateLayout)
 	for _, d := range series {
 		if d.Audited && d.Date <= weekAgo && d.Date != latest.Date {

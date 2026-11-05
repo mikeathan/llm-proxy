@@ -6,6 +6,7 @@ package eventbus
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,15 @@ type Bus struct {
 	warnMu           sync.Mutex
 	lastDropWarn     map[string]time.Time
 	dropWarnInterval time.Duration
+
+	// tap, when set, sees every published event after the subscribers (the agent security record). It must not block.
+	tap atomic.Pointer[func(workspaceID string, event assistant.AgentEvent)]
+}
+
+// SetTap gives one observer every published event, after the subscribers. tap must return at once (hand the event to its own
+// queue): it runs on the publishing goroutine, which is often the agent loop.
+func (b *Bus) SetTap(tap func(workspaceID string, event assistant.AgentEvent)) {
+	b.tap.Store(&tap)
 }
 
 // Buffer bounds for the per-workspace/channel recent replay buffer.
@@ -321,6 +331,9 @@ func (b *Bus) Publish(workspaceID string, event assistant.AgentEvent) {
 		default:
 			b.warnSlowSubscriber(workspaceID, channel, "event bus subscriber too slow, dropping event")
 		}
+	}
+	if tap := b.tap.Load(); tap != nil {
+		(*tap)(workspaceID, event)
 	}
 }
 

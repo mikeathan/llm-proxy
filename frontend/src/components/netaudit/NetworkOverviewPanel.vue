@@ -34,6 +34,11 @@ const refused = computed(() => refusedToday(props.overview.series))
 const refusedTrend = computed(() => seriesOf(props.overview.series, (d) => d.blocked ?? 0))
 const lastAudit = computed(() => (props.overview.findings.scanned && isRecorded(props.overview.findings.scanned_at) ? formatRelativeTime(props.overview.findings.scanned_at) : "Never"))
 const lastCheck = computed(() => (isRecorded(props.overview.presence.last_check) ? formatRelativeTime(props.overview.presence.last_check) : NO_VALUE))
+// The problems tile says how many are serious and how many ports are open, the two numbers the Findings tab starts with.
+const problemsCaption = computed(() => {
+  const f = props.overview.findings
+  return [`${f.serious} serious`, f.ports !== undefined ? `${f.ports} open ${f.ports === 1 ? "port" : "ports"}` : ""].filter(Boolean).join(" · ")
+})
 const devicesCaption = computed(() => {
   const d = props.overview.devices
   return [`${d.active} seen in the last day`, d.unnamed ? `${d.unnamed} unnamed` : ""].filter(Boolean).join(" · ")
@@ -61,8 +66,8 @@ const devicesCaption = computed(() => {
       <StatCard label="Devices" :value="String(overview.devices.known)" :caption="devicesCaption">
         <Sparkline :values="devicesTrend" label="Devices known" unit="devices" state="info" />
       </StatCard>
-      <StatCard label="Open findings" :value="hasAudit ? String(overview.findings.open) : NO_VALUE" :caption="hasAudit ? `${overview.findings.serious} serious · ${overview.findings.new} new` : NETWORK_NO_AUDIT">
-        <Sparkline v-if="hasAudit" :values="findingsTrend" label="Open findings" unit="findings" state="success" />
+      <StatCard label="Problems" :value="hasAudit ? String(overview.findings.open) : NO_VALUE" :caption="hasAudit ? problemsCaption : NETWORK_NO_AUDIT">
+        <Sparkline v-if="hasAudit" :values="findingsTrend" label="Problems" unit="problems" state="success" />
       </StatCard>
       <StatCard v-if="showRouter" :label="ROUTER_STAT_LABEL" :value="refused.toLocaleString('en-US')" :caption="ROUTER_STAT_CAPTION" data-test="router-stat">
         <Sparkline :values="refusedTrend" label="Attempts the router refused" unit="a day" state="info" />

@@ -54,7 +54,7 @@ When adding a prompt:
 1. Add tab name to `SettingsTab` type in `frontend/src/types/admin.ts`
 2. Add the label in `frontend/src/constants/providers.ts` (the tabs and section row show labels only)
 3. If the tab is NOT a cloud provider, add exclusion to `isProviderTab()` in `frontend/src/domain/settings.ts`
-4. Put the section under one of the six Settings tabs in `SETTINGS_GROUP_SECTIONS` (`frontend/src/constants/settings.ts`); cloud providers are the exception — they are discovered at runtime and `getSettingsTabGroups()` lists them under Models
+4. Put the section under one of the six Settings tabs in `SETTINGS_GROUP_SECTIONS` (`frontend/src/constants/settings.ts`), and add it to the fixed list in `settingsTabs` (`frontend/src/composables/models/useProviders.ts`) — a section missing there renders "not found" (the test "lists every fixed Settings section" catches it); cloud providers are the exception — they are discovered at runtime and `getSettingsTabGroups()` lists them under Models
 5. Create the settings component in `frontend/src/components/settings/`, built from `Panel` sections and `FormField` controls
 6. Import the component in `frontend/src/views/SettingsView.vue` and add a `v-show="activeTab === 'your-tab'"` block (sections stay mounted, so edits survive switching category)
 7. If it edits the shared configuration, end the section with `SettingsActions` bound to `useConfig().isDirty` (Discard / Save). A draft of its own (secrets, host settings) emits `dirty-change` so the page's single unsaved-change guard covers it

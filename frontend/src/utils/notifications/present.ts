@@ -33,6 +33,7 @@ const NETWORK_LABEL: Record<NetworkAlertKind, string> = {
   monitor: 'monitor',
   sign_in: 'sign-in',
   follow_up: 'new device',
+  agent: 'agent',
 }
 
 const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
@@ -42,6 +43,7 @@ const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
   monitor: 'warning',
   sign_in: 'error',
   follow_up: 'warning',
+  agent: 'warning',
 }
 
 const NETWORK_DETAIL_SEPARATOR = ' · '

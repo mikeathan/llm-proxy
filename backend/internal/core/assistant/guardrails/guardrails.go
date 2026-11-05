@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core"
+	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/persistence"
@@ -77,6 +78,24 @@ type GuardrailEngine struct {
 	// without this predicate keep their previous behaviour. When it reports
 	// false, internet_search is hidden from the schema.
 	searchAvailable func() bool
+
+	// lockedDown reports whether lock down is on: the terminal and every network-gated tool are then refused before any
+	// override or approval. nil ⇒ no lock down gate.
+	lockedDown func() bool
+}
+
+// SetLockedDown installs the lock down switch (lockdown.Manager.On) from the composition root.
+func (e *GuardrailEngine) SetLockedDown(on func() bool) {
+	e.lockedDown = on
+}
+
+// lockedDownRefuses reports whether a tool is refused while lock down is on: the terminal, every tool that needs agent egress, and
+// every tool outside the built-in catalog (an MCP tool runs in its own server and may reach the network from there).
+func lockedDownRefuses(name string) bool {
+	if _, builtin := models.SpecOf(name); !builtin {
+		return true
+	}
+	return name == models.ToolTerminalExecute || hostNetworkGatedSet[name]
 }
 
 // SetHostNetworkAllowed installs the host-level network allowance provider
@@ -215,6 +234,9 @@ func (e *GuardrailEngine) ValidateToolCall(ctx context.Context, call proxy.ToolC
 // network). The forbidden sets come from scopeForbiddenTools — the same source
 // the schema uses — so availability and denial can never drift.
 func (e *GuardrailEngine) securityHardGates(ctx context.Context, call proxy.ToolCall) error {
+	if e.lockedDown != nil && e.lockedDown() && lockedDownRefuses(call.Function.Name) {
+		return lockdown.ErrLockedDown
+	}
 	if e.networkDenied(ctx) && hostNetworkGatedSet[call.Function.Name] {
 		return ErrNetworkDisabled
 	}

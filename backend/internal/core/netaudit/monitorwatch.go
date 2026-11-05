@@ -23,6 +23,8 @@ const (
 	MonitorDNS            = "dns_check"
 	MonitorDecoys         = "decoys"
 	MonitorAudit          = "audit"
+	// MonitorAlerts is the delivery of alerts to the operator's connectors: stalled while the newest sends failed.
+	MonitorAlerts = "alerts"
 )
 
 // monitorEvery is how often the watch looks at the parts. It reads statuses held in memory and one small file; it probes nothing.

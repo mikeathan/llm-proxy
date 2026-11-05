@@ -23,6 +23,7 @@ export const SETTINGS_SECTION_LABELS: Partial<Record<SettingsTab, string>> = {
   security: "Sandboxing",
   limits: "Limits & reset",
   "sign-in": "Sign-in & access",
+  "agent-activity": "Agent activity",
 }
 
 // General is four short sections (plan frontend-redesign-v2); each panel of GlobalSettings belongs to one.
@@ -42,7 +43,7 @@ export const GENERAL_PANEL_SECTION: Record<GeneralPanel, SettingsTab> = {
 export const SETTINGS_GROUP_SECTIONS: Record<SettingsGroupId, readonly SettingsTab[]> = {
   general: ["local", "runs", "agents", "memory", "storage"],
   models: ["local-models"],
-  safety: ["security", "sign-in", "limits", "guardrails"],
+  safety: ["security", "sign-in", "agent-activity", "limits", "guardrails"],
   connectors: ["communication", "search", "mcp"],
   appearance: ["appearance"],
   system: ["processes"],

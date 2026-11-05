@@ -35,6 +35,7 @@ type RunReporter struct {
 	classes ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
 	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
 	ports   PortRecorder     // optional: the ports each device had open at its last scan
+	own     OwnModelServer   // optional: which address and port is this program's own model server
 	histErr func(error)
 	now     func() time.Time
 }
@@ -107,6 +108,13 @@ type HostLooker interface {
 // WithHost makes the reporter add what changed on the computer it runs on. Without it nothing is looked at.
 func (r *RunReporter) WithHost(h HostLooker) *RunReporter {
 	r.host = h
+	return r
+}
+
+// WithOwnModelServer makes the reporter tell this program's own model server apart from any other AI server it finds open, so
+// the finding names the setting that closes it. Without it the generic AI-server finding stays.
+func (r *RunReporter) WithOwnModelServer(o OwnModelServer) *RunReporter {
+	r.own = o
 	return r
 }
 
@@ -203,6 +211,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings, services), scanned)...)
 	// A decoy touch joined by another sign of trouble on the same device is told as one incident.
 	result.Findings = append(result.Findings, IncidentFindings(result.Findings, restrictTo(prev.Findings, scanned))...)
+	result.Findings = r.own.Relabel(result.Findings)
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}
@@ -533,7 +542,23 @@ func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string,
 	if look.PrivilegeUnchecked {
 		note += "\n\n> Note: this computer's accounts, admin groups and kernel modules were not checked: that check reads Linux files this computer does not have."
 	}
-	return note, true
+	return note + privilegeNotes(look), true
+}
+
+// privilegeNotes say which part of the privilege look was not done in full, and when a look recorded the starting point that
+// later additions are compared with.
+func privilegeNotes(look HostLook) string {
+	var note string
+	if look.ModulesUnread {
+		note += "\n\n> Note: the list of loaded kernel modules could not be read by the account this program runs as, so a new module is not seen."
+	}
+	if look.SetIDIncomplete {
+		note += "\n\n> Note: the search for programs that run with raised rights in /usr/local, /opt and /srv did not finish (a folder could not be read or the search hit its limit), so it learned nothing new this time."
+	}
+	if look.PrivilegeLearned {
+		note += "\n\n> Note: this look recorded this computer's accounts, admin groups, kernel modules and raised-rights programs as the starting point; additions from now on are reported."
+	}
+	return note
 }
 
 // DeepCarryMaxAge is how long a deep check's findings are carried into the audit's reports. After that the device has to be

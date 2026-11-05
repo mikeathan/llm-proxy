@@ -110,6 +110,8 @@ describe('Nearby section', () => {
     expect(rows[0]!.text()).toContain('Upstairs box')
     expect(rows[1]!.text()).toContain('Advertises as Printer')
     expect(rows[1]!.text()).toContain('Printing (IPP)')
+    // The group heading says whether a device was heard; a row does not say it again.
+    for (const row of rows) expect(row.text()).not.toMatch(/heard in the last look/i)
     w.unmount()
   })
 

@@ -487,3 +487,15 @@ func TestRecentKeepsEventsThatAreNotAttributableSnapshots(t *testing.T) {
 		t.Fatalf("kept %d automation and %d structured events, want 3 and 3", auto, assist)
 	}
 }
+
+func TestBus_TapSeesEveryPublishedEventWithoutASubscriber(t *testing.T) {
+	b := NewBus()
+	defer b.Stop()
+	var got []string
+	b.SetTap(func(ws string, ev assistant.AgentEvent) { got = append(got, ws+":"+string(ev.Type)) })
+	b.Publish("ws", assistant.AgentEvent{Type: assistant.EventGuardrailViolation, Channel: assistant.ChannelAutomation})
+	b.Publish("other", assistant.AgentEvent{Type: assistant.EventToolCall, Channel: assistant.ChannelAssistant})
+	if len(got) != 2 || got[0] != "ws:guardrail_violation" || got[1] != "other:tool_call" {
+		t.Errorf("tap saw %v", got)
+	}
+}

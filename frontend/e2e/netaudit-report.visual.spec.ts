@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
+import { expectNoSidewaysScroll, openProblemCards, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // The audit's report with problems among plain open ports, in Simple and Advanced at both widths: nothing may scroll
 // sideways, and the screenshots are for looking at how clearly a problem stands out.
@@ -41,6 +41,7 @@ async function open(page: Page, view: 'simple' | 'advanced') {
   await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('heading', { name: 'Latest network scan' })).toBeVisible()
+  await openProblemCards(page)
 }
 
 for (const view of ['simple', 'advanced'] as const) {

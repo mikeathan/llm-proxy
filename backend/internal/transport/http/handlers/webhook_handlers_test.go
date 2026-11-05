@@ -298,3 +298,24 @@ func TestWebhookHandler_DisabledConnectorIsNotFound(t *testing.T) {
 		t.Errorf("status = %d, want 404", rec.Code)
 	}
 }
+
+// While lock down is on a connector's message is answered and dropped, never run: the platform gets a success so it does not
+// retry, and nothing reaches the agent.
+func TestWebhookHandler_LockDownDropsInboundMessages(t *testing.T) {
+	cfg := models.ConnectorConfig{Type: models.ConnectorTypeTelegram, Enabled: true,
+		Settings: map[string]string{"workspace_id": "ws", models.ConnectorSettingWebhookToken: "s3cret"}}
+	reg := models.RegistryData{Communication: models.CommunicationConfig{Connectors: map[string]models.ConnectorConfig{"tg": cfg}}}
+	turns := &fakeTurns{}
+	h := &WebhookHandler{Registry: func() models.RegistryData { return reg }, Logger: logging.NewNopLogger(), Turns: turns,
+		LockedDown: func() bool { return true }}
+	mux := http.NewServeMux()
+	mux.Handle("POST /api/v1/webhooks/{connector_name}", h)
+	body := `{"message":{"text":"hello","chat":{"id":42}}}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/webhooks/tg", strings.NewReader(body))
+	req.Header.Set("X-Webhook-Token", "s3cret")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "locked_down") || turns.got != nil {
+		t.Errorf("status %d body %q ran=%v; want a dropped message", rec.Code, rec.Body.String(), turns.got != nil)
+	}
+}

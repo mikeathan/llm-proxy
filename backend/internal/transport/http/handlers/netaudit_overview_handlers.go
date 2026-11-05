@@ -53,16 +53,33 @@ func (h *NetauditOverviewHandlers) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var base models.ScanBaseline
+	var acks []models.ScanAck
 	if ws, automation := q.Get("workspace_id"), q.Get("automation"); ws != "" && automation != "" {
 		if base, err = h.baselines.ReadBaseline(ws, automation); err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		acks = h.acceptances(ws)
 	}
 	series, err := h.series.Series(days)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondJSON(w, netaudit.OverviewOf(netaudit.OverviewInput{Now: h.now(), Inventory: inv, Baseline: base, Presence: h.presence.Status(), Series: series}))
+	respondJSON(w, netaudit.OverviewOf(netaudit.OverviewInput{Now: h.now(), Inventory: inv, Baseline: base, Acks: acks, Presence: h.presence.Status(), Series: series}))
+}
+
+// acceptances are the workspace's accepted findings, when the store keeps them. Acceptances that cannot be read hide nothing.
+func (h *NetauditOverviewHandlers) acceptances(workspaceID string) []models.ScanAck {
+	reader, ok := h.baselines.(interface {
+		ReadAcks(workspaceID string) ([]models.ScanAck, error)
+	})
+	if !ok {
+		return nil
+	}
+	acks, err := reader.ReadAcks(workspaceID)
+	if err != nil {
+		return nil
+	}
+	return acks
 }

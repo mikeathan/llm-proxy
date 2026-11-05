@@ -83,6 +83,13 @@ describe('network alerts', () => {
     expect(published[0]![0]!.target).toEqual(toSettings('sign-in'))
   })
 
+  it('aims an agent alert at the agent activity', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'agent', message: 'agent m' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toSettings('agent-activity'))
+  })
+
   it('carries what became of the send and how often a decoy alert repeated', async () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 5, items: [alert(5, { kind: 'decoy', delivery: 'no_connector', count: 3 })] })

@@ -31,8 +31,10 @@ type OverviewInput struct {
 	Now       time.Time
 	Inventory models.DeviceInventory
 	Baseline  models.ScanBaseline
-	Presence  PresenceStatus
-	Series    []models.NetworkDay
+	// Acks are the operator's acceptances of the audit's findings; an accepted finding is not counted.
+	Acks     []models.ScanAck
+	Presence PresenceStatus
+	Series   []models.NetworkDay
 }
 
 // DeviceCounts are the device numbers of the overview.
@@ -49,9 +51,12 @@ type DeviceCounts struct {
 type FindingCounts struct {
 	Scanned   bool      `json:"scanned"`
 	ScannedAt time.Time `json:"scanned_at,omitzero"`
-	Open      int       `json:"open"`
-	Serious   int       `json:"serious"`
-	New       int       `json:"new"`
+	// Open are the problems the checks found and the operator has not accepted (what the Findings tab lists as problems);
+	// Serious the high and critical ones among them; Ports the open ports, which are facts, not problems.
+	Open    int `json:"open"`
+	Serious int `json:"serious"`
+	Ports   int `json:"ports"`
+	New     int `json:"new"`
 }
 
 // RecentChange is one thing that changed lately. It names a device by its hardware and IP address, and by the name the
@@ -82,7 +87,7 @@ func OverviewOf(in OverviewInput) Overview {
 	o := Overview{
 		Presence: in.Presence, Series: in.Series, Recent: recentActivity(in.Inventory, in.Now),
 		GatewayChanged: gatewayChanged(in.Inventory), SharedAddress: len(in.Inventory.Shared) > 0,
-		Devices: countDevices(in.Inventory, in.Now), Findings: countFindings(in.Baseline),
+		Devices: countDevices(in.Inventory, in.Now), Findings: countFindings(in.Baseline, in.Acks, in.Now),
 	}
 	if o.Series == nil {
 		o.Series = []models.NetworkDay{}
@@ -108,12 +113,17 @@ func countDevices(inv models.DeviceInventory, now time.Time) DeviceCounts {
 	return c
 }
 
-func countFindings(b models.ScanBaseline) FindingCounts {
+func countFindings(b models.ScanBaseline, acks []models.ScanAck, now time.Time) FindingCounts {
 	if b.ScannedAt.IsZero() {
 		return FindingCounts{}
 	}
-	c := FindingCounts{Scanned: true, ScannedAt: b.ScannedAt, Open: len(b.Findings), New: len(b.NewKeys)}
-	for _, f := range b.Findings {
+	c := FindingCounts{Scanned: true, ScannedAt: b.ScannedAt, New: len(b.NewKeys)}
+	for _, f := range ApplyAcks(b.Findings, acks, now).Visible {
+		if f.Check == CheckOpenPort {
+			c.Ports++
+			continue
+		}
+		c.Open++
 		if f.Severity == SeverityHigh || f.Severity == SeverityCritical {
 			c.Serious++
 		}

@@ -21,6 +21,7 @@ import (
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/assistant/toolpolicy"
 	"llm-proxy/internal/core/assistant/usage"
+	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
@@ -780,7 +781,7 @@ func (a *Agent) appendGuardrailDenial(history *[]proxy.Message, mu *sync.Mutex, 
 
 func isGuardrailSecurityBoundary(err error) bool {
 	// Host-level network gate (plan D1/R4): synchronous, non-approvable.
-	if errors.Is(err, guardrails.ErrNetworkDisabled) {
+	if errors.Is(err, guardrails.ErrNetworkDisabled) || errors.Is(err, lockdown.ErrLockedDown) {
 		return true
 	}
 	// The workspace's instruction file is never writable by the agent, whoever approves.

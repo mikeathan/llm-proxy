@@ -3,6 +3,7 @@ package guardrails
 import (
 	"context"
 	"errors"
+	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/storage"
@@ -787,5 +788,29 @@ func TestRunScopeTruthTable(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestValidateToolCall_LockDownRefusesTerminalAndNetworkWhateverIsApproved(t *testing.T) {
+	locked := true
+	e := NewGuardrailEngine(func() models.AgentGuardrailsConfig { return enabledNetworkCfg() }, storage.NewPathResolver("", "", ""), nil, nil)
+	e.SetLockedDown(func() bool { return locked })
+	terminal := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolTerminalExecute, Arguments: `{"command":"ls"}`}}
+	fetch := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkFetch, Arguments: `{"url":"https://example.com"}`}}
+	read := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolDirectoryList, Arguments: `{"path":"."}`}}
+	e.MarkOverride("ws1", models.ToolNetworkFetch)
+	// A tool from an MCP server runs outside the catalog and may reach the network through its own server: refused too.
+	mcpTool := proxy.ToolCall{Function: proxy.FunctionCall{Name: "github_create_issue", Arguments: `{}`}}
+	for _, call := range []proxy.ToolCall{terminal, fetch, mcpTool} {
+		if err := e.ValidateToolCall(context.Background(), call, "ws1"); !errors.Is(err, lockdown.ErrLockedDown) {
+			t.Errorf("%s: err = %v; want the lock down refusal before any approval", call.Function.Name, err)
+		}
+	}
+	if err := e.ValidateToolCall(context.Background(), read, ""); errors.Is(err, lockdown.ErrLockedDown) {
+		t.Error("reading the workspace stays allowed under lock down")
+	}
+	locked = false
+	if err := e.ValidateToolCall(context.Background(), fetch, ""); errors.Is(err, lockdown.ErrLockedDown) {
+		t.Error("lifted lock down refuses nothing")
 	}
 }

@@ -417,6 +417,34 @@ func (s *Service) RevokeAllSessions() error {
 	})
 }
 
+// RevokeOtherSessions signs out every session but keep (lock down: the operator who pressed it stays signed in). It returns how
+// many were ended.
+func (s *Service) RevokeOtherSessions(keep string) (int, error) {
+	n, kept := 0, hashSecret(keep) // sessions are stored by the hash of their id
+	err := s.store.Update(func(r *Record) error {
+		before := len(r.Sessions)
+		r.Sessions = removeSessions(r.Sessions, func(x Session) bool { return x.ID != kept })
+		n = before - len(r.Sessions)
+		s.record(r, "signed_out_others", "", "")
+		return nil
+	})
+	return n, err
+}
+
+// RevokeAllTokens deletes every script token and returns how many there were.
+func (s *Service) RevokeAllTokens() (int, error) {
+	n := 0
+	err := s.store.Update(func(r *Record) error {
+		n = len(r.Tokens)
+		r.Tokens = nil
+		if n > 0 {
+			s.record(r, "tokens_revoked_all", "", "")
+		}
+		return nil
+	})
+	return n, err
+}
+
 func removeSessions(all []Session, drop func(Session) bool) []Session {
 	kept := all[:0:0]
 	for _, sess := range all {

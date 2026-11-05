@@ -550,3 +550,15 @@ func TestRunReporter_SaysHowManyWatchedPlacesItCouldNotRead(t *testing.T) {
 		t.Errorf("report:\n%s", got)
 	}
 }
+
+func TestPrivilegeNotes_SayEachUnfinishedPartAndTheStartingPoint(t *testing.T) {
+	if got := privilegeNotes(HostLook{}); got != "" {
+		t.Errorf("a full look with nothing learned says nothing, got %q", got)
+	}
+	got := privilegeNotes(HostLook{ModulesUnread: true, SetIDIncomplete: true, PrivilegeLearned: true})
+	for _, want := range []string{"kernel modules could not be read", "did not finish", "starting point"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notes %q lack %q", got, want)
+		}
+	}
+}

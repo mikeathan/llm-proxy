@@ -164,6 +164,11 @@ log or file wrote reaches a message or a model verbatim.
 
 ## Remaining Work
 
+- **Seen on vertex 2026-11-05 (v0.46.0, ledger 2026-11-05):** no `monitor` alert after the restart; the firewall guide is built from the
+  real listeners (22, 4001, 5353, the three decoys, 5514 from the router only; 3552 listed as unknown; the on-demand model port 8081 was not
+  listening at the time, so it got no rule, which is what its own finding asks for). The privilege look ran but its parts could not be
+  confirmed from the report; v0.47.0 makes the report say them. Still to see: one `sign_in` alert from a new address.
+
 - **Next (owner):** deploy v0.46.0 on vertex and look at: the first `monitor` alert after a restart (none is expected), the "This
   computer" group after the first look (no privilege finding is expected unless vertex really has a preload or a second root), the firewall
   guide on the `host_firewall_off` finding (check the commands against `sudo ss -lntup`), one sign-in from a new address (one `sign_in`

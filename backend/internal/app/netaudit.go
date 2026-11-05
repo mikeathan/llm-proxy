@@ -12,7 +12,10 @@ import (
 	"strconv"
 	"time"
 
+	"llm-proxy/internal/core/agentwatch"
+	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/names"
@@ -90,8 +93,13 @@ type netauditServices struct {
 	FollowUpConfig *netaudit.FollowUpConfig
 	// SignIns sends the admin sign-in's lockouts and sign-ins from new addresses, from its own loop.
 	SignIns *netaudit.SignInAlerts
+	// AgentWatch is the agent security record: refused tool calls, approvals, new destinations of stable automations.
+	AgentWatch *agentwatch.Watch
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
 	Monitors *netaudit.MonitorWatch
+	// CheckIn sends the daily "still running" note while CheckInConfig has it switched on.
+	CheckIn       *netaudit.CheckIn
+	CheckInConfig *netaudit.CheckInConfig
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
 	// Ports keeps the ports each scanned device had open at its last scan, for the audit's counts and the Devices card.
@@ -304,7 +312,37 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
 	add(n.SignIns != nil, func(ctx context.Context) { n.SignIns.Run(ctx) })
 	add(n.FollowUp != nil, func(ctx context.Context) { n.FollowUp.Run(ctx) })
+	add(n.AgentWatch != nil, func(ctx context.Context) { n.AgentWatch.Run(ctx) })
+	add(n.CheckIn != nil, func(ctx context.Context) { n.CheckIn.Run(ctx) })
 	return loops
+}
+
+// workspaceDirs lists every workspace and its folder, for the agent watch's nightly secrets pass.
+func (s AppServices) workspaceDirs() ([]agentwatch.WorkspaceDir, error) {
+	if s.Persistence() == nil {
+		return nil, nil
+	}
+	list, err := s.Persistence().ListWorkspaces()
+	if err != nil {
+		return nil, err
+	}
+	resolver := storage.NewPathResolver(s.AppCtx.RootDir(), s.AppCtx.WorkspacesDir(), s.AppCtx.MetadataDir())
+	out := make([]agentwatch.WorkspaceDir, 0, len(list))
+	for _, w := range list {
+		out = append(out, agentwatch.WorkspaceDir{ID: w.ID, Dir: resolver.WorkspaceDir(w.ID)})
+	}
+	return out, nil
+}
+
+// AttachAgentWatch gives the agent security record every event the bus publishes. It is called once, when the dispatcher (which
+// owns the bus) exists; without the Network services it does nothing.
+func (s AppServices) AttachAgentWatch(bus interface {
+	SetTap(func(string, assistantPkg.AgentEvent))
+}) {
+	if s.netaudit == nil || s.netaudit.AgentWatch == nil || bus == nil {
+		return
+	}
+	bus.SetTap(s.netaudit.AgentWatch.Observe)
 }
 
 // NetauditMonitors is what the nightly report reads about the module's own parts that stopped; nil until the services are wired.
@@ -335,6 +373,24 @@ func (s AppServices) NetauditPreflight() automation.Preflight {
 			return &automation.PreflightError{Code: code, Message: message}
 		}
 		return s.auditModelIsLocal(entry)
+	}
+}
+
+// LockedDownCode is the pre-flight reason for any automation while lock down is on.
+const LockedDownCode = "locked_down"
+
+// RunPreflight is the check every automation passes before the model is touched: lock down first, then the Network module's
+// own checks for an audit.
+func (s AppServices) RunPreflight() automation.Preflight {
+	network := s.NetauditPreflight()
+	return func(ctx context.Context, entry *automation.AutomationEntry) error {
+		if s.AppCtx != nil && s.AppCtx.LockedDown() {
+			return &automation.PreflightError{Code: LockedDownCode, Message: lockdown.Message}
+		}
+		if network != nil {
+			return network(ctx, entry)
+		}
+		return nil
 	}
 }
 
@@ -447,6 +503,20 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	}
 	s.netaudit.Monitors = newMonitorWatch(s.netaudit, s.alertNotifier(alerts.Log, models.NetworkAlertMonitor))
 	s.netaudit.SignIns = netaudit.NewSignInAlerts(s.alertNotifier(alerts.Log, models.NetworkAlertSignIn), time.Now)
+	s.netaudit.CheckInConfig = netaudit.NewCheckInConfig(store)
+	s.netaudit.CheckIn = netaudit.NewCheckIn(netaudit.CheckInDeps{
+		Enabled: s.netaudit.CheckInConfig.Enabled, History: known.History, Stalled: s.netaudit.Monitors.Stalled,
+		// Straight to the connectors, not through the alert log: its only reader is the operator's phone, and a daily entry would
+		// be noise in the bell and the Timeline.
+		Notify:  s.sendToConnectors,
+		OnError: func(err error) { logging.Warn("network daily check-in", "error", err.Error()) },
+	})
+	s.netaudit.AgentWatch = agentwatch.New(agentwatch.Deps{
+		Store:      withReset(s.AppCtx, "The agent security record", persistence.NewAgentWatchStore(s.AppCtx.RootDir())),
+		Notify:     s.alertNotifier(alerts.Log, models.NetworkAlertAgent),
+		OnError:    func(err error) { logging.Warn("agent watch", "error", err.Error()) },
+		Workspaces: s.workspaceDirs,
+	})
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))
@@ -606,4 +676,27 @@ func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory,
 		return netip.ParseAddr(inv.Gateway)
 	}
 	return netaudit.NewRouterCheck(client, gateway, func(a netip.Addr) error { return scope.Policy().Check(a) })
+}
+
+// NetauditOwnModel says which address and ports are this program's own model server, so the audit names the setting that closes
+// it instead of the generic AI-server guide. The ports are those of the local models in the catalogue, read at report time.
+func (s AppServices) NetauditOwnModel() netaudit.OwnModelServer {
+	if s.netaudit == nil || s.netaudit.Scope == nil || s.AppCtx == nil {
+		return netaudit.OwnModelServer{}
+	}
+	return netaudit.OwnModelServer{
+		IsOwnAddr: cachedOwnAddress(s.netaudit.Scope, ownAddressTTL, time.Now),
+		Ports:     func() []int { return localModelPorts(s.AppCtx.GetRegistry()) },
+	}
+}
+
+// localModelPorts are the ports the catalogue's local models are started on.
+func localModelPorts(reg models.RegistryData) []int {
+	var out []int
+	for _, m := range reg.Catalogue {
+		if m.ProviderID == models.ProviderLocal && m.Port > 0 {
+			out = append(out, m.Port)
+		}
+	}
+	return out
 }

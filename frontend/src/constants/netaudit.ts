@@ -323,7 +323,13 @@ export const SUMMARY_LOAD_FAILED = 'The weekly summary setting could not be read
 export const SUMMARY_SAVE_FAILED = 'The weekly summary setting could not be changed.'
 export const SUMMARY_LABEL = 'Send a weekly summary'
 export const SUMMARY_HINT = 'A short weekly message with counts only.'
-export const SUMMARY_DETAILS = 'Once a week, a short message to your connected messaging apps: how many devices, how many are new or missing, and how many findings are open. Counts only, no names or addresses. It is sent while the new-device check is on.'
+export const SUMMARY_DETAILS = 'Once a week, a short message to your connected messaging apps: how many devices, how many are new or missing, and how many problems the audit found. Counts only, no names or addresses. It is sent while the new-device check is on.'
+export const MESSAGES_PANEL_TITLE = 'Regular messages'
+export const CHECK_IN_LOAD_FAILED = 'The daily check-in setting could not be read.'
+export const CHECK_IN_SAVE_FAILED = 'The daily check-in setting could not be changed.'
+export const CHECK_IN_LABEL = 'Send a daily check-in'
+export const CHECK_IN_HINT = 'One short message a day saying the program is running.'
+export const CHECK_IN_DETAILS = 'Once a day, a short message to your connected messaging apps saying this program is running and naming any monitor that has stopped. If the message stops coming, the computer is down or cut off: nothing else would tell you, because a stopped computer sends no alerts.'
 
 /** Devices · Suggest names for devices. */
 export const NAMES_LOAD_FAILED = 'The device names setting could not be read.'

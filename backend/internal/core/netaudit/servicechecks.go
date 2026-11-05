@@ -146,7 +146,7 @@ func (s *ServiceChecks) Findings(ctx context.Context, hosts []Host) ServiceResul
 func (r ServiceResult) Carry(earlier []Finding) []Finding {
 	var out []Finding
 	for _, f := range earlier {
-		if r.unknown[serviceKey(f.Device, f.Port, f.Check)] {
+		if r.unknown[serviceKey(f.Device, f.Port, probeCheckOf(f.Check))] {
 			out = append(out, f)
 		}
 	}

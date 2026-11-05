@@ -100,6 +100,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodDelete, "/admin/api/netaudit/vulndata"},              // removes what every audit compares with: the same silencing as a hand-made import
 	{http.MethodDelete, "/admin/api/netaudit/ubuntu-data"},           // removes what every audit compares the installed packages with: the same silencing as deleting the vulnerability data
 	{http.MethodPost, "/admin/api/netaudit/vulndata/import"},         // replaces what every audit compares with: a hand-made file could silence every known-flaw finding
+	{http.MethodPost, "/admin/api/lockdown"},                         // signs out every other session and may revoke every token
+	{http.MethodDelete, "/admin/api/lockdown"},                       // lifting it reopens the terminal, the network and the automations
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

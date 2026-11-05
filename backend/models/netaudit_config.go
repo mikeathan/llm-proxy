@@ -40,6 +40,9 @@ type NetauditConfig struct {
 	// FollowUpScan scans a device that just appeared on the network once, at once, with an ordinary service scan of its own
 	// address (no deep check, no model). Off until the operator turns it on: it adds scan traffic during the day.
 	FollowUpScan bool `yaml:"follow_up_scan,omitempty" json:"follow_up_scan"`
+	// DailyCheckIn sends one short note a day to every connector saying the program is running and which of its monitors have
+	// stopped, so a computer that went down is noticed by the note that did not come. Off by default.
+	DailyCheckIn bool `yaml:"daily_check_in,omitempty" json:"daily_check_in"`
 	// OutsideLookupEnabled lets the nightly audit send the network's public address (as the router states it) to an outside scan
 	// database and list what it says the internet can reach. The service learns the address, so it is off until the operator
 	// turns it on (a step-up action).

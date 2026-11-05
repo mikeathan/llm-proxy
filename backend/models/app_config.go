@@ -49,14 +49,14 @@ type AuthSettings struct {
 }
 
 // DefaultAppConfig returns the canonical first-run configuration. It mirrors
-// the historical defaults: bind all interfaces on :4001, metrics GPU auto, and
-// the shipped host/memory/run-logging defaults. workspaces_dir is left empty so
+// the historical defaults: bind all interfaces on :4001, metrics GPU auto, a
+// model server that listens on this computer only (since 0.47.0), and the shipped host/memory/run-logging defaults. workspaces_dir is left empty so
 // the "unset → default location" rule applies.
 func DefaultAppConfig() AppConfig {
 	return AppConfig{
 		Server: AppServerConfig{
 			Bind:            AddrAllInterfaces + ":" + DefaultAppPort,
-			ModelHost:       AddrAllInterfaces,
+			ModelHost:       AddrLocalhost,
 			IdleTimeoutSecs: 1800,
 		},
 		// Metrics defaults are baked in here so the GPU gauge "just works"

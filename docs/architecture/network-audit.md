@@ -435,7 +435,26 @@ The router's remote syslog is used for one thing: waking the presence check earl
   snapshot; a device unapproved, unnamed, not randomized and first seen within the hour is queued (16 at most); `FollowUp.Run` scans one at a
   time through `Service.Scan` (`ModeServices`, unattended), at most once a day per hardware address and three an hour, and defers on
   `ErrScanBusy`. The result is told as counts in a `follow_up` alert (its own kind, so the Timeline keeps it beside the new-device row) and not stored.
-- All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`) start from `netauditLoops`.
+- **This program's own model server** (`core/netaudit/ownmodel.go`, v0.47.0). `RunReporter.WithOwnModelServer` turns the AI-server finding
+  on one of this computer's addresses (`cachedOwnAddress`) and a catalogue local model's port into `own_model_server_open`, whose guide is
+  the `model_host` setting. `models.DefaultAppConfig` starts the model server on 127.0.0.1 for a new install; an existing settings file keeps
+  its value and Settings → Sign-in → Exposure says `model_server_open` while it is not loopback.
+- **Agent security record** (`core/agentwatch`, `agent-watch.json`, v0.47.0). `Bus.SetTap` hands every published agent event to
+  `Watch.Observe`, which queues (256, drops are counted) and returns; `Watch.Run` (in `netauditLoops`) keeps vetted names only: a refused
+  tool (`guardrail_violation`), an approval asked (`guardrail_blocked`), and for `fetch_url` calls of automations the host, learned for a week
+  per automation (`AgentDestinations`; more than 8 hosts while learning marks a browsing automation, whose new hosts are recorded and never
+  alerted). An unattended run's first refusal of the day and a stable automation's new host send an `agent` alert (one a day per key).
+  The same loop runs a nightly secrets pass over the workspace folders (not dot-folders, not `node_modules`, not links, files up to 1 MiB,
+  5,000 files a pass) with `tools.SecretKindIn`, and records each place once (`SecretsSeen`), never the value.
+- **Daily check-in and alert delivery** (`core/netaudit/checkin.go`, v0.47.0). `CheckIn.Run` (15-minute tick) sends one note a day while
+  `NetauditConfig.DailyCheckIn` is on, naming the stopped monitors (`MonitorWatch.Stalled`); the last send time is
+  `NetworkHistory.CheckInAt`. The monitor part `alerts` reads the alert log: healthy while the newest alert went out or had no connector,
+  stalled when sends kept failing for an hour.
+- **Lock down** (`core/lockdown`, `lockdown.json`, v0.47.0). One flag on `AppContext`, read by the guardrail hard gate (terminal,
+  network-gated tools and MCP tools), the automation pre-flight (`AppServices.RunPreflight`, code `locked_down`) and the webhook handler. Switching it on
+  (step-up) also ends every other session (`auth.RevokeOtherSessions`) and, if asked, every token (`auth.RevokeAllTokens`). No setting is
+  changed, so lifting it restores everything; an unreadable switch file keeps it on.
+- All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`, `agentwatch.Watch`, `CheckIn`) start from `netauditLoops`.
 
 ## Appendix A — what packet capture (wireshark/tcpdump) would need
 

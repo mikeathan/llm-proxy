@@ -104,6 +104,11 @@ func withNetauditProbes(reporter *netaudit.RunReporter, svc handlers.AssistantSe
 	if v, ok := svc.(interface{ NetauditServices() netaudit.ServiceFinder }); ok && v.NetauditServices() != nil {
 		reporter.WithServiceChecks(v.NetauditServices())
 	}
+	if v, ok := svc.(interface {
+		NetauditOwnModel() netaudit.OwnModelServer
+	}); ok {
+		reporter.WithOwnModelServer(v.NetauditOwnModel())
+	}
 }
 
 // withNetauditChecks gives the run reporter the sources of the router check, the decoy touches and the Network page's history.
@@ -674,8 +679,8 @@ func (c *Container) BuildDispatcher(svc handlers.AssistantService) (*automation.
 	}
 	// An audit waits on its scan, so its run may take longer than other automations'.
 	opts = append(opts, automation.WithProfileTimeout(netaudit.AuditorProfileID, netaudit.AuditRunCap))
-	if pf, ok := svc.(interface{ NetauditPreflight() automation.Preflight }); ok && pf.NetauditPreflight() != nil {
-		opts = append(opts, automation.WithPreflight(pf.NetauditPreflight()))
+	if pf, ok := svc.(interface{ RunPreflight() automation.Preflight }); ok {
+		opts = append(opts, automation.WithPreflight(pf.RunPreflight()))
 	}
 	d, err := automation.NewDispatcher(automation.DispatcherDeps{
 		Persistence: svc.Persistence(),

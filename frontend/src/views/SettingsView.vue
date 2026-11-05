@@ -36,6 +36,7 @@ import ProviderModelsCard from "../components/settings/ProviderModelsCard.vue"
 import CommunicationSettings from "../components/settings/CommunicationSettings.vue"
 import AgentsSettings from "../components/settings/AgentsSettings.vue"
 import SignInSettings from "../components/settings/SignInSettings.vue"
+import AgentActivitySettings from "../components/settings/AgentActivitySettings.vue"
 import SearchSettings from "../components/settings/SearchSettings.vue"
 import InfrastructurePanel from "../components/infrastructure/InfrastructurePanel.vue"
 import AppearanceSettings from "../components/settings/AppearanceSettings.vue"
@@ -223,6 +224,9 @@ const updateConfigValue = (value: GlobalConfig) => {
             <AgentsSettings @dirty-change="draftDirty.agents = $event" />
           </div>
 
+          <div v-show="activeTab === 'agent-activity'">
+            <AgentActivitySettings />
+          </div>
           <div v-show="activeTab === 'sign-in'">
             <SignInSettings />
           </div>

@@ -288,6 +288,11 @@ type HostLook struct {
 	// PrivilegeUnchecked is true when the accounts, groups and kernel modules could not be looked at (no account file, as on
 	// macOS), so the report says "not checked" rather than nothing.
 	PrivilegeUnchecked bool
+	// ModulesUnread and SetIDIncomplete say which part of a privilege look that did run was not done in full, and
+	// PrivilegeLearned that this look recorded a starting point for at least one list, so the report says each.
+	ModulesUnread    bool
+	SetIDIncomplete  bool
+	PrivilegeLearned bool
 }
 
 // Look takes one look. The first builds the baseline and reports nothing. A look that could not be taken, or whose baseline
