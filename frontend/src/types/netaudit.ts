@@ -444,7 +444,11 @@ export interface RouterLogState {
   listening: boolean
   problem?: string
   last_heard?: string
-  port: number
+  port: number  /** The DNS query lines since the listener started: how many were read, how many its limit turned away, the most in one second. */
+  queries_read?: number
+  queries_limited?: number
+  queries_peak_per_second?: number
+  queries_since?: string
 }
 
 /** What the last look at the internet-facing ports did. `outcome` is absent until one was tried; `at` is the server's zero date then. */

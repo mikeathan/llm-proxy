@@ -325,6 +325,9 @@ export const FOLLOW_UP_DETAILS = 'When the new-device check finds a device nobod
 export const FOLLOW_UP_LOAD_FAILED = 'The scan-on-arrival setting could not be read.'
 
 export const ROUTER_LOG_TITLE = 'Router log'
+/** Advanced: how busy the router's DNS log is, so the limit on those lines can be tuned from the real rate. */
+export const routerLogQueriesLine = (read: number, limited: number, peak: number, since: string): string =>
+  `DNS lines since ${since}: ${read.toLocaleString('en-US')} read, ${limited.toLocaleString('en-US')} turned away by the limit, ${peak} in the busiest second.`
 export const ROUTER_LOG_LOAD_FAILED = 'The router log setting could not be read.'
 export const ROUTER_LOG_HINT = 'Lets the router tell this computer at once when a device joins.'
 export const ROUTER_LOG_DETAILS = 'Lets your router tell this computer, as it happens, that a device was given an address or joined the Wi-Fi. If the list does not know the device, the presence check looks straight away instead of at its next turn, so a new device is noticed in seconds instead of minutes. It only wakes the check, and a device\'s own host name in the log may be offered as a name suggestion on the Devices card, which you confirm. The log also tells this computer when the router refuses a connection attempt from the internet: only the protocol and the port are counted, as a number for the day (shown on the Overview and the Timeline, never as an alert), and no address and no line of the log is kept. Nothing else from the log is kept, shown or acted on, and the list of devices still comes from this computer\'s own view of the network. Needs the presence check to be on. Off until you turn it on, and turning it on asks for your passphrase. Anything on your network can send a message that looks like the router; at worst that makes the check look early, never more than once a minute, or makes the day\'s count of refused attempts wrong.'

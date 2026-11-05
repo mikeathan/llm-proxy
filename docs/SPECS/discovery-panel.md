@@ -13,6 +13,9 @@ supersedes:
 
 ## Changelog
 
+- **2.36 (2026-11-05)** — **Phone-home alerts and DNS line counters (v0.49.0, plan `stack-modules-and-new-detection`).** While the Phone-home watch is on, a message (and a bell entry
+  labelled "calls out") says when a device asked for a name it had not asked for in its first week, or asks for a new name at a steady beat: the device's address and up to five names,
+  once per set of names. Network → Settings → Router log shows, in Advanced, how many DNS lines were read, how many the limit turned away and the busiest second.
 - **2.35 (2026-11-05)** — **Phone-home watch and web checks (v0.48.0, plan `stack-modules-and-new-detection` P3 and P4; Constitution I.8 and II.3 amended).** Two new
   modules on the Modules tab: **Phone-home watch** (Listen layer, needs the router log, off by default) remembers which DNS names each device asks the router for, and the nightly
   report gains findings for a name a device asked for for the first time after its first week, a new name asked for at a steady beat, and a device that is online and never asks the

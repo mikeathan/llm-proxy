@@ -371,3 +371,33 @@ func TestManager_QueryLinesHaveTheirOwnLimitAndNeverUseUpTheAllowanceOfALease(t 
 		t.Errorf("queries = %d, want at most %d in one second", got, queriesPerSecond)
 	}
 }
+
+func TestManager_StatusCountsTheQueryLinesReadAndTheOnesTheLimitTurnedAway(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	for i := 0; i < queriesPerSecond+30; i++ {
+		send(t, addr, dnsQueryLine)
+	}
+	r.quiet()
+	st := r.m.Status()
+	if st.QueriesRead == 0 || st.QueriesRead > int64(queriesPerSecond) {
+		t.Fatalf("read = %d, want 1 to %d", st.QueriesRead, queriesPerSecond)
+	}
+	if st.QueriesRead+st.QueriesLimited < int64(queriesPerSecond) {
+		t.Fatalf("read %d + limited %d: the lines that arrived must all be accounted for", st.QueriesRead, st.QueriesLimited)
+	}
+	if st.QueriesPeak < 1 || st.QueriesPeak > queriesPerSecond || st.QueriesSince.IsZero() {
+		t.Fatalf("peak = %d since = %v", st.QueriesPeak, st.QueriesSince)
+	}
+}
+
+func TestManager_QueryCountsAreZeroUntilALineArrivesAndNeverCountOtherLines(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
+	send(t, addr, "<12>Oct 31 20:02:33 ROUTER kernel: DROP IN=eth0 OUT= SRC=203.0.113.9 DST=192.168.0.137 PROTO=TCP SPT=40408 DPT=58376 SYN")
+	r.quiet()
+	if st := r.m.Status(); st.QueriesRead != 0 || st.QueriesLimited != 0 || st.QueriesPeak != 0 {
+		t.Fatalf("status = %+v", st)
+	}
+}

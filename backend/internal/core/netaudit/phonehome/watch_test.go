@@ -301,3 +301,24 @@ func TestNewEmpty_StartsWithNothingAndWritesOnTheFirstChange(t *testing.T) {
 		t.Fatalf("flush: %v, writes %d", err, st.writes)
 	}
 }
+
+func TestMarkTold_RemembersAKeyOnceAndKeepsTheRecordBounded(t *testing.T) {
+	w, st := newWatch(t)
+	w.MarkTold("k0", day0)
+	w.MarkTold("k0", day0)
+	if !w.WasTold("k0") || w.WasTold("other") || len(w.Snapshot().Told) != 1 {
+		t.Fatalf("told = %+v", w.Snapshot().Told)
+	}
+	for i := 0; i < maxTold+10; i++ {
+		w.MarkTold(label(i), day0.Add(time.Duration(i)*time.Minute))
+	}
+	if got := len(w.Snapshot().Told); got != maxTold {
+		t.Fatalf("told = %d, want %d", got, maxTold)
+	}
+	if w.WasTold("k0") {
+		t.Error("the oldest entry must be the one dropped")
+	}
+	if err := w.Flush(); err != nil || len(st.state.Told) != maxTold {
+		t.Fatalf("flush: %v, stored %d", err, len(st.state.Told))
+	}
+}

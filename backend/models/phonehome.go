@@ -9,6 +9,15 @@ type PhoneHome struct {
 	// Since is when the watch first recorded a lookup; "no lookups for a day" is judged only after it has watched for a day.
 	Since   time.Time         `json:"since,omitzero"`
 	Devices []PhoneHomeDevice `json:"devices"`
+	// Told remembers which new places and beats the operator was already told of (device, kind and a digest of the names), so a
+	// restart does not tell them again. It is bounded; the oldest entries go first.
+	Told []PhoneHomeTold `json:"told,omitempty"`
+}
+
+// PhoneHomeTold is one alert that was sent.
+type PhoneHomeTold struct {
+	Key string    `json:"key"`
+	At  time.Time `json:"at"`
 }
 
 // PhoneHomeDevice is one device's names.
