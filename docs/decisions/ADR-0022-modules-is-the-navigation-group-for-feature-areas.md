@@ -29,5 +29,6 @@ A new module adds one navigation entry with `group: 'modules'` and its page; the
 - **A redirect from the old settings tab** — a shim for a path nobody has bookmarked.
 
 ## Links
+- Amended by [ADR-0028](ADR-0028-stack-module-registry.md) (2026-11-05): the group is named **Stacks**; everything else here stands.
 - Plan: [`network-modules-redesign`](../PLANS/cross-cutting/network-modules-redesign.md)
 - SPEC-003 changelog 2.24
