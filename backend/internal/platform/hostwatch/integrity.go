@@ -2,10 +2,14 @@ package hostwatch
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"crypto/md5" // #nosec G501 -- dpkg's own checksum format; used to compare with what a package shipped, never to protect anything
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -18,6 +22,10 @@ import (
 const (
 	// MaxIntegrityPaths is how many changed paths a result lists; the count is always the whole number.
 	MaxIntegrityPaths = 10
+	// MaxUnreadablePlaces is how many directories a result names as holding the files that could not be read.
+	MaxUnreadablePlaces = 3
+	// placeDepth is how many path components name such a directory ("/usr/lib/modules").
+	placeDepth = 3
 	// MaxIntegrityFileBytes is the largest file that is hashed. A larger one is counted as not looked at.
 	MaxIntegrityFileBytes = 512 << 20
 	md5Hex                = 32
@@ -53,6 +61,11 @@ type IntegrityResult struct {
 	Checked    int
 	Modified   int
 	Unreadable int
+	// UnreadableIn names up to MaxUnreadablePlaces directories holding most of those files, each "/usr/lib/modules (120)", the
+	// largest first; UnreadableWhy is the operating system's reason for the first one ("permission denied"). Both are empty
+	// when every file could be read.
+	UnreadableIn  []string
+	UnreadableWhy string
 	// Paths names up to MaxIntegrityPaths of the changed files, sorted, each a plain absolute path.
 	Paths []string
 }
@@ -72,8 +85,9 @@ func (i Integrity) Check(ctx context.Context) IntegrityResult {
 	var res IntegrityResult
 	var suspects []fileClaim
 	complete := true
+	places := map[string]int{}
 	for _, list := range lists {
-		if !i.scanList(ctx, list, prefixes, &res, &suspects) {
+		if !i.scanList(ctx, list, prefixes, &res, &suspects, places) {
 			complete = false
 			break
 		}
@@ -82,12 +96,13 @@ func (i Integrity) Check(ctx context.Context) IntegrityResult {
 		i.afterPass()
 	}
 	res.Complete = complete
+	res.UnreadableIn = topPlaces(places)
 	res.Modified, res.Paths = i.confirm(suspects)
 	return res
 }
 
 // scanList compares the files one package's list names, adding to res and suspects. It returns false when ctx ended first.
-func (i Integrity) scanList(ctx context.Context, list string, prefixes []string, res *IntegrityResult, suspects *[]fileClaim) bool {
+func (i Integrity) scanList(ctx context.Context, list string, prefixes []string, res *IntegrityResult, suspects *[]fileClaim, places map[string]int) bool {
 	pkg := strings.TrimSuffix(filepath.Base(list), ".md5sums")
 	skip := i.conffiles(pkg)
 	for _, c := range readClaims(list) {
@@ -97,7 +112,8 @@ func (i Integrity) scanList(ctx context.Context, list string, prefixes []string,
 		if !inScope(c.rel, prefixes) || skip[c.rel] {
 			continue
 		}
-		switch i.compare(c.rel, c.sum) {
+		v, why := i.compare(c.rel, c.sum)
+		switch v {
 		case verdictSame:
 			res.Checked++
 		case verdictDiffers:
@@ -105,6 +121,10 @@ func (i Integrity) scanList(ctx context.Context, list string, prefixes []string,
 			*suspects = append(*suspects, fileClaim{pkg: pkg, rel: c.rel})
 		case verdictUnreadable:
 			res.Unreadable++
+			places[placeOf(c.rel)]++
+			if res.UnreadableWhy == "" {
+				res.UnreadableWhy = whyText(why)
+			}
 		}
 	}
 	return true
@@ -119,27 +139,73 @@ const (
 	verdictUnreadable
 )
 
-func (i Integrity) compare(rel, want string) verdict {
+func (i Integrity) compare(rel, want string) (verdict, error) {
 	full := filepath.Join(i.Root, rel)
 	info, err := os.Lstat(full)
 	switch {
 	case err != nil && os.IsNotExist(err):
-		return verdictSkip
+		return verdictSkip, nil
 	case err != nil:
-		return verdictUnreadable
+		return verdictUnreadable, err
 	case !info.Mode().IsRegular():
-		return verdictSkip
+		return verdictSkip, nil
 	case info.Size() > MaxIntegrityFileBytes:
-		return verdictUnreadable
+		return verdictUnreadable, errTooLarge
 	}
 	got, err := hashFileMD5(full)
 	switch {
 	case err != nil:
-		return verdictUnreadable
+		return verdictUnreadable, err
 	case got == want:
-		return verdictSame
+		return verdictSame, nil
 	}
-	return verdictDiffers
+	return verdictDiffers, nil
+}
+
+var errTooLarge = errors.New("too large to compare")
+
+// whyText is the operating system's reason without the path, which the result names separately.
+func whyText(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		err = pe.Err
+	}
+	return strings.ToLower(err.Error())
+}
+
+// placeOf is the directory a package-relative path lies in, cut to placeDepth components, as an absolute path; a name that is not
+// a plain safe path is "other places", so a package cannot put text of its own in a result.
+func placeOf(rel string) string {
+	dir := path.Dir(rel)
+	if parts := strings.Split(dir, "/"); len(parts) > placeDepth {
+		dir = strings.Join(parts[:placeDepth], "/")
+	}
+	if p := "/" + dir; safeListedPath.MatchString(p) {
+		return p
+	}
+	return "other places"
+}
+
+// topPlaces names the directories with the most unreadable files, largest first.
+func topPlaces(places map[string]int) []string {
+	names := make([]string, 0, len(places))
+	for n := range places {
+		names = append(names, n)
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		if c := cmp.Compare(places[b], places[a]); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	if len(names) > MaxUnreadablePlaces {
+		names = names[:MaxUnreadablePlaces]
+	}
+	out := make([]string, len(names))
+	for k, n := range names {
+		out[k] = fmt.Sprintf("%s (%d)", n, places[n])
+	}
+	return out
 }
 
 // confirm looks again at each file that differed, against its package's list as it is now. A package update that finished
@@ -149,7 +215,10 @@ func (i Integrity) confirm(suspects []fileClaim) (int, []string) {
 	modified := 0
 	for _, s := range suspects {
 		want, ok := latestSum(filepath.Join(i.InfoDir, s.pkg+".md5sums"), s.rel)
-		if !ok || i.compare(s.rel, want) != verdictDiffers {
+		if !ok {
+			continue
+		}
+		if v, _ := i.compare(s.rel, want); v != verdictDiffers {
 			continue
 		}
 		modified++

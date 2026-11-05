@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,9 @@ const versionTimeout = 5 * time.Second
 
 // versionOutputCap bounds how much of the version output Detect reads.
 const versionOutputCap = 4096
+
+// failureTextCap bounds the words a failed run reports from the program's error output.
+const failureTextCap = 600
 
 // killGrace is how long a cancelled program gets to exit after its process group is killed before Wait gives up.
 const killGrace = 2 * time.Second
@@ -172,7 +176,7 @@ func (r Runner) Run(ctx context.Context, p Program, inv Invocation) (Output, err
 		if ctx.Err() != nil {
 			return Output{}, ctx.Err()
 		}
-		return Output{}, fmt.Errorf("%s failed: %w: %s", p.Name, err, firstLine(stderr.Bytes()))
+		return Output{}, fmt.Errorf("%s failed: %w: %s", p.Name, err, failureText(stderr.Bytes()))
 	}
 	return Output{Stdout: stdout.Bytes(), Truncated: stdout.truncated}, nil
 }
@@ -235,4 +239,27 @@ func (c *cappedBuffer) Bytes() []byte { return c.buf.Bytes() }
 func firstLine(b []byte) string {
 	line, _, _ := bytes.Cut(bytes.TrimSpace(b), []byte("\n"))
 	return string(line)
+}
+
+// failureText is what a failed run reports of the program's error output: its non-empty lines on one line, cut at
+// failureTextCap. The first line alone often says only what went wrong ("panic: permission denied"); the lines after it
+// (a panic's trace) say where. Control characters are dropped so the text cannot reshape a report.
+func failureText(b []byte) string {
+	var parts []string
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.Map(func(r rune) rune {
+			if r < ' ' && r != '\t' || r == 0x7f {
+				return -1
+			}
+			return r
+		}, strings.TrimSpace(line))
+		if line != "" {
+			parts = append(parts, line)
+		}
+	}
+	out := strings.Join(parts, " | ")
+	if len(out) > failureTextCap {
+		out = strings.ToValidUTF8(out[:failureTextCap], "") + "..."
+	}
+	return out
 }

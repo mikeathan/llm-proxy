@@ -3,6 +3,7 @@ package progexec
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,6 +167,30 @@ func TestRun_ReportsAFailingProgramWithItsStderrLine(t *testing.T) {
 	_, err := confined().Run(context.Background(), prog, invocation(t))
 	if err == nil || !strings.Contains(err.Error(), "boom: bad flag") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestRun_ReportsEnoughOfAPanicToFindTheCause(t *testing.T) {
+	prog := script(t, `printf 'panic: permission denied\n\ngoroutine 1 [running]:\nmain.setup()\n\t/src/config.go:42 +0x1\n' >&2; exit 2`)
+	_, err := confined().Run(context.Background(), prog, invocation(t))
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	for _, want := range []string{"panic: permission denied", "main.setup()", "/src/config.go:42"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %q, missing %q", err, want)
+		}
+	}
+	if strings.ContainsAny(err.Error(), "\n\t") {
+		t.Errorf("err = %q, want one line", err)
+	}
+}
+
+func TestRun_BoundsWhatItReportsOfAFailure(t *testing.T) {
+	prog := script(t, `i=0; while [ $i -lt 200 ]; do echo "line $i of a very long failure message that keeps going on and on" >&2; i=$((i+1)); done; exit 2`)
+	_, err := confined().Run(context.Background(), prog, invocation(t))
+	if err == nil || len(err.Error()) > failureTextCap+200 {
+		t.Errorf("error length = %d, want it bounded near %d", len(fmt.Sprint(err)), failureTextCap)
 	}
 }
 
