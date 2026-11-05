@@ -13,6 +13,10 @@ supersedes:
 
 ## Changelog
 
+- **2.37 (2026-11-05)** — **Known-bad names (v0.50.0, plan `stack-modules-and-new-detection`; Constitution I.8 sentence proposed).** Network → Settings gains **Known-bad names**:
+  a link to abuse.ch where the free list address is made, a short how-to, a hidden field for that address (kept encrypted, never shown again, saving it asks for the
+  passphrase) and a Download button with a line saying how many malware host names are held and when. A new module **Known-bad names** (Listen layer, off by default, needs the Phone-home
+  watch) turns a device asking for a listed name into a high finding in the nightly report and an immediate message ("calls out"). The comparison happens on this computer.
 - **2.36 (2026-11-05)** — **Phone-home alerts and DNS line counters (v0.49.0, plan `stack-modules-and-new-detection`).** While the Phone-home watch is on, a message (and a bell entry
   labelled "calls out") says when a device asked for a name it had not asked for in its first week, or asks for a new name at a steady beat: the device's address and up to five names,
   once per set of names. Network → Settings → Router log shows, in Advanced, how many DNS lines were read, how many the limit turned away and the busiest second.
