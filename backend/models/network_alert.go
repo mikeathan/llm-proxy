@@ -19,13 +19,16 @@ const (
 	// NetworkAlertAgent is from the agent security record: an unattended run refused by the safety rules, or a stable automation
 	// fetching from a new host.
 	NetworkAlertAgent NetworkAlertKind = "agent"
+	// NetworkAlertPhoneHome is from the phone-home watch: a device asked for a name it had not asked for in its first week, or asks
+	// for a new name at a steady beat.
+	NetworkAlertPhoneHome NetworkAlertKind = "phone_home"
 )
 
 // Valid reports whether k is one of the known kinds.
 func (k NetworkAlertKind) Valid() bool {
 	switch k {
 	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn, NetworkAlertFollowUp,
-		NetworkAlertAgent:
+		NetworkAlertAgent, NetworkAlertPhoneHome:
 		return true
 	}
 	return false

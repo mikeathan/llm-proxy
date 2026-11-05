@@ -110,7 +110,9 @@ type netauditServices struct {
 	WebChecker      *nuclei.Checker
 	WebTemplates    *webTemplates
 	// PhoneHome is the watch of the names devices ask the router for; its switch is PhoneHomeConfig.
-	PhoneHome       *phonehome.Watch
+	PhoneHome *phonehome.Watch
+	// PhoneHomeAlerts tells the operator of a new place or a steady beat; it runs from the one place the loops start.
+	PhoneHomeAlerts *netaudit.PhoneHomeAlerts
 	PhoneHomeConfig *netaudit.PhoneHomeConfig
 	// AttackPathsConfig is the switch for the attack paths, which are on unless switched off.
 	AttackPathsConfig *netaudit.AttackPathsConfig
@@ -344,6 +346,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	}
 	add(n.Presence != nil, func(ctx context.Context) { n.Presence.Run(ctx) })
 	add(n.RouterLog != nil, func(ctx context.Context) { n.RouterLog.Run(ctx) })
+	add(n.PhoneHomeAlerts != nil, func(ctx context.Context) { n.PhoneHomeAlerts.Run(ctx) })
 	add(n.Blocks != nil, func(ctx context.Context) { n.Blocks.Run(ctx) })
 	add(n.PhoneHome != nil, func(ctx context.Context) {
 		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
@@ -551,6 +554,11 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
 		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(web.Checker),
 	}
+	s.netaudit.PhoneHomeAlerts = netaudit.NewPhoneHomeAlerts(netaudit.PhoneHomeAlertDeps{
+		Watch: phone.Watch, Enabled: phone.Config.Enabled, Inventory: known.Inventory.View,
+		Notify:  s.alertNotifier(alerts.Log, models.NetworkAlertPhoneHome),
+		OnError: func(err error) { logging.Warn("network phone-home alerts", "error", err.Error()) },
+	})
 	s.netaudit.Monitors = newMonitorWatch(s.netaudit, s.alertNotifier(alerts.Log, models.NetworkAlertMonitor))
 	s.netaudit.SignIns = netaudit.NewSignInAlerts(s.alertNotifier(alerts.Log, models.NetworkAlertSignIn), time.Now)
 	s.netaudit.CheckInConfig = netaudit.NewCheckInConfig(store)

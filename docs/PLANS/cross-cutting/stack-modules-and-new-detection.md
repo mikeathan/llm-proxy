@@ -177,10 +177,19 @@ devices are not marked important.
   (whenever ready) and as a section of the nightly report. `GET /admin/api/netaudit/web-templates` and `POST .../download` serve the status and the operator's download; the Network
   Settings card is "Web check templates". The findings are `web_exposure`, one per web service, in the reviewed template's title written by this repository.
 
+## Follow-up built in v0.49.0
+
+- **Immediate alert.** `netaudit.PhoneHomeAlerts` looks every 15 minutes while the phone-home module is on and sends one message per device and kind in fixed words, naming the
+  device by its address (never the name the operator gave it) and at most five DNS names; a larger set of names is told again, the same set never; a device that avoids the router's
+  DNS stays a nightly finding and is never a message; at most five messages a look, the rest at the next; a send that failed is tried again and a send that worked is remembered in
+  `phone-home.json` (`told`, bounded to 256), so a restart does not repeat it. Alert kind `phone_home` ("calls out" on the bell).
+- **DNS line counters.** The router log's status now carries `queries_read`, `queries_limited`, `queries_peak_per_second` and `queries_since`, counted whether or not the watch is on, and
+  Network → Settings → Router log shows them in Advanced. They are how the 50-a-second limit and the watch's bounds are tuned from the real rate on vertex without a capture.
+
 ## Remaining Work
 
-- Owner: install nuclei on vertex and press Download; decide on the abuse.ch list (§6).
-- Optional later: an immediate alert for a new place or a beacon.
+- Owner: press Download checks on vertex (nuclei is installed); read the DNS counters in Advanced after a few days and send them for tuning.
+- Done in v0.49.0: the immediate alert for a new place or a beacon, and the listener's DNS line counters (below).
 - **To do: known-bad names (abuse.ch), approved by the owner on 2026-11-05, not started.** Design agreed in conversation:
   - **Card** Network → Settings → "Known-bad names": a plain-words description, a link to `https://urlhaus.abuse.ch/api/` (where the key is made), a short "how to" under "More about this" (sign in, create an Auth-Key in the profile, paste it here), a field for the key (stored encrypted in the secrets store, never shown again; the box says only "Key saved" or "No key yet"), a **Download list** button and a line saying how many names were loaded and when.
   - **Module** "Known-bad names" (Listen layer, off by default, needs `phone_home`): a name a device asks for that is on the list becomes a high-severity finding (`phone_home_known_bad`, Version a digest of the names) for that device, matched locally; the key only ever goes to abuse.ch.

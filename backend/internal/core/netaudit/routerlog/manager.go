@@ -74,6 +74,12 @@ type Status struct {
 	Listening bool      `json:"listening"`
 	Problem   string    `json:"problem,omitempty"`
 	LastHeard time.Time `json:"last_heard,omitzero"`
+	// QueriesRead, QueriesLimited and QueriesPeak describe the DNS query lines since QueriesSince (the listener's start): how many
+	// were read, how many the limit turned away, and the most read in one second. They are how the limit is tuned from the real rate.
+	QueriesRead    int64     `json:"queries_read"`
+	QueriesLimited int64     `json:"queries_limited"`
+	QueriesPeak    int       `json:"queries_peak_per_second"`
+	QueriesSince   time.Time `json:"queries_since,omitzero"`
 }
 
 // Manager owns the socket. Reconcile makes it match the operator's switch; Run does that until its context ends.
@@ -91,6 +97,10 @@ type Manager struct {
 	inWindow   int
 	queryFrom  time.Time
 	inQueries  int
+	qRead      int64
+	qLimited   int64
+	qPeak      int
+	qSince     time.Time
 	offerFrom  time.Time
 	offerCount int
 	offered    map[string]time.Time // device and name offered lately, so a repeat is not offered again; bounded by maxOffered
@@ -191,7 +201,10 @@ func (m *Manager) Addr() *net.UDPAddr {
 func (m *Manager) Status() Status {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return Status{Listening: m.conn != nil, Problem: m.problem, LastHeard: m.lastHeard}
+	return Status{
+		Listening: m.conn != nil, Problem: m.problem, LastHeard: m.lastHeard,
+		QueriesRead: m.qRead, QueriesLimited: m.qLimited, QueriesPeak: m.qPeak, QueriesSince: m.qSince,
+	}
 }
 
 // serve reads datagrams until the socket is closed. The buffer is one byte longer than the longest line read, so a longer
@@ -254,13 +267,19 @@ func (m *Manager) readQuery(datagram []byte, from netip.AddrPort, now time.Time)
 func (m *Manager) withinQueries(now time.Time) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.qSince.IsZero() {
+		m.qSince = now
+	}
 	if now.Sub(m.queryFrom) >= time.Second {
 		m.queryFrom, m.inQueries = now, 0
 	}
 	if m.inQueries >= queriesPerSecond {
+		m.qLimited++
 		return false
 	}
 	m.inQueries++
+	m.qRead++
+	m.qPeak = max(m.qPeak, m.inQueries)
 	return true
 }
 

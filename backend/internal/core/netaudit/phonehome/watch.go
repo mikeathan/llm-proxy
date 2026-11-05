@@ -32,6 +32,8 @@ const (
 	minGap   = 5 * time.Second
 	// dupWindow is how close two lookups of one name are to be one lookup: the router logs an A and an AAAA line for each.
 	dupWindow = 2 * time.Second
+	// maxTold bounds the record of alerts already sent.
+	maxTold = 256
 	// maxRecent bounds the table that remembers the last lookup of each device and name for the duplicate test.
 	maxRecent = 1024
 )
@@ -185,6 +187,27 @@ func (w *Watch) Run(ctx context.Context, onError func(error)) {
 	}
 }
 
+// WasTold says whether an alert with this key was already sent.
+func (w *Watch) WasTold(key string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.ContainsFunc(w.state.Told, func(t models.PhoneHomeTold) bool { return t.Key == key })
+}
+
+// MarkTold records that an alert with this key was sent. The record is bounded: past maxTold the oldest goes.
+func (w *Watch) MarkTold(key string, at time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if slices.ContainsFunc(w.state.Told, func(t models.PhoneHomeTold) bool { return t.Key == key }) {
+		return
+	}
+	w.state.Told = append(w.state.Told, models.PhoneHomeTold{Key: key, At: at})
+	if len(w.state.Told) > maxTold {
+		w.state.Told = w.state.Told[len(w.state.Told)-maxTold:]
+	}
+	w.dirty = true
+}
+
 // Flush writes the names if anything changed since the last write. A failed write keeps the change for the next try.
 func (w *Watch) Flush() error {
 	w.mu.Lock()
@@ -207,7 +230,7 @@ func (w *Watch) Snapshot() models.PhoneHome {
 }
 
 func clone(s models.PhoneHome) models.PhoneHome {
-	out := models.PhoneHome{Since: s.Since, Devices: make([]models.PhoneHomeDevice, len(s.Devices))}
+	out := models.PhoneHome{Since: s.Since, Told: slices.Clone(s.Told), Devices: make([]models.PhoneHomeDevice, len(s.Devices))}
 	for i, d := range s.Devices {
 		d.Names = slices.Clone(d.Names)
 		for j := range d.Names {
