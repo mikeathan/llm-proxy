@@ -10,7 +10,7 @@ vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: { fetchVersion: () => Promise.resolve({ version: 'v1.2.3' }) },
 }))
 
-const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Reminders', 'Models', 'Activity', 'Settings']
+const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Agents', 'Reminders', 'Models', 'Activity', 'Settings']
 
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())
@@ -39,24 +39,25 @@ describe('AppSidebar', () => {
     expect(navLinks(wrapper).every((a) => a.attributes('href'))).toBe(true)
   })
 
-  it('keeps Network under an expandable Modules group, open by default and remembered when closed', async () => {
+  it('keeps Network and Agents under an expandable Stacks group, open by default and remembered when closed', async () => {
     const { wrapper } = await mountAt('/overview')
-    const toggle = wrapper.get('[data-test="group-modules"]')
+    const toggle = wrapper.get('[data-test="group-stacks"]')
     expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('#group-modules a[data-destination="network"]').attributes('href')).toBe('/network')
+    expect(wrapper.get('#group-stacks a[data-destination="network"]').attributes('href')).toBe('/network')
+    expect(wrapper.get('#group-stacks a[data-destination="agents"]').attributes('href')).toBe('/agents')
     await toggle.trigger('click')
     expect(toggle.attributes('aria-expanded')).toBe('false')
     expect(wrapper.find('a[data-destination="network"]').exists()).toBe(false)
 
     const again = await mountAt('/overview')
-    expect(again.wrapper.get('[data-test="group-modules"]').attributes('aria-expanded')).toBe('false')
+    expect(again.wrapper.get('[data-test="group-stacks"]').attributes('aria-expanded')).toBe('false')
   })
 
-  it('opens Modules and marks it current while a child is open, even if it was closed', async () => {
+  it('opens Stacks and marks it current while a child is open, even if it was closed', async () => {
     const closed = await mountAt('/overview')
-    await closed.wrapper.get('[data-test="group-modules"]').trigger('click')
+    await closed.wrapper.get('[data-test="group-stacks"]').trigger('click')
     const { wrapper } = await mountAt('/network/devices')
-    expect(wrapper.get('[data-test="group-modules"]').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('[data-test="group-stacks"]').attributes('aria-expanded')).toBe('true')
     expect(wrapper.get('a[data-destination="network"]').attributes('aria-current')).toBe('page')
   })
 

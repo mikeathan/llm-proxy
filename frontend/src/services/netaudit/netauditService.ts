@@ -175,62 +175,20 @@ export class NetauditService {
     return get<IPv6DiscoveryState>(API_ENDPOINTS.netauditIPv6Discovery)
   }
 
-  /** Switches active IPv6 discovery on or off. It sends one fixed link-local packet per look and opens no port. */
-  static setIpv6Discovery(enabled: boolean): Promise<IPv6DiscoveryState> {
-    return put<IPv6DiscoveryState>(API_ENDPOINTS.netauditIPv6Discovery, { enabled })
-  }
-
-  static weeklySummary(): Promise<NetauditSwitch> {
-    return get<NetauditSwitch>(API_ENDPOINTS.netauditWeeklySummary)
-  }
-
-  /** Switches the weekly summary on or off. It sends one short message of counts a week and probes nothing. */
-  static setWeeklySummary(enabled: boolean): Promise<NetauditSwitch> {
-    return put<NetauditSwitch>(API_ENDPOINTS.netauditWeeklySummary, { enabled })
-  }
-
   static deviceNames(): Promise<NetauditSwitch> {
     return get<NetauditSwitch>(API_ENDPOINTS.netauditDeviceNames)
-  }
-
-  /** Switches asking devices their names on or off: one small question each, rarely, through the guarded dialer. */
-  static setDeviceNames(enabled: boolean): Promise<NetauditSwitch> {
-    return put<NetauditSwitch>(API_ENDPOINTS.netauditDeviceNames, { enabled })
-  }
-
-  static dailyCheckIn(): Promise<NetauditSwitch> {
-    return get<NetauditSwitch>(API_ENDPOINTS.netauditDailyCheckIn)
-  }
-
-  static setDailyCheckIn(enabled: boolean): Promise<NetauditSwitch> {
-    return put<NetauditSwitch>(API_ENDPOINTS.netauditDailyCheckIn, { enabled })
   }
 
   static followUpScan(): Promise<NetauditSwitch> {
     return get<NetauditSwitch>(API_ENDPOINTS.netauditFollowUpScan)
   }
 
-  /** Switches the scan on arrival on or off: one ordinary scan of each device that just appeared, through the scan service. */
-  static setFollowUpScan(enabled: boolean): Promise<NetauditSwitch> {
-    return put<NetauditSwitch>(API_ENDPOINTS.netauditFollowUpScan, { enabled })
-  }
-
   static decoys(): Promise<DecoyState> {
     return get<DecoyState>(API_ENDPOINTS.netauditDecoys)
   }
 
-  /** Switches the decoy services on or off. They open listening ports, so the server asks for the passphrase again first. */
-  static setDecoys(enabled: boolean): Promise<DecoyState> {
-    return put<DecoyState>(API_ENDPOINTS.netauditDecoys, { enabled })
-  }
-
   static routerLog(): Promise<RouterLogState> {
     return get<RouterLogState>(API_ENDPOINTS.netauditRouterLog)
-  }
-
-  /** Switches the router log listener on or off. It opens a listening port, so the server asks for the passphrase again first. */
-  static setRouterLog(enabled: boolean): Promise<RouterLogState> {
-    return put<RouterLogState>(API_ENDPOINTS.netauditRouterLog, { enabled })
   }
 
   static outsideLookup(): Promise<OutsideLookupState> {
@@ -254,11 +212,6 @@ export class NetauditService {
   /** What devices said about themselves, the switch, and whether a look is running. */
   static nearby(): Promise<NearbyState> {
     return get<NearbyState>(API_ENDPOINTS.netauditNearby)
-  }
-
-  /** Switches Nearby on or off. Switching it on sends two multicast questions and reads the answers, so the server asks for the passphrase again first. */
-  static setNearby(enabled: boolean): Promise<NearbyState> {
-    return put<NearbyState>(API_ENDPOINTS.netauditNearby, { enabled })
   }
 
   /** Starts a look and returns at once; the state says when it has ended. A second look too soon is refused with a plain message. */

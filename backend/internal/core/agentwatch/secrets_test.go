@@ -69,3 +69,22 @@ func TestForgetOldest_KeepsTheNewest(t *testing.T) {
 		t.Errorf("seen = %v; want the oldest gone", seen)
 	}
 }
+
+func TestScanSecrets_DoesNothingWhileThePassIsSwitchedOff(t *testing.T) {
+	w, store, out, _ := newTestWatch()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "notes.md"), "key lp_"+strings.Repeat("d", 52))
+	w.deps.Workspaces = func() ([]WorkspaceDir, error) { return []WorkspaceDir{{ID: "ws", Dir: dir}}, nil }
+	on := false
+	w.deps.SecretsPassOn = func() bool { return on }
+
+	w.scanSecrets(t.Context())
+	if len(store.rec.Events) != 0 || len(out.all()) != 0 {
+		t.Fatalf("the pass ran while switched off: %+v %q", store.rec.Events, out.all())
+	}
+	on = true
+	w.scanSecrets(t.Context())
+	if len(store.rec.Events) != 1 {
+		t.Fatalf("events = %+v; the pass must run once it is switched on", store.rec.Events)
+	}
+}

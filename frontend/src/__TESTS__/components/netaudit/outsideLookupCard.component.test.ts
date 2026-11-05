@@ -34,9 +34,10 @@ describe('OutsideLookupCard', () => {
     useNetauditViewMode().set('simple')
   })
 
-  it('is off until the person turns it on, and says nothing about a look that never happened', async () => {
+  it('says it is switched off, has no switch of its own, and says nothing about a look that never happened', async () => {
     const w = await mountCard()
-    expect((w.get('[role="switch"]').element as HTMLInputElement).checked).toBe(false)
+    expect(w.find('[role="switch"]').exists()).toBe(false)
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched off.')
     expect(w.find('[data-test="outside-lookup-status"]').exists()).toBe(false)
     w.unmount()
   })
@@ -48,12 +49,10 @@ describe('OutsideLookupCard', () => {
     w.unmount()
   })
 
-  it('turns it on through the service and shows the state the server confirmed', async () => {
-    service.setOutsideLookup.mockResolvedValue(state({ enabled: true }))
+  it('says it has not looked yet once it is on', async () => {
+    service.outsideLookup.mockResolvedValue(state({ enabled: true }))
     const w = await mountCard()
-    await w.get('[role="switch"]').setValue(true)
-    await flushPromises()
-    expect(service.setOutsideLookup).toHaveBeenCalledWith({ enabled: true })
+    expect(w.get('[data-test="module-switch-state"]').text()).toContain('Switched on.')
     expect(w.get('[data-test="outside-lookup-status"]').text()).toContain('Not looked yet')
     w.unmount()
   })
@@ -101,15 +100,6 @@ describe('OutsideLookupCard', () => {
     const other = await mountCard()
     expect(other.find('[data-test="outside-lookup-settings"]').exists()).toBe(false)
     other.unmount()
-  })
-
-  it('shows a refusal (such as a missing passphrase) and keeps the switch where it was', async () => {
-    service.setOutsideLookup.mockRejectedValue(new Error('step-up required'))
-    const w = await mountCard()
-    await w.get('[role="switch"]').setValue(true)
-    await flushPromises()
-    expect(w.text()).toContain('step-up required')
-    w.unmount()
   })
 
   it('offers the service address only in the Advanced view, and saves it on its own', async () => {

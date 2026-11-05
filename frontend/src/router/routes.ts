@@ -1,7 +1,7 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
-import type { ActivityFilters, AutomationStart, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AgentsTab, AutomationStart, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -52,6 +52,12 @@ export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRa
   name: ROUTE_NAMES.network,
   params: tab ? { tab } : {},
   ...(hash ? { hash } : {}),
+})
+
+/** The Agents page; without a tab it opens on the activity. */
+export const toAgents = (tab?: AgentsTab): RouteLocationNamedRaw => ({
+  name: ROUTE_NAMES.agents,
+  params: tab ? { tab } : {},
 })
 
 /** The place a requirement's fix points at: `network-scan` is the Network page's Settings tab, anything else a Settings section. */

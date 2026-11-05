@@ -2,29 +2,28 @@
 import { onMounted } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import ToggleField from "../common/forms/ToggleField.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
+import ModuleSwitchNote from "../stacks/ModuleSwitchNote.vue"
 import { useDevices } from "../../composables/netaudit/useDevices"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
-import { useNetauditSwitch } from "../../composables/netaudit/useNetauditSwitch"
+import { useSwitchState } from "../../composables/netaudit/useSwitchState"
 import { NetauditService } from "../../services/netaudit/netauditService"
 import {
-  DEVICE_SETTINGS_TITLE, FOLLOW_UP_DETAILS, FOLLOW_UP_HINT, FOLLOW_UP_LABEL, FOLLOW_UP_LOAD_FAILED, FOLLOW_UP_SAVE_FAILED, IPV6_DETAILS, IPV6_FIX_COMMAND, IPV6_FIX_KEEP_COMMAND, IPV6_FIX_KEEP_NOTE, IPV6_HINT, IPV6_LABEL, IPV6_PROBLEMS,
-  NAMES_DETAILS, NAMES_HINT, NAMES_LABEL, NAMES_LOAD_FAILED, NAMES_SAVE_FAILED, PRESENCE_DETAILS, PRESENCE_HINT,
+  DEVICE_SETTINGS_TITLE, FOLLOW_UP_DETAILS, FOLLOW_UP_HINT, FOLLOW_UP_LOAD_FAILED, IPV6_DETAILS, IPV6_FIX_COMMAND, IPV6_FIX_KEEP_COMMAND, IPV6_FIX_KEEP_NOTE, IPV6_HINT, IPV6_PROBLEMS,
+  NAMES_DETAILS, NAMES_HINT, NAMES_LOAD_FAILED, PRESENCE_DETAILS, PRESENCE_HINT,
 } from "../../constants/netaudit"
 import { intervalOptions, presenceLine } from "../../utils/netaudit/devices"
 
-// Network · Settings · Devices: the switches behind the device list — look for new devices, scan them when they arrive, ask
-// devices their names, and find the ones that only speak IPv6. The list itself, and what to do about a device, are on the Devices tab. Simple is
-// the switches; Advanced adds how often the check looks.
-const names = useNetauditSwitch(() => NetauditService.deviceNames(), (on) => NetauditService.setDeviceNames(on), { load: NAMES_LOAD_FAILED, save: NAMES_SAVE_FAILED }, true)
-const followUp = useNetauditSwitch(() => NetauditService.followUpScan(), (on) => NetauditService.setFollowUpScan(on), { load: FOLLOW_UP_LOAD_FAILED, save: FOLLOW_UP_SAVE_FAILED })
-const { presence, ipv6, loadError, actionError, busy, load, setPresence, setIPv6 } = useDevices()
+// Network · Settings · Devices: the details behind the device list: how the new-device check is doing and how often it looks, what
+// scanning a new device on arrival and asking devices their names send, and what is wrong with IPv6 discovery. The switches are on
+// the Modules tab. The list itself, and what to do about a device, are on the Devices tab.
+const names = useSwitchState(() => NetauditService.deviceNames(), NAMES_LOAD_FAILED, true)
+const followUp = useSwitchState(() => NetauditService.followUpScan(), FOLLOW_UP_LOAD_FAILED)
+const { presence, ipv6, loadError, actionError, load, setPresence } = useDevices()
 const { advanced } = useNetauditViewMode()
 
-const toggle = (enabled: boolean) => setPresence(enabled, presence.value?.interval_minutes ?? 0)
 const changeInterval = (value: string) => setPresence(presence.value?.enabled ?? false, Number(value))
 
 onMounted(load)
@@ -40,7 +39,7 @@ onMounted(load)
 
       <template v-else>
         <section v-if="presence" class="flex flex-col gap-1" aria-label="New-device check">
-          <ToggleField :model-value="presence.enabled" label="Look for new devices" :hint="PRESENCE_HINT" :details="PRESENCE_DETAILS" :disabled="busy" @update:model-value="toggle" />
+          <ModuleSwitchNote :enabled="presence.enabled" :hint="PRESENCE_HINT" :details="PRESENCE_DETAILS" />
           <p :class="['m-0 text-[length:var(--text-small)]', presence.problem && presence.enabled ? 'text-state-error' : 'text-muted']" data-test="presence-line">{{ presenceLine(presence) }}</p>
           <SelectInput
             v-if="advanced && presence.enabled"
@@ -52,17 +51,17 @@ onMounted(load)
         </section>
 
         <section class="flex flex-col gap-1" aria-label="Scan on arrival" data-test="follow-up-scan">
-          <ToggleField :model-value="followUp.enabled.value" :label="FOLLOW_UP_LABEL" :hint="FOLLOW_UP_HINT" :details="FOLLOW_UP_DETAILS" :disabled="followUp.busy.value" @update:model-value="followUp.set" />
+          <ModuleSwitchNote :enabled="followUp.enabled.value" :hint="FOLLOW_UP_HINT" :details="FOLLOW_UP_DETAILS" />
           <p v-if="followUp.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ followUp.error.value }}</p>
         </section>
 
         <section class="flex flex-col gap-1" aria-label="Device names" data-test="device-names">
-          <ToggleField :model-value="names.enabled.value" :label="NAMES_LABEL" :hint="NAMES_HINT" :details="NAMES_DETAILS" :disabled="names.busy.value" @update:model-value="names.set" />
+          <ModuleSwitchNote :enabled="names.enabled.value" :hint="NAMES_HINT" :details="NAMES_DETAILS" />
           <p v-if="names.error.value" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ names.error.value }}</p>
         </section>
 
         <section v-if="ipv6" class="flex flex-col gap-1" aria-label="IPv6 devices" data-test="ipv6-discovery">
-          <ToggleField :model-value="ipv6.enabled" :label="IPV6_LABEL" :hint="IPV6_HINT" :details="IPV6_DETAILS" :disabled="busy" @update:model-value="setIPv6" />
+          <ModuleSwitchNote :enabled="ipv6.enabled" :hint="IPV6_HINT" :details="IPV6_DETAILS" />
           <div v-if="ipv6.enabled && ipv6.problem" role="alert" class="flex flex-col gap-1 text-[length:var(--text-small)] text-state-error" data-test="ipv6-problem">
             <p class="m-0">{{ IPV6_PROBLEMS[ipv6.problem] }}</p>
             <template v-if="ipv6.problem === 'not_permitted'">

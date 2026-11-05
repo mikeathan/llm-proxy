@@ -6,7 +6,8 @@ import LoadingState from "../components/common/feedback/LoadingState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
 import EmptyState from "../components/common/feedback/EmptyState.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
-import NetworkTabs from "../components/netaudit/NetworkTabs.vue"
+import StackTabs from "../components/stacks/StackTabs.vue"
+import StackModules from "../components/stacks/StackModules.vue"
 import NetworkOverviewPanel from "../components/netaudit/NetworkOverviewPanel.vue"
 import NetauditToolbar from "../components/netaudit/NetauditToolbar.vue"
 import ReadinessBanner from "../components/netaudit/ReadinessBanner.vue"
@@ -19,15 +20,16 @@ import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { useNetworkOverview } from "../composables/netaudit/useNetworkOverview"
-import { AUDITOR_PROFILE, AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_SUBTITLE, NETWORK_TITLE } from "../constants/netaudit"
+import { AUDITOR_PROFILE, AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_OVERVIEW_LABEL, NETWORK_SUBTITLE, NETWORK_TAB_LABELS, NETWORK_TITLE } from "../constants/netaudit"
 import { toNetwork } from "../router/routes"
 import { NETWORK_TABS } from "../types/routes"
 import type { NetworkAudit } from "../types/netaudit"
+import type { StackTabItem } from "../types/stacks"
 import type { NetworkTab } from "../types/routes"
 
-// Network: the home network as a security feature of its own, under the Modules group. Overview (one verdict, the numbers,
-// what changed), Devices (who is on it), Findings (the last audit), Timeline (one list of what happened), Audits (the scans that run on a schedule) and Settings
-// (every switch and limit). The audit itself stays an ordinary automation, and this page reads its results. Simple or
+// Network: the home network as a security feature of its own, the first stack under the Stacks group. Overview (one verdict, the numbers,
+// what changed), Devices (who is on it), Findings (the last audit), Timeline (one list of what happened), Audits (the scans that run on a schedule),
+// Modules (the switchboard: every module is switched here and nowhere else) and Settings (the limits and details of each). The audit itself stays an ordinary automation, and this page reads its results. Simple or
 // Advanced, and Help, are in the page header and mean the same on every tab.
 const route = useRoute()
 const { automations, fetchAutomations } = useDispatcher()
@@ -36,6 +38,10 @@ const tab = computed<NetworkTab | null>(() => {
   const t = route.params.tab
   return typeof t === "string" && (NETWORK_TABS as readonly string[]).includes(t) ? (t as NetworkTab) : null
 })
+const tabs: readonly StackTabItem[] = [
+  { id: "overview", label: NETWORK_OVERVIEW_LABEL, to: toNetwork() },
+  ...NETWORK_TABS.map((t) => ({ id: t, label: NETWORK_TAB_LABELS[t], to: toNetwork(t) })),
+]
 const audit = computed<NetworkAudit | null>(() => {
   const a = automations.value.find((x) => x.profile === AUDITOR_PROFILE)
   return a ? { workspaceId: a.workspace, automation: a.name } : null
@@ -60,7 +66,7 @@ onUnmounted(stop)
     <PageHeader :title="NETWORK_TITLE" :subtitle="NETWORK_SUBTITLE" subtitle-hidden-on-phone>
       <template #actions><NetauditToolbar /></template>
     </PageHeader>
-    <NetworkTabs :active="tab" />
+    <StackTabs label="Network" :tabs="tabs" :active="tab ?? 'overview'" />
     <ReadinessBanner :here="tab === 'settings' ? 'network-scan' : undefined" />
 
     <template v-if="tab === null">
@@ -86,6 +92,7 @@ onUnmounted(stop)
 
     <TimelineTab v-else-if="tab === 'timeline'" :audit="audit" />
     <AuditsPanel v-else-if="tab === 'audits'" />
+    <StackModules v-else-if="tab === 'modules'" stack="network" />
     <NetworkSettings v-else />
 
     <NetauditHelp />

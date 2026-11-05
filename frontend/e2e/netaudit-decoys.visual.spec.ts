@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
 // Network → Devices → Decoy services, off, on and with a device that touched one: at both widths and in Simple and
-// Advanced nothing may scroll sideways and the switch row is a comfortable touch target; Clear list shows only when a device
+// Advanced nothing may scroll sideways and the card says whether they are on and has no switch (it is on the Modules tab); Clear list shows only when a device
 // has connected, and is a comfortable touch target on a phone.
 const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconfined: false, device_timeout_minutes: 0, suggestions: [] }
 const ports = [{ number: 2222, name: 'SSH login' }, { number: 4445, name: 'File sharing' }, { number: 8023, name: 'Telnet' }]
@@ -26,8 +26,8 @@ for (const view of ['simple', 'advanced'] as const) {
       await open(page, view, STATES[name])
       await expectNoSidewaysScroll(page)
       const card = page.locator('[data-test="decoys"]')
-      const toggle = card.getByRole('switch', { name: 'Run decoy services' })
-      await expect(toggle).toBeVisible()
+      await expect(card.locator('[data-test="module-switch-state"]')).toBeVisible()
+      await expect(card.getByRole('switch')).toHaveCount(0)
       if (name === 'touched') {
         await expect(card.getByText('192.168.1.77')).toBeVisible()
         await expect(card.getByText(/cannot start/)).toBeVisible()

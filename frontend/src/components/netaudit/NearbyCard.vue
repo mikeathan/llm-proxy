@@ -2,15 +2,15 @@
 import { onMounted } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import ToggleField from "../common/forms/ToggleField.vue"
+import ModuleSwitchNote from "../stacks/ModuleSwitchNote.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useNearby } from "../../composables/netaudit/useNearby"
-import { NEARBY_DETAILS, NEARBY_HINT, NEARBY_LABEL, NEARBY_READ_FAILED_TITLE, NEARBY_SETTINGS_TITLE } from "../../constants/netaudit"
+import { NEARBY_DETAILS, NEARBY_HINT, NEARBY_READ_FAILED_TITLE, NEARBY_SETTINGS_TITLE } from "../../constants/netaudit"
 
-// Network · Settings · Nearby devices: the switch. What it sends is said under it. The devices themselves are on the Devices tab,
+// Network · Settings · Nearby devices: what it sends is said here; it is switched on the Modules tab. The devices themselves are on the Devices tab,
 // with the Check now button; no other tab changes what is sent.
-const { state, error, busy, load, set } = useNearby()
+const { state, error, load } = useNearby()
 onMounted(load)
 </script>
 
@@ -22,7 +22,7 @@ onMounted(load)
       </ErrorState>
       <LoadingState v-else-if="!state" label="Reading the setting" />
       <template v-else>
-        <ToggleField :model-value="state.enabled" :label="NEARBY_LABEL" :hint="NEARBY_HINT" :details="NEARBY_DETAILS" :disabled="busy" @update:model-value="set" />
+        <ModuleSwitchNote :enabled="state.enabled" :hint="NEARBY_HINT" :details="NEARBY_DETAILS" />
         <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
       </template>
     </div>

@@ -197,3 +197,26 @@ func TestWatch_ObserveNeverBlocksAndRunDrains(t *testing.T) {
 		t.Errorf("events = %d; want the queue drained within the cap", len(rec.Events))
 	}
 }
+
+func TestObserve_QueuesNothingWhileTheRecordIsSwitchedOff(t *testing.T) {
+	w, _, _, _ := newTestWatch()
+	on := false
+	w.deps.ActivityOn = func() bool { return on }
+	w.Observe("ws", refused("nightly", "read_file", "x"))
+	if len(w.queue) != 0 {
+		t.Fatalf("queued %d events while the record is off", len(w.queue))
+	}
+	on = true
+	w.Observe("ws", refused("nightly", "read_file", "x"))
+	if len(w.queue) != 1 {
+		t.Fatalf("queued %d events after switching on, want 1 (the switch is read on every event)", len(w.queue))
+	}
+}
+
+func TestObserve_ARecordWithNoSwitchIsOn(t *testing.T) {
+	w, _, _, _ := newTestWatch()
+	w.Observe("ws", refused("nightly", "read_file", "x"))
+	if len(w.queue) != 1 {
+		t.Fatalf("queued %d events, want 1", len(w.queue))
+	}
+}

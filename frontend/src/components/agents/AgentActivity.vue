@@ -18,7 +18,7 @@ import {
   LOCKDOWN_RELEASE_TITLE, LOCKDOWN_REVOKE_HINT, LOCKDOWN_REVOKE_LABEL, LOCKDOWN_TITLE,
 } from "../../constants/security"
 
-// Settings · Safety · Agent activity: the lock down switch first (the one action), then the record as one quiet list, newest
+// Agents · Activity: the lock down switch first (the one action), then the record as one quiet list, newest
 // first, the latest few shown and the rest one tap away. Each row is one line of what happened and one small line of where
 // and when, so a phone reads it without scrolling past noise.
 const { confirm } = useConfirm()
@@ -51,7 +51,7 @@ onMounted(() => { void a.load() })
 </script>
 
 <template>
-  <div class="flex flex-col gap-4" data-test="agent-activity-settings">
+  <div class="flex flex-col gap-4" data-test="agent-activity-panel">
     <Panel :title="LOCKDOWN_TITLE">
       <div class="flex flex-col gap-3" data-test="lockdown">
         <template v-if="a.lockdown.value?.on">

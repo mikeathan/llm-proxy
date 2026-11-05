@@ -3,14 +3,14 @@ import { computed, onMounted, ref, watch } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import FormField from "../common/forms/FormField.vue"
-import ToggleField from "../common/forms/ToggleField.vue"
+import ModuleSwitchNote from "../stacks/ModuleSwitchNote.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useDnsCheck } from "../../composables/netaudit/useDnsCheck"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import {
   DNS_CHECK_COPIED, DNS_CHECK_COPY, DNS_CHECK_COPY_FAILED, DNS_CHECK_COPY_HINT, DNS_CHECK_DETAILS, DNS_CHECK_HINT, DNS_CHECK_INTERNET_OFF, DNS_CHECK_LAN_OFF, DNS_CHECK_SERVER_HINT, DNS_CHECK_SERVER_LABEL,
-  DNS_CHECK_INTERVAL_LABEL, DNS_CHECK_LABEL, DNS_CHECK_NAMES_HINT, DNS_CHECK_NAMES_LABEL, DNS_CHECK_OPEN_SETTINGS, DNS_CHECK_READ_FAILED_NEXT,
+  DNS_CHECK_INTERVAL_LABEL, DNS_CHECK_NAMES_HINT, DNS_CHECK_NAMES_LABEL, DNS_CHECK_OPEN_SETTINGS, DNS_CHECK_READ_FAILED_NEXT,
   DNS_CHECK_DIFFERENCES_HINT, DNS_CHECK_DIFFERENCES_TITLE, DNS_CHECK_MORE_DIFFERENCES, DNS_CHECK_OUTSIDE_SAID, DNS_CHECK_PARTLY, DNS_CHECK_ROUTER_SAID,
   DNS_CHECK_READ_FAILED_TITLE, DNS_CHECK_READING, DNS_CHECK_RETRY, DNS_CHECK_SAVE, DNS_CHECK_TITLE, DNS_CHECK_URL_HINT, DNS_CHECK_URL_LABEL,
 } from "../../constants/netaudit"
@@ -19,10 +19,10 @@ import { formatRelativeTime } from "../../utils/format/time"
 import { copyText } from "../../utils/clipboard"
 import { toSettings } from "../../router/routes"
 
-// Network → Devices → Router DNS check: the switch for comparing the router's DNS with an outside resolver, and what has been
+// Network → Settings → Router DNS check: comparing the router's DNS with an outside resolver, and what has been
 // recorded so far. It only records. Simple is the switch and one status line; Advanced adds the names, how often, which resolver,
 // and a button that copies the results to bring back after a week.
-const { state, error, busy, load, set, save } = useDnsCheck()
+const { state, error, busy, load, save } = useDnsCheck()
 const { advanced } = useNetauditViewMode()
 const names = ref("")
 const url = ref("")
@@ -68,7 +68,7 @@ onMounted(load)
       <LoadingState v-else-if="!state" :label="DNS_CHECK_READING" />
 
       <template v-else>
-        <ToggleField :model-value="state.enabled" :label="DNS_CHECK_LABEL" :hint="DNS_CHECK_HINT" :details="DNS_CHECK_DETAILS" :disabled="busy" @update:model-value="set" />
+        <ModuleSwitchNote :enabled="state.enabled" :hint="DNS_CHECK_HINT" :details="DNS_CHECK_DETAILS" />
 
         <p v-if="state.enabled" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="dns-check-status">{{ line }}</p>
 

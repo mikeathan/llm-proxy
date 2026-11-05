@@ -54,6 +54,12 @@ func StepUpGranted(ctx context.Context) bool {
 	return !present || v
 }
 
+// WithStepUp returns ctx marked with whether the passphrase was recently entered, as the middleware does for every
+// authenticated request. A test that must see a handler refuse a request without the passphrase uses it too.
+func WithStepUp(ctx context.Context, granted bool) context.Context {
+	return context.WithValue(ctx, stepUpKey{}, granted)
+}
+
 // RefuseStepUp answers a request that needed the passphrase and did not have it: a session is told to confirm it (the UI
 // asks and repeats the request), a script token is told it cannot.
 func RefuseStepUp(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +203,7 @@ func authenticateAdmin(w http.ResponseWriter, r *http.Request, next http.Handler
 		return
 	}
 	ctx := context.WithValue(r.Context(), principalKey{}, p)
-	ctx = context.WithValue(ctx, stepUpKey{}, p.Kind == PrincipalSession && a.Elevated(sess))
+	ctx = WithStepUp(ctx, p.Kind == PrincipalSession && a.Elevated(sess))
 	ctx = context.WithValue(ctx, stillAuthorizedKey{}, func() bool { return credentialStillValid(r, p, a) })
 	next.ServeHTTP(w, r.WithContext(ctx))
 }

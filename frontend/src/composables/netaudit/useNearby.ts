@@ -1,7 +1,7 @@
 import { onScopeDispose, ref } from 'vue'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
-import { NEARBY_LOAD_FAILED, NEARBY_LOOK_FAILED, NEARBY_SAVE_FAILED } from '../../constants/netaudit'
+import { NEARBY_LOAD_FAILED, NEARBY_LOOK_FAILED } from '../../constants/netaudit'
 import type { NearbyState } from '../../types/netaudit'
 
 /** How often the state is read while a look is running. */
@@ -60,7 +60,6 @@ export function useNearby() {
 
   return {
     state, error, busy, load,
-    set: (enabled: boolean) => run(() => NetauditService.setNearby(enabled), NEARBY_SAVE_FAILED),
     check: () => run(() => NetauditService.nearbyLook(), NEARBY_LOOK_FAILED),
   }
 }

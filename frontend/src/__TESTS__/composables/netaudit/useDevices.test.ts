@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DeviceInventory, IPv6DiscoveryState, PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
-  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(),
+  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
@@ -68,14 +68,10 @@ describe('useDevices', () => {
     expect(d.actionError.value).not.toBe('')
   })
 
-  it('loads the IPv6 switch with the rest and replaces it with the server\'s answer to a change', async () => {
-    service.ipv6Discovery.mockResolvedValue({ enabled: false })
-    service.setIpv6Discovery.mockResolvedValue({ enabled: true, problem: 'not_permitted' })
+  it('loads the IPv6 state with the rest', async () => {
+    service.ipv6Discovery.mockResolvedValue({ enabled: true, problem: 'not_permitted' })
     const d = useDevices()
     await d.load()
-    expect(d.ipv6.value).toEqual({ enabled: false })
-    await d.setIPv6(true)
-    expect(service.setIpv6Discovery).toHaveBeenCalledWith(true)
     expect(d.ipv6.value).toEqual({ enabled: true, problem: 'not_permitted' })
   })
 
@@ -85,14 +81,5 @@ describe('useDevices', () => {
     await d.load()
     expect(d.inventory.value).not.toBeNull()
     expect(d.ipv6.value).toBeNull()
-  })
-
-  it('keeps the old IPv6 state and says what failed when the change is refused', async () => {
-    service.setIpv6Discovery.mockRejectedValue(new Error('disk full'))
-    const d = useDevices()
-    await d.load()
-    await d.setIPv6(true)
-    expect(d.ipv6.value).toEqual({ enabled: false })
-    expect(d.actionError.value).not.toBe('')
   })
 })

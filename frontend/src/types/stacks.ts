@@ -1,0 +1,75 @@
+import type { RouteLocationNamedRaw } from 'vue-router'
+
+// The stacks of switchable modules (ADR-0028): a stack holds layers, a layer holds modules. These mirror /admin/api/stacks.
+
+export const STACK_IDS = ['network', 'agents'] as const
+export type StackId = (typeof STACK_IDS)[number]
+
+/** What a module sends or opens, in the server's words. */
+export type ModuleTraffic = 'nothing' | 'lan' | 'internet' | 'message' | 'listens'
+
+/** How a module that is switched on is doing; absent while it is off or has no monitor. */
+export type ModuleHealth = 'working' | 'stopped'
+
+export interface StackModule {
+  id: string
+  title: string
+  purpose: string
+  sends: ModuleTraffic
+  step_up: boolean
+  enabled: boolean
+  health?: ModuleHealth
+  /** Plain words for what stops the module working now ("needs Presence check"); absent when nothing does. */
+  blocked?: string
+  needs: string[]
+}
+
+export interface StackLayer {
+  id: string
+  title: string
+  purpose?: string
+  modules: StackModule[]
+}
+
+export interface StackAction {
+  id: string
+  title: string
+  purpose: string
+}
+
+export interface StackCounts {
+  on: number
+  total: number
+  stopped: number
+  blocked: number
+}
+
+/** One stack with its layers, top first. */
+export interface StackView {
+  id: StackId
+  title: string
+  purpose: string
+  summary: StackCounts
+  layers: StackLayer[]
+  actions: StackAction[]
+}
+
+/** The answer to a switch: the stack as it is now, and the titles of the modules the change left without something they need. */
+export interface SwitchedStack extends StackView {
+  blocked: string[]
+}
+
+/** The colour family of a module's status line; the words always carry the meaning too. */
+export type ModuleTone = 'success' | 'warning' | 'muted'
+
+export interface ModuleStatus {
+  text: string
+  tone: ModuleTone
+}
+
+/** One tab of a stack's page; `to` is a typed route builder's result. */
+export interface StackTabItem {
+  id: string
+  label: string
+  to: RouteLocationNamedRaw
+}

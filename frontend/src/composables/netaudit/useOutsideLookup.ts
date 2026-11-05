@@ -33,5 +33,5 @@ export function useOutsideLookup() {
     }
   }
 
-  return { state, error, busy, load, set: (enabled: boolean) => save({ enabled }), setUrl: (url: string) => save({ url }), setAddress: (address: string) => save({ address: address.trim() }) }
+  return { state, error, busy, load, setUrl: (url: string) => save({ url }), setAddress: (address: string) => save({ address: address.trim() }) }
 }

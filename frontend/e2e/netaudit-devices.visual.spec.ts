@@ -99,21 +99,15 @@ for (const view of ['simple', 'advanced'] as const) {
   }
 }
 
-test('the IPv6 switch is on the Settings tab, and its refusal fits a phone', async ({ page }, testInfo) => {
+test('the IPv6 refusal is on the Settings tab and fits a phone, and no switch is there', async ({ page }) => {
   await setNetauditView(page, 'simple')
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/devices': { devices: [], gateway: { changed: false }, baselined: true, updated_at: seen }, '/netaudit/presence': presence, '/netaudit/ipv6-discovery': { enabled: true, problem: 'not_permitted' } } })
   await page.goto('network/settings')
   const card = page.locator('[data-test="device-settings"]')
   await expect(card.locator('[data-test="ipv6-problem"]')).toBeVisible()
   await expect(card.getByText('sudo sysctl -w net.ipv4.ping_group_range')).toBeVisible()
-  const toggle = card.getByRole('switch', { name: 'Look for IPv6 devices' })
-  // The input is visually hidden; the touch target is the row that holds it.
-  const row = toggle.locator('xpath=ancestor::div[contains(@class, "min-h-11")][1]')
-  if (testInfo.project.name === 'mobile') expect((await row.boundingBox())?.height).toBeGreaterThanOrEqual(44)
-  // The scan on arrival sits beside it, off until switched on.
-  const followUp = card.getByRole('switch', { name: 'Scan new devices when they arrive' })
-  await expect(followUp).not.toBeChecked()
-  const followUpRow = followUp.locator('xpath=ancestor::div[contains(@class, "min-h-11")][1]')
-  if (testInfo.project.name === 'mobile') expect((await followUpRow.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  // Every switch is on the Modules tab: the details card only says whether each part is on.
+  await expect(card.getByRole('switch')).toHaveCount(0)
+  await expect(card.locator('[data-test="follow-up-scan"] [data-test="module-switch-state"]')).toContainText('Switched off')
   await expectNoSidewaysScroll(page)
 })

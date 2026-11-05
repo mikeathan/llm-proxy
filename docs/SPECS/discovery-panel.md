@@ -13,6 +13,21 @@ supersedes:
 
 ## Changelog
 
+- **2.33 (2026-11-05)** — **Stacks and modules (v0.48.0, ADR-0028, plan `stack-modules-and-new-detection` P1).** The navigation group
+  **Modules** is renamed **Stacks** and holds **Network** and a new **Agents** page (`/agents`, tabs Activity and Modules). Each stack's
+  **Modules** tab (`/network/modules`, `/agents/modules`) is the one place its modules are switched: layers are drawn top to bottom (numbered from
+  the bottom, 01), each module is a tile (a row on a phone) with its name, one line of purpose, a switch and one quiet status line
+  ("Working · LAN", "Off · sends a message · needs Presence check", "Blocked · …"), a blocked module is dimmed, and a switch the server refuses
+  goes back and says why beside the module. The stack's summary line counts on, stopped and blocked. **Network → Settings loses every switch**:
+  the weekly summary and daily check-in panel is gone, and each card (new-device check, scan on arrival, device names, IPv6, decoys, router log,
+  Internet view, DNS check, Nearby) says "Switched on/off" with a link to the Modules tab and keeps its details (interval, address, URL, names,
+  problems, the explanation under "More about this"). **Settings → Safety → Agent activity moves to Agents → Activity** (lock down is the page's
+  first panel); an agent alert on the bell leads there and badges the Agents entry. The Agents stack's two parts, **Agent activity** and the
+  **Secrets pass**, are modules that can now be switched off (settings.yml `agents:`, stored as `activity_off` and `secrets_pass_off`, so an
+  install with nothing stored keeps both on); switching either needs the passphrase. API: `GET /admin/api/stacks`, `GET /admin/api/stacks/{stack}`,
+  `PUT /admin/api/stacks/{stack}/modules/{id}` `{"enabled": bool}` (404 unknown, 400 without `enabled`, 403 `reauth_required` without the
+  passphrase for a step-up module, 409 naming the need when a module is switched on while one it needs is off, 200 with the stack and the modules
+  the change left waiting). The old per-feature routes stay for their details and keep their step-up.
 - **2.32 (2026-11-05)** — **Protect this program, watch its agents, calmer findings (v0.47.0, plan `security-self-protection-and-agent-watch`,
   ledger 2026-11-05).** Network → Findings: three or more kinds of problem start folded to their titles (two or fewer stay open), the fix is
   said once (the guide's steps when there is a guide, the one line when there is not), a place row on a phone is its name, its evidence and

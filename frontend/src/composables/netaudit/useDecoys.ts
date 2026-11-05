@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
-import { DECOYS_CLEAR_FAILED, DECOYS_LOAD_FAILED, DECOYS_SAVE_FAILED } from '../../constants/netaudit'
+import { DECOYS_CLEAR_FAILED, DECOYS_LOAD_FAILED } from '../../constants/netaudit'
 import type { DecoyState } from '../../types/netaudit'
 
 /** The decoy services as the settings card shows them. A change answers with the whole new state, which replaces the old. */
@@ -19,18 +19,6 @@ export function useDecoys() {
     }
   }
 
-  async function set(enabled: boolean): Promise<void> {
-    busy.value = true
-    try {
-      state.value = await NetauditService.setDecoys(enabled)
-      error.value = ''
-    } catch (err) {
-      error.value = errorMessage(err, DECOYS_SAVE_FAILED)
-    } finally {
-      busy.value = false
-    }
-  }
-
   /** Empties the list of who connected. The switch and the listeners are not touched. */
   async function clear(): Promise<void> {
     busy.value = true
@@ -44,5 +32,5 @@ export function useDecoys() {
     }
   }
 
-  return { state, error, busy, load, set, clear }
+  return { state, error, busy, load, clear }
 }

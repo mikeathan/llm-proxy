@@ -4,7 +4,7 @@ import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Disclosure from "../common/layout/Disclosure.vue"
 import StatusTag from "../common/display/StatusTag.vue"
-import ToggleField from "../common/forms/ToggleField.vue"
+import ModuleSwitchNote from "../stacks/ModuleSwitchNote.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useDecoys } from "../../composables/netaudit/useDecoys"
@@ -14,9 +14,9 @@ import { DECOYS_CLEAR_LABEL, DECOYS_CLEAR_MESSAGE, DECOYS_CLEAR_TITLE, DECOYS_CO
 import { touchSummary } from "../../utils/netaudit/decoys"
 import { formatRelativeTime } from "../../utils/format/time"
 
-// Network · Settings · Decoy services: the switch, which fake services listen, and who connected to one. Simple is the
-// switch and the list of who; Advanced adds the ports.
-const { state, error, busy, load, set, clear } = useDecoys()
+// Network · Settings · Decoy services: whether they are on (switched on the Modules tab), which fake services listen, and who connected to one. Simple is the
+// list of who; Advanced adds the ports.
+const { state, error, busy, load, clear } = useDecoys()
 const { confirm } = useConfirm()
 const { advanced } = useNetauditViewMode()
 
@@ -42,7 +42,7 @@ onMounted(load)
       <LoadingState v-else-if="!state" label="Reading the decoy services" />
 
       <template v-else>
-        <ToggleField :model-value="state.enabled" label="Run decoy services" :hint="DECOYS_HINT" :details="DECOYS_DETAILS" :disabled="busy" @update:model-value="set" />
+        <ModuleSwitchNote :enabled="state.enabled" :hint="DECOYS_HINT" :details="DECOYS_DETAILS" />
 
         <p v-if="state.enabled && state.problem" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="decoy-problem">Some decoys cannot start: {{ state.problem }}</p>
         <p v-if="state.enabled" class="m-0 text-[length:var(--text-small)] text-muted">{{ DECOYS_FIREWALL }}</p>

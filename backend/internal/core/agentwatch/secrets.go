@@ -43,7 +43,7 @@ var errScanBudget = errors.New("scan budget used")
 // links, not files over maxScanFile) and records each new place that holds a secret-shaped string, by place and kind only. One
 // alert per workspace names how many places were new.
 func (w *Watch) scanSecrets(ctx context.Context) {
-	if w.deps.Workspaces == nil {
+	if w.deps.Workspaces == nil || !isOn(w.deps.SecretsPassOn) {
 		return
 	}
 	dirs, err := w.deps.Workspaces()

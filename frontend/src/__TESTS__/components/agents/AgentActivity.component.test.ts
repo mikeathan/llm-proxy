@@ -7,14 +7,14 @@ vi.mock('../../../services/security/securityService', () => ({ SecurityService: 
 const confirm = vi.fn()
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
-import AgentActivitySettings from '../../../components/settings/AgentActivitySettings.vue'
+import AgentActivity from '../../../components/agents/AgentActivity.vue'
 
 const event = (i: number): AgentWatchEvent => ({ at: `2026-11-05T09:${String(i).padStart(2, '0')}:00Z`, kind: 'tool_refused', workspace: 'ws', automation: 'nightly', tool: 'read_file' })
 
 async function show(record: AgentWatchView, on = false) {
   service.agentWatch.mockResolvedValue(record)
   service.lockdown.mockResolvedValue(on ? { on: true, since: '2026-11-05T09:00:00Z', signed_out: 2 } : { on: false })
-  const w = mount(AgentActivitySettings)
+  const w = mount(AgentActivity)
   await flushPromises()
   return w
 }
@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('AgentActivitySettings', () => {
+describe('AgentActivity', () => {
   it('says plainly when nothing is recorded yet', async () => {
     const w = await show({ events: [], automations: [] })
     expect(w.text()).toContain('Nothing recorded yet')

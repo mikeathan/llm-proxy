@@ -403,6 +403,33 @@ The router's remote syslog is used for one thing: waking the presence check earl
 - **Cost.** The read loop blocks on one socket (`ReadFromUDPAddrPort`, one reused 1,025-byte buffer, 64 KB kernel queue); a firewall line is told apart by `Interesting` (one search of the first 160 bytes, about 0.2 µs, no allocation) before it uses any of the ten-a-second allowance; `Parse` runs only for the rest (about 0.2 µs, 5 small allocations); the device list is read from disk at most once per 5 s (`cachedDevices`); the gateway at most once per 30 s. A soak test sends 60,000 mixed datagrams and checks that heap and goroutines do not grow.
 - **Not built:** counting firewall drops, router admin logins (only the success shape was captured; a failed login must be captured first), `DHCPDISCOVER`/`DHCPOFFER`/lease expiry (no capture of them).
 
+## Stacks and modules (as built 2026-11-05, v0.48.0; ADR-0028, plan `stack-modules-and-new-detection` P1)
+
+Every switchable capability is a **module** of a **layer** of a **stack**, described once and switched in one place.
+
+- **Registry.** `internal/core/stack` is a leaf (it imports none of the features): `Stack` (layers bottom first, actions), `Module` (id, title, purpose,
+  `Sends` = nothing / lan / internet / message / listens, `StepUp`, `Needs`, `Monitors`, a `Switch`, an optional `Ready`) and `Registry`. `New` refuses an
+  inconsistent description (duplicate ids, an unknown layer, a need that is missing, in another stack, itself or on a higher layer, no switch), so a
+  wiring mistake fails at start. `View` draws a stack with its layers top first and leaves an empty layer out; `Switch` refuses switching on while a
+  module it needs is off (`*NeedError`, which names it) and answers a switch-off with the titles of the modules left waiting. A module's `Ready` (the
+  Guardrails for Nearby, the DNS check and the Internet view) only shows as "blocked": it never refuses a switch, as Nearby could always be switched on.
+- **Wiring.** `app/stacks.go` is the one place the modules are described: each `Switch` is an adapter over the config type that already owned the setting
+  (`presenceSwitch` keeps the chosen interval, `dnsCheckSwitch` touches the switch alone, `withPoke` wakes the decoys' and router log's loops after a
+  change as their own routes did). No persisted setting moved. **Eleven** Network switches exist (the plan said twelve: the nightly audit is an automation,
+  not a switch) and two Agents parts. `TestStackRegistry_NetworkModulesAndTheirLayers` pins the ids and layers.
+- **Health.** A module's `Monitors` are `MonitorPart` ids; the handlers hand the registry the ids `MonitorWatch.Stalled()` reports, and a module that
+  is on shows Working or Stopped only when it has a monitor (presence, router log: its socket and its quiet part, DNS check, decoys).
+- **Step-up per module.** `PUT /admin/api/stacks/{stack}/modules/{id}` is one route, so `api.stepUpExact` cannot list it per module: the handler asks
+  `api.StepUpGranted` for a module with `StepUp` and answers `api.RefuseStepUp` (403 `reauth_required`, which the UI turns into the passphrase prompt).
+  `TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase` walks every such module; `TestStackRegistry_StepUpMatchesTheOldRoutes` pins each
+  module's flag to its old route's entry in `stepUpExact`, so the two lists cannot drift. `api.WithStepUp` is the one place a request's step-up status is set.
+- **Agents.** `models.AgentsConfig` (settings.yml `agents:`, its own `storage` view like `netaudit:`) holds `activity_off` and `secrets_pass_off`; both parts
+  always ran, so an absent field keeps them on. `agentwatch.Deps.ActivityOn` is read on every `Observe` and `SecretsPassOn` on every pass. Both modules
+  need the passphrase to switch (switching one off silences a security record). Lock down is the stack's action: listed on the stack, never a module,
+  and still served by `/admin/api/lockdown`.
+- **UI.** `components/stacks/` (`StackModules`, `ModuleTile`, `StackTabs`, `ModuleSwitchNote`), `composables/stacks/useStack.ts`, `utils/stacks/modules.ts`
+  (the one status line). `ModuleSwitchNote` is what a detail card shows where its switch was.
+
 ## Detection and prevention additions (as built 2026-11-04, v0.46.0; plan `network-detection-prevention-next`)
 
 - **Watch the watchers** (`core/netaudit/monitorwatch.go`, readings in `app/netaudit_monitor.go`). `MonitorWatch` reads each part every

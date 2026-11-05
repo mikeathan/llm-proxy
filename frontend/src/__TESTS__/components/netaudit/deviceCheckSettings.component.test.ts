@@ -3,8 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
-  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
-  followUpScan: vi.fn(), setFollowUpScan: vi.fn(),
+  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), deviceNames: vi.fn(), followUpScan: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
@@ -30,14 +29,13 @@ describe('DeviceCheckSettings', () => {
     useNetauditViewMode().set('simple')
   })
 
-  it('turns the new-device check on and off', async () => {
+  it('has no switch of its own: each part says whether it is on and points to the Modules tab', async () => {
     service.presence.mockResolvedValue(presence({ enabled: false }))
-    service.setPresence.mockResolvedValue(presence({ enabled: true }))
     const w = await mountSettings()
+    expect(w.find('[role="switch"]').exists()).toBe(false)
     expect(w.get('[data-test="presence-line"]').text()).toBe('Off.')
-    await w.get('[aria-label="New-device check"] [role="switch"]').setValue(true)
-    await flushPromises()
-    expect(service.setPresence).toHaveBeenCalledWith({ enabled: true, interval_minutes: 10 })
+    const states = w.findAll('[data-test="module-switch-state"]').map((n) => n.text().split('.')[0])
+    expect(states).toEqual(['Switched off', 'Switched off', 'Switched on', 'Switched off'])
   })
 
   it('offers how often the check looks in Advanced only, and only while it is on', async () => {
@@ -48,22 +46,13 @@ describe('DeviceCheckSettings', () => {
     expect(w.find('select[aria-label="How often to look"]').exists()).toBe(true)
   })
 
-  it('offers the scan on arrival off by default and switches it on with one tap', async () => {
-    service.setFollowUpScan.mockResolvedValue({ enabled: true })
+  it('changes how often the check looks, keeping the check on', async () => {
+    useNetauditViewMode().set('advanced')
+    service.setPresence.mockResolvedValue(presence({ interval_minutes: 30 }))
     const w = await mountSettings()
-    const toggle = w.get('[data-test="follow-up-scan"] [role="switch"]')
-    expect((toggle.element as HTMLInputElement).checked).toBe(false)
-    await toggle.setValue(true)
+    await w.get('select[aria-label="How often to look"]').setValue('30')
     await flushPromises()
-    expect(service.setFollowUpScan).toHaveBeenCalledWith(true)
-  })
-
-  it('switches IPv6 discovery on with one tap', async () => {
-    service.setIpv6Discovery.mockResolvedValue({ enabled: true })
-    const w = await mountSettings()
-    await w.get('[data-test="ipv6-discovery"] [role="switch"]').setValue(true)
-    await flushPromises()
-    expect(service.setIpv6Discovery).toHaveBeenCalledWith(true)
+    expect(service.setPresence).toHaveBeenCalledWith({ enabled: true, interval_minutes: 30 })
   })
 
   it('says in plain words what to change when the computer refuses, and shows the exact command', async () => {
@@ -81,24 +70,10 @@ describe('DeviceCheckSettings', () => {
     expect(w.find('[data-test="ipv6-problem"]').exists()).toBe(false)
   })
 
-  describe('the switch for asking devices their names', () => {
-    it('shows the setting as the server has it and saves a change at once', async () => {
-      service.setDeviceNames.mockResolvedValue({ enabled: false })
-      const w = await mountSettings()
-      const toggle = w.get('[data-test="device-names"] [role="switch"]')
-      expect((toggle.element as HTMLInputElement).checked).toBe(true)
-      await toggle.setValue(false)
-      await flushPromises()
-      expect(service.setDeviceNames).toHaveBeenCalledWith(false)
-    })
-
-    it('says why it could not be saved', async () => {
-      service.setDeviceNames.mockRejectedValue(new Error('disk full'))
-      const w = await mountSettings()
-      await w.get('[data-test="device-names"] [role="switch"]').setValue(false)
-      await flushPromises()
-      expect(w.get('[data-test="device-names"] [role="alert"]').text()).toContain('disk full')
-    })
+  it('says why the device names setting could not be read', async () => {
+    service.deviceNames.mockRejectedValue(new Error('disk full'))
+    const w = await mountSettings()
+    expect(w.get('[data-test="device-names"] [role="alert"]').text()).toContain('disk full')
   })
 
   it('shows what failed when nothing can be read', async () => {

@@ -47,6 +47,11 @@ the stack's path, and no overview page exists until there are several stacks (Ne
   truth during it.
 - **One flat list without stacks** — does not fit the stack platform the owner described; the second stack (Agents) is needed now.
 
+## As built
+Built in v0.48.0 (P1): `internal/core/stack`, `internal/app/stacks.go`, `internal/transport/http/handlers/stacks_handlers.go`, the Stacks navigation group and each
+stack's Modules tab. Eleven Network switches exist, not the twelve first counted. Agent activity and the secrets pass can be switched off (an "off" flag, so existing
+installs keep them on) and need the passphrase. Details: `docs/architecture/network-audit.md` → Stacks and modules.
+
 ## Links
 - Plan [`stack-modules-and-new-detection.md`](../PLANS/cross-cutting/stack-modules-and-new-detection.md) (it links the owner's mock-up).
 - Amends [ADR-0022](ADR-0022-modules-is-the-navigation-group-for-feature-areas.md).

@@ -110,12 +110,13 @@ for (const theme of Object.keys(SCHEMES) as (keyof typeof SCHEMES)[]) {
   })
 }
 
-test('the Nearby switch lives on the Settings tab and says what it sends', async ({ page }) => {
+test('the Nearby card on the Settings tab says what it sends and has no switch', async ({ page }) => {
   await storeTheme(page, 'retro-dark')
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/nearby': STATES.off } })
   await page.goto('network/settings')
   const card = page.locator('[data-test="nearby-card"]')
-  await expect(card.getByRole('switch', { name: 'Ask the network what each device is' })).toBeVisible()
+  await expect(card.locator('[data-test="module-switch-state"]')).toBeVisible()
+  await expect(card.getByRole('switch')).toHaveCount(0)
   await card.getByRole('button', { name: 'More about this' }).click()
   await expect(card.locator('[data-test="toggle-details-text"]')).toContainText('asks for your passphrase')
   await expectNoSidewaysScroll(page)

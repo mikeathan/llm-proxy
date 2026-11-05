@@ -29,7 +29,8 @@ for (const view of ['simple', 'advanced'] as const) {
     test(`internet view card, ${name} (${view}), fits the screen`, async ({ page }, testInfo) => {
       await open(page, view, STATES[name])
       const card = page.locator('[data-test="outside-lookup"]')
-      await expect(card.getByRole('switch', { name: 'Check what the internet can reach' })).toBeVisible()
+      await expect(card.locator('[data-test="module-switch-state"]')).toBeVisible()
+      await expect(card.getByRole('switch')).toHaveCount(0)
       const status = card.locator('[data-test="outside-lookup-status"]')
       if (name === 'off') await expect(status).toHaveCount(0)
       else await expect(status).toBeVisible()

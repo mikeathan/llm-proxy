@@ -26,6 +26,7 @@ import (
 	"llm-proxy/internal/core/netaudit/ubuntuoval"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/hostwatch"
 	"llm-proxy/internal/platform/logging"
@@ -100,6 +101,8 @@ type netauditServices struct {
 	// CheckIn sends the daily "still running" note while CheckInConfig has it switched on.
 	CheckIn       *netaudit.CheckIn
 	CheckInConfig *netaudit.CheckInConfig
+	// Stacks describes every switchable capability as a module of a stack; its switches are adapters over the settings above.
+	Stacks *stack.Registry
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
 	// Ports keeps the ports each scanned device had open at its last scan, for the audit's counts and the Devices card.
@@ -511,12 +514,22 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Notify:  s.sendToConnectors,
 		OnError: func(err error) { logging.Warn("network daily check-in", "error", err.Error()) },
 	})
+	agents := dataMgr.Agents()
 	s.netaudit.AgentWatch = agentwatch.New(agentwatch.Deps{
-		Store:      withReset(s.AppCtx, "The agent security record", persistence.NewAgentWatchStore(s.AppCtx.RootDir())),
-		Notify:     s.alertNotifier(alerts.Log, models.NetworkAlertAgent),
-		OnError:    func(err error) { logging.Warn("agent watch", "error", err.Error()) },
-		Workspaces: s.workspaceDirs,
+		Store:         withReset(s.AppCtx, "The agent security record", persistence.NewAgentWatchStore(s.AppCtx.RootDir())),
+		Notify:        s.alertNotifier(alerts.Log, models.NetworkAlertAgent),
+		OnError:       func(err error) { logging.Warn("agent watch", "error", err.Error()) },
+		Workspaces:    s.workspaceDirs,
+		ActivityOn:    agentActivitySwitch(agents).Enabled,
+		SecretsPassOn: secretsPassSwitch(agents).Enabled,
 	})
+
+	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
+	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Guard: guard})
+	if err != nil {
+		panic(err)
+	}
+	s.netaudit.Stacks = registry
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))
