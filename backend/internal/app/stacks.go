@@ -61,7 +61,7 @@ func stackDefinitions() []stack.Stack {
 	}
 }
 
-// networkModules are the fourteen switches of the Network module, each over the config type that already owned it.
+// networkModules are the fifteen switches of the Network module, each over the config type that already owned it.
 func networkModules(d stackDeps) []stack.Module {
 	n, guard := d.Network, d.Guard
 	lan := func() (bool, string) { return networkReady(guard(), true, false) }
@@ -82,6 +82,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Switch: withPoke(n.DecoyConfig, func() { n.Decoys.Poke() }), Monitors: []string{netaudit.MonitorDecoys}},
 		{ID: "phone_home", Title: "Phone-home watch", Purpose: "Where each device calls out to.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig},
+		{ID: "known_bad", Title: "Known-bad names", Purpose: "Warns when a device asks for a host that serves malware.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
+			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Needs: []string{"presence"}, Switch: n.FollowUpConfig},
 		{ID: "web_checks", Title: "Web checks, nightly", Purpose: "Reviewed checks of every web page the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,

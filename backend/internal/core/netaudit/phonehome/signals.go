@@ -18,6 +18,8 @@ const (
 	Beaconing Kind = "beaconing"
 	// AroundDNS is a device that is online and asks the router for nothing: it uses a resolver of its own.
 	AroundDNS Kind = "around_dns"
+	// KnownBadName is a name a device asked for lately that is on the list of hosts known to serve malware.
+	KnownBadName Kind = "known_bad"
 )
 
 // Signal is one thing worth a look. Names are plain DNS names (vetted by the parser) and are empty for AroundDNS.
@@ -133,4 +135,49 @@ func silent(state models.PhoneHome, devices []InventoryDevice, now time.Time) []
 		out = append(out, Signal{Kind: AroundDNS, MAC: d.MAC})
 	}
 	return out
+}
+
+// KnownBad finds, for each device, the names it asked for within the last NewFor that match is true for (name -> the listed name and
+// true). It judges every name whatever the device's age: a malware host is bad in the learning week too. It reads the names and changes
+// nothing.
+func KnownBad(state models.PhoneHome, match func(string) (string, bool), now time.Time) []Signal {
+	if match == nil {
+		return nil
+	}
+	var out []Signal
+	for _, d := range state.Devices {
+		var bad []string
+		for _, n := range d.Names {
+			if _, ok := match(n.Name); ok && now.Sub(n.Last) <= NewFor {
+				bad = append(bad, n.Name)
+			}
+		}
+		if len(bad) > 0 {
+			slices.Sort(bad)
+			out = append(out, Signal{Kind: KnownBadName, MAC: d.MAC, Names: bad})
+		}
+	}
+	return out
+}
+
+// WithKnownBad adds the known-bad signals to the others and takes the names they hold out of the new-place and beaconing signals of the
+// same device, so one name that is both new and on the malware list is one signal, the more serious.
+func WithKnownBad(signals, bad []Signal) []Signal {
+	listed := map[string]bool{}
+	for _, b := range bad {
+		for _, n := range b.Names {
+			listed[b.MAC+"|"+n] = true
+		}
+	}
+	var out []Signal
+	for _, s := range signals {
+		if s.Kind == NewPlace || s.Kind == Beaconing {
+			s.Names = slices.DeleteFunc(slices.Clone(s.Names), func(n string) bool { return listed[s.MAC+"|"+n] })
+			if len(s.Names) == 0 {
+				continue
+			}
+		}
+		out = append(out, s)
+	}
+	return append(out, bad...)
 }

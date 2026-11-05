@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/knownbad"
 	"llm-proxy/internal/core/netaudit/nuclei"
 	"llm-proxy/internal/core/stack"
 	api "llm-proxy/internal/transport/http"
@@ -58,6 +59,8 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
 		PhoneHomeConfig:     netaudit.NewPhoneHomeConfig(store),
 		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
+		KnownBadConfig:      netaudit.NewKnownBadConfig(store),
+		KnownBadList:        &knownBadList{manager: mustKnownBadManager()},
 		WebChecker:          nuclei.NewChecker(nil, "/nonexistent-web-templates"),
 	}
 }
@@ -89,7 +92,7 @@ func newTestStacks(t *testing.T) *testStackDeps {
 func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	want := map[string]string{
 		"presence": "discover", "ipv6_discovery": "discover", "device_names": "discover", "nearby": "discover",
-		"router_log": "listen", "phone_home": "listen", "decoys": "listen",
+		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen",
 		"scan_on_arrival": "test", "web_checks": "test",
 		"outside_lookup": "outside", "dns_check": "outside",
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
@@ -146,7 +149,7 @@ var legacyPaths = map[string]string{
 
 // modulesWithNoOldRoute are the modules that never had a switch route of their own, and whether each needs the passphrase. Only a
 // module that probes the network or opens a socket does.
-var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "web_checks": true}
+var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	steps := api.StepUpRoutes()
@@ -185,6 +188,7 @@ func TestStackRegistry_AModuleSitsOnTheSwitchItAlwaysHad(t *testing.T) {
 		"daily_check_in":  func() bool { return d.store.cfg.DailyCheckIn },
 		"attack_paths":    func() bool { return !d.store.cfg.AttackPathsOff },
 		"phone_home":      func() bool { return d.store.cfg.PhoneHomeEnabled },
+		"known_bad":       func() bool { return d.store.cfg.KnownBadEnabled },
 		"web_checks":      func() bool { return d.store.cfg.WebChecksEnabled },
 	} {
 		m, _ := d.reg.Module(stack.Network, id)
@@ -352,5 +356,24 @@ func TestStackRegistry_ThePhoneHomeWatchNeedsTheRouterLog(t *testing.T) {
 	d.store.cfg.RouterLogEnabled = true
 	if _, err := d.reg.Switch(stack.Network, "phone_home", true); err != nil {
 		t.Fatalf("with the router log on: %v", err)
+	}
+}
+
+type emptyKnownBadStore struct{}
+
+func (emptyKnownBadStore) Read() (models.KnownBad, error) { return models.KnownBad{}, nil }
+func (emptyKnownBadStore) Write(models.KnownBad) error    { return nil }
+
+func mustKnownBadManager() *knownbad.Manager {
+	m, _ := knownbad.NewManager(knownbad.Deps{Store: emptyKnownBadStore{}, Address: func() string { return "" }})
+	return m
+}
+
+func TestStackRegistry_TheKnownBadComparisonNeedsThePhoneHomeWatch(t *testing.T) {
+	d := newTestStacks(t)
+	_, err := d.reg.Switch(stack.Network, "known_bad", true)
+	var ne *stack.NeedError
+	if !errors.As(err, &ne) || ne.Need != "Phone-home watch" {
+		t.Fatalf("err = %v, want a refusal naming the Phone-home watch", err)
 	}
 }

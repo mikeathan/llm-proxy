@@ -682,6 +682,16 @@ export interface NetworkOverview {
   attack_paths_on?: boolean
 }
 
+/** The list of malware host names (abuse.ch URLhaus): how many are held, when, whether an address is saved (never the address), and whether the comparison can work. */
+export interface KnownBadState {
+  count: number
+  loaded_at?: string
+  has_address: boolean
+  ready: boolean
+  /** In plain words, why it cannot work yet (no address saved, list not downloaded). */
+  reason?: string
+}
+
 /** The reviewed templates of the web checks: how many are on disk with the reviewed checksum, and whether the checks can run. */
 export interface WebTemplatesState {
   present: number

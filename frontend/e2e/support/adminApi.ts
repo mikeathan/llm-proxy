@@ -12,6 +12,7 @@ const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 
 const IPV6_DISCOVERY = { enabled: false }
 const OUTSIDE_LOOKUP = { enabled: false, url: 'https://internetdb.shodan.io', default_url: 'https://internetdb.shodan.io', last: { at: '0001-01-01T00:00:00Z', ports: 0 } }
 const WEB_TEMPLATES = { present: 0, total: 24, tag: 'v10.5.1', ready: false, reason: 'nuclei is not installed' }
+const KNOWN_BAD = { count: 0, has_address: false, ready: false, reason: 'no list address is saved yet' }
 const NEARBY = { enabled: false, running: false, devices: [] }
 const UBUNTU_DATA = { supported: true, host_release: 'noble', running: false, notices: 0, packages: 0 }
 const NEVER = '0001-01-01T00:00:00Z'
@@ -36,6 +37,7 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/netaudit/dns-check': DNS_CHECK,
   '/netaudit/nearby': NEARBY,
   '/netaudit/web-templates': WEB_TEMPLATES,
+  '/netaudit/known-bad': KNOWN_BAD,
   '/netaudit/ubuntu-data': UBUNTU_DATA,
 }
 

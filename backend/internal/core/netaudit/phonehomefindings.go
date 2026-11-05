@@ -18,6 +18,7 @@ const (
 	CheckPhoneHomeNewPlace  = "phone_home_new_place"
 	CheckPhoneHomeBeaconing = "phone_home_beaconing"
 	CheckPhoneHomeAroundDNS = "phone_home_around_dns"
+	CheckPhoneHomeKnownBad  = "phone_home_known_bad"
 )
 
 // maxPhoneHomeNames is how many names a finding lists; the rest are counted.
@@ -27,6 +28,7 @@ func init() {
 	checkTitles[CheckPhoneHomeNewPlace] = "A device asked for a name it had not asked for before"
 	checkTitles[CheckPhoneHomeBeaconing] = "A device keeps asking for a new name at a steady beat"
 	checkTitles[CheckPhoneHomeAroundDNS] = "A device does not use the router's DNS"
+	checkTitles[CheckPhoneHomeKnownBad] = "A device asked for a name on a malware list"
 	remediations[CheckPhoneHomeNewPlace] = "Look at the name. If you do not know it, find out which program or device uses it (a vendor's update or cloud service is usual). If it is yours, accept this finding. A name in the router's log can be made up by any device on the network, so treat it as a hint."
 	remediations[CheckPhoneHomeBeaconing] = "A program that asks for the same new name every few minutes may be checking in with a server. Find out which one it is on that device. If it is a service you use, accept this finding. A name in the router's log can be made up by any device on the network, so treat it as a hint."
 	guides[CheckPhoneHomeNewPlace] = phoneHomeGuide("Find out what uses the name.", "Look the name up with a search engine, or ask the device's maker. A vendor's update or cloud service is the usual answer.")
@@ -38,6 +40,16 @@ func init() {
 		},
 		Risk: "Changing a device's DNS settings can stop it reaching some services until it is set back.",
 		Undo: "Put the DNS server back the way it was, or accept this finding to say it is meant to be this way.",
+	}
+	remediations[CheckPhoneHomeKnownBad] = "The name is on abuse.ch's list of hosts that serve malware. Find out which program or device on that address asked for it: a browser tab or an app on a phone or computer is the usual source. Scan that device for malware, remove what you do not know, and change the passwords of accounts used on it. A name in the router's log can be made up by any device on the network, so treat it as a strong hint, not proof."
+	guides[CheckPhoneHomeKnownBad] = FixGuide{
+		Steps: []string{
+			"Find the device at the address the finding names, and what was in use on it when the name was asked for.",
+			"Run a malware scan on it, or check its apps and browser add-ons for ones you do not know, and remove them.",
+			"Change the passwords of accounts that were used on that device, starting with email.",
+		},
+		Risk: "Removing a program can stop something you use. Treat a hit as a strong hint: the list is of hosts that serve malware, and a name can also be asked for by a harmless page that links to one.",
+		Undo: "Reinstall what you removed, or accept this finding to say it is understood.",
 	}
 	remediations[CheckPhoneHomeAroundDNS] = "Some devices, such as Chromecasts, use a DNS server of their own on purpose; if this is one, accept this finding. Otherwise look in the device's network settings for a DNS server it was told to use."
 }
@@ -80,6 +92,8 @@ func phoneHomeFinding(s phonehome.Signal, ip string) Finding {
 		f.Check, f.Evidence, f.Version = CheckPhoneHomeNewPlace, "Asked for a name it did not ask for in its first week: "+listNames(s.Names), namesDigest(s.Names)
 	case phonehome.Beaconing:
 		f.Check, f.Severity, f.Evidence, f.Version = CheckPhoneHomeBeaconing, SeverityMedium, "Asks for a new name at a steady beat: "+listNames(s.Names), namesDigest(s.Names)
+	case phonehome.KnownBadName:
+		f.Check, f.Severity, f.Evidence, f.Version = CheckPhoneHomeKnownBad, SeverityHigh, "Asked for a name on abuse.ch's list of hosts that serve malware: "+listNames(s.Names), namesDigest(s.Names)
 	default:
 		f.Check, f.Evidence = CheckPhoneHomeAroundDNS, "Online for a day and has not asked the router's DNS for anything, so it uses a resolver of its own."
 	}
