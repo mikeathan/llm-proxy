@@ -54,6 +54,7 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		DNSCheckConfig:      netaudit.NewDNSCheckConfig(store),
 		Summary:             netaudit.NewSummaryConfig(store),
 		CheckInConfig:       netaudit.NewCheckInConfig(store),
+		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
 	}
 }
 
@@ -87,7 +88,7 @@ func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 		"router_log": "listen", "decoys": "listen",
 		"scan_on_arrival": "test",
 		"outside_lookup":  "outside", "dns_check": "outside",
-		"weekly_summary": "tell", "daily_check_in": "tell",
+		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
 	}
 	got := map[string]string{}
 	for _, m := range newTestStacks(t).reg.Modules() {
@@ -139,10 +140,19 @@ var legacyPaths = map[string]string{
 	"daily_check_in": "/admin/api/netaudit/daily-check-in",
 }
 
+// modulesWithNoOldRoute are the modules that never had a switch route of their own.
+var modulesWithNoOldRoute = map[string]bool{"attack_paths": true}
+
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	steps := api.StepUpRoutes()
 	for _, m := range newTestStacks(t).reg.Modules() {
 		if m.Stack != stack.Network {
+			continue
+		}
+		if modulesWithNoOldRoute[m.ID] {
+			if m.StepUp {
+				t.Errorf("module %s sends nothing and opens nothing, so it must not need the passphrase", m.ID)
+			}
 			continue
 		}
 		path, ok := legacyPaths[m.ID]
@@ -168,6 +178,7 @@ func TestStackRegistry_AModuleSitsOnTheSwitchItAlwaysHad(t *testing.T) {
 		"dns_check":       func() bool { return d.store.cfg.DNSCheckEnabled },
 		"weekly_summary":  func() bool { return d.store.cfg.WeeklySummary },
 		"daily_check_in":  func() bool { return d.store.cfg.DailyCheckIn },
+		"attack_paths":    func() bool { return !d.store.cfg.AttackPathsOff },
 	} {
 		m, _ := d.reg.Module(stack.Network, id)
 		want := !read()

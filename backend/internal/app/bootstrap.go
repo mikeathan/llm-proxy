@@ -88,6 +88,9 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}
 	withNetauditChecks(reporter, svc)
 	withNetauditProbes(reporter, svc)
+	if v, ok := svc.(interface{ NetauditAttackPaths() func() bool }); ok && v.NetauditAttackPaths() != nil {
+		reporter.WithAttackPaths(v.NetauditAttackPaths())
+	}
 	if v, ok := svc.(interface{ NetauditMonitors() netaudit.MonitorStalls }); ok && v.NetauditMonitors() != nil {
 		reporter.WithMonitors(v.NetauditMonitors())
 	}

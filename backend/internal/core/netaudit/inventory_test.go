@@ -571,3 +571,23 @@ func TestPending_APrivateDeviceThatLeftBeforeTheHoldIsNeverTold(t *testing.T) {
 		t.Errorf("a phone that came and went inside the hold is not worth a message: %+v", p)
 	}
 }
+
+func TestInventory_SetImportantMarksAndUnmarksADeviceAndKeepsItApproved(t *testing.T) {
+	st := &memInventory{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20", Approved: false}}}}
+	v := newInventory(fakeSource{}, st)
+	if err := v.SetImportant(macTV, true); err != nil {
+		t.Fatal(err)
+	}
+	if d := find(st.inv, macTV); !d.Important || d.Approved {
+		t.Fatalf("device = %+v; marking a device important must not approve it", d)
+	}
+	if err := v.SetImportant(macTV, false); err != nil || find(st.inv, macTV).Important {
+		t.Fatalf("unmark: err = %v, device = %+v", err, find(st.inv, macTV))
+	}
+	if err := v.SetImportant("not a mac", true); !errors.Is(err, ErrBadMAC) {
+		t.Errorf("a bad address = %v, want ErrBadMAC", err)
+	}
+	if err := v.SetImportant(macOther, true); !errors.Is(err, ErrNoSuchDevice) {
+		t.Errorf("an unknown device = %v, want ErrNoSuchDevice", err)
+	}
+}

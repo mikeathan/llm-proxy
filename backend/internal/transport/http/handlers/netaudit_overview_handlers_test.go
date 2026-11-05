@@ -86,3 +86,30 @@ func TestOverviewHandler_AReadFailureIsAServerError(t *testing.T) {
 		t.Errorf("status %d", rec.Code)
 	}
 }
+
+type fakeTouches2 struct{ list []models.DecoyTouch }
+
+func (f fakeTouches2) Read() ([]models.DecoyTouch, error) { return f.list, nil }
+
+func TestOverviewHandler_ListsAttackPathsWhileTheModuleIsOn(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Gateway: "192.168.1.1"}}
+	bases := &fakeBaselines{b: models.ScanBaseline{ScannedAt: now, Findings: []models.ScanFinding{{Device: netaudit.HostDevice, Check: netaudit.CheckHostSSHPasswordLogin, Severity: netaudit.SeverityLow}}}}
+	on := true
+	h := overviewHandlers(devices, &fakeSeries{}, bases).WithAttackPaths(func() bool { return on }, fakeTouches2{list: []models.DecoyTouch{{Source: "192.168.1.77", Port: 2222, Count: 1}}})
+	read := func() netaudit.Overview {
+		var got netaudit.Overview
+		if err := json.Unmarshal(getOverview(h, "?workspace_id=ws&automation=nightly").Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	got := read()
+	if len(got.AttackPaths) != 1 || !got.AttackPaths[0].Entry.Probing {
+		t.Fatalf("paths = %+v, want one, entered by a device that touched a decoy", got.AttackPaths)
+	}
+	on = false
+	if got := read(); len(got.AttackPaths) != 0 {
+		t.Fatalf("paths = %+v while the module is off", got.AttackPaths)
+	}
+}

@@ -13,6 +13,12 @@ supersedes:
 
 ## Changelog
 
+- **2.34 (2026-11-05)** — **Attack paths (v0.48.0, plan `stack-modules-and-new-detection` P2).** Network → Overview gains **Ways in that matter**: at most three
+  paths, each read top to bottom (where it starts, the weaknesses on it with their ports, what it ends at, the one fix and, when it breaks more than its own path, how
+  many), built from the last audit's real findings by fixed rules; a path of accepted findings stays, dimmer and marked "accepted". No path comes from an open port alone;
+  the ends are this computer, the router and any device marked important. A device row's open details gain **Mark as important** / **Not important** (it approves
+  nothing). With no path the card says so. The nightly report gets the same section in fixed words. A new module, **Attack paths** (Understand layer, sends nothing,
+  on by default), is switched on the Modules tab.
 - **2.33 (2026-11-05)** — **Stacks and modules (v0.48.0, ADR-0028, plan `stack-modules-and-new-detection` P1).** The navigation group
   **Modules** is renamed **Stacks** and holds **Network** and a new **Agents** page (`/agents`, tabs Activity and Modules). Each stack's
   **Modules** tab (`/network/modules`, `/agents/modules`) is the one place its modules are switched: layers are drawn top to bottom (numbered from

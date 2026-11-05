@@ -103,6 +103,8 @@ type netauditServices struct {
 	CheckInConfig *netaudit.CheckInConfig
 	// Stacks describes every switchable capability as a module of a stack; its switches are adapters over the settings above.
 	Stacks *stack.Registry
+	// AttackPathsConfig is the switch for the attack paths, which are on unless switched off.
+	AttackPathsConfig *netaudit.AttackPathsConfig
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
 	Discovery6 *netaudit.Discovery6Config
 	// Ports keeps the ports each scanned device had open at its last scan, for the audit's counts and the Devices card.
@@ -283,6 +285,14 @@ func (s AppServices) NetauditDecoys() netaudit.DecoyReader {
 		return nil
 	}
 	return s.netaudit.DecoyStore
+}
+
+// NetauditAttackPaths is whether the report adds the attack paths; nil until the services are wired.
+func (s AppServices) NetauditAttackPaths() func() bool {
+	if s.netaudit == nil || s.netaudit.AttackPathsConfig == nil {
+		return nil
+	}
+	return s.netaudit.AttackPathsConfig.Enabled
 }
 
 // StartNetauditPresence runs the Network module's background work until ctx ends: the presence check, the router log listener
@@ -467,16 +477,17 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Vulns:     scan.Vulns,
 		Ubuntu:    ubuntu,
 
-		Inventory:   known.Inventory,
-		Identities:  known.Identities,
-		History:     known.History,
-		Names:       known.Names,
-		NamesConfig: known.NamesConfig,
-		Summary:     known.Summary,
-		Discovery6:  known.Discovery6,
-		Ports:       known.Ports,
-		Host:        known.Host,
-		Router:      newRouterCheck(netTools, known.Inventory, scope).WithExposure(outside.Exposure),
+		Inventory:         known.Inventory,
+		Identities:        known.Identities,
+		History:           known.History,
+		Names:             known.Names,
+		NamesConfig:       known.NamesConfig,
+		Summary:           known.Summary,
+		Discovery6:        known.Discovery6,
+		AttackPathsConfig: netaudit.NewAttackPathsConfig(store),
+		Ports:             known.Ports,
+		Host:              known.Host,
+		Router:            newRouterCheck(netTools, known.Inventory, scope).WithExposure(outside.Exposure),
 
 		OutsideLookupConfig: outside.Config,
 		Exposure:            outside.Exposure,

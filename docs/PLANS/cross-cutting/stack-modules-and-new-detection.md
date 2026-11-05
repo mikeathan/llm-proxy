@@ -9,7 +9,7 @@ evidence: Investigation of origin/main 4b76bacc (v0.47.1) on 2026-11-05; the own
 
 # The stack: modules you switch on and off, attack paths, a phone-home watch and web checks
 
-**Status:** approved (2026-11-05); **P1 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`), P2 to P4 not yet. The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
+**Status:** approved (2026-11-05); **P1 and P2 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`), P3 and P4 not yet. The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
 modular … think of the UI as well", noting the service may be renamed to something like OneStack, "a stack platform". Owner decisions:
 **D1** the stack's Modules tab owns every module's switch (Network → Settings keeps only the details); **D2** nuclei runs in the deep check, with a
 nightly switch that is off by default; **D3** the rename is a later PR of its own, so new code uses neutral names (`stack`, `module`) and
@@ -152,8 +152,16 @@ Agents parts, which send to the operator's connectors and not to "the internet";
 a module whose Guardrails are off is shown **blocked** and can still be switched (Nearby always could); the Agents modules need the passphrase to switch. The layers Understand
 (P2) and the phone-home watch (P3) and web checks (P4) modules are not registered yet: a layer with no module is not drawn.
 
+## P2 as built (v0.48.0)
+
+`core/netaudit/attackpaths.go`, the Overview card and the report section, the `attack_paths` module (Understand layer), and a new operator mark, `NetworkDevice.Important`, because
+the plan's "devices marked important" had no source (nothing in the inventory marked a device). Details: `docs/architecture/network-audit.md` → Attack paths. Checked against
+vertex's real findings of 2026-11-05 (read-only, not committed): one path, SSH accepts passwords on this computer, reached from any device on the network. The plan expected an SMB
+path too; vertex's SMB entries are `known_vulns` with no flaw known to be exploited, which the rule deliberately leaves out (a possible match is not a way in), and its other
+devices are not marked important.
+
 ## Remaining Work
 
-- P2 attack paths, P3 phone-home watch, P4 nuclei (see §5).
+- P3 phone-home watch, P4 nuclei (see §5).
 - Owner: approve the two §4 texts and, for P4, the template list.
 - Measure the DNS line rate on vertex (P3 bounds); install nuclei on vertex (P4 readiness).

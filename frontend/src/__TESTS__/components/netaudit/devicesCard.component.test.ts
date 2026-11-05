@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import type { DeviceInventory, NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
-  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), approveDevice: vi.fn(), dismissSuggestion: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
+  devices: vi.fn(), presence: vi.fn(), setPresence: vi.fn(), ipv6Discovery: vi.fn(), setIpv6Discovery: vi.fn(), nameDevice: vi.fn(), markImportant: vi.fn(), approveDevice: vi.fn(), dismissSuggestion: vi.fn(), forgetDevice: vi.fn(), confirmGateway: vi.fn(), deviceNames: vi.fn(), setDeviceNames: vi.fn(),
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const confirm = vi.hoisted(() => vi.fn())
@@ -55,6 +55,19 @@ describe('DevicesCard', () => {
   afterEach(() => vi.useRealTimers())
 
   describe('the list', () => {
+    it('marks a device important from its open row without approving it, and says so once it is', async () => {
+      service.markImportant.mockResolvedValue(inventory({ devices: [device({ mac: MAC_NEW, ip: '192.168.1.77', approved: false, new: true, important: true })] }))
+      const w = await mountCard()
+      const r = await open(w, MAC_NEW)
+      await press(r, 'Mark as important')
+      await flushPromises()
+      expect(service.markImportant).toHaveBeenCalledWith(MAC_NEW, true)
+      expect(service.approveDevice).not.toHaveBeenCalled()
+      expect(row(w, MAC_NEW).get('[data-test="device-important"]').text()).toBe('Marked as important.')
+      expect(row(w, MAC_NEW).get('[data-test="device-important-toggle"]').text()).toBe('Not important')
+      w.unmount()
+    })
+
     it('shows the maker of the card in the open row, and calls an unnamed device by it', async () => {
       service.devices.mockResolvedValue(inventory({ devices: [device({ mac: MAC_NEW, ip: '192.168.1.77', approved: false, new: true, vendor: 'Espressif Inc.' })] }))
       const w = await mountCard()

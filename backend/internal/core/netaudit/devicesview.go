@@ -23,6 +23,7 @@ type DeviceView struct {
 	FirstSeen     time.Time `json:"first_seen"`
 	LastSeen      time.Time `json:"last_seen"`
 	Approved      bool      `json:"approved"`
+	Important     bool      `json:"important,omitempty"`
 	Randomized    bool      `json:"randomized"`
 	// New is true while the device is unapproved and was seen lately: the same test that makes it a finding.
 	New bool `json:"new"`
@@ -59,7 +60,7 @@ func ViewOf(inv models.DeviceInventory, now time.Time) InventoryView {
 	for _, d := range inv.Devices {
 		view.Devices = append(view.Devices, DeviceView{
 			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
-			Approved: d.Approved, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: oui.Vendor(d.MAC),
+			Approved: d.Approved, Important: d.Important, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: oui.Vendor(d.MAC),
 		})
 	}
 	slices.SortStableFunc(view.Devices, func(a, b DeviceView) int {

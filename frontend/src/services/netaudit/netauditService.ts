@@ -154,6 +154,11 @@ export class NetauditService {
     return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { approved: true })
   }
 
+  /** Marks a device as important, or clears the mark. It approves nothing. Answers with the new list. */
+  static markImportant(mac: string, important: boolean): Promise<DeviceInventory> {
+    return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { important })
+  }
+
   static forgetDevice(mac: string): Promise<DeviceInventory> {
     return del<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`)
   }

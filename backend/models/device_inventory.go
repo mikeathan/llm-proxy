@@ -43,6 +43,8 @@ type NetworkDevice struct {
 	LastSeen  time.Time `json:"last_seen"`
 	// Approved means the operator (or the first baseline) vouches for the device.
 	Approved bool `json:"approved"`
+	// Important means the operator marked it as one they care most about; the attack paths treat it as a prize.
+	Important bool `json:"important,omitempty"`
 	// Alerted means the operator has already been told this device is new.
 	Alerted bool `json:"alerted,omitempty"`
 	// Randomized is true for a locally administered MAC, which phones and laptops use to hide their hardware address.

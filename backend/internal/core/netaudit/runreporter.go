@@ -36,6 +36,7 @@ type RunReporter struct {
 	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
 	ports   PortRecorder     // optional: the ports each device had open at its last scan
 	own     OwnModelServer   // optional: which address and port is this program's own model server
+	paths   func() bool      // optional: whether the attack paths section is added to the report
 	histErr func(error)
 	now     func() time.Time
 }
@@ -98,6 +99,28 @@ func (r *RunReporter) WithPorts(p PortRecorder) *RunReporter {
 func (r *RunReporter) WithDecoys(d DecoyReader) *RunReporter {
 	r.decoys = d
 	return r
+}
+
+// WithAttackPaths makes the reporter add the attack paths to the report while enabled returns true. Without it nothing is added.
+func (r *RunReporter) WithAttackPaths(enabled func() bool) *RunReporter {
+	r.paths = enabled
+	return r
+}
+
+// attackPathsNote is the report's attack paths section, or nothing while the module is off or no path exists.
+func (r *RunReporter) attackPathsNote(shown shownScan, inv models.DeviceInventory) string {
+	if r.paths == nil || !r.paths() {
+		return ""
+	}
+	var touches []models.DecoyTouch
+	if r.decoys != nil {
+		touches, _ = r.decoys.Read() // unreadable touches only mean the entry is not called "already probing"
+	}
+	text := PathsText(AttackPaths(PathInput{Visible: shown.result.Findings, Accepted: shown.accepted, Inventory: inv, Touches: touches}))
+	if text == "" {
+		return ""
+	}
+	return "\n\n" + text
 }
 
 // HostLooker compares this computer's open ports and the files that survive a reboot with the first look: *HostWatcher.
@@ -199,7 +222,8 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	cov := r.addKnownVulns(ctx, &result)
 	result.Findings = append(result.Findings, EndOfLifeFindings(result.Hosts, r.now())...)
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
-	inventoryNote, devices := r.addInventory(ctx, &result)
+	inventoryNote, inventory := r.addInventory(ctx, &result)
+	devices := inventory.Devices
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
 	services := r.addServices(ctx, &result)
 	hostNote, hostChecked := r.addHost(ctx, &result)
@@ -223,7 +247,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	if readErr != nil {
 		observed += "\n\n> Note: the previous scan result could not be read, so no comparison was made."
 	}
-	observed += ackNote + expectNote
+	observed += ackNote + expectNote + r.attackPathsNote(shown, inventory)
 
 	next := models.ScanBaseline{
 		ScannedAt: at, Engine: result.Engine, Findings: append(withoutDevices(prev.Findings, scanned), result.Findings...),
@@ -315,6 +339,8 @@ func keysOf(findings []Finding) []string {
 type shownScan struct {
 	result Result
 	delta  Delta
+	// accepted are the findings an active acceptance covers, kept for the attack paths.
+	accepted []Finding
 }
 
 // applyAcks removes the findings the operator accepted from what the report lists, returns how many that was, and saves
@@ -335,6 +361,7 @@ func (r *RunReporter) applyAcks(workspaceID string, result Result, delta Delta, 
 		covered[f.Key()] = true
 	}
 	shown.result.Findings = applied.Visible
+	shown.accepted = applied.Accepted
 	shown.delta.New = withoutKeys(delta.New, covered)
 	shown.delta.Changed = nil
 	for _, c := range delta.Changed {
@@ -432,17 +459,17 @@ func (r *RunReporter) addExpectations(workspaceID string, result *Result) string
 // appends the inventory's findings for the devices this scan looked at. A scan of one device must not report every other
 // device as new, so findings of devices outside the result are left for the full audit. If the host cannot look, the report
 // says so: an unreadable table is not an empty network.
-func (r *RunReporter) addInventory(ctx context.Context, result *Result) (string, []models.NetworkDevice) {
+func (r *RunReporter) addInventory(ctx context.Context, result *Result) (string, models.DeviceInventory) {
 	if r.look == nil {
-		return "", nil
+		return "", models.DeviceInventory{}
 	}
 	snap, err := r.look.Refresh(ctx)
 	if err != nil {
-		return fmt.Sprintf("\n\n> Note: who is on the network could not be checked, so new or changed devices were not looked for (%v).", err), nil
+		return fmt.Sprintf("\n\n> Note: who is on the network could not be checked, so new or changed devices were not looked for (%v).", err), models.DeviceInventory{}
 	}
 	findings := append(InventoryFindings(snap.Inventory, r.now()), HiddenDeviceFindings(snap.Inventory, snap.Current, result.Hosts)...)
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
-	return "", snap.Inventory.Devices
+	return "", snap.Inventory
 }
 
 // noteSaved tells the Network page's history about a scan that was just saved: the open findings, and the ports that opened

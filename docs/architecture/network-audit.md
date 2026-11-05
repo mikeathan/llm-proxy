@@ -415,7 +415,7 @@ Every switchable capability is a **module** of a **layer** of a **stack**, descr
   Guardrails for Nearby, the DNS check and the Internet view) only shows as "blocked": it never refuses a switch, as Nearby could always be switched on.
 - **Wiring.** `app/stacks.go` is the one place the modules are described: each `Switch` is an adapter over the config type that already owned the setting
   (`presenceSwitch` keeps the chosen interval, `dnsCheckSwitch` touches the switch alone, `withPoke` wakes the decoys' and router log's loops after a
-  change as their own routes did). No persisted setting moved. **Eleven** Network switches exist (the plan said twelve: the nightly audit is an automation,
+  change as their own routes did). No persisted setting moved. **Eleven** Network switches existed when the registry was built (the plan said twelve: the nightly audit is an automation,
   not a switch) and two Agents parts. `TestStackRegistry_NetworkModulesAndTheirLayers` pins the ids and layers.
 - **Health.** A module's `Monitors` are `MonitorPart` ids; the handlers hand the registry the ids `MonitorWatch.Stalled()` reports, and a module that
   is on shows Working or Stopped only when it has a monitor (presence, router log: its socket and its quiet part, DNS check, decoys).
@@ -430,7 +430,22 @@ Every switchable capability is a **module** of a **layer** of a **stack**, descr
 - **UI.** `components/stacks/` (`StackModules`, `ModuleTile`, `StackTabs`, `ModuleSwitchNote`), `composables/stacks/useStack.ts`, `utils/stacks/modules.ts`
   (the one status line). `ModuleSwitchNote` is what a detail card shows where its switch was.
 
-## Detection and prevention additions (as built 2026-11-04, v0.46.0; plan `network-detection-prevention-next`)
+## Attack paths (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P2)
+
+`core/netaudit/attackpaths.go`: `AttackPaths(PathInput)` is a pure function over what the audit already holds (the findings split into visible and accepted by
+`ApplyAcks`, the inventory, the decoys' touches). It probes nothing and no model builds a path.
+
+- **Steps** are findings in a fixed table (`stepChecks`): a service with no real login, a weak login, a flaw known to be attacked (`known_vulns` only when
+  `Exploited` is not empty). An open port, a certificate or an old version is not a step, so **no path is drawn from an open port alone**.
+- **Prizes**: this computer (`HostDevice`), the router (the inventory's gateway address) and a device the operator marked **important** (`NetworkDevice.Important`,
+  set by `PUT /admin/api/netaudit/devices/{mac}` `{"important": bool}`, which approves nothing). A weakness on any other device makes no path.
+- **Ways in**: any device on the network (worded "already probed a decoy" while a decoy has a touch), and the internet, only for the router and only while the Internet
+  view found a reachable port.
+- **Ranking**: each path's fix is the step found in the most paths (a live step before an accepted one, then the more serious); paths are ordered live before
+  all-accepted, then by how many paths that fix breaks, then severity; at most `MaxAttackPaths` (3). An accepted step stays in its path with `accepted`.
+- **Where it shows**: `Overview.AttackPaths` (and `AttackPathsOn`) in `GET /admin/api/netaudit/overview`, drawn by `AttackPathsCard.vue`; and a "Ways in that matter" section
+  in the nightly report from `RunReporter.attackPathsNote` (`PathsText`, fixed words, address or fixed label only, never a device name, which only the JSON carries).
+- **Module**: `attack_paths` in the Understand layer, sends nothing, on unless switched off (`NetauditConfig.AttackPathsOff`, `AttackPathsConfig`), no passphrase.
 
 - **Watch the watchers** (`core/netaudit/monitorwatch.go`, readings in `app/netaudit_monitor.go`). `MonitorWatch` reads each part every
   5 min from statuses already in memory and the daily history: presence (`LastCheck`, limit 3× interval, min 30 min), router-log socket

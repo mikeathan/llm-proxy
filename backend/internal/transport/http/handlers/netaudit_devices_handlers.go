@@ -18,6 +18,7 @@ type DeviceInventory interface {
 	Approve(mac string) error
 	Forget(mac string) error
 	ConfirmGateway() error
+	SetImportant(mac string, important bool) error
 }
 
 // PresenceControl is the presence check's settings and its status. The settings and the status come from two objects.
@@ -101,10 +102,12 @@ func (h *NetauditDevicesHandlers) addPorts(view *netaudit.InventoryView) {
 	}
 }
 
-// deviceRequest changes one device. A name approves it too; Approved approves it without a name.
+// deviceRequest changes one device. A name approves it too; Approved approves it without a name; Important marks it as one the
+// attack paths treat as a prize (or clears the mark) and approves nothing.
 type deviceRequest struct {
-	Name     *string `json:"name"`
-	Approved *bool   `json:"approved"`
+	Name      *string `json:"name"`
+	Approved  *bool   `json:"approved"`
+	Important *bool   `json:"important"`
 }
 
 // Update names a device (which approves it) or approves it. Neither field is a mistake.
@@ -120,8 +123,10 @@ func (h *NetauditDevicesHandlers) Update(w http.ResponseWriter, r *http.Request)
 		err = h.devices.Name(mac, *req.Name)
 	case req.Approved != nil && *req.Approved:
 		err = h.devices.Approve(mac)
+	case req.Important != nil:
+		err = h.devices.SetImportant(mac, *req.Important)
 	default:
-		writeJSONError(w, http.StatusBadRequest, "say what to change: a name, or approved")
+		writeJSONError(w, http.StatusBadRequest, "say what to change: a name, approved or important")
 		return
 	}
 	h.respondChange(w, err)

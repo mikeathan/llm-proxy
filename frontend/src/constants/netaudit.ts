@@ -207,6 +207,7 @@ export const DEVICES_LOAD_FAILED = 'The list of devices could not be read.'
 export const DEVICES_ACTION_FAILED: Record<DeviceAction, string> = {
   name: 'The name could not be saved.',
   approve: 'The device could not be approved.',
+  important: 'The mark could not be saved.',
   forget: 'The device could not be removed from the list.',
   'dismiss-suggestion': 'The suggested name could not be dismissed.',
   'confirm-gateway': 'The router\'s address could not be confirmed.',
@@ -530,3 +531,12 @@ export const UBUNTU_NOTE = 'Fixes that only an Ubuntu Pro subscription installs 
 export const UBUNTU_ATTRIBUTION = 'Security notices © Canonical Ltd., from security-metadata.canonical.com. Canonical states no licence for this data; it is fetched once, kept on this computer and never sent anywhere.'
 export const UBUNTU_OLD_DAYS = 14
 export const UBUNTU_OLD_NOTE = 'This data is more than two weeks old, so newer fixes are missing. Update it.'
+
+/** The Overview's attack paths card. */
+export const ATTACK_PATHS_TITLE = 'Ways in that matter'
+export const ATTACK_PATHS_NONE = 'No way in found that leads to this computer, your router or a device you marked as important.'
+export const ATTACK_PATHS_MARK_HINT = 'A device you mark as important gets its own paths. Mark one on the Devices tab.'
+export const ATTACK_PATHS_FIX_LABEL = 'The one fix'
+export const DEVICE_MARK_IMPORTANT = 'Mark as important'
+export const DEVICE_UNMARK_IMPORTANT = 'Not important'
+export const DEVICE_IMPORTANT_NOTE = 'Marked as important.'

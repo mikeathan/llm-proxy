@@ -61,7 +61,7 @@ func stackDefinitions() []stack.Stack {
 	}
 }
 
-// networkModules are the eleven switches of the Network module, each over the config type that already owned it.
+// networkModules are the twelve switches of the Network module, each over the config type that already owned it.
 func networkModules(d stackDeps) []stack.Module {
 	n, guard := d.Network, d.Guard
 	lan := func() (bool, string) { return networkReady(guard(), true, false) }
@@ -86,6 +86,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Switch: n.OutsideLookupConfig, Ready: internet},
 		{ID: "dns_check", Title: "Router DNS check", Purpose: "Is the router answering honestly?", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
 			Switch: dnsCheckSwitch{n.DNSCheckConfig}, Monitors: []string{netaudit.MonitorDNS}, Ready: both},
+		{ID: "attack_paths", Title: "Attack paths", Purpose: "The ways in that matter, and the one fix for each.", Stack: stack.Network, Layer: "understand", Sends: stack.SendsNothing,
+			Switch: n.AttackPathsConfig},
 		{ID: "weekly_summary", Title: "Weekly summary", Purpose: "Counts of the week to your phone.", Stack: stack.Network, Layer: "tell", Sends: stack.SendsMessage,
 			Needs: []string{"presence"}, Switch: n.Summary},
 		{ID: "daily_check_in", Title: "Daily check-in", Purpose: "A daily “still running” note.", Stack: stack.Network, Layer: "tell", Sends: stack.SendsMessage,

@@ -27,6 +27,13 @@ describe('NetworkOverviewPanel', () => {
     expect(w.text()).toContain('192.168.1.77 appeared on the network')
   })
 
+  it('shows the ways in only while the module is on and an audit has run', () => {
+    const path = { id: 'network|this-computer', entry: { kind: 'network' as const, text: 'Any device on your network' }, steps: [{ key: 'k', check: 'c', title: 'SSH accepts password login', severity: 'low' }], prize: { kind: 'computer' as const, where: 'this-computer' }, fix: { key: 'k', text: 'Turn it off.' }, breaks: 1 }
+    expect(mount(NetworkOverviewPanel, { props: { overview: overview({ attack_paths: [path], attack_paths_on: true }), hasAudit: true } }).find('[data-test="attack-paths"]').exists()).toBe(true)
+    expect(mount(NetworkOverviewPanel, { props: { overview: overview({ attack_paths: [], attack_paths_on: false }), hasAudit: true } }).find('[data-test="attack-paths"]').exists()).toBe(false)
+    expect(mount(NetworkOverviewPanel, { props: { overview: overview({ attack_paths_on: true, findings: { scanned: false, open: 0, serious: 0, new: 0 } }), hasAudit: false } }).find('[data-test="attack-paths"]').exists()).toBe(false)
+  })
+
   it('lists why something needs a look', () => {
     const w = mount(NetworkOverviewPanel, { props: { overview: overview({ posture: 'attention', gateway_changed: true, devices: { known: 12, unnamed: 3, new: 1, active: 9 }, findings: { scanned: true, open: 2, serious: 0, new: 0 } }), hasAudit: true } })
     expect(w.get('[data-test="posture"]').text()).toContain('Something needs a look')
