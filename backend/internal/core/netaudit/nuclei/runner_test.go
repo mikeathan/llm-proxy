@@ -185,3 +185,14 @@ func TestStatusOf_CountsOnlyTemplatesThatStillMatchTheirChecksum(t *testing.T) {
 		t.Fatalf("status = %+v", st)
 	}
 }
+
+func TestCheck_AnOutputCutAtTheSizeLimitIsSaidToBePartial(t *testing.T) {
+	root := t.TempDir()
+	list := templates(t, root)
+	line := `{"template-id":"a","info":{"severity":"low"},"host":"192.168.1.20","port":"8080","matcher-status":true}` + "\n"
+	run := &fakeRunner{out: progexec.Output{Stdout: []byte(line), Truncated: true}}
+	res, err := newChecker(run, root, list).Check(context.Background(), []Target{{Addr: mustAddr("192.168.1.20"), Port: 8080}}, time.Minute)
+	if err != nil || !res.Partial || len(res.Hits) != 1 {
+		t.Fatalf("res = %+v err = %v: hits lost to the size limit must not read as a complete run", res, err)
+	}
+}

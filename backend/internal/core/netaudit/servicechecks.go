@@ -78,20 +78,6 @@ var serviceProbes = []serviceProbe{
 		"A container registry answers without a login; anyone on the network can pull its images and may be able to push"),
 }
 
-// ServiceProbePorts are the ports the service checks look at, for the scan port lists.
-func ServiceProbePorts() []int {
-	var out []int
-	for _, p := range serviceProbes {
-		for _, port := range p.ports {
-			if !slices.Contains(out, port) {
-				out = append(out, port)
-			}
-		}
-	}
-	slices.Sort(out)
-	return out
-}
-
 // ServiceChecks runs the service checks over the open ports of a scan. It holds no state between runs: one instance serves every
 // audit, and two audits may report at the same time.
 type ServiceChecks struct {

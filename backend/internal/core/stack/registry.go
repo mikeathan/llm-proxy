@@ -218,9 +218,6 @@ func (r *Registry) Module(stack StackID, id string) (Module, bool) {
 	return m, ok && m.Stack == stack
 }
 
-// Modules lists every module, in the order they were registered.
-func (r *Registry) Modules() []Module { return slices.Clone(r.modules) }
-
 // Counts is how many of a stack's modules are on, stopped or blocked.
 type Counts struct {
 	On      int `json:"on"`
@@ -292,12 +289,14 @@ func (r *Registry) View(id StackID, stalled map[string]bool) (StackView, error) 
 	if !ok {
 		return StackView{}, ErrNotFound
 	}
-	v := StackView{ID: s.ID, Title: s.Title, Purpose: s.Purpose, Summary: r.counts(id, stalled), Layers: []LayerView{}, Actions: []ActionView{}}
+	v := StackView{ID: s.ID, Title: s.Title, Purpose: s.Purpose, Layers: []LayerView{}, Actions: []ActionView{}}
 	for _, l := range slices.Backward(s.Layers) {
 		lv := LayerView{ID: l.ID, Title: l.Title, Purpose: l.Purpose, Modules: []ModuleView{}}
 		for _, m := range r.modules {
 			if m.Stack == id && m.Layer == l.ID {
-				lv.Modules = append(lv.Modules, r.moduleView(m, stalled))
+				mv := r.moduleView(m, stalled) // once per module: a readiness check may touch the disk
+				lv.Modules = append(lv.Modules, mv)
+				v.Summary.add(mv)
 			}
 		}
 		if len(lv.Modules) > 0 {
@@ -313,22 +312,25 @@ func (r *Registry) View(id StackID, stalled map[string]bool) (StackView, error) 
 func (r *Registry) counts(id StackID, stalled map[string]bool) Counts {
 	var c Counts
 	for _, m := range r.modules {
-		if m.Stack != id {
-			continue
-		}
-		mv := r.moduleView(m, stalled)
-		c.Total++
-		if mv.Enabled {
-			c.On++
-		}
-		if mv.Health == HealthStopped {
-			c.Stopped++
-		}
-		if mv.Blocked != "" {
-			c.Blocked++
+		if m.Stack == id {
+			c.add(r.moduleView(m, stalled))
 		}
 	}
 	return c
+}
+
+// add counts one module into the totals.
+func (c *Counts) add(mv ModuleView) {
+	c.Total++
+	if mv.Enabled {
+		c.On++
+	}
+	if mv.Health == HealthStopped {
+		c.Stopped++
+	}
+	if mv.Blocked != "" {
+		c.Blocked++
+	}
 }
 
 func (r *Registry) moduleView(m Module, stalled map[string]bool) ModuleView {

@@ -26,7 +26,7 @@ func TestDiff(t *testing.T) {
 	if got.Unchanged != 1 {
 		t.Errorf("unchanged = %d", got.Unchanged)
 	}
-	if got.Empty() {
+	if len(got.New) == 0 && len(got.Resolved) == 0 && len(got.Changed) == 0 {
 		t.Error("a delta with changes is not empty")
 	}
 }
@@ -37,10 +37,15 @@ func TestDiff_IsDeterministicAndNilSafe(t *testing.T) {
 	if !reflect.DeepEqual(Diff(nil, a), Diff(nil, b)) {
 		t.Error("the same findings in a different order must give the same delta")
 	}
-	if got := Diff(nil, nil); !got.Empty() || got.Unchanged != 0 {
+	if got := Diff(nil, nil); !deltaIsEmpty(got) || got.Unchanged != 0 {
 		t.Errorf("empty diff = %+v", got)
 	}
-	if got := Diff(a, a); !got.Empty() || got.Unchanged != 3 {
+	if got := Diff(a, a); !deltaIsEmpty(got) || got.Unchanged != 3 {
 		t.Errorf("identical scans = %+v", got)
 	}
+}
+
+// deltaIsEmpty reports whether nothing changed.
+func deltaIsEmpty(d Delta) bool {
+	return len(d.New) == 0 && len(d.Resolved) == 0 && len(d.Changed) == 0
 }

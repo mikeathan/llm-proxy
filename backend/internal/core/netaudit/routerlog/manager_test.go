@@ -401,3 +401,16 @@ func TestManager_QueryCountsAreZeroUntilALineArrivesAndNeverCountOtherLines(t *t
 		t.Fatalf("status = %+v", st)
 	}
 }
+
+func TestManager_StatusSaysWhenTheLastDNSLineWasRead(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	if !r.m.Status().QueriesLast.IsZero() {
+		t.Fatal("no line has been read yet")
+	}
+	send(t, addr, dnsQueryLine)
+	r.waitQueries(t, 1)
+	if r.m.Status().QueriesLast.IsZero() {
+		t.Fatal("the time of the last DNS line must be kept: the phone-home watch is judged by it")
+	}
+}

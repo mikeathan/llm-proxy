@@ -17,18 +17,19 @@ import (
 	"llm-proxy/models"
 )
 
-// The bounds. Each is a judgement, not a measurement: the router's real query rate has not been captured yet, so the lists are
-// kept small and a flood of forged names can only push the oldest out.
+// The bounds. Each is a judgement: the lists are kept small and a flood of names can only push the oldest out. With every list full the
+// watch holds about 40 MB and writes a file of about 20 MB (measured at the old bounds, 256 devices of 512 names and 32 times, it held
+// 258 MB and wrote 114 MB); a home network is far below that.
 const (
 	// LearnFor is how long a device's names are only learned: every name it asks for in its first week is "normal".
 	LearnFor = 7 * 24 * time.Hour
 	// NewFor is how long a name asked for after the learning week still counts as new.
 	NewFor = 7 * 24 * time.Hour
 	// maxDevices and maxNames bound what is kept; past them the least recently seen goes first.
-	maxDevices = 256
-	maxNames   = 512
+	maxDevices = 128
+	maxNames   = 256
 	// maxTimes is how many recent lookup times a new name keeps, and minGap how far apart two of them must be (a burst is one).
-	maxTimes = 32
+	maxTimes = 16
 	minGap   = 5 * time.Second
 	// dupWindow is how close two lookups of one name are to be one lookup: the router logs an A and an AAAA line for each.
 	dupWindow = 2 * time.Second
@@ -50,10 +51,13 @@ type recentKey struct{ mac, name string }
 type Watch struct {
 	store Store
 
-	mu     sync.Mutex
-	state  models.PhoneHome
-	recent map[recentKey]time.Time
-	dirty  bool
+	// flushMu keeps two writes from overlapping; mu guards the names and is never held across a write, so a slow disk cannot stop
+	// the router listener, which calls Observe, from reading.
+	flushMu sync.Mutex
+	mu      sync.Mutex
+	state   models.PhoneHome
+	recent  map[recentKey]time.Time
+	dirty   bool
 }
 
 // New reads the stored names. A record that cannot be read is an error, never an empty record that reads as "nothing new".
@@ -194,6 +198,13 @@ func (w *Watch) WasTold(key string) bool {
 	return slices.ContainsFunc(w.state.Told, func(t models.PhoneHomeTold) bool { return t.Key == key })
 }
 
+// ToldSince says whether an alert whose key starts with prefix was sent at or after since.
+func (w *Watch) ToldSince(prefix string, since time.Time) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return slices.ContainsFunc(w.state.Told, func(t models.PhoneHomeTold) bool { return strings.HasPrefix(t.Key, prefix) && !t.At.Before(since) })
+}
+
 // MarkTold records that an alert with this key was sent. The record is bounded: past maxTold the oldest goes.
 func (w *Watch) MarkTold(key string, at time.Time) {
 	w.mu.Lock()
@@ -210,15 +221,22 @@ func (w *Watch) MarkTold(key string, at time.Time) {
 
 // Flush writes the names if anything changed since the last write. A failed write keeps the change for the next try.
 func (w *Watch) Flush() error {
+	w.flushMu.Lock()
+	defer w.flushMu.Unlock()
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if !w.dirty {
+		w.mu.Unlock()
 		return nil
 	}
-	if err := w.store.Write(clone(w.state)); err != nil {
+	snapshot := clone(w.state)
+	w.dirty = false
+	w.mu.Unlock()
+	if err := w.store.Write(snapshot); err != nil {
+		w.mu.Lock()
+		w.dirty = true
+		w.mu.Unlock()
 		return fmt.Errorf("failed to save the phone-home names: %w", err)
 	}
-	w.dirty = false
 	return nil
 }
 

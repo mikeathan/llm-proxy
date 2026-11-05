@@ -233,3 +233,16 @@ func TestStacks_SummarisesEachStack(t *testing.T) {
 		t.Fatalf("summaries = %+v", sums)
 	}
 }
+
+func TestView_AsksEachModulesReadinessOnce(t *testing.T) {
+	calls := 0
+	m := module("presence", "discover", &fakeSwitch{})
+	m.Ready = func() (bool, string) { calls++; return true, "" }
+	r := build(t, m, module("summary", "tell", &fakeSwitch{}))
+	if _, err := r.View(Network, nil); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("readiness asked %d times for one module in one view: it may read the disk", calls)
+	}
+}

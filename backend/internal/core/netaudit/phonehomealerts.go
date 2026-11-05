@@ -13,6 +13,8 @@ import (
 const (
 	// phoneHomeAlertEvery is how often the watch is looked at for something to tell.
 	phoneHomeAlertEvery = 15 * time.Minute
+	// phoneHomeAlertGap is the least time between two messages to the operator about one device and one kind of thing.
+	phoneHomeAlertGap = 24 * time.Hour
 	// maxPhoneHomeAlertsPerTick bounds the messages of one look, so a burst of devices cannot flood the phone; the rest wait for the next.
 	maxPhoneHomeAlertsPerTick = 5
 )
@@ -77,7 +79,7 @@ func (a *PhoneHomeAlerts) Tick(ctx context.Context) {
 	for _, s := range a.signals(inv, now) {
 		ip, known := ips[s.MAC]
 		key := s.MAC + "|" + string(s.Kind) + "|" + namesDigest(s.Names)
-		if !known || a.deps.Watch.WasTold(key) {
+		if !known || a.deps.Watch.WasTold(key) || a.heldBack(s, now) {
 			continue
 		}
 		if sent >= maxPhoneHomeAlertsPerTick || ctx.Err() != nil {
@@ -89,6 +91,16 @@ func (a *PhoneHomeAlerts) Tick(ctx context.Context) {
 		}
 		a.deps.Watch.MarkTold(key, now)
 	}
+}
+
+// heldBack says whether a device was already told of this kind of thing within the last day. A device that meets several new names over
+// a few days would otherwise send a message for each growth of the set; the nightly report lists them all. A name on the malware list
+// is never held back.
+func (a *PhoneHomeAlerts) heldBack(s phonehome.Signal, now time.Time) bool {
+	if s.Kind == phonehome.KnownBadName {
+		return false
+	}
+	return a.deps.Watch.ToldSince(s.MAC+"|"+string(s.Kind)+"|", now.Add(-phoneHomeAlertGap))
 }
 
 // signals are what is worth a message: new places and beats, and names on the malware list. A device that avoids the router's DNS is

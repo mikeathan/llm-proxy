@@ -206,3 +206,18 @@ func TestValidAddress_AcceptsOnlyAnHTTPSAddressOnAbuseCh(t *testing.T) {
 		}
 	}
 }
+
+func TestParse_AFileOverTheSizeLimitIsRefusedNotCutOff(t *testing.T) {
+	// A short list followed by padding past the limit: reading only the first part would load a partial list without a word.
+	pad := strings.NewReader("# " + strings.Repeat("x", 500) + "\n")
+	var all []io.Reader
+	all = append(all, strings.NewReader("127.0.0.1 bad.example\n"))
+	for i := 0; i < (maxBytes/500)+10; i++ {
+		pad.Seek(0, io.SeekStart)
+		b, _ := io.ReadAll(pad)
+		all = append(all, strings.NewReader(string(b)))
+	}
+	if _, err := Parse(io.MultiReader(all...)); err == nil || !strings.Contains(err.Error(), "larger than") {
+		t.Fatalf("err = %v, want a refusal that says the file is too large", err)
+	}
+}

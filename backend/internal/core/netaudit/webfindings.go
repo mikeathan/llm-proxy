@@ -21,8 +21,11 @@ const (
 	// maxWebPortsPerDevice and maxWebTargets bound what one run is aimed at.
 	maxWebPortsPerDevice = 8
 	maxWebTargets        = nuclei.MaxTargets
-	// webCheckLimit is how long one run of the web checks may take.
-	webCheckLimit = 10 * time.Minute
+	// webCheckLimit is how long the nightly run of the web checks may take; deepWebCheckLimit is the shorter limit inside the operator's
+	// deep check of one device, which answers an HTTP request that a browser or a proxy would otherwise give up on (eight ports at the
+	// program's fixed rate of five requests a second take under a minute).
+	webCheckLimit     = 10 * time.Minute
+	deepWebCheckLimit = 3 * time.Minute
 )
 
 func init() {
@@ -163,7 +166,7 @@ func (d *DeepChecks) webFindings(ctx context.Context, baseline []Finding, device
 	if len(targets) == 0 {
 		return nil
 	}
-	res, err := d.web.Check(ctx, targets, webCheckLimit)
+	res, err := d.web.Check(ctx, targets, deepWebCheckLimit)
 	if err != nil {
 		return nil
 	}

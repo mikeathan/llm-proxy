@@ -69,14 +69,15 @@ func TestWebFindings_OneFindingPerWebServiceInOurOwnWords(t *testing.T) {
 
 type fakeWeb struct {
 	ok      bool
+	limit   time.Duration
 	targets []nuclei.Target
 	res     nuclei.Result
 	err     error
 }
 
 func (f *fakeWeb) Ready() (bool, string) { return f.ok, "nuclei is not installed" }
-func (f *fakeWeb) Check(_ context.Context, t []nuclei.Target, _ time.Duration) (nuclei.Result, error) {
-	f.targets = t
+func (f *fakeWeb) Check(_ context.Context, t []nuclei.Target, limit time.Duration) (nuclei.Result, error) {
+	f.targets, f.limit = t, limit
 	return f.res, f.err
 }
 
@@ -110,6 +111,9 @@ func TestDeepChecks_AddTheWebChecksOfTheDevicesWebPortsWhenReady(t *testing.T) {
 	}
 	if len(web.targets) != 1 || web.targets[0].Port != 80 {
 		t.Fatalf("targets = %+v, want only the web port", web.targets)
+	}
+	if web.limit <= 0 || web.limit > 3*time.Minute {
+		t.Fatalf("limit = %v: the deep check answers an HTTP request, so its web step is short", web.limit)
 	}
 	found := false
 	for _, f := range check.Findings {

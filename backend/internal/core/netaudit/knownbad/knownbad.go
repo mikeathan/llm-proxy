@@ -40,7 +40,8 @@ var blockAddresses = []netip.Addr{netip.MustParseAddr("127.0.0.1"), netip.MustPa
 // is vetted like a name from a DNS query line; anything that does not pass, and any line that points a name at another address, is
 // dropped. A file with no name is an error: an empty list must not read as "nothing is known to be bad".
 func Parse(r io.Reader) ([]string, error) {
-	sc := bufio.NewScanner(io.LimitReader(r, maxBytes))
+	limited := &io.LimitedReader{R: r, N: maxBytes + 1}
+	sc := bufio.NewScanner(limited)
 	sc.Buffer(make([]byte, 0, 4096), maxLine)
 	seen := map[string]bool{}
 	var names []string
@@ -57,6 +58,9 @@ func Parse(r io.Reader) ([]string, error) {
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("the list could not be read: %w", err)
+	}
+	if limited.N <= 0 {
+		return nil, fmt.Errorf("the list is larger than %d MiB", maxBytes>>20)
 	}
 	if len(names) == 0 {
 		return nil, errors.New("the list holds no names")

@@ -98,7 +98,7 @@ func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
 	}
 	got := map[string]string{}
-	for _, m := range newTestStacks(t).reg.Modules() {
+	for _, m := range allModules(t, newTestStacks(t).reg) {
 		if m.Stack == stack.Network {
 			got[m.ID] = m.Layer
 		}
@@ -153,7 +153,7 @@ var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home":
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	steps := api.StepUpRoutes()
-	for _, m := range newTestStacks(t).reg.Modules() {
+	for _, m := range allModules(t, newTestStacks(t).reg) {
 		if m.Stack != stack.Network {
 			continue
 		}
@@ -323,7 +323,7 @@ func TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase(t *testing.T)
 	mux.HandleFunc("PUT /admin/api/stacks/{stack}/modules/{id}", h.PutModule)
 
 	walked := 0
-	for _, m := range d.reg.Modules() {
+	for _, m := range allModules(t, d.reg) {
 		if !m.StepUp {
 			continue
 		}
@@ -376,4 +376,26 @@ func TestStackRegistry_TheKnownBadComparisonNeedsThePhoneHomeWatch(t *testing.T)
 	if !errors.As(err, &ne) || ne.Need != "Phone-home watch" {
 		t.Fatalf("err = %v, want a refusal naming the Phone-home watch", err)
 	}
+}
+
+// allModules lists every module of every stack, drawn from the views the screen reads.
+func allModules(t *testing.T, reg *stack.Registry) []stack.Module {
+	t.Helper()
+	var out []stack.Module
+	for _, id := range []stack.StackID{stack.Network, stack.Agents} {
+		v, err := reg.View(id, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, l := range v.Layers {
+			for _, mv := range l.Modules {
+				m, ok := reg.Module(id, mv.ID)
+				if !ok {
+					t.Fatalf("module %s of %s is in the view but not in the registry", mv.ID, id)
+				}
+				out = append(out, m)
+			}
+		}
+	}
+	return out
 }

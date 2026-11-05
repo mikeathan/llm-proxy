@@ -8,7 +8,7 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useRouterLog } from "../../composables/netaudit/useRouterLog"
 import {
-  ROUTER_LOG_DETAILS, ROUTER_LOG_HINT, ROUTER_LOG_NOT_HEARD, ROUTER_LOG_SETUP_AFTER, ROUTER_LOG_SETUP_COMMAND, ROUTER_LOG_SETUP_STEPS,
+  ROUTER_LOG_DETAILS, ROUTER_LOG_HINT, ROUTER_LOG_NOT_HEARD, ROUTER_LOG_DNS_NOTE, ROUTER_LOG_SETUP_AFTER, ROUTER_LOG_SETUP_COMMAND, ROUTER_LOG_SETUP_STEPS,
   ROUTER_LOG_SETUP_TITLE, ROUTER_LOG_TITLE, ROUTER_LOG_UNDO_COMMAND, routerLogQueriesLine,
 } from "../../constants/netaudit"
 import { formatRelativeTime, isRecorded } from "../../utils/format/time"
@@ -47,6 +47,7 @@ onMounted(load)
           <pre class="m-0 mt-2 overflow-x-auto rounded-[var(--radius-md)] bg-surface-raised p-2 font-mono text-[length:var(--text-small)] text-primary" tabindex="0" data-test="router-log-command">{{ ROUTER_LOG_SETUP_COMMAND }}</pre>
           <p class="m-0 mt-2 text-[length:var(--text-small)] text-muted">{{ ROUTER_LOG_SETUP_AFTER }}</p>
           <pre class="m-0 mt-1 overflow-x-auto rounded-[var(--radius-md)] bg-surface-raised p-2 font-mono text-[length:var(--text-small)] text-primary" tabindex="0">{{ ROUTER_LOG_UNDO_COMMAND }}</pre>
+          <p class="m-0 mt-2 text-[length:var(--text-small)] text-muted" data-test="router-log-dns-note">{{ ROUTER_LOG_DNS_NOTE }}</p>
         </Disclosure>
 
         <p v-if="error" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
