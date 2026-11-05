@@ -551,3 +551,20 @@ export const WEB_TEMPLATES_DOWNLOAD_FAILED = 'The web check templates could not 
 export const WEB_TEMPLATES_NOTE = 'A short, reviewed list of web page checks. They are fetched only when you press the button, from one fixed release, and each file is kept only if it is exactly the file that was reviewed. The program never updates them by itself.'
 export const webTemplatesLine = (present: number, total: number, tag: string): string =>
   present >= total ? `All ${total} reviewed checks are downloaded (release ${tag}).` : `${present} of ${total} reviewed checks are downloaded (release ${tag}).`
+
+/** Network · Settings · Known-bad names. */
+export const KNOWN_BAD_TITLE = 'Known-bad names'
+export const KNOWN_BAD_LOAD_FAILED = 'The known-bad names could not be read.'
+export const KNOWN_BAD_SAVE_FAILED = 'The address could not be saved.'
+export const KNOWN_BAD_DOWNLOAD_FAILED = 'The list could not be downloaded.'
+export const KNOWN_BAD_INTRO = 'Compares the names your devices ask for with abuse.ch\u2019s list of hosts that serve malware. The comparison happens on this computer; nothing a device asked for is sent anywhere. It needs a free abuse.ch account.'
+export const KNOWN_BAD_LINK_LABEL = 'Get your list address at abuse.ch'
+export const KNOWN_BAD_LINK_URL = 'https://urlhaus.abuse.ch/api/'
+export const KNOWN_BAD_HOWTO = 'Sign in at abuse.ch, create an Auth-Key in your profile, then open the URLhaus API page while signed in. In the section "host file (domains only)" copy the address of the file. Paste it below. It contains your key, so it is kept encrypted and is never shown again.'
+export const KNOWN_BAD_ADDRESS_LABEL = 'List address (from abuse.ch)'
+export const KNOWN_BAD_ADDRESS_HINT = 'An https address on abuse.ch. Saving it asks for your passphrase.'
+export const KNOWN_BAD_ADDRESS_SAVED = 'An address is saved.'
+export const KNOWN_BAD_NO_ADDRESS = 'No address saved yet.'
+export const knownBadLine = (count: number, since: string): string =>
+  count > 0 ? `${count.toLocaleString('en-US')} malware host names held, downloaded ${since}.` : 'No list downloaded yet.'
+export const KNOWN_BAD_SWITCH_NOTE = 'The comparison is off until you switch it on.'

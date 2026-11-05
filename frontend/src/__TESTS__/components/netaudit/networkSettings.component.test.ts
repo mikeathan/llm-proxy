@@ -28,7 +28,7 @@ describe('NetworkSettings', () => {
     expect(w.find('[role="switch"]').exists()).toBe(false)
     const extras = w.get('[data-test="group-extras"]')
     expect(extras.get('h2').text()).toBe('Optional extras')
-    for (const card of ['decoys-card-stub', 'router-log-card-stub', 'outside-lookup-card-stub', 'dns-check-card-stub', 'nearby-card-stub']) expect(extras.html()).toContain(card)
+    for (const card of ['decoys-card-stub', 'router-log-card-stub', 'outside-lookup-card-stub', 'dns-check-card-stub', 'nearby-card-stub', 'known-bad-card-stub']) expect(extras.html()).toContain(card)
   })
 
   it('says that every change saves at once, and has no Save button of its own', () => {

@@ -322,3 +322,39 @@ func TestMarkTold_RemembersAKeyOnceAndKeepsTheRecordBounded(t *testing.T) {
 		t.Fatalf("flush: %v, stored %d", err, len(st.state.Told))
 	}
 }
+
+func TestKnownBad_ReportsRecentNamesOnTheListWhateverTheDevicesAge(t *testing.T) {
+	w, _ := newWatch(t)
+	w.Observe(macA, q("a.g6.wtf"), day0)         // asked in the learning week: still bad
+	w.Observe(macA, q("sub.bad.example"), day0)  // under a listed name
+	w.Observe(macA, q("fine.example.com"), day0) // not listed
+	w.Observe(macB, q("a.g6.wtf"), day0.Add(-30*24*time.Hour))
+	match := func(name string) (string, bool) {
+		switch name {
+		case "a.g6.wtf":
+			return name, true
+		case "sub.bad.example":
+			return "bad.example", true
+		}
+		return "", false
+	}
+	got := KnownBad(w.Snapshot(), match, day0.Add(time.Hour))
+	if len(got) != 1 || got[0].Kind != KnownBadName || got[0].MAC != macA || len(got[0].Names) != 2 || got[0].Names[0] != "a.g6.wtf" || got[0].Names[1] != "sub.bad.example" {
+		t.Fatalf("signals = %+v, want one for the first device naming the two listed names it asked for", got)
+	}
+	if got := KnownBad(w.Snapshot(), match, day0.Add(9*24*time.Hour)); len(got) != 0 {
+		t.Fatalf("signals = %+v nine days later: an old lookup is no longer news", got)
+	}
+	if got := KnownBad(w.Snapshot(), nil, day0); len(got) != 0 {
+		t.Fatal("no list, no signal")
+	}
+}
+
+func TestWithKnownBad_TakesAListedNameOutOfTheNewPlaceSignalOfTheSameDevice(t *testing.T) {
+	signals := []Signal{{Kind: NewPlace, MAC: macA, Names: []string{"bad.example", "fresh.example"}}, {Kind: Beaconing, MAC: macA, Names: []string{"bad.example"}}, {Kind: NewPlace, MAC: macB, Names: []string{"bad.example"}}}
+	bad := []Signal{{Kind: KnownBadName, MAC: macA, Names: []string{"bad.example"}}}
+	got := WithKnownBad(signals, bad)
+	if len(got) != 3 || got[0].Names[0] != "fresh.example" || len(got[0].Names) != 1 || got[1].MAC != macB || got[2].Kind != KnownBadName {
+		t.Fatalf("signals = %+v", got)
+	}
+}

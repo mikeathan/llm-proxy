@@ -101,6 +101,9 @@ func queryType(word string) (string, bool) {
 	return typ, true
 }
 
+// VetName vets and lower-cases a DNS name by the same rule the query parser uses, for names that come from somewhere else (a list).
+func VetName(raw string) (string, bool) { return plainDNSName(raw) }
+
 // plainDNSName vets and lower-cases a name: dot-separated labels of letters, digits, hyphen and underscore, none empty or longer
 // than 63, none starting or ending with a hyphen, the whole at most 253. A reverse lookup (under in-addr.arpa or ip6.arpa) is not
 // kept. An underscore is allowed because service names start a label with one.

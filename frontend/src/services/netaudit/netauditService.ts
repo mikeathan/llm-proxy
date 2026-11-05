@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { WebTemplatesState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
+import type { KnownBadState, WebTemplatesState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -43,6 +43,24 @@ export class NetauditService {
   }
 
   /** What is held of Canonical's security notices, and whether this computer can use them. */
+  static knownBad(): Promise<KnownBadState> {
+    return get<KnownBadState>(API_ENDPOINTS.netauditKnownBad)
+  }
+
+  /** Saves the operator's abuse.ch list address, which holds their key. It is a secret: the server asks for the passphrase and never returns it. */
+  static saveKnownBadAddress(address: string): Promise<KnownBadState> {
+    return put<KnownBadState>(API_ENDPOINTS.netauditKnownBadKey, { address })
+  }
+
+  static removeKnownBadAddress(): Promise<KnownBadState> {
+    return del<KnownBadState>(API_ENDPOINTS.netauditKnownBadKey)
+  }
+
+  /** Fetches the list now with the saved address. */
+  static downloadKnownBad(): Promise<KnownBadState> {
+    return post<KnownBadState>(API_ENDPOINTS.netauditKnownBadDownload, {})
+  }
+
   static webTemplates(): Promise<WebTemplatesState> {
     return get<WebTemplatesState>(API_ENDPOINTS.netauditWebTemplates)
   }

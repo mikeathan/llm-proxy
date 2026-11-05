@@ -96,6 +96,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPut, "/admin/api/auth/session-length"},               // a longer session weakens sign-in
 	{http.MethodPost, "/admin/api/netaudit/deep"},                    // an intrusive scan of one device (Constitution II.3): the operator, freshly confirmed
 	{http.MethodPost, "/admin/api/netaudit/devices/gateway/confirm"}, // silences the alarm for a spoofed router: the operator, freshly confirmed
+	{http.MethodPut, "/admin/api/netaudit/known-bad/key"},            // stores the operator's abuse.ch address, which holds their key
+	{http.MethodDelete, "/admin/api/netaudit/known-bad/key"},         // removes it
 	{http.MethodPut, "/admin/api/netaudit/decoys"},                   // opens or closes listening sockets on this computer
 	{http.MethodDelete, "/admin/api/netaudit/decoys/touches"},        // erases the record of who probed the decoys: intrusion evidence, the same silencing
 	{http.MethodPut, "/admin/api/netaudit/router-log"},               // opens or closes the listening socket for the router's log (Constitution I.8)

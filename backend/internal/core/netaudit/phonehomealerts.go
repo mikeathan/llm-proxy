@@ -3,6 +3,7 @@ package netaudit
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"llm-proxy/internal/core/netaudit/phonehome"
@@ -22,9 +23,11 @@ type PhoneHomeAlertDeps struct {
 	Watch     *phonehome.Watch
 	Enabled   func() bool
 	Inventory func() (models.DeviceInventory, error)
-	Notify    func(ctx context.Context, message string) error
-	OnError   func(error)
-	Now       func() time.Time
+	// KnownBad says whether a name is on the list of hosts known to serve malware (and which listed name matched); nil means no list.
+	KnownBad func(name string) (string, bool)
+	Notify   func(ctx context.Context, message string) error
+	OnError  func(error)
+	Now      func() time.Time
 }
 
 // PhoneHomeAlerts tells the operator, in fixed words, when a device asks for a name it had not asked for in its first week or asks for
@@ -71,10 +74,10 @@ func (a *PhoneHomeAlerts) Tick(ctx context.Context) {
 	}
 	now := a.deps.Now()
 	sent := 0
-	for _, s := range phonehome.Evaluate(a.deps.Watch.Snapshot(), PhoneHomeDevices(inv), now) {
+	for _, s := range a.signals(inv, now) {
 		ip, known := ips[s.MAC]
 		key := s.MAC + "|" + string(s.Kind) + "|" + namesDigest(s.Names)
-		if !known || s.Kind == phonehome.AroundDNS || a.deps.Watch.WasTold(key) {
+		if !known || a.deps.Watch.WasTold(key) {
 			continue
 		}
 		if sent >= maxPhoneHomeAlertsPerTick || ctx.Err() != nil {
@@ -88,6 +91,14 @@ func (a *PhoneHomeAlerts) Tick(ctx context.Context) {
 	}
 }
 
+// signals are what is worth a message: new places and beats, and names on the malware list. A device that avoids the router's DNS is
+// left to the nightly report.
+func (a *PhoneHomeAlerts) signals(inv models.DeviceInventory, now time.Time) []phonehome.Signal {
+	state := a.deps.Watch.Snapshot()
+	all := phonehome.WithKnownBad(phonehome.Evaluate(state, PhoneHomeDevices(inv), now), phonehome.KnownBad(state, a.deps.KnownBad, now))
+	return slices.DeleteFunc(all, func(s phonehome.Signal) bool { return s.Kind == phonehome.AroundDNS })
+}
+
 func (a *PhoneHomeAlerts) report(err error) {
 	if a.deps.OnError != nil {
 		a.deps.OnError(err)
@@ -96,6 +107,9 @@ func (a *PhoneHomeAlerts) report(err error) {
 
 // phoneHomeMessage is the alert in fixed words: the device's address and the vetted DNS names.
 func phoneHomeMessage(s phonehome.Signal, ip string) string {
+	if s.Kind == phonehome.KnownBadName {
+		return fmt.Sprintf("%s asked for a name on abuse.ch's list of hosts that serve malware: %s. Open the Network page to review it.", ip, listNames(s.Names))
+	}
 	if s.Kind == phonehome.Beaconing {
 		return fmt.Sprintf("%s keeps asking for a new name at a steady beat: %s. Open the Network page to review it.", ip, listNames(s.Names))
 	}

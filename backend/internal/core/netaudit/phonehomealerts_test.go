@@ -148,3 +148,17 @@ func TestNetworkAlertPhoneHome_IsAKnownKind(t *testing.T) {
 		t.Fatal("phone_home must be a valid alert kind")
 	}
 }
+
+func TestPhoneHomeAlerts_ANameOnTheMalwareListIsToldAtOnceWhateverTheDevicesAge(t *testing.T) {
+	r := newPhoneAlertRig(t)
+	r.a.deps.KnownBad = func(name string) (string, bool) { return name, name == "bad.example.org" }
+	r.watch.Observe("aa:bb:cc:00:00:01", routerlog.Query{Type: "A", Name: "bad.example.org"}, r.now.Add(-time.Hour))
+	r.a.Tick(context.Background())
+	if len(r.sent) != 1 || !strings.Contains(r.sent[0], "malware") || !strings.Contains(r.sent[0], "bad.example.org") || !strings.Contains(r.sent[0], "192.168.1.20") {
+		t.Fatalf("sent = %q, want one message: a name that is both new and listed is told as the more serious", r.sent)
+	}
+	r.a.Tick(context.Background())
+	if len(r.sent) != 1 {
+		t.Fatalf("sent = %q: told once", r.sent)
+	}
+}

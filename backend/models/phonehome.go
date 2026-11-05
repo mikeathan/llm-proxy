@@ -38,3 +38,10 @@ type PhoneHomeName struct {
 	Count int         `json:"count"`
 	Times []time.Time `json:"times,omitempty"`
 }
+
+// KnownBad is the list of host names abuse.ch's URLhaus says serve malware, as last downloaded. It is public data (the operator's
+// address for it, which holds their key, is not kept here but in the secrets store).
+type KnownBad struct {
+	LoadedAt time.Time `json:"loaded_at,omitzero"`
+	Names    []string  `json:"names"`
+}
