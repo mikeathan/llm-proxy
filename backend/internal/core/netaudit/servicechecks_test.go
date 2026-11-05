@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -233,4 +234,18 @@ func TestServiceCheck_EachRunKeepsItsOwnPortsItCouldNotJudge(t *testing.T) {
 	if kept := second.Carry(earlier); len(kept) != 0 {
 		t.Fatalf("the second run judged the port and must not keep the finding: %+v", kept)
 	}
+}
+
+// ServiceProbePorts are the ports the service checks look at; the test below pins them to the scan port lists.
+func ServiceProbePorts() []int {
+	var out []int
+	for _, p := range serviceProbes {
+		for _, port := range p.ports {
+			if !slices.Contains(out, port) {
+				out = append(out, port)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
 }

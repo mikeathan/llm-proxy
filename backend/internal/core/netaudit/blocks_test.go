@@ -239,3 +239,10 @@ func TestBlocks_MemoryDoesNotGrowWithTheNumberOfDifferentPorts(t *testing.T) {
 		t.Errorf("wrote %d ports", len(sink.calls[0].ports))
 	}
 }
+
+// distinctPorts is how many ports are being counted now; the test above reads it to show the table is bounded.
+func (b *Blocks) distinctPorts() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.ports)
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/netip"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -356,5 +357,68 @@ func TestWithKnownBad_TakesAListedNameOutOfTheNewPlaceSignalOfTheSameDevice(t *t
 	got := WithKnownBad(signals, bad)
 	if len(got) != 3 || got[0].Names[0] != "fresh.example" || len(got[0].Names) != 1 || got[1].MAC != macB || got[2].Kind != KnownBadName {
 		t.Fatalf("signals = %+v", got)
+	}
+}
+
+// slowStore blocks a write until released, to show what a slow disk does to the listener.
+type slowStore struct {
+	memStore
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (s *slowStore) Write(m models.PhoneHome) error {
+	s.once.Do(func() { close(s.entered); <-s.release })
+	return s.memStore.Write(m)
+}
+
+func TestFlush_ASlowWriteNeverHoldsUpObserve(t *testing.T) {
+	st := &slowStore{entered: make(chan struct{}), release: make(chan struct{})}
+	w, err := New(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Observe(macA, q("example.com"), day0)
+	done := make(chan error)
+	go func() { done <- w.Flush() }()
+	<-st.entered // the write is in progress and blocked
+	observed := make(chan struct{})
+	go func() { w.Observe(macA, q("other.example.com"), day0.Add(time.Minute)); close(observed) }()
+	select {
+	case <-observed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Observe waited for the disk write: the router listener would stop reading while the names are saved")
+	}
+	close(st.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if nameOf(st.state, macA, "other.example.com") == nil {
+		t.Fatal("a lookup made during the write must be kept by the next flush")
+	}
+}
+
+func TestFlush_AFailedWriteIsRetriedWhileMoreArrives(t *testing.T) {
+	w, st := newWatch(t)
+	st.err = errors.New("disk full")
+	w.Observe(macA, q("example.com"), day0)
+	if err := w.Flush(); err == nil {
+		t.Fatal("must report")
+	}
+	st.err = nil
+	w.Observe(macA, q("more.example.com"), day0.Add(time.Minute))
+	if err := w.Flush(); err != nil || nameOf(st.state, macA, "example.com") == nil || nameOf(st.state, macA, "more.example.com") == nil {
+		t.Fatalf("flush = %v, stored %+v", err, st.state)
+	}
+}
+
+func TestBounds_KeepTheWorstCaseSmall(t *testing.T) {
+	// A bound that is too loose is a bound that does not protect: at 256 devices of 512 names the watch held 258 MB and wrote a 114 MB file.
+	if worst := maxDevices * maxNames * maxTimes; worst > 128*256*16 {
+		t.Fatalf("the bounds allow %d kept times, more than the reviewed worst case", worst)
 	}
 }

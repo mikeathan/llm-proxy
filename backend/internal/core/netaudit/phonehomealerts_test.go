@@ -67,14 +67,20 @@ func TestPhoneHomeAlerts_TellOnceOfANewNameInFixedWordsNamingTheDeviceByAddress(
 	}
 }
 
-func TestPhoneHomeAlerts_ALargerSetOfNewNamesIsToldAgain(t *testing.T) {
+func TestPhoneHomeAlerts_ALargerSetIsToldAgainOnlyAfterADayAndNeverForTheSameSet(t *testing.T) {
 	r := newPhoneAlertRig(t)
 	r.ask("c2.example.org")
 	r.a.Tick(context.Background())
 	r.ask("d3.example.org")
 	r.a.Tick(context.Background())
+	if len(r.sent) != 1 {
+		t.Fatalf("sent = %q: a device is told of new places once a day, the nightly report lists them all", r.sent)
+	}
+	r.now = r.now.Add(25 * time.Hour)
+	r.ask("d3.example.org")
+	r.a.Tick(context.Background())
 	if len(r.sent) != 2 || !strings.Contains(r.sent[1], "d3.example.org") {
-		t.Fatalf("sent = %q", r.sent)
+		t.Fatalf("sent = %q: after a day the larger set is told", r.sent)
 	}
 }
 
@@ -160,5 +166,19 @@ func TestPhoneHomeAlerts_ANameOnTheMalwareListIsToldAtOnceWhateverTheDevicesAge(
 	r.a.Tick(context.Background())
 	if len(r.sent) != 1 {
 		t.Fatalf("sent = %q: told once", r.sent)
+	}
+}
+
+func TestPhoneHomeAlerts_AMalwareNameIsNeverHeldBackByTheDailyGap(t *testing.T) {
+	r := newPhoneAlertRig(t)
+	r.a.deps.KnownBad = func(name string) (string, bool) {
+		return name, name == "bad.example.org" || name == "worse.example.org"
+	}
+	r.watch.Observe("aa:bb:cc:00:00:01", routerlog.Query{Name: "bad.example.org"}, r.now)
+	r.a.Tick(context.Background())
+	r.watch.Observe("aa:bb:cc:00:00:01", routerlog.Query{Name: "worse.example.org"}, r.now)
+	r.a.Tick(context.Background())
+	if len(r.sent) != 2 {
+		t.Fatalf("sent = %q, want both malware messages", r.sent)
 	}
 }

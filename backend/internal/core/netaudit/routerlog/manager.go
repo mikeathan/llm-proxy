@@ -80,6 +80,8 @@ type Status struct {
 	QueriesLimited int64     `json:"queries_limited"`
 	QueriesPeak    int       `json:"queries_peak_per_second"`
 	QueriesSince   time.Time `json:"queries_since,omitzero"`
+	// QueriesLast is when the latest DNS query line was read; zero until one was.
+	QueriesLast time.Time `json:"queries_last,omitzero"`
 }
 
 // Manager owns the socket. Reconcile makes it match the operator's switch; Run does that until its context ends.
@@ -101,6 +103,7 @@ type Manager struct {
 	qLimited   int64
 	qPeak      int
 	qSince     time.Time
+	qLast      time.Time
 	offerFrom  time.Time
 	offerCount int
 	offered    map[string]time.Time // device and name offered lately, so a repeat is not offered again; bounded by maxOffered
@@ -203,7 +206,7 @@ func (m *Manager) Status() Status {
 	defer m.mu.Unlock()
 	return Status{
 		Listening: m.conn != nil, Problem: m.problem, LastHeard: m.lastHeard,
-		QueriesRead: m.qRead, QueriesLimited: m.qLimited, QueriesPeak: m.qPeak, QueriesSince: m.qSince,
+		QueriesRead: m.qRead, QueriesLimited: m.qLimited, QueriesPeak: m.qPeak, QueriesSince: m.qSince, QueriesLast: m.qLast,
 	}
 }
 
@@ -279,6 +282,7 @@ func (m *Manager) withinQueries(now time.Time) bool {
 	}
 	m.inQueries++
 	m.qRead++
+	m.qLast = now
 	m.qPeak = max(m.qPeak, m.inQueries)
 	return true
 }

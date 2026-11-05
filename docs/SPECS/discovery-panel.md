@@ -13,6 +13,11 @@ supersedes:
 
 ## Changelog
 
+- **2.38 (2026-11-05)** — **Review fixes for the phone-home watch, the web checks and the known-bad list (v0.50.1).** A device is told of new places or a steady beat at most once
+  a day (the nightly report still lists every one; a name on the malware list is always told at once). The Phone-home watch now has a health line like the router log: it shows as
+  stopped after a day with no DNS line from the router, and the stop message says to check that the router logs DNS queries; Network → Settings → Router log says how to switch that on
+  (Asuswrt-Merlin). The watch is bounded smaller (128 devices, 256 names each, 16 recent times), the web checks inside a deep check stop after three minutes, a result cut at the size
+  limit is said to be partial, a known-bad list over 8 MiB is refused instead of cut, and the Modules tab asks each module's readiness once.
 - **2.37 (2026-11-05)** — **Known-bad names (v0.50.0, plan `stack-modules-and-new-detection`; Constitution I.8 sentence proposed).** Network → Settings gains **Known-bad names**:
   a link to abuse.ch where the free list address is made, a short how-to, a hidden field for that address (kept encrypted, never shown again, saving it asks for the
   passphrase) and a Download button with a line saying how many malware host names are held and when. A new module **Known-bad names** (Listen layer, off by default, needs the Phone-home

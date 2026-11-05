@@ -72,3 +72,12 @@ describe('RouterLogCard DNS line counts', () => {
     expect((await mountCard()).find('[data-test="router-log-queries"]').exists()).toBe(false)
   })
 })
+
+describe('RouterLogCard DNS setup note', () => {
+  it('tells how to make the router log DNS queries, which the Phone-home watch needs', async () => {
+    service.routerLog.mockResolvedValue(state())
+    const w = await mountCard()
+    expect(w.get('[data-test="router-log-dns-note"]').text()).toContain('log-queries')
+    expect(w.get('[data-test="router-log-dns-note"]').text()).toContain('Phone-home watch')
+  })
+})

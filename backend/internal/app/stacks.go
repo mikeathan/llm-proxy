@@ -81,7 +81,7 @@ func networkModules(d stackDeps) []stack.Module {
 		{ID: "decoys", Title: "Decoys", Purpose: "Fake services that catch probing.", Stack: stack.Network, Layer: "listen", Sends: stack.Listens, StepUp: true,
 			Switch: withPoke(n.DecoyConfig, func() { n.Decoys.Poke() }), Monitors: []string{netaudit.MonitorDecoys}},
 		{ID: "phone_home", Title: "Phone-home watch", Purpose: "Where each device calls out to.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
-			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig},
+			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig, Monitors: []string{netaudit.MonitorPhoneHome}},
 		{ID: "known_bad", Title: "Known-bad names", Purpose: "Warns when a device asks for a host that serves malware.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,

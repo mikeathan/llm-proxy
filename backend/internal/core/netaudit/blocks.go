@@ -104,10 +104,3 @@ func (b *Blocks) report(err error) {
 		b.onError(err)
 	}
 }
-
-// distinctPorts is how many ports are being counted now; a test reads it to show the table is bounded.
-func (b *Blocks) distinctPorts() int {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return len(b.ports)
-}

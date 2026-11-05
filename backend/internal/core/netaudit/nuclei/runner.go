@@ -97,7 +97,7 @@ func (c *Checker) Check(ctx context.Context, targets []Target, limit time.Durati
 		Args: args, Env: progexec.CleanEnv(run), Root: run,
 		ReadPaths: []string{c.root, filepath.Dir(binary)}, Timeout: limit + killGrace, MaxOutput: maxOutput,
 	})
-	res := Result{Hits: ParseHits(out.Stdout, Index(c.list), targets)}
+	res := Result{Hits: ParseHits(out.Stdout, Index(c.list), targets), Partial: out.Truncated}
 	if errors.Is(err, progexec.ErrTimedOut) {
 		res.Partial = true
 		return res, nil

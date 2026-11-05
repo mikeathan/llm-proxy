@@ -23,6 +23,8 @@ const (
 	MonitorDNS            = "dns_check"
 	MonitorDecoys         = "decoys"
 	MonitorAudit          = "audit"
+	// MonitorPhoneHome is the phone-home watch: stalled while it is switched on and no DNS line has been received for a day.
+	MonitorPhoneHome = "phone_home"
 	// MonitorAlerts is the delivery of alerts to the operator's connectors: stalled while the newest sends failed.
 	MonitorAlerts = "alerts"
 )

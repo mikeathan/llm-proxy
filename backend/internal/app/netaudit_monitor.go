@@ -48,6 +48,9 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 	add(n.DNSCollector != nil && n.DNSCheckConfig != nil, netaudit.MonitorDNS, "the DNS comparison", func() netaudit.MonitorReading {
 		return dnsReading(n.DNSCheckConfig.Settings(), n.DNSCollector.Status())
 	})
+	add(n.PhoneHomeConfig != nil && n.RouterLog != nil, netaudit.MonitorPhoneHome, "the phone-home watch (no DNS names received for a day: check that the router logs DNS queries and sends them to this computer)", func() netaudit.MonitorReading {
+		return phoneHomeReading(n.PhoneHomeConfig.Enabled(), n.RouterLog.Status())
+	})
 	add(n.Decoys != nil && n.DecoyConfig != nil, netaudit.MonitorDecoys, "the decoy services", func() netaudit.MonitorReading {
 		return decoyReading(n.DecoyConfig.Enabled(), n.Decoys.Status(), time.Now())
 	})
@@ -113,6 +116,16 @@ func routerLogReadings(on bool, st routerlog.Status, now time.Time) (socket, qui
 		socket.LastGood = now
 	}
 	return socket, netaudit.MonitorReading{On: on, LastGood: st.LastHeard, Limit: routerQuietLimit}
+}
+
+// phoneHomeStallLimit is how long the phone-home watch may go without a DNS line from the router before it counts as stopped. A home
+// network asks for names all day; a day of silence means the router is not sending them (DNS query logging is off, or the router log
+// is not reaching this computer).
+const phoneHomeStallLimit = 24 * time.Hour
+
+// phoneHomeReading is healthy while DNS lines keep arriving.
+func phoneHomeReading(on bool, st routerlog.Status) netaudit.MonitorReading {
+	return netaudit.MonitorReading{On: on, LastGood: st.QueriesLast, Limit: phoneHomeStallLimit}
 }
 
 // decoyReading is healthy while every decoy listens and nothing is wrong.

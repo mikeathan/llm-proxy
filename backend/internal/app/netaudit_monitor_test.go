@@ -107,3 +107,18 @@ func TestAlertDeliveryReading_StallsOnlyWhileTheNewestSendsFailed(t *testing.T) 
 		t.Errorf("failing since the oldest failure of the streak, got %+v", r)
 	}
 }
+
+func TestPhoneHomeReading_OnWhileSwitchedOnAndTheLastDNSLineIsTheLastGood(t *testing.T) {
+	last := monitorNow.Add(-3 * time.Hour)
+	r := phoneHomeReading(true, routerlog.Status{QueriesLast: last})
+	if !r.On || !r.LastGood.Equal(last) || r.Limit != phoneHomeStallLimit {
+		t.Fatalf("reading = %+v", r)
+	}
+	if r := phoneHomeReading(false, routerlog.Status{QueriesLast: last}); r.On {
+		t.Fatalf("a watch that is off is not watched: %+v", r)
+	}
+	// Nothing ever received: the limit starts when the watch is first seen on, so it says so after a day, not at once.
+	if r := phoneHomeReading(true, routerlog.Status{}); !r.On || !r.LastGood.IsZero() {
+		t.Fatalf("reading = %+v", r)
+	}
+}

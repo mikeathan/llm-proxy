@@ -57,8 +57,3 @@ func sortedKeys(m map[string]Finding) []string {
 	slices.Sort(keys)
 	return keys
 }
-
-// Empty reports whether nothing changed.
-func (d Delta) Empty() bool {
-	return len(d.New) == 0 && len(d.Resolved) == 0 && len(d.Changed) == 0
-}

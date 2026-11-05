@@ -325,6 +325,8 @@ export const FOLLOW_UP_DETAILS = 'When the new-device check finds a device nobod
 export const FOLLOW_UP_LOAD_FAILED = 'The scan-on-arrival setting could not be read.'
 
 export const ROUTER_LOG_TITLE = 'Router log'
+/** The extra router setting the Phone-home watch needs: the router must log the names devices ask for. */
+export const ROUTER_LOG_DNS_NOTE = 'The Phone-home watch also needs the router to log DNS queries. On an Asuswrt-Merlin router, add the line log-queries to /jffs/configs/dnsmasq.conf.add, set the log level to debug (nvram set log_level=7, then nvram commit), and restart dnsmasq or the router. Other routers: look for "log DNS queries" in the router\'s settings.'
 /** Advanced: how busy the router's DNS log is, so the limit on those lines can be tuned from the real rate. */
 export const routerLogQueriesLine = (read: number, limited: number, peak: number, since: string): string =>
   `DNS lines since ${since}: ${read.toLocaleString('en-US')} read, ${limited.toLocaleString('en-US')} turned away by the limit, ${peak} in the busiest second.`
