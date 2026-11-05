@@ -458,6 +458,12 @@ Both were approved by the owner on 2026-11-05 and are wired (details in the plan
   and ports, the templates are files whose SHA-256 equals the reviewed one, and the result lines are parsed into typed facts (template id, host, port, severity) with this repository's
   own title. No download or update happens in the program.
 
+## Known-bad names (as built 2026-11-05, v0.50.0; plan `stack-modules-and-new-detection`)
+
+`core/netaudit/knownbad`: `Parse` (host-file lines `127.0.0.1 name`, `0.0.0.0 name` or a bare name; every name vetted by `routerlog.VetName`; a line pointing a name at another address is dropped; an empty or over-100,000-name file is refused),
+`Set.Match` (a listed name or anything under it; never a parent or a lookalike), `Manager` (`Download` fetches the operator's saved address through `NetworkTools.Open`, only if it is https on abuse.ch, replaces the held list only when the new one is whole, redacts the address from every error).
+The address is in the secrets store (`netaudit` / `urlhaus_list`): `PUT`/`DELETE /admin/api/netaudit/known-bad/key` are step-up routes and the status never returns it. `phonehome.KnownBad` finds recent listed names for any device whatever its age; `phonehome.WithKnownBad` folds them into the new-place and beaconing signals so one name is one signal. Surfaces: finding `phone_home_known_bad`, the immediate message, the Settings card.
+
 ## Detection and prevention additions (as built 2026-11-04, v0.46.0; plan `network-detection-prevention-next`)
 
 - **Watch the watchers** (`core/netaudit/monitorwatch.go`, readings in `app/netaudit_monitor.go`). `MonitorWatch` reads each part every
