@@ -148,7 +148,7 @@ func programAttentionItems(in exposureInput) []exposureAttention {
 		out = append(out, exposureAttention{
 			ID:   "model_server_open",
 			Text: "The model server this program starts listens on every network address, so anyone on the network can use it directly. The /v1 inference key does not protect it.",
-			Fix:  "Open Settings, System, and set the model server address to 127.0.0.1. The next model start listens on this computer only.",
+			Fix:  "Open Settings, General, Routing & engine (the Local engine panel) and set Model host IP to 127.0.0.1. The next model start listens on this computer only.",
 		})
 	}
 	if n := idleTokens(in.Tokens, in.Now); n > 0 {
