@@ -131,3 +131,13 @@ func TestRunReporter_AddsPhoneHomeFindingsOnlyForDevicesTheScanLookedAt(t *testi
 		t.Fatal("a reporter built without the watch must add nothing")
 	}
 }
+
+func TestPhoneHomeFindings_AKnownBadNameIsAHighFindingWithItsOwnGuide(t *testing.T) {
+	got := PhoneHomeFindings([]phonehome.Signal{{Kind: phonehome.KnownBadName, MAC: "aa:bb:cc:00:00:01", Names: []string{"a.g6.wtf"}}}, phInv())
+	if len(got) != 1 || got[0].Check != CheckPhoneHomeKnownBad || got[0].Severity != SeverityHigh || !strings.Contains(got[0].Evidence, "a.g6.wtf") || got[0].Version == "" {
+		t.Fatalf("findings = %+v", got)
+	}
+	if checkTitles[CheckPhoneHomeKnownBad] == "" || remediations[CheckPhoneHomeKnownBad] == "" {
+		t.Fatal("the check needs a title and a fix")
+	}
+}

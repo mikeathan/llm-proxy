@@ -100,11 +100,14 @@ func cachedMACs(src netaudit.NeighborSource, ttl time.Duration, now func() time.
 type phoneHomeSignals struct {
 	enabled func() bool
 	watch   *phonehome.Watch
+	// bad compares a name with the malware list; nil means no list.
+	bad func(string) (string, bool)
 }
 
 func (p phoneHomeSignals) Signals(devices []phonehome.InventoryDevice, now time.Time) []phonehome.Signal {
 	if !p.enabled() {
 		return nil
 	}
-	return phonehome.Evaluate(p.watch.Snapshot(), devices, now)
+	state := p.watch.Snapshot()
+	return phonehome.WithKnownBad(phonehome.Evaluate(state, devices, now), phonehome.KnownBad(state, p.bad, now))
 }

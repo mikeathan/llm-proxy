@@ -1,0 +1,19 @@
+################################################################
+# abuse.ch URLhaus Host file                                   #
+# Last updated: 2026-11-05 15:58:15 (UTC)                      #
+#                                                              #
+# Terms Of Use: https://urlhaus.abuse.ch/api/                  #
+# For questions please contact urlhaus [at] abuse.ch           #
+################################################################
+#
+127.0.0.1	123.ywxww.net
+127.0.0.1	1717.1000uc.com
+127.0.0.1	1minecraft.net
+127.0.0.1	3.zhzy999.net
+127.0.0.1	3.zhzy999.net3.zhzy999.net
+127.0.0.1	31.128.173.853.zhzy999.net31.128.173.853.zhzy999.net
+127.0.0.1	434f06c-geik4j16cf-d1fa-73d9f.acutelyunfailing.cc
+127.0.0.1	4eclient.com
+127.0.0.1	6sim.vip
+127.0.0.1	a.g6.wtf
+# Number of entries: 10

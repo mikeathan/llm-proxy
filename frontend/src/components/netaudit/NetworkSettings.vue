@@ -4,6 +4,7 @@ import ScanLimitsSettings from "./ScanLimitsSettings.vue"
 import VulnDataCard from "./VulnDataCard.vue"
 import UbuntuDataCard from "./UbuntuDataCard.vue"
 import WebTemplatesCard from "./WebTemplatesCard.vue"
+import KnownBadCard from "./KnownBadCard.vue"
 import DeviceCheckSettings from "./DeviceCheckSettings.vue"
 import DecoysCard from "./DecoysCard.vue"
 import RouterLogCard from "./RouterLogCard.vue"
@@ -35,6 +36,7 @@ const GROUP_HEADING = "m-0 font-mono text-[length:var(--text-micro)] font-medium
       <OutsideLookupCard />
       <DnsCheckCard />
       <NearbyCard />
+      <KnownBadCard />
     </section>
 
     <VulnDataCard />

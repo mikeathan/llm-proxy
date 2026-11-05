@@ -40,6 +40,7 @@ type HandlerSet struct {
 	Netaudit     *handlers.NetauditHandlers
 	Stacks       *handlers.StackHandlers
 	WebTemplates *handlers.NetauditWebTemplatesHandlers
+	KnownBad     *handlers.NetauditKnownBadHandlers
 	VulnData     *handlers.VulnDataHandlers
 	Devices      *handlers.NetauditDevicesHandlers
 	Overview     *handlers.NetauditOverviewHandlers
@@ -127,6 +128,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Helpers = handlers.NewHelpersHandlers(s)
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep).WithGuides(s.netauditGuides())
 	hs.WebTemplates = handlers.NewNetauditWebTemplatesHandlers(s.netaudit.WebTemplates)
+	hs.KnownBad = handlers.NewNetauditKnownBadHandlers(s.netaudit.KnownBadList)
 	hs.Stacks = handlers.NewStackHandlers(s.netaudit.Stacks, s.stalledMonitors)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
@@ -381,6 +383,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/helpers", hs.Helpers.Status, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/web-templates", hs.WebTemplates.Get, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/web-templates/download", hs.WebTemplates.Download, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/known-bad", hs.KnownBad.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/known-bad/key", hs.KnownBad.PutAddress, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/known-bad/key", hs.KnownBad.DeleteAddress, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/known-bad/download", hs.KnownBad.Download, jsonMethodNotAllowed)
 	router.Get("/admin/api/stacks", hs.Stacks.List, jsonMethodNotAllowed)
 	router.Get("/admin/api/stacks/{stack}", hs.Stacks.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/stacks/{stack}/modules/{id}", hs.Stacks.PutModule, jsonMethodNotAllowed)
