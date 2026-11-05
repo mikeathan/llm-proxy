@@ -447,9 +447,9 @@ Every switchable capability is a **module** of a **layer** of a **stack**, descr
   in the nightly report from `RunReporter.attackPathsNote` (`PathsText`, fixed words, address or fixed label only, never a device name, which only the JSON carries).
 - **Module**: `attack_paths` in the Understand layer, sends nothing, on unless switched off (`NetauditConfig.AttackPathsOff`, `AttackPathsConfig`), no passphrase.
 
-## Phone-home watch and web checks: groundwork (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P3, P4; not wired)
+## Phone-home watch and web checks (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P3, P4; Constitution I.8 and II.3 amended)
 
-Both are built to the point that needs no new permission and stop there; the plan's §6 lists what waits for the owner.
+Both were approved by the owner on 2026-11-05 and are wired (details in the plan's "P3 and P4 as built"). The listener hands DNS query lines to `phoneHomeIntake` under its own limit; `web_checks` runs nuclei only through `progexec` and the sandbox.
 
 - **Phone-home.** `routerlog/dnsparse.go`, `phonehome/` (watch, signals), `phonehomefindings.go`, `models.PhoneHome`, `persistence.PhoneHomeStore`. Devices are keyed by hardware address,
   never by IP address; names are vetted plain DNS names shown as text and never sent to a model; the findings are hints (any device can forge a log line) the operator can accept.

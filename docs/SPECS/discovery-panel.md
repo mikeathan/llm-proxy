@@ -13,6 +13,13 @@ supersedes:
 
 ## Changelog
 
+- **2.35 (2026-11-05)** — **Phone-home watch and web checks (v0.48.0, plan `stack-modules-and-new-detection` P3 and P4; Constitution I.8 and II.3 amended).** Two new
+  modules on the Modules tab: **Phone-home watch** (Listen layer, needs the router log, off by default) remembers which DNS names each device asks the router for, and the nightly
+  report gains findings for a name a device asked for for the first time after its first week, a new name asked for at a steady beat, and a device that is online and never asks the
+  router's DNS (a Chromecast does this on purpose, so each can be accepted); **Web checks, nightly** (Test layer, off by default, needs the passphrase, blocked with a plain reason
+  until nuclei is installed and its templates are downloaded) runs a reviewed list of 24 web page checks against the web pages the audit found, and the operator's deep check of
+  one device runs them too. Network → Settings gains **Web check templates**: how many reviewed checks are on this computer and one button that downloads them (nothing else does).
+  New findings: `phone_home_new_place`, `phone_home_beaconing`, `phone_home_around_dns`, `web_exposure`.
 - **2.34 (2026-11-05)** — **Attack paths (v0.48.0, plan `stack-modules-and-new-detection` P2).** Network → Overview gains **Ways in that matter**: at most three
   paths, each read top to bottom (where it starts, the weaknesses on it with their ports, what it ends at, the one fix and, when it breaks more than its own path, how
   many), built from the last audit's real findings by fixed rules; a path of accepted findings stays, dimmer and marked "accepted". No path comes from an open port alone;

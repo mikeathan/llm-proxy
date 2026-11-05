@@ -64,6 +64,13 @@ type NetauditConfig struct {
 	DNSCheckServer string `yaml:"dns_check_server,omitempty" json:"dns_check_server"`
 	// DNSCheckResolverURL is the outside resolver's DNS-over-HTTPS address (https only). Empty means netaudit's default.
 	DNSCheckResolverURL string `yaml:"dns_check_resolver_url,omitempty" json:"dns_check_resolver_url"`
+	// PhoneHomeEnabled turns on the phone-home watch: the DNS names each device asks the router for are remembered (by hardware
+	// address) so a new place, a steady beat and a device that avoids the router's DNS can be reported. Off until the operator turns it
+	// on; it needs the router log (Constitution I.8).
+	PhoneHomeEnabled bool `yaml:"phone_home_enabled,omitempty" json:"phone_home_enabled"`
+	// WebChecksEnabled has the nightly audit run the reviewed web checks (nuclei) over the web pages of the devices it scanned. Off
+	// until the operator turns it on; the operator's deep check of one device runs them whenever they are ready.
+	WebChecksEnabled bool `yaml:"web_checks_enabled,omitempty" json:"web_checks_enabled"`
 	// AttackPathsOff stops the attack paths (the Overview card and the report section). They only read what the audit already holds,
 	// so they are on unless switched off.
 	AttackPathsOff bool `yaml:"attack_paths_off,omitempty" json:"attack_paths_off"`

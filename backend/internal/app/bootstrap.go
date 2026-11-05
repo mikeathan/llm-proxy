@@ -88,11 +88,29 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}
 	withNetauditChecks(reporter, svc)
 	withNetauditProbes(reporter, svc)
-	if v, ok := svc.(interface{ NetauditAttackPaths() func() bool }); ok && v.NetauditAttackPaths() != nil {
-		reporter.WithAttackPaths(v.NetauditAttackPaths())
-	}
+	withNetauditInsight(reporter, svc)
 	if v, ok := svc.(interface{ NetauditMonitors() netaudit.MonitorStalls }); ok && v.NetauditMonitors() != nil {
 		reporter.WithMonitors(v.NetauditMonitors())
+	}
+}
+
+// withNetauditInsight gives the run reporter what turns findings into judgements: the phone-home watch's signals and the switch of
+// the attack paths.
+func withNetauditInsight(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
+	if v, ok := svc.(interface {
+		NetauditWebChecks() (func() bool, netaudit.WebChecker)
+	}); ok {
+		if enabled, checker := v.NetauditWebChecks(); checker != nil {
+			reporter.WithWebChecks(enabled, checker)
+		}
+	}
+	if v, ok := svc.(interface {
+		NetauditPhoneHome() netaudit.PhoneHomeSource
+	}); ok && v.NetauditPhoneHome() != nil {
+		reporter.WithPhoneHome(v.NetauditPhoneHome())
+	}
+	if v, ok := svc.(interface{ NetauditAttackPaths() func() bool }); ok && v.NetauditAttackPaths() != nil {
+		reporter.WithAttackPaths(v.NetauditAttackPaths())
 	}
 }
 
@@ -433,6 +451,25 @@ type AppServices struct {
 	auth *auth.Service
 }
 
+// flushNetaudit writes now, synchronously, what the Network module holds in memory: the router's refused attempts of the last
+// minutes and the names devices asked for. It does not trust a counter's own goroutine to finish before the process exits (the same
+// rule as the memory usage counts).
+func (s AppServices) flushNetaudit() {
+	if s.netaudit == nil {
+		return
+	}
+	if s.netaudit.Blocks != nil {
+		if err := s.netaudit.Blocks.Flush(); err != nil {
+			logging.Warn("network router blocks", "error", err.Error())
+		}
+	}
+	if s.netaudit.PhoneHome != nil {
+		if err := s.netaudit.PhoneHome.Flush(); err != nil {
+			logging.Warn("network phone-home", "error", err.Error())
+		}
+	}
+}
+
 func (s AppServices) Shutdown(ctx context.Context) {
 	if s.egressCancel != nil {
 		logging.Info("Stopping agent egress proxy...")
@@ -441,13 +478,7 @@ func (s AppServices) Shutdown(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.Vulns != nil {
 		s.netaudit.Vulns.Close()
 	}
-	// The router's refused attempts of the last minutes are written now, synchronously, rather than trusting the counter's own
-	// goroutine to finish before the process exits (the same rule as the memory usage counts).
-	if s.netaudit != nil && s.netaudit.Blocks != nil {
-		if err := s.netaudit.Blocks.Flush(); err != nil {
-			logging.Warn("network router blocks", "error", err.Error())
-		}
-	}
+	s.flushNetaudit()
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")
 		s.Runtime.Shutdown()

@@ -1,6 +1,7 @@
 package phonehome
 
 import (
+	"context"
 	"errors"
 	"net/netip"
 	"slices"
@@ -272,5 +273,31 @@ func TestEvaluate_DoesNotChangeTheState(t *testing.T) {
 	Evaluate(before, nil, at)
 	if nameOf(before, macA, "beacon.example.org").Count != 20 {
 		t.Fatal("the state was changed")
+	}
+}
+
+func TestRun_WritesWhatWasObservedWhenItsContextEnds(t *testing.T) {
+	w, st := newWatch(t)
+	w.Observe(macA, q("example.com"), day0)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { w.Run(ctx, nil); close(done) }()
+	cancel()
+	<-done
+	if st.writes != 1 {
+		t.Fatalf("writes = %d, want the last changes written at shutdown", st.writes)
+	}
+}
+
+func TestNewEmpty_StartsWithNothingAndWritesOnTheFirstChange(t *testing.T) {
+	st := &memStore{err: errors.New("corrupt")}
+	w := NewEmpty(st)
+	if len(w.Snapshot().Devices) != 0 {
+		t.Fatal("not empty")
+	}
+	st.err = nil
+	w.Observe(macA, q("example.com"), day0)
+	if err := w.Flush(); err != nil || st.writes != 1 {
+		t.Fatalf("flush: %v, writes %d", err, st.writes)
 	}
 }

@@ -1,8 +1,10 @@
 package netaudit
 
 import (
+	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/core/netaudit/phonehome"
 	"llm-proxy/models"
@@ -71,5 +73,61 @@ func TestPhoneHomeFindings_HaveWordsForTheScreenAndAFix(t *testing.T) {
 		if checkTitles[c] == "" || remediations[c] == "" {
 			t.Errorf("%s has no title or no fix text", c)
 		}
+	}
+}
+
+func TestPhoneHomeConfig_IsOffUntilSwitchedOn(t *testing.T) {
+	store := &memConfig{}
+	c := NewPhoneHomeConfig(store)
+	if c.Enabled() {
+		t.Fatal("the watch remembers the names devices ask for, so it is off until the operator turns it on")
+	}
+	if err := c.Set(true); err != nil || !c.Enabled() || !store.Get().PhoneHomeEnabled {
+		t.Errorf("on: err=%v enabled=%v", err, c.Enabled())
+	}
+}
+
+func TestPhoneHomeDevices_LeaveOutTheRouterAndDevicesWithAPrivateAddress(t *testing.T) {
+	inv := models.DeviceInventory{GatewayMAC: "aa:bb:cc:00:00:01", Devices: []models.NetworkDevice{
+		{MAC: "aa:bb:cc:00:00:01"}, {MAC: "aa:bb:cc:00:00:02"}, {MAC: "da:a1:19:00:00:03", Randomized: true},
+	}}
+	got := PhoneHomeDevices(inv)
+	if len(got) != 1 || got[0].MAC != "aa:bb:cc:00:00:02" {
+		t.Fatalf("devices = %+v, want only the ordinary device", got)
+	}
+}
+
+type fakePhoneHome struct {
+	asked   []phonehome.InventoryDevice
+	signals []phonehome.Signal
+}
+
+func (f *fakePhoneHome) Signals(d []phonehome.InventoryDevice, _ time.Time) []phonehome.Signal {
+	f.asked = d
+	return f.signals
+}
+
+func TestRunReporter_AddsPhoneHomeFindingsOnlyForDevicesTheScanLookedAt(t *testing.T) {
+	src := &fakePhoneHome{signals: []phonehome.Signal{
+		{Kind: phonehome.NewPlace, MAC: "aa:bb:cc:00:00:01", Names: []string{"a.example.org"}},
+	}}
+	r := NewRunReporter(nil).WithPhoneHome(src)
+	looked := Result{Hosts: []Host{{Addr: netip.MustParseAddr("192.168.1.20"), Up: true}}}
+	r.addPhoneHome(&looked, phInv())
+	if len(looked.Findings) != 1 || looked.Findings[0].Check != CheckPhoneHomeNewPlace {
+		t.Fatalf("findings = %+v", looked.Findings)
+	}
+	if len(src.asked) != 2 {
+		t.Fatalf("asked about %+v devices, want the inventory's", src.asked)
+	}
+	elsewhere := Result{Hosts: []Host{{Addr: netip.MustParseAddr("192.168.1.99"), Up: true}}}
+	r.addPhoneHome(&elsewhere, phInv())
+	if len(elsewhere.Findings) != 0 {
+		t.Fatalf("findings = %+v for a device this scan did not reach", elsewhere.Findings)
+	}
+	none := Result{}
+	NewRunReporter(nil).addPhoneHome(&none, phInv())
+	if len(none.Findings) != 0 {
+		t.Fatal("a reporter built without the watch must add nothing")
 	}
 }

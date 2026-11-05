@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/nuclei"
 	"llm-proxy/internal/core/stack"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/internal/transport/http/handlers"
@@ -55,6 +56,9 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		Summary:             netaudit.NewSummaryConfig(store),
 		CheckInConfig:       netaudit.NewCheckInConfig(store),
 		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
+		PhoneHomeConfig:     netaudit.NewPhoneHomeConfig(store),
+		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
+		WebChecker:          nuclei.NewChecker(nil, "/nonexistent-web-templates"),
 	}
 }
 
@@ -85,9 +89,9 @@ func newTestStacks(t *testing.T) *testStackDeps {
 func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	want := map[string]string{
 		"presence": "discover", "ipv6_discovery": "discover", "device_names": "discover", "nearby": "discover",
-		"router_log": "listen", "decoys": "listen",
-		"scan_on_arrival": "test",
-		"outside_lookup":  "outside", "dns_check": "outside",
+		"router_log": "listen", "phone_home": "listen", "decoys": "listen",
+		"scan_on_arrival": "test", "web_checks": "test",
+		"outside_lookup": "outside", "dns_check": "outside",
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
 	}
 	got := map[string]string{}
@@ -140,8 +144,9 @@ var legacyPaths = map[string]string{
 	"daily_check_in": "/admin/api/netaudit/daily-check-in",
 }
 
-// modulesWithNoOldRoute are the modules that never had a switch route of their own.
-var modulesWithNoOldRoute = map[string]bool{"attack_paths": true}
+// modulesWithNoOldRoute are the modules that never had a switch route of their own, and whether each needs the passphrase. Only a
+// module that probes the network or opens a socket does.
+var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "web_checks": true}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	steps := api.StepUpRoutes()
@@ -149,9 +154,9 @@ func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 		if m.Stack != stack.Network {
 			continue
 		}
-		if modulesWithNoOldRoute[m.ID] {
-			if m.StepUp {
-				t.Errorf("module %s sends nothing and opens nothing, so it must not need the passphrase", m.ID)
+		if want, ok := modulesWithNoOldRoute[m.ID]; ok {
+			if m.StepUp != want {
+				t.Errorf("module %s: StepUp = %v, want %v", m.ID, m.StepUp, want)
 			}
 			continue
 		}
@@ -179,6 +184,8 @@ func TestStackRegistry_AModuleSitsOnTheSwitchItAlwaysHad(t *testing.T) {
 		"weekly_summary":  func() bool { return d.store.cfg.WeeklySummary },
 		"daily_check_in":  func() bool { return d.store.cfg.DailyCheckIn },
 		"attack_paths":    func() bool { return !d.store.cfg.AttackPathsOff },
+		"phone_home":      func() bool { return d.store.cfg.PhoneHomeEnabled },
+		"web_checks":      func() bool { return d.store.cfg.WebChecksEnabled },
 	} {
 		m, _ := d.reg.Module(stack.Network, id)
 		want := !read()
@@ -332,5 +339,18 @@ func TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase(t *testing.T)
 	}
 	if walked < 8 {
 		t.Fatalf("walked only %d step-up modules; the check is not covering the registry", walked)
+	}
+}
+
+func TestStackRegistry_ThePhoneHomeWatchNeedsTheRouterLog(t *testing.T) {
+	d := newTestStacks(t)
+	_, err := d.reg.Switch(stack.Network, "phone_home", true)
+	var ne *stack.NeedError
+	if !errors.As(err, &ne) || ne.Need != "Router log" {
+		t.Fatalf("err = %v, want a refusal naming the Router log", err)
+	}
+	d.store.cfg.RouterLogEnabled = true
+	if _, err := d.reg.Switch(stack.Network, "phone_home", true); err != nil {
+		t.Fatalf("with the router log on: %v", err)
 	}
 }

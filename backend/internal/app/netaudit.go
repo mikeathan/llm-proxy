@@ -20,6 +20,8 @@ import (
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/internal/core/netaudit/nmap"
+	"llm-proxy/internal/core/netaudit/nuclei"
+	"llm-proxy/internal/core/netaudit/phonehome"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
@@ -103,6 +105,13 @@ type netauditServices struct {
 	CheckInConfig *netaudit.CheckInConfig
 	// Stacks describes every switchable capability as a module of a stack; its switches are adapters over the settings above.
 	Stacks *stack.Registry
+	// WebChecksConfig is the nightly switch of the web checks; WebChecker runs them (nuclei); WebTemplates holds the reviewed templates.
+	WebChecksConfig *netaudit.WebChecksConfig
+	WebChecker      *nuclei.Checker
+	WebTemplates    *webTemplates
+	// PhoneHome is the watch of the names devices ask the router for; its switch is PhoneHomeConfig.
+	PhoneHome       *phonehome.Watch
+	PhoneHomeConfig *netaudit.PhoneHomeConfig
 	// AttackPathsConfig is the switch for the attack paths, which are on unless switched off.
 	AttackPathsConfig *netaudit.AttackPathsConfig
 	// Discovery6 is the switch for active IPv6 discovery, which the inventory runs on each look while it is on.
@@ -295,6 +304,23 @@ func (s AppServices) NetauditAttackPaths() func() bool {
 	return s.netaudit.AttackPathsConfig.Enabled
 }
 
+// NetauditWebChecks is the nightly web checks for the run reporter: whether they are switched on and what runs them; both nil until
+// the services are wired.
+func (s AppServices) NetauditWebChecks() (func() bool, netaudit.WebChecker) {
+	if s.netaudit == nil || s.netaudit.WebChecksConfig == nil || s.netaudit.WebChecker == nil {
+		return nil, nil
+	}
+	return s.netaudit.WebChecksConfig.Enabled, s.netaudit.WebChecker
+}
+
+// NetauditPhoneHome is what the run reporter reads of the phone-home watch; nil until the services are wired.
+func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
+	if s.netaudit == nil || s.netaudit.PhoneHome == nil || s.netaudit.PhoneHomeConfig == nil {
+		return nil
+	}
+	return phoneHomeSignals{enabled: s.netaudit.PhoneHomeConfig.Enabled, watch: s.netaudit.PhoneHome}
+}
+
 // StartNetauditPresence runs the Network module's background work until ctx ends: the presence check, the router log listener
 // and its counter of refused attempts, the DNS comparison, the decoys, Nearby and the watch over them all. It is the one place
 // that starts them (Constitution II.2, II.14); work that is switched off in the settings does nothing.
@@ -319,6 +345,9 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Presence != nil, func(ctx context.Context) { n.Presence.Run(ctx) })
 	add(n.RouterLog != nil, func(ctx context.Context) { n.RouterLog.Run(ctx) })
 	add(n.Blocks != nil, func(ctx context.Context) { n.Blocks.Run(ctx) })
+	add(n.PhoneHome != nil, func(ctx context.Context) {
+		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
+	})
 	add(n.DNSCollector != nil, func(ctx context.Context) { n.DNSCollector.Run(ctx) })
 	add(n.Decoys != nil, func(ctx context.Context) { n.Decoys.Run(ctx) })
 	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
@@ -460,7 +489,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	scan := s.newScanning(store, scope, netTools)
 	known := s.newTracking(store, scope, netTools)
-	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known})
+	phone := s.newPhoneHome(store, scope)
+	web := s.newWebChecks(store, scan.Runner, netTools)
+	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
 	dns := s.newDNSCheck(store, netTools)
@@ -485,6 +516,11 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Summary:           known.Summary,
 		Discovery6:        known.Discovery6,
 		AttackPathsConfig: netaudit.NewAttackPathsConfig(store),
+		WebChecksConfig:   web.Config,
+		WebChecker:        web.Checker,
+		WebTemplates:      web.Templates,
+		PhoneHome:         phone.Watch,
+		PhoneHomeConfig:   phone.Config,
 		Ports:             known.Ports,
 		Host:              known.Host,
 		Router:            newRouterCheck(netTools, known.Inventory, scope).WithExposure(outside.Exposure),
@@ -513,7 +549,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
-		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()),
+		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(web.Checker),
 	}
 	s.netaudit.Monitors = newMonitorWatch(s.netaudit, s.alertNotifier(alerts.Log, models.NetworkAlertMonitor))
 	s.netaudit.SignIns = netaudit.NewSignInAlerts(s.alertNotifier(alerts.Log, models.NetworkAlertSignIn), time.Now)
@@ -552,6 +588,8 @@ type scanning struct {
 	Service   *netaudit.Service
 	Readiness *netaudit.Readiness
 	Vulns     *vulnfeed.Manager
+	// Runner starts guarded programs (nmap, nuclei) under the sandbox.
+	Runner progexec.Runner
 }
 
 func (s *AppServices) newScanning(store netaudit.PolicyStore, scope *netaudit.Scope, netTools *tools.NetworkTools) scanning {
@@ -576,7 +614,7 @@ func (s *AppServices) newScanning(store netaudit.PolicyStore, scope *netaudit.Sc
 			return netaudit.VulnDataView{Running: st.State == vulnfeed.StateRunning, FilesDone: st.FilesDone, FilesTotal: st.FilesTotal, Age: st.Age(time.Now())}
 		},
 	})
-	return scanning{Service: service, Readiness: readiness, Vulns: vulns}
+	return scanning{Service: service, Readiness: readiness, Vulns: vulns, Runner: runner}
 }
 
 // tracking is what the module remembers about the network: who is on it, what they are called, and how it changes.

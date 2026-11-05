@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"llm-proxy/internal/core/netaudit/phonehome"
 	"llm-proxy/models"
@@ -101,4 +102,43 @@ func listNames(names []string) string {
 func namesDigest(names []string) string {
 	sum := sha256.Sum256([]byte(strings.Join(names, "\n")))
 	return hex.EncodeToString(sum[:6])
+}
+
+// PhoneHomeConfig reads and changes whether the phone-home watch is on. It is off until the operator turns it on; it opens no
+// socket of its own (the router log's socket carries the lines), so switching it needs no passphrase.
+type PhoneHomeConfig struct{ store PolicyStore }
+
+func NewPhoneHomeConfig(store PolicyStore) *PhoneHomeConfig { return &PhoneHomeConfig{store: store} }
+
+// Enabled reports whether the watch is on.
+func (c *PhoneHomeConfig) Enabled() bool { return c.store.Get().PhoneHomeEnabled }
+
+// Set switches the watch on or off.
+func (c *PhoneHomeConfig) Set(enabled bool) error {
+	if err := c.store.Update(func(cfg *models.NetauditConfig) error {
+		cfg.PhoneHomeEnabled = enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the phone-home setting: %w", err)
+	}
+	return nil
+}
+
+// PhoneHomeSource is what the nightly report reads: the signals of the watch for the devices of the inventory. It is empty while the
+// watch is off.
+type PhoneHomeSource interface {
+	Signals(devices []phonehome.InventoryDevice, now time.Time) []phonehome.Signal
+}
+
+// PhoneHomeDevices are the devices the "goes around your DNS" signal may judge: not the router itself (it never asks itself) and not a
+// device with a private hardware address, which changes and would be reported over and over.
+func PhoneHomeDevices(inv models.DeviceInventory) []phonehome.InventoryDevice {
+	var out []phonehome.InventoryDevice
+	for _, d := range inv.Devices {
+		if d.Randomized || (inv.GatewayMAC != "" && d.MAC == inv.GatewayMAC) {
+			continue
+		}
+		out = append(out, phonehome.InventoryDevice{MAC: d.MAC, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen})
+	}
+	return out
 }

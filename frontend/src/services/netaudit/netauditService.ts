@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
+import type { WebTemplatesState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -43,6 +43,15 @@ export class NetauditService {
   }
 
   /** What is held of Canonical's security notices, and whether this computer can use them. */
+  static webTemplates(): Promise<WebTemplatesState> {
+    return get<WebTemplatesState>(API_ENDPOINTS.netauditWebTemplates)
+  }
+
+  /** Fetches the reviewed web-check templates now. Each is kept only if it is exactly the file that was reviewed. */
+  static downloadWebTemplates(): Promise<WebTemplatesState> {
+    return post<WebTemplatesState>(API_ENDPOINTS.netauditWebTemplatesDownload, {})
+  }
+
   static ubuntuData(): Promise<UbuntuDataStatus> {
     return get<UbuntuDataStatus>(API_ENDPOINTS.netauditUbuntuData)
   }

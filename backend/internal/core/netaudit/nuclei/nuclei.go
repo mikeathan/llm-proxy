@@ -248,3 +248,9 @@ func hitOf(line []byte, allowed map[string]Template, asked []Target) (Hit, bool)
 	}
 	return Hit{TemplateID: tpl.ID, Addr: addr, Port: port, Severity: sev, Title: tpl.Title}, true
 }
+
+// checksum is the SHA-256 of a template file's bytes, in lower-case hex.
+func checksum(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}

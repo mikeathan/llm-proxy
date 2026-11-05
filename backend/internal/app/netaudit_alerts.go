@@ -28,6 +28,8 @@ type alertingDeps struct {
 	Scope    *netaudit.Scope
 	Service  *netaudit.Service
 	Tracking tracking
+	// PhoneHome is the watch of the names devices ask for; the router log's listener hands it the DNS query lines.
+	PhoneHome phoneHome
 }
 
 // notifyFunc sends one alert message; it fails when the message could not be delivered, so the alert stays pending.
@@ -79,7 +81,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		DecoyStore:     decoyStore,
 
 		RouterLogConfig: routerLogConfig,
-		RouterLog:       s.newRouterLog(routerLogConfig, known.Inventory, known.Names, presence, blocks),
+		RouterLog:       s.newRouterLog(routerLogDeps{Config: routerLogConfig, Inventory: known.Inventory, Suggester: known.Names, Presence: presence, Blocks: blocks, Query: deps.PhoneHome.Intake.Observe}),
 		Blocks:          blocks,
 		FollowUp:        followUp,
 		FollowUpConfig:  followUpConfig,
@@ -148,18 +150,28 @@ func dnsServer(config *netaudit.DNSCheckConfig, gateway func() netip.Addr) func(
 // gatewayTTL is how long the router's address is remembered before the routing table is read again.
 const gatewayTTL = 30 * time.Second
 
+// routerLogDeps are what the router log's listener is built from. Query takes a DNS query line the listener read.
+type routerLogDeps struct {
+	Config    *netaudit.RouterLogConfig
+	Inventory *netaudit.Inventory
+	Suggester *names.Suggester
+	Presence  *netaudit.Presence
+	Blocks    *netaudit.Blocks
+	Query     func(routerlog.Query, time.Time)
+}
+
 // newRouterLog builds the listener for the router's log. A datagram counts only from the default gateway. A device message can
 // only wake the presence check when the device list does not know the hardware address in it, and a firewall drop is only
-// counted (protocol and port, into the day's history); neither starts anything else (Constitution I.8).
-func (s *AppServices) newRouterLog(config *netaudit.RouterLogConfig, inventory *netaudit.Inventory, suggester *names.Suggester,
-	presence *netaudit.Presence, blocks *netaudit.Blocks) *routerlog.Manager {
+// counted (protocol and port, into the day's history); a DNS query line goes to the phone-home watch; none starts anything else (Constitution I.8).
+func (s *AppServices) newRouterLog(d routerLogDeps) *routerlog.Manager {
 	return routerlog.New(routerlog.Deps{
-		Enabled: config.Enabled,
+		Enabled: d.Config.Enabled,
 		Gateway: cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now),
-		Device:  cachedDevices(inventory.View, deviceListTTL, time.Now),
-		Suggest: suggester.Offer,
-		Drop:    blocks.Add,
-		Wake:    presence.Wake,
+		Device:  cachedDevices(d.Inventory.View, deviceListTTL, time.Now),
+		Suggest: d.Suggester.Offer,
+		Drop:    d.Blocks.Add,
+		Query:   d.Query,
+		Wake:    d.Presence.Wake,
 		OnError: func(err error) { logging.Warn("network router log", "error", err.Error()) },
 	})
 }

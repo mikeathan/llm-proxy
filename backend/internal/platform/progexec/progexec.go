@@ -192,6 +192,11 @@ func (r Runner) checkConfinement() error {
 	return ErrUnconfined
 }
 
+// Locate finds the program on PATH without starting it. A missing program is a *NotInstalledError carrying the install command for
+// this OS. Use it when only the answer "is it installed" is wanted: some programs write files into the working directory when
+// started for any reason, even to print a version.
+func Locate(p Program) (string, error) { return lookPath(p) }
+
 func lookPath(p Program) (string, error) {
 	path, err := exec.LookPath(p.Binary)
 	if err != nil {

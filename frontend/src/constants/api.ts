@@ -14,6 +14,8 @@ export const API_ENDPOINTS = {
   helpers: `${API_BASE}/helpers`,
   stack: (id: string) => `${API_BASE}/stacks/${encodeURIComponent(id)}`,
   stackModule: (stack: string, id: string) => `${API_BASE}/stacks/${encodeURIComponent(stack)}/modules/${encodeURIComponent(id)}`,
+  netauditWebTemplates: `${API_BASE}/netaudit/web-templates`,
+  netauditWebTemplatesDownload: `${API_BASE}/netaudit/web-templates/download`,
   netauditScope: `${API_BASE}/netaudit/scope`,
   netauditReadiness: `${API_BASE}/netaudit/readiness`,
   netauditFindings: `${API_BASE}/netaudit/findings`,

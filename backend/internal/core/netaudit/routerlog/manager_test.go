@@ -25,6 +25,9 @@ type rig struct {
 	// lines, and a rig that kept each one would be the heap growth the test looks for.
 	drops  []Drop
 	nDrops atomic.Int64
+	// queries keeps the first lookups; nQueries counts them all.
+	queries  []Query
+	nQueries atomic.Int64
 }
 
 const maxKeptDrops = 100
@@ -54,6 +57,14 @@ func newRig(t *testing.T) *rig {
 			defer r.mu.Unlock()
 			if len(r.drops) < maxKeptDrops {
 				r.drops = append(r.drops, d)
+			}
+		},
+		Query: func(q Query, _ time.Time) {
+			r.nQueries.Add(1)
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if len(r.queries) < maxKeptDrops {
+				r.queries = append(r.queries, q)
 			}
 		},
 		Wake:    func() { r.wakes.Add(1) },
@@ -292,4 +303,71 @@ func TestManager_AnyLineFromTheRouterShowsItWasHeard(t *testing.T) {
 	addr := r.start(t)
 	send(t, addr, "<12>Oct 31 20:02:33 ROUTER kernel: DROP IN=eth0 SRC=203.0.113.9 PROTO=TCP")
 	r.waitHeard(t)
+}
+
+const dnsQueryLine = "<30>Nov  5 12:54:33 ROUTER dnsmasq[31037]: query[A] ccp-lh.googleusercontent.com from 192.168.50.188"
+
+func (r *rig) waitQueries(t *testing.T, n int64) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && r.nQueries.Load() < n {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := r.nQueries.Load(); got < n {
+		t.Fatalf("queries = %d, want %d", got, n)
+	}
+}
+
+func TestManager_ADNSQueryFromTheRouterIsHandedOnWithItsNameAndSender(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	send(t, addr, dnsQueryLine)
+	r.waitQueries(t, 1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if q := r.queries[0]; q.Name != "ccp-lh.googleusercontent.com" || q.From != netip.MustParseAddr("192.168.50.188") {
+		t.Fatalf("query = %+v", q)
+	}
+}
+
+func TestManager_ADNSQueryFromAnyoneButTheRouterIsIgnored(t *testing.T) {
+	r := newRig(t)
+	r.gw.Store(netip.MustParseAddr("192.0.2.1")) // the datagrams arrive from loopback, which is now not the router
+	addr := r.start(t)
+	send(t, addr, dnsQueryLine)
+	r.quiet()
+	if r.nQueries.Load() != 0 {
+		t.Fatal("a query line from an address that is not the router must be dropped unread")
+	}
+}
+
+func TestManager_NoQueryIsReadWhileNothingWantsThem(t *testing.T) {
+	r := newRig(t)
+	r.m.deps.Query = nil
+	addr := r.start(t)
+	send(t, addr, dnsQueryLine)
+	r.quiet()
+	if r.nQueries.Load() != 0 {
+		t.Fatal("with no consumer the lines are not parsed")
+	}
+}
+
+func TestManager_QueryLinesHaveTheirOwnLimitAndNeverUseUpTheAllowanceOfALease(t *testing.T) {
+	r := newRig(t)
+	addr := r.start(t)
+	for i := 0; i < 3*queriesPerSecond; i++ {
+		send(t, addr, dnsQueryLine)
+	}
+	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && r.wakes.Load() == 0 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if r.wakes.Load() != 1 {
+		t.Errorf("wakes = %d: a lease after a flood of query lines must still wake the check", r.wakes.Load())
+	}
+	r.quiet()
+	if got := r.nQueries.Load(); got > int64(queriesPerSecond)+1 {
+		t.Errorf("queries = %d, want at most %d in one second", got, queriesPerSecond)
+	}
 }

@@ -9,7 +9,7 @@ evidence: Investigation of origin/main 4b76bacc (v0.47.1) on 2026-11-05; the own
 
 # The stack: modules you switch on and off, attack paths, a phone-home watch and web checks
 
-**Status:** approved (2026-11-05); **P1 and P2 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`); **P3 and P4: the parts that need no approval are built and tested but not wired; the listener, the modules and nuclei wait for the owner (§6).** The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
+**Status:** approved (2026-11-05); **P1 to P4 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`). The owner approved the I.8 and II.3 texts and the 24-template list on 2026-11-05; the Constitution carries both. Open: the DNS line rate (the owner is capturing it), nuclei on vertex, and the abuse.ch list (§6). The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
 modular … think of the UI as well", noting the service may be renamed to something like OneStack, "a stack platform". Owner decisions:
 **D1** the stack's Modules tab owns every module's switch (Network → Settings keeps only the details); **D2** nuclei runs in the deep check, with a
 nightly switch that is off by default; **D3** the rename is a later PR of its own, so new code uses neutral names (`stack`, `module`) and
@@ -160,30 +160,30 @@ vertex's real findings of 2026-11-05 (read-only, not committed): one path, SSH a
 path too; vertex's SMB entries are `known_vulns` with no flaw known to be exploited, which the rule deliberately leaves out (a possible match is not a way in), and its other
 devices are not marked important.
 
-## P3 and P4 as built so far (v0.48.0, not wired)
+## P3 and P4 as built (v0.48.0)
 
-- **P3.** `routerlog.ParseQuery` / `IsQuery` (a query line to type, vetted lower-case name and sender; the router's own lookups, every `*.arpa` name and any name that is not plain DNS are
-  dropped; 216 ns and 3 allocations a line), `core/netaudit/phonehome` (names per device keyed by hardware address, bounded, the A/AAAA pair counted once, flushed to `phone-home.json`;
-  `Evaluate`: new place after the learning week, beaconing for new names only, a device online and silent for a day), and `netaudit.PhoneHomeFindings` (one finding per device and
-  kind keyed by the device's address, evidence in fixed words plus at most five names, the Version a digest of the name set so an acceptance holds until the set grows, a fix guide each).
-  **Not built, waiting for the approval of the I.8 text:** the listener reading the lines (its own bounded counter, apart from the 10-a-second allowance), the owner's switch, the module
-  (Listen layer, needs the router log), the report hook and the alert.
-- **P4.** `core/netaudit/nuclei` (the fixed argument table, `Args`, `Verify` of reviewed checksums with links refused, `ParseHits` that keeps only typed facts). **Not built, waiting for the
-  approval of the II.3 text and the template list:** the runner through `progexec` and the sandbox, the operator's deep-check step, the "web checks, nightly" module (off by default), the
-  template download, and the readiness line (nuclei is not installed on vertex).
+- **P3.** `routerlog.ParseQuery` / `IsQuery` and a second intake in the listener (`Deps.Query`, its own limit of `queriesPerSecond` = 200 lines a second, apart from the 10-a-second device
+  allowance, so a flood of query lines cannot starve a lease; the limit is a judgement until the owner's capture), `core/netaudit/phonehome` (names per device keyed by hardware
+  address, bounded, an A and AAAA pair counted once, flushed every five minutes and at shutdown to `phone-home.json`; `Evaluate`: a new place after the learning week, beaconing for new
+  names only, a device online that asks nothing for a day), `netaudit.PhoneHomeFindings` (one finding per device and kind keyed by the device's address, evidence in fixed words with
+  at most five names, a Version that is a digest of the names so an acceptance holds until the set grows, a fix guide each), the app's `phoneHomeIntake` (turns the sender's address into a
+  hardware address with the neighbour table, drops this computer's own lookups) and the `phone_home` module (Listen layer, needs the router log, sends nothing, off by default). The nightly
+  report carries the findings. **No immediate alert is sent**: findings are the surface (the plan's "alerts in fixed words" is a rule for any alert, and none was built).
+- **P4.** `core/netaudit/nuclei`: the fixed argument table (checked against `nuclei -h` of v3.11.1 and run once against a local server), `Verify` of the reviewed checksums (links refused),
+  `ParseHits`, the `Reviewed` list (24 templates at tag v10.5.1), `Checker` (runs through `progexec` and the sandbox in a private folder, refuses to start if any template differs),
+  `Download` (fetches only the reviewed files from that tag through the guarded client, keeps a file only if its checksum is the reviewed one), and `progexec.Locate` (readiness asks
+  whether nuclei is installed without starting it: nuclei writes files into the folder it starts in). Wired as the `web_checks` module ("Web checks, nightly", Test layer, off by
+  default, needs the passphrase, blocked with a plain reason until nuclei is installed and the templates are downloaded), as a step of the operator's deep check of one device
+  (whenever ready) and as a section of the nightly report. `GET /admin/api/netaudit/web-templates` and `POST .../download` serve the status and the operator's download; the Network
+  Settings card is "Web check templates". The findings are `web_exposure`, one per web service, in the reviewed template's title written by this repository.
 
 ## Remaining Work
 
-- Owner: approve §4 (I.8 and II.3) and the template list in §6, and run the DNS capture; then wire P3 and P4 as above.
-- Owner: approve the two §4 texts and, for P4, the template list.
-- Measure the DNS line rate on vertex (P3 bounds); install nuclei on vertex (P4 readiness).
-
-
+- Owner: send the DNS capture (tune `queriesPerSecond` and the `phonehome` bounds); install nuclei on vertex and press Download; decide on the abuse.ch list (§6).
+- Optional later: an immediate alert for a new place or a beacon.
 ## 6. For the owner's approval: the P3 and P4 texts and the nuclei template list (drafted 2026-11-05)
 
-**State of the work.** P3's parser, store, signals and findings are built and tested but **not wired**: the listener does not read the DNS lines, and no module is registered
-for the phone-home watch, until you approve the I.8 text in §4. P4's argument table, template verification and result parser are built and tested (package
-`core/netaudit/nuclei`) but **not wired**: nothing runs nuclei, nothing downloads templates, and no "web checks" module exists, until you approve the II.3 text in §4 and the list below.
+**State of the work.** Approved on 2026-11-05 and built (see "P3 and P4 as built" above).
 
 **What I verified.** nuclei **v3.11.1** (official release, SHA-256 checked against the release's checksum file) was run with `-h` and then once, with exactly the flags in `nuclei.fixedFlags`,
 against a local test server. Each flag is in its help: `-duc` (no update check), `-ni` (no interactsh), `-pt http`, `-dr` (no redirects), `-nmhe`, `-rl 5 -c 2 -bs 2 -timeout 8 -retries 0 -rsr 262144`,
@@ -228,5 +228,4 @@ until a person reviews it and the checksum here is replaced (the same rule as th
 **The DNS line rate (P3 bounds).** I cannot reach vertex, so the bounds in `phonehome` (256 devices, 512 names a device, 32 times a name) are judgements, and the listener's own limit for query lines is not set. To measure,
 on vertex for ten minutes: `sudo timeout 600 tcpdump -l -n -i any -A udp port 514 > /tmp/syslog.txt`, then `grep -c 'query\[' /tmp/syslog.txt` and the count of all lines. Port 514, not 5514 (ledger 2026-11-04).
 
-**Known-bad names (abuse.ch).** Not decided. A search found no authoritative page for the size or the licence of abuse.ch's domain list (a third-party project says the data it builds from is CC0, which is not abuse.ch saying so).
-Nothing is built. If you want it, the size and licence must be read from abuse.ch's own pages first.
+**Known-bad names (abuse.ch).** Not built. The owner said yes, but abuse.ch's own page (read 2026-11-05) says its URLhaus host file now needs a login and an abuse.ch Auth-Key (a secret to keep), is free under "fair use" and says use by companies or for profit may need a licence; the old keyless address answers 410 Gone. Its size was not obtainable without a key. That is a new account, a stored secret and a licence question the owner did not have when answering, so the owner is asked again before anything is built.

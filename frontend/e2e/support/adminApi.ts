@@ -11,6 +11,7 @@ const DECOYS = { enabled: false, listening: [], ports: [{ number: 2222, name: 'S
 const PRESENCE = { enabled: false, interval_minutes: 10, allowed_intervals: [5, 10, 15, 30] }
 const IPV6_DISCOVERY = { enabled: false }
 const OUTSIDE_LOOKUP = { enabled: false, url: 'https://internetdb.shodan.io', default_url: 'https://internetdb.shodan.io', last: { at: '0001-01-01T00:00:00Z', ports: 0 } }
+const WEB_TEMPLATES = { present: 0, total: 24, tag: 'v10.5.1', ready: false, reason: 'nuclei is not installed' }
 const NEARBY = { enabled: false, running: false, devices: [] }
 const UBUNTU_DATA = { supported: true, host_release: 'noble', running: false, notices: 0, packages: 0 }
 const NEVER = '0001-01-01T00:00:00Z'
@@ -34,6 +35,7 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
   '/netaudit/outside-lookup': OUTSIDE_LOOKUP,
   '/netaudit/dns-check': DNS_CHECK,
   '/netaudit/nearby': NEARBY,
+  '/netaudit/web-templates': WEB_TEMPLATES,
   '/netaudit/ubuntu-data': UBUNTU_DATA,
 }
 

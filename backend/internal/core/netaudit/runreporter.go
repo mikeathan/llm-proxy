@@ -37,6 +37,9 @@ type RunReporter struct {
 	ports   PortRecorder     // optional: the ports each device had open at its last scan
 	own     OwnModelServer   // optional: which address and port is this program's own model server
 	paths   func() bool      // optional: whether the attack paths section is added to the report
+	phone   PhoneHomeSource  // optional: what the phone-home watch says about the names devices ask for
+	web     WebChecker       // optional: the reviewed web checks
+	webOn   func() bool      // optional: whether the nightly audit runs them
 	histErr func(error)
 	now     func() time.Time
 }
@@ -99,6 +102,21 @@ func (r *RunReporter) WithPorts(p PortRecorder) *RunReporter {
 func (r *RunReporter) WithDecoys(d DecoyReader) *RunReporter {
 	r.decoys = d
 	return r
+}
+
+// WithPhoneHome makes the reporter add what the phone-home watch found. Without it nothing is added.
+func (r *RunReporter) WithPhoneHome(p PhoneHomeSource) *RunReporter {
+	r.phone = p
+	return r
+}
+
+// addPhoneHome appends the phone-home findings for the devices this scan looked at. They are hints keyed by the device's address.
+func (r *RunReporter) addPhoneHome(result *Result, inv models.DeviceInventory) {
+	if r.phone == nil {
+		return
+	}
+	findings := PhoneHomeFindings(r.phone.Signals(PhoneHomeDevices(inv), r.now()), inv)
+	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
 }
 
 // WithAttackPaths makes the reporter add the attack paths to the report while enabled returns true. Without it nothing is added.
@@ -224,10 +242,11 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	expectNote := r.addExpectations(workspaceID, &result) + r.addDeepChecks(workspaceID, &result)
 	inventoryNote, inventory := r.addInventory(ctx, &result)
 	devices := inventory.Devices
+	r.addPhoneHome(&result, inventory)
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
 	services := r.addServices(ctx, &result)
 	hostNote, hostChecked := r.addHost(ctx, &result)
-	expectNote += hostNote
+	expectNote += hostNote + r.addWebChecks(ctx, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 

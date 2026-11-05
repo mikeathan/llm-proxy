@@ -5,6 +5,7 @@
 package phonehome
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"slices"
@@ -60,6 +61,12 @@ func New(store Store) (*Watch, error) {
 		return nil, fmt.Errorf("failed to read the phone-home names: %w", err)
 	}
 	return &Watch{store: store, state: state, recent: map[recentKey]time.Time{}}, nil
+}
+
+// NewEmpty is a watch that starts with nothing, for when the stored names could not be read: the unreadable file has been set aside,
+// and a watch that remembered nothing is better than one that cannot start. The caller reports the read error.
+func NewEmpty(store Store) *Watch {
+	return &Watch{store: store, recent: map[recentKey]time.Time{}}
 }
 
 // Observe records that the device with this hardware address asked for a name at a time. A lookup with no usable hardware address is
@@ -154,6 +161,28 @@ func quietest(names []models.PhoneHomeName) int {
 // isNew says whether a name was first asked for after the device's learning week.
 func isNew(dev models.PhoneHomeDevice, n models.PhoneHomeName) bool {
 	return n.First.After(dev.First.Add(LearnFor))
+}
+
+// flushEvery is how often Run writes the names.
+const flushEvery = 5 * time.Minute
+
+// Run writes the names every few minutes, and once more when ctx ends, until then. onError hears a write that failed.
+func (w *Watch) Run(ctx context.Context, onError func(error)) {
+	tick := time.NewTicker(flushEvery)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			if err := w.Flush(); err != nil && onError != nil {
+				onError(err)
+			}
+			return
+		case <-tick.C:
+			if err := w.Flush(); err != nil && onError != nil {
+				onError(err)
+			}
+		}
+	}
 }
 
 // Flush writes the names if anything changed since the last write. A failed write keeps the change for the next try.
