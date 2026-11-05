@@ -381,6 +381,13 @@ func TestHostWatch_FilesThatCouldNotBeReadAreCountedWithTheOtherUnreadablePlaces
 	}
 }
 
+func TestHostWatch_TheLookCarriesWhereTheProgramFilesWereUnreadable(t *testing.T) {
+	look := integrityLook(t, &fakeHost{integrity: hostwatch.IntegrityResult{Complete: true, Unreadable: 3, UnreadableIn: []string{"/usr/lib/modules (3)"}, UnreadableWhy: "permission denied"}}, &memHostStore{})
+	if look.UnreadableWhere != "/usr/lib/modules (3)" || look.UnreadableWhy != "permission denied" {
+		t.Errorf("where = %q, why = %q", look.UnreadableWhere, look.UnreadableWhy)
+	}
+}
+
 func TestHostWatcher_LookGivesItsContextToTheProgramFilePass(t *testing.T) {
 	src := &fakeHost{}
 	ctx, cancel := context.WithCancel(t.Context())

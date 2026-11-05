@@ -551,6 +551,17 @@ func TestRunReporter_SaysHowManyWatchedPlacesItCouldNotRead(t *testing.T) {
 	}
 }
 
+func TestRunReporter_NamesWhereTheUnreadablePlacesAreAndWhy(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	look := HostLook{Unreadable: 3, UnreadableWhere: "/usr/lib/modules (2), /usr/bin (1)", UnreadableWhy: "permission denied"}
+	got := reporter(store, reportTime).WithHost(fakeHostLooker{look: look}).Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	for _, want := range []string{"3 watched locations", "/usr/lib/modules (2), /usr/bin (1)", "permission denied"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("report missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestPrivilegeNotes_SayEachUnfinishedPartAndTheStartingPoint(t *testing.T) {
 	if got := privilegeNotes(HostLook{}); got != "" {
 		t.Errorf("a full look with nothing learned says nothing, got %q", got)

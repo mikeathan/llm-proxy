@@ -285,6 +285,10 @@ func NewHostWatcher(src HostSource, store HostStore) *HostWatcher {
 type HostLook struct {
 	Findings   []Finding
 	Unreadable int
+	// UnreadableWhere names the directories holding most of the program files that could not be read ("/usr/lib/modules (120)"),
+	// and UnreadableWhy the operating system's reason, so the report can say where to look; both are empty when none.
+	UnreadableWhere string
+	UnreadableWhy   string
 	// PrivilegeUnchecked is true when the accounts, groups and kernel modules could not be looked at (no account file, as on
 	// macOS), so the report says "not checked" rather than nothing.
 	PrivilegeUnchecked bool
@@ -391,6 +395,7 @@ func (w *HostWatcher) compareListeners(base *models.HostWatch, now []hostwatch.L
 // all. It returns true when the stored outcome changed.
 func (w *HostWatcher) compareIntegrity(base *models.HostWatch, res hostwatch.IntegrityResult, look *HostLook) bool {
 	look.Unreadable += res.Unreadable
+	look.UnreadableWhere, look.UnreadableWhy = strings.Join(res.UnreadableIn, ", "), res.UnreadableWhy
 	modified, paths := res.Modified, res.Paths
 	stored := false
 	switch {

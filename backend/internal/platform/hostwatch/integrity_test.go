@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -121,6 +122,44 @@ func TestIntegrity_AnUnreadableFileIsCountedAndNeverCalledUnchanged(t *testing.T
 	got := tr.check()
 	if got.Unreadable != 1 || got.Modified != 0 {
 		t.Errorf("result = %+v", got)
+	}
+}
+
+func TestIntegrity_UnreadableFilesAreNamedByDirectoryAndReason(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read everything")
+	}
+	tr := newTree(t)
+	for _, f := range []string{"usr/lib/modules/a.ko", "usr/lib/modules/b.ko", "usr/lib/modules/sub/c.ko", "usr/bin/locked"} {
+		tr.write("pkg", f, "x", sum("x"))
+		if err := os.Chmod(filepath.Join(tr.root, f), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := tr.check()
+	want := []string{"/usr/lib/modules (3)", "/usr/bin (1)"}
+	if !slices.Equal(got.UnreadableIn, want) {
+		t.Errorf("UnreadableIn = %v, want %v", got.UnreadableIn, want)
+	}
+	if got.UnreadableWhy != "permission denied" {
+		t.Errorf("UnreadableWhy = %q", got.UnreadableWhy)
+	}
+}
+
+func TestIntegrity_TheDirectoriesNamedAreFewAndTheirCountsAddUpToWhatIsShown(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read everything")
+	}
+	tr := newTree(t)
+	for _, d := range []string{"a", "b", "c", "d", "e"} {
+		f := "usr/lib/" + d + "/x"
+		tr.write("pkg", f, "x", sum("x"))
+		if err := os.Chmod(filepath.Join(tr.root, f), 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := tr.check(); len(got.UnreadableIn) != MaxUnreadablePlaces || got.Unreadable != 5 {
+		t.Errorf("UnreadableIn = %v, Unreadable = %d", got.UnreadableIn, got.Unreadable)
 	}
 }
 
