@@ -90,6 +90,8 @@ type netauditServices struct {
 	RouterLog       *routerlog.Manager
 	// Blocks is the count of the attempts the router refused; it writes them to the history every few minutes and at shutdown.
 	Blocks *netaudit.Blocks
+	// RouterWatch tells of a burst of failed router sign-ins or Wi-Fi disconnects; it runs from the one place the loops start.
+	RouterWatch *netaudit.RouterWatch
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
 	// FollowUp scans a device that just arrived, once, while FollowUpConfig (off by default) allows it.
@@ -358,6 +360,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.RouterLog != nil, func(ctx context.Context) { n.RouterLog.Run(ctx) })
 	add(n.PhoneHomeAlerts != nil, func(ctx context.Context) { n.PhoneHomeAlerts.Run(ctx) })
 	add(n.Blocks != nil, func(ctx context.Context) { n.Blocks.Run(ctx) })
+	add(n.RouterWatch != nil, func(ctx context.Context) { n.RouterWatch.Run(ctx) })
 	add(n.PhoneHome != nil, func(ctx context.Context) {
 		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
 	})
@@ -560,6 +563,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		RouterLogConfig: alerts.RouterLogConfig,
 		RouterLog:       alerts.RouterLog,
 		Blocks:          alerts.Blocks,
+		RouterWatch:     alerts.RouterWatch,
 		FollowUp:        alerts.FollowUp,
 		FollowUpConfig:  alerts.FollowUpConfig,
 

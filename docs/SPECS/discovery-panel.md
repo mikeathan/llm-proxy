@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.32"
+version: "2.40"
 status: stable
 last_updated: 2026-11-06
 constitution_references: []
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **2.40 (2026-11-06)** — **The router's log now also tells of a burst of failed router sign-ins or Wi-Fi disconnects (v0.52.0; Constitution I.8 text proposed).** When the Router log module is on, five failed sign-ins to the router's web page within ten minutes, or twenty Wi-Fi disconnects within a minute, send one message in fixed words (no address, no device; at most one of each kind an hour) to the alert log, shown as "router log" in the bell. Nothing is stored: the program keeps the times of the last few lines and drops the rest. The figures come from the owner's capture of 2026-11-06 and may be tuned.
 - **2.39 (2026-11-06)** — **The web checks run in this program's own code (v0.51.0, ADR-0029; Constitution sentence proposed).** nuclei needs executable memory, which the service's systemd unit forbids on purpose, so it could not run on the real computer. The **Web checks, nightly** module (Test layer, off by default, step-up) stays, now asking each web page 24 fixed questions with plain GET requests, nothing downloaded; the **Web check templates** card in Network → Settings is gone, and the module needs only the LAN guardrails. The `web_exposure` finding and the deep-check step stay. A module that is on and whose latest run failed now shows as **stopped** at once (and is told once), and one that has not worked for three nights does too: the Web checks are the first to use this; entries 2.35 and 2.38 below describe the nuclei version as it was. The report's unreadable-places note now names the folders and the reason, a folder the service cannot open counts once, and a failed program's note carries more of its error.
 - **2.38 (2026-11-05)** — **Review fixes for the phone-home watch, the web checks and the known-bad list (v0.50.1).** A device is told of new places or a steady beat at most once
   a day (the nightly report still lists every one; a name on the malware list is always told at once). The Phone-home watch now has a health line like the router log: it shows as

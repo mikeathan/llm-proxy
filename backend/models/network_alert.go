@@ -22,13 +22,15 @@ const (
 	// NetworkAlertPhoneHome is from the phone-home watch: a device asked for a name it had not asked for in its first week, or asks
 	// for a new name at a steady beat.
 	NetworkAlertPhoneHome NetworkAlertKind = "phone_home"
+	// NetworkAlertRouter is from the router's log: a burst of failed sign-ins to its web page, or of Wi-Fi disconnects.
+	NetworkAlertRouter NetworkAlertKind = "router"
 )
 
 // Valid reports whether k is one of the known kinds.
 func (k NetworkAlertKind) Valid() bool {
 	switch k {
 	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn, NetworkAlertFollowUp,
-		NetworkAlertAgent, NetworkAlertPhoneHome:
+		NetworkAlertAgent, NetworkAlertPhoneHome, NetworkAlertRouter:
 		return true
 	}
 	return false

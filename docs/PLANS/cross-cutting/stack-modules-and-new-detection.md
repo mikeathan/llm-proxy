@@ -239,3 +239,7 @@ until a person reviews it and the checksum here is replaced (the same rule as th
 on vertex for ten minutes: `sudo timeout 600 tcpdump -l -n -i any -A udp port 514 > /tmp/syslog.txt`, then `grep -c 'query\[' /tmp/syslog.txt` and the count of all lines. Port 514, not 5514 (ledger 2026-11-04).
 
 **Known-bad names (abuse.ch).** Not built. The owner said yes, but abuse.ch's own page (read 2026-11-05) says its URLhaus host file now needs a login and an abuse.ch Auth-Key (a secret to keep), is free under "fair use" and says use by companies or for profit may need a licence; the old keyless address answers 410 Gone. Its size was not obtainable without a key. That is a new account, a stored secret and a licence question the owner did not have when answering, so the owner is asked again before anything is built.
+
+## Addendum 2026-11-06 (v0.52.0): router sign-in failures and Wi-Fi disconnects
+
+Built on the router log (Listen layer, no new switch): `routerlog.ParseWatched`, `netaudit.RouterWatch`, alert kind `router`. Needs the owner's review of the Constitution I.8 text. Left: a finding in the nightly report, a per-device disconnect count, and the mesh node's lines (needs its address accepted).

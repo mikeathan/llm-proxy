@@ -32,6 +32,9 @@ const (
 	// (10 minutes of everything the router sends to port 514: 362 lines, none dropped, about 0.6 a second) puts the ordinary rate
 	// far below this; the limit leaves room for a burst of page loads, which one capture of a quiet network does not show.
 	queriesPerSecond = 50
+	// watchedPerSecond is how many failed sign-ins and disconnects are read in one second, under a counter of their own. A forged
+	// flood can make the count wrong and nothing else; the limit only keeps the work bounded.
+	watchedPerSecond = 20
 	// defaultWakeGap is the least time between two wakes this listener asks for.
 	defaultWakeGap = 5 * time.Second
 	// receiveBuffer is the kernel's queue for this socket. It is small on purpose: when lines come faster than they are read
@@ -61,6 +64,9 @@ type Deps struct {
 	// Query is handed one DNS query line from the router (its type, vetted name and sender, nothing else) at the time it was heard.
 	// It must not block. Nil means query lines are not read at all.
 	Query func(q Query, at time.Time)
+	// Watch is handed one failed router sign-in or one Wi-Fi disconnect (its kind and, for a disconnect, its reason code, nothing
+	// else) at the time it was heard. It must not block. Nil means these lines are not read at all.
+	Watch func(w Watched, at time.Time)
 	// Wake asks the presence check to look now. It must not block.
 	Wake    func()
 	OnError func(error)
@@ -99,6 +105,8 @@ type Manager struct {
 	inWindow   int
 	queryFrom  time.Time
 	inQueries  int
+	watchFrom  time.Time
+	inWatched  int
 	qRead      int64
 	qLimited   int64
 	qPeak      int
@@ -235,6 +243,35 @@ func (m *Manager) handle(datagram []byte, from netip.AddrPort) {
 	}
 	m.countDrop(datagram, from, now)
 	m.readQuery(datagram, from, now)
+	m.readWatched(datagram, from, now)
+}
+
+// readWatched hands on a failed router sign-in or a Wi-Fi disconnect from the router's own address, under its own limit apart from
+// the device allowance. The cheap search turns every other line away before anything is parsed.
+func (m *Manager) readWatched(datagram []byte, from netip.AddrPort, now time.Time) {
+	if m.deps.Watch == nil || !IsWatched(datagram) {
+		return
+	}
+	if gw := m.deps.Gateway(); !gw.IsValid() || from.Addr().Unmap() != gw || !m.withinWatched(now) {
+		return
+	}
+	if w, ok := ParseWatched(datagram); ok {
+		m.deps.Watch(w, now)
+	}
+}
+
+// withinWatched counts a watched line against this second's allowance.
+func (m *Manager) withinWatched(now time.Time) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if now.Sub(m.watchFrom) >= time.Second {
+		m.watchFrom, m.inWatched = now, 0
+	}
+	if m.inWatched >= watchedPerSecond {
+		return false
+	}
+	m.inWatched++
+	return true
 }
 
 // countDrop counts a firewall drop line from the router's own address. It is not held to the allowance of device messages:

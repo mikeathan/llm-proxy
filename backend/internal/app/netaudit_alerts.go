@@ -48,6 +48,8 @@ type alerting struct {
 	RouterLog       *routerlog.Manager
 	// Blocks counts the refused attempts the router's log reports and writes them to the history on its own timer.
 	Blocks *netaudit.Blocks
+	// RouterWatch tells of a burst of failed router sign-ins or Wi-Fi disconnects.
+	RouterWatch *netaudit.RouterWatch
 	// FollowUp scans a device that just arrived, once, when its switch is on; FollowUpConfig is that switch.
 	FollowUp       *netaudit.FollowUp
 	FollowUpConfig *netaudit.FollowUpConfig
@@ -71,6 +73,11 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 	decoyStore := withReset(s.AppCtx, "The record of connections to decoy services", persistence.NewDecoyTouchStore(root))
 	decoyConfig := netaudit.NewDecoyConfig(deps.Store)
 	routerLogConfig := netaudit.NewRouterLogConfig(deps.Store)
+	routerWatch := netaudit.NewRouterWatch(netaudit.RouterWatchDeps{
+		Enabled: routerLogConfig.Enabled,
+		Notify:  s.alertNotifier(log, models.NetworkAlertRouter),
+		OnError: func(err error) { logging.Warn("network router log alerts", "error", err.Error()) },
+	})
 	blocks := netaudit.NewBlocks(known.History, func(err error) { logging.Warn("network router blocks", "error", err.Error()) })
 	return alerting{
 		Log:            log,
@@ -81,8 +88,9 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		DecoyStore:     decoyStore,
 
 		RouterLogConfig: routerLogConfig,
-		RouterLog:       s.newRouterLog(routerLogDeps{Config: routerLogConfig, Inventory: known.Inventory, Suggester: known.Names, Presence: presence, Blocks: blocks, Query: deps.PhoneHome.Intake.Observe}),
+		RouterLog:       s.newRouterLog(routerLogDeps{Config: routerLogConfig, Inventory: known.Inventory, Suggester: known.Names, Presence: presence, Blocks: blocks, Router: routerWatch, Query: deps.PhoneHome.Intake.Observe}),
 		Blocks:          blocks,
+		RouterWatch:     routerWatch,
 		FollowUp:        followUp,
 		FollowUpConfig:  followUpConfig,
 	}
@@ -157,6 +165,7 @@ type routerLogDeps struct {
 	Suggester *names.Suggester
 	Presence  *netaudit.Presence
 	Blocks    *netaudit.Blocks
+	Router    *netaudit.RouterWatch
 	Query     func(routerlog.Query, time.Time)
 }
 
@@ -171,6 +180,7 @@ func (s *AppServices) newRouterLog(d routerLogDeps) *routerlog.Manager {
 		Suggest: d.Suggester.Offer,
 		Drop:    d.Blocks.Add,
 		Query:   d.Query,
+		Watch:   d.Router.Add,
 		Wake:    d.Presence.Wake,
 		OnError: func(err error) { logging.Warn("network router log", "error", err.Error()) },
 	})

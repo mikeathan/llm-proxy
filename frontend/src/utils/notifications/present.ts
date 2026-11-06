@@ -35,6 +35,7 @@ const NETWORK_LABEL: Record<NetworkAlertKind, string> = {
   follow_up: 'new device',
   agent: 'agent',
   phone_home: 'calls out',
+  router: 'router log',
 }
 
 const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
@@ -46,6 +47,7 @@ const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
   follow_up: 'warning',
   agent: 'warning',
   phone_home: 'warning',
+  router: 'warning',
 }
 
 const NETWORK_DETAIL_SEPARATOR = ' · '
