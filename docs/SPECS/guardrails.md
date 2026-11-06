@@ -1,9 +1,9 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.8"
+version: "1.9"
 status: stable
-last_updated: 2026-11-05
+last_updated: 2026-11-06
 constitution_references: [II.3]
 related_specs: [SPEC-001]
 supersedes:
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **1.9 (2026-11-06)** — **Children are refused Unix sockets (v0.55.0).** The Landlock jail controls files, not the connection to a path-based Unix socket (measured on kernel 6.8, ABI 4: a read outside the grant was denied, a connection to a socket outside it allowed), so a jailed child could reach the system D-Bus or any control socket its user may open. The runner now installs a seccomp filter that refuses `socket(AF_UNIX)` (EACCES) and `io_uring_setup` (EPERM, which can open sockets without the socket call), on linux/amd64 and linux/arm64; `socketpair` and TCP are untouched. It applies to every child (agent shells, one-shots, guarded programs) unless the spawn site allows Unix sockets for itself (`WorkspaceView.AllowUnixSockets`, `progexec.Invocation.AllowUnixSockets`) or the operator writes `sandboxing.unix_sockets: true` (read at start-up). `Effective` gains `unix_sockets` (seccomp, or none with the reason). A runner asked for the filter that cannot apply it fails closed; a provider on an architecture without the filter does not request it and says so. `progexec.Invocation.NoNetwork` gives a program that has no use for TCP the Landlock TCP denial. Possible breakage for agents: programs that make a Unix socket themselves (tmux, an ssh ControlMaster, syslog, a D-Bus or docker client) now get "permission denied".
 - **1.8 (2026-11-05)** — **Lock down** (plan `security-self-protection-and-agent-watch` P6): while the operator's lock down switch is on
   (`core/lockdown`, `lockdown.json` in the data root, step-up `POST`/`DELETE /admin/api/lockdown`), the hard gate refuses the terminal,
   every host-network-gated tool and every tool outside the built-in catalog (MCP tools) with `lockdown.ErrLockedDown` before any override or approval, and the agent loop treats it as a security
@@ -269,6 +270,7 @@ Host-level OS sandboxing (plan: `docs/PLANS/ARCHIVE/cross-cutting/agent-os-sandb
    With the proxy on, the in-process `fetch_url` applies the LAN/internet policy to the original URL and to
    every redirect target before following it; the proxy re-resolves names without that policy, so a DNS answer
    that changes to a LAN address between the two lookups is a known residual.
+6. **Children are refused Unix sockets (1.9).** Landlock (ABI up to 8) does not control the connection to a path-based Unix socket, so the runner adds a seccomp filter to every child (`platform/sandbox/seccomp_linux.go`): `socket(AF_UNIX)` returns EACCES, `io_uring_setup` EPERM, a call through another architecture or the x32 ABI kills the process, and everything else is allowed. `socketpair` is not refused (an anonymous pair cannot reach a path; node and python use them). The denial is the default; a spawn site that talks to a local daemon allows Unix sockets for itself in code (`nmcli`, over D-Bus), and the operator can lift it for all children with `sandboxing.unix_sockets: true`. Where the filter cannot be applied (any architecture but amd64 and arm64) the provider does not request it and `Effective().unix_sockets` says `none` with the reason; where it is requested and the runner cannot install it, the spawn fails and the command never runs.
 
 6. **Guarded programs (`platform/progexec`).** A tool that runs a known external program does not use the
    shell. The runner: refuses an invocation without an explicit environment (a nil one would inherit the host's), a

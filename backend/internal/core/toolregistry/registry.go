@@ -416,6 +416,8 @@ func InitializeAgentStack(
 	sandboxProvider := sandbox.New(sandbox.Config{
 		Filesystem:   appCtx.HostSettings().Sandboxing.FilesystemEnabled(),
 		MaxStorageGB: appCtx.HostSettings().Sandboxing.MaxStorageGB,
+		// Refused unless the operator wrote sandboxing.unix_sockets: the jail does not control a path-based Unix socket.
+		AllowUnixSockets: appCtx.HostSettings().Sandboxing.UnixSocketsAllowed(),
 	})
 	// Downgrade-never-bypass: make what is actually enforced visible at startup
 	// and on the host-settings surface (SPEC-006 §II.7.4).

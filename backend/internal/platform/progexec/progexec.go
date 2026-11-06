@@ -94,7 +94,7 @@ func Detect(ctx context.Context, p Program) (Installed, error) {
 	return Installed{Path: path, Version: firstLine(out.Bytes())}, nil
 }
 
-// Invocation is one run of a program. Every field but ReadPaths is required.
+// Invocation is one run of a program. Every field but ReadPaths, NoNetwork and AllowUnixSockets is required.
 type Invocation struct {
 	// Args are the code-built arguments.
 	Args []string
@@ -104,6 +104,12 @@ type Invocation struct {
 	Root string
 	// ReadPaths are extra directories the program may read, such as its own data files.
 	ReadPaths []string
+	// NoNetwork denies the program new TCP binds and connects where the kernel can (Landlock ABI 4); Unix sockets are not affected. For
+	// a program that only reads something local and has no use for the network. The default keeps the network, which nmap needs.
+	NoNetwork bool
+	// AllowUnixSockets lets the program make Unix sockets, which it needs to talk to a local daemon (nmcli reads NetworkManager over
+	// D-Bus). The default refuses them: the jail does not control a connection to a path-based socket, so the runner's filter does.
+	AllowUnixSockets bool
 	// Timeout kills the program (and its process group) when exceeded.
 	Timeout time.Duration
 	// MaxOutput caps the stdout bytes kept; the program keeps running past the cap, its output is dropped.
@@ -164,7 +170,7 @@ func (r Runner) Run(ctx context.Context, p Program, inv Invocation) (Output, err
 	stderr := &cappedBuffer{limit: versionOutputCap}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 
-	if err := r.Sandbox.Wrap(cmd, sandbox.WorkspaceView{RootPath: inv.Root, NetworkOn: true, ReadPaths: inv.ReadPaths}); err != nil {
+	if err := r.Sandbox.Wrap(cmd, sandbox.WorkspaceView{RootPath: inv.Root, NetworkOn: !inv.NoNetwork, ReadPaths: inv.ReadPaths, AllowUnixSockets: inv.AllowUnixSockets}); err != nil {
 		return Output{}, fmt.Errorf("failed to confine %s: %w", p.Name, err)
 	}
 	if err := cmd.Run(); err != nil {

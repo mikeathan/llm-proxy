@@ -26,6 +26,8 @@ type Enforcement string
 const (
 	EnforcementNone     Enforcement = "none"
 	EnforcementLandlock Enforcement = "landlock"
+	// EnforcementSeccomp is a seccomp filter: the Unix-socket denial.
+	EnforcementSeccomp Enforcement = "seccomp"
 )
 
 // networkGapReason is the SINGLE reason string for a provider that applies no
@@ -34,6 +36,9 @@ const (
 // proxy. Used by the no-op provider and any OS provider's Effective() so
 // reporting never drifts.
 const networkGapReason = "OS network deny not applied by this provider (host/ABI lacks it or filesystem jail inactive); Go layer + egress proxy enforce"
+
+// unixGapReason is the reason of a provider that applies no Unix-socket denial (no-op provider, or no filter for this architecture).
+const unixGapReason = "no Unix-socket denial applied (no jail on this host, or no filter for this architecture)"
 
 // SurfaceState reports what a surface enforces and why.
 
@@ -47,12 +52,15 @@ type SurfaceState struct {
 type EffectiveState struct {
 	Filesystem SurfaceState `json:"filesystem"`
 	Network    SurfaceState `json:"network"`
-	Provider   string       `json:"provider"`
+	// UnixSockets says whether a child is refused socket(AF_UNIX), the way to a path-based socket such as the system D-Bus, which the
+	// Landlock jail does not control.
+	UnixSockets SurfaceState `json:"unix_sockets"`
+	Provider    string       `json:"provider"`
 }
 
 // String renders Effective for logs (downgrades must be visible, not silent).
 func (e EffectiveState) String() string {
-	return fmt.Sprintf("provider=%s filesystem=%s network=%s", e.Provider, surface(e.Filesystem), surface(e.Network))
+	return fmt.Sprintf("provider=%s filesystem=%s network=%s unix_sockets=%s", e.Provider, surface(e.Filesystem), surface(e.Network), surface(e.UnixSockets))
 }
 
 func surface(s SurfaceState) string {
@@ -71,6 +79,9 @@ type WorkspaceView struct {
 	// ReadPaths are extra directories the child may read (a guarded program's own data files), granted read-only on
 	// top of the default profile.
 	ReadPaths []string
+	// AllowUnixSockets lets this child make Unix sockets. The zero value is "denied": a spawn site that talks to a local daemon over
+	// one (a program that reads NetworkManager over D-Bus) says so for itself, in code.
+	AllowUnixSockets bool
 }
 
 // Provider wraps a prepared exec.Cmd so the child runs under the OS sandbox.
@@ -89,6 +100,9 @@ type Config struct {
 	// jailed children — the plan's storage accounting boundary, applied in the
 	// runner before the real argv execs. 0 disables it.
 	MaxStorageGB int
+	// AllowUnixSockets lifts the Unix-socket denial for every child. It is the operator's switch (sandboxing.unix_sockets); the
+	// default, false, refuses them.
+	AllowUnixSockets bool
 }
 
 // New selects the Provider for the host from config + capability detection.
@@ -113,9 +127,10 @@ func New(cfg Config) Provider {
 	}
 	return &noop{
 		effective: EffectiveState{
-			Filesystem: SurfaceState{Mechanism: EnforcementNone, Reason: fsReason},
-			Network:    SurfaceState{Mechanism: EnforcementNone, Reason: netReason},
-			Provider:   "noop",
+			Filesystem:  SurfaceState{Mechanism: EnforcementNone, Reason: fsReason},
+			Network:     SurfaceState{Mechanism: EnforcementNone, Reason: netReason},
+			UnixSockets: SurfaceState{Mechanism: EnforcementNone, Reason: unixGapReason},
+			Provider:    "noop",
 		},
 	}
 }

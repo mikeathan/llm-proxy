@@ -286,3 +286,25 @@ func TestNetworkGuardrailsWithRunScope(t *testing.T) {
 		t.Errorf("scope override must preserve blocked-domain lists, got %+v", vcfg)
 	}
 }
+
+// The Landlock jail does not control a path-based Unix socket (pitfall 67), so refusing them is the default and lifting it takes an
+// explicit value.
+func TestHostSandboxingUnixSocketsAreDeniedUntilTheOperatorAllowsThem(t *testing.T) {
+	if DefaultHostSettings().Sandboxing.UnixSocketsAllowed() {
+		t.Error("the default must refuse Unix sockets")
+	}
+	if (HostSandboxingConfig{Enabled: true, MaxMemoryMB: 256}).UnixSocketsAllowed() {
+		t.Error("a settings file that predates the key must refuse them too")
+	}
+	var c HostSandboxingConfig
+	if err := yaml.Unmarshal([]byte("enabled: true\nunix_sockets: true\n"), &c); err != nil {
+		t.Fatal(err)
+	}
+	if !c.UnixSocketsAllowed() {
+		t.Error("an explicit true must allow them")
+	}
+	no := false
+	if (HostSandboxingConfig{UnixSockets: &no}).UnixSocketsAllowed() {
+		t.Error("an explicit false must refuse them")
+	}
+}

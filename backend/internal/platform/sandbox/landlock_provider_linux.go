@@ -151,6 +151,8 @@ type landlockProvider struct {
 	// the systemd unit's cgroup covers the service, and a per-UID NPROC cap on
 	// the operator's shared uid self-DoSes (plan D5/R7).
 	maxFileSizeBytes int64
+	// allowUnixSockets is the operator's switch that lifts the Unix-socket denial for every child (Config.AllowUnixSockets).
+	allowUnixSockets bool
 }
 
 // Wrap rewrites cmd to run through the runner with the serialized profile.
@@ -191,6 +193,11 @@ func (lp landlockProvider) Wrap(cmd *exec.Cmd, ws WorkspaceView) error {
 	if !ws.NetworkOn && abi >= 4 {
 		runnerEnv = append(runnerEnv, netDenyEnvVar+"=1")
 	}
+	// Set only when the filter can be applied on this architecture, as with the network denial: a spawn is never failed by a
+	// confinement the host cannot apply, and Effective reports the gap.
+	if !lp.allowUnixSockets && !ws.AllowUnixSockets && unixDenySupported() {
+		runnerEnv = append(runnerEnv, unixDenyEnvVar+"=1")
+	}
 	if lp.maxFileSizeBytes > 0 {
 		runnerEnv = append(runnerEnv, fsizeEnvVar+"="+strconv.FormatInt(lp.maxFileSizeBytes, 10))
 	}
@@ -198,7 +205,7 @@ func (lp landlockProvider) Wrap(cmd *exec.Cmd, ws WorkspaceView) error {
 	return nil
 }
 
-func (landlockProvider) Effective() EffectiveState {
+func (lp landlockProvider) Effective() EffectiveState {
 	// Network enforcement is host-dependent even on Linux: ABI v4+ (kernel
 	// 6.7+) can deny new TCP binds/connects for network-off children; older
 	// kernels cannot express any OS network denial.
@@ -209,10 +216,18 @@ func (landlockProvider) Effective() EffectiveState {
 			Reason:    "TCP bind/connect denied for network-off children (ABI v4+; includes loopback binds); UDP sendto not covered",
 		}
 	}
+	unixSockets := SurfaceState{Mechanism: EnforcementNone, Reason: unixGapReason}
+	switch {
+	case lp.allowUnixSockets:
+		unixSockets.Reason = "Unix sockets allowed for children by the operator (sandboxing.unix_sockets)"
+	case unixDenySupported():
+		unixSockets = SurfaceState{Mechanism: EnforcementSeccomp, Reason: "socket(AF_UNIX) and io_uring_setup refused for children (seccomp); a spawn site that needs a Unix socket allows it for itself"}
+	}
 	return EffectiveState{
-		Filesystem: SurfaceState{Mechanism: EnforcementLandlock},
-		Network:    network,
-		Provider:   "landlock",
+		Filesystem:  SurfaceState{Mechanism: EnforcementLandlock},
+		Network:     network,
+		UnixSockets: unixSockets,
+		Provider:    "landlock",
 	}
 }
 
@@ -222,5 +237,5 @@ func newFilesystemProvider(cfg Config) (Provider, string) {
 	if _, err := landlockABI(); err != nil {
 		return nil, fmt.Sprintf("Landlock unavailable: %v; filesystem jail not enforced", err)
 	}
-	return landlockProvider{maxFileSizeBytes: units.GiB(cfg.MaxStorageGB)}, ""
+	return landlockProvider{maxFileSizeBytes: units.GiB(cfg.MaxStorageGB), allowUnixSockets: cfg.AllowUnixSockets}, ""
 }

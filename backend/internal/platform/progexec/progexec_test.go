@@ -208,3 +208,29 @@ func TestDetect(t *testing.T) {
 		t.Errorf("err = %v, want a NotInstalledError with the hint", err)
 	}
 }
+
+// A guarded program gets no Unix sockets and keeps the network unless its code says otherwise: the Landlock jail does not control
+// the connection to a path-based socket (pitfall 67), so the runner refuses to create one, and a program that reads a local daemon
+// (nmcli, over D-Bus) allows them for itself and, having no use for TCP, can give up the network.
+func TestRun_DeniesUnixSocketsByDefaultAndLetsAProgramAllowThemAndGiveUpTheNetwork(t *testing.T) {
+	sb := &fakeSandbox{mechanism: sandbox.EnforcementLandlock}
+	run := func(mod func(*Invocation)) sandbox.WorkspaceView {
+		t.Helper()
+		inv := invocation(t)
+		mod(&inv)
+		before := len(sb.wrapped)
+		if _, err := (Runner{Sandbox: sb}).Run(context.Background(), script(t, "true"), inv); err != nil {
+			t.Fatal(err)
+		}
+		if len(sb.wrapped) != before+1 {
+			t.Fatalf("wrapped = %d times, want %d", len(sb.wrapped), before+1)
+		}
+		return sb.wrapped[len(sb.wrapped)-1]
+	}
+	if ws := run(func(*Invocation) {}); ws.AllowUnixSockets || !ws.NetworkOn {
+		t.Errorf("default = %+v, want Unix sockets denied and the network on (nmap needs it)", ws)
+	}
+	if ws := run(func(i *Invocation) { i.AllowUnixSockets, i.NoNetwork = true, true }); !ws.AllowUnixSockets || ws.NetworkOn {
+		t.Errorf("listing program = %+v, want Unix sockets allowed and TCP denied", ws)
+	}
+}

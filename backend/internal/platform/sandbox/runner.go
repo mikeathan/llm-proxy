@@ -26,6 +26,10 @@ const (
 	// the kernel can express the denial, so a spawn is never failed by a
 	// confinement option the host cannot apply — Effective reports the gap.
 	netDenyEnvVar = "LLMPROXY_SANDBOX_NET_DENY"
+	// unixDenyEnvVar marks a runner invocation that must refuse socket(AF_UNIX) (a seccomp filter), because the Landlock jail does
+	// not control the connection to a path-based Unix socket. Providers set it only when the filter can be applied here; a runner
+	// that is asked for it and cannot apply it fails closed.
+	unixDenyEnvVar = "LLMPROXY_SANDBOX_UNIX_DENY"
 	// fsizeEnvVar carries the per-file RLIMIT_FSIZE backstop (bytes) derived
 	// from the max_storage_gb accounting boundary; unset/0 = no cap.
 	fsizeEnvVar = "LLMPROXY_SANDBOX_FSIZE_BYTES"
@@ -60,6 +64,10 @@ func EncodeProfile(p Profile) string {
 // cannot express it must fail, never silently skip. Overridable in tests.
 var applyRules func(encoded string, denyNet bool) error
 
+// applyUnixDeny installs the filter that refuses socket(AF_UNIX) (seccomp_linux.go sets it on the architectures that have it). Nil
+// means this build cannot, and a runner asked for it fails closed. Overridable in tests.
+var applyUnixDeny func() error
+
 // childLimitsFromEnv derives the child rlimits the parent requested. Only the
 // measured-safe per-file FSIZE backstop is wired by default; memory (RLIMIT_AS/
 // DATA) and NPROC are deliberately absent — the systemd unit's cgroup is the
@@ -84,6 +92,7 @@ var runnerEnvKeys = map[string]bool{
 	runnerEnvMarker: true,
 	rulesEnvVar:     true,
 	netDenyEnvVar:   true,
+	unixDenyEnvVar:  true,
 	fsizeEnvVar:     true,
 }
 
@@ -153,6 +162,16 @@ func RunChildIfRequested() bool {
 	if err := applyRules(rules, denyNet); err != nil {
 		fmt.Fprintf(os.Stderr, "sandbox-runner: confinement failed: %v\n", err)
 		os.Exit(1)
+	}
+	if os.Getenv(unixDenyEnvVar) == "1" {
+		if applyUnixDeny == nil {
+			fmt.Fprintln(os.Stderr, "sandbox-runner: the unix socket denial was requested but this build cannot apply it")
+			os.Exit(1)
+		}
+		if err := applyUnixDeny(); err != nil {
+			fmt.Fprintf(os.Stderr, "sandbox-runner: unix socket denial failed: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	realArgv := os.Args[2:]
 	bin, err := exec.LookPath(realArgv[0])
