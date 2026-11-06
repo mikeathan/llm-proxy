@@ -47,7 +47,9 @@ RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
 # Go binaries are JIT-less; safe to enable. Remove only if a future embedded
-# runtime needs executable-mapping memory.
+# runtime needs executable-mapping memory. This applies to every program the
+# service starts: nuclei (whose JSON library builds code in memory) died at
+# start under it, and was removed rather than weaken this (ADR-0029).
 MemoryDenyWriteExecute=true
 # @system-service covers the backend's normal syscalls. The three Landlock
 # syscalls are listed EXPLICITLY because the agent OS-sandboxing layer needs

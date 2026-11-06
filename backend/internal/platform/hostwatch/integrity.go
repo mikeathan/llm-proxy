@@ -85,7 +85,7 @@ func (i Integrity) Check(ctx context.Context) IntegrityResult {
 	var res IntegrityResult
 	var suspects []fileClaim
 	complete := true
-	places := map[string]int{}
+	places := newPlaceTally()
 	for _, list := range lists {
 		if !i.scanList(ctx, list, prefixes, &res, &suspects, places) {
 			complete = false
@@ -96,13 +96,13 @@ func (i Integrity) Check(ctx context.Context) IntegrityResult {
 		i.afterPass()
 	}
 	res.Complete = complete
-	res.UnreadableIn = topPlaces(places)
+	res.UnreadableIn = topPlaces(places.count)
 	res.Modified, res.Paths = i.confirm(suspects)
 	return res
 }
 
 // scanList compares the files one package's list names, adding to res and suspects. It returns false when ctx ended first.
-func (i Integrity) scanList(ctx context.Context, list string, prefixes []string, res *IntegrityResult, suspects *[]fileClaim, places map[string]int) bool {
+func (i Integrity) scanList(ctx context.Context, list string, prefixes []string, res *IntegrityResult, suspects *[]fileClaim, places *placeTally) bool {
 	pkg := strings.TrimSuffix(filepath.Base(list), ".md5sums")
 	skip := i.conffiles(pkg)
 	for _, c := range readClaims(list) {
@@ -120,11 +120,7 @@ func (i Integrity) scanList(ctx context.Context, list string, prefixes []string,
 			res.Checked++
 			*suspects = append(*suspects, fileClaim{pkg: pkg, rel: c.rel})
 		case verdictUnreadable:
-			res.Unreadable++
-			places[placeOf(c.rel)]++
-			if res.UnreadableWhy == "" {
-				res.UnreadableWhy = whyText(why)
-			}
+			i.noteUnreadable(res, places, c.rel, why)
 		}
 	}
 	return true
@@ -164,6 +160,60 @@ func (i Integrity) compare(rel, want string) (verdict, error) {
 
 var errTooLarge = errors.New("too large to compare")
 
+// placeTally counts the unreadable files per directory. Folders the account cannot enter are counted once each: closed remembers
+// which were counted, enterable caches whether a folder can be opened.
+type placeTally struct {
+	count     map[string]int
+	closed    map[string]bool
+	enterable map[string]bool
+}
+
+func newPlaceTally() *placeTally {
+	return &placeTally{count: map[string]int{}, closed: map[string]bool{}, enterable: map[string]bool{}}
+}
+
+// noteUnreadable counts a file that could not be compared. When a folder above it is closed to this account (a service that
+// hides /usr/lib/modules from itself, say), that folder is counted once and the files behind it are not counted again: thousands
+// of files behind one closed door would otherwise bury every other unreadable place.
+func (i Integrity) noteUnreadable(res *IntegrityResult, t *placeTally, rel string, why error) {
+	if res.UnreadableWhy == "" {
+		res.UnreadableWhy = whyText(why)
+	}
+	if errors.Is(why, fs.ErrPermission) {
+		if door := i.closedDoor(t, rel); door != "" {
+			if !t.closed[door] {
+				t.closed[door] = true
+				res.Unreadable++
+				t.count[safePlace(door)]++
+			}
+			return
+		}
+	}
+	res.Unreadable++
+	t.count[placeOf(rel)]++
+}
+
+// closedDoor is the highest folder above rel that this account cannot open, "" when there is none.
+func (i Integrity) closedDoor(t *placeTally, rel string) string {
+	prefix := ""
+	for _, part := range strings.Split(path.Dir(rel), "/") {
+		prefix = path.Join(prefix, part)
+		open, known := t.enterable[prefix]
+		if !known {
+			f, err := os.Open(filepath.Join(i.Root, prefix))
+			if err == nil {
+				_ = f.Close()
+			}
+			open = err == nil || !errors.Is(err, fs.ErrPermission)
+			t.enterable[prefix] = open
+		}
+		if !open {
+			return prefix
+		}
+	}
+	return ""
+}
+
 // whyText is the operating system's reason without the path, which the result names separately.
 func whyText(err error) string {
 	var pe *fs.PathError
@@ -180,6 +230,11 @@ func placeOf(rel string) string {
 	if parts := strings.Split(dir, "/"); len(parts) > placeDepth {
 		dir = strings.Join(parts[:placeDepth], "/")
 	}
+	return safePlace(dir)
+}
+
+// safePlace is dir as an absolute path, or "other places" when it is not a plain safe one.
+func safePlace(dir string) string {
 	if p := "/" + dir; safeListedPath.MatchString(p) {
 		return p
 	}

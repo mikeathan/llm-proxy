@@ -447,16 +447,13 @@ Every switchable capability is a **module** of a **layer** of a **stack**, descr
   in the nightly report from `RunReporter.attackPathsNote` (`PathsText`, fixed words, address or fixed label only, never a device name, which only the JSON carries).
 - **Module**: `attack_paths` in the Understand layer, sends nothing, on unless switched off (`NetauditConfig.AttackPathsOff`, `AttackPathsConfig`), no passphrase.
 
-## Phone-home watch and web checks (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P3, P4; Constitution I.8 and II.3 amended)
+## Phone-home watch (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P3; Constitution I.8 amended)
 
-Both were approved by the owner on 2026-11-05 and are wired (details in the plan's "P3 and P4 as built"). The listener hands DNS query lines to `phoneHomeIntake` under its own limit; `web_checks` runs nuclei only through `progexec` and the sandbox.
+Approved by the owner on 2026-11-05 and wired (details in the plan's "P3 as built"). The listener hands DNS query lines to `phoneHomeIntake` under its own limit. (The web checks built beside it in P4 were removed in v0.50.3: ADR-0029.)
 
 - **Phone-home.** `routerlog/dnsparse.go`, `phonehome/` (watch, signals), `phonehomefindings.go`, `models.PhoneHome`, `persistence.PhoneHomeStore`. Devices are keyed by hardware address,
   never by IP address; names are vetted plain DNS names shown as text and never sent to a model; the findings are hints (any device can forge a log line) the operator can accept.
   The bounds (256 devices, 512 names, 32 times) are judgements until the router's real line rate is captured.
-- **Web checks.** `nuclei/` is a guarded program under II.3 items (1) to (6): the arguments are a fixed table verified against `nuclei -h` of v3.11.1, the targets are private IPv4 addresses
-  and ports, the templates are files whose SHA-256 equals the reviewed one, and the result lines are parsed into typed facts (template id, host, port, severity) with this repository's
-  own title. No download or update happens in the program.
 
 ## Known-bad names (as built 2026-11-05, v0.50.0; plan `stack-modules-and-new-detection`)
 

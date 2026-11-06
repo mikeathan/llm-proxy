@@ -43,3 +43,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0026](ADR-0026-program-files-are-compared-with-the-checksums-dpkg-keeps.md) | Packaged program files are compared with the checksums dpkg keeps, and a pass that is cut short never resolves a finding | accepted | 2026-11-04 |
 | [ADR-0027](ADR-0027-installed-packages-are-judged-against-canonicals-usn-oval.md) | Installed packages are judged against Canonical's per-release USN OVAL file, with Pro-only fixes left out | accepted | 2026-11-04 |
 | [ADR-0028](ADR-0028-stack-module-registry.md) | Switchable capabilities are modules in stacks, described by one registry and switched in one place | accepted | 2026-11-05 |
+| [ADR-0029](ADR-0029-the-service-keeps-memory-deny-write-execute-so-nuclei-is-removed.md) | The service keeps MemoryDenyWriteExecute, so the nuclei web checks are removed | accepted | 2026-11-06 | network-audit |

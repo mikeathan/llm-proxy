@@ -68,9 +68,6 @@ type NetauditConfig struct {
 	// address) so a new place, a steady beat and a device that avoids the router's DNS can be reported. Off until the operator turns it
 	// on; it needs the router log (Constitution I.8).
 	PhoneHomeEnabled bool `yaml:"phone_home_enabled,omitempty" json:"phone_home_enabled"`
-	// WebChecksEnabled has the nightly audit run the reviewed web checks (nuclei) over the web pages of the devices it scanned. Off
-	// until the operator turns it on; the operator's deep check of one device runs them whenever they are ready.
-	WebChecksEnabled bool `yaml:"web_checks_enabled,omitempty" json:"web_checks_enabled"`
 	// KnownBadEnabled has the phone-home watch compare the names devices ask for with abuse.ch's list of hosts that serve malware
 	// (matched on this computer). Off until the operator turns it on; it needs the watch and a downloaded list.
 	KnownBadEnabled bool `yaml:"known_bad_enabled,omitempty" json:"known_bad_enabled"`

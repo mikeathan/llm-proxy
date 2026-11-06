@@ -3,7 +3,7 @@ id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
 version: "2.32"
 status: stable
-last_updated: 2026-11-05
+last_updated: 2026-11-06
 constitution_references: []
 related_specs: [SPEC-006, SPEC-007, SPEC-008]
 supersedes:
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **2.39 (2026-11-06)** — **The web checks are removed (v0.50.3, ADR-0029).** nuclei needs executable memory, which the service's systemd unit forbids on purpose, so it could not run on the real computer. The **Web checks, nightly** module, the **Web check templates** card in Network → Settings, the `web_exposure` finding and the web-check step of the deep check are gone; entries 2.35 and 2.38 below describe them as they were. The Network stack has 14 modules; the Test layer holds Scan on arrival. The report's unreadable-places note now names the folders and the reason, a folder the service cannot open counts once, and a failed program's note carries more of its error.
 - **2.38 (2026-11-05)** — **Review fixes for the phone-home watch, the web checks and the known-bad list (v0.50.1).** A device is told of new places or a steady beat at most once
   a day (the nightly report still lists every one; a name on the malware list is always told at once). The Phone-home watch now has a health line like the router log: it shows as
   stopped after a day with no DNS line from the router, and the stop message says to check that the router logs DNS queries; Network → Settings → Router log says how to switch that on

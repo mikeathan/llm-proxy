@@ -47,7 +47,6 @@ type DeepChecks struct {
 	scanner   DeepScanner
 	baselines DeepBaselines
 	store     DeepStore
-	web       WebChecker // optional: the reviewed web checks, run on the device's web ports
 	now       func() time.Time
 }
 
@@ -90,11 +89,7 @@ func (d *DeepChecks) Run(ctx context.Context, workspaceID, automation, device st
 	if err != nil {
 		return models.DeepCheck{}, err
 	}
-	findings := res.Findings
-	if base, err := d.baselines.ReadBaseline(workspaceID, automation); err == nil {
-		findings = append(slices.Clone(findings), d.webFindings(ctx, base.Findings, device)...)
-	}
-	check := models.DeepCheck{Device: device, At: now, Ports: deepPortResults(ports, res.Hosts, addr), Findings: findings}
+	check := models.DeepCheck{Device: device, At: now, Ports: deepPortResults(ports, res.Hosts, addr), Findings: res.Findings}
 	if err := d.store.WriteDeepChecks(workspaceID, withDeepCheck(stored, check)); err != nil {
 		return models.DeepCheck{}, err
 	}

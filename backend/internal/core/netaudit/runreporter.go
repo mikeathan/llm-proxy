@@ -38,8 +38,6 @@ type RunReporter struct {
 	own     OwnModelServer   // optional: which address and port is this program's own model server
 	paths   func() bool      // optional: whether the attack paths section is added to the report
 	phone   PhoneHomeSource  // optional: what the phone-home watch says about the names devices ask for
-	web     WebChecker       // optional: the reviewed web checks
-	webOn   func() bool      // optional: whether the nightly audit runs them
 	histErr func(error)
 	now     func() time.Time
 }
@@ -246,7 +244,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
 	services := r.addServices(ctx, &result)
 	hostNote, hostChecked := r.addHost(ctx, &result)
-	expectNote += hostNote + r.addWebChecks(ctx, &result)
+	expectNote += hostNote
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 

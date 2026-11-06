@@ -546,14 +546,6 @@ export const DEVICE_MARK_IMPORTANT = 'Mark as important'
 export const DEVICE_UNMARK_IMPORTANT = 'Not important'
 export const DEVICE_IMPORTANT_NOTE = 'Marked as important.'
 
-/** Network · Settings · Web check templates. */
-export const WEB_TEMPLATES_TITLE = 'Web check templates'
-export const WEB_TEMPLATES_LOAD_FAILED = 'The web check templates could not be read.'
-export const WEB_TEMPLATES_DOWNLOAD_FAILED = 'The web check templates could not be downloaded.'
-export const WEB_TEMPLATES_NOTE = 'A short, reviewed list of web page checks. They are fetched only when you press the button, from one fixed release, and each file is kept only if it is exactly the file that was reviewed. The program never updates them by itself.'
-export const webTemplatesLine = (present: number, total: number, tag: string): string =>
-  present >= total ? `All ${total} reviewed checks are downloaded (release ${tag}).` : `${present} of ${total} reviewed checks are downloaded (release ${tag}).`
-
 /** Network · Settings · Known-bad names. */
 export const KNOWN_BAD_TITLE = 'Known-bad names'
 export const KNOWN_BAD_LOAD_FAILED = 'The known-bad names could not be read.'

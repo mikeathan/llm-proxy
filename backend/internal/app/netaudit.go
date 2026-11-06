@@ -21,7 +21,6 @@ import (
 	"llm-proxy/internal/core/netaudit/knownbad"
 	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/internal/core/netaudit/nmap"
-	"llm-proxy/internal/core/netaudit/nuclei"
 	"llm-proxy/internal/core/netaudit/phonehome"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/routerlog"
@@ -110,10 +109,6 @@ type netauditServices struct {
 	KnownBadConfig *netaudit.KnownBadConfig
 	KnownBad       *knownbad.Manager
 	KnownBadList   *knownBadList
-	// WebChecksConfig is the nightly switch of the web checks; WebChecker runs them (nuclei); WebTemplates holds the reviewed templates.
-	WebChecksConfig *netaudit.WebChecksConfig
-	WebChecker      *nuclei.Checker
-	WebTemplates    *webTemplates
 	// PhoneHome is the watch of the names devices ask the router for; its switch is PhoneHomeConfig.
 	PhoneHome *phonehome.Watch
 	// PhoneHomeAlerts tells the operator of a new place or a steady beat; it runs from the one place the loops start.
@@ -311,15 +306,6 @@ func (s AppServices) NetauditAttackPaths() func() bool {
 	return s.netaudit.AttackPathsConfig.Enabled
 }
 
-// NetauditWebChecks is the nightly web checks for the run reporter: whether they are switched on and what runs them; both nil until
-// the services are wired.
-func (s AppServices) NetauditWebChecks() (func() bool, netaudit.WebChecker) {
-	if s.netaudit == nil || s.netaudit.WebChecksConfig == nil || s.netaudit.WebChecker == nil {
-		return nil, nil
-	}
-	return s.netaudit.WebChecksConfig.Enabled, s.netaudit.WebChecker
-}
-
 // NetauditPhoneHome is what the run reporter reads of the phone-home watch; nil until the services are wired.
 func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
 	if s.netaudit == nil || s.netaudit.PhoneHome == nil || s.netaudit.PhoneHomeConfig == nil {
@@ -502,7 +488,6 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	scan := s.newScanning(store, scope, netTools)
 	known := s.newTracking(store, scope, netTools)
 	phone := s.newPhoneHome(store, scope)
-	web := s.newWebChecks(store, scan.Runner, netTools)
 	bad := s.newKnownBad(store, netTools)
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
@@ -532,9 +517,6 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		KnownBadConfig:    bad.Config,
 		KnownBad:          bad.Manager,
 		KnownBadList:      bad.List,
-		WebChecksConfig:   web.Config,
-		WebChecker:        web.Checker,
-		WebTemplates:      web.Templates,
 		PhoneHome:         phone.Watch,
 		PhoneHomeConfig:   phone.Config,
 		Ports:             known.Ports,
@@ -565,7 +547,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
-		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(web.Checker),
+		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()),
 	}
 	s.netaudit.PhoneHomeAlerts = netaudit.NewPhoneHomeAlerts(netaudit.PhoneHomeAlertDeps{
 		Watch: phone.Watch, Enabled: phone.Config.Enabled, Inventory: known.Inventory.View, KnownBad: bad.matcher(),
@@ -609,7 +591,7 @@ type scanning struct {
 	Service   *netaudit.Service
 	Readiness *netaudit.Readiness
 	Vulns     *vulnfeed.Manager
-	// Runner starts guarded programs (nmap, nuclei) under the sandbox.
+	// Runner starts guarded programs (nmap) under the sandbox.
 	Runner progexec.Runner
 }
 
