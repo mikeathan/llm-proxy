@@ -96,6 +96,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPut, "/admin/api/auth/session-length"},               // a longer session weakens sign-in
 	{http.MethodPost, "/admin/api/netaudit/deep"},                    // an intrusive scan of one device (Constitution II.3): the operator, freshly confirmed
 	{http.MethodPost, "/admin/api/netaudit/devices/gateway/confirm"}, // silences the alarm for a spoofed router: the operator, freshly confirmed
+	{http.MethodPost, "/admin/api/netaudit/wifi/confirm"},            // decides which access points count as the operator's own: what every later look-alike is judged against
+	{http.MethodDelete, "/admin/api/netaudit/wifi/networks"},         // stops watching a network name and forgets its confirmed access points: the same silencing
 	{http.MethodPut, "/admin/api/netaudit/known-bad/key"},            // stores the operator's abuse.ch address, which holds their key
 	{http.MethodDelete, "/admin/api/netaudit/known-bad/key"},         // removes it
 	{http.MethodPut, "/admin/api/netaudit/decoys"},                   // opens or closes listening sockets on this computer

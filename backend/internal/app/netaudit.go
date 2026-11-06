@@ -29,6 +29,7 @@ import (
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
 	"llm-proxy/internal/core/netaudit/webprobe"
+	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/hostwatch"
@@ -36,6 +37,7 @@ import (
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/progexec"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
@@ -95,6 +97,11 @@ type netauditServices struct {
 	// LoginWatch counts the failed logins to this computer from the system's own record and tells of a burst; LoginWatchConfig is its switch.
 	LoginWatch       *netaudit.LoginWatch
 	LoginWatchConfig *netaudit.LoginWatchConfig
+	// Wifi looks at the access points NetworkManager knows (a guarded nmcli) for a copy of the operator's network name; WifiConfig is its
+	// switch and the operator's names; WifiReady says whether it can run.
+	Wifi       *netaudit.WifiWatch
+	WifiConfig *netaudit.WifiConfig
+	WifiReady  func() (bool, string)
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
 	// FollowUp scans a device that just arrived, once, while FollowUpConfig (off by default) allows it.
@@ -346,6 +353,14 @@ func (s AppServices) NetauditLoginWatch() netaudit.LoginSource {
 	return s.netaudit.LoginWatch
 }
 
+// NetauditWifi is what the run reporter reads of the Wi-Fi look-alike watch; nil until the services are wired.
+func (s AppServices) NetauditWifi() netaudit.WifiSource {
+	if s.netaudit == nil || s.netaudit.Wifi == nil {
+		return nil
+	}
+	return s.netaudit.Wifi
+}
+
 // NetauditRouterLog is what the run reporter reads of the router's log; nil until the services are wired.
 func (s AppServices) NetauditRouterLog() netaudit.RouterLogSource {
 	if s.netaudit == nil || s.netaudit.RouterWatch == nil {
@@ -396,6 +411,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Blocks != nil, func(ctx context.Context) { n.Blocks.Run(ctx) })
 	add(n.RouterWatch != nil, func(ctx context.Context) { n.RouterWatch.Run(ctx) })
 	add(n.LoginWatch != nil, func(ctx context.Context) { n.LoginWatch.Run(ctx) })
+	add(n.Wifi != nil, func(ctx context.Context) { n.Wifi.Run(ctx) })
 	add(n.PhoneHome != nil, func(ctx context.Context) {
 		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
 	})
@@ -609,6 +625,14 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
 		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(webChecker),
 	}
+	s.netaudit.WifiConfig = netaudit.NewWifiConfig(store)
+	s.netaudit.Wifi = netaudit.NewWifiWatch(netaudit.WifiWatchDeps{
+		List:    wifilook.New(scan.Runner).List,
+		Config:  s.netaudit.WifiConfig,
+		Notify:  s.alertNotifier(alerts.Log, models.NetworkAlertWifi),
+		OnError: func(err error) { logging.Warn("network wifi look-alikes", "error", err.Error()) },
+	})
+	s.netaudit.WifiReady = s.wifiReady(store, s.netaudit.WifiConfig)
 	s.netaudit.PhoneHomeAlerts = netaudit.NewPhoneHomeAlerts(netaudit.PhoneHomeAlertDeps{
 		Watch: phone.Watch, Enabled: phone.Config.Enabled, Inventory: known.Inventory.View, KnownBad: bad.matcher(),
 		Notify:  s.alertNotifier(alerts.Log, models.NetworkAlertPhoneHome),
@@ -824,4 +848,21 @@ func localModelPorts(reg models.RegistryData) []int {
 		}
 	}
 	return out
+}
+
+// wifiReady says whether the Wi-Fi look can run, and when it cannot, why in plain words: nmcli must be installed, programs must be
+// confined on this computer (or the operator has allowed running them unconfined), and the operator must have named a network.
+func (s *AppServices) wifiReady(store netaudit.PolicyStore, cfg *netaudit.WifiConfig) func() (bool, string) {
+	return func() (bool, string) {
+		if err := wifilook.Installed(); err != nil {
+			return false, err.Error()
+		}
+		if s.AppCtx.sandboxProv.Effective().Filesystem.Mechanism == sandbox.EnforcementNone && !store.Get().AllowUnconfined {
+			return false, "programs are not confined on this computer, so this one is not run (see the sandbox settings)"
+		}
+		if len(cfg.Networks()) == 0 {
+			return false, "add your Wi-Fi network's name on the Settings tab"
+		}
+		return true, ""
+	}
 }

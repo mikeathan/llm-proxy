@@ -9,7 +9,7 @@ evidence: vertex (Ubuntu 24.04) 2026-11-06 — `id llm-proxy`, `ls -l /var/log/b
 
 # TLS checks, encrypted DNS, failed logins, address watch, and what each module says about itself
 
-**Status:** partial (2026-11-06). Features 1 to 4 and the discoverability work are built in v0.54.0 on branch `network-tls-dns-ssh-address-and-discovery`; feature 5 (evil twin) is **not built** but is feasible: see Remaining Work. Constitution I.8, I.9 (clauses) and I.10 are *proposed* text for the owner's review, in force only when this branch is merged. **Related:** [ADR-0030](../../decisions/ADR-0030-failed-logins-are-read-from-btmp-with-the-utmp-group.md), [ADR-0029](../../decisions/ADR-0029-the-service-keeps-memory-deny-write-execute-so-nuclei-is-removed.md), [`stack-modules-and-new-detection.md`](stack-modules-and-new-detection.md).
+**Status:** partial (2026-11-06). Features 1 to 4 and the discoverability work are built in v0.54.0 on branch `network-tls-dns-ssh-address-and-discovery`; feature 5 (evil twin) was built afterwards in v0.55.0: see [`network-wifi-lookalikes-and-unix-socket-jail.md`](network-wifi-lookalikes-and-unix-socket-jail.md). Constitution I.8, I.9 (clauses) and I.10 are *proposed* text for the owner's review, in force only when this branch is merged. **Related:** [ADR-0030](../../decisions/ADR-0030-failed-logins-are-read-from-btmp-with-the-utmp-group.md), [ADR-0029](../../decisions/ADR-0029-the-service-keeps-memory-deny-write-execute-so-nuclei-is-removed.md), [`stack-modules-and-new-detection.md`](stack-modules-and-new-detection.md).
 
 ## What was built (one home for each job, no new layers)
 

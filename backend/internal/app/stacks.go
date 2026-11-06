@@ -88,6 +88,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig, Monitors: []string{netaudit.MonitorPhoneHome}},
 		{ID: "login_watch", Title: "Failed logins, this computer", Purpose: "Tells you when someone keeps failing to log in here.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Switch: n.LoginWatchConfig, Monitors: []string{netaudit.MonitorLoginWatch}, Ready: loginReady},
+		{ID: "wifi_lookalikes", Title: "Wi-Fi look-alikes", Purpose: "Tells you when a Wi-Fi network copies yours.", Stack: stack.Network, Layer: "discover", Sends: stack.SendsNothing,
+			Switch: n.WifiConfig, Monitors: []string{netaudit.MonitorWifi}, Ready: n.WifiReady},
 		{ID: "known_bad", Title: "Known-bad names", Purpose: "Warns when a device asks for a host that serves malware.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,

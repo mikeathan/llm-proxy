@@ -62,6 +62,8 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		PhoneHomeConfig:     netaudit.NewPhoneHomeConfig(store),
 		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
 		LoginWatchConfig:    netaudit.NewLoginWatchConfig(store),
+		WifiConfig:          netaudit.NewWifiConfig(store),
+		WifiReady:           func() (bool, string) { return true, "" },
 		KnownBadConfig:      netaudit.NewKnownBadConfig(store),
 		KnownBadList:        &knownBadList{manager: mustKnownBadManager()},
 	}
@@ -89,12 +91,12 @@ func newTestStacks(t *testing.T) *testStackDeps {
 	return d
 }
 
-// The Network stack has sixteen switches today (eleven when this was first written) (the plan said twelve, which was a miscount: the nightly audit is an automation,
+// The Network stack has seventeen switches today (eleven when this was first written) (the plan said twelve, which was a miscount: the nightly audit is an automation,
 // not a switch). This pins the ids and their layers, so adding or moving one is a deliberate edit.
 func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	want := map[string]string{
 		"presence": "discover", "ipv6_discovery": "discover", "device_names": "discover", "nearby": "discover",
-		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen", "login_watch": "listen",
+		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen", "login_watch": "listen", "wifi_lookalikes": "discover",
 		"scan_on_arrival": "test", "web_checks": "test",
 		"outside_lookup": "outside", "dns_check": "outside",
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
@@ -151,7 +153,7 @@ var legacyPaths = map[string]string{
 
 // modulesWithNoOldRoute are the modules that never had a switch route of their own, and whether each needs the passphrase. Only a
 // module that probes the network or opens a socket does.
-var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "login_watch": false}
+var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "login_watch": false, "wifi_lookalikes": false}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	steps := api.StepUpRoutes()
@@ -193,6 +195,7 @@ func TestStackRegistry_AModuleSitsOnTheSwitchItAlwaysHad(t *testing.T) {
 		"known_bad":       func() bool { return d.store.cfg.KnownBadEnabled },
 		"web_checks":      func() bool { return d.store.cfg.WebChecksEnabled },
 		"login_watch":     func() bool { return d.store.cfg.LoginWatchEnabled },
+		"wifi_lookalikes": func() bool { return d.store.cfg.WifiLookalikesEnabled },
 	} {
 		m, _ := d.reg.Module(stack.Network, id)
 		want := !read()

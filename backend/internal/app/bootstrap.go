@@ -109,14 +109,22 @@ func withNetauditInsight(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}); ok && v.NetauditPhoneHome() != nil {
 		reporter.WithPhoneHome(v.NetauditPhoneHome())
 	}
-	if v, ok := svc.(interface{ NetauditLoginWatch() netaudit.LoginSource }); ok && v.NetauditLoginWatch() != nil {
-		reporter.WithLoginWatch(v.NetauditLoginWatch())
-	}
+	withNetauditHostWatches(reporter, svc)
 	if v, ok := svc.(interface{ NetauditRouterLog() netaudit.RouterLogSource }); ok && v.NetauditRouterLog() != nil {
 		reporter.WithRouterLog(v.NetauditRouterLog())
 	}
 	if v, ok := svc.(interface{ NetauditAttackPaths() func() bool }); ok && v.NetauditAttackPaths() != nil {
 		reporter.WithAttackPaths(v.NetauditAttackPaths())
+	}
+}
+
+// withNetauditHostWatches gives the run reporter what the watches over this computer saw: failed logins and Wi-Fi look-alikes.
+func withNetauditHostWatches(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
+	if v, ok := svc.(interface{ NetauditLoginWatch() netaudit.LoginSource }); ok && v.NetauditLoginWatch() != nil {
+		reporter.WithLoginWatch(v.NetauditLoginWatch())
+	}
+	if v, ok := svc.(interface{ NetauditWifi() netaudit.WifiSource }); ok && v.NetauditWifi() != nil {
+		reporter.WithWifi(v.NetauditWifi())
 	}
 }
 

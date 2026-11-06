@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState } from '../../types/netaudit'
+import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -208,6 +208,28 @@ export class NetauditService {
 
   static decoys(): Promise<DecoyState> {
     return get<DecoyState>(API_ENDPOINTS.netauditDecoys)
+  }
+
+  static wifi(): Promise<WifiState> {
+    return get<WifiState>(API_ENDPOINTS.netauditWifi)
+  }
+
+  static wifiLook(): Promise<WifiState> {
+    return post<WifiState>(API_ENDPOINTS.netauditWifiLook)
+  }
+
+  static addWifiNetwork(name: string): Promise<WifiState> {
+    return post<WifiState>(API_ENDPOINTS.netauditWifiNetworks, { name })
+  }
+
+  /** Stops watching a name and forgets its confirmed access points; the server asks for the passphrase. */
+  static removeWifiNetwork(name: string): Promise<WifiState> {
+    return del<WifiState>(`${API_ENDPOINTS.netauditWifiNetworks}?name=${encodeURIComponent(name)}`)
+  }
+
+  /** Says these access points, seen in the last look, are the operator's own; the server asks for the passphrase. */
+  static confirmWifi(name: string, addresses: string[]): Promise<WifiState> {
+    return post<WifiState>(API_ENDPOINTS.netauditWifiConfirm, { name, addresses })
   }
 
   static routerLog(): Promise<RouterLogState> {

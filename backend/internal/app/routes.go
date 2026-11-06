@@ -52,6 +52,7 @@ type HandlerSet struct {
 	CheckIn     *handlers.NetauditSwitchHandlers
 	Decoys      *handlers.NetauditDecoyHandlers
 	RouterLog   *handlers.NetauditRouterLogHandlers
+	Wifi        *handlers.NetauditWifiHandlers
 	OutsideLook *handlers.NetauditOutsideLookupHandlers
 	DNSCheck    *handlers.NetauditDNSCheckHandlers
 	Nearby      *handlers.NetauditNearbyHandlers
@@ -131,6 +132,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
+	hs.Wifi = handlers.NewNetauditWifiHandlers(s.netaudit.Wifi, s.netaudit.WifiConfig, s.netaudit.WifiReady)
 	hs.OutsideLook = handlers.NewNetauditOutsideLookupHandlers(s.netaudit.OutsideLookupConfig, s.netaudit.Exposure)
 	hs.DNSCheck = handlers.NewNetauditDNSCheckHandlers(s.netaudit.DNSCheckConfig, s.netaudit.DNSCollector)
 	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
@@ -419,6 +421,11 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/netaudit/decoys/touches", hs.Decoys.Clear, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/router-log", hs.RouterLog.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/router-log", hs.RouterLog.Put, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/wifi", hs.Wifi.Get, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/wifi/look", hs.Wifi.Look, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/wifi/networks", hs.Wifi.AddNetwork, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/wifi/networks", hs.Wifi.RemoveNetwork, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/wifi/confirm", hs.Wifi.Confirm, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/dns-check", hs.DNSCheck.Get, jsonMethodNotAllowed)

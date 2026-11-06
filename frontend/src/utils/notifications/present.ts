@@ -37,6 +37,7 @@ const NETWORK_LABEL: Record<NetworkAlertKind, string> = {
   phone_home: 'calls out',
   router: 'router log',
   login: 'this computer',
+  wifi: 'Wi-Fi',
 }
 
 const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
@@ -50,6 +51,7 @@ const NETWORK_TONE: Record<NetworkAlertKind, NotificationTone> = {
   phone_home: 'warning',
   router: 'warning',
   login: 'warning',
+  wifi: 'warning',
 }
 
 const NETWORK_DETAIL_SEPARATOR = ' · '
