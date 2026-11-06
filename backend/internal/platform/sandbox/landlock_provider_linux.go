@@ -189,20 +189,26 @@ func (lp landlockProvider) Wrap(cmd *exec.Cmd, ws WorkspaceView) error {
 	}
 	cmd.Path = exe
 	cmd.Args = append([]string{exe, runnerFlag}, cmd.Args...)
-	runnerEnv := []string{runnerEnvMarker + "=1", rulesEnvVar + "=" + EncodeProfile(p)}
-	if !ws.NetworkOn && abi >= 4 {
-		runnerEnv = append(runnerEnv, netDenyEnvVar+"=1")
-	}
-	// Set only when the filter can be applied on this architecture, as with the network denial: a spawn is never failed by a
-	// confinement the host cannot apply, and Effective reports the gap.
-	if !lp.allowUnixSockets && !ws.AllowUnixSockets && unixDenySupported() {
-		runnerEnv = append(runnerEnv, unixDenyEnvVar+"=1")
-	}
-	if lp.maxFileSizeBytes > 0 {
-		runnerEnv = append(runnerEnv, fsizeEnvVar+"="+strconv.FormatInt(lp.maxFileSizeBytes, 10))
-	}
+	runnerEnv := lp.runnerEnv(p, ws, abi)
 	appendChildEnv(cmd, runnerEnv)
 	return nil
+}
+
+// runnerEnv is what the child's runner is told: the marker, the grant profile, and each confinement the host can apply and this spawn
+// asks for (TCP denial, the Unix-socket denial, the per-file size cap). A denial is requested only where it can be applied, so a spawn
+// is never failed by a confinement the host cannot express; Effective reports the gap.
+func (lp landlockProvider) runnerEnv(p Profile, ws WorkspaceView, abi int) []string {
+	env := []string{runnerEnvMarker + "=1", rulesEnvVar + "=" + EncodeProfile(p)}
+	if !ws.NetworkOn && abi >= 4 {
+		env = append(env, netDenyEnvVar+"=1")
+	}
+	if !lp.allowUnixSockets && !ws.AllowUnixSockets && unixDenySupported() {
+		env = append(env, unixDenyEnvVar+"=1")
+	}
+	if lp.maxFileSizeBytes > 0 {
+		env = append(env, fsizeEnvVar+"="+strconv.FormatInt(lp.maxFileSizeBytes, 10))
+	}
+	return env
 }
 
 func (lp landlockProvider) Effective() EffectiveState {

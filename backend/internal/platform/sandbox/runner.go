@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -143,35 +144,9 @@ func RunChildIfRequested() bool {
 		fmt.Fprintln(os.Stderr, "sandbox-runner: no confinement mechanism on this build")
 		os.Exit(1)
 	}
-	limits, limErr := childLimitsFromEnv()
-	if limErr != nil {
-		fmt.Fprintf(os.Stderr, "sandbox-runner: bad child limits: %v\n", limErr)
+	if err := confineSelf(); err != nil {
+		fmt.Fprintf(os.Stderr, "sandbox-runner: %v\n", err)
 		os.Exit(1)
-	}
-	if _, skipped, applyErr := process.ApplyChildLimits(limits); applyErr != nil {
-		// A requested resource cap that cannot be applied must fail closed —
-		// silently running without it would misrepresent enforcement.
-		fmt.Fprintf(os.Stderr, "sandbox-runner: applying child limits: %v\n", applyErr)
-		os.Exit(1)
-	} else if len(skipped) > 0 {
-		fmt.Fprintf(os.Stderr, "sandbox-runner: limits skipped by the OS: %v\n", skipped)
-	}
-
-	rules := os.Getenv(rulesEnvVar)
-	denyNet := os.Getenv(netDenyEnvVar) == "1"
-	if err := applyRules(rules, denyNet); err != nil {
-		fmt.Fprintf(os.Stderr, "sandbox-runner: confinement failed: %v\n", err)
-		os.Exit(1)
-	}
-	if os.Getenv(unixDenyEnvVar) == "1" {
-		if applyUnixDeny == nil {
-			fmt.Fprintln(os.Stderr, "sandbox-runner: the unix socket denial was requested but this build cannot apply it")
-			os.Exit(1)
-		}
-		if err := applyUnixDeny(); err != nil {
-			fmt.Fprintf(os.Stderr, "sandbox-runner: unix socket denial failed: %v\n", err)
-			os.Exit(1)
-		}
 	}
 	realArgv := os.Args[2:]
 	bin, err := exec.LookPath(realArgv[0])
@@ -184,4 +159,33 @@ func RunChildIfRequested() bool {
 		os.Exit(1)
 	}
 	return false // unreachable
+}
+
+// confineSelf applies, in this order, the resource limits the parent asked for, the filesystem jail (and the TCP denial when asked)
+// and the Unix-socket denial when asked. Any step that was requested and cannot be applied is an error: the runner then exits
+// before the real command runs, so an unconfined child is never started.
+func confineSelf() error {
+	limits, err := childLimitsFromEnv()
+	if err != nil {
+		return fmt.Errorf("bad child limits: %w", err)
+	}
+	if _, skipped, err := process.ApplyChildLimits(limits); err != nil {
+		// A requested resource cap that cannot be applied must fail closed: silently running without it would misrepresent enforcement.
+		return fmt.Errorf("applying child limits: %w", err)
+	} else if len(skipped) > 0 {
+		fmt.Fprintf(os.Stderr, "sandbox-runner: limits skipped by the OS: %v\n", skipped)
+	}
+	if err := applyRules(os.Getenv(rulesEnvVar), os.Getenv(netDenyEnvVar) == "1"); err != nil {
+		return fmt.Errorf("confinement failed: %w", err)
+	}
+	if os.Getenv(unixDenyEnvVar) != "1" {
+		return nil
+	}
+	if applyUnixDeny == nil {
+		return errors.New("the unix socket denial was requested but this build cannot apply it")
+	}
+	if err := applyUnixDeny(); err != nil {
+		return fmt.Errorf("unix socket denial failed: %w", err)
+	}
+	return nil
 }
