@@ -98,6 +98,13 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 // the attack paths.
 func withNetauditInsight(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
 	if v, ok := svc.(interface {
+		NetauditWebChecks() (func() bool, netaudit.WebChecker, *netaudit.RunHealth)
+	}); ok {
+		if enabled, checker, health := v.NetauditWebChecks(); checker != nil {
+			reporter.WithWebChecks(enabled, checker).WithRunHealth(health)
+		}
+	}
+	if v, ok := svc.(interface {
 		NetauditPhoneHome() netaudit.PhoneHomeSource
 	}); ok && v.NetauditPhoneHome() != nil {
 		reporter.WithPhoneHome(v.NetauditPhoneHome())

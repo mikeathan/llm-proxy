@@ -28,6 +28,7 @@ import (
 	"llm-proxy/internal/core/netaudit/ubuntuoval"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/core/netaudit/webprobe"
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/hostwatch"
@@ -109,6 +110,11 @@ type netauditServices struct {
 	KnownBadConfig *netaudit.KnownBadConfig
 	KnownBad       *knownbad.Manager
 	KnownBadList   *knownBadList
+	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
+	WebChecksConfig *netaudit.WebChecksConfig
+	WebChecker      *webprobe.Prober
+	// RunHealth records whether the optional steps of a nightly run worked; the monitor watch reads it.
+	RunHealth *netaudit.RunHealth
 	// PhoneHome is the watch of the names devices ask the router for; its switch is PhoneHomeConfig.
 	PhoneHome *phonehome.Watch
 	// PhoneHomeAlerts tells the operator of a new place or a steady beat; it runs from the one place the loops start.
@@ -306,6 +312,15 @@ func (s AppServices) NetauditAttackPaths() func() bool {
 	return s.netaudit.AttackPathsConfig.Enabled
 }
 
+// NetauditWebChecks is the nightly web checks for the run reporter: whether they are switched on and what runs them, and the record
+// of whether they worked; all nil until the services are wired.
+func (s AppServices) NetauditWebChecks() (func() bool, netaudit.WebChecker, *netaudit.RunHealth) {
+	if s.netaudit == nil || s.netaudit.WebChecksConfig == nil || s.netaudit.WebChecker == nil {
+		return nil, nil, nil
+	}
+	return s.netaudit.WebChecksConfig.Enabled, s.netaudit.WebChecker, s.netaudit.RunHealth
+}
+
 // NetauditPhoneHome is what the run reporter reads of the phone-home watch; nil until the services are wired.
 func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
 	if s.netaudit == nil || s.netaudit.PhoneHome == nil || s.netaudit.PhoneHomeConfig == nil {
@@ -489,6 +504,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	known := s.newTracking(store, scope, netTools)
 	phone := s.newPhoneHome(store, scope)
 	bad := s.newKnownBad(store, netTools)
+	webChecker := webprobe.New(func(a netip.Addr) error { return scope.Policy().Check(a) })
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
@@ -517,6 +533,9 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		KnownBadConfig:    bad.Config,
 		KnownBad:          bad.Manager,
 		KnownBadList:      bad.List,
+		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
+		WebChecker:        webChecker,
+		RunHealth:         netaudit.NewRunHealth(),
 		PhoneHome:         phone.Watch,
 		PhoneHomeConfig:   phone.Config,
 		Ports:             known.Ports,
@@ -547,7 +566,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
-		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()),
+		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(webChecker),
 	}
 	s.netaudit.PhoneHomeAlerts = netaudit.NewPhoneHomeAlerts(netaudit.PhoneHomeAlertDeps{
 		Watch: phone.Watch, Enabled: phone.Config.Enabled, Inventory: known.Inventory.View, KnownBad: bad.matcher(),

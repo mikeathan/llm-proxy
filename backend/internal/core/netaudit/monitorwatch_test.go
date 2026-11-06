@@ -84,6 +84,20 @@ func TestMonitorWatch_AStoppedPartRaisesOneAlertAndOneFinding(t *testing.T) {
 	}
 }
 
+func TestMonitorWatch_APartWhoseLatestRunFailedCountsAsStoppedAtOnce(t *testing.T) {
+	w, clock, part, sent := newMonitorTest(t)
+	part.set(MonitorReading{On: true, LastGood: clock.now(), Limit: 72 * time.Hour, Failed: true})
+	w.Tick(t.Context())
+	if got := w.Stalled(); len(got) != 1 || sent.count() != 1 {
+		t.Fatalf("stalled = %+v, alerts = %d: a failed run does not wait for the limit", got, sent.count())
+	}
+	part.set(MonitorReading{On: true, LastGood: clock.now(), Limit: 72 * time.Hour})
+	w.Tick(t.Context())
+	if got := w.Stalled(); len(got) != 0 {
+		t.Fatalf("stalled after a run that worked = %+v", got)
+	}
+}
+
 func TestMonitorWatch_ARecoveryClearsTheStallAndAllowsANewAlert(t *testing.T) {
 	w, clock, part, sent := newMonitorTest(t)
 	part.set(MonitorReading{On: true, LastGood: clock.now(), Limit: time.Hour})

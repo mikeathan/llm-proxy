@@ -449,11 +449,16 @@ Every switchable capability is a **module** of a **layer** of a **stack**, descr
 
 ## Phone-home watch (as built 2026-11-05, v0.48.0; plan `stack-modules-and-new-detection` P3; Constitution I.8 amended)
 
-Approved by the owner on 2026-11-05 and wired (details in the plan's "P3 as built"). The listener hands DNS query lines to `phoneHomeIntake` under its own limit. (The web checks built beside it in P4 were removed in v0.50.3: ADR-0029.)
+Approved by the owner on 2026-11-05 and wired (details in the plan's "P3 as built"). The listener hands DNS query lines to `phoneHomeIntake` under its own limit. (The web checks built beside it in P4 used nuclei and were replaced in v0.51.0: ADR-0029, below.)
 
 - **Phone-home.** `routerlog/dnsparse.go`, `phonehome/` (watch, signals), `phonehomefindings.go`, `models.PhoneHome`, `persistence.PhoneHomeStore`. Devices are keyed by hardware address,
   never by IP address; names are vetted plain DNS names shown as text and never sent to a model; the findings are hints (any device can forge a log line) the operator can accept.
   The bounds (256 devices, 512 names, 32 times) are judgements until the router's real line rate is captured.
+
+## Web checks and run health (as built 2026-11-06, v0.51.0; ADR-0029)
+
+- **Web checks.** `core/netaudit/webprobe` is a fixed list (`Checks`) of 24 questions, each a path or two and a test of the answer, translated from the 24 reviewed nuclei templates and checked against a made-up answer for each (`matching` in `checks_test.go`). `Prober.Probe` fetches each distinct path once per service with a plain `GET` (fixed `User-Agent`, 200 ms apart), reads at most 256 KB, follows no redirect, uses no proxy, and asks the scan scope's policy for the address of every connection (`NewClient`'s dialer `Control`) as well as before the run. `netaudit.WebTargets` picks the web ports among a scan's open-port findings (8 a device, 64 in all); `WebFindings` makes one `web_exposure` finding per service in the check's own words. They run in the deep check and, while the `web_checks` module is on, in the nightly report (`RunReporter.addWebChecks`). The module needs only the LAN guardrails.
+- **Run health.** `RunHealth` records whether an optional step of the nightly run worked. The monitor watch reads it (`MonitorReading.Failed` stops a part at once; no good run for `webChecksStallLimit` (72 h) stops it too), so the Modules tab shows the step as stopped and one alert is sent. Only the web checks use it so far; a shutdown is not recorded as a failure.
 
 ## Known-bad names (as built 2026-11-05, v0.50.0; plan `stack-modules-and-new-detection`)
 

@@ -22,6 +22,9 @@ const (
 	routerQuietLimit = 24 * time.Hour
 	// auditStallLimit is how long after the last audited day before the nightly audit counts as stopped: two missed nights.
 	auditStallLimit = 48 * time.Hour
+	// webChecksStallLimit is how long the nightly web checks may go without a run that worked: three nights, so the nightly audit's own
+	// stall (two nights) is told first when the whole audit stopped.
+	webChecksStallLimit = 72 * time.Hour
 	// auditHistoryDays is how far back an audit counts as "the audit is in use".
 	auditHistoryDays = 30
 )
@@ -50,6 +53,9 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 	})
 	add(n.PhoneHomeConfig != nil && n.RouterLog != nil, netaudit.MonitorPhoneHome, "the phone-home watch (no DNS names received for a day: check that the router logs DNS queries and sends them to this computer)", func() netaudit.MonitorReading {
 		return phoneHomeReading(n.PhoneHomeConfig.Enabled(), n.RouterLog.Status())
+	})
+	add(n.WebChecksConfig != nil && n.RunHealth != nil, netaudit.MonitorWebChecks, "the nightly web checks (the last run failed, or none worked for three days)", func() netaudit.MonitorReading {
+		return n.RunHealth.Reading(netaudit.MonitorWebChecks, n.WebChecksConfig.Enabled(), webChecksStallLimit)
 	})
 	add(n.Decoys != nil && n.DecoyConfig != nil, netaudit.MonitorDecoys, "the decoy services", func() netaudit.MonitorReading {
 		return decoyReading(n.DecoyConfig.Enabled(), n.Decoys.Status(), time.Now())
