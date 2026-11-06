@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -131,6 +132,9 @@ func RunChildIfRequested() bool {
 	if os.Getenv(runnerEnvMarker) != "1" {
 		return false
 	}
+	// Landlock and the seccomp filter apply to the calling thread only, and the exec at the end must come from the same thread, or
+	// the command would start unconfined. Pin it for the rest of this process's short life (exec replaces the process).
+	runtime.LockOSThread()
 	// Require BOTH the env marker and the CLI flag: a stale/inherited variable
 	// alone must never hijack a normal backend startup.
 	if len(os.Args) < 2 || os.Args[1] != runnerFlag {
@@ -182,10 +186,10 @@ func confineSelf() error {
 		return nil
 	}
 	if applyUnixDeny == nil {
-		return errors.New("the unix socket denial was requested but this build cannot apply it")
+		return errors.New("the unix socket denial was requested but this build cannot apply it (sandboxing.unix_sockets: true runs programs without it)")
 	}
 	if err := applyUnixDeny(); err != nil {
-		return fmt.Errorf("unix socket denial failed: %w", err)
+		return fmt.Errorf("unix socket denial failed: %w (sandboxing.unix_sockets: true runs programs without it)", err)
 	}
 	return nil
 }

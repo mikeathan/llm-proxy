@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -145,5 +146,53 @@ func TestUnixSocketFilter_StartsByCheckingTheArchitectureAndEndsByAllowing(t *te
 		if ins.Code&0x07 == bpfJmpClass && i+1+int(ins.Jt) >= len(prog) || ins.Code&0x07 == bpfJmpClass && i+1+int(ins.Jf) >= len(prog) {
 			t.Errorf("instruction %d jumps past the end: %+v", i, ins)
 		}
+	}
+}
+
+// denySeccompSyscall is what the service's own systemd unit does to a child: its SystemCallFilter allows @system-service and three
+// Landlock calls, and the seccomp(2) syscall is in neither (systemd keeps it in @sandbox), so the unit refuses it. A filter that can
+// only be installed through seccomp(2) works in a container and fails on the real service (vertex, 2026-11-06: nmap died with
+// "seccomp: install the unix socket filter: operation not permitted" and the nightly audit with it).
+func denySeccompSyscall(t *testing.T) {
+	t.Helper()
+	prog := assemble([]ins{
+		{code: bpfLdAbsW, k: seccompNrOffset},
+		{code: bpfJeqK, k: unix.SYS_SECCOMP, jf: "allow"},
+		{code: bpfRet, k: seccompRetErrno | uint32(unix.EPERM)},
+		{label: "allow", code: bpfRet, k: seccompRetAllow},
+	})
+	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
+	if err := unix.Prctl(unix.PR_SET_SECCOMP, unix.SECCOMP_MODE_FILTER, uintptr(unsafe.Pointer(&fprog)), 0, 0); err != nil {
+		t.Skipf("this host will not let the test stand in for the unit's filter: %v", err)
+	}
+	// Proof that the stand-in works: the syscall is now refused.
+	if _, _, errno := unix.Syscall(unix.SYS_SECCOMP, 99, 0, 0); errno != unix.EPERM {
+		t.Fatalf("the stand-in filter did not refuse seccomp(2): %v", errno)
+	}
+}
+
+func TestUnixDenyUnderTheUnitsFilterHelper(t *testing.T) {
+	if os.Getenv("LLMPROXY_UNIX_UNDER_UNIT") != "1" {
+		return
+	}
+	denySeccompSyscall(t)
+	if err := applyUnixSocketDeny(); err != nil {
+		t.Fatalf("the Unix-socket filter cannot be installed under a filter that refuses seccomp(2): %v", err)
+	}
+	fmt.Println("FACTS", probeUnixFacts())
+}
+
+func TestUnixSocketDeny_InstallsUnderTheServiceUnitsOwnSyscallFilter(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=TestUnixDenyUnderTheUnitsFilterHelper")
+	cmd.Env = append(os.Environ(), "LLMPROXY_UNIX_UNDER_UNIT=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "unix_socket=permission denied") {
+		t.Fatalf("the filter was not in force:\n%s", out)
 	}
 }

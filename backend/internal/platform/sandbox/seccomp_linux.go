@@ -91,26 +91,28 @@ func unixSocketFilter() []unix.SockFilter {
 	})
 }
 
-// applyUnixSocketDeny installs the filter on every thread of this process (so the thread that execs the real command carries it) and
-// keeps it across exec. It needs no privilege once no_new_privs is set.
+// applyUnixSocketDeny installs the filter on the calling thread, which must be the thread that then execs the real command (the runner
+// pins it), and the filter stays across exec. It needs no privilege once no_new_privs is set.
+//
+// It goes through prctl(PR_SET_SECCOMP), not the seccomp(2) syscall, on purpose: the service's own systemd unit allows
+// `@system-service` and the three Landlock calls, and systemd keeps seccomp(2) in a group (@sandbox) the unit does not list, so under
+// the real unit seccomp(2) answers "operation not permitted" while prctl is allowed. A container has no such filter, which is how the
+// first version passed every test and still failed on vertex (2026-11-06). The cost is that the filter covers one thread, not all
+// (no TSYNC), which is enough because the runner execs from this thread and exec replaces the process.
 func applyUnixSocketDeny() error {
+	runtime.LockOSThread() // never unlocked: the process is about to be replaced by exec
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("seccomp: set no_new_privs: %w", err)
 	}
 	prog := unixSocketFilter()
 	fprog := unix.SockFprog{Len: uint16(len(prog)), Filter: &prog[0]}
-	_, _, errno := unix.Syscall(unix.SYS_SECCOMP, seccompSetModeFilter, seccompFilterFlagTsync, uintptr(unsafe.Pointer(&fprog)))
+	err := unix.Prctl(unix.PR_SET_SECCOMP, unix.SECCOMP_MODE_FILTER, uintptr(unsafe.Pointer(&fprog)), 0, 0)
 	runtime.KeepAlive(prog)
-	if errno != 0 {
-		return fmt.Errorf("seccomp: install the unix socket filter: %w", errno)
+	if err != nil {
+		return fmt.Errorf("seccomp: install the unix socket filter: %w", err)
 	}
 	return nil
 }
-
-const (
-	seccompSetModeFilter   = 1
-	seccompFilterFlagTsync = 1
-)
 
 func unixDenySupported() bool { return true }
 
