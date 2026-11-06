@@ -19,6 +19,15 @@ const (
 	// had its Wi-Fi switched off and on twice, so twenty in a minute is well past ordinary use.
 	routerDeauthBurst  = 20
 	routerDeauthWindow = time.Minute
+	// routerDeviceDeauths disconnects of one device within a day make a finding. It is a guess: a phone that roams between the router
+	// and a mesh node is disconnected many times a day without a fault, so the limit is high and the finding low.
+	routerDeviceDeauths = 100
+	// routerMaxDevices is how many devices' disconnects are counted; one beyond it is not counted, so a forged flood of hardware
+	// addresses cannot grow the table. routerMaxBursts bounds the list of bursts of each kind.
+	routerMaxDevices = 256
+	routerMaxBursts  = 32
+	// routerDay is how long a count or a burst is kept.
+	routerDay = 24 * time.Hour
 	// routerAlertGap is the least time between two messages of one kind; a burst heard meanwhile is told when it has passed.
 	routerAlertGap = time.Hour
 	// routerWatchEvery is how often the watch looks for something to tell.
@@ -46,6 +55,21 @@ type RouterWatch struct {
 	deauths []time.Time // the last routerDeauthBurst disconnects, oldest first
 	pending map[routerBurst]bool
 	told    map[routerBurst]time.Time
+	bursts  map[routerBurst][]time.Time // when each burst was seen, for the last day
+	devices map[string]deviceCount      // disconnects per hardware address
+}
+
+// deviceCount is one device's disconnects since a time; it starts again a day after it began.
+type deviceCount struct {
+	since time.Time
+	n     int
+}
+
+// RouterSnapshot is what the nightly report reads: the bursts of the last day and each device's disconnects.
+type RouterSnapshot struct {
+	SignInBursts int
+	DeauthBursts int
+	Devices      map[string]int
 }
 
 type routerBurst string
@@ -59,7 +83,7 @@ func NewRouterWatch(deps RouterWatchDeps) *RouterWatch {
 	if deps.Now == nil {
 		deps.Now = time.Now
 	}
-	return &RouterWatch{deps: deps, pending: map[routerBurst]bool{}, told: map[routerBurst]time.Time{}}
+	return &RouterWatch{deps: deps, pending: map[routerBurst]bool{}, told: map[routerBurst]time.Time{}, bursts: map[routerBurst][]time.Time{}, devices: map[string]deviceCount{}}
 }
 
 // Add counts one line heard at the given time. It never blocks and sends nothing itself.
@@ -73,6 +97,7 @@ func (w *RouterWatch) Add(l routerlog.Watched, at time.Time) {
 	case routerlog.SignInFailed:
 		w.fails = w.note(w.fails, at, routerSignInFailures, routerSignInWindow, signInBurst)
 	case routerlog.Deauth:
+		w.countDevice(l.MAC, at)
 		w.deauths = w.note(w.deauths, at, routerDeauthBurst, routerDeauthWindow, deauthBurst)
 	}
 }
@@ -86,9 +111,55 @@ func (w *RouterWatch) note(times []time.Time, at time.Time, n int, window time.D
 	}
 	if len(times) == n && at.Sub(times[0]) <= window {
 		w.pending[b] = true
+		w.bursts[b] = append(w.bursts[b], at)
+		if len(w.bursts[b]) > routerMaxBursts {
+			w.bursts[b] = w.bursts[b][1:]
+		}
 		return nil
 	}
 	return times
+}
+
+// countDevice adds one disconnect to a device's count. A device beyond the table's size is not counted.
+func (w *RouterWatch) countDevice(mac string, at time.Time) {
+	if mac == "" {
+		return
+	}
+	c, seen := w.devices[mac]
+	if !seen && len(w.devices) >= routerMaxDevices {
+		return
+	}
+	if !seen || at.Sub(c.since) > routerDay {
+		c = deviceCount{since: at}
+	}
+	c.n++
+	w.devices[mac] = c
+}
+
+// Snapshot is what the last day holds. It is empty while the watch is switched off.
+func (w *RouterWatch) Snapshot(now time.Time) RouterSnapshot {
+	out := RouterSnapshot{Devices: map[string]int{}}
+	if !w.deps.Enabled() {
+		return out
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	recent := func(b routerBurst) int {
+		n := 0
+		for _, at := range w.bursts[b] {
+			if now.Sub(at) <= routerDay {
+				n++
+			}
+		}
+		return n
+	}
+	out.SignInBursts, out.DeauthBursts = recent(signInBurst), recent(deauthBurst)
+	for mac, c := range w.devices {
+		if now.Sub(c.since) <= routerDay {
+			out.Devices[mac] = c.n
+		}
+	}
+	return out
 }
 
 // Run looks every few seconds until ctx ends.

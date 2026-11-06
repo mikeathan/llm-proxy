@@ -335,6 +335,29 @@ func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
 	return phoneHomeSignals{enabled: s.netaudit.PhoneHomeConfig.Enabled, watch: s.netaudit.PhoneHome, bad: bad}
 }
 
+// NetauditRouterLog is what the run reporter reads of the router's log; nil until the services are wired.
+func (s AppServices) NetauditRouterLog() netaudit.RouterLogSource {
+	if s.netaudit == nil || s.netaudit.RouterWatch == nil {
+		return nil
+	}
+	return routerLogSource{watch: s.netaudit.RouterWatch, gateway: cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now)}
+}
+
+// routerLogSource gives the report the watch's snapshot and the router's address.
+type routerLogSource struct {
+	watch   *netaudit.RouterWatch
+	gateway func() netip.Addr
+}
+
+func (r routerLogSource) Snapshot(now time.Time) netaudit.RouterSnapshot { return r.watch.Snapshot(now) }
+
+func (r routerLogSource) Router() string {
+	if gw := r.gateway(); gw.IsValid() {
+		return gw.String()
+	}
+	return ""
+}
+
 // StartNetauditPresence runs the Network module's background work until ctx ends: the presence check, the router log listener
 // and its counter of refused attempts, the DNS comparison, the decoys, Nearby and the watch over them all. It is the one place
 // that starts them (Constitution II.2, II.14); work that is switched off in the settings does nothing.

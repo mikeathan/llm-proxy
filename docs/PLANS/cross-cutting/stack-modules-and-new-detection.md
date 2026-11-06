@@ -242,4 +242,4 @@ on vertex for ten minutes: `sudo timeout 600 tcpdump -l -n -i any -A udp port 51
 
 ## Addendum 2026-11-06 (v0.52.0): router sign-in failures and Wi-Fi disconnects
 
-Built on the router log (Listen layer, no new switch): `routerlog.ParseWatched`, `netaudit.RouterWatch`, alert kind `router`. Needs the owner's review of the Constitution I.8 text. Left: a finding in the nightly report, a per-device disconnect count, and the mesh node's lines (needs its address accepted).
+Built on the router log (Listen layer, no new switch): `routerlog.ParseWatched`, `netaudit.RouterWatch`, alert kind `router`. Needs the owner's review of the Constitution I.8 text. v0.53.0 added the nightly findings, the per-device disconnect count and the mesh node's lines (any private sender). Left: tune the 100-a-day device limit and the burst figures from a few days of real data.

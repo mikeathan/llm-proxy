@@ -252,12 +252,19 @@ func (m *Manager) readWatched(datagram []byte, from netip.AddrPort, now time.Tim
 	if m.deps.Watch == nil || !IsWatched(datagram) {
 		return
 	}
-	if gw := m.deps.Gateway(); !gw.IsValid() || from.Addr().Unmap() != gw || !m.withinWatched(now) {
+	if !watchedSender(from.Addr().Unmap(), m.deps.Gateway()) || !m.withinWatched(now) {
 		return
 	}
 	if w, ok := ParseWatched(datagram); ok {
 		m.deps.Watch(w, now)
 	}
+}
+
+// watchedSender says whether a failed-sign-in or disconnect line may come from this address: the router's own, or a private address
+// in the house, because the router's mesh nodes send their own Wi-Fi lines. Nothing is accepted while the router's address is
+// unknown, nor from outside the house. The lines only ever feed counts (Constitution I.8).
+func watchedSender(from, gateway netip.Addr) bool {
+	return gateway.IsValid() && (from == gateway || from.IsPrivate())
 }
 
 // withinWatched counts a watched line against this second's allowance.

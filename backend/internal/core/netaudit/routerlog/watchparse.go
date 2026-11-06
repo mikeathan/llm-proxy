@@ -18,12 +18,13 @@ const (
 	Deauth WatchedKind = "deauth"
 )
 
-// Watched is everything kept of such a line: its kind and, for a disconnect, the reason code. The router's name, the address
-// that tried to sign in, the hardware address, the interface and every other word are dropped while parsing, so a Watched can only
-// be counted (Constitution I.8).
+// Watched is everything kept of such a line: its kind and, for a disconnect, the reason code and the hardware address of the device
+// that was disconnected. The router's name, the address that tried to sign in, the interface and every other word are dropped
+// while parsing, so a Watched can only be counted (Constitution I.8).
 type Watched struct {
 	Kind   WatchedKind
-	Reason int // the 802.11 reason code of a disconnect, 1 to 65535; 0 for a sign-in
+	Reason int    // the 802.11 reason code of a disconnect, 1 to 65535; 0 for a sign-in
+	MAC    string // lower case, colon separated: the device a disconnect is about; empty for a sign-in
 }
 
 const (
@@ -91,11 +92,12 @@ func parseDeauth(msg []string) (Watched, bool) {
 		!strings.HasSuffix(msg[1], ":") || msg[2] != "Deauth_ind" {
 		return Watched{}, false
 	}
-	if hw, err := net.ParseMAC(strings.TrimSuffix(msg[3], ",")); err != nil || len(hw) != 6 {
+	hw, err := net.ParseMAC(strings.TrimSuffix(msg[3], ","))
+	if err != nil || len(hw) != 6 {
 		return Watched{}, false
 	}
 	n, ok := reasonCode(msg)
-	return Watched{Kind: Deauth, Reason: n}, ok
+	return Watched{Kind: Deauth, Reason: n, MAC: hw.String()}, ok
 }
 
 // reasonCode reads the code that is the last word before "rssi:", in brackets and followed by a comma: "(3),".

@@ -48,7 +48,7 @@ func TestManager_AFailedSignInAndADisconnectFromTheRouterAreHandedOnAsKindAndNum
 	send(t, addr, wireFailed)
 	send(t, addr, wireDeauth)
 	got := w.wait(t, 2)
-	if got[0] != (Watched{Kind: SignInFailed}) || got[1] != (Watched{Kind: Deauth, Reason: 3}) {
+	if got[0] != (Watched{Kind: SignInFailed}) || got[1] != (Watched{Kind: Deauth, Reason: 3, MAC: "02:aa:bb:00:00:01"}) {
 		t.Errorf("got %+v", got)
 	}
 	if r.wakes.Load() != 0 || len(r.offers) != 0 {
@@ -56,7 +56,7 @@ func TestManager_AFailedSignInAndADisconnectFromTheRouterAreHandedOnAsKindAndNum
 	}
 }
 
-func TestManager_AWatchedLineFromAnyOtherAddressIsIgnored(t *testing.T) {
+func TestManager_AWatchedLineFromAnAddressOutsideTheHouseIsIgnored(t *testing.T) {
 	r := newRig(t)
 	r.gw.Store(netip.MustParseAddr("192.0.2.1"))
 	w := &watchedLog{}
@@ -96,4 +96,24 @@ func TestManager_WithoutAWatchedLinesAreIgnored(t *testing.T) {
 	addr := r.start(t)
 	send(t, addr, wireFailed)
 	r.waitHeard(t)
+}
+
+func TestWatchedSender_IsTheRouterOrAnyDeviceInTheHouse(t *testing.T) {
+	gw := netip.MustParseAddr("192.168.50.1")
+	for from, want := range map[string]bool{
+		"192.168.50.1":          true,
+		"192.168.50.125":        true, // a mesh node's own lines
+		"10.0.0.7":              true,
+		"::ffff:192.168.50.125": true,
+		"8.8.8.8":               false,
+		"127.0.0.1":             false,
+		"169.254.1.1":           false,
+	} {
+		if got := watchedSender(netip.MustParseAddr(from), gw); got != want {
+			t.Errorf("%s: %v", from, got)
+		}
+	}
+	if watchedSender(netip.MustParseAddr("192.168.50.125"), netip.Addr{}) {
+		t.Error("accepted while the router's address is unknown")
+	}
 }

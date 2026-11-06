@@ -18,31 +18,32 @@ type BaselineStore interface {
 // RunReporter turns the scans an automation run made into the code-rendered part of its report, and keeps the result
 // as the baseline for the next run. It never reads the model's words: it works from what the scan tool collected.
 type RunReporter struct {
-	store   BaselineStore
-	acks    AckStore         // optional: findings the operator accepted
-	fixes   FixStore         // optional: findings the operator marked as fixed
-	vulns   VulnSource       // optional: the vulnerability data known_vulns findings are matched against
-	expect  ExpectationStore // optional: what the operator says each device should offer
-	deep    DeepReader       // optional: the operator's last deep check of each device
-	look    InventoryLook    // optional: who is on the network, from the host's neighbour table
-	idents  IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
-	router  RouterFindings   // optional: what the router itself offers (UPnP)
-	decoys  DecoyReader      // optional: devices that connected to a decoy service
-	hist    AuditHistory     // optional: the Network page's daily counts
-	host    HostLooker       // optional: this computer's open ports and the files that survive a reboot
-	watch   MonitorStalls    // optional: the module's own parts that are switched on and stopped working
-	nearby  NearbyFinder     // optional: what devices said about themselves (a second gateway)
-	classes ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
-	service ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
-	ports   PortRecorder     // optional: the ports each device had open at its last scan
-	own     OwnModelServer   // optional: which address and port is this program's own model server
-	paths   func() bool      // optional: whether the attack paths section is added to the report
-	phone   PhoneHomeSource  // optional: what the phone-home watch says about the names devices ask for
-	web     WebChecker       // optional: the web checks
-	webOn   func() bool      // optional: whether the nightly audit runs them
-	health  *RunHealth       // optional: whether each optional step of a run worked
-	histErr func(error)
-	now     func() time.Time
+	store     BaselineStore
+	acks      AckStore         // optional: findings the operator accepted
+	fixes     FixStore         // optional: findings the operator marked as fixed
+	vulns     VulnSource       // optional: the vulnerability data known_vulns findings are matched against
+	expect    ExpectationStore // optional: what the operator says each device should offer
+	deep      DeepReader       // optional: the operator's last deep check of each device
+	look      InventoryLook    // optional: who is on the network, from the host's neighbour table
+	idents    IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
+	router    RouterFindings   // optional: what the router itself offers (UPnP)
+	decoys    DecoyReader      // optional: devices that connected to a decoy service
+	hist      AuditHistory     // optional: the Network page's daily counts
+	host      HostLooker       // optional: this computer's open ports and the files that survive a reboot
+	watch     MonitorStalls    // optional: the module's own parts that are switched on and stopped working
+	nearby    NearbyFinder     // optional: what devices said about themselves (a second gateway)
+	classes   ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
+	service   ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
+	ports     PortRecorder     // optional: the ports each device had open at its last scan
+	own       OwnModelServer   // optional: which address and port is this program's own model server
+	paths     func() bool      // optional: whether the attack paths section is added to the report
+	phone     PhoneHomeSource  // optional: what the phone-home watch says about the names devices ask for
+	routerLog RouterLogSource  // optional: what the router's log says about failed sign-ins and Wi-Fi disconnects
+	web       WebChecker       // optional: the web checks
+	webOn     func() bool      // optional: whether the nightly audit runs them
+	health    *RunHealth       // optional: whether each optional step of a run worked
+	histErr   func(error)
+	now       func() time.Time
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -117,6 +118,27 @@ func (r *RunReporter) addPhoneHome(result *Result, inv models.DeviceInventory) {
 		return
 	}
 	findings := PhoneHomeFindings(r.phone.Signals(PhoneHomeDevices(inv), r.now()), inv)
+	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+}
+
+// RouterLogSource is what the reporter reads of the router's log: the last day's snapshot and the router's address ("" when unknown).
+type RouterLogSource interface {
+	Snapshot(now time.Time) RouterSnapshot
+	Router() string
+}
+
+// WithRouterLog makes the reporter add what the router's log showed. Without it nothing is added.
+func (r *RunReporter) WithRouterLog(src RouterLogSource) *RunReporter {
+	r.routerLog = src
+	return r
+}
+
+// addRouterLog appends the router log findings for the devices this scan looked at.
+func (r *RunReporter) addRouterLog(result *Result, inv models.DeviceInventory) {
+	if r.routerLog == nil {
+		return
+	}
+	findings := RouterLogFindings(r.routerLog.Snapshot(r.now()), r.routerLog.Router(), inv)
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
 }
 
@@ -244,6 +266,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	inventoryNote, inventory := r.addInventory(ctx, &result)
 	devices := inventory.Devices
 	r.addPhoneHome(&result, inventory)
+	r.addRouterLog(&result, inventory)
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
 	services := r.addServices(ctx, &result)
 	hostNote, hostChecked := r.addHost(ctx, &result)

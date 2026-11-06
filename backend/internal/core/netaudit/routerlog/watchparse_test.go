@@ -26,7 +26,7 @@ func TestParseWatched_AFailedSignInAndACaptchaErrorBothCountAsAFailure(t *testin
 
 func TestParseWatched_ADisconnectKeepsOnlyItsReasonCode(t *testing.T) {
 	got, ok := ParseWatched([]byte(wireDeauth))
-	if !ok || got != (Watched{Kind: Deauth, Reason: 3}) {
+	if !ok || got != (Watched{Kind: Deauth, Reason: 3, MAC: "02:aa:bb:00:00:01"}) {
 		t.Fatalf("got %+v, %v", got, ok)
 	}
 	inactive := strings.Replace(wireDeauth, "Deauthenticated because sending station is leaving (or has left) IBSS or ESS (3)", "Disassociated due to inactivity (4)", 1)
@@ -70,9 +70,12 @@ func TestIsWatched_IsACheapTestThatTurnsEveryOtherLineAway(t *testing.T) {
 	}
 }
 
-func TestWatched_HoldsNoAddressAndNoHardwareAddress(t *testing.T) {
-	// A Watched has a kind and a number: nothing of the line, least of all an address, can have been kept.
-	if got, _ := ParseWatched([]byte(wireDeauth)); got != (Watched{Kind: Deauth, Reason: 3}) {
+func TestWatched_HoldsNoIPAddressAndOnlyTheDisconnectedDevicesHardwareAddress(t *testing.T) {
+	// A Watched has a kind, a number and one hardware address: no IP address, and a sign-in has no hardware address at all.
+	if got, _ := ParseWatched([]byte(wireFailed)); got.MAC != "" {
+		t.Errorf("a sign-in kept %q", got.MAC)
+	}
+	if got, _ := ParseWatched([]byte(wireDeauth)); got != (Watched{Kind: Deauth, Reason: 3, MAC: "02:aa:bb:00:00:01"}) {
 		t.Errorf("got %+v", got)
 	}
 }
