@@ -163,6 +163,25 @@ func TestIntegrity_TheDirectoriesNamedAreFewAndTheirCountsAddUpToWhatIsShown(t *
 	}
 }
 
+func TestIntegrity_AFolderTheAccountCannotEnterCountsOnceNotOncePerFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read everything")
+	}
+	tr := newTree(t)
+	for _, f := range []string{"usr/lib/modules/k1/a.ko", "usr/lib/modules/k1/b.ko", "usr/lib/modules/k1/sub/c.ko"} {
+		tr.write("pkg", f, "x", sum("x"))
+	}
+	tr.write("pkg", "usr/bin/locked", "x", sum("x"))
+	if err := os.Chmod(filepath.Join(tr.root, "usr/lib/modules/k1"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(tr.root, "usr/lib/modules/k1"), 0o755) })
+	got := tr.check()
+	if got.Unreadable != 1 || !slices.Equal(got.UnreadableIn, []string{"/usr/lib/modules/k1 (1)"}) {
+		t.Errorf("Unreadable = %d, in = %v; want the folder counted once", got.Unreadable, got.UnreadableIn)
+	}
+}
+
 func TestIntegrity_APassThatIsCutShortSaysSoAndNeverAnAllClear(t *testing.T) {
 	tr := newTree(t)
 	for i := 0; i < 20; i++ {

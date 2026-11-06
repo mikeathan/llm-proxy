@@ -12,7 +12,6 @@ import (
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/knownbad"
-	"llm-proxy/internal/core/netaudit/nuclei"
 	"llm-proxy/internal/core/stack"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/internal/transport/http/handlers"
@@ -61,7 +60,6 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
 		KnownBadConfig:      netaudit.NewKnownBadConfig(store),
 		KnownBadList:        &knownBadList{manager: mustKnownBadManager()},
-		WebChecker:          nuclei.NewChecker(nil, "/nonexistent-web-templates"),
 	}
 }
 

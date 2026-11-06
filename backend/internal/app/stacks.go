@@ -61,7 +61,7 @@ func stackDefinitions() []stack.Stack {
 	}
 }
 
-// networkModules are the fifteen switches of the Network module, each over the config type that already owned it.
+// networkModules are the switches of the Network module, each over the config type that already owned it.
 func networkModules(d stackDeps) []stack.Module {
 	n, guard := d.Network, d.Guard
 	lan := func() (bool, string) { return networkReady(guard(), true, false) }
@@ -86,8 +86,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Needs: []string{"presence"}, Switch: n.FollowUpConfig},
-		{ID: "web_checks", Title: "Web checks, nightly", Purpose: "Reviewed checks of every web page the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
-			Switch: n.WebChecksConfig, Ready: n.WebChecker.Ready},
+		{ID: "web_checks", Title: "Web checks, nightly", Purpose: "Looks at the web page of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
+			Ready: lan, Switch: n.WebChecksConfig, Monitors: []string{netaudit.MonitorWebChecks}},
 		{ID: "outside_lookup", Title: "Internet view", Purpose: "Ports the internet can reach.", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
 			Switch: n.OutsideLookupConfig, Ready: internet},
 		{ID: "dns_check", Title: "Router DNS check", Purpose: "Is the router answering honestly?", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,

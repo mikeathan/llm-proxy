@@ -47,7 +47,7 @@ type DeepChecks struct {
 	scanner   DeepScanner
 	baselines DeepBaselines
 	store     DeepStore
-	web       WebChecker // optional: the reviewed web checks, run on the device's web ports
+	web       WebChecker // optional: the web checks, run on the device's web ports
 	now       func() time.Time
 }
 

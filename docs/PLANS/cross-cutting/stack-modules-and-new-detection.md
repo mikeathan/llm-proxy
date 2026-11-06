@@ -7,9 +7,9 @@ constitution_references: [I.8, II.3, V.1]
 evidence: Investigation of origin/main 4b76bacc (v0.47.1) on 2026-11-05; the owner's router (RT-AX86U on Asuswrt-Merlin) captures of dnsmasq query lines reaching vertex the same day; vertex's real findings of the 10:31 audit. Decisions D1–D3 answered by the owner on 2026-11-05.
 ---
 
-# The stack: modules you switch on and off, attack paths, a phone-home watch and web checks
+# The stack: modules you switch on and off, attack paths and a phone-home watch
 
-**Status:** approved (2026-11-05); **P1 to P4 built in v0.48.0** (branch `stack-modules-attack-paths-phone-home`). The owner approved the I.8 and II.3 texts and the 24-template list on 2026-11-05; the Constitution carries both. Open: the DNS line rate (the owner is capturing it), nuclei on vertex, and the abuse.ch list (§6). The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
+**Status:** approved (2026-11-05); **P1 to P4 built in v0.48.0; P4 (the nuclei web checks) replaced in v0.51.0: the service's systemd unit forbids the executable memory nuclei needs (ADR-0029), so the same 24 questions are asked by `core/netaudit/webprobe` in this program's own code; the P4 text below is kept as history** (branch `stack-modules-attack-paths-phone-home`). The owner approved the I.8 and II.3 texts and the 24-template list on 2026-11-05; the Constitution carries both. Open: the DNS line rate (the owner is capturing it), nuclei on vertex, and the abuse.ch list (§6). The owner asked to "add all the work we discussed", to "think of a way to stack them … togglable and
 modular … think of the UI as well", noting the service may be renamed to something like OneStack, "a stack platform". Owner decisions:
 **D1** the stack's Modules tab owns every module's switch (Network → Settings keeps only the details); **D2** nuclei runs in the deep check, with a
 nightly switch that is off by default; **D3** the rename is a later PR of its own, so new code uses neutral names (`stack`, `module`) and
@@ -42,7 +42,7 @@ bottom-up as "what the upper ones need". Network's layers (fixed in code):
 |---|---|---|
 | 1. Discover | who is on the network | presence check, IPv6 discovery, device names, Nearby |
 | 2. Listen | what the network says on its own | router log, phone-home watch (needs the router log), decoys |
-| 3. Test | look closer, on purpose | scan on arrival (needs presence), web checks nightly (needs nuclei installed) |
+| 3. Test | look closer, on purpose | scan on arrival (needs presence) |
 | 4. Look outside | what the internet sees | Internet view, router DNS check |
 | 5. Understand | turn findings into decisions | attack paths |
 | 6. Tell | reach the operator | weekly summary (needs presence), daily check-in |
@@ -63,7 +63,7 @@ type Module struct {
     Needs   []string                 // module ids below it
     Monitor string                   // MonitorPart id for health, "" when it has none
     Switch  Switch                   // Enabled() bool / Set(bool) error: an adapter to the existing config
-    Ready   func() (bool, string)    // optional: false with a reason when it cannot run (nuclei missing, Guardrails off)
+    Ready   func() (bool, string)    // optional: false with a reason when it cannot run (a program missing, Guardrails off)
 }
 ```
 
@@ -118,7 +118,7 @@ hardware address through the neighbour table, not by IP): the set of names it lo
 Names are plain DNS names vetted to `[a-z0-9.-]`, shown as text, never sent to a model verbatim; alerts in fixed words naming the device
 and the name. **Needs the I.8 amendment in §4.** Measure the real line rate on vertex before fixing the bounds.
 
-### P4. Web checks with nuclei (layer Test; on demand in the deep check, nightly switch off by default)
+### P4. Web checks with nuclei (layer Test; on demand in the deep check, nightly switch off by default) — REMOVED in v0.51.0 (ADR-0029)
 nuclei as a **guarded program** (II.3): arguments from a fixed table, HTTP templates only (no code, headless, javascript, file or workflow
 templates), interactsh off (no out-of-band callbacks), no update check and no template download by the program itself, a pinned list of
 template ids with their checksums, templates downloaded only on the operator's request (like the vulnerability data) and checked against
@@ -134,8 +134,7 @@ owner's approval of the template list.**
   router's own and this computer's lookups, reverse lookups. Names are shown as text and named in fixed-word alerts; never logged, never
   sent to a model verbatim. Residual risk accepted: anything on the LAN can forge a line and so cause a false phone-home signal, which is why
   each is a finding to review, never an action.
-- **II.3, guarded programs**: nuclei joins nmap under items (1)–(6); its reviewed list is the pinned template ids, and any template that
-  contacts a host other than the target, guesses credentials, fuzzes or can deny service is never on it.
+- **II.3, guarded programs**: nuclei was to join nmap under items (1)–(6). The sentence was written into the Constitution and removed again in v0.51.0 with the web checks (ADR-0029).
 
 ## 5. Order and remaining work
 
@@ -188,13 +187,13 @@ devices are not marked important.
 
 ## Remaining Work
 
-- Owner: press Download checks on vertex (nuclei is installed); read the DNS counters in Advanced after a few days and send them for tuning.
+- Owner: switch on **Web checks, nightly** on vertex and read what it finds (the first real run of `webprobe`); read the DNS counters in Advanced after a few days and send them for tuning.
 - Done in v0.49.0: the immediate alert for a new place or a beacon, and the listener's DNS line counters (below).
 - **Built in v0.50.0: known-bad names (abuse.ch), awaiting review of the Constitution sentence.** `core/netaudit/knownbad` (parser for the real host-file shape, matcher that also catches names under a listed one, a manager that downloads only on request and keeps the old list on any failure), the address kept in the secrets store (category `netaudit`, name `urlhaus_list`; the address itself holds the owner's key, so there is no header and no default address in the repo), `GET /admin/api/netaudit/known-bad`, `PUT` and `DELETE .../known-bad/key` (both step-up) and `POST .../download`, the `known_bad` module (Listen layer, needs `phone_home`, off by default), the finding `phone_home_known_bad` (high) and an immediate message, and the Network → Settings card "Known-bad names" (link to abuse.ch, a how-to, a hidden field, a Download button). The real file (453 names on 2026-11-05) is the fixture shape; a live download needs the owner's address and was checked once by hand.
 
-## 6. For the owner's approval: the P3 and P4 texts and the nuclei template list (drafted 2026-11-05)
+## 6. For the owner's approval: the P3 and P4 texts and the nuclei template list (drafted 2026-11-05; P4 and its list removed 2026-11-06)
 
-**State of the work.** Approved on 2026-11-05 and built (see "P3 and P4 as built" above).
+**State of the work.** Approved on 2026-11-05 and built (see "P3 and P4 as built" above). **P4 was then removed (v0.51.0, ADR-0029): on vertex nuclei died at start because the service forbids writable-then-executable memory. The list and rules below are history.**
 
 **What I verified.** nuclei **v3.11.1** (official release, SHA-256 checked against the release's checksum file) was run with `-h` and then once, with exactly the flags in `nuclei.fixedFlags`,
 against a local test server. Each flag is in its help: `-duc` (no update check), `-ni` (no interactsh), `-pt http`, `-dr` (no redirects), `-nmhe`, `-rl 5 -c 2 -bs 2 -timeout 8 -retries 0 -rsr 262144`,
@@ -240,3 +239,7 @@ until a person reviews it and the checksum here is replaced (the same rule as th
 on vertex for ten minutes: `sudo timeout 600 tcpdump -l -n -i any -A udp port 514 > /tmp/syslog.txt`, then `grep -c 'query\[' /tmp/syslog.txt` and the count of all lines. Port 514, not 5514 (ledger 2026-11-04).
 
 **Known-bad names (abuse.ch).** Not built. The owner said yes, but abuse.ch's own page (read 2026-11-05) says its URLhaus host file now needs a login and an abuse.ch Auth-Key (a secret to keep), is free under "fair use" and says use by companies or for profit may need a licence; the old keyless address answers 410 Gone. Its size was not obtainable without a key. That is a new account, a stored secret and a licence question the owner did not have when answering, so the owner is asked again before anything is built.
+
+## Addendum 2026-11-06 (v0.52.0): router sign-in failures and Wi-Fi disconnects
+
+Built on the router log (Listen layer, no new switch): `routerlog.ParseWatched`, `netaudit.RouterWatch`, alert kind `router`. Needs the owner's review of the Constitution I.8 text. v0.53.0 added the nightly findings, the per-device disconnect count and the mesh node's lines (any private sender). Left: tune the 100-a-day device limit and the burst figures from a few days of real data.

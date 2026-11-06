@@ -692,17 +692,6 @@ export interface KnownBadState {
   reason?: string
 }
 
-/** The reviewed templates of the web checks: how many are on disk with the reviewed checksum, and whether the checks can run. */
-export interface WebTemplatesState {
-  present: number
-  total: number
-  /** The release of the template collection the list was reviewed at. */
-  tag: string
-  ready: boolean
-  /** In plain words, why the checks cannot run (nuclei missing, templates not downloaded). */
-  reason?: string
-}
-
 export type AttackPathEntryKind = 'internet' | 'network'
 export type AttackPathPrizeKind = 'computer' | 'router' | 'important'
 

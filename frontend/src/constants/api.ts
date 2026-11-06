@@ -17,8 +17,6 @@ export const API_ENDPOINTS = {
   netauditKnownBad: `${API_BASE}/netaudit/known-bad`,
   netauditKnownBadKey: `${API_BASE}/netaudit/known-bad/key`,
   netauditKnownBadDownload: `${API_BASE}/netaudit/known-bad/download`,
-  netauditWebTemplates: `${API_BASE}/netaudit/web-templates`,
-  netauditWebTemplatesDownload: `${API_BASE}/netaudit/web-templates/download`,
   netauditScope: `${API_BASE}/netaudit/scope`,
   netauditReadiness: `${API_BASE}/netaudit/readiness`,
   netauditFindings: `${API_BASE}/netaudit/findings`,

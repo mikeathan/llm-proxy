@@ -150,7 +150,9 @@ journalctl -u llm-proxy.service -f
 - `Restart=on-failure` + `StartLimitBurst=5` prevent infinite crash loops; a
   persistent failure stops the unit after 5 attempts within 5 minutes.
 - `MemoryDenyWriteExecute=true` is safe for the Go binary; remove it only if a
-  future embedded runtime needs executable-mapping memory.
+  future embedded runtime needs executable-mapping memory. It also binds every
+  program the service starts, so a tool that builds code in memory (nuclei did)
+  cannot run as a guarded program; see ADR-0029.
 - `SystemCallFilter=@system-service` additionally lists the three Landlock
   syscalls — `landlock_create_ruleset`, `landlock_add_rule`,
   `landlock_restrict_self`. The agent OS-sandboxing layer probes Landlock at

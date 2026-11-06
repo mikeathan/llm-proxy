@@ -27,6 +27,8 @@ const (
 	MonitorPhoneHome = "phone_home"
 	// MonitorAlerts is the delivery of alerts to the operator's connectors: stalled while the newest sends failed.
 	MonitorAlerts = "alerts"
+	// MonitorWebChecks is the nightly web checks: stopped while switched on and the latest run failed, or no run worked for three days.
+	MonitorWebChecks = "web_checks"
 )
 
 // monitorEvery is how often the watch looks at the parts. It reads statuses held in memory and one small file; it probes nothing.
@@ -40,6 +42,8 @@ type MonitorReading struct {
 	On       bool
 	LastGood time.Time
 	Limit    time.Duration
+	// Failed says the part's latest run failed: it counts as stopped at once, whatever its limit.
+	Failed bool
 }
 
 // MonitorPart is one watched part: a fixed ID, the fixed words that name it, and how it is read.
@@ -142,7 +146,7 @@ func (w *MonitorWatch) update() []MonitorStall {
 			good = r.LastGood
 		}
 		w.good[p.ID] = good
-		if now.Sub(good) <= r.Limit {
+		if !r.Failed && now.Sub(good) <= r.Limit {
 			delete(w.stalled, p.ID)
 			delete(w.told, p.ID)
 			continue
