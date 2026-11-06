@@ -251,3 +251,96 @@ func TestProbeTLS_SeesAnOldDeviceThatOffersOnlyRSAKeyExchange(t *testing.T) {
 		}
 	}
 }
+
+// selfSignedLeaf is what most devices carry: a certificate that names itself as issuer, is not a CA, and may only sign data. Go's own
+// CheckSignatureFrom refuses it as a parent ("parent certificate cannot sign this kind of certificate"), so a check built on that call
+// never recognised the common case (found on vertex, 2026-11-06, by testing it against a leaf, not a CA).
+func selfSignedLeaf(t *testing.T, algo x509.SignatureAlgorithm) *x509.Certificate {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(7), Subject: pkix.Name{CommonName: "device"}, SignatureAlgorithm: algo,
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(24 * time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature, BasicConstraintsValid: true, IsCA: false,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Skipf("this Go will not sign with %v: %v", algo, err)
+	}
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestSelfSigned_RecognisesALeafThatSignedItself(t *testing.T) {
+	if !selfSigned(selfSignedLeaf(t, x509.SHA256WithRSA)) {
+		t.Fatal("a self-signed leaf certificate (CA:FALSE) was not recognised as self-signed")
+	}
+}
+
+// An old device's certificate may be signed with SHA-1, which this program's TLS library will not verify: it still names itself as
+// issuer, so it is the device's own.
+func TestSelfSigned_RecognisesAnOldSHA1CertificateThatNamesItself(t *testing.T) {
+	if !selfSigned(selfSignedLeaf(t, x509.SHA1WithRSA)) {
+		t.Fatal("a self-signed SHA-1 certificate was not recognised as self-signed")
+	}
+}
+
+// Naming itself is not enough: a certificate that copies its own name into the issuer field but is signed by someone else's key is
+// not self-signed, and is exactly what a forger would make.
+func TestSelfSigned_ANameThatMatchesWithAnotherKeysSignatureIsNot(t *testing.T) {
+	other, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(8), Subject: pkix.Name{CommonName: "device"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature}
+	// The parent has the same subject (so the issuer field reads the same) but is signed with a different key.
+	parent := &x509.Certificate{SerialNumber: big.NewInt(9), Subject: pkix.Name{CommonName: "device"}, NotBefore: tmpl.NotBefore, NotAfter: tmpl.NotAfter, KeyUsage: x509.KeyUsageCertSign, IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, &mine.PublicKey, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _ := x509.ParseCertificate(der)
+	if selfSigned(c) {
+		t.Fatal("a certificate signed by another key was called self-signed because its issuer field matched its subject")
+	}
+}
+
+func TestSelfSigned_ACertificateIssuedByAnotherNameIsNot(t *testing.T) {
+	ca := certFor(t, "ca", time.Now().Add(365*24*time.Hour), nil)
+	leaf := certFor(t, "device", time.Now().Add(24*time.Hour), &ca)
+	if selfSigned(leaf.Leaf) {
+		t.Fatal("a certificate issued by a CA was called self-signed")
+	}
+}
+
+// The same case through the real handshake, which is what the audit does.
+func TestProbeTLS_ASelfSignedLeafIsReportedAsSelfSigned(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(11), Subject: pkix.Name{CommonName: "device"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(100 * 24 * time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment, BasicConstraintsValid: true, IsCA: false,
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, _ := tlsServer(t, &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}})
+	res, err := prober(allowAll).ProbeTLS(context.Background(), []Target{target}, time.Minute)
+	if err != nil || len(res.Facts) != 1 || !res.Facts[0].SelfSigned {
+		t.Fatalf("res = %+v err = %v, want one self-signed fact", res, err)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"net"
 	"net/netip"
 	"strconv"
@@ -128,9 +129,18 @@ func leafOf(s tls.ConnectionState) *x509.Certificate {
 	return s.PeerCertificates[0]
 }
 
-// selfSigned says whether a certificate names itself as its issuer and carries its own signature.
+// selfSigned says whether a certificate names itself as its issuer and was signed by its own key. The signature is checked with the
+// certificate's own public key directly (CheckSignature), not through CheckSignatureFrom: that call also demands that the parent be a CA
+// allowed to sign certificates, which the leaf certificate most devices make for themselves is not, so it would never recognise the
+// common case. A certificate signed with an algorithm this program's TLS library refuses to verify (SHA-1, which old devices use) is
+// taken as its own when it names itself; one that names itself but carries another key's signature is not.
 func selfSigned(c *x509.Certificate) bool {
-	return bytes.Equal(c.RawIssuer, c.RawSubject) && c.CheckSignatureFrom(c) == nil
+	if !bytes.Equal(c.RawIssuer, c.RawSubject) {
+		return false
+	}
+	err := c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature)
+	var insecure x509.InsecureAlgorithmError
+	return err == nil || errors.As(err, &insecure)
 }
 
 // handshake opens one connection, offers the versions from min to max (max 0 is the newest this program speaks), and closes it as soon
