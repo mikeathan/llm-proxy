@@ -31,6 +31,8 @@ const (
 	MonitorWebChecks = "web_checks"
 	// MonitorLoginWatch is the watch over this computer's failed logins: stopped while it is switched on and the system's record cannot be read.
 	MonitorLoginWatch = "login_watch"
+	// MonitorWifi is the Wi-Fi look-alike watch: stopped while it is switched on and its last look failed.
+	MonitorWifi = "wifi_lookalikes"
 )
 
 // monitorEvery is how often the watch looks at the parts. It reads statuses held in memory and one small file; it probes nothing.

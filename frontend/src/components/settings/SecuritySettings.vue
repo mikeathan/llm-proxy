@@ -14,7 +14,7 @@ import { useToast } from '../../composables/useToast'
 import { useConfirm } from '../../composables/ui/useConfirm'
 import { useHostSandboxingEditor } from '../../composables/settings/useHostSandboxingEditor'
 import { errorMessage } from '../../utils/errors'
-import { formatSandboxSurface, sandboxSurfaceShort } from '../../utils/sandboxing'
+import { formatSandboxSurface, isUnixSocketsAllowed, sandboxSurfaceShort } from '../../utils/sandboxing'
 import type { SandboxSurface, SettingsTab } from '../../types/admin'
 import type { StatusState } from '../../types/ui'
 
@@ -70,10 +70,16 @@ const networkPill = computed(() => {
 const filesystemState = computed<StatusState>(() =>
   (effective.value ? surfaceEnforced(effective.value.filesystem) : filesystemOn.value) ? 'success' : 'error',
 )
+// Unix sockets: allowed only when the operator wrote true; the tag says what the host actually enforces.
+const unixSocketsAllowed = computed(() => isUnixSocketsAllowed(draft.value))
+const unixSocketsPill = computed(() => (effective.value?.unix_sockets ? sandboxSurfaceShort(effective.value.unix_sockets) : unixSocketsAllowed.value ? 'allowed' : 'refused'))
+const unixSocketsState = computed<StatusState>(() => (unixSocketsAllowed.value ? 'warning' : 'success'))
+const setUnixSockets = (value: boolean) => editor.patch({ unix_sockets: value })
 const networkState = computed<StatusState>(() => (networkAllowed.value ? 'success' : 'error'))
 const effectiveRows = computed(() => [
   { key: 'Filesystem', value: formatSandboxSurface(effective.value?.filesystem) },
   { key: 'Network (OS layer)', value: formatSandboxSurface(effective.value?.network) },
+  { key: 'Unix sockets', value: formatSandboxSurface(effective.value?.unix_sockets) },
   { key: 'Shell sessions', value: 'pooled per (workspace, network on/off)' },
 ])
 
@@ -236,6 +242,17 @@ const handleWipeout = async () => {
               <StatusTag class="mt-2" :state="networkState" :label="`Effective: ${networkPill}`" />
             </div>
             <BaseToggle :model-value="networkAllowed" label="Allow agent network" hide-label @update:model-value="setNetwork" />
+          </div>
+
+          <div class="switch-row">
+            <div class="min-w-0">
+              <p class="switch-title">Let programs use Unix sockets</p>
+              <p class="switch-copy">
+                Off (default): the programs agents run are refused Unix sockets, because the file jail cannot control them: a program could otherwise reach the system D-Bus or a control socket. Turn it on only if something you need breaks with “permission denied” (tmux, an ssh ControlMaster, Playwright or Chromium, a Docker or D-Bus client, Python multiprocessing). Applies on restart.
+              </p>
+              <StatusTag class="mt-2" :state="unixSocketsState" :label="`Effective: ${unixSocketsPill}`" />
+            </div>
+            <BaseToggle :model-value="unixSocketsAllowed" label="Let programs use Unix sockets" hide-label @update:model-value="setUnixSockets" />
           </div>
 
           <!-- Migration banner: key absent = undecided (legacy allowed) -->

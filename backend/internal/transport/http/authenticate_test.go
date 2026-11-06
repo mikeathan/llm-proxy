@@ -237,6 +237,7 @@ var stepUpProbes = []probe{
 	{"POST", "/admin/api/netaudit/deep"}, {"POST", "/admin/api/netaudit/vulndata/import"},
 	{"DELETE", "/admin/api/netaudit/vulndata"}, {"POST", "/admin/api/netaudit/devices/gateway/confirm"}, {"PUT", "/admin/api/netaudit/decoys"},
 	{"DELETE", "/admin/api/netaudit/decoys/touches"}, {"PUT", "/admin/api/netaudit/follow-up-scan"}, {"PUT", "/admin/api/netaudit/outside-lookup"}, {"PUT", "/admin/api/netaudit/dns-check"},
+	{"POST", "/admin/api/netaudit/wifi/confirm"}, {"DELETE", "/admin/api/netaudit/wifi/networks"},
 }
 
 func TestAuthenticate_ThePrincipalReachesTheHandler(t *testing.T) {

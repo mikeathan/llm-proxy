@@ -45,6 +45,7 @@ type RunReporter struct {
 	histErr   func(error)
 	now       func() time.Time
 	logins    LoginSource // optional: failed logins to this computer
+	wifi      WifiSource  // optional: access points that copy the operator's Wi-Fi name
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -156,6 +157,20 @@ func (r *RunReporter) addLogins(result *Result) {
 		return
 	}
 	result.Findings = append(result.Findings, LoginFindings(r.logins.Snapshot(r.now()))...)
+}
+
+// WithWifi makes the reporter add the finding of an access point that copies the operator's Wi-Fi name. Without it nothing is added.
+func (r *RunReporter) WithWifi(src WifiSource) *RunReporter {
+	r.wifi = src
+	return r
+}
+
+// addWifi appends the Wi-Fi look-alike finding. It is about this computer (the look is made from here), so it runs with the host check.
+func (r *RunReporter) addWifi(result *Result) {
+	if r.wifi == nil {
+		return
+	}
+	result.Findings = append(result.Findings, WifiFindings(r.wifi.Snapshot(r.now()))...)
 }
 
 // WithAttackPaths makes the reporter add the attack paths to the report while enabled returns true. Without it nothing is added.
@@ -620,6 +635,7 @@ func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string,
 	}
 	result.Findings = append(result.Findings, look.Findings...)
 	r.addLogins(result) // about this computer, so it lives and is replaced with the host's own findings
+	r.addWifi(result)
 	if r.watch != nil {
 		result.Findings = append(result.Findings, MonitorFindings(r.watch.Stalled())...)
 	}

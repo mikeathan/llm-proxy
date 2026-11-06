@@ -153,6 +153,7 @@ journalctl -u llm-proxy.service -f
   future embedded runtime needs executable-mapping memory. It also binds every
   program the service starts, so a tool that builds code in memory (nuclei did)
   cannot run as a guarded program; see ADR-0029.
+- **Unix sockets are refused to every program the service starts** (agent shells, one-shot commands, nmap, nmcli) by a seccomp filter in the sandbox runner (SPEC-006 §II.7.6), because the Landlock file jail does not control a connection to a path-based socket. `nmcli` (the Wi-Fi look) is allowed them in code. Programs that make a Unix socket themselves (tmux, an ssh ControlMaster, Playwright or Chromium, Python 3.14's default multiprocessing, a Docker or D-Bus client, `.local` name lookups through avahi) get "permission denied". If something you need breaks, set `sandboxing.unix_sockets: true` on the Security page or in `/var/lib/llm-proxy/settings.yml`, then `sudo systemctl restart llm-proxy`. After deploying, check that an agent terminal command and a network scan (or a deep check) still run: the filter has been run on arm64 only, and a mistake on another architecture would stop every program the service starts.
 - `SupplementaryGroups=utmp` lets the service read the system's record of failed logins (`/var/log/btmp`, group `utmp`) for the
   Network module's "Failed logins, this computer" watch (ADR-0030). Under `ProtectSystem=strict` it is read access to `btmp`,
   `wtmp` and `utmp` and nothing else (not `auth.log`). `setup.sh` leaves the line out on a host with no `utmp` group, where the

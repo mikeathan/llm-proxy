@@ -7,6 +7,7 @@ import {
   isHostNetworkOff,
   isNetworkAllowed,
   isNetworkDecided,
+  isUnixSocketsAllowed,
   normalizeSandboxingConfig,
   sandboxSurfaceShort,
   SURFACE_NOT_REPORTED,
@@ -115,5 +116,21 @@ describe('Effective surface labels', () => {
     expect(sandboxSurfaceShort(landlock as SandboxSurface)).toBe('landlock')
     expect(sandboxSurfaceShort(downgrade as SandboxSurface)).toBe(SURFACE_OFF)
     expect(sandboxSurfaceShort(undefined)).toBe(SURFACE_OFF)
+  })
+})
+
+// The server replaces the whole sandboxing block with what the page sends, so a key the page rebuilds without would be reset by any
+// save of an unrelated switch: the operator's opt-out of the Unix-socket denial must come back out of normalize as it went in.
+describe('unix_sockets through normalizeSandboxingConfig', () => {
+  it('keeps an explicit true or false and leaves an unset value out', () => {
+    expect(normalizeSandboxingConfig({ unix_sockets: true }).unix_sockets).toBe(true)
+    expect(normalizeSandboxingConfig({ unix_sockets: false }).unix_sockets).toBe(false)
+    expect('unix_sockets' in normalizeSandboxingConfig({})).toBe(false)
+  })
+
+  it('treats an absent key as refused', () => {
+    expect(isUnixSocketsAllowed(normalizeSandboxingConfig(undefined))).toBe(false)
+    expect(isUnixSocketsAllowed(normalizeSandboxingConfig({ unix_sockets: false }))).toBe(false)
+    expect(isUnixSocketsAllowed(normalizeSandboxingConfig({ unix_sockets: true }))).toBe(true)
   })
 })

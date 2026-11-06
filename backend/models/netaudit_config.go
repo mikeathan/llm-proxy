@@ -74,6 +74,13 @@ type NetauditConfig struct {
 	// LoginWatchEnabled has the program count the failed logins to this computer from the system's own record and tell of a burst
 	// (core/netaudit loginwatch, Constitution I.10 proposed). Off until the operator turns it on; the service needs the utmp group.
 	LoginWatchEnabled bool `yaml:"login_watch_enabled,omitempty" json:"login_watch_enabled"`
+	// WifiLookalikesEnabled has the program look, every few minutes, at the Wi-Fi access points this computer's NetworkManager already
+	// knows (nmcli, as a guarded program that cannot use the network: ADR-0031) and tell of one that advertises the operator's own network
+	// name from a hardware address the operator has not confirmed. Off until the operator turns it on.
+	WifiLookalikesEnabled bool `yaml:"wifi_lookalikes_enabled,omitempty" json:"wifi_lookalikes_enabled"`
+	// WifiNetworks are the operator's own Wi-Fi network names and the hardware addresses of their access points, confirmed by the
+	// operator from what a look saw. A name with no confirmed address is not judged yet.
+	WifiNetworks []WifiNetwork `yaml:"wifi_networks,omitempty" json:"wifi_networks"`
 	// KnownBadEnabled has the phone-home watch compare the names devices ask for with abuse.ch's list of hosts that serve malware
 	// (matched on this computer). Off until the operator turns it on; it needs the watch and a downloaded list.
 	KnownBadEnabled bool `yaml:"known_bad_enabled,omitempty" json:"known_bad_enabled"`
@@ -83,4 +90,11 @@ type NetauditConfig struct {
 	// NearbyEnabled lets the host send two multicast questions (mDNS and SSDP) and read the answers, to learn what the devices on
 	// the network say they are (Constitution I.9). It is off until the operator turns it on (a step-up action).
 	NearbyEnabled bool `yaml:"nearby_enabled,omitempty" json:"nearby_enabled"`
+}
+
+// WifiNetwork is one of the operator's own Wi-Fi network names and the hardware addresses (lower case, colon separated) of the access
+// points the operator confirmed are theirs: the router, a mesh node, each band.
+type WifiNetwork struct {
+	Name      string   `yaml:"name" json:"name"`
+	Addresses []string `yaml:"addresses,omitempty" json:"addresses"`
 }

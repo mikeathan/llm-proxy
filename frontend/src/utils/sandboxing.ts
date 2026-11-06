@@ -44,6 +44,9 @@ export function normalizeSandboxingConfig(raw: Partial<SandboxingConfig> | undef
   }
   if (raw?.filesystem !== undefined) cfg.filesystem = raw.filesystem
   if (raw?.network !== undefined) cfg.network = raw.network
+  // Kept through the round trip: the server replaces the whole block with what it is sent, so a key left out here would be reset by
+  // any save of an unrelated switch.
+  if (raw?.unix_sockets !== undefined) cfg.unix_sockets = raw.unix_sockets
   return cfg
 }
 
@@ -56,6 +59,11 @@ export function isNetworkAllowed(cfg: SandboxingConfig): boolean {
 
 export function isNetworkDecided(cfg: SandboxingConfig): boolean {
   return cfg.network !== undefined
+}
+
+// Unix sockets are refused to the programs agents run unless the operator wrote true: an absent key is the safe state.
+export function isUnixSocketsAllowed(cfg: SandboxingConfig): boolean {
+  return cfg.unix_sockets === true
 }
 
 export function isFilesystemOn(cfg: SandboxingConfig): boolean {

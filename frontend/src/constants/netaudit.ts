@@ -562,3 +562,24 @@ export const KNOWN_BAD_NO_ADDRESS = 'No address saved yet.'
 export const knownBadLine = (count: number, since: string): string =>
   count > 0 ? `${count.toLocaleString('en-US')} malware host names held, downloaded ${since}.` : 'No list downloaded yet.'
 export const KNOWN_BAD_SWITCH_NOTE = 'The comparison is off until you switch it on.'
+
+// Settings · Network · Wi-Fi look-alikes.
+export const WIFI_TITLE = 'Wi-Fi look-alikes'
+export const WIFI_LOAD_FAILED = 'The Wi-Fi look-alikes setting could not be read.'
+export const WIFI_HINT = 'Tells you when an access point uses your network\u2019s name from an address you have not confirmed, which is how a fake copy of your Wi-Fi catches devices.'
+export const WIFI_DETAILS = 'It reads the list of networks this computer\u2019s own NetworkManager already hears, in a sandbox that cannot use the network, and never scans or connects. Only your own network\u2019s name and addresses are kept; other people\u2019s networks are not.'
+export const WIFI_STEPS = [
+  'Type your Wi-Fi network\u2019s name exactly as it appears on your devices, and add it.',
+  'Press Look now. Every access point that uses the name is listed with its address.',
+  'Tick the ones that are yours (the router, a mesh node, each band) and confirm them. From then on any other address using the name is reported.',
+]
+export const WIFI_NAME_LABEL = 'Network name'
+export const WIFI_ADD = 'Add'
+export const WIFI_LOOK = 'Look now'
+export const WIFI_CONFIRM = 'These are mine'
+export const WIFI_REMOVE = 'Stop watching'
+export const WIFI_NONE_SEEN = 'No access point with this name was heard in the last look.'
+export const WIFI_NOT_LOOKED = 'No look has been made yet.'
+export const WIFI_UNCONFIRMED_NOTE = 'None of its access points is confirmed yet, so nothing is reported for this name.'
+export const wifiSeenLine = (signal: number, security: string): string => `${signal}% signal \u00b7 ${security === 'open' ? 'no security' : security.toUpperCase()}`
+

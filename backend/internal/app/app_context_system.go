@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"llm-proxy/internal/platform/env"
+	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/models"
 )
 
@@ -52,20 +53,23 @@ func (s *AppContext) HostSettings() models.HostSettings {
 	// Inject the read-time Effective projection of OS enforcement (SPEC-006
 	// §II.7.4): what the host actually applies, never persisted.
 	if s.sandboxProv != nil {
-		eff := s.sandboxProv.Effective()
-		settings.Effective = &models.SandboxEffective{
-			Filesystem: models.SandboxSurface{
-				Mechanism: string(eff.Filesystem.Mechanism),
-				Reason:    eff.Filesystem.Reason,
-			},
-			Network: models.SandboxSurface{
-				Mechanism: string(eff.Network.Mechanism),
-				Reason:    eff.Network.Reason,
-			},
-			Provider: eff.Provider,
-		}
+		settings.Effective = sandboxEffective(s.sandboxProv.Effective())
 	}
 	return settings
+}
+
+// sandboxEffective is the JSON-safe projection of what the sandbox provider enforces: each surface's mechanism and, when the
+// requested enforcement is not applied, why.
+func sandboxEffective(eff sandbox.EffectiveState) *models.SandboxEffective {
+	surface := func(s sandbox.SurfaceState) models.SandboxSurface {
+		return models.SandboxSurface{Mechanism: string(s.Mechanism), Reason: s.Reason}
+	}
+	return &models.SandboxEffective{
+		Filesystem:  surface(eff.Filesystem),
+		Network:     surface(eff.Network),
+		UnixSockets: surface(eff.UnixSockets),
+		Provider:    eff.Provider,
+	}
 }
 
 func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {

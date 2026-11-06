@@ -22,7 +22,9 @@ type HostSettings struct {
 type SandboxEffective struct {
 	Filesystem SandboxSurface `json:"filesystem"`
 	Network    SandboxSurface `json:"network"`
-	Provider   string         `json:"provider"`
+	// UnixSockets says whether children are refused Unix sockets (a seccomp filter), which the file jail does not control.
+	UnixSockets SandboxSurface `json:"unix_sockets"`
+	Provider    string         `json:"provider"`
 }
 
 // SandboxSurface reports one enforced surface: the mechanism (""/none or the
@@ -59,6 +61,11 @@ type HostSandboxingConfig struct {
 	// Explicit false = no workspace grant or persisted approval can open network
 	// for agent activity — enforced OUTSIDE the guardrail MergeWith chain.
 	Network *bool `yaml:"network,omitempty" json:"network,omitempty"`
+	// UnixSockets lets the programs the agent platform starts (agent shells and guarded programs) make Unix sockets. Unset or false
+	// refuses them with a seccomp filter, because the Landlock filesystem jail does not control the connection to a path-based
+	// socket, so a jailed child could otherwise reach the system D-Bus or any control socket its user may open. A guarded program that
+	// needs one (nmcli) allows it for itself in code, whatever this says. Read at start-up.
+	UnixSockets *bool `yaml:"unix_sockets,omitempty" json:"unix_sockets,omitempty"`
 	// EgressProxy: 0 = off; a non-zero port enables the local egress proxy that
 	// applies domain/CIDR policy to all agent egress (plan D2, Phase 1).
 	EgressProxy int `yaml:"egress_proxy" json:"egress_proxy"`
@@ -97,6 +104,12 @@ func (c *HostSandboxingConfig) UnmarshalYAML(value *yaml.Node) error {
 // (nil) counts as ON so pre-change installs keep today's confinement semantics.
 func (c HostSandboxingConfig) FilesystemEnabled() bool {
 	return c.Filesystem == nil || *c.Filesystem
+}
+
+// UnixSocketsAllowed resolves whether children may make Unix sockets: unset counts as NOT allowed, so the safe behaviour is the
+// default and an operator must write a value to lift it.
+func (c HostSandboxingConfig) UnixSocketsAllowed() bool {
+	return c.UnixSockets != nil && *c.UnixSockets
 }
 
 // EgressPolicy builds the egress proxy's host policy from operator config:

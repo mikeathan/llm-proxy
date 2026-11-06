@@ -60,6 +60,9 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 	add(n.LoginWatch != nil, netaudit.MonitorLoginWatch, "the watch over failed logins to this computer (the system's record cannot be read)", func() netaudit.MonitorReading {
 		return n.LoginWatch.Reading()
 	})
+	add(n.Wifi != nil, netaudit.MonitorWifi, "the Wi-Fi look-alike watch (its last look failed)", func() netaudit.MonitorReading {
+		return n.Wifi.Reading()
+	})
 	add(n.Decoys != nil && n.DecoyConfig != nil, netaudit.MonitorDecoys, "the decoy services", func() netaudit.MonitorReading {
 		return decoyReading(n.DecoyConfig.Enabled(), n.Decoys.Status(), time.Now())
 	})

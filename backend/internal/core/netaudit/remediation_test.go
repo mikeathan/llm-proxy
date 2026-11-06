@@ -13,7 +13,7 @@ var allChecks = []string{
 	CheckTelnetOpen, CheckDockerAPI, CheckUnexpectedPort, CheckExpectedPortClosed,
 	CheckTLSWeakProtocol, CheckTLSWeakCipher, CheckSSHPasswordLogin,
 	CheckADBExposed, CheckOpenProxy, CheckElasticsearchExposed, CheckX11Exposed, CheckRsyncExposed, CheckKubeletExposed, CheckEtcdExposed,
-	CheckNewDevice, CheckMACChanged, CheckGatewayChanged, CheckDuplicateMAC, CheckDeviceMissing, CheckHiddenDevice, CheckSelfSigned, CheckPhoneHomeEncryptedDNS,
+	CheckNewDevice, CheckMACChanged, CheckGatewayChanged, CheckDuplicateMAC, CheckDeviceMissing, CheckHiddenDevice, CheckSelfSigned, CheckPhoneHomeEncryptedDNS, CheckHostLoginFailures, CheckWifiLookalike,
 	CheckHostKeyChanged, CheckCertChanged, CheckUPnPEnabled, CheckUPnPForward, CheckInternetExposedPort, CheckDecoyTouched, CheckEndOfLife,
 }
 

@@ -357,6 +357,8 @@ export interface SandboxingConfig {
   max_storage_gb: number
   filesystem?: boolean
   network?: boolean
+  /** True lets the programs agents run make Unix sockets; absent or false refuses them (the file jail does not control them). */
+  unix_sockets?: boolean
   egress_proxy: number
   egress_allow_domains?: string[]
   egress_deny_domains?: string[]
@@ -378,6 +380,8 @@ export interface HostSettings {
 export interface SandboxEffective {
   filesystem: SandboxSurface
   network: SandboxSurface
+  /** Whether children are refused Unix sockets; older servers omit it. */
+  unix_sockets?: SandboxSurface
   provider: string
 }
 

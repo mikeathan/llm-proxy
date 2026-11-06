@@ -26,6 +26,12 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It sends only ordinary name questions to your own devices.",
 		ShowsUp: "As names on the Devices tab.",
 	},
+	"wifi_lookalikes": {
+		Watches:  "The Wi-Fi networks this computer's own NetworkManager can hear, for one that uses your network's name from an access point you have not confirmed.",
+		Never:    "It never scans, connects or sends anything: it reads NetworkManager's list in a sandbox that cannot use the network, and keeps only your own network's name and addresses.",
+		ShowsUp:  "As a message and a bell entry at once, and as a finding in the nightly report.",
+		Settings: true,
+	},
 	"nearby": {
 		Watches: "What devices announce about themselves: names, services and kinds.",
 		Never:   "It sends two small fixed messages to the local network and reads the answers; it does not sign in to anything.",
@@ -113,15 +119,16 @@ var moduleAbout = map[string]stack.About{
 // Presence check lists none for the same reason: the nightly audit refreshes the device list itself, so its findings appear with the
 // module off.
 var moduleFinds = map[string][]string{
-	"presence":       {netaudit.CheckNewDevice, netaudit.CheckMACChanged, netaudit.CheckGatewayChanged, netaudit.CheckDuplicateMAC, netaudit.CheckDeviceMissing},
-	"nearby":         {netaudit.CheckRogueGateway},
-	"router_log":     {netaudit.CheckRouterSignInFailures, netaudit.CheckWifiDisconnectBurst, netaudit.CheckWifiDeviceDisconnects},
-	"decoys":         {netaudit.CheckDecoyTouched},
-	"phone_home":     {netaudit.CheckPhoneHomeNewPlace, netaudit.CheckPhoneHomeBeaconing, netaudit.CheckPhoneHomeAroundDNS, netaudit.CheckPhoneHomeEncryptedDNS},
-	"known_bad":      {netaudit.CheckPhoneHomeKnownBad},
-	"login_watch":    {netaudit.CheckHostLoginFailures},
-	"web_checks":     {netaudit.CheckWebExposure, netaudit.CheckSelfSigned},
-	"outside_lookup": {netaudit.CheckInternetExposedPort},
+	"presence":        {netaudit.CheckNewDevice, netaudit.CheckMACChanged, netaudit.CheckGatewayChanged, netaudit.CheckDuplicateMAC, netaudit.CheckDeviceMissing},
+	"nearby":          {netaudit.CheckRogueGateway},
+	"router_log":      {netaudit.CheckRouterSignInFailures, netaudit.CheckWifiDisconnectBurst, netaudit.CheckWifiDeviceDisconnects},
+	"decoys":          {netaudit.CheckDecoyTouched},
+	"phone_home":      {netaudit.CheckPhoneHomeNewPlace, netaudit.CheckPhoneHomeBeaconing, netaudit.CheckPhoneHomeAroundDNS, netaudit.CheckPhoneHomeEncryptedDNS},
+	"known_bad":       {netaudit.CheckPhoneHomeKnownBad},
+	"login_watch":     {netaudit.CheckHostLoginFailures},
+	"wifi_lookalikes": {netaudit.CheckWifiLookalike},
+	"web_checks":      {netaudit.CheckWebExposure, netaudit.CheckSelfSigned},
+	"outside_lookup":  {netaudit.CheckInternetExposedPort},
 }
 
 // described fills in the words of each module.

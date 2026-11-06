@@ -59,7 +59,7 @@ export interface ReminderAlertItem {
 
 // What the Network module alerted about, as GET /admin/api/netaudit/alerts reports it. The text is the exact message sent to
 // the operator's connectors; `delivery` says whether it got there.
-export type NetworkAlertKind = 'decoy' | 'presence' | 'summary' | 'monitor' | 'sign_in' | 'follow_up' | 'agent' | 'phone_home' | 'router' | 'login'
+export type NetworkAlertKind = 'decoy' | 'presence' | 'summary' | 'monitor' | 'sign_in' | 'follow_up' | 'agent' | 'phone_home' | 'router' | 'login' | 'wifi'
 export type NetworkAlertDelivery = 'sending' | 'sent' | 'no_connector' | 'failed'
 
 export interface NetworkAlertEvent {

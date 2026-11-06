@@ -99,6 +99,11 @@ func TestEffectiveMatchesExpectedHost(t *testing.T) {
 		if eff.Filesystem.Mechanism != EnforcementLandlock || eff.Provider != "landlock" {
 			t.Fatalf("expected the Landlock provider on this host, got %+v", eff)
 		}
+		// Children are refused Unix sockets wherever the filter can be installed (amd64 and arm64 Linux): a silent downgrade here would
+		// leave the jail's gap open while every other check stays green.
+		if unixDenySupported() && eff.UnixSockets.Mechanism != EnforcementSeccomp {
+			t.Fatalf("expected the Unix-socket denial on this host, got %+v", eff.UnixSockets)
+		}
 	default:
 		t.Fatalf("unknown LLMPROXY_EXPECT_FS %q (want none|landlock)", expectFS)
 	}
