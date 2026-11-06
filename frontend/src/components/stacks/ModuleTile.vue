@@ -1,12 +1,16 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref } from "vue"
+import type { RouteLocationNamedRaw } from "vue-router"
 import BaseToggle from "../common/buttons/BaseToggle.vue"
+import Disclosure from "../common/layout/Disclosure.vue"
+import { MODULE_ABOUT_LABELS, MODULE_ABOUT_TITLE, MODULE_SETTINGS_LINK } from "../../constants/stacks"
 import { moduleStatus } from "../../utils/stacks/modules"
 import type { ModuleTone, StackModule } from "../../types/stacks"
 
 // One module: its name, one line of what it does, the switch, and one quiet status line (state, what it sends, what it needs).
 // A tile on a wide screen, a row on a phone: the same markup. A blocked module is dimmed; nothing here repeats the status as a tag.
-const props = defineProps<{ module: StackModule; busy: boolean; error?: string }>()
+const props = defineProps<{ module: StackModule; busy: boolean; error?: string; settingsTo?: RouteLocationNamedRaw }>()
+const aboutOpen = ref(false)
 const emit = defineEmits<{ (e: "switch", value: boolean): void }>()
 
 const TONE_CLASS: Record<ModuleTone, string> = { success: "text-state-success", warning: "text-state-running", muted: "text-faint" }
@@ -34,6 +38,15 @@ const dimmed = computed(() => Boolean(props.module.blocked))
       />
     </div>
     <span :class="['text-[length:var(--text-small)]', TONE_CLASS[status.tone]]" data-test="module-status">{{ status.text }}</span>
+    <Disclosure v-if="module.about" :title="MODULE_ABOUT_TITLE" :open="aboutOpen" data-test="module-about" @update:open="aboutOpen = $event">
+      <dl class="m-0 flex flex-col gap-1.5 text-[length:var(--text-small)] text-secondary">
+        <div v-for="(label, key) in MODULE_ABOUT_LABELS" :key="key" class="flex flex-col gap-0.5">
+          <dt class="font-medium text-primary">{{ label }}</dt>
+          <dd class="m-0">{{ module.about[key] }}</dd>
+        </div>
+      </dl>
+      <RouterLink v-if="settingsTo && module.about.settings" :to="settingsTo" class="mt-1.5 inline-block text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline" data-test="module-settings">{{ MODULE_SETTINGS_LINK }}</RouterLink>
+    </Disclosure>
     <span v-if="error" role="alert" class="text-[length:var(--text-small)] text-state-error" data-test="module-error">{{ error }}</span>
   </li>
 </template>

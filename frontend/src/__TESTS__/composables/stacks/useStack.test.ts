@@ -8,7 +8,7 @@ import { useStack } from '../../../composables/stacks/useStack'
 
 const view = (over: Partial<StackView> = {}): StackView => ({
   id: 'network', title: 'Network', purpose: '', summary: { on: 1, total: 2, stopped: 0, blocked: 0 }, actions: [],
-  layers: [{ id: 'discover', title: 'Discover', modules: [{ id: 'presence', title: 'Presence check', purpose: '', sends: 'lan', step_up: false, enabled: false, needs: [] }] }],
+  layers: [{ id: 'discover', title: 'Discover', modules: [{ id: 'presence', title: 'Presence check', purpose: '', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'lan', step_up: false, enabled: false, needs: [] }] }],
   ...over,
 })
 const switched = (over: Partial<SwitchedStack> = {}): SwitchedStack => ({ ...view(), blocked: [], ...over })

@@ -76,6 +76,10 @@ type fakeWeb struct {
 	err     error
 }
 
+func (f *fakeWeb) ProbeTLS(context.Context, []webprobe.Target, time.Duration) (webprobe.TLSResult, error) {
+	return webprobe.TLSResult{}, nil
+}
+
 func (f *fakeWeb) Probe(_ context.Context, t []webprobe.Target, limit time.Duration) (webprobe.Result, error) {
 	f.targets, f.limit = t, limit
 	return f.res, f.err

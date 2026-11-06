@@ -10,10 +10,10 @@ import StackModules from '../../../components/stacks/StackModules.vue'
 const network = (): StackView => ({
   id: 'network', title: 'Network', purpose: '', actions: [], summary: { on: 1, total: 3, stopped: 1, blocked: 1 },
   layers: [
-    { id: 'tell', title: 'Tell', modules: [{ id: 'weekly_summary', title: 'Weekly summary', purpose: 'Counts of the week to your phone.', sends: 'message', step_up: false, enabled: false, blocked: 'needs Presence check', needs: ['presence'] }] },
+    { id: 'tell', title: 'Tell', modules: [{ id: 'weekly_summary', title: 'Weekly summary', purpose: 'Counts of the week to your phone.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'message', step_up: false, enabled: false, blocked: 'needs Presence check', needs: ['presence'] }] },
     { id: 'discover', title: 'Discover', modules: [
-      { id: 'presence', title: 'Presence check', purpose: 'Notice new and missing devices.', sends: 'lan', step_up: false, enabled: true, health: 'stopped', needs: [] },
-      { id: 'nearby', title: 'Nearby', purpose: 'What devices announce.', sends: 'lan', step_up: true, enabled: false, needs: [] },
+      { id: 'presence', title: 'Presence check', purpose: 'Notice new and missing devices.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'lan', step_up: false, enabled: true, health: 'stopped', needs: [] },
+      { id: 'nearby', title: 'Nearby', purpose: 'What devices announce.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'lan', step_up: true, enabled: false, needs: [] },
     ] },
   ],
 })

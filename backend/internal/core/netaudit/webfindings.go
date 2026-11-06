@@ -44,6 +44,7 @@ func init() {
 // WebChecker asks the web services their fixed questions: *webprobe.Prober.
 type WebChecker interface {
 	Probe(ctx context.Context, targets []webprobe.Target, limit time.Duration) (webprobe.Result, error)
+	ProbeTLS(ctx context.Context, targets []webprobe.Target, limit time.Duration) (webprobe.TLSResult, error)
 }
 
 // WebTargets are the web services among the open-port findings of a scan: TCP ports whose service is HTTP or HTTPS, on private IPv4
@@ -147,10 +148,37 @@ func (r *RunReporter) addWebChecks(ctx context.Context, result *Result) string {
 	}
 	r.health.Record(MonitorWebChecks, nil)
 	result.Findings = append(result.Findings, WebFindings(res.Hits)...)
+	note := ""
 	if res.Partial {
-		return "\n\n> Note: the web checks were stopped by their time limit, so some web pages were not checked."
+		note = "\n\n> Note: the web checks were stopped by their time limit, so some web pages were not checked."
+	}
+	return note + r.addCertificateChecks(ctx, result, targets)
+}
+
+// addCertificateChecks handshakes with the secure services among the targets and adds what their certificates show. A run that cannot
+// do it is said in the note and recorded as a failure of the module, like the web checks themselves.
+func (r *RunReporter) addCertificateChecks(ctx context.Context, result *Result, targets []webprobe.Target) string {
+	secure := secureTargets(targets)
+	if len(secure) == 0 {
+		return ""
+	}
+	res, err := r.web.ProbeTLS(ctx, secure, webCheckLimit)
+	if err != nil {
+		if ctx.Err() == nil || !errors.Is(err, ctx.Err()) {
+			r.health.Record(MonitorWebChecks, err)
+		}
+		return fmt.Sprintf("\n\n> Note: the certificate checks could not run (%v).", err)
+	}
+	result.Findings = mergeTLS(result.Findings, res.Facts, TLSFindings(res.Facts, r.now()))
+	if res.Partial {
+		return "\n\n> Note: the certificate checks were stopped by their time limit, so some secure pages were not checked."
 	}
 	return ""
+}
+
+// secureTargets are the targets that speak TLS.
+func secureTargets(targets []webprobe.Target) []webprobe.Target {
+	return slices.DeleteFunc(slices.Clone(targets), func(t webprobe.Target) bool { return !t.TLS })
 }
 
 // WithWebChecks makes a deep check also run the web checks on the device's web ports. Without it a deep check is as it was.
@@ -173,7 +201,13 @@ func (d *DeepChecks) webFindings(ctx context.Context, baseline []Finding, device
 	if err != nil {
 		return nil
 	}
-	return WebFindings(res.Hits)
+	out := WebFindings(res.Hits)
+	if secure := secureTargets(targets); len(secure) > 0 {
+		if tlsRes, err := d.web.ProbeTLS(ctx, secure, deepWebCheckLimit); err == nil {
+			out = append(out, TLSFindings(tlsRes.Facts, d.now())...)
+		}
+	}
+	return out
 }
 
 // WebChecksConfig reads and changes whether the nightly audit runs the web checks. It is off until the operator turns it on.

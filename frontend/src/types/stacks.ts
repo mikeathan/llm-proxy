@@ -11,10 +11,22 @@ export type ModuleTraffic = 'nothing' | 'lan' | 'internet' | 'message' | 'listen
 /** How a module that is switched on is doing; absent while it is off or has no monitor. */
 export type ModuleHealth = 'working' | 'stopped'
 
+/** What a module says about itself, in the server's words: what it watches, what it never does, where its results appear. */
+export interface ModuleAbout {
+  watches: string
+  never: string
+  shows_up: string
+  /** True when the stack's Settings tab has a card for the module's details. */
+  settings?: boolean
+}
+
 export interface StackModule {
   id: string
   title: string
   purpose: string
+  about: ModuleAbout
+  /** The check ids of the findings only this module produces. */
+  finds: string[]
   sends: ModuleTraffic
   step_up: boolean
   enabled: boolean

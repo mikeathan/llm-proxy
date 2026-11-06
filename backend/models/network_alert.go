@@ -24,13 +24,15 @@ const (
 	NetworkAlertPhoneHome NetworkAlertKind = "phone_home"
 	// NetworkAlertRouter is from the router's log: a burst of failed sign-ins to its web page, or of Wi-Fi disconnects.
 	NetworkAlertRouter NetworkAlertKind = "router"
+	// NetworkAlertLogin is from the record of failed logins to this computer: a burst of them.
+	NetworkAlertLogin NetworkAlertKind = "login"
 )
 
 // Valid reports whether k is one of the known kinds.
 func (k NetworkAlertKind) Valid() bool {
 	switch k {
 	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn, NetworkAlertFollowUp,
-		NetworkAlertAgent, NetworkAlertPhoneHome, NetworkAlertRouter:
+		NetworkAlertAgent, NetworkAlertPhoneHome, NetworkAlertRouter, NetworkAlertLogin:
 		return true
 	}
 	return false

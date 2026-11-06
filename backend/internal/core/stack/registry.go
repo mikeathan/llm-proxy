@@ -77,12 +77,29 @@ type Switch interface {
 	Set(enabled bool) error
 }
 
+// About is what a person needs to know about a module before switching it on, in three short plain sentences, and whether its details
+// have a card on the stack's Settings tab. It is written once, here, and the Modules tab and the Help read it, so they cannot drift.
+type About struct {
+	// Watches is what the module looks at.
+	Watches string `json:"watches"`
+	// Never is what it does not do, or what it keeps off the wire or out of its records.
+	Never string `json:"never"`
+	// ShowsUp is where its results appear.
+	ShowsUp string `json:"shows_up"`
+	// Settings is true when the stack's Settings tab has a card for the module's details.
+	Settings bool `json:"settings,omitempty"`
+}
+
 // Module is one switchable capability.
 type Module struct {
 	ID, Title, Purpose string
-	Stack              StackID
-	Layer              string
-	Sends              Traffic
+	// About says what the module watches, what it never does and where its results appear.
+	About About
+	// Finds are the check ids of the findings only this module produces, so a finding can say what found it.
+	Finds []string
+	Stack StackID
+	Layer string
+	Sends Traffic
 	// StepUp is true when switching the module needs the passphrase confirmed shortly before.
 	StepUp bool
 	// Needs are the ids of modules of the same stack, on this layer or below, that must be on before this one is.
@@ -246,9 +263,12 @@ type ModuleView struct {
 	ID      string  `json:"id"`
 	Title   string  `json:"title"`
 	Purpose string  `json:"purpose"`
+	About   About   `json:"about"`
 	Sends   Traffic `json:"sends"`
 	StepUp  bool    `json:"step_up"`
 	Enabled bool    `json:"enabled"`
+	// Finds are the check ids of the findings only this module produces.
+	Finds []string `json:"finds"`
 	// Health is set only while the module is on and has a monitor.
 	Health Health `json:"health,omitempty"`
 	// Blocked says in plain words why the module cannot work now ("needs Presence check", or its readiness reason).
@@ -335,9 +355,12 @@ func (c *Counts) add(mv ModuleView) {
 
 func (r *Registry) moduleView(m Module, stalled map[string]bool) ModuleView {
 	on := m.Switch.Enabled()
-	mv := ModuleView{ID: m.ID, Title: m.Title, Purpose: m.Purpose, Sends: m.Sends, StepUp: m.StepUp, Enabled: on, Blocked: r.blockedBy(m), Needs: slices.Clone(m.Needs)}
+	mv := ModuleView{ID: m.ID, Title: m.Title, Purpose: m.Purpose, About: m.About, Sends: m.Sends, StepUp: m.StepUp, Enabled: on, Blocked: r.blockedBy(m), Needs: slices.Clone(m.Needs), Finds: slices.Clone(m.Finds)}
 	if mv.Needs == nil {
 		mv.Needs = []string{}
+	}
+	if mv.Finds == nil {
+		mv.Finds = []string{}
 	}
 	if on && len(m.Monitors) > 0 {
 		mv.Health = HealthWorking

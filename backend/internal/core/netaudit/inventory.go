@@ -126,6 +126,9 @@ func Observe(inv models.DeviceInventory, table NeighborTable, inScope func(netip
 	out.Devices = capDevices(devices)
 	out.Changes = recentChanges(changes, at)
 	out.Shared = sharedMACs(entries, table.Gateway)
+	if len(out.Shared) == 0 {
+		out.SharedAlerted = ""
+	}
 	observeGateway(&out, entries, table.Gateway)
 	if len(entries) > 0 {
 		out.Baselined = true
@@ -313,7 +316,7 @@ func newDeviceIsNews(d models.NetworkDevice, now time.Time) bool {
 }
 
 // changeIsNotable reports whether a change of address owner is worth reporting: a device the operator vouched for lost its
-// address to one nobody has. Two approved devices trading a lease is ordinary, and so is a phone swapping one private
+// address to one nobody has, or a device marked important lost its address to any other. Two approved devices trading a lease is ordinary, and so is a phone swapping one private
 // address for another at the same IP, which is how it rotates them. The residual risk, accepted by the owner (2026-10-31),
 // is an impostor that takes a phone's address with a random hardware address of its own. The finding and the alert both
 // ask this, so they cannot disagree.
@@ -322,7 +325,12 @@ func changeIsNotable(inv models.DeviceInventory, c models.AddressChange, now tim
 	if randomized(c.From) && randomized(c.To) {
 		return false
 	}
-	return now.Sub(c.At) <= ChangeWindow && from != nil && from.Approved && to != nil && !to.Approved
+	if now.Sub(c.At) > ChangeWindow || from == nil || to == nil {
+		return false
+	}
+	// An address the operator marked important is watched more closely: another device taking it is notable even when that device is
+	// one the operator approved, since a device that matters should keep its address and an impostor may be an approved device's lookalike.
+	return (from.Approved && !to.Approved) || from.Important
 }
 
 // worthTelling reports whether a new device is old enough to be told about now. A device with a real hardware address is
@@ -598,10 +606,13 @@ type Pending struct {
 	NewDevices int
 	Changes    int
 	Gateway    bool
+	// Shared is how many hardware addresses answer for several addresses at once and were not told yet.
+	Shared int
 
 	macs       []string
 	changes    []models.AddressChange
 	gatewayMAC string
+	sharedKey  string
 	// newAddrs and movedAddrs say where the new devices and the taken-over addresses are, for the message: an address from
 	// this computer's own neighbour table (never a name), with a note when it is a private hardware address.
 	newAddrs   []string
@@ -609,7 +620,9 @@ type Pending struct {
 }
 
 // Empty reports whether there is nothing to tell.
-func (p Pending) Empty() bool { return p.NewDevices == 0 && p.Changes == 0 && !p.Gateway }
+func (p Pending) Empty() bool {
+	return p.NewDevices == 0 && p.Changes == 0 && !p.Gateway && p.Shared == 0
+}
 
 // Pending lists what is new since the operator was last told. Nothing is marked: the caller marks it with MarkNotified once
 // the message was actually sent, so a failed send is tried again.
@@ -640,8 +653,23 @@ func pendingOf(inv models.DeviceInventory, now time.Time) Pending {
 	if gatewayChanged(inv) && inv.GatewayAlerted != inv.GatewaySeen {
 		p.Gateway, p.gatewayMAC = true, inv.GatewaySeen
 	}
+	if key := sharedKey(inv.Shared); key != "" && key != inv.SharedAlerted {
+		p.Shared, p.sharedKey = len(inv.Shared), key
+	}
 	p.NewDevices, p.Changes = len(p.macs), len(p.changes)
 	return p
+}
+
+// sharedKey is a digest of which hardware addresses answer for which addresses, or "" when none does, so the same set is told once.
+func sharedKey(shared []models.SharedMAC) string {
+	if len(shared) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, s := range shared {
+		parts = append(parts, s.MAC+"="+strings.Join(s.IPs, ","))
+	}
+	return namesDigest(parts)
 }
 
 // privateAddressNote marks a device that uses a private hardware address, which is how a phone hides its own.
@@ -681,6 +709,9 @@ func (v *Inventory) MarkNotified(p Pending) error {
 		}
 		if p.Gateway {
 			inv.GatewayAlerted = p.gatewayMAC
+		}
+		if p.Shared > 0 {
+			inv.SharedAlerted = p.sharedKey
 		}
 		return nil
 	})

@@ -1,10 +1,13 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/stack"
+	"llm-proxy/internal/platform/loginlog"
 	"llm-proxy/models"
 )
 
@@ -33,7 +36,7 @@ const (
 )
 
 func newStackRegistry(d stackDeps) (*stack.Registry, error) {
-	reg, err := stack.New(stackDefinitions(), append(networkModules(d), agentModules(d)...))
+	reg, err := stack.New(stackDefinitions(), described(append(networkModules(d), agentModules(d)...)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the stack registry: %w", err)
 	}
@@ -45,12 +48,12 @@ func stackDefinitions() []stack.Stack {
 		{
 			ID: stack.Network, Title: "Network", Purpose: "Watch this network, and what it says to the world.",
 			Layers: []stack.Layer{
-				{ID: "discover", Title: "Discover", Purpose: "Who is on the network"},
-				{ID: "listen", Title: "Listen", Purpose: "What the network says by itself"},
-				{ID: "test", Title: "Test", Purpose: "Look closer, on purpose"},
-				{ID: "outside", Title: "Look outside", Purpose: "What the internet sees"},
-				{ID: "understand", Title: "Understand", Purpose: "Decide what to fix"},
-				{ID: "tell", Title: "Tell", Purpose: "Reach you"},
+				{ID: "discover", Title: "Who is on the network", Purpose: "Devices, and what they are called"},
+				{ID: "listen", Title: "What the network says", Purpose: "What the router and the devices tell you by themselves"},
+				{ID: "test", Title: "Look closer", Purpose: "Checks you switch on that look at devices on purpose"},
+				{ID: "outside", Title: "What the internet sees", Purpose: "Your network from the outside"},
+				{ID: "understand", Title: "Decide what to fix", Purpose: "The findings joined into what matters most"},
+				{ID: "tell", Title: "Reach you", Purpose: "How the Network module gets in touch"},
 			},
 		},
 		{
@@ -67,6 +70,7 @@ func networkModules(d stackDeps) []stack.Module {
 	lan := func() (bool, string) { return networkReady(guard(), true, false) }
 	internet := func() (bool, string) { return networkReady(guard(), false, true) }
 	both := func() (bool, string) { return networkReady(guard(), true, true) }
+	loginReady := func() (bool, string) { return loginRecordReady(loginlog.Reader{Path: loginlog.DefaultPath}) }
 	return []stack.Module{
 		{ID: "presence", Title: "Presence check", Purpose: "Notice new and missing devices.", Stack: stack.Network, Layer: "discover", Sends: stack.SendsLAN,
 			Switch: presenceSwitch{n.PresenceConfig}, Monitors: []string{netaudit.MonitorPresence}},
@@ -82,11 +86,13 @@ func networkModules(d stackDeps) []stack.Module {
 			Switch: withPoke(n.DecoyConfig, func() { n.Decoys.Poke() }), Monitors: []string{netaudit.MonitorDecoys}},
 		{ID: "phone_home", Title: "Phone-home watch", Purpose: "Where each device calls out to.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig, Monitors: []string{netaudit.MonitorPhoneHome}},
+		{ID: "login_watch", Title: "Failed logins, this computer", Purpose: "Tells you when someone keeps failing to log in here.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
+			Switch: n.LoginWatchConfig, Monitors: []string{netaudit.MonitorLoginWatch}, Ready: loginReady},
 		{ID: "known_bad", Title: "Known-bad names", Purpose: "Warns when a device asks for a host that serves malware.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Needs: []string{"presence"}, Switch: n.FollowUpConfig},
-		{ID: "web_checks", Title: "Web checks, nightly", Purpose: "Looks at the web page of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
+		{ID: "web_checks", Title: "Web and certificate checks, nightly", Purpose: "Looks at the web page and certificate of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Ready: lan, Switch: n.WebChecksConfig, Monitors: []string{netaudit.MonitorWebChecks}},
 		{ID: "outside_lookup", Title: "Internet view", Purpose: "Ports the internet can reach.", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
 			Switch: n.OutsideLookupConfig, Ready: internet},
@@ -193,4 +199,17 @@ func (s AppServices) stalledMonitors() []string {
 		ids = append(ids, st.ID)
 	}
 	return ids
+}
+
+// loginRecordReady says whether this program can read the system's record of failed logins and, when it cannot, what to do about it.
+// A missing record is fine (nothing was ever recorded); a record the service may not open needs the utmp group.
+func loginRecordReady(r loginlog.Reader) (bool, string) {
+	err := r.Readable()
+	switch {
+	case err == nil:
+		return true, ""
+	case errors.Is(err, fs.ErrPermission):
+		return false, "this program may not read the system's record of failed logins; add the utmp group to the service (see the service setup notes)"
+	}
+	return false, "the system's record of failed logins could not be read"
 }

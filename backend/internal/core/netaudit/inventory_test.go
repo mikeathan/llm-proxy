@@ -591,3 +591,61 @@ func TestInventory_SetImportantMarksAndUnmarksADeviceAndKeepsItApproved(t *testi
 		t.Errorf("an unknown device = %v, want ErrNoSuchDevice", err)
 	}
 }
+
+func TestChangeIsNotable_AnImportantDevicesAddressTakenByAnApprovedOneIsNotable(t *testing.T) {
+	look := func(important bool, from, to string) models.DeviceInventory {
+		inv := Observe(models.DeviceInventory{}, table("", nb("192.168.1.30", from), nb("192.168.1.31", to)), anywhere, t0)
+		if important {
+			inv.Devices[0].Important = true
+		}
+		return Observe(inv, table("", nb("192.168.1.30", to)), anywhere, t0.Add(time.Hour))
+	}
+	later := t0.Add(time.Hour)
+	// Two devices you approved trading a lease is ordinary, unless the one that lost its address is one you marked important.
+	for _, c := range []struct {
+		name      string
+		important bool
+		from, to  string
+		notable   bool
+	}{
+		{"ordinary swap", false, macTV, macOther, false},
+		{"important device loses its address", true, macTV, macOther, true},
+		{"important, but both private addresses", true, macPhone, macPhone2, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			inv := look(c.important, c.from, c.to)
+			var changed bool
+			for _, f := range InventoryFindings(inv, later) {
+				changed = changed || f.Check == CheckMACChanged
+			}
+			if changed != c.notable {
+				t.Errorf("mac_changed finding = %v, want %v", changed, c.notable)
+			}
+			if alerted := pendingOf(inv, later).Changes > 0; alerted != c.notable {
+				t.Errorf("the alert and the finding must agree: alert = %v, want %v", alerted, c.notable)
+			}
+		})
+	}
+}
+
+func TestPending_OneHardwareAddressOnSeveralAddressesIsToldOnceUntilItChanges(t *testing.T) {
+	shared := Observe(models.DeviceInventory{}, table("192.168.1.1", nb("192.168.1.1", macRouter), nb("192.168.1.20", macTV), nb("192.168.1.21", macTV)), anywhere, t0)
+	p := pendingOf(shared, t0)
+	if p.Shared != 1 || p.Empty() {
+		t.Fatalf("pending = %+v, want the shared address to be news", p)
+	}
+	st := &memInventory{inv: shared}
+	inv := newInventory(fakeSource{}, st)
+	if err := inv.MarkNotified(p); err != nil {
+		t.Fatal(err)
+	}
+	if again := pendingOf(st.inv, t0); !again.Empty() {
+		t.Fatalf("pending = %+v after it was told, want nothing", again)
+	}
+	// It stops, and the same thing happening again is news again.
+	gone := Observe(st.inv, table("192.168.1.1", nb("192.168.1.1", macRouter), nb("192.168.1.20", macTV)), anywhere, t0.Add(time.Hour))
+	back := Observe(gone, table("192.168.1.1", nb("192.168.1.1", macRouter), nb("192.168.1.20", macTV), nb("192.168.1.21", macTV)), anywhere, t0.Add(2*time.Hour))
+	if p := pendingOf(back, t0.Add(2*time.Hour)); p.Shared != 1 {
+		t.Fatalf("pending = %+v, want it told again after it had stopped", p)
+	}
+}

@@ -351,10 +351,10 @@ func TestKnownBad_ReportsRecentNamesOnTheListWhateverTheDevicesAge(t *testing.T)
 	}
 }
 
-func TestWithKnownBad_TakesAListedNameOutOfTheNewPlaceSignalOfTheSameDevice(t *testing.T) {
+func TestWithListed_TakesAListedNameOutOfTheNewPlaceSignalOfTheSameDevice(t *testing.T) {
 	signals := []Signal{{Kind: NewPlace, MAC: macA, Names: []string{"bad.example", "fresh.example"}}, {Kind: Beaconing, MAC: macA, Names: []string{"bad.example"}}, {Kind: NewPlace, MAC: macB, Names: []string{"bad.example"}}}
 	bad := []Signal{{Kind: KnownBadName, MAC: macA, Names: []string{"bad.example"}}}
-	got := WithKnownBad(signals, bad)
+	got := withListed(signals, bad)
 	if len(got) != 3 || got[0].Names[0] != "fresh.example" || len(got[0].Names) != 1 || got[1].MAC != macB || got[2].Kind != KnownBadName {
 		t.Fatalf("signals = %+v", got)
 	}

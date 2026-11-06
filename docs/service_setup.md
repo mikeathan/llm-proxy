@@ -153,6 +153,13 @@ journalctl -u llm-proxy.service -f
   future embedded runtime needs executable-mapping memory. It also binds every
   program the service starts, so a tool that builds code in memory (nuclei did)
   cannot run as a guarded program; see ADR-0029.
+- `SupplementaryGroups=utmp` lets the service read the system's record of failed logins (`/var/log/btmp`, group `utmp`) for the
+  Network module's "Failed logins, this computer" watch (ADR-0030). Under `ProtectSystem=strict` it is read access to `btmp`,
+  `wtmp` and `utmp` and nothing else (not `auth.log`). `setup.sh` leaves the line out on a host with no `utmp` group, where the
+  unit would otherwise fail to start (`216/GROUP`). On an installed unit without it, add a drop-in
+  (`systemctl edit llm-proxy` with `[Service]` and `SupplementaryGroups=utmp`) and restart; until then the module's Modules-tab
+  line says the group is missing. Check it with: `sudo systemd-run --pipe --wait -p User=llm-proxy -p SupplementaryGroups=utmp
+  -p ProtectSystem=strict -p NoNewPrivileges=yes -p PrivateTmp=yes -p CapabilityBoundingSet= -- sh -c 'head -c 384 /var/log/btmp | wc -c'`.
 - `SystemCallFilter=@system-service` additionally lists the three Landlock
   syscalls — `landlock_create_ruleset`, `landlock_add_rule`,
   `landlock_restrict_self`. The agent OS-sandboxing layer probes Landlock at

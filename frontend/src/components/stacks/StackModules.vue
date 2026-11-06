@@ -7,6 +7,7 @@ import ModuleTile from "./ModuleTile.vue"
 import { useStack } from "../../composables/stacks/useStack"
 import { LEFT_BLOCKED_PREFIX, STACK_MODULES_INTRO, stackSummaryLine } from "../../constants/stacks"
 import { layerNumber } from "../../utils/stacks/modules"
+import { toNetwork } from "../../router/routes"
 import type { StackId } from "../../types/stacks"
 
 // A stack's Modules tab: the one place its modules are switched (ADR-0028). Layers are drawn top to bottom, each module a
@@ -54,6 +55,7 @@ onMounted(load)
             v-for="m in layer.modules"
             :key="m.id"
             :module="m"
+            :settings-to="props.stack === 'network' ? toNetwork('settings') : undefined"
             :busy="busyModule === m.id"
             :error="errorFor?.module === m.id ? errorFor.message : undefined"
             @switch="set(m.id, $event)"

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { StackModule } from '../../../types/stacks'
 import { layerNumber, moduleStatus } from '../../../utils/stacks/modules'
 
-const mod = (over: Partial<StackModule> = {}): StackModule => ({ id: 'm', title: 'M', purpose: '', sends: 'lan', step_up: false, enabled: false, needs: [], ...over })
+const mod = (over: Partial<StackModule> = {}): StackModule => ({ id: 'm', title: 'M', purpose: '', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'lan', step_up: false, enabled: false, needs: [], ...over })
 
 describe('moduleStatus', () => {
   it('says Off with what it would send', () => {
