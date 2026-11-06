@@ -326,7 +326,12 @@ resolve_unit_settings() { # [unit-file] — assigns SVC_USER/SVC_ROOT/INSTALL_BI
 # rendered too: it is what resolve_unit_settings reads back, so a custom binary
 # path survives re-runs only if the unit records it.
 render_unit() { # $1 = template path
-  sed -e "s|^User=.*|User=${SVC_USER}|" \
+  # SupplementaryGroups=utmp names a group that must exist or the unit fails to start (status 216/GROUP); a host without it loses
+  # the failed-login watch's access, nothing else.
+  local utmp_edit='s|^SupplementaryGroups=utmp$|&|' # no change
+  getent group utmp >/dev/null 2>&1 || utmp_edit='/^SupplementaryGroups=utmp$/d'
+  sed -e "$utmp_edit" \
+      -e "s|^User=.*|User=${SVC_USER}|" \
       -e "s|^Group=.*|Group=${SVC_USER}|" \
       -e "s|^Environment=LLM_PROXY_HOME=.*|Environment=LLM_PROXY_HOME=${SVC_ROOT}|" \
       -e "s|^WorkingDirectory=.*|WorkingDirectory=${SVC_ROOT}|" \

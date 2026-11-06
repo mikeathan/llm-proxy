@@ -19,6 +19,8 @@ const (
 	CheckPhoneHomeBeaconing = "phone_home_beaconing"
 	CheckPhoneHomeAroundDNS = "phone_home_around_dns"
 	CheckPhoneHomeKnownBad  = "phone_home_known_bad"
+	// CheckPhoneHomeEncryptedDNS is a device that asked for the name of a public encrypted-DNS server.
+	CheckPhoneHomeEncryptedDNS = "phone_home_encrypted_dns"
 )
 
 // maxPhoneHomeNames is how many names a finding lists; the rest are counted.
@@ -29,6 +31,17 @@ func init() {
 	checkTitles[CheckPhoneHomeBeaconing] = "A device keeps asking for a new name at a steady beat"
 	checkTitles[CheckPhoneHomeAroundDNS] = "A device does not use the router's DNS"
 	checkTitles[CheckPhoneHomeKnownBad] = "A device asked for a name on a malware list"
+	checkTitles[CheckPhoneHomeEncryptedDNS] = "A device may be sending its lookups around the router"
+	remediations[CheckPhoneHomeEncryptedDNS] = "The device asked for the name of a public encrypted-DNS server, which a browser or a phone does when it is set to use one. If it does, the router's DNS, the phone-home watch and the malware list cannot see that device's lookups. If you set it up on purpose, accept this finding. Otherwise turn off \"secure DNS\" or \"private DNS\" in the device or browser. A name in the router's log can be made up by any device on the network, so treat it as a hint."
+	guides[CheckPhoneHomeEncryptedDNS] = FixGuide{
+		Steps: []string{
+			"Find the device at the address the finding names. Firefox, Chrome, Edge, Android's Private DNS and Apple's iCloud Private Relay can all send lookups to a public server on their own.",
+			"If you want the router to see this device's lookups, turn off secure DNS in the browser's privacy settings, or Private DNS in the phone's network settings.",
+			"If you chose it on purpose, accept this finding: it stays quiet until the device asks for a different encrypted-DNS name.",
+		},
+		Risk: "Turning off encrypted DNS lets the network, and your internet provider, see which names the device looks up.",
+		Undo: "Turn secure DNS back on in the device or browser, or take the acceptance back on the Findings tab.",
+	}
 	remediations[CheckPhoneHomeNewPlace] = "Look at the name. If you do not know it, find out which program or device uses it (a vendor's update or cloud service is usual). If it is yours, accept this finding. A name in the router's log can be made up by any device on the network, so treat it as a hint."
 	remediations[CheckPhoneHomeBeaconing] = "A program that asks for the same new name every few minutes may be checking in with a server. Find out which one it is on that device. If it is a service you use, accept this finding. A name in the router's log can be made up by any device on the network, so treat it as a hint."
 	guides[CheckPhoneHomeNewPlace] = phoneHomeGuide("Find out what uses the name.", "Look the name up with a search engine, or ask the device's maker. A vendor's update or cloud service is the usual answer.")
@@ -92,6 +105,8 @@ func phoneHomeFinding(s phonehome.Signal, ip string) Finding {
 		f.Check, f.Evidence, f.Version = CheckPhoneHomeNewPlace, "Asked for a name it did not ask for in its first week: "+listNames(s.Names), namesDigest(s.Names)
 	case phonehome.Beaconing:
 		f.Check, f.Severity, f.Evidence, f.Version = CheckPhoneHomeBeaconing, SeverityMedium, "Asks for a new name at a steady beat: "+listNames(s.Names), namesDigest(s.Names)
+	case phonehome.EncryptedDNSName:
+		f.Check, f.Evidence, f.Version = CheckPhoneHomeEncryptedDNS, "Asked for the name of a public encrypted-DNS server, so its other lookups may no longer go through the router: "+listNames(s.Names), namesDigest(s.Names)
 	case phonehome.KnownBadName:
 		f.Check, f.Severity, f.Evidence, f.Version = CheckPhoneHomeKnownBad, SeverityHigh, "Asked for a name on abuse.ch's list of hosts that serve malware: "+listNames(s.Names), namesDigest(s.Names)
 	default:

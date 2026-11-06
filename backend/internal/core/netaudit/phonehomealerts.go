@@ -103,12 +103,14 @@ func (a *PhoneHomeAlerts) heldBack(s phonehome.Signal, now time.Time) bool {
 	return a.deps.Watch.ToldSince(s.MAC+"|"+string(s.Kind)+"|", now.Add(-phoneHomeAlertGap))
 }
 
-// signals are what is worth a message: new places and beats, and names on the malware list. A device that avoids the router's DNS is
-// left to the nightly report.
+// signals are what is worth a message: new places and beats, and names on the malware list. A device that avoids the router's DNS, or asks
+// for an encrypted-DNS server (Firefox does by default, and so does a phone's private DNS setting), is left to the nightly report.
 func (a *PhoneHomeAlerts) signals(inv models.DeviceInventory, now time.Time) []phonehome.Signal {
 	state := a.deps.Watch.Snapshot()
-	all := phonehome.WithKnownBad(phonehome.Evaluate(state, PhoneHomeDevices(inv), now), phonehome.KnownBad(state, a.deps.KnownBad, now))
-	return slices.DeleteFunc(all, func(s phonehome.Signal) bool { return s.Kind == phonehome.AroundDNS })
+	all := phonehome.Judge(state, PhoneHomeDevices(inv), a.deps.KnownBad, now)
+	return slices.DeleteFunc(all, func(s phonehome.Signal) bool {
+		return s.Kind == phonehome.AroundDNS || s.Kind == phonehome.EncryptedDNSName
+	})
 }
 
 func (a *PhoneHomeAlerts) report(err error) {

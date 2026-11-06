@@ -40,3 +40,15 @@ export const AGENTS_TAB_LABELS = { modules: 'Modules' } as const
 export const MODULE_SWITCHED_ON_NOTE = 'Switched on.'
 export const MODULE_SWITCHED_OFF_NOTE = 'Switched off.'
 export const MODULES_LINK_LABEL = 'Switch it on the Modules tab'
+
+// What a module says about itself, and the coverage line on the Network overview.
+export const MODULE_ABOUT_TITLE = 'What it does'
+export const MODULE_ABOUT_LABELS = { watches: 'Watches', never: 'Never', shows_up: 'Shows up' } as const
+export const MODULE_SETTINGS_LINK = 'Settings'
+export const FOUND_BY_PREFIX = 'Found by'
+export const FOUND_BY_OFF = 'off. Switch it on to keep this check running.'
+export const COVERAGE_OPEN_MODULES = 'Open the Modules tab'
+export const coverageLine = (on: number, total: number): string => `${on} of ${total} protections are watching`
+export const COVERAGE_ALL_ON = 'Every protection is on.'
+export const COVERAGE_OFF_INTRO = 'Off, and what each would watch:'
+export const HELP_MODULES_TITLE = 'What each switch does'

@@ -141,3 +141,23 @@ func TestPhoneHomeFindings_AKnownBadNameIsAHighFindingWithItsOwnGuide(t *testing
 		t.Fatal("the check needs a title and a fix")
 	}
 }
+
+func TestPhoneHomeFindings_AnEncryptedDNSNameIsALowFindingInFixedWords(t *testing.T) {
+	got := PhoneHomeFindings([]phonehome.Signal{{Kind: phonehome.EncryptedDNSName, MAC: "aa:bb:cc:00:00:01", Names: []string{"dns.google", "mozilla.cloudflare-dns.com"}}}, phInv())
+	if len(got) != 1 {
+		t.Fatalf("findings = %+v", got)
+	}
+	f := got[0]
+	if f.Check != CheckPhoneHomeEncryptedDNS || f.Severity != SeverityLow || f.Device != "192.168.1.20" || f.Version == "" {
+		t.Fatalf("finding = %+v", f)
+	}
+	if !strings.Contains(f.Evidence, "dns.google, mozilla.cloudflare-dns.com") || strings.Contains(f.Evidence, "Living room TV") {
+		t.Fatalf("evidence = %q, want the vetted names and never the operator's name for the device", f.Evidence)
+	}
+	if CheckTitle(CheckPhoneHomeEncryptedDNS) == "" || RemediationFor(CheckPhoneHomeEncryptedDNS) == "" {
+		t.Fatal("the check needs a title and a fix")
+	}
+	if _, ok := guides[CheckPhoneHomeEncryptedDNS]; !ok {
+		t.Fatal("the check needs a fix guide")
+	}
+}

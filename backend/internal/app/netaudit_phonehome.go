@@ -109,5 +109,5 @@ func (p phoneHomeSignals) Signals(devices []phonehome.InventoryDevice, now time.
 		return nil
 	}
 	state := p.watch.Snapshot()
-	return phonehome.WithKnownBad(phonehome.Evaluate(state, devices, now), phonehome.KnownBad(state, p.bad, now))
+	return phonehome.Judge(state, devices, p.bad, now)
 }

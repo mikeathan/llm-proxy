@@ -71,6 +71,9 @@ type NetauditConfig struct {
 	// WebChecksEnabled has the nightly audit ask the web pages of the devices it scanned a fixed list of questions (core/netaudit/webprobe).
 	// Off until the operator turns it on; the operator's deep check of one device asks them whenever it runs.
 	WebChecksEnabled bool `yaml:"web_checks_enabled,omitempty" json:"web_checks_enabled"`
+	// LoginWatchEnabled has the program count the failed logins to this computer from the system's own record and tell of a burst
+	// (core/netaudit loginwatch, Constitution I.10 proposed). Off until the operator turns it on; the service needs the utmp group.
+	LoginWatchEnabled bool `yaml:"login_watch_enabled,omitempty" json:"login_watch_enabled"`
 	// KnownBadEnabled has the phone-home watch compare the names devices ask for with abuse.ch's list of hosts that serve malware
 	// (matched on this computer). Off until the operator turns it on; it needs the watch and a downloaded list.
 	KnownBadEnabled bool `yaml:"known_bad_enabled,omitempty" json:"known_bad_enabled"`

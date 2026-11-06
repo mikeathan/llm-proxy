@@ -92,6 +92,9 @@ type netauditServices struct {
 	Blocks *netaudit.Blocks
 	// RouterWatch tells of a burst of failed router sign-ins or Wi-Fi disconnects; it runs from the one place the loops start.
 	RouterWatch *netaudit.RouterWatch
+	// LoginWatch counts the failed logins to this computer from the system's own record and tells of a burst; LoginWatchConfig is its switch.
+	LoginWatch       *netaudit.LoginWatch
+	LoginWatchConfig *netaudit.LoginWatchConfig
 	// Alerts is the log of what the Network module alerted about, kept whether or not a connector exists.
 	Alerts *netaudit.AlertLog
 	// FollowUp scans a device that just arrived, once, while FollowUpConfig (off by default) allows it.
@@ -335,6 +338,14 @@ func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
 	return phoneHomeSignals{enabled: s.netaudit.PhoneHomeConfig.Enabled, watch: s.netaudit.PhoneHome, bad: bad}
 }
 
+// NetauditLoginWatch is what the run reporter reads of the failed logins to this computer; nil until the services are wired.
+func (s AppServices) NetauditLoginWatch() netaudit.LoginSource {
+	if s.netaudit == nil || s.netaudit.LoginWatch == nil {
+		return nil
+	}
+	return s.netaudit.LoginWatch
+}
+
 // NetauditRouterLog is what the run reporter reads of the router's log; nil until the services are wired.
 func (s AppServices) NetauditRouterLog() netaudit.RouterLogSource {
 	if s.netaudit == nil || s.netaudit.RouterWatch == nil {
@@ -384,6 +395,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.PhoneHomeAlerts != nil, func(ctx context.Context) { n.PhoneHomeAlerts.Run(ctx) })
 	add(n.Blocks != nil, func(ctx context.Context) { n.Blocks.Run(ctx) })
 	add(n.RouterWatch != nil, func(ctx context.Context) { n.RouterWatch.Run(ctx) })
+	add(n.LoginWatch != nil, func(ctx context.Context) { n.LoginWatch.Run(ctx) })
 	add(n.PhoneHome != nil, func(ctx context.Context) {
 		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
 	})
@@ -583,12 +595,14 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		DecoyConfig:    alerts.DecoyConfig,
 		DecoyStore:     alerts.DecoyStore,
 
-		RouterLogConfig: alerts.RouterLogConfig,
-		RouterLog:       alerts.RouterLog,
-		Blocks:          alerts.Blocks,
-		RouterWatch:     alerts.RouterWatch,
-		FollowUp:        alerts.FollowUp,
-		FollowUpConfig:  alerts.FollowUpConfig,
+		RouterLogConfig:  alerts.RouterLogConfig,
+		RouterLog:        alerts.RouterLog,
+		Blocks:           alerts.Blocks,
+		RouterWatch:      alerts.RouterWatch,
+		LoginWatch:       alerts.LoginWatch,
+		LoginWatchConfig: alerts.LoginWatchConfig,
+		FollowUp:         alerts.FollowUp,
+		FollowUpConfig:   alerts.FollowUpConfig,
 
 		Acks:         netaudit.NewAcks(s.Persistence(), s.Persistence()),
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),

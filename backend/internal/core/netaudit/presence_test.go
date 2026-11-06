@@ -323,3 +323,10 @@ func TestPresence_AWakeAfterTheScheduledCycleStillWaitsOutTheGap(t *testing.T) {
 		t.Errorf("a wake right after a cycle must wait for the gap, sweeps = %d", len(r.sweeps))
 	}
 }
+
+func TestPresenceMessage_TellsOfAHardwareAddressAnsweringForSeveralAddresses(t *testing.T) {
+	got := PresenceMessage(Pending{Shared: 1})
+	if !strings.Contains(got, "1 hardware address answering for several addresses at once") || !strings.Contains(got, "impersonat") {
+		t.Errorf("message = %q", got)
+	}
+}

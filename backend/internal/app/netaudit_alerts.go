@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"llm-proxy/internal/platform/loginlog"
 	"net/netip"
 	"sync"
 	"time"
@@ -50,6 +51,9 @@ type alerting struct {
 	Blocks *netaudit.Blocks
 	// RouterWatch tells of a burst of failed router sign-ins or Wi-Fi disconnects.
 	RouterWatch *netaudit.RouterWatch
+	// LoginWatch tells of a burst of failed logins to this computer; LoginWatchConfig is its switch.
+	LoginWatch       *netaudit.LoginWatch
+	LoginWatchConfig *netaudit.LoginWatchConfig
 	// FollowUp scans a device that just arrived, once, when its switch is on; FollowUpConfig is that switch.
 	FollowUp       *netaudit.FollowUp
 	FollowUpConfig *netaudit.FollowUpConfig
@@ -78,6 +82,14 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		Notify:  s.alertNotifier(log, models.NetworkAlertRouter),
 		OnError: func(err error) { logging.Warn("network router log alerts", "error", err.Error()) },
 	})
+	loginWatchConfig := netaudit.NewLoginWatchConfig(deps.Store)
+	loginWatch := netaudit.NewLoginWatch(netaudit.LoginWatchDeps{
+		Read:    loginlog.Reader{Path: loginlog.DefaultPath}.Failures,
+		Enabled: loginWatchConfig.Enabled,
+		Notify:  s.alertNotifier(log, models.NetworkAlertLogin),
+		OnError: func(err error) { logging.Warn("network login watch", "error", err.Error()) },
+		Cap:     loginlog.MaxRecords,
+	})
 	blocks := netaudit.NewBlocks(known.History, func(err error) { logging.Warn("network router blocks", "error", err.Error()) })
 	return alerting{
 		Log:            log,
@@ -87,12 +99,14 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 		DecoyConfig:    decoyConfig,
 		DecoyStore:     decoyStore,
 
-		RouterLogConfig: routerLogConfig,
-		RouterLog:       s.newRouterLog(routerLogDeps{Config: routerLogConfig, Inventory: known.Inventory, Suggester: known.Names, Presence: presence, Blocks: blocks, Router: routerWatch, Query: deps.PhoneHome.Intake.Observe}),
-		Blocks:          blocks,
-		RouterWatch:     routerWatch,
-		FollowUp:        followUp,
-		FollowUpConfig:  followUpConfig,
+		RouterLogConfig:  routerLogConfig,
+		RouterLog:        s.newRouterLog(routerLogDeps{Config: routerLogConfig, Inventory: known.Inventory, Suggester: known.Names, Presence: presence, Blocks: blocks, Router: routerWatch, Query: deps.PhoneHome.Intake.Observe}),
+		Blocks:           blocks,
+		RouterWatch:      routerWatch,
+		LoginWatch:       loginWatch,
+		LoginWatchConfig: loginWatchConfig,
+		FollowUp:         followUp,
+		FollowUpConfig:   followUpConfig,
 	}
 }
 

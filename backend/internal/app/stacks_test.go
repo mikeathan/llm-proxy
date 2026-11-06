@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/knownbad"
 	"llm-proxy/internal/core/stack"
+	"llm-proxy/internal/platform/loginlog"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/internal/transport/http/handlers"
 	"llm-proxy/models"
@@ -58,6 +61,7 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
 		PhoneHomeConfig:     netaudit.NewPhoneHomeConfig(store),
 		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
+		LoginWatchConfig:    netaudit.NewLoginWatchConfig(store),
 		KnownBadConfig:      netaudit.NewKnownBadConfig(store),
 		KnownBadList:        &knownBadList{manager: mustKnownBadManager()},
 	}
@@ -85,12 +89,12 @@ func newTestStacks(t *testing.T) *testStackDeps {
 	return d
 }
 
-// The Network stack has eleven switches today (the plan said twelve, which was a miscount: the nightly audit is an automation,
+// The Network stack has sixteen switches today (eleven when this was first written) (the plan said twelve, which was a miscount: the nightly audit is an automation,
 // not a switch). This pins the ids and their layers, so adding or moving one is a deliberate edit.
 func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	want := map[string]string{
 		"presence": "discover", "ipv6_discovery": "discover", "device_names": "discover", "nearby": "discover",
-		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen",
+		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen", "login_watch": "listen",
 		"scan_on_arrival": "test", "web_checks": "test",
 		"outside_lookup": "outside", "dns_check": "outside",
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
@@ -147,7 +151,7 @@ var legacyPaths = map[string]string{
 
 // modulesWithNoOldRoute are the modules that never had a switch route of their own, and whether each needs the passphrase. Only a
 // module that probes the network or opens a socket does.
-var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true}
+var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "login_watch": false}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	steps := api.StepUpRoutes()
@@ -188,6 +192,7 @@ func TestStackRegistry_AModuleSitsOnTheSwitchItAlwaysHad(t *testing.T) {
 		"phone_home":      func() bool { return d.store.cfg.PhoneHomeEnabled },
 		"known_bad":       func() bool { return d.store.cfg.KnownBadEnabled },
 		"web_checks":      func() bool { return d.store.cfg.WebChecksEnabled },
+		"login_watch":     func() bool { return d.store.cfg.LoginWatchEnabled },
 	} {
 		m, _ := d.reg.Module(stack.Network, id)
 		want := !read()
@@ -396,4 +401,72 @@ func allModules(t *testing.T, reg *stack.Registry) []stack.Module {
 		}
 	}
 	return out
+}
+
+func TestLoginRecordReady_ExplainsAMissingGroupInPlainWords(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "btmp")
+	if err := os.WriteFile(path, nil, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can read any file")
+	}
+	ok, why := loginRecordReady(loginlog.Reader{Path: path})
+	if ok || !strings.Contains(why, "utmp group") {
+		t.Fatalf("ready = %v why = %q, want the fix named", ok, why)
+	}
+	if ok, why := loginRecordReady(loginlog.Reader{Path: filepath.Join(dir, "none")}); !ok || why != "" {
+		t.Fatalf("a record that does not exist is no failures: ready = %v why = %q", ok, why)
+	}
+}
+
+// Every module tells a person what it watches, what it never does and where its results appear, in one plain sentence each, so the
+// Modules tab and the Help can say it without anyone writing it twice.
+func TestStackRegistry_EveryModuleSaysWhatItDoes(t *testing.T) {
+	d := newTestStacks(t)
+	claimed := map[string]string{}
+	for _, m := range allModules(t, d.reg) {
+		for field, text := range map[string]string{"watches": m.About.Watches, "never": m.About.Never, "shows up": m.About.ShowsUp} {
+			if text == "" || strings.ContainsAny(text, "\n`<>|") || !strings.HasSuffix(text, ".") || len(text) > 220 {
+				t.Errorf("module %s: %s is %q, want one plain sentence of at most 220 characters", m.ID, field, text)
+			}
+		}
+		for _, check := range m.Finds {
+			if netaudit.CheckTitle(check) == "" {
+				t.Errorf("module %s claims %q, which is not a check with a title", m.ID, check)
+			}
+			if other, dup := claimed[check]; dup {
+				t.Errorf("check %q is claimed by %s and %s", check, other, m.ID)
+			}
+			claimed[check] = m.ID
+		}
+	}
+}
+
+func TestStackRegistry_TheLayersAreNamedByWhatYouWantToKnow(t *testing.T) {
+	v, err := newTestStacks(t).reg.View(stack.Network, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, l := range v.Layers {
+		got[l.ID] = l.Title
+	}
+	want := map[string]string{
+		"discover": "Who is on the network", "listen": "What the network says", "test": "Look closer",
+		"outside": "What the internet sees", "understand": "Decide what to fix", "tell": "Reach you",
+	}
+	for id, title := range want {
+		if got[id] != title {
+			t.Errorf("layer %s is titled %q, want %q", id, got[id], title)
+		}
+	}
+}
+
+func TestStackRegistry_TheCertificateChecksAreNamedWithTheWebChecks(t *testing.T) {
+	m, ok := newTestStacks(t).reg.Module(stack.Network, "web_checks")
+	if !ok || m.Title != "Web and certificate checks, nightly" {
+		t.Fatalf("module = %+v", m)
+	}
 }

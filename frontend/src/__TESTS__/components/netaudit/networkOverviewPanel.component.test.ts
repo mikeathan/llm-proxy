@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
+// The coverage line reads the modules; this test is about the panel, so it reads none.
+vi.mock('../../../services/stacks/stacksService', () => ({ StacksService: { stack: vi.fn().mockResolvedValue(null) } }))
+
 import NetworkOverviewPanel from '../../../components/netaudit/NetworkOverviewPanel.vue'
 import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 import type { NetworkOverview } from '../../../types/netaudit'

@@ -20,6 +20,8 @@ const (
 	AroundDNS Kind = "around_dns"
 	// KnownBadName is a name a device asked for lately that is on the list of hosts known to serve malware.
 	KnownBadName Kind = "known_bad"
+	// EncryptedDNSName is a name of a public encrypted-DNS server that a device asked for lately: it may be sending its lookups there.
+	EncryptedDNSName Kind = "encrypted_dns"
 )
 
 // Signal is one thing worth a look. Names are plain DNS names (vetted by the parser) and are empty for AroundDNS.
@@ -141,28 +143,41 @@ func silent(state models.PhoneHome, devices []InventoryDevice, now time.Time) []
 // true). It judges every name whatever the device's age: a malware host is bad in the learning week too. It reads the names and changes
 // nothing.
 func KnownBad(state models.PhoneHome, match func(string) (string, bool), now time.Time) []Signal {
+	return listed(state, match, now, KnownBadName)
+}
+
+// listed is KnownBad for any kind of list: a signal of the given kind per device for the recent names the matcher accepts.
+func listed(state models.PhoneHome, match func(string) (string, bool), now time.Time, kind Kind) []Signal {
 	if match == nil {
 		return nil
 	}
 	var out []Signal
 	for _, d := range state.Devices {
-		var bad []string
+		var hits []string
 		for _, n := range d.Names {
 			if _, ok := match(n.Name); ok && now.Sub(n.Last) <= NewFor {
-				bad = append(bad, n.Name)
+				hits = append(hits, n.Name)
 			}
 		}
-		if len(bad) > 0 {
-			slices.Sort(bad)
-			out = append(out, Signal{Kind: KnownBadName, MAC: d.MAC, Names: bad})
+		if len(hits) > 0 {
+			slices.Sort(hits)
+			out = append(out, Signal{Kind: kind, MAC: d.MAC, Names: hits})
 		}
 	}
 	return out
 }
 
-// WithKnownBad adds the known-bad signals to the others and takes the names they hold out of the new-place and beaconing signals of the
-// same device, so one name that is both new and on the malware list is one signal, the more serious.
-func WithKnownBad(signals, bad []Signal) []Signal {
+// Judge is every signal worth a look: the new places and beats, the names on the malware list and the names of public encrypted-DNS
+// servers. A name that is both new and on a list is one signal, the list's. It is pure: it reads the names and the device list and
+// changes neither.
+func Judge(state models.PhoneHome, devices []InventoryDevice, bad func(string) (string, bool), now time.Time) []Signal {
+	lists := append(KnownBad(state, bad, now), EncryptedDNS(state, now)...)
+	return withListed(Evaluate(state, devices, now), lists)
+}
+
+// withListed adds the list signals to the others and takes the names they hold out of the new-place and beaconing signals of the
+// same device, so one name that is both new and on a list is one signal, the more serious.
+func withListed(signals, bad []Signal) []Signal {
 	listed := map[string]bool{}
 	for _, b := range bad {
 		for _, n := range b.Names {

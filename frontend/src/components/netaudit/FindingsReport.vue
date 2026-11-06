@@ -11,6 +11,7 @@ import FindingsAdvanced from "./FindingsAdvanced.vue"
 import FindingsSimple from "./FindingsSimple.vue"
 import UnscannedNotice from "./UnscannedNotice.vue"
 import { useDeepCheck } from "../../composables/netaudit/useDeepCheck"
+import { useModuleSources } from "../../composables/netaudit/useModuleSources"
 import { useFindings } from "../../composables/netaudit/useFindings"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { openPortsOf } from "../../utils/netaudit/expectations"
@@ -28,6 +29,7 @@ const emit = defineEmits<{ (e: "watch-live"): void }>()
 
 const { advanced } = useNetauditViewMode()
 const findings = useFindings(() => props.workspaceId, () => props.automation)
+const sources = useModuleSources()
 const { report, expectations, loading, error, actionError, notice, starting } = findings
 const deepCheck = useDeepCheck(() => props.workspaceId, () => props.automation)
 
@@ -85,7 +87,7 @@ async function saveExpected(ports: number[]) {
 }
 
 watch(() => [props.workspaceId, props.automation, props.refreshKey], () => { void findings.load(); void deepCheck.load() })
-onMounted(() => { void findings.load(); void deepCheck.load() })
+onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load() })
 </script>
 
 <template>

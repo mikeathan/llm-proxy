@@ -237,6 +237,9 @@ func PresenceMessage(p Pending) string {
 	if p.Gateway {
 		parts = append(parts, "the router's hardware address changed")
 	}
+	if p.Shared > 0 {
+		parts = append(parts, plural(p.Shared, "hardware address answering for several addresses at once (a machine with several connections does this, and so does something impersonating other devices)", "hardware addresses answering for several addresses at once (a machine with several connections does this, and so does something impersonating other devices)"))
+	}
 	return "Network audit: " + strings.Join(parts, "; ") + ". Open the network audit to review."
 }
 

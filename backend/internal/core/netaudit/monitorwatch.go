@@ -29,6 +29,8 @@ const (
 	MonitorAlerts = "alerts"
 	// MonitorWebChecks is the nightly web checks: stopped while switched on and the latest run failed, or no run worked for three days.
 	MonitorWebChecks = "web_checks"
+	// MonitorLoginWatch is the watch over this computer's failed logins: stopped while it is switched on and the system's record cannot be read.
+	MonitorLoginWatch = "login_watch"
 )
 
 // monitorEvery is how often the watch looks at the parts. It reads statuses held in memory and one small file; it probes nothing.

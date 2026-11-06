@@ -24,8 +24,11 @@ type DeviceInventory struct {
 	GatewaySeen    string `json:"gateway_seen,omitempty"`
 	GatewayAlerted string `json:"gateway_alerted,omitempty"`
 	// Shared are the MAC addresses that answered for more than one IP address at the last look.
-	Shared    []SharedMAC `json:"shared,omitempty"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	Shared []SharedMAC `json:"shared,omitempty"`
+	// SharedAlerted is a digest of the Shared set the operator was last told about, so the same set is told once; it is cleared when
+	// no hardware address is shared, so the same thing happening again is told again.
+	SharedAlerted string    `json:"shared_alerted,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // NetworkDevice is one MAC address seen on the network.

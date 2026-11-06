@@ -3,7 +3,6 @@ package webprobe
 import (
 	"context"
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -86,20 +85,7 @@ func New(guard Guard) *Prober {
 // checks every address it connects to against the guard (so a name or a redirect cannot lead it elsewhere), and does not check
 // certificates: a device on the home network rarely has one a browser trusts, and nothing is sent that a certificate would protect.
 func NewClient(guard Guard) *http.Client {
-	dialer := &net.Dialer{
-		Timeout: dialTimeout,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return fmt.Errorf("failed to read the address %q: %w", address, err)
-			}
-			addr, err := netip.ParseAddr(host)
-			if err != nil {
-				return fmt.Errorf("failed to read the address %q: %w", address, err)
-			}
-			return guard(addr.Unmap())
-		},
-	}
+	dialer := guardedDialer(guard)
 	transport := &http.Transport{
 		Proxy:                  nil,
 		DialContext:            dialer.DialContext,
@@ -116,22 +102,50 @@ func NewClient(guard Guard) *http.Client {
 	}
 }
 
-// Probe asks every target the questions of Checks and returns what matched. limit ends the run: what was found by then is returned
-// with Partial set. A target the guard refuses is an error before anything is sent; a device that does not answer is not.
-func (p *Prober) Probe(ctx context.Context, targets []Target, limit time.Duration) (Result, error) {
+// validate refuses a run before anything is sent: no target or too many, no time limit, an address that is not IPv4 or a bad port, or an
+// address the guard does not approve. what names the check in the error.
+func (p *Prober) validate(what string, targets []Target, limit time.Duration) error {
 	if len(targets) == 0 || len(targets) > MaxTargets {
-		return Result{}, fmt.Errorf("web checks: %d targets, want 1 to %d", len(targets), MaxTargets)
+		return fmt.Errorf("%s: %d targets, want 1 to %d", what, len(targets), MaxTargets)
 	}
 	if limit <= 0 {
-		return Result{}, errors.New("web checks: a run needs a time limit")
+		return fmt.Errorf("%s: a run needs a time limit", what)
 	}
 	for _, t := range targets {
 		if !t.Addr.Is4() || t.Port < 1 || t.Port > 65535 {
-			return Result{}, fmt.Errorf("web checks: %s:%d is not an IPv4 address and port", t.Addr, t.Port)
+			return fmt.Errorf("%s: %s:%d is not an IPv4 address and port", what, t.Addr, t.Port)
 		}
 		if err := p.guard(t.Addr); err != nil {
-			return Result{}, fmt.Errorf("web checks: %s is outside the scan scope: %w", t.Addr, err)
+			return fmt.Errorf("%s: %s is outside the scan scope: %w", what, t.Addr, err)
 		}
+	}
+	return nil
+}
+
+// guardedDialer opens a connection only to an address the guard approves, checked at the moment of connecting, so a name, a redirect
+// or a second address cannot lead it elsewhere. Every connection of these checks, web or certificate, is made by it.
+func guardedDialer(guard Guard) *net.Dialer {
+	return &net.Dialer{
+		Timeout: dialTimeout,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return fmt.Errorf("failed to read the address %q: %w", address, err)
+			}
+			addr, err := netip.ParseAddr(host)
+			if err != nil {
+				return fmt.Errorf("failed to read the address %q: %w", address, err)
+			}
+			return guard(addr.Unmap())
+		},
+	}
+}
+
+// Probe asks every target the questions of Checks and returns what matched. limit ends the run: what was found by then is returned
+// with Partial set. A target the guard refuses is an error before anything is sent; a device that does not answer is not.
+func (p *Prober) Probe(ctx context.Context, targets []Target, limit time.Duration) (Result, error) {
+	if err := p.validate("web checks", targets, limit); err != nil {
+		return Result{}, err
 	}
 	runCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()

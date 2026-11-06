@@ -103,3 +103,21 @@ type nopStore struct{}
 
 func (nopStore) Read() (m modelsPhoneHome, err error) { return }
 func (nopStore) Write(modelsPhoneHome) error          { return nil }
+
+// The Router DNS check resolves dns.google, one.one.one.one and dns.quad9.net from this computer. Those lookups reach the router's log
+// like any other, and must never make this computer look like a device that bypasses the router's DNS.
+func TestPhoneHomeIntake_ThisComputersOwnEncryptedDNSLookupsAreNotKept(t *testing.T) {
+	rec := &lookupRecorder{}
+	self := netip.MustParseAddr("192.168.1.5")
+	in := phoneHomeIntake{
+		enabled: func() bool { return true }, watch: rec,
+		resolve: func(netip.Addr) (string, bool) { return "aa:bb:cc:00:00:05", true },
+		own:     func(a netip.Addr) bool { return a == self },
+	}
+	for _, name := range []string{"dns.google", "one.one.one.one", "dns.quad9.net", "cloudflare-dns.com"} {
+		in.Observe(routerlog.Query{Name: name, From: self}, time.Now())
+	}
+	if len(rec.got) != 0 {
+		t.Fatalf("got = %+v, want none of this computer's own lookups kept", rec.got)
+	}
+}

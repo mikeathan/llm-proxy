@@ -44,6 +44,7 @@ type RunReporter struct {
 	health    *RunHealth       // optional: whether each optional step of a run worked
 	histErr   func(error)
 	now       func() time.Time
+	logins    LoginSource // optional: failed logins to this computer
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -140,6 +141,21 @@ func (r *RunReporter) addRouterLog(result *Result, inv models.DeviceInventory) {
 	}
 	findings := RouterLogFindings(r.routerLog.Snapshot(r.now()), r.routerLog.Router(), inv)
 	result.Findings = append(result.Findings, restrictTo(findings, scannedDevices(result.Hosts))...)
+}
+
+// WithLoginWatch makes the reporter add the finding of a burst of failed logins to this computer. Without it nothing is added.
+func (r *RunReporter) WithLoginWatch(src LoginSource) *RunReporter {
+	r.logins = src
+	return r
+}
+
+// addLogins appends the finding about this computer's failed logins. It runs with the host check, because a finding about this
+// computer is replaced only when the computer was looked at to the end.
+func (r *RunReporter) addLogins(result *Result) {
+	if r.logins == nil {
+		return
+	}
+	result.Findings = append(result.Findings, LoginFindings(r.logins.Snapshot(r.now()))...)
 }
 
 // WithAttackPaths makes the reporter add the attack paths to the report while enabled returns true. Without it nothing is added.
@@ -603,6 +619,7 @@ func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string,
 		return fmt.Sprintf("\n\n> Note: this computer could not be checked, so its open ports and startup files were not compared (%v).", err), false
 	}
 	result.Findings = append(result.Findings, look.Findings...)
+	r.addLogins(result) // about this computer, so it lives and is replaced with the host's own findings
 	if r.watch != nil {
 		result.Findings = append(result.Findings, MonitorFindings(r.watch.Stalled())...)
 	}

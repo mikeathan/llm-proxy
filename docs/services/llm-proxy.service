@@ -69,6 +69,12 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 UMask=0077
 
+# Reads the system's record of failed logins (/var/log/btmp, group utmp) for the Network module's "Failed logins, this computer"
+# watch (Constitution I.10, ADR-0030). The service sees /var/log read-only (ProtectSystem=strict), so this grants reading btmp,
+# wtmp and utmp and nothing else; it is much narrower than the adm group, which would expose auth.log and every other system
+# log. setup.sh drops this line on a host with no utmp group, where the unit would otherwise fail to start.
+SupplementaryGroups=utmp
+
 # --- Memory / process limits (real cgroup v2 enforcement, plan Phase 3) -----
 # MemoryMax bounds the whole service scope: backend + every agent-spawned
 # shell/toolchain child AND any local llama-server the proxy launches as a

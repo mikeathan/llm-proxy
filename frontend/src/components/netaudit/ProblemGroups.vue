@@ -6,6 +6,7 @@ import StatusTag from "../common/display/StatusTag.vue"
 import Disclosure from "../common/layout/Disclosure.vue"
 import FixGuidePanel from "./FixGuidePanel.vue"
 import FixGuideSteps from "./FixGuideSteps.vue"
+import FoundBy from "./FoundBy.vue"
 import { placeSentence, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { flawsOf, flawSummary, nvdUrl } from "../../utils/netaudit/flaws"
 import { formatAbsoluteTime } from "../../utils/format/time"
@@ -65,6 +66,7 @@ watch(() => props.fold?.n, () => { toggled.value = Object.fromEntries(props.grou
         <span v-if="g.items.length > 1" class="text-[length:var(--text-small)] text-muted">{{ placesLabel(g.items.length) }}</span>
       </template>
       <div class="flex flex-col gap-2 px-4 pb-1 pt-3">
+        <FoundBy :check="g.check" />
         <p v-if="g.fix && !guideOf(g)" class="m-0 break-words text-secondary" data-test="fix"><span class="text-muted">How to fix it:</span> {{ g.fix }}</p>
         <p v-if="g.check === KNOWN_VULNS" class="m-0 text-[length:var(--text-small)] text-muted" data-test="vuln-caution">{{ VULN_NOT_PROOF }}</p>
         <FixGuideSteps v-if="guideOf(g)" :guide="guideOf(g)!" :advanced="advanced" />

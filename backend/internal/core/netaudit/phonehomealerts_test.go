@@ -182,3 +182,13 @@ func TestPhoneHomeAlerts_AMalwareNameIsNeverHeldBackByTheDailyGap(t *testing.T) 
 		t.Fatalf("sent = %q, want both malware messages", r.sent)
 	}
 }
+
+func TestPhoneHomeAlerts_AnEncryptedDNSNameIsAFindingForTheNightlyReportNeverAMessage(t *testing.T) {
+	r := newPhoneAlertRig(t)
+	// Firefox asks for this by default and a phone's private DNS setting asks for its server, so a message would be mostly noise.
+	r.watch.Observe("aa:bb:cc:00:00:01", routerlog.Query{Type: "A", Name: "mozilla.cloudflare-dns.com"}, r.now)
+	r.a.Tick(context.Background())
+	if len(r.sent) != 0 {
+		t.Fatalf("sent = %q, want no message for an encrypted-DNS name", r.sent)
+	}
+}
