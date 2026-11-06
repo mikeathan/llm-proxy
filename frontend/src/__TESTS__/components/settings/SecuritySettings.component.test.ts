@@ -42,10 +42,10 @@ async function mountSecurity(host = settings(), section: SettingsTab = 'limits')
     global: { stubs: { TerminalMonitor: true, Icon: true } },
   })
   await flushPromises()
-  // Switch order on the page: master, workspace file confinement, agent network.
-  const [master, filesystem, network] = w.findAllComponents(BaseToggle)
+  // Switch order on the page: master, workspace file confinement, agent network, Unix sockets.
+  const [master, filesystem, network, unixSockets] = w.findAllComponents(BaseToggle)
   const save = () => w.findAll('button').find((b) => /save/i.test(b.text()))!
-  return { w, onDirty, master: master!, filesystem: filesystem!, network: network!, save }
+  return { w, onDirty, master: master!, filesystem: filesystem!, network: network!, unixSockets: unixSockets!, save }
 }
 
 describe('SecuritySettings', () => {
@@ -160,5 +160,35 @@ describe('SecuritySettings', () => {
       await flushPromises()
       expect(saveRow().attributes('style') ?? '').not.toContain('display: none')
     })
+  })
+
+  // The server replaces the sandboxing block with what the page sends, so a page that rebuilt the block without this key would reset
+  // the operator's opt-out the next time any switch was saved.
+  it('keeps the Unix-socket opt-out when an unrelated switch is saved', async () => {
+    const { filesystem, save } = await mountSecurity(settings({ unix_sockets: true }), 'security')
+    filesystem.vm.$emit('update:modelValue', false)
+    await flushPromises()
+    await save().trigger('click')
+    await flushPromises()
+    const sent = vi.mocked(AdminApiService.updateHostSettings).mock.calls[0]![0]
+    expect(sent.sandboxing.unix_sockets).toBe(true)
+    expect(sent.sandboxing.filesystem).toBe(false)
+  })
+
+  it('saves the Unix-socket switch as an explicit value, and leaves it out until it is touched', async () => {
+    const { unixSockets, save } = await mountSecurity(settings(), 'security')
+    expect(unixSockets.props('modelValue')).toBe(false)
+    unixSockets.vm.$emit('update:modelValue', true)
+    await flushPromises()
+    await save().trigger('click')
+    await flushPromises()
+    expect(vi.mocked(AdminApiService.updateHostSettings).mock.calls[0]![0].sandboxing.unix_sockets).toBe(true)
+  })
+
+  it('says what the host enforces for Unix sockets, so a refusal has a visible cause', async () => {
+    const host: HostSettings = { ...settings(), effective: { provider: 'landlock', filesystem: { mechanism: 'landlock' }, network: { mechanism: 'none' }, unix_sockets: { mechanism: 'seccomp', reason: 'refused' } } }
+    const { w } = await mountSecurity(host, 'security')
+    expect(w.text()).toContain('Unix sockets')
+    expect(w.text()).toContain('Effective: seccomp')
   })
 })

@@ -316,3 +316,25 @@ func TestRunReporter_AddsTheWifiLookalikeFindingOfThisComputer(t *testing.T) {
 		t.Fatal("a reporter with no watch added a finding")
 	}
 }
+
+func TestWifiWatch_StoppingTheWatchOfANameDropsWhatWasHeldAboutIt(t *testing.T) {
+	r := newWifiRig(t)
+	r.confirmed(t)
+	r.aps = append(r.aps, ap("home", twin, wifilook.Open))
+	r.w.Tick(context.Background())
+	if len(r.w.Snapshot(r.now).Lookalikes) != 1 || len(r.w.View().Networks[0].Seen) != 3 {
+		t.Fatal("setup: the twin should be held and the three access points seen")
+	}
+	if err := r.w.RemoveNetwork("home"); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.w.Snapshot(r.now).Lookalikes; len(got) != 0 {
+		t.Fatalf("look-alikes = %+v: the nightly report would go on reporting a name the operator stopped watching", got)
+	}
+	if err := r.w.RemoveNetwork("home"); err == nil {
+		t.Fatal("removing a name that is no longer there was not an error")
+	}
+	if err := r.w.AddNetwork("home"); err != nil || len(r.w.View().Networks[0].Seen) != 0 {
+		t.Fatalf("a name added again must start with nothing held about it: %v %+v", err, r.w.View())
+	}
+}

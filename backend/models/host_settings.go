@@ -22,7 +22,9 @@ type HostSettings struct {
 type SandboxEffective struct {
 	Filesystem SandboxSurface `json:"filesystem"`
 	Network    SandboxSurface `json:"network"`
-	Provider   string         `json:"provider"`
+	// UnixSockets says whether children are refused Unix sockets (a seccomp filter), which the file jail does not control.
+	UnixSockets SandboxSurface `json:"unix_sockets"`
+	Provider    string         `json:"provider"`
 }
 
 // SandboxSurface reports one enforced surface: the mechanism (""/none or the

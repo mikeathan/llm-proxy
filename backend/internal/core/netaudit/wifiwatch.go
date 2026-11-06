@@ -332,6 +332,26 @@ func wifiMessage(fresh []wifilook.Lookalike) string {
 	return fmt.Sprintf("A Wi-Fi network named %q is being advertised from hardware address(es) you have not confirmed: %s. If you did not add an access point, someone may be copying your network's name to catch devices that join it. Do not join it; open the Network page to review it.", fresh[0].Name, text)
 }
 
+// AddNetwork adds one of the operator's network names to watch.
+func (w *WifiWatch) AddNetwork(name string) error { return w.deps.Config.AddNetwork(name) }
+
+// RemoveNetwork stops watching a name and drops everything held about it: what the last look saw advertising it and the look-alikes
+// found for it, so the nightly report does not go on reporting a name the operator stopped watching.
+func (w *WifiWatch) RemoveNetwork(name string) error {
+	if err := w.deps.Config.RemoveNetwork(name); err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.seen = slices.DeleteFunc(w.seen, func(a wifilook.AP) bool { return a.SSID == name })
+	for k, r := range w.recent {
+		if r.look.Name == name {
+			delete(w.recent, k)
+		}
+	}
+	return nil
+}
+
 // Confirm records that the operator says these hardware addresses are their own access points for a network. Only addresses the last
 // look saw advertising that very name can be confirmed, so nothing can be added by typing an address.
 func (w *WifiWatch) Confirm(name string, addrs []string) error {

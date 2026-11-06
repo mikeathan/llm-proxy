@@ -2,6 +2,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -306,5 +307,27 @@ func TestHostSandboxingUnixSocketsAreDeniedUntilTheOperatorAllowsThem(t *testing
 	no := false
 	if (HostSandboxingConfig{UnixSockets: &no}).UnixSocketsAllowed() {
 		t.Error("an explicit false must refuse them")
+	}
+}
+
+// The escape hatch must survive the round trip the settings page makes: the page reads the document, rebuilds the sandboxing block
+// and puts the whole of it back, and the server replaces what it holds with what it was sent.
+func TestHostSandboxingUnixSocketsSurviveAJSONRoundTrip(t *testing.T) {
+	yes := true
+	in := HostSettings{Sandboxing: HostSandboxingConfig{Enabled: true, UnixSockets: &yes}}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out HostSettings
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Sandboxing.UnixSocketsAllowed() {
+		t.Fatalf("unix_sockets lost in %s", raw)
+	}
+	raw, _ = json.Marshal(HostSettings{Sandboxing: HostSandboxingConfig{Enabled: true}})
+	if strings.Contains(string(raw), "unix_sockets") {
+		t.Fatalf("an unset value must stay out of the document: %s", raw)
 	}
 }

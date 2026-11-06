@@ -132,7 +132,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
-	hs.Wifi = handlers.NewNetauditWifiHandlers(s.netaudit.Wifi, s.netaudit.WifiConfig, s.netaudit.WifiReady)
+	hs.Wifi = handlers.NewNetauditWifiHandlers(s.netaudit.Wifi, s.netaudit.Wifi, s.netaudit.WifiReady)
 	hs.OutsideLook = handlers.NewNetauditOutsideLookupHandlers(s.netaudit.OutsideLookupConfig, s.netaudit.Exposure)
 	hs.DNSCheck = handlers.NewNetauditDNSCheckHandlers(s.netaudit.DNSCheckConfig, s.netaudit.DNSCollector)
 	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
