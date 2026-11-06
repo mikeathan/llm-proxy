@@ -1,7 +1,7 @@
 ---
 id: SPEC-006
 title: Guardrail Engine
-version: "1.9"
+version: "1.10"
 status: stable
 last_updated: 2026-11-06
 constitution_references: [II.3]
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **1.10 (2026-11-06)** — **The Unix-socket filter is installed through `prctl`, not the `seccomp(2)` syscall (v0.55.1).** The service's systemd unit allows `@system-service` and three Landlock calls, and systemd keeps `seccomp(2)` in `@sandbox`, which the unit does not list, so under the real unit the filter's installation answered "operation not permitted" and every guarded program failed closed (vertex, 2026-11-06: the nightly audit died with `nmap failed: ... seccomp: install the unix socket filter: operation not permitted`). `prctl(PR_SET_SECCOMP)` is allowed by the unit. The filter now covers the calling thread only, which the runner pins and execs from; a failure message names `sandboxing.unix_sockets: true` as the way to run without it.
 - **1.9 (2026-11-06)** — **Children are refused Unix sockets (v0.55.0).** The Landlock jail controls files, not the connection to a path-based Unix socket (measured on kernel 6.8, ABI 4: a read outside the grant was denied, a connection to a socket outside it allowed), so a jailed child could reach the system D-Bus or any control socket its user may open. The runner now installs a seccomp filter that refuses `socket(AF_UNIX)` (EACCES) and `io_uring_setup` (EPERM, which can open sockets without the socket call), on linux/amd64 and linux/arm64; `socketpair` and TCP are untouched. It applies to every child (agent shells, one-shots, guarded programs) unless the spawn site allows Unix sockets for itself (`WorkspaceView.AllowUnixSockets`, `progexec.Invocation.AllowUnixSockets`) or the operator turns on **Let programs use Unix sockets** on the Security page (`sandboxing.unix_sockets: true`, read at start-up; the page keeps the value through every save, which replaces the whole block). `Effective` gains `unix_sockets` (seccomp, or none with the reason). A runner asked for the filter that cannot apply it fails closed; a provider on an architecture without the filter does not request it and says so. `progexec.Invocation.NoNetwork` gives a program that has no use for TCP the Landlock TCP denial. The one program allowed Unix sockets is `nmcli` (the Wi-Fi look, `core/netaudit/wifilook`), with no network and fixed arguments (Constitution II.3, proposed; ADR-0031). Possible breakage for agents: programs that make a Unix socket themselves (tmux, an ssh ControlMaster, syslog, a D-Bus or docker client, Playwright or Chromium, Python 3.14's default multiprocessing, `.local` lookups through avahi) now get "permission denied".
 - **1.8 (2026-11-05)** — **Lock down** (plan `security-self-protection-and-agent-watch` P6): while the operator's lock down switch is on
   (`core/lockdown`, `lockdown.json` in the data root, step-up `POST`/`DELETE /admin/api/lockdown`), the hard gate refuses the terminal,
