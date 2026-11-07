@@ -145,9 +145,13 @@ It is still the smallest real vertical, but it needs six things the SDK and the 
 The one `app` file that builds the `outsidelookup` client moves into `app/stacks.go`, since only the composition root may import a stack. The outside
 lookup's own handler, settings and exposure view stay for their own slice.
 
-**Open item D10 (small).** D7 says paths stay as they are, and the DNS log sits directly in the application's data folder, not in a folder of its own.
-Recommendation: the Network stack's `DataDir` is the data folder, and the stack touches only its named files; the alternative (a `network/`
-subfolder plus a one-time rename at start-up) is a migration with a failure mode and buys nothing the boundary needs yet.
+**D10 decided (owner: "do what is best and clean", 2026-11-07): the stack gets the data folder, and its manifest declares the files it owns.**
+D7 says paths stay as they are, and the DNS log sits directly in the application's data folder. A subfolder with a one-time rename was rejected: it is a
+migration with a failure mode, and Network has dozens of stores (baselines, inventory, history and more), each of which would need it. Instead:
+`Manifest.Storage` lists, by file name, what the stack owns (S2 part 5 adds the field; for DNS check, `network-dns-checks.json`). The core
+validates it: a name is a plain file name (no separator), no two stacks claim one, and no core store uses a name a stack claims; a test pins it. The
+ownership is then data a test can read, not a convention, and the list says exactly what to carry along when a stack is extracted to its own repository.
+A later move into a per-stack subfolder stays possible, because every file is named.
 
 **Cost expectation.** Nothing on this path is hot: the collector runs every 15 to 360 minutes, and the page reads one small summary. The only per-call
 additions are the `Fetch` adapter (one body read, as today) and the route mount measured in 4c. The baselines in 4b do not touch DNS, so they are
