@@ -1,7 +1,7 @@
 ---
 id: LAW
 status: law
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-06
 ---
 
 # Constitution (The Law)
@@ -168,6 +168,16 @@ This document defines the immutable architectural and security laws of the proje
 3.  **Failover Clarity**: Distinguish between "Transitional States" (e.g., loading weights) and "Terminal Errors". Fallback logic should only trigger on terminal failures.
 4.  **No Dead Code**: Remove unused imports, variables, and functions. Do not leave `_` prefixed variables as placeholders.
 5.  **Testing Standards**: Mock the interface, not the implementation. All `RuntimeManager` mocks implement the full interface (`MockManager`). Test the agent loop with real tool providers where possible; mock only the LLM client.
+6.  **Stack Boundaries** (proposed 2026-11-06, plan `stacks-as-packages-and-network-stack`, ADR-0032 and ADR-0033; in force only when the owner merges the pull request that carries this text, which is the owner's approval of the security review). A stack is its own Go module under the repository's `stacks/<name>/` folder, outside `backend/`, with a manifest; the contract it uses is the module `stacks/sdk`. The rules below are enforced by tests, not by review alone, and they keep a stack movable to its own repository or process later without a redesign. They do not themselves create a process boundary: every stack runs in the one service under the one unit.
+    *   **Imports.** A stack imports the standard library, third-party libraries and `llm-proxy-stacks/sdk`; never `llm-proxy/internal/...`, `llm-proxy/models` or another stack. Its `go.mod` requires nothing of ours but the SDK. Nothing under `backend/internal/` imports a stack except the one wiring file (`internal/app/stacks.go`). The compiler enforces most of this (a separate module cannot see `internal/`), and a test over `go list` and each stack's `go.mod` fails the build on any breach the compiler allows (a `go.work` workspace lets a stack see the service's exported packages, so CI also builds each stack with the workspace off).
+    *   **The SDK is contracts only:** interfaces, plain data types, the manifest and validation. No feature logic. The network guard (I.1 to I.3) and the sandbox (II.3) are reached only through it; a stack cannot dial or start a program any other way.
+    *   **Plain data across the boundary.** Every call, result, event and configuration value between a stack and the core is a struct of serializable fields: no functions, channels, pointers to shared state, or live handles. A test round-trips every port call through JSON.
+    *   **A stack owns its storage;** the core reads it only through the stack's interface. **Events** are typed messages published through the SDK, not a direct use of the event bus. **Configuration** arrives as a value the stack re-reads on change; it never reaches into the global settings.
+    *   **Errors cross as a code and a message** (an SDK error type), never as a Go error compared by identity. Inside the stack, IV.2 still applies.
+    *   **Tools are declared as data** in the manifest (name, schema, category); the handler is invoked by name with JSON arguments and returns JSON.
+    *   **Stacks never call each other directly;** a call between stacks goes through an SDK port.
+    *   **No new way around a guard.** A stack cannot declare a privilege, switch off or relax the sandbox, widen the scan scope, or change the unit's hardening. Anything that needs one is a Constitution amendment of its own.
+    *   **Scope.** Code under `internal/` that is not yet in a stack is outside this item until a plan moves it.
 
 ## V. Governance (The Living Law)
 
