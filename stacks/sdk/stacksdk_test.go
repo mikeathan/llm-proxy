@@ -201,6 +201,9 @@ func TestValidate_RoutesAreCheckedAsData(t *testing.T) {
 		"query in path":    {{Method: "GET", Path: "/a?x=1"}},
 		"unknown access":   {{Method: "GET", Path: "/a", Access: "public"}},
 		"duplicate":        {{Method: "GET", Path: "/a"}, {Method: "GET", Path: "/a", Access: AccessStepUp}},
+		"action, admin":    {{Method: "POST", Path: "/a", Action: "scan_udp"}},
+		"action, a read":   {{Method: "GET", Path: "/a", Access: AccessStepUp, Action: "scan_udp"}},
+		"action, wildcard": {{Method: "POST", Path: "/a/{id}", Access: AccessStepUp, Action: "scan_udp"}},
 	}
 	for name, routes := range bad {
 		if err := routeManifest(routes...).Validate(); err == nil {
@@ -225,5 +228,16 @@ func TestPathParams_ListsTheWildcardsOfAPattern(t *testing.T) {
 	}
 	if len(RouteSpec{Method: "GET", Path: "/a/b"}.Params()) != 0 {
 		t.Error("a path without wildcards has no params")
+	}
+}
+
+func TestValidate_ARouteWithAnActionNeedsThePrivilegedPort(t *testing.T) {
+	m := routeManifest(RouteSpec{Method: "POST", Path: "/admin/api/example/scan", Access: AccessStepUp, Action: "scan_udp"})
+	if err := m.Validate(); err == nil {
+		t.Fatal("a stack that names an action without requiring the privileged port must be refused")
+	}
+	m.Requires = append(m.Requires, PortPrivileged)
+	if err := m.Validate(); err != nil {
+		t.Fatalf("step-up write, no wildcard, port required: %v", err)
 	}
 }

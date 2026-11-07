@@ -1,6 +1,10 @@
 package models
 
-import "gopkg.in/yaml.v3"
+import (
+	"slices"
+
+	"gopkg.in/yaml.v3"
+)
 
 // HostSettings is the host-level settings document (settings.yml → host view).
 // Effective is a READ-TIME RUNTIME PROJECTION of OS enforcement (SPEC-006
@@ -66,6 +70,10 @@ type HostSandboxingConfig struct {
 	// socket, so a jailed child could otherwise reach the system D-Bus or any control socket its user may open. A guarded program that
 	// needs one (nmcli) allows it for itself in code, whatever this says. Read at start-up.
 	UnixSockets *bool `yaml:"unix_sockets,omitempty" json:"unix_sockets,omitempty"`
+	// HelperActions are the privileged-helper actions the operator has turned on (Constitution I.11, the second gate): a list of catalogue
+	// IDs such as "scan_udp". Empty or absent is off. Only the step-up route PUT /admin/api/host can change it, and the helper's own
+	// root-owned action list (the third gate) must also name an action before it runs.
+	HelperActions []string `yaml:"helper_actions,omitempty" json:"helper_actions,omitempty"`
 	// EgressProxy: 0 = off; a non-zero port enables the local egress proxy that
 	// applies domain/CIDR policy to all agent egress (plan D2, Phase 1).
 	EgressProxy int `yaml:"egress_proxy" json:"egress_proxy"`
@@ -110,6 +118,11 @@ func (c HostSandboxingConfig) FilesystemEnabled() bool {
 // default and an operator must write a value to lift it.
 func (c HostSandboxingConfig) UnixSocketsAllowed() bool {
 	return c.UnixSockets != nil && *c.UnixSockets
+}
+
+// HelperActionOn reports whether the operator has turned the privileged-helper action on.
+func (c HostSandboxingConfig) HelperActionOn(id string) bool {
+	return slices.Contains(c.HelperActions, id)
 }
 
 // EgressPolicy builds the egress proxy's host policy from operator config:

@@ -44,6 +44,7 @@ const {
   groupsByKey,
   alreadyConfiguredFilenames,
   editingArgsStr,
+  discoveredPath,
   isSubmitDisabled,
   agentDefaults,
   addFormWorkload,
@@ -92,6 +93,11 @@ const DISCOVERED_COLUMNS: DataTableColumn<AvailableModel>[] = [
             <FormField label="Model filename" hint="A .gguf file in the model directory.">
               <template #default="{ id, describedBy }">
                 <input :id="id" v-model="modelForm.filename" :aria-describedby="describedBy" type="text" class="form-control font-mono" placeholder="qwen2.5-7b-instruct-q4_k_m.gguf" autocomplete="off" />
+              </template>
+            </FormField>
+            <FormField label="Full path" hint="Where the file is on the server. Filled in when you pick a file from the disk; otherwise looked up in the model directory, subfolders included, when you save.">
+              <template #default="{ id, describedBy }">
+                <input :id="id" :value="discoveredPath" :aria-describedby="describedBy" type="text" class="form-control font-mono" readonly placeholder="Looked up when you save" />
               </template>
             </FormField>
             <FormField label="Friendly name" hint="Optional. Derived from the filename when empty.">
@@ -156,6 +162,11 @@ const DISCOVERED_COLUMNS: DataTableColumn<AvailableModel>[] = [
             <FormField label="Filename">
               <template #default="{ id }">
                 <input :id="id" v-model="editingModel.filename" type="text" class="form-control font-mono" autocomplete="off" />
+              </template>
+            </FormField>
+            <FormField label="Full path" hint="Where the file is on the server. Read-only. It updates when you save a different filename.">
+              <template #default="{ id, describedBy }">
+                <input :id="id" :value="editingModel.resolved_path ?? ''" :aria-describedby="describedBy" type="text" class="form-control font-mono" readonly placeholder="Not found yet" />
               </template>
             </FormField>
             <FormField label="Port">

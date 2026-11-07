@@ -87,7 +87,9 @@ if want 0 && [[ $PRINT -eq 0 ]]; then
   id llm-proxy 2>&1 | sed -E 's/\([^)]*\)//g'
   command -v nmap >/dev/null && nmap -V | head -1 || echo "nmap: not installed"
   [[ -n "$IFACE" ]] || IFACE="$(default_iface)"
-  echo "interface=$IFACE wireless=$([[ -d /sys/class/net/$IFACE/wireless ]] && echo yes || echo no) ping_group_range=$(cat /proc/sys/net/ipv4/ping_group_range)"
+  echo "interface=$IFACE wireless=$([[ -d /sys/class/net/$IFACE/wireless ]] && echo yes || echo no) ping_group_range=$(cat /proc/sys/net/ipv4/ping_group_range) yama_ptrace_scope=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || echo unreadable)"
+  echo "takeover routes the helper's caller rule depends on (a same-account child must not be able to use them on the service):"
+  systemd-analyze syscall-filter @system-service 2>/dev/null | grep -wE 'ptrace|pidfd_getfd|process_vm_readv|process_vm_writev' || echo "  none of ptrace, pidfd_getfd, process_vm_readv, process_vm_writev is in @system-service (the unit's filter refuses them)"
   echo "sandbox settings block (settings.yml):"
   awk '/^sandboxing:/{f=1;print;next} f&&/^[^ ]/{f=0} f' /var/lib/llm-proxy/settings.yml 2>/dev/null || echo "(settings.yml not at /var/lib/llm-proxy)"
 fi

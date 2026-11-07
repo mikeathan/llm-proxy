@@ -3,8 +3,8 @@
 #   path  /run/n0-helper-standin/sock   directory root:llm-proxy 0750, socket root:llm-proxy 0660 (the shape socket activation gives)
 # It never reads what a client sends. On each connection it records who connected (SO_PEERCRED uid, gid, pid and that process's cgroup,
 # NoNewPrivs and Seccomp lines) and closes. It exits after --max connections or --seconds, and always removes its directory.
-# usage: sudo python3 standin_listener.py [--seconds 600] [--max 6] [--group llm-proxy]
-import argparse, grp, os, shutil, socket, struct, time
+# usage: sudo python3 standin_listener.py [--seconds 600] [--max 6] [--group llm-proxy] [--unit llm-proxy]
+import argparse, grp, os, shutil, socket, struct, subprocess, time
 
 DIR = "/run/n0-helper-standin"
 
@@ -16,11 +16,20 @@ def proc_lines(pid, name, wanted):
         return ["unreadable: %s" % e.strerror]
 
 
+def main_pid(unit):
+    """The service's MainPID as systemd reports it ('0' when the unit is not running), the identity a helper could compare a peer's pid with."""
+    try:
+        return subprocess.run(["systemctl", "show", "-p", "MainPID", "--value", unit], capture_output=True, text=True, timeout=10).stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=int, default=600)
     ap.add_argument("--max", type=int, default=6)
     ap.add_argument("--group", default="llm-proxy")
+    ap.add_argument("--unit", default="llm-proxy")
     args = ap.parse_args()
     gid = grp.getgrnam(args.group).gr_gid
     os.makedirs(DIR, mode=0o750)
@@ -34,6 +43,11 @@ def main():
         os.chmod(path, 0o660)
         srv.listen(4)
         srv.settimeout(1.0)
+        try:
+            scope = open("/proc/sys/kernel/yama/ptrace_scope").read().strip()
+        except OSError:
+            scope = "unreadable"
+        print("yama ptrace_scope=%s (0 any same-user process may read another's memory; 1 only a parent may read its descendants')" % scope, flush=True)
         print("listening on %s (root:%s 0660); Ctrl-C or wait %ds to stop and clean up" % (path, args.group, args.seconds), flush=True)
         seen, deadline = 0, time.monotonic() + args.seconds
         while seen < args.max and time.monotonic() < deadline:
@@ -46,7 +60,9 @@ def main():
             seen += 1
             cg = proc_lines(pid, "cgroup", ())
             st = proc_lines(pid, "status", ("NoNewPrivs", "Seccomp", "Uid", "Gid"))
-            print("connection %d: peer uid=%d gid=%d pid=%d | cgroup=%s | %s" % (seen, uid, g, pid, cg[:1], "; ".join(st)), flush=True)
+            svc_pid = main_pid(args.unit)
+            print("connection %d: peer uid=%d gid=%d pid=%d | service MainPID=%s peer_is_main=%s | cgroup=%s | %s" % (
+                seen, uid, g, pid, svc_pid, str(pid) == svc_pid, cg[:1], "; ".join(st)), flush=True)
     finally:
         shutil.rmtree(DIR, ignore_errors=True)
         print("removed %s" % DIR, flush=True)

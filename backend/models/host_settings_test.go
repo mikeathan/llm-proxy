@@ -331,3 +331,24 @@ func TestHostSandboxingUnixSocketsSurviveAJSONRoundTrip(t *testing.T) {
 		t.Fatalf("an unset value must stay out of the document: %s", raw)
 	}
 }
+
+func TestHelperActionsSurviveAYAMLRoundTripAndAbsentIsOff(t *testing.T) {
+	var c HostSandboxingConfig
+	if err := yaml.Unmarshal([]byte("enabled: true\nhelper_actions: [scan_udp]\n"), &c); err != nil {
+		t.Fatal(err)
+	}
+	if !c.HelperActionOn("scan_udp") || c.HelperActionOn("os_detect") {
+		t.Errorf("read %v", c.HelperActions)
+	}
+	out, err := yaml.Marshal(c)
+	if err != nil || !strings.Contains(string(out), "helper_actions") {
+		t.Errorf("written %q (%v)", out, err)
+	}
+	var none HostSandboxingConfig
+	if err := yaml.Unmarshal([]byte("enabled: true\n"), &none); err != nil || none.HelperActionOn("scan_udp") {
+		t.Errorf("a file without the key must leave every action off: %v", err)
+	}
+	if out, _ := yaml.Marshal(none); strings.Contains(string(out), "helper_actions") {
+		t.Errorf("an empty list must not be written: %s", out)
+	}
+}

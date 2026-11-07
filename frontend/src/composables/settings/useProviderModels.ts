@@ -178,6 +178,10 @@ export function useProviderModels(
   // the picked one, so a name typed by hand is looked up in the model folder as before.
   const discovered = ref<{ filename: string; path: string } | null>(null)
 
+  // The path shown under the file name when adding: the picked file's, while the name is still the picked one. A name typed by hand has no
+  // path until the server looks it up in the model directory when the model is saved.
+  const discoveredPath = computed(() => (discovered.value?.filename === modelForm.value.filename ? discovered.value.path : ''))
+
   function startAdd() {
     discovered.value = null
     const defaults = getDefaultModelSettings(props.provider, agentDefaults.value)
@@ -390,6 +394,7 @@ export function useProviderModels(
     groupsByKey,
     alreadyConfiguredFilenames,
     editingArgsStr,
+    discoveredPath,
     isSubmitDisabled,
     loadModels,
     startAdd,

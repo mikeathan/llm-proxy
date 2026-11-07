@@ -21,6 +21,7 @@ Part of the [architecture reference](../architecture.md).
 - `internal/core/assistant/` — Agent loop, tool providers, guardrails, prompts, provider tiers
 - `internal/core/netaudit/` — network-audit domain: scan scope, modes, scan service, readiness; engines in `nmap/` and `portprobe/`, the agent tool in `scantool/`
 - `internal/platform/progexec/`, `internal/platform/scanscope/` — the guarded-program runner and the scan-target policy
+- `internal/platform/privhelper/` — the service's side of the privileged helper (ADR-0034): `catalog` (the closed action list), `wire` (framing), `grant` (one-use grants), `client`, `port` (the SDK's Privileged port) and `helpertest` (a fake helper and the wire contract, for tests); `helper` (the per-connection logic) and the binary `cmd/llm-proxy-helper`; units in `docs/services/llm-proxy-helper-net.*`, installed by `scripts/install-helper.sh`
 - `internal/core/toolregistry/` — the local tool registry, MCP engine and the composite provider/engine (wired by `InitializeAgentStack`)
 - `internal/core/proxy/` — LLM HTTP client, XML tool call parser, history normalization
 - `internal/core/proxy/recorder/` — `RecordingClient` decorator (captures LLM responses to JSONL)

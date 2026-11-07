@@ -168,6 +168,7 @@ func NewManagerFromRegistry(reg models.RegistryData, sys models.SystemConfig, se
 			Name:     entry.Name,
 			Provider: entry.ProviderID,
 			Filename: entry.ModelID, // Bridge: Filename is the identifier
+			Path:     entry.Path,
 			Port:     entry.Port,
 			Args:     entry.Args,
 			Prefill:  entry.Prefill,

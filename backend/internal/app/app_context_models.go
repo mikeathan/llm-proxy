@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"llm-proxy/internal/core/llm/providers"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
@@ -78,44 +79,41 @@ func (s *AppContext) GetGuardrails() models.AgentGuardrailsConfig {
 	return cfg
 }
 
+// registryEntryOf is how a runtime model is saved: the file name is its identifier, and a local model also keeps the path it was found at.
+func registryEntryOf(cfg models.ModelConfig) models.ModelRegistryEntry {
+	credID := ""
+	if cfg.ProviderConfig != nil {
+		credID = cfg.ProviderConfig.APIKeyName
+	}
+	entry := models.ModelRegistryEntry{
+		ID:             cfg.Name,
+		Name:           cfg.Name,
+		ProviderID:     cfg.Provider,
+		ModelID:        cfg.Filename,
+		CredentialID:   credID,
+		Port:           cfg.Port,
+		Args:           cfg.Args,
+		Prefill:        cfg.Prefill,
+		TimeoutMinutes: cfg.TimeoutMinutes,
+		Metadata:       cfg.Metadata,
+	}
+	if cfg.Provider == "local" {
+		entry.Path = cfg.Path
+	}
+	return entry
+}
+
 func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 	logging.Info("Persisting new model to registry", "name", cfg.Name)
 	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
+		entry := registryEntryOf(cfg)
 		for i, existing := range c.Catalogue {
 			if existing.Name == cfg.Name {
-				credID := ""
-				if cfg.ProviderConfig != nil {
-					credID = cfg.ProviderConfig.APIKeyName
-				}
-				c.Catalogue[i] = models.ModelRegistryEntry{
-					ID:           cfg.Name,
-					Name:         cfg.Name,
-					ProviderID:   cfg.Provider,
-					ModelID:      cfg.Filename,
-					CredentialID: credID,
-					Port:         cfg.Port,
-					Args:         cfg.Args,
-					Prefill:      cfg.Prefill,
-					Metadata:     cfg.Metadata,
-				}
+				c.Catalogue[i] = entry
 				return nil
 			}
 		}
-		credID := ""
-		if cfg.ProviderConfig != nil {
-			credID = cfg.ProviderConfig.APIKeyName
-		}
-		c.Catalogue = append(c.Catalogue, models.ModelRegistryEntry{
-			ID:           cfg.Name,
-			Name:         cfg.Name,
-			ProviderID:   cfg.Provider,
-			ModelID:      cfg.Filename,
-			CredentialID: credID,
-			Port:         cfg.Port,
-			Args:         cfg.Args,
-			Prefill:      cfg.Prefill,
-			Metadata:     cfg.Metadata,
-		})
+		c.Catalogue = append(c.Catalogue, entry)
 		return nil
 	})
 }
@@ -123,33 +121,14 @@ func (s *AppContext) PersistModel(cfg models.ModelConfig) error {
 func (s *AppContext) PersistReplaceModel(cfg models.ModelConfig) error {
 	logging.Info("Replacing model in registry", "name", cfg.Name)
 	return s.dataMgr.Registry().Update(func(c *models.RegistryData) error {
-		replaced := false
-		credID := ""
-		if cfg.ProviderConfig != nil {
-			credID = cfg.ProviderConfig.APIKeyName
-		}
-		newEntry := models.ModelRegistryEntry{
-			ID:             cfg.Name,
-			Name:           cfg.Name,
-			ProviderID:     cfg.Provider,
-			ModelID:        cfg.Filename,
-			CredentialID:   credID,
-			Port:           cfg.Port,
-			Args:           cfg.Args,
-			Prefill:        cfg.Prefill,
-			TimeoutMinutes: cfg.TimeoutMinutes,
-			Metadata:       cfg.Metadata,
-		}
+		entry := registryEntryOf(cfg)
 		for i, m := range c.Catalogue {
 			if m.Name == cfg.Name {
-				c.Catalogue[i] = newEntry
-				replaced = true
-				break
+				c.Catalogue[i] = entry
+				return nil
 			}
 		}
-		if !replaced {
-			c.Catalogue = append(c.Catalogue, newEntry)
-		}
+		c.Catalogue = append(c.Catalogue, entry)
 		return nil
 	})
 }
@@ -182,7 +161,7 @@ func (s *AppContext) ResolveModelPath(filename, explicitPath string) string {
 	}
 	modelDir := s.GetSettings().Local.ModelDir
 	if modelDir != "" {
-		return filepath.Join(modelDir, filename)
+		return providers.FindInModelDir(modelDir, filepath.Join(modelDir, filename))
 	}
 	if explicitPath != "" {
 		return explicitPath

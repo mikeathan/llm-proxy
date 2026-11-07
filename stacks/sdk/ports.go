@@ -17,6 +17,8 @@ type Host struct {
 	DataDir   DataDir
 	Guard     Guard
 	Isolation Isolation
+	// Privileged is the request channel to the privileged helper (ADR-0034); nil unless the manifest requires PortPrivileged.
+	Privileged Privileged
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -44,6 +46,9 @@ type Request struct {
 	Params      map[string]string `json:"params,omitempty"`
 	ContentType string            `json:"content_type,omitempty"`
 	Body        []byte            `json:"body,omitempty"`
+	// Grant is set only on a route whose RouteSpec names an action, after the core has checked step-up and decoded the body as the
+	// action's parameters. It is the one-use permission the stack passes back through Host.Privileged.
+	Grant string `json:"grant,omitempty"`
 }
 
 // Response is a stack's answer to a Request.
@@ -145,8 +150,31 @@ type Isolation interface {
 	Run(ctx context.Context, req RunRequest) (RunResult, error)
 }
 
+// PrivilegedRequest asks the core to run one catalogue action in the privileged helper. The core checks that the grant is one it minted,
+// unused and unexpired, and that it was minted for exactly this action and these parameters, before it calls the helper; a stack cannot
+// mint a grant or change the parameters it was given.
+type PrivilegedRequest struct {
+	Grant  string          `json:"grant"`
+	Action string          `json:"action"`
+	Params json.RawMessage `json:"params"`
+}
+
+// PrivilegedResult is what the helper returned: raw bounded bytes the stack must parse itself (the helper never does).
+type PrivilegedResult struct {
+	Kind      string `json:"kind"`
+	Data      []byte `json:"data"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// Privileged runs a granted action in the privileged helper. Failures are an *Error: CodeDenied when the grant is not valid for this
+// request or the helper refused it, CodeUnavailable when the helper is not installed or the host cannot confine the service's children,
+// CodeInvalid for parameters the catalogue refuses, CodeTimeout when it ran out of time.
+type Privileged interface {
+	Run(ctx context.Context, req PrivilegedRequest) (PrivilegedResult, error)
+}
+
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}}
+	return []any{Manifest{}, Event{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}}
 }
