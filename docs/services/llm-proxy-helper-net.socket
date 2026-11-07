@@ -1,0 +1,16 @@
+# The privileged helper's socket, net class (ADR-0034). systemd listens here and starts one helper process per connection, so nothing
+# privileged stays running. Installed by the operator with `sudo ./setup.sh helper --install net`, never by the service. Only the service
+# account can open it, and the helper then checks that the caller is the service's main process, not any other process of that account.
+[Unit]
+Description=LLM Proxy privileged helper socket (net)
+
+[Socket]
+ListenStream=/run/llm-proxy-helper-net.sock
+SocketUser=root
+SocketGroup=@SERVICE_GROUP@
+SocketMode=0660
+Accept=yes
+MaxConnections=2
+
+[Install]
+WantedBy=sockets.target

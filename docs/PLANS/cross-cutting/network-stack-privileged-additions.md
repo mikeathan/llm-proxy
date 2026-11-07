@@ -129,7 +129,7 @@ say what changed (ADR-0023, Consequences).
 `socket(AF_UNIX)` and Landlock behaviour of a child of the service, to confirm the same-user finding in §2a item 7. *Accept when:* the results are in
 `docs/audits/` and the ledger. This gives the owner the facts for the per-item decisions. **Written 2026-11-07:** the runnable probes and the results template are [`docs/audits/2026-11-07-privileged-helper-n0.md`](../../audits/2026-11-07-privileged-helper-n0.md) (with its `2026-11-07-privileged-helper-n0/` folder); the owner runs them on vertex and pastes the masked results.
 
-**N1 - Design the helper (docs only, after N0):** the action catalogue and its schema, the wire protocol (plain data), the grant, the unit files and the install step,
+**N1 - Design the helper (docs only, after N0). Written 2026-11-07: [`network-privileged-helper-design.md`](network-privileged-helper-design.md) and [ADR-0034](../../decisions/ADR-0034-the-privileged-helper-is-core-not-a-stack-and-decides-who-is-calling.md) (proposed).** the action catalogue and its schema, the wire protocol (plain data), the grant, the unit files and the install step,
 the `Effective()` precondition, the fitness test, and a proposed ADR ("the privileged helper is core, not a stack"). *Accept when:* the owner accepts the ADR; the
 harness check passes.
 
@@ -138,5 +138,5 @@ a real alternative, and a measurement on vertex.
 
 ## Remaining Work
 
-Direction chosen 2026-11-07 (§2a, purpose: run certain networking commands outside the service's sandbox through a core helper process, behind the gates); nothing built or measured. N0 probes written and run only in a Linux container (not vertex); next: the owner runs them on vertex and pastes the results, then N1, then N2. Independent
+N0 measured on vertex 2026-11-07 (sections 0 to 4 and the secondary part of 5; results in [`docs/audits/2026-11-07-privileged-helper-n0.md`](../../audits/2026-11-07-privileged-helper-n0.md)); N1 written the same day (design and ADR-0034, proposed). Purpose: run certain networking commands outside the service's sandbox through a core helper process, behind the gates. Item 5's primary check ran the same day: the real agent terminal could not create a Unix socket, `ptrace_scope` is 1 and the takeover calls are not in the filter. N2a is built (see the design's Remaining Work). **Open:** deciding D9's fix and whether a no-workspace run can reach the terminal, DHCP and the namespace simulation, then N2a. The owner approved D1 to D9 on 2026-11-07 (design §12); the Constitution item I.11 is written in this branch and applies when merged. Independent
 of P3b: the helper can be built in the core before slice S4 of [`network-stack-p3b-design.md`](network-stack-p3b-design.md), and must not be combined with S2.

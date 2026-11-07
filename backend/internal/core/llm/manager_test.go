@@ -681,3 +681,34 @@ func TestGetInstance_ReportsStartingUntilTheServerAnswersItsWindow(t *testing.T)
 		t.Errorf("budgets not corrected before the instance was handed out: %+v", got.Metadata)
 	}
 }
+
+// A model kept in a subfolder of the model folder must still be found after a restart, which rebuilds every runtime model from the
+// registry: from the path the entry kept, and for an entry that kept none, by searching the model folder.
+func TestNewManagerFromRegistry_FindsAModelInASubfolder(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sage-A1.5")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(sub, "Sage-A1.5-Q4_K_M.gguf")
+	if err := os.WriteFile(file, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := models.RegistryData{Catalogue: []models.ModelRegistryEntry{
+		{ID: "kept", Name: "kept", ProviderID: "local", ModelID: "Sage-A1.5-Q4_K_M.gguf", Path: file, Port: 8081},
+		{ID: "old", Name: "old", ProviderID: "local", ModelID: "Sage-A1.5-Q4_K_M.gguf", Port: 8082},
+		{ID: "gone", Name: "gone", ProviderID: "local", ModelID: "Sage-A1.5-Q4_K_M.gguf", Path: filepath.Join(dir, "moved", "Sage-A1.5-Q4_K_M.gguf"), Port: 8083},
+	}}
+	var settings models.UserSettings
+	settings.Local.ModelDir = dir
+	m := llm.NewManagerFromRegistry(reg, models.SystemConfig{}, settings, nil, func() models.RegistryData { return reg })
+	paths := map[string]string{}
+	for _, mc := range m.ListModels() {
+		paths[mc.Name] = mc.Path
+	}
+	for _, name := range []string{"kept", "old", "gone"} {
+		if paths[name] != file {
+			t.Errorf("%s: path = %q, want %q", name, paths[name], file)
+		}
+	}
+}

@@ -12,5 +12,9 @@
 // A stack also declares its HTTP routes as data (RouteSpec) and answers each with a plain-data Request and Response through Stack.Handle;
 // the core signs the caller in, checks the route's access level, and a route can only raise it (AccessStepUp), never lower it.
 //
+// A route may name one action of the privileged helper's closed catalogue (RouteSpec.Action, ADR-0034). The core requires step-up, decodes the
+// body as exactly that action's parameters, and hands the stack a one-use grant (Request.Grant) that it passes back through the Privileged
+// port; a stack cannot mint a grant, add an action or change the parameters.
+//
 // The sandbox is core (ADR-0033). The Isolation port has no field that relaxes it, and no manifest field declares a privilege.
 package stacksdk

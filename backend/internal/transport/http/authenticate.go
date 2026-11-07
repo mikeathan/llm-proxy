@@ -113,6 +113,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/netaudit/vulndata/import"},         // replaces what every audit compares with: a hand-made file could silence every known-flaw finding
 	{http.MethodPost, "/admin/api/lockdown"},                         // signs out every other session and may revoke every token
 	{http.MethodDelete, "/admin/api/lockdown"},                       // lifting it reopens the terminal, the network and the automations
+	{http.MethodPost, "/admin/api/helper/scan_udp"},                  // runs a UDP scan of one device with a raw-packet capability the service does not hold (Constitution I.11); one route per catalogue action, held to HelperRoutes by a test
+	{http.MethodPost, "/admin/api/helper/os_detect"},                 // the same for OS detection
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

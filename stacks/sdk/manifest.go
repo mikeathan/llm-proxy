@@ -90,6 +90,10 @@ type RouteSpec struct {
 	Path string `json:"path"`
 	// Access defaults to AccessAdmin. A write that needs the passphrase again declares AccessStepUp.
 	Access Access `json:"access,omitempty"`
+	// Action names the privileged-helper catalogue action this route may request (ADR-0034). It is a name, not a declaration: the core
+	// checks it against its own closed catalogue, requires AccessStepUp, decodes the request body as exactly that action's parameters
+	// before the stack sees it, and hands the stack a one-use grant in Request.Grant. A route cannot add an action.
+	Action string `json:"action,omitempty"`
 }
 
 // Level is the access the route needs: what it declares, or admin when it declares nothing.
@@ -148,7 +152,11 @@ const (
 	PortDataDir   = "datadir"
 	PortGuard     = "guard"
 	PortIsolation = "isolation"
+	// PortPrivileged is the request channel to the privileged helper: a stack passes back the grant the core gave it for a route's action.
+	PortPrivileged = "privileged"
 )
+
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortIsolation, PortPrivileged}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -174,7 +182,7 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	for _, p := range m.Requires {
-		if !slices.Contains([]string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortIsolation}, p) {
+		if !slices.Contains(portNames, p) {
 			return fmt.Errorf("manifest %q requires %q, which is not a port", m.ID, p)
 		}
 	}
@@ -244,7 +252,30 @@ func (m Manifest) checkRoutes() error {
 		case seen[key]:
 			return fmt.Errorf("manifest %q: route %q is listed twice", m.ID, key)
 		}
+		if err := m.checkRouteAction(rt); err != nil {
+			return err
+		}
 		seen[key] = true
+	}
+	return nil
+}
+
+// checkRouteAction holds a route that names a privileged action to the shape the grant needs: a step-up write, with no wildcard (the body
+// is the action's parameters and nothing in the path), in a stack that requires the privileged port.
+func (m Manifest) checkRouteAction(rt RouteSpec) error {
+	if rt.Action == "" {
+		return nil
+	}
+	key := rt.Method + " " + rt.Path
+	switch {
+	case rt.Level() != AccessStepUp:
+		return fmt.Errorf("manifest %q: route %q names an action, so it must be %q", m.ID, key, AccessStepUp)
+	case rt.Method == "GET":
+		return fmt.Errorf("manifest %q: route %q names an action, so it cannot be a read", m.ID, key)
+	case len(rt.Params()) > 0:
+		return fmt.Errorf("manifest %q: route %q names an action, so its body is the action's parameters and its path has no wildcard", m.ID, key)
+	case !slices.Contains(m.Requires, PortPrivileged):
+		return fmt.Errorf("manifest %q: route %q names an action, so the stack must require the %q port", m.ID, key, PortPrivileged)
 	}
 	return nil
 }

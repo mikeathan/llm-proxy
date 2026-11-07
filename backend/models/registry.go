@@ -20,10 +20,13 @@ type ProviderRegistryEntry struct {
 }
 
 type ModelRegistryEntry struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	ProviderID     string         `json:"provider_id"`
-	ModelID        string         `json:"model_id"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	ProviderID string `json:"provider_id"`
+	ModelID    string `json:"model_id"`
+	// Path is where a local model's file is, kept so a model in a subfolder of the model folder is found again after a restart.
+	// Empty for a cloud model, and for an entry saved before the path was kept (its path is then derived from ModelID and the model folder).
+	Path           string         `json:"path,omitempty"`
 	CredentialID   string         `json:"credential_id,omitempty"`
 	Port           int            `json:"port,omitempty"`
 	Args           []string       `json:"args,omitempty"`

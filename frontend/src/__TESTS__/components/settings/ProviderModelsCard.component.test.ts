@@ -132,6 +132,50 @@ describe('ProviderModelsCard', () => {
     })
   })
 
+  // The full path of the file is shown, read-only, so a model kept in a subfolder of the model directory can be checked at a glance.
+  describe('the full path of a local model', () => {
+    const IN_SUBFOLDER: AvailableModel[] = [
+      { name: 'sage', filename: 'Sage.gguf', resolved_path: '/models/sage-A1.5/Sage.gguf', size_bytes: 1, metadata: { name: 'Sage A1.5' } } as AvailableModel,
+    ]
+    const fullPath = (w: ReturnType<typeof mountCard>['w']) => fieldByLabel(w, /full path/i).element as HTMLInputElement
+
+    it('shows the path of the file picked from the disk, read-only', async () => {
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: IN_SUBFOLDER })
+      await button(/^add sage a1\.5$/i)!.trigger('click')
+      expect(fullPath(w).value).toBe('/models/sage-A1.5/Sage.gguf')
+      expect(fullPath(w).readOnly).toBe(true)
+    })
+
+    it('shows no path once the file name was changed by hand, and none for a name typed from the start', async () => {
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [], availableModels: IN_SUBFOLDER })
+      await button(/^add sage a1\.5$/i)!.trigger('click')
+      await fieldByLabel(w, /model filename/i).setValue('other.gguf')
+      expect(fullPath(w).value).toBe('')
+      await button(/^cancel$/i)!.trigger('click')
+      await button(/^add model$/i)!.trigger('click')
+      expect(fullPath(w).value).toBe('')
+      expect(fullPath(w).readOnly).toBe(true)
+    })
+
+    it('shows where a configured model\'s file is when it is edited, read-only', async () => {
+      const sage = { name: 'sage', provider: 'local', filename: 'Sage.gguf', port: 8081, endpoint: '', active: false, ready: false, resolved_path: '/models/sage-A1.5/Sage.gguf' } as Model
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [sage], availableModels: [] })
+      await button(/^edit sage$/i)!.trigger('click')
+      expect(fullPath(w).value).toBe('/models/sage-A1.5/Sage.gguf')
+      expect(fullPath(w).readOnly).toBe(true)
+    })
+
+    it('does not send the shown path back when a model is saved after an edit', async () => {
+      const sage = { name: 'sage', provider: 'local', filename: 'Sage.gguf', port: 8081, endpoint: '', active: false, ready: false, resolved_path: '/models/sage-A1.5/Sage.gguf' } as Model
+      const { w, button } = mountCard({ provider: 'local', apiKeys: [], models: [sage], availableModels: [] })
+      await button(/^edit sage$/i)!.trigger('click')
+      await fieldByLabel(w, /^name$/i).setValue('sage2')
+      await w.get('form').trigger('submit')
+      await flushPromises()
+      expect(models.updateModel.mock.lastCall![0].path).toBeUndefined()
+    })
+  })
+
   it('says when the local engine has no model yet', () => {
     const { w } = mountCard({ provider: 'local', apiKeys: [], models: [] })
     expect(w.text()).toContain('No local models')

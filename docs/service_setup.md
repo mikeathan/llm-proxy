@@ -185,6 +185,24 @@ journalctl -u llm-proxy.service -f
 - Check effective hardening any time with:
   `systemd-analyze security llm-proxy.service`
 
+## Privileged helper (optional, Linux, off by default)
+
+Some network checks (UDP scans, OS detection) need a raw-packet capability the service deliberately does not have. The privileged helper is a
+separate, short-lived process that runs a fixed list of those actions for the service and nothing else (ADR-0034, Constitution I.11). It is
+three gates, all off until you turn them on: you install its units (root), you turn each action on in Settings (needs your passphrase), and the
+install writes a root-owned list of the actions and of the scan ranges it may touch, which the service cannot change. The helper answers only
+the service's main process: another process of the same account, such as the assistant's terminal, is refused.
+
+```bash
+cd backend && go build -o llm-proxy-helper ./cmd/llm-proxy-helper
+# Try it first, on any Linux host with systemd and nmap (installs throw-away units, removes them afterwards; aim it at one device of yours):
+sudo ../scripts/check-helper-under-unit.sh --bin ./llm-proxy-helper --target 192.168.50.1
+# Install for real (the group is the service's group; the scope is the ranges the helper may scan):
+sudo ../scripts/install-helper.sh net --install --actions scan_udp,os_detect --scope 192.168.50.0/24 --bin ./llm-proxy-helper --group llm-proxy
+sudo ../scripts/install-helper.sh net --uninstall   # removes the units, the drop-in and the binary
+```
+It refuses to install, and the helper refuses every call, while `kernel.yama.ptrace_scope` is 0.
+
 ## macOS (launchd daemon, dedicated user)
 
 The Linux service model (dedicated unprivileged user owning only the data root)

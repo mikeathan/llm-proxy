@@ -2,14 +2,13 @@
 subsystem: network-audit
 tags: [privileged-helper, network, measurement]
 result: inconclusive
-status: awaiting-results
+status: partial-results
 date: 2026-11-07
 ---
 
 # N0: what the privileged helper needs, measured on vertex (commands and results template)
 
-**Status:** the probes are written and have been run in a Linux container (see "What was checked here"); **nothing has been measured on vertex yet and no
-result below is filled in.** Plan: [`network-stack-privileged-additions.md`](../PLANS/cross-cutting/network-stack-privileged-additions.md) §5 N0 and §2a.
+**Status:** measured on vertex 2026-11-07 for sections 0 to 4, the secondary part of 5 and item 5's primary check with the takeover-route facts (results below); DHCP and the namespace simulation are still open. Plan: [`network-stack-privileged-additions.md`](../PLANS/cross-cutting/network-stack-privileged-additions.md) §5 N0 and §2a.
 Purpose of the helper (owner, 2026-11-07): a new, core-owned process that runs certain networking commands **outside the service's sandbox**, behind the plan's
 gates. These measurements decide which commands it can run and what each needs to step outside.
 
@@ -91,70 +90,71 @@ probes run and decode correctly; it says nothing about what vertex will report.*
   nmap there needed `--privileged`, `CAP_NET_RAW`, `AF_NETLINK` and `AF_PACKET` together for `-sU` and `-O`, and without `--privileged` it quit with "requires root privileges"
   even holding the capability; vertex's LAN may differ, so it is not a result. `shellcheck` was not available.
 
-## Results template (fill in on vertex; paste the masked output under each heading)
+## Results on vertex (2026-11-07, run by the owner; masked output, `run.sh` at commit b4b35069)
 
-**Run:** date ____ host ____ commit ____ results file ____ operator ____
+**Run:** host vertex, kernel 7.0.0-38-generic x86_64, systemd 255.4, Landlock ABI 8 (Landlock, Yama and AppArmor listed in `lsm`). **Item 5's primary check was run later the same day** (see the last table). **Still open:** DHCP (none seen, and what the operator did during the window was not recorded), the namespace simulation of a
+gateway change (not run on vertex), nothing else from item 5 (the listener printed nothing and the terminal asked for no approval, both confirmed by the owner).
 
 ### 0. Facts
 | Fact | Value |
 |---|---|
-| Kernel, systemd, Landlock listed in `lsm` | |
-| Unit as systemd sees it (`CapabilityBoundingSet`, `RestrictAddressFamilies`, `SupplementaryGroups`) | |
-| nmap version | |
-| Interface, wireless yes or no, promiscuous before | |
-| `sandboxing` block of `settings.yml`; `effective` from the API | |
+| Unit as systemd sees it | `User=llm-proxy`, empty `CapabilityBoundingSet` and `AmbientCapabilities`, `SupplementaryGroups=utmp`, `NoNewPrivileges=yes`, `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX`; the service user's groups in force: 982 (its own), 43 (`utmp`), 44, 992 |
+| nmap | 7.94SVN |
+| Interface | `wlp2s0`, wireless (a Wi-Fi link, not Ethernet); `ping_group_range` 0 to 2147483647 |
+| `sandboxing` block | `enabled: true`, `unix_sockets: false`, `functional: false`, `maxstoragegb: 2`, `maxmemorymb: 256`, `egress_proxy: 0`. The API's `effective` object was not captured |
+| `yama_ptrace_scope` | `1`, captured later the same day (last table) |
 
-### 1. nmap (fill one cell per variant and test with the exit status and one of: `worked`, `refused: <message>`, `unreliable: <message>`, or `killed by signal` (a SIGSYS from the copied `SystemCallFilter` is a third outcome, not a capability refusal, and sizes the helper unit's syscall filter))
-| Variant (caps, families) | `--iflist` | `-sU` | `-sU --privileged` | `-sU --privileged --send-ip` | `-O` | `-O --privileged` |
+### 1. nmap (every refusal exited with status 1; cells are the message nmap gave)
+| Variant (capabilities, families added to the unit's three) | `--iflist` | `-sU` | `-sU --privileged` | `-sU --privileged --send-ip` | `-O` | `-O --privileged` |
 |---|---|---|---|---|---|---|
-| 1 none (today) | | | | | | |
-| 2 `CAP_NET_RAW` | | | | | | |
-| 3 `CAP_NET_RAW` + `AF_NETLINK` | | | | | | |
-| 4 `CAP_NET_RAW` + `AF_PACKET` | | | | | | |
-| 5 `CAP_NET_RAW` + `AF_NETLINK` + `AF_PACKET` | | | | | | |
-| 6 plus `CAP_NET_ADMIN` | | | | | | |
+| 1 none (today) | worked, no routes | refused: requires root | refused: no `AF_NETLINK` socket (`route_dst_netlink`) | same | refused: requires root | refused: `route_dst_netlink` |
+| 2 `CAP_NET_RAW` | worked, no routes | refused: requires root | refused: `route_dst_netlink` | same | refused: requires root | refused: `route_dst_netlink` |
+| 3 `CAP_NET_RAW` + `AF_NETLINK` | worked, routes listed | refused: requires root | refused: `dnet: Failed to open device wlp2s0` | refused: `pcap_activate` failed, no `AF_PACKET` | refused: requires root | refused: `dnet: Failed to open device` |
+| 4 `CAP_NET_RAW` + `AF_PACKET` | worked, no routes | refused: requires root | refused: `route_dst_netlink` | same | refused: requires root | refused: `route_dst_netlink` |
+| **5 `CAP_NET_RAW` + `AF_NETLINK` + `AF_PACKET`** | worked | refused: requires root | **worked** (`53/udp closed`) | **worked** | refused: requires root | **worked** (`Linux 4.15 - 5.8`, SSH open on the target) |
+| 6 variant 5 + `CAP_NET_ADMIN` | worked | refused: requires root | worked | worked | refused: requires root | worked |
 
-Smallest variant on which each test works: `-sU` ____ ; `-O` ____ . Did the in-force block match the variant for every row? ____
+Smallest variant on which `-sU` and `-O` work: **5**. `CAP_NET_ADMIN` adds nothing (6 matches 5). Without `--privileged` nmap refuses even while holding `CAP_NET_RAW`, so `--privileged` belongs in
+the action's fixed arguments. `--send-ip` did not remove the need for `AF_PACKET` (capture still needs it). The in-force block matched the variant on every row (`Seccomp=2`, `NoNewPrivs=1`, `CapAmb` equal to `CapEff`).
+No process was killed by a signal, so the unit's `SystemCallFilter` blocked nothing nmap needed.
 
-### 2. Capture
-**What you did on the network during the window (for example reconnected a phone at minute 1):** ____
-| P1 (today) result | P2 (`AF_PACKET`, no capability) result | P3 frames total, mean and max per second |
-|---|---|---|
-| | | |
+### 2. Capture (`wlp2s0`, 60 s window, headers only)
+**What the operator did during the window:** not recorded. P1 (today's unit): `open/bind AF_PACKET` failed `EAFNOSUPPORT` (family not allowed). P2 (`AF_PACKET`, no capability): `EPERM`. P3 (`CAP_NET_RAW` + `AF_PACKET`): worked; promiscuous before and after: no.
 
-| Counts in the window | to this host | broadcast | multicast | other host | sent by this host |
-|---|---|---|---|---|---|
-| ARP request / reply / gratuitous | | | | | |
-| DHCP 68 to 67 (broadcast / not) | | | | | |
-| DHCP 67 to 68 (broadcast / not) | | | | | |
-| mDNS, DHCPv6, neighbour discovery | | | | | |
+| Window figure | Value |
+|---|---|
+| Frames | 854 in 60 s: mean 14.2 per second, **maximum 139 in one second** |
+| By direction | to this host 211, broadcast 134, multicast 413, sent by this host 96, other host 0 |
+| ARP | 10 broadcast requests, **all gratuitous**, from 5 distinct sender hardware addresses; 1 request to this host and 1 reply from it |
+| DHCP (68 to 67, 67 to 68) | **0 of either** |
+| Other | mDNS 304 (multicast), IPv4 UDP broadcast 124 and multicast 180, IPv6 multicast 152, other ethertypes 66 |
 
-Promiscuous before and after: ____ . Caveat to read these by: on Wi-Fi (vertex uses `wlp2s0`) a server's DHCP reply is usually unicast to the client and is **not**
-seen, and other hosts' unicast is not seen without promiscuous mode, which this probe never enables; a quiet window is not proof the link is quiet.
+On Wi-Fi without promiscuous mode a server's DHCP reply is usually unicast to the client and not seen; the window may also simply have held no join. **Not concluded.**
 
 ### 3. Log files
 | Item | Value |
 |---|---|
-| `auth.log` owner, group, mode; does it exist | |
-| What the `adm` group can read (count and names) | |
-| `logrotate` create modes for the logs | |
-| `access(auth.log)` with the unit's groups / with `adm` | |
+| `auth.log` | exists; owner `syslog:adm`, mode 640 (also `auth.log.1`, `syslog`); `/var/log` is `root:syslog` 755; `btmp` is `root:utmp` 660 |
+| What `adm` reads | gid 4, 2 members, **67 files** at depth 2: `auth.log`, `syslog`, `kern.log`, `fail2ban.log`, `apport.log`, `cloud-init.log`, `dmesg`, apt's `term.log` and the unattended-upgrades logs with their rotations |
+| `logrotate` create modes | `/etc/logrotate.d/btmp`: `create 0660 root utmp`; `/etc/logrotate.conf`: `su root adm` |
+| `access()` as the service user | with the unit's groups: `auth.log` no, `syslog` no, `btmp` yes; with `adm` instead: `auth.log` yes, `syslog` yes, `btmp` no |
 
 ### 4. Netlink
-| N1 (today's families) | N2 (`AF_NETLINK`, no capability) | events in the window by kind | simulation (`--simulate-neigh-change`) events seen |
-|---|---|---|---|
-| | | | |
+Today's families: the subscription failed (`EAFNOSUPPORT`). With only `AF_NETLINK` added and **no capability** it worked: 2 events in 60 s (one `new` neighbour `reachable`, one `stale`, both with a destination and a hardware address). The simulation was not run on vertex; in the container a replacement arrived as one event with only the new address (tooling section above).
 
-Did a real gateway or neighbour address change happen during the passive window? ____ . Does a change event carry only the new address (simulation, vertex)? ____
+### 5. Same-user finding (secondary check only; the primary check is open)
+Transient unit with the service's hardening on vertex, Landlock ABI 8: A, no confinement: connect ok. B, Landlock alone: the read outside the grant was refused (`EACCES`) and **the connect to a socket outside the grant still worked** (pitfall 67 holds on ABI 8). C, the seccomp filter alone: `socket(AF_UNIX)` refused (`EACCES`), `socketpair` ok. D, a connected descriptor made before the filter: **still sent after it**. The stand-in saw peer uid 995, gid 982 on every connection, the service's own, so uid cannot tell a child of the service from the service.
 
-### 5. Same-user finding
-| Check | Result |
+| Primary check (real agent terminal) | Result (owner, vertex, 2026-11-07; the output was relayed by the assistant, not a raw terminal capture) |
 |---|---|
-| Real agent terminal: `socket(AF_UNIX)` | |
-| Real agent terminal: connect to the stand-in | |
-| Listener: peer uid, gid, cgroup of the agent child vs the service | |
-| Open descriptors in the agent terminal (any Unix socket?) | |
-| `sandboxing.unix_sockets` and `effective.unix_sockets` | |
-| `run.sh` section 5, stages A to D | |
+| `socket(AF_UNIX)`, connect | **`socket(AF_UNIX)` refused, `EACCES`; `connect` was never reached.** The refusal is the seccomp filter by elimination (capabilities are all zero and a Unix socket needs none; `Seccomp: 2`); the errno's origin was not proven |
+| The child's identity | uid 995, gid 982, groups 43 44 982 992; `CapEff` and `CapBnd` all zero; `NoNewPrivs: 1`; `Seccomp: 2`; cgroup `0::/system.slice/llm-proxy.service`. Same uid, gid and cgroup as the service, so none of them tells child from service |
+| Open descriptors | fd 0, 1, 2 only, all pipes: no inherited Unix socket |
+| Stand-in socket visibility | `stat` ok, mode `0o140660`: the file jail does not hide it and the mode would let the group in; the filter is what stopped the connect |
+| Listener's peer record (uid, gid, pid, cgroup) | **nothing printed** (owner confirmed): no connection reached the stand-in, consistent with the refused `socket()` |
+| Whether the terminal's allow-list refused the heredoc or asked for approval | **no approval was asked** (owner); the probe ran as pasted |
+| `yama_ptrace_scope` | **`1`**: a process may only inspect its own descendants, so a child cannot inspect the service |
+| `MainPID` of `llm-proxy.service` | `555566` at the time of the run |
+| `ptrace`, `pidfd_getfd`, `process_vm_readv`, `process_vm_writev` in `@system-service` | **none of the four listed** (`systemd-analyze syscall-filter @system-service`: this is the group's definition on systemd 255.4, not the live process's filter) |
 
-**Conclusion for N1 (write after the table is filled):** can uid or cgroup tell an agent child from the service? ____ ; what keeps the child out today? ____
+**What this shows.** A real agent child of the service cannot create a Unix socket, so it cannot connect to a root helper's socket; the filter is the only barrier and is now measured on the real path, not a stand-in unit. The takeover routes (ptrace, `/proc/<MainPID>/mem`, `pidfd_getfd`, `process_vm_*`) are closed by Yama scope 1 together with a filter that does not list the calls; that the Yama rule also covers `/proc/<pid>/mem` and `pidfd_getfd` is the kernel's documented behaviour, not tested here. **What it does not show:** only the terminal tool's default path was tested, not the scanners, the program runner or any approval or override path (each must be checked before it can be said that every child is filtered); `connect` from a child that has a Unix socket by another route is untested (none is inherited); and the helper's own `MainPID` comparison is untested until N2a. `adm` (gid 4 on Ubuntu) is not among the child's groups 43 44 982 992 (gid 4 being `adm` on vertex was not checked).

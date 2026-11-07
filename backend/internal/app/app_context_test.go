@@ -1188,3 +1188,45 @@ func TestAppContext_OperatorNotesLiveOutsideTheWorkspaceJail(t *testing.T) {
 		t.Errorf("notes at %s are inside the workspaces folder the agent can write to", wsFile)
 	}
 }
+
+// A local model keeps the path it was found at, so one in a subfolder of the model folder is found after a restart; a cloud model has none.
+func TestAppContextPersistModel_KeepsALocalModelsPath(t *testing.T) {
+	ctx := createTestServer(t, mocks.NewMockManager(), nil)
+	dir := ctx.RootDir()
+	if err := ctx.PersistModel(models.ModelConfig{Name: "sage", Filename: "Sage.gguf", Provider: "local", Path: "/models/sage-A1.5/Sage.gguf", Port: 8081}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.PersistModel(models.ModelConfig{Name: "gpt", Filename: "gpt-4o", Provider: "openai", Path: "/should/not/be/kept"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ctx.PersistReplaceModel(models.ModelConfig{Name: "sage", Filename: "Sage.gguf", Provider: "local", Path: "/models/sage-A1.5/Sage.gguf", Port: 8082, TimeoutMinutes: 7}); err != nil {
+		t.Fatal(err)
+	}
+	loadedMgr, _ := storage.NewDataManager(seededPaths(t, dir))
+	loadedMgr.LoadAll()
+	reg := loadedMgr.Registry().Get()
+	if sage, _ := findModel(reg.Catalogue, "sage"); sage.Path != "/models/sage-A1.5/Sage.gguf" || sage.Port != 8082 || sage.TimeoutMinutes != 7 {
+		t.Errorf("sage = %+v", sage)
+	}
+	if gpt, _ := findModel(reg.Catalogue, "gpt"); gpt.Path != "" {
+		t.Errorf("a cloud model must keep no path, got %q", gpt.Path)
+	}
+}
+
+func TestAppContextResolveModelPath_FindsAFileInASubfolder(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "sage-A1.5", "Sage.gguf")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := createTestServer(t, mocks.NewMockManager(), &models.Config{Providers: map[string]models.ProviderItem{"local": {ModelDir: dir}}})
+	if got := ctx.ResolveModelPath("Sage.gguf", ""); got != file {
+		t.Errorf("path = %q, want %q", got, file)
+	}
+	if got := ctx.ResolveModelPath("absent.gguf", ""); got != filepath.Join(dir, "absent.gguf") {
+		t.Errorf("a file nowhere keeps the plain join, got %q", got)
+	}
+}

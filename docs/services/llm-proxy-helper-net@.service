@@ -1,0 +1,38 @@
+# One privileged helper process for one connection (net class: raw packets for UDP scans and OS detection). ADR-0034, Constitution I.11.
+# The capability is held by this process only; the helper takes it off every thread that asks systemd a question and puts it back only for a
+# verified action. The two settings that gate it are written by `setup.sh helper --install net` into a root-owned drop-in:
+#   HELPER_ACTIONS  the actions this unit may run (the third gate; the service cannot change it)
+#   HELPER_SCOPE    the operator's declared scan ranges as of install (the helper checks every target against them itself)
+[Unit]
+Description=LLM Proxy privileged helper (net)
+
+[Service]
+ExecStart=@HELPER_BIN@ --class net --actions ${HELPER_ACTIONS} --unit @SERVICE_UNIT@
+# A fixed system account, not DynamicUser: measured on systemd 255, a DynamicUser process cannot ask systemd for the service's main process
+# ("Transport endpoint is not connected"), and the caller check needs exactly that answer. The account has no shell, no home and no group
+# but its own; the install script creates it.
+User=llm-proxy-helper
+Group=llm-proxy-helper
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_PACKET
+# @system-service plus the three Landlock calls (the file jail). Measured on systemd 255: capget and capset, which the helper uses to put
+# its one capability back for a verified action, are already in @system-service.
+SystemCallFilter=@system-service landlock_create_ruleset landlock_add_rule landlock_restrict_self
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# A scan is bounded by the action's own timeout; this is the backstop.
+RuntimeMaxSec=700

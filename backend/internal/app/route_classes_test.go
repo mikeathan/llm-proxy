@@ -52,6 +52,7 @@ func allRoutes(t *testing.T) []string {
 		Recordings: &handlers.RecordingHandlers{}, Memory: &handlers.MemoryHandlers{}, Reminders: &handlers.ReminderHandlers{},
 		Profiles: &handlers.ProfileHandlers{}, Helpers: &handlers.HelpersHandlers{}, Netaudit: &handlers.NetauditHandlers{},
 		VulnData: &handlers.VulnDataHandlers{}, Commands: &handlers.CommandHandlers{}, Webhook: &handlers.WebhookHandler{}, Auth: &handlers.AuthHandlers{}, Exposure: &handlers.ExposureHandlers{},
+		Helper: newHelperRoutes(&AppContext{}),
 	}
 	router, ok := buildRouter(hs).(*api.Router)
 	if !ok {

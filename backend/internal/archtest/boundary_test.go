@@ -480,3 +480,341 @@ func TestTheDialScanCatchesTheWaysAroundTheGuard(t *testing.T) {
 		t.Errorf("types and values that cannot open a connection must pass: %v %v", found, err)
 	}
 }
+
+// A child of the service shares its uid, gid and cgroup, so the only thing that keeps it from a root helper's socket is the
+// Unix-socket filter the sandbox runner applies (design network-privileged-helper-design.md section 2, ADR-0034). That filter is applied by
+// sandbox.Provider.Wrap, so the claim "every child is filtered" is a claim about the places the service starts a program. These tests
+// pin those places exactly: a new one fails the build until it is added below with its reason, and every entry that says "wrapped"
+// must still call Wrap in the function it names.
+
+// spawnSite is one place the service's own code starts, or builds the command for, a child process.
+type spawnSite struct {
+	file, fn, what string
+	// wrappedIn names the function in the same file that calls Wrap before the command starts; "" means the site is not wrapped and
+	// reason says why that is safe.
+	wrappedIn string
+	reason    string
+}
+
+const agentCommand = "process.AgentCommand"
+
+var spawnSites = []spawnSite{
+	{file: "internal/core/tools/terminal.go", fn: "(*TerminalTools).newCommand", what: agentCommand, wrappedIn: "(*TerminalTools).executeLocal"},
+	{file: "internal/shell/terminal.go", fn: "newPersistentShell", what: agentCommand, wrappedIn: "newPersistentShell"},
+	{file: "internal/platform/progexec/progexec.go", fn: "Runner.Run", what: agentCommand, wrappedIn: "Runner.Run"},
+	{file: "internal/platform/progexec/progexec.go", fn: "Detect", what: agentCommand,
+		reason: "asks an installed program for its version with fixed arguments and an empty environment; no agent text reaches it"},
+	{file: "internal/platform/process/agent_command.go", fn: "AgentCommand", what: "exec.CommandContext",
+		reason: "the one constructor of agent children; each caller above wraps, which the entries above check"},
+	{file: "internal/platform/sandbox/runner.go", fn: "RunChildIfRequested", what: "syscall.Exec",
+		reason: "the runner replaces itself with the real program after it has applied the filter"},
+	{file: "internal/platform/metrics/gpu_providers.go", fn: "defaultCommandRunner", what: "exec.CommandContext",
+		reason: "fixed GPU query commands the service starts for itself; no agent input"},
+	{file: "internal/platform/process/process_darwin.go", fn: "listByBinary", what: "exec.Command",
+		reason: "fixed ps command on macOS, where the helper does not exist"},
+	{file: "internal/testing/utils/types.go", fn: "", what: "exec.Command",
+		reason: "package variable tests replace; no non-test caller"},
+	{file: "internal/testing/utils/types.go", fn: "", what: "exec.CommandContext",
+		reason: "package variable tests replace; no non-test caller"},
+}
+
+const (
+	execPath    = "os/exec"
+	osPath      = "os"
+	syscallPath = "syscall"
+	processPath = module + "/internal/platform/process"
+)
+
+// spawnNames are the ways to start a program: exec.Command, os.StartProcess, syscall.Exec, ForkExec and StartProcess, and the core's
+// own constructor process.AgentCommand.
+var spawnNames = map[string][]string{
+	execPath:    {"Command", "CommandContext"},
+	osPath:      {"StartProcess"},
+	syscallPath: {"Exec", "ForkExec", "StartProcess"},
+	processPath: {"AgentCommand"},
+}
+
+// funcUses is what one function (or the package-level declarations, fn "") does: the spawn names it uses and whether it calls a method
+// named Wrap.
+type funcUses struct {
+	spawns []string
+	wraps  bool
+}
+
+func funcName(d *ast.FuncDecl) string {
+	if d.Recv == nil || len(d.Recv.List) == 0 {
+		return d.Name.Name
+	}
+	switch r := d.Recv.List[0].Type.(type) {
+	case *ast.StarExpr:
+		if id, ok := r.X.(*ast.Ident); ok {
+			return "(*" + id.Name + ")." + d.Name.Name
+		}
+	case *ast.Ident:
+		return r.Name + "." + d.Name.Name
+	}
+	return d.Name.Name
+}
+
+// spawnUses reports, per function of one Go file, which ways of starting a program it names and whether it calls Wrap.
+func spawnUses(filename string, src any) (map[string]*funcUses, error) {
+	f, err := parser.ParseFile(token.NewFileSet(), filename, src, 0)
+	if err != nil {
+		return nil, err
+	}
+	local := map[string]string{}
+	for _, im := range f.Imports {
+		path, _ := strconv.Unquote(im.Path.Value)
+		if _, watched := spawnNames[path]; !watched {
+			continue
+		}
+		name := filepath.Base(path)
+		if im.Name != nil {
+			name = im.Name.Name
+		}
+		local[name] = path
+	}
+	out := map[string]*funcUses{}
+	scan := func(fn string, root ast.Node) {
+		ast.Inspect(root, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			u := out[fn]
+			if u == nil {
+				u = &funcUses{}
+				out[fn] = u
+			}
+			if sel.Sel.Name == "Wrap" {
+				u.wraps = true
+			}
+			if id, ok := sel.X.(*ast.Ident); ok && local[id.Name] != "" && slices.Contains(spawnNames[local[id.Name]], sel.Sel.Name) {
+				u.spawns = append(u.spawns, id.Name+"."+sel.Sel.Name)
+			}
+			return true
+		})
+	}
+	for _, decl := range f.Decls {
+		if d, ok := decl.(*ast.FuncDecl); ok {
+			scan(funcName(d), d)
+		} else {
+			scan("", decl)
+		}
+	}
+	return out, nil
+}
+
+// serviceSources lists the service's non-test Go files, as paths relative to backend/. The dev tools, this package and generated output
+// are not the service.
+func serviceSources(t *testing.T) (root string, files []string) {
+	t.Helper()
+	root = backendDir(t)
+	skip := map[string]bool{"tools": true, "graphify-out": true, "data": true} // top-level folders only: internal/core/tools is the service
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		if d.IsDir() {
+			if skip[rel] || d.Name() == "testdata" || rel == filepath.Join("internal", "archtest") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
+			files = append(files, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, files
+}
+
+func (s spawnSite) key() string { return s.file + " " + s.fn + " " + s.what }
+
+func TestEveryPlaceTheServiceStartsAProgramIsPinned(t *testing.T) {
+	root, files := serviceSources(t)
+	found := map[string]bool{}
+	wraps := map[string]bool{}
+	for _, rel := range files {
+		uses, err := spawnUses(filepath.Join(root, rel), nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for fn, u := range uses {
+			if u.wraps {
+				wraps[rel+" "+fn] = true
+			}
+			for _, what := range u.spawns {
+				found[(spawnSite{file: rel, fn: fn, what: what}).key()] = true
+			}
+		}
+	}
+	if len(found) == 0 {
+		t.Fatal("no spawn site found: the test would pass over nothing")
+	}
+	pinned := map[string]bool{}
+	for _, s := range spawnSites {
+		pinned[s.key()] = true
+		switch {
+		case !found[s.key()]:
+			t.Errorf("%s: pinned but not found; remove the entry if the code moved", s.key())
+		case s.wrappedIn != "" && !wraps[s.file+" "+s.wrappedIn]:
+			t.Errorf("%s: must be wrapped by %s, which no longer calls Wrap (the child would run without the Unix-socket filter)", s.key(), s.wrappedIn)
+		case s.wrappedIn == "" && s.reason == "":
+			t.Errorf("%s: an unwrapped site needs a reason", s.key())
+		}
+	}
+	for k := range found {
+		if !pinned[k] {
+			t.Errorf("%s: a new way to start a program; add it to spawnSites with wrappedIn or a reason (a child of the service must be filtered, or unreachable by the agent)", k)
+		}
+	}
+}
+
+func TestTheSpawnScanSeesTheWaysToStartAProgram(t *testing.T) {
+	cases := map[string]string{
+		"exec.Command":     `package s; import "os/exec"; func f() { exec.Command("ls") }`,
+		"aliased":          `package s; import e "os/exec"; func f() { e.CommandContext(nil, "ls") }`,
+		"as a value":       `package s; import "os/exec"; var c = exec.Command`,
+		"syscall.ForkExec": `package s; import "syscall"; func f() { syscall.ForkExec("x", nil, nil) }`,
+		"os.StartProcess":  `package s; import "os"; func f() { os.StartProcess("x", nil, nil) }`,
+		"AgentCommand":     `package s; import "llm-proxy/internal/platform/process"; func f() { process.AgentCommand(nil, "ls") }`,
+	}
+	for name, src := range cases {
+		uses, err := spawnUses("x.go", src)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		n := 0
+		for _, u := range uses {
+			n += len(u.spawns)
+		}
+		if n != 1 {
+			t.Errorf("%s: want one spawn, got %d", name, n)
+		}
+	}
+	fine := `package s; import "os/exec"; func f(c *exec.Cmd) error { return c.Run() }`
+	if uses, err := spawnUses("x.go", fine); err != nil || len(uses["f"].spawns) != 0 {
+		t.Errorf("running a command someone else built is not a new spawn site: %v %v", uses, err)
+	}
+	if uses, _ := spawnUses("x.go", `package s; func g(p interface{ Wrap() }) { p.Wrap() }`); !uses["g"].wraps {
+		t.Error("a call to Wrap must be seen")
+	}
+}
+
+// The privileged helper's pieces are importable only where ADR-0034 says (design section 10, test 1): the grant store (which mints) and the
+// port are the composition root's; the client is the root's and the port's; the fake helper is for tests; the catalogue is read by the
+// helper packages, the root and the route handler that decodes a privileged route's body. Nothing else in the service imports them, so no
+// tool, assistant or automation code can reach the helper or mint a grant. Stacks cannot import any of them: they are in another module.
+const privhelperPath = module + "/internal/platform/privhelper"
+
+var privhelperImporters = map[string][]string{
+	privhelperPath + "/grant":      {appPath},
+	privhelperPath + "/port":       {appPath},
+	privhelperPath + "/client":     {appPath, privhelperPath + "/port"},
+	privhelperPath + "/helpertest": {},
+	privhelperPath + "/helper":     {helperCmdPath},
+	privhelperPath + "/catalog": {appPath, module + "/internal/transport/http", helperCmdPath,
+		privhelperPath + "/client", privhelperPath + "/port", privhelperPath + "/helpertest", privhelperPath + "/helper"},
+}
+
+// The helper binary and its package run with privilege, so they import only an allowlist (design section 5, fitness test 2): the file jail,
+// the program runner, the scan scope, the catalogue, the wire protocol and the helper package itself, plus the standard library and the
+// kernel interface package. Anything else is a way for unreviewed code to run as the helper.
+const helperCmdPath = module + "/cmd/llm-proxy-helper"
+
+var helperAllowed = []string{
+	module + "/internal/platform/isolation",
+	module + "/internal/platform/progexec",
+	module + "/internal/platform/scanscope",
+	privhelperPath + "/catalog",
+	privhelperPath + "/wire",
+	privhelperPath + "/helper",
+	"golang.org/x/sys/unix",
+}
+
+// helperImportViolations lists the imports of the helper binary and its package that are neither standard library nor allowed.
+func helperImportViolations(p pkg) []string {
+	if p.ImportPath != helperCmdPath && p.ImportPath != privhelperPath+"/helper" {
+		return nil
+	}
+	var bad []string
+	for _, imp := range p.Imports {
+		if !isStdlib(imp) && !slices.Contains(helperAllowed, imp) {
+			bad = append(bad, p.ImportPath+" imports "+imp+", which is not on the privileged helper's allowlist")
+		}
+	}
+	return bad
+}
+
+// privhelperImportViolations lists the production imports of a privileged-helper package that are not allowed. Test files are not
+// production code: a test may build a store or a fake to exercise the code it is testing.
+func privhelperImportViolations(p pkg) []string {
+	var bad []string
+	for _, imp := range p.Imports {
+		allowed, guarded := privhelperImporters[imp]
+		if guarded && !slices.Contains(allowed, p.ImportPath) {
+			bad = append(bad, p.ImportPath+" imports "+imp+"; only "+strings.Join(allowed, ", ")+" may")
+		}
+	}
+	return bad
+}
+
+func TestOnlyTheCompositionRootReachesTheHelperOrMintsAGrant(t *testing.T) {
+	seen := 0
+	for _, p := range listIn(t, backendDir(t)) {
+		if strings.HasPrefix(p.ImportPath, privhelperPath+"/") {
+			seen++
+		}
+		for _, v := range append(privhelperImportViolations(p), helperImportViolations(p)...) {
+			t.Error(v)
+		}
+	}
+	if seen < len(privhelperImporters) {
+		t.Fatalf("found %d privileged-helper packages, want %d: the test would pass over nothing", seen, len(privhelperImporters))
+	}
+}
+
+func TestThePrivilegedHelperRulesRefuseABreach(t *testing.T) {
+	cases := map[string]pkg{
+		"a tool mints a grant":           {ImportPath: module + "/internal/core/tools", Imports: []string{privhelperPath + "/grant"}},
+		"the assistant calls the client": {ImportPath: module + "/internal/core/assistant", Imports: []string{privhelperPath + "/client"}},
+		"a handler uses the port":        {ImportPath: module + "/internal/transport/http/handlers", Imports: []string{privhelperPath + "/port"}},
+		"production uses the fake":       {ImportPath: module + "/internal/app", Imports: []string{privhelperPath + "/helpertest"}},
+		"netaudit reads the catalogue":   {ImportPath: module + "/internal/core/netaudit", Imports: []string{privhelperPath + "/catalog"}},
+	}
+	for name, p := range cases {
+		if len(privhelperImportViolations(p)) == 0 {
+			t.Errorf("%s: not caught", name)
+		}
+	}
+	fine := []pkg{
+		{ImportPath: appPath, Imports: []string{privhelperPath + "/grant", privhelperPath + "/port", privhelperPath + "/client", privhelperPath + "/catalog"}},
+		{ImportPath: module + "/internal/transport/http", Imports: []string{privhelperPath + "/catalog"}},
+		{ImportPath: privhelperPath + "/port", Imports: []string{privhelperPath + "/client", privhelperPath + "/catalog"}},
+		{ImportPath: module + "/internal/core/tools", Imports: []string{"context"}, TestImport: []string{privhelperPath + "/helpertest"}},
+	}
+	for _, p := range fine {
+		if v := privhelperImportViolations(p); len(v) != 0 {
+			t.Errorf("%s: wrongly refused: %v", p.ImportPath, v)
+		}
+	}
+}
+
+func TestTheHelperAllowlistRefusesABreach(t *testing.T) {
+	bad := pkg{ImportPath: helperCmdPath, Imports: []string{"os", "llm-proxy/internal/platform/sandbox", "github.com/x/y"}}
+	if len(helperImportViolations(bad)) != 2 {
+		t.Errorf("both a service package and a third-party package must be refused: %v", helperImportViolations(bad))
+	}
+	fine := pkg{ImportPath: privhelperPath + "/helper", Imports: []string{"net", "golang.org/x/sys/unix", privhelperPath + "/wire", module + "/internal/platform/isolation"}}
+	if v := helperImportViolations(fine); len(v) != 0 {
+		t.Errorf("allowed imports refused: %v", v)
+	}
+	if v := helperImportViolations(pkg{ImportPath: appPath, Imports: []string{"github.com/x/y"}}); len(v) != 0 {
+		t.Errorf("the allowlist is for the helper only: %v", v)
+	}
+}

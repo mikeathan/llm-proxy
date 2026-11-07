@@ -73,6 +73,9 @@ func sandboxEffective(eff sandbox.EffectiveState) *models.SandboxEffective {
 }
 
 func (s *AppContext) UpdateHostSettings(settings models.HostSettings) error {
+	if err := validateHelperActions(settings); err != nil {
+		return err
+	}
 	// Functional + Effective are runtime projections — never persist a read echo
 	// of them (the PUT body may round-trip the GET shape verbatim). Both are
 	// recomputed on every GET from live runtime state.
