@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 )
 
 // Traffic is what a module sends or opens, in the words the screen uses.
@@ -68,6 +69,55 @@ type ToolSpec struct {
 	Schema      json.RawMessage `json:"schema"` // JSON Schema of the arguments
 }
 
+// Access is who may call a route. A route is never public: the core signs every caller in first, and a route cannot lower that. There
+// is no value for "open" (ADR-0033).
+type Access string
+
+// The access levels a route may declare.
+const (
+	// AccessAdmin: a signed-in operator or token. An empty Access means this.
+	AccessAdmin Access = "admin"
+	// AccessStepUp: a write that needs the passphrase again, shortly before (a destructive or outward-facing action).
+	AccessStepUp Access = "step_up"
+)
+
+// RouteSpec declares one HTTP route of a stack as data. The core mounts it under the same method and path, authenticates the caller,
+// checks the access level, and hands the stack a Request; the stack never sees the connection (ADR-0032, plan P3b D5).
+type RouteSpec struct {
+	// Method is GET, POST, PUT, PATCH or DELETE.
+	Method string `json:"method"`
+	// Path is the full path, starting with "/", with {name} wildcards for the parts the stack reads from Request.Params.
+	Path string `json:"path"`
+	// Access defaults to AccessAdmin. A write that needs the passphrase again declares AccessStepUp.
+	Access Access `json:"access,omitempty"`
+}
+
+// Level is the access the route needs: what it declares, or admin when it declares nothing.
+func (r RouteSpec) Level() Access {
+	if r.Access == "" {
+		return AccessAdmin
+	}
+	return r.Access
+}
+
+// Params lists the {name} wildcards of the path, in order.
+func (r RouteSpec) Params() []string {
+	var names []string
+	rest := r.Path
+	for {
+		i := strings.IndexByte(rest, '{')
+		if i < 0 {
+			return names
+		}
+		j := strings.IndexByte(rest[i:], '}')
+		if j < 0 {
+			return names
+		}
+		names = append(names, rest[i+1:i+j])
+		rest = rest[i+j+1:]
+	}
+}
+
 // SettingsSchema names the stack's settings document. The persisted key is the stack's own and does not change when a stack moves.
 type SettingsSchema struct {
 	Key     string `json:"key"`
@@ -84,6 +134,7 @@ type Manifest struct {
 	Actions  []Action       `json:"actions,omitempty"`
 	Modules  []ModuleSpec   `json:"modules"`
 	Tools    []ToolSpec     `json:"tools,omitempty"`
+	Routes   []RouteSpec    `json:"routes,omitempty"`
 	Settings SettingsSchema `json:"settings"`
 	// Requires lists the ports the stack uses; each must be one of the Port* names below.
 	Requires []string `json:"requires"`
@@ -117,6 +168,9 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if err := m.checkTools(); err != nil {
+		return err
+	}
+	if err := m.checkRoutes(); err != nil {
 		return err
 	}
 	for _, p := range m.Requires {
@@ -175,6 +229,27 @@ func (m Manifest) indexModules(layerAt map[string]int) (map[string]ModuleSpec, e
 	}
 	return byID, nil
 }
+
+func (m Manifest) checkRoutes() error {
+	seen := map[string]bool{}
+	for _, rt := range m.Routes {
+		key := rt.Method + " " + rt.Path
+		switch {
+		case !slices.Contains(routeMethods, rt.Method):
+			return fmt.Errorf("manifest %q: route %q has a method that is not one of %v", m.ID, key, routeMethods)
+		case !strings.HasPrefix(rt.Path, "/") || strings.Contains(rt.Path, "//") || strings.Contains(rt.Path, "..") || strings.ContainsAny(rt.Path, "?# "):
+			return fmt.Errorf("manifest %q: route %q needs a clean path starting with /", m.ID, key)
+		case rt.Access != "" && rt.Access != AccessAdmin && rt.Access != AccessStepUp:
+			return fmt.Errorf("manifest %q: route %q has access %q; use %q or %q", m.ID, key, rt.Access, AccessAdmin, AccessStepUp)
+		case seen[key]:
+			return fmt.Errorf("manifest %q: route %q is listed twice", m.ID, key)
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+var routeMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
 func (m Manifest) checkTools() error {
 	seen := map[string]bool{}

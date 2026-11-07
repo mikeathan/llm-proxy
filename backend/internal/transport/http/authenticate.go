@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"llm-proxy/internal/platform/auth"
@@ -123,14 +124,16 @@ func StepUpRoutes() []StepUpRoute { return append([]StepUpRoute(nil), stepUpExac
 // StepUpPrefixes lists the groups whose writes need it.
 func StepUpPrefixes() []string { return append([]string(nil), stepUpPrefixes...) }
 
-func needsStepUp(method, path string) bool {
+func hasRoute(routes []StepUpRoute, method, path string) bool {
+	return slices.Contains(routes, StepUpRoute{Method: method, Path: path})
+}
+
+func needsStepUp(method, path string, extra []StepUpRoute) bool {
 	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
 		return false
 	}
-	for _, r := range stepUpExact {
-		if r.Method == method && r.Path == path {
-			return true
-		}
+	if hasRoute(stepUpExact, method, path) || hasRoute(extra, method, path) {
+		return true
 	}
 	for _, p := range stepUpPrefixes {
 		if strings.HasPrefix(path, p) {
@@ -156,12 +159,18 @@ func publicAPI(method, path string) bool {
 // matter and stays open until the first inference key is made. The UI shell and the webhooks are not touched: the shell holds no data, and a
 // webhook carries its own secret. A store that cannot be read refuses; it never reads as "open".
 func Authenticate(next http.Handler, a Authenticator) http.Handler {
+	return AuthenticateWith(next, a, nil)
+}
+
+// AuthenticateWith is Authenticate with more step-up routes than the core's own table: the writes a stack declares with AccessStepUp
+// (StackStepUpRoutes). They are checked exactly as the table's are.
+func AuthenticateWith(next http.Handler, a Authenticator, stepUp []StepUpRoute) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasPrefix(r.URL.Path, inferencePath):
 			authenticateInference(w, r, next, a)
 		case strings.HasPrefix(r.URL.Path, "/admin/api/"):
-			authenticateAdmin(w, r, next, a)
+			authenticateAdmin(w, r, next, a, stepUp)
 		default:
 			next.ServeHTTP(w, r)
 		}
@@ -181,7 +190,7 @@ func authenticateInference(w http.ResponseWriter, r *http.Request, next http.Han
 	next.ServeHTTP(w, r)
 }
 
-func authenticateAdmin(w http.ResponseWriter, r *http.Request, next http.Handler, a Authenticator) {
+func authenticateAdmin(w http.ResponseWriter, r *http.Request, next http.Handler, a Authenticator, stepUp []StepUpRoute) {
 	if publicAPI(r.Method, r.URL.Path) {
 		next.ServeHTTP(w, r)
 		return
@@ -203,7 +212,7 @@ func authenticateAdmin(w http.ResponseWriter, r *http.Request, next http.Handler
 		WriteJSONError(w, http.StatusUnauthorized, "sign in required")
 		return
 	}
-	if needsStepUp(r.Method, r.URL.Path) && !stepUpAllowed(w, p, sess, a) {
+	if needsStepUp(r.Method, r.URL.Path, stepUp) && !stepUpAllowed(w, p, sess, a) {
 		return
 	}
 	ctx := context.WithValue(r.Context(), principalKey{}, p)
