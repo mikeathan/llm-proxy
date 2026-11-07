@@ -80,6 +80,13 @@ jobs:
         run: go vet ./...
       - name: Complexity gate (<= 12)
         run: go run ./tools/check-complexity/
+      # Each stack module (../stacks/*) builds alone with the workspace off, so it can use only what its go.mod lists:
+      # the compiler, not just internal/archtest, refuses a stack that reaches into the service.
+      - name: Stack modules (build, vet)
+        run: |
+          for d in ../stacks/*/; do
+            (cd "$d" && GOWORK=off go build ./... && GOWORK=off go vet ./...)
+          done
 
   backend:
     name: Backend (test, coverage)
@@ -94,8 +101,16 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
+      # Also runs the stack-boundary fitness functions (Constitution IV.6, internal/archtest)
+      # and the isolation conformance suite: they are ordinary tests. The SDK and stack modules
+      # live outside backend/ and are tested by the step below.
       - name: Test (race + coverage)
         run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+      - name: Stack modules (test, workspace off)
+        run: |
+          for d in ../stacks/*/; do
+            (cd "$d" && GOWORK=off go test ./... -race)
+          done
       - name: Coverage report
         run: |
           set -euo pipefail
@@ -139,14 +154,14 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-  # OS-sandbox conformance matrix (plan §9 T2): the Landlock/Effective probes
-  # must RUN and match the host's real capability — a silent downgrade fails the
-  # job. Both Linux images now ship kernels >= 6.7 (the ubuntu-22.04 image moved
-  # to a 6.8 HWE kernel), so they exercise the ABI v4+ TCP-deny path; macOS
-  # exercises the no-mechanism downgrade. The ABI < v4 filesystem-only network
-  # downgrade is not runnable on hosted runners — it is covered by the unit
-  # tests in landlock_linux_test.go / provider selection. If a runner label is
-  # retired, move the entry — do not drop the coverage.
+  # OS-sandbox conformance (plan §9 T2): the Landlock/Effective probes and the
+  # isolation conformance suite (internal/platform/isolation) must RUN and match
+  # the host's real capability — a silent downgrade fails the job. Both Linux
+  # images ship kernels >= 6.7 (the ubuntu-22.04 image moved to a 6.8 HWE
+  # kernel), so they exercise the ABI v4+ TCP-deny path. The ABI < v4
+  # filesystem-only network downgrade is not runnable on hosted runners — it is
+  # covered by the unit tests in landlock_linux_test.go / provider selection.
+  # If a runner label is retired, move the entry — do not drop the coverage.
   sandbox-conformance:
     name: Sandbox conformance (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -164,9 +179,6 @@ jobs:
           - os: ubuntu-22.04
             expect_fs: landlock
             expect_net_deny: "1"
-          - os: macos-15
-            expect_fs: none
-            expect_net_deny: "0"
     env:
       LLMPROXY_EXPECT_FS: ${{ matrix.expect_fs }}
       LLMPROXY_EXPECT_NET_DENY: ${{ matrix.expect_net_deny }}
@@ -176,8 +188,57 @@ jobs:
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
-      - name: Sandbox probes (Effective must match this host)
-        run: go test ./internal/platform/sandbox/... -v
+      - name: Sandbox probes and isolation conformance (Effective must match this host)
+        run: go test ./internal/platform/sandbox/... ./internal/platform/isolation/... -v
+
+  # The macOS runner pool is small: its queue, not its 40 s of work, was the
+  # reason 6 of the last 30 runs took 11 to 22 minutes (median 4). macOS has no
+  # sandbox mechanism, so only a change to the sandbox, the guarded-program
+  # runner, the isolation library, the child-limits code, the module files or
+  # this workflow can change what it checks. Those PRs (and manual runs) still
+  # run it; every other PR skips it, and a skipped job counts as passed.
+  sandbox-scope:
+    name: Sandbox scope (does this change touch isolation?)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.scope.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2 # the PR merge commit and its first parent (the base)
+      - id: scope
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only HEAD^1 HEAD | grep -E '^(backend/internal/platform/(sandbox|progexec|isolation|process)/|backend/(go\.mod|go\.sum|main\.go)$|\.github/workflows/ci\.yml$)' > /dev/null; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  sandbox-conformance-macos:
+    name: Sandbox conformance (macos-15)
+    needs: sandbox-scope
+    if: needs.sandbox-scope.outputs.relevant == 'true'
+    runs-on: macos-15
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      LLMPROXY_EXPECT_FS: none
+      LLMPROXY_EXPECT_NET_DENY: "0"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Sandbox probes and isolation conformance (Effective must match this host)
+        run: go test ./internal/platform/sandbox/... ./internal/platform/isolation/... -v
 
   frontend:
     name: Frontend (test, coverage, build)

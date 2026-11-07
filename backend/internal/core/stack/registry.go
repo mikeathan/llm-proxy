@@ -6,6 +6,7 @@ package stack
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -18,8 +19,12 @@ const (
 	Agents  StackID = "agents"
 )
 
-// Valid reports whether the id is one of the stacks the platform has.
-func (s StackID) Valid() bool { return s == Network || s == Agents }
+// Valid reports whether the id is well formed: lower-case letters, digits and underscores, starting with a letter. Which stacks exist
+// is decided by what is registered (the manifests and definitions handed to New), so an id that names no registered stack is refused
+// there, when a module is placed on it.
+func (s StackID) Valid() bool { return stackIDPattern.MatchString(string(s)) }
+
+var stackIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
 // Traffic is what a module sends or opens, in the words the screen uses.
 type Traffic string

@@ -2,6 +2,7 @@ package guardrails
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"llm-proxy/internal/core/proxy"
@@ -100,5 +101,31 @@ func TestApproval_KeepsTheToolVisible(t *testing.T) {
 		if name == models.ToolNotifyUser {
 			t.Error("an approved tool stays visible")
 		}
+	}
+}
+
+// MEASURED, not wanted (plan stacks-as-packages P1): an approval passes the exact call before the terminal checks run, so it skips
+// every check after the one that was shown to the user. The prompt names the first failing check (the allow-list); a later check on
+// the same command (the jail's path check) is never shown and never re-run. Today the later check is path_security. The hard gates
+// (network, lock-down) still run first and are not skipped, and a blocked pattern or blocked path is refused as a security boundary
+// before an approval can be asked for.
+func TestApproval_SkipsTheTerminalChecksAfterTheOneTheUserWasShown(t *testing.T) {
+	e := approvalEngine(t, nil, nil)
+	ctx := context.Background()
+	// rm is off the allow-list (shown to the user) and /etc/hosts is outside the jail (never shown).
+	call := terminalCall("rm /etc/hosts")
+
+	err := e.ValidateToolCall(ctx, call, "ws")
+	if err == nil || strings.Contains(err.Error(), "outside") {
+		t.Fatalf("the first failing check must be the allow-list one the user sees, got %v", err)
+	}
+	e.MarkApproved("ws", call)
+	if err := e.ValidateToolCall(ctx, call, "ws"); err != nil {
+		t.Fatalf("an approved call passed the checks after the allow-list: want nil, got %v", err)
+	}
+
+	// The same path on an allowed command is stopped by the jail check alone, which proves the approval is what skipped it above.
+	if err := e.ValidateToolCall(ctx, terminalCall("ls /etc/hosts"), "ws"); err == nil {
+		t.Error("without an approval the jail check must refuse a path outside the workspace")
 	}
 }
