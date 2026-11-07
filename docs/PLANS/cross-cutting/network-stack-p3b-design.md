@@ -58,7 +58,7 @@ A leaf's callers are in `internal/app` (wiring) and in the HTTP handlers. IV.6 a
 
 | Slice | Content | Proves |
 |---|---|---|
-| S1 | SDK `Route` + `Handle`, the core's mount, and the settings-as-data path, shown on the example stack only; measure and record the device-list and findings endpoints before and after (baseline taken here) | routes and settings without Network |
+| S1 (built, section 4c) | SDK `Route` + `Handle`, the core's mount and step-up wiring, shown on the example stack and a test double only; the baseline (section 4b). The settings adapter moved to S2 (finding 3) | routes without Network |
 | S2 | First real vertical: **DNS check** (`dnscheck`, `outsidelookup`, their config, handlers and wiring). Needs only the guard, settings and routes (D9) | guard, errors, routes on real code |
 | S3 | Pure data leaves with handlers: `vulnindex`, `vulnfeed`, `vulnmatch`, `ubuntuoval`, `upnp`, `webprobe`, `dnswire`, `names`, `nearby` | store ownership, per-workspace paths |
 | S4 | Ingest-fed: `routerlog`, `knownbad`, `phonehome`, then `mcast` users | the ingest port |
@@ -82,6 +82,48 @@ Every slice is checked against these, and a slice that fails one is not merged:
 - **No unnecessary complexity.** A port exists only when a stack needs it today. Code that moves is removed from its old place in
   the same slice, so total code does not grow; `go run ./tools/check-complexity/` (now covering `stacks/`) has no new violation; a slice
   that adds more lines of glue than it moves needs its reason written in the PR.
+
+## 4b. Baseline (recorded 2026-11-07, before any Network code moves)
+
+Taken on the owner's development machine (Apple silicon, Go 1.26.2) at `origin/main` f3c98e8b plus the benchmark file; run again after each slice
+on the same machine and write the new figures beside these.
+
+| Measure | How | Baseline |
+|---|---|---|
+| Device list, 200 devices | `go test ./internal/transport/http/handlers -run '^$' -bench Baseline -benchmem -count 5` (`BenchmarkBaseline_DeviceList`) | about 245 to 254 us, 1.48 MB and 1,824 allocations per request |
+| Findings, 500 findings | `BenchmarkBaseline_Findings`, same command | about 273 to 277 us, 586 KB and 2,541 allocations per request |
+| Start-up to the first answer | built binary, `--data` temporary root with `server.bind` on a spare port, polled until `/admin/api/auth/status` answered 200, five runs | 84 to 119 ms |
+
+The two benchmarks go through the handler and its JSON encoding with the tests' fakes; the network and the sign-in check are not in them. Start-up
+needs `settings.yml` at mode 0600 or the program exits at once (my first five runs measured my own timeout).
+
+## 4c. S1 built (2026-11-07, branch `stacks-p3b-design`, PR #203)
+
+- **SDK:** `RouteSpec` (method, path, access), `Request`, `Response`, `Stack.Handle`; the manifest refuses a bad method, an unclean path, an
+  unknown access and a duplicate; `Request` and `Response` pass the plain-data and JSON round-trip tests. There is no "public" access: a route
+  is never open, and an empty access means admin.
+- **Core:** `MountStackRoutes` (`transport/http/stackroutes.go`) mounts each route and maps a stack's error code to the status the core's own handlers use;
+  `AuthenticateWith` takes the step-up routes a stack declares (`StackStepUpRoutes`), so a stack cannot lower its access, and the real middleware
+  is what the test drives. **Not wired into the service yet:** nothing in `internal/app` mounts a stack until S2 has a real one, so these three
+  functions are used only by their tests today (`Authenticate` itself now calls `AuthenticateWith`).
+- **Measured cost of the mount:** for a body-less GET, 19 allocations and 6,162 B per request through the mount and through a hand-written handler,
+  with timings within noise (`BenchmarkStackRoute` against `BenchmarkDirectHandlerForComparison`). With a body, the mount does one `ReadAll` where a handler
+  decoded the body; not measured separately.
+- **Reference stack:** declares `GET /admin/api/example/echo/{text}` and a step-up `PUT /admin/api/example/echo`.
+
+**Findings that refine the design (found by reading, not guessing):**
+
+1. **The core refuses routes it cannot keep safe.** Authentication is a path-keyed middleware over `/admin/api/*` with a public list for the sign-in routes
+   and a step-up table of exact paths that skips reads. So `MountStackRoutes` refuses a route outside `/admin/api/`, under `/admin/api/auth/`, a step-up
+   read (it would protect nothing) and a step-up route with a wildcard (the table matches exact paths); a stack's step-up writes today are all exact.
+   When a Network route moves, its entry leaves `stepUpExact` and the manifest declares it; `app/route_classes_test.go` must then read both sources.
+2. **D8 refined: settings stay typed in the core until the last slice.** The `netaudit:` document is one struct of about 40 fields that every sub-package
+   and handler reads (`AppConfig.Netaudit`, 23 uses, behind `netauditView`), so a slice cannot take only its own fields. And the store decodes
+   `settings.yml` without strict fields, so a key with no field is dropped on save: making it opaque needs an inline map and is the one risky flip.
+   Until the root moves (S6) the core keeps the typed field, and the SDK `Config` port is an adapter that converts to JSON and merges a saved document
+   over the current one (a partial document must not clobber the other fields; its fields carry no `omitempty`). The flip happens once, at S6, with the
+   round-trip test.
+3. **S2 should carry the `Config` adapter**, because DNS check is its first user; building it earlier would be a port with no stack needing it today.
 
 ## 5. Decisions (all accepted 2026-11-07)
 

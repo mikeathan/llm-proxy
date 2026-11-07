@@ -34,6 +34,10 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			Name: ToolEcho, Description: "Return the text given.", Category: "example",
 			Schema: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}`),
 		}},
+		Routes: []stacksdk.RouteSpec{
+			{Method: "GET", Path: "/admin/api/example/echo/{text}"},
+			{Method: "PUT", Path: "/admin/api/example/echo", Access: stacksdk.AccessStepUp},
+		},
 		Settings: stacksdk.SettingsSchema{Key: "example", Version: 1},
 		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog},
 	}
@@ -63,4 +67,23 @@ func (s *Stack) CallTool(_ context.Context, name string, args json.RawMessage) (
 		return nil, stacksdk.Errorf(stacksdk.CodeInvalid, "arguments are not valid JSON")
 	}
 	return json.Marshal(in)
+}
+
+// Handle answers the declared routes: a read that echoes a path value, and a write that echoes its body.
+func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
+	switch req.Method + " " + req.Path {
+	case "PUT /admin/api/example/echo":
+		out, err := s.CallTool(ctx, ToolEcho, req.Body)
+		if err != nil {
+			return stacksdk.Response{}, err
+		}
+		return stacksdk.Response{Status: 200, ContentType: "application/json", Body: out}, nil
+	}
+	if text, ok := req.Params["text"]; ok && req.Method == "GET" {
+		out, err := json.Marshal(struct {
+			Text string `json:"text"`
+		}{text})
+		return stacksdk.Response{Status: 200, ContentType: "application/json", Body: out}, err
+	}
+	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 }

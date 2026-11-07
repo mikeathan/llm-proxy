@@ -161,11 +161,69 @@ func fillKind(v reflect.Value) {
 		}
 		v.Set(reflect.MakeSlice(v.Type(), 1, 1))
 		fill(v.Index(0))
+	case reflect.Map:
+		v.Set(reflect.MakeMap(v.Type()))
+		elem := reflect.New(v.Type().Elem()).Elem()
+		fill(elem)
+		v.SetMapIndex(reflect.ValueOf("k").Convert(v.Type().Key()), elem)
 	case reflect.Struct:
 		for i := range v.NumField() {
 			if v.Type().Field(i).IsExported() {
 				fill(v.Field(i))
 			}
 		}
+	}
+}
+
+// ---- routes ----
+
+func routeManifest(routes ...RouteSpec) Manifest {
+	m := validManifest()
+	m.Routes = routes
+	return m
+}
+
+func TestValidate_RoutesAreCheckedAsData(t *testing.T) {
+	ok := []RouteSpec{
+		{Method: "GET", Path: "/admin/api/example/things"},
+		{Method: "PUT", Path: "/admin/api/example/things/{id}", Access: AccessStepUp},
+		{Method: "POST", Path: "/admin/api/example/things", Access: AccessAdmin},
+	}
+	if err := routeManifest(ok...).Validate(); err != nil {
+		t.Fatalf("valid routes refused: %v", err)
+	}
+	bad := map[string][]RouteSpec{
+		"no method":        {{Path: "/a"}},
+		"unknown method":   {{Method: "TRACE", Path: "/a"}},
+		"no leading slash": {{Method: "GET", Path: "a"}},
+		"dot dot":          {{Method: "GET", Path: "/a/../b"}},
+		"double slash":     {{Method: "GET", Path: "/a//b"}},
+		"query in path":    {{Method: "GET", Path: "/a?x=1"}},
+		"unknown access":   {{Method: "GET", Path: "/a", Access: "public"}},
+		"duplicate":        {{Method: "GET", Path: "/a"}, {Method: "GET", Path: "/a", Access: AccessStepUp}},
+	}
+	for name, routes := range bad {
+		if err := routeManifest(routes...).Validate(); err == nil {
+			t.Errorf("%s: a manifest with these routes must be refused", name)
+		}
+	}
+}
+
+func TestRoute_AnEmptyAccessIsAdminNeverLess(t *testing.T) {
+	if got := (RouteSpec{}).Level(); got != AccessAdmin {
+		t.Errorf("empty access = %q, want %q", got, AccessAdmin)
+	}
+	if got := (RouteSpec{Access: AccessStepUp}).Level(); got != AccessStepUp {
+		t.Errorf("step_up = %q", got)
+	}
+}
+
+func TestPathParams_ListsTheWildcardsOfAPattern(t *testing.T) {
+	got := RouteSpec{Method: "GET", Path: "/a/{mac}/b/{id}"}.Params()
+	if len(got) != 2 || got[0] != "mac" || got[1] != "id" {
+		t.Errorf("params = %v", got)
+	}
+	if len(RouteSpec{Method: "GET", Path: "/a/b"}.Params()) != 0 {
+		t.Error("a path without wildcards has no params")
 	}
 }

@@ -9,5 +9,8 @@
 // without its callers changing. Two ports are capabilities rather than data and say so: Guard.DialContext returns a live
 // connection, because there is no other way to open one, and it is the only way a stack may dial (Constitution I.1 to I.3).
 //
+// A stack also declares its HTTP routes as data (RouteSpec) and answers each with a plain-data Request and Response through Stack.Handle;
+// the core signs the caller in, checks the route's access level, and a route can only raise it (AccessStepUp), never lower it.
+//
 // The sandbox is core (ADR-0033). The Isolation port has no field that relaxes it, and no manifest field declares a privilege.
 package stacksdk

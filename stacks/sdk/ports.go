@@ -29,6 +29,28 @@ type Stack interface {
 	ConfigChanged(ctx context.Context) error
 	// CallTool runs the declared tool with JSON arguments and returns JSON. Failures are an *Error.
 	CallTool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
+	// Handle answers one request on a route the manifest declares. A failure the caller should see as a refusal is an *Error; the Response
+	// carries every ordinary answer, including a 4xx.
+	Handle(ctx context.Context, req Request) (Response, error)
+}
+
+// Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
+type Request struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	// Query is the raw query string, without the "?".
+	Query string `json:"query,omitempty"`
+	// Params are the values of the route's {name} wildcards.
+	Params      map[string]string `json:"params,omitempty"`
+	ContentType string            `json:"content_type,omitempty"`
+	Body        []byte            `json:"body,omitempty"`
+}
+
+// Response is a stack's answer to a Request.
+type Response struct {
+	Status      int    `json:"status"`
+	ContentType string `json:"content_type,omitempty"`
+	Body        []byte `json:"body,omitempty"`
 }
 
 // Config gives a stack its settings document as JSON. The stack re-reads it when the core calls Stack.ConfigChanged and never reaches
@@ -126,5 +148,5 @@ type Isolation interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}}
+	return []any{Manifest{}, Event{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}}
 }
