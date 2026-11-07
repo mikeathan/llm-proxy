@@ -59,7 +59,7 @@ A leaf's callers are in `internal/app` (wiring) and in the HTTP handlers. IV.6 a
 | Slice | Content | Proves |
 |---|---|---|
 | S1 (built, section 4c) | SDK `Route` + `Handle`, the core's mount and step-up wiring, shown on the example stack and a test double only; the baseline (section 4b). The settings adapter moved to S2 (finding 3) | routes without Network |
-| S2 | First real vertical: **DNS check** (`dnscheck`, `outsidelookup`, their config, handlers and wiring). Needs only the guard, settings and routes (D9) | guard, errors, routes on real code |
+| S2 | First real vertical: **DNS check** with `outsidelookup` (section 4d: a `Fetch` port, the `Config` adapter, module status, reset and lifecycle, stack-owned types and file, routes), one PR | fetch, config, status and routes on real code |
 | S3 | Pure data leaves with handlers: `vulnindex`, `vulnfeed`, `vulnmatch`, `ubuntuoval`, `upnp`, `webprobe`, `dnswire`, `names`, `nearby` | store ownership, per-workspace paths |
 | S4 | Ingest-fed: `routerlog`, `knownbad`, `phonehome`, then `mcast` users | the ingest port |
 | S5 | Programs: `nmap`, `portprobe`, `scantool`, `wifilook` (isolation, the `nmcli` Unix-socket table entry, the agent tool and prompt fragment) | isolation port and tools |
@@ -124,6 +124,37 @@ needs `settings.yml` at mode 0600 or the program exits at once (my first five ru
    over the current one (a partial document must not clobber the other fields; its fields carry no `omitempty`). The flip happens once, at S6, with the
    round-trip test.
 3. **S2 should carry the `Config` adapter**, because DNS check is its first user; building it earlier would be a port with no stack needing it today.
+
+## 4d. S2 read before building (2026-11-07): DNS check is a bigger first slice than assumed
+
+Read: `core/netaudit/dnscheck` (2 files, 265 lines), `outsidelookup` (3 files, about 160), `dnscheckconfig.go` (156), `dnscollector.go` (261),
+the handler (94), `persistence/networkdns.go`, and the wiring in `app/netaudit_alerts.go`, `netaudit.go`, `netaudit_monitor.go`, `stacks.go`, `routes.go`.
+It is still the smallest real vertical, but it needs six things the SDK and the core do not have yet, so S2 is one PR with these parts, in this order:
+
+| Part | Why DNS check needs it | Shape |
+|---|---|---|
+| 1. `Fetch` port | `dnscheck`'s outside resolver and `outsidelookup` make guarded HTTPS GETs through `NetworkTools.Open*`, which checks the internet boundary, redirects, size and status; the SDK `Guard` offers only `DialContext`, which would make the stack re-implement those checks | plain data: `FetchRequest{URL, Accept, MaxBytes}` to `FetchResponse{Status, Body}`; the core adapter calls `NetworkTools` and reads the body once, as the callers do today; refusals become `denied` and `unavailable` codes |
+| 2. `Config` adapter | the switch, interval, names, server and resolver address are fields of the typed `models.NetauditConfig` (D8 refinement 2) | the core converts to JSON and merges a saved document over the current one; the stack's fields carry no `omitempty` |
+| 3. Module status | the stalled-monitor view reads `DNSCollector.Status()` and the settings (`dnsReading`); the registry reads the switch and "ready" | a stack call returning plain data per module: enabled, last run, problem |
+| 4. Reset and lifecycle | the log is registered for factory reset (`withReset`) and the collector's loop starts with the app | a stack call to delete its stored data; `Start(ctx, host)` runs the collector under the app's context |
+| 5. Stack-owned types and file | `models.DNSComparison` and its constants, `DNSSettings`, `DNSStatus`, `DNSSummary` leave `models` and the root; the log is one file in the data folder (`network-dns-checks.json`) | same JSON tags, same file name and place (D7: paths unchanged), so an existing log reads unchanged |
+| 6. Routes | `GET` and `PUT /admin/api/netaudit/dns-check`; the PUT is already in the step-up table | declared in the manifest (the PUT as `step_up`); its table entry moves to the manifest and `route_classes_test.go` reads both |
+
+**What stays behind, and the new debt.** `outsidelookup` moves with `dnscheck` (it supplies an error value and a URL validator to it), but the root
+`netaudit` (`exposure.go`, `outsidelookupconfig.go`) still uses it, so `migrationDebt` gains one pair (`core/netaudit` to `network/outsidelookup`).
+The one `app` file that builds the `outsidelookup` client moves into `app/stacks.go`, since only the composition root may import a stack. The outside
+lookup's own handler, settings and exposure view stay for their own slice.
+
+**Open item D10 (small).** D7 says paths stay as they are, and the DNS log sits directly in the application's data folder, not in a folder of its own.
+Recommendation: the Network stack's `DataDir` is the data folder, and the stack touches only its named files; the alternative (a `network/`
+subfolder plus a one-time rename at start-up) is a migration with a failure mode and buys nothing the boundary needs yet.
+
+**Cost expectation.** Nothing on this path is hot: the collector runs every 15 to 360 minutes, and the page reads one small summary. The only per-call
+additions are the `Fetch` adapter (one body read, as today) and the route mount measured in 4c. The baselines in 4b do not touch DNS, so they are
+re-run to show nothing else moved.
+
+**Where S2 stops being safe to push in a series:** part 1 to 4 add SDK and core code with no user until part 5 and 6 land, so they ship together in one PR,
+with the move deleting the old code in the same change.
 
 ## 5. Decisions (all accepted 2026-11-07)
 
