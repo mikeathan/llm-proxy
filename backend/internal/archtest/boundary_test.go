@@ -723,14 +723,13 @@ var privhelperImporters = map[string][]string{
 }
 
 // The helper binary and its package run with privilege, so they import only an allowlist (design section 5, fitness test 2): the file jail,
-// the program runner, the scan scope, the catalogue, the wire protocol and the helper package itself, plus the standard library and the
+// the program runner, the catalogue, the wire protocol and the helper package itself, plus the standard library and the
 // kernel interface package. Anything else is a way for unreviewed code to run as the helper.
 const helperCmdPath = module + "/cmd/llm-proxy-helper"
 
 var helperAllowed = []string{
 	module + "/internal/platform/isolation",
 	module + "/internal/platform/progexec",
-	module + "/internal/platform/scanscope",
 	privhelperPath + "/catalog",
 	privhelperPath + "/wire",
 	privhelperPath + "/helper",

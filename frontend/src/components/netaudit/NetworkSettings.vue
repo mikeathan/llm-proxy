@@ -11,6 +11,7 @@ import OutsideLookupCard from "./OutsideLookupCard.vue"
 import DnsCheckCard from "./DnsCheckCard.vue"
 import NearbyCard from "./NearbyCard.vue"
 import WifiCard from "./WifiCard.vue"
+import HelperCard from "./HelperCard.vue"
 import { SETTINGS_EXTRAS_TITLE, SETTINGS_SAVES_AT_ONCE, SETTINGS_WATCHING_TITLE } from "../../constants/netaudit"
 
 // Network · Settings: the limits and details of the Network page in one place: what may be scanned, how the checks are doing, the
@@ -37,6 +38,7 @@ const GROUP_HEADING = "m-0 font-mono text-[length:var(--text-micro)] font-medium
       <DnsCheckCard />
       <NearbyCard />
       <WifiCard />
+      <HelperCard />
       <KnownBadCard />
     </section>
 

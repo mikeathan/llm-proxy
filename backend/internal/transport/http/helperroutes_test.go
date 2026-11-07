@@ -155,3 +155,92 @@ func TestAFullGrantStoreAnswersUnavailable(t *testing.T) {
 		t.Errorf("%d, %d runs", rec.Code, len(run.got))
 	}
 }
+
+func helperStatusOf(t *testing.T, src HelperSource) HelperStatus {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	HelperStatusHandler(src).ServeHTTP(rec, httptest.NewRequest("GET", "/admin/api/helper", nil))
+	var st HelperStatus
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &st) != nil {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	return st
+}
+
+func source() HelperSource {
+	return HelperSource{
+		Supported: func() bool { return true }, Installed: func() bool { return true }, Interlock: func() error { return nil },
+		Gates:    func() ([]string, bool) { return []string{"scan_udp"}, true },
+		Declared: func() []string { return []string{"192.168.50.0/24"} }, On: func(id string) bool { return id == "scan_udp" },
+	}
+}
+
+func TestHelperStatus_NotInstalledSaysSoAndNamesTheCommand(t *testing.T) {
+	src := source()
+	src.Installed = func() bool { return false }
+	st := helperStatusOf(t, src)
+	if st.Installed || st.Ready || st.NotReady == "" || st.InstallCommand != HelperInstallCommand || st.HelpPath == "" {
+		t.Errorf("%+v", st)
+	}
+	if len(st.Actions) != len(catalog.All()) {
+		t.Fatalf("every catalogue action is listed, got %d", len(st.Actions))
+	}
+	for _, a := range st.Actions {
+		if a.Installed != nil {
+			t.Errorf("%s: installed must be unknown (null) when no helper is there", a.ID)
+		}
+	}
+}
+
+func TestHelperStatus_UnsupportedAndUnsafeHostsAreNotReady(t *testing.T) {
+	src := source()
+	src.Supported = func() bool { return false }
+	if st := helperStatusOf(t, src); st.Supported || st.Ready || !strings.Contains(st.NotReady, "Linux") {
+		t.Errorf("%+v", st)
+	}
+	src = source()
+	src.Interlock = func() error { return context.Canceled }
+	if st := helperStatusOf(t, src); !st.Installed || st.Ready || !strings.Contains(st.NotReady, "sandbox") {
+		t.Errorf("%+v", st)
+	}
+}
+
+func TestHelperStatus_ReadyReportsTheSwitchesAndTheRanges(t *testing.T) {
+	st := helperStatusOf(t, source())
+	if !st.Ready || st.NotReady != "" {
+		t.Fatalf("%+v", st)
+	}
+	byID := map[string]HelperAction{}
+	for _, a := range st.Actions {
+		byID[a.ID] = a
+	}
+	if !byID["scan_udp"].On || byID["os_detect"].On {
+		t.Errorf("the switches are the operator's setting: %+v", byID)
+	}
+	if in := byID["scan_udp"].Installed; in == nil || !*in {
+		t.Errorf("scan_udp is in the install's list: %+v", byID["scan_udp"])
+	}
+	if in := byID["os_detect"].Installed; in == nil || *in {
+		t.Errorf("os_detect is not in the install's list: %+v", byID["os_detect"])
+	}
+}
+
+func TestHelperStatus_DeclaredRangesAreSortedAndNeverNull(t *testing.T) {
+	src := source()
+	src.Declared = func() []string { return []string{"192.168.50.0/24", "10.0.0.0/8", "192.168.50.0/24"} }
+	if st := helperStatusOf(t, src); !slices.Equal(st.DeclaredRanges, []string{"10.0.0.0/8", "192.168.50.0/24"}) {
+		t.Errorf("%v", st.DeclaredRanges)
+	}
+	src.Declared = func() []string { return nil }
+	rec := httptest.NewRecorder()
+	HelperStatusHandler(src).ServeHTTP(rec, httptest.NewRequest("GET", "/admin/api/helper", nil))
+	if !strings.Contains(rec.Body.String(), `"declared_ranges":[]`) {
+		t.Errorf("no ranges must encode as a list, not null: %s", rec.Body)
+	}
+	src.Gates = func() ([]string, bool) { return nil, false }
+	for _, a := range helperStatusOf(t, src).Actions {
+		if a.Installed != nil {
+			t.Errorf("%s: an unreadable install list must read as unknown", a.ID)
+		}
+	}
+}

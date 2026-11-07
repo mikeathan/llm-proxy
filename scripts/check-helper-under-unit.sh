@@ -4,7 +4,7 @@
 #
 #   sudo scripts/check-helper-under-unit.sh --bin ./llm-proxy-helper --target 192.168.50.1
 #
-# Expect: A ok with real nmap output; B and C refused "scope"; D refused "disabled"; E (a child of the main process, same account and cgroup)
+# Expect: A ok with real nmap output; B and C refused "scope" (a public address, loopback: the helper's own fixed rule); D refused "disabled"; E (a child of the main process, same account and cgroup)
 # refused "caller". Then the helper's units, binary and the test account are removed. It refuses to run when the helper is already installed (it
 # would replace your real units); uninstall first with scripts/install-helper.sh net --uninstall. Only the target gets packets: two UDP ports.
 set -euo pipefail
@@ -61,7 +61,7 @@ req = lambda t: {"v": 1, "id": "t1", "action": "scan_udp", "params": {"target": 
 if sys.argv[1] == "main":
     print("A. main process, target in scope  :", json.dumps(call(req(target))))
     print("B. main process, a public target  :", json.dumps(call(req("8.8.8.8"))))
-    print("C. main process, outside the scope:", json.dumps(call(req("192.168.77.5"))))
+    print("C. main process, loopback address :", json.dumps(call(req("127.0.0.1"))))
     print("D. main process, action switched off:", json.dumps(call({"v": 1, "id": "t1", "action": "os_detect", "params": {"target": target}})))
     print("E. a child of the main process    :", subprocess.run([sys.executable, __file__, "child", target], capture_output=True, text=True).stdout.strip())
 else:
@@ -69,6 +69,6 @@ else:
 PY
 cp "$BIN" "$WORK/helper"; chmod 755 "$WORK/helper" "$WORK/client.py"
 groupadd -r "$GROUP"; useradd -r -g "$GROUP" -s /usr/sbin/nologin "$USERN"
-"$HERE/install-helper.sh" net --install --actions scan_udp --scope "$TARGET/32" --bin "$WORK/helper" --group "$GROUP" --service-unit "$UNIT" >/dev/null
+"$HERE/install-helper.sh" net --install --actions scan_udp --bin "$WORK/helper" --group "$GROUP" --service-unit "$UNIT" >/dev/null
 systemd-run --unit "${UNIT%.service}" --uid "$USERN" --gid "$GROUP" --wait --pipe --quiet -p KillMode=control-group python3 "$WORK/client.py" main "$TARGET"
 echo; echo "journal (what the helper logged):"; journalctl --no-pager -o cat -t llm-proxy-helper -u 'llm-proxy-helper-net@*' --since "-2min" 2>/dev/null | grep -E "level=|refused" | tail -5 || true

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"llm-proxy-stacks/sdk"
 
@@ -56,4 +57,100 @@ func HelperHandler(action string, minter GrantMinter, run stacksdk.Privileged, o
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(HelperResult{Kind: res.Kind, Data: res.Data, Truncated: res.Truncated})
 	}
+}
+
+// HelperAction is one action of the catalogue as the Network page shows it.
+type HelperAction struct {
+	ID string `json:"id"`
+	// On is the operator's switch (sandboxing.helper_actions).
+	On bool `json:"on"`
+	// Installed is whether the root-owned list the install wrote names the action; null when no helper is installed.
+	Installed *bool `json:"installed"`
+}
+
+// HelperStatus is what the Network page needs to say plainly where the privileged helper stands and what to do next. It reports; the
+// operator's root command installs (the service can never install or widen it).
+type HelperStatus struct {
+	// Supported is false on a host that has no helper (only Linux with systemd does).
+	Supported bool `json:"supported"`
+	// Installed is true when the helper's socket exists.
+	Installed bool `json:"installed"`
+	// Ready is true when a call could start: installed, and the sandbox reports file confinement and Unix-socket denial.
+	Ready bool `json:"ready"`
+	// NotReady says why in one plain sentence when it is not.
+	NotReady string         `json:"not_ready,omitempty"`
+	Actions  []HelperAction `json:"actions"`
+	// DeclaredRanges are the scan ranges in the Network settings: the service holds every helper call to them, and the helper holds no
+	// range of its own, so nothing here needs the command line.
+	DeclaredRanges []string `json:"declared_ranges"`
+	// InstallCommand and HelpPath are what to run and where to read, shown when the helper is not installed.
+	InstallCommand string `json:"install_command"`
+	HelpPath       string `json:"help_path"`
+}
+
+// HelperInstallCommand is the one command that installs the helper, and HelperHelpPath the page that explains it.
+const (
+	HelperInstallCommand = "sudo ./setup.sh --install --build --unattended --helper"
+	HelperHelpPath       = "docs/service_setup.md#privileged-helper-optional-linux-off-by-default"
+)
+
+// HelperSource is where the status comes from; the composition root builds it from the sandbox, the settings and the install's drop-in.
+type HelperSource struct {
+	Supported func() bool
+	Installed func() bool
+	// Interlock is nil when the sandbox enforces what a call needs.
+	Interlock func() error
+	// Gates returns the actions the install's root-owned list names; ok is false when it cannot be read.
+	Gates func() (actions []string, ok bool)
+	// Declared returns the scan ranges in the Network settings.
+	Declared func() []string
+	On       func(action string) bool
+}
+
+// HelperStatusHandler answers GET /admin/api/helper.
+func HelperStatusHandler(src HelperSource) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(src.status())
+	}
+}
+
+func (src HelperSource) status() HelperStatus {
+	st := HelperStatus{
+		Supported: src.Supported(), Installed: src.Installed(), Actions: []HelperAction{},
+		DeclaredRanges: normaliseRanges(src.Declared()), InstallCommand: HelperInstallCommand, HelpPath: HelperHelpPath,
+	}
+	allowed, gates := src.Gates()
+	for _, a := range catalog.All() {
+		act := HelperAction{ID: a.ID, On: src.On(a.ID)}
+		if st.Installed && gates {
+			in := slices.Contains(allowed, a.ID)
+			act.Installed = &in
+		}
+		st.Actions = append(st.Actions, act)
+	}
+	switch {
+	case !st.Supported:
+		st.NotReady = "The privileged helper needs Linux with systemd."
+	case !st.Installed:
+		st.NotReady = "The privileged helper is not installed."
+	default:
+		if err := src.Interlock(); err != nil {
+			st.NotReady = "The sandbox is not enforcing file confinement and Unix-socket denial, so the service will not call the helper."
+		} else {
+			st.Ready = true
+		}
+	}
+	return st
+}
+
+// normaliseRanges sorts and de-duplicates, and never returns nil, so two lists with the same ranges compare equal and encode as [].
+func normaliseRanges(in []string) []string {
+	out := slices.Clone(in)
+	slices.Sort(out)
+	out = slices.Compact(out)
+	if out == nil {
+		return []string{}
+	}
+	return out
 }

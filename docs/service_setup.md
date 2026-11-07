@@ -189,19 +189,44 @@ journalctl -u llm-proxy.service -f
 
 Some network checks (UDP scans, OS detection) need a raw-packet capability the service deliberately does not have. The privileged helper is a
 separate, short-lived process that runs a fixed list of those actions for the service and nothing else (ADR-0034, Constitution I.11). It is
-three gates, all off until you turn them on: you install its units (root), you turn each action on in Settings (needs your passphrase), and the
-install writes a root-owned list of the actions and of the scan ranges it may touch, which the service cannot change. The helper answers only
-the service's main process: another process of the same account, such as the assistant's terminal, is refused.
+three gates, all off until you turn them on: you install its units (root), you turn each action on (needs your passphrase), and the install
+writes a root-owned list of the actions it allows, which the service cannot change. The helper answers only the
+service's main process: another process of the same account, such as the assistant's terminal, is refused. `kernel.yama.ptrace_scope` must not
+be 0; install and helper both refuse while it is.
 
+**1. Install: your usual command plus one word, once.**
 ```bash
-cd backend && go build -o llm-proxy-helper ./cmd/llm-proxy-helper
-# Try it first, on any Linux host with systemd and nmap (installs throw-away units, removes them afterwards; aim it at one device of yours):
-sudo ../scripts/check-helper-under-unit.sh --bin ./llm-proxy-helper --target 192.168.50.1
-# Install for real (the group is the service's group; the scope is the ranges the helper may scan):
-sudo ../scripts/install-helper.sh net --install --actions scan_udp,os_detect --scope 192.168.50.0/24 --bin ./llm-proxy-helper --group llm-proxy
-sudo ../scripts/install-helper.sh net --uninstall   # removes the units, the drop-in and the binary
+sudo ./setup.sh --install --build --unattended --helper
 ```
-It refuses to install, and the helper refuses every call, while `kernel.yama.ptrace_scope` is 0.
+Both actions (`scan_udp`, `os_detect`) are installed, and each stays off until you turn it on with your passphrase (step 2). The helper scans
+only the ranges you declared in the Network settings (Network, Settings, "What may be scanned"): the service holds every call to them, a change
+there applies at once, and while none is declared nothing can be scanned. `--helper` is remembered: later `--install --build --unattended` runs
+keep the helper and refresh its binary.
+`sudo ./setup.sh --install --unattended --no-helper` removes only the helper; `--uninstall` removes it with the service. Every build also compiles
+`backend/llm-proxy-helper`; building installs nothing. Without `setup.sh`: `sudo scripts/install-helper.sh net --install --bin backend/llm-proxy-helper --group llm-proxy` (`--actions` defaults to all).
+
+**Try it first** on any Linux host with systemd and nmap, before the real install (installs throw-away units for a test service, removes them
+afterwards; aim it at one device of yours):
+```bash
+sudo scripts/check-helper-under-unit.sh --bin backend/llm-proxy-helper --target 192.168.50.10
+```
+Expect `A` ok with nmap's report, `B` and `C` refused `scope`, `D` refused `disabled`, `E` (a child of the main process) refused `caller`.
+
+**2. Turn an action on.** Open the admin interface, Network, Settings, **Privileged helper**. The card says where the helper stands (not
+installed, not ready and why, or ready), shows the ranges it will scan (the ones declared above it), and has one switch per action. Turning one on asks for your passphrase. The card
+never installs the helper: a root command does, on purpose, so a compromised service cannot.
+
+To run a scan there is no button yet. In the signed-in admin page, open the browser console and paste (the passphrase prompt appears; step-up lasts 5 minutes):
+```js
+const r = await fetch('/admin/api/helper/scan_udp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:'192.168.50.10',ports:[53,161]})});
+const j = await r.json(); console.log(r.status, j.data ? atob(j.data) : j)
+```
+If it answers 403 `reauth_required`, confirm your passphrase first:
+`await fetch('/admin/api/auth/reauth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:prompt('passphrase')})}).then(r=>r.json())`.
+
+**3. Check the assistant's terminal is refused:** ask the assistant to run
+`python3 -c "import socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/llm-proxy-helper-net.sock')"`: expect a permission error and no connection.
+The helper's log: `sudo journalctl -u 'llm-proxy-helper-net@*' --since -15min`.
 
 ## macOS (launchd daemon, dedicated user)
 

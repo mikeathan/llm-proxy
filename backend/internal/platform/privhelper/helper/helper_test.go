@@ -13,7 +13,6 @@ import (
 	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/wire"
-	"llm-proxy/internal/platform/scanscope"
 )
 
 const (
@@ -68,7 +67,6 @@ func (r *rig) helper(t *testing.T, actions ...string) *Helper {
 	t.Helper()
 	h, err := New(Config{
 		Class: catalog.ClassNet, Actions: actions, Capability: CapNetRaw,
-		Scope:    scanscope.PolicyFromCIDRs([]string{"192.168.50.0/24"}),
 		Programs: map[string]isolation.Program{"nmap": {Name: "nmap", Binary: "nmap"}},
 		DataDirs: []string{"/definitely/not/a/dir", t.TempDir()},
 		Runner:   r, Ambient: r,
@@ -167,7 +165,6 @@ func TestAnActionThatIsNotAllowedHereIsRefused(t *testing.T) {
 		"an empty list":               {nil, scanBody, wire.CodeDisabled},
 		"an unknown action":           {[]string{"scan_udp"}, `{"v":1,"id":"r1","action":"rm_rf","params":{}}`, wire.CodeUnknown},
 		"outside the catalogue scope": {[]string{"scan_udp"}, `{"v":1,"id":"r1","action":"scan_udp","params":{"target":"8.8.8.8","ports":[53]}}`, wire.CodeScope},
-		"private but not declared":    {[]string{"scan_udp"}, `{"v":1,"id":"r1","action":"scan_udp","params":{"target":"192.168.1.5","ports":[53]}}`, wire.CodeScope},
 		"malformed parameters":        {[]string{"scan_udp"}, `{"v":1,"id":"r1","action":"scan_udp","params":{"target":"192.168.50.10","ports":[53],"x":1}}`, wire.CodeInvalid},
 		"not a valid request":         {[]string{"scan_udp"}, `hello`, wire.CodeInvalid},
 	}
@@ -183,12 +180,15 @@ func TestAnActionThatIsNotAllowedHereIsRefused(t *testing.T) {
 	}
 }
 
-func TestNothingIsScannedWhenNoRangeWasDeclared(t *testing.T) {
+// The helper's own scope is the catalogue's fixed rule (one private IPv4 host). The operator's declared ranges are enforced by the service
+// before it asks, so the helper holds no range of its own: a root-held copy would only be copied from a file the service can write.
+func TestAnyPrivateHostIsAcceptedBecauseTheServiceEnforcesTheDeclaredRanges(t *testing.T) {
 	r := newRig()
-	h := r.helper(t, "scan_udp")
-	h.cfg.Scope = scanscope.Policy{}
-	if resp := call(t, h, scanBody); resp.Code != wire.CodeScope {
-		t.Errorf("got %+v", resp)
+	for _, target := range []string{"192.168.1.5", "10.9.9.9", "172.20.0.4"} {
+		body := `{"v":1,"id":"r1","action":"scan_udp","params":{"target":"` + target + `","ports":[53]}}`
+		if resp := call(t, r.helper(t, "scan_udp"), body); resp.Status != wire.StatusOK {
+			t.Errorf("%s: %+v", target, resp)
+		}
 	}
 }
 

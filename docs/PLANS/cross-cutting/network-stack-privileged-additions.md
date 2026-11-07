@@ -56,7 +56,7 @@ terminal could run a privileged `nmap`. That contradicts "manual, not the agent"
    class (which unit runs it), a scope check, and time and rate caps. A new action is a core code change with its own Constitution item and ADR; a stack manifest
    cannot add one. Network is the first user; the mechanism is not Network-specific.
 2. **The helper builds the arguments itself** and never forwards an argv it was given. It runs `nmap` under the same `isolation` jail, so a program gets the
-   privilege and is still confined. It **re-checks scope itself** (private IPv4 and the declared ranges, II.3) and the caps; it does not trust the caller for safety.
+   privilege and is still confined. It **re-checks scope itself** (one private IPv4 host, II.3) and the caps; the declared ranges are enforced by the service before it asks (design D10); it does not trust the caller for safety.
 3. **One unit per privilege class**, so the operator grants exactly what they choose: capture and scan (`CAP_NET_RAW`, `AF_PACKET`, no internet), and log reading
    (`adm` group, no network). Each unit is locked down on its own (almost no files, no internet for the capture unit, a system-call filter) and logs every request.
 4. **On demand, never standing.** Socket activation starts the helper on the first connection and it exits when idle; a capture runs only for its window.

@@ -121,7 +121,7 @@ func row[P interface{ Host() string }](a Action, program string, check func(*P) 
 }
 
 // privateBlocks are the only addresses a target may be in: the fixed invariant of Constitution II.3 item 3. The operator's declared
-// ranges are a second check the helper makes from its own root-owned copy (N2b); nothing here widens them.
+// ranges are a second check, made by the service's port before it asks the helper; the helper keeps no copy of them.
 var privateBlocks = scanscope.PolicyFromCIDRs([]string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
 
 // checkTarget requires one private IPv4 address, written as an address and nothing else, and puts it in canonical form.

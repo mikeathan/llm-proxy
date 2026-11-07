@@ -567,6 +567,25 @@ export interface DecoyState {
   touches: DecoyTouch[]
 }
 
+/** One action of the privileged helper: the operator's switch and whether the install's own list names it (null when no helper is installed). */
+export interface HelperAction {
+  id: string
+  on: boolean
+  installed: boolean | null
+}
+
+/** Where the privileged helper stands (GET /admin/api/helper): installed or not, ready or not and why, the declared scan ranges, and the command to run. */
+export interface HelperStatus {
+  supported: boolean
+  installed: boolean
+  ready: boolean
+  not_ready?: string
+  actions: HelperAction[]
+  declared_ranges: string[]
+  install_command: string
+  help_path: string
+}
+
 /** The one word at the top of the Network page. */
 export type NetworkPosture = 'unknown' | 'quiet' | 'attention'
 

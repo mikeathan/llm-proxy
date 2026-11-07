@@ -140,7 +140,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
-	hs.Helper = newHelperRoutes(s.AppCtx)
+	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s))
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
@@ -256,6 +256,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/system/factory-reset", hs.System.AdminFactoryResetHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/clear-runtime-data", hs.System.AdminClearRuntimeDataHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/wipeout", hs.System.AdminWipeoutHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/helper", hs.Helper.status, jsonMethodNotAllowed)
 	for _, rt := range api.HelperRoutes() {
 		router.Post(rt.Path, hs.Helper.handlers[rt.Path], jsonMethodNotAllowed)
 	}
