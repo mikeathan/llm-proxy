@@ -149,5 +149,6 @@ moved code would have left the gate (it also found a function of mine over the l
 (3) Stack coverage is not in `coverage.out` or the CRAP report (separate modules); CI prints it per stack with `-cover`. Merging profiles
 is not done because the CRAP scanner could not be run to check its path handling. (4) The boundary tests run stack modules with `GOWORK=off`,
 so a developer's local `go.work` cannot change the result.
+**P3b design written 2026-11-07:** [`network-stack-p3b-design.md`](network-stack-p3b-design.md) (corrects the P3a advice to move `core/netaudit` early: it is the hub and moves last; consumers move with each leaf); decisions D5 to D9 accepted by the owner 2026-11-07, with the conditions: no performance regression, no extra processing, no unnecessary complexity (design note section 4a). Next: S1.
 ADR-0032, ADR-0033 and IV.6 were accepted by merging #201 (2026-11-07). Owner decision still waiting: the override finding (approved calls
 skip the checks after the one shown). Next: P3b on the owner's go-ahead.
