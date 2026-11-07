@@ -138,5 +138,16 @@ with `GOWORK=off`. ADR-0032, Constitution IV.6 and D1 were updated to match.
 CI (same branch): the boundary tests and isolation suite run inside the existing `backend` job (`go test ./... -race`); one small step per job runs the stack modules (build, vet, test) with the workspace off; the sandbox-conformance job also runs the isolation suite. The macOS conformance job now runs only when a PR touches the
 sandbox, progexec, isolation, process, module files, `main.go` or `ci.yml` (and on manual runs): its runner queue made 6 of the last
 30 runs take 11 to 22 minutes against a median of 4. Not run on GitHub yet.
-Owner decisions waiting: (1) the override finding (approved calls skip the checks after the one shown); (2) accept ADR-0032, ADR-0033
-and IV.6 by merging. Next: P3a on the owner's go-ahead.
+**P3a built 2026-11-07 (branch `stacks-p3a-thin-proof`).** `oui` (card maker from the MAC; stdlib only; embeds `oui.tsv.gz`) and its generator
+`gen-oui` moved to `stacks/network` (module `llm-proxy-stacks/network`, no code but these yet; no manifest or `Stack` until something needs
+one). The move was verbatim and the existing tests passed, including the `netaudit` test that reads a real vendor name through the embedded
+file across the module boundary. **Findings that fix the plan:** (1) a leaf is not a leaf while core code calls it: both callers of `oui` are in
+`core/netaudit`, which IV.6 forbids importing a stack. Decision (owner, 2026-11-07): a shrink-only `migrationDebt` list in the boundary test
+(one entry: `core/netaudit` -> `network/oui`), with one sentence in IV.6; it must be empty when P3b ends, and a test fails on a stale entry. P3b
+should therefore move `core/netaudit` itself early, not last, or the list grows with every leaf. (2) `check-complexity` walked only `backend/internal`, so
+moved code would have left the gate (it also found a function of mine over the limit in the SDK, refactored); it now walks `stacks/` too.
+(3) Stack coverage is not in `coverage.out` or the CRAP report (separate modules); CI prints it per stack with `-cover`. Merging profiles
+is not done because the CRAP scanner could not be run to check its path handling. (4) The boundary tests run stack modules with `GOWORK=off`,
+so a developer's local `go.work` cannot change the result.
+ADR-0032, ADR-0033 and IV.6 were accepted by merging #201 (2026-11-07). Owner decision still waiting: the override finding (approved calls
+skip the checks after the one shown). Next: P3b on the owner's go-ahead.

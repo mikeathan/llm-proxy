@@ -111,7 +111,8 @@ func main() {
 	threshold := defaultThreshold
 
 	root := moduleRoot()
-	abs := filepath.Join(root, "internal")
+	// The service's own code, and the stack modules beside backend/ (ADR-0032): moving code into a stack must not take it out of the gate.
+	roots := []string{filepath.Join(root, "internal"), filepath.Join(root, "..", "stacks")}
 
 	type violation struct {
 		key string
@@ -121,46 +122,50 @@ func main() {
 	var debt []string
 	seen := map[string]bool{}
 
-	walkErr := filepath.Walk(abs, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		fset := token.NewFileSet()
-		f, parseErr := parser.ParseFile(fset, path, nil, 0)
-		if parseErr != nil {
-			return nil
-		}
-		rel, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			rel = path
-		}
-		for _, decl := range f.Decls {
-			fn, ok := decl.(*ast.FuncDecl)
-			if !ok || fn.Body == nil {
-				continue
+	walkRoot := func(abs string) error {
+		return filepath.Walk(abs, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
 			}
-			c := complexity(fn.Body)
-			if c <= threshold {
-				continue
+			if info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
 			}
-			key := rel + ":" + fn.Name.Name
-			seen[key] = true
-			line := fset.Position(fn.Pos()).Line
-			msg := fmt.Sprintf("%s:%d: %s: cyclomatic complexity %d exceeds limit %d", rel, line, fn.Name.Name, c, threshold)
-			if knownComplexityExceptions[key] {
-				debt = append(debt, msg)
-				continue
+			fset := token.NewFileSet()
+			f, parseErr := parser.ParseFile(fset, path, nil, 0)
+			if parseErr != nil {
+				return nil
 			}
-			newViolations = append(newViolations, violation{key: key, msg: msg})
+			rel, relErr := filepath.Rel(root, path)
+			if relErr != nil {
+				rel = path
+			}
+			for _, decl := range f.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				c := complexity(fn.Body)
+				if c <= threshold {
+					continue
+				}
+				key := rel + ":" + fn.Name.Name
+				seen[key] = true
+				line := fset.Position(fn.Pos()).Line
+				msg := fmt.Sprintf("%s:%d: %s: cyclomatic complexity %d exceeds limit %d", rel, line, fn.Name.Name, c, threshold)
+				if knownComplexityExceptions[key] {
+					debt = append(debt, msg)
+					continue
+				}
+				newViolations = append(newViolations, violation{key: key, msg: msg})
+			}
+			return nil
+		})
+	}
+	for _, abs := range roots {
+		if walkErr := walkRoot(abs); walkErr != nil {
+			fmt.Fprintf(os.Stderr, "walk %s: %v\n", abs, walkErr)
+			os.Exit(1)
 		}
-		return nil
-	})
-	if walkErr != nil {
-		fmt.Fprintf(os.Stderr, "walk %s: %v\n", abs, walkErr)
-		os.Exit(1)
 	}
 
 	sort.Strings(debt)

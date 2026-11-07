@@ -4,12 +4,14 @@ package archtest
 
 import (
 	"encoding/json"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -79,6 +81,18 @@ func isStackImport(imp string) bool {
 	return strings.HasPrefix(imp, stacksRoot) && imp != sdkPath
 }
 
+// migrationDebt is the known debt of moving Network into its stack (plan stacks-as-packages P3, Constitution IV.6): the service
+// packages that still import a stack package directly, because the code they belong to has not moved yet. It is an exact list of
+// importer -> imported package, it can only shrink (TestMigrationDebtIsStillOwed fails on an entry nothing needs), and it is empty
+// when P3b has moved internal/core/netaudit into the stack. Do not add to it: a new use of a stack goes through internal/app/stacks.go.
+var migrationDebt = map[string][]string{
+	module + "/internal/core/netaudit": {stacksRoot + "network/oui"}, // ViewOf and ClassMismatchFindings read the maker of a MAC
+}
+
+func inMigrationDebt(importer, imported string) bool {
+	return slices.Contains(migrationDebt[importer], imported)
+}
+
 // coreImportsOfStacks lists the packages outside stacks/ that import a stack. Only internal/app may, and only through stacks.go.
 func coreImportsOfStacks(p pkg) []string {
 	if strings.HasPrefix(p.ImportPath, stacksRoot) || strings.HasSuffix(p.ImportPath, "/archtest") {
@@ -86,7 +100,7 @@ func coreImportsOfStacks(p pkg) []string {
 	}
 	var bad []string
 	for _, imp := range p.allImports() {
-		if isStackImport(imp) && p.ImportPath != appPath {
+		if isStackImport(imp) && p.ImportPath != appPath && !inMigrationDebt(p.ImportPath, imp) {
 			bad = append(bad, p.ImportPath+" imports "+imp+"; only internal/app/stacks.go may")
 		}
 	}
@@ -129,6 +143,24 @@ func stackModuleDirs(t *testing.T) []string {
 	return dirs
 }
 
+// goIn runs the go tool in a stack module as that module alone (no workspace), the way CI builds it, so a stack is judged by its own
+// go.mod and not by whatever a developer's local go.work adds.
+func goIn(t *testing.T, dir string, args ...string) []byte {
+	t.Helper()
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	out, err := cmd.Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("go %s in %s: %v\n%s", strings.Join(args, " "), dir, err, ee.Stderr)
+		}
+		t.Fatalf("go %s in %s: %v", strings.Join(args, " "), dir, err)
+	}
+	return out
+}
+
 func listIn(t *testing.T, dir string) []pkg {
 	t.Helper()
 	cmd := exec.Command("go", "list", "-json", "./...")
@@ -137,6 +169,11 @@ func listIn(t *testing.T, dir string) []pkg {
 	if err != nil {
 		t.Fatalf("go list in %s: %v", dir, err)
 	}
+	return decodePkgs(t, out)
+}
+
+func decodePkgs(t *testing.T, out []byte) []pkg {
+	t.Helper()
 	var pkgs []pkg
 	dec := json.NewDecoder(strings.NewReader(string(out)))
 	for dec.More() {
@@ -154,7 +191,7 @@ func goList(t *testing.T) []pkg {
 	t.Helper()
 	pkgs := listIn(t, backendDir(t))
 	for _, d := range stackModuleDirs(t) {
-		pkgs = append(pkgs, listIn(t, d)...)
+		pkgs = append(pkgs, decodePkgs(t, goIn(t, d, "list", "-json", "./..."))...)
 	}
 	return pkgs
 }
@@ -190,14 +227,8 @@ func moduleViolations(m moduleFile) []string {
 
 func readModuleFile(t *testing.T, dir string) moduleFile {
 	t.Helper()
-	cmd := exec.Command("go", "mod", "edit", "-json")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("go mod edit in %s: %v", dir, err)
-	}
 	var m moduleFile
-	if err := json.Unmarshal(out, &m); err != nil {
+	if err := json.Unmarshal(goIn(t, dir, "mod", "edit", "-json"), &m); err != nil {
 		t.Fatal(err)
 	}
 	return m
@@ -238,6 +269,24 @@ func TestStackModulesDeclareOnlyTheSDK(t *testing.T) {
 	for _, d := range dirs {
 		for _, v := range moduleViolations(readModuleFile(t, d)) {
 			t.Error(v)
+		}
+	}
+}
+
+// The baseline above must not outlive its reason: an entry nothing imports any more is removed, so the list reaches empty.
+func TestMigrationDebtIsStillOwed(t *testing.T) {
+	imports := map[string][]string{}
+	for _, p := range goList(t) {
+		imports[p.ImportPath] = p.allImports()
+	}
+	for importer, owed := range migrationDebt {
+		for _, imported := range owed {
+			if !slices.Contains(imports[importer], imported) {
+				t.Errorf("%s no longer imports %s: remove it from migrationDebt", importer, imported)
+			}
+			if !isStackImport(imported) {
+				t.Errorf("migrationDebt lists %s, which is not a stack package", imported)
+			}
 		}
 	}
 }
@@ -295,6 +344,16 @@ func TestRulesRefuseABreach(t *testing.T) {
 	}
 	if len(coreImportsOfStacks(pkg{ImportPath: appPath, Imports: []string{stacksRoot + "net"}})) != 0 {
 		t.Error("internal/app may import a stack")
+	}
+	owed := module + "/internal/core/netaudit"
+	if len(coreImportsOfStacks(pkg{ImportPath: owed, Imports: []string{stacksRoot + "network/oui"}})) != 0 {
+		t.Error("a package in migrationDebt may import the stack package listed for it")
+	}
+	if len(coreImportsOfStacks(pkg{ImportPath: owed, Imports: []string{stacksRoot + "network/dnswire"}})) == 0 {
+		t.Error("a package in migrationDebt may import only what is listed for it")
+	}
+	if len(coreImportsOfStacks(pkg{ImportPath: module + "/internal/core/tools", Imports: []string{stacksRoot + "network/oui"}})) == 0 {
+		t.Error("a package not in migrationDebt may not import that stack package")
 	}
 }
 

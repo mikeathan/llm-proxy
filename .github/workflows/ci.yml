@@ -106,10 +106,11 @@ jobs:
       # live outside backend/ and are tested by the step below.
       - name: Test (race + coverage)
         run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+      # Stack code is not in coverage.out (a separate module); -cover prints its coverage in this log.
       - name: Stack modules (test, workspace off)
         run: |
           for d in ../stacks/*/; do
-            (cd "$d" && GOWORK=off go test ./... -race)
+            (cd "$d" && GOWORK=off go test ./... -race -cover)
           done
       - name: Coverage report
         run: |

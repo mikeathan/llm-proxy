@@ -1,14 +1,14 @@
 // Command gen-oui rebuilds the bundled hardware-address registry from the IEEE file.
 //
 //	curl -o oui.csv https://standards-oui.ieee.org/oui/oui.csv
-//	go run ./tools/gen-oui oui.csv internal/core/netaudit/oui/oui.tsv.gz
+//	go run ./tools/gen-oui oui.csv oui/oui.tsv.gz   (from stacks/network)
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"llm-proxy/internal/core/netaudit/oui"
+	"llm-proxy-stacks/network/oui"
 )
 
 func main() {

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"llm-proxy/internal/core/netaudit/oui"
+	"llm-proxy-stacks/network/oui"
 	"llm-proxy/models"
 )
 

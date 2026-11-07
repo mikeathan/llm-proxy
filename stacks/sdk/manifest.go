@@ -143,18 +143,9 @@ func (m Manifest) checkModules() error {
 	for i, l := range m.Layers {
 		layerAt[l.ID] = i
 	}
-	byID := map[string]ModuleSpec{}
-	for _, mod := range m.Modules {
-		if mod.ID == "" || mod.Title == "" || !mod.Sends.Valid() {
-			return fmt.Errorf("manifest %q: module %q needs an id, a title and a kind of traffic", m.ID, mod.ID)
-		}
-		if _, dup := byID[mod.ID]; dup {
-			return fmt.Errorf("manifest %q: module %q is listed twice", m.ID, mod.ID)
-		}
-		if _, ok := layerAt[mod.Layer]; !ok {
-			return fmt.Errorf("manifest %q: module %q is on layer %q, which does not exist", m.ID, mod.ID, mod.Layer)
-		}
-		byID[mod.ID] = mod
+	byID, err := m.indexModules(layerAt)
+	if err != nil {
+		return err
 	}
 	for _, mod := range m.Modules {
 		for _, id := range mod.Needs {
@@ -165,6 +156,24 @@ func (m Manifest) checkModules() error {
 		}
 	}
 	return nil
+}
+
+// indexModules checks each module on its own (complete, unique, on a layer that exists) and returns them by id.
+func (m Manifest) indexModules(layerAt map[string]int) (map[string]ModuleSpec, error) {
+	byID := map[string]ModuleSpec{}
+	for _, mod := range m.Modules {
+		if mod.ID == "" || mod.Title == "" || !mod.Sends.Valid() {
+			return nil, fmt.Errorf("manifest %q: module %q needs an id, a title and a kind of traffic", m.ID, mod.ID)
+		}
+		if _, dup := byID[mod.ID]; dup {
+			return nil, fmt.Errorf("manifest %q: module %q is listed twice", m.ID, mod.ID)
+		}
+		if _, ok := layerAt[mod.Layer]; !ok {
+			return nil, fmt.Errorf("manifest %q: module %q is on layer %q, which does not exist", m.ID, mod.ID, mod.Layer)
+		}
+		byID[mod.ID] = mod
+	}
+	return byID, nil
 }
 
 func (m Manifest) checkTools() error {

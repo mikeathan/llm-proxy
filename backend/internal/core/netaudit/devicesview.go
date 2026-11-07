@@ -4,7 +4,7 @@ import (
 	"slices"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/oui"
+	"llm-proxy-stacks/network/oui"
 	"llm-proxy/models"
 )
 
