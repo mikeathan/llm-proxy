@@ -16,7 +16,7 @@ later; Network moves first and everything else stays future work (§6). Added 20
 that keep stacks apart are Constitution law (IV.6); **running a stack as its own process is out of scope** (§6).
 **Related:** [ADR-0032](../../decisions/ADR-0032-a-stack-is-a-package-with-a-manifest-kept-apart-by-tests.md),
 [ADR-0033](../../decisions/ADR-0033-the-sandbox-is-core-and-stacks-gain-no-way-around-it.md), [ADR-0028](../../decisions/ADR-0028-stack-module-registry.md),
-[ADR-0023](../../decisions/ADR-0023-network-ideas-rejected-or-already-built.md), blocked follow-on [`network-stack-privileged-additions.md`](network-stack-privileged-additions.md).
+[ADR-0023](../../decisions/ADR-0023-network-ideas-rejected-or-already-built.md), follow-on (direction chosen 2026-11-07, nothing built) [`network-stack-privileged-additions.md`](network-stack-privileged-additions.md).
 
 ## 1. Why
 
