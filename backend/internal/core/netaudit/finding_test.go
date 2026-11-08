@@ -44,3 +44,18 @@ func TestFindingsOf_ALookedUpServiceNameIsLabelledAsAGuess(t *testing.T) {
 		t.Errorf("services = %q, %q", got[0].Service, got[1].Service)
 	}
 }
+
+func TestJoinVersion_AGuessedProductIsLabelledAndNeverTakenAsFact(t *testing.T) {
+	if got := joinVersion(Port{Product: "Cloudflare public DNS", ProductGuessed: true}); got != "Cloudflare public DNS (guess)" {
+		t.Errorf("got %q", got)
+	}
+	if got := joinVersion(Port{Product: "OpenSSH", Version: "9.6p1"}); got != "OpenSSH 9.6p1" {
+		t.Errorf("a confirmed product is unchanged: %q", got)
+	}
+	if productHas("cloudflare")(Port{Product: "Cloudflare public DNS", ProductGuessed: true}) {
+		t.Error("a rule must not fire on a product that is only a guess")
+	}
+	if !productHas("openssh")(Port{Product: "OpenSSH", Version: "9.6p1"}) {
+		t.Error("a confirmed product still matches")
+	}
+}

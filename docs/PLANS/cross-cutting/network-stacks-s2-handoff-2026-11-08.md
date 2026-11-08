@@ -9,6 +9,8 @@ evidence: PR #209 (branch network-flaky-test-isolation-switch-dns-s2, v0.58.0); 
 
 # Network stacks, S2 and the helper work: handoff for the next session (2026-11-08)
 
+**Update (same day, v0.58.1):** #209 is merged and deployed. The port 53 label and the router's #207 results are resolved (items 2 and 3 below); a small follow-up PR carries the label change.
+
 This replaces `network-helper-and-stacks-handoff-2026-11-08.md` (deleted; its owner items and left-over items are carried below). Read this, then ADR-0035,
 then section 4 of `network-stack-p3b-design.md`. Start a new branch from `main` once #209 is merged (check with `git log origin/main`).
 
@@ -32,12 +34,13 @@ then section 4 of `network-stack-p3b-design.md`. Start a new branch from `main` 
 1. **Review and merge #209**; then deploy to vertex and press the DNS check card once (Router DNS check: Settings, the summary, the Copy results button), to
    see the stack run for real. The owner's `go.work` does not list `stacks/network`; that is fine (the backend reaches it through a `replace`), but
    `go test` inside `stacks/network` needs `GOWORK=off`.
-2. **The router's port 53 label.** The 2026-11-08 checks audit showed "Cloudflare public DNS (confirmed)" for 192.168.50.1:53. Reading nmap's probe file
-   (`nmap-service-probes` line 12811) shows the rule matches only a NOTIMP reply header to the CHAOS `version.bind` probe, so it is not evidence of Cloudflare.
-   Decide whether a DNS product from a header-only match should show as a guess (the code only copies nmap's `product`, `nmap/parse.go:144`). To confirm on
-   vertex: `dig @192.168.50.1 version.bind chaos txt` and look for `status: NOTIMP`.
-3. **Report the #207 helper results**: did the router's UDP scan and OS detection parse (or give a `parse_error`)? Does OS detection say "No guess" for devices
-   with none of ports 22, 80, 443 open (`osDetectPorts`, `catalog/nmap.go`)? The 2026-11-08 vertex audit was a checks-mode run and did not answer this.
+2. **The router's port 53 label: decided and built (v0.58.1, PR after #209).** The owner ran `dig @192.168.50.1 version.bind chaos txt`: `status: NOTIMP`, so nmap's
+   "Cloudflare public DNS" was its guess from a reply header (`nmap-service-probes` line 12811). A DNS product with no version is now shown as "(guess)"
+   (`Port.ProductGuessed`, `nmap/parse.go`, `finding.go`, `portchecks.go`; the auditor prompt line 17). Nothing left except seeing it in the next real audit
+   report: the router's port 53 should read "Cloudflare public DNS (guess)" and the model should not call it Cloudflare.
+3. **The #207 helper results: partly answered.** On the router (2026-11-08) both parsed: UDP 53, 67, 1900, 5353 open, 69 `open|filtered`; OS detection "Linux 3.10 - 4.11
+   (100%)". **Still needed:** one result from a device with none of ports 22, 80, 443 open (a phone or smart TV): does OS detection say "No guess" plainly? The 2026-11-08
+   vertex audit was a checks-mode run and did not cover this.
 4. **Approve (or change) the nightly UDP probe list and Constitution item 12** (`network-nightly-udp-probes.md`); then build its slices 1 to 3.
 5. **Run `capture_window` measurements M1 to M3** on vertex and decide go or no-go (`network-capture-window-plan.md`).
 6. **Delete the stray remote branch** `network-privileged-helper-n1-design`.

@@ -343,3 +343,35 @@ func TestParseXML_RealSSHHostKeyOutputGivesOneFingerprintPerKey(t *testing.T) {
 		}
 	}
 }
+
+const dnsHostXML = `<nmaprun><host><status state="up"/><address addr="192.168.50.1" addrtype="ipv4"/><ports>` +
+	`<port protocol="tcp" portid="53"><state state="open"/><service name="domain" product="%s" %s method="probed" conf="10"/></port>` +
+	`<port protocol="tcp" portid="22"><state state="open"/><service name="ssh" product="OpenSSH" version="9.6p1" method="probed" conf="10"/></port>` +
+	`</ports></host></nmaprun>`
+
+// nmap names a DNS product from the header of a reply alone: a server that answers its version.bind probe with "not implemented" is
+// labelled "Cloudflare public DNS" whatever it is (nmap-service-probes line 12811, seen on a real router, 2026-11-08, `dig ... status: NOTIMP`).
+// Such a name carries no version, so it is only a guess.
+func TestParseXML_ADNSProductWithNoVersionIsOnlyAGuess(t *testing.T) {
+	hosts, err := ParseXML(strings.NewReader(fmt.Sprintf(dnsHostXML, "Cloudflare public DNS", "")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns, ssh := hosts[0].Ports[0], hosts[0].Ports[1]
+	if dns.Product != "Cloudflare public DNS" || !dns.ProductGuessed || dns.Guessed {
+		t.Errorf("dns = %+v: the product text is kept, marked as a guess, and the service name is still confirmed", dns)
+	}
+	if ssh.ProductGuessed {
+		t.Errorf("a product with a version from another service is not a guess: %+v", ssh)
+	}
+}
+
+func TestParseXML_ADNSProductWithAVersionIsKept(t *testing.T) {
+	hosts, err := ParseXML(strings.NewReader(fmt.Sprintf(dnsHostXML, "ISC BIND", `version="9.18.1"`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := hosts[0].Ports[0]; p.ProductGuessed || p.Version != "9.18.1" {
+		t.Errorf("a DNS server that gave its version is identified: %+v", p)
+	}
+}
