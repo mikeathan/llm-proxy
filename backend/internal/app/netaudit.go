@@ -28,6 +28,7 @@ import (
 	"llm-proxy/internal/core/netaudit/ubuntuoval"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/core/netaudit/udpchecks"
 	"llm-proxy/internal/core/netaudit/webprobe"
 	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/stack"
@@ -125,6 +126,9 @@ type netauditServices struct {
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      *webprobe.Prober
+	// UDPChecksConfig is the nightly switch of the two UDP questions (Constitution item 12); UDPChecks asks them through the guarded dial.
+	UDPChecksConfig *netaudit.UDPChecksConfig
+	UDPChecks       *netaudit.UDPChecks
 	// RunHealth records whether the optional steps of a nightly run worked; the monitor watch reads it.
 	RunHealth *netaudit.RunHealth
 	// PhoneHome is the watch of the names devices ask the router for; its switch is PhoneHomeConfig.
@@ -331,6 +335,36 @@ func (s AppServices) NetauditWebChecks() (func() bool, netaudit.WebChecker, *net
 		return nil, nil, nil
 	}
 	return s.netaudit.WebChecksConfig.Enabled, s.netaudit.WebChecker, s.netaudit.RunHealth
+}
+
+// NetauditUDPChecks is the nightly UDP questions for the run reporter: whether they are switched on and what asks them; nil until the
+// services are wired.
+func (s AppServices) NetauditUDPChecks() (func() bool, netaudit.UDPFinder) {
+	if s.netaudit == nil || s.netaudit.UDPChecksConfig == nil || s.netaudit.UDPChecks == nil {
+		return nil, nil
+	}
+	return s.netaudit.UDPChecksConfig.Enabled, s.netaudit.UDPChecks
+}
+
+// newUDPChecks builds the nightly UDP questions. Every datagram goes through the guarded dial, after a check that the address is inside
+// the declared scan scope (Constitution II.3 item 3 and item 12): an address outside it is never asked.
+func newUDPChecks(netTools *tools.NetworkTools, scope *netaudit.Scope) *netaudit.UDPChecks {
+	guarded := netTools.DialContext()
+	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		addr, err := netip.ParseAddr(host)
+		if err != nil {
+			return nil, err
+		}
+		if err := scope.Policy().Check(addr); err != nil {
+			return nil, err
+		}
+		return guarded(ctx, network, address)
+	}
+	return &netaudit.UDPChecks{Asker: udpchecks.Prober{Dial: dial}}
 }
 
 // NetauditPhoneHome is what the run reporter reads of the phone-home watch; nil until the services are wired.
@@ -592,6 +626,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		KnownBadList:      bad.List,
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
+		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
+		UDPChecks:         newUDPChecks(netTools, scope),
 		RunHealth:         netaudit.NewRunHealth(),
 		PhoneHome:         phone.Watch,
 		PhoneHomeConfig:   phone.Config,

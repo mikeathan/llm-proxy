@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.45"
+version: "2.46"
 status: stable
 last_updated: 2026-11-08
 constitution_references: []
@@ -13,6 +13,13 @@ supersedes:
 
 ## Changelog
 
+- **2.46 (2026-11-08)** — **Nightly UDP checks (v0.59.0; Constitution I.12).** A new module, **UDP checks, nightly** (Test layer, off by default, step-up, needs the
+  LAN guardrails), asks each live IPv4 device the audit scanned two fixed questions through the guarded dial: an SNMPv3 engine discovery (no community string) on UDP
+  161 and a unicast UPnP search on UDP 1900, at most 64 devices a look and four at a time. An answer in the expected form makes the same `udp_service` finding a helper
+  scan makes (SNMP medium, UPnP low) with fixed words and no date, so a standing finding does not read as changed each night; a nightly answer replaces a helper-kept
+  finding for the same device and port. Silence is unknown: an earlier finding for a device and port that was asked and did not answer is kept, never resolved. A
+  device that speaks only SNMP v1 or v2c is missed. The setting is `netaudit.udp_probes_enabled`; the module's switch is the usual module switch, so no route or card is
+  new. Code: `core/netaudit/udpchecks`, `core/netaudit/udpfindings.go`.
 - **2.45 (2026-11-08)** — **UDP scans from a device row, and findings from their kept result (v0.56.0; Constitution I.11 unchanged).** An open device row on the
   Devices tab has a UDP scan and an OS detection button when the privileged helper is installed, ready and has the action on (each press asks for the passphrase;
   `POST /admin/api/helper/scan_udp` and `/os_detect` answer `parsed` beside the raw bytes, or `parse_error`). The last result is kept on the device with its time

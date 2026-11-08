@@ -103,6 +103,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"presence"}, Switch: n.FollowUpConfig},
 		{ID: "web_checks", Title: "Web and certificate checks, nightly", Purpose: "Looks at the web page and certificate of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Ready: lan, Switch: n.WebChecksConfig, Monitors: []string{netaudit.MonitorWebChecks}},
+		{ID: "udp_probes", Title: "UDP checks, nightly", Purpose: "Asks each device whether its SNMP or UPnP service answers.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
+			Ready: lan, Switch: n.UDPChecksConfig},
 		{ID: "outside_lookup", Title: "Internet view", Purpose: "Ports the internet can reach.", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
 			Switch: n.OutsideLookupConfig, Ready: internet},
 		{ID: "dns_check", Title: "Router DNS check", Purpose: "Is the router answering honestly?", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,

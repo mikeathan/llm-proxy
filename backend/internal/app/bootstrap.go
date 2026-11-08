@@ -140,6 +140,13 @@ func withNetauditProbes(reporter *netaudit.RunReporter, svc handlers.AssistantSe
 		reporter.WithServiceChecks(v.NetauditServices())
 	}
 	if v, ok := svc.(interface {
+		NetauditUDPChecks() (func() bool, netaudit.UDPFinder)
+	}); ok {
+		if enabled, finder := v.NetauditUDPChecks(); finder != nil {
+			reporter.WithUDPChecks(enabled, finder)
+		}
+	}
+	if v, ok := svc.(interface {
 		NetauditOwnModel() netaudit.OwnModelServer
 	}); ok {
 		reporter.WithOwnModelServer(v.NetauditOwnModel())

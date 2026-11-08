@@ -41,6 +41,8 @@ type RunReporter struct {
 	routerLog RouterLogSource  // optional: what the router's log says about failed sign-ins and Wi-Fi disconnects
 	web       WebChecker       // optional: the web checks
 	webOn     func() bool      // optional: whether the nightly audit runs them
+	udp       UDPFinder        // optional: the two nightly UDP questions
+	udpOn     func() bool      // optional: whether the nightly audit asks them
 	health    *RunHealth       // optional: whether each optional step of a run worked
 	histErr   func(error)
 	now       func() time.Time
@@ -303,13 +305,14 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	r.addRouterLog(&result, inventory)
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
 	services := r.addServices(ctx, &result)
+	udp := r.addUDPChecks(ctx, &result, result.Hosts)
 	hostNote, hostChecked := r.addHost(ctx, &result)
 	expectNote += hostNote + r.addWebChecks(ctx, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
 	scanned := scannedDevices(result.Hosts)
-	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings, services), scanned)...)
+	result.Findings = append(result.Findings, restrictTo(r.carriedByChecks(prev.Findings, services, udp), scanned)...)
 	// A decoy touch joined by another sign of trouble on the same device is told as one incident.
 	result.Findings = append(result.Findings, IncidentFindings(result.Findings, restrictTo(prev.Findings, scanned))...)
 	result.Findings = r.own.Relabel(result.Findings)
