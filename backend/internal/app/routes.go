@@ -143,7 +143,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
-	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), s.netaudit.Inventory)
+	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), s.netaudit.Inventory, newCaptureStore(s.AppCtx))
 	if s.netaudit.Network != nil {
 		hs.Hosted = append(hs.Hosted, s.netaudit.Network.stack)
 	}
@@ -272,6 +272,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/system/clear-runtime-data", hs.System.AdminClearRuntimeDataHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/wipeout", hs.System.AdminWipeoutHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/helper", hs.Helper.status, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/capture-window", hs.Helper.capture, jsonMethodNotAllowed)
 	for _, rt := range api.HelperRoutes() {
 		router.Post(rt.Path, hs.Helper.handlers[rt.Path], jsonMethodNotAllowed)
 	}
