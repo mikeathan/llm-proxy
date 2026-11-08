@@ -5,6 +5,7 @@ import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
 import DeviceProbe from "./DeviceProbe.vue"
 import { DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
+import { isRecorded } from "../../utils/format/time"
 import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, portsLine, portsSummary } from "../../utils/netaudit/devices"
 import { formatRelativeTime } from "../../utils/format/time"
 import type { NetworkDevice } from "../../types/netaudit"
@@ -38,6 +39,7 @@ const emit = defineEmits<{
 const bodyId = useId()
 const status = computed(() => deviceStatus(props.device))
 const ports = computed(() => (props.advanced ? portsLine(props.device) : portsSummary(props.device)))
+const portsRecorded = computed(() => isRecorded(props.device.ports_scanned_at))
 const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.device.ipv6?.length ? props.device.ipv6.join(", ") : ""))
 </script>
 
@@ -82,6 +84,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
         :udp-at="device.udp_scanned_at"
         :os-guesses="device.os_guesses"
         :os-at="device.os_detected_at"
+        :no-open-ports="portsRecorded && !device.open_ports?.length"
         @probed="emit('probed')"
       />
       <p v-if="device.important" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="device-important">{{ DEVICE_IMPORTANT_NOTE }}</p>

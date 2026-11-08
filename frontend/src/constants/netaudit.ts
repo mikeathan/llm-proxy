@@ -611,6 +611,7 @@ export const PROBE_CLEAR_HINT = 'Forget this result and the finding made from it
 export const PROBE_CLEAR_FAILED = 'Could not clear the result.'
 export const PROBE_NO_UDP = 'No UDP service answered.'
 export const PROBE_NO_OS = 'No guess: the device did not give enough to go on.'
+export const PROBE_OS_UNRELIABLE = 'This device showed no open port, so the scan had little to go on. Treat these guesses as unreliable, whatever the percentage.'
 export const PROBE_UDP_FILTERED = 'no reply (open or blocked)'
 export const PROBE_PASSPHRASE_NOTE = 'Asks for your passphrase each time.'
 export const HELPER_ACTION_NOT_INSTALLED = 'Not in the helper\'s list: run the install command again.'

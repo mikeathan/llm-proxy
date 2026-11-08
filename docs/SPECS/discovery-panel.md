@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.46"
+version: "2.47"
 status: stable
 last_updated: 2026-11-08
 constitution_references: []
@@ -13,6 +13,7 @@ supersedes:
 
 ## Changelog
 
+- **2.47 (2026-11-08)** — **OS guesses on a device with no open port are marked unreliable (v0.59.1).** A device row whose last port scan found no open port shows, under its kept OS detection guesses, "This device showed no open port, so the scan had little to go on. Treat these guesses as unreliable, whatever the percentage." (`DeviceProbe`, prop `noOpenPorts`). The guesses and the plain "No guess" sentence are unchanged. Found on the owner's network: two Espressif devices with no open port were guessed as a doorbell, a lighting controller and an internet radio at 92 to 96%.
 - **2.46 (2026-11-08)** — **Nightly UDP checks (v0.59.0; Constitution I.12).** A new module, **UDP checks, nightly** (Test layer, off by default, step-up, needs the
   LAN guardrails), asks each live IPv4 device the audit scanned two fixed questions through the guarded dial: an SNMPv3 engine discovery (no community string) on UDP
   161 and a unicast UPnP search on UDP 1900, at most 64 devices a look and four at a time. An answer in the expected form makes the same `udp_service` finding a helper
