@@ -172,6 +172,11 @@ export class NetauditService {
     return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { approved: true })
   }
 
+  /** Drops one kept helper result (the UDP scan or the OS detection) from a device, and the finding made from it. Answers with the new list. */
+  static clearProbe(mac: string, kind: 'udp' | 'os'): Promise<DeviceInventory> {
+    return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { clear_probe: kind })
+  }
+
   /** Marks a device as important, or clears the mark. It approves nothing. Answers with the new list. */
   static markImportant(mac: string, important: boolean): Promise<DeviceInventory> {
     return put<DeviceInventory>(`${API_ENDPOINTS.netauditDevices}/${encodeURIComponent(mac)}`, { important })

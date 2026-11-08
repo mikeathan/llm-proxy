@@ -21,6 +21,7 @@ type fakeDevices struct {
 	forgotten string
 	confirmed bool
 	important map[string]bool
+	cleared   [2]string
 	err       error
 }
 
@@ -31,6 +32,11 @@ func (f *fakeDevices) Forget(mac string) error               { f.forgotten = mac
 func (f *fakeDevices) ConfirmGateway() error                 { f.confirmed = true; return f.err }
 func (f *fakeDevices) SetImportant(mac string, on bool) error {
 	f.important = map[string]bool{mac: on}
+	return f.err
+}
+
+func (f *fakeDevices) ClearProbe(mac, kind string) error {
+	f.cleared = [2]string{mac, kind}
 	return f.err
 }
 
@@ -221,5 +227,17 @@ func TestDevicesHandlers_MarkingADeviceImportantApprovesNothing(t *testing.T) {
 	}
 	if rec := withMAC(h.Update, http.MethodPut, `{"important":false}`, "aa:bb:cc:00:00:01"); rec.Code != http.StatusOK || devices.important["aa:bb:cc:00:00:01"] {
 		t.Errorf("unmark = %d %v", rec.Code, devices.important)
+	}
+}
+
+func TestNetauditDevices_UpdateClearsOneKeptProbeResult(t *testing.T) {
+	devices := &fakeDevices{}
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{})
+	if rec := withMAC(h.Update, http.MethodPut, `{"clear_probe":"udp"}`, "aa:bb:cc:00:00:01"); rec.Code != http.StatusOK || devices.cleared != [2]string{"aa:bb:cc:00:00:01", "udp"} {
+		t.Errorf("clear = %d %s %v", rec.Code, rec.Body.String(), devices.cleared)
+	}
+	devices.err = netaudit.ErrBadProbeKind
+	if rec := withMAC(h.Update, http.MethodPut, `{"clear_probe":"x"}`, "aa:bb:cc:00:00:01"); rec.Code != http.StatusBadRequest {
+		t.Errorf("bad kind = %d", rec.Code)
 	}
 }

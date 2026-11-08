@@ -19,6 +19,7 @@ type DeviceInventory interface {
 	Forget(mac string) error
 	ConfirmGateway() error
 	SetImportant(mac string, important bool) error
+	ClearProbe(mac, kind string) error
 }
 
 // PresenceControl is the presence check's settings and its status. The settings and the status come from two objects.
@@ -108,6 +109,8 @@ type deviceRequest struct {
 	Name      *string `json:"name"`
 	Approved  *bool   `json:"approved"`
 	Important *bool   `json:"important"`
+	// ClearProbe names a kept helper result to drop ("udp" or "os"). It changes nothing else on the device.
+	ClearProbe *string `json:"clear_probe"`
 }
 
 // Update names a device (which approves it) or approves it. Neither field is a mistake.
@@ -125,8 +128,10 @@ func (h *NetauditDevicesHandlers) Update(w http.ResponseWriter, r *http.Request)
 		err = h.devices.Approve(mac)
 	case req.Important != nil:
 		err = h.devices.SetImportant(mac, *req.Important)
+	case req.ClearProbe != nil:
+		err = h.devices.ClearProbe(mac, *req.ClearProbe)
 	default:
-		writeJSONError(w, http.StatusBadRequest, "say what to change: a name, approved or important")
+		writeJSONError(w, http.StatusBadRequest, "say what to change: a name, approved, important or clear_probe")
 		return
 	}
 	h.respondChange(w, err)
@@ -163,7 +168,7 @@ func (h *NetauditDevicesHandlers) respondChange(w http.ResponseWriter, err error
 
 func deviceStatus(err error) int {
 	switch {
-	case errors.Is(err, netaudit.ErrBadMAC), errors.Is(err, netaudit.ErrBadDeviceName):
+	case errors.Is(err, netaudit.ErrBadMAC), errors.Is(err, netaudit.ErrBadDeviceName), errors.Is(err, netaudit.ErrBadProbeKind):
 		return http.StatusBadRequest
 	case errors.Is(err, netaudit.ErrNoSuchDevice), errors.Is(err, names.ErrNoSuggestion):
 		return http.StatusNotFound

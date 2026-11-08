@@ -17,7 +17,7 @@ supersedes:
   Devices tab has a UDP scan and an OS detection button when the privileged helper is installed, ready and has the action on (each press asks for the passphrase;
   `POST /admin/api/helper/scan_udp` and `/os_detect` answer `parsed` beside the raw bytes, or `parse_error`). The last result is kept on the device with its time
   (`udp_ports`, `udp_scanned_at`, `os_guesses`, `os_detected_at` in `GET /admin/api/netaudit/devices`), also when nothing answered. The nightly audit gives a
-  `udp_service` finding (`udp`, SNMP 161 and TFTP 69 medium, UPnP 1900 low) for a kept port that **answered** (`open`; `open|filtered` and the OS guess never make one).
+  `udp_service` finding (`udp`, SNMP 161 and TFTP 69 medium, UPnP 1900 low) for a kept port that **answered** (`open`; `open|filtered` and the OS guess never make one). The operator can clear a kept result (`PUT /admin/api/netaudit/devices/{mac}` `{"clear_probe": "udp"|"os"}`, not step-up, like accepting a finding); clearing the UDP result removes its finding, and a new scan replaces the result as well.
   The words are fixed in code; nothing nmap or the device sent reaches the finding. It stays while the kept result does, whether or not the device was scanned that
   night. The Devices tab says how many devices have a kept UDP scan and how old the oldest is, so a device never scanned does not look clean. The audit itself never
   calls the helper.

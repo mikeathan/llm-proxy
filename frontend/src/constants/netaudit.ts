@@ -606,6 +606,9 @@ export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint
 export const HELPER_UDP_PORTS: readonly number[] = [53, 67, 69, 123, 137, 161, 500, 1900, 5353]
 export const PROBE_RUNNING = 'Scanning. This can take a minute.'
 export const PROBE_FAILED = 'The scan could not be run.'
+export const PROBE_CLEAR = 'Clear'
+export const PROBE_CLEAR_HINT = 'Forget this result and the finding made from it. A new scan replaces it as well.'
+export const PROBE_CLEAR_FAILED = 'Could not clear the result.'
 export const PROBE_NO_UDP = 'No UDP service answered.'
 export const PROBE_NO_OS = 'No guess: the device did not give enough to go on.'
 export const PROBE_UDP_FILTERED = 'no reply (open or blocked)'

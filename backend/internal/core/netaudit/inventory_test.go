@@ -711,3 +711,37 @@ func TestViewOf_CarriesTheLastProbe(t *testing.T) {
 		t.Errorf("view = %+v", d)
 	}
 }
+
+func TestInventory_ClearProbeDropsOneKeptResultAndLeavesTheOther(t *testing.T) {
+	st := &memInventory{inv: models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20",
+		UDPPorts: []models.ProbeUDPPort{{Port: 161, State: "open"}}, UDPScannedAt: t0,
+		OSGuesses: []models.ProbeOSGuess{{Name: "x", Accuracy: 1}}, OSDetectedAt: t0}}}}
+	v := newInventory(fakeSource{}, st)
+	if err := v.ClearProbe(macTV, ProbeUDP); err != nil {
+		t.Fatal(err)
+	}
+	d := find(st.inv, macTV)
+	if len(d.UDPPorts) != 0 || !d.UDPScannedAt.IsZero() || len(d.OSGuesses) != 1 || d.OSDetectedAt.IsZero() {
+		t.Errorf("device = %+v", d)
+	}
+	if err := v.ClearProbe(macTV, ProbeOS); err != nil || !find(st.inv, macTV).OSDetectedAt.IsZero() {
+		t.Errorf("os not cleared: %v", err)
+	}
+	if err := v.ClearProbe(macTV, "bogus"); !errors.Is(err, ErrBadProbeKind) {
+		t.Errorf("err = %v", err)
+	}
+	if err := v.ClearProbe(macOther, ProbeUDP); !errors.Is(err, ErrNoSuchDevice) {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestProbeFindings_NothingAfterTheResultIsCleared(t *testing.T) {
+	d := models.NetworkDevice{IP: "192.168.1.20", UDPPorts: []models.ProbeUDPPort{{Port: 161, State: "open"}}, UDPScannedAt: t0}
+	if len(ProbeFindings([]models.NetworkDevice{d})) != 1 {
+		t.Fatal("setup: expected a finding")
+	}
+	d.UDPPorts, d.UDPScannedAt = nil, time.Time{}
+	if len(ProbeFindings([]models.NetworkDevice{d})) != 0 {
+		t.Error("a cleared result must report nothing")
+	}
+}

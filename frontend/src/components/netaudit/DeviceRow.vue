@@ -77,6 +77,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
       <DeviceProbe
         v-if="device.ip"
         :ip="device.ip"
+        :mac="device.mac"
         :udp-ports="device.udp_ports"
         :udp-at="device.udp_scanned_at"
         :os-guesses="device.os_guesses"

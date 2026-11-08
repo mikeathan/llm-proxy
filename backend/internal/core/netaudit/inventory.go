@@ -591,6 +591,39 @@ func (v *Inventory) RecordOSGuess(ip string, guesses []models.ProbeOSGuess) erro
 	})
 }
 
+// The kinds of kept helper result the operator can clear.
+const (
+	ProbeUDP = "udp"
+	ProbeOS  = "os"
+)
+
+// ErrBadProbeKind answers a request to clear a result that is neither the UDP scan nor the OS detection.
+var ErrBadProbeKind = errors.New("clear the udp scan or the os detection")
+
+// ClearProbe drops one kept helper result (ProbeUDP or ProbeOS) from the device with this hardware address. The finding made from a
+// UDP result goes with it, so this is how the operator retires a result that is stale or was fixed; a new scan replaces it as well.
+func (v *Inventory) ClearProbe(mac, kind string) error {
+	mac, err := normalizeMAC(mac)
+	if err != nil {
+		return err
+	}
+	if kind != ProbeUDP && kind != ProbeOS {
+		return ErrBadProbeKind
+	}
+	return v.edit(func(inv *models.DeviceInventory) error {
+		d := deviceByMAC(*inv, mac)
+		if d == nil {
+			return ErrNoSuchDevice
+		}
+		if kind == ProbeUDP {
+			d.UDPPorts, d.UDPScannedAt = nil, time.Time{}
+		} else {
+			d.OSGuesses, d.OSDetectedAt = nil, time.Time{}
+		}
+		return nil
+	})
+}
+
 // recordProbe applies a probe result to the device that holds ip, or answers ErrNoSuchDevice (nothing is written) when none does.
 func (v *Inventory) recordProbe(ip string, set func(*models.NetworkDevice, time.Time)) error {
 	at := v.now()

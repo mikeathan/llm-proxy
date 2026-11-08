@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: partial
 date: 2026-11-06
 last_reviewed: 2026-11-06
 related_specs: [SPEC-006]
