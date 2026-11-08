@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
-import { HELPER_UDP_PORTS, PROBE_FAILED } from '../../constants/netaudit'
+import { HELPER_UDP_PORTS, PROBE_CLEAR_FAILED, PROBE_FAILED } from '../../constants/netaudit'
 import type { HelperRunResult, HelperStatus, OsGuess, ProbeAction, UdpPort } from '../../types/netaudit'
 
 // The actions the page can run on one device, in the order the buttons show them.
@@ -13,7 +13,7 @@ const PROBE_ACTIONS: readonly ProbeAction[] = ['scan_udp', 'os_detect']
  * (the server's step-up; the page asks and sends the request again), so nothing here keeps a session open. The server keeps the result on
  * the device; the newest one is also held here so it shows at once, before the list is read again.
  */
-export function useDeviceProbe(ip: () => string | undefined) {
+export function useDeviceProbe(ip: () => string | undefined, mac: () => string | undefined = () => undefined) {
   const status = ref<HelperStatus | null>(null)
   const running = ref<ProbeAction | null>(null)
   const freshUdp = ref<UdpPort[] | null>(null)
@@ -60,5 +60,21 @@ export function useDeviceProbe(ip: () => string | undefined) {
     }
   }
 
-  return { actions, running, freshUdp, freshOs, error, load, run }
+  /** Drops the kept UDP scan or OS detection of this device; true when the server did. A new scan replaces it as well. */
+  async function clear(kind: 'udp' | 'os'): Promise<boolean> {
+    const id = mac()
+    if (!id) return false
+    error.value = ''
+    try {
+      await NetauditService.clearProbe(id, kind)
+      if (kind === 'udp') freshUdp.value = null
+      else freshOs.value = null
+      return true
+    } catch (err) {
+      error.value = errorMessage(err, PROBE_CLEAR_FAILED)
+      return false
+    }
+  }
+
+  return { actions, running, freshUdp, freshOs, error, load, run, clear }
 }
