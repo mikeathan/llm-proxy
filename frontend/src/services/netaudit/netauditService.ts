@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult } from '../../types/netaudit'
+import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -223,6 +223,16 @@ export class NetauditService {
   /** Runs OS detection on one device through the helper (the same passphrase step). */
   static detectOs(target: string): Promise<HelperRunResult> {
     return post<HelperRunResult>(API_ENDPOINTS.helperOsDetect, { target })
+  }
+
+  /** Listens on this computer's own link for up to 60 seconds (the helper's capture_window; the passphrase step as for a scan). No body: the server picks the interface. */
+  static captureWindow(): Promise<CaptureRunResult> {
+    return post<CaptureRunResult>(API_ENDPOINTS.helperCaptureWindow)
+  }
+
+  /** The last capture summary the server kept, or null when there has been none. */
+  static async lastCapture(): Promise<CaptureSummary | null> {
+    return (await get<{ summary: CaptureSummary | null }>(API_ENDPOINTS.netauditCaptureWindow)).summary
   }
 
   static decoys(): Promise<DecoyState> {

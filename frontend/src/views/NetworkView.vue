@@ -15,10 +15,12 @@ import TimelineTab from "../components/netaudit/TimelineTab.vue"
 import AuditsPanel from "../components/netaudit/AuditsPanel.vue"
 import NetworkSettings from "../components/netaudit/NetworkSettings.vue"
 import DevicesCard from "../components/netaudit/DevicesCard.vue"
+import CaptureWindowCard from "../components/netaudit/CaptureWindowCard.vue"
 import NearbySection from "../components/netaudit/NearbySection.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import { useDispatcher } from "../composables/automation/useDispatcher"
+import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
 import { useNetworkOverview } from "../composables/netaudit/useNetworkOverview"
 import { AUDITOR_PROFILE, AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_OVERVIEW_LABEL, NETWORK_SUBTITLE, NETWORK_TAB_LABELS, NETWORK_TITLE } from "../constants/netaudit"
 import { toNetwork } from "../router/routes"
@@ -32,6 +34,7 @@ import type { NetworkTab } from "../types/routes"
 // Modules (the switchboard: every module is switched here and nowhere else) and Settings (the limits and details of each). The audit itself stays an ordinary automation, and this page reads its results. Simple or
 // Advanced, and Help, are in the page header and mean the same on every tab.
 const route = useRoute()
+const { advanced } = useNetauditViewMode()
 const { automations, fetchAutomations } = useDispatcher()
 
 const tab = computed<NetworkTab | null>(() => {
@@ -79,6 +82,7 @@ onUnmounted(stop)
 
     <template v-else-if="tab === 'devices'">
       <DevicesCard />
+      <CaptureWindowCard v-if="advanced" />
       <NearbySection />
     </template>
 

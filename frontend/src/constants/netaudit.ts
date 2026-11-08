@@ -601,6 +601,7 @@ export const HELPER_ACTIONS_TITLE = 'Actions'
 export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint: string }>> = {
   scan_udp: { title: 'UDP scan', hint: 'Finds UDP services (DNS, SNMP, NTP) on one device.' },
   os_detect: { title: 'OS detection', hint: 'Guesses what kind of device it is.' },
+  capture_window: { title: 'Listen on this network', hint: 'Listens for up to 60 seconds for broadcast frames on this computer\'s link and counts them.' },
 }
 // The UDP ports the helper may scan (the catalogue's fixed list); the button asks for all of them.
 export const HELPER_UDP_PORTS: readonly number[] = [53, 67, 69, 123, 137, 161, 500, 1900, 5353]
@@ -620,3 +621,23 @@ export const HELPER_RANGES_NONE_DECLARED = 'No scan range is declared yet, so no
 export const HELPER_RANGES_ONLY = 'It scans only these ranges, declared under "What may be scanned" above; a change there applies at once.'
 export const HELPER_PASSPHRASE_NOTE = 'Turning an action on needs your passphrase.'
 
+
+// Network · Devices · Advanced: listen on this computer's link for up to 60 seconds (the helper's capture_window).
+export const CAPTURE_TITLE = 'Listen on this network'
+export const CAPTURE_BUTTON = 'Listen for 60 seconds'
+export const CAPTURE_RUNNING = 'Listening. This takes up to a minute.'
+export const CAPTURE_FAILED = 'The listen could not be run.'
+export const CAPTURE_PASSPHRASE_NOTE = 'Asks for your passphrase each time.'
+export const CAPTURE_SNAPSHOT_NOTE = 'This is a snapshot, not monitoring. It counts the broadcast and multicast frames this computer receives on its own link (address announcements, DHCP, device discovery). It sees nothing sent privately between other devices, and on Wi-Fi it cannot see their traffic at all. It sends nothing and keeps the first 64 bytes of each frame at most.'
+export const CAPTURE_NEVER = 'No frames yet. Press the button to listen once.'
+export const CAPTURE_STOPPED: Readonly<Record<string, string>> = {
+  window: 'Ran the full time.',
+  frame_limit: 'Stopped at the frame limit (4,096 frames) before the time was up.',
+  cut: 'The run was cut off before it finished, so the numbers are partial.',
+  interface_missing: 'The network interface was not found, so nothing was heard.',
+  interface_down: 'The network interface is down, so nothing was heard.',
+  socket_error: 'The listen stopped because of an error reading the link; the numbers are partial.',
+  unsupported: 'This computer cannot listen this way (it needs Linux).',
+}
+export const CAPTURE_DHCP_NOTE = 'More than one DHCP source is worth a look (a router and a repeater can both answer); it is not proof of a problem.'
+export const CAPTURE_CONFLICT_NOTE = (n: number): string => `${n} ${n === 1 ? 'address was' : 'addresses were'} announced by more than one device. Repeaters and bonded connections can do this on purpose.`

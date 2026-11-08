@@ -68,6 +68,13 @@ Non-trivial work follows **inspect → plan → implement → verify → review 
 - **Centralization:** app-level initialization, lifecycle wiring, and long-lived background coordination
   (refresh loops, global watchers/listeners, bootstrap) live in **one discoverable place** (a dedicated
   entrypoint/init layer), never spread ad hoc.
+- **Hand over unfinished work.** When you stop and work remains (a slice not built, a decision or measurement waiting on the
+  owner, a check you could not run), write or update one handoff plan before the final message:
+  `docs/PLANS/<folder>/<topic>-handoff-<date>.md`, with the plan frontmatter (`status: partial`) and a row in
+  `docs/PLANS/README.md`. It states: the branch and its commit state (pushed or not, merge order); what is built and which checks
+  were run or **not** run; what is left, in order, and what each item needs from the owner; traps found; and the first command or
+  file to open. Replace the topic's earlier handoff instead of adding a second one, and delete the file when its work is done
+  (harvest first, `documentation-stewardship`). No work left means no handoff.
 - **Report the review, don't just pass it:** summarize each Pre-Completion Review gate (pass/fail/clean)
   in the final message to the user.
 
