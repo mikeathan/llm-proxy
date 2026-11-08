@@ -733,6 +733,9 @@ var helperAllowed = []string{
 	privhelperPath + "/catalog",
 	privhelperPath + "/wire",
 	privhelperPath + "/helper",
+	// capture is the packet reader the capture_window action runs (the helper binary under the file jail): it imports only the standard
+	// library, the wire layout and x/sys/unix, and reads no frame (plan network-capture-window-plan, Constitution I.11).
+	privhelperPath + "/capture",
 	"golang.org/x/sys/unix",
 }
 
