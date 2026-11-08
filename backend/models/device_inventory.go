@@ -52,6 +52,32 @@ type NetworkDevice struct {
 	Alerted bool `json:"alerted,omitempty"`
 	// Randomized is true for a locally administered MAC, which phones and laptops use to hide their hardware address.
 	Randomized bool `json:"randomized,omitempty"`
+	// UDPPorts and UDPScannedAt are the last UDP scan the operator ran on it through the privileged helper; the time is set even when
+	// nothing answered, so "scanned, nothing found" and "never scanned" differ. OSGuesses and OSDetectedAt are the same for OS detection.
+	// They are what that scan found then, shown on screen only: no finding is made from them.
+	UDPPorts     []ProbeUDPPort `json:"udp_ports,omitempty"`
+	UDPScannedAt time.Time      `json:"udp_scanned_at,omitzero"`
+	OSGuesses    []ProbeOSGuess `json:"os_guesses,omitempty"`
+	OSDetectedAt time.Time      `json:"os_detected_at,omitzero"`
+}
+
+// ProbeUDPPort is one UDP port a helper scan found. State "open|filtered" means no reply came back: it is never shown as open.
+type ProbeUDPPort struct {
+	Port    int    `json:"port"`
+	State   string `json:"state"`
+	Service string `json:"service,omitempty"`
+}
+
+// ProbeOSGuess is one of nmap's operating-system guesses with the accuracy it reported (0 to 100).
+type ProbeOSGuess struct {
+	Name     string `json:"name"`
+	Accuracy int    `json:"accuracy"`
+}
+
+// DeviceProbe is what one helper scan of a device found, parsed and bounded by the service: UDP ports from a UDP scan, guesses from OS detection.
+type DeviceProbe struct {
+	UDPPorts []ProbeUDPPort `json:"udp_ports"`
+	OS       []ProbeOSGuess `json:"os"`
 }
 
 // AddressChange records that an address, which one MAC held, is now held by another.

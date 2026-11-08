@@ -140,7 +140,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
-	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s))
+	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), s.netaudit.Inventory)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)

@@ -649,3 +649,65 @@ func TestPending_OneHardwareAddressOnSeveralAddressesIsToldOnceUntilItChanges(t 
 		t.Fatalf("pending = %+v, want it told again after it had stopped", p)
 	}
 }
+
+func TestInventory_RecordUDPScanKeepsWhatItFoundWithTheTimeEvenWhenNothingAnswered(t *testing.T) {
+	st := &memInventory{inv: models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20"}, {MAC: macOther, IP: "192.168.1.21"}}}}
+	v := newInventory(fakeSource{}, st)
+	ports := []models.ProbeUDPPort{{Port: 53, State: "open", Service: "domain"}}
+	if err := v.RecordUDPScan("192.168.1.20", ports); err != nil {
+		t.Fatal(err)
+	}
+	if d := find(st.inv, macTV); len(d.UDPPorts) != 1 || d.UDPPorts[0].Port != 53 || !d.UDPScannedAt.Equal(t0) {
+		t.Errorf("device = %+v", d)
+	}
+	if d := find(st.inv, macOther); !d.UDPScannedAt.IsZero() {
+		t.Error("another device was marked as scanned")
+	}
+	if err := v.RecordUDPScan("192.168.1.20", nil); err != nil {
+		t.Fatal(err)
+	}
+	if d := find(st.inv, macTV); len(d.UDPPorts) != 0 || d.UDPScannedAt.IsZero() {
+		t.Errorf("a scan that found nothing must replace the old ports and still carry its time: %+v", d)
+	}
+}
+
+func TestInventory_RecordOSGuessKeepsTheGuessesAndLeavesTheUDPResultAlone(t *testing.T) {
+	st := &memInventory{inv: models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20", UDPPorts: []models.ProbeUDPPort{{Port: 53, State: "open"}}}}}}
+	v := newInventory(fakeSource{}, st)
+	if err := v.RecordOSGuess("192.168.1.20", []models.ProbeOSGuess{{Name: "Linux 5", Accuracy: 90}}); err != nil {
+		t.Fatal(err)
+	}
+	d := find(st.inv, macTV)
+	if len(d.OSGuesses) != 1 || !d.OSDetectedAt.Equal(t0) || len(d.UDPPorts) != 1 {
+		t.Errorf("device = %+v", d)
+	}
+}
+
+func TestInventory_RecordingForAnAddressNoDeviceHoldsIsAnErrorAndWritesNothing(t *testing.T) {
+	st := &memInventory{inv: models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20"}}}}
+	v := newInventory(fakeSource{}, st)
+	if err := v.RecordUDPScan("192.168.1.99", nil); !errors.Is(err, ErrNoSuchDevice) || st.writes != 0 {
+		t.Errorf("err = %v, writes = %d", err, st.writes)
+	}
+}
+
+func TestInventory_TheNewestDeviceAtAnAddressGetsTheResult(t *testing.T) {
+	st := &memInventory{inv: models.DeviceInventory{Devices: []models.NetworkDevice{
+		{MAC: macTV, IP: "192.168.1.20", LastSeen: t0.Add(-48 * time.Hour)}, {MAC: macOther, IP: "192.168.1.20", LastSeen: t0},
+	}}}
+	v := newInventory(fakeSource{}, st)
+	if err := v.RecordOSGuess("192.168.1.20", nil); err != nil {
+		t.Fatal(err)
+	}
+	if find(st.inv, macOther).OSDetectedAt.IsZero() || !find(st.inv, macTV).OSDetectedAt.IsZero() {
+		t.Error("the result went to the stale holder of the address")
+	}
+}
+
+func TestViewOf_CarriesTheLastProbe(t *testing.T) {
+	inv := models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20", UDPPorts: []models.ProbeUDPPort{{Port: 161, State: "open"}}, UDPScannedAt: t0, OSGuesses: []models.ProbeOSGuess{{Name: "x", Accuracy: 1}}, OSDetectedAt: t0}}}
+	d := ViewOf(inv, t0).Devices[0]
+	if len(d.UDPPorts) != 1 || !d.UDPScannedAt.Equal(t0) || len(d.OSGuesses) != 1 || !d.OSDetectedAt.Equal(t0) {
+		t.Errorf("view = %+v", d)
+	}
+}

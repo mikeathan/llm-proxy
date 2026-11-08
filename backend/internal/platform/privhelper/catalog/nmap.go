@@ -18,8 +18,8 @@ const (
 	maxPorts       = 9
 )
 
-// nmapFixed are the arguments both actions share; none comes from a caller.
-var nmapFixed = []string{"--privileged", "-n", "-Pn", "--max-retries", "1", "--host-timeout", "60s", "--max-rate", "20"}
+// nmapFixed are the arguments both actions share; none comes from a caller. "-oX -" makes nmap write XML to its output, which the service parses (Constitution I.11).
+var nmapFixed = []string{"--privileged", "-n", "-Pn", "--max-retries", "1", "--host-timeout", "60s", "--max-rate", "20", "-oX", "-"}
 
 // udpPorts are the only ports a UDP scan may name: the services the audit looks at (design section 4).
 var udpPorts = []int{53, 67, 69, 123, 137, 161, 500, 1900, 5353}

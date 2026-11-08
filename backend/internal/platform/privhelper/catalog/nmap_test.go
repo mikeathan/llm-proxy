@@ -21,7 +21,7 @@ func TestScanUDPBuildsTheMeasuredArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--privileged", "-n", "-Pn", "--max-retries", "1", "--host-timeout", "60s", "--max-rate", "20", "-sU", "-p", "53,161", "192.168.50.10"}
+	want := []string{"--privileged", "-n", "-Pn", "--max-retries", "1", "--host-timeout", "60s", "--max-rate", "20", "-oX", "-", "-sU", "-p", "53,161", "192.168.50.10"}
 	if p.Program != "nmap" || !slices.Equal(p.Args, want) {
 		t.Errorf("got %s %v", p.Program, p.Args)
 	}
@@ -41,7 +41,7 @@ func TestOSDetectBuildsTheMeasuredArguments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--privileged", "-n", "-Pn", "--max-retries", "1", "--host-timeout", "60s", "--max-rate", "20", "-O", "-p", "22,80,443", "10.1.2.3"}
+	want := []string{"--privileged", "-n", "-Pn", "--max-retries", "1", "--host-timeout", "60s", "--max-rate", "20", "-oX", "-", "-O", "-p", "22,80,443", "10.1.2.3"}
 	if !slices.Equal(p.Args, want) {
 		t.Errorf("got %v", p.Args)
 	}

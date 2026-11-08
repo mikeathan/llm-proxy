@@ -38,6 +38,8 @@ export const API_ENDPOINTS = {
   netauditPresence: `${API_BASE}/netaudit/presence`,
   netauditDecoys: `${API_BASE}/netaudit/decoys`,
   helper: `${API_BASE}/helper`,
+  helperScanUdp: `${API_BASE}/helper/scan_udp`,
+  helperOsDetect: `${API_BASE}/helper/os_detect`,
   netauditDecoyTouches: `${API_BASE}/netaudit/decoys/touches`,
   netauditRouterLog: `${API_BASE}/netaudit/router-log`,
   netauditWifi: `${API_BASE}/netaudit/wifi`,

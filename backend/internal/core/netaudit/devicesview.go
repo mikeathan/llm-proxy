@@ -31,6 +31,12 @@ type DeviceView struct {
 	// empty for a device no scan has finished looking at. They help tell an unnamed device apart and are shown on screen only.
 	OpenPorts      []int     `json:"open_ports,omitempty"`
 	PortsScannedAt time.Time `json:"ports_scanned_at,omitzero"`
+	// UDPPorts, UDPScannedAt, OSGuesses and OSDetectedAt are the last results of the scans the operator ran through the privileged helper;
+	// the times are set even for a scan that found nothing. Shown on screen only.
+	UDPPorts     []models.ProbeUDPPort `json:"udp_ports,omitempty"`
+	UDPScannedAt time.Time             `json:"udp_scanned_at,omitzero"`
+	OSGuesses    []models.ProbeOSGuess `json:"os_guesses,omitempty"`
+	OSDetectedAt time.Time             `json:"os_detected_at,omitzero"`
 }
 
 // GatewayView is the router's hardware address and whether it is the one on record.
@@ -61,6 +67,7 @@ func ViewOf(inv models.DeviceInventory, now time.Time) InventoryView {
 		view.Devices = append(view.Devices, DeviceView{
 			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
 			Approved: d.Approved, Important: d.Important, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: oui.Vendor(d.MAC),
+			UDPPorts: d.UDPPorts, UDPScannedAt: d.UDPScannedAt, OSGuesses: d.OSGuesses, OSDetectedAt: d.OSDetectedAt,
 		})
 	}
 	slices.SortStableFunc(view.Devices, func(a, b DeviceView) int {

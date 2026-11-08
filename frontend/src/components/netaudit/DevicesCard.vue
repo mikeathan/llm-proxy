@@ -159,6 +159,7 @@ onMounted(load)
                   @toggle-important="markImportant(device.mac, !device.important)"
                   @accept-suggestion="name(device.mac, device.suggested_name ?? '')"
                   @dismiss-suggestion="dismissSuggestion(device.mac)"
+                  @probed="load"
                   @update:draft="draft = $event"
                 />
               </ul>

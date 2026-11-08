@@ -600,6 +600,14 @@ export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint
   scan_udp: { title: 'UDP scan', hint: 'Finds UDP services (DNS, SNMP, NTP) on one device.' },
   os_detect: { title: 'OS detection', hint: 'Guesses what kind of device it is.' },
 }
+// The UDP ports the helper may scan (the catalogue's fixed list); the button asks for all of them.
+export const HELPER_UDP_PORTS: readonly number[] = [53, 67, 69, 123, 137, 161, 500, 1900, 5353]
+export const PROBE_RUNNING = 'Scanning. This can take a minute.'
+export const PROBE_FAILED = 'The scan could not be run.'
+export const PROBE_NO_UDP = 'No UDP service answered.'
+export const PROBE_NO_OS = 'No guess: the device did not give enough to go on.'
+export const PROBE_UDP_FILTERED = 'no reply (open or blocked)'
+export const PROBE_PASSPHRASE_NOTE = 'Asks for your passphrase each time.'
 export const HELPER_ACTION_NOT_INSTALLED = 'Not in the helper\'s list: run the install command again.'
 export const HELPER_RANGES_TITLE = 'What it may scan'
 export const HELPER_RANGES_NONE_DECLARED = 'No scan range is declared yet, so nothing can be scanned. Declare one under "What may be scanned" above.'
