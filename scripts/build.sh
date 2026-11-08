@@ -108,6 +108,15 @@ else
   ui_die "Backend compilation failed!"
 fi
 
+# The privileged helper (ADR-0034) is a separate binary of the same module, built with every build so an installed helper never lags the
+# service it answers. It is installed only by the operator (setup.sh --helper, scripts/install-helper.sh); building it changes nothing.
+HELPER_NAME="llm-proxy-helper"
+if go build -o "./${HELPER_NAME}" "./cmd/${HELPER_NAME}"; then
+  ui_ok "Helper binary created at backend/${HELPER_NAME}"
+else
+  ui_die "Helper compilation failed!"
+fi
+
 # --- Keep the committed page --------------------------------------------------
 # The binary embedded the page it was just built with, so the tracked index.html on disk is no longer needed by it. A
 # different Node version names the bundle differently (vertex on Node 20 makes index-D2IzYLA9.js where the committed

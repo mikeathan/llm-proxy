@@ -25,6 +25,11 @@
 #   --yes         accept all prompts with defaults
 #   --unattended  never prompt; reuse the installed unit's settings, print the
 #                 resolved configuration, then apply it (needs a subcommand)
+#   --helper      also install the privileged helper (ADR-0034, off unless asked).
+#                 It scans only the ranges declared in the Network settings (the
+#                 service holds every call to them) and only the actions you turn on
+#                 in the admin interface. Remembered: later --unattended installs
+#                 keep it and refresh its binary. --no-helper removes it.
 #
 # Contributor dev setup (gitleaks + git hooks) lives in
 # scripts/setup-gitleaks.sh — different job, different machine.
@@ -46,7 +51,12 @@ SELECTIONS_FILE="${SELECTIONS_DIR}/setup.conf"
 
 FORCE=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; UNATTENDED=0; MODE=""
 
-for arg in "$@"; do
+HELPER=0; NO_HELPER=0
+HELPER_ACTIONS="scan_udp,os_detect" # every action of the catalogue; each is still off until the operator turns it on with the passphrase
+HELPER_BIN_INSTALLED="/usr/local/bin/llm-proxy-helper"
+
+while [[ $# -gt 0 ]]; do
+  arg="$1"; shift
   case "$arg" in
     install)     MODE="install" ;;
     register)    MODE="install" ;;
@@ -61,10 +71,16 @@ for arg in "$@"; do
     --force)     FORCE=1 ;;
     --yes)       ASSUME_YES=1 ;;
     --unattended) UNATTENDED=1; ASSUME_YES=1 ;;
+    --helper)       HELPER=1 ;;
+    --no-helper)    NO_HELPER=1 ;;
     -h|--help)   sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown arg: $arg (-h for usage)" >&2; exit 1 ;;
   esac
 done
+if [[ $HELPER == 1 || $NO_HELPER == 1 ]]; then
+  [[ $HELPER == 1 && $NO_HELPER == 1 ]] && { echo "--helper and --no-helper contradict each other" >&2; exit 1; }
+  [[ "$MODE" == "install" ]] || { echo "--helper and --no-helper apply to an install (--install)" >&2; exit 1; }
+fi
 
 INTERACTIVE=1
 [[ $ASSUME_YES == 1 || -n "$MODE" || -t 0 ]] || {
@@ -368,6 +384,7 @@ load_selections() {
     || fail "${SELECTIONS_FILE} is not owned by root — refusing to reuse it"
   [[ "$(selection DO_BUILD)" == 1 ]] && DO_BUILD=1
   [[ "$(selection START_NOW)" == 0 ]] && START_NOW=0
+  [[ "$(selection HELPER)" == 1 && $NO_HELPER == 0 ]] && HELPER=1
   return 0
 }
 
@@ -702,6 +719,53 @@ build_step() {
 }
 
 # -----------------------------------------------------------------------------
+# PRIVILEGED HELPER (opt-in; ADR-0034, Constitution I.11) — installed only when --helper is given, with
+# scripts/install-helper.sh, which owns the units and the checks. An installed helper is otherwise left alone.
+# -----------------------------------------------------------------------------
+helper_installed() { [[ -f "$HELPER_BIN_INSTALLED" ]] || systemctl cat llm-proxy-helper-net.socket >/dev/null 2>&1; }
+
+helper_step() {
+  local built="$PRJ_ROOT/backend/llm-proxy-helper"
+  if [[ $NO_HELPER == 1 ]]; then
+    save_selection HELPER 0 2>/dev/null || true
+    if helper_installed; then
+      step "Privileged helper"
+      "$PRJ_ROOT/scripts/install-helper.sh" net --uninstall || warn "helper removal reported a problem"
+    fi
+    return 0
+  fi
+  if [[ $HELPER == 0 ]]; then
+    # The helper and the service share one wire format and one action list, so a helper that is installed follows a rebuild.
+    if helper_installed && [[ $DO_BUILD == 1 && -x "$built" ]]; then
+      step "Privileged helper"
+      install -o root -g root -m 0755 "$built" "$HELPER_BIN_INSTALLED"
+      success "installed helper refreshed from this build (its action list is unchanged)"
+    fi
+    return 0
+  fi
+  step "Privileged helper"
+  [[ -x "$built" ]] || fail "$built not found — build it too: add --build"
+  "$PRJ_ROOT/scripts/install-helper.sh" net --install --actions "$HELPER_ACTIONS" \
+    --bin "$built" --group "$SVC_USER" --service-unit "${BIN_NAME}.service" || fail "helper install failed"
+  save_selection HELPER 1
+  success "helper installed. Next: declare a scan range and turn each action on (admin interface, Network -> Settings; needs your passphrase)"
+}
+
+# helper_tip is the reminder printed at the end of an install: how to add the helper when it is not there, what to do next when it is.
+helper_tip() {
+  if helper_installed; then
+    printf '%s\n' "PRIVILEGED HELPER is installed (UDP scans, OS detection). It does nothing until you turn each" \
+      "action on: admin interface -> Network -> Settings -> Privileged helper (needs your passphrase)." \
+      "It scans only the ranges declared in Network -> Settings, and changes to them apply at once." \
+      "Remove it: sudo ./setup.sh --install --unattended --no-helper"
+  else
+    printf '%s\n' "OPTIONAL: UDP scans and OS detection need the privileged helper (a separate, off-by-default" \
+      "process). To add it: sudo ./setup.sh --install --build --unattended --helper" \
+      "Help: docs/service_setup.md -> Privileged helper (Network -> Settings shows this too)."
+  fi
+}
+
+# -----------------------------------------------------------------------------
 # INSTALL
 # -----------------------------------------------------------------------------
 install_flow() {
@@ -899,6 +963,8 @@ install_flow() {
     info "hardening: ${SCORE:-n/a}"
   fi
 
+  helper_step
+
   # Refresh the dev launcher's env file so ./launch.sh defaults to the same
   # data root the service uses. Values are defaults only — anything exported
   # before ./launch.sh wins.
@@ -914,6 +980,8 @@ NEXT, set the passphrase that signs you in. Until you do, the admin
 interface is locked and shows only the setup page:
   sudo ${INSTALL_BIN} auth setup-code
 then open /admin/setup in the UI and enter the code with a passphrase.
+
+$(helper_tip)
 
 To reach the UI from another computer: use an SSH tunnel
   ssh -L 4001:127.0.0.1:4001 <user>@<host>
@@ -935,6 +1003,11 @@ uninstall_flow() {
   [[ -f "$INSTALL_BIN" ]]    && info "binary:       $INSTALL_BIN"  || info "binary:       (not installed)"
   [[ -d "$SVC_ROOT" ]]       && info "data root:    $SVC_ROOT"     || info "data root:    (not present)"
   id "$SVC_USER" &>/dev/null && info "service user: $SVC_USER"     || info "service user: (not present)"
+
+  if helper_installed; then
+    step "Privileged helper"
+    "$PRJ_ROOT/scripts/install-helper.sh" net --uninstall || warn "helper removal reported a problem — check: systemctl status llm-proxy-helper-net.socket"
+  fi
 
   step "Stop & disable service"
   if [[ -f "$UNIT" ]]; then

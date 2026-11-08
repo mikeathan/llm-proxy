@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,7 +18,6 @@ import (
 	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/wire"
-	"llm-proxy/internal/platform/scanscope"
 )
 
 const (
@@ -63,8 +61,6 @@ type Config struct {
 	Class catalog.Class
 	// Actions is the root-owned list of actions this unit may run (HELPER_ACTIONS): the third gate.
 	Actions []string
-	// Scope is the operator's declared ranges as of install (HELPER_SCOPE); empty means nothing may be scanned.
-	Scope scanscope.Policy
 	// Capability is the one capability the actions of this class need while they run (CAP_NET_RAW for the net class); 0 means none.
 	Capability int
 	// Programs maps a catalogue program name to how it is found.
@@ -162,8 +158,9 @@ func (h *Helper) callerIsTheService(ctx context.Context, conn net.Conn) bool {
 	return true
 }
 
-// admit applies the gates and the checks that need no program: the action must be in this unit's class and list, its parameters must
-// pass the catalogue, and its target must be inside the operator's declared ranges as this unit recorded them.
+// admit applies the gates and the checks that need no program: the action must be in this unit's class and list, and its parameters must
+// pass the catalogue, whose fixed rules are the helper's whole scope: one private IPv4 host, a fixed port list. The operator's declared
+// scan ranges are enforced by the service before it asks (a root-held copy would only be copied from a file the service can write).
 func (h *Helper) admit(conn net.Conn, req wire.Request) (catalog.Prepared, catalog.Action, bool) {
 	action, err := catalog.Lookup(req.Action)
 	if err != nil || action.Class != h.cfg.Class {
@@ -183,16 +180,7 @@ func (h *Helper) admit(conn net.Conn, req wire.Request) (catalog.Prepared, catal
 		reply(conn, refusal(req.ID, code, msg))
 		return catalog.Prepared{}, catalog.Action{}, false
 	}
-	if prepared.Target != "" && !h.inScope(prepared.Target) {
-		reply(conn, refusal(req.ID, wire.CodeScope, msgScope))
-		return catalog.Prepared{}, catalog.Action{}, false
-	}
 	return prepared, action, true
-}
-
-func (h *Helper) inScope(target string) bool {
-	addr, err := netip.ParseAddr(target)
-	return err == nil && h.cfg.Scope.Check(addr) == nil
 }
 
 // run starts the program under the file jail with the action's caps and replies with what it printed. The run ends when the peer

@@ -583,3 +583,26 @@ export const WIFI_NOT_LOOKED = 'No look has been made yet.'
 export const WIFI_UNCONFIRMED_NOTE = 'None of its access points is confirmed yet, so nothing is reported for this name.'
 export const wifiSeenLine = (signal: number, security: string): string => `${signal}% signal \u00b7 ${security === 'open' ? 'no security' : security.toUpperCase()}`
 
+// Network · Settings · Privileged helper.
+export const HELPER_TITLE = 'Privileged helper'
+export const HELPER_LOAD_FAILED = 'The privileged helper could not be read.'
+export const HELPER_SAVE_FAILED = 'The change could not be saved.'
+export const HELPER_WHAT = 'UDP scans and OS detection need a raw-packet permission the service deliberately does not have. A small separate helper, installed by you, runs just those scans for the service and nothing else.'
+export const HELPER_NOT_INSTALLED = 'The helper is not installed on this computer.'
+export const HELPER_INSTALL_STEP = 'To install it, run this on the computer that runs this app:'
+export const HELPER_HELP = 'Details: docs/service_setup.md, "Privileged helper". The helper stays off until you turn an action on here.'
+export const HELPER_COPY = 'Copy command'
+export const HELPER_COPIED = 'Copied.'
+export const HELPER_COPY_FAILED = 'Could not copy: select the command and copy it.'
+export const HELPER_UNSUPPORTED = 'The privileged helper needs Linux with systemd, so it is not available on this computer.'
+export const HELPER_ACTIONS_TITLE = 'Actions'
+export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint: string }>> = {
+  scan_udp: { title: 'UDP scan', hint: 'Finds UDP services (DNS, SNMP, NTP) on one device.' },
+  os_detect: { title: 'OS detection', hint: 'Guesses what kind of device it is.' },
+}
+export const HELPER_ACTION_NOT_INSTALLED = 'Not in the helper\'s list: run the install command again.'
+export const HELPER_RANGES_TITLE = 'What it may scan'
+export const HELPER_RANGES_NONE_DECLARED = 'No scan range is declared yet, so nothing can be scanned. Declare one under "What may be scanned" above.'
+export const HELPER_RANGES_ONLY = 'It scans only these ranges, declared under "What may be scanned" above; a change there applies at once.'
+export const HELPER_PASSPHRASE_NOTE = 'Turning an action on needs your passphrase.'
+

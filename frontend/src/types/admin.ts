@@ -359,6 +359,8 @@ export interface SandboxingConfig {
   network?: boolean
   /** True lets the programs agents run make Unix sockets; absent or false refuses them (the file jail does not control them). */
   unix_sockets?: boolean
+  /** The privileged-helper actions the operator has turned on (catalogue IDs); absent or empty is off. Saved only with the passphrase. */
+  helper_actions?: string[]
   egress_proxy: number
   egress_allow_domains?: string[]
   egress_deny_domains?: string[]

@@ -72,6 +72,10 @@ func (c *Client) safeHost() error {
 	return nil
 }
 
+// Ready reports whether a call would be allowed to start: nil when the sandbox enforces file confinement and Unix-socket denial,
+// ErrUnsafeHost otherwise. It makes no connection.
+func (c *Client) Ready() error { return c.safeHost() }
+
 // Call runs one catalogue action. The parameters are checked locally against the same catalogue the helper uses, so a malformed request
 // fails here without a connection; the helper checks them again from its own copy.
 func (c *Client) Call(ctx context.Context, action string, params json.RawMessage) (wire.Result, error) {

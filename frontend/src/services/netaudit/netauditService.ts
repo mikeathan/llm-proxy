@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState } from '../../types/netaudit'
+import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -204,6 +204,10 @@ export class NetauditService {
 
   static followUpScan(): Promise<NetauditSwitch> {
     return get<NetauditSwitch>(API_ENDPOINTS.netauditFollowUpScan)
+  }
+
+  static helper(): Promise<HelperStatus> {
+    return get<HelperStatus>(API_ENDPOINTS.helper)
   }
 
   static decoys(): Promise<DecoyState> {

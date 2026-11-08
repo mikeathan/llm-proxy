@@ -1,9 +1,15 @@
 package app
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
 	"testing"
 
 	"llm-proxy/internal/platform/privhelper/client"
+	"llm-proxy/internal/platform/privhelper/port"
+	"llm-proxy/internal/platform/scanscope"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
 )
@@ -26,7 +32,7 @@ func TestAHelperActionMustBeInTheCatalogueToBeTurnedOn(t *testing.T) {
 }
 
 func TestEveryHelperRouteHasAHandler(t *testing.T) {
-	h := newHelperRoutes(&AppContext{})
+	h := newHelperRoutes(&AppContext{}, nil)
 	routes := api.HelperRoutes()
 	if len(routes) == 0 || len(h.handlers) != len(routes) {
 		t.Fatalf("%d handlers for %d routes", len(h.handlers), len(routes))
@@ -51,5 +57,62 @@ func TestOnlyTheSettingTheOperatorWroteTurnsAnActionOn(t *testing.T) {
 	c := models.HostSandboxingConfig{HelperActions: []string{"scan_udp"}}
 	if !c.HelperActionOn("scan_udp") || c.HelperActionOn("os_detect") || (models.HostSandboxingConfig{}).HelperActionOn("scan_udp") {
 		t.Error("an action is on only when it is in the list; absent is off")
+	}
+}
+
+func TestReadHelperActionsReadsWhatTheInstallWrote(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "10-gates.conf")
+	if err := os.WriteFile(path, []byte("[Service]\nEnvironment=HELPER_ACTIONS=scan_udp, os_detect\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if actions, ok := readHelperActions(path); !ok || !slices.Equal(actions, []string{"scan_udp", "os_detect"}) {
+		t.Errorf("%v %v", actions, ok)
+	}
+}
+
+func TestReadHelperActionsSaysUnknownWhenItCannotRead(t *testing.T) {
+	if _, ok := readHelperActions(filepath.Join(t.TempDir(), "absent.conf")); ok {
+		t.Error("a missing file must read as unknown")
+	}
+	path := filepath.Join(t.TempDir(), "other.conf")
+	_ = os.WriteFile(path, []byte("[Service]\nEnvironment=SOMETHING=else\n"), 0o644)
+	if _, ok := readHelperActions(path); ok {
+		t.Error("a file without the line must read as unknown")
+	}
+}
+
+// The helper holds no range of its own, so these are the checks that keep a helper call inside what the operator declared.
+func TestAHelperTargetMustBeInsideTheDeclaredRanges(t *testing.T) {
+	policy := func(cidrs ...string) func() scanscope.Policy {
+		return func() scanscope.Policy { return scanscope.PolicyFromCIDRs(cidrs) }
+	}
+	cases := []struct {
+		name   string
+		ranges []string
+		target string
+		want   error
+	}{
+		{"inside", []string{"192.168.50.0/24"}, "192.168.50.10", nil},
+		{"private but not declared", []string{"192.168.50.0/24"}, "192.168.51.10", port.ErrOutsideRange},
+		{"another private block", []string{"192.168.50.0/24"}, "10.0.0.5", port.ErrOutsideRange},
+		{"nothing declared", nil, "192.168.50.10", port.ErrNoRangeDeclared},
+		{"a public address is never in scope", []string{"8.8.8.0/24"}, "8.8.8.8", port.ErrOutsideRange},
+	}
+	for _, c := range cases {
+		if err := (declaredRanges{policy(c.ranges...)}).Check(c.target); !errors.Is(err, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, err, c.want)
+		}
+	}
+	if err := (declaredRanges{policy("192.168.50.0/24")}).Check("not-an-address"); err == nil || errors.Is(err, port.ErrOutsideRange) {
+		t.Errorf("an unparsable target is an error, not a range answer: %v", err)
+	}
+}
+
+func TestTheDeclaredRangesAreReadFromTheNetworkSettingsEachTime(t *testing.T) {
+	if got := scopePolicy(&AppServices{})(); len(got.Allowed) != 0 {
+		t.Errorf("with no Network module there are no ranges: %v", got.Allowed)
+	}
+	if got := rangeStrings(scanscope.PolicyFromCIDRs([]string{"192.168.50.0/24", "10.0.0.0/8"})); !slices.Equal(got, []string{"192.168.50.0/24", "10.0.0.0/8"}) {
+		t.Errorf("%v", got)
 	}
 }

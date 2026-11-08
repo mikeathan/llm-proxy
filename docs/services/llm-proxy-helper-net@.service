@@ -1,8 +1,9 @@
 # One privileged helper process for one connection (net class: raw packets for UDP scans and OS detection). ADR-0034, Constitution I.11.
 # The capability is held by this process only; the helper takes it off every thread that asks systemd a question and puts it back only for a
-# verified action. The two settings that gate it are written by `setup.sh helper --install net` into a root-owned drop-in:
+# verified action. The one setting that gates it is written by `scripts/install-helper.sh` into a root-owned drop-in:
 #   HELPER_ACTIONS  the actions this unit may run (the third gate; the service cannot change it)
-#   HELPER_SCOPE    the operator's declared scan ranges as of install (the helper checks every target against them itself)
+# The helper checks every target against its own fixed rule (one private IPv4 host, a fixed port list). The scan ranges are the ones the
+# operator declared in the Network settings, and the service holds every call to them before it asks; the helper keeps no copy of them.
 [Unit]
 Description=LLM Proxy privileged helper (net)
 

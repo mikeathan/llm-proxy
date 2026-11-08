@@ -201,8 +201,8 @@ func TestCancellingACallStopsTheHelpersRun(t *testing.T) {
 	}
 }
 
-// Against an installed helper (scripts/check-helper-under-unit.sh's setup): run from the service's main process with HELPER_SOCKET and
-// HELPER_TARGET set; skipped everywhere else. It proves the Go client and the real helper speak the same protocol.
+// Against an installed helper whose list holds scan_udp only (scripts/check-helper-under-unit.sh's setup): run from the service's main process
+// with HELPER_SOCKET and HELPER_TARGET set; skipped everywhere else. It proves the Go client and the real helper speak the same protocol.
 func TestAgainstARealHelper(t *testing.T) {
 	socket, target := os.Getenv("HELPER_SOCKET"), os.Getenv("HELPER_TARGET")
 	if socket == "" || target == "" {
@@ -216,9 +216,10 @@ func TestAgainstARealHelper(t *testing.T) {
 	if res.Kind != "bytes" || !strings.Contains(string(res.Data), "Nmap scan report for "+target) {
 		t.Errorf("the answer is not nmap's report: %q", res.Data)
 	}
-	_, err = New(socket, enforcing()).Call(t.Context(), "scan_udp", json.RawMessage(`{"target":"192.168.77.5","ports":[53]}`))
+	// An action the install's root-owned list does not name is refused by the helper, whatever the service asks.
+	_, err = New(socket, enforcing()).Call(t.Context(), "os_detect", json.RawMessage(`{"target":"`+target+`"}`))
 	var refusal *Refusal
-	if !errors.As(err, &refusal) || refusal.Code != wire.CodeScope {
-		t.Errorf("a target outside the helper's declared range must be a scope refusal, got %v", err)
+	if !errors.As(err, &refusal) || refusal.Code != wire.CodeDisabled {
+		t.Errorf("an action that is not in the install's list must be a disabled refusal, got %v", err)
 	}
 }

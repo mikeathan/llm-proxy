@@ -5,8 +5,8 @@
 //	llm-proxy-helper --class net --actions scan_udp,os_detect     under its unit: the connected socket is file descriptor 3
 //	llm-proxy-helper --class net --actions scan_udp --socket PATH  by hand, as root: listen on PATH, serve one connection, exit
 //
-// HELPER_SCOPE (comma-separated CIDR blocks) is the operator's declared scan ranges as of install; the unit's drop-in sets it and the
-// service cannot change it.
+// HELPER_ACTIONS (the --actions value) is set by the unit's root-owned drop-in; the service cannot change it. The helper checks each target
+// against its own fixed rules (one private IPv4 host); the operator's declared scan ranges are enforced by the service before it asks.
 package main
 
 import (
@@ -26,11 +26,9 @@ import (
 	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/helper"
-	"llm-proxy/internal/platform/scanscope"
 )
 
 const (
-	envScope     = "HELPER_SCOPE"
 	defaultUnit  = "llm-proxy.service"
 	listenFD     = 3 // SD_LISTEN_FDS_START
 	nmapProgName = "nmap"
@@ -49,10 +47,10 @@ func main() {
 	if isolation.RunChildIfRequested() {
 		return
 	}
-	os.Exit(run(os.Args[1:], os.Getenv(envScope), os.Environ(), os.Stderr))
+	os.Exit(run(os.Args[1:], os.Environ(), os.Stderr))
 }
 
-func run(args []string, scopeEnv string, env []string, stderr io.Writer) int {
+func run(args []string, env []string, stderr io.Writer) int {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	fs := flag.NewFlagSet("llm-proxy-helper", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -63,7 +61,7 @@ func run(args []string, scopeEnv string, env []string, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	h, err := build(*class, *actions, scopeEnv, *unit, log)
+	h, err := build(*class, *actions, *unit, log)
 	if err != nil {
 		log.Error("not started", "error", err)
 		return 2
@@ -81,7 +79,7 @@ func run(args []string, scopeEnv string, env []string, stderr io.Writer) int {
 	return 0
 }
 
-func build(class, actions, scopeEnv, unit string, log *slog.Logger) (*helper.Helper, error) {
+func build(class, actions, unit string, log *slog.Logger) (*helper.Helper, error) {
 	if class != string(catalog.ClassNet) {
 		return nil, fmt.Errorf("--class must be %q (the log class is deferred)", catalog.ClassNet)
 	}
@@ -91,10 +89,9 @@ func build(class, actions, scopeEnv, unit string, log *slog.Logger) (*helper.Hel
 			return nil, fmt.Errorf("--actions names %q, which is not in the catalogue", id)
 		}
 	}
-	cidrs := splitList(scopeEnv)
 	runner := isolation.NewRunner(isolation.New(isolation.Config{Filesystem: true}), nil)
 	return helper.New(helper.Config{
-		Class: catalog.ClassNet, Actions: list, Scope: scanscope.PolicyFromCIDRs(cidrs), Capability: helper.CapNetRaw,
+		Class: catalog.ClassNet, Actions: list, Capability: helper.CapNetRaw,
 		Programs: map[string]isolation.Program{nmapProgName: nmap}, DataDirs: nmapData,
 		Runner: runner, Ambient: helper.ThreadAmbient{},
 		Identify: helper.IdentifyPeer, MainPID: helper.SystemdMainPID(runner, unit), PtraceScope: helper.YamaPtraceScope,
