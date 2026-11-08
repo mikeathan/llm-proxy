@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -35,7 +36,7 @@ func ok200(stacksdk.Request) (stacksdk.Response, error) {
 func mounted(t *testing.T, s *fakeStack) *http.ServeMux {
 	t.Helper()
 	mux := http.NewServeMux()
-	if err := MountStackRoutes(mux, s, nil); err != nil {
+	if err := MountStackRoutes(muxRegistrar{mux}, s, nil); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	return mux
@@ -101,7 +102,7 @@ func TestMountStackRoutes_ARouteTheCoreCannotKeepSafeIsRefused(t *testing.T) {
 		"a step-up with a wildcard": {Method: "PUT", Path: "/admin/api/fake/{id}", Access: stacksdk.AccessStepUp},
 	}
 	for name, route := range bad {
-		err := MountStackRoutes(http.NewServeMux(), &fakeStack{routes: []stacksdk.RouteSpec{route}, fn: ok200}, nil)
+		err := MountStackRoutes(muxRegistrar{http.NewServeMux()}, &fakeStack{routes: []stacksdk.RouteSpec{route}, fn: ok200}, nil)
 		if err == nil {
 			t.Errorf("%s: must be refused", name)
 		}
@@ -109,7 +110,7 @@ func TestMountStackRoutes_ARouteTheCoreCannotKeepSafeIsRefused(t *testing.T) {
 	// A route the core already serves is an error, not a panic.
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /admin/api/fake/x", func(http.ResponseWriter, *http.Request) {})
-	if err := MountStackRoutes(mux, &fakeStack{routes: []stacksdk.RouteSpec{{Method: "GET", Path: "/admin/api/fake/x"}}, fn: ok200}, nil); err == nil {
+	if err := MountStackRoutes(muxRegistrar{mux}, &fakeStack{routes: []stacksdk.RouteSpec{{Method: "GET", Path: "/admin/api/fake/x"}}, fn: ok200}, nil); err == nil {
 		t.Error("a route that is already registered must be refused")
 	}
 }
@@ -148,7 +149,7 @@ func TestMountStackRoutes_AStepUpRouteNeedsThePassphraseAgain(t *testing.T) {
 func BenchmarkStackRoute(b *testing.B) {
 	s := &fakeStack{routes: []stacksdk.RouteSpec{{Method: "GET", Path: "/admin/api/fake/x"}}, fn: ok200}
 	mux := http.NewServeMux()
-	if err := MountStackRoutes(mux, s, nil); err != nil {
+	if err := MountStackRoutes(muxRegistrar{mux}, s, nil); err != nil {
 		b.Fatal(err)
 	}
 	b.ReportAllocs()
@@ -195,7 +196,7 @@ func actionStack(fn func(stacksdk.Request) (stacksdk.Response, error)) *fakeStac
 func mountedWith(t *testing.T, s *fakeStack, m GrantMinter) http.Handler {
 	t.Helper()
 	mux := http.NewServeMux()
-	if err := MountStackRoutes(mux, s, m); err != nil {
+	if err := MountStackRoutes(muxRegistrar{mux}, s, m); err != nil {
 		t.Fatalf("mount: %v", err)
 	}
 	return AuthenticateWith(mux, newFake(), StackStepUpRoutes(s.Manifest()))
@@ -302,8 +303,41 @@ func TestMountStackRoutes_ANamedActionMustExistAndNeedsAMinter(t *testing.T) {
 		"an admin-level route":           {stacksdk.RouteSpec{Method: "POST", Path: "/admin/api/fake/x", Action: "scan_udp"}, &recordingMinter{}},
 	}
 	for name, c := range cases {
-		if err := MountStackRoutes(http.NewServeMux(), &fakeStack{routes: []stacksdk.RouteSpec{c.route}, fn: ok200}, c.minter); err == nil {
+		if err := MountStackRoutes(muxRegistrar{http.NewServeMux()}, &fakeStack{routes: []stacksdk.RouteSpec{c.route}, fn: ok200}, c.minter); err == nil {
 			t.Errorf("%s: must be refused", name)
 		}
+	}
+}
+
+// muxRegistrar lets the tests mount on a plain ServeMux, which has no route list.
+type muxRegistrar struct{ mux *http.ServeMux }
+
+func (m muxRegistrar) Handle(method, path string, h http.Handler, _ ...RouteOption) {
+	m.mux.Handle(method+" "+path, h)
+}
+
+func (muxRegistrar) Routes() []string { return nil }
+
+func TestMountStackRoutes_OnTheRouterRoutesAreListedAnsweredAndAConflictIsRefused(t *testing.T) {
+	router := NewRouter()
+	s := &fakeStack{routes: []stacksdk.RouteSpec{{Method: "GET", Path: "/admin/api/fake/x"}, {Method: "PUT", Path: "/admin/api/fake/x", Access: stacksdk.AccessStepUp}}, fn: ok200}
+	if err := MountStackRoutes(router, s, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := router.Routes(); !slices.Equal(got, []string{"GET /admin/api/fake/x", "PUT /admin/api/fake/x"}) {
+		t.Errorf("routes = %v", got)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest("GET", "/admin/api/fake/x", nil))
+	if rec.Code != 200 {
+		t.Errorf("GET = %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest("DELETE", "/admin/api/fake/x", nil))
+	if rec.Code != http.StatusMethodNotAllowed || !strings.Contains(rec.Body.String(), `"error"`) {
+		t.Errorf("a method the stack did not declare is a JSON 405: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := MountStackRoutes(router, s, nil); err == nil {
+		t.Error("mounting the same routes twice must be refused")
 	}
 }

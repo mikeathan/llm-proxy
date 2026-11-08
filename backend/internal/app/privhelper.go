@@ -10,12 +10,12 @@ import (
 	"strings"
 
 	"llm-proxy/internal/core/netaudit/nmap"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/client"
 	"llm-proxy/internal/platform/privhelper/grant"
 	"llm-proxy/internal/platform/privhelper/port"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/scanscope"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -41,9 +41,9 @@ type helperRoutes struct {
 // what is enforced now, not what was enforced at start-up.
 type liveSandbox struct{ ctx *AppContext }
 
-func (l liveSandbox) Effective() sandbox.EffectiveState {
+func (l liveSandbox) Effective() isolation.EffectiveState {
 	if l.ctx.sandboxProv == nil {
-		return sandbox.EffectiveState{}
+		return isolation.EffectiveState{}
 	}
 	return l.ctx.sandboxProv.Effective()
 }

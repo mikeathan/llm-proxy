@@ -107,7 +107,6 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPut, "/admin/api/netaudit/outside-lookup"},           // sends the network's public address to an outside service, and sets which one
 	{http.MethodPut, "/admin/api/netaudit/follow-up-scan"},           // scans each new device on arrival: scan traffic during the day
 	{http.MethodPut, "/admin/api/netaudit/nearby"},                   // sends two multicast questions and reads the answers from every device (Constitution I.9)
-	{http.MethodPut, "/admin/api/netaudit/dns-check"},                // sends the names it compares, and this network's public address, to an outside resolver
 	{http.MethodDelete, "/admin/api/netaudit/vulndata"},              // removes what every audit compares with: the same silencing as a hand-made import
 	{http.MethodDelete, "/admin/api/netaudit/ubuntu-data"},           // removes what every audit compares the installed packages with: the same silencing as deleting the vulnerability data
 	{http.MethodPost, "/admin/api/netaudit/vulndata/import"},         // replaces what every audit compares with: a hand-made file could silence every known-flaw finding

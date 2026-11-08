@@ -4,10 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"time"
+
+	"llm-proxy-stacks/network"
+	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/stack"
+	"llm-proxy/internal/core/stackport"
+	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/loginlog"
+	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/models"
 )
 
@@ -99,7 +106,7 @@ func networkModules(d stackDeps) []stack.Module {
 		{ID: "outside_lookup", Title: "Internet view", Purpose: "Ports the internet can reach.", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
 			Switch: n.OutsideLookupConfig, Ready: internet},
 		{ID: "dns_check", Title: "Router DNS check", Purpose: "Is the router answering honestly?", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
-			Switch: dnsCheckSwitch{n.DNSCheckConfig}, Monitors: []string{netaudit.MonitorDNS}, Ready: both},
+			Switch: n.DNSCheckSwitch, Monitors: []string{netaudit.MonitorDNS}, Ready: both},
 		{ID: "attack_paths", Title: "Attack paths", Purpose: "The ways in that matter, and the one fix for each.", Stack: stack.Network, Layer: "understand", Sends: stack.SendsNothing,
 			Switch: n.AttackPathsConfig},
 		{ID: "weekly_summary", Title: "Weekly summary", Purpose: "Counts of the week to your phone.", Stack: stack.Network, Layer: "tell", Sends: stack.SendsMessage,
@@ -141,12 +148,51 @@ func (p presenceSwitch) Enabled() bool { return p.View().Enabled }
 
 func (p presenceSwitch) Set(enabled bool) error { return p.SetEnabled(enabled) }
 
-// dnsCheckSwitch is the DNS check's switch alone; its names, server and interval stay on its own card.
-type dnsCheckSwitch struct{ *netaudit.DNSCheckConfig }
+// dnsCheckSwitch is the DNS check's switch alone, over the settings document the Network stack shares with the core; its names, server
+// and interval stay on its own card, which the stack serves.
+type dnsCheckSwitch struct{ store netaudit.PolicyStore }
 
-func (d dnsCheckSwitch) Enabled() bool { return d.Settings().Enabled }
+func (d dnsCheckSwitch) Enabled() bool { return d.store.Get().DNSCheckEnabled }
 
-func (d dnsCheckSwitch) Set(enabled bool) error { return d.SetEnabled(enabled) }
+func (d dnsCheckSwitch) Set(enabled bool) error {
+	if err := d.store.Update(func(cfg *models.NetauditConfig) error {
+		cfg.DNSCheckEnabled = enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the DNS check setting: %w", err)
+	}
+	return nil
+}
+
+// networkStack is the Network stack. Only this file imports a stack (Constitution IV.6).
+func networkStack() stacksdk.Stack { return network.New() }
+
+// newNetworkHost hosts the Network stack over the core's own services, one adapter per port its manifest requires: the settings document
+// (the `netaudit` key, unchanged), the guarded dial and fetch, the default gateway the neighbour table gives, the service's log, and the
+// data folder restricted to the files the manifest lists. The files it lists are removed by a factory reset, as the store they replace was.
+func (s *AppServices) newNetworkHost(store netaudit.PolicyStore, netTools *tools.NetworkTools) (*stackHost, error) {
+	st := networkStack()
+	files := st.Manifest().Storage
+	if _, err := claimedFiles(st.Manifest()); err != nil {
+		return nil, err
+	}
+	dir := s.AppCtx.RootDir()
+	gateway := cachedGateway(neighborSource{reader: neighbors.NewReader()}, gatewayTTL, time.Now)
+	host := stacksdk.Host{
+		Config:  stackport.Config[models.NetauditConfig]{Store: store},
+		Log:     stackport.Log{Stack: st.Manifest().ID},
+		DataDir: stackport.DataDir{Dir: dir, Files: files},
+		Guard:   stackport.Guard{Dial: netTools.DialContext()},
+		Fetch:   stackport.Fetch{Opener: netTools},
+		Gateway: stackport.Gateway{Read: gateway},
+	}
+	h, err := newStackHost(st, host)
+	if err != nil {
+		return nil, err
+	}
+	s.AppCtx.AfterFactoryReset("The log of DNS comparisons", func() error { return stackport.Remove(dir, files) })
+	return h, nil
+}
 
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes
 // now and not at the next tick. A write that failed wakes nothing.

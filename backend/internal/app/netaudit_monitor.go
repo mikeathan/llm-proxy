@@ -1,8 +1,11 @@
 package app
 
 import (
+	"context"
 	"slices"
 	"time"
+
+	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
@@ -48,8 +51,9 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 		add(true, netaudit.MonitorRouterLog, "the listener for the router's log", func() netaudit.MonitorReading { s, _ := read(); return s })
 		add(true, netaudit.MonitorRouterLogQuiet, "the router's log (nothing received for a day)", func() netaudit.MonitorReading { _, q := read(); return q })
 	}
-	add(n.DNSCollector != nil && n.DNSCheckConfig != nil, netaudit.MonitorDNS, "the DNS comparison", func() netaudit.MonitorReading {
-		return dnsReading(n.DNSCheckConfig.Settings(), n.DNSCollector.Status())
+	add(n.Network != nil, netaudit.MonitorDNS, "the DNS comparison", func() netaudit.MonitorReading {
+		st, _ := n.Network.Module(context.Background(), netaudit.MonitorDNS)
+		return dnsReading(st)
 	})
 	add(n.PhoneHomeConfig != nil && n.RouterLog != nil, netaudit.MonitorPhoneHome, "the phone-home watch (no DNS names received for a day: check that the router logs DNS queries and sends them to this computer)", func() netaudit.MonitorReading {
 		return phoneHomeReading(n.PhoneHomeConfig.Enabled(), n.RouterLog.Status())
@@ -113,8 +117,8 @@ func presenceReading(s netaudit.PresenceSettings, st netaudit.PresenceStatus) ne
 
 // dnsReading counts a cycle that compared as working; a cycle the settings refused did nothing. A check with no names never
 // runs a cycle, so it is not watched.
-func dnsReading(s netaudit.DNSSettings, st netaudit.DNSStatus) netaudit.MonitorReading {
-	r := netaudit.MonitorReading{On: s.Enabled && len(s.Names) > 0, Limit: cycleLimit(s.Every)}
+func dnsReading(st stacksdk.ModuleStatus) netaudit.MonitorReading {
+	r := netaudit.MonitorReading{On: st.Enabled, Limit: cycleLimit(st.Every)}
 	if st.Problem == "" {
 		r.LastGood = st.LastRun
 	}

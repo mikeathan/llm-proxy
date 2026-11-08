@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy-stacks/sdk"
+
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/knownbad"
 	"llm-proxy/internal/core/stack"
@@ -55,7 +57,7 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		DecoyConfig:         netaudit.NewDecoyConfig(store),
 		FollowUpConfig:      netaudit.NewFollowUpConfig(store),
 		OutsideLookupConfig: netaudit.NewOutsideLookupConfig(store),
-		DNSCheckConfig:      netaudit.NewDNSCheckConfig(store),
+		DNSCheckSwitch:      dnsCheckSwitch{store},
 		Summary:             netaudit.NewSummaryConfig(store),
 		CheckInConfig:       netaudit.NewCheckInConfig(store),
 		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
@@ -156,7 +158,8 @@ var legacyPaths = map[string]string{
 var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "login_watch": false, "wifi_lookalikes": false}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
-	steps := api.StepUpRoutes()
+	// The DNS check's write moved into its stack, which declares the step-up in its manifest; the core table holds the rest.
+	steps := append(api.StepUpRoutes(), stackStepUpRoutes([]stacksdk.Stack{networkStack()})...)
 	for _, m := range allModules(t, newTestStacks(t).reg) {
 		if m.Stack != stack.Network {
 			continue

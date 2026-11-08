@@ -120,6 +120,22 @@ func (r *rig) waitHeard(t *testing.T) {
 
 func (r *rig) quiet() { time.Sleep(60 * time.Millisecond) }
 
+// drained waits until the drop counter has stopped moving for 100 ms: the reader has caught up with what was sent.
+func (r *rig) drained(t *testing.T) {
+	t.Helper()
+	last, since := r.nDrops.Load(), time.Now()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+		if n := r.nDrops.Load(); n != last {
+			last, since = n, time.Now()
+		} else if time.Since(since) >= 100*time.Millisecond && last > 0 {
+			return
+		}
+	}
+	t.Fatal("the reader never caught up with the flood")
+}
+
 func TestManager_AnUnknownDeviceFromTheRouterWakesTheCheckOnce(t *testing.T) {
 	r := newRig(t)
 	addr := r.start(t)
@@ -288,6 +304,10 @@ func TestManager_FirewallLinesNeverUseUpTheAllowanceSoALeaseStillGetsThrough(t *
 	for i := 0; i < 500; i++ {
 		send(t, addr, drop)
 	}
+	// UDP has no delivery promise: on a loaded machine the reader falls behind and the kernel drops what overflows its
+	// buffer, which could be the lease itself. Let the reader drain the flood before the lease is sent; what is asserted
+	// (the flood does not use up the lease's allowance) is unchanged.
+	r.drained(t)
 	send(t, addr, lease("aa:bb:cc:dd:ee:01", "NEW-PHONE"))
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && r.wakes.Load() == 0 {

@@ -17,11 +17,11 @@ import (
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/core/tools/searchproviders"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/safe"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/sizewatch"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/platform/units"
@@ -175,7 +175,7 @@ type AgentStackContext interface {
 	MemoryStore() *memory.Store
 	SessionRetention() time.Duration // how long a session fact lives (settings memory.retention_days, read live)
 	HostSettings() models.HostSettings
-	SetSandboxProvider(sandbox.Provider)
+	SetSandboxProvider(isolation.Provider)
 	// LockedDown reports whether lock down is on: the guardrails then refuse the terminal, the network and MCP tools.
 	LockedDown() bool
 }
@@ -188,7 +188,7 @@ type stackCtx struct {
 	readConfig    readConfigFunc
 	defaults      models.AgentGuardrailsConfig
 	hostNetworkOn func() bool
-	sandbox       sandbox.Provider
+	sandbox       isolation.Provider
 	storageOver   func(workspaceID, workspaceRoot string) bool
 }
 
@@ -413,7 +413,7 @@ func InitializeAgentStack(
 	// composition root and shared by every spawn site (pooled shell +
 	// executeLocal). The provider is snapshotted from the requested config at
 	// boot — toggling sandboxing.filesystem applies on restart.
-	sandboxProvider := sandbox.New(sandbox.Config{
+	sandboxProvider := isolation.New(isolation.Config{
 		Filesystem:   appCtx.HostSettings().Sandboxing.FilesystemEnabled(),
 		MaxStorageGB: appCtx.HostSettings().Sandboxing.MaxStorageGB,
 		// Refused unless the operator wrote sandboxing.unix_sockets: the jail does not control a path-based Unix socket.

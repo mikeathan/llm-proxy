@@ -3,7 +3,7 @@ package shell
 import (
 	"context"
 	"io"
-	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/models"
 	"time"
 )
@@ -40,7 +40,7 @@ type WorkspacePolicy struct {
 	// Sandbox is the OS confinement provider applied to the spawned shell
 	// BEFORE Start (Landlock on Linux kernels >= 5.13; no-op elsewhere — plan
 	// Phase 2).
-	Sandbox sandbox.Provider
+	Sandbox isolation.Provider
 }
 
 // ShellProvider manages multiple terminal sessions across workspaces.

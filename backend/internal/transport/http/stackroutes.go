@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"llm-proxy-stacks/sdk"
@@ -23,25 +24,38 @@ type GrantMinter interface {
 	Mint(action string, canonical []byte) (string, error)
 }
 
-// MountStackRoutes registers each route the stack declares on mux. It refuses, before registering anything, a route the core could not keep
+// Registrar is where stack routes are registered: *Router, which keeps the route list the classification tests read. A test may pass an
+// adapter over an http.ServeMux.
+type Registrar interface {
+	Handle(method, path string, handler http.Handler, opts ...RouteOption)
+	Routes() []string
+}
+
+// MountStackRoutes registers each route the stack declares on reg. It refuses, before registering anything, a route the core could not keep
 // safe: one outside /admin/api/, one under the sign-in routes (which need no credential), a step-up read (the step-up check skips reads, so
 // it would protect nothing), a step-up route with a wildcard (the step-up table matches exact paths), one that names an action the
 // catalogue does not hold (or any action when there is no minter), and one already registered.
-func MountStackRoutes(mux *http.ServeMux, s stacksdk.Stack, minter GrantMinter) (err error) {
+func MountStackRoutes(reg Registrar, s stacksdk.Stack, minter GrantMinter) (err error) {
 	routes := s.Manifest().Routes
 	for _, rt := range routes {
 		if err := checkStackRoute(rt, minter != nil); err != nil {
 			return err
 		}
 	}
+	registered := reg.Routes()
+	for _, rt := range routes {
+		if slices.Contains(registered, rt.Method+" "+rt.Path) {
+			return fmt.Errorf("a stack route conflicts with a registered route: %s %s", rt.Method, rt.Path)
+		}
+	}
 	defer func() {
-		// ServeMux panics on a pattern it already holds; the composition root wants an error.
+		// A ServeMux panics on a pattern it already holds; the composition root wants an error.
 		if r := recover(); r != nil {
 			err = fmt.Errorf("a stack route conflicts with a registered route: %v", r)
 		}
 	}()
 	for _, rt := range routes {
-		mux.HandleFunc(rt.Method+" "+rt.Path, stackHandler(s, rt, minter))
+		reg.Handle(rt.Method, rt.Path, stackHandler(s, rt, minter), WithMethodNotAllowed(http.HandlerFunc(MethodNotAllowedJSON)))
 	}
 	return nil
 }

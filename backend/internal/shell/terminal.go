@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/process"
 	"llm-proxy/internal/platform/procwatch"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/models"
 	"os"
 	"os/exec"
@@ -47,7 +47,7 @@ func newPersistentShell(ctx context.Context, hostPath string, env []string, poli
 	// kernels >= 5.13 (FS jail; TCP deny for network-off shells on ABI v4+),
 	// no-op elsewhere (plan Phase 2).
 	if policy.Sandbox != nil {
-		if err := policy.Sandbox.Wrap(cmd, sandbox.WorkspaceView{
+		if err := policy.Sandbox.Wrap(cmd, isolation.WorkspaceView{
 			RootPath:  hostPath,
 			NetworkOn: policy.NetworkOn,
 			Epoch:     policy.Epoch,

@@ -15,9 +15,9 @@ import (
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/persistence"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
@@ -340,10 +340,10 @@ func (m *mockAppContext) Resolver() storage.Resolver {
 func (m *mockAppContext) Secrets() models.SecretsStore {
 	return stubSearchSecrets{}
 }
-func (m *mockAppContext) MemoryStore() *memory.Store          { return nil }
-func (m *mockAppContext) SessionRetention() time.Duration     { return 0 }
-func (m *mockAppContext) SetSandboxProvider(sandbox.Provider) {}
-func (m *mockAppContext) LockedDown() bool                    { return false }
+func (m *mockAppContext) MemoryStore() *memory.Store            { return nil }
+func (m *mockAppContext) SessionRetention() time.Duration       { return 0 }
+func (m *mockAppContext) SetSandboxProvider(isolation.Provider) {}
+func (m *mockAppContext) LockedDown() bool                      { return false }
 
 // HostSettings returns the LEGACY posture (sandboxing section zero → network
 // undecided → allowed) so registry wiring tests behave like a pre-change
@@ -365,10 +365,10 @@ func (m *mockAppContextWithDirs) Secrets() models.SecretsStore { return stubSear
 func (m *mockAppContextWithDirs) Resolver() storage.Resolver {
 	return storage.NewPathResolver("", m.workspacesDir, m.workspacesDir)
 }
-func (m *mockAppContextWithDirs) MemoryStore() *memory.Store          { return nil }
-func (m *mockAppContextWithDirs) SessionRetention() time.Duration     { return 0 }
-func (m *mockAppContextWithDirs) SetSandboxProvider(sandbox.Provider) {}
-func (m *mockAppContextWithDirs) LockedDown() bool                    { return false }
+func (m *mockAppContextWithDirs) MemoryStore() *memory.Store            { return nil }
+func (m *mockAppContextWithDirs) SessionRetention() time.Duration       { return 0 }
+func (m *mockAppContextWithDirs) SetSandboxProvider(isolation.Provider) {}
+func (m *mockAppContextWithDirs) LockedDown() bool                      { return false }
 
 // HostSettings: legacy posture (network undecided → allowed); host gate inert.
 func (m *mockAppContextWithDirs) HostSettings() models.HostSettings {

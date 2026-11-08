@@ -55,6 +55,9 @@ func (s *Stack) Stop(context.Context) error { return nil }
 // ConfigChanged has nothing to re-read.
 func (s *Stack) ConfigChanged(context.Context) error { return nil }
 
+// Status has no background module to report.
+func (s *Stack) Status(context.Context) ([]stacksdk.ModuleStatus, error) { return nil, nil }
+
 // CallTool runs a declared tool by name.
 func (s *Stack) CallTool(_ context.Context, name string, args json.RawMessage) (json.RawMessage, error) {
 	if name != ToolEcho {

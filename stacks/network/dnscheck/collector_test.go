@@ -1,4 +1,4 @@
-package netaudit
+package dnscheck
 
 import (
 	"context"
@@ -9,9 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"llm-proxy/internal/core/netaudit/dnscheck"
-	"llm-proxy/models"
 )
 
 type fakeDNS struct {
@@ -38,14 +35,14 @@ func (f *fakeDNS) count() int {
 }
 
 type memDNSStore struct {
-	items    []models.DNSComparison
+	items    []Comparison
 	readErr  error
 	writeErr error
 	writes   int
 }
 
-func (m *memDNSStore) Read() ([]models.DNSComparison, error) { return m.items, m.readErr }
-func (m *memDNSStore) Write(v []models.DNSComparison) error {
+func (m *memDNSStore) Read() ([]Comparison, error) { return m.items, m.readErr }
+func (m *memDNSStore) Write(v []Comparison) error {
 	m.writes++
 	if m.writeErr != nil {
 		return m.writeErr
@@ -64,10 +61,10 @@ func dnsIPs(in ...string) []netip.Addr {
 
 var dnsNow = time.Date(2026, 11, 1, 18, 0, 0, 0, time.UTC)
 
-func newTestCollector(router, outside *fakeDNS, store *memDNSStore, names ...string) (*DNSCollector, *[]error) {
+func newTestCollector(router, outside *fakeDNS, store *memDNSStore, names ...string) (*Collector, *[]error) {
 	var errs []error
-	c := NewDNSCollector(DNSCollectorDeps{
-		Settings: func() DNSSettings { return DNSSettings{Enabled: true, Every: time.Hour, Names: names} },
+	c := NewCollector(CollectorDeps{
+		Settings: func() Settings { return Settings{Enabled: true, Every: time.Hour, Names: names} },
 		Router:   router,
 		Outside:  outside,
 		Store:    store,
@@ -88,7 +85,7 @@ func TestDNSCollector_LogsAMatchWhateverTheOrderAndAdvisesNothing(t *testing.T) 
 		t.Fatalf("got %+v", store.items)
 	}
 	got := store.items[0]
-	if got.Outcome != models.DNSMatch || got.Name != "dns.google" || !got.At.Equal(dnsNow) || !got.Overlap {
+	if got.Outcome != Match || got.Name != "dns.google" || !got.At.Equal(dnsNow) || !got.Overlap {
 		t.Errorf("got %+v", got)
 	}
 	if !slices.Equal(got.Router, []string{"8.8.8.8", "8.8.4.4"}) || !slices.Equal(got.Outside, []string{"8.8.4.4", "8.8.8.8"}) {
@@ -106,7 +103,7 @@ func TestDNSCollector_ADifferentAnswerIsLoggedWithBothSetsAndWhetherTheyOverlap(
 	c, _ := newTestCollector(router, outside, store, "a.example", "b.example")
 	c.Tick(context.Background())
 
-	if len(store.items) != 2 || store.items[0].Outcome != models.DNSDiffer || store.items[1].Outcome != models.DNSDiffer {
+	if len(store.items) != 2 || store.items[0].Outcome != Differ || store.items[1].Outcome != Differ {
 		t.Fatalf("got %+v", store.items)
 	}
 	if store.items[0].Overlap || !store.items[1].Overlap {
@@ -125,16 +122,16 @@ func TestDNSCollector_ASideThatFailedIsCannotCompareWithAFixedReason(t *testing.
 		router, outside *fakeDNS
 		reason          string
 	}{
-		{"router unknown", &fakeDNS{err: dnscheck.ErrNoRouter}, good, models.DNSReasonNoRouter},
-		{"router silent", &fakeDNS{err: errors.New("read udp: i/o timeout 10.1.2.3 secret-device-name")}, good, models.DNSReasonRouterSilent},
-		{"outside failed", good, &fakeDNS{err: errors.New("503 from the service: <script>")}, models.DNSReasonOutsideFails},
-		{"outside unreadable", good, &fakeDNS{err: dnscheck.ErrBadAnswer}, models.DNSReasonOutsideFails},
+		{"router unknown", &fakeDNS{err: ErrNoRouter}, good, ReasonNoRouter},
+		{"router silent", &fakeDNS{err: errors.New("read udp: i/o timeout 10.1.2.3 secret-device-name")}, good, ReasonRouterSilent},
+		{"outside failed", good, &fakeDNS{err: errors.New("503 from the service: <script>")}, ReasonOutsideFails},
+		{"outside unreadable", good, &fakeDNS{err: ErrBadAnswer}, ReasonOutsideFails},
 	}
 	for _, tc := range cases {
 		store := &memDNSStore{}
 		c, _ := newTestCollector(tc.router, tc.outside, store, "dns.google")
 		c.Tick(context.Background())
-		if len(store.items) != 1 || store.items[0].Outcome != models.DNSCannotCompare || store.items[0].Reason != tc.reason {
+		if len(store.items) != 1 || store.items[0].Outcome != CannotCompare || store.items[0].Reason != tc.reason {
 			t.Errorf("%s: got %+v", tc.name, store.items)
 			continue
 		}
@@ -147,7 +144,7 @@ func TestDNSCollector_ASideThatFailedIsCannotCompareWithAFixedReason(t *testing.
 // With internet access off nothing can be compared and nothing is logged: a log full of "cannot compare" rows would be noise.
 func TestDNSCollector_InternetOffLogsNothingAndSaysSo(t *testing.T) {
 	router := &fakeDNS{by: map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8")}}
-	outside := &fakeDNS{err: dnscheck.ErrInternetOff}
+	outside := &fakeDNS{err: ErrInternetOff}
 	store := &memDNSStore{}
 	c, _ := newTestCollector(router, outside, store, "dns.google", "one.one.one.one")
 	c.Tick(context.Background())
@@ -158,7 +155,7 @@ func TestDNSCollector_InternetOffLogsNothingAndSaysSo(t *testing.T) {
 	if outside.count() != 1 {
 		t.Errorf("the outside resolver is asked once, not for every name: %d", outside.count())
 	}
-	if got := c.Status().Problem; got != DNSProblemInternetOff {
+	if got := c.Status().Problem; got != ProblemInternetOff {
 		t.Errorf("problem = %q", got)
 	}
 	outside.err = nil
@@ -174,9 +171,9 @@ func TestDNSCollector_DisabledOrNoNamesAsksNobody(t *testing.T) {
 	router, outside := &fakeDNS{}, &fakeDNS{}
 	store := &memDNSStore{}
 	c, _ := newTestCollector(router, outside, store, "dns.google")
-	c.deps.Settings = func() DNSSettings { return DNSSettings{Enabled: false, Names: []string{"dns.google"}} }
+	c.deps.Settings = func() Settings { return Settings{Enabled: false, Names: []string{"dns.google"}} }
 	c.Tick(context.Background())
-	c.deps.Settings = func() DNSSettings { return DNSSettings{Enabled: true} }
+	c.deps.Settings = func() Settings { return Settings{Enabled: true} }
 	c.Tick(context.Background())
 	if router.count()+outside.count() != 0 || store.writes != 0 {
 		t.Errorf("asked %d %d, wrote %d", router.count(), outside.count(), store.writes)
@@ -184,15 +181,15 @@ func TestDNSCollector_DisabledOrNoNamesAsksNobody(t *testing.T) {
 }
 
 func TestDNSCollector_TheLogIsBoundedAndKeepsTheNewest(t *testing.T) {
-	var old []models.DNSComparison
-	for i := 0; i < MaxDNSComparisons; i++ {
-		old = append(old, models.DNSComparison{Name: fmt.Sprintf("n%d.example", i), Outcome: models.DNSMatch})
+	var old []Comparison
+	for i := 0; i < MaxComparisons; i++ {
+		old = append(old, Comparison{Name: fmt.Sprintf("n%d.example", i), Outcome: Match})
 	}
 	store := &memDNSStore{items: old}
 	same := map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8")}
 	c, _ := newTestCollector(&fakeDNS{by: same}, &fakeDNS{by: same}, store, "dns.google")
 	c.Tick(context.Background())
-	if len(store.items) != MaxDNSComparisons {
+	if len(store.items) != MaxComparisons {
 		t.Fatalf("len = %d", len(store.items))
 	}
 	if store.items[0].Name != "n1.example" || store.items[len(store.items)-1].Name != "dns.google" {
@@ -226,33 +223,33 @@ func TestDNSCollector_StoreTroubleIsReportedOnceAndNeverHidesTheOutcome(t *testi
 }
 
 func TestDNSCollector_SummaryCountsAndListsTheNewestDifferences(t *testing.T) {
-	var items []models.DNSComparison
+	var items []Comparison
 	at := dnsNow.Add(-48 * time.Hour)
-	add := func(o models.DNSOutcome, overlap bool, name string) {
+	add := func(o Outcome, overlap bool, name string) {
 		at = at.Add(time.Minute)
-		items = append(items, models.DNSComparison{At: at, Name: name, Outcome: o, Overlap: overlap})
+		items = append(items, Comparison{At: at, Name: name, Outcome: o, Overlap: overlap})
 	}
-	add(models.DNSMatch, true, "m1")
-	add(models.DNSCannotCompare, false, "c1")
-	for i := 0; i < MaxDNSDifferences+3; i++ {
-		add(models.DNSDiffer, i%2 == 0, fmt.Sprintf("d%d", i))
+	add(Match, true, "m1")
+	add(CannotCompare, false, "c1")
+	for i := 0; i < MaxDifferences+3; i++ {
+		add(Differ, i%2 == 0, fmt.Sprintf("d%d", i))
 	}
-	add(models.DNSMatch, true, "m2")
+	add(Match, true, "m2")
 	c, _ := newTestCollector(nil, nil, &memDNSStore{items: items}, "x")
 	got, err := c.Summary()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Comparisons != 2+MaxDNSDifferences+3 || got.Matches != 2 || got.Differs != MaxDNSDifferences+3 || got.CannotCompare != 1 {
+	if got.Comparisons != 2+MaxDifferences+3 || got.Matches != 2 || got.Differs != MaxDifferences+3 || got.CannotCompare != 1 {
 		t.Errorf("counts %+v", got)
 	}
-	if got.Overlapping != (MaxDNSDifferences+3+1)/2 {
+	if got.Overlapping != (MaxDifferences+3+1)/2 {
 		t.Errorf("overlapping = %d", got.Overlapping)
 	}
 	if !got.First.Equal(items[0].At) || !got.Last.Equal(items[len(items)-1].At) {
 		t.Errorf("first %v last %v", got.First, got.Last)
 	}
-	if len(got.Differences) != MaxDNSDifferences || got.Differences[0].Name != fmt.Sprintf("d%d", MaxDNSDifferences+2) {
+	if len(got.Differences) != MaxDifferences || got.Differences[0].Name != fmt.Sprintf("d%d", MaxDifferences+2) {
 		t.Errorf("newest first, bounded: %d, first %q", len(got.Differences), got.Differences[0].Name)
 	}
 	empty, _ := newTestCollector(nil, nil, &memDNSStore{}, "x")
@@ -266,8 +263,8 @@ func TestDNSCollector_RunLooksOnlyWhileEnabledAndStopsWithTheContext(t *testing.
 	router := &fakeDNS{by: same}
 	store := &memDNSStore{}
 	c, _ := newTestCollector(router, &fakeDNS{by: same}, store, "dns.google")
-	c.deps.Settings = func() DNSSettings {
-		return DNSSettings{Enabled: false, Every: time.Millisecond, Names: []string{"dns.google"}}
+	c.deps.Settings = func() Settings {
+		return Settings{Enabled: false, Every: time.Millisecond, Names: []string{"dns.google"}}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -283,7 +280,7 @@ func TestDNSCollector_RunLooksOnlyWhileEnabledAndStopsWithTheContext(t *testing.
 		t.Fatal("Run must stop when ctx ends")
 	}
 
-	c.deps.Settings = func() DNSSettings { return DNSSettings{Enabled: true, Every: time.Hour, Names: []string{"dns.google"}} }
+	c.deps.Settings = func() Settings { return Settings{Enabled: true, Every: time.Hour, Names: []string{"dns.google"}} }
 	ctx, cancel = context.WithCancel(context.Background())
 	done = make(chan struct{})
 	go func() { c.Run(ctx); close(done) }()
@@ -301,7 +298,7 @@ func TestDNSCollector_RunLooksOnlyWhileEnabledAndStopsWithTheContext(t *testing.
 // With local network access off the router cannot be asked: nothing is logged and the outside resolver is not asked either, and
 // the status says why, so the log does not fill with rows that blame the router.
 func TestDNSCollector_LocalNetworkAccessOffLogsNothingAndSaysSo(t *testing.T) {
-	router := &fakeDNS{err: dnscheck.ErrLANOff}
+	router := &fakeDNS{err: ErrLANOff}
 	outside := &fakeDNS{by: map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8")}}
 	store := &memDNSStore{}
 	c, _ := newTestCollector(router, outside, store, "dns.google", "one.one.one.one")
@@ -310,7 +307,7 @@ func TestDNSCollector_LocalNetworkAccessOffLogsNothingAndSaysSo(t *testing.T) {
 	if len(store.items) != 0 || store.writes != 0 || outside.count() != 0 || router.count() != 1 {
 		t.Errorf("rows %v, writes %d, outside asked %d, router asked %d", store.items, store.writes, outside.count(), router.count())
 	}
-	if got := c.Status().Problem; got != DNSProblemLANOff {
+	if got := c.Status().Problem; got != ProblemLANOff {
 		t.Errorf("problem = %q", got)
 	}
 	router.err, router.by = nil, map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8"), "one.one.one.one": dnsIPs("1.1.1.1")}

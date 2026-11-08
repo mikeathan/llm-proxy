@@ -265,7 +265,7 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 	// ALWAYS blocked for agents to prevent poking at host-only services (0.0.0.0
 	// routes to localhost) or cloud metadata APIs. One shared classifier.
 	if err := network.CheckAlwaysBlocked(ip); err != nil {
-		return err
+		return guardRefusal{msg: err.Error(), cause: err}
 	}
 
 	isPrivate := network.IsLAN(ip)
@@ -279,7 +279,7 @@ func (n *NetworkTools) validateIP(ip net.IP, cfg models.NetworkGuardrailsConfig)
 
 	for _, blocked := range cfg.BlockedIPs {
 		if ip.String() == blocked {
-			return fmt.Errorf("access to IP '%s' is explicitly blocked", ip.String())
+			return guardRefusal{msg: fmt.Sprintf("access to IP '%s' is explicitly blocked", ip.String())}
 		}
 	}
 	return nil
@@ -293,7 +293,26 @@ type lanBlockedError struct{ ip string }
 
 func (e lanBlockedError) Error() string { return "access to private address '" + e.ip + "' is blocked" }
 
-func (e lanBlockedError) Is(target error) bool { return target == ErrLANBlocked }
+func (e lanBlockedError) Is(target error) bool {
+	return target == ErrLANBlocked || target == ErrGuardRefused
+}
+
+// ErrGuardRefused is what a request the guard turned away is: a blocked domain, a blocked or always-blocked address, or a private
+// address the settings do not allow. It is not the switches being off (ErrNetworkDisabled, ErrInternetBlocked) and not a failed
+// request.
+var ErrGuardRefused = errors.New("the guard refused the address")
+
+// guardRefusal keeps the refusal's words and answers errors.Is(err, ErrGuardRefused) and, if there is one, errors.Is(err, cause).
+type guardRefusal struct {
+	msg   string
+	cause error
+}
+
+func (e guardRefusal) Error() string { return e.msg }
+
+func (e guardRefusal) Is(target error) bool { return target == ErrGuardRefused }
+
+func (e guardRefusal) Unwrap() error { return e.cause }
 
 // maxRedirects bounds how many redirects a fetch follows.
 const maxRedirects = 5
@@ -351,7 +370,7 @@ func ValidateDomainBoundary(host string, blockedDomains []string) error {
 	for _, blocked := range blockedDomains {
 		blocked = strings.ToLower(blocked)
 		if hostLower == blocked || strings.HasSuffix(hostLower, "."+blocked) {
-			return fmt.Errorf("access to domain '%s' is blocked by guardrails", blocked)
+			return guardRefusal{msg: fmt.Sprintf("access to domain '%s' is blocked by guardrails", blocked)}
 		}
 	}
 	return nil

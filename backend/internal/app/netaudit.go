@@ -33,11 +33,10 @@ import (
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/hostwatch"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
-	"llm-proxy/internal/platform/progexec"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
@@ -76,9 +75,10 @@ type netauditServices struct {
 	// OutsideLookupConfig is that lookup's switch and service; Exposure is the check, which keeps what its last look did.
 	OutsideLookupConfig *netaudit.OutsideLookupConfig
 	Exposure            *netaudit.Exposure
-	// DNSCheckConfig is the DNS comparison's switch and settings; DNSCollector logs the comparisons and is started with the app.
-	DNSCheckConfig *netaudit.DNSCheckConfig
-	DNSCollector   *netaudit.DNSCollector
+	// Network is the Network stack as it runs in the service (today the router DNS check, which moved into it); it is started with the
+	// app. DNSCheckSwitch is that module's on/off switch over the settings the stack shares with the core.
+	Network        *stackHost
+	DNSCheckSwitch dnsCheckSwitch
 	// Nearby is discovery over mDNS and SSDP (Constitution I.9) and the service checks that probe open ports.
 	Nearby       *nearbyServices
 	NearbyConfig *netaudit.NearbyConfig
@@ -415,7 +415,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.PhoneHome != nil, func(ctx context.Context) {
 		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
 	})
-	add(n.DNSCollector != nil, func(ctx context.Context) { n.DNSCollector.Run(ctx) })
+	add(n.Network != nil, func(ctx context.Context) { n.Network.Run(ctx) })
 	add(n.Decoys != nil, func(ctx context.Context) { n.Decoys.Run(ctx) })
 	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
 	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
@@ -562,7 +562,10 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
-	dns := s.newDNSCheck(store, netTools)
+	network, err := s.newNetworkHost(store, netTools)
+	if err != nil {
+		s.logger.Error("the Network stack could not be hosted", "error", err.Error())
+	}
 	near := s.newNearby(store, scope, netTools, guard, known.Inventory)
 
 	// Canonical's notices for this release are fetched only when the operator asks, and judge the installed packages once held.
@@ -598,8 +601,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 		OutsideLookupConfig: outside.Config,
 		Exposure:            outside.Exposure,
-		DNSCheckConfig:      dns.Config,
-		DNSCollector:        dns.Collector,
+		Network:             network,
+		DNSCheckSwitch:      dnsCheckSwitch{store},
 		Nearby:              &near,
 		NearbyConfig:        near.Config,
 		NearbyLooks:         near.Looks,
@@ -676,11 +679,11 @@ type scanning struct {
 	Readiness *netaudit.Readiness
 	Vulns     *vulnfeed.Manager
 	// Runner starts guarded programs (nmap) under the sandbox.
-	Runner progexec.Runner
+	Runner isolation.Runner
 }
 
 func (s *AppServices) newScanning(store netaudit.PolicyStore, scope *netaudit.Scope, netTools *tools.NetworkTools) scanning {
-	runner := progexec.Runner{Sandbox: s.AppCtx.sandboxProv, AllowUnconfined: func() bool { return store.Get().AllowUnconfined }}
+	runner := isolation.NewRunner(s.AppCtx.sandboxProv, func() bool { return store.Get().AllowUnconfined })
 	nmapEngine := nmap.New(runner)
 	probe := portprobe.New(func(a netip.Addr) error { return scope.Policy().Check(a) })
 	service := netaudit.NewService(
@@ -857,7 +860,7 @@ func (s *AppServices) wifiReady(store netaudit.PolicyStore, cfg *netaudit.WifiCo
 		if err := wifilook.Installed(); err != nil {
 			return false, err.Error()
 		}
-		if s.AppCtx.sandboxProv.Effective().Filesystem.Mechanism == sandbox.EnforcementNone && !store.Get().AllowUnconfined {
+		if s.AppCtx.sandboxProv.Effective().Filesystem.Mechanism == isolation.EnforcementNone && !store.Get().AllowUnconfined {
 			return false, "programs are not confined on this computer, so this one is not run (see the sandbox settings)"
 		}
 		if len(cfg.Networks()) == 0 {

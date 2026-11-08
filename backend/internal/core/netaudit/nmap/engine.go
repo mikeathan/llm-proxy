@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
-	"llm-proxy/internal/platform/progexec"
+	"llm-proxy/internal/platform/isolation"
 )
 
 // EngineName labels results produced by this engine.
@@ -26,7 +26,7 @@ const (
 )
 
 // Program is how nmap is found and installed. It is the single source of the install message.
-var Program = progexec.Program{
+var Program = isolation.Program{
 	Name:        "nmap",
 	Binary:      "nmap",
 	VersionArgs: []string{"--version"},
@@ -39,15 +39,15 @@ var Program = progexec.Program{
 // defaultDataDirs are where nmap keeps its data files (service names, probes) on the supported hosts.
 var defaultDataDirs = []string{"/usr/share/nmap", "/usr/local/share/nmap", "/opt/homebrew/share/nmap"}
 
-// Runner starts guarded programs; progexec.Runner satisfies it.
+// Runner starts guarded programs; isolation.Runner satisfies it.
 type Runner interface {
-	Run(ctx context.Context, p progexec.Program, inv progexec.Invocation) (progexec.Output, error)
+	Run(ctx context.Context, p isolation.Program, profile isolation.Profile, args ...string) (isolation.Output, error)
 }
 
 // Engine runs nmap through a guarded-program runner.
 type Engine struct {
 	runner   Runner
-	detect   func(context.Context) (progexec.Installed, error)
+	detect   func(context.Context) (isolation.Installed, error)
 	dataDirs []string
 }
 
@@ -55,7 +55,7 @@ type Engine struct {
 func New(runner Runner) *Engine {
 	return &Engine{
 		runner:   runner,
-		detect:   func(ctx context.Context) (progexec.Installed, error) { return progexec.Detect(ctx, Program) },
+		detect:   func(ctx context.Context) (isolation.Installed, error) { return isolation.Detect(ctx, Program) },
 		dataDirs: defaultDataDirs,
 	}
 }
@@ -98,15 +98,13 @@ func (e *Engine) Scan(ctx context.Context, req netaudit.ScanRequest) (netaudit.R
 	}
 	defer os.RemoveAll(root)
 
-	out, err := e.runner.Run(ctx, Program, progexec.Invocation{
-		Args:      args,
-		Env:       append(progexec.CleanEnv(root), "NMAPDIR="+dataDir),
-		Root:      root,
-		ReadPaths: []string{dataDir, filepath.Dir(installed.Path)},
-		Timeout:   runLimit(req),
-		MaxOutput: maxOutput,
-	})
-	if errors.Is(err, progexec.ErrTimedOut) {
+	profile := isolation.ProfileFor(root)
+	profile.Env = append(profile.Env, "NMAPDIR="+dataDir)
+	profile.ReadPaths = []string{dataDir, filepath.Dir(installed.Path)}
+	profile.Timeout = runLimit(req)
+	profile.MaxOutput = maxOutput
+	out, err := e.runner.Run(ctx, Program, profile, args...)
+	if errors.Is(err, isolation.ErrTimedOut) {
 		return netaudit.Result{
 			Hosts: ParsePartialXML(out.Stdout),
 			Warnings: []string{fmt.Sprintf("the scan hit its %s time limit and was stopped: the hosts listed finished before then, "+

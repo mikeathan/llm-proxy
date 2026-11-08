@@ -3,16 +3,16 @@ package app
 import (
 	"testing"
 
-	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/isolation"
 )
 
 // What the host-settings page reads must carry every surface the sandbox reports, the Unix-socket denial included, or a "permission
 // denied" in an agent shell would have no visible cause.
 func TestSandboxEffective_CarriesEverySurfaceWithItsReason(t *testing.T) {
-	got := sandboxEffective(sandbox.EffectiveState{
-		Filesystem:  sandbox.SurfaceState{Mechanism: sandbox.EnforcementLandlock},
-		Network:     sandbox.SurfaceState{Mechanism: sandbox.EnforcementNone, Reason: "gap"},
-		UnixSockets: sandbox.SurfaceState{Mechanism: sandbox.EnforcementSeccomp, Reason: "refused for children"},
+	got := sandboxEffective(isolation.EffectiveState{
+		Filesystem:  isolation.SurfaceState{Mechanism: isolation.EnforcementLandlock},
+		Network:     isolation.SurfaceState{Mechanism: isolation.EnforcementNone, Reason: "gap"},
+		UnixSockets: isolation.SurfaceState{Mechanism: isolation.EnforcementSeccomp, Reason: "refused for children"},
 		Provider:    "landlock",
 	})
 	if got.Filesystem.Mechanism != "landlock" || got.Network.Reason != "gap" || got.Provider != "landlock" {

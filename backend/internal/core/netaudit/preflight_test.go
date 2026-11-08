@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/models"
 )
 
@@ -41,7 +41,7 @@ func TestPreflight_ReportsEveryProblemInOneMessage(t *testing.T) {
 	deps := readyDeps()
 	deps.Config = func() models.NetauditConfig { return models.NetauditConfig{} }
 	deps.Nmap = fakeNmap{err: errors.New("gone")}
-	deps.Sandbox = fakeSB{m: sandbox.EnforcementNone}
+	deps.Sandbox = fakeSB{m: isolation.EnforcementNone}
 	_, message, refused := NewReadiness(deps).Preflight(context.Background(), AuditorProfileID)
 	if !refused || !strings.Contains(message, "No network has been allowed") || !strings.Contains(message, "nmap is not available") {
 		t.Errorf("message = %q", message)

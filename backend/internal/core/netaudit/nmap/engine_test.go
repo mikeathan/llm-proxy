@@ -15,18 +15,24 @@ import (
 	"testing"
 
 	"llm-proxy/internal/core/netaudit"
-	"llm-proxy/internal/platform/progexec"
-	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/isolation"
 )
 
+// invocation is what a run was asked for: the profile plus the arguments.
+type invocation struct {
+	isolation.Profile
+	Args []string
+}
+
 type fakeRunner struct {
-	out    progexec.Output
+	out    isolation.Output
 	err    error
-	gotInv progexec.Invocation
+	gotInv invocation
 	rootOK bool
 }
 
-func (f *fakeRunner) Run(_ context.Context, _ progexec.Program, inv progexec.Invocation) (progexec.Output, error) {
+func (f *fakeRunner) Run(_ context.Context, _ isolation.Program, profile isolation.Profile, args ...string) (isolation.Output, error) {
+	inv := invocation{Profile: profile, Args: args}
 	f.gotInv = inv
 	if st, err := os.Stat(inv.Root); err == nil && st.IsDir() {
 		f.rootOK = true
@@ -42,8 +48,8 @@ func testEngine(t *testing.T, runner Runner) (*Engine, string) {
 	}
 	e := New(runner)
 	e.dataDirs = []string{filepath.Join(dataDir, "missing"), dataDir}
-	e.detect = func(context.Context) (progexec.Installed, error) {
-		return progexec.Installed{Path: "/usr/bin/nmap", Version: "Nmap 7.94"}, nil
+	e.detect = func(context.Context) (isolation.Installed, error) {
+		return isolation.Installed{Path: "/usr/bin/nmap", Version: "Nmap 7.94"}, nil
 	}
 	return e, dataDir
 }
@@ -53,7 +59,7 @@ func TestEngine_ScanBuildsAGuardedInvocationAndParsesTheXML(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{out: progexec.Output{Stdout: xml}}
+	runner := &fakeRunner{out: isolation.Output{Stdout: xml}}
 	e, dataDir := testEngine(t, runner)
 
 	res, err := e.Scan(context.Background(), netaudit.ScanRequest{
@@ -93,7 +99,7 @@ func TestEngine_ScanSurfacesRunnerErrorsAndTruncation(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 
-	e, _ = testEngine(t, &fakeRunner{out: progexec.Output{Stdout: []byte("<nmaprun></nmaprun>"), Truncated: true}})
+	e, _ = testEngine(t, &fakeRunner{out: isolation.Output{Stdout: []byte("<nmaprun></nmaprun>"), Truncated: true}})
 	res, err := e.Scan(context.Background(), req)
 	if err != nil || len(res.Warnings) != 1 {
 		t.Errorf("a truncated output must warn: %+v, %v", res, err)
@@ -107,7 +113,7 @@ func TestEngine_ATimedOutScanKeepsTheHostsItFinished(t *testing.T) {
 		t.Fatal(err)
 	}
 	cut := xml[:strings.LastIndex(string(xml), "</host>")+len("</host>")] // killed after the first host, before the summary
-	e, _ := testEngine(t, &fakeRunner{out: progexec.Output{Stdout: cut}, err: fmt.Errorf("nmap: %w after 8m0s", progexec.ErrTimedOut)})
+	e, _ := testEngine(t, &fakeRunner{out: isolation.Output{Stdout: cut}, err: fmt.Errorf("nmap: %w after 8m0s", isolation.ErrTimedOut)})
 	res, err := e.Scan(context.Background(), netaudit.ScanRequest{Targets: []netip.Addr{netip.MustParseAddr("10.0.0.1")}, Mode: netaudit.ModeServices, Thorough: true})
 	if err != nil {
 		t.Fatalf("a timeout with partial results is a result, not an error: %v", err)
@@ -116,7 +122,7 @@ func TestEngine_ATimedOutScanKeepsTheHostsItFinished(t *testing.T) {
 		t.Errorf("res = %+v", res)
 	}
 
-	e, _ = testEngine(t, &fakeRunner{err: fmt.Errorf("nmap: %w", progexec.ErrTimedOut)})
+	e, _ = testEngine(t, &fakeRunner{err: fmt.Errorf("nmap: %w", isolation.ErrTimedOut)})
 	if res, err := e.Scan(context.Background(), netaudit.ScanRequest{Targets: []netip.Addr{netip.MustParseAddr("10.0.0.1")}, Mode: netaudit.ModePorts}); err != nil || len(res.Hosts) != 0 || len(res.Warnings) != 1 {
 		t.Errorf("a timeout with nothing finished still says so: %+v, %v", res, err)
 	}
@@ -134,10 +140,10 @@ func TestEngine_AvailableReportsWhatIsMissing(t *testing.T) {
 	}
 
 	e, _ = testEngine(t, &fakeRunner{})
-	e.detect = func(context.Context) (progexec.Installed, error) {
-		return progexec.Installed{}, &progexec.NotInstalledError{Program: "nmap", Hint: "brew install nmap"}
+	e.detect = func(context.Context) (isolation.Installed, error) {
+		return isolation.Installed{}, &isolation.NotInstalledError{Program: "nmap", Hint: "brew install nmap"}
 	}
-	var missing *progexec.NotInstalledError
+	var missing *isolation.NotInstalledError
 	if err := e.Available(context.Background()); !errors.As(err, &missing) {
 		t.Errorf("err = %v, want NotInstalledError", err)
 	}
@@ -149,7 +155,7 @@ func TestEngine_AvailableReportsWhatIsMissing(t *testing.T) {
 // TestMain lets the test binary act as the sandbox runner: under Landlock the engine starts nmap by re-running this
 // binary, which confines itself and then execs nmap.
 func TestMain(m *testing.M) {
-	sandbox.RunChildIfRequested()
+	isolation.RunChildIfRequested()
 	os.Exit(m.Run())
 }
 
@@ -159,8 +165,8 @@ func TestEngine_RunsRealNmapInsideTheFileJail(t *testing.T) {
 	if _, err := exec.LookPath("nmap"); err != nil {
 		t.Skip("nmap is not installed")
 	}
-	sb := sandbox.New(sandbox.Config{Filesystem: true})
-	if sb.Effective().Filesystem.Mechanism == sandbox.EnforcementNone {
+	sb := isolation.New(isolation.Config{Filesystem: true})
+	if sb.Effective().Filesystem.Mechanism == isolation.EnforcementNone {
 		t.Skip("no OS file jail on this host")
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -179,7 +185,7 @@ func TestEngine_RunsRealNmapInsideTheFileJail(t *testing.T) {
 	}()
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
 
-	e := New(progexec.Runner{Sandbox: sb}) // no AllowUnconfined: the jail must be in force
+	e := New(isolation.NewRunner(sb, nil)) // no AllowUnconfined: the jail must be in force
 	if err := e.Available(context.Background()); err != nil {
 		t.Skipf("nmap not usable here: %v", err)
 	}

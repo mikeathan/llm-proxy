@@ -13,7 +13,7 @@ import (
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/toolregistry"
-	"llm-proxy/internal/platform/progexec"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/scanscope"
 	"llm-proxy/models"
 )
@@ -106,7 +106,7 @@ func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (a
 // other error is model-actionable (a bad target, a bad port list) and stays plain.
 func explain(err error) error {
 	operatorFixable := errors.Is(err, scanscope.ErrScanningOff) || errors.Is(err, netaudit.ErrNmapRequired) ||
-		errors.Is(err, progexec.ErrUnconfined) || errors.Is(err, scanscope.ErrOutOfScope)
+		errors.Is(err, isolation.ErrUnconfined) || errors.Is(err, scanscope.ErrOutOfScope)
 	if !operatorFixable {
 		return err
 	}

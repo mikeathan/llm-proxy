@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	"llm-proxy/internal/core/tools"
+	"llm-proxy-stacks/sdk"
 )
 
 // DefaultResolverURL is the outside resolver asked when none is set: Cloudflare's DNS-over-HTTPS JSON endpoint.
@@ -38,18 +38,16 @@ var (
 	ErrBadAnswer = errors.New("the answer did not hold addresses")
 )
 
-// Dial is the guarded dial function (NetworkTools.DialContext).
-type Dial func(ctx context.Context, network, address string) (net.Conn, error)
-
-// Router asks the router's own DNS, on port 53 of the address Server gives, and nobody else.
+// Router asks the router's own DNS, on port 53 of the address Server gives, and nobody else. Guard is the only way it opens a
+// connection; Server is asked for every question, so a change of setting applies at once.
 type Router struct {
-	Dial   Dial
-	Server func() netip.Addr
+	Guard  stacksdk.Guard
+	Server func(ctx context.Context) netip.Addr
 }
 
 // LookupA returns the IPv4 addresses the router gives for name.
 func (r Router) LookupA(ctx context.Context, name string) ([]netip.Addr, error) {
-	server := r.Server()
+	server := r.Server(ctx)
 	if !server.IsValid() {
 		return nil, ErrNoRouter
 	}
@@ -58,8 +56,8 @@ func (r Router) LookupA(ctx context.Context, name string) ([]netip.Addr, error) 
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			conn, err := r.Dial(ctx, network, target)
-			if errors.Is(err, tools.ErrLANBlocked) {
+			conn, err := r.Guard.DialContext(ctx, network, target)
+			if stacksdk.CodeOf(err) == stacksdk.CodeDenied {
 				refused = err
 			}
 			return conn, err

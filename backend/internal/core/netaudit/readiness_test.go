@@ -8,8 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/platform/progexec"
-	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/models"
 )
 
@@ -17,10 +16,10 @@ type fakeNmap struct{ err error }
 
 func (f fakeNmap) Available(context.Context) error { return f.err }
 
-type fakeSB struct{ m sandbox.Enforcement }
+type fakeSB struct{ m isolation.Enforcement }
 
-func (f fakeSB) Effective() sandbox.EffectiveState {
-	return sandbox.EffectiveState{Filesystem: sandbox.SurfaceState{Mechanism: f.m}}
+func (f fakeSB) Effective() isolation.EffectiveState {
+	return isolation.EffectiveState{Filesystem: isolation.SurfaceState{Mechanism: f.m}}
 }
 
 func codes(reqs []models.Requirement) []models.RequirementCode {
@@ -35,7 +34,7 @@ func readyDeps() ReadinessDeps {
 	return ReadinessDeps{
 		Config:        func() models.NetauditConfig { return models.NetauditConfig{ScanRanges: []string{"192.168.1.0/24"}} },
 		Nmap:          fakeNmap{},
-		Sandbox:       fakeSB{m: sandbox.EnforcementLandlock},
+		Sandbox:       fakeSB{m: isolation.EnforcementLandlock},
 		HostNetworkOn: func() bool { return true },
 	}
 }
@@ -68,7 +67,7 @@ func TestReadiness_BlockingIsSettingsOnly(t *testing.T) {
 
 func TestReadiness_MissingNmapOffersTheInstallCommandAndDoesNotBlock(t *testing.T) {
 	deps := readyDeps()
-	deps.Nmap = fakeNmap{err: &progexec.NotInstalledError{Program: "nmap", Hint: "brew install nmap"}}
+	deps.Nmap = fakeNmap{err: &isolation.NotInstalledError{Program: "nmap", Hint: "brew install nmap"}}
 	got := NewReadiness(deps).Check(context.Background())
 	if len(got) != 1 || got[0].Code != models.RequirementNmapMissing || got[0].Blocking {
 		t.Fatalf("requirements = %+v", got)
@@ -80,7 +79,7 @@ func TestReadiness_MissingNmapOffersTheInstallCommandAndDoesNotBlock(t *testing.
 
 func TestReadiness_NoConfinementAsksForAConfirmedOptIn(t *testing.T) {
 	deps := readyDeps()
-	deps.Sandbox = fakeSB{m: sandbox.EnforcementNone}
+	deps.Sandbox = fakeSB{m: isolation.EnforcementNone}
 	got := NewReadiness(deps).Check(context.Background())
 	if len(got) != 1 || got[0].Code != models.RequirementNoSandbox || got[0].Fix.Kind != models.FixConfirm || got[0].Fix.Action != ActionAllowUnconfined {
 		t.Fatalf("requirements = %+v", got)
@@ -96,7 +95,7 @@ func TestReadiness_NoConfinementAsksForAConfirmedOptIn(t *testing.T) {
 
 func TestReadiness_NoSandboxIsNotReportedWhenNmapIsMissingToo(t *testing.T) {
 	deps := readyDeps()
-	deps.Sandbox = fakeSB{m: sandbox.EnforcementNone}
+	deps.Sandbox = fakeSB{m: isolation.EnforcementNone}
 	deps.Nmap = fakeNmap{err: errors.New("gone")}
 	got := NewReadiness(deps).Check(context.Background())
 	if !slices.Equal(codes(got), []models.RequirementCode{models.RequirementNmapMissing}) {

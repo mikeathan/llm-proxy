@@ -3,7 +3,6 @@ package shell
 import (
 	"context"
 	"io"
-	"llm-proxy/internal/platform/sandbox"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"llm-proxy/internal/platform/isolation"
 )
 
 func TestHostShellManager_Execution(t *testing.T) {
@@ -499,14 +500,14 @@ type fakeSandbox struct {
 	lastNet  bool
 }
 
-func (f *fakeSandbox) Wrap(_ *exec.Cmd, ws sandbox.WorkspaceView) error {
+func (f *fakeSandbox) Wrap(_ *exec.Cmd, ws isolation.WorkspaceView) error {
 	f.calls++
 	f.lastRoot = ws.RootPath
 	f.lastNet = ws.NetworkOn
 	return nil
 }
-func (f *fakeSandbox) Effective() sandbox.EffectiveState {
-	return sandbox.EffectiveState{Provider: "fake"}
+func (f *fakeSandbox) Effective() isolation.EffectiveState {
+	return isolation.EffectiveState{Provider: "fake"}
 }
 
 // The OS confinement provider must be applied at shell spawn with the policy's

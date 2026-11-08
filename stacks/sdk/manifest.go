@@ -140,6 +140,9 @@ type Manifest struct {
 	Tools    []ToolSpec     `json:"tools,omitempty"`
 	Routes   []RouteSpec    `json:"routes,omitempty"`
 	Settings SettingsSchema `json:"settings"`
+	// Storage lists, by plain file name, the files in the data folder that this stack owns (D10). The core refuses a name that two
+	// stacks claim or that one of its own stores uses, and a stack leaves the folder with exactly these files.
+	Storage []string `json:"storage,omitempty"`
 	// Requires lists the ports the stack uses; each must be one of the Port* names below.
 	Requires []string `json:"requires"`
 }
@@ -151,12 +154,14 @@ const (
 	PortLog       = "log"
 	PortDataDir   = "datadir"
 	PortGuard     = "guard"
+	PortFetch     = "fetch"
+	PortGateway   = "gateway"
 	PortIsolation = "isolation"
 	// PortPrivileged is the request channel to the privileged helper: a stack passes back the grant the core gave it for a route's action.
 	PortPrivileged = "privileged"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortIsolation, PortPrivileged}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -179,6 +184,9 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if err := m.checkRoutes(); err != nil {
+		return err
+	}
+	if err := m.checkStorage(); err != nil {
 		return err
 	}
 	for _, p := range m.Requires {
@@ -276,6 +284,21 @@ func (m Manifest) checkRouteAction(rt RouteSpec) error {
 		return fmt.Errorf("manifest %q: route %q names an action, so its body is the action's parameters and its path has no wildcard", m.ID, key)
 	case !slices.Contains(m.Requires, PortPrivileged):
 		return fmt.Errorf("manifest %q: route %q names an action, so the stack must require the %q port", m.ID, key, PortPrivileged)
+	}
+	return nil
+}
+
+// checkStorage holds each claimed file to a plain name in the data folder, claimed once.
+func (m Manifest) checkStorage() error {
+	seen := map[string]bool{}
+	for _, name := range m.Storage {
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) || strings.Contains(name, "..") {
+			return fmt.Errorf("manifest %q: storage %q must be a plain file name in the data folder", m.ID, name)
+		}
+		if seen[name] {
+			return fmt.Errorf("manifest %q: storage %q is listed twice", m.ID, name)
+		}
+		seen[name] = true
 	}
 	return nil
 }
