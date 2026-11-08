@@ -29,7 +29,7 @@ import {
   UNNAMED_HINT,
   deviceCount,
 } from "../../constants/netaudit"
-import { deviceSummary, filterCounts, groupDevices, nameableDevices, presenceLine } from "../../utils/netaudit/devices"
+import { deviceSummary, filterCounts, groupDevices, nameableDevices, presenceLine, udpCoverageLine } from "../../utils/netaudit/devices"
 import type { DeviceFilter, DeviceStatus, NetworkDevice } from "../../types/netaudit"
 
 // Network · Devices: who has been seen on the network. A search box and filter chips narrow the list; the devices fall into
@@ -44,6 +44,7 @@ const { advanced } = useNetauditViewMode()
 const filter = ref<DeviceFilter>("all")
 const query = ref("")
 const devices = computed(() => inventory.value?.devices ?? [])
+const udpCoverage = computed(() => udpCoverageLine(devices.value))
 const counts = computed(() => filterCounts(devices.value))
 const filterOptions = computed(() => DEVICE_FILTERS.map((value) => ({ value, label: `${DEVICE_FILTER_LABELS[value]} (${counts.value[value]})` })))
 const groups = computed(() => groupDevices(devices.value, filter.value, query.value))
@@ -114,6 +115,7 @@ onMounted(load)
 
         <template v-if="inventory && devices.length">
           <p class="m-0 text-secondary" data-test="devices-summary">{{ deviceSummary(devices) }}</p>
+          <p v-if="udpCoverage" class="m-0 text-[length:var(--text-small)] text-muted" data-test="udp-coverage">{{ udpCoverage }}</p>
           <div class="flex flex-col gap-2">
             <input
               v-model="query"

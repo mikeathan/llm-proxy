@@ -245,6 +245,8 @@ export const DEVICE_NAME_MAX = 40
 export const DEVICE_UNNAMED = 'Unknown device'
 export const DEVICE_PRIVATE = 'Phone or laptop (private address)'
 export const DEVICES_EMPTY = 'No devices seen yet. Turn on the new-device check in Network → Settings, or run a network audit.'
+export const UDP_COVERAGE = (scanned: number, total: number, oldest: string): string =>
+  `UDP scan kept for ${scanned} of ${total} ${total === 1 ? 'device' : 'devices'}, the oldest ${oldest}. A device never scanned has not been checked for UDP services.`
 export const DEVICES_BASELINE_NOTE = 'The first look is taken as the normal state: every device found then counts as approved, and only later arrivals are reported.'
 export const GATEWAY_CHANGED_TITLE = 'The router\'s hardware address changed'
 export const GATEWAY_CHANGED_BODY = 'Something else may be answering for the router, which would let it read or change the network\'s traffic. A replaced or reset router does this too. If you know why, confirm it.'
