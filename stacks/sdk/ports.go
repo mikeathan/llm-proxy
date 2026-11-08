@@ -16,6 +16,8 @@ type Host struct {
 	Log       Logger
 	DataDir   DataDir
 	Guard     Guard
+	Fetch     Fetch
+	Gateway   Gateway
 	Isolation Isolation
 	// Privileged is the request channel to the privileged helper (ADR-0034); nil unless the manifest requires PortPrivileged.
 	Privileged Privileged
@@ -29,11 +31,25 @@ type Stack interface {
 	Stop(ctx context.Context) error
 	// ConfigChanged tells the stack its settings document changed; it re-reads it through Host.Config.
 	ConfigChanged(ctx context.Context) error
+	// Status reports, for each module that runs background work, whether it is switched on, when it last ran and what stopped it. The core
+	// reads it for the modules screen and the stalled-monitor view; a stack with no such module returns nothing.
+	Status(ctx context.Context) ([]ModuleStatus, error)
 	// CallTool runs the declared tool with JSON arguments and returns JSON. Failures are an *Error.
 	CallTool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
 	// Handle answers one request on a route the manifest declares. A failure the caller should see as a refusal is an *Error; the Response
 	// carries every ordinary answer, including a 4xx.
 	Handle(ctx context.Context, req Request) (Response, error)
+}
+
+// ModuleStatus is what one module's background work has done. Problem is a fixed phrase (never text from the network), or empty.
+type ModuleStatus struct {
+	ID string `json:"id"`
+	// Enabled is true while the module is on and has something to do.
+	Enabled bool `json:"enabled"`
+	// Every is how often a cycle should run (zero when it does not run on an interval).
+	Every   time.Duration `json:"every,omitempty"`
+	LastRun time.Time     `json:"last_run,omitempty"`
+	Problem string        `json:"problem,omitempty"`
 }
 
 // Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
@@ -63,7 +79,8 @@ type Response struct {
 type Config interface {
 	// Load returns the stack's settings document (the SettingsSchema key).
 	Load(ctx context.Context) (json.RawMessage, error)
-	// Save replaces the stack's settings document.
+	// Save merges the document over the stored one: a field it names replaces the stored field, a field it leaves out is kept, and a
+	// document that does not fit the settings saves nothing (an *Error with CodeInvalid).
 	Save(ctx context.Context, doc json.RawMessage) error
 }
 
@@ -96,9 +113,16 @@ type Logger interface {
 	Log(level Level, msg string, fields ...string)
 }
 
-// DataDir names the directory the stack owns for its storage. The core never reads it except through the stack's interface.
+// DataDir is a stack's storage: the files its manifest lists in Storage, and no others. A name outside that list is refused with
+// CodeDenied, so what a stack may write is data the core checks, not a convention (D10). The core writes atomically, with the
+// permissions it gives its own user content.
 type DataDir interface {
-	Path() string
+	// Read returns the file's bytes; a file that does not exist yet fails with CodeNotFound.
+	Read(name string) ([]byte, error)
+	// Write replaces the file atomically.
+	Write(name string, data []byte) error
+	// Quarantine sets a file that could not be understood aside (as name + ".corrupt") so the stack can start again from an empty one.
+	Quarantine(name string) error
 }
 
 // Boundary classifies a destination the way Constitution I.3 does.
@@ -117,6 +141,36 @@ const (
 type Guard interface {
 	DialContext(ctx context.Context, network, addr string) (net.Conn, error)
 	Boundary(addr netip.Addr) Boundary
+}
+
+// FetchRequest asks the core for one guarded HTTPS GET. It is plain data and has no field for a method, a header, a client or a
+// redirect rule: the core sends a GET with the Accept value, follows only the redirects the guard allows, and checks the internet
+// boundary, the status and the size before the body comes back.
+type FetchRequest struct {
+	URL    string `json:"url"`
+	Accept string `json:"accept,omitempty"`
+	// MaxBytes caps the body read; the core applies its own ceiling when this is larger or zero.
+	MaxBytes int `json:"max_bytes,omitempty"`
+}
+
+// FetchResponse is what a successful (HTTP 200) fetch returned; any other status is an *Error.
+type FetchResponse struct {
+	Body      []byte `json:"body,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+}
+
+// Fetch makes one guarded GET (Constitution I.1 to I.3) so a stack does not re-implement the boundary, redirect, size and status checks.
+// Failures are an *Error: CodeUnavailable when network or internet access is switched off (the stack can say so and stop), CodeDenied
+// when a guard refused the address, a blocked domain or a redirect, CodeTimeout when it ran out of time, CodeInvalid for a URL the core
+// will not send, and CodeInternal for any other failure, including an answer that was not HTTP 200.
+type Fetch interface {
+	Get(ctx context.Context, req FetchRequest) (FetchResponse, error)
+}
+
+// Gateway tells a stack the address of this network's default gateway, which only the core reads (the neighbour table). It is plain data.
+// Default fails with CodeNotFound when the gateway is not known yet.
+type Gateway interface {
+	Default(ctx context.Context) (string, error)
 }
 
 // RunRequest asks the core to run a known program under the isolation library. It is plain data and has no field that relaxes the
@@ -176,5 +230,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}}
 }

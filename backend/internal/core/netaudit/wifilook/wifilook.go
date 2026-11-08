@@ -17,11 +17,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"llm-proxy/internal/platform/progexec"
+	"llm-proxy/internal/platform/isolation"
 )
 
 // Program is how nmcli is found and what to say when it is not there.
-var Program = progexec.Program{
+var Program = isolation.Program{
 	Name:        "nmcli",
 	Binary:      "nmcli",
 	VersionArgs: []string{"--version"},
@@ -158,9 +158,9 @@ func securityOf(flags string) Security {
 	return Other
 }
 
-// Runner starts guarded programs; progexec.Runner satisfies it.
+// Runner starts guarded programs; isolation.Runner satisfies it.
 type Runner interface {
-	Run(ctx context.Context, p progexec.Program, inv progexec.Invocation) (progexec.Output, error)
+	Run(ctx context.Context, p isolation.Program, profile isolation.Profile, args ...string) (isolation.Output, error)
 }
 
 // Lister reads the access points through a guarded-program runner.
@@ -172,7 +172,7 @@ func New(runner Runner) Lister { return Lister{runner: runner} }
 // version, happens only inside the sandbox.
 func Installed() error {
 	if _, err := exec.LookPath(Program.Binary); err != nil {
-		return &progexec.NotInstalledError{Program: Program.Name, Hint: Program.InstallHint[runtime.GOOS]}
+		return &isolation.NotInstalledError{Program: Program.Name, Hint: Program.InstallHint[runtime.GOOS]}
 	}
 	return nil
 }
@@ -186,15 +186,12 @@ func (l Lister) List(ctx context.Context) ([]AP, error) {
 		return nil, fmt.Errorf("failed to create the Wi-Fi look's folder: %w", err)
 	}
 	defer os.RemoveAll(root)
-	out, err := l.runner.Run(ctx, Program, progexec.Invocation{
-		Args:             append([]string(nil), listArgs...),
-		Env:              progexec.CleanEnv(root),
-		Root:             root,
-		NoNetwork:        true,
-		AllowUnixSockets: true,
-		Timeout:          listTimeout,
-		MaxOutput:        maxOutput,
-	})
+	profile := isolation.ProfileFor(root)
+	profile.NoNetwork = true
+	profile.AllowUnixSockets = true
+	profile.Timeout = listTimeout
+	profile.MaxOutput = maxOutput
+	out, err := l.runner.Run(ctx, Program, profile, append([]string(nil), listArgs...)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list the Wi-Fi networks: %w", err)
 	}

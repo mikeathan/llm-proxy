@@ -9,10 +9,10 @@ import (
 
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/db"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
@@ -120,7 +120,7 @@ func (s *AppContext) SetShellProvider(tp shell.ShellProvider) {
 // SetSandboxProvider installs the OS-confinement provider that backs the
 // Effective runtime projection on host-settings GETs (SPEC-006 §II.7.4). Called
 // once at bootstrap before the server serves.
-func (s *AppContext) SetSandboxProvider(p sandbox.Provider) {
+func (s *AppContext) SetSandboxProvider(p isolation.Provider) {
 	s.sandboxProv = p
 }
 

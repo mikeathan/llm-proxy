@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy-stacks/sdk"
+
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/routerlog"
@@ -60,12 +62,12 @@ func TestPresenceAndDNSReadings_TheLimitFollowsTheInterval(t *testing.T) {
 	if p.Limit != 3*time.Hour || !p.LastGood.Equal(monitorNow) {
 		t.Fatalf("presence = %+v", p)
 	}
-	d := dnsReading(netaudit.DNSSettings{Enabled: true, Every: time.Minute, Names: []string{"example.org"}}, netaudit.DNSStatus{LastRun: monitorNow, Problem: "refused"})
+	d := dnsReading(stacksdk.ModuleStatus{Enabled: true, Every: time.Minute, LastRun: monitorNow, Problem: "refused"})
 	if d.Limit != minMonitorLimit || !d.LastGood.IsZero() {
 		t.Fatalf("a refused DNS cycle is not a success, and the limit has a floor: %+v", d)
 	}
-	if r := dnsReading(netaudit.DNSSettings{Enabled: true}, netaudit.DNSStatus{}); r.On {
-		t.Fatalf("a DNS check with no names does nothing, so it is not watched: %+v", r)
+	if r := dnsReading(stacksdk.ModuleStatus{}); r.On {
+		t.Fatalf("a DNS check that is off or has nothing to run is not watched: %+v", r)
 	}
 }
 

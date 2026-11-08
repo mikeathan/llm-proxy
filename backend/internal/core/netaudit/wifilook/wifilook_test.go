@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/platform/progexec"
+	"llm-proxy/internal/platform/isolation"
 )
 
 // The sample is the owner's real output (vertex, 2026-11-06), with the neighbours' names and hardware addresses replaced.
@@ -91,16 +91,22 @@ func TestSecurity_RanksTheWeakestFirst(t *testing.T) {
 	}
 }
 
+// invocation is what a run was asked for: the profile plus the arguments.
+type invocation struct {
+	isolation.Profile
+	Args []string
+}
+
 type fakeRunner struct {
 	out  string
 	err  error
-	got  progexec.Invocation
-	prog progexec.Program
+	got  invocation
+	prog isolation.Program
 }
 
-func (f *fakeRunner) Run(_ context.Context, p progexec.Program, inv progexec.Invocation) (progexec.Output, error) {
-	f.prog, f.got = p, inv
-	return progexec.Output{Stdout: []byte(f.out)}, f.err
+func (f *fakeRunner) Run(_ context.Context, p isolation.Program, profile isolation.Profile, args ...string) (isolation.Output, error) {
+	f.prog, f.got = p, invocation{Profile: profile, Args: args}
+	return isolation.Output{Stdout: []byte(f.out)}, f.err
 }
 
 // What the guarded run is allowed: fixed arguments written here, a clean environment, no TCP, Unix sockets (D-Bus) and nothing a

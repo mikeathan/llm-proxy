@@ -16,9 +16,9 @@ import (
 	"syscall"
 	"time"
 
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/process"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
 )
@@ -46,7 +46,7 @@ type TerminalTools struct {
 	// sandboxProv is the OS confinement provider applied at spawn: Landlock on
 	// Linux kernels ≥5.13 (FS jail; TCP deny for network-off children on ABI
 	// v4+), no-op elsewhere (plan Phase 2).
-	sandboxProv sandbox.Provider
+	sandboxProv isolation.Provider
 	// storageOver reports whether a workspace exceeds its max_storage_gb
 	// accounting boundary (best-effort, TTL-cached). nil = check disabled.
 	storageOver func(workspaceID, workspaceRoot string) bool
@@ -75,7 +75,7 @@ type TerminalToolsDeps struct {
 	EgressEnv func() []string
 	// Sandbox is the OS confinement provider applied at spawn (Landlock on
 	// Linux; nil = no OS confinement).
-	Sandbox sandbox.Provider
+	Sandbox isolation.Provider
 	// StorageOver reports whether a workspace exceeds its max_storage_gb
 	// accounting boundary (best-effort, TTL-cached). nil = check disabled.
 	StorageOver func(workspaceID, workspaceRoot string) bool
@@ -673,7 +673,7 @@ func (t *TerminalTools) executeLocal(ctx context.Context, shellName, command, cw
 	// OS confinement for one-shots: Landlock on Linux (workspace-rooted
 	// one-shots); no-op elsewhere or for rootless one-shots.
 	if t.sandboxProv != nil {
-		if err := t.sandboxProv.Wrap(cmd, sandbox.WorkspaceView{RootPath: workspaceRoot, NetworkOn: t.networkOnValue()}); err != nil {
+		if err := t.sandboxProv.Wrap(cmd, isolation.WorkspaceView{RootPath: workspaceRoot, NetworkOn: t.networkOnValue()}); err != nil {
 			return "", fmt.Errorf("failed to sandbox local command: %w", err)
 		}
 	}

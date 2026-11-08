@@ -8,7 +8,7 @@ import (
 	"slices"
 
 	"llm-proxy/internal/platform/env"
-	"llm-proxy/internal/platform/sandbox"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/models"
 )
 
@@ -60,8 +60,8 @@ func (s *AppContext) HostSettings() models.HostSettings {
 
 // sandboxEffective is the JSON-safe projection of what the sandbox provider enforces: each surface's mechanism and, when the
 // requested enforcement is not applied, why.
-func sandboxEffective(eff sandbox.EffectiveState) *models.SandboxEffective {
-	surface := func(s sandbox.SurfaceState) models.SandboxSurface {
+func sandboxEffective(eff isolation.EffectiveState) *models.SandboxEffective {
+	surface := func(s isolation.SurfaceState) models.SandboxSurface {
 		return models.SandboxSurface{Mechanism: string(s.Mechanism), Reason: s.Reason}
 	}
 	return &models.SandboxEffective{

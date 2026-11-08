@@ -1,15 +1,18 @@
 package app
 
 import (
-	"llm-proxy/internal/core/chat"
-	"llm-proxy/internal/core/eventbus"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
 
+	"llm-proxy-stacks/sdk"
+
 	"llm-proxy/internal/buildinfo"
 	"llm-proxy/internal/core/agentwatch"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/chat"
+	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/ratelimiter"
@@ -54,7 +57,6 @@ type HandlerSet struct {
 	RouterLog   *handlers.NetauditRouterLogHandlers
 	Wifi        *handlers.NetauditWifiHandlers
 	OutsideLook *handlers.NetauditOutsideLookupHandlers
-	DNSCheck    *handlers.NetauditDNSCheckHandlers
 	Nearby      *handlers.NetauditNearbyHandlers
 	Alerts      *handlers.NetauditAlertHandlers
 	AgentWatch  *handlers.AgentWatchHandlers
@@ -65,6 +67,8 @@ type HandlerSet struct {
 	Auth        *handlers.AuthHandlers
 	Exposure    *handlers.ExposureHandlers
 	Helper      *helperRoutes
+	// Hosted are the stacks running in the service; each declares its routes as data and the core mounts them (plan P3b D5).
+	Hosted []stacksdk.Stack
 }
 
 // wireHandlers constructs all HTTP handler types from AppServices + Dispatcher.
@@ -135,12 +139,14 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.RouterLog = handlers.NewNetauditRouterLogHandlers(s.netaudit.RouterLogConfig, s.netaudit.RouterLog)
 	hs.Wifi = handlers.NewNetauditWifiHandlers(s.netaudit.Wifi, s.netaudit.Wifi, s.netaudit.WifiReady)
 	hs.OutsideLook = handlers.NewNetauditOutsideLookupHandlers(s.netaudit.OutsideLookupConfig, s.netaudit.Exposure)
-	hs.DNSCheck = handlers.NewNetauditDNSCheckHandlers(s.netaudit.DNSCheckConfig, s.netaudit.DNSCollector)
 	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
 	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), s.netaudit.Inventory)
+	if s.netaudit.Network != nil {
+		hs.Hosted = append(hs.Hosted, s.netaudit.Network.stack)
+	}
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
@@ -225,12 +231,21 @@ func buildHTTP(s *AppServices, disp *automation.Dispatcher, buildInfo *buildinfo
 	hostname, _ := os.Hostname()
 	var inner http.Handler = buildRouter(hs)
 	if s.auth != nil {
-		inner = api.Authenticate(inner, s.auth)
+		inner = api.AuthenticateWith(inner, s.auth, stackStepUpRoutes(hs.Hosted))
 	}
 	return api.Guard(inner, api.GuardConfig{
 		Hostname:     hostname,
 		AllowedHosts: func() []string { return s.AppCtx.GetSystem().Server.AllowedHosts },
 	})
+}
+
+// stackStepUpRoutes are the writes the hosted stacks declare with the step-up access, checked exactly as the core's own table is.
+func stackStepUpRoutes(stacks []stacksdk.Stack) []api.StepUpRoute {
+	var out []api.StepUpRoute
+	for _, st := range stacks {
+		out = append(out, api.StackStepUpRoutes(st.Manifest())...)
+	}
+	return out
 }
 
 func buildRouter(hs *HandlerSet) http.Handler {
@@ -434,8 +449,6 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/netaudit/wifi/confirm", hs.Wifi.Confirm, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/outside-lookup", hs.OutsideLook.Put, jsonMethodNotAllowed)
-	router.Get("/admin/api/netaudit/dns-check", hs.DNSCheck.Get, jsonMethodNotAllowed)
-	router.Put("/admin/api/netaudit/dns-check", hs.DNSCheck.Put, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/nearby", hs.Nearby.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/nearby", hs.Nearby.Put, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/nearby/look", hs.Nearby.Look, jsonMethodNotAllowed)
@@ -515,6 +528,12 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	// Public webhooks — external platforms POST here (no admin auth)
 	if hs.Webhook != nil {
 		router.Post("/api/v1/webhooks/{connector_name}", hs.Webhook.ServeHTTP, jsonMethodNotAllowed)
+	}
+
+	for _, st := range hs.Hosted {
+		if err := api.MountStackRoutes(router, st, nil); err != nil {
+			panic(fmt.Sprintf("stack %q: %v", st.Manifest().ID, err)) // a manifest that cannot be mounted is a programming error, caught by the tests
+		}
 	}
 
 	return router

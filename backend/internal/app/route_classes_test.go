@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"llm-proxy-stacks/sdk"
+
 	"llm-proxy/internal/core/chat"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/internal/transport/http/handlers"
@@ -52,7 +54,7 @@ func allRoutes(t *testing.T) []string {
 		Recordings: &handlers.RecordingHandlers{}, Memory: &handlers.MemoryHandlers{}, Reminders: &handlers.ReminderHandlers{},
 		Profiles: &handlers.ProfileHandlers{}, Helpers: &handlers.HelpersHandlers{}, Netaudit: &handlers.NetauditHandlers{},
 		VulnData: &handlers.VulnDataHandlers{}, Commands: &handlers.CommandHandlers{}, Webhook: &handlers.WebhookHandler{}, Auth: &handlers.AuthHandlers{}, Exposure: &handlers.ExposureHandlers{},
-		Helper: newHelperRoutes(&AppContext{}, nil, nil),
+		Helper: newHelperRoutes(&AppContext{}, nil, nil), Hosted: []stacksdk.Stack{networkStack()},
 	}
 	router, ok := buildRouter(hs).(*api.Router)
 	if !ok {
@@ -130,5 +132,23 @@ func TestRouteClassification_TheSignInRoutesAreTheOnlyOpenAPIRoutes(t *testing.T
 		if !slices.Contains(allRoutes(t), route) {
 			t.Errorf("%s is not registered", route)
 		}
+	}
+}
+
+// A hosted stack's routes are routes like any other: classified, and its step-up writes are known to the sign-in middleware.
+func TestRouteClassification_AHostedStacksRoutesAreRegisteredAndItsStepUpWritesGated(t *testing.T) {
+	routes := allRoutes(t)
+	stack := networkStack()
+	for _, rt := range stack.Manifest().Routes {
+		if !slices.Contains(routes, rt.Method+" "+rt.Path) {
+			t.Errorf("the stack declares %s %s but it is not registered", rt.Method, rt.Path)
+		}
+	}
+	steps := stackStepUpRoutes([]stacksdk.Stack{stack})
+	if !slices.Contains(steps, api.StepUpRoute{Method: "PUT", Path: "/admin/api/netaudit/dns-check"}) || len(steps) != 1 {
+		t.Errorf("the DNS check's write must need the passphrase again: %v", steps)
+	}
+	if slices.Contains(api.StepUpRoutes(), api.StepUpRoute{Method: "PUT", Path: "/admin/api/netaudit/dns-check"}) {
+		t.Error("the route moved into the stack: its core table entry must go, so the manifest is the one source")
 	}
 }

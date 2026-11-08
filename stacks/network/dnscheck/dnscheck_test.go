@@ -3,7 +3,6 @@ package dnscheck
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/netip"
 	"os"
@@ -13,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/core/tools"
+	"llm-proxy-stacks/sdk"
 )
 
 func addrs(t *testing.T, in ...string) []netip.Addr {
@@ -164,6 +163,17 @@ func answerDNS(t *testing.T, pc net.PacketConn, ips []string) {
 	pc.WriteTo(reply, from)
 }
 
+// fakeGuard is the SDK's Guard with a dial the test chooses.
+type fakeGuard struct {
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
+func (g fakeGuard) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return g.dial(ctx, network, addr)
+}
+
+func (fakeGuard) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
 func TestRouter_AsksOnlyTheRoutersAddressOnPort53(t *testing.T) {
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
@@ -174,11 +184,11 @@ func TestRouter_AsksOnlyTheRoutersAddressOnPort53(t *testing.T) {
 
 	var dialed []string
 	r := Router{
-		Server: func() netip.Addr { return netip.MustParseAddr("192.0.2.1") },
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		Server: func(context.Context) netip.Addr { return netip.MustParseAddr("192.0.2.1") },
+		Guard: fakeGuard{dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 			dialed = append(dialed, network+" "+address)
 			return (&net.Dialer{}).DialContext(ctx, network, pc.LocalAddr().String())
-		},
+		}},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -196,11 +206,11 @@ func TestRouter_AsksOnlyTheRoutersAddressOnPort53(t *testing.T) {
 
 func TestRouter_NoAddressForTheRouterIsAnErrorAndDialsNothing(t *testing.T) {
 	r := Router{
-		Server: func() netip.Addr { return netip.Addr{} },
-		Dial: func(context.Context, string, string) (net.Conn, error) {
+		Server: func(context.Context) netip.Addr { return netip.Addr{} },
+		Guard: fakeGuard{dial: func(context.Context, string, string) (net.Conn, error) {
 			t.Fatal("nothing may be dialed")
 			return nil, nil
-		},
+		}},
 	}
 	if _, err := r.LookupA(context.Background(), "dns.google"); err != ErrNoRouter {
 		t.Errorf("err = %v, want ErrNoRouter", err)
@@ -211,13 +221,13 @@ func TestRouter_NoAddressForTheRouterIsAnErrorAndDialsNothing(t *testing.T) {
 func TestRouter_APrivateAddressRefusedByTheSettingsIsErrLANOff(t *testing.T) {
 	refuse := func(err error) Router {
 		return Router{
-			Server: func() netip.Addr { return netip.MustParseAddr("192.168.1.1") },
-			Dial:   func(context.Context, string, string) (net.Conn, error) { return nil, err },
+			Server: func(context.Context) netip.Addr { return netip.MustParseAddr("192.168.1.1") },
+			Guard:  fakeGuard{dial: func(context.Context, string, string) (net.Conn, error) { return nil, err }},
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := refuse(fmt.Errorf("refused: %w", tools.ErrLANBlocked)).LookupA(ctx, "dns.google"); !errors.Is(err, ErrLANOff) {
+	if _, err := refuse(stacksdk.Errorf(stacksdk.CodeDenied, "the guard refused this address")).LookupA(ctx, "dns.google"); !errors.Is(err, ErrLANOff) {
 		t.Errorf("err = %v, want ErrLANOff", err)
 	}
 	if _, err := refuse(errors.New("connection refused")).LookupA(ctx, "dns.google"); err == nil || errors.Is(err, ErrLANOff) {

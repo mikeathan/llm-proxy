@@ -9,11 +9,11 @@ import (
 	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/platform/db"
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/memory"
 	"llm-proxy/internal/platform/metrics"
 	"llm-proxy/internal/platform/persistence"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/internal/shell"
 	"llm-proxy/models"
@@ -33,7 +33,7 @@ type AppContext struct {
 	// sandboxProv is the OS-confinement provider selected at bootstrap; it
 	// backs the Effective runtime projection on host-settings GETs. nil until
 	// BuildAppServices wires it (SPEC-006 §II.7.4 downgrade reporting).
-	sandboxProv   sandbox.Provider
+	sandboxProv   isolation.Provider
 	configMu      sync.RWMutex
 	cliEnableRuns bool
 

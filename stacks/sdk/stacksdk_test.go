@@ -241,3 +241,50 @@ func TestValidate_ARouteWithAnActionNeedsThePrivilegedPort(t *testing.T) {
 		t.Fatalf("step-up write, no wildcard, port required: %v", err)
 	}
 }
+
+func TestValidate_StorageNamesAreCheckedAsData(t *testing.T) {
+	m := validManifest()
+	m.Storage = []string{"network-dns-checks.json", "baseline.json"}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("plain file names refused: %v", err)
+	}
+	bad := map[string][]string{
+		"empty":            {""},
+		"a path":           {"sub/file.json"},
+		"a windows path":   {`sub\file.json`},
+		"dot":              {"."},
+		"dot dot":          {".."},
+		"up and out":       {"../settings.yml"},
+		"listed twice":     {"a.json", "a.json"},
+		"hidden traversal": {"a/../b"},
+	}
+	for name, files := range bad {
+		m := validManifest()
+		m.Storage = files
+		if err := m.Validate(); err == nil {
+			t.Errorf("%s: a manifest claiming %q must be refused", name, files)
+		}
+	}
+}
+
+func TestValidate_TheFetchAndGatewayPortsCanBeRequired(t *testing.T) {
+	m := validManifest()
+	m.Requires = []string{PortConfig, PortFetch, PortGateway}
+	if err := m.Validate(); err != nil {
+		t.Fatalf("the fetch port refused: %v", err)
+	}
+}
+
+// A fetch request has no field that chooses a method, a header or a client: the core sends one guarded GET, so a stack cannot widen it.
+func TestFetchRequest_CannotWidenTheGuardedGet(t *testing.T) {
+	var fields []string
+	for _, typ := range []reflect.Type{reflect.TypeFor[FetchRequest](), reflect.TypeFor[FetchResponse]()} {
+		for i := range typ.NumField() {
+			fields = append(fields, strings.ToLower(typ.Field(i).Name))
+		}
+	}
+	want := []string{"url", "accept", "maxbytes", "body", "truncated"}
+	if !reflect.DeepEqual(fields, want) {
+		t.Errorf("fetch fields = %v, want %v: adding one is a deliberate change that needs this test and the guard reviewed", fields, want)
+	}
+}

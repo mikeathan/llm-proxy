@@ -5,10 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/platform/isolation"
 	"time"
 
-	"llm-proxy/internal/platform/progexec"
-	"llm-proxy/internal/platform/sandbox"
 	"llm-proxy/models"
 )
 
@@ -28,7 +27,9 @@ type ReadinessDeps struct {
 		Available(ctx context.Context) error
 	}
 	// Sandbox reports what file confinement the host enforces.
-	Sandbox interface{ Effective() sandbox.EffectiveState }
+	Sandbox interface {
+		Effective() isolation.EffectiveState
+	}
 	// HostNetworkOn reports whether the host allows agent network traffic at all.
 	HostNetworkOn func() bool
 	// VulnData reports how much of the vulnerability data is downloaded; nil means notices about it are not made.
@@ -94,7 +95,7 @@ func (r *Readiness) Check(ctx context.Context) []models.Requirement {
 
 // confinementRefuses is true when progexec would refuse to start nmap: no OS file confinement and no opt-in.
 func (r *Readiness) confinementRefuses() bool {
-	if r.deps.Sandbox == nil || r.deps.Sandbox.Effective().Filesystem.Mechanism != sandbox.EnforcementNone {
+	if r.deps.Sandbox == nil || r.deps.Sandbox.Effective().Filesystem.Mechanism != isolation.EnforcementNone {
 		return false
 	}
 	return !r.deps.Config().AllowUnconfined
@@ -105,7 +106,7 @@ func nmapMissing(err error) models.Requirement {
 		Code:    models.RequirementNmapMissing,
 		Message: "nmap is not available: " + err.Error() + ". Without it only a limited scan (open ports, no service detection) can run, and nightly audits will not run.",
 	}
-	var notInstalled *progexec.NotInstalledError
+	var notInstalled *isolation.NotInstalledError
 	if errors.As(err, &notInstalled) && notInstalled.Hint != "" {
 		req.Fix = &models.RequirementFix{Kind: models.FixCopy, Text: notInstalled.Hint}
 	}

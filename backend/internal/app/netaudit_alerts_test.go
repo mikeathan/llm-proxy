@@ -151,26 +151,3 @@ func TestOutsideLookup_AsksNobodyUntilSwitchedOnAndThenTheServiceSet(t *testing.
 		t.Errorf("got %+v, asked %v", got, opener.asked)
 	}
 }
-
-// The router's DNS server is the one the operator set, or else the default gateway, read each time.
-func TestDNSServer_IsTheOneSetOrElseTheGateway(t *testing.T) {
-	store := &memPolicyStore{}
-	config := netaudit.NewDNSCheckConfig(store)
-	gateway := netip.MustParseAddr("192.0.2.1")
-	server := dnsServer(config, func() netip.Addr { return gateway })
-	if got := server(); got != gateway {
-		t.Errorf("by default the gateway: %v", got)
-	}
-	if err := config.SetServer("192.168.1.53"); err != nil {
-		t.Fatal(err)
-	}
-	if got := server(); got.String() != "192.168.1.53" {
-		t.Errorf("the one set: %v", got)
-	}
-	if err := config.SetServer(""); err != nil {
-		t.Fatal(err)
-	}
-	if got := server(); got != gateway {
-		t.Errorf("empty goes back to the gateway: %v", got)
-	}
-}

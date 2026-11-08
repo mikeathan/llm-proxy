@@ -22,6 +22,7 @@ type (
 	EffectiveState = sandbox.EffectiveState
 	SurfaceState   = sandbox.SurfaceState
 	Enforcement    = sandbox.Enforcement
+	WorkspaceView  = sandbox.WorkspaceView
 	Program        = progexec.Program
 	Output         = progexec.Output
 	Installed      = progexec.Installed
