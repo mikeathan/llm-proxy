@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -8,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 
+	"llm-proxy/internal/core/netaudit/nmap"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/client"
 	"llm-proxy/internal/platform/privhelper/grant"
@@ -47,7 +50,7 @@ func (l liveSandbox) Effective() sandbox.EffectiveState {
 
 // newHelperRoutes builds the helper's routes. policy returns the scan policy the operator declared in the Network settings (nil when the
 // Network module is not wired, as in a test): every helper call is held to it here, because the helper holds no range of its own.
-func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy) *helperRoutes {
+func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sink probeSink) *helperRoutes {
 	if policy == nil {
 		policy = func() scanscope.Policy { return scanscope.Policy{} }
 	}
@@ -55,10 +58,14 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy) *helperRou
 	helperClient := client.New(helperSocket, liveSandbox{ctx})
 	helper := port.New(port.Options{Grants: grants, Helper: helperClient, Ranges: declaredRanges{policy}})
 	on := func(action string) bool { return ctx.HostSettings().Sandboxing.HelperActionOn(action) }
+	var keep api.HelperKeeper
+	if sink != nil {
+		keep = keepHelperResult(sink)
+	}
 	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}}
 	for _, rt := range api.HelperRoutes() {
 		id := rt.Path[len("/admin/api/helper/"):]
-		h.handlers[rt.Path] = api.HelperHandler(id, grants, helper, on)
+		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: parseHelperOutput, Keep: keep})
 	}
 	h.status = api.HelperStatusHandler(api.HelperSource{
 		Supported: func() bool { return runtime.GOOS == "linux" },
@@ -69,6 +76,55 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy) *helperRou
 		On:        on,
 	})
 	return h
+}
+
+// parseHelperOutput reads one action's raw output in this unprivileged process (Constitution I.11): both of today's actions are nmap runs
+// that wrote XML, and the parser keeps only typed, cleaned and bounded fields. An action added to the catalogue gets its case here; one
+// without a case is answered as raw bytes only, which the route says in parse_error.
+func parseHelperOutput(action string, data []byte) (any, error) {
+	switch action {
+	case "scan_udp", "os_detect":
+		return nmap.ParseProbe(data)
+	}
+	return nil, fmt.Errorf("no reader for the output of %q", action)
+}
+
+// probeSink is where a scan's result is kept: the device inventory, which holds the last result on the device at the target's address.
+type probeSink interface {
+	RecordUDPScan(ip string, ports []models.ProbeUDPPort) error
+	RecordOSGuess(ip string, guesses []models.ProbeOSGuess) error
+}
+
+// helperTarget is the target of a helper request, in the form the inventory keys devices by.
+type helperTarget struct {
+	Target string `json:"target"`
+}
+
+// keepHelperResult keeps a parsed scan on the device at its target. A result that cannot be kept (a body or result of an unexpected shape, a
+// target no device holds) is logged and dropped: the operator already has the answer on screen, and a failed save must not fail the scan.
+func keepHelperResult(sink probeSink) api.HelperKeeper {
+	return func(action string, params []byte, parsed any) {
+		var req helperTarget
+		probe, isProbe := parsed.(models.DeviceProbe)
+		if json.Unmarshal(params, &req) != nil || !isProbe {
+			return
+		}
+		addr, err := netip.ParseAddr(strings.TrimSpace(req.Target))
+		if err != nil {
+			return
+		}
+		switch action {
+		case "scan_udp":
+			err = sink.RecordUDPScan(addr.String(), probe.UDPPorts)
+		case "os_detect":
+			err = sink.RecordOSGuess(addr.String(), probe.OS)
+		default:
+			return
+		}
+		if err != nil {
+			logging.Warn("a helper scan result was not kept", "action", action, "error", err)
+		}
+	}
 }
 
 // helperSocketPresent reports whether the helper's socket exists: the unit is installed and its socket is listening.

@@ -245,6 +245,8 @@ export const DEVICE_NAME_MAX = 40
 export const DEVICE_UNNAMED = 'Unknown device'
 export const DEVICE_PRIVATE = 'Phone or laptop (private address)'
 export const DEVICES_EMPTY = 'No devices seen yet. Turn on the new-device check in Network → Settings, or run a network audit.'
+export const UDP_COVERAGE = (scanned: number, total: number, oldest: string): string =>
+  `UDP scan kept for ${scanned} of ${total} ${total === 1 ? 'device' : 'devices'}, the oldest ${oldest}. A device never scanned has not been checked for UDP services.`
 export const DEVICES_BASELINE_NOTE = 'The first look is taken as the normal state: every device found then counts as approved, and only later arrivals are reported.'
 export const GATEWAY_CHANGED_TITLE = 'The router\'s hardware address changed'
 export const GATEWAY_CHANGED_BODY = 'Something else may be answering for the router, which would let it read or change the network\'s traffic. A replaced or reset router does this too. If you know why, confirm it.'
@@ -600,6 +602,14 @@ export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint
   scan_udp: { title: 'UDP scan', hint: 'Finds UDP services (DNS, SNMP, NTP) on one device.' },
   os_detect: { title: 'OS detection', hint: 'Guesses what kind of device it is.' },
 }
+// The UDP ports the helper may scan (the catalogue's fixed list); the button asks for all of them.
+export const HELPER_UDP_PORTS: readonly number[] = [53, 67, 69, 123, 137, 161, 500, 1900, 5353]
+export const PROBE_RUNNING = 'Scanning. This can take a minute.'
+export const PROBE_FAILED = 'The scan could not be run.'
+export const PROBE_NO_UDP = 'No UDP service answered.'
+export const PROBE_NO_OS = 'No guess: the device did not give enough to go on.'
+export const PROBE_UDP_FILTERED = 'no reply (open or blocked)'
+export const PROBE_PASSPHRASE_NOTE = 'Asks for your passphrase each time.'
 export const HELPER_ACTION_NOT_INSTALLED = 'Not in the helper\'s list: run the install command again.'
 export const HELPER_RANGES_TITLE = 'What it may scan'
 export const HELPER_RANGES_NONE_DECLARED = 'No scan range is declared yet, so nothing can be scanned. Declare one under "What may be scanned" above.'

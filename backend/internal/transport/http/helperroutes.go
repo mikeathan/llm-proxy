@@ -24,29 +24,67 @@ func HelperRoutes() []StepUpRoute {
 	return routes
 }
 
-// HelperResult is what a helper route answers: the action's bytes, which are the program's raw output and are never parsed or shown as markup
-// by the core.
+// HelperResult is what a helper route answers: the action's bytes, which are the program's raw output and are never shown as markup,
+// and what the service's parser made of them (Constitution I.11: untrusted data is parsed here, never in the privileged process).
+// ParseError says why Parsed is missing; the raw bytes stay so the operator can still read what came back.
 type HelperResult struct {
-	Kind      string `json:"kind"`
-	Data      []byte `json:"data"`
-	Truncated bool   `json:"truncated,omitempty"`
+	Kind       string `json:"kind"`
+	Data       []byte `json:"data"`
+	Truncated  bool   `json:"truncated,omitempty"`
+	Parsed     any    `json:"parsed,omitempty"`
+	ParseError string `json:"parse_error,omitempty"`
+}
+
+// HelperParser turns one action's raw output into typed, bounded fields. The composition root supplies it, so this package does not
+// import a program's parser.
+type HelperParser func(action string, data []byte) (any, error)
+
+// HelperKeeper is told of every successfully parsed result, with the action and the request body the grant was minted for (already
+// checked against the catalogue), so the composition root can keep what a scan found. It is not called for output that was cut or unreadable.
+type HelperKeeper func(action string, params []byte, parsed any)
+
+// HelperDeps are what a helper route needs: the one-use grant mint, the privileged port, the operator's switch, and the parser of the
+// output (nil answers the raw bytes only), and what to do with a parsed result (nil keeps nothing).
+type HelperDeps struct {
+	Grants GrantMinter
+	Run    stacksdk.Privileged
+	On     func(action string) bool
+	Parse  HelperParser
+	Keep   HelperKeeper
+}
+
+const parseCutMessage = "the output was cut at its size limit, so it was not read"
+
+// parsed runs the parser on a whole output; a cut output is never parsed, because a guess from half an XML document would read as a result.
+func (d HelperDeps) parsed(action string, res stacksdk.PrivilegedResult) (any, string) {
+	switch {
+	case d.Parse == nil:
+		return nil, ""
+	case res.Truncated:
+		return nil, parseCutMessage
+	}
+	v, err := d.Parse(action, res.Data)
+	if err != nil {
+		return nil, err.Error()
+	}
+	return v, ""
 }
 
 // HelperHandler answers one action's route (Constitution I.11): the action must be turned on in Settings, the request body must be exactly
 // that action's parameters (decoded strictly and checked against the catalogue), and only then is a one-use grant minted and the action
 // run through the privileged port. The route is a step-up route, so the caller is a signed-in operator who confirmed the passphrase a
 // moment ago; a token principal never gets here.
-func HelperHandler(action string, minter GrantMinter, run stacksdk.Privileged, on func(action string) bool) http.HandlerFunc {
+func HelperHandler(action string, deps HelperDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !on(action) {
+		if !deps.On(action) {
 			WriteJSONError(w, http.StatusForbidden, "this action is off: turn it on in Settings (it needs your passphrase)")
 			return
 		}
 		req, ok := stackRequest(w, r, nil)
-		if !ok || !attachGrant(w, &req, action, minter) {
+		if !ok || !attachGrant(w, &req, action, deps.Grants) {
 			return
 		}
-		res, err := run.Run(r.Context(), stacksdk.PrivilegedRequest{Grant: req.Grant, Action: action, Params: req.Body})
+		res, err := deps.Run.Run(r.Context(), stacksdk.PrivilegedRequest{Grant: req.Grant, Action: action, Params: req.Body})
 		if err != nil {
 			if r.Context().Err() != nil {
 				return // the operator left; nothing to answer
@@ -54,8 +92,13 @@ func HelperHandler(action string, minter GrantMinter, run stacksdk.Privileged, o
 			WriteJSONError(w, statusOf(stacksdk.CodeOf(err)), messageOf(err))
 			return
 		}
+		out := HelperResult{Kind: res.Kind, Data: res.Data, Truncated: res.Truncated}
+		out.Parsed, out.ParseError = deps.parsed(action, res)
+		if out.Parsed != nil && deps.Keep != nil {
+			deps.Keep(action, req.Body, out.Parsed)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(HelperResult{Kind: res.Kind, Data: res.Data, Truncated: res.Truncated})
+		_ = json.NewEncoder(w).Encode(out)
 	}
 }
 

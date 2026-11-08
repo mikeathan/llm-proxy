@@ -32,7 +32,7 @@ func TestAHelperActionMustBeInTheCatalogueToBeTurnedOn(t *testing.T) {
 }
 
 func TestEveryHelperRouteHasAHandler(t *testing.T) {
-	h := newHelperRoutes(&AppContext{}, nil)
+	h := newHelperRoutes(&AppContext{}, nil, nil)
 	routes := api.HelperRoutes()
 	if len(routes) == 0 || len(h.handlers) != len(routes) {
 		t.Fatalf("%d handlers for %d routes", len(h.handlers), len(routes))
@@ -114,5 +114,52 @@ func TestTheDeclaredRangesAreReadFromTheNetworkSettingsEachTime(t *testing.T) {
 	}
 	if got := rangeStrings(scanscope.PolicyFromCIDRs([]string{"192.168.50.0/24", "10.0.0.0/8"})); !slices.Equal(got, []string{"192.168.50.0/24", "10.0.0.0/8"}) {
 		t.Errorf("%v", got)
+	}
+}
+
+type recordingSink struct {
+	udp map[string][]models.ProbeUDPPort
+	os  map[string][]models.ProbeOSGuess
+	err error
+}
+
+func (r *recordingSink) RecordUDPScan(ip string, p []models.ProbeUDPPort) error {
+	if r.udp == nil {
+		r.udp = map[string][]models.ProbeUDPPort{}
+	}
+	r.udp[ip] = p
+	return r.err
+}
+
+func (r *recordingSink) RecordOSGuess(ip string, g []models.ProbeOSGuess) error {
+	if r.os == nil {
+		r.os = map[string][]models.ProbeOSGuess{}
+	}
+	r.os[ip] = g
+	return r.err
+}
+
+func TestAParsedScanIsKeptOnTheDeviceAtItsTarget(t *testing.T) {
+	sink := &recordingSink{}
+	keep := keepHelperResult(sink)
+	probe := models.DeviceProbe{UDPPorts: []models.ProbeUDPPort{{Port: 53, State: "open"}}, OS: []models.ProbeOSGuess{{Name: "Linux", Accuracy: 90}}}
+	keep("scan_udp", []byte(`{"target":" 192.168.50.10 ","ports":[53]}`), probe)
+	keep("os_detect", []byte(`{"target":"192.168.50.10"}`), probe)
+	if len(sink.udp["192.168.50.10"]) != 1 || len(sink.os["192.168.50.10"]) != 1 {
+		t.Errorf("kept udp %v os %v (the target is written in the form the inventory keys by)", sink.udp, sink.os)
+	}
+}
+
+func TestAResultThatCannotBeKeptIsDroppedWithoutPanicking(t *testing.T) {
+	sink := &recordingSink{err: errors.New("no such device")}
+	keep := keepHelperResult(sink)
+	probe := models.DeviceProbe{}
+	keep("scan_udp", []byte(`not json`), probe)
+	keep("scan_udp", []byte(`{"target":"nope"}`), probe)
+	keep("scan_udp", []byte(`{"target":"192.168.50.10"}`), "not a probe")
+	keep("unknown_action", []byte(`{"target":"192.168.50.10"}`), probe)
+	keep("scan_udp", []byte(`{"target":"192.168.50.10"}`), probe) // the sink errors: logged, not raised
+	if len(sink.udp) != 1 || len(sink.os) != 0 {
+		t.Errorf("udp %v os %v: only the one well-formed call reaches the sink", sink.udp, sink.os)
 	}
 }

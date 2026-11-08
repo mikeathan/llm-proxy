@@ -3,6 +3,7 @@ import { computed, useId } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
+import DeviceProbe from "./DeviceProbe.vue"
 import { DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
 import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, portsLine, portsSummary } from "../../utils/netaudit/devices"
 import { formatRelativeTime } from "../../utils/format/time"
@@ -30,6 +31,7 @@ const emit = defineEmits<{
   (e: "toggle-important"): void
   (e: "accept-suggestion"): void
   (e: "dismiss-suggestion"): void
+  (e: "probed"): void
   (e: "update:draft", value: string): void
 }>()
 
@@ -72,6 +74,15 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
       <p v-if="advanced && !device.ip" class="m-0 break-all font-mono text-[length:var(--text-small)] text-muted" data-test="device-ipv6">{{ deviceAddress(device, true) }}</p>
       <p v-if="extraIPv6" class="m-0 break-all font-mono text-[length:var(--text-small)] text-muted" data-test="device-ipv6">{{ extraIPv6 }}</p>
       <p v-if="ports" class="m-0 text-[length:var(--text-small)] text-muted" data-test="device-ports">{{ ports }}</p>
+      <DeviceProbe
+        v-if="device.ip"
+        :ip="device.ip"
+        :udp-ports="device.udp_ports"
+        :udp-at="device.udp_scanned_at"
+        :os-guesses="device.os_guesses"
+        :os-at="device.os_detected_at"
+        @probed="emit('probed')"
+      />
       <p v-if="device.important" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="device-important">{{ DEVICE_IMPORTANT_NOTE }}</p>
 
       <p v-if="device.suggested_name && !device.name" class="m-0 flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary" data-test="suggestion">

@@ -1,4 +1,4 @@
-import { DEVICES_NONE_YET, DEVICE_ONLINE_WINDOW_MS, DEVICE_PRIVATE, DEVICE_UNNAMED } from '../../constants/netaudit'
+import { DEVICES_NONE_YET, DEVICE_ONLINE_WINDOW_MS, DEVICE_PRIVATE, DEVICE_UNNAMED, UDP_COVERAGE } from '../../constants/netaudit'
 import { formatRelativeTime, isRecorded } from '../format/time'
 import type { DeviceFilter, DeviceListGroup, DeviceStatus, NetworkDevice, PresenceState } from '../../types/netaudit'
 import type { ChoiceOption } from '../../types/ui'
@@ -54,6 +54,18 @@ export function portsSummary(device: NetworkDevice, nowMs: number = Date.now()):
   if (!isRecorded(device.ports_scanned_at)) return ''
   const count = device.open_ports?.length ?? 0
   return `${count ? `${count} open ${count === 1 ? 'port' : 'ports'}` : 'No open ports'} · scanned ${formatRelativeTime(device.ports_scanned_at!, nowMs)}`
+}
+
+/**
+ * How many devices have a kept UDP scan, and how old the oldest is, or '' when none has one. A device that was never scanned has no UDP
+ * findings and is not clean, so once any device has a result the line says how many do.
+ */
+export function udpCoverageLine(devices: NetworkDevice[], nowMs: number = Date.now()): string {
+  const addressed = devices.filter((d) => d.ip)
+  const scanned = addressed.filter((d) => isRecorded(d.udp_scanned_at))
+  if (!scanned.length) return ''
+  const oldest = scanned.map((d) => Date.parse(d.udp_scanned_at!)).reduce((a, b) => Math.min(a, b))
+  return UDP_COVERAGE(scanned.length, addressed.length, formatRelativeTime(new Date(oldest).toISOString(), nowMs))
 }
 
 /**

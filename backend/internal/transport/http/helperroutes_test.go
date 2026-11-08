@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -28,9 +29,17 @@ func (r *recordingRun) Run(_ context.Context, req stacksdk.PrivilegedRequest) (s
 const helperBody = `{"target":"192.168.50.10","ports":[161,53]}`
 
 func helperServer(minter GrantMinter, run stacksdk.Privileged, on func(string) bool) http.Handler {
+	return helperServerParsing(minter, run, on, nil)
+}
+
+func helperServerParsing(minter GrantMinter, run stacksdk.Privileged, on func(string) bool, parse HelperParser) http.Handler {
+	return helperServerKeeping(minter, run, on, parse, nil)
+}
+
+func helperServerKeeping(minter GrantMinter, run stacksdk.Privileged, on func(string) bool, parse HelperParser, keep HelperKeeper) http.Handler {
 	mux := http.NewServeMux()
 	for _, rt := range HelperRoutes() {
-		mux.HandleFunc(rt.Method+" "+rt.Path, HelperHandler(strings.TrimPrefix(rt.Path, helperPathPrefix), minter, run, on))
+		mux.HandleFunc(rt.Method+" "+rt.Path, HelperHandler(strings.TrimPrefix(rt.Path, helperPathPrefix), HelperDeps{Grants: minter, Run: run, On: on, Parse: parse, Keep: keep}))
 	}
 	return AuthenticateWith(mux, newFake(), nil)
 }
@@ -113,6 +122,74 @@ func TestAHelperRoutePassesTheGrantTheActionAndTheBodyToThePort(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("content type %q", ct)
+	}
+}
+
+func TestAHelperRouteAnswersTheParsedResultBesideTheRawBytes(t *testing.T) {
+	run := &recordingRun{res: stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte("<xml/>")}}
+	var sawAction string
+	parse := func(action string, data []byte) (any, error) {
+		sawAction = action
+		return map[string]string{"seen": string(data)}, nil
+	}
+	rec := postHelper(helperServerParsing(&recordingMinter{}, run, allOn, parse), "/admin/api/helper/scan_udp", helperBody, cookie("elevated"))
+	var out struct {
+		Parsed map[string]string `json:"parsed"`
+		Error  string            `json:"parse_error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || sawAction != "scan_udp" || out.Parsed["seen"] != "<xml/>" || out.Error != "" {
+		t.Errorf("answer %s (%v), parser saw action %q", rec.Body, err, sawAction)
+	}
+}
+
+func TestAParseFailureKeepsTheRawBytesAndSaysWhy(t *testing.T) {
+	run := &recordingRun{res: stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte("not xml")}}
+	parse := func(string, []byte) (any, error) { return nil, errors.New("boom") }
+	rec := postHelper(helperServerParsing(&recordingMinter{}, run, allOn, parse), "/admin/api/helper/scan_udp", helperBody, cookie("elevated"))
+	var out struct {
+		Data  []byte `json:"data"`
+		Error string `json:"parse_error"`
+		Parse any    `json:"parsed"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); rec.Code != 200 || err != nil || string(out.Data) != "not xml" || out.Error == "" || out.Parse != nil {
+		t.Errorf("%d %s (%v)", rec.Code, rec.Body, err)
+	}
+}
+
+func TestAParsedResultIsKeptWithTheActionAndTheCanonicalParams(t *testing.T) {
+	run := &recordingRun{res: stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte("<xml/>")}}
+	parse := func(string, []byte) (any, error) { return "parsed-value", nil }
+	var gotAction string
+	var gotParams []byte
+	var gotParsed any
+	keep := func(action string, params []byte, parsed any) {
+		gotAction, gotParams, gotParsed = action, params, parsed
+	}
+	postHelper(helperServerKeeping(&recordingMinter{}, run, allOn, parse, keep), "/admin/api/helper/scan_udp", helperBody, cookie("elevated"))
+	if gotAction != "scan_udp" || string(gotParams) != helperBody || gotParsed != "parsed-value" {
+		t.Errorf("kept %q %s %v", gotAction, gotParams, gotParsed)
+	}
+}
+
+func TestNothingIsKeptWhenTheOutputWasCutOrCouldNotBeRead(t *testing.T) {
+	for name, res := range map[string]stacksdk.PrivilegedResult{"cut": {Kind: "bytes", Data: []byte("<x"), Truncated: true}, "unreadable": {Kind: "bytes", Data: []byte("x")}} {
+		kept := false
+		parse := func(string, []byte) (any, error) { return nil, errors.New("bad") }
+		keep := func(string, []byte, any) { kept = true }
+		postHelper(helperServerKeeping(&recordingMinter{}, &recordingRun{res: res}, allOn, parse, keep), "/admin/api/helper/scan_udp", helperBody, cookie("elevated"))
+		if kept {
+			t.Errorf("%s output was kept", name)
+		}
+	}
+}
+
+func TestACutOutputIsNeverParsed(t *testing.T) {
+	run := &recordingRun{res: stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte("<nmaprun>"), Truncated: true}}
+	called := false
+	parse := func(string, []byte) (any, error) { called = true; return nil, nil }
+	rec := postHelper(helperServerParsing(&recordingMinter{}, run, allOn, parse), "/admin/api/helper/scan_udp", helperBody, cookie("elevated"))
+	if called || !strings.Contains(rec.Body.String(), "parse_error") {
+		t.Errorf("parser called = %v, answer %s: a cut XML must say it was cut, not be guessed at", called, rec.Body)
 	}
 }
 

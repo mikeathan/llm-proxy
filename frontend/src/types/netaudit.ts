@@ -366,6 +366,11 @@ export interface NetworkDevice {
   /** The ports it had open at its last completed scan, and when; absent until a scan has finished looking at it. */
   open_ports?: number[]
   ports_scanned_at?: string
+  /** The last UDP scan and OS detection the person ran on it through the privileged helper, and when. The time is set even when nothing answered. */
+  udp_ports?: UdpPort[]
+  udp_scanned_at?: string
+  os_guesses?: OsGuess[]
+  os_detected_at?: string
 }
 
 /** The router's hardware address and whether it is the one on record. */
@@ -584,6 +589,34 @@ export interface HelperStatus {
   declared_ranges: string[]
   install_command: string
   help_path: string
+}
+
+/** One UDP port a helper scan found. "open|filtered" means no reply came back, so the port may be open or blocked. */
+export interface UdpPort {
+  port: number
+  state: 'open' | 'open|filtered'
+  service?: string
+}
+
+/** One of nmap's operating-system guesses, with the accuracy it reported (0 to 100). */
+export interface OsGuess {
+  name: string
+  accuracy: number
+}
+
+/** What a UDP scan or an OS detection of one device found, as the service's own parser read it. */
+export interface HelperProbe {
+  udp_ports: UdpPort[]
+  os: OsGuess[]
+}
+
+/** The helper actions the page can run on one device. */
+export type ProbeAction = 'scan_udp' | 'os_detect'
+
+/** The answer of a helper route: the parsed result, or why there is none. The raw bytes the server also sends are not used here. */
+export interface HelperRunResult {
+  parsed?: HelperProbe
+  parse_error?: string
 }
 
 /** The one word at the top of the Network page. */

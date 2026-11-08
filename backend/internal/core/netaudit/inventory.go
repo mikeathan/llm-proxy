@@ -576,6 +576,45 @@ func (v *Inventory) SetImportant(mac string, important bool) error {
 	})
 }
 
+// RecordUDPScan keeps the result of a UDP scan the operator ran on the device at ip (through the privileged helper), with the time. A scan
+// that found nothing still replaces the old result and sets the time. It decides nothing: no finding is made from it.
+func (v *Inventory) RecordUDPScan(ip string, ports []models.ProbeUDPPort) error {
+	return v.recordProbe(ip, func(d *models.NetworkDevice, at time.Time) {
+		d.UDPPorts, d.UDPScannedAt = slices.Clone(ports), at
+	})
+}
+
+// RecordOSGuess is RecordUDPScan for OS detection.
+func (v *Inventory) RecordOSGuess(ip string, guesses []models.ProbeOSGuess) error {
+	return v.recordProbe(ip, func(d *models.NetworkDevice, at time.Time) {
+		d.OSGuesses, d.OSDetectedAt = slices.Clone(guesses), at
+	})
+}
+
+// recordProbe applies a probe result to the device that holds ip, or answers ErrNoSuchDevice (nothing is written) when none does.
+func (v *Inventory) recordProbe(ip string, set func(*models.NetworkDevice, time.Time)) error {
+	at := v.now()
+	return v.edit(func(inv *models.DeviceInventory) error {
+		d := newestDeviceAt(inv.Devices, ip)
+		if d == nil {
+			return ErrNoSuchDevice
+		}
+		set(d, at)
+		return nil
+	})
+}
+
+// newestDeviceAt is the device seen most recently at ip: an address changes hands, and a result belongs to whoever holds it now.
+func newestDeviceAt(devices []models.NetworkDevice, ip string) *models.NetworkDevice {
+	var best *models.NetworkDevice
+	for i := range devices {
+		if devices[i].IP == ip && (best == nil || devices[i].LastSeen.After(best.LastSeen)) {
+			best = &devices[i]
+		}
+	}
+	return best
+}
+
 // Forget removes a device from the inventory. If it is on the network it comes back as a new device.
 func (v *Inventory) Forget(mac string) error {
 	mac, err := normalizeMAC(mac)

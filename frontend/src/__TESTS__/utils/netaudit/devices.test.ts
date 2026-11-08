@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, deviceSummary, filterCounts, groupDevices, intervalOptions, matchesQuery, nameableDevices, portsLine, portsSummary, presenceLine } from '../../../utils/netaudit/devices'
+import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, deviceSummary, filterCounts, groupDevices, intervalOptions, matchesQuery, nameableDevices, portsLine, portsSummary, presenceLine, udpCoverageLine } from '../../../utils/netaudit/devices'
 import type { NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const NOW = Date.parse('2026-10-30T12:00:00Z')
@@ -165,5 +165,28 @@ describe('filterCounts', () => {
   it('counts what each chip would show', () => {
     const list = [device({ mac: 'n', new: true, approved: false }), device({ mac: 't', name: 'TV' }), device({ mac: 'g', last_seen: '2026-10-01T00:00:00Z' })]
     expect(filterCounts(list, NOW)).toEqual({ all: 3, attention: 1, online: 1, offline: 1, unnamed: 2 })
+  })
+})
+
+describe('udpCoverageLine', () => {
+  it('says nothing when no device has a kept UDP scan, so a computer without the helper sees no new line', () => {
+    expect(udpCoverageLine([device(), device({ mac: 'aa:bb:cc:00:00:02' })], NOW)).toBe('')
+    expect(udpCoverageLine([], NOW)).toBe('')
+  })
+
+  it('counts the scanned devices of all that have an address, and dates the oldest, so an unscanned device never looks clean', () => {
+    const list = [
+      device({ udp_scanned_at: '2026-10-30T11:00:00Z' }),
+      device({ mac: 'aa:bb:cc:00:00:02', udp_scanned_at: '2026-10-25T12:00:00Z' }),
+      device({ mac: 'aa:bb:cc:00:00:03' }),
+      device({ mac: 'aa:bb:cc:00:00:04', ip: undefined }),
+    ]
+    const line = udpCoverageLine(list, NOW)
+    expect(line).toContain('2 of 3 devices')
+    expect(line).toContain('5 days ago')
+  })
+
+  it('uses the singular for one device', () => {
+    expect(udpCoverageLine([device({ udp_scanned_at: '2026-10-30T11:00:00Z' })], NOW)).toContain('1 of 1 device,')
   })
 })

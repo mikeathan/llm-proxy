@@ -297,6 +297,9 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	inventoryNote, inventory := r.addInventory(ctx, &result)
 	devices := inventory.Devices
 	r.addPhoneHome(&result, inventory)
+	// A UDP scan the operator ran stays kept on the device: its findings are not restricted to tonight's scanned hosts, so a device that
+	// was offline tonight does not read as resolved.
+	result.Findings = append(result.Findings, ProbeFindings(devices)...)
 	r.addRouterLog(&result, inventory)
 	expectNote += inventoryNote + r.addIdentities(ctx, &result) + r.addRouter(ctx, &result) + r.addDecoys(&result) + r.addNearby(&result) + r.addClasses(&result, devices)
 	services := r.addServices(ctx, &result)
