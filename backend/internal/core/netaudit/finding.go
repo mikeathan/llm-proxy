@@ -17,6 +17,10 @@ type Port struct {
 	// Guessed means Service is only the usual name for that port number (nmap's port table), not something the scan
 	// confirmed by talking to the service.
 	Guessed bool `json:"guessed,omitempty"`
+	// ProductGuessed means Product is a name nmap gave from the shape of a reply alone, with no version to back it: a DNS server that
+	// answers nmap's version.bind probe with "not implemented" is labelled "Cloudflare public DNS" whatever it is. The text is kept
+	// but shown as a guess, and no rule fires on it.
+	ProductGuessed bool `json:"product_guessed,omitempty"`
 	// CPEs are the identifiers nmap printed for the software it recognised (CPE 2.2 form, e.g.
 	// "cpe:/a:openbsd:openssh:9.6p1"), already checked for shape. The version inside one is the device's own text, so
 	// like Version it is untrusted; known-vulnerability matching reads them, nothing serialises them.
@@ -85,6 +89,8 @@ func joinVersion(p Port) string {
 	switch {
 	case p.Product != "" && p.Version != "":
 		return p.Product + " " + p.Version
+	case p.Product != "" && p.ProductGuessed:
+		return p.Product + guessedSuffix
 	case p.Product != "":
 		return p.Product
 	}

@@ -31,7 +31,8 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
   tool's result), and the report's Observed section counts it instead of listing it; the baseline still keeps it, so it does not
   flap between new and resolved. An acceptance for something no scan has shown for 30 days is dropped. Unreadable acceptances
   hide nothing. A service name nmap only looked up by port number is marked "(guess)" in the report and flagged `guessed` to the
-  model.
+  model. A DNS product with no version (nmap names it from a reply header alone, e.g. "Cloudflare public DNS" for any server that answers
+  `version.bind` with "not implemented") is marked "(guess)" the same way and flagged `product_guessed`; no rule fires on it.
 - **1.20 (2026-10-25)** — Network audits (§II.8). A run can be **pre-flighted** (`WithPreflight`): before the model is
   touched, a refusal ends the run as failed with the reason, through the same path as a task file that cannot be read, and
   the operator is told **once per reason** until the automation next succeeds (a nightly run blocked for the same reason

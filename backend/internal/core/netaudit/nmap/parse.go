@@ -28,12 +28,14 @@ const (
 	// maxCPEsEach bounds the identifiers kept for one service; nmap prints a handful (application, system, hardware).
 	maxCPEsEach = 8
 	// maxCPELen bounds one identifier; a longer one is not a CPE nmap would print.
-	maxCPELen     = 160
-	maxXMLBytes   = 8 << 20
-	stateOpen     = "open"
-	stateUp       = "up"
-	protoTCP      = "tcp"
-	methodTable   = "table"
+	maxCPELen   = 160
+	maxXMLBytes = 8 << 20
+	stateOpen   = "open"
+	stateUp     = "up"
+	protoTCP    = "tcp"
+	methodTable = "table"
+	// serviceDNS is the name nmap gives DNS.
+	serviceDNS    = "domain"
 	addrTypeIPv4  = "ipv4"
 	truncationEnd = "…"
 )
@@ -136,20 +138,29 @@ func convertHost(h xmlHost) (netaudit.Host, bool) {
 			if i == maxPortsEach {
 				break
 			}
-			if p.Protocol != protoTCP || p.ID < 1 || p.ID > 65535 {
-				continue
+			if port, ok := convertPort(p); ok {
+				host.Ports = append(host.Ports, port)
 			}
-			host.Ports = append(host.Ports, netaudit.Port{
-				Number: p.ID, Proto: p.Protocol, State: clean(p.State.State),
-				Service: clean(p.Service.Name), Product: clean(p.Service.Product), Version: clean(p.Service.Version),
-				Guessed: p.Service.Name != "" && p.Service.Method == methodTable,
-				CPEs:    convertCPEs(p.Service.CPEs),
-				Scripts: convertScripts(p.Scripts),
-			})
 		}
 		return host, true
 	}
 	return netaudit.Host{}, false
+}
+
+// convertPort keeps one TCP port with a number in range; anything else is skipped.
+func convertPort(p xmlPort) (netaudit.Port, bool) {
+	if p.Protocol != protoTCP || p.ID < 1 || p.ID > 65535 {
+		return netaudit.Port{}, false
+	}
+	return netaudit.Port{
+		Number: p.ID, Proto: p.Protocol, State: clean(p.State.State),
+		Service: clean(p.Service.Name), Product: clean(p.Service.Product), Version: clean(p.Service.Version),
+		Guessed: p.Service.Name != "" && p.Service.Method == methodTable,
+		// A DNS product with no version is nmap naming a server from its reply header alone (see Port.ProductGuessed).
+		ProductGuessed: strings.EqualFold(p.Service.Name, serviceDNS) && p.Service.Product != "" && p.Service.Version == "",
+		CPEs:           convertCPEs(p.Service.CPEs),
+		Scripts:        convertScripts(p.Scripts),
+	}, true
 }
 
 // clean makes text from the network safe to carry: control and non-printing characters removed, secret-shaped text

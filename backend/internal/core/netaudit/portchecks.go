@@ -39,7 +39,7 @@ func serviceIs(names ...string) func(Port) bool {
 // productHas reports whether the scan identified a product whose name contains the text, ignoring case.
 func productHas(text string) func(Port) bool {
 	return func(p Port) bool {
-		return !p.Guessed && strings.Contains(strings.ToLower(p.Product), text)
+		return !p.Guessed && !p.ProductGuessed && strings.Contains(strings.ToLower(p.Product), text)
 	}
 }
 
