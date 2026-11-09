@@ -1,11 +1,13 @@
 ---
-status: partial
+status: complete
 date: 2026-11-09
 last_reviewed: 2026-11-09
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [IV.6]
 evidence: branch network-small-items (local, uncommitted, v0.63.0); docs/decisions/ADR-0037 (accepted); docs/decisions/ADR-0036; docs/PLANS/cross-cutting/network-stack-p3b-design.md sections 4 and 4e; counts taken from backend/internal/core/netaudit on 2026-11-09 (go list, grep)
 ---
+
+> **Closed 2026-11-09.** Option B is finished (UDP, web, certificate and router sensors in the Network stack, v0.64.0 to v0.66.0). Nothing in the ingest line was built: the listeners and Nearby stay in the core (ADR-0039, "Narrowing"). Harvested into `network-stack-p3b-design.md` section 4 and `docs/learnings/network-audit.md`. The ADR-0037 lookup port and the settings flip are deferred follow-ups (see `docs/PLANS/ARCHIVE/README.md`).
 
 # S6: what is left of moving `core/netaudit` into the Network stack (2026-11-09)
 
@@ -75,8 +77,8 @@ any step. If the owner wants C, this plan is done.
 3. **Pure leaves with no root caller left to convert, one at a time:** `udpchecks` (findings already built in the core: `udpfindings.go`), `webprobe`
    (9 symbols used by `webfindings.go`, `tlsfindings.go`), `upnp` (carried by `exposure.go`, `router.go`), `decoy`. For each: add its findings to
    `Stack.Findings`, delete the root file that wrapped it, keep the wording table in the core.
-4. **The ingest port (S4)** for `routerlog`, `phonehome`, `knownbad`, `nearby`/`mcast`: the core keeps the sockets and pushes plain data in (D6).
-5. **Programs (S5):** `nmap`, `portprobe`, `scantool`, `wifilook` over the isolation port, with `scanscope`'s policy check decided (port or stays in the core).
+4. **Narrowed 2026-11-09 (ADR-0039, "Narrowing"): nothing in step 4 is built: `decoy`, `routerlog`, `phonehome`, `knownbad` and Nearby stay in the core, and neither the observation port nor the exchange port is built.** The earlier order, kept for the record: (a) `decoy` first (an observation is a source address, a port and a time, no text); (b) `routerlog` counters and the DNS-query leg; (c) `phonehome` only after its alert `Told` record is split from its names; (d) `knownbad` last, with the ADR-0037 feed; (e) `nearby` through the exchange port. The core keeps every socket and the syslog parsers.
+5. **Programs (S5):** `nmap`, `scantool` and `wifilook` stay in the core (owner, 2026-11-09, ADR-0039 option b); `portprobe` too (2026-11-09).
 6. **Settings flip and the Modules screen definitions** move last, with the round-trip test; only needed if every module has moved.
 
 ## Not measured, needed before step 3 and later
@@ -86,6 +88,8 @@ any step. If the owner wants C, this plan is done.
 - On vertex: nothing needed for steps 1 to 3; step 4 changes who owns the multicast socket, which needs a real run.
 
 ## Remaining Work
+
+**Update 2026-11-09 (branch `network-ingest-exchange-ports`):** ADR-0039 accepted; the order of step 4 and the decoy blast radius (twelve core files read `models.DecoyTouch`) are in the handoff. No code yet.
 
 **Decided:** B. ADR-0038 is accepted. Built so far on the branch: the ADR, and `TestUDPChecks_TheFindingsOfAnAnswerAreByteIdentical`, which pins the
 nightly UDP findings so a later move can be held to them.

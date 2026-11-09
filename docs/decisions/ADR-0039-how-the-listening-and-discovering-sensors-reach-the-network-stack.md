@@ -1,7 +1,7 @@
 ---
 id: ADR-0039
 title: How the listening and discovering sensors reach the Network stack
-status: proposed
+status: accepted
 date: 2026-11-09
 subsystems: [network-audit]
 supersedes:
@@ -60,9 +60,19 @@ the agent's `network_scan` tool: it depends on `core/assistant/prompts`, `core/t
 
 ## Decision
 
-Not taken. The status stays `proposed` until the owner answers Q1 to Q3 and chooses (a) or (b). Nothing is built from this ADR.
+Accepted by the owner on 2026-11-09:
 
-## Consequences if the proposed answers are accepted
+- **Q1 yes.** Domain names and IP addresses, validated by the core at the port (host-name check, length bound, count bound), count as allowed text, and never appear in a finding's wording except where the core's own fixed sentence puts a name in (as the DNS finding does). Device-chosen free text stays out.
+- **Q2 yes.** `platform/mcast.Exchange` stays in the core as an exchange port; parsing and judging the replies move into the stack.
+- **Q3 yes.** The core owns every socket and pushes typed observations in.
+- **Programs: (b)** for `nmap`, `scantool` and `wifilook`: they stay in the core; only the pure leaves may move. `portprobe` stays in the core too (decided 2026-11-09 on the same ground: it runs a program that opens its own sockets, so the scoped dial cannot cover it).
+- **What crosses the port (2026-11-09 reading):** listeners push *typed* observations, so the syslog parsers of `routerlog` stay in the core and only state and sensing logic move. Nearby is the opposite: raw datagrams come in through the exchange port and the stack parses them. The host's `Observe` is non-blocking and bounded (drop and count when full, never wait on the stack).
+
+**Narrowing, decided 2026-11-09 after sizing `decoy` and then Nearby (result: nothing in the ingest line is built):** a listener whose sockets, store, alert state and readers all stay in the core gains nothing from a stack. `decoy`'s touch table is read by twelve core files and carries alert state; a push port would add a bounded queue (a drop path and a copy) and a second owner of the same table, for no isolation, because the stack would never see a socket or a byte of untrusted input beyond a source address the kernel already vouches for. So: **`decoy`, `routerlog`, `phonehome` and `knownbad` stay in the core** (their parsers, stores and alerts are judgement or sockets, both core). The observation port is **not built** until a listener appears whose raw input is untrusted bytes that the stack should parse. **Nearby does not earn a move either (read in full 2026-11-09).** Its output is the device's own words: names, maker, model, UPnP type, which the Nearby card shows and `names.Clean` cuts. Q1 keeps device free text out of a port, so a stack could hand back only service types and ports, and the core would still have to parse the same datagrams for the names: two parsers of one reply, or a port that carries the text Q1 forbids. It also fetches description pages (`upnp.Identify`) and merges into `models.NearbyState`, which the core's cards and findings read. The exchange port is therefore **accepted in principle (Q2) and not built**; it comes back only if the Nearby card stops showing device text.
+
+Built so far: nothing; the order of the moves is in the S6 plan.
+
+## Consequences
 
 - The SDK gets two small things: an observation push (Q3) and an exchange port (Q2), each plain data, each with its manifest requirement and a drift test.
 - A names-only allowance (Q1) is a change to ADR-0038 rule 3 and must be recorded there when accepted.
@@ -70,5 +80,5 @@ Not taken. The status stays `proposed` until the owner answers Q1 to Q3 and choo
 
 ## Links
 
-ADR-0038, ADR-0036 (findings by id, `Names`), ADR-0035 (ports are plain data), `docs/PLANS/cross-cutting/network-stack-s6-plan.md`,
+ADR-0038, ADR-0036 (findings by id, `Names`), ADR-0035 (ports are plain data), `docs/PLANS/ARCHIVE/cross-cutting/network-stack-s6-plan.md`,
 `docs/PLANS/cross-cutting/network-stack-p3b-design.md` (D6).

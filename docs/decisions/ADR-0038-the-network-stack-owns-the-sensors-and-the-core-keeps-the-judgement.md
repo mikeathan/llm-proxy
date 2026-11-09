@@ -13,7 +13,7 @@ superseded_by:
 ## Context
 
 `core/netaudit` is 77 files and 13,703 lines, with 16 sub-packages, 100 files that use `models` types and 21 files in `app` and the handlers that import
-it (`docs/PLANS/cross-cutting/network-stack-s6-plan.md`). Its one `migrationDebt` entry was retired on 2026-11-09, so the rule that the core never imports a
+it (`docs/PLANS/ARCHIVE/cross-cutting/network-stack-s6-plan.md`). Its one `migrationDebt` entry was retired on 2026-11-09, so the rule that the core never imports a
 stack already holds. What remained was a choice about the end state. The owner chose option B of the S6 plan on 2026-11-09.
 
 The root's inventory, baseline, ack, fix, history and alert types are read by the core's report, alerts, bell, handlers and automation. A stack cannot
@@ -23,7 +23,7 @@ import `models`. ADR-0036 already lets a stack offer findings by id, worded and 
 
 We will move the **sensors** into the Network stack and keep the **judgement** in the core.
 
-- **Sensors (move, one pull request each):** the programs (`nmap`, `portprobe`, `scantool`, `wifilook`), the ingest-fed watchers (`routerlog`,
+- **Sensors (move, one pull request each):** the programs (`nmap`, `scantool` and `wifilook` stay in the core, ADR-0039; `portprobe` undecided), the ingest-fed watchers (`routerlog`,
   `phonehome`, `knownbad`), `upnp`, `webprobe`, `udpchecks`, `nearby`, `decoy`. The DNS check has moved already.
 - **Judgement (stays):** the report, baseline and its diff, history, acknowledgements, fixes, alert delivery, the finding wording tables, and the
   `models` types. A sensor reports typed facts; the core words, rates, keys and places them (ADR-0036).
@@ -46,6 +46,7 @@ We will move the **sensors** into the Network stack and keep the **judgement** i
    silent. The core keeps the judgement around it: the carry rule (silence is not a fix), the replacement of a helper-kept finding by a newer nightly
    answer, and the switch (it stays typed in the core's settings until the settings flip). The exact shape is fixed when the first sensor is built and
    must be checked against `webprobe` and `upnp`, which need the same input-in, typed-answers-out form, so it is designed once for all three.
+   **Amended 2026-11-09 (ADR-0039 Q1):** the one text a port may carry besides ids and numbers is a domain name or an IP address, which the core validates at the port (host-name check, length and count bounds), and it never appears in a finding's wording except in the core's own fixed sentence. Device-chosen free text stays out.
    `StackFinding` has no port field today; the first sensor adds a typed one (or encodes the port in the id) and the core maps it back to today's `Finding`.
 
 ### Built 2026-11-09 (v0.64.0): the contract and the first sensor, `udpchecks`
@@ -81,6 +82,6 @@ We will move the **sensors** into the Network stack and keep the **judgement** i
 
 ## Links
 
-- `docs/PLANS/cross-cutting/network-stack-s6-plan.md` (the numbers and the order).
+- `docs/PLANS/ARCHIVE/cross-cutting/network-stack-s6-plan.md` (the numbers and the order).
 - ADR-0036 (findings by id), ADR-0037 (the feeds stay in the core), ADR-0035 (ports are plain data), ADR-0025 (finding text from typed fields only).
 - `backend/internal/core/netaudit/udpfindings.go`, `backend/internal/app/netaudit.go` (`newUDPChecks`), `backend/internal/core/stackport/host.go` (`Guard`).
