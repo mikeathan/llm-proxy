@@ -155,14 +155,13 @@ type landlockProvider struct {
 	allowUnixSockets bool
 }
 
-// Wrap rewrites cmd to run through the runner with the serialized profile.
+// Wrap rewrites cmd to run through the runner with the serialized profile. A spawn with no workspace root is wrapped too, with a
+// profile that grants nothing writable (D9): the Unix-socket filter that keeps a child from the privileged helper's socket must
+// reach every child, and a one-shot with no workspace is one.
 // A network-off spawn additionally requests TCP bind/connect denial when the
 // kernel can express it (ABI v4+); older kernels leave network alone and
 // Effective reports the gap honestly.
 func (lp landlockProvider) Wrap(cmd *exec.Cmd, ws WorkspaceView) error {
-	if ws.RootPath == "" {
-		return nil // no workspace root → nothing to jail (non-workspace one-shot)
-	}
 	// Idempotent (Provider contract): a cmd already routed through the runner
 	// must not be wrapped twice (double argv prefix + duplicated env markers).
 	if len(cmd.Args) >= 2 && cmd.Args[1] == runnerFlag {

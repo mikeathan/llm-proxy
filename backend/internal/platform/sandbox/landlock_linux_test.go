@@ -308,3 +308,62 @@ func TestLandlockExecProbeHelper(t *testing.T) {
 		t.Fatalf("exec under jail failed: %v", err)
 	}
 }
+
+// TestLandlockRootlessProbe proves what D9 relies on: a jail with no workspace still lets a dynamically linked shell run (the toolchain and
+// loader are readable) but lets it write nowhere, not even into a directory the test owns.
+func TestLandlockRootlessProbe(t *testing.T) {
+	abi, err := landlockABI()
+	if err != nil {
+		t.Skipf("Landlock unavailable: %v", err)
+	}
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skipf("no sh on PATH: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "written")
+	cmd := exec.Command(os.Args[0], "-test.run=TestLandlockRootlessProbeHelper")
+	cmd.Env = append(os.Environ(),
+		"LLMPROXY_LANDLOCK_ROOTLESS_SH="+sh,
+		"LLMPROXY_LANDLOCK_ROOTLESS_TARGET="+target,
+		"LLMPROXY_LANDLOCK_ROOTLESS_ABI="+fmt.Sprint(abi),
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rootless probe child failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "RUNS_OK") {
+		t.Errorf("a shell must still run in a rootless jail:\n%s", out)
+	}
+	if strings.Contains(string(out), "WROTE") {
+		t.Errorf("a rootless jail let the child write a file:\n%s", out)
+	}
+	if _, err := os.Stat(target); err == nil {
+		t.Error("the file exists: a rootless jail let the child write it")
+	}
+}
+
+func TestLandlockRootlessProbeHelper(t *testing.T) {
+	sh := os.Getenv("LLMPROXY_LANDLOCK_ROOTLESS_SH")
+	target := os.Getenv("LLMPROXY_LANDLOCK_ROOTLESS_TARGET")
+	if sh == "" || target == "" {
+		return
+	}
+	abi, err := strconv.Atoi(os.Getenv("LLMPROXY_LANDLOCK_ROOTLESS_ABI"))
+	if err != nil {
+		t.Fatalf("bad ABI env: %v", err)
+	}
+	support := linuxSupportPaths
+	support = append(support, loaderDirs()...)
+	p := DefaultProfile("", []string{filepath.Dir(sh)}, support)
+	for _, dev := range linuxWritableDevices {
+		p.Add(dev, PermRead|PermWrite)
+	}
+	p.NeedTraverse()
+	if err := applyLandlock(p, landlockOptions{denyNetwork: abi >= 4}); err != nil {
+		t.Fatalf("ApplyLandlock: %v", err)
+	}
+	script := `echo RUNS_OK; touch "$1" 2>/dev/null && echo WROTE; exit 0`
+	if err := syscall.Exec(sh, []string{"sh", "-c", script, "sh", target}, os.Environ()); err != nil {
+		t.Fatalf("exec under jail failed: %v", err)
+	}
+}

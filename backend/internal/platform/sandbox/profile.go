@@ -56,15 +56,17 @@ var workspaceSandboxDirs = []string{
 //
 // Deny-by-default handles everything else, including ~/.ssh and the socket
 // hatches — they are simply never granted.
+//
+// With no workspace root (a one-shot that belongs to no workspace) nothing is writable: the grants are the read-only toolchain and
+// support paths, so such a child can run but can neither write a file nor read the operator's home (D9, SPEC-006 1.11).
 func DefaultProfile(workspaceRoot string, toolDirs, supportPaths []string) Profile {
 	p := Profile{}
-	if workspaceRoot == "" {
-		return p
+	if workspaceRoot != "" {
+		for _, sub := range workspaceSandboxDirs {
+			p.Add(filepath.Join(workspaceRoot, sub), PermRead|PermWrite)
+		}
+		p.Add(workspaceRoot, PermRead|PermWrite)
 	}
-	for _, sub := range workspaceSandboxDirs {
-		p.Add(filepath.Join(workspaceRoot, sub), PermRead|PermWrite)
-	}
-	p.Add(workspaceRoot, PermRead|PermWrite)
 	for _, d := range toolDirs {
 		if d != "" {
 			p.Add(d, PermRead)

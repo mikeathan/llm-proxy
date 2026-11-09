@@ -41,6 +41,22 @@ func TestDefaultProfileGrantsWorkspaceAndToolchains(t *testing.T) {
 	}
 }
 
+// A spawn with no workspace gets the read-only system grants and nothing writable (D9): it can run, it cannot write a file or read the
+// operator's home.
+func TestDefaultProfileWithNoWorkspaceGrantsNothingWritable(t *testing.T) {
+	p := DefaultProfile("", []string{"/usr/bin"}, []string{"/etc/resolv.conf"})
+	got := map[string]FSPermission{}
+	for _, r := range p.Rules {
+		got[r.Path] |= r.Perm
+		if r.Perm&PermWrite != 0 {
+			t.Errorf("%s must not be writable with no workspace", r.Path)
+		}
+	}
+	if got["/usr/bin"]&PermRead == 0 || got["/etc/resolv.conf"]&PermRead == 0 {
+		t.Errorf("the toolchain and support paths stay readable so the child can run: %+v", got)
+	}
+}
+
 func TestDefaultProfileDeniesByDefault(t *testing.T) {
 	p := DefaultProfile("/w", []string{"/usr/bin"}, nil)
 	for _, r := range p.Rules {
