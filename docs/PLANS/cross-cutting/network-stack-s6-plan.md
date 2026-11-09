@@ -75,8 +75,8 @@ any step. If the owner wants C, this plan is done.
 3. **Pure leaves with no root caller left to convert, one at a time:** `udpchecks` (findings already built in the core: `udpfindings.go`), `webprobe`
    (9 symbols used by `webfindings.go`, `tlsfindings.go`), `upnp` (carried by `exposure.go`, `router.go`), `decoy`. For each: add its findings to
    `Stack.Findings`, delete the root file that wrapped it, keep the wording table in the core.
-4. **The ingest port (S4)** for `routerlog`, `phonehome`, `knownbad`, `nearby`/`mcast`: the core keeps the sockets and pushes plain data in (D6).
-5. **Programs (S5):** `nmap`, `portprobe`, `scantool`, `wifilook` over the isolation port, with `scanscope`'s policy check decided (port or stays in the core).
+4. **The ingest port (S4)**, order fixed 2026-11-09 after ADR-0039: (a) `decoy` first (an observation is a source address, a port and a time, no text); (b) `routerlog` counters and the DNS-query leg; (c) `phonehome` only after its alert `Told` record is split from its names; (d) `knownbad` last, with the ADR-0037 feed; (e) `nearby` through the exchange port. The core keeps every socket and the syslog parsers.
+5. **Programs (S5):** `nmap`, `scantool` and `wifilook` stay in the core (owner, 2026-11-09, ADR-0039 option b); `portprobe` is undecided.
 6. **Settings flip and the Modules screen definitions** move last, with the round-trip test; only needed if every module has moved.
 
 ## Not measured, needed before step 3 and later
@@ -86,6 +86,8 @@ any step. If the owner wants C, this plan is done.
 - On vertex: nothing needed for steps 1 to 3; step 4 changes who owns the multicast socket, which needs a real run.
 
 ## Remaining Work
+
+**Update 2026-11-09 (branch `network-ingest-exchange-ports`):** ADR-0039 accepted; the order of step 4 and the decoy blast radius (twelve core files read `models.DecoyTouch`) are in the handoff. No code yet.
 
 **Decided:** B. ADR-0038 is accepted. Built so far on the branch: the ADR, and `TestUDPChecks_TheFindingsOfAnAnswerAreByteIdentical`, which pins the
 nightly UDP findings so a later move can be held to them.

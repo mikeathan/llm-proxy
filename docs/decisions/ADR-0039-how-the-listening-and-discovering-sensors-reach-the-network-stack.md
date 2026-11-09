@@ -1,7 +1,7 @@
 ---
 id: ADR-0039
 title: How the listening and discovering sensors reach the Network stack
-status: proposed
+status: accepted
 date: 2026-11-09
 subsystems: [network-audit]
 supersedes:
@@ -60,9 +60,17 @@ the agent's `network_scan` tool: it depends on `core/assistant/prompts`, `core/t
 
 ## Decision
 
-Not taken. The status stays `proposed` until the owner answers Q1 to Q3 and chooses (a) or (b). Nothing is built from this ADR.
+Accepted by the owner on 2026-11-09:
 
-## Consequences if the proposed answers are accepted
+- **Q1 yes.** Domain names and IP addresses, validated by the core at the port (host-name check, length bound, count bound), count as allowed text, and never appear in a finding's wording except where the core's own fixed sentence puts a name in (as the DNS finding does). Device-chosen free text stays out.
+- **Q2 yes.** `platform/mcast.Exchange` stays in the core as an exchange port; parsing and judging the replies move into the stack.
+- **Q3 yes.** The core owns every socket and pushes typed observations in.
+- **Programs: (b)** for `nmap`, `scantool` and `wifilook`: they stay in the core; only the pure leaves may move. `portprobe` was not named in the answer and is **undecided** (ask the owner before moving it).
+- **What crosses the port (2026-11-09 reading):** listeners push *typed* observations, so the syslog parsers of `routerlog` stay in the core and only state and sensing logic move. Nearby is the opposite: raw datagrams come in through the exchange port and the stack parses them. The host's `Observe` is non-blocking and bounded (drop and count when full, never wait on the stack).
+
+Built so far: nothing; the order of the moves is in the S6 plan.
+
+## Consequences
 
 - The SDK gets two small things: an observation push (Q3) and an exchange port (Q2), each plain data, each with its manifest requirement and a drift test.
 - A names-only allowance (Q1) is a change to ADR-0038 rule 3 and must be recorded there when accepted.
