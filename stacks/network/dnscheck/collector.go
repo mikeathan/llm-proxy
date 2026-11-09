@@ -39,7 +39,8 @@ type CollectorDeps struct {
 }
 
 // Collector compares, for a few names, what the router's DNS answers with what an outside resolver answers, and logs each
-// comparison. It raises no finding: a rule is written only after a week of real comparisons shows what an honest network does.
+// comparison. It raises no finding itself: Persistent reads the log for the stack to offer one (ADR-0036), and only when the operator has
+// switched that on.
 type Collector struct {
 	deps CollectorDeps
 

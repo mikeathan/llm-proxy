@@ -204,3 +204,72 @@ func TestNetworkStack_NoCoreStoreUsesAFileTheManifestClaims(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// ---- findings a stack offers (ADR-0036) ----
+
+type offering struct {
+	portsOnly
+	items []stacksdk.StackFinding
+	err   error
+	wait  time.Duration
+}
+
+func (o offering) Findings(ctx context.Context) ([]stacksdk.StackFinding, error) {
+	select {
+	case <-time.After(o.wait):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return o.items, o.err
+}
+
+func offeringHost(t *testing.T, o offering) *stackHost {
+	t.Helper()
+	o.manifest = baseManifest(stacksdk.PortLog)
+	o.manifest.Modules[0].Finds = []string{"declared_one"}
+	h, err := newStackHost(o, stacksdk.Host{Log: nopLog{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+// The host passes on only the ids the module declared, so a stack cannot offer a finding it did not announce.
+func TestStackHost_OfferedKeepsOnlyDeclaredFindings(t *testing.T) {
+	a := netip.MustParseAddr("10.0.0.1")
+	h := offeringHost(t, offering{items: []stacksdk.StackFinding{
+		{ID: "declared_one", Subject: a, Count: 2, Names: []string{"a.example"}},
+		{ID: "undeclared", Subject: a, Count: 2, Names: []string{"a.example"}},
+	}})
+	got, err := h.Offered(context.Background())
+	if err != nil || len(got) != 1 || got[0].ID != "declared_one" || got[0].Subject != a || got[0].Count != 2 || got[0].Names[0] != "a.example" {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+}
+
+// A stack that is slow or fails must not stall or break the nightly report.
+func TestStackHost_OfferedGivesUpOnASlowStackAndReportsAFailure(t *testing.T) {
+	old := offerTimeout
+	offerTimeout = 20 * time.Millisecond
+	t.Cleanup(func() { offerTimeout = old })
+	if _, err := offeringHost(t, offering{wait: time.Second}).Offered(context.Background()); err == nil {
+		t.Error("a slow stack must time out")
+	}
+	if _, err := offeringHost(t, offering{err: stacksdk.Errorf(stacksdk.CodeInternal, "boom")}).Offered(context.Background()); err == nil {
+		t.Error("a failing stack is an error the report states")
+	}
+}
+
+// What the module's own screen says it finds is the core's wording, and the Network stack's finding is one of them.
+func TestNetworkStack_TheDNSCheckIsFoundByTheDNSModule(t *testing.T) {
+	if !slices.Contains(moduleFinds["dns_check"], netaudit.CheckDNSRouterDiffers) {
+		t.Error("the DNS check module must list the finding it offers")
+	}
+	for _, m := range networkStack().Manifest().Modules {
+		for _, id := range m.Finds {
+			if netaudit.CheckTitle(id) == "" {
+				t.Errorf("the stack offers %q, which the core has no title for", id)
+			}
+		}
+	}
+}

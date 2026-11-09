@@ -58,7 +58,8 @@ type ModuleSpec struct {
 	StepUp   bool     `json:"step_up,omitempty"`
 	Needs    []string `json:"needs,omitempty"`
 	Monitors []string `json:"monitors,omitempty"`
-	Finds    []string `json:"finds,omitempty"`
+	// Finds are the ids of the findings the module may offer through Stack.Findings (ADR-0036). The core words them from its own table.
+	Finds []string `json:"finds,omitempty"`
 }
 
 // ToolSpec declares an agent tool as data: the handler is called by name with JSON arguments and returns JSON.
@@ -243,7 +244,27 @@ func (m Manifest) indexModules(layerAt map[string]int) (map[string]ModuleSpec, e
 		}
 		byID[mod.ID] = mod
 	}
+	if err := m.checkFinds(); err != nil {
+		return nil, err
+	}
 	return byID, nil
+}
+
+// checkFinds holds each declared finding id to a clean id that one module claims once.
+func (m Manifest) checkFinds() error {
+	seen := map[string]string{}
+	for _, mod := range m.Modules {
+		for _, id := range mod.Finds {
+			if !idPattern.MatchString(id) {
+				return fmt.Errorf("manifest %q: module %q finds %q, which is not a clean finding id", m.ID, mod.ID, id)
+			}
+			if other, dup := seen[id]; dup {
+				return fmt.Errorf("manifest %q: finding %q is claimed by modules %q and %q", m.ID, id, other, mod.ID)
+			}
+			seen[id] = mod.ID
+		}
+	}
+	return nil
 }
 
 func (m Manifest) checkRoutes() error {

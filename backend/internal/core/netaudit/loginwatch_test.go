@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net/netip"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ var loginNow = time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 type loginRig struct {
 	w     *LoginWatch
 	times []time.Time
+	from  []netip.Addr // the source of times[i], when set
 	err   error
 	reads int
 	on    bool
@@ -29,12 +31,16 @@ func newLoginRig(t *testing.T) *loginRig {
 	t.Helper()
 	r := &loginRig{on: true, now: loginNow}
 	r.w = NewLoginWatch(LoginWatchDeps{
-		Read: func(after time.Time) ([]time.Time, error) {
+		Read: func(after time.Time) ([]LoginAttempt, error) {
 			r.reads++
-			var out []time.Time
-			for _, at := range r.times {
+			var out []LoginAttempt
+			for i, at := range r.times {
 				if at.After(after) {
-					out = append(out, at)
+					a := LoginAttempt{At: at}
+					if i < len(r.from) {
+						a.From = r.from[i]
+					}
+					out = append(out, a)
 				}
 			}
 			return out, r.err
@@ -240,5 +246,62 @@ func TestLoginFindings_ADayThatHitTheReadBoundSaysAtLeast(t *testing.T) {
 	slicesSortTimes(r.times)
 	if s := r.w.Snapshot(r.now); !s.Capped || s.Failures != 5 {
 		t.Fatalf("snapshot = %+v, want it capped at the bound", s)
+	}
+}
+
+func addr(s string) netip.Addr { return netip.MustParseAddr(s) }
+
+// The nightly count says where the failures came from, as numbers and parsed addresses only: how many from this network, how many from the
+// internet, how many with no address, and the busiest few (Constitution I.10).
+func TestSnapshot_CountsWhereTheFailuresCameFrom(t *testing.T) {
+	r := newLoginRig(t)
+	r.failures(12, time.Minute)
+	for i := range r.times {
+		switch {
+		case i < 6:
+			r.from = append(r.from, addr("203.0.113.9"))
+		case i < 8:
+			r.from = append(r.from, addr("198.51.100.4"))
+		case i < 10:
+			r.from = append(r.from, addr("192.168.50.20"))
+		default:
+			r.from = append(r.from, netip.Addr{})
+		}
+	}
+	got := r.w.Snapshot(r.now).Origins
+	if got.Internet != 8 || got.Network != 2 || got.Unknown != 2 || got.Distinct != 3 {
+		t.Fatalf("origins = %+v", got)
+	}
+	if len(got.Top) != 3 || got.Top[0].Addr != addr("203.0.113.9") || got.Top[0].Count != 6 || got.Top[1].Count != 2 || got.Top[2].Count != 2 {
+		t.Errorf("busiest = %+v", got.Top)
+	}
+}
+
+func TestSnapshot_OnlyTheBusiestThreeSourcesAreKept(t *testing.T) {
+	r := newLoginRig(t)
+	r.failures(10, time.Minute)
+	for i := range r.times {
+		r.from = append(r.from, addr("203.0.113."+string(rune('1'+i%5))))
+	}
+	got := r.w.Snapshot(r.now).Origins
+	if len(got.Top) != maxLoginOrigins || got.Distinct != 5 {
+		t.Errorf("origins = %+v", got)
+	}
+}
+
+func TestLoginFindings_NameWhereTheBurstCameFrom(t *testing.T) {
+	snap := LoginSnapshot{Failures: 40, Bursts: 2, Origins: LoginOrigins{Internet: 38, Network: 1, Unknown: 1, Distinct: 2,
+		Top: []LoginOrigin{{Addr: addr("203.0.113.9"), Count: 30}, {Addr: addr("198.51.100.4"), Count: 8}}}}
+	got := LoginFindings(snap)
+	if len(got) != 1 {
+		t.Fatalf("got %+v", got)
+	}
+	for _, want := range []string{"38 from the internet", "1 from this network", "1 with no address recorded", "203.0.113.9 (30)", "198.51.100.4 (8)"} {
+		if !strings.Contains(got[0].Evidence, want) {
+			t.Errorf("evidence %q lacks %q", got[0].Evidence, want)
+		}
+	}
+	if without := LoginFindings(LoginSnapshot{Failures: 40, Bursts: 2}); strings.Contains(without[0].Evidence, "from the internet") {
+		t.Errorf("a record with no origins says nothing about them: %q", without[0].Evidence)
 	}
 }

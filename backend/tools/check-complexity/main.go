@@ -83,7 +83,6 @@ var knownComplexityExceptions = map[string]bool{
 	"internal/transport/http/handlers/model_handlers.go:handleUpdateModel":                       true,
 	"internal/transport/http/handlers/model_handlers.go:hasModelOverrides":                       true,
 	"internal/transport/http/handlers/model_handlers.go:resolvePublishedCapabilitiesFromCatalog": true,
-	"internal/transport/http/handlers/registry_handlers.go:discoverModelFiles":                   true,
 	"internal/transport/http/handlers/secrets_handlers.go:AdminProviderKeysPutHandler":           true,
 }
 

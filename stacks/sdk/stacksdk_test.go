@@ -288,3 +288,42 @@ func TestFetchRequest_CannotWidenTheGuardedGet(t *testing.T) {
 		t.Errorf("fetch fields = %v, want %v: adding one is a deliberate change that needs this test and the guard reviewed", fields, want)
 	}
 }
+
+// ---- findings (ADR-0036) ----
+
+// A finding a stack offers has typed fields only: no field can hold free text, so nothing a device or a resolver sent can ride in it.
+func TestStackFinding_HasNoFreeTextField(t *testing.T) {
+	typ := reflect.TypeFor[StackFinding]()
+	allowed := map[string]bool{"ID": true, "Names": true}
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		hasString := f.Type.Kind() == reflect.String || (f.Type.Kind() == reflect.Slice && f.Type.Elem().Kind() == reflect.String)
+		if hasString && !allowed[f.Name] {
+			t.Errorf("StackFinding.%s is a %s; only ID and Names may be text, and the core checks both", f.Name, f.Type)
+		}
+	}
+	if err := CheckPlainData(typ); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidate_FindingIDsAreCheckedAsData(t *testing.T) {
+	withFinds := func(a, b []string) Manifest {
+		m := validManifest()
+		m.Modules[0].Finds, m.Modules[1].Finds = a, b
+		return m
+	}
+	if err := withFinds([]string{"dns_router_differs"}, nil).Validate(); err != nil {
+		t.Fatalf("a module that finds one clean id: %v", err)
+	}
+	for name, m := range map[string]Manifest{
+		"a bad id":       withFinds([]string{"Bad Id"}, nil),
+		"an empty id":    withFinds([]string{""}, nil),
+		"twice in one":   withFinds([]string{"x_y", "x_y"}, nil),
+		"in two modules": withFinds([]string{"x_y"}, []string{"x_y"}),
+	} {
+		if err := m.Validate(); err == nil {
+			t.Errorf("%s: want a refusal", name)
+		}
+	}
+}

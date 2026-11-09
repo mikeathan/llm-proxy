@@ -126,6 +126,9 @@ func withNetauditHostWatches(reporter *netaudit.RunReporter, svc handlers.Assist
 	if v, ok := svc.(interface{ NetauditWifi() netaudit.WifiSource }); ok && v.NetauditWifi() != nil {
 		reporter.WithWifi(v.NetauditWifi())
 	}
+	if v, ok := svc.(interface{ NetauditStackFindings() netaudit.StackFindingSource }); ok && v.NetauditStackFindings() != nil {
+		reporter.WithStackFindings(v.NetauditStackFindings())
+	}
 }
 
 // withNetauditProbes gives the run reporter what devices said about themselves (Nearby) and the checks that probe open ports.

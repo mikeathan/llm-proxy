@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"llm-proxy-stacks/sdk"
+
+	"llm-proxy/internal/core/netaudit"
 )
 
 // stackHost is one stack running inside the service: the stack and the ports it was started with. It is the
@@ -82,4 +85,32 @@ func claimedFiles(manifests ...stacksdk.Manifest) ([]string, error) {
 		}
 	}
 	return all, nil
+}
+
+// offerTimeout bounds how long the nightly report waits for a stack's findings; a variable so a test can shorten it.
+var offerTimeout = 5 * time.Second
+
+// Offered pulls the findings the stack's modules offer, for the nightly report (ADR-0036). It keeps only ids a module declared in its
+// manifest, in the core's own type, and gives up after offerTimeout: a stack that is slow or fails adds nothing and the report says so.
+// The core words and checks each one (netaudit.StackFindings); this only holds the stack to what it announced.
+func (h *stackHost) Offered(ctx context.Context) ([]netaudit.OfferedFinding, error) {
+	ctx, cancel := context.WithTimeout(ctx, offerTimeout)
+	defer cancel()
+	got, err := h.stack.Findings(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the findings of stack %q: %w", h.stack.Manifest().ID, err)
+	}
+	declared := map[string]bool{}
+	for _, m := range h.stack.Manifest().Modules {
+		for _, id := range m.Finds {
+			declared[id] = true
+		}
+	}
+	var out []netaudit.OfferedFinding
+	for _, f := range got {
+		if declared[f.ID] {
+			out = append(out, netaudit.OfferedFinding{ID: f.ID, Subject: f.Subject, Count: f.Count, Names: slices.Clone(f.Names), Since: f.Since})
+		}
+	}
+	return out, nil
 }

@@ -176,3 +176,20 @@ type brokenDoc struct{}
 
 func (brokenDoc) Load(context.Context) (json.RawMessage, error) { return json.RawMessage("{"), nil }
 func (brokenDoc) Save(context.Context, json.RawMessage) error   { return nil }
+
+func TestConfig_TheFindingIsOffUntilSwitchedOnAndSwitchingItTouchesNothingElse(t *testing.T) {
+	doc := &memDoc{fields: map[string]json.RawMessage{"dns_check_enabled": json.RawMessage("true")}}
+	c := Config{Doc: doc}
+	if view(c).FindingEnabled {
+		t.Fatal("the finding is off by default")
+	}
+	if err := c.SetFindingEnabled(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if !view(c).FindingEnabled || !view(c).Enabled {
+		t.Errorf("view = %+v", view(c))
+	}
+	if string(doc.fields["dns_check_finding_enabled"]) != "true" || len(doc.fields) != 2 {
+		t.Errorf("only the finding's key is written: %v", doc.fields)
+	}
+}

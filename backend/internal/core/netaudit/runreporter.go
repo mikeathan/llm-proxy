@@ -46,8 +46,9 @@ type RunReporter struct {
 	health    *RunHealth       // optional: whether each optional step of a run worked
 	histErr   func(error)
 	now       func() time.Time
-	logins    LoginSource // optional: failed logins to this computer
-	wifi      WifiSource  // optional: access points that copy the operator's Wi-Fi name
+	logins    LoginSource        // optional: failed logins to this computer
+	wifi      WifiSource         // optional: access points that copy the operator's Wi-Fi name
+	offered   StackFindingSource // optional: findings the stacks' modules offer (ADR-0036)
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -307,7 +308,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	services := r.addServices(ctx, &result)
 	udp := r.addUDPChecks(ctx, &result, result.Hosts)
 	hostNote, hostChecked := r.addHost(ctx, &result)
-	expectNote += hostNote + r.addWebChecks(ctx, &result)
+	expectNote += hostNote + r.addWebChecks(ctx, &result) + r.addStackFindings(ctx, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 

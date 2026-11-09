@@ -53,9 +53,12 @@ type NetauditConfig struct {
 	// (UPnP off). Empty means none entered.
 	OutsideLookupAddress string `yaml:"outside_lookup_address,omitempty" json:"outside_lookup_address"`
 	// DNSCheckEnabled has the host compare, every DNSCheckIntervalMinutes, what the router's DNS and an outside resolver answer
-	// for a few names, and log the result (it raises no finding). The outside resolver learns the names and the network's public
+	// for a few names, and log the result (a finding is a separate switch, DNSCheckFindingEnabled). The outside resolver learns the names and the network's public
 	// address, so it is off until the operator turns it on (a step-up action).
 	DNSCheckEnabled bool `yaml:"dns_check_enabled,omitempty" json:"dns_check_enabled"`
+	// DNSCheckFindingEnabled lets the nightly report carry a finding when the router and an outside resolver disagree on a name on several
+	// checks in a row (ADR-0036). Off until the operator has seen the check catch a resolver that lies.
+	DNSCheckFindingEnabled bool `yaml:"dns_check_finding_enabled,omitempty" json:"dns_check_finding_enabled"`
 	// DNSCheckIntervalMinutes is how often it runs; 0 is the default (netaudit.DefaultDNSCheckInterval).
 	DNSCheckIntervalMinutes int `yaml:"dns_check_interval_minutes,omitempty" json:"dns_check_interval_minutes"`
 	// DNSCheckNames are the names compared. Empty means netaudit's defaults.

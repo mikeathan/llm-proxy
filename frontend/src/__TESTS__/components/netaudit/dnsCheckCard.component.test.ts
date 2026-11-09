@@ -181,4 +181,21 @@ describe('DnsCheckCard', () => {
       w.unmount()
     })
   })
+
+  it('in Advanced, switches the finding on without touching the other settings, and says what it does', async () => {
+    useNetauditViewMode().set('advanced')
+    service.setDnsCheck.mockResolvedValue(state({ finding_enabled: true }))
+    const w = await mountCard()
+    expect(w.text()).toContain('two checks in a row')
+    await w.get('[data-test="dns-check-finding"]').setValue(true)
+    await flushPromises()
+    expect(service.setDnsCheck).toHaveBeenCalledWith({ finding_enabled: true })
+    w.unmount()
+  })
+
+  it('shows no finding switch in Simple', async () => {
+    const w = await mountCard()
+    expect(w.find('[data-test="dns-check-finding"]').exists()).toBe(false)
+    w.unmount()
+  })
 })
