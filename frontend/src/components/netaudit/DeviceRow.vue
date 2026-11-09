@@ -4,7 +4,7 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
 import DeviceProbe from "./DeviceProbe.vue"
-import { DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
+import { DEVICE_DNS_NOTE, DEVICE_DNS_TAG, DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
 import { isRecorded } from "../../utils/format/time"
 import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, portsLine, portsSummary } from "../../utils/netaudit/devices"
 import { formatRelativeTime } from "../../utils/format/time"
@@ -58,6 +58,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
         <span class="flex min-w-0 flex-wrap items-center gap-2">
           <span class="min-w-0 break-words text-primary">{{ deviceLabel(device) }}</span>
           <StatusTag v-if="device.new" state="running" label="New" />
+          <span v-if="device.dns_silent" class="text-[length:var(--text-small)] text-muted" data-test="device-dns-tag">{{ DEVICE_DNS_TAG }}</span>
         </span>
         <span class="min-w-0 break-all text-[length:var(--text-small)] text-muted sm:ml-auto" data-test="device-line">{{ deviceAddress(device, false) }}</span>
       </span>
@@ -87,6 +88,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
         :no-open-ports="portsRecorded && !device.open_ports?.length"
         @probed="emit('probed')"
       />
+      <p v-if="device.dns_silent" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="device-dns-note">{{ DEVICE_DNS_NOTE }}</p>
       <p v-if="device.important" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="device-important">{{ DEVICE_IMPORTANT_NOTE }}</p>
 
       <p v-if="device.suggested_name && !device.name" class="m-0 flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary" data-test="suggestion">

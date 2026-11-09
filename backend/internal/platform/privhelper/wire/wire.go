@@ -20,8 +20,10 @@ const (
 	Version = 1
 	// MaxRequestBytes bounds a request frame. A request is an action name and a few typed parameters.
 	MaxRequestBytes = 4096
-	// MaxResponseBytes is the largest response frame any action may produce; an action's own cap is lower or equal.
-	MaxResponseBytes = 1 << 20
+	// MaxResponseBytes is the largest response frame any action may produce; an action's own cap is lower or equal. The body is base64 in
+	// JSON, so an action's raw output is at most three quarters of it. It is 16 MiB because capture_host's cap is 8 MiB of raw output
+	// (Constitution I.13); only the service reads a response, from the helper it trusts, and a request stays at MaxRequestBytes.
+	MaxResponseBytes = 16 << 20
 
 	headerBytes = 4
 	idBytes     = 16

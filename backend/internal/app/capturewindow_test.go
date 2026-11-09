@@ -35,6 +35,17 @@ func TestAnEmptyCaptureRequestGetsTheDefaultInterfaceAndNothingElseIsTouched(t *
 	}
 }
 
+func TestAnEmptyHostTrafficRequestGetsTheDefaultInterfaceToo(t *testing.T) {
+	d := helperDefaults(func() (string, error) { return "wlp2s0", nil })
+	got, err := d("capture_host", nil)
+	if err != nil || string(got) != `{"iface":"wlp2s0","seconds":0}` {
+		t.Fatalf("got %s, %v", got, err)
+	}
+	if got, _ := d("capture_host", []byte(`{"iface":"eth0","seconds":5}`)); string(got) != `{"iface":"eth0","seconds":5}` {
+		t.Errorf("a body the operator wrote was changed: %s", got)
+	}
+}
+
 func TestWithNoDefaultRouteTheOperatorIsToldInFixedWords(t *testing.T) {
 	d := helperDefaults(func() (string, error) { return "", errNoDefaultInterface })
 	if _, err := d("capture_window", nil); err == nil || !strings.Contains(err.Error(), "no default network interface") {

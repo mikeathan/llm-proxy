@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deepProblemsOf, groupByDevice, groupProblems, summarize } from '../../../utils/netaudit/report'
+import { deepProblemsOf, groupByDevice, groupProblems, groupProblemsByDevice, sharedEvidence, splitProblems, summarize } from '../../../utils/netaudit/report'
 import type { DeepCheck, FindingsReport, ScanFinding } from '../../../types/netaudit'
 
 const f = (key: string, over: Partial<ScanFinding> = {}): ScanFinding =>
@@ -109,3 +109,48 @@ describe('deepProblemsOf', () => {
   })
 })
 
+
+describe('splitProblems', () => {
+  const p = (key: string, check: string, severity: string, over: Partial<ScanFinding> = {}) => f(key, { check, severity, ...over })
+
+  it('puts high and medium kinds, and any kind with a new or changed place, in needs-you; the rest are notes', () => {
+    const groups = groupProblems([
+      p('a', 'serious', 'high'), p('b', 'middling', 'medium'), p('c', 'quiet', 'low'),
+      p('d', 'fresh', 'low', { new: true }), p('e', 'moved', 'low', { changed: true }),
+    ])
+    const { needsYou, notes } = splitProblems(groups)
+    expect(needsYou.map((g) => g.check)).toEqual(['serious', 'middling', 'fresh', 'moved'])
+    expect(notes.map((g) => g.check)).toEqual(['quiet'])
+  })
+
+  it('keeps one group whole on one side, so a card is never split in two', () => {
+    const groups = groupProblems([p('a', 'dns', 'low'), p('b', 'dns', 'low', { new: true })])
+    const { needsYou, notes } = splitProblems(groups)
+    expect(needsYou).toHaveLength(1)
+    expect(needsYou[0]!.items).toHaveLength(2)
+    expect(notes).toEqual([])
+  })
+})
+
+describe('groupProblemsByDevice', () => {
+  it('lists the worst device first and each device\'s worst problem first', () => {
+    const rows = groupProblemsByDevice([
+      f('1', { device: 'quiet', check: 'x', severity: 'low' }),
+      f('2', { device: 'loud', check: 'y', severity: 'low' }),
+      f('3', { device: 'loud', check: 'z', severity: 'high' }),
+    ])
+    expect(rows.map((r) => r.device)).toEqual(['loud', 'quiet'])
+    expect(rows[0]!.severity).toBe('high')
+    expect(rows[0]!.items.map((i) => i.key)).toEqual(['3', '2'])
+  })
+})
+
+describe('sharedEvidence', () => {
+  it('returns the line every place says, and nothing when places differ or there is one place', () => {
+    const same = [f('1', { evidence: 'same' }), f('2', { evidence: 'same' })]
+    expect(sharedEvidence(same)).toBe('same')
+    expect(sharedEvidence([f('1', { evidence: 'same' }), f('2', { evidence: 'other' })])).toBe('')
+    expect(sharedEvidence([f('1', { evidence: 'same' })])).toBe('')
+    expect(sharedEvidence([f('1'), f('2')])).toBe('')
+  })
+})

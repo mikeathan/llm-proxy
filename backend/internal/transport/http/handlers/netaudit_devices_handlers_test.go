@@ -222,6 +222,34 @@ func TestDevicesHandlers_ListShowsTheOpenPortsFromTheLastScanBesideEachDevice(t 
 	}
 }
 
+type fakeSilence map[string]bool
+
+func (f fakeSilence) SilentDevices(models.DeviceInventory) map[string]bool { return f }
+
+func TestDevicesHandlers_ListMarksTheDevicesThatAskTheRouterForNothing(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{
+		{MAC: "aa:bb:cc:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now},
+		{MAC: "aa:bb:cc:00:00:02", IP: "192.168.1.6", FirstSeen: now, LastSeen: now},
+	}}}
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{}).WithDNSSilence(fakeSilence{"aa:bb:cc:00:00:01": true})
+	var got netaudit.InventoryView
+	if err := json.Unmarshal(do(h.List, http.MethodGet, "/admin/api/netaudit/devices", "").Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]netaudit.DeviceView{}
+	for _, d := range got.Devices {
+		by[d.MAC] = d
+	}
+	if !by["aa:bb:cc:00:00:01"].DNSSilent || by["aa:bb:cc:00:00:02"].DNSSilent {
+		t.Errorf("silent flags = %v, %v; only the first device is silent", by["aa:bb:cc:00:00:01"].DNSSilent, by["aa:bb:cc:00:00:02"].DNSSilent)
+	}
+	plain := NewNetauditDevicesHandlers(devices, &fakePresence{})
+	if strings.Contains(do(plain.List, http.MethodGet, "/admin/api/netaudit/devices", "").Body.String(), "dns_silent") {
+		t.Error("without a watch no device carries the flag")
+	}
+}
+
 func TestDevicesHandlers_DismissSuggestion(t *testing.T) {
 	now := time.Now()
 	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{{MAC: "aa:bb:cc:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now}}}}

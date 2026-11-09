@@ -53,16 +53,19 @@ func defaultInterface() (string, error) {
 	return name, nil
 }
 
-// helperDefaults completes an empty capture_window request with the default interface and the longest window. A body the operator wrote
-// is passed on as it is: the catalogue checks it and the helper checks that the interface exists.
+// helperDefaults completes an empty capture_window or capture_host request with the default interface and the longest window. A body the
+// operator wrote is passed on as it is: the catalogue checks it and the helper checks that the interface exists.
 func helperDefaults(iface func() (string, error)) api.HelperDefaults {
 	return func(action string, body []byte) ([]byte, error) {
-		if action != "capture_window" || len(bytes.TrimSpace(body)) != 0 {
+		if (action != "capture_window" && action != "capture_host") || len(bytes.TrimSpace(body)) != 0 {
 			return body, nil
 		}
 		name, err := iface()
 		if err != nil {
 			return nil, err
+		}
+		if action == "capture_host" {
+			return json.Marshal(catalog.CaptureHostParams{Iface: name})
 		}
 		return json.Marshal(catalog.CaptureWindowParams{Iface: name})
 	}

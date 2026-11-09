@@ -115,6 +115,7 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/helper/scan_udp"},                  // runs a UDP scan of one device with a raw-packet capability the service does not hold (Constitution I.11); one route per catalogue action, held to HelperRoutes by a test
 	{http.MethodPost, "/admin/api/helper/os_detect"},                 // the same for OS detection
 	{http.MethodPost, "/admin/api/helper/capture_window"},            // listens on the link for up to 60 seconds with a raw-packet capability and keeps the first 64 bytes of broadcast frames (Constitution I.11)
+	{http.MethodPost, "/admin/api/helper/capture_host"},              // listens on the link for up to 60 seconds with a raw-packet capability and keeps the headers of this computer's own traffic and its DNS messages (Constitution I.13)
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

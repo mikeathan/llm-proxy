@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, deviceSummary, filterCounts, groupDevices, intervalOptions, matchesQuery, nameableDevices, portsLine, portsSummary, presenceLine, udpCoverageLine } from '../../../utils/netaudit/devices'
+import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, deviceSummary, filterCounts, groupDevices, intervalOptions, matchesQuery, nameableDevices, namesByAddress, portsLine, portsSummary, presenceLine, udpCoverageLine } from '../../../utils/netaudit/devices'
 import type { NetworkDevice, PresenceState } from '../../../types/netaudit'
 
 const NOW = Date.parse('2026-10-30T12:00:00Z')
@@ -188,5 +188,17 @@ describe('udpCoverageLine', () => {
 
   it('uses the singular for one device', () => {
     expect(udpCoverageLine([device({ udp_scanned_at: '2026-10-30T11:00:00Z' })], NOW)).toContain('1 of 1 device,')
+  })
+})
+
+describe('namesByAddress', () => {
+  it('names a device by its address from what the person called it or its maker, and skips one with nothing to say', () => {
+    const names = namesByAddress([
+      device({ ip: '192.168.1.5', name: 'Pixel 8' }),
+      device({ mac: 'aa:bb:cc:00:00:02', ip: '192.168.1.6', name: '', vendor: 'Espressif' }),
+      device({ mac: 'aa:bb:cc:00:00:03', ip: '192.168.1.7', name: '', vendor: '' }),
+      device({ mac: 'aa:bb:cc:00:00:04', ip: undefined, ipv6: ['fe80::1'], name: 'Only v6' }),
+    ])
+    expect(names).toEqual({ '192.168.1.5': 'Pixel 8', '192.168.1.6': 'Espressif device' })
   })
 })

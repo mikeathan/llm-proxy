@@ -11,6 +11,7 @@ import FindingsAdvanced from "./FindingsAdvanced.vue"
 import FindingsSimple from "./FindingsSimple.vue"
 import UnscannedNotice from "./UnscannedNotice.vue"
 import { useDeepCheck } from "../../composables/netaudit/useDeepCheck"
+import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
 import { useModuleSources } from "../../composables/netaudit/useModuleSources"
 import { useFindings } from "../../composables/netaudit/useFindings"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
@@ -32,6 +33,8 @@ const findings = useFindings(() => props.workspaceId, () => props.automation)
 const sources = useModuleSources()
 const { report, expectations, loading, error, actionError, notice, starting } = findings
 const deepCheck = useDeepCheck(() => props.workspaceId, () => props.automation)
+const deviceNames = useDeviceNames()
+const { names } = deviceNames
 
 // A scan is running when the page says so (`busy`) or when we have just started one and the page has not heard yet. While
 // one runs every button in the report is off: a second action would change what the run is about to write. The page's
@@ -41,6 +44,8 @@ const runningText = computed(() => (starting.value && !props.busy ? `Scanning ${
 watch(() => props.busy, (busy) => { if (busy) findings.clearStarting() })
 
 const accepting = ref<ScanFinding | null>(null)
+// Several findings accepted in one go ("This is fine for all 9"): one note and one time for all of them.
+const acceptingMany = ref<ScanFinding[]>([])
 const saving = ref(false)
 
 // The device whose expected ports are being edited, and what the dialog starts from: what it expects now, or what is open.
@@ -72,12 +77,23 @@ const meta = computed(() => {
 })
 
 async function accept(days: number, note: string) {
-  if (!accepting.value) return
+  if (!accepting.value && !acceptingMany.value.length) return
   saving.value = true
-  const ok = await findings.accept(accepting.value.key, note, days)
+  const ok = accepting.value
+    ? await findings.accept(accepting.value.key, note, days)
+    : await findings.acceptMany(acceptingMany.value.map((f) => f.key), note, days)
   saving.value = false
-  if (ok) accepting.value = null
+  if (ok) {
+    accepting.value = null
+    acceptingMany.value = []
+  }
 }
+const cancelAccept = () => {
+  accepting.value = null
+  acceptingMany.value = []
+}
+const ACCEPT_MANY_WHAT = (n: number) => `${n} findings`
+const acceptWhat = computed(() => (accepting.value ? findingTitle(accepting.value) : acceptingMany.value.length ? ACCEPT_MANY_WHAT(acceptingMany.value.length) : ""))
 
 async function saveExpected(ports: number[]) {
   saving.value = true
@@ -87,7 +103,7 @@ async function saveExpected(ports: number[]) {
 }
 
 watch(() => [props.workspaceId, props.automation, props.refreshKey], () => { void findings.load(); void deepCheck.load() })
-onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load() })
+onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load(); void deviceNames.load() })
 </script>
 
 <template>
@@ -108,17 +124,17 @@ onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
 
-      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" :extra-problems="deepProblems" :expectations="expectations" :deep-checks="deepCheck.checks.value" :deep-running="deepCheck.running.value" @deep="deepDevice = $event" @expect="findings.setExpected" @edit-expected="editing = $event" @unexpect="findings.removeExpected($event)" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
+      <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" :extra-problems="deepProblems" :names="names" :expectations="expectations" :deep-checks="deepCheck.checks.value" :deep-running="deepCheck.running.value" @deep="deepDevice = $event" @expect="findings.setExpected" @edit-expected="editing = $event" @unexpect="findings.removeExpected($event)" @accept="accepting = $event" @accept-many="acceptingMany = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
         <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" /></template>
       </FindingsAdvanced>
       <template v-else>
         <UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" />
-        <FindingsSimple :report="report" :summary="summary" :extra-problems="deepProblems" @accept="accepting = $event" @revoke="findings.revoke($event.key)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)" @rescan="findings.rescan($event)" />
+        <FindingsSimple :report="report" :summary="summary" :extra-problems="deepProblems" :names="names" @accept="accepting = $event" @accept-many="acceptingMany = $event" @revoke="findings.revoke($event.key)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)" @rescan="findings.rescan($event)" />
       </template>
     </fieldset>
 
     <DeepCheckDialog :open="deepDevice !== ''" :device="deepDevice" :ports="deepPorts" :running="deepCheck.running.value !== ''" :error="deepCheck.error.value" @run="runDeep" @cancel="deepDevice = ''" />
     <ExpectedPortsDialog :open="editing !== ''" :device="editing" :ports="editingPorts" :saving="saving || running" :error="actionError" @save="saveExpected" @cancel="editing = ''" />
-    <AcceptDialog :open="accepting !== null" :what="accepting ? findingTitle(accepting) : ''" :saving="saving || running" :error="actionError" @accept="accept" @cancel="accepting = null" />
+    <AcceptDialog :open="accepting !== null || acceptingMany.length > 0" :what="acceptWhat" :saving="saving || running" :error="actionError" @accept="accept" @cancel="cancelAccept" />
   </section>
 </template>

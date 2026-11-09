@@ -32,6 +32,7 @@ import (
 
 const (
 	captureProgName = "capture"
+	hostProgName    = "capture-host"
 	defaultUnit     = "llm-proxy.service"
 	listenFD        = 3 // SD_LISTEN_FDS_START
 	nmapProgName    = "nmap"
@@ -54,6 +55,10 @@ func main() {
 	// (Constitution I.11): it is the packet reader, and it serves no connection.
 	if len(os.Args) > 1 && os.Args[1] == wire.CaptureCommand {
 		os.Exit(capture.Main(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	// The capture_host action runs this same binary the same way, for the look at this computer's own traffic (Constitution I.13).
+	if len(os.Args) > 1 && os.Args[1] == wire.HostCommand {
+		os.Exit(capture.HostMain(os.Args[2:], os.Stdout, os.Stderr))
 	}
 	os.Exit(run(os.Args[1:], os.Environ(), os.Stderr))
 }
@@ -104,7 +109,7 @@ func build(class, actions, unit string, log *slog.Logger) (*helper.Helper, error
 	runner := isolation.NewRunner(isolation.New(isolation.Config{Filesystem: true}), nil)
 	return helper.New(helper.Config{
 		Class: catalog.ClassNet, Actions: list, Capability: helper.CapNetRaw,
-		Programs: map[string]isolation.Program{nmapProgName: nmap, captureProgName: {Name: captureProgName, Binary: self}}, DataDirs: nmapData,
+		Programs: map[string]isolation.Program{nmapProgName: nmap, captureProgName: {Name: captureProgName, Binary: self}, hostProgName: {Name: hostProgName, Binary: self}}, DataDirs: nmapData,
 		Runner: runner, Ambient: helper.ThreadAmbient{},
 		Identify: helper.IdentifyPeer, MainPID: helper.SystemdMainPID(runner, unit), PtraceScope: helper.YamaPtraceScope,
 		Log: func(msg string, kv ...any) { log.Warn(msg, kv...) },

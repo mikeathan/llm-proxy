@@ -139,7 +139,7 @@ func checkTarget(target *string) error {
 
 // All returns every action, in a fixed order.
 func All() []Action {
-	return []Action{scanUDP(), osDetect(), captureWindow()}
+	return []Action{scanUDP(), osDetect(), captureWindow(), captureHost()}
 }
 
 // Lookup returns the action with the given ID.

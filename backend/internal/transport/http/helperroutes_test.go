@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -139,6 +140,38 @@ func TestAHelperRouteAnswersTheParsedResultBesideTheRawBytes(t *testing.T) {
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || sawAction != "scan_udp" || out.Parsed["seen"] != "<xml/>" || out.Error != "" {
 		t.Errorf("answer %s (%v), parser saw action %q", rec.Body, err, sawAction)
+	}
+}
+
+// A capture's raw bytes are frames of other devices' traffic: the service reads them, and nothing sends them on to a browser (Constitution I.13).
+func TestACaptureRouteNeverSendsTheRawFramesToTheBrowser(t *testing.T) {
+	raw := bytes.Repeat([]byte{0xAB}, 4096)
+	run := &recordingRun{res: stacksdk.PrivilegedResult{Kind: "bytes", Data: raw}}
+	build := func(parse HelperParser) http.Handler {
+		mux := http.NewServeMux()
+		for _, rt := range HelperRoutes() {
+			mux.HandleFunc(rt.Method+" "+rt.Path, HelperHandler(strings.TrimPrefix(rt.Path, helperPathPrefix), HelperDeps{
+				Grants: &recordingMinter{}, Run: run, On: allOn, Parse: parse, OmitRaw: func(a string) bool { return a == "capture_host" || a == "capture_window" },
+			}))
+		}
+		return AuthenticateWith(mux, newFake(), nil)
+	}
+	ok := func(string, []byte) (any, error) { return map[string]int{"frames": 3}, nil }
+	bad := func(string, []byte) (any, error) { return nil, errors.New("not a capture") }
+	for name, parse := range map[string]HelperParser{"parsed": ok, "unreadable": bad} {
+		rec := postHelper(build(parse), "/admin/api/helper/capture_host", `{"iface":"eth0","seconds":5}`, cookie("elevated"))
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 {
+			t.Fatalf("%s: %d %s (%v)", name, rec.Code, rec.Body, err)
+		}
+		if data := out["data"]; data != nil || rec.Body.Len() > 1024 {
+			t.Errorf("%s: the answer carries the raw frames (%d bytes): %.80s", name, rec.Body.Len(), rec.Body)
+		}
+	}
+	// A scan's raw output is still sent: the operator can read what came back when the parser could not.
+	scan := postHelper(helperServerParsing(&recordingMinter{}, run, allOn, ok), "/admin/api/helper/scan_udp", helperBody, cookie("elevated"))
+	if !strings.Contains(scan.Body.String(), `"data"`) {
+		t.Errorf("a scan's answer lost its raw bytes: %.80s", scan.Body)
 	}
 }
 

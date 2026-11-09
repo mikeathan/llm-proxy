@@ -13,9 +13,10 @@ import type { DeepCheck, DeviceExpectation, FindingFilter, FindingsReport, Repor
 
 // The Advanced report: a tile for each part (they filter the list), the problems the checks found grouped by kind, then
 // every device with its ports, services and versions. Both views read the same data.
-const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; expectations?: readonly DeviceExpectation[]; deepChecks?: readonly DeepCheck[]; deepRunning?: string; extraProblems?: readonly ScanFinding[] }>(), { expectations: () => [], deepChecks: () => [], deepRunning: "", extraProblems: () => [] })
+const props = withDefaults(defineProps<{ report: FindingsReport; summary: ReportSummary; expectations?: readonly DeviceExpectation[]; deepChecks?: readonly DeepCheck[]; deepRunning?: string; extraProblems?: readonly ScanFinding[]; names?: Readonly<Record<string, string>> }>(), { expectations: () => [], deepChecks: () => [], deepRunning: "", extraProblems: () => [], names: () => ({}) })
 const emit = defineEmits<{
   (e: "accept", finding: ScanFinding): void
+  (e: "accept-many", findings: ScanFinding[]): void
   (e: "revoke", finding: ScanFinding): void
   (e: "rescan", device: string): void
   (e: "mark", finding: ScanFinding): void
@@ -109,7 +110,7 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
     </div>
 
     <p v-if="filter === 'problems' && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT.problems }}</p>
-    <ProblemGroups :groups="problemGroups" :fold="fold" advanced @accept="emit('accept', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
+    <ProblemGroups :groups="problemGroups" :fold="fold" :names="names" advanced @accept="emit('accept', $event)" @accept-many="emit('accept-many', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
 
     <template v-if="showDevices">
       <p v-if="!groups.length && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT[filter] ?? "Nothing to show here." }}</p>

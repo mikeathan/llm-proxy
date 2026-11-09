@@ -17,12 +17,17 @@ type filterInstruction struct {
 // The opcodes used (linux/filter.h).
 const (
 	opLdbAbs = 0x30 // A = byte at packet[k]
+	opTxa    = 0x87 // A = X
+	opAddK   = 0x04 // A = A + k
+	opRetA   = 0x16 // return A (the length to keep, computed)
+	opLdwAbs = 0x20 // A = 32-bit word at packet[k]; with k = ancRandom, a random number (the host filter's sampling)
 	opLdhAbs = 0x28 // A = 16-bit word at packet[k]
 	opLdhInd = 0x48 // A = 16-bit word at packet[X+k]
 	opLdxMsh = 0xb1 // X = 4 * (packet[k] & 0xf): the IPv4 header length
 	opJeq    = 0x15
 	opJgt    = 0x25
 	opJge    = 0x35
+	opAndK   = 0x54 // A = A & k
 	opJset   = 0x45
 	opRet    = 0x06
 )
@@ -31,6 +36,8 @@ const (
 	etherTypeARP  = 0x0806
 	etherTypeIPv4 = 0x0800
 	etherTypeIPv6 = 0x86dd
+	protoICMP     = 1
+	protoTCP      = 6
 	protoUDP      = 17
 	protoICMPv6   = 58
 	ndFirst       = 133 // router solicitation
@@ -45,6 +52,8 @@ const (
 	offIPv4Frag   = 20
 	offIPv6Next   = 20
 	offICMPv6Type = 54
+	// ancRandom is the kernel's ancillary load of a random 32-bit number (SKF_AD_OFF + SKF_AD_RANDOM in linux/filter.h).
+	ancRandom = 0xfffff000 + 56
 )
 
 // step is one instruction with named jump targets; assemble resolves them to offsets. BPF jumps only forward.

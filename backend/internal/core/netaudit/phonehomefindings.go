@@ -17,7 +17,6 @@ import (
 const (
 	CheckPhoneHomeNewPlace  = "phone_home_new_place"
 	CheckPhoneHomeBeaconing = "phone_home_beaconing"
-	CheckPhoneHomeAroundDNS = "phone_home_around_dns"
 	CheckPhoneHomeKnownBad  = "phone_home_known_bad"
 	// CheckPhoneHomeEncryptedDNS is a device that asked for the name of a public encrypted-DNS server.
 	CheckPhoneHomeEncryptedDNS = "phone_home_encrypted_dns"
@@ -29,7 +28,6 @@ const maxPhoneHomeNames = 5
 func init() {
 	checkTitles[CheckPhoneHomeNewPlace] = "A device asked for a name it had not asked for before"
 	checkTitles[CheckPhoneHomeBeaconing] = "A device keeps asking for a new name at a steady beat"
-	checkTitles[CheckPhoneHomeAroundDNS] = "A device does not use the router's DNS"
 	checkTitles[CheckPhoneHomeKnownBad] = "A device asked for a name on a malware list"
 	checkTitles[CheckPhoneHomeEncryptedDNS] = "A device may be sending its lookups around the router"
 	remediations[CheckPhoneHomeEncryptedDNS] = "The device asked for the name of a public encrypted-DNS server, which a browser or a phone does when it is set to use one. If it does, the router's DNS, the phone-home watch and the malware list cannot see that device's lookups. If you set it up on purpose, accept this finding. Otherwise turn off \"secure DNS\" or \"private DNS\" in the device or browser. A name in the router's log can be made up by any device on the network, so treat it as a hint."
@@ -46,14 +44,6 @@ func init() {
 	remediations[CheckPhoneHomeBeaconing] = "A program that asks for the same new name every few minutes may be checking in with a server. Find out which one it is on that device. If it is a service you use, accept this finding. A name in the router's log can be made up by any device on the network, so treat it as a hint."
 	guides[CheckPhoneHomeNewPlace] = phoneHomeGuide("Find out what uses the name.", "Look the name up with a search engine, or ask the device's maker. A vendor's update or cloud service is the usual answer.")
 	guides[CheckPhoneHomeBeaconing] = phoneHomeGuide("Find out which program on the device asks for the name.", "Look at the device's apps and services for one that checks in with a server. A sync, push or update service is the usual answer.")
-	guides[CheckPhoneHomeAroundDNS] = FixGuide{
-		Steps: []string{
-			"Check whether the device is one that uses its own DNS server on purpose (a Chromecast does).",
-			"If it is not, open the device's network settings and look for a DNS server it was told to use; set it back to automatic.",
-		},
-		Risk: "Changing a device's DNS settings can stop it reaching some services until it is set back.",
-		Undo: "Put the DNS server back the way it was, or accept this finding to say it is meant to be this way.",
-	}
 	remediations[CheckPhoneHomeKnownBad] = "The name is on abuse.ch's list of hosts that serve malware. Find out which program or device on that address asked for it: a browser tab or an app on a phone or computer is the usual source. Scan that device for malware, remove what you do not know, and change the passwords of accounts used on it. A name in the router's log can be made up by any device on the network, so treat it as a strong hint, not proof."
 	guides[CheckPhoneHomeKnownBad] = FixGuide{
 		Steps: []string{
@@ -64,7 +54,6 @@ func init() {
 		Risk: "Removing a program can stop something you use. Treat a hit as a strong hint: the list is of hosts that serve malware, and a name can also be asked for by a harmless page that links to one.",
 		Undo: "Reinstall what you removed, or accept this finding to say it is understood.",
 	}
-	remediations[CheckPhoneHomeAroundDNS] = "Some devices, such as Chromecasts, use a DNS server of their own on purpose; if this is one, accept this finding. Otherwise look in the device's network settings for a DNS server it was told to use."
 }
 
 func phoneHomeGuide(find, how string) FixGuide {
@@ -92,12 +81,17 @@ func PhoneHomeFindings(signals []phonehome.Signal, inv models.DeviceInventory) [
 		if !ok {
 			continue
 		}
-		out = append(out, phoneHomeFinding(s, ip))
+		if f, ok := phoneHomeFinding(s, ip); ok {
+			out = append(out, f)
+		}
 	}
 	return out
 }
 
-func phoneHomeFinding(s phonehome.Signal, ip string) Finding {
+// phoneHomeFinding is the finding for one signal. A device that asks the router for nothing is not one: the router's log cannot tell a
+// device that goes around it from a phone with private DNS, a browser with secure DNS or a device the router never logs, so it is a note on
+// the device's row (SilentDevices), not a problem to accept.
+func phoneHomeFinding(s phonehome.Signal, ip string) (Finding, bool) {
 	s.Names = slices.Sorted(slices.Values(s.Names))
 	f := Finding{Device: ip, Severity: SeverityLow}
 	switch s.Kind {
@@ -110,9 +104,25 @@ func phoneHomeFinding(s phonehome.Signal, ip string) Finding {
 	case phonehome.KnownBadName:
 		f.Check, f.Severity, f.Evidence, f.Version = CheckPhoneHomeKnownBad, SeverityHigh, "Asked for a name on abuse.ch's list of hosts that serve malware: "+listNames(s.Names), namesDigest(s.Names)
 	default:
-		f.Check, f.Evidence = CheckPhoneHomeAroundDNS, "Online for a day and has not asked the router's DNS for anything, so it uses a resolver of its own."
+		return Finding{}, false
 	}
-	return f
+	return f, true
+}
+
+// SilentDevices are the hardware addresses of the devices that are online and have asked the router's DNS for nothing for a day, for the
+// note on a device's row. Nothing is read from a device and nothing is raised: it is a fact the screen shows, with the reasons it can be
+// harmless. Without a watch (or while it is off) it is empty.
+func SilentDevices(src PhoneHomeSource, inv models.DeviceInventory, now time.Time) map[string]bool {
+	out := map[string]bool{}
+	if src == nil {
+		return out
+	}
+	for _, s := range src.Signals(PhoneHomeDevices(inv), now) {
+		if s.Kind == phonehome.AroundDNS {
+			out[s.MAC] = true
+		}
+	}
+	return out
 }
 
 // listNames shows the first few names and counts the rest.

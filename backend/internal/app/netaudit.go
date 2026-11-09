@@ -356,6 +356,16 @@ func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
 	return phoneHomeSignals{enabled: s.netaudit.PhoneHomeConfig.Enabled, watch: s.netaudit.PhoneHome, bad: bad}
 }
 
+// dnsSilence is the device list's view of the phone-home watch: which devices ask the router for nothing. The watch is looked up at each
+// call, because the routes are registered before the services are wired; with no watch it marks none.
+type dnsSilence struct {
+	source func() netaudit.PhoneHomeSource
+}
+
+func (d dnsSilence) SilentDevices(inv models.DeviceInventory) map[string]bool {
+	return netaudit.SilentDevices(d.source(), inv, time.Now())
+}
+
 // NetauditLoginWatch is what the run reporter reads of the failed logins to this computer; nil until the services are wired.
 func (s AppServices) NetauditLoginWatch() netaudit.LoginSource {
 	if s.netaudit == nil || s.netaudit.LoginWatch == nil {

@@ -79,6 +79,23 @@ export function useFindings(workspaceId: () => string, automation: () => string)
   const accept = (key: string, note: string, days: number) =>
     act(() => NetauditService.accept({ workspace_id: workspaceId(), automation: automation(), key, note, days }), ACCEPT_FAILED)
 
+  /** Accepts each key in turn with the same note and time; stops at the first failure, and reads the report once either way. */
+  async function acceptMany(keys: readonly string[], note: string, days: number): Promise<boolean> {
+    let ok = true
+    for (const key of keys) {
+      try {
+        await NetauditService.accept({ workspace_id: workspaceId(), automation: automation(), key, note, days })
+      } catch (err) {
+        actionError.value = errorMessage(err, ACCEPT_FAILED)
+        ok = false
+        break
+      }
+    }
+    if (ok) actionError.value = ''
+    await load()
+    return ok
+  }
+
   const revoke = (key: string) => act(() => NetauditService.revoke(workspaceId(), key), REVOKE_FAILED)
 
   /** "I've done this": records that the operator applied the fix. The next scan decides whether it worked. */
@@ -111,5 +128,5 @@ export function useFindings(workspaceId: () => string, automation: () => string)
     }
   }
 
-  return { report, expectations, loading, error, actionError, notice, starting, clearStarting, load, accept, revoke, markFixed, unmarkFixed, setExpected, removeExpected, rescan }
+  return { report, expectations, loading, error, actionError, notice, starting, clearStarting, load, accept, acceptMany, revoke, markFixed, unmarkFixed, setExpected, removeExpected, rescan }
 }
