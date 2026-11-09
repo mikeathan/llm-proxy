@@ -1,12 +1,10 @@
 package upnp
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -17,8 +15,8 @@ import (
 )
 
 const (
-	// maxMappings bounds the list read from the router: one request per entry.
-	maxMappings    = 64
+	// MaxMappings bounds the list read from the router: one request per entry.
+	MaxMappings    = 64
 	maxSOAPBytes   = 64 << 10
 	mappingWait    = 3 * time.Second
 	errEndOfList   = 713 // SpecifiedArrayIndexInvalid: the UPnP answer for "there is no entry with that index"
@@ -46,15 +44,15 @@ type Mapping struct {
 
 // Mappings asks the router for its list of forwarded ports, one entry at a time, until it says there are no more. The
 // request is a read; the router's own description text for an entry is never read at all. location is the description page
-// (it names the router's address and port) and controlPath where the connection service takes commands.
+// (it names the router's address and port) and controlPath where the connection service takes commands. A failure carries a problem id.
 func (c Client) Mappings(ctx context.Context, location, controlPath, serviceType string) ([]Mapping, error) {
-	endpoint, err := controlEndpoint(location, controlPath, serviceType)
+	hostport, path, err := controlEndpoint(location, controlPath, serviceType)
 	if err != nil {
-		return nil, err
+		return nil, fail(ProblemListUnused, err)
 	}
 	var out []Mapping
-	for index := 0; index < maxMappings; index++ {
-		m, end, err := c.entry(ctx, endpoint, serviceType, index)
+	for index := 0; index < MaxMappings; index++ {
+		m, end, err := c.entry(ctx, hostport, path, serviceType, index)
 		if err != nil {
 			return out, err
 		}
@@ -68,10 +66,10 @@ func (c Client) Mappings(ctx context.Context, location, controlPath, serviceType
 	return out, nil
 }
 
-func (c Client) entry(ctx context.Context, endpoint, serviceType string, index int) (*Mapping, bool, error) {
-	raw, err := c.soapCall(ctx, endpoint, serviceType, mappingAction, "<NewPortMappingIndex>"+strconv.Itoa(index)+"</NewPortMappingIndex>", mappingWait)
+func (c Client) entry(ctx context.Context, hostport, path, serviceType string, index int) (*Mapping, bool, error) {
+	raw, err := c.soapCall(ctx, hostport, path, serviceType, mappingAction, "<NewPortMappingIndex>"+strconv.Itoa(index)+"</NewPortMappingIndex>", mappingWait)
 	if err != nil {
-		return nil, false, fmt.Errorf("could not list the router's forwarded ports: %w", err)
+		return nil, false, fail(ProblemList, fmt.Errorf("could not list the router's forwarded ports: %w", err))
 	}
 	return parseEntry(raw)
 }
@@ -98,17 +96,17 @@ type soapEnvelope struct {
 func parseEntry(raw []byte) (m *Mapping, end bool, err error) {
 	var env soapEnvelope
 	if err := xml.Unmarshal(raw, &env); err != nil {
-		return nil, false, fmt.Errorf("the router's list of forwarded ports could not be read: %w", err)
+		return nil, false, fail(ProblemListRead, fmt.Errorf("the router's list of forwarded ports could not be read: %w", err))
 	}
 	if code := strings.TrimSpace(env.Body.Fault.Code); code != "" {
 		if n, _ := strconv.Atoi(code); n == errEndOfList {
 			return nil, true, nil
 		}
-		return nil, false, fmt.Errorf("the router refused to list its forwarded ports (UPnP error %.4s)", code)
+		return nil, false, fail(ProblemListRefuse, errors.New("the router refused to list its forwarded ports"))
 	}
 	e := env.Body.Entry
 	if e.ExternalPort == "" && e.InternalPort == "" && e.Client == "" {
-		return nil, false, errors.New("the router's answer held no forwarded port and no end of list")
+		return nil, false, fail(ProblemListRead, errors.New("the router's answer held no forwarded port and no end of list"))
 	}
 	return validMapping(e.ExternalPort, e.Protocol, e.InternalPort, e.Client, e.Enabled), false, nil
 }
@@ -133,37 +131,28 @@ func atoiPort(s string) int {
 	return n
 }
 
-// controlEndpoint builds the address commands are sent to from the description page's host and the control path, after
+// controlEndpoint builds the host and path commands are sent to from the description page's host and the control path, after
 // checking the service type is one of the fixed shapes (the router's own text must not be able to add a header line).
-func controlEndpoint(location, controlPath, serviceType string) (string, error) {
+func controlEndpoint(location, controlPath, serviceType string) (hostport, path string, err error) {
 	if !serviceURN.MatchString(serviceType) {
-		return "", errors.New("the router named a connection service this program does not recognise")
+		return "", "", errors.New("the router named a connection service this program does not recognise")
 	}
 	base, err := url.Parse(location)
 	if err != nil || base.Host == "" || !plainPath(controlPath) {
-		return "", errors.New("the router's UPnP control address is not usable")
+		return "", "", errors.New("the router's UPnP control address is not usable")
 	}
-	return (&url.URL{Scheme: base.Scheme, Host: base.Host, Path: controlPath}).String(), nil
+	return base.Host, controlPath, nil
 }
 
 // soapCall sends one action to the router's control address and returns the reply body, read up to a fixed size. The reply is
 // returned whatever the HTTP status is, because a UPnP fault (such as "no entry at that index") arrives as a 500 with a body
 // the caller must read.
-func (c Client) soapCall(ctx context.Context, endpoint, serviceType, action, args string, wait time.Duration) ([]byte, error) {
+func (c Client) soapCall(ctx context.Context, hostport, path, serviceType, action, args string, wait time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	body := `<?xml version="1.0"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:` +
 		action + ` xmlns:u="` + serviceType + `">` + args + `</u:` + action + `></s:Body></s:Envelope>`
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader([]byte(body)))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", `text/xml; charset="utf-8"`)
-	req.Header.Set("SOAPAction", `"`+serviceType+`#`+action+`"`)
-	resp, err := noRedirects(c.HTTP).Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	return io.ReadAll(io.LimitReader(resp.Body, maxSOAPBytes))
+	header := http.Header{"Content-Type": {`text/xml; charset="utf-8"`}, "Soapaction": {`"` + serviceType + `#` + action + `"`}}
+	_, data, err := c.exchange(ctx, http.MethodPost, hostport, path, header, body, maxSOAPBytes)
+	return data, err
 }

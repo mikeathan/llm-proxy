@@ -30,6 +30,9 @@ const networkUDPModule = network.UDPModuleID
 // networkWebModule is the id of the nightly web checks, the second sensor the Network stack answers for.
 const networkWebModule = network.WebModuleID
 
+// networkRouterModule is the id of the router check's sensor, the third the Network stack answers for. It has no switch and no registry entry.
+const networkRouterModule = network.RouterModuleID
+
 // The registry of stacks and modules (ADR-0028) is described here, once, in the composition root. It owns no setting: each module
 // is a Switch over the setting that already holds it, doing what that feature's own route did when it was switched.
 

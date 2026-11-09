@@ -19,11 +19,11 @@ const (
 // whatever the router says: it can be a private address when another router sits in front of it, and the caller decides
 // whether that is a public address.
 func (c Client) ExternalIP(ctx context.Context, location, controlPath, serviceType string) (netip.Addr, error) {
-	endpoint, err := controlEndpoint(location, controlPath, serviceType)
+	hostport, path, err := controlEndpoint(location, controlPath, serviceType)
 	if err != nil {
 		return netip.Addr{}, err
 	}
-	raw, err := c.soapCall(ctx, endpoint, serviceType, externalIPAction, "", externalIPWait)
+	raw, err := c.soapCall(ctx, hostport, path, serviceType, externalIPAction, "", externalIPWait)
 	if err != nil {
 		return netip.Addr{}, fmt.Errorf("could not read the router's internet address: %w", err)
 	}
@@ -47,7 +47,7 @@ func parseExternalIP(raw []byte) (netip.Addr, error) {
 		return netip.Addr{}, fmt.Errorf("the router's internet address could not be read: %w", err)
 	}
 	if code := strings.TrimSpace(env.Body.Fault.Code); code != "" {
-		return netip.Addr{}, fmt.Errorf("the router refused to give its internet address (UPnP error %.4s)", code)
+		return netip.Addr{}, errors.New("the router refused to give its internet address")
 	}
 	addr, err := netip.ParseAddr(strings.TrimSpace(env.Body.Address))
 	if err != nil || !addr.Is4() {

@@ -292,3 +292,60 @@ func (c stackWebChecker) ProbeTLS(ctx context.Context, targets []netaudit.WebTar
 	}
 	return out, nil
 }
+
+// routerLookTimeout bounds how long the nightly report waits for the router sensor: a three-second discovery wait, the page, and up to 64 entries
+// and the address at three seconds each is about three and a half minutes at worst. A variable so a test can shorten it.
+var routerLookTimeout = 4 * time.Minute
+
+// LookRouter asks the stack's router sensor to look at the router. It holds the stack to what its manifest announced (the module is listed in
+// Looks, the stack implements RouterLooker) and gives up after routerLookTimeout: a sensor that is slow or fails finds nothing and the caller says
+// it could not look.
+func (h *stackHost) LookRouter(ctx context.Context, req stacksdk.RouterRequest) (stacksdk.RouterResult, error) {
+	id := h.stack.Manifest().ID
+	sensor, ok := h.stack.(stacksdk.RouterLooker)
+	if !ok || !slices.Contains(h.stack.Manifest().Looks, req.Module) {
+		return stacksdk.RouterResult{}, fmt.Errorf("stack %q has no router sensor %q", id, req.Module)
+	}
+	ctx, cancel := context.WithTimeout(ctx, routerLookTimeout)
+	defer cancel()
+	got, err := sensor.LookRouter(ctx, req)
+	if err != nil {
+		return stacksdk.RouterResult{}, fmt.Errorf("stack %q could not look at the router: %w", id, err)
+	}
+	return got, nil
+}
+
+// stackRouterProber is the router check's prober: the Network stack's router sensor, reached through its host, in the core's own types. The
+// core words every reason and checks every mapping that crosses the port (ADR-0038 rule 3), and drops what it does not trust.
+type stackRouterProber struct {
+	host   *stackHost
+	module string
+}
+
+// Probe asks the sensor about the router at gateway. A router the sensor could not read is an error the report states, never "UPnP is off".
+func (p stackRouterProber) Probe(ctx context.Context, gateway netip.Addr, wantAddress bool) (netaudit.RouterReport, error) {
+	if p.host == nil {
+		return netaudit.RouterReport{}, errors.New("the Network stack is not hosted")
+	}
+	got, err := p.host.LookRouter(ctx, stacksdk.RouterRequest{Module: p.module, Gateway: gateway, WantAddress: wantAddress})
+	if err != nil {
+		return netaudit.RouterReport{}, err
+	}
+	if got.Problem != "" {
+		return netaudit.RouterReport{}, errors.New(netaudit.RouterProblemWords(got.Problem))
+	}
+	out := netaudit.RouterReport{Answered: got.Answered, Gateway: got.Gateway, HasService: got.HasService, ExternalAddr: got.ExternalAddr}
+	if got.MappingsProblem != "" {
+		out.MappingsErr = netaudit.RouterProblemWords(got.MappingsProblem)
+	}
+	for _, m := range got.Mappings {
+		r := netaudit.RouterMapping{ExternalPort: m.ExternalPort, InternalPort: m.InternalPort, Protocol: m.Protocol, Client: m.Client, Enabled: m.Enabled}
+		if r.Valid() && len(out.Mappings) < netaudit.MaxRouterMappings {
+			out.Mappings = append(out.Mappings, r)
+		}
+	}
+	if !wantAddress || !out.HasService || !out.ExternalAddr.Is4() {
+		out.ExternalAddr = netip.Addr{}
+	}
+	return out, nil
+}

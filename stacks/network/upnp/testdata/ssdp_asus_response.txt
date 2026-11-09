@@ -1,0 +1,12 @@
+HTTP/1.1 200 OK
+CACHE-CONTROL: max-age=1800
+ST: upnp:rootdevice
+USN: uuid:00000000-0000-4000-8000-00005e005301::upnp:rootdevice
+EXT:
+SERVER: AsusWRT/4.1.52 UPnP/1.1 MiniUPnPd/2.3.11
+LOCATION: http://192.168.50.1:37027/rootDesc.xml
+OPT: "http://schemas.upnp.org/upnp/1/0/"; ns=01
+01-NLS: 1792971194
+BOOTID.UPNP.ORG: 1792971194
+CONFIGID.UPNP.ORG: 1337
+

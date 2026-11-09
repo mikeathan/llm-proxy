@@ -14,6 +14,7 @@ import (
 
 	"llm-proxy-stacks/network/dnscheck"
 	"llm-proxy-stacks/network/udpchecks"
+	"llm-proxy-stacks/network/upnp"
 	"llm-proxy-stacks/network/webprobe"
 	"llm-proxy-stacks/sdk"
 )
@@ -27,6 +28,9 @@ const (
 	UDPModuleID = "udp_probes"
 	// WebModuleID is the nightly web and certificate checks, a sensor like the UDP checks.
 	WebModuleID = "web_checks"
+	// RouterModuleID is the router check's sensor: the UPnP probe of the router, its forwarded ports and, on request, the address of its internet
+	// side. It has no switch of its own (the router check is part of every nightly audit), so the core's registry lists no module for it.
+	RouterModuleID = "router_probe"
 	// SettingsKey is the core's `netaudit` settings document, which this stack shares with the code that has not moved yet.
 	SettingsKey = "netaudit"
 	// RoutePath is the DNS check's one route, read and written.
@@ -44,6 +48,8 @@ type Stack struct {
 	gateway   stacksdk.Gateway
 	scoped    stacksdk.Guard // the dial that applies the declared scan scope; nil when the host gave none
 	webPace   time.Duration  // the wait between two requests to one web service
+	upnpPort  int            // the router's discovery port; zero means the standard one (a test points it at a fake router)
+	upnpWait  time.Duration  // how long to wait for the router's answer; zero means three seconds
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -72,7 +78,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{dnscheck.LogFile},
-		Looks:    []string{UDPModuleID, WebModuleID},
+		Looks:    []string{UDPModuleID, WebModuleID, RouterModuleID},
 		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortGuard, stacksdk.PortFetch, stacksdk.PortGateway, stacksdk.PortScopedGuard},
 	}
 }
@@ -282,6 +288,38 @@ func (s *Stack) LookCertificates(ctx context.Context, req stacksdk.WebRequest) (
 	out := stacksdk.CertResult{Facts: make([]stacksdk.CertFact, 0, len(res.Facts)), Partial: res.Partial}
 	for _, f := range res.Facts {
 		out.Facts = append(out.Facts, stacksdk.CertFact{Addr: f.Addr, Port: f.Port, NotBefore: f.NotBefore, NotAfter: f.NotAfter, SelfSigned: f.SelfSigned, OldVersions: f.OldVersions})
+	}
+	return out, nil
+}
+
+// RouterProblems lists every id a router result can carry as a problem, so a test in the service can hold the core's table of words to it.
+func RouterProblems() []string { return upnp.Problems() }
+
+// LookRouter asks the router at the given address whether it answers UPnP, which ports it forwards and, when asked, the address of its internet
+// side, through the scoped dial only. A router that does not answer is a result with nothing answered, not an error; a refused or unreadable
+// router carries a problem id. Only flags, numbers, addresses and ids leave the stack: the router's own text never does.
+func (s *Stack) LookRouter(ctx context.Context, req stacksdk.RouterRequest) (stacksdk.RouterResult, error) {
+	s.mu.Lock()
+	scoped, port, wait := s.scoped, s.upnpPort, s.upnpWait
+	s.mu.Unlock()
+	switch {
+	case req.Module != RouterModuleID:
+		return stacksdk.RouterResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "this stack has no such sensor")
+	case !req.Gateway.IsValid():
+		return stacksdk.RouterResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "a router address is needed")
+	case scoped == nil:
+		return stacksdk.RouterResult{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the stack has no scoped dial")
+	}
+	report, addr, err := upnp.Client{Dial: scoped.DialContext, SSDPPort: port, Wait: wait}.Look(ctx, req.Gateway, req.WantAddress)
+	if err != nil {
+		if ctx.Err() != nil {
+			return stacksdk.RouterResult{}, ctx.Err()
+		}
+		return stacksdk.RouterResult{Answered: report.Answered, Problem: upnp.ProblemOf(err)}, nil
+	}
+	out := stacksdk.RouterResult{Answered: report.Answered, Gateway: report.Gateway, HasService: report.HasService, MappingsProblem: report.MappingsProblem, ExternalAddr: addr}
+	for _, m := range report.Mappings {
+		out.Mappings = append(out.Mappings, stacksdk.RouterMapping{ExternalPort: m.ExternalPort, InternalPort: m.InternalPort, Protocol: m.Protocol, Client: m.Client, Enabled: m.Enabled})
 	}
 	return out, nil
 }

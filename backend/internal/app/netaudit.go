@@ -579,7 +579,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	bad := s.newKnownBad(store, netTools)
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
-	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
+	outside := newOutsideLookup(store, netTools)
 	network, err := s.newNetworkHost(store, netTools, scope)
 	if err != nil {
 		s.logger.Error("the Network stack could not be hosted", "error", err.Error())
@@ -624,7 +624,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		PhoneHomeConfig:   phone.Config,
 		Ports:             known.Ports,
 		Host:              known.Host,
-		Router:            newRouterCheck(netTools, known.Inventory, scope).WithExposure(outside.Exposure),
+		Router:            newRouterCheck(stackRouterProber{host: network, module: networkRouterModule}, known.Inventory, scope).WithExposure(outside.Exposure),
 
 		OutsideLookupConfig: outside.Config,
 		Exposure:            outside.Exposure,
@@ -838,15 +838,14 @@ type netauditPresence struct {
 
 func (p netauditPresence) Status() netaudit.PresenceStatus { return p.check.Status() }
 
-// upnpClient talks to the router. Both the datagram and the page fetch go through the guarded network client.
+// upnpClient reads the description page of one nearby device. Only Nearby still uses it; the router check is the Network stack's sensor.
 func upnpClient(netTools *tools.NetworkTools) upnp.Client {
-	return upnp.Client{Dial: netTools.DialContext(), HTTP: netTools.HTTPClient()}
+	return upnp.Client{HTTP: netTools.HTTPClient()}
 }
 
-// newRouterCheck builds the UPnP check of the router. Both the datagram and the page fetch go through the guarded network
-// client, so the global network guardrails apply, and the router must be inside the declared scan scope.
-func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory, scope *netaudit.Scope) *netaudit.RouterCheck {
-	client := upnpClient(netTools)
+// newRouterCheck builds the UPnP check of the router. The probe is the Network stack's router sensor, whose every connection goes through the
+// scoped dial (the declared scan scope, then the guarded network client), and the router must be inside the declared scan scope before it is asked.
+func newRouterCheck(probe netaudit.RouterProber, inventory *netaudit.Inventory, scope *netaudit.Scope) *netaudit.RouterCheck {
 	gateway := func() (netip.Addr, error) {
 		inv, err := inventory.View()
 		if err != nil || inv.Gateway == "" {
@@ -854,7 +853,7 @@ func newRouterCheck(netTools *tools.NetworkTools, inventory *netaudit.Inventory,
 		}
 		return netip.ParseAddr(inv.Gateway)
 	}
-	return netaudit.NewRouterCheck(client, gateway, func(a netip.Addr) error { return scope.Policy().Check(a) })
+	return netaudit.NewRouterCheck(probe, gateway, func(a netip.Addr) error { return scope.Policy().Check(a) })
 }
 
 // NetauditOwnModel says which address and ports are this program's own model server, so the audit names the setting that closes

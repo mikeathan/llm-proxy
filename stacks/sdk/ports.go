@@ -166,6 +166,49 @@ type WebLooker interface {
 	LookCertificates(ctx context.Context, req WebRequest) (CertResult, error)
 }
 
+// MaxRouterMappings bounds how many forwarded ports one router answer carries; the host drops what comes beyond it.
+const MaxRouterMappings = 64
+
+// RouterRequest asks a router sensor module to look at the router at Gateway: whether it answers UPnP, which ports it forwards, and, when
+// WantAddress is set, the address of its internet side. The core has already checked Gateway against the declared scan scope.
+type RouterRequest struct {
+	// Module is the id of a module the manifest lists in Looks.
+	Module  string     `json:"module"`
+	Gateway netip.Addr `json:"gateway"`
+	// WantAddress asks for the router's own statement of its internet address. The core sets it only when the operator switched the outside
+	// lookup on, so a router is not asked for it otherwise.
+	WantAddress bool `json:"want_address,omitempty"`
+}
+
+// RouterMapping is one port a router forwards from its internet side to a device, as typed numbers. Protocol is "tcp" or "udp".
+type RouterMapping struct {
+	ExternalPort int        `json:"external_port"`
+	InternalPort int        `json:"internal_port"`
+	Protocol     string     `json:"protocol"`
+	Client       netip.Addr `json:"client"`
+	Enabled      bool       `json:"enabled,omitempty"`
+}
+
+// RouterResult is what a router sensor learned, as flags, numbers and ids: nothing the router said. Problem is the id of why the router could
+// not be read at all, and MappingsProblem why its list of forwarded ports could not be (the rest then still stands); the core owns the words
+// for each id and treats an id it does not know as an unspecified failure. An address is never carried when the router did not state one.
+type RouterResult struct {
+	Answered        bool            `json:"answered,omitempty"`
+	Gateway         bool            `json:"gateway,omitempty"`
+	HasService      bool            `json:"has_service,omitempty"`
+	Problem         string          `json:"problem,omitempty"`
+	Mappings        []RouterMapping `json:"mappings,omitempty"`
+	MappingsProblem string          `json:"mappings_problem,omitempty"`
+	// ExternalAddr is the address of the router's internet side, valid only when WantAddress was set and the router stated one.
+	ExternalAddr netip.Addr `json:"external_addr,omitempty"`
+}
+
+// RouterLooker is implemented by a stack with a router sensor module (Manifest.Looks). Like Looker it sends, through the host's ScopedGuard only.
+// A failure is an *Error.
+type RouterLooker interface {
+	LookRouter(ctx context.Context, req RouterRequest) (RouterResult, error)
+}
+
 // Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
 type Request struct {
 	Method string `json:"method"`
@@ -344,5 +387,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}}
 }

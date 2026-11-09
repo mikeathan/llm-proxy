@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
-	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/models"
 )
 
@@ -124,17 +123,11 @@ func (o *askedOpener) Open(_ context.Context, target string) (*http.Response, er
 	return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"ports":[1194]}`))}, nil
 }
 
-type fixedAddress struct{ addr netip.Addr }
-
-func (f fixedAddress) ExternalIP(context.Context, string, string, string) (netip.Addr, error) {
-	return f.addr, nil
-}
-
 // The look is off until switched on, and then asks the service the operator set, not a fixed one.
 func TestOutsideLookup_AsksNobodyUntilSwitchedOnAndThenTheServiceSet(t *testing.T) {
 	store, opener := &memPolicyStore{}, &askedOpener{}
-	ol := newOutsideLookup(store, opener, fixedAddress{netip.MustParseAddr("203.0.113.7")})
-	report := upnp.Report{Answered: true, Gateway: true, Service: upnp.ServiceWANIP}
+	ol := newOutsideLookup(store, opener)
+	report := netaudit.RouterReport{Answered: true, Gateway: true, HasService: true, ExternalAddr: netip.MustParseAddr("203.0.113.7")}
 	gw := netip.MustParseAddr("192.168.50.1")
 
 	if got := ol.Exposure.Findings(context.Background(), gw, report); got != nil || len(opener.asked) != 0 {
