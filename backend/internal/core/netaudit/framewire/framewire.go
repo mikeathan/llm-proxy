@@ -33,6 +33,8 @@ const (
 	portDHCPCli   = 68
 	portMDNS      = 5353
 	fragmentMask  = 0x1fff
+	// copyWindowMs is how close in time two identical frames must be to be copies of one burst, not two events.
+	copyWindowMs = 100
 )
 
 // StoppedBy words, one per reason the helper or the decoder reports.
@@ -56,8 +58,16 @@ func Summarize(data []byte) (models.CaptureSummary, error) {
 	perSecond := map[uint32]int{}
 	claimed := map[string]map[string]bool{} // ip -> hardware addresses that announced it
 	seenClaim := map[[2]string]bool{}
+	lastCopy := map[string]uint32{} // frame bytes -> when the last identical copy arrived
 	for _, r := range records {
 		perSecond[r.OffsetMs/msPerSecond]++
+		key := string(r.Frame)
+		if at, ok := lastCopy[key]; ok && r.OffsetMs-at <= copyWindowMs {
+			s.RepeatedCopies++
+			lastCopy[key] = r.OffsetMs
+			continue
+		}
+		lastCopy[key] = r.OffsetMs
 		read(&s, r.Frame, claimed, seenClaim)
 	}
 	for _, n := range perSecond {
@@ -204,6 +214,28 @@ func formatMAC(b []byte) string {
 		out = append(out, hex[v>>4], hex[v&0xf])
 	}
 	return string(out)
+}
+
+// MarkOffNetwork flags each announced address that is outside every range the link has itself (prefixes). With no known range nothing
+// is marked: an unknown link is not evidence of anything. Only IPv4 ranges count, as an ARP announcement is IPv4.
+func MarkOffNetwork(s models.CaptureSummary, prefixes []netip.Prefix) models.CaptureSummary {
+	prefixes = slices.DeleteFunc(slices.Clone(prefixes), func(p netip.Prefix) bool { return !p.Addr().Is4() }) // ARP announces IPv4 only
+	if len(prefixes) == 0 {
+		return s
+	}
+	off := map[string]bool{}
+	for i, c := range s.Claims {
+		ip, err := netip.ParseAddr(c.IP)
+		if err != nil {
+			continue
+		}
+		if !slices.ContainsFunc(prefixes, func(p netip.Prefix) bool { return p.Contains(ip) }) {
+			s.Claims[i].OffNetwork = true
+			off[c.IP] = true
+		}
+	}
+	s.OffNetworkAddresses = len(off)
+	return s
 }
 
 // Stamp fills in what the frames cannot say: when the window ran, on which link, and whether it is Wi-Fi.

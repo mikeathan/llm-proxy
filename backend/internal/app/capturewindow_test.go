@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -56,15 +57,26 @@ func TestTheCaptureOutputIsReadInTheServiceNotTheHelper(t *testing.T) {
 func TestAKeptCaptureIsStampedWithWhenAndWhere(t *testing.T) {
 	sink := &memCapture{}
 	before := time.Now()
-	keepCapture(sink, []byte(`{"iface":"wlp2s0","seconds":60}`), models.CaptureSummary{StoppedBy: "window", Frames: 3})
+	keepCapture(sink, noPrefixes, []byte(`{"iface":"wlp2s0","seconds":60}`), models.CaptureSummary{StoppedBy: "window", Frames: 3})
 	if sink.got.Interface != "wlp2s0" || sink.got.At.Before(before) || sink.got.Frames != 3 {
 		t.Fatalf("%+v", sink.got)
 	}
-	keepCapture(sink, []byte(`nonsense`), models.CaptureSummary{Frames: 9})
+	keepCapture(sink, noPrefixes, []byte(`nonsense`), models.CaptureSummary{Frames: 9})
 	if sink.got.Frames != 3 {
 		t.Fatal("a request that cannot be read replaced the kept summary")
 	}
-	keepCapture(nil, []byte(`{"iface":"x"}`), models.CaptureSummary{}) // no store: nothing happens, no panic
+	keepCapture(nil, noPrefixes, []byte(`{"iface":"x"}`), models.CaptureSummary{}) // no store: nothing happens, no panic
+}
+
+func noPrefixes(string) []netip.Prefix { return nil }
+
+func TestAKeptCaptureMarksAnnouncedAddressesOutsideTheLinksRanges(t *testing.T) {
+	sink := &memCapture{}
+	link := func(string) []netip.Prefix { return []netip.Prefix{netip.MustParsePrefix("192.168.50.7/24")} }
+	keepCapture(sink, link, []byte(`{"iface":"wlp2s0","seconds":60}`), models.CaptureSummary{Claims: []models.CaptureClaim{{MAC: "aa", IP: "192.168.50.220"}, {MAC: "bb", IP: "192.168.101.212"}}})
+	if sink.got.OffNetworkAddresses != 1 || sink.got.Claims[0].OffNetwork || !sink.got.Claims[1].OffNetwork {
+		t.Fatalf("%+v", sink.got)
+	}
 }
 
 func TestTheCaptureRouteAnswersNullBeforeTheFirstWindowAndTheSummaryAfter(t *testing.T) {

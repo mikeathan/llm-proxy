@@ -16,7 +16,7 @@ const summary = (over: Partial<CaptureSummary> = {}): CaptureSummary => ({
   at: new Date().toISOString(), interface: 'wlp2s0', wireless: true, stopped_by: 'window', elapsed_ms: 60000, frames: 854, max_per_second: 139,
   kernel_seen: 854, kernel_dropped: 0,
   counts: { arp_requests: 10, arp_replies: 0, arp_gratuitous: 10, dhcp_from_server: 0, dhcp_from_client: 0, mdns: 700, nd_router_solicit: 0, nd_router_advert: 1, nd_neighbor_solicit: 2, nd_neighbor_advert: 3, nd_redirect: 0, unreadable: 4 },
-  claims: [], dhcp_server_macs: [], conflicting_addresses: 0, ...over,
+  claims: [], dhcp_server_macs: [], conflicting_addresses: 0, repeated_copies: 0, off_network_addresses: 0, ...over,
 })
 
 async function mountCard() {
@@ -97,5 +97,41 @@ describe('CaptureWindowCard', () => {
     expect(w.get('[data-test="capture-dhcp"]').text()).toContain('2 different sources')
     expect(w.get('[data-test="capture-dhcp"]').text()).toContain('not proof')
     expect(w.get('[data-test="capture-conflict"]').text()).toContain('on purpose')
+  })
+
+  it('says how many frames were copies of one message, and shows nothing when there were none', async () => {
+    net.lastCapture.mockResolvedValue(summary({ frames: 143, repeated_copies: 60 }))
+    const w = await mountCard()
+    expect(w.get('[data-test="capture-frames"]').text()).toContain('60 of them copies')
+    net.lastCapture.mockResolvedValue(summary({ frames: 5, repeated_copies: 0 }))
+    const w2 = await mountCard()
+    expect(w2.get('[data-test="capture-frames"]').text()).not.toContain('copies')
+  })
+
+  it('lists who announced which address, and marks an address outside this network without calling it an attack', async () => {
+    net.lastCapture.mockResolvedValue(summary({
+      claims: [
+        { mac: '88:57:21:5d:42:84', ip: '192.168.50.220', gratuitous: true, off_network: false },
+        { mac: 'e0:5a:1b:d4:86:08', ip: '192.168.101.212', gratuitous: true, off_network: true },
+      ],
+      off_network_addresses: 1,
+    }))
+    const w = await mountCard()
+    const rows = w.findAll('[data-test="capture-claim"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.text()).toContain('88:57:21:5d:42:84')
+    expect(rows[0]?.text()).toContain('192.168.50.220')
+    expect(rows[0]?.text()).not.toContain('outside')
+    expect(rows[1]?.text()).toContain('outside this network')
+    const note = w.get('[data-test="capture-offnet"]').text()
+    expect(note).toContain('1 address')
+    expect(note).toContain('not proof')
+  })
+
+  it('shows no list and no note when nobody announced anything', async () => {
+    net.lastCapture.mockResolvedValue(summary({ claims: [], off_network_addresses: 0 }))
+    const w = await mountCard()
+    expect(w.find('[data-test="capture-claims"]').exists()).toBe(false)
+    expect(w.find('[data-test="capture-offnet"]').exists()).toBe(false)
   })
 })

@@ -111,7 +111,7 @@ type helperTarget struct {
 func keepHelperResult(sink probeSink, captures captureSink) api.HelperKeeper {
 	return func(action string, params []byte, parsed any) {
 		if sum, ok := parsed.(models.CaptureSummary); ok {
-			keepCapture(captures, params, sum)
+			keepCapture(captures, linkPrefixes, params, sum)
 			return
 		}
 		var req helperTarget
