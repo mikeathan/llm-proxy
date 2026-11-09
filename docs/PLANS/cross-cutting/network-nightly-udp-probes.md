@@ -4,7 +4,7 @@ date: 2026-11-08
 last_reviewed: 2026-11-08
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [I.2, I.7, I.9, I.11, II.3]
-evidence: CONSTITUTION.md I.2, I.7, I.9, I.11 and II.3 item 3 (read 2026-11-08); backend/internal/core/netaudit/names/prober.go (unicast mDNS through the guarded dial); backend/internal/core/netaudit/servicechecks.go (the TCP service-check table, "send no credential", Carry); backend/internal/core/netaudit/probefindings.go (rules for the helper's kept UDP results); ADR-0023 (dns-recursion rejected); docs/PLANS/cross-cutting/network-stacks-and-helper-handoff-2026-11-08.md. Nothing built or run.
+evidence: CONSTITUTION.md I.2, I.7, I.9, I.11 and II.3 item 3 (read 2026-11-08); backend/internal/core/netaudit/names/prober.go (unicast mDNS through the guarded dial); backend/internal/core/netaudit/servicechecks.go (the TCP service-check table, "send no credential", Carry); backend/internal/core/netaudit/probefindings.go (rules for the helper's kept UDP results); ADR-0023 (dns-recursion rejected); docs/PLANS/cross-cutting/network-stacks-handoff-2026-11-09.md. Nothing built or run.
 ---
 
 # Nightly UDP probes without the helper
