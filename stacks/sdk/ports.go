@@ -36,6 +36,9 @@ type Stack interface {
 	Status(ctx context.Context) ([]ModuleStatus, error)
 	// CallTool runs the declared tool with JSON arguments and returns JSON. Failures are an *Error.
 	CallTool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
+	// Findings returns what the stack offers for the nightly report, pulled by the core when it builds one (ADR-0036). It must be quick and
+	// must not send anything: it reads what the stack already kept. A stack with nothing to offer returns nothing.
+	Findings(ctx context.Context) ([]StackFinding, error)
 	// Handle answers one request on a route the manifest declares. A failure the caller should see as a refusal is an *Error; the Response
 	// carries every ordinary answer, including a 4xx.
 	Handle(ctx context.Context, req Request) (Response, error)
@@ -50,6 +53,21 @@ type ModuleStatus struct {
 	Every   time.Duration `json:"every,omitempty"`
 	LastRun time.Time     `json:"last_run,omitempty"`
 	Problem string        `json:"problem,omitempty"`
+}
+
+// StackFinding is one finding a stack offers (ADR-0036). It is typed fields only, with no free-text field: the core words the finding
+// from its own table for ID, so nothing a device or a resolver sent can reach the report. The core drops a finding whose ID the module
+// did not declare in ModuleSpec.Finds, whose Subject is not a device it scanned, or whose Names are not host names.
+type StackFinding struct {
+	ID string `json:"id"`
+	// Subject is the device the finding is about.
+	Subject netip.Addr `json:"subject"`
+	// Count is how many times, or in a row, the stack saw it.
+	Count int `json:"count,omitempty"`
+	// Names are host names the operator chose to watch.
+	Names []string `json:"names,omitempty"`
+	// Since is when it was first seen in this run of sightings.
+	Since time.Time `json:"since,omitempty"`
 }
 
 // Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
@@ -230,5 +248,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}}
 }

@@ -1,10 +1,14 @@
 package netaudit
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/netip"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,9 +16,10 @@ import (
 )
 
 // The login watch: failed logins to this computer, counted from the system's own record (platform/loginlog) and nothing more. It tells
-// the operator, in fixed words, of a burst, and adds a finding to the nightly report. No user name and no address is read, kept or
-// shown (Constitution I.10, proposed): a burst is only a number of failures within a time. Only a program with write access to the
-// record could make one up, which is stronger than the router's log, where any device can.
+// the operator, in fixed words, of a burst, and adds a finding to the nightly report. No user name is read, kept or shown (Constitution I.10):
+// the finding says how many failures came from this network and from the internet, and names the busiest few sources by their parsed
+// address, never by text a sender wrote. Only a program with write access to the record could make one up, which is stronger than the
+// router's log, where any device can.
 const (
 	// loginBurstFailures failed logins within loginBurstWindow are a burst. The figure is a starting point with no attack data behind it:
 	// the owner's real record (2026-11-06) holds two failures, both of their own. Tune it after a week of real data.
@@ -46,10 +51,10 @@ func init() {
 	}
 }
 
-// LoginWatchDeps are what the watch needs. Read gives the times of the failed logins after a time, oldest first; Notify sends one
+// LoginWatchDeps are what the watch needs. Read gives the failed logins after a time, oldest first; Notify sends one
 // message through the alert log and fails when it could not be delivered, so it is tried again at the next look.
 type LoginWatchDeps struct {
-	Read    func(after time.Time) ([]time.Time, error)
+	Read    func(after time.Time) ([]LoginAttempt, error)
 	Enabled func() bool
 	Notify  func(ctx context.Context, message string) error
 	OnError func(error)
@@ -77,10 +82,66 @@ func NewLoginWatch(deps LoginWatchDeps) *LoginWatch {
 	return &LoginWatch{deps: deps}
 }
 
+// LoginAttempt is one failed login: when, and from where when the record says (the zero address when it does not).
+type LoginAttempt struct {
+	At   time.Time
+	From netip.Addr
+}
+
+// maxLoginOrigins is how many of the busiest sources a finding names.
+const maxLoginOrigins = 3
+
+// LoginOrigin is one source address and how many failures came from it.
+type LoginOrigin struct {
+	Addr  netip.Addr
+	Count int
+}
+
+// LoginOrigins says where a day's failures came from. Network counts those from this computer or a private address, Internet those from
+// any other, Unknown those with no address recorded. Distinct is how many different addresses there were and Top the busiest few.
+type LoginOrigins struct {
+	Network, Internet, Unknown, Distinct int
+	Top                                  []LoginOrigin
+}
+
+// originsOf counts where the attempts came from.
+func originsOf(attempts []LoginAttempt) LoginOrigins {
+	var o LoginOrigins
+	per := map[netip.Addr]int{}
+	for _, a := range attempts {
+		switch {
+		case !a.From.IsValid():
+			o.Unknown++
+		case a.From.IsPrivate() || a.From.IsLoopback() || a.From.IsLinkLocalUnicast():
+			o.Network++
+			per[a.From]++
+		default:
+			o.Internet++
+			per[a.From]++
+		}
+	}
+	o.Distinct = len(per)
+	for addr, n := range per {
+		o.Top = append(o.Top, LoginOrigin{Addr: addr, Count: n})
+	}
+	slices.SortFunc(o.Top, func(a, b LoginOrigin) int {
+		if c := cmp.Compare(b.Count, a.Count); c != 0 {
+			return c
+		}
+		return a.Addr.Compare(b.Addr)
+	})
+	if len(o.Top) > maxLoginOrigins {
+		o.Top = o.Top[:maxLoginOrigins]
+	}
+	return o
+}
+
 // LoginSnapshot is what the nightly report reads: the failed logins of the last day and how many bursts they held.
 type LoginSnapshot struct {
 	Failures int
 	Bursts   int
+	// Origins says where the failures came from.
+	Origins LoginOrigins
 	// Capped says the read stopped at its bound, so Failures is a lower limit.
 	Capped bool
 }
@@ -106,8 +167,8 @@ func (w *LoginWatch) Tick(ctx context.Context) {
 		return
 	}
 	now := w.deps.Now()
-	times, ok := w.read(now.Add(-loginBurstWindow), now)
-	if !ok || len(burstsIn(times, loginBurstFailures, loginBurstWindow)) == 0 {
+	attempts, ok := w.read(now.Add(-loginBurstWindow), now)
+	if !ok || len(burstsIn(timesOf(attempts), loginBurstFailures, loginBurstWindow)) == 0 {
 		return
 	}
 	w.mu.Lock()
@@ -126,8 +187,8 @@ func (w *LoginWatch) Tick(ctx context.Context) {
 }
 
 // read returns the failures after a time that are not from the future, and records whether the record could be read.
-func (w *LoginWatch) read(after, now time.Time) ([]time.Time, bool) {
-	times, err := w.deps.Read(after)
+func (w *LoginWatch) read(after, now time.Time) ([]LoginAttempt, bool) {
+	attempts, err := w.deps.Read(after)
 	if err != nil {
 		w.mu.Lock()
 		w.failed = true
@@ -138,13 +199,21 @@ func (w *LoginWatch) read(after, now time.Time) ([]time.Time, bool) {
 	w.mu.Lock()
 	w.failed, w.lastGood, w.lastErr = false, now, ""
 	w.mu.Unlock()
-	kept := times[:0:0]
-	for _, at := range times {
-		if !at.After(now.Add(loginFutureSlack)) {
-			kept = append(kept, at)
+	kept := attempts[:0:0]
+	for _, a := range attempts {
+		if !a.At.After(now.Add(loginFutureSlack)) {
+			kept = append(kept, a)
 		}
 	}
 	return kept, true
+}
+
+func timesOf(attempts []LoginAttempt) []time.Time {
+	out := make([]time.Time, len(attempts))
+	for i, a := range attempts {
+		out[i] = a.At
+	}
+	return out
 }
 
 // explain says what a read error means in the operator's words.
@@ -172,11 +241,11 @@ func (w *LoginWatch) Snapshot(now time.Time) LoginSnapshot {
 	if !w.deps.Enabled() {
 		return LoginSnapshot{}
 	}
-	times, ok := w.read(now.Add(-loginDay), now)
+	attempts, ok := w.read(now.Add(-loginDay), now)
 	if !ok {
 		return LoginSnapshot{}
 	}
-	return LoginSnapshot{Failures: len(times), Bursts: len(burstsIn(times, loginBurstFailures, loginBurstWindow)), Capped: w.deps.Cap > 0 && len(times) >= w.deps.Cap}
+	return LoginSnapshot{Failures: len(attempts), Bursts: len(burstsIn(timesOf(attempts), loginBurstFailures, loginBurstWindow)), Origins: originsOf(attempts), Capped: w.deps.Cap > 0 && len(attempts) >= w.deps.Cap}
 }
 
 // Reading is the part's health for the monitor: failed while the record cannot be read, working once it has been.
@@ -215,7 +284,25 @@ func LoginFindings(s LoginSnapshot) []Finding {
 		total = fmt.Sprintf("at least %d failures in all", s.Failures)
 	}
 	return []Finding{{Device: HostDevice, Check: CheckHostLoginFailures, Severity: SeverityMedium,
-		Evidence: fmt.Sprintf("The record showed %d burst(s) of %d or more failed logins within %d minutes in the last day, %s.", s.Bursts, loginBurstFailures, int(loginBurstWindow.Minutes()), total)}}
+		Evidence: fmt.Sprintf("The record showed %d burst(s) of %d or more failed logins within %d minutes in the last day, %s.", s.Bursts, loginBurstFailures, int(loginBurstWindow.Minutes()), total) + originsText(s.Origins)}}
+}
+
+// originsText says where the failures came from, in numbers and parsed addresses: nothing a sender wrote. It is empty when the record
+// held no sources (an older record, or one whose address field was never filled).
+func originsText(o LoginOrigins) string {
+	if o.Network+o.Internet == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d from the internet", o.Internet), fmt.Sprintf("%d from this network", o.Network)}
+	if o.Unknown > 0 {
+		parts = append(parts, fmt.Sprintf("%d with no address recorded", o.Unknown))
+	}
+	text := " Where from: " + strings.Join(parts, ", ") + fmt.Sprintf(", %d different address(es).", o.Distinct)
+	var busiest []string
+	for _, t := range o.Top {
+		busiest = append(busiest, fmt.Sprintf("%s (%d)", t.Addr, t.Count))
+	}
+	return text + " Busiest: " + strings.Join(busiest, ", ") + "."
 }
 
 // LoginSource is what the reporter reads of the login watch.

@@ -300,3 +300,61 @@ func TestRouterAddress_IsTheOneSetOrElseTheGateway(t *testing.T) {
 		t.Errorf("a gateway that is not an address: %v", got)
 	}
 }
+
+// ---- findings (ADR-0036) ----
+
+func differLog(now time.Time) *memDir {
+	row := func(ago time.Duration, outcome string) string {
+		return `{"at":"` + now.Add(-ago).UTC().Format(time.RFC3339) + `","name":"dns.google","outcome":"` + outcome + `","router":["1.2.3.4"],"outside":["8.8.8.8"]}`
+	}
+	return &memDir{files: map[string][]byte{dnscheck.LogFile: []byte("[" + row(2*time.Hour, "differ") + "," + row(time.Hour, "differ") + "]")}}
+}
+
+func findingDoc(fields map[string]string) *memDoc {
+	doc := &memDoc{fields: map[string]json.RawMessage{}}
+	for k, v := range fields {
+		doc.fields[k] = json.RawMessage(v)
+	}
+	return doc
+}
+
+func TestFindings_OffUntilTheOperatorSwitchesTheFindingOn(t *testing.T) {
+	doc := findingDoc(map[string]string{"dns_check_enabled": "true", "dns_check_server": `"192.168.50.1"`})
+	s := started(t, doc, differLog(time.Now()))
+	got, err := s.Findings(context.Background())
+	if err != nil || len(got) != 0 {
+		t.Fatalf("the finding is off by default: %v %v", got, err)
+	}
+	if err := doc.Save(context.Background(), json.RawMessage(`{"dns_check_finding_enabled":true}`)); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.Findings(context.Background())
+	if err != nil || len(got) != 1 {
+		t.Fatalf("switched on: %v %v", got, err)
+	}
+	f := got[0]
+	if f.ID != "dns_router_differs" || f.Subject != netip.MustParseAddr("192.168.50.1") || f.Count != 2 || len(f.Names) != 1 || f.Names[0] != "dns.google" {
+		t.Errorf("finding = %+v", f)
+	}
+}
+
+func TestFindings_NothingWhenTheCheckIsOffOrTheRouterIsUnknown(t *testing.T) {
+	off := findingDoc(map[string]string{"dns_check_finding_enabled": "true", "dns_check_server": `"192.168.50.1"`})
+	if got, _ := started(t, off, differLog(time.Now())).Findings(context.Background()); len(got) != 0 {
+		t.Errorf("a switched-off check offers nothing: %v", got)
+	}
+	unknown := findingDoc(map[string]string{"dns_check_enabled": "true", "dns_check_finding_enabled": "true"})
+	if got, _ := started(t, unknown, differLog(time.Now())).Findings(context.Background()); len(got) != 0 {
+		t.Errorf("with no router address there is no subject: %v", got)
+	}
+}
+
+func TestManifest_TheDNSModuleDeclaresItsFinding(t *testing.T) {
+	m := New().Manifest()
+	if len(m.Modules) != 1 || len(m.Modules[0].Finds) != 1 || m.Modules[0].Finds[0] != "dns_router_differs" {
+		t.Fatalf("finds = %+v", m.Modules)
+	}
+	if strings.Contains(m.Modules[0].About.Never, "Raises a finding") {
+		t.Errorf("the About text still says it never raises a finding: %q", m.Modules[0].About.Never)
+	}
+}

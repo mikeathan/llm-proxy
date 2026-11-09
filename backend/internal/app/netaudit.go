@@ -387,6 +387,14 @@ func (s AppServices) NetauditLoginWatch() netaudit.LoginSource {
 	return s.netaudit.LoginWatch
 }
 
+// NetauditStackFindings is what the run reporter pulls the stacks' findings from; nil until the Network stack is hosted.
+func (s AppServices) NetauditStackFindings() netaudit.StackFindingSource {
+	if s.netaudit == nil || s.netaudit.Network == nil {
+		return nil
+	}
+	return s.netaudit.Network
+}
+
 // NetauditWifi is what the run reporter reads of the Wi-Fi look-alike watch; nil until the services are wired.
 func (s AppServices) NetauditWifi() netaudit.WifiSource {
 	if s.netaudit == nil || s.netaudit.Wifi == nil {

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"llm-proxy-stacks/network/dnscheck"
 	"llm-proxy-stacks/sdk"
@@ -23,6 +24,8 @@ const (
 	SettingsKey = "netaudit"
 	// RoutePath is the DNS check's one route, read and written.
 	RoutePath = "/admin/api/netaudit/dns-check"
+	// FindingID is the one finding the DNS check offers; the core words it (ADR-0036).
+	FindingID = "dns_router_differs"
 )
 
 // Stack is the Network stack.
@@ -30,6 +33,8 @@ type Stack struct {
 	mu        sync.Mutex
 	cfg       dnscheck.Config
 	collector *dnscheck.Collector
+	store     dnscheck.Store
+	gateway   stacksdk.Gateway
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -44,11 +49,11 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		Layers: []stacksdk.Layer{{ID: "outside", Title: "What the internet sees", Purpose: "Your network from the outside"}},
 		Modules: []stacksdk.ModuleSpec{{
 			ID: ModuleID, Title: "Router DNS check", Purpose: "Is the router answering honestly?", Layer: "outside",
-			Sends: stacksdk.SendsInternet, StepUp: true, Monitors: []string{"dns"},
+			Sends: stacksdk.SendsInternet, StepUp: true, Monitors: []string{"dns"}, Finds: []string{FindingID},
 			About: stacksdk.About{
 				Watches:  "A few names, asked of your router's DNS and of an outside resolver, to see if the answers agree.",
-				Never:    "Raises a finding or changes anything: it only logs what it saw.",
-				ShowsUp:  "The summary on this card.",
+				Never:    "Changes anything on your router or network: it only compares and logs what it saw.",
+				ShowsUp:  "The summary on this card, and a finding in the nightly report once you switch that on.",
 				Settings: true,
 			},
 		}},
@@ -71,11 +76,12 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	}
 	s.cfg = dnscheck.Config{Doc: h.Config}
 	server := func(ctx context.Context) netip.Addr { return routerAddress(ctx, s.cfg, h.Gateway) }
+	s.store, s.gateway = dnscheck.FileStore{Dir: h.DataDir}, h.Gateway
 	s.collector = dnscheck.NewCollector(dnscheck.CollectorDeps{
 		Settings: func() dnscheck.Settings { return s.cfg.Settings(context.Background()) },
 		Router:   dnscheck.Router{Guard: h.Guard, Server: server},
 		Outside:  dnscheck.Outside{Fetch: h.Fetch, URL: func() string { return s.cfg.ResolverURL(context.Background()) }},
-		Store:    dnscheck.FileStore{Dir: h.DataDir},
+		Store:    s.store,
 		OnError:  func(err error) { h.Log.Log(stacksdk.LevelWarn, "network dns check", "error", err.Error()) },
 	})
 	run, cancel := context.WithCancel(ctx)
@@ -132,6 +138,35 @@ func (s *Stack) Status(ctx context.Context) ([]stacksdk.ModuleStatus, error) {
 	}}, nil
 }
 
+// Findings offers the finding for names the router answers differently from an outside resolver on several checks in a row. It is
+// pulled by the core when the nightly report is built, reads only the log the check already keeps, and sends nothing. It offers nothing
+// until the operator switches the finding on, while the check is off, or when no router address is known to be the subject.
+func (s *Stack) Findings(ctx context.Context) ([]stacksdk.StackFinding, error) {
+	s.mu.Lock()
+	cfg, store, gw := s.cfg, s.store, s.gateway
+	s.mu.Unlock()
+	if store == nil {
+		return nil, nil
+	}
+	view, err := cfg.View(ctx)
+	if err != nil || !view.FindingEnabled || !view.Enabled {
+		return nil, err
+	}
+	router := routerAddress(ctx, cfg, gw)
+	if !router.IsValid() {
+		return nil, nil
+	}
+	log, err := store.Read()
+	if err != nil {
+		return nil, stacksdk.Errorf(stacksdk.CodeInternal, "the DNS check's log could not be read")
+	}
+	d := dnscheck.Persistent(log, time.Now())
+	if len(d.Names) == 0 {
+		return nil, nil
+	}
+	return []stacksdk.StackFinding{{ID: FindingID, Subject: router, Count: d.Count, Names: d.Names, Since: d.Since}}, nil
+}
+
 // CallTool: the stack declares no tools yet.
 func (s *Stack) CallTool(_ context.Context, name string, _ json.RawMessage) (json.RawMessage, error) {
 	return nil, stacksdk.Errorf(stacksdk.CodeNotFound, "no tool "+name)
@@ -150,6 +185,7 @@ type request struct {
 	Names           *[]string `json:"names"`
 	ResolverURL     *string   `json:"resolver_url"`
 	Server          *string   `json:"server"`
+	FindingEnabled  *bool     `json:"finding_enabled"`
 }
 
 // Handle answers the DNS check's route.
@@ -211,6 +247,9 @@ func put(ctx context.Context, cfg dnscheck.Config, c *dnscheck.Collector, req st
 		if err := step(); err != nil {
 			return failure(http.StatusBadRequest, err.Error())
 		}
+	}
+	if in.FindingEnabled != nil {
+		steps = append(steps, func() error { return cfg.SetFindingEnabled(ctx, *in.FindingEnabled) })
 	}
 	if in.Enabled != nil {
 		if err := cfg.SetEnabled(ctx, *in.Enabled); err != nil {

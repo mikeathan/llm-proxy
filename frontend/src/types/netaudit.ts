@@ -534,6 +534,8 @@ export interface DnsCheckState {
   server: string
   resolver_url: string
   default_resolver_url: string
+  /** True when a difference that keeps showing is also raised as a finding in the nightly report. */
+  finding_enabled?: boolean
   status: { last_run: string; problem?: string }
   summary: DnsCheckSummary
 }
@@ -561,6 +563,7 @@ export interface DnsCheckUpdate {
   names?: string[]
   server?: string
   resolver_url?: string
+  finding_enabled?: boolean
 }
 
 /** The decoy services: the switch, which ports listen, any trouble, and who touched them. */

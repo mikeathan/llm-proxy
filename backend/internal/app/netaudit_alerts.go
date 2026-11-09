@@ -82,7 +82,7 @@ func (s *AppServices) newAlerting(deps alertingDeps) alerting {
 	})
 	loginWatchConfig := netaudit.NewLoginWatchConfig(deps.Store)
 	loginWatch := netaudit.NewLoginWatch(netaudit.LoginWatchDeps{
-		Read:    loginlog.Reader{Path: loginlog.DefaultPath}.Failures,
+		Read:    loginAttempts(loginlog.Reader{Path: loginlog.DefaultPath}),
 		Enabled: loginWatchConfig.Enabled,
 		Notify:  s.alertNotifier(log, models.NetworkAlertLogin),
 		OnError: func(err error) { logging.Warn("network login watch", "error", err.Error()) },
@@ -313,4 +313,19 @@ func (s *AppServices) newDecoys(config *netaudit.DecoyConfig, store *persistence
 		},
 		OnError: func(err error) { logging.Warn("network decoys", "error", err.Error()) },
 	})
+}
+
+// loginAttempts adapts the failed-login reader to the watch's own type, so the watch imports no platform package.
+func loginAttempts(r loginlog.Reader) func(after time.Time) ([]netaudit.LoginAttempt, error) {
+	return func(after time.Time) ([]netaudit.LoginAttempt, error) {
+		got, err := r.Attempts(after)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]netaudit.LoginAttempt, len(got))
+		for i, a := range got {
+			out[i] = netaudit.LoginAttempt{At: a.At, From: a.From}
+		}
+		return out, nil
+	}
 }

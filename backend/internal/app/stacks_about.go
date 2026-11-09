@@ -135,6 +135,7 @@ var moduleFinds = map[string][]string{
 	"web_checks":      {netaudit.CheckWebExposure, netaudit.CheckSelfSigned},
 	"udp_probes":      {netaudit.CheckUDPService},
 	"outside_lookup":  {netaudit.CheckInternetExposedPort},
+	"dns_check":       {netaudit.CheckDNSRouterDiffers},
 }
 
 // described fills in the words of each module.

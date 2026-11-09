@@ -11,7 +11,7 @@ import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewM
 import {
   DNS_CHECK_COPIED, DNS_CHECK_COPY, DNS_CHECK_COPY_FAILED, DNS_CHECK_COPY_HINT, DNS_CHECK_DETAILS, DNS_CHECK_HINT, DNS_CHECK_INTERNET_OFF, DNS_CHECK_LAN_OFF, DNS_CHECK_SERVER_HINT, DNS_CHECK_SERVER_LABEL,
   DNS_CHECK_INTERVAL_LABEL, DNS_CHECK_NAMES_HINT, DNS_CHECK_NAMES_LABEL, DNS_CHECK_OPEN_SETTINGS, DNS_CHECK_READ_FAILED_NEXT,
-  DNS_CHECK_DIFFERENCES_HINT, DNS_CHECK_DIFFERENCES_TITLE, DNS_CHECK_MORE_DIFFERENCES, DNS_CHECK_OUTSIDE_SAID, DNS_CHECK_PARTLY, DNS_CHECK_ROUTER_SAID,
+  DNS_CHECK_DIFFERENCES_HINT, DNS_CHECK_FINDING_HINT, DNS_CHECK_FINDING_LABEL, DNS_CHECK_DIFFERENCES_TITLE, DNS_CHECK_MORE_DIFFERENCES, DNS_CHECK_OUTSIDE_SAID, DNS_CHECK_PARTLY, DNS_CHECK_ROUTER_SAID,
   DNS_CHECK_READ_FAILED_TITLE, DNS_CHECK_READING, DNS_CHECK_RETRY, DNS_CHECK_SAVE, DNS_CHECK_TITLE, DNS_CHECK_URL_HINT, DNS_CHECK_URL_LABEL,
 } from "../../constants/netaudit"
 import { dnsCheckFreshness, dnsCheckLine, dnsCheckReport, dnsDifferenceRows } from "../../utils/netaudit/dnsCheck"
@@ -53,6 +53,7 @@ const submit = () => save({
   resolver_url: url.value,
   interval_minutes: Number(interval.value),
 })
+const toggleFinding = (e: Event) => save({ finding_enabled: (e.target as HTMLInputElement).checked })
 const copy = async () => {
   copied.value = (await copyText(JSON.stringify(state.value ? dnsCheckReport(state.value) : {}, null, 2))) ? DNS_CHECK_COPIED : DNS_CHECK_COPY_FAILED
 }
@@ -114,6 +115,11 @@ onMounted(load)
           </FormField>
           <BaseButton variant="secondary" size="sm" type="submit" class-name="self-start max-sm:!h-11" :disabled="busy" data-test="dns-check-save">{{ DNS_CHECK_SAVE }}</BaseButton>
         </form>
+
+        <label v-if="advanced" class="flex min-h-11 items-start gap-2 text-[length:var(--text-small)] text-primary sm:min-h-8">
+          <input type="checkbox" :checked="state.finding_enabled === true" :disabled="busy" data-test="dns-check-finding" class="mt-1" @change="toggleFinding">
+          <span class="flex flex-col"><span class="font-medium">{{ DNS_CHECK_FINDING_LABEL }}</span><span class="text-muted">{{ DNS_CHECK_FINDING_HINT }}</span></span>
+        </label>
 
         <div v-if="advanced" class="flex flex-wrap items-center gap-2">
           <BaseButton variant="ghost" size="sm" icon="copy" class-name="max-sm:!h-11" data-test="dns-check-copy" @click="copy">{{ DNS_CHECK_COPY }}</BaseButton>

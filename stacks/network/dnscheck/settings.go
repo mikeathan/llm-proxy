@@ -20,7 +20,7 @@ const DefaultInterval = 60
 // ErrBadInterval means the interval is not one of AllowedIntervals.
 var ErrBadInterval = errors.New("that interval is not one of the choices")
 
-// The settings document's keys. The document is the core's `netaudit` one: this stack reads and writes only these five fields and
+// The settings document's keys. The document is the core's `netaudit` one: this stack reads and writes only these six fields and
 // names no others, so a save cannot touch the rest.
 const (
 	keyEnabled     = "dns_check_enabled"
@@ -28,6 +28,9 @@ const (
 	keyNames       = "dns_check_names"
 	keyServer      = "dns_check_server"
 	keyResolverURL = "dns_check_resolver_url"
+	// keyFinding switches on the finding the check offers the nightly report (ADR-0036). It is off until the operator has seen the check catch
+	// a resolver that lies.
+	keyFinding = "dns_check_finding_enabled"
 )
 
 // document is this stack's five fields of the settings document; every other field is ignored on read.
@@ -37,6 +40,7 @@ type document struct {
 	Names       []string `json:"dns_check_names"`
 	Server      string   `json:"dns_check_server"`
 	ResolverURL string   `json:"dns_check_resolver_url"`
+	Finding     bool     `json:"dns_check_finding_enabled"`
 }
 
 // View is the DNS check's settings as the operator sees them.
@@ -50,6 +54,8 @@ type View struct {
 	Server             string `json:"server"`
 	ResolverURL        string `json:"resolver_url"`
 	DefaultResolverURL string `json:"default_resolver_url"`
+	// FindingEnabled is whether a persistent difference is offered to the nightly report as a finding.
+	FindingEnabled bool `json:"finding_enabled"`
 }
 
 // Config reads and changes the DNS check's settings through the core's settings port.
@@ -100,6 +106,7 @@ func (c Config) View(ctx context.Context) (View, error) {
 		Server:             d.Server,
 		ResolverURL:        url,
 		DefaultResolverURL: DefaultResolverURL,
+		FindingEnabled:     d.Finding,
 	}, nil
 }
 
@@ -139,6 +146,11 @@ func (c Config) save(ctx context.Context, fields map[string]any) error {
 // SetEnabled switches the check on or off.
 func (c Config) SetEnabled(ctx context.Context, enabled bool) error {
 	return c.save(ctx, map[string]any{keyEnabled: enabled})
+}
+
+// SetFindingEnabled switches on or off the finding the check offers the nightly report.
+func (c Config) SetFindingEnabled(ctx context.Context, enabled bool) error {
+	return c.save(ctx, map[string]any{keyFinding: enabled})
 }
 
 // SetInterval chooses how often the check runs; 0 is the default. A refused interval changes nothing.
