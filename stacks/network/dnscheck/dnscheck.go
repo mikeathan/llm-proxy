@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"llm-proxy-stacks/sdk"
 )
@@ -52,20 +53,22 @@ func (r Router) LookupA(ctx context.Context, name string) ([]netip.Addr, error) 
 		return nil, ErrNoRouter
 	}
 	target := net.JoinHostPort(server.String(), "53")
-	var refused error // the resolver reports a failed dial as plain text, so the dial's own error is kept here
+	// The resolver reports a failed dial as plain text, so the dial's own refusal is kept here. It is atomic because the resolver
+	// dials from its own goroutines, which can still be running when LookupA reads it.
+	var refused atomic.Bool
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
 			conn, err := r.Guard.DialContext(ctx, network, target)
 			if stacksdk.CodeOf(err) == stacksdk.CodeDenied {
-				refused = err
+				refused.Store(true)
 			}
 			return conn, err
 		},
 	}
 	// The trailing dot keeps the system's search domains out of the question.
 	found, err := resolver.LookupNetIP(ctx, "ip4", name+".")
-	if refused != nil {
+	if refused.Load() {
 		return nil, ErrLANOff
 	}
 	if err != nil {

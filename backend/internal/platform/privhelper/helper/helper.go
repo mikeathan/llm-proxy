@@ -207,7 +207,7 @@ func (h *Helper) run(ctx context.Context, conn net.Conn, id string, action catal
 	}()
 	profile := isolation.ProfileFor(root)
 	profile.Timeout, profile.MaxOutput, profile.NoNetwork = action.Caps.Timeout, action.Caps.MaxOutputBytes, !action.Jail.Network
-	profile.ReadPaths = h.dataDirs()
+	profile.ReadPaths = append(h.dataDirs(), ownBinary(prog)...)
 	out, err := h.cfg.Runner.Run(ctx, prog, profile, p.Args...)
 	switch {
 	case errors.Is(err, isolation.ErrTimedOut):
@@ -222,7 +222,17 @@ func (h *Helper) run(ctx context.Context, conn net.Conn, id string, action catal
 	}})
 }
 
-// dataDirs are the readable data directories that exist, plus the directories of the programs' binaries are added by the runner.
+// ownBinary is the one file to grant for a program given by absolute path. The jail's clean PATH covers only /usr/bin and /bin, so a
+// program anywhere else (the helper's own binary, which runs the capture, is in /usr/local/bin) could not be executed once the jail is on.
+// Only that file is granted, never its directory. A program found on PATH needs nothing, as PATH's directories are already granted.
+func ownBinary(p isolation.Program) []string {
+	if filepath.IsAbs(p.Binary) {
+		return []string{p.Binary}
+	}
+	return nil
+}
+
+// dataDirs are the readable data directories that exist.
 func (h *Helper) dataDirs() []string {
 	var dirs []string
 	for _, d := range h.cfg.DataDirs {

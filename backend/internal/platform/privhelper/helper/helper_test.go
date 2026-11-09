@@ -129,6 +129,24 @@ func TestAVerifiedRequestRunsTheProgramJailedAndReturnsItsBytes(t *testing.T) {
 	}
 }
 
+// The jail's clean PATH is /usr/bin:/bin, so a program at an absolute path outside them (the helper's own binary, which runs the
+// capture, lives in /usr/local/bin) is granted as that one file: without it the exec after the jail is applied is denied.
+func TestAProgramAtAnAbsolutePathIsGrantedAsThatOneFile(t *testing.T) {
+	r := newRig()
+	h := r.helper(t, "capture_window")
+	h.cfg.Programs["capture"] = isolation.Program{Name: "capture", Binary: "/usr/local/bin/llm-proxy-helper"}
+	resp := call(t, h, `{"v":1,"id":"c1","action":"capture_window","params":{"iface":"eth0","seconds":5}}`)
+	if resp.Status != wire.StatusOK {
+		t.Fatalf("got %+v", resp)
+	}
+	if !slices.Contains(r.gotProf.ReadPaths, "/usr/local/bin/llm-proxy-helper") {
+		t.Errorf("the program's own file must be readable and executable inside the jail: %v", r.gotProf.ReadPaths)
+	}
+	if slices.Contains(r.gotProf.ReadPaths, "/usr/local/bin") {
+		t.Errorf("the whole directory must not be granted: %v", r.gotProf.ReadPaths)
+	}
+}
+
 func TestACallerThatIsNotTheMainProcessIsRefusedBeforeItsRequestIsRead(t *testing.T) {
 	cases := map[string]func(*rig){
 		"another process":         func(r *rig) { r.peer.PID = servicePID + 1 },
