@@ -128,11 +128,11 @@ type outsideLookup struct {
 }
 
 // newOutsideLookup builds the setting and the check. The one request goes through opener (the guarded network client), to the
-// service the setting names, read on every look; address is how the router is asked for its internet address.
-func newOutsideLookup(store netaudit.PolicyStore, opener outsidelookup.Opener, address netaudit.AddressReader) outsideLookup {
+// service the setting names, read on every look. The router's internet address comes with the router sensor's report.
+func newOutsideLookup(store netaudit.PolicyStore, opener outsidelookup.Opener) outsideLookup {
 	config := netaudit.NewOutsideLookupConfig(store)
 	client := outsidelookup.Client{Opener: opener, BaseURL: config.URL}
-	return outsideLookup{Config: config, Exposure: netaudit.NewExposure(config.Enabled, client, address, time.Now).WithEnteredAddress(config.Address)}
+	return outsideLookup{Config: config, Exposure: netaudit.NewExposure(config.Enabled, client, time.Now).WithEnteredAddress(config.Address)}
 }
 
 // gatewayTTL is how long the router's address is remembered before the routing table is read again.

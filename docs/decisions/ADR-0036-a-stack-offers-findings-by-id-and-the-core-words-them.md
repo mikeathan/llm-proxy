@@ -62,5 +62,5 @@ result recorded in the ledger. That live test is still the owner's.
 
 ## Links
 
-- `docs/PLANS/cross-cutting/network-security-roadmap.md` Phase 3; `docs/PLANS/cross-cutting/network-stacks-and-helper-handoff-2026-11-08.md` item 4.
+- `docs/PLANS/cross-cutting/network-security-roadmap.md` Phase 3; `docs/PLANS/cross-cutting/network-stacks-handoff-2026-11-09.md` item 4.
 - ADR-0025, ADR-0032, ADR-0035; `stacks/sdk/ports.go`; `stacks/network/dnscheck/`.

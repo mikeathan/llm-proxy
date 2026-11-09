@@ -2,10 +2,14 @@ package network
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -356,5 +360,430 @@ func TestManifest_TheDNSModuleDeclaresItsFinding(t *testing.T) {
 	}
 	if strings.Contains(m.Modules[0].About.Never, "Raises a finding") {
 		t.Errorf("the About text still says it never raises a finding: %q", m.Modules[0].About.Never)
+	}
+}
+
+// ---- the lying-resolver test, end to end (ADR-0036) ----
+
+// lyingDNS answers every A question over UDP on the loopback with one fixed address, as a router whose resolver has been tampered with
+// would. It stands in for the router; the stack's Guard hands the real DNS client a connection to it.
+type lyingDNS struct {
+	conn   *net.UDPConn
+	answer [4]byte
+}
+
+func startLyingDNS(t *testing.T, answer netip.Addr) *lyingDNS {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &lyingDNS{conn: conn, answer: answer.As4()}
+	t.Cleanup(func() { _ = conn.Close() })
+	go l.serve()
+	return l
+}
+
+const (
+	dnsHeaderLen   = 12
+	dnsResponseOK  = 0x8180 // a response, recursion desired and available, no error
+	dnsTypeA       = 1
+	dnsClassIN     = 1
+	dnsAnswerTTL   = 60
+	dnsNamePointer = 0xc00c // the answer's name points at the question's, at byte 12
+)
+
+// serve replies to each question with the question copied back and one A record.
+func (l *lyingDNS) serve() {
+	buf := make([]byte, 512)
+	for {
+		n, from, err := l.conn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		if n <= dnsHeaderLen {
+			continue
+		}
+		end := questionEnd(buf[:n])
+		if end < 0 {
+			continue
+		}
+		// Only the header and the question are echoed: the client's extra EDNS record would sit between them and the answer.
+		reply := append([]byte(nil), buf[:end]...)
+		binary.BigEndian.PutUint16(reply[2:], dnsResponseOK)
+		binary.BigEndian.PutUint16(reply[6:], 1)  // one answer
+		binary.BigEndian.PutUint16(reply[8:], 0)  // no authority records
+		binary.BigEndian.PutUint16(reply[10:], 0) // no additional records
+		reply = binary.BigEndian.AppendUint16(reply, dnsNamePointer)
+		reply = binary.BigEndian.AppendUint16(reply, dnsTypeA)
+		reply = binary.BigEndian.AppendUint16(reply, dnsClassIN)
+		reply = binary.BigEndian.AppendUint32(reply, dnsAnswerTTL)
+		reply = binary.BigEndian.AppendUint16(reply, uint16(len(l.answer)))
+		reply = append(reply, l.answer[:]...)
+		_, _ = l.conn.WriteToUDP(reply, from)
+	}
+}
+
+// questionEnd is the offset just past the first question of a query, or -1 when the query is cut short.
+func questionEnd(q []byte) int {
+	const typeAndClassLen = 4
+	i := dnsHeaderLen
+	for i < len(q) && q[i] != 0 {
+		i += int(q[i]) + 1
+	}
+	if end := i + 1 + typeAndClassLen; i < len(q) && end <= len(q) {
+		return end
+	}
+	return -1
+}
+
+// toLoopback is a Guard that lets the router lookup through, to the stand-in router instead of port 53 of the real address.
+type toLoopback struct{ to net.Addr }
+
+func (g toLoopback) DialContext(ctx context.Context, network, _ string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, g.to.String())
+}
+func (toLoopback) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+// honestOutside answers the DNS-over-HTTPS question with the real, fixed address of dns.google.
+type honestOutside struct{}
+
+func (honestOutside) Get(context.Context, stacksdk.FetchRequest) (stacksdk.FetchResponse, error) {
+	body := `{"Status":0,"Answer":[{"name":"dns.google.","type":1,"TTL":60,"data":"8.8.8.8"}]}`
+	return stacksdk.FetchResponse{Body: []byte(body)}, nil
+}
+
+// A router that keeps giving another address for a name the outside resolver knows is found by the real collector (the real Router
+// lookup over UDP, the real comparison, the stored log) on two checks in a row, and only then does the stack offer the finding.
+func TestFindings_ALyingRouterIsFoundByTheRealCollectorOnTwoChecksInARow(t *testing.T) {
+	fake := startLyingDNS(t, netip.MustParseAddr("203.0.113.9"))
+	doc := findingDoc(map[string]string{
+		"dns_check_enabled": "true", "dns_check_finding_enabled": "true",
+		"dns_check_server": `"192.168.50.1"`, "dns_check_names": `["dns.google"]`,
+	})
+	dir := &memDir{}
+	h := host(doc, dir)
+	h.Guard, h.Fetch = toLoopback{to: fake.conn.LocalAddr()}, honestOutside{}
+	s := New()
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+
+	// Start runs one cycle at once; wait for it so the checks counted below are the ones this test asks for.
+	waitForLog(t, dir, 1)
+	if got, err := s.Findings(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("one differing check is a blip, not a finding: %v %v", got, err)
+	}
+	s.collector.Tick(context.Background())
+	got, err := s.Findings(context.Background())
+	if err != nil || len(got) != 1 {
+		data, _ := dir.Read(dnscheck.LogFile)
+		t.Fatalf("two checks in a row: %v %v; log %s", got, err, data)
+	}
+	f := got[0]
+	if f.ID != FindingID || f.Subject != netip.MustParseAddr("192.168.50.1") || f.Count != 2 || len(f.Names) != 1 || f.Names[0] != "dns.google" {
+		t.Errorf("finding = %+v", f)
+	}
+
+	// The same stack against an honest router offers nothing: the finding needs a real disagreement.
+	honest := startLyingDNS(t, netip.MustParseAddr("8.8.8.8"))
+	h2 := host(doc, &memDir{})
+	h2.Guard, h2.Fetch = toLoopback{to: honest.conn.LocalAddr()}, honestOutside{}
+	s2 := New()
+	if err := s2.Start(context.Background(), h2); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s2.Stop(context.Background()) })
+	s2.collector.Tick(context.Background())
+	s2.collector.Tick(context.Background())
+	if got, err := s2.Findings(context.Background()); err != nil || len(got) != 0 {
+		t.Errorf("an honest router: %v %v", got, err)
+	}
+}
+
+// waitForLog waits until the stored log holds at least n rows.
+func waitForLog(t *testing.T, dir *memDir, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var rows []dnscheck.Comparison
+		if data, err := dir.Read(dnscheck.LogFile); err == nil && json.Unmarshal(data, &rows) == nil && len(rows) >= n {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the log never reached %d rows", n)
+}
+
+// ---- the UDP sensor (ADR-0038) ----
+
+// recordingScopedGuard stands in for the core's scoped dial: it records every address asked and connects only port 1900 to a stand-in
+// device on the loopback, so port 161 stays silent.
+type recordingScopedGuard struct {
+	mu     sync.Mutex
+	dialed []string
+	device net.Addr
+}
+
+func (g *recordingScopedGuard) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	g.mu.Lock()
+	g.dialed = append(g.dialed, addr)
+	g.mu.Unlock()
+	if !strings.HasSuffix(addr, ":1900") {
+		return nil, stacksdk.Errorf(stacksdk.CodeDenied, "refused")
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, g.device.String())
+}
+func (*recordingScopedGuard) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+// ssdpDevice answers any datagram with the first line of a UPnP reply, as a device with UPnP does.
+func ssdpDevice(t *testing.T) net.Addr {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			_, from, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			_, _ = conn.WriteToUDP([]byte("HTTP/1.1 200 OK\r\nST: upnp:rootdevice\r\n\r\n"), from)
+		}
+	}()
+	return conn.LocalAddr()
+}
+
+func lookStack(t *testing.T, g stacksdk.Guard) *Stack {
+	t.Helper()
+	h := host(&memDoc{}, &memDir{})
+	h.ScopedGuard = g
+	s := New()
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	return s
+}
+
+func TestLook_ReportsEveryPairAskedAndOnlyTheOnesThatAnsweredThroughTheScopedDial(t *testing.T) {
+	g := &recordingScopedGuard{device: ssdpDevice(t)}
+	s := lookStack(t, g)
+	a, b := netip.MustParseAddr("192.168.1.30"), netip.MustParseAddr("192.168.1.31")
+	got, err := s.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: []netip.Addr{a, b, netip.MustParseAddr("fe80::1")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAsked := []stacksdk.Pair{{Addr: a, Port: 161}, {Addr: a, Port: 1900}, {Addr: b, Port: 161}, {Addr: b, Port: 1900}}
+	slices.SortFunc(got.Asked, func(x, y stacksdk.Pair) int {
+		return strings.Compare(x.Addr.String()+itoa(x.Port), y.Addr.String()+itoa(y.Port))
+	})
+	if !slices.Equal(got.Asked, wantAsked) {
+		t.Errorf("asked = %v, want %v (IPv6 is not asked)", got.Asked, wantAsked)
+	}
+	slices.SortFunc(got.Answered, func(x, y stacksdk.Pair) int { return strings.Compare(x.Addr.String(), y.Addr.String()) })
+	if want := []stacksdk.Pair{{Addr: a, Port: 1900}, {Addr: b, Port: 1900}}; !slices.Equal(got.Answered, want) {
+		t.Errorf("answered = %v, want %v", got.Answered, want)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.dialed) != 4 {
+		t.Errorf("every datagram goes through the scoped dial, and only for IPv4 devices: %v", g.dialed)
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestLook_RefusesAnotherModuleTooManyAddressesAndAStackWithNoScopedDial(t *testing.T) {
+	g := &recordingScopedGuard{device: ssdpDevice(t)}
+	s := lookStack(t, g)
+	one := []netip.Addr{netip.MustParseAddr("192.168.1.30")}
+	if _, err := s.Look(context.Background(), stacksdk.LookRequest{Module: "dns_check", Addrs: one}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+		t.Errorf("another module: code = %q", stacksdk.CodeOf(err))
+	}
+	many := make([]netip.Addr, stacksdk.MaxLookAddrs+1)
+	for i := range many {
+		many[i] = netip.MustParseAddr("192.168.1.30")
+	}
+	if _, err := s.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: many}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+		t.Errorf("too many addresses: code = %q", stacksdk.CodeOf(err))
+	}
+	g.mu.Lock()
+	dialed := len(g.dialed)
+	g.mu.Unlock()
+	if dialed != 0 {
+		t.Errorf("a refused request must send nothing, dialled %d", dialed)
+	}
+	bare := New()
+	if _, err := bare.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: one}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("not started: code = %q", stacksdk.CodeOf(err))
+	}
+	noScope := lookStack(t, nil)
+	if _, err := noScope.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: one}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("no scoped dial: code = %q", stacksdk.CodeOf(err))
+	}
+}
+
+func TestLook_NeverTouchesThePlainGuard(t *testing.T) {
+	g := &recordingScopedGuard{device: ssdpDevice(t)}
+	h := host(&memDoc{}, &memDir{})
+	h.ScopedGuard = g
+	h.Guard = failingGuard{t}
+	s := New()
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	if _, err := s.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: []netip.Addr{netip.MustParseAddr("192.168.1.30")}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// failingGuard fails the test if the sensor reaches for the plain guarded dial, which does not apply the declared scan scope.
+type failingGuard struct{ t *testing.T }
+
+func (g failingGuard) DialContext(context.Context, string, string) (net.Conn, error) {
+	g.t.Error("the sensor dialled through the plain guard, which does not apply the declared scan scope")
+	return nil, stacksdk.Errorf(stacksdk.CodeDenied, "refused")
+}
+func (failingGuard) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+func TestManifest_TheUDPSensorIsDeclaredAndNeedsTheScopedDial(t *testing.T) {
+	m := New().Manifest()
+	if !slices.Contains(m.Looks, UDPModuleID) || !slices.Contains(m.Requires, stacksdk.PortScopedGuard) {
+		t.Fatalf("looks = %v, requires = %v", m.Looks, m.Requires)
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var _ stacksdk.Looker = New()
+}
+
+// ---- the web sensor (ADR-0038) ----
+
+// toServer is a scoped dial that connects every address to one stand-in device, recording what was asked for.
+type toServer struct {
+	mu     sync.Mutex
+	dialed []string
+	server string
+}
+
+func (g *toServer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	g.mu.Lock()
+	g.dialed = append(g.dialed, addr)
+	g.mu.Unlock()
+	var d net.Dialer
+	return d.DialContext(ctx, network, g.server)
+}
+func (*toServer) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+func webStack(t *testing.T, g stacksdk.Guard) *Stack {
+	t.Helper()
+	h := host(&memDoc{}, &memDir{})
+	h.ScopedGuard, h.Guard = g, failingGuard{t}
+	s := New()
+	s.webPace = 0
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	return s
+}
+
+func webTarget(port int, tls bool) stacksdk.WebTarget {
+	return stacksdk.WebTarget{Addr: netip.MustParseAddr("192.168.1.30"), Port: port, TLS: tls}
+}
+
+func TestLookWeb_NamesWhatTheDeviceShowsThroughTheScopedDialAndNeverThePlainGuard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			_, _ = w.Write([]byte("<title>Home Assistant</title>"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	g := &toServer{server: srv.Listener.Addr().String()}
+	s := webStack(t, g)
+	got, err := s.LookWeb(context.Background(), stacksdk.WebRequest{Module: WebModuleID, Targets: []stacksdk.WebTarget{webTarget(8123, false)}, LimitSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Partial || len(got.Hits) != 1 || got.Hits[0].ID != "home_assistant_page" || got.Hits[0].Addr != webTarget(8123, false).Addr || got.Hits[0].Port != 8123 {
+		t.Fatalf("hits = %+v", got)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.dialed) == 0 || g.dialed[0] != "192.168.1.30:8123" {
+		t.Errorf("every request goes through the scoped dial, to the target: %v", g.dialed)
+	}
+}
+
+func TestLookCertificates_ReadsDatesAndNothingOfTheCertificatesText(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	s := webStack(t, &toServer{server: srv.Listener.Addr().String()})
+	got, err := s.LookCertificates(context.Background(), stacksdk.WebRequest{Module: WebModuleID, Targets: []stacksdk.WebTarget{webTarget(8443, true), webTarget(8080, false)}, LimitSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Facts) != 1 || got.Facts[0].Port != 8443 || got.Facts[0].NotAfter.IsZero() || got.Facts[0].NotBefore.IsZero() {
+		t.Fatalf("facts = %+v: only the secure service is handshaken with", got)
+	}
+}
+
+func TestLookWeb_RefusesAnotherModuleBadTargetsAndLimitsAndAStackWithNoScopedDial(t *testing.T) {
+	g := &toServer{server: "127.0.0.1:1"}
+	s := webStack(t, g)
+	ok := []stacksdk.WebTarget{webTarget(80, false)}
+	cases := map[string]stacksdk.WebRequest{
+		"another module":    {Module: UDPModuleID, Targets: ok, LimitSeconds: 60},
+		"no targets":        {Module: WebModuleID, LimitSeconds: 60},
+		"too many targets":  {Module: WebModuleID, Targets: make([]stacksdk.WebTarget, stacksdk.MaxWebTargets+1), LimitSeconds: 60},
+		"no limit":          {Module: WebModuleID, Targets: ok},
+		"limit too long":    {Module: WebModuleID, Targets: ok, LimitSeconds: stacksdk.MaxLookSeconds + 1},
+		"an IPv6 address":   {Module: WebModuleID, Targets: []stacksdk.WebTarget{{Addr: netip.MustParseAddr("fe80::1"), Port: 80}}, LimitSeconds: 60},
+		"port out of range": {Module: WebModuleID, Targets: []stacksdk.WebTarget{{Addr: netip.MustParseAddr("192.168.1.30"), Port: 0}}, LimitSeconds: 60},
+	}
+	for name, req := range cases {
+		if _, err := s.LookWeb(context.Background(), req); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+			t.Errorf("%s: LookWeb code = %q", name, stacksdk.CodeOf(err))
+		}
+		if _, err := s.LookCertificates(context.Background(), req); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+			t.Errorf("%s: LookCertificates code = %q", name, stacksdk.CodeOf(err))
+		}
+	}
+	g.mu.Lock()
+	n := len(g.dialed)
+	g.mu.Unlock()
+	if n != 0 {
+		t.Errorf("a refused request must send nothing, dialled %d", n)
+	}
+	bare := lookStack(t, nil)
+	if _, err := bare.LookWeb(context.Background(), stacksdk.WebRequest{Module: WebModuleID, Targets: ok, LimitSeconds: 60}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("no scoped dial: code = %q", stacksdk.CodeOf(err))
+	}
+}
+
+func TestManifest_TheWebSensorIsDeclaredAndTheCheckListIsExported(t *testing.T) {
+	m := New().Manifest()
+	if !slices.Contains(m.Looks, WebModuleID) {
+		t.Fatalf("looks = %v", m.Looks)
+	}
+	var _ stacksdk.WebLooker = New()
+	checks := WebChecks()
+	if len(checks) == 0 {
+		t.Fatal("the check list is how the core holds its words equal to the stack's")
+	}
+	for _, c := range checks {
+		if c.ID == "" || c.Title == "" || c.Severity == "" {
+			t.Errorf("check %+v", c)
+		}
 	}
 }

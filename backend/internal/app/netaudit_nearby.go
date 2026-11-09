@@ -32,6 +32,7 @@ type nearbyLooks struct {
 	collector *nearby.Collector
 	inventory *netaudit.Inventory
 	gateway   func() netip.Addr
+	vendors   netaudit.VendorLookup
 }
 
 func (l *nearbyLooks) Request() error { return l.collector.Request() }
@@ -43,7 +44,7 @@ func (l *nearbyLooks) View() (netaudit.NearbyView, error) {
 	}
 	var devices []netaudit.DeviceView
 	if inv, err := l.inventory.View(); err == nil {
-		devices = netaudit.ViewOf(inv, time.Now()).Devices
+		devices = netaudit.ViewOf(inv, time.Now(), l.vendors).Devices
 	}
 	return netaudit.BuildNearbyView(l.config.Enabled(), l.collector.Running(), state, devices, l.gateway()), nil
 }
@@ -73,7 +74,7 @@ func (s *AppServices) newNearby(store netaudit.PolicyStore, scope *netaudit.Scop
 	return nearbyServices{
 		Config:    config,
 		Collector: collector,
-		Looks:     &nearbyLooks{config: config, collector: collector, inventory: inventory, gateway: gateway},
+		Looks:     &nearbyLooks{config: config, collector: collector, inventory: inventory, gateway: gateway, vendors: cardMakerOf},
 		Findings: netaudit.NearbyFindings{State: collector.State, Gateway: gateway, Refresh: func() {
 			_ = collector.Request() // off, busy and too soon are all fine here: the audit reads what is kept
 		}},

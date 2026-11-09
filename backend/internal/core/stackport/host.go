@@ -43,6 +43,30 @@ func (Guard) Boundary(addr netip.Addr) stacksdk.Boundary {
 	return stacksdk.BoundaryInternet
 }
 
+// ScopedGuard is the SDK's ScopedGuard port: the guarded dial, preceded by the operator's declared scan scope. Check is the scope's own
+// policy; an address it refuses, or one that is not an address, is never dialled and is answered as CodeDenied like any other refusal, so a
+// stack cannot tell which rule said no (ADR-0038 rule 2).
+type ScopedGuard struct {
+	Check func(addr netip.Addr) error
+	Dial  Dial
+}
+
+// DialContext checks the scope, then dials through the guard.
+func (g ScopedGuard) DialContext(ctx context.Context, netw, addr string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, stacksdk.Errorf(stacksdk.CodeDenied, msgDenied)
+	}
+	target, err := netip.ParseAddr(host)
+	if err != nil || g.Check(target) != nil {
+		return nil, stacksdk.Errorf(stacksdk.CodeDenied, msgDenied)
+	}
+	return Guard{Dial: g.Dial}.DialContext(ctx, netw, addr)
+}
+
+// Boundary classifies addr as the guard does.
+func (ScopedGuard) Boundary(addr netip.Addr) stacksdk.Boundary { return Guard{}.Boundary(addr) }
+
 // Log is the SDK's Logger over the service's log.
 type Log struct{ Stack string }
 

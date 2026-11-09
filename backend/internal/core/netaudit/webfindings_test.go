@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
-
-	"llm-proxy/internal/core/netaudit/webprobe"
 )
 
 func openPortOf(device string, port int, service string) Finding {
@@ -48,12 +47,12 @@ func TestWebTargets_AreBoundedPerDeviceAndInAll(t *testing.T) {
 	}
 }
 
-func hit(id, title, sev string, port int) webprobe.Hit {
-	return webprobe.Hit{ID: id, Addr: mustAddr("192.168.1.20"), Port: port, Severity: sev, Title: title}
+func hit(id string, port int) WebHit {
+	return WebHit{ID: id, Addr: mustAddr("192.168.1.20"), Port: port}
 }
 
 func TestWebFindings_OneFindingPerWebServiceInOurOwnWords(t *testing.T) {
-	got := WebFindings([]webprobe.Hit{hit("a", "Page A", "info", 80), hit("b", "Page B", "low", 80), hit("a", "Page A", "info", 8080)})
+	got := WebFindings([]WebHit{hit("grafana_login", 80), hit("apache_status_page", 80), hit("grafana_login", 8080)})
 	if len(got) != 2 {
 		t.Fatalf("findings = %+v, want one for each of the two ports", got)
 	}
@@ -61,7 +60,7 @@ func TestWebFindings_OneFindingPerWebServiceInOurOwnWords(t *testing.T) {
 	if f.Device != "192.168.1.20" || f.Port != 80 || f.Proto != "tcp" || f.Check != CheckWebExposure || f.Severity != SeverityLow {
 		t.Fatalf("finding = %+v, want the more serious of the two hits' severity", f)
 	}
-	if !strings.Contains(f.Evidence, "Page A") || !strings.Contains(f.Evidence, "Page B") || f.Version == "" {
+	if !strings.Contains(f.Evidence, "The login page of Grafana") || !strings.Contains(f.Evidence, "An Apache status page that anyone can open") || f.Version == "" {
 		t.Fatalf("evidence = %q version = %q", f.Evidence, f.Version)
 	}
 	if checkTitles[CheckWebExposure] == "" || remediations[CheckWebExposure] == "" {
@@ -69,25 +68,66 @@ func TestWebFindings_OneFindingPerWebServiceInOurOwnWords(t *testing.T) {
 	}
 }
 
+// Acceptance of a finding holds on its Version, a digest of the sorted check ids, and the evidence is the titles in the order the hits arrive.
+// Pinned exactly (values taken from the code before the web checks moved into the Network stack, ADR-0038) so the move cannot change a
+// finding's words, severity or version, which would read as resolved-and-new and lose the operator's acknowledgements.
+func TestWebFindings_AreByteIdenticalToWhatTheyWereBeforeTheMove(t *testing.T) {
+	got := WebFindings([]WebHit{hit("apache_status_page", 80), hit("grafana_login", 80)})
+	want := Finding{
+		Device: "192.168.1.20", Port: 80, Proto: "tcp", Check: CheckWebExposure, Severity: SeverityLow,
+		Evidence: "The web checks found: An Apache status page that anyone can open; The login page of Grafana", Version: "f11970191815",
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) || got[0].Key() != want.Key() {
+		t.Fatalf("finding = %+v, want exactly %+v", got, want)
+	}
+}
+
+// The words and the severity of a hit come from the core's own table: an id the table does not know is dropped, so nothing the Network stack
+// says beyond a known id reaches a finding.
+func TestWebFindings_AnIdTheCoreDoesNotKnowIsDropped(t *testing.T) {
+	if got := WebFindings([]WebHit{hit("some_unknown_check", 80)}); len(got) != 0 {
+		t.Fatalf("an unknown id made a finding: %+v", got)
+	}
+	got := WebFindings([]WebHit{hit("some_unknown_check", 80), hit("grafana_login", 80)})
+	if len(got) != 1 || strings.Contains(got[0].Evidence, "unknown") {
+		t.Fatalf("findings = %+v", got)
+	}
+}
+
+// Every check has a title and a severity the audit spells, and a bound the stack's own is pinned equal to.
+func TestWebChecks_TheTableIsCompleteAndTheBoundMatchesTheSDK(t *testing.T) {
+	if len(webChecks) == 0 {
+		t.Fatal("no checks")
+	}
+	for _, c := range webChecks {
+		if c.ID == "" || c.Title == "" || severityRank(c.Severity) == 0 && c.Severity != SeverityInfo {
+			t.Errorf("check %+v needs an id, a title and a severity the audit spells", c)
+		}
+	}
+	if MaxWebTargets != 64 {
+		t.Errorf("MaxWebTargets = %d: it must equal the stack's bound (stacksdk.MaxWebTargets, checked in app)", MaxWebTargets)
+	}
+}
+
 type fakeWeb struct {
 	limit   time.Duration
-	targets []webprobe.Target
-	res     webprobe.Result
+	targets []WebTarget
+	res     WebResult
 	err     error
 }
 
-func (f *fakeWeb) ProbeTLS(context.Context, []webprobe.Target, time.Duration) (webprobe.TLSResult, error) {
-	return webprobe.TLSResult{}, nil
+func (f *fakeWeb) ProbeTLS(context.Context, []WebTarget, time.Duration) (TLSResult, error) {
+	return TLSResult{}, nil
 }
 
-func (f *fakeWeb) Probe(_ context.Context, t []webprobe.Target, limit time.Duration) (webprobe.Result, error) {
+func (f *fakeWeb) Probe(_ context.Context, t []WebTarget, limit time.Duration) (WebResult, error) {
 	f.targets, f.limit = t, limit
 	return f.res, f.err
 }
 
 func TestRunReporter_RunsTheWebChecksOnlyWhileTheModuleIsOn(t *testing.T) {
 	on := false
-	web := &fakeWeb{res: webprobe.Result{Hits: []webprobe.Hit{hit("a", "Page A", "info", 80)}}}
+	web := &fakeWeb{res: WebResult{Hits: []WebHit{hit("grafana_login", 80)}}}
 	r := NewRunReporter(nil).WithWebChecks(func() bool { return on }, web)
 	result := Result{Findings: []Finding{openPortOf("192.168.1.20", 80, "http")}, Hosts: []Host{{Addr: mustAddr("192.168.1.20"), Up: true}}}
 	if note := r.addWebChecks(context.Background(), &result); note != "" || len(web.targets) != 0 {
@@ -143,7 +183,7 @@ func TestRunReporter_AShutDownIsNotAFailureOfTheWebChecks(t *testing.T) {
 func TestDeepChecks_AddTheWebChecksOfTheDevicesWebPortsWhenReady(t *testing.T) {
 	base := baselineWith(openPortOf("192.168.1.20", 80, "http"), openPortOf("192.168.1.20", 22, "ssh"))
 	d := newDeepChecks(&fakeDeepScanner{}, base, &memDeepStore{})
-	web := &fakeWeb{res: webprobe.Result{Hits: []webprobe.Hit{hit("a", "Page A", "info", 80)}}}
+	web := &fakeWeb{res: WebResult{Hits: []WebHit{hit("grafana_login", 80)}}}
 	d.WithWebChecks(web)
 	check, err := d.Run(context.Background(), "ws", "audit", "192.168.1.20")
 	if err != nil {

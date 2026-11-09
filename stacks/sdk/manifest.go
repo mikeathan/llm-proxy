@@ -144,6 +144,10 @@ type Manifest struct {
 	// Storage lists, by plain file name, the files in the data folder that this stack owns (D10). The core refuses a name that two
 	// stacks claim or that one of its own stores uses, and a stack leaves the folder with exactly these files.
 	Storage []string `json:"storage,omitempty"`
+	// Looks lists the ids of the modules that answer a Looker request during the nightly report: sensors that send to devices (ADR-0038).
+	// The core's registry defines the module itself; this only says which ids the stack will answer for. A stack that lists one must
+	// require PortScopedGuard.
+	Looks []string `json:"looks,omitempty"`
 	// Requires lists the ports the stack uses; each must be one of the Port* names below.
 	Requires []string `json:"requires"`
 }
@@ -160,9 +164,12 @@ const (
 	PortIsolation = "isolation"
 	// PortPrivileged is the request channel to the privileged helper: a stack passes back the grant the core gave it for a route's action.
 	PortPrivileged = "privileged"
+	// PortScopedGuard is the guarded dial that first applies the operator's declared scan scope: a stack that sends to local devices
+	// uses it, so it cannot reach an address the operator did not declare (ADR-0038).
+	PortScopedGuard = "scopedguard"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -188,6 +195,9 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if err := m.checkStorage(); err != nil {
+		return err
+	}
+	if err := m.checkLooks(); err != nil {
 		return err
 	}
 	for _, p := range m.Requires {
@@ -305,6 +315,24 @@ func (m Manifest) checkRouteAction(rt RouteSpec) error {
 		return fmt.Errorf("manifest %q: route %q names an action, so its body is the action's parameters and its path has no wildcard", m.ID, key)
 	case !slices.Contains(m.Requires, PortPrivileged):
 		return fmt.Errorf("manifest %q: route %q names an action, so the stack must require the %q port", m.ID, key, PortPrivileged)
+	}
+	return nil
+}
+
+// checkLooks holds each sensor id to a clean id declared once, and holds a stack with a sensor to the scoped dial.
+func (m Manifest) checkLooks() error {
+	seen := map[string]bool{}
+	for _, id := range m.Looks {
+		if !idPattern.MatchString(id) {
+			return fmt.Errorf("manifest %q: look %q must be lower-case letters, digits and underscores", m.ID, id)
+		}
+		if seen[id] {
+			return fmt.Errorf("manifest %q: look %q is listed twice", m.ID, id)
+		}
+		seen[id] = true
+	}
+	if len(m.Looks) > 0 && !slices.Contains(m.Requires, PortScopedGuard) {
+		return fmt.Errorf("manifest %q: a stack with a sensor must require the %q port", m.ID, PortScopedGuard)
 	}
 	return nil
 }

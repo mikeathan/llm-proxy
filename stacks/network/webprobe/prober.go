@@ -1,6 +1,7 @@
 package webprobe
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -10,7 +11,6 @@ import (
 	"net/netip"
 	"slices"
 	"strconv"
-	"syscall"
 	"time"
 )
 
@@ -25,8 +25,8 @@ const (
 	dialTimeout = 5 * time.Second
 	// maxHeaderBytes bounds the headers of an answer.
 	maxHeaderBytes = 64 << 10
-	// defaultPace is the wait between two requests to the same service, so a small device is asked gently.
-	defaultPace = 200 * time.Millisecond
+	// DefaultPace is the wait between two requests to the same service, so a small device is asked gently.
+	DefaultPace = 200 * time.Millisecond
 	// userAgent names this program to the device, plainly.
 	userAgent = "llm-proxy-network-audit"
 )
@@ -46,13 +46,11 @@ func (t Target) base() string {
 	return scheme + "://" + net.JoinHostPort(t.Addr.String(), strconv.Itoa(t.Port))
 }
 
-// Hit is a check that matched on one service. Title and Severity are this package's words.
+// Hit is a check that matched on one service. Only the id leaves the stack: the words and the severity of a finding are the core's.
 type Hit struct {
-	Addr     netip.Addr
-	Port     int
-	ID       string
-	Title    string
-	Severity string
+	Addr netip.Addr
+	Port int
+	ID   string
 }
 
 // Result is what a run found and whether its time limit ended it before every service was asked.
@@ -61,49 +59,37 @@ type Result struct {
 	Partial bool
 }
 
-// Doer sends one request: *http.Client satisfies it.
-type Doer interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
-// Guard approves an address for a connection: the scan scope's policy. It is asked before a run and again at every connection.
-type Guard func(netip.Addr) error
+// Dial opens one connection. In the Network stack it is the host's scoped dial, which refuses an address outside the operator's declared
+// scan scope and applies the guardrails at the moment of connecting (ADR-0038 rule 2), so every connection of these checks, web or certificate,
+// is made by it and a name, a redirect or a second address cannot lead anywhere else.
+type Dial func(ctx context.Context, network, address string) (net.Conn, error)
 
 // Prober asks the devices' web servers the fixed questions of Checks.
 type Prober struct {
-	doer  Doer
-	guard Guard
-	pace  time.Duration
+	dial Dial
+	pace time.Duration
 }
 
-// New builds a prober that connects through NewClient. The guard is the scan scope's policy.
-func New(guard Guard) *Prober {
-	return &Prober{doer: NewClient(guard), guard: guard, pace: defaultPace}
+// New builds a prober that connects only through dial.
+func New(dial Dial) *Prober {
+	return &Prober{dial: dial, pace: DefaultPace}
 }
 
-// NewClient is the only HTTP client these checks use. It never follows a redirect, never uses a proxy, never keeps a connection,
-// checks every address it connects to against the guard (so a name or a redirect cannot lead it elsewhere), and does not check
-// certificates: a device on the home network rarely has one a browser trusts, and nothing is sent that a certificate would protect.
-func NewClient(guard Guard) *http.Client {
-	dialer := guardedDialer(guard)
-	transport := &http.Transport{
-		Proxy:                  nil,
-		DialContext:            dialer.DialContext,
-		TLSClientConfig:        &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- see NewClient: read-only requests to a private address, nothing secret is sent
-		TLSHandshakeTimeout:    dialTimeout,
-		ResponseHeaderTimeout:  requestTimeout,
-		MaxResponseHeaderBytes: maxHeaderBytes,
-		DisableKeepAlives:      true,
-	}
-	return &http.Client{
-		Transport:     transport,
-		Timeout:       requestTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+// WithPace sets the wait between two requests to the same service; zero means no wait. The default is DefaultPace.
+func (p *Prober) WithPace(d time.Duration) *Prober {
+	p.pace = d
+	return p
 }
 
-// validate refuses a run before anything is sent: no target or too many, no time limit, an address that is not IPv4 or a bad port, or an
-// address the guard does not approve. what names the check in the error.
+// dialWithin opens a connection with at most dialTimeout to do it; the connection itself outlives the timeout.
+func dialWithin(ctx context.Context, dial Dial, network, address string) (net.Conn, error) {
+	dctx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+	return dial(dctx, network, address)
+}
+
+// validate refuses a run before anything is sent: no target or too many, no time limit, or an address that is not IPv4 or a bad port. The
+// scan scope is the caller's to check before it asks (the core does) and the dial's to enforce at every connection. what names the check.
 func (p *Prober) validate(what string, targets []Target, limit time.Duration) error {
 	if len(targets) == 0 || len(targets) > MaxTargets {
 		return fmt.Errorf("%s: %d targets, want 1 to %d", what, len(targets), MaxTargets)
@@ -115,30 +101,8 @@ func (p *Prober) validate(what string, targets []Target, limit time.Duration) er
 		if !t.Addr.Is4() || t.Port < 1 || t.Port > 65535 {
 			return fmt.Errorf("%s: %s:%d is not an IPv4 address and port", what, t.Addr, t.Port)
 		}
-		if err := p.guard(t.Addr); err != nil {
-			return fmt.Errorf("%s: %s is outside the scan scope: %w", what, t.Addr, err)
-		}
 	}
 	return nil
-}
-
-// guardedDialer opens a connection only to an address the guard approves, checked at the moment of connecting, so a name, a redirect
-// or a second address cannot lead it elsewhere. Every connection of these checks, web or certificate, is made by it.
-func guardedDialer(guard Guard) *net.Dialer {
-	return &net.Dialer{
-		Timeout: dialTimeout,
-		Control: func(_, address string, _ syscall.RawConn) error {
-			host, _, err := net.SplitHostPort(address)
-			if err != nil {
-				return fmt.Errorf("failed to read the address %q: %w", address, err)
-			}
-			addr, err := netip.ParseAddr(host)
-			if err != nil {
-				return fmt.Errorf("failed to read the address %q: %w", address, err)
-			}
-			return guard(addr.Unmap())
-		},
-	}
 }
 
 // Probe asks every target the questions of Checks and returns what matched. limit ends the run: what was found by then is returned
@@ -184,7 +148,7 @@ func (p *Prober) probeTarget(ctx context.Context, t Target) ([]Hit, bool) {
 	var hits []Hit
 	for _, c := range Checks {
 		if matched(c, answers) {
-			hits = append(hits, Hit{Addr: t.Addr, Port: t.Port, ID: c.ID, Title: c.Title, Severity: c.Severity})
+			hits = append(hits, Hit{Addr: t.Addr, Port: t.Port, ID: c.ID})
 		}
 	}
 	return hits, true
@@ -210,15 +174,44 @@ func (p *Prober) wait(ctx context.Context) bool {
 	}
 }
 
-// fetch does one GET and returns the start of the answer, or nil when the device did not answer.
+// fetch does one GET and returns the start of the answer, or nil when the device did not answer. It writes one plain request on a connection
+// made by the dial and reads one response from it, and so has no way to follow a redirect, use a proxy, keep a connection or connect anywhere
+// else: the request names one address and the connection is closed after the answer. Everything read is bounded: the headers and the body
+// together cannot pass maxHeaderBytes plus maxBody, whatever the device sends, and the whole exchange ends at requestTimeout. The certificate
+// of a secure service is not checked: a device on the home network rarely has one a browser trusts, and nothing is sent that a certificate
+// would protect.
 func (p *Prober) fetch(ctx context.Context, t Target, path string) *Response {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.base()+path, nil)
+	rctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+	conn, err := dialWithin(rctx, p.dial, "tcp", net.JoinHostPort(t.Addr.String(), strconv.Itoa(t.Port)))
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	stop := context.AfterFunc(rctx, func() { _ = conn.Close() })
+	defer stop()
+	if deadline, ok := rctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	}
+	var wire net.Conn = conn
+	if t.TLS {
+		secure := tls.Client(conn, &tls.Config{InsecureSkipVerify: true}) // #nosec G402 -- see the note above: read-only requests to a private address, nothing secret is sent
+		if secure.HandshakeContext(rctx) != nil {
+			return nil
+		}
+		wire = secure
+	}
+	req, err := http.NewRequestWithContext(rctx, http.MethodGet, t.base()+path, nil)
 	if err != nil {
 		return nil
 	}
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "*/*")
-	resp, err := p.doer.Do(req)
+	req.Close = true // sends "Connection: close"
+	if req.Write(wire) != nil {
+		return nil
+	}
+	resp, err := http.ReadResponse(bufio.NewReaderSize(io.LimitReader(wire, maxHeaderBytes+maxBody), maxHeaderBytes), req)
 	if err != nil {
 		return nil
 	}

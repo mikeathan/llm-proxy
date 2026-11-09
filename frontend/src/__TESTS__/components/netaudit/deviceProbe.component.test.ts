@@ -152,9 +152,16 @@ describe('DeviceProbe', () => {
     const guess = [{ name: 'Roberts STREAM 202 Internet radio', accuracy: 93 }]
     const quiet = await mountProbe({ ip: '192.168.50.9', osGuesses: guess, osAt: '2026-11-08T12:00:00Z', noOpenPorts: true })
     expect(quiet.get('[data-test="probe-os-unreliable"]').text()).toContain('no open port')
-    expect(quiet.get('[data-test="probe-os"]').text()).toContain('Roberts STREAM 202 Internet radio (93%)')
+    // Demoted, not hidden: the name stays, muted and with no percentage, after the warning.
+    const demoted = quiet.get('[data-test="probe-os-guess"]')
+    expect(demoted.text()).toBe('Roberts STREAM 202 Internet radio')
+    expect(demoted.classes()).toContain('text-muted')
+    const parts = quiet.get('[data-test="probe-os"]').html()
+    expect(parts.indexOf('probe-os-unreliable')).toBeLessThan(parts.indexOf('probe-os-guess'))
     const open = await mountProbe({ ip: '192.168.50.9', osGuesses: guess, osAt: '2026-11-08T12:00:00Z' })
     expect(open.find('[data-test="probe-os-unreliable"]').exists()).toBe(false)
+    expect(open.get('[data-test="probe-os-guess"]').text()).toBe('Roberts STREAM 202 Internet radio (93%)')
+    expect(open.get('[data-test="probe-os-guess"]').classes()).not.toContain('text-muted')
     const none = await mountProbe({ ip: '192.168.50.9', osGuesses: [], osAt: '2026-11-08T12:00:00Z', noOpenPorts: true })
     expect(none.find('[data-test="probe-os-unreliable"]').exists()).toBe(false)
   })

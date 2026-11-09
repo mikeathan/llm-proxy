@@ -47,7 +47,7 @@ func TestExternalIP_AsksTheControlAddressWithTheRightAction(t *testing.T) {
 		_, _ = w.Write(fixture(t, "soap_external_ip.xml"))
 	}))
 	defer srv.Close()
-	c := Client{HTTP: srv.Client()}
+	c := Client{Dial: realDial}
 	got, err := c.ExternalIP(context.Background(), srv.URL+"/rootDesc.xml", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1")
 	if err != nil || got != netip.MustParseAddr("203.0.113.7") {
 		t.Fatalf("got %v, %v", got, err)
@@ -58,7 +58,7 @@ func TestExternalIP_AsksTheControlAddressWithTheRightAction(t *testing.T) {
 }
 
 func TestExternalIP_RefusesAServiceTypeItDoesNotRecognise(t *testing.T) {
-	c := Client{HTTP: http.DefaultClient}
+	c := Client{Dial: realDial}
 	if _, err := c.ExternalIP(context.Background(), "http://192.0.2.1:80/x.xml", "/ctl", "evil\r\nHeader: x"); err == nil {
 		t.Error("an odd service type must be refused before anything is sent")
 	}

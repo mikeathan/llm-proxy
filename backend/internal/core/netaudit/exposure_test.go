@@ -9,7 +9,6 @@ import (
 	"time"
 
 	outside "llm-proxy/internal/core/netaudit/outsidelookup"
-	"llm-proxy/internal/core/netaudit/upnp"
 )
 
 type fakeLookup struct {
@@ -29,26 +28,14 @@ var (
 	lookedAt   = time.Date(2026, 11, 1, 2, 0, 0, 0, time.UTC)
 )
 
-// fakeAddress is the router's answer to "what is your internet address": the test puts the answer in the report's Location, so
-// "" is a router that gives none and "unreadable" one whose answer could not be read.
-type fakeAddress struct{ calls int }
-
-func (f *fakeAddress) ExternalIP(_ context.Context, location, _, _ string) (netip.Addr, error) {
-	f.calls++
-	addr, err := netip.ParseAddr(location)
-	if err != nil {
-		return netip.Addr{}, errors.New("the router did not give an internet address")
-	}
-	return addr, nil
-}
-
 func exposureOf(on bool, l *fakeLookup) *Exposure {
-	return NewExposure(func() bool { return on }, l, &fakeAddress{}, func() time.Time { return lookedAt })
+	return NewExposure(func() bool { return on }, l, func() time.Time { return lookedAt })
 }
 
-// answering is a router that answers UPnP and states ext as its internet address.
-func answering(ext string, maps ...upnp.Mapping) upnp.Report {
-	return upnp.Report{Answered: true, Gateway: true, Service: upnp.ServiceWANIP, Location: ext, Mappings: maps}
+// answering is a router that answers UPnP and states ext as its internet address; "" is one that states none, as when its answer could not be read.
+func answering(ext string, maps ...RouterMapping) RouterReport {
+	addr, _ := netip.ParseAddr(ext)
+	return RouterReport{Answered: true, Gateway: true, HasService: true, ExternalAddr: addr, Mappings: maps}
 }
 
 func TestExposure_APortTheServiceSeesAndAMappingExplainsIsAFindingOnTheRouter(t *testing.T) {
@@ -120,12 +107,12 @@ func TestExposure_SwitchedOffAsksNobodyAndChangesNothing(t *testing.T) {
 
 func TestExposure_WhenItCannotLookItSaysWhyAndSendsNothing(t *testing.T) {
 	cases := map[string]struct {
-		report upnp.Report
+		report RouterReport
 		reason string
 	}{
-		"router says nothing":   {upnp.Report{}, ReasonUPnPOff},
-		"not a gateway":         {upnp.Report{Answered: true}, ReasonUPnPOff},
-		"no internet service":   {upnp.Report{Answered: true, Gateway: true}, ReasonNoAddress},
+		"router says nothing":   {RouterReport{}, ReasonUPnPOff},
+		"not a gateway":         {RouterReport{Answered: true}, ReasonUPnPOff},
+		"no internet service":   {RouterReport{Answered: true, Gateway: true}, ReasonNoAddress},
 		"address unreadable":    {answering("unreadable"), ReasonNoAddress},
 		"address not given":     {answering(""), ReasonNoAddress},
 		"another router before": {answering("192.168.0.137"), ReasonPrivate},
@@ -177,7 +164,7 @@ func TestExposure_CarryKeepsEarlierFindingsOnlyWhenTheLastAttemptDidNotLook(t *t
 	if got := e.Carry(earlier); len(got) != 1 || got[0].Check != CheckInternetExposedPort {
 		t.Errorf("after a failure: %+v", got)
 	}
-	e.Findings(context.Background(), gateway, upnp.Report{}) // UPnP switched off
+	e.Findings(context.Background(), gateway, RouterReport{}) // UPnP switched off
 	if got := e.Carry(earlier); len(got) != 1 {
 		t.Errorf("when it cannot look: %+v", got)
 	}
@@ -201,7 +188,7 @@ func TestExposure_CarryKeepsEarlierFindingsOnlyWhenTheLastAttemptDidNotLook(t *t
 func TestExposure_ASecondLookSoonAfterReusesTheAnswer(t *testing.T) {
 	l := &fakeLookup{ports: []int{1194}}
 	now := lookedAt
-	e := NewExposure(func() bool { return true }, l, &fakeAddress{}, func() time.Time { return now })
+	e := NewExposure(func() bool { return true }, l, func() time.Time { return now })
 	first := e.Findings(context.Background(), gateway, answering("203.0.113.7"))
 	now = now.Add(time.Hour)
 	second := e.Findings(context.Background(), gateway, answering("203.0.113.7"))
@@ -255,26 +242,23 @@ func TestExposure_InternetAccessOffIsItsOwnReason(t *testing.T) {
 	}
 }
 
-// The router is asked for its internet address only when the lookup is on and the router has an internet service to ask.
-func TestExposure_TheRouterIsAskedForItsAddressOnlyWhenTheLookupIsOnAndThereIsAServiceToAsk(t *testing.T) {
-	for name, c := range map[string]struct {
-		on     bool
-		report upnp.Report
-	}{
-		"switched off":        {false, answering("203.0.113.7")},
-		"router says nothing": {true, upnp.Report{}},
-		"no internet service": {true, upnp.Report{Answered: true, Gateway: true}},
-	} {
-		a := &fakeAddress{}
-		NewExposure(func() bool { return c.on }, &fakeLookup{ports: []int{1}}, a, func() time.Time { return lookedAt }).Findings(context.Background(), gateway, c.report)
-		if a.calls != 0 {
-			t.Errorf("%s: the router was asked %d times", name, a.calls)
-		}
+// The router is asked to state its internet address (RouterProber.Probe's wantAddress) only while the lookup is on.
+func TestExposure_TheRouterIsToldToStateItsAddressOnlyWhileTheLookupIsOn(t *testing.T) {
+	if exposureOf(false, &fakeLookup{}).Wants() {
+		t.Error("switched off: the router must not be asked for its address")
 	}
-	a := &fakeAddress{}
-	NewExposure(func() bool { return true }, &fakeLookup{}, a, func() time.Time { return lookedAt }).Findings(context.Background(), gateway, answering("203.0.113.7"))
-	if a.calls != 1 {
-		t.Errorf("switched on: asked %d times, want 1", a.calls)
+	if !exposureOf(true, &fakeLookup{}).Wants() {
+		t.Error("switched on: the router is asked")
+	}
+}
+
+// A router that states an address but has no internet service to hold it is read as giving none.
+func TestExposure_AnAddressWithoutAnInternetServiceIsNotUsed(t *testing.T) {
+	l := &fakeLookup{ports: []int{1}}
+	report := answering("203.0.113.7")
+	report.HasService = false
+	if got := exposureOf(true, l).Findings(context.Background(), gateway, report); len(got) != 0 || len(l.asked) != 0 {
+		t.Errorf("got %+v, asked %v", got, l.asked)
 	}
 }
 
@@ -286,7 +270,7 @@ func withEntered(l *fakeLookup, entered string) *Exposure {
 func TestExposure_AnEnteredAddressIsUsedWhenTheRouterGivesNone(t *testing.T) {
 	l := &fakeLookup{ports: []int{1194}}
 	e := withEntered(l, "203.0.113.7")
-	got := e.Findings(context.Background(), gateway, upnp.Report{})
+	got := e.Findings(context.Background(), gateway, RouterReport{})
 	if len(got) != 1 || got[0].Port != 1194 || len(l.asked) != 1 || l.asked[0] != publicAddr {
 		t.Fatalf("got %+v asked %v", got, l.asked)
 	}
@@ -328,7 +312,7 @@ func TestExposure_ARouterAddressThatMatchesTheEnteredOneIsNotFlagged(t *testing.
 func TestExposure_AnEnteredAddressThatIsNotPublicIsIgnored(t *testing.T) {
 	l := &fakeLookup{ports: []int{1194}}
 	e := withEntered(l, "192.168.0.9")
-	if got := e.Findings(context.Background(), gateway, upnp.Report{}); len(got) != 0 || len(l.asked) != 0 {
+	if got := e.Findings(context.Background(), gateway, RouterReport{}); len(got) != 0 || len(l.asked) != 0 {
 		t.Fatalf("nothing may be sent: %+v %v", got, l.asked)
 	}
 	if s := e.Status(); s.Outcome != OutcomeCannotLook || s.Reason != ReasonUPnPOff {
@@ -338,7 +322,7 @@ func TestExposure_AnEnteredAddressThatIsNotPublicIsIgnored(t *testing.T) {
 
 func TestExposure_ALookAtAnEnteredAddressThatFailsKeepsTheSource(t *testing.T) {
 	e := withEntered(&fakeLookup{err: errors.New("down")}, "203.0.113.7")
-	e.Findings(context.Background(), gateway, upnp.Report{})
+	e.Findings(context.Background(), gateway, RouterReport{})
 	if s := e.Status(); s.Outcome != OutcomeFailed || s.Source != SourceEntered {
 		t.Errorf("status = %+v", s)
 	}

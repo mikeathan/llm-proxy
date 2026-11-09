@@ -116,8 +116,8 @@ func TestProbeTLS_SaysWhichOldVersionsAreAccepted(t *testing.T) {
 		t.Fatalf("res = %+v err = %v", res, err)
 	}
 	got := res.Facts[0].OldVersions
-	if !slices.Contains(got, "TLS 1.0") && !slices.Contains(got, "TLS 1.1") {
-		t.Fatalf("old versions = %v, want TLS 1.0 or 1.1", got)
+	if !slices.Contains(got, tls.VersionTLS10) && !slices.Contains(got, tls.VersionTLS11) {
+		t.Fatalf("old versions = %#x, want TLS 1.0 (0x0301) or 1.1 (0x0302)", got)
 	}
 	if res.Facts[0].NotAfter.IsZero() {
 		t.Fatal("a server that speaks only an old version still has a certificate to read")
@@ -148,33 +148,16 @@ func TestProbeTLS_ADeviceThatDoesNotSpeakTLSGivesNoFacts(t *testing.T) {
 	}
 }
 
-func TestProbeTLS_ARefusedAddressIsAnErrorBeforeAnythingIsSent(t *testing.T) {
+// The scope is enforced at every connection, by the dial: a service it refuses gets no handshake at all.
+func TestProbeTLS_AServiceTheDialRefusesGetsNoHandshake(t *testing.T) {
 	target, conns := tlsServer(t, &tls.Config{Certificates: []tls.Certificate{certFor(t, "d", time.Now().Add(time.Hour), nil)}})
 	refuse := func(netip.Addr) error { return errors.New("outside the scope") }
-	if _, err := prober(refuse).ProbeTLS(context.Background(), []Target{target}, time.Minute); err == nil {
-		t.Fatal("a refused address was probed")
-	}
-	if conns.Load() != 0 {
-		t.Fatalf("%d connections were opened to a refused address", conns.Load())
-	}
-}
-
-func TestProbeTLS_TheGuardIsAskedAtEveryConnection(t *testing.T) {
-	target, conns := tlsServer(t, &tls.Config{Certificates: []tls.Certificate{certFor(t, "d", time.Now().Add(time.Hour), nil)}})
-	var asked atomic.Int32
-	// Approves the address when the run starts and refuses it at each connection: the dial itself must still be checked.
-	guard := func(netip.Addr) error {
-		if asked.Add(1) == 1 {
-			return nil
-		}
-		return errors.New("refused at the connection")
-	}
-	res, err := prober(guard).ProbeTLS(context.Background(), []Target{target}, time.Minute)
+	res, err := prober(refuse).ProbeTLS(context.Background(), []Target{target}, time.Minute)
 	if err != nil || len(res.Facts) != 0 {
 		t.Fatalf("res = %+v err = %v, want no facts", res, err)
 	}
 	if conns.Load() != 0 {
-		t.Fatalf("%d connections got through a guard that refuses at the dial", conns.Load())
+		t.Fatalf("%d connections were opened to a refused address", conns.Load())
 	}
 }
 
@@ -246,7 +229,7 @@ func TestProbeTLS_SeesAnOldDeviceThatOffersOnlyRSAKeyExchange(t *testing.T) {
 		if err != nil || len(res.Facts) != 1 {
 			t.Fatalf("suite %#x: res = %+v err = %v, want the device seen", suite, res, err)
 		}
-		if !slices.Contains(res.Facts[0].OldVersions, "TLS 1.0") || res.Facts[0].NotAfter.IsZero() {
+		if !slices.Contains(res.Facts[0].OldVersions, tls.VersionTLS10) || res.Facts[0].NotAfter.IsZero() {
 			t.Fatalf("suite %#x: facts = %+v, want TLS 1.0 flagged and the certificate read", suite, res.Facts[0])
 		}
 	}

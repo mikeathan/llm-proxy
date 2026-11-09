@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/core/vulndata/vulnfeed"
 	"llm-proxy/internal/platform/logging"
 )
 

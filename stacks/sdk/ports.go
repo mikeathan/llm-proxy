@@ -21,6 +21,8 @@ type Host struct {
 	Isolation Isolation
 	// Privileged is the request channel to the privileged helper (ADR-0034); nil unless the manifest requires PortPrivileged.
 	Privileged Privileged
+	// ScopedGuard is the guarded dial that first applies the operator's declared scan scope; nil unless the manifest requires PortScopedGuard.
+	ScopedGuard Guard
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -68,6 +70,143 @@ type StackFinding struct {
 	Names []string `json:"names,omitempty"`
 	// Since is when it was first seen in this run of sightings.
 	Since time.Time `json:"since,omitempty"`
+}
+
+// MaxLookAddrs bounds how many addresses one Look request carries; the core sends no more and a stack refuses more.
+const MaxLookAddrs = 1024
+
+// Pair is a device address and a port, as typed numbers: the answer to "which of these did you ask, and which answered".
+type Pair struct {
+	Addr netip.Addr `json:"addr"`
+	Port int        `json:"port"`
+}
+
+// LookRequest asks a sensor module to look at the devices the nightly scan found. The addresses are those the core already judged
+// worth asking (live, scanned, IPv4); the stack asks no other.
+type LookRequest struct {
+	// Module is the id of a module the manifest lists in Looks.
+	Module string       `json:"module"`
+	Addrs  []netip.Addr `json:"addrs"`
+}
+
+// LookResult is what a sensor learned, as typed pairs and nothing a device said. Asked is every pair the stack sent a question to, and Answered
+// those that replied in the expected form; a pair asked and not answered is unknown, never fixed.
+type LookResult struct {
+	Asked    []Pair `json:"asked"`
+	Answered []Pair `json:"answered"`
+}
+
+// Looker is implemented by a stack with a sensor module (Manifest.Looks). Unlike Findings it sends: it asks devices through the host's
+// ScopedGuard during the nightly report. It is separate from Stack so a stack with no sensor implements nothing extra. A failure is an *Error.
+type Looker interface {
+	Look(ctx context.Context, req LookRequest) (LookResult, error)
+}
+
+// The bounds of a web sensor's request, held by the host and by the stack alike.
+const (
+	// MaxWebTargets is how many web services one request names.
+	MaxWebTargets = 64
+	// MaxLookSeconds is the longest time limit a request may ask for.
+	MaxLookSeconds = 900
+)
+
+// WebTarget is one web service on one device: an address the core has already checked against the declared scan scope, a port, and whether
+// it speaks TLS.
+type WebTarget struct {
+	Addr netip.Addr `json:"addr"`
+	Port int        `json:"port"`
+	TLS  bool       `json:"tls,omitempty"`
+}
+
+// WebRequest asks a web sensor module to look at web services. LimitSeconds ends the run: what was found by then comes back with Partial set.
+type WebRequest struct {
+	// Module is the id of a module the manifest lists in Looks.
+	Module       string      `json:"module"`
+	Targets      []WebTarget `json:"targets"`
+	LimitSeconds int         `json:"limit_seconds"`
+}
+
+// WebHit is one fixed check that matched on one service. ID is a check id from the stack's fixed list; the core owns the words and the
+// severity for each id and drops an id it does not know, so nothing a device said reaches a finding.
+type WebHit struct {
+	Addr netip.Addr `json:"addr"`
+	Port int        `json:"port"`
+	ID   string     `json:"id"`
+}
+
+// WebResult is what a run of the plain web checks found and whether its time limit ended it before every service was asked.
+type WebResult struct {
+	Hits    []WebHit `json:"hits"`
+	Partial bool     `json:"partial,omitempty"`
+}
+
+// CertFact is what one secure service showed in a handshake: the dates of the certificate it presented, whether it signed itself, and the
+// protocol versions older than 1.2 that it accepted, as the numbers the TLS standard gives them (0x0301 is 1.0). The certificate's own text is
+// never read out.
+type CertFact struct {
+	Addr        netip.Addr `json:"addr"`
+	Port        int        `json:"port"`
+	NotBefore   time.Time  `json:"not_before"`
+	NotAfter    time.Time  `json:"not_after"`
+	SelfSigned  bool       `json:"self_signed,omitempty"`
+	OldVersions []uint16   `json:"old_versions,omitempty"`
+}
+
+// CertResult is what a run of the handshakes found and whether its time limit ended it before every service was asked.
+type CertResult struct {
+	Facts   []CertFact `json:"facts"`
+	Partial bool       `json:"partial,omitempty"`
+}
+
+// WebLooker is implemented by a stack with a web sensor module (Manifest.Looks). Like Looker it sends, through the host's ScopedGuard only.
+// LookWeb makes the fixed plain GET requests; LookCertificates makes the handshakes with the secure services among the targets. A failure
+// is an *Error.
+type WebLooker interface {
+	LookWeb(ctx context.Context, req WebRequest) (WebResult, error)
+	LookCertificates(ctx context.Context, req WebRequest) (CertResult, error)
+}
+
+// MaxRouterMappings bounds how many forwarded ports one router answer carries; the host drops what comes beyond it.
+const MaxRouterMappings = 64
+
+// RouterRequest asks a router sensor module to look at the router at Gateway: whether it answers UPnP, which ports it forwards, and, when
+// WantAddress is set, the address of its internet side. The core has already checked Gateway against the declared scan scope.
+type RouterRequest struct {
+	// Module is the id of a module the manifest lists in Looks.
+	Module  string     `json:"module"`
+	Gateway netip.Addr `json:"gateway"`
+	// WantAddress asks for the router's own statement of its internet address. The core sets it only when the operator switched the outside
+	// lookup on, so a router is not asked for it otherwise.
+	WantAddress bool `json:"want_address,omitempty"`
+}
+
+// RouterMapping is one port a router forwards from its internet side to a device, as typed numbers. Protocol is "tcp" or "udp".
+type RouterMapping struct {
+	ExternalPort int        `json:"external_port"`
+	InternalPort int        `json:"internal_port"`
+	Protocol     string     `json:"protocol"`
+	Client       netip.Addr `json:"client"`
+	Enabled      bool       `json:"enabled,omitempty"`
+}
+
+// RouterResult is what a router sensor learned, as flags, numbers and ids: nothing the router said. Problem is the id of why the router could
+// not be read at all, and MappingsProblem why its list of forwarded ports could not be (the rest then still stands); the core owns the words
+// for each id and treats an id it does not know as an unspecified failure. An address is never carried when the router did not state one.
+type RouterResult struct {
+	Answered        bool            `json:"answered,omitempty"`
+	Gateway         bool            `json:"gateway,omitempty"`
+	HasService      bool            `json:"has_service,omitempty"`
+	Problem         string          `json:"problem,omitempty"`
+	Mappings        []RouterMapping `json:"mappings,omitempty"`
+	MappingsProblem string          `json:"mappings_problem,omitempty"`
+	// ExternalAddr is the address of the router's internet side, valid only when WantAddress was set and the router stated one.
+	ExternalAddr netip.Addr `json:"external_addr,omitempty"`
+}
+
+// RouterLooker is implemented by a stack with a router sensor module (Manifest.Looks). Like Looker it sends, through the host's ScopedGuard only.
+// A failure is an *Error.
+type RouterLooker interface {
+	LookRouter(ctx context.Context, req RouterRequest) (RouterResult, error)
 }
 
 // Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
@@ -248,5 +387,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}}
 }

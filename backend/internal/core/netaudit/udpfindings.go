@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/netip"
 
-	"llm-proxy/internal/core/netaudit/udpchecks"
 	"llm-proxy/models"
 )
 
@@ -12,10 +11,25 @@ import (
 // engine discovery and a unicast SSDP search, and report an answer as the same udp_service finding a helper scan makes (probefindings.go),
 // with the same fixed words. What a device said is never kept: only that it answered in the expected form. A silent device is unknown,
 // never fixed, so an earlier finding for it is kept (UDPResult.Carry).
+//
+// The questions are asked by the Network stack's sensor (ADR-0038). It reports typed pairs and nothing a device said; the words, the severity,
+// the key, the carry rule and the replacement of a helper-kept finding stay here, so a finding is the same whichever way it was asked.
 
-// UDPAsker asks devices the fixed questions: *udpchecks.Prober.
+// UDPPair is a device address and a UDP port.
+type UDPPair struct {
+	Addr netip.Addr
+	Port int
+}
+
+// UDPLooked is what the sensor reports: every pair it asked and the pairs that answered in the expected form.
+type UDPLooked struct {
+	Asked    []UDPPair
+	Answered []UDPPair
+}
+
+// UDPAsker asks devices the fixed questions: the Network stack's sensor through the stack host. An error means it could not look at all.
 type UDPAsker interface {
-	Look(ctx context.Context, addrs []netip.Addr) []udpchecks.Answer
+	Look(ctx context.Context, addrs []netip.Addr) (UDPLooked, error)
 }
 
 // UDPFinder is what the run reporter calls: *UDPChecks.
@@ -38,42 +52,67 @@ func nightlyEvidence(rule udpRule) string {
 	return rule.Name + " answered a check from this computer. " + rule.Why
 }
 
-// Findings asks every scanned, live IPv4 host and returns the answers as findings. The guarded dial the asker uses refuses any address
-// outside the declared scan scope, so none is asked then.
-func (c *UDPChecks) Findings(ctx context.Context, hosts []Host) UDPResult {
+// udpKey is the key of the finding for one device and port, as Finding.Key makes it.
+func udpKey(addr netip.Addr, port int) string {
+	return Finding{Device: addr.String(), Port: port, Proto: protoUDPFinding, Check: CheckUDPService}.Key()
+}
+
+// scannedIPv4 is the addresses of the hosts the scan found live and finished, which are the only ones worth asking.
+func scannedIPv4(hosts []Host) []netip.Addr {
 	var addrs []netip.Addr
 	for _, h := range hosts {
 		if h.Up && !h.Unscanned && h.Addr.Is4() {
 			addrs = append(addrs, h.Addr)
 		}
 	}
+	return addrs
+}
+
+// Findings asks every scanned, live IPv4 host and returns the answers as findings. The sensor's dial refuses any address outside the declared
+// scan scope, so none is asked then. When the sensor cannot look at all, nothing is found and every judged port of every such host is
+// unknown, so no earlier finding is resolved by a night nobody looked.
+func (c *UDPChecks) Findings(ctx context.Context, hosts []Host) UDPResult {
+	addrs := scannedIPv4(hosts)
 	res := UDPResult{unknown: map[string]bool{}}
 	if len(addrs) == 0 {
 		return res
 	}
-	answered := map[string]bool{}
-	for _, a := range c.Asker.Look(ctx, addrs) {
+	looked, err := c.Asker.Look(ctx, addrs)
+	if err != nil {
+		res.unknownEverywhere(addrs)
+		return res
+	}
+	answered := res.judge(looked.Answered)
+	for _, p := range looked.Asked {
+		if k := udpKey(p.Addr, p.Port); !answered[k] {
+			res.unknown[k] = true
+		}
+	}
+	return res
+}
+
+// unknownEverywhere marks every judged port of every address unknown: the sensor said nothing, so nothing is fixed.
+func (r *UDPResult) unknownEverywhere(addrs []netip.Addr) {
+	for _, a := range addrs {
+		for port := range udpRules {
+			r.unknown[udpKey(a, port)] = true
+		}
+	}
+}
+
+// judge turns the pairs that answered on a judged port into the rule's finding and returns the keys it made.
+func (r *UDPResult) judge(answers []UDPPair) map[string]bool {
+	made := map[string]bool{}
+	for _, a := range answers {
 		rule, judged := udpRules[a.Port]
 		if !judged {
 			continue
 		}
 		f := Finding{Device: a.Addr.String(), Port: a.Port, Proto: protoUDPFinding, Service: rule.Name, Check: CheckUDPService, Severity: rule.Severity, Evidence: nightlyEvidence(rule)}
-		answered[f.Key()] = true
-		res.Findings = append(res.Findings, f)
+		made[f.Key()] = true
+		r.Findings = append(r.Findings, f)
 	}
-	asked := addrs
-	if len(asked) > udpchecks.MaxDevices {
-		asked = asked[:udpchecks.MaxDevices]
-	}
-	for _, a := range asked {
-		for _, p := range udpchecks.Probes {
-			k := Finding{Device: a.String(), Port: p.Port, Proto: protoUDPFinding, Check: CheckUDPService}.Key()
-			if !answered[k] {
-				res.unknown[k] = true
-			}
-		}
-	}
-	return res
+	return made
 }
 
 // seeing records the findings already in the report, so Carry does not add a second copy of one.

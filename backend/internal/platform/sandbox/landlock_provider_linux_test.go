@@ -66,3 +66,38 @@ func TestLandlockWrapGrantsDevNullReadWrite(t *testing.T) {
 		t.Errorf("/dev/zero must stay read-only, got perm %b", devZero)
 	}
 }
+
+// A spawn with no workspace is wrapped like any other (D9): it goes through the runner, carries the Unix-socket denial, and is granted
+// nothing writable but /dev/null. Before D9 it ran with no jail and no filter.
+func TestLandlockWrapFiltersASpawnWithNoWorkspace(t *testing.T) {
+	if !filesystemMechanismAvailable() {
+		t.Skip("no Landlock on this host")
+	}
+	cmd := exec.Command("true")
+	if err := (landlockProvider{}).Wrap(cmd, WorkspaceView{NetworkOn: true}); err != nil {
+		t.Fatalf("Wrap: %v", err)
+	}
+	if len(cmd.Args) < 2 || cmd.Args[1] != runnerFlag {
+		t.Fatalf("a rootless spawn must go through the runner: %v", cmd.Args)
+	}
+	var encoded string
+	unixDenied := false
+	for _, kv := range cmd.Env {
+		if v, ok := strings.CutPrefix(kv, rulesEnvVar+"="); ok {
+			encoded = v
+		}
+		unixDenied = unixDenied || kv == unixDenyEnvVar+"=1"
+	}
+	if unixSupported := unixDenySupported(); unixSupported && !unixDenied {
+		t.Error("a rootless spawn must carry the Unix-socket denial")
+	}
+	profile, err := DecodeProfile(encoded)
+	if err != nil {
+		t.Fatalf("DecodeProfile: %v", err)
+	}
+	for _, r := range profile.Rules {
+		if r.Perm&PermWrite != 0 && r.Path != "/dev/null" {
+			t.Errorf("%s is writable in a rootless jail", r.Path)
+		}
+	}
+}

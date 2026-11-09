@@ -28,6 +28,8 @@ type ClassFinder interface {
 // state; when it cannot, the judgement still runs on the maker and the ports, and the error is returned for the report to state.
 type ClassChecks struct {
 	State func() (models.NearbyState, error)
+	// Vendors names the maker of a card; without it the judgement uses the open ports and what devices announced.
+	Vendors VendorLookup
 }
 
 // Findings returns the class_mismatch findings and, separately, trouble reading what devices announced.
@@ -39,7 +41,7 @@ func (c ClassChecks) Findings(devices []models.NetworkDevice, hosts []Host) ([]F
 			state = models.NearbyState{}
 		}
 	}
-	return ClassMismatchFindings(devices, hosts, state), err
+	return ClassMismatchFindings(devices, hosts, state, c.Vendors), err
 }
 
 // WithClassChecks makes the reporter judge what kind of device each scanned device looks like. Without it nothing is judged.

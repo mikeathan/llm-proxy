@@ -17,7 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/vulnindex"
+	"llm-proxy/internal/core/vulndata/vulnindex"
 	"llm-proxy/models"
 )
 

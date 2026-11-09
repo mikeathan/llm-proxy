@@ -9,7 +9,7 @@ import type { OsGuess, UdpPort } from "../../types/netaudit"
 // Scan one device with the privileged helper (UDP services, OS guess), from the device's own row, and show the last result kept on the
 // device. The buttons appear only when the helper is installed, ready and has the action switched on, so a computer without it sees no
 // new control; a kept result is shown whenever there is one. A UDP port with no reply is "open or blocked", never "open". Nothing here
-// makes a finding: it is what the last scan saw, with its time.
+// makes a finding: it is what the last scan saw, with its time. OS guesses from a device with no open port are demoted, not hidden.
 const props = defineProps<{ ip?: string; mac?: string; udpPorts?: UdpPort[]; udpAt?: string; osGuesses?: OsGuess[]; osAt?: string; noOpenPorts?: boolean }>()
 const emit = defineEmits<{ (e: "probed"): void }>()
 const { actions, running, freshUdp, freshOs, error, load, run, clear } = useDeviceProbe(() => props.ip, () => props.mac)
@@ -62,8 +62,9 @@ async function drop(kind: "udp" | "os") {
       <BaseButton v-if="mac" variant="ghost" size="sm" class-name="max-sm:!h-11" :title="PROBE_CLEAR_HINT" data-test="probe-clear-os" @click="drop('os')">{{ PROBE_CLEAR }}</BaseButton>
       </span>
       <span v-if="!os.length">{{ PROBE_NO_OS }}</span>
-      <span v-for="(g, i) in os" :key="i" class="break-words">{{ g.name }} ({{ g.accuracy }}%)</span>
+      <!-- With no open port a percentage is not evidence: the warning leads, the guesses are muted and carry no percentage. -->
       <span v-if="noOpenPorts && os.length" class="text-muted" data-test="probe-os-unreliable">{{ PROBE_OS_UNRELIABLE }}</span>
+      <span v-for="(g, i) in os" :key="i" class="break-words" :class="{ 'text-muted': noOpenPorts }" data-test="probe-os-guess">{{ g.name }}<template v-if="!noOpenPorts"> ({{ g.accuracy }}%)</template></span>
     </div>
   </div>
 </template>

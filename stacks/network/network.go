@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"llm-proxy-stacks/network/dnscheck"
+	"llm-proxy-stacks/network/udpchecks"
+	"llm-proxy-stacks/network/upnp"
+	"llm-proxy-stacks/network/webprobe"
 	"llm-proxy-stacks/sdk"
 )
 
@@ -20,6 +23,14 @@ import (
 const (
 	ID       = "network"
 	ModuleID = "dns_check"
+	// UDPModuleID is the nightly UDP checks, a sensor: the core's registry defines the module and its switch, and this stack answers its
+	// Look requests (ADR-0038).
+	UDPModuleID = "udp_probes"
+	// WebModuleID is the nightly web and certificate checks, a sensor like the UDP checks.
+	WebModuleID = "web_checks"
+	// RouterModuleID is the router check's sensor: the UPnP probe of the router, its forwarded ports and, on request, the address of its internet
+	// side. It has no switch of its own (the router check is part of every nightly audit), so the core's registry lists no module for it.
+	RouterModuleID = "router_probe"
 	// SettingsKey is the core's `netaudit` settings document, which this stack shares with the code that has not moved yet.
 	SettingsKey = "netaudit"
 	// RoutePath is the DNS check's one route, read and written.
@@ -35,12 +46,16 @@ type Stack struct {
 	collector *dnscheck.Collector
 	store     dnscheck.Store
 	gateway   stacksdk.Gateway
+	scoped    stacksdk.Guard // the dial that applies the declared scan scope; nil when the host gave none
+	webPace   time.Duration  // the wait between two requests to one web service
+	upnpPort  int            // the router's discovery port; zero means the standard one (a test points it at a fake router)
+	upnpWait  time.Duration  // how long to wait for the router's answer; zero means three seconds
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
 
 // New returns the stack.
-func New() *Stack { return &Stack{} }
+func New() *Stack { return &Stack{webPace: webprobe.DefaultPace} }
 
 // Manifest declares the stack as data.
 func (s *Stack) Manifest() stacksdk.Manifest {
@@ -63,7 +78,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{dnscheck.LogFile},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortGuard, stacksdk.PortFetch, stacksdk.PortGateway},
+		Looks:    []string{UDPModuleID, WebModuleID, RouterModuleID},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortGuard, stacksdk.PortFetch, stacksdk.PortGateway, stacksdk.PortScopedGuard},
 	}
 }
 
@@ -76,7 +92,7 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	}
 	s.cfg = dnscheck.Config{Doc: h.Config}
 	server := func(ctx context.Context) netip.Addr { return routerAddress(ctx, s.cfg, h.Gateway) }
-	s.store, s.gateway = dnscheck.FileStore{Dir: h.DataDir}, h.Gateway
+	s.store, s.gateway, s.scoped = dnscheck.FileStore{Dir: h.DataDir}, h.Gateway, h.ScopedGuard
 	s.collector = dnscheck.NewCollector(dnscheck.CollectorDeps{
 		Settings: func() dnscheck.Settings { return s.cfg.Settings(context.Background()) },
 		Router:   dnscheck.Router{Guard: h.Guard, Server: server},
@@ -165,6 +181,155 @@ func (s *Stack) Findings(ctx context.Context) ([]stacksdk.StackFinding, error) {
 		return nil, nil
 	}
 	return []stacksdk.StackFinding{{ID: FindingID, Subject: router, Count: d.Count, Names: d.Names, Since: d.Since}}, nil
+}
+
+// Look asks the devices the nightly scan found the two fixed UDP questions and says which it asked and which answered in the expected form
+// (ADR-0038). Every datagram goes through the scoped dial, which refuses an address outside the operator's declared scan scope; a refusal, an
+// error and silence are all "no answer", and the caller treats an asked pair with no answer as unknown, never as fixed. Only IPv4 devices are
+// asked, the first udpchecks.MaxDevices of them. Nothing a device said is kept or returned.
+func (s *Stack) Look(ctx context.Context, req stacksdk.LookRequest) (stacksdk.LookResult, error) {
+	s.mu.Lock()
+	scoped := s.scoped
+	s.mu.Unlock()
+	switch {
+	case req.Module != UDPModuleID:
+		return stacksdk.LookResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "this stack has no such sensor")
+	case len(req.Addrs) > stacksdk.MaxLookAddrs:
+		return stacksdk.LookResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "too many addresses")
+	case scoped == nil:
+		return stacksdk.LookResult{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the stack has no scoped dial")
+	}
+	addrs := make([]netip.Addr, 0, len(req.Addrs))
+	for _, a := range req.Addrs {
+		if a.Is4() && len(addrs) < udpchecks.MaxDevices {
+			addrs = append(addrs, a)
+		}
+	}
+	out := stacksdk.LookResult{Asked: []stacksdk.Pair{}, Answered: []stacksdk.Pair{}}
+	for _, a := range addrs {
+		for _, p := range udpchecks.Probes {
+			out.Asked = append(out.Asked, stacksdk.Pair{Addr: a, Port: p.Port})
+		}
+	}
+	for _, a := range (udpchecks.Prober{Dial: scoped.DialContext}).Look(ctx, addrs) {
+		out.Answered = append(out.Answered, stacksdk.Pair{Addr: a.Addr, Port: a.Port})
+	}
+	return out, nil
+}
+
+// WebCheck is the id, words and severity of one web check. The core owns the words of a finding and keeps its own table; this is exported so
+// a test in the service can hold the two equal.
+type WebCheck struct{ ID, Title, Severity string }
+
+// WebChecks lists the fixed checks the web sensor asks, in the order it asks them.
+func WebChecks() []WebCheck {
+	out := make([]WebCheck, 0, len(webprobe.Checks))
+	for _, c := range webprobe.Checks {
+		out = append(out, WebCheck{ID: c.ID, Title: c.Title, Severity: c.Severity})
+	}
+	return out
+}
+
+// webRun checks a web request and builds the prober for it. A request for another module, with no or too many targets, with a time limit
+// out of bounds or an address that is not IPv4 is refused before anything is sent; so is a host that gave no scoped dial.
+func (s *Stack) webRun(req stacksdk.WebRequest) (*webprobe.Prober, []webprobe.Target, time.Duration, error) {
+	s.mu.Lock()
+	scoped, pace := s.scoped, s.webPace
+	s.mu.Unlock()
+	switch {
+	case req.Module != WebModuleID:
+		return nil, nil, 0, stacksdk.Errorf(stacksdk.CodeInvalid, "this stack has no such sensor")
+	case len(req.Targets) < 1 || len(req.Targets) > stacksdk.MaxWebTargets:
+		return nil, nil, 0, stacksdk.Errorf(stacksdk.CodeInvalid, "a request names too few or too many web services")
+	case req.LimitSeconds < 1 || req.LimitSeconds > stacksdk.MaxLookSeconds:
+		return nil, nil, 0, stacksdk.Errorf(stacksdk.CodeInvalid, "the time limit is out of bounds")
+	case scoped == nil:
+		return nil, nil, 0, stacksdk.Errorf(stacksdk.CodeUnavailable, "the stack has no scoped dial")
+	}
+	targets := make([]webprobe.Target, 0, len(req.Targets))
+	for _, t := range req.Targets {
+		if !t.Addr.Is4() || t.Port < 1 || t.Port > 65535 {
+			return nil, nil, 0, stacksdk.Errorf(stacksdk.CodeInvalid, "a target must be an IPv4 address and a port")
+		}
+		targets = append(targets, webprobe.Target{Addr: t.Addr, Port: t.Port, TLS: t.TLS})
+	}
+	return webprobe.New(scoped.DialContext).WithPace(pace), targets, time.Duration(req.LimitSeconds) * time.Second, nil
+}
+
+// LookWeb makes the fixed plain GET requests of the web checks against the named services, through the scoped dial only, and says which checks
+// matched. Only a check id leaves the stack; a device that does not answer adds nothing and is not an error.
+func (s *Stack) LookWeb(ctx context.Context, req stacksdk.WebRequest) (stacksdk.WebResult, error) {
+	p, targets, limit, err := s.webRun(req)
+	if err != nil {
+		return stacksdk.WebResult{}, err
+	}
+	res, err := p.Probe(ctx, targets, limit)
+	if err != nil {
+		return stacksdk.WebResult{}, webError(err)
+	}
+	out := stacksdk.WebResult{Hits: make([]stacksdk.WebHit, 0, len(res.Hits)), Partial: res.Partial}
+	for _, h := range res.Hits {
+		out.Hits = append(out.Hits, stacksdk.WebHit{Addr: h.Addr, Port: h.Port, ID: h.ID})
+	}
+	return out, nil
+}
+
+// LookCertificates makes one handshake with each secure service among the targets, and a second that offers only the old protocol versions, and
+// returns the certificate's dates, whether it signed itself and the old versions accepted, as numbers. Nothing of the certificate's text leaves.
+func (s *Stack) LookCertificates(ctx context.Context, req stacksdk.WebRequest) (stacksdk.CertResult, error) {
+	p, targets, limit, err := s.webRun(req)
+	if err != nil {
+		return stacksdk.CertResult{}, err
+	}
+	res, err := p.ProbeTLS(ctx, targets, limit)
+	if err != nil {
+		return stacksdk.CertResult{}, webError(err)
+	}
+	out := stacksdk.CertResult{Facts: make([]stacksdk.CertFact, 0, len(res.Facts)), Partial: res.Partial}
+	for _, f := range res.Facts {
+		out.Facts = append(out.Facts, stacksdk.CertFact{Addr: f.Addr, Port: f.Port, NotBefore: f.NotBefore, NotAfter: f.NotAfter, SelfSigned: f.SelfSigned, OldVersions: f.OldVersions})
+	}
+	return out, nil
+}
+
+// RouterProblems lists every id a router result can carry as a problem, so a test in the service can hold the core's table of words to it.
+func RouterProblems() []string { return upnp.Problems() }
+
+// LookRouter asks the router at the given address whether it answers UPnP, which ports it forwards and, when asked, the address of its internet
+// side, through the scoped dial only. A router that does not answer is a result with nothing answered, not an error; a refused or unreadable
+// router carries a problem id. Only flags, numbers, addresses and ids leave the stack: the router's own text never does.
+func (s *Stack) LookRouter(ctx context.Context, req stacksdk.RouterRequest) (stacksdk.RouterResult, error) {
+	s.mu.Lock()
+	scoped, port, wait := s.scoped, s.upnpPort, s.upnpWait
+	s.mu.Unlock()
+	switch {
+	case req.Module != RouterModuleID:
+		return stacksdk.RouterResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "this stack has no such sensor")
+	case !req.Gateway.IsValid():
+		return stacksdk.RouterResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "a router address is needed")
+	case scoped == nil:
+		return stacksdk.RouterResult{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the stack has no scoped dial")
+	}
+	report, addr, err := upnp.Client{Dial: scoped.DialContext, SSDPPort: port, Wait: wait}.Look(ctx, req.Gateway, req.WantAddress)
+	if err != nil {
+		if ctx.Err() != nil {
+			return stacksdk.RouterResult{}, ctx.Err()
+		}
+		return stacksdk.RouterResult{Answered: report.Answered, Problem: upnp.ProblemOf(err)}, nil
+	}
+	out := stacksdk.RouterResult{Answered: report.Answered, Gateway: report.Gateway, HasService: report.HasService, MappingsProblem: report.MappingsProblem, ExternalAddr: addr}
+	for _, m := range report.Mappings {
+		out.Mappings = append(out.Mappings, stacksdk.RouterMapping{ExternalPort: m.ExternalPort, InternalPort: m.InternalPort, Protocol: m.Protocol, Client: m.Client, Enabled: m.Enabled})
+	}
+	return out, nil
+}
+
+// webError passes on a cancellation as it is and any other failure of a run as an internal error without the device's words.
+func webError(err error) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return stacksdk.Errorf(stacksdk.CodeInternal, "the web checks could not run")
 }
 
 // CallTool: the stack declares no tools yet.

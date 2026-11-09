@@ -327,3 +327,79 @@ func TestValidate_FindingIDsAreCheckedAsData(t *testing.T) {
 		}
 	}
 }
+
+// A module that sends datagrams to devices during the nightly report is declared in Looks, and the stack must require the scoped dial
+// (ADR-0038 rule 2): a dial that first applies the operator's declared scan scope, not the plain guarded dial.
+func TestValidate_LooksAreCheckedAsDataAndNeedTheScopedDial(t *testing.T) {
+	withLooks := func(looks []string, requires ...string) Manifest {
+		m := validManifest()
+		m.Looks, m.Requires = looks, requires
+		return m
+	}
+	if err := withLooks([]string{"udp_probes"}, PortConfig, PortScopedGuard).Validate(); err != nil {
+		t.Fatalf("a sensor with the scoped dial: %v", err)
+	}
+	for name, m := range map[string]Manifest{
+		"without the scoped dial":    withLooks([]string{"udp_probes"}, PortConfig, PortGuard),
+		"a bad id":                   withLooks([]string{"Udp Probes"}, PortConfig, PortScopedGuard),
+		"an empty id":                withLooks([]string{""}, PortConfig, PortScopedGuard),
+		"the same id twice":          withLooks([]string{"udp_probes", "udp_probes"}, PortConfig, PortScopedGuard),
+		"an unknown port name check": withLooks(nil, "scopedguards"),
+	} {
+		if err := m.Validate(); err == nil {
+			t.Errorf("%s: want a refusal", name)
+		}
+	}
+	if err := withLooks(nil, PortConfig, PortScopedGuard).Validate(); err != nil {
+		t.Errorf("requiring the scoped dial without a sensor is allowed: %v", err)
+	}
+}
+
+// A sensor's request and answer carry addresses, ports and one module id, and nothing a device said: the only text is the module id, which the
+// core checks against the manifest. Adding a text field to either type must be a deliberate change to this test.
+func TestLookTypes_CarryNoTextFromTheNetwork(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeFor[LookRequest](), reflect.TypeFor[LookResult](), reflect.TypeFor[Pair]()} {
+		if err := CheckPlainData(typ); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			isText := f.Type.Kind() == reflect.String || (f.Type.Kind() == reflect.Slice && f.Type.Elem().Kind() == reflect.String)
+			if isText && !(typ == reflect.TypeFor[LookRequest]() && f.Name == "Module") {
+				t.Errorf("%s.%s is text; only LookRequest.Module may be", typ, f.Name)
+			}
+		}
+	}
+}
+
+// The web sensor's request and answers carry addresses, ports, numbers, dates and one check id, and nothing a device said: the only text is
+// the module id of a request and the id of a hit, both of which the core checks against tables it owns. Adding a text field must be a deliberate
+// change to this test (ADR-0038 rule 3).
+func TestWebTypes_CarryNoTextFromTheNetwork(t *testing.T) {
+	allowed := map[string]bool{"WebRequest.Module": true, "WebHit.ID": true}
+	for _, typ := range []reflect.Type{
+		reflect.TypeFor[WebTarget](), reflect.TypeFor[WebRequest](), reflect.TypeFor[WebHit](), reflect.TypeFor[WebResult](),
+		reflect.TypeFor[CertFact](), reflect.TypeFor[CertResult](),
+	} {
+		if err := CheckPlainData(typ); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			isText := f.Type.Kind() == reflect.String || (f.Type.Kind() == reflect.Slice && f.Type.Elem().Kind() == reflect.String)
+			if isText && !allowed[typ.Name()+"."+f.Name] {
+				t.Errorf("%s.%s is text; only WebRequest.Module and WebHit.ID may be", typ, f.Name)
+			}
+		}
+	}
+	if f, ok := reflect.TypeFor[CertFact]().FieldByName("OldVersions"); !ok || f.Type != reflect.TypeFor[[]uint16]() {
+		t.Error("protocol versions travel as numbers, so the core maps them to its own words")
+	}
+}
+
+// A request is bounded the same way on both sides: the SDK names the bounds and the stack and the host refuse more.
+func TestWebBounds_AreNamed(t *testing.T) {
+	if MaxWebTargets < 1 || MaxLookSeconds < 1 {
+		t.Fatalf("bounds: %d targets, %d seconds", MaxWebTargets, MaxLookSeconds)
+	}
+}

@@ -478,3 +478,14 @@ func TestStackRegistry_TheCertificateChecksAreNamedWithTheWebChecks(t *testing.T
 		t.Fatalf("module = %+v", m)
 	}
 }
+
+// The core is handed the Network stack's registry of card makers by the composition root, so a wiring slip would show every device with no
+// maker and make the class check blind to cameras: the real registry answers for a known prefix and says nothing for a randomized address.
+func TestCardMakerOf_IsTheNetworkStacksRegistry(t *testing.T) {
+	if got := cardMakerOf("e8:0a:b9:12:34:56"); got != "Cisco Systems, Inc" {
+		t.Errorf("maker = %q", got)
+	}
+	if got := cardMakerOf("92:4b:fe:30:5a:61"); got != "" {
+		t.Errorf("a randomized address says nothing about the card, got %q", got)
+	}
+}

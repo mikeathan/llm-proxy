@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/netip"
 	"time"
 
 	"llm-proxy-stacks/network"
+	"llm-proxy-stacks/network/oui"
 	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/core/netaudit"
@@ -17,6 +19,19 @@ import (
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/models"
 )
+
+// cardMakerOf names the maker of a network card. The registry is the Network stack's data (stacks/network/oui), so the core never imports it:
+// the composition root, the one place that may, hands this function to the code that shows or judges a device by its maker.
+var cardMakerOf netaudit.VendorLookup = oui.Vendor
+
+// networkUDPModule is the id of the nightly UDP checks, the sensor the Network stack answers for.
+const networkUDPModule = network.UDPModuleID
+
+// networkWebModule is the id of the nightly web checks, the second sensor the Network stack answers for.
+const networkWebModule = network.WebModuleID
+
+// networkRouterModule is the id of the router check's sensor, the third the Network stack answers for. It has no switch and no registry entry.
+const networkRouterModule = network.RouterModuleID
 
 // The registry of stacks and modules (ADR-0028) is described here, once, in the composition root. It owns no setting: each module
 // is a Switch over the setting that already holds it, doing what that feature's own route did when it was switched.
@@ -101,9 +116,9 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Needs: []string{"presence"}, Switch: n.FollowUpConfig},
-		{ID: "web_checks", Title: "Web and certificate checks, nightly", Purpose: "Looks at the web page and certificate of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
+		{ID: networkWebModule, Title: "Web and certificate checks, nightly", Purpose: "Looks at the web page and certificate of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Ready: lan, Switch: n.WebChecksConfig, Monitors: []string{netaudit.MonitorWebChecks}},
-		{ID: "udp_probes", Title: "UDP checks, nightly", Purpose: "Asks each device whether its SNMP or UPnP service answers.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
+		{ID: networkUDPModule, Title: "UDP checks, nightly", Purpose: "Asks each device whether its SNMP or UPnP service answers.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Ready: lan, Switch: n.UDPChecksConfig},
 		{ID: "outside_lookup", Title: "Internet view", Purpose: "Ports the internet can reach.", Stack: stack.Network, Layer: "outside", Sends: stack.SendsInternet, StepUp: true,
 			Switch: n.OutsideLookupConfig, Ready: internet},
@@ -172,7 +187,7 @@ func networkStack() stacksdk.Stack { return network.New() }
 // newNetworkHost hosts the Network stack over the core's own services, one adapter per port its manifest requires: the settings document
 // (the `netaudit` key, unchanged), the guarded dial and fetch, the default gateway the neighbour table gives, the service's log, and the
 // data folder restricted to the files the manifest lists. The files it lists are removed by a factory reset, as the store they replace was.
-func (s *AppServices) newNetworkHost(store netaudit.PolicyStore, netTools *tools.NetworkTools) (*stackHost, error) {
+func (s *AppServices) newNetworkHost(store netaudit.PolicyStore, netTools *tools.NetworkTools, scope *netaudit.Scope) (*stackHost, error) {
 	st := networkStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(st.Manifest()); err != nil {
@@ -187,6 +202,9 @@ func (s *AppServices) newNetworkHost(store netaudit.PolicyStore, netTools *tools
 		Guard:   stackport.Guard{Dial: netTools.DialContext()},
 		Fetch:   stackport.Fetch{Opener: netTools},
 		Gateway: stackport.Gateway{Read: gateway},
+		// A sensor's datagrams go through the guarded dial after the operator's declared scan scope, checked afresh for every one, exactly as the
+		// core's own probes did before the sensor moved (Constitution II.3 item 3 and item 12).
+		ScopedGuard: stackport.ScopedGuard{Check: func(a netip.Addr) error { return scope.Policy().Check(a) }, Dial: netTools.DialContext()},
 	}
 	h, err := newStackHost(st, host)
 	if err != nil {

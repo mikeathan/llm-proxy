@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/ubuntuoval"
+	"llm-proxy/internal/core/vulndata/ubuntuoval"
 )
 
 // ubuntuUpdateWindow is how long one update may take; the file is about 1.3 MB.

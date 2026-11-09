@@ -10,7 +10,6 @@ import (
 	"time"
 
 	outside "llm-proxy/internal/core/netaudit/outsidelookup"
-	"llm-proxy/internal/core/netaudit/upnp"
 )
 
 // CheckInternetExposedPort is a port an outside scan database lists as open on the network's public address. Anyone on the
@@ -60,19 +59,12 @@ type ExposureStatus struct {
 	Differs bool `json:"differs,omitempty"`
 }
 
-// AddressReader asks the router for the address of its internet side: *upnp.Client. It is called only when the lookup is
-// switched on, so a router is not asked for it otherwise.
-type AddressReader interface {
-	ExternalIP(ctx context.Context, location, controlPath, serviceType string) (netip.Addr, error)
-}
-
 // Exposure is the opt-in look at what the internet can reach. It reads the router's own statement of its internet address
 // (UPnP), and only when the operator has switched it on and that address is a public one does it send that address, once, to
 // the outside service.
 type Exposure struct {
 	enabled func() bool
 	lookup  OutsideLookup
-	address AddressReader
 	// entered is the address the operator typed in; nil when none can be.
 	entered func() string
 	now     func() time.Time
@@ -87,8 +79,8 @@ type Exposure struct {
 }
 
 // NewExposure builds the check. enabled is read on every look, so the switch takes effect at once.
-func NewExposure(enabled func() bool, lookup OutsideLookup, address AddressReader, now func() time.Time) *Exposure {
-	return &Exposure{enabled: enabled, lookup: lookup, address: address, now: now}
+func NewExposure(enabled func() bool, lookup OutsideLookup, now func() time.Time) *Exposure {
+	return &Exposure{enabled: enabled, lookup: lookup, now: now}
 }
 
 // WithEnteredAddress gives the check the address the operator typed in, used only when the router states no public address.
@@ -114,6 +106,9 @@ func (e *Exposure) record(st ExposureStatus) {
 	e.status = st
 }
 
+// Wants says whether the look is switched on, and so whether the router should be asked for its internet address in the probe it is given.
+func (e *Exposure) Wants() bool { return e.enabled() }
+
 // Begin marks a new attempt as not yet looked. The router check calls it first on every run, so that whatever stops the run
 // before the look (no router address, a router outside the allowed networks, a refused probe) leaves the status saying the
 // look was not made, and the earlier findings are carried (Carry) instead of being reported as fixed. Only a look that is made,
@@ -127,11 +122,11 @@ func (e *Exposure) Begin() {
 // Findings makes the look for the router at gw, using what its UPnP report said. Nothing is sent unless the switch is on and
 // the router stated a public address. A look that could not be made gives no findings and is recorded as such; it is never
 // read as "nothing is open".
-func (e *Exposure) Findings(ctx context.Context, gw netip.Addr, report upnp.Report) []Finding {
+func (e *Exposure) Findings(ctx context.Context, gw netip.Addr, report RouterReport) []Finding {
 	if !e.enabled() {
 		return nil
 	}
-	pick, reason := e.choose(ctx, report)
+	pick, reason := e.choose(report)
 	if reason != "" {
 		e.record(ExposureStatus{Outcome: OutcomeCannotLook, Reason: reason})
 		return nil
@@ -193,8 +188,8 @@ type address struct {
 // choose picks the address to look up. The router's own public statement wins; the entered address is used only when the router
 // gives no public one (UPnP off, or an address behind another router or a provider's shared one). Without either, the reason
 // the router could not help is returned.
-func (e *Exposure) choose(ctx context.Context, report upnp.Report) (address, string) {
-	fromRouter, reason := e.routerAddress(ctx, report)
+func (e *Exposure) choose(report RouterReport) (address, string) {
+	fromRouter, reason := e.routerAddress(report)
 	entered := e.enteredAddress()
 	switch {
 	case reason == "":
@@ -218,17 +213,14 @@ func (e *Exposure) enteredAddress() netip.Addr {
 	return addr
 }
 
-// routerAddress is the router's internet address if it is one the outside world can reach, or the reason it is not. The router is
-// asked for it here and nowhere else.
-func (e *Exposure) routerAddress(ctx context.Context, report upnp.Report) (netip.Addr, string) {
+// routerAddress is the router's internet address, as the router sensor read it when asked, if it is one the outside world can reach, or the
+// reason it is not.
+func (e *Exposure) routerAddress(report RouterReport) (netip.Addr, string) {
 	if !report.Answered || !report.Gateway {
 		return netip.Addr{}, ReasonUPnPOff
 	}
-	if report.Service == "" {
-		return netip.Addr{}, ReasonNoAddress
-	}
-	addr, err := e.address.ExternalIP(ctx, report.Location, report.ControlPath, report.ServiceType)
-	if err != nil || !addr.IsValid() {
+	addr := report.ExternalAddr
+	if !report.HasService || !addr.IsValid() {
 		return netip.Addr{}, ReasonNoAddress
 	}
 	switch outside.Classify(addr) {
@@ -246,7 +238,7 @@ func (e *Exposure) routerAddress(ctx context.Context, report upnp.Report) (netip
 
 // exposedPortFinding states what was seen and whether a UPnP mapping on the router accounts for it. The wording is fixed: it
 // holds a port number and nothing the service or the router said, and not the public address. It never names a cause.
-func exposedPortFinding(gw netip.Addr, port int, maps []upnp.Mapping) Finding {
+func exposedPortFinding(gw netip.Addr, port int, maps []RouterMapping) Finding {
 	f := Finding{Device: gw.String(), Port: port, Check: CheckInternetExposedPort, Severity: SeverityMedium}
 	if slices.Contains(sensitiveForwards, port) {
 		f.Severity = SeverityHigh
@@ -259,8 +251,8 @@ func exposedPortFinding(gw netip.Addr, port int, maps []upnp.Mapping) Finding {
 	return f
 }
 
-func forwardedByUPnP(port int, maps []upnp.Mapping) bool {
-	return slices.ContainsFunc(maps, func(m upnp.Mapping) bool { return m.Enabled && m.ExternalPort == port })
+func forwardedByUPnP(port int, maps []RouterMapping) bool {
+	return slices.ContainsFunc(maps, func(m RouterMapping) bool { return m.Enabled && m.ExternalPort == port })
 }
 
 // Carry returns the earlier findings of this check when the last look was tried and could not be made, so that a night the

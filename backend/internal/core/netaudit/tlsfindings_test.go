@@ -6,14 +6,12 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"llm-proxy/internal/core/netaudit/webprobe"
 )
 
 var tlsNow = time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
 
-func factsOf(port int, notBefore, notAfter time.Time, selfSigned bool, old ...string) webprobe.TLSFacts {
-	return webprobe.TLSFacts{Addr: mustAddr("192.168.1.20"), Port: port, NotBefore: notBefore, NotAfter: notAfter, SelfSigned: selfSigned, OldVersions: old}
+func factsOf(port int, notBefore, notAfter time.Time, selfSigned bool, old ...uint16) TLSFact {
+	return TLSFact{Addr: mustAddr("192.168.1.20"), Port: port, NotBefore: notBefore, NotAfter: notAfter, SelfSigned: selfSigned, OldVersions: old}
 }
 
 func tlsChecksOf(fs []Finding) []string {
@@ -26,7 +24,7 @@ func tlsChecksOf(fs []Finding) []string {
 
 func TestTLSFindings_ExpiredAndExpiringCertificates(t *testing.T) {
 	year := 365 * 24 * time.Hour
-	got := TLSFindings([]webprobe.TLSFacts{
+	got := TLSFindings([]TLSFact{
 		factsOf(443, tlsNow.Add(-year), tlsNow.Add(-24*time.Hour), false),
 		factsOf(8443, tlsNow.Add(-year), tlsNow.Add(10*24*time.Hour), false),
 		factsOf(9443, tlsNow.Add(-year), tlsNow.Add(200*24*time.Hour), false),
@@ -44,14 +42,14 @@ func TestTLSFindings_ExpiredAndExpiringCertificates(t *testing.T) {
 
 func TestTLSFindings_ACertificateTheDeviceRenewsItselfIsNotAboutToExpire(t *testing.T) {
 	// Valid for two days, so it is always close to its end: the same rule as the nmap-based check.
-	got := TLSFindings([]webprobe.TLSFacts{factsOf(8443, tlsNow.Add(-24*time.Hour), tlsNow.Add(24*time.Hour), false)}, tlsNow)
+	got := TLSFindings([]TLSFact{factsOf(8443, tlsNow.Add(-24*time.Hour), tlsNow.Add(24*time.Hour), false)}, tlsNow)
 	if len(got) != 0 {
 		t.Fatalf("findings = %+v, want none for a short-lived certificate", got)
 	}
 }
 
 func TestTLSFindings_SelfSignedAndOldVersions(t *testing.T) {
-	got := TLSFindings([]webprobe.TLSFacts{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), true, "TLS 1.0", "TLS 1.1")}, tlsNow)
+	got := TLSFindings([]TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), true, 0x0301, 0x0302)}, tlsNow)
 	if strings.Join(tlsChecksOf(got), " ") != CheckSelfSigned+" "+CheckTLSWeakProtocol {
 		t.Fatalf("checks = %v", tlsChecksOf(got))
 	}
@@ -60,6 +58,18 @@ func TestTLSFindings_SelfSignedAndOldVersions(t *testing.T) {
 	}
 	if got[1].Severity != SeverityMedium || got[1].Evidence != "It still accepts old protocol versions: TLS 1.0, TLS 1.1" || got[1].Version != "TLS 1.0, TLS 1.1" {
 		t.Errorf("old versions = %+v", got[1])
+	}
+}
+
+// The stack sends the protocol versions as the numbers the standard gives them; the words in the evidence and the Version are the core's, so
+// an acceptance made on the old wording still holds. A number the core has no words for is dropped.
+func TestTLSFindings_VersionsComeAsNumbersAndAnUnknownOneIsDropped(t *testing.T) {
+	got := TLSFindings([]TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), false, 0x0301, 0x9999, 0x0302)}, tlsNow)
+	if len(got) != 1 || got[0].Evidence != "It still accepts old protocol versions: TLS 1.0, TLS 1.1" || got[0].Version != "TLS 1.0, TLS 1.1" {
+		t.Fatalf("findings = %+v", got)
+	}
+	if none := TLSFindings([]TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), false, 0x9999)}, tlsNow); len(none) != 0 {
+		t.Errorf("a version with no words made a finding: %+v", none)
 	}
 }
 
@@ -74,12 +84,12 @@ func TestTLSFindings_EveryNewCheckHasAFixAndAGuide(t *testing.T) {
 
 type fakeTLSWeb struct {
 	fakeWeb
-	tls    webprobe.TLSResult
+	tls    TLSResult
 	tlsErr error
-	tlsFor []webprobe.Target
+	tlsFor []WebTarget
 }
 
-func (f *fakeTLSWeb) ProbeTLS(_ context.Context, t []webprobe.Target, _ time.Duration) (webprobe.TLSResult, error) {
+func (f *fakeTLSWeb) ProbeTLS(_ context.Context, t []WebTarget, _ time.Duration) (TLSResult, error) {
 	f.tlsFor = t
 	return f.tls, f.tlsErr
 }
@@ -91,7 +101,7 @@ func reporterWith(web WebChecker, health *RunHealth) *RunReporter {
 }
 
 func TestRunReporter_AsksOnlyTheSecureServicesForACertificate(t *testing.T) {
-	web := &fakeTLSWeb{tls: webprobe.TLSResult{Facts: []webprobe.TLSFacts{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), true)}}}
+	web := &fakeTLSWeb{tls: TLSResult{Facts: []TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), true)}}}
 	result := Result{Findings: []Finding{openPortOf("192.168.1.20", 80, "http"), openPortOf("192.168.1.20", 443, "https")}}
 	reporterWith(web, NewRunHealth()).addWebChecks(context.Background(), &result)
 	if len(web.tlsFor) != 1 || web.tlsFor[0].Port != 443 || !web.tlsFor[0].TLS {
@@ -108,7 +118,7 @@ func TestRunReporter_AsksOnlyTheSecureServicesForACertificate(t *testing.T) {
 
 func TestRunReporter_TheNmapFindingOfTheSameCertificateIsKept(t *testing.T) {
 	nmap := Finding{Device: "192.168.1.20", Port: 443, Proto: "tcp", Check: CheckCertExpired, Severity: SeverityMedium, Evidence: "The certificate expired on 2026-03-01"}
-	web := &fakeTLSWeb{tls: webprobe.TLSResult{Facts: []webprobe.TLSFacts{factsOf(443, tlsNow.Add(-time.Hour*24*400), tlsNow.Add(-24*time.Hour*250), false)}}}
+	web := &fakeTLSWeb{tls: TLSResult{Facts: []TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*400), tlsNow.Add(-24*time.Hour*250), false)}}}
 	result := Result{Findings: []Finding{openPortOf("192.168.1.20", 443, "https"), nmap}}
 	reporterWith(web, NewRunHealth()).addWebChecks(context.Background(), &result)
 	n := 0
@@ -127,7 +137,7 @@ func TestRunReporter_TheNmapFindingOfTheSameCertificateIsKept(t *testing.T) {
 
 func TestRunReporter_AFreshHandshakeReplacesACarriedOldVersionFinding(t *testing.T) {
 	carried := Finding{Device: "192.168.1.20", Port: 443, Proto: "tcp", Check: CheckTLSWeakProtocol, Severity: SeverityMedium, Evidence: "It still accepts old protocol versions: TLS 1.0 (from the deep check of 2026-11-01)"}
-	web := &fakeTLSWeb{tls: webprobe.TLSResult{Facts: []webprobe.TLSFacts{factsOf(443, tlsNow.Add(-time.Hour*24*10), tlsNow.Add(24*time.Hour*300), false)}}}
+	web := &fakeTLSWeb{tls: TLSResult{Facts: []TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*10), tlsNow.Add(24*time.Hour*300), false)}}}
 	result := Result{Findings: []Finding{openPortOf("192.168.1.20", 443, "https"), carried}}
 	reporterWith(web, NewRunHealth()).addWebChecks(context.Background(), &result)
 	for _, f := range result.Findings {
@@ -153,7 +163,7 @@ func TestRunReporter_AFailedCertificateRunIsRecordedAndSaid(t *testing.T) {
 func TestDeepChecks_AddTheCertificateFindingsOfTheDevice(t *testing.T) {
 	base := baselineWith(openPortOf("192.168.1.20", 443, "https"))
 	d := newDeepChecks(&fakeDeepScanner{}, base, &memDeepStore{})
-	d.WithWebChecks(&fakeTLSWeb{tls: webprobe.TLSResult{Facts: []webprobe.TLSFacts{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), true)}}})
+	d.WithWebChecks(&fakeTLSWeb{tls: TLSResult{Facts: []TLSFact{factsOf(443, tlsNow.Add(-time.Hour*24*100), tlsNow.Add(24*time.Hour*300), true)}}})
 	check, err := d.Run(context.Background(), "ws", "audit", "192.168.1.20")
 	if err != nil {
 		t.Fatal(err)

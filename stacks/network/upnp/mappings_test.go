@@ -87,7 +87,7 @@ func itoa(i int) string { return strconv.Itoa(i) }
 func TestMappings_ListsUntilTheRouterSaysThereAreNoMore(t *testing.T) {
 	var calls atomic.Int32
 	srv := controlServer(t, 2, &calls)
-	c := Client{HTTP: http.DefaultClient}
+	c := Client{Dial: realDial}
 	got, err := c.Mappings(context.Background(), srv.URL+"/rootDesc.xml", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1")
 	if err != nil || len(got) != 2 {
 		t.Fatalf("got %+v, %v", got, err)
@@ -100,7 +100,7 @@ func TestMappings_ListsUntilTheRouterSaysThereAreNoMore(t *testing.T) {
 func TestMappings_AnEmptyListIsOneRequest(t *testing.T) {
 	var calls atomic.Int32
 	srv := controlServer(t, 0, &calls)
-	got, err := Client{HTTP: http.DefaultClient}.Mappings(context.Background(), srv.URL+"/rootDesc.xml", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1")
+	got, err := Client{Dial: realDial}.Mappings(context.Background(), srv.URL+"/rootDesc.xml", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1")
 	if err != nil || len(got) != 0 || calls.Load() != 1 {
 		t.Errorf("got %+v, %v after %d requests", got, err, calls.Load())
 	}
@@ -109,14 +109,14 @@ func TestMappings_AnEmptyListIsOneRequest(t *testing.T) {
 func TestMappings_AreBounded(t *testing.T) {
 	var calls atomic.Int32
 	srv := controlServer(t, 1000, &calls)
-	got, err := Client{HTTP: http.DefaultClient}.Mappings(context.Background(), srv.URL+"/rootDesc.xml", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1")
-	if err != nil || len(got) != maxMappings || calls.Load() > int32(maxMappings) {
+	got, err := Client{Dial: realDial}.Mappings(context.Background(), srv.URL+"/rootDesc.xml", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1")
+	if err != nil || len(got) != MaxMappings || calls.Load() > int32(MaxMappings) {
 		t.Errorf("got %d mappings after %d requests, %v", len(got), calls.Load(), err)
 	}
 }
 
 func TestMappings_RefusesAnOddServiceType(t *testing.T) {
-	c := Client{HTTP: http.DefaultClient}
+	c := Client{Dial: realDial}
 	for _, urn := range []string{"", "urn:x", "urn:schemas-upnp-org:service:WANIPConnection:1\r\nX-Evil: 1", "urn:schemas-upnp-org:service:WANIPConnection:9"} {
 		if _, err := c.Mappings(context.Background(), "http://192.168.50.1:80/rootDesc.xml", "/ctl/IPConn", urn); err == nil {
 			t.Errorf("%q must be refused before anything is sent", urn)
@@ -130,7 +130,7 @@ func TestMappings_AServerErrorThatIsNotTheEndOfTheListIsAnError(t *testing.T) {
 		_, _ = w.Write([]byte("boom"))
 	}))
 	defer srv.Close()
-	if _, err := (Client{HTTP: http.DefaultClient}).Mappings(context.Background(), srv.URL+"/x", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1"); err == nil {
+	if _, err := (Client{Dial: realDial}).Mappings(context.Background(), srv.URL+"/x", "/ctl/IPConn", "urn:schemas-upnp-org:service:WANIPConnection:1"); err == nil {
 		t.Error("an unreadable answer is 'could not list', never 'no mappings'")
 	}
 }
