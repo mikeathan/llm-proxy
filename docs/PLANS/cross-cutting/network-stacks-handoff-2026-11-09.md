@@ -34,10 +34,11 @@ Q1 yes (validated names); Q2 yes (an exchange port for Nearby's multicast, raw d
 - `decoy`, `routerlog`, `phonehome` and `knownbad` **stay in the core.** Reason: their sockets, stores, alert state and twelve-file readership (for `decoy`: `decoyfindings.go`, `incident.go`, `attackpaths.go`, `overview.go`, `activity.go`, `fixguide.go`, `remediation.go`, `runreporter.go`, `app/netaudit.go`, `netaudit_alerts.go`, two handlers) are all core, so a push port would add a queue, a drop path and a second owner of the same table for no isolation gain and some cost. No state handover is needed because nothing moves.
 - The observation port is not built; revisit only for a listener whose input is untrusted bytes a stack should parse.
 
-## What to build next
+Nearby was read in full as well and does not move either: its output is device free text (names, maker, model), which Q1 keeps out of a port, so the core would parse the same datagrams anyway (ADR-0039, "Narrowing"). The exchange port is accepted in principle and not built.
 
-1. **Nearby through the exchange port** (the only remaining S4 item that earns a move): core keeps `platform/mcast.Exchange` as `Exchange(ifc, questions, window) -> datagrams`; the stack parses the datagrams and returns typed facts (service types, ports, addresses; device free text stays in the core's Nearby text handling); delete the core's `ParseSSDP` copy. Pin the Nearby findings (`rogue_gateway`, service checks) first; bound datagram count and size at the port; needs a run on vertex.
-2. The ADR-0037 lookup port and the settings flip stay last.
+## What is left
+
+Option B of the S6 plan is **finished**: the sensors that send to devices and parse untrusted answers (UDP, web, certificate, router) are in the stack; everything else is a socket, a store or judgement and stays in the core by design. Left, all deferred: the ADR-0037 lookup port (no caller until the root `netaudit` pieces that call `vulnmatch` and `ubuntuoval` move), and the settings flip (only meaningful if every module moved, which it will not). Recommend closing the S6 plan after the owner's vertex checks below and harvesting it into the P3b design and the ledger (`documentation-stewardship`).
 
 ## Owner items on vertex (unchanged from before)
 
