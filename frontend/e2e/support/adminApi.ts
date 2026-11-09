@@ -16,7 +16,7 @@ const NEARBY = { enabled: false, running: false, devices: [] }
 const UBUNTU_DATA = { supported: true, host_release: 'noble', running: false, notices: 0, packages: 0 }
 const NEVER = '0001-01-01T00:00:00Z'
 const DNS_CHECK = {
-  enabled: false, interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
+  enabled: false, finding_enabled: false, interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
   names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], default_names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], server: '',
   resolver_url: 'https://cloudflare-dns.com/dns-query', default_resolver_url: 'https://cloudflare-dns.com/dns-query',
   status: { last_run: NEVER },

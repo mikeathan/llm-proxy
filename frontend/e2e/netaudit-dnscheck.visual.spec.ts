@@ -12,7 +12,7 @@ const differences = [
   { at: when, name: 'one.one.one.one', outcome: 'differ', router: [], outside: ['1.1.1.1', '1.0.0.1'] },
 ]
 const base = {
-  interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
+  finding_enabled: false, interval_minutes: 60, allowed_intervals: [15, 30, 60, 120, 360],
   names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], default_names: ['dns.google', 'one.one.one.one', 'dns.quad9.net'], server: '',
   resolver_url: 'https://cloudflare-dns.com/dns-query', default_resolver_url: 'https://cloudflare-dns.com/dns-query',
 }
@@ -22,7 +22,7 @@ const STATES = {
   never: { ...base, enabled: true, status: { last_run: NEVER }, summary: none },
   compared: { ...base, enabled: true, status: { last_run: when }, summary: { ...none, comparisons: 48, matches: 47, differs: 1, cannot_compare: 2, overlapping: 1, first: when, last: when } },
   alive: { ...base, enabled: true, status: { last_run: recent }, summary: { ...none, comparisons: 48, matches: 48, first: when, last: recent } },
-  differing: { ...base, enabled: true, status: { last_run: recent }, summary: { ...none, comparisons: 48, matches: 46, differs: 8, overlapping: 1, first: when, last: recent, differences } },
+  differing: { ...base, finding_enabled: true, enabled: true, status: { last_run: recent }, summary: { ...none, comparisons: 48, matches: 46, differs: 8, overlapping: 1, first: when, last: recent, differences } },
   nothingComparable: { ...base, enabled: true, status: { last_run: when }, summary: { ...none, cannot_compare: 3, first: when, last: when } },
   internetOff: { ...base, enabled: true, status: { last_run: when, problem: 'internet_off' }, summary: none },
   lanOff: { ...base, enabled: true, status: { last_run: when, problem: 'lan_off' }, summary: none },
@@ -53,6 +53,15 @@ for (const view of ['simple', 'advanced'] as const) {
       if (name === 'differing') {
         await expect(card.locator('[data-test="dns-check-difference"]')).toHaveCount(2)
         await expect(card.locator('[data-test="dns-check-differences"]')).toContainText('6 more differences are recorded')
+      }
+      // The finding switch is an Advanced-only choice, off until the operator makes it, and a phone can hit it.
+      const finding = card.locator('[data-test="dns-check-finding"]')
+      if (view === 'simple') await expect(finding).toHaveCount(0)
+      else {
+        await expect(finding).toBeVisible()
+        if (name === 'differing') await expect(finding).toBeChecked()
+        else await expect(finding).not.toBeChecked()
+        if (testInfo.project.name === 'mobile') expect((await finding.locator('xpath=..').boundingBox())?.height).toBeGreaterThanOrEqual(44)
       }
       if (name === 'nothingComparable') await expect(status).toContainText('does not mean the answers agree')
       if (name === 'internetOff' || name === 'lanOff') {
