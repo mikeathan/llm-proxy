@@ -408,7 +408,7 @@ func TestObserve_ADeviceSeenOnlyOverIPv6IsNewButHasNoFindingKey(t *testing.T) {
 	if p.NewDevices != 1 {
 		t.Errorf("the operator is still told about it: %+v", p)
 	}
-	if v := ViewOf(inv, later); !v.Devices[0].New || v.Devices[0].MAC != macOther {
+	if v := ViewOf(inv, later, nil); !v.Devices[0].New || v.Devices[0].MAC != macOther {
 		t.Errorf("and it is listed first: %+v", v.Devices)
 	}
 }
@@ -706,7 +706,7 @@ func TestInventory_TheNewestDeviceAtAnAddressGetsTheResult(t *testing.T) {
 
 func TestViewOf_CarriesTheLastProbe(t *testing.T) {
 	inv := models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: macTV, IP: "192.168.1.20", UDPPorts: []models.ProbeUDPPort{{Port: 161, State: "open"}}, UDPScannedAt: t0, OSGuesses: []models.ProbeOSGuess{{Name: "x", Accuracy: 1}}, OSDetectedAt: t0}}}
-	d := ViewOf(inv, t0).Devices[0]
+	d := ViewOf(inv, t0, nil).Devices[0]
 	if len(d.UDPPorts) != 1 || !d.UDPScannedAt.Equal(t0) || len(d.OSGuesses) != 1 || !d.OSDetectedAt.Equal(t0) {
 		t.Errorf("view = %+v", d)
 	}

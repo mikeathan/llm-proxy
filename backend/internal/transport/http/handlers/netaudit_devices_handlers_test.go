@@ -79,6 +79,29 @@ func TestDevicesHandlers_ListShowsTheInventoryView(t *testing.T) {
 	}
 }
 
+// The maker of a card comes from the lookup the composition root gives the handler (the registry is the Network stack's).
+func TestDevicesHandlers_ListNamesTheMakerThroughTheLookup(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Devices: []models.NetworkDevice{
+		{MAC: "aa:bb:cc:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now},
+	}}}
+	maker := netaudit.VendorLookup(func(string) string { return "Acme Networks" })
+	vendorOf := func(h *NetauditDevicesHandlers) string {
+		var got netaudit.InventoryView
+		rec := do(h.List, http.MethodGet, "/admin/api/netaudit/devices", "")
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || len(got.Devices) != 1 {
+			t.Fatalf("list = %d %s", rec.Code, rec.Body.String())
+		}
+		return got.Devices[0].Vendor
+	}
+	if v := vendorOf(NewNetauditDevicesHandlers(devices, &fakePresence{}).WithVendors(maker)); v != "Acme Networks" {
+		t.Errorf("vendor = %q", v)
+	}
+	if v := vendorOf(NewNetauditDevicesHandlers(devices, &fakePresence{})); v != "" {
+		t.Errorf("with no lookup there is no maker, got %q", v)
+	}
+}
+
 func TestDevicesHandlers_NamingAndApproving(t *testing.T) {
 	devices := &fakeDevices{}
 	h := NewNetauditDevicesHandlers(devices, &fakePresence{})

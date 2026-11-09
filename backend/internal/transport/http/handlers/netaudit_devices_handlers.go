@@ -46,12 +46,19 @@ type NetauditDevicesHandlers struct {
 	presence    PresenceControl
 	suggestions NameSuggestions
 	ports       PortRecords
+	vendors     netaudit.VendorLookup
 	now         func() time.Time
 }
 
 // WithSuggestions has the list offer, for each device the operator has not named, the name it gave when asked.
 func (h *NetauditDevicesHandlers) WithSuggestions(s NameSuggestions) *NetauditDevicesHandlers {
 	h.suggestions = s
+	return h
+}
+
+// WithVendors has the list name the maker of each card; without it no maker is shown.
+func (h *NetauditDevicesHandlers) WithVendors(v netaudit.VendorLookup) *NetauditDevicesHandlers {
+	h.vendors = v
 	return h
 }
 
@@ -72,7 +79,7 @@ func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, _ *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	view := netaudit.ViewOf(inv, h.now())
+	view := netaudit.ViewOf(inv, h.now(), h.vendors)
 	if h.suggestions != nil {
 		offered := h.suggestions.All()
 		for i, d := range view.Devices {

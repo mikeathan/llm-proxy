@@ -4,7 +4,6 @@ import (
 	"slices"
 	"time"
 
-	"llm-proxy-stacks/network/oui"
 	"llm-proxy/models"
 )
 
@@ -55,8 +54,19 @@ type InventoryView struct {
 	UpdatedAt time.Time    `json:"updated_at"`
 }
 
-// ViewOf builds the view of an inventory at a given time.
-func ViewOf(inv models.DeviceInventory, now time.Time) InventoryView {
+// VendorLookup names the maker of a network card from its hardware address, or returns "" when it does not know. The registry of
+// makers belongs to the Network stack, so the composition root hands the core this function; a nil lookup names no maker.
+type VendorLookup func(mac string) string
+
+func (v VendorLookup) of(mac string) string {
+	if v == nil {
+		return ""
+	}
+	return v(mac)
+}
+
+// ViewOf builds the view of an inventory at a given time; vendors names the maker of each card.
+func ViewOf(inv models.DeviceInventory, now time.Time, vendors VendorLookup) InventoryView {
 	view := InventoryView{
 		Devices:   make([]DeviceView, 0, len(inv.Devices)),
 		Gateway:   GatewayView{IP: inv.Gateway, MAC: inv.GatewaySeen, Changed: gatewayChanged(inv)},
@@ -66,7 +76,7 @@ func ViewOf(inv models.DeviceInventory, now time.Time) InventoryView {
 	for _, d := range inv.Devices {
 		view.Devices = append(view.Devices, DeviceView{
 			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
-			Approved: d.Approved, Important: d.Important, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: oui.Vendor(d.MAC),
+			Approved: d.Approved, Important: d.Important, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: vendors.of(d.MAC),
 			UDPPorts: d.UDPPorts, UDPScannedAt: d.UDPScannedAt, OSGuesses: d.OSGuesses, OSDetectedAt: d.OSDetectedAt,
 		})
 	}

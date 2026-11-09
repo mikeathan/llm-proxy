@@ -6,7 +6,6 @@ import (
 	"strings"
 	"unicode"
 
-	"llm-proxy-stacks/network/oui"
 	"llm-proxy/models"
 )
 
@@ -105,7 +104,7 @@ func ClassOf(e ClassEvidence) DeviceClass {
 // ClassMismatchFindings reports each device that looks like a camera, printer, media player or smart-home device and has an
 // administration service open, in one finding that lists the services. It reads the open TCP ports of hosts the scan finished,
 // the maker from the registry and the service types Nearby kept; a host the scan did not finish says nothing.
-func ClassMismatchFindings(devices []models.NetworkDevice, hosts []Host, nearby models.NearbyState) []Finding {
+func ClassMismatchFindings(devices []models.NetworkDevice, hosts []Host, nearby models.NearbyState, vendors VendorLookup) []Finding {
 	macByIP := make(map[string]string, len(devices))
 	for _, d := range devices {
 		if d.IP != "" {
@@ -123,7 +122,7 @@ func ClassMismatchFindings(devices []models.NetworkDevice, hosts []Host, nearby 
 		}
 		ip := h.Addr.String()
 		ports := openTCPPorts(h)
-		class := ClassOf(ClassEvidence{Vendor: oui.Vendor(macByIP[ip]), Services: servicesByIP[ip], Ports: ports})
+		class := ClassOf(ClassEvidence{Vendor: vendors.of(macByIP[ip]), Services: servicesByIP[ip], Ports: ports})
 		if class == "" {
 			continue
 		}

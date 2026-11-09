@@ -59,6 +59,14 @@ func TestClassOf_AnUnknownServiceTypeOrAMakerWithAClassWordInsideItIsNotAClass(t
 	}
 }
 
+// hikvisionPrefix stands in for the registry the Network stack owns: it names the camera maker for the one prefix these tests use.
+var hikvisionPrefix = VendorLookup(func(mac string) string {
+	if strings.HasPrefix(mac, "00:bc:99") {
+		return "Hangzhou Hikvision Digital Technology Co.,Ltd."
+	}
+	return ""
+})
+
 func classDevice(mac, ip string) models.NetworkDevice {
 	return models.NetworkDevice{MAC: mac, IP: ip, FirstSeen: time.Now(), LastSeen: time.Now()}
 }
@@ -73,7 +81,7 @@ func classHost(addr string, ports ...int) Host {
 
 func TestClassMismatchFindings_ACameraWithRemoteLoginOpenIsOneFindingThatListsEachPort(t *testing.T) {
 	devices := []models.NetworkDevice{classDevice("00:bc:99:00:00:01", "192.168.1.30")} // Hikvision's prefix in the bundled registry
-	got := ClassMismatchFindings(devices, []Host{classHost("192.168.1.30", 80, 554, 22, 23)}, models.NearbyState{})
+	got := ClassMismatchFindings(devices, []Host{classHost("192.168.1.30", 80, 554, 22, 23)}, models.NearbyState{}, hikvisionPrefix)
 	if len(got) != 1 {
 		t.Fatalf("want one finding, got %+v", got)
 	}
@@ -93,11 +101,11 @@ func TestClassMismatchFindings_ACameraWithRemoteLoginOpenIsOneFindingThatListsEa
 
 func TestClassMismatchFindings_UsesWhatTheDeviceAnnouncedAndNeverReportsWithoutAnAdminPort(t *testing.T) {
 	state := models.NearbyState{Devices: []models.NearbyDevice{{IP: "192.168.1.40", Services: []string{"_esphomelib._tcp"}}}}
-	got := ClassMismatchFindings(nil, []Host{classHost("192.168.1.40", 6053, 3389)}, state)
+	got := ClassMismatchFindings(nil, []Host{classHost("192.168.1.40", 6053, 3389)}, state, hikvisionPrefix)
 	if len(got) != 1 || !strings.Contains(got[0].Evidence, "smart-home device") || !strings.Contains(got[0].Evidence, "remote desktop (port 3389)") {
 		t.Fatalf("findings = %+v", got)
 	}
-	if quiet := ClassMismatchFindings(nil, []Host{classHost("192.168.1.40", 6053)}, state); len(quiet) != 0 {
+	if quiet := ClassMismatchFindings(nil, []Host{classHost("192.168.1.40", 6053)}, state, hikvisionPrefix); len(quiet) != 0 {
 		t.Errorf("a smart-home device with only its own port open is not a finding: %+v", quiet)
 	}
 }
@@ -106,15 +114,15 @@ func TestClassMismatchFindings_ReadsOnlyOpenTcpPortsOfHostsTheScanFinishedAndKno
 	cam := []models.NetworkDevice{classDevice("00:bc:99:00:00:01", "192.168.1.30")}
 	unscanned := classHost("192.168.1.30", 554, 22)
 	unscanned.Unscanned = true
-	if got := ClassMismatchFindings(cam, []Host{unscanned}, models.NearbyState{}); len(got) != 0 {
+	if got := ClassMismatchFindings(cam, []Host{unscanned}, models.NearbyState{}, hikvisionPrefix); len(got) != 0 {
 		t.Errorf("an unfinished scan says nothing: %+v", got)
 	}
 	closed := classHost("192.168.1.30", 554)
 	closed.Ports = append(closed.Ports, Port{Number: 22, Proto: "tcp", State: "closed"}, Port{Number: 23, Proto: "udp", State: "open"})
-	if got := ClassMismatchFindings(cam, []Host{closed}, models.NearbyState{}); len(got) != 0 {
+	if got := ClassMismatchFindings(cam, []Host{closed}, models.NearbyState{}, hikvisionPrefix); len(got) != 0 {
 		t.Errorf("a closed port and a UDP port are not an open remote login: %+v", got)
 	}
-	if got := ClassMismatchFindings(nil, []Host{classHost("192.168.1.9", 22, 80, 443)}, models.NearbyState{}); len(got) != 0 {
+	if got := ClassMismatchFindings(nil, []Host{classHost("192.168.1.9", 22, 80, 443)}, models.NearbyState{}, hikvisionPrefix); len(got) != 0 {
 		t.Errorf("a computer with SSH is not a mismatch: %+v", got)
 	}
 }

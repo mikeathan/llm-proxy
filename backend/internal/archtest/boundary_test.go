@@ -81,18 +81,6 @@ func isStackImport(imp string) bool {
 	return strings.HasPrefix(imp, stacksRoot) && imp != sdkPath
 }
 
-// migrationDebt is the known debt of moving Network into its stack (plan stacks-as-packages P3, Constitution IV.6): the service
-// packages that still import a stack package directly, because the code they belong to has not moved yet. It is an exact list of
-// importer -> imported package, it can only shrink (TestMigrationDebtIsStillOwed fails on an entry nothing needs), and it is empty
-// when P3b has moved internal/core/netaudit into the stack. Do not add to it: a new use of a stack goes through internal/app/stacks.go.
-var migrationDebt = map[string][]string{
-	module + "/internal/core/netaudit": {stacksRoot + "network/oui"}, // ViewOf and ClassMismatchFindings read the maker of a MAC
-}
-
-func inMigrationDebt(importer, imported string) bool {
-	return slices.Contains(migrationDebt[importer], imported)
-}
-
 // coreImportsOfStacks lists the packages outside stacks/ that import a stack. Only internal/app may, and only through stacks.go.
 func coreImportsOfStacks(p pkg) []string {
 	if strings.HasPrefix(p.ImportPath, stacksRoot) || strings.HasSuffix(p.ImportPath, "/archtest") {
@@ -100,7 +88,7 @@ func coreImportsOfStacks(p pkg) []string {
 	}
 	var bad []string
 	for _, imp := range p.allImports() {
-		if isStackImport(imp) && p.ImportPath != appPath && !inMigrationDebt(p.ImportPath, imp) {
+		if isStackImport(imp) && p.ImportPath != appPath {
 			bad = append(bad, p.ImportPath+" imports "+imp+"; only internal/app/stacks.go may")
 		}
 	}
@@ -273,24 +261,6 @@ func TestStackModulesDeclareOnlyTheSDK(t *testing.T) {
 	}
 }
 
-// The baseline above must not outlive its reason: an entry nothing imports any more is removed, so the list reaches empty.
-func TestMigrationDebtIsStillOwed(t *testing.T) {
-	imports := map[string][]string{}
-	for _, p := range goList(t) {
-		imports[p.ImportPath] = p.allImports()
-	}
-	for importer, owed := range migrationDebt {
-		for _, imported := range owed {
-			if !slices.Contains(imports[importer], imported) {
-				t.Errorf("%s no longer imports %s: remove it from migrationDebt", importer, imported)
-			}
-			if !isStackImport(imported) {
-				t.Errorf("migrationDebt lists %s, which is not a stack package", imported)
-			}
-		}
-	}
-}
-
 // Within internal/app, stacks.go is the only file that imports a stack.
 func TestOnlyTheCompositionRootImportsAStack(t *testing.T) {
 	for _, p := range goList(t) {
@@ -345,15 +315,8 @@ func TestRulesRefuseABreach(t *testing.T) {
 	if len(coreImportsOfStacks(pkg{ImportPath: appPath, Imports: []string{stacksRoot + "net"}})) != 0 {
 		t.Error("internal/app may import a stack")
 	}
-	owed := module + "/internal/core/netaudit"
-	if len(coreImportsOfStacks(pkg{ImportPath: owed, Imports: []string{stacksRoot + "network/oui"}})) != 0 {
-		t.Error("a package in migrationDebt may import the stack package listed for it")
-	}
-	if len(coreImportsOfStacks(pkg{ImportPath: owed, Imports: []string{stacksRoot + "network/dnswire"}})) == 0 {
-		t.Error("a package in migrationDebt may import only what is listed for it")
-	}
 	if len(coreImportsOfStacks(pkg{ImportPath: module + "/internal/core/tools", Imports: []string{stacksRoot + "network/oui"}})) == 0 {
-		t.Error("a package not in migrationDebt may not import that stack package")
+		t.Error("a core package may not import a stack package")
 	}
 }
 

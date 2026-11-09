@@ -51,3 +51,5 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0034](ADR-0034-the-privileged-helper-is-core-not-a-stack-and-decides-who-is-calling.md) | The privileged helper is core, not a stack, and it decides who is calling | proposed | 2026-11-07 | network-audit, guardrails, platform |
 | [ADR-0035](ADR-0035-a-stack-reaches-the-service-only-through-named-ports-and-keeps-only-the-files-it-lists.md) | A stack reaches the service only through named ports and keeps only the files it lists | proposed | 2026-11-08 | network-audit |
 | [ADR-0036](ADR-0036-a-stack-offers-findings-by-id-and-the-core-words-them.md) | A stack offers findings by id and the core words them | proposed | 2026-11-09 | network-audit |
+| [ADR-0037](ADR-0037-where-the-vulnerability-and-ubuntu-feeds-live-when-network-becomes-a-stack.md) | Where the vulnerability and Ubuntu feeds live when Network becomes a stack | accepted | 2026-11-09 | network-audit |
+| [ADR-0038](ADR-0038-the-network-stack-owns-the-sensors-and-the-core-keeps-the-judgement.md) | The Network stack owns the sensors and the core keeps the judgement | accepted | 2026-11-09 | network-audit |

@@ -63,7 +63,7 @@ A leaf's callers are in `internal/app` (wiring) and in the HTTP handlers. IV.6 a
 | S3 | Pure data leaves with handlers: `vulnindex`, `vulnfeed`, `vulnmatch`, `ubuntuoval`, `upnp`, `webprobe`, `dnswire`, `names`, `nearby` | store ownership, per-workspace paths |
 | S4 | Ingest-fed: `routerlog`, `knownbad`, `phonehome`, then `mcast` users | the ingest port |
 | S5 | Programs: `nmap`, `portprobe`, `scantool`, `wifilook` (isolation, the `nmcli` Unix-socket table entry, the agent tool and prompt fragment) | isolation port and tools |
-| S6 | The root `netaudit`, `decoy`, then delete `migrationDebt` | the end state |
+| S6 | The root `netaudit`, `decoy`, then delete `migrationDebt` (**`migrationDebt` deleted 2026-11-09, v0.63.0; the rest is not one slice, see [`network-stack-s6-plan.md`](network-stack-s6-plan.md)**) | the end state |
 
 Each slice ends with: build, tests, both boundary tests, complexity gate, harness check, an existing `settings.yml` loading
 unchanged, and the measured figures of section 4a recorded beside the baseline with no regression.
@@ -206,6 +206,8 @@ Read by grep, nothing built. Branch `network-stacks-s3-opensandbox-plan`.
   stores and their handlers, about 1,900 lines, plus `models` type moves.
 - **B. The root defines one narrow interface per feature and `app/stacks.go` plugs the stack in.** A new direction for ports (stack to core), a new ADR, and glue the 4a
   condition makes us justify; it risks the "SDK copies netaudit" outcome D5 rejected.
+
+- **Update 2026-11-09:** the owner leaned to A; reading the ports then found A also needs a large-data push-in port (the caps are 1 MiB for `Fetch`, 4 MiB for a stack route body, up to 256 MiB for a feed file). The owner chose C on 2026-11-09 and the leaves moved to `internal/core/vulndata/` (v0.63.0); the lookup port waits for S6. See [ADR-0037](../../decisions/ADR-0037-where-the-vulnerability-and-ubuntu-feeds-live-when-network-becomes-a-stack.md) (proposed; recommendation C).
 
 ## 5. Decisions (all accepted 2026-11-07)
 

@@ -220,7 +220,7 @@ func (s AppServices) NetauditClasses() netaudit.ClassFinder {
 	if s.netaudit == nil || s.netaudit.Nearby == nil {
 		return netaudit.ClassChecks{}
 	}
-	return netaudit.ClassChecks{State: s.netaudit.Nearby.Collector.State}
+	return netaudit.ClassChecks{State: s.netaudit.Nearby.Collector.State, Vendors: cardMakerOf}
 }
 
 // NetauditServices is the service checks the run reporter runs over a scan's open ports; nil until the services are wired.

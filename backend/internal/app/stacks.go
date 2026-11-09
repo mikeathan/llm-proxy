@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"llm-proxy-stacks/network"
+	"llm-proxy-stacks/network/oui"
 	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/core/netaudit"
@@ -17,6 +18,10 @@ import (
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/models"
 )
+
+// cardMakerOf names the maker of a network card. The registry is the Network stack's data (stacks/network/oui), so the core never imports it:
+// the composition root, the one place that may, hands this function to the code that shows or judges a device by its maker.
+var cardMakerOf netaudit.VendorLookup = oui.Vendor
 
 // The registry of stacks and modules (ADR-0028) is described here, once, in the composition root. It owns no setting: each module
 // is a Switch over the setting that already holds it, doing what that feature's own route did when it was switched.

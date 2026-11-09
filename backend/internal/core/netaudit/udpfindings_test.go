@@ -3,6 +3,7 @@ package netaudit
 import (
 	"context"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,31 @@ func TestUDPChecks_AnAnswerBecomesTheRuleFindingWithFixedWords(t *testing.T) {
 	}
 	if res.Findings[1].Service != "UPnP" || res.Findings[1].Severity != SeverityLow {
 		t.Errorf("upnp finding = %+v", res.Findings[1])
+	}
+}
+
+// Acks, fixes and the baseline diff are keyed on a finding's fields. The words of a nightly UDP finding are therefore pinned exactly, so the
+// day the question moves into the Network stack (ADR-0038) the same answer must produce the same finding, byte for byte, or every
+// finding reads as resolved overnight and the operator's acknowledgements are lost.
+func TestUDPChecks_TheFindingsOfAnAnswerAreByteIdentical(t *testing.T) {
+	asker := &fakeAsker{answers: []udpchecks.Answer{answer("10.0.0.7", 161), answer("10.0.0.7", 1900)}}
+	got := (&UDPChecks{Asker: asker}).Findings(context.Background(), []Host{hostOf("10.0.0.7", true, false, 80)}).Findings
+	want := []Finding{
+		{Device: "10.0.0.7", Port: 161, Proto: "udp", Service: "SNMP", Check: CheckUDPService, Severity: SeverityMedium,
+			Evidence: "SNMP answered a check from this computer. SNMP often answers to a default password (\"public\") and then gives away how the device is set up"},
+		{Device: "10.0.0.7", Port: 1900, Proto: "udp", Service: "UPnP", Check: CheckUDPService, Severity: SeverityLow,
+			Evidence: "UPnP answered a check from this computer. UPnP lets other devices on the network ask this one to open ports to the internet"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("findings = %+v", got)
+	}
+	for i := range want {
+		if !reflect.DeepEqual(got[i], want[i]) {
+			t.Errorf("finding %d changed:\n got  %+v\n want %+v", i, got[i], want[i])
+		}
+		if got[i].Key() != want[i].Key() {
+			t.Errorf("finding %d key changed: %q", i, got[i].Key())
+		}
 	}
 }
 
