@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"llm-proxy/internal/core/netaudit/vulnfeed"
+	"llm-proxy/internal/core/vulndata/vulnfeed"
 )
 
 type stubVulnData struct {

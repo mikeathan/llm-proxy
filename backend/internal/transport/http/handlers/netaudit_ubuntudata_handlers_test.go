@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/ubuntuoval"
+	"llm-proxy/internal/core/vulndata/ubuntuoval"
 )
 
 type fakeUbuntuData struct {

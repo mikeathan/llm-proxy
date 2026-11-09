@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/ubuntuoval"
+	"llm-proxy/internal/core/vulndata/ubuntuoval"
 	"llm-proxy/models"
 )
 

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"llm-proxy/internal/core/netaudit/vulnmatch"
+	"llm-proxy/internal/core/vulndata/vulnmatch"
 	"llm-proxy/models"
 )
 
