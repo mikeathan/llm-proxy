@@ -40,6 +40,10 @@ Nearby was read in full as well and does not move either: its output is device f
 
 Option B of the S6 plan is **finished**: the sensors that send to devices and parse untrusted answers (UDP, web, certificate, router) are in the stack; everything else is a socket, a store or judgement and stays in the core by design. Left, all deferred: the ADR-0037 lookup port (no caller until the root `netaudit` pieces that call `vulnmatch` and `ubuntuoval` move), and the settings flip (only meaningful if every module moved, which it will not). Recommend closing the S6 plan after the owner's vertex checks below and harvesting it into the P3b design and the ledger (`documentation-stewardship`).
 
+## Verifying the deployment (new)
+
+`scripts/verify-deployment.py` (read-only, GET only; see the testing-guide skill) checks the version, sign-in, every stack module's health, the listener and status routes, and the nightly findings against a saved baseline. Run it on vertex before and after a deploy: `scripts/verify-deployment.py --base http://vertex.local:4001 --workspace-id <id> --automation <name> --save-baseline before.json`, deploy, then `--compare before.json`. **Not yet run against a real server:** the shapes of `/netaudit/nearby`, `known-bad`, `outside-lookup` and `capture-window` were assumed from the handler tests (a route that answers 200 with no `enabled` or `problem` field reads as PASS), so check its first real output.
+
 ## Owner items on vertex (unchanged from before)
 
 - **DNS finding:** run the lying-resolver test (a local resolver answering a watched name with another address, two checks in a row), record it in the ledger, then switch on "Raise a finding when the router keeps disagreeing" (Network, Settings, Router DNS check, Advanced). The code path is proven by `TestFindings_ALyingRouterIsFoundByTheRealCollectorOnTwoChecksInARow`, not against a real router.
