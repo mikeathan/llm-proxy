@@ -4,7 +4,7 @@ date: 2026-11-09
 last_reviewed: 2026-11-09
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [I.11, I.12, II.3, IV.6]
-evidence: branch network-small-items (local, not pushed, 7 commits 985814a8..bbdc22cf on top of 84b8d27a, plus one uncommitted change for v0.66.0: the router check, `upnp`); docs/decisions/ADR-0037 and ADR-0038 (accepted); docs/PLANS/cross-cutting/network-stack-s6-plan.md; docs/learnings/network-audit.md (last eight entries); docs/learnings/guardrails.md (last entry). Replaces network-stacks-and-helper-handoff-2026-11-08.md (deleted; #211 to #215 are merged and deployed).
+evidence: PR #216 (branch network-router-sensor-v0.66.0, 10 commits on top of origin/main c317fb75, v0.66.0); docs/decisions/ADR-0037 and ADR-0038 (accepted); docs/PLANS/cross-cutting/network-stack-s6-plan.md; docs/learnings/network-audit.md (last eight entries); docs/learnings/guardrails.md (last entry). Replaces network-stacks-and-helper-handoff-2026-11-08.md (deleted; #211 to #215 are merged and deployed).
 ---
 
 # Network stacks: handoff for the next session (2026-11-09)
@@ -15,33 +15,36 @@ Read this first, then `network-stack-s6-plan.md` and ADR-0038 before touching a 
 
 ```bash
 cd /Users/mikeathan/dev/llm-proxy
-git status -sb && git log --oneline 84b8d27a..HEAD     # the 7 commits below; the tree should be clean
-./scripts/check-agent-harness.sh                        # must PASS
+git fetch origin && git status -sb && git log --oneline origin/main..HEAD   # on PR #216's branch: 10 commits; the tree should be clean
+./scripts/check-agent-harness.sh                                              # must PASS
+gh pr view 216 --json state,mergeable,statusCheckRollup                       # is it merged, and did CI pass?
 ```
 
-Open `docs/decisions/ADR-0038-…md` (the rules and the "Built" notes), then `backend/internal/app/stackhost.go` (the host side of both sensors) and `stacks/network/network.go` (`Look`, `LookWeb`, `LookCertificates`).
+If #216 is merged, start a fresh branch from `origin/main` for the next item. If it is open, read the review first. Then open `docs/decisions/ADR-0038-…md` (the rules and the "Built" notes), `backend/internal/app/stackhost.go` (the host side of the three sensors) and `stacks/network/network.go` (`Look`, `LookWeb`, `LookCertificates`, `LookRouter`).
 
 ## Branch and commit state
 
-- **Branch `network-small-items`, local only, nothing pushed.** The seven commits below are committed; the `upnp` move (v0.66.0, SPEC-003 2.54, ADR-0038 "Third sensor") is **uncommitted** in the working tree (`git status` shows it). `VERSION` 0.66.0. SPEC-006 1.11.
-- **Merge trap (found 2026-11-09):** the branch was cut from `network-stack-findings-port`, so its history holds six commits that #215 already squash-merged into `origin/main` (`41fb5e79`, `eb640844`, `585b210e`, `05710e25`, `76ff98b9`, `84b8d27a`). The tree at `84b8d27a` equals `origin/main` exactly (`git diff origin/main 84b8d27a` is empty), but a PR from this branch would re-show them and conflict in `VERSION`, the SPEC headers and `index.html`. **Recommended, needs the owner's approval (git mutation):** a fresh branch from `origin/main`, then `git cherry-pick 84b8d27a..bbdc22cf` (seven commits, no conflicts expected), then push that. Check `git grep '^<<<<<<<'` after.
-- **The seven commits, oldest first:**
+- **PR #216, branch `network-router-sensor-v0.66.0`, pushed, working tree clean.** Cut from `origin/main` (`c317fb75`, #215) with the commits cherry-picked, so the old `network-small-items` branch (local only, same tree, history still holding six commits #215 already squash-merged) is **superseded: delete it once #216 merges, do not push it**. `VERSION` 0.66.0. SPEC-003 2.54, SPEC-006 1.11.
+- **The ten commits, oldest first:**
 
 | Commit | What |
 |---|---|
-| `985814a8` | D9: a spawn with no workspace is confined (read-only system paths, nothing writable; SPEC-006 1.11) |
-| `44705aec` | the lying-resolver test, end to end, through the real collector |
-| `24a587ab` | OS guesses with no open port demoted; the DNS card mock sends `finding_enabled` (SPEC-003 2.51); rebuilt `index.html` |
-| `8dada4ba` | `vulnindex`, `vulnmatch`, `vulnfeed`, `ubuntuoval` moved to `internal/core/vulndata/` |
-| `f7e693ad` | `migrationDebt` retired (injected `VendorLookup`), ADR-0037 and ADR-0038 accepted, the S6 plan (v0.63.0) |
-| `614fd555` | the UDP checks asked by the Network stack: scoped dial, `Looker`, `Manifest.Looks` (v0.64.0, SPEC-003 2.52) |
-| `bbdc22cf` | the web and certificate checks asked by the stack: `WebLooker`, core words table (v0.65.0, SPEC-003 2.53) |
+| `58468543` | D9: a spawn with no workspace is confined (read-only system paths, nothing writable; SPEC-006 1.11) |
+| `e9d4a05a` | the lying-resolver test, end to end, through the real collector |
+| `4e8f1f3e` | OS guesses with no open port demoted; the DNS card mock sends `finding_enabled` (SPEC-003 2.51); rebuilt `index.html` |
+| `3b1eb3d5` | `vulnindex`, `vulnmatch`, `vulnfeed`, `ubuntuoval` moved to `internal/core/vulndata/` |
+| `4eba390c` | `migrationDebt` retired (injected `VendorLookup`), ADR-0037 and ADR-0038 accepted, the S6 plan (v0.63.0) |
+| `175215a8` | the UDP checks asked by the Network stack: scoped dial, `Looker`, `Manifest.Looks` (v0.64.0, SPEC-003 2.52) |
+| `fc13b336` | the web and certificate checks asked by the stack: `WebLooker`, core words table (v0.65.0, SPEC-003 2.53) |
+| `1f358cd5` | the earlier handoff note |
+| `c521b765` | the router check asked by the stack: `RouterLooker.LookRouter`, `stacks/network/upnp` (v0.66.0, SPEC-003 2.54); its own commit so it can be split into its own PR |
+| `d5ff16f2` | ADR-0039 (proposed) and this note |
 
-## Needs the owner before or with the PR
+## Needs the owner before or with the merge of #216
 
 1. **Constitution IV.6 wording changed** in `f7e693ad`: the transitional clause about the shrink-only `migrationDebt` list is gone (the list no longer exists). No rule is weaker; merging is the approval (V.1).
 2. **Two behaviour differences of the web checks (SPEC-003 2.53)** — keep or revert: they now honour the Guardrails local-network switch (before: declared scan scope alone; with the switch off the nightly report now says the checks could not run, and a deep check stores no web or certificate findings), and requests no longer ask for compression.
-3. **Not run on vertex:** nothing from these seven commits or from the `upnp` move. After a night with the router check, compare `upnp_enabled`, `upnp_forward` and `internet_exposed_port` with the night before: none resolved, none new; the Internet view's status should read the same.
+3. **Not run on vertex:** nothing from these ten commits. After a night with the router check, compare `upnp_enabled`, `upnp_forward` and `internet_exposed_port` with the night before: none resolved, none new; the Internet view's status should read the same.
 3a. **`upnp` differences to keep or revert (SPEC-003 2.54):** the report's message for a router it could not read is now one fixed sentence per reason (no network error, no router error code), and the requests no longer ask for compression. After a first night with the UDP module and the web module on, compare the `udp_service`, `web_exposure` and certificate findings with the night before: none resolved, none new.
 
 ## Owner items on vertex (unchanged from before)
@@ -91,6 +94,13 @@ The recipe that worked twice: pin goldens → SDK types and manifest check (test
 - **Linux-only code on this Mac:** the colima VM runs it. `cd backend && docker run --rm --security-opt seccomp=unconfined -v "$PWD":/src -w /src golang:1.26 go test ./internal/platform/sandbox/ ./internal/core/tools/ ./internal/shell/ ./internal/platform/progexec/ -count=1` ran with Landlock available; the first run downloads modules.
 - **zsh:** quote globs (`'*.md'`), `ls` is aliased to a long listing (use `command ls -1`), `command grep` avoids the ugrep alias, and macOS `sed -i` needs `-i ''`.
 
-## Checks run for the seven commits
+## Checks run for the ten commits
 
-Backend `go build ./...`, full `go test ./...` (no FAIL), `-race` on `internal/app`, `internal/core/netaudit`, `internal/core/stackport`; `go run ./tools/check-complexity/` OK (49 baseline entries, no new); `stacks/sdk`, `stacks/network` (with its sub-packages) and `stacks/example` under `GOWORK=off go test -race`; Linux container for the sandbox, tools, shell and progexec packages; the DNS-card and devices Playwright specs (54 passed); Vitest 2,740; `./scripts/check-agent-harness.sh` PASS. **Not run:** the full Playwright visual suite after the last frontend change; anything on vertex.
+Backend `go build ./...`, full `go test ./...` (no FAIL), `-race` on `internal/app`, `internal/core/netaudit`, `internal/core/stackport`; `go run ./tools/check-complexity/` OK (49 baseline entries, no new); `stacks/sdk`, `stacks/network` (with its sub-packages, including `upnp`) and `stacks/example` under `GOWORK=off go test -race`; Linux container for the sandbox, tools, shell and progexec packages (the earlier commits); the full Playwright visual suite after the `upnp` move (344 passed); Vitest 2,740 (earlier); `./scripts/check-agent-harness.sh` PASS. The router-check parity was checked against the code before the move, run from a `git archive` of the commit before it. The branch was rebuilt from `origin/main` by cherry-pick: its tree equals the old branch's, and the backend, stack, complexity and harness gates were rerun on it. **Not run:** anything on vertex; CI on #216 (not read yet).
+
+## What the next session does, in order
+
+1. Read #216's review and CI (`gh pr view 216`); fix what it finds.
+2. Get the owner's answers: ADR-0039 Q1 (validated host names as allowed text), Q2 (an exchange port for Nearby's multicast), Q3 (observations pushed in by the core), and the programs choice, (a) a typed method plus an argument check in the isolation adapter, or (b) keep `nmap`, `scantool` and `wifilook` in the core. Without them the ingest and programs items cannot start.
+3. If the owner accepts ADR-0039: change its status, record the names-only allowance in ADR-0038 rule 3, then build the ports with a parity test first (the recipe above) and a run on vertex for the multicast and listener behaviour.
+4. The ADR-0037 lookup port and the settings flip stay last and deferred: the first has no caller until the root `netaudit` pieces that use `vulnmatch` and `ubuntuoval` move, the second only matters once every module has moved.
