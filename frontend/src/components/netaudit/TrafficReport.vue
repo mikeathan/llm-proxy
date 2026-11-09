@@ -1,17 +1,20 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref, watch } from "vue"
+import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import TrafficChart from "./TrafficChart.vue"
-import { destinationLabel, kindShares, sampleNote, splitPercent, stoppedNote, trafficSentence } from "../../utils/netaudit/traffic"
+import TrafficDetail from "./TrafficDetail.vue"
+import { destinationLabel, flowsOfKind, kindShares, sampleNote, splitPercent, stoppedNote, trafficPlace, trafficSentence } from "../../utils/netaudit/traffic"
 import { formatBytes } from "../../utils/format/formatters"
 import {
-  TRAFFIC_BUSIEST, TRAFFIC_COLUMNS, TRAFFIC_DESTINATIONS_TITLE, TRAFFIC_DIRECTION_SPLIT, TRAFFIC_FLOWS_TITLE, TRAFFIC_INTERNET_SPLIT, TRAFFIC_KIND_LABELS,
+  TRAFFIC_BUSIEST, TRAFFIC_COLUMNS, TRAFFIC_KIND_FILTER, TRAFFIC_KIND_FILTER_CLEAR, TRAFFIC_KIND_FILTER_NONE, TRAFFIC_KIND_PICK, TRAFFIC_OPEN_PLACE, TRAFFIC_DESTINATIONS_TITLE, TRAFFIC_DIRECTION_SPLIT, TRAFFIC_FLOWS_TITLE, TRAFFIC_INTERNET_SPLIT, TRAFFIC_KIND_LABELS,
   TRAFFIC_KIND_SHORT, TRAFFIC_KINDS_TITLE, TRAFFIC_NO_NAME, TRAFFIC_OTHERS, TRAFFIC_PRIVACY_NOTE, TRAFFIC_SERIES_TITLE,
 } from "../../constants/netaudit"
-import type { HostTraffic } from "../../types/netaudit"
+import type { HostTraffic, TrafficKindWord } from "../../types/netaudit"
 
 // What one look at this computer's own traffic saw, as a sentence, the places the data went, the kinds of traffic, a chart of the seconds and
-// the conversations. Names come from DNS answers and are shown as text only. Nothing here is a finding.
+// the conversations. Names come from DNS answers and are shown as text only. Nothing here is a finding. A place or a conversation opens its
+// detail (and, for a device on this network, the helper scans); a kind filters the conversations; a second of the chart reads out its bytes.
 const props = defineProps<{ traffic: HostTraffic }>()
 
 const sentence = computed(() => trafficSentence(props.traffic))
@@ -29,6 +32,14 @@ const busiest = computed(() => {
   return max > 0 ? TRAFFIC_BUSIEST(series.indexOf(max), formatBytes(max)) : ""
 })
 const showSplit = computed(() => props.traffic.bytes_in + props.traffic.bytes_out > 0)
+// What is open or filtered belongs to one look: a new look starts clean.
+const openAddress = ref<string | null>(null)
+const kindFilter = ref<TrafficKindWord | null>(null)
+watch(() => props.traffic, () => { openAddress.value = null; kindFilter.value = null })
+const place = computed(() => (openAddress.value ? trafficPlace(props.traffic, openAddress.value) : null))
+const shownFlows = computed(() => flowsOfKind(props.traffic.flows, kindFilter.value))
+const toggleKind = (kind: TrafficKindWord) => { kindFilter.value = kindFilter.value === kind ? null : kind }
+const openPlace = (address: string) => { openAddress.value = address }
 const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
 </script>
 
@@ -43,15 +54,19 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
       <li v-for="n in notes" :key="n" class="break-words">{{ n }}</li>
     </ul>
 
+    <TrafficDetail v-if="place" :place="place" @close="openAddress = null" />
+
     <div v-if="traffic.destinations.length || shares.length" class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       <Panel v-if="traffic.destinations.length" :title="TRAFFIC_DESTINATIONS_TITLE">
         <ul class="m-0 flex list-none flex-col gap-3 p-0" data-test="destinations">
           <li v-for="d in traffic.destinations" :key="d.address + (d.name ?? '')" class="flex flex-col gap-1" data-test="destination">
-            <span class="flex items-baseline justify-between gap-3">
+            <button type="button" class="flex w-full flex-col gap-1 bg-transparent p-0 text-left max-sm:min-h-11" :aria-label="TRAFFIC_OPEN_PLACE(destinationLabel(d).text)" :aria-expanded="openAddress === d.address" data-test="destination-open" @click="openPlace(d.address)">
+            <span class="flex w-full items-baseline justify-between gap-3">
               <span class="min-w-0 break-all text-primary"><span data-test="destination-name">{{ destinationLabel(d).text }}</span><span v-if="!destinationLabel(d).named" class="ml-1 text-muted">({{ TRAFFIC_NO_NAME }})</span></span>
               <span class="flex-none text-[length:var(--text-small)] text-muted">{{ formatBytes(d.bytes) }}</span>
             </span>
             <span class="block h-2 bg-surface-hover" aria-hidden="true"><span class="block h-2 bg-accent-info" :style="{ width: barWidth(d.bytes) }"></span></span>
+            </button>
           </li>
         </ul>
         <p v-if="otherDestinations" class="m-0 mt-3 text-[length:var(--text-small)] text-muted" data-test="destinations-other">{{ TRAFFIC_OTHERS(otherDestinations) }} · {{ formatBytes(traffic.other_bytes) }}</p>
@@ -59,9 +74,11 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
 
       <Panel v-if="shares.length" :title="TRAFFIC_KINDS_TITLE">
         <ul class="m-0 flex list-none flex-col gap-2 p-0" data-test="kinds">
-          <li v-for="k in shares" :key="k.kind" class="flex items-baseline justify-between gap-3" data-test="kind">
-            <span class="min-w-0 break-words text-primary">{{ TRAFFIC_KIND_LABELS[k.kind] }}</span>
-            <span class="flex-none text-[length:var(--text-small)] text-muted">{{ k.percent }}% · {{ formatBytes(k.bytes) }}</span>
+          <li v-for="k in shares" :key="k.kind" data-test="kind">
+            <button type="button" class="flex w-full items-baseline justify-between gap-3 bg-transparent p-0 text-left max-sm:min-h-11" :aria-pressed="kindFilter === k.kind" :aria-label="TRAFFIC_KIND_PICK(TRAFFIC_KIND_LABELS[k.kind])" data-test="kind-pick" @click="toggleKind(k.kind)">
+              <span class="min-w-0 break-words" :class="kindFilter === k.kind ? 'font-semibold text-accent-info-text' : 'text-primary'">{{ TRAFFIC_KIND_LABELS[k.kind] }}</span>
+              <span class="flex-none text-[length:var(--text-small)] text-muted">{{ k.percent }}% · {{ formatBytes(k.bytes) }}</span>
+            </button>
           </li>
         </ul>
         <p v-if="showSplit" class="m-0 mt-3 border-t border-hairline pt-2 text-[length:var(--text-small)] text-secondary" data-test="traffic-split">
@@ -78,7 +95,12 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
     </Panel>
 
     <Panel v-if="traffic.flows.length" :title="TRAFFIC_FLOWS_TITLE" flush>
-      <div class="overflow-x-auto">
+      <p v-if="kindFilter" class="m-0 flex flex-wrap items-center gap-2 px-4 py-2 text-[length:var(--text-small)] text-secondary" data-test="kind-filter">
+        {{ TRAFFIC_KIND_FILTER(TRAFFIC_KIND_LABELS[kindFilter]) }}
+        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" data-test="kind-filter-clear" @click="kindFilter = null">{{ TRAFFIC_KIND_FILTER_CLEAR }}</BaseButton>
+      </p>
+      <p v-if="!shownFlows.length" class="m-0 px-4 py-3 text-[length:var(--text-small)] text-muted" data-test="flows-none">{{ TRAFFIC_KIND_FILTER_NONE }}</p>
+      <div v-else class="overflow-x-auto">
         <table class="w-full min-w-[34rem] border-collapse text-left" data-test="flows">
           <thead>
             <tr class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">
@@ -90,8 +112,8 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
             </tr>
           </thead>
           <tbody>
-            <tr v-for="f in traffic.flows" :key="`${f.address}|${f.port}|${f.proto}`" class="border-t border-hairline" data-test="flow">
-              <td class="max-w-[22rem] break-all px-4 py-2 text-primary">{{ flowName(f) }}</td>
+            <tr v-for="f in shownFlows" :key="`${f.address}|${f.port}|${f.proto}`" class="cursor-pointer border-t border-hairline hover:bg-surface-hover" data-test="flow" @click="openPlace(f.address)">
+              <td class="max-w-[22rem] break-all px-4 py-2 text-primary"><button type="button" class="break-all bg-transparent p-0 text-left text-primary max-sm:min-h-11" :aria-label="TRAFFIC_OPEN_PLACE(flowName(f))" data-test="flow-open">{{ flowName(f) }}</button></td>
               <td class="px-2 py-2 text-muted">{{ f.port || "·" }}</td>
               <td class="px-2 py-2 text-muted">{{ TRAFFIC_KIND_SHORT[f.kind] }}</td>
               <td class="px-2 py-2 text-right text-secondary">{{ formatBytes(f.bytes_out) }}</td>

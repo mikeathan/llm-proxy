@@ -10,6 +10,12 @@ import type { HelperStatus, HostTraffic, TrafficAvailability } from '../../types
 const ACTION = 'capture_host'
 const OK: TrafficAvailability = { ok: true, reason: '' }
 
+// A look runs for up to a minute, longer than a visit to this tab: its state is shared by every use of the composable, so a look started
+// before leaving the tab is still shown as running when the tab is opened again, and its result lands in the tab that is open when it ends.
+const summary = ref<HostTraffic | null>(null)
+const running = ref(false)
+const error = ref('')
+
 /** Why the look cannot be pressed with the helper in this state, and the page that fixes it; ok when it can. */
 function availabilityOf(status: HelperStatus | null): TrafficAvailability {
   if (!status) return { ok: false, reason: TRAFFIC_STATUS_UNKNOWN }
@@ -29,10 +35,7 @@ function availabilityOf(status: HelperStatus | null): TrafficAvailability {
  */
 export function useHostTraffic() {
   const status = ref<HelperStatus | null>(null)
-  const summary = ref<HostTraffic | null>(null)
   const loaded = ref(false)
-  const running = ref(false)
-  const error = ref('')
   const loadError = ref('')
 
   const availability = computed(() => availabilityOf(status.value))
@@ -46,9 +49,11 @@ export function useHostTraffic() {
       status.value = null
     }
     try {
-      summary.value = await NetauditService.lastHostTraffic()
+      const last = await NetauditService.lastHostTraffic()
+      // A look still running will replace this with its own result; do not show an older one over it.
+      if (!running.value) summary.value = last
     } catch (err) {
-      summary.value = null
+      if (!running.value) summary.value = null
       loadError.value = errorMessage(err, TRAFFIC_LOAD_FAILED)
     }
     loaded.value = true

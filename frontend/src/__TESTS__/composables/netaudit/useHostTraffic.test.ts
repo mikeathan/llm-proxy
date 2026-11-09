@@ -105,4 +105,23 @@ describe('useHostTraffic', () => {
     expect(await t.listen()).toBe(false)
     expect(t.error.value).not.toBe('')
   })
+
+  it('keeps a look running across leaving and reopening the tab, and shows its result', async () => {
+    service.helper.mockResolvedValue(ready())
+    let finish: (v: unknown) => void = () => undefined
+    service.captureHost.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    service.lastHostTraffic.mockResolvedValue(null)
+    const first = useHostTraffic()
+    await first.load()
+    const pending = first.listen()
+    const reopened = useHostTraffic()
+    await reopened.load()
+    expect(reopened.running.value).toBe(true)
+    expect(await reopened.listen()).toBe(false)
+    service.lastHostTraffic.mockResolvedValue(summary)
+    finish({ parsed: summary })
+    await pending
+    expect(reopened.running.value).toBe(false)
+    expect(reopened.summary.value).toEqual(summary)
+  })
 })

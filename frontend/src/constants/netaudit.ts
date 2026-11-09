@@ -709,6 +709,21 @@ export const TRAFFIC_DROPPED = (n: number): string => `${n} ${n === 1 ? 'frame w
 export const TRAFFIC_SAMPLED = (n: number): string => `Estimated: one ordinary frame in ${n} was counted, because there was too much traffic to keep every frame.`
 export const TRAFFIC_ENCRYPTED_KINDS: readonly TrafficKindWord[] = ['https', 'quic']
 export const TRAFFIC_TOP_DESTINATIONS = 3
+export const TRAFFIC_DETAIL_CLOSE = 'Close'
+export const TRAFFIC_DETAIL_ADDRESS = 'Address'
+export const TRAFFIC_DETAIL_WHERE = { internet: 'On the internet', network: 'On this network' } as const
+export const TRAFFIC_DETAIL_SHARE = (percent: number, bytes: string): string => `${bytes}, ${percent < 1 ? 'under 1' : percent}% of everything counted`
+export const TRAFFIC_DETAIL_NO_FLOWS = 'The look kept no separate conversations for this place; it is counted in the list of places only.'
+export const TRAFFIC_DETAIL_SCAN_TITLE = 'Look closer at this device'
+export const TRAFFIC_DETAIL_READ_ONLY = 'Scans only reach devices on your own network, so an internet address is shown but not scanned.'
+export const TRAFFIC_DETAIL_NOT_A_DEVICE = 'This address is shared by many devices (broadcast or multicast), so there is no one device to scan.'
+export const TRAFFIC_OPEN_PLACE = (label: string): string => `Show details for ${label}`
+export const TRAFFIC_KIND_FILTER = (label: string): string => `Showing only ${label}.`
+export const TRAFFIC_KIND_FILTER_CLEAR = 'Show all'
+export const TRAFFIC_KIND_FILTER_NONE = 'No conversation of this kind was kept separately.'
+export const TRAFFIC_KIND_PICK = (label: string): string => `Show only ${label} conversations`
+export const TRAFFIC_SECOND_PICK = 'Pick a second'
+export const TRAFFIC_SECOND_READOUT = (clock: string, bytes: string): string => `${clock}: ${bytes} in this second`
 export const TRAFFIC_CHART_WIDTH = 960
 export const TRAFFIC_CHART_HEIGHT = 140
 export const TRAFFIC_STATUS_UNKNOWN = 'The state of the privileged helper could not be read, so listening cannot be offered now. Check that the server is running, then reload.'

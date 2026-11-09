@@ -2,9 +2,10 @@ import { formatBytes } from '../format/formatters'
 import {
   TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED_KINDS, TRAFFIC_KIND_LABELS, TRAFFIC_SAMPLED, TRAFFIC_STOPPED, TRAFFIC_TOP_DESTINATIONS,
 } from '../../constants/netaudit'
-import type { ChartBar, HostTraffic, TrafficDestination, TrafficKind } from '../../types/netaudit'
+import type { ChartBar, HostTraffic, TrafficDestination, TrafficFlow, TrafficKind, TrafficPlace } from '../../types/netaudit'
 
 const MS_PER_SECOND = 1000
+const SECONDS_PER_MINUTE = 60
 const PERCENT = 100
 /** The least height a bar has, so a quiet second is still a mark on the chart. */
 const HAIRLINE = 1
@@ -74,4 +75,51 @@ export function stoppedNote(t: HostTraffic): string {
 export function splitPercent(first: number, second: number): [number, number] {
   const a = percentOf(first, first + second)
   return first + second === 0 ? [0, 0] : [a, PERCENT - a]
+}
+
+
+const MULTICAST_FIRST_OCTET = [224, 239] as const
+const IPV4_BROADCAST = '255.255.255.255'
+const IPV6_MULTICAST_PREFIX = 'ff'
+
+/** True for an address many devices share (IPv4 multicast or broadcast, IPv6 multicast), which no one scan can mean. */
+export function isSharedAddress(address: string): boolean {
+  if (address === IPV4_BROADCAST || address.toLowerCase().startsWith(IPV6_MULTICAST_PREFIX)) return true
+  const first = Number(address.split('.')[0])
+  return first >= MULTICAST_FIRST_OCTET[0] && first <= MULTICAST_FIRST_OCTET[1]
+}
+
+/** Everything the look kept about one address: its name, size, share of the whole and its conversations; null when the look never saw it. */
+export function trafficPlace(t: HostTraffic, address: string): TrafficPlace | null {
+  const destination = t.destinations.find((d) => d.address === address)
+  const flows = t.flows.filter((f) => f.address === address)
+  if (!destination && flows.length === 0) return null
+  const internet = destination?.internet ?? flows[0]!.internet
+  const bytes = destination?.bytes ?? flows.reduce((n, f) => n + f.bytes_in + f.bytes_out, 0)
+  const total = t.bytes_in + t.bytes_out + t.bytes_through
+  return {
+    address,
+    name: destination?.name || flows.find((f) => f.name)?.name,
+    internet,
+    bytes,
+    percent: percentOf(bytes, total),
+    flows,
+    scannable: !internet && !isSharedAddress(address),
+  }
+}
+
+/** The conversations of one kind, or all of them when no kind is picked. */
+export function flowsOfKind(flows: readonly TrafficFlow[], kind: TrafficKind['kind'] | null): TrafficFlow[] {
+  return kind ? flows.filter((f) => f.kind === kind) : [...flows]
+}
+
+/** The second a click at `x` of a chart `width` wide falls in, kept inside the seconds there are. */
+export function secondAt(x: number, width: number, seconds: number): number {
+  if (seconds <= 0 || width <= 0) return 0
+  return Math.min(seconds - 1, Math.max(0, Math.floor((x / width) * seconds)))
+}
+
+/** A second as a clock, 0:07. */
+export function secondClock(second: number): string {
+  return `${Math.floor(second / SECONDS_PER_MINUTE)}:${String(second % SECONDS_PER_MINUTE).padStart(2, '0')}`
 }
