@@ -41,7 +41,7 @@ Read this, then the plan named in the item you take. Everything below is on **lo
 - **Built:** ADR-0036 (accepted): `ModuleSpec.Finds`, `Stack.Findings`, `stacksdk.StackFinding`, `core/netaudit/stackfindings.go`, `stackHost.Offered`, `dnscheck.Persistent`, the `dns_check_finding_enabled` switch and its Advanced checkbox. Failed-login findings say where from (btmp `ut_addr_v6`; `platform/loginlog.Attempts`). VERSION 0.62.0, SPEC-003 2.50.
 - **Checks run:** backend `go test ./...`, `go vet`, complexity; `GOWORK=off go test -race ./...` in `stacks/network`; `stacks/sdk` tests; frontend 2,740 tests, build, the DNS-card visual spec; harness. **Not run:** the full frontend visual suite, anything on vertex.
 - **Constitution I.10 is amended in this branch (proposed):** it said no address could be kept. Merging the PR is the owner's approval (V.1). Do not deploy before that.
-- **auth.log helper action (`read_auth_log`, N2e):** not built and now not needed for "where from". Owner on vertex: `sudo lastb -i | head` to confirm sshd fills the address; if it shows 0.0.0.0 the finding stays silent about origins.
+- **auth.log helper action (`read_auth_log`, N2e):** not built and now not needed for "where from". Confirmed on vertex 2026-11-09: `sudo lastb -i | head` shows `192.168.50.251` for all three failures, so sshd fills the address. Still to see: the first real burst (proves the byte offset) and an internet source.
 - **Not done:** a lying-resolver end-to-end test through the real collector (only `Persistent` and `Findings` are tested); the Playwright mock was not given `finding_enabled` (the field is optional).
 
 ## Traps found this session
