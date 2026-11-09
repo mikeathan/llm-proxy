@@ -53,3 +53,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0036](ADR-0036-a-stack-offers-findings-by-id-and-the-core-words-them.md) | A stack offers findings by id and the core words them | proposed | 2026-11-09 | network-audit |
 | [ADR-0037](ADR-0037-where-the-vulnerability-and-ubuntu-feeds-live-when-network-becomes-a-stack.md) | Where the vulnerability and Ubuntu feeds live when Network becomes a stack | accepted | 2026-11-09 | network-audit |
 | [ADR-0038](ADR-0038-the-network-stack-owns-the-sensors-and-the-core-keeps-the-judgement.md) | The Network stack owns the sensors and the core keeps the judgement | accepted | 2026-11-09 | network-audit |
+| [ADR-0039](ADR-0039-how-the-listening-and-discovering-sensors-reach-the-network-stack.md) | How the listening and discovering sensors reach the Network stack | proposed | 2026-11-09 | network-audit |

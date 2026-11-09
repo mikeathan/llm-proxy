@@ -4,7 +4,7 @@ date: 2026-11-09
 last_reviewed: 2026-11-09
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [I.11, I.12, II.3, IV.6]
-evidence: branch network-small-items (local, not pushed, 7 commits 985814a8..bbdc22cf on top of 84b8d27a, v0.65.0); docs/decisions/ADR-0037 and ADR-0038 (accepted); docs/PLANS/cross-cutting/network-stack-s6-plan.md; docs/learnings/network-audit.md (last eight entries); docs/learnings/guardrails.md (last entry). Replaces network-stacks-and-helper-handoff-2026-11-08.md (deleted; #211 to #215 are merged and deployed).
+evidence: branch network-small-items (local, not pushed, 7 commits 985814a8..bbdc22cf on top of 84b8d27a, plus one uncommitted change for v0.66.0: the router check, `upnp`); docs/decisions/ADR-0037 and ADR-0038 (accepted); docs/PLANS/cross-cutting/network-stack-s6-plan.md; docs/learnings/network-audit.md (last eight entries); docs/learnings/guardrails.md (last entry). Replaces network-stacks-and-helper-handoff-2026-11-08.md (deleted; #211 to #215 are merged and deployed).
 ---
 
 # Network stacks: handoff for the next session (2026-11-09)
@@ -23,7 +23,7 @@ Open `docs/decisions/ADR-0038-…md` (the rules and the "Built" notes), then `ba
 
 ## Branch and commit state
 
-- **Branch `network-small-items`, local only, nothing pushed, working tree clean.** `VERSION` 0.65.0. SPEC-003 2.53, SPEC-006 1.11.
+- **Branch `network-small-items`, local only, nothing pushed.** The seven commits below are committed; the `upnp` move (v0.66.0, SPEC-003 2.54, ADR-0038 "Third sensor") is **uncommitted** in the working tree (`git status` shows it). `VERSION` 0.66.0. SPEC-006 1.11.
 - **Merge trap (found 2026-11-09):** the branch was cut from `network-stack-findings-port`, so its history holds six commits that #215 already squash-merged into `origin/main` (`41fb5e79`, `eb640844`, `585b210e`, `05710e25`, `76ff98b9`, `84b8d27a`). The tree at `84b8d27a` equals `origin/main` exactly (`git diff origin/main 84b8d27a` is empty), but a PR from this branch would re-show them and conflict in `VERSION`, the SPEC headers and `index.html`. **Recommended, needs the owner's approval (git mutation):** a fresh branch from `origin/main`, then `git cherry-pick 84b8d27a..bbdc22cf` (seven commits, no conflicts expected), then push that. Check `git grep '^<<<<<<<'` after.
 - **The seven commits, oldest first:**
 
@@ -41,7 +41,8 @@ Open `docs/decisions/ADR-0038-…md` (the rules and the "Built" notes), then `ba
 
 1. **Constitution IV.6 wording changed** in `f7e693ad`: the transitional clause about the shrink-only `migrationDebt` list is gone (the list no longer exists). No rule is weaker; merging is the approval (V.1).
 2. **Two behaviour differences of the web checks (SPEC-003 2.53)** — keep or revert: they now honour the Guardrails local-network switch (before: declared scan scope alone; with the switch off the nightly report now says the checks could not run, and a deep check stores no web or certificate findings), and requests no longer ask for compression.
-3. **Not run on vertex:** nothing from these seven commits. After a first night with the UDP module and the web module on, compare the `udp_service`, `web_exposure` and certificate findings with the night before: none resolved, none new.
+3. **Not run on vertex:** nothing from these seven commits or from the `upnp` move. After a night with the router check, compare `upnp_enabled`, `upnp_forward` and `internet_exposed_port` with the night before: none resolved, none new; the Internet view's status should read the same.
+3a. **`upnp` differences to keep or revert (SPEC-003 2.54):** the report's message for a router it could not read is now one fixed sentence per reason (no network error, no router error code), and the requests no longer ask for compression. After a first night with the UDP module and the web module on, compare the `udp_service`, `web_exposure` and certificate findings with the night before: none resolved, none new.
 
 ## Owner items on vertex (unchanged from before)
 
@@ -53,15 +54,14 @@ Open `docs/decisions/ADR-0038-…md` (the rules and the "Built" notes), then `ba
 
 ## What to build next, in order (each its own PR; stop at any line)
 
-State of S6 option B (sensors in the stack, judgement in the core): **built** the scoped dial, the `Looker` and `WebLooker` methods, `udpchecks`, `webprobe`. **Left:**
+State of S6 option B (sensors in the stack, judgement in the core): **built** the scoped dial, the `Looker`, `WebLooker` and `RouterLooker` methods, `udpchecks`, `webprobe`, `upnp`. **Left:**
 
-1. **`upnp`.** Read `core/netaudit/exposure.go`, `router.go`, their handlers and `frontend/src/types/netaudit.ts` first: `upnp`'s `Mapping` and `Report` types travel inside the router and exposure views the frontend reads, so the JSON must stay byte-identical (a UI contract on top of the findings one). Decide its method shape from those, not before.
-2. **The ingest port (S4)** for `routerlog`, `phonehome`, `knownbad`, `nearby` (`platform/mcast`): the core keeps the sockets and pushes plain data in (design D6 in `network-stack-p3b-design.md`). Needs its own ADR section; real multicast behaviour needs a run on vertex.
-3. **Programs (S5):** `nmap`, `portprobe`, `scantool`, `wifilook` over the isolation port; `scantool` also uses `platform/scanscope` and `core/toolregistry`, so decide whether the scope policy is a port or stays in the core (the scoped dial now covers connections, not the scope's other uses).
-4. **The ADR-0037 lookup port**, with its first caller (the flaws and known-vulns matching), optional in the manifest. No caller exists until the root `netaudit` pieces that call `vulnmatch` and `ubuntuoval` move.
-5. **Settings flip and the Modules definitions** move last, with the round-trip test on a real `settings.yml`.
+1. **The ingest and exchange ports (S4)** for `routerlog`, `phonehome`, `knownbad`, `decoy` (listeners: the core keeps the sockets and pushes observations in, design D6) and `nearby` (it sends multicast, so it needs an exchange port, not ingest). **ADR-0039 is drafted, status `proposed`, nothing built:** the owner must answer its Q1 (do validated host names count as allowed text, as `StackFinding.Names` already does), Q2 (an exchange port for Nearby's multicast) and Q3 (observations pushed in). Real multicast and listener behaviour needs a run on vertex.
+2. **Programs (S5):** `nmap`, `portprobe`, `scantool`, `wifilook`. The scoped dial does **not** cover a program: `nmap` opens its own sockets. Today the root's `PolicyAuthorizer` checks every target before the engine runs and the engine receives `[]netip.Addr`. The owner chooses (a) a typed method whose host checks every address, plus a check of the target arguments in the isolation adapter, or (b) keep `nmap`, `scantool` and `wifilook` in the core (ADR-0039, "Programs"). `scantool` is the agent's `network_scan` tool (it uses `core/assistant/prompts`, `toolregistry` and `models` context values), not a sensor.
+3. **The ADR-0037 lookup port**, with its first caller (the flaws and known-vulns matching), optional in the manifest. No caller exists until the root `netaudit` pieces that call `vulnmatch` and `ubuntuoval` move.
+4. **Settings flip and the Modules definitions** move last, with the round-trip test on a real `settings.yml`.
 
-Small and open: the OpenSandbox trial (`opensandbox-evaluation.md`, five questions in phase 1); whether to hide OS guesses with no open port (decide from more real results; one line in `DeviceProbe.vue`); the full frontend visual suite was last run before these commits (only the devices and DNS specs were rerun).
+Small and open: the OpenSandbox trial (`opensandbox-evaluation.md`, five questions in phase 1); whether to hide OS guesses with no open port (decide from more real results; one line in `DeviceProbe.vue`); the full frontend visual suite was run on 2026-11-09 after the `upnp` move (344 passed; no frontend file changed since the earlier commits).
 
 **Decided not to build (reasons in `docs/learnings/guardrails.md` and the helper design):** D8's second half (the service marking itself non-dumpable) and N2e (`read_auth_log`).
 
@@ -87,6 +87,7 @@ The recipe that worked twice: pin goldens → SDK types and manifest check (test
 - **Pre-existing `gofmt -l` entries:** `app/bootstrap.go`, `app/netaudit.go` (the one-line `routerLogSource.Snapshot`) and four handler test files. Do not reformat them in an unrelated change; if you touch the imports of `app/netaudit.go`, fix only the import block.
 - **The commit hook prints a CRAP "FAIL (no coverage data)" list and still commits;** it is informational.
 - **Git:** the repo rules make git read-only unless the owner approves a mutation. I created the branch with `git checkout -b` before reading that rule; ask first. Moving a directory: use plain `mv` and let git see the rename. To commit a mixed file in two commits, build the intermediate blob with `git hash-object -w` and `git update-index --cacheinfo`, then check the index builds by exporting it with `git checkout-index -a --prefix=/tmp/x/`.
+- **`core/netaudit/upnp` is not dead:** Nearby still uses `ParseSSDP` and `Identify`; the stack holds a copy of `ParseSSDP`. Delete the core's copy when Nearby moves with the ingest port.
 - **Linux-only code on this Mac:** the colima VM runs it. `cd backend && docker run --rm --security-opt seccomp=unconfined -v "$PWD":/src -w /src golang:1.26 go test ./internal/platform/sandbox/ ./internal/core/tools/ ./internal/shell/ ./internal/platform/progexec/ -count=1` ran with Landlock available; the first run downloads modules.
 - **zsh:** quote globs (`'*.md'`), `ls` is aliased to a long listing (use `command ls -1`), `command grep` avoids the ugrep alias, and macOS `sed -i` needs `-i ''`.
 
