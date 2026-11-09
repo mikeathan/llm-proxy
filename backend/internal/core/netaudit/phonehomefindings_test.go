@@ -25,8 +25,8 @@ func TestPhoneHomeFindings_OneFindingPerDeviceAndKindKeyedByTheDevicesAddress(t 
 		{Kind: phonehome.NewPlace, MAC: "aa:bb:cc:00:00:02", Names: []string{"x.example.org"}},
 		{Kind: phonehome.NewPlace, MAC: "aa:bb:cc:99:99:99", Names: []string{"x.example.org"}},
 	}, phInv())
-	if len(got) != 3 {
-		t.Fatalf("findings = %+v; want three (the device with no address and the unknown one have none)", got)
+	if len(got) != 2 {
+		t.Fatalf("findings = %+v; want two (a device that asks the router for nothing is a note on its row, not a finding; the device with no address and the unknown one have none)", got)
 	}
 	for _, f := range got {
 		if f.Device != "192.168.1.20" || f.Port != 0 {
@@ -40,8 +40,28 @@ func TestPhoneHomeFindings_OneFindingPerDeviceAndKindKeyedByTheDevicesAddress(t 
 	if f := checks[CheckPhoneHomeNewPlace]; !strings.Contains(f.Evidence, "a.example.org, b.example.org") || f.Version == "" {
 		t.Errorf("new place = %+v, want its names sorted in the evidence and a version that changes with the set", f)
 	}
-	if f := checks[CheckPhoneHomeAroundDNS]; f.Evidence == "" || f.Version != "" {
-		t.Errorf("around dns = %+v", f)
+	if _, ok := checks["phone_home_around_dns"]; ok {
+		t.Errorf("a device that asks the router for nothing raised a finding: it cannot be told from a phone with private DNS or a device the router never logs")
+	}
+}
+
+type fakePhoneSource struct{ signals []phonehome.Signal }
+
+func (f fakePhoneSource) Signals([]phonehome.InventoryDevice, time.Time) []phonehome.Signal {
+	return f.signals
+}
+
+func TestSilentDevices_ListsTheDevicesThatAskTheRouterForNothingAndNothingElse(t *testing.T) {
+	src := fakePhoneSource{signals: []phonehome.Signal{
+		{Kind: phonehome.AroundDNS, MAC: "aa:bb:cc:00:00:01"},
+		{Kind: phonehome.NewPlace, MAC: "aa:bb:cc:00:00:02", Names: []string{"a.example.org"}},
+	}}
+	got := SilentDevices(src, phInv(), time.Now())
+	if len(got) != 1 || !got["aa:bb:cc:00:00:01"] {
+		t.Fatalf("silent = %v, want only the device the watch called silent", got)
+	}
+	if got := SilentDevices(nil, phInv(), time.Now()); len(got) != 0 {
+		t.Fatalf("with no watch silent = %v, want none", got)
 	}
 }
 
@@ -69,7 +89,7 @@ func TestPhoneHomeFindings_NeverCarryTheDeviceNameAndCapTheNamesShown(t *testing
 }
 
 func TestPhoneHomeFindings_HaveWordsForTheScreenAndAFix(t *testing.T) {
-	for _, c := range []string{CheckPhoneHomeNewPlace, CheckPhoneHomeBeaconing, CheckPhoneHomeAroundDNS} {
+	for _, c := range []string{CheckPhoneHomeNewPlace, CheckPhoneHomeBeaconing, CheckPhoneHomeEncryptedDNS, CheckPhoneHomeKnownBad} {
 		if checkTitles[c] == "" || remediations[c] == "" {
 			t.Errorf("%s has no title or no fix text", c)
 		}

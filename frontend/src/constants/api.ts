@@ -41,6 +41,8 @@ export const API_ENDPOINTS = {
   helperScanUdp: `${API_BASE}/helper/scan_udp`,
   helperOsDetect: `${API_BASE}/helper/os_detect`,
   helperCaptureWindow: `${API_BASE}/helper/capture_window`,
+  helperCaptureHost: `${API_BASE}/helper/capture_host`,
+  netauditHostTraffic: `${API_BASE}/netaudit/host-traffic`,
   netauditCaptureWindow: `${API_BASE}/netaudit/capture-window`,
   netauditDecoyTouches: `${API_BASE}/netaudit/decoys/touches`,
   netauditRouterLog: `${API_BASE}/netaudit/router-log`,

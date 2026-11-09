@@ -1,5 +1,5 @@
 import type { ChoiceOption } from '../types/ui'
-import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, RequirementCode, RequirementCopy } from '../types/netaudit'
+import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, ProblemLayout, RequirementCode, TrafficKindWord, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -7,6 +7,10 @@ import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6Discove
 export const NETAUDIT_VIEW_KEY = 'netaudit-view'
 export const NETAUDIT_VIEW_VERSION = 1
 export const DEFAULT_VIEW_MODE: NetauditViewMode = 'simple'
+
+export const PROBLEM_LAYOUT_KEY = 'netaudit-problem-layout'
+export const PROBLEM_LAYOUT_VERSION = 1
+export const DEFAULT_PROBLEM_LAYOUT: ProblemLayout = 'check'
 
 /** The Help button shows only a "?" to save width, so this is its name for a screen reader and its tooltip. */
 export const HELP_LABEL = 'Help'
@@ -271,7 +275,7 @@ export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
-export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', timeline: 'Timeline', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
+export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', traffic: 'Traffic', timeline: 'Timeline', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
 export const NETWORK_OVERVIEW_LABEL = 'Overview'
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
@@ -603,6 +607,7 @@ export const HELPER_ACTIONS_TITLE = 'Actions'
 export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint: string }>> = {
   scan_udp: { title: 'UDP scan', hint: 'Finds UDP services (DNS, SNMP, NTP) on one device.' },
   os_detect: { title: 'OS detection', hint: 'Guesses what kind of device it is.' },
+  capture_host: { title: 'Traffic on this computer', hint: 'Listens for up to 60 seconds to this computer\'s own traffic and shows where it went. The Traffic tab uses it.' },
   capture_window: { title: 'Listen on this network', hint: 'Listens for up to 60 seconds for broadcast frames on this computer\'s link and counts them.' },
 }
 // The UDP ports the helper may scan (the catalogue's fixed list); the button asks for all of them.
@@ -649,3 +654,61 @@ export const CAPTURE_CLAIM_USED = 'was named as the sender of an address request
 export const CAPTURE_OFFNET_TAG = 'outside this network'
 export const CAPTURE_OFFNET_NOTE = (n: number): string => `${n} ${n === 1 ? 'address was' : 'addresses were'} outside this network's own range. That usually means a device on another network (a separate VLAN or a guest network) is reaching this link. It is a reason to look at that device and at how the networks are separated, not proof of a problem.`
 export const CAPTURE_COPIES = (n: number): string => `${n} of them copies of the same message`
+
+/** The note on a device the router has not heard ask for a name: a fact with its harmless reasons, not a finding to accept. */
+export const DEVICE_DNS_TAG = 'Not heard on router DNS'
+export const DEVICE_DNS_NOTE =
+  'The router has not heard this device ask it for a name in a day. A phone with Private DNS, a browser with secure DNS or a Chromecast does this on purpose, and so does a device the router does not log. It is only worth a look if this device should be using the router.'
+
+// Network · Traffic: a look at this computer's own traffic for up to 60 seconds (the helper's capture_host, Constitution I.13).
+export const TRAFFIC_TITLE = 'Traffic on this computer'
+export const TRAFFIC_SUBTITLE = 'Listens for up to 60 seconds, only when you press the button, and shows where this computer\'s traffic went.'
+export const TRAFFIC_BUTTON = 'Listen now'
+export const TRAFFIC_RUNNING = 'Listening. This takes up to a minute.'
+export const TRAFFIC_FAILED = 'The look could not be run.'
+export const TRAFFIC_PASSPHRASE_NOTE = 'Asks for your passphrase each time.'
+export const TRAFFIC_NEVER_TITLE = 'Nothing looked at yet'
+export const TRAFFIC_NEVER_BODY = 'Press Listen now to see where this computer\'s traffic goes for the next minute.'
+export const TRAFFIC_LOAD_FAILED = 'The last look could not be read.'
+export const TRAFFIC_PRIVACY_NOTE =
+  'This shows only the traffic to and from this computer. Names come from DNS answers, and any device can make one up, so treat a name as a hint. Nothing in the traffic is kept except these totals.'
+export const TRAFFIC_UNSUPPORTED = 'This computer cannot listen to its own traffic: the privileged helper needs Linux with systemd.'
+export const TRAFFIC_NOT_INSTALLED = 'The privileged helper is not installed on this computer. Settings shows the one command that installs it.'
+export const TRAFFIC_NOT_READY = (why: string): string => `The privileged helper is not ready: ${why}`
+export const TRAFFIC_NOT_READY_FALLBACK = 'it is installed but not answering.'
+export const TRAFFIC_ACTION_OFF = 'Listening to traffic is switched off. Turn on "Traffic on this computer" under Settings, in the helper card.'
+export const TRAFFIC_ACTION_NOT_INSTALLED = 'The helper is installed but was not told about this action. Run the install command again from Settings, then switch the action on.'
+export const TRAFFIC_OPEN_SETTINGS = 'Open Settings'
+export const TRAFFIC_DESTINATIONS_TITLE = 'Where the data went'
+export const TRAFFIC_KINDS_TITLE = 'What kind of traffic'
+export const TRAFFIC_SERIES_TITLE = 'Over the window'
+export const TRAFFIC_FLOWS_TITLE = 'Conversations'
+export const TRAFFIC_NO_NAME = 'no name seen'
+export const TRAFFIC_OTHERS = (n: number): string => `${n} other ${n === 1 ? 'place' : 'places'}`
+export const TRAFFIC_BUSIEST = (second: number, bytes: string): string => `busiest second: ${bytes} at 0:${String(second).padStart(2, '0')}`
+export const TRAFFIC_INTERNET_SPLIT = (internet: number, network: number): string => `${internet}% to the internet, ${network}% on this network.`
+export const TRAFFIC_DIRECTION_SPLIT = (received: number, sent: number): string => `${received}% received, ${sent}% sent.`
+export const TRAFFIC_COLUMNS = { destination: 'Destination', port: 'Port', kind: 'Kind', sent: 'Sent', received: 'Received' } as const
+export const TRAFFIC_KIND_LABELS: Readonly<Record<TrafficKindWord, string>> = {
+  https: 'Web, encrypted (HTTPS)', http: 'Web, not encrypted (HTTP)', quic: 'Web and video (QUIC)', dns: 'Name lookups (DNS)', ssh: 'Remote login (SSH)',
+  ntp: 'Clock (NTP)', discovery: 'Device discovery', icmp: 'Ping (ICMP)', tcp: 'Other (TCP)', udp: 'Other (UDP)',
+}
+export const TRAFFIC_KIND_SHORT: Readonly<Record<TrafficKindWord, string>> = {
+  https: 'HTTPS', http: 'HTTP', quic: 'QUIC', dns: 'DNS', ssh: 'SSH', ntp: 'NTP', discovery: 'Discovery', icmp: 'Ping', tcp: 'TCP', udp: 'UDP',
+}
+export const TRAFFIC_STOPPED: Readonly<Record<string, string>> = {
+  window: '',
+  frame_limit: 'Stopped at the limit on how much one look keeps, before the time was up, so the figures are partial.',
+  cut: 'The run was cut off before it finished, so the numbers are partial.',
+  interface_missing: 'The network interface was not found, so nothing was heard.',
+  interface_down: 'The network interface is down, so nothing was heard.',
+  socket_error: 'The look stopped because of an error reading the link; the numbers are partial.',
+  unsupported: 'This computer cannot listen this way (it needs Linux).',
+}
+export const TRAFFIC_DROPPED = (n: number): string => `${n} ${n === 1 ? 'frame was' : 'frames were'} dropped because they came too fast, so the figures are a little low.`
+export const TRAFFIC_SAMPLED = (n: number): string => `Estimated: one ordinary frame in ${n} was counted, because there was too much traffic to keep every frame.`
+export const TRAFFIC_ENCRYPTED_KINDS: readonly TrafficKindWord[] = ['https', 'quic']
+export const TRAFFIC_TOP_DESTINATIONS = 3
+export const TRAFFIC_CHART_WIDTH = 960
+export const TRAFFIC_CHART_HEIGHT = 140
+export const TRAFFIC_STATUS_UNKNOWN = 'The state of the privileged helper could not be read, so listening cannot be offered now. Check that the server is running, then reload.'

@@ -15,7 +15,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DOCS="$HERE/../docs/services"
 UNIT_DIR="${UNIT_DIR:-/etc/systemd/system}"
-CLASS="" MODE="" ACTIONS="scan_udp,os_detect" BIN="" GROUP="llm-proxy" SERVICE_UNIT="llm-proxy.service" DRY=0
+CLASS="" MODE="" ACTIONS="scan_udp,os_detect,capture_window,capture_host" BIN="" GROUP="llm-proxy" SERVICE_UNIT="llm-proxy.service" DRY=0
 HELPER_BIN="${HELPER_BIN:-/usr/local/bin/llm-proxy-helper}"
 
 die() { printf 'install-helper: %s\n' "$*" >&2; exit 1; }

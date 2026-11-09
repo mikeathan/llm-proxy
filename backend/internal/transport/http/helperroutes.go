@@ -54,6 +54,9 @@ type HelperDeps struct {
 	// Defaults fills in what only the service knows (the interface a capture listens on) before the grant is minted, so the grant is bound to
 	// the complete parameters. It returns the body to use; nil leaves the body as it came.
 	Defaults HelperDefaults
+	// OmitRaw says which actions never send their raw output on to the browser (a capture's output is other devices' traffic, which the
+	// service reads and nothing else does). The answer then carries the parsed result or the reason there is none, and no bytes.
+	OmitRaw func(action string) bool
 }
 
 // HelperDefaults completes one action's request body. An error is answered as a bad request with its text.
@@ -110,6 +113,9 @@ func HelperHandler(action string, deps HelperDeps) http.HandlerFunc {
 			return
 		}
 		out := HelperResult{Kind: res.Kind, Data: res.Data, Truncated: res.Truncated}
+		if deps.OmitRaw != nil && deps.OmitRaw(action) {
+			out.Data = nil
+		}
 		out.Parsed, out.ParseError = deps.parsed(action, res)
 		if out.Parsed != nil && deps.Keep != nil {
 			deps.Keep(action, req.Body, out.Parsed)

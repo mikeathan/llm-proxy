@@ -30,4 +30,33 @@ describe('ProblemGroups', () => {
     expect(cards[0]!.find('[data-test="fix-guide"]').exists()).toBe(true)
     expect(cards[1]!.get('[data-test="fix"]').text()).toContain('Plain fix.')
   })
+
+  const dns = (ip: string, over: Partial<ScanFinding> = {}): ScanFinding => ({ ...problem('dns'), key: `k-${ip}`, device: ip, port: 0, evidence: 'Silent for a day.', ...over })
+
+  it('says a line every place shares once, and keeps each place to the device', () => {
+    const w = mount(ProblemGroups, { props: { groups: groupProblems([dns('192.0.2.1'), dns('192.0.2.2')]), advanced: false } })
+    expect(w.get('[data-test="shared-evidence"]').text()).toBe('Silent for a day.')
+    const rows = w.findAll('[data-test="problem"]')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.text()).not.toContain('Silent for a day.')
+  })
+
+  it('shows each place by the name the person gave the device, with its address', () => {
+    const w = mount(ProblemGroups, { props: { groups: groupProblems([dns('192.0.2.1'), dns('192.0.2.2')]), advanced: false, names: { '192.0.2.1': 'Pixel 8' } } })
+    const places = w.findAll('[data-test="problem-place"]').map((p) => p.text())
+    expect(places).toEqual(['Pixel 8 · 192.0.2.1', '192.0.2.2'])
+  })
+
+  it('offers one button to accept every place of a kind, only when there are several', async () => {
+    const many = mount(ProblemGroups, { props: { groups: groupProblems([dns('192.0.2.1'), dns('192.0.2.2')]), advanced: false } })
+    await many.get('[data-test="accept-all"]').trigger('click')
+    expect((many.emitted('accept-many')![0]![0] as ScanFinding[]).map((f) => f.key)).toEqual(['k-192.0.2.1', 'k-192.0.2.2'])
+    const one = mount(ProblemGroups, { props: { groups: groupProblems([dns('192.0.2.1')]), advanced: false } })
+    expect(one.find('[data-test="accept-all"]').exists()).toBe(false)
+  })
+
+  it('starts every card folded in notes mode, however short the list', () => {
+    const w = mount(ProblemGroups, { props: { groups: groupProblems([problem('a')]), advanced: false, notes: true } })
+    expect(isOpen(w)).toEqual(['false'])
+  })
 })

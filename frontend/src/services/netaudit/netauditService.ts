@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary } from '../../types/netaudit'
+import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -228,6 +228,16 @@ export class NetauditService {
   /** Listens on this computer's own link for up to 60 seconds (the helper's capture_window; the passphrase step as for a scan). No body: the server picks the interface. */
   static captureWindow(): Promise<CaptureRunResult> {
     return post<CaptureRunResult>(API_ENDPOINTS.helperCaptureWindow)
+  }
+
+  /** Listens to this computer's own traffic for up to 60 seconds (the helper's capture_host; the passphrase step as for a scan). No body: the server picks the interface. */
+  static captureHost(): Promise<HostTrafficRunResult> {
+    return post<HostTrafficRunResult>(API_ENDPOINTS.helperCaptureHost)
+  }
+
+  /** The last host traffic summary the server kept, or null when there has been none. */
+  static async lastHostTraffic(): Promise<HostTraffic | null> {
+    return (await get<{ summary: HostTraffic | null }>(API_ENDPOINTS.netauditHostTraffic)).summary
   }
 
   /** The last capture summary the server kept, or null when there has been none. */

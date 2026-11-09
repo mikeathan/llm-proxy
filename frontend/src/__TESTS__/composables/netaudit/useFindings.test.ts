@@ -23,6 +23,23 @@ describe('useFindings', () => {
     expect(f.report.value).toEqual(report)
   })
 
+  it('accepts several findings with one reload, and stops at the first failure', async () => {
+    service.accept.mockResolvedValue({})
+    const f = useFindings(() => 'ws', () => 'nightly')
+    expect(await f.acceptMany(['k1', 'k2'], 'known', 30)).toBe(true)
+    expect(service.accept).toHaveBeenCalledTimes(2)
+    expect(service.accept).toHaveBeenLastCalledWith({ workspace_id: 'ws', automation: 'nightly', key: 'k2', note: 'known', days: 30 })
+    expect(service.findings).toHaveBeenCalledTimes(1)
+
+    service.accept.mockReset()
+    service.findings.mockClear()
+    service.accept.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('no'))
+    expect(await f.acceptMany(['k1', 'k2', 'k3'], '', 30)).toBe(false)
+    expect(service.accept).toHaveBeenCalledTimes(2)
+    expect(f.actionError.value).not.toBe('')
+    expect(service.findings).toHaveBeenCalledTimes(1)
+  })
+
   it('accepts a finding and reloads the report', async () => {
     service.accept.mockResolvedValue({})
     const f = useFindings(() => 'ws', () => 'nightly')

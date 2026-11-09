@@ -32,7 +32,7 @@ func TestAHelperActionMustBeInTheCatalogueToBeTurnedOn(t *testing.T) {
 }
 
 func TestEveryHelperRouteHasAHandler(t *testing.T) {
-	h := newHelperRoutes(&AppContext{}, nil, nil, nil)
+	h := newHelperRoutes(&AppContext{}, nil, helperSinks{})
 	routes := api.HelperRoutes()
 	if len(routes) == 0 || len(h.handlers) != len(routes) {
 		t.Fatalf("%d handlers for %d routes", len(h.handlers), len(routes))
@@ -141,7 +141,7 @@ func (r *recordingSink) RecordOSGuess(ip string, g []models.ProbeOSGuess) error 
 
 func TestAParsedScanIsKeptOnTheDeviceAtItsTarget(t *testing.T) {
 	sink := &recordingSink{}
-	keep := keepHelperResult(sink, nil)
+	keep := keepHelperResult(helperSinks{Probes: sink})
 	probe := models.DeviceProbe{UDPPorts: []models.ProbeUDPPort{{Port: 53, State: "open"}}, OS: []models.ProbeOSGuess{{Name: "Linux", Accuracy: 90}}}
 	keep("scan_udp", []byte(`{"target":" 192.168.50.10 ","ports":[53]}`), probe)
 	keep("os_detect", []byte(`{"target":"192.168.50.10"}`), probe)
@@ -152,7 +152,7 @@ func TestAParsedScanIsKeptOnTheDeviceAtItsTarget(t *testing.T) {
 
 func TestAResultThatCannotBeKeptIsDroppedWithoutPanicking(t *testing.T) {
 	sink := &recordingSink{err: errors.New("no such device")}
-	keep := keepHelperResult(sink, nil)
+	keep := keepHelperResult(helperSinks{Probes: sink})
 	probe := models.DeviceProbe{}
 	keep("scan_udp", []byte(`not json`), probe)
 	keep("scan_udp", []byte(`{"target":"nope"}`), probe)

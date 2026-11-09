@@ -8,6 +8,11 @@ import (
 // run is a classic BPF interpreter for the opcodes the filter uses, so the program is tested on every host, not only where the kernel can
 // load it. It returns the length the program accepts (0 rejects). A load past the end of the frame rejects, as in the kernel.
 func runFilter(prog []filterInstruction, pkt []byte) uint32 {
+	return runFilterWith(prog, pkt, 0)
+}
+
+// runFilterWith is runFilter with the number the kernel's random ancillary load would answer, so a sampling filter is tested for each draw.
+func runFilterWith(prog []filterInstruction, pkt []byte, random uint32) uint32 {
 	var a, x uint32
 	pc := 0
 	u16 := func(off uint32) (uint32, bool) {
@@ -21,6 +26,19 @@ func runFilter(prog []filterInstruction, pkt []byte) uint32 {
 		pc++
 		var ok = true
 		switch in.Code {
+		case opLdwAbs:
+			if in.K != ancRandom {
+				panic("this interpreter loads only the random ancillary word")
+			}
+			a = random
+		case opAndK:
+			a &= in.K
+		case opTxa:
+			a = x
+		case opAddK:
+			a += in.K
+		case opRetA:
+			return a
 		case opLdbAbs:
 			if int(in.K) >= len(pkt) {
 				return 0

@@ -1,4 +1,4 @@
-import type { DeepCheck, DeviceGroup, FindingsReport, ProblemGroup, ReportSummary, ScanFinding } from '../../types/netaudit'
+import type { DeepCheck, DeviceGroup, DeviceProblems, FindingsReport, ProblemGroup, ReportSummary, ScanFinding } from '../../types/netaudit'
 import { isCheck, severityRank } from './friendly'
 
 // What a report means for the person reading it. A finding needs a look when the latest scan showed it for the first
@@ -64,6 +64,37 @@ export function groupProblems(problems: readonly ScanFinding[]): ProblemGroup[] 
   }
   const worstFirst = (a: { severity: string }, b: { severity: string }) => severityRank(b.severity) - severityRank(a.severity)
   return [...groups.values()].sort(worstFirst).map((g) => ({ ...g, items: [...g.items].sort(worstFirst) }))
+}
+
+/** The lowest severity that always needs the reader; anything below it is a note unless it is new or changed. */
+const NEEDS_YOU_SEVERITY = 'medium'
+
+/**
+ * Splits the problem kinds into what needs the reader and what is only a note. A kind needs the reader when its worst place is
+ * medium or worse, or when any of its places is new or changed (it just appeared, so look once). A kind stays whole on one side.
+ * Order inside each side is the order given (worst first).
+ */
+export function splitProblems(groups: readonly ProblemGroup[]): { needsYou: ProblemGroup[]; notes: ProblemGroup[] } {
+  const floor = severityRank(NEEDS_YOU_SEVERITY)
+  const needs = (g: ProblemGroup) => severityRank(g.severity) >= floor || g.items.some((f) => f.new || f.changed)
+  return { needsYou: groups.filter(needs), notes: groups.filter((g) => !needs(g)) }
+}
+
+/** The problems grouped by device, the device with the worst problem first, and each device's worst problem first. */
+export function groupProblemsByDevice(problems: readonly ScanFinding[]): DeviceProblems[] {
+  const worstFirst = (a: { severity: string }, b: { severity: string }) => severityRank(b.severity) - severityRank(a.severity)
+  return groupByDevice(problems)
+    .map((g) => {
+      const items = [...g.items].sort(worstFirst)
+      return { device: g.device, severity: items[0]!.severity, items }
+    })
+    .sort(worstFirst)
+}
+
+/** The evidence line every place of a kind says, so a card can say it once; empty when there is one place or the places differ. */
+export function sharedEvidence(items: readonly ScanFinding[]): string {
+  const first = items[0]?.evidence ?? ''
+  return items.length > 1 && first !== '' && items.every((f) => f.evidence === first) ? first : ''
 }
 
 /** Items grouped by device, in the order the devices first appear. */

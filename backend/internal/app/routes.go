@@ -143,12 +143,12 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
-	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), s.netaudit.Inventory, newCaptureStore(s.AppCtx))
+	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), helperSinks{Probes: s.netaudit.Inventory, Captures: newCaptureStore(s.AppCtx), Traffic: newHostTrafficStore(s.AppCtx)})
 	if s.netaudit.Network != nil {
 		hs.Hosted = append(hs.Hosted, s.netaudit.Network.stack)
 	}
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
-	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports).WithVendors(cardMakerOf)
+	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports).WithVendors(cardMakerOf).WithDNSSilence(dnsSilence{source: s.NetauditPhoneHome})
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
 	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
 	hs.FollowUp = handlers.NewNetauditSwitchHandlers(s.netaudit.FollowUpConfig)
@@ -273,6 +273,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Post("/admin/api/system/wipeout", hs.System.AdminWipeoutHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/helper", hs.Helper.status, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/capture-window", hs.Helper.capture, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/host-traffic", hs.Helper.traffic, jsonMethodNotAllowed)
 	for _, rt := range api.HelperRoutes() {
 		router.Post(rt.Path, hs.Helper.handlers[rt.Path], jsonMethodNotAllowed)
 	}

@@ -40,12 +40,18 @@ type PortRecords interface {
 	All() map[string]models.DevicePortRecord
 }
 
+// DNSSilence says which devices are online and ask the router's DNS for nothing, by hardware address. It reads the phone-home watch.
+type DNSSilence interface {
+	SilentDevices(inv models.DeviceInventory) map[string]bool
+}
+
 // NetauditDevicesHandlers serve the device list and the presence check's settings.
 type NetauditDevicesHandlers struct {
 	devices     DeviceInventory
 	presence    PresenceControl
 	suggestions NameSuggestions
 	ports       PortRecords
+	silence     DNSSilence
 	vendors     netaudit.VendorLookup
 	now         func() time.Time
 }
@@ -53,6 +59,12 @@ type NetauditDevicesHandlers struct {
 // WithSuggestions has the list offer, for each device the operator has not named, the name it gave when asked.
 func (h *NetauditDevicesHandlers) WithSuggestions(s NameSuggestions) *NetauditDevicesHandlers {
 	h.suggestions = s
+	return h
+}
+
+// WithDNSSilence has the list mark the devices that ask the router's DNS for nothing; without it no device is marked.
+func (h *NetauditDevicesHandlers) WithDNSSilence(s DNSSilence) *NetauditDevicesHandlers {
+	h.silence = s
 	return h
 }
 
@@ -89,7 +101,19 @@ func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	h.addPorts(&view)
+	h.addSilence(&view, inv)
 	respondJSON(w, view)
+}
+
+// addSilence marks each device the watch calls silent.
+func (h *NetauditDevicesHandlers) addSilence(view *netaudit.InventoryView, inv models.DeviceInventory) {
+	if h.silence == nil {
+		return
+	}
+	silent := h.silence.SilentDevices(inv)
+	for i, d := range view.Devices {
+		view.Devices[i].DNSSilent = silent[d.MAC]
+	}
 }
 
 // addPorts puts each scanned device's open ports on its entry.

@@ -44,8 +44,8 @@ func TestTheFirstCatalogueIsTheOneTheOwnerApproved(t *testing.T) {
 	for _, a := range All() {
 		ids = append(ids, a.ID)
 	}
-	if want := []string{"scan_udp", "os_detect", "capture_window"}; !slices.Equal(ids, want) {
-		t.Errorf("actions = %v, want %v (D1: read_auth_log is deferred; capture_window was added 2026-11-08 by the owner's go-ahead, plan network-capture-window-plan)", ids, want)
+	if want := []string{"scan_udp", "os_detect", "capture_window", "capture_host"}; !slices.Equal(ids, want) {
+		t.Errorf("actions = %v, want %v (D1: read_auth_log is deferred; capture_window was added 2026-11-08 by the owner's go-ahead, plan network-capture-window-plan; capture_host on 2026-11-09 with the owner's approval of Constitution I.13, plan network-host-traffic-and-findings-ui)", ids, want)
 	}
 }
 

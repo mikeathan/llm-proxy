@@ -12,6 +12,7 @@ import NetworkOverviewPanel from "../components/netaudit/NetworkOverviewPanel.vu
 import NetauditToolbar from "../components/netaudit/NetauditToolbar.vue"
 import ReadinessBanner from "../components/netaudit/ReadinessBanner.vue"
 import TimelineTab from "../components/netaudit/TimelineTab.vue"
+import TrafficTab from "../components/netaudit/TrafficTab.vue"
 import AuditsPanel from "../components/netaudit/AuditsPanel.vue"
 import NetworkSettings from "../components/netaudit/NetworkSettings.vue"
 import DevicesCard from "../components/netaudit/DevicesCard.vue"
@@ -30,7 +31,7 @@ import type { StackTabItem } from "../types/stacks"
 import type { NetworkTab } from "../types/routes"
 
 // Network: the home network as a security feature of its own, the first stack under the Stacks group. Overview (one verdict, the numbers,
-// what changed), Devices (who is on it), Findings (the last audit), Timeline (one list of what happened), Audits (the scans that run on a schedule),
+// what changed), Devices (who is on it), Findings (the last audit), Traffic (a look at this computer's own traffic), Timeline (one list of what happened), Audits (the scans that run on a schedule),
 // Modules (the switchboard: every module is switched here and nowhere else) and Settings (the limits and details of each). The audit itself stays an ordinary automation, and this page reads its results. Simple or
 // Advanced, and Help, are in the page header and mean the same on every tab.
 const route = useRoute()
@@ -94,6 +95,7 @@ onUnmounted(stop)
       </EmptyState>
     </template>
 
+    <TrafficTab v-else-if="tab === 'traffic'" @open-tab="$router.push(toNetwork($event))" />
     <TimelineTab v-else-if="tab === 'timeline'" :audit="audit" />
     <AuditsPanel v-else-if="tab === 'audits'" />
     <StackModules v-else-if="tab === 'modules'" stack="network" />

@@ -153,6 +153,16 @@ export interface ProblemGroup {
   items: ScanFinding[]
 }
 
+/** The problems of one device, worst first; `severity` is the worst of them. */
+export interface DeviceProblems {
+  device: string
+  severity: string
+  items: ScanFinding[]
+}
+
+/** How the problems are laid out: one card per kind of problem, or one per device. */
+export type ProblemLayout = 'check' | 'device'
+
 export interface DeviceGroup<T> {
   device: string
   items: T[]
@@ -363,6 +373,8 @@ export interface NetworkDevice {
   new: boolean
   /** The person marked it as one they care most about; the attack paths treat it as a prize. */
   important?: boolean
+  /** Online and has asked the router's DNS for nothing for a day: a note with harmless reasons, never a finding. */
+  dns_silent?: boolean
   /** The ports it had open at its last completed scan, and when; absent until a scan has finished looking at it. */
   open_ports?: number[]
   ports_scanned_at?: string
@@ -886,4 +898,80 @@ export interface CaptureSummary {
 export interface CaptureRunResult {
   parsed?: CaptureSummary
   parse_error?: string
+}
+
+/** What one look at this computer's own traffic saw. Names are text a peer chose, so they appear only here, on this view. */
+export interface HostTraffic {
+  at: string
+  interface: string
+  stopped_by: CaptureSummary['stopped_by']
+  elapsed_ms: number
+  frames: number
+  unreadable: number
+  kernel_seen: number
+  kernel_dropped: number
+  /** 1 means every frame was counted; N means one ordinary frame in N was kept and the byte figures are estimates. */
+  sample: number
+  bytes_in: number
+  bytes_out: number
+  bytes_through: number
+  internet_bytes: number
+  local_network_bytes: number
+  lookups: number
+  kinds: TrafficKind[]
+  per_second: number[]
+  destinations: TrafficDestination[]
+  flows: TrafficFlow[]
+  other_flows: number
+  other_bytes: number
+}
+
+/** One kind of traffic, as a fixed word. */
+export type TrafficKindWord = 'https' | 'http' | 'quic' | 'dns' | 'ssh' | 'ntp' | 'discovery' | 'icmp' | 'tcp' | 'udp'
+
+export interface TrafficKind {
+  kind: TrafficKindWord
+  bytes: number
+}
+
+export interface TrafficDestination {
+  name?: string
+  address: string
+  bytes: number
+  internet: boolean
+}
+
+export interface TrafficFlow {
+  address: string
+  name?: string
+  port: number
+  proto: 'tcp' | 'udp' | 'icmp'
+  kind: TrafficKindWord
+  internet: boolean
+  bytes_out: number
+  bytes_in: number
+}
+
+/** The answer of the host traffic route: the parsed summary, or why there is none. */
+export interface HostTrafficRunResult {
+  parsed?: HostTraffic
+  parse_error?: string
+}
+
+/** Why the traffic look cannot be pressed now, and where the fix is. */
+export interface TrafficAvailability {
+  ok: boolean
+  reason: string
+  /** The page that fixes it, when there is one. */
+  fixTab?: NetworkTab
+}
+
+/** One bar of the per-second chart, in the chart's own units. */
+export interface ChartBar {
+  x: number
+  y: number
+  width: number
+  height: number
+  second: number
+  bytes: number
 }

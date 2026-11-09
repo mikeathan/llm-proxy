@@ -267,8 +267,9 @@ describe('FindingsReport with checks', () => {
     service.findings.mockResolvedValue(old)
     const w = mount(FindingsReport, { props: { workspaceId: 'ws', automation: 'audit' } })
     await flushPromises()
-    // Nothing is new, yet the two problems are still there to deal with; the plain open port is not listed.
-    expect(w.get('[data-test="summary"]').text()).toBe('2 things need a look')
+    // Nothing is new, yet the two problems are still there to deal with; the plain open port is not listed. Only the serious one needs
+    // the reader: the low one (an expiring certificate) is a note, counted in the problems line and not in "need a look".
+    expect(w.get('[data-test="summary"]').text()).toBe('1 thing needs a look')
     expect(w.get('[data-test="problems"]').text()).toBe('2 problems found by checks')
     const rows = w.findAll('article[data-severity]')
     expect(rows.map((r) => r.attributes('data-severity'))).toEqual(['high', 'low'])

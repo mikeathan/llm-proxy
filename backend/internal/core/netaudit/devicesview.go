@@ -32,6 +32,9 @@ type DeviceView struct {
 	PortsScannedAt time.Time `json:"ports_scanned_at,omitzero"`
 	// UDPPorts, UDPScannedAt, OSGuesses and OSDetectedAt are the last results of the scans the operator ran through the privileged helper;
 	// the times are set even for a scan that found nothing. Shown on screen only.
+	// DNSSilent is true while the device is online and has asked the router's DNS for nothing for a day. It is a note on the row with its
+	// harmless reasons (private DNS, a browser's secure DNS, a device the router never logs), never a finding. Shown on screen only.
+	DNSSilent    bool                  `json:"dns_silent,omitempty"`
 	UDPPorts     []models.ProbeUDPPort `json:"udp_ports,omitempty"`
 	UDPScannedAt time.Time             `json:"udp_scanned_at,omitzero"`
 	OSGuesses    []models.ProbeOSGuess `json:"os_guesses,omitempty"`

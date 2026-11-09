@@ -198,7 +198,7 @@ be 0; install and helper both refuse while it is.
 ```bash
 sudo ./setup.sh --install --build --unattended --helper
 ```
-All three actions (`scan_udp`, `os_detect`, `capture_window`) are installed, and each stays off until you turn it on with your passphrase (step 2). The helper scans
+All four actions (`scan_udp`, `os_detect`, `capture_window`, `capture_host`) are installed, and each stays off until you turn it on with your passphrase (step 2). The helper scans
 only the ranges you declared in the Network settings (Network, Settings, "What may be scanned"): the service holds every call to them, a change
 there applies at once, and while none is declared nothing can be scanned. `--helper` is remembered: later `--install --build --unattended` runs
 keep the helper and refresh its binary.

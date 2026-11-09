@@ -128,7 +128,7 @@ var moduleFinds = map[string][]string{
 	"nearby":          {netaudit.CheckRogueGateway},
 	"router_log":      {netaudit.CheckRouterSignInFailures, netaudit.CheckWifiDisconnectBurst, netaudit.CheckWifiDeviceDisconnects},
 	"decoys":          {netaudit.CheckDecoyTouched},
-	"phone_home":      {netaudit.CheckPhoneHomeNewPlace, netaudit.CheckPhoneHomeBeaconing, netaudit.CheckPhoneHomeAroundDNS, netaudit.CheckPhoneHomeEncryptedDNS},
+	"phone_home":      {netaudit.CheckPhoneHomeNewPlace, netaudit.CheckPhoneHomeBeaconing, netaudit.CheckPhoneHomeEncryptedDNS},
 	"known_bad":       {netaudit.CheckPhoneHomeKnownBad},
 	"login_watch":     {netaudit.CheckHostLoginFailures},
 	"wifi_lookalikes": {netaudit.CheckWifiLookalike},

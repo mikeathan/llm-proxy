@@ -11,6 +11,16 @@ export function deviceLabel(device: NetworkDevice): string {
 }
 
 /**
+ * What each device is called, by its IPv4 address, for a screen that only has an address (a finding names a device by one). A device
+ * with neither a name nor a maker to say is left out, so the screen shows its address alone.
+ */
+export function namesByAddress(devices: readonly NetworkDevice[]): Record<string, string> {
+  const names: Record<string, string> = {}
+  for (const d of devices) if (d.ip && (d.name || (d.vendor && !d.randomized))) names[d.ip] = deviceLabel(d)
+  return names
+}
+
+/**
  * The address a device is known by: its IPv4 address, else its newest IPv6 one. An IPv6-only device with several addresses
  * says how many more there are in Simple and lists them all in Advanced.
  */
