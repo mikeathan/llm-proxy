@@ -854,3 +854,29 @@ export type NearbyKind = 'printer' | 'tv' | 'camera' | 'computer' | 'gateway' | 
 export type NearbyStatus = 'attention' | 'new' | 'heard' | 'quiet'
 
 export type NearbyFilter = 'all' | 'attention' | 'new' | 'quiet'
+
+/** What one capture_window run saw: typed counts of broadcast and multicast frames (the server's models.CaptureSummary). A snapshot of one link, not a finding. */
+export interface CaptureSummary {
+  at: string
+  interface: string
+  wireless: boolean
+  stopped_by: 'window' | 'frame_limit' | 'cut' | 'interface_missing' | 'interface_down' | 'socket_error' | 'unsupported'
+  elapsed_ms: number
+  frames: number
+  max_per_second: number
+  kernel_seen: number
+  kernel_dropped: number
+  counts: {
+    arp_requests: number; arp_replies: number; arp_gratuitous: number; dhcp_from_server: number; dhcp_from_client: number; mdns: number
+    nd_router_solicit: number; nd_router_advert: number; nd_neighbor_solicit: number; nd_neighbor_advert: number; nd_redirect: number; unreadable: number
+  }
+  claims: { mac: string; ip: string; gratuitous: boolean }[]
+  dhcp_server_macs: string[]
+  conflicting_addresses: number
+}
+
+/** The answer of the capture route: the parsed summary, or why there is none. */
+export interface CaptureRunResult {
+  parsed?: CaptureSummary
+  parse_error?: string
+}

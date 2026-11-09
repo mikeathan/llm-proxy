@@ -107,6 +107,22 @@ func ParseDefaultGateway(r io.Reader) (netip.Addr, error) {
 	return netip.Addr{}, errors.New("no default route")
 }
 
+// ParseDefaultInterface reads /proc/net/route and returns the name of the interface the default route leaves by.
+func ParseDefaultInterface(r io.Reader) (string, error) {
+	sc := bufio.NewScanner(r)
+	sc.Scan() // header
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) >= 8 && f[1] == "00000000" && f[7] == "00000000" && f[0] != "" {
+			return f[0], nil
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return "", err
+	}
+	return "", errors.New("no default route")
+}
+
 // LocallyAdministered reports whether a MAC address has the "locally administered" bit set, which means software chose it
 // and the manufacturer did not: how a phone or laptop hides its hardware address, but also how a virtual machine or a
 // container gets one.

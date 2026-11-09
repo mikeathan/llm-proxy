@@ -52,7 +52,7 @@ SELECTIONS_FILE="${SELECTIONS_DIR}/setup.conf"
 FORCE=0; DO_BUILD=0; ASSUME_YES=0; PURGE=0; UNATTENDED=0; MODE=""
 
 HELPER=0; NO_HELPER=0
-HELPER_ACTIONS="scan_udp,os_detect" # every action of the catalogue; each is still off until the operator turns it on with the passphrase
+HELPER_ACTIONS="scan_udp,os_detect,capture_window" # every action of the catalogue; each is still off until the operator turns it on with the passphrase
 HELPER_BIN_INSTALLED="/usr/local/bin/llm-proxy-helper"
 
 while [[ $# -gt 0 ]]; do

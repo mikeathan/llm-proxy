@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"llm-proxy/internal/core/netaudit/framewire"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
@@ -35,6 +36,8 @@ const helperGatesFile = "/etc/systemd/system/llm-proxy-helper-net@.service.d/10-
 type helperRoutes struct {
 	handlers map[string]http.HandlerFunc
 	status   http.HandlerFunc
+	// capture answers the last capture_window summary (GET /admin/api/netaudit/capture-window).
+	capture http.HandlerFunc
 }
 
 // liveSandbox reads the sandbox provider at the moment of each call: the provider is built after the routes are, and the interlock must see
@@ -50,7 +53,7 @@ func (l liveSandbox) Effective() isolation.EffectiveState {
 
 // newHelperRoutes builds the helper's routes. policy returns the scan policy the operator declared in the Network settings (nil when the
 // Network module is not wired, as in a test): every helper call is held to it here, because the helper holds no range of its own.
-func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sink probeSink) *helperRoutes {
+func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sink probeSink, captures captureSink) *helperRoutes {
 	if policy == nil {
 		policy = func() scanscope.Policy { return scanscope.Policy{} }
 	}
@@ -60,13 +63,14 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sink probe
 	on := func(action string) bool { return ctx.HostSettings().Sandboxing.HelperActionOn(action) }
 	var keep api.HelperKeeper
 	if sink != nil {
-		keep = keepHelperResult(sink)
+		keep = keepHelperResult(sink, captures)
 	}
 	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}}
 	for _, rt := range api.HelperRoutes() {
 		id := rt.Path[len("/admin/api/helper/"):]
-		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: parseHelperOutput, Keep: keep})
+		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: parseHelperOutput, Keep: keep, Defaults: helperDefaults(defaultInterface)})
 	}
+	h.capture = captureWindowHandler(captures)
 	h.status = api.HelperStatusHandler(api.HelperSource{
 		Supported: func() bool { return runtime.GOOS == "linux" },
 		Installed: helperSocketPresent,
@@ -85,6 +89,8 @@ func parseHelperOutput(action string, data []byte) (any, error) {
 	switch action {
 	case "scan_udp", "os_detect":
 		return nmap.ParseProbe(data)
+	case "capture_window":
+		return framewire.Summarize(data)
 	}
 	return nil, fmt.Errorf("no reader for the output of %q", action)
 }
@@ -102,8 +108,12 @@ type helperTarget struct {
 
 // keepHelperResult keeps a parsed scan on the device at its target. A result that cannot be kept (a body or result of an unexpected shape, a
 // target no device holds) is logged and dropped: the operator already has the answer on screen, and a failed save must not fail the scan.
-func keepHelperResult(sink probeSink) api.HelperKeeper {
+func keepHelperResult(sink probeSink, captures captureSink) api.HelperKeeper {
 	return func(action string, params []byte, parsed any) {
+		if sum, ok := parsed.(models.CaptureSummary); ok {
+			keepCapture(captures, params, sum)
+			return
+		}
 		var req helperTarget
 		probe, isProbe := parsed.(models.DeviceProbe)
 		if json.Unmarshal(params, &req) != nil || !isProbe {

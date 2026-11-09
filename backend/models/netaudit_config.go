@@ -71,6 +71,9 @@ type NetauditConfig struct {
 	// WebChecksEnabled has the nightly audit ask the web pages of the devices it scanned a fixed list of questions (core/netaudit/webprobe).
 	// Off until the operator turns it on; the operator's deep check of one device asks them whenever it runs.
 	WebChecksEnabled bool `yaml:"web_checks_enabled,omitempty" json:"web_checks_enabled"`
+	// UDPProbesEnabled has the nightly audit ask each device it scanned two fixed UDP questions, an SNMPv3 engine discovery and a unicast
+	// SSDP search (core/netaudit/udpchecks, Constitution item 12). No community string is sent. It is off until the operator turns it on.
+	UDPProbesEnabled bool `yaml:"udp_probes_enabled,omitempty" json:"udp_probes_enabled"`
 	// LoginWatchEnabled has the program count the failed logins to this computer from the system's own record and tell of a burst
 	// (core/netaudit loginwatch, Constitution I.10 proposed). Off until the operator turns it on; the service needs the utmp group.
 	LoginWatchEnabled bool `yaml:"login_watch_enabled,omitempty" json:"login_watch_enabled"`

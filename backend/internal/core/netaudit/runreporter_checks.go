@@ -99,6 +99,6 @@ func (r *RunReporter) addServices(ctx context.Context, result *Result) ServiceRe
 }
 
 // carriedByChecks is what the router check and this run's service checks keep from the last scan when they could not judge.
-func (r *RunReporter) carriedByChecks(earlier []Finding, services ServiceResult) []Finding {
-	return append(r.carriedByRouter(earlier), services.Carry(earlier)...)
+func (r *RunReporter) carriedByChecks(earlier []Finding, services ServiceResult, udp UDPResult) []Finding {
+	return append(append(r.carriedByRouter(earlier), services.Carry(earlier)...), udp.Carry(earlier)...)
 }

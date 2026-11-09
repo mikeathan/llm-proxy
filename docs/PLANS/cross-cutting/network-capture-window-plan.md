@@ -1,10 +1,10 @@
 ---
-status: proposed
+status: partial
 date: 2026-11-08
 last_reviewed: 2026-11-08
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [I.7, I.9, I.11, II.3]
-evidence: CONSTITUTION.md I.11 ("A capture is time-boxed and headers only"); docs/PLANS/cross-cutting/network-privileged-helper-design.md sections 4, 7, 11, 12 (D5); docs/audits/2026-11-07-privileged-helper-n0.md (vertex capture, section 2, read 2026-11-08: wlp2s0, 854 frames in 60 s, mean 14.2 per second, maximum 139 in one second, 10 broadcast ARP requests all gratuitous from 5 sender addresses, 0 DHCP); docs/PLANS/cross-cutting/network-stack-privileged-additions.md item A; docs/PLANS/cross-cutting/network-security-roadmap.md Remaining Work (Phase 6 dropped 2026-11-01). Nothing built.
+evidence: CONSTITUTION.md I.11 ("A capture is time-boxed and headers only"); docs/PLANS/cross-cutting/network-privileged-helper-design.md sections 4, 7, 11, 12 (D5); docs/audits/2026-11-07-privileged-helper-n0.md (vertex capture, section 2, read 2026-11-08: wlp2s0, 854 frames in 60 s, mean 14.2 per second, maximum 139 in one second, 10 broadcast ARP requests all gratuitous from 5 sender addresses, 0 DHCP); docs/PLANS/cross-cutting/network-stack-privileged-additions.md item A; docs/PLANS/cross-cutting/network-security-roadmap.md Remaining Work (Phase 6 dropped 2026-11-01). C1 and C2 built 2026-11-08 (v0.60.0) at the owner's instruction, without the M1 to M3 measurements; not run on a real link.
 ---
 
 # `capture_window`: design and plan
@@ -25,8 +25,8 @@ Item A of the privileged additions: a short, headers-only look at the broadcast 
 |---|---|
 | Catalogue row | `capture_window`, class `net`, as in the helper design section 4. Params: `iface` (must exist and be up), `seconds` (at most 60; default 60). The helper opens `AF_PACKET`, attaches a **fixed** classic BPF filter (ARP, UDP 67/68, UDP 5353, ICMPv6 neighbour discovery), copies at most 64 bytes of each frame, no promiscuous mode, sends nothing, stops at the window, the frame cap or a disconnect. |
 | Frame cap | **Pending the burst measurement.** Observed maximum 139 per second (about 8,300 over 60 s as a worst case if sustained); observed total 854. A cap near 4,096 frames (about 300 KB with a 12-byte header each) is the candidate; the number is fixed from M1 and written in the helper design's D5. A window that hits the cap says so ("stopped at the frame limit"), never silently. |
-| Result | `records`: fixed-size entries (timestamp, length, 64 raw bytes). The helper parses nothing (I.11: parsing happens outside the privilege). |
-| Parser | New unprivileged package `core/netaudit/framewire`: reads the 64 bytes into typed fields only (EtherType, ARP operation, sender MAC and IPv4, DHCP message type and server identifier if inside 64 bytes, mDNS question count, ND type). Anything shorter or malformed is counted as "unreadable", never guessed. Text a device sent (an mDNS name) is not kept. |
+| Result | `records`: fixed-size entries (offset in ms, kept length, 64 raw bytes) and a 32-byte trailer (stop reason, frames, kernel counters). The helper parses nothing (I.11: parsing happens outside the privilege). **Built as a subcommand of the helper binary run as its program under the jail (`privhelper/capture`), layout in `privhelper/wire/capture.go`.** |
+| Parser | New unprivileged package `core/netaudit/framewire`: reads the 64 bytes into typed fields only (EtherType, ARP operation, sender MAC and IPv4, DHCP source address (**not** message type or server identifier: DHCP options start at byte 282 and only 64 bytes are kept, so they are never inside the snap), mDNS question count, ND type). Anything shorter or malformed is counted as "unreadable", never guessed. Text a device sent (an mDNS name) is not kept. |
 | Summary kept | One typed summary per window, in a stack-owned store (not on `NetworkDevice`, which is per device): counts per kind, the MAC-to-IP claims seen (bounded list), DHCP server identifiers seen, duration, stopped-by reason, time. Timeline text from typed fields only (ADR-0025). |
 | Route | `POST /admin/api/helper/capture_window`, step-up, one route per catalogue action, added to the step-up table in `authenticate.go` (a test already holds routes to the catalogue). |
 | UI | Network, Devices, Advanced: a "Listen for 60 seconds" card (it is interface-wide, not per device), passphrase through the existing step-up prompt, the last summary with its time and a plain statement of what this link can and cannot see. |
@@ -61,4 +61,8 @@ Each is its own PR and its own branch; none is combined with stack slice S2 (the
 
 ## Remaining Work
 
-Plan written 2026-11-08. Next: the owner's C0 measurements and the go/no-go. Nothing built.
+**Decisions made 2026-11-08 (owner):** a manual 60-second snapshot (not real-time); **no findings** in the first slice; build C1 and C2 without C0, with a frame cap of **4,096** taken from the one earlier vertex capture (854 frames in 60 s, maximum 139 in one second), and let the summary (frames, busiest second, kernel drops, stop reason) supply the M1 numbers from real presses.
+
+**Built (v0.60.0):** C1 (catalogue row, the capture program, the fixed filter with a portable interpreter test, the wire layout, the helper binary's `capture` mode, the allowlist entry in `archtest`, the step-up route entry, `setup.sh` action list) and C2 (the `framewire` reader, `models.CaptureSummary`, the store, the default-interface hook on the helper route, `GET /admin/api/netaudit/capture-window`, the card, SPEC-003 2.48). Deviation: the summary store is in the core, not the Network stack; S6 moves it.
+
+**Not done, in order:** (1) the first real press on vertex: re-run the install command so `HELPER_ACTIONS` includes `capture_window`, switch the action on (Network, Settings, helper card), press the button (Devices, Advanced); (2) design test 6 (the `isolationtest` run on the helper's jail profile) and a measurement under the real units: the Linux packet code was only compiled for linux (amd64 and arm64), never run; (3) the owner's M3 judgement: does a window show anything the 10-minute neighbour check does not? If not, park; (4) C3 findings only after real windows show no false alarms.

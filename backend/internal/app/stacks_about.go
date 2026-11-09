@@ -75,6 +75,11 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It sends plain page requests and handshakes only, and never signs in or sends data.",
 		ShowsUp: "As findings in the nightly report and in a deep check of one device.",
 	},
+	"udp_probes": {
+		Watches: "Whether each device the audit scans answers two fixed UDP questions: an SNMPv3 discovery on port 161 and a UPnP search on port 1900.",
+		Never:   "It sends no community string and no password, only those two fixed datagrams, one device at a time, and only to addresses inside the range you chose to scan.",
+		ShowsUp: "As findings in the nightly report. A device that does not answer is not counted as fixed. A device that only speaks SNMP v1 or v2c is missed.",
+	},
 	"outside_lookup": {
 		Watches:  "Which of your ports the internet can reach, asked of a public service.",
 		Never:    "It sends only the router's public address.",
@@ -128,6 +133,7 @@ var moduleFinds = map[string][]string{
 	"login_watch":     {netaudit.CheckHostLoginFailures},
 	"wifi_lookalikes": {netaudit.CheckWifiLookalike},
 	"web_checks":      {netaudit.CheckWebExposure, netaudit.CheckSelfSigned},
+	"udp_probes":      {netaudit.CheckUDPService},
 	"outside_lookup":  {netaudit.CheckInternetExposedPort},
 }
 

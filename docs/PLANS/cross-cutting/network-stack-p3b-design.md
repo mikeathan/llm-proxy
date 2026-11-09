@@ -177,6 +177,36 @@ re-run to show nothing else moved.
 **Where S2 stops being safe to push in a series:** part 1 to 4 add SDK and core code with no user until part 5 and 6 land, so they ship together in one PR,
 with the move deleting the old code in the same change.
 
+## 4e. S3 read before building (2026-11-08): the table's S3 cannot be built under the debt rule
+
+Read by grep, nothing built. Branch `network-stacks-s3-opensandbox-plan`.
+
+| Leaf | Non-test users outside it | Symbols crossing from the root `core/netaudit` | Notes |
+|---|---|---|---|
+| `vulnindex` | `vulnmatch`, `vulnfeed` | none | moves with them |
+| `vulnmatch` | root `knownvulns.go` | `Find`, `Result` | 2 symbols |
+| `vulnfeed` | root `readiness.go`, `app/netaudit.go`, a data handler | `StaleAfter` (a constant) | copy or a manifest value |
+| `ubuntuoval` | root `flaws.go`, `app/netaudit.go`, a data handler | `Compare` (2 calls) | 1 symbol |
+| `webprobe` | root `webfindings.go`, `tlsfindings.go`, `app/netaudit.go` | `Target` (9), `Hit`, `Prober`, `Result`, `TLSResult`, `TLSFacts`, `MaxTargets` | the root builds its findings from these types |
+| `upnp` | root `exposure.go`, `router.go`, `nearby`, `app/netaudit.go` | `Client`, `Mapping`, `Report` | the root's router and exposure views carry them |
+| `dnswire` | `names`, `nearby` only | none | moves with them |
+| `names` | `nearby`, `app/netaudit_alerts.go`, the devices handler | none from the root | in `models`: `NameSuggestion(s)` |
+| `nearby` | `app/netaudit_nearby.go`, `app/routes.go`, a handler, `transport/http/authenticate.go` | none | imports `platform/mcast` (the S4 ingest port) and `upnp` |
+
+- **The rule that blocks it.** `migrationDebt` "can only shrink; do not add to it" (`archtest/boundary_test.go`). Moving `vulnmatch`, `ubuntuoval`, `webprobe` or `upnp`
+  alone leaves the root importing a stack package: a new debt pair each.
+- **The models types.** `models.VulnIndex/VulnRange/VulnSource`, `UbuntuIndex/Fix/Notice`, `NameSuggestion(s)` and `NearbyDevice/State` must leave `models`; the root still
+  reads them in `nearbyview.go`, `flaws.go`, `nearbyfindings.go`, `deviceclass.go`, `knownvulns.go`, `runreporter_checks.go` (6 root files), and four stores in
+  `platform/persistence` hold them (`vulnindex.go`, `ubuntuindex.go`, `namesuggestions.go`, `nearby.go`; files `vulnindex.json`, `ubuntu-security.json`, `nearby.json`).
+- **`nearby` is in the wrong slice:** it uses `platform/mcast`, which S4 gives an ingest port.
+
+**Options (owner decides; the recommendation is A):**
+- **A. Move each leaf together with the root code that uses it, in S6**, and let S3 take only what has no root user: `vulnindex`+`vulnfeed` data and handlers is not
+  free (the root uses `StaleAfter`, a constant that can be copied) but `dnswire`+`names` wait for `nearby`. Honest result: S3 shrinks to the vuln-feed and Ubuntu-feed
+  stores and their handlers, about 1,900 lines, plus `models` type moves.
+- **B. The root defines one narrow interface per feature and `app/stacks.go` plugs the stack in.** A new direction for ports (stack to core), a new ADR, and glue the 4a
+  condition makes us justify; it risks the "SDK copies netaudit" outcome D5 rejected.
+
 ## 5. Decisions (all accepted 2026-11-07)
 
 | | Question | Recommendation |

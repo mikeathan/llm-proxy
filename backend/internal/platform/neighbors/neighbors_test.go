@@ -214,3 +214,16 @@ func TestParseNeighbor_HostileAttributeLengthsAreRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestParseDefaultInterfaceReadsTheNameOfTheDefaultRoute(t *testing.T) {
+	const table = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n" +
+		"docker0\t000011AC\t00000000\t0001\t0\t0\t0\t0000FFFF\n" +
+		"wlp2s0\t00000000\t0132A8C0\t0003\t0\t0\t600\t00000000\n"
+	got, err := ParseDefaultInterface(strings.NewReader(table))
+	if err != nil || got != "wlp2s0" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	if _, err := ParseDefaultInterface(strings.NewReader("Iface\tDestination\n")); err == nil {
+		t.Fatal("no default route must be an error")
+	}
+}

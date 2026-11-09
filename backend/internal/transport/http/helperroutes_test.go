@@ -321,3 +321,25 @@ func TestHelperStatus_DeclaredRangesAreSortedAndNeverNull(t *testing.T) {
 		}
 	}
 }
+
+func TestADefaultsHookCompletesTheBodyBeforeTheGrantIsMinted(t *testing.T) {
+	run := &recordingRun{res: stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte("x")}}
+	mux := http.NewServeMux()
+	deps := HelperDeps{Grants: &recordingMinter{}, Run: run, On: allOn, Defaults: func(action string, body []byte) ([]byte, error) {
+		if action != "capture_window" {
+			t.Errorf("action %q", action)
+		}
+		if strings.TrimSpace(string(body)) == "" {
+			return []byte(`{"iface":"wlp2s0","seconds":60}`), nil
+		}
+		return nil, errors.New("pick no interface yourself")
+	}}
+	mux.HandleFunc("POST /admin/api/helper/capture_window", HelperHandler("capture_window", deps))
+	h := AuthenticateWith(mux, newFake(), nil)
+	if rec := postHelper(h, "/admin/api/helper/capture_window", "", cookie("elevated")); rec.Code != 200 || len(run.got) != 1 || string(run.got[0].Params) != `{"iface":"wlp2s0","seconds":60}` {
+		t.Fatalf("%d %s, params %v", rec.Code, rec.Body, run.got)
+	}
+	if rec := postHelper(h, "/admin/api/helper/capture_window", `{"iface":"x"}`, cookie("elevated")); rec.Code != 400 || !strings.Contains(rec.Body.String(), "pick no interface") || len(run.got) != 1 {
+		t.Fatalf("a refused default must stop the run: %d %s", rec.Code, rec.Body)
+	}
+}

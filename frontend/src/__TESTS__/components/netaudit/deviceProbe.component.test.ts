@@ -13,7 +13,7 @@ const status = (over: Partial<HelperStatus> = {}): HelperStatus => ({
   ...over,
 })
 
-type Props = { ip?: string; mac?: string; udpPorts?: UdpPort[]; udpAt?: string; osGuesses?: OsGuess[]; osAt?: string }
+type Props = { ip?: string; mac?: string; udpPorts?: UdpPort[]; udpAt?: string; osGuesses?: OsGuess[]; osAt?: string; noOpenPorts?: boolean }
 
 async function mountProbe(props: Props = { ip: '192.168.50.1' }) {
   const w = mount(DeviceProbe, { props })
@@ -146,5 +146,16 @@ describe('DeviceProbe', () => {
     await flushPromises()
     expect(w.get('[data-test="probe-error"]').text()).toContain('nope')
     expect(w.emitted('probed')).toBeUndefined()
+  })
+
+  it('says the guesses are unreliable when the device showed no open port, and only then', async () => {
+    const guess = [{ name: 'Roberts STREAM 202 Internet radio', accuracy: 93 }]
+    const quiet = await mountProbe({ ip: '192.168.50.9', osGuesses: guess, osAt: '2026-11-08T12:00:00Z', noOpenPorts: true })
+    expect(quiet.get('[data-test="probe-os-unreliable"]').text()).toContain('no open port')
+    expect(quiet.get('[data-test="probe-os"]').text()).toContain('Roberts STREAM 202 Internet radio (93%)')
+    const open = await mountProbe({ ip: '192.168.50.9', osGuesses: guess, osAt: '2026-11-08T12:00:00Z' })
+    expect(open.find('[data-test="probe-os-unreliable"]').exists()).toBe(false)
+    const none = await mountProbe({ ip: '192.168.50.9', osGuesses: [], osAt: '2026-11-08T12:00:00Z', noOpenPorts: true })
+    expect(none.find('[data-test="probe-os-unreliable"]').exists()).toBe(false)
   })
 })

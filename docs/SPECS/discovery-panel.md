@@ -1,7 +1,7 @@
 ---
 id: SPEC-003
 title: Admin UI (formerly Discovery Panel)
-version: "2.45"
+version: "2.48"
 status: stable
 last_updated: 2026-11-08
 constitution_references: []
@@ -13,6 +13,15 @@ supersedes:
 
 ## Changelog
 
+- **2.48 (2026-11-08)** — **Listen on this network: the helper's `capture_window` (v0.60.0; Constitution I.11 unchanged, it already names this action).** A third helper action (`POST /admin/api/helper/capture_window`, step-up, off until switched on in Settings and listed by the install: re-run the install command). The card **Listen on this network** (Network, Devices, Advanced; shown only when the helper is ready and the action is on) has a **Listen for 60 seconds** button and says plainly that it is a snapshot of broadcast and multicast frames on this computer's own link, not monitoring. The body is empty: the service picks the interface the default route leaves by. The helper runs its own binary as the packet reader under the file jail: a fixed filter (ARP, DHCP, mDNS, IPv6 neighbour discovery) attached **before** the socket is bound, 64 bytes of each frame, at most 4,096 frames, no promiscuous mode, nothing sent. The service decodes the records and reads the headers (`core/netaudit/framewire`) into typed counts, the ARP address claims (at most 64), the Ethernet sources of DHCP replies (at most 8), the busiest second, kernel drops and why the window ended; `GET /admin/api/netaudit/capture-window` returns the last summary (`null` before the first). It makes **no finding** and stays out of the audit report and every prompt. A DHCP server identifier cannot be read: DHCP options start at byte 282 of a frame and 64 bytes are kept (I.11), so only the source address of a reply from port 67 to 68 is used. The summary is kept in the core (`network-capture-window.json`, removed by a factory reset), not in the Network stack: S6 moves it. **Not run on a real link yet.**
+- **2.47 (2026-11-08)** — **OS guesses on a device with no open port are marked unreliable (v0.59.1).** A device row whose last port scan found no open port shows, under its kept OS detection guesses, "This device showed no open port, so the scan had little to go on. Treat these guesses as unreliable, whatever the percentage." (`DeviceProbe`, prop `noOpenPorts`). The guesses and the plain "No guess" sentence are unchanged. Found on the owner's network: two Espressif devices with no open port were guessed as a doorbell, a lighting controller and an internet radio at 92 to 96%.
+- **2.46 (2026-11-08)** — **Nightly UDP checks (v0.59.0; Constitution I.12).** A new module, **UDP checks, nightly** (Test layer, off by default, step-up, needs the
+  LAN guardrails), asks each live IPv4 device the audit scanned two fixed questions through the guarded dial: an SNMPv3 engine discovery (no community string) on UDP
+  161 and a unicast UPnP search on UDP 1900, at most 64 devices a look and four at a time. An answer in the expected form makes the same `udp_service` finding a helper
+  scan makes (SNMP medium, UPnP low) with fixed words and no date, so a standing finding does not read as changed each night; a nightly answer replaces a helper-kept
+  finding for the same device and port. Silence is unknown: an earlier finding for a device and port that was asked and did not answer is kept, never resolved. A
+  device that speaks only SNMP v1 or v2c is missed. The setting is `netaudit.udp_probes_enabled`; the module's switch is the usual module switch, so no route or card is
+  new. Code: `core/netaudit/udpchecks`, `core/netaudit/udpfindings.go`.
 - **2.45 (2026-11-08)** — **UDP scans from a device row, and findings from their kept result (v0.56.0; Constitution I.11 unchanged).** An open device row on the
   Devices tab has a UDP scan and an OS detection button when the privileged helper is installed, ready and has the action on (each press asks for the passphrase;
   `POST /admin/api/helper/scan_udp` and `/os_detect` answer `parsed` beside the raw bytes, or `parse_error`). The last result is kept on the device with its time

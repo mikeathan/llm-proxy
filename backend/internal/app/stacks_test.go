@@ -63,6 +63,7 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
 		PhoneHomeConfig:     netaudit.NewPhoneHomeConfig(store),
 		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
+		UDPChecksConfig:     netaudit.NewUDPChecksConfig(store),
 		LoginWatchConfig:    netaudit.NewLoginWatchConfig(store),
 		WifiConfig:          netaudit.NewWifiConfig(store),
 		WifiReady:           func() (bool, string) { return true, "" },
@@ -99,7 +100,7 @@ func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	want := map[string]string{
 		"presence": "discover", "ipv6_discovery": "discover", "device_names": "discover", "nearby": "discover",
 		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen", "login_watch": "listen", "wifi_lookalikes": "discover",
-		"scan_on_arrival": "test", "web_checks": "test",
+		"scan_on_arrival": "test", "web_checks": "test", "udp_probes": "test",
 		"outside_lookup": "outside", "dns_check": "outside",
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
 	}
@@ -155,7 +156,7 @@ var legacyPaths = map[string]string{
 
 // modulesWithNoOldRoute are the modules that never had a switch route of their own, and whether each needs the passphrase. Only a
 // module that probes the network or opens a socket does.
-var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "login_watch": false, "wifi_lookalikes": false}
+var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "udp_probes": true, "login_watch": false, "wifi_lookalikes": false}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	// The DNS check's write moved into its stack, which declares the step-up in its manifest; the core table holds the rest.
@@ -197,6 +198,7 @@ func TestStackRegistry_AModuleSitsOnTheSwitchItAlwaysHad(t *testing.T) {
 		"phone_home":      func() bool { return d.store.cfg.PhoneHomeEnabled },
 		"known_bad":       func() bool { return d.store.cfg.KnownBadEnabled },
 		"web_checks":      func() bool { return d.store.cfg.WebChecksEnabled },
+		"udp_probes":      func() bool { return d.store.cfg.UDPProbesEnabled },
 		"login_watch":     func() bool { return d.store.cfg.LoginWatchEnabled },
 		"wifi_lookalikes": func() bool { return d.store.cfg.WifiLookalikesEnabled },
 	} {

@@ -51,7 +51,13 @@ type HelperDeps struct {
 	On     func(action string) bool
 	Parse  HelperParser
 	Keep   HelperKeeper
+	// Defaults fills in what only the service knows (the interface a capture listens on) before the grant is minted, so the grant is bound to
+	// the complete parameters. It returns the body to use; nil leaves the body as it came.
+	Defaults HelperDefaults
 }
+
+// HelperDefaults completes one action's request body. An error is answered as a bad request with its text.
+type HelperDefaults func(action string, body []byte) ([]byte, error)
 
 const parseCutMessage = "the output was cut at its size limit, so it was not read"
 
@@ -81,7 +87,18 @@ func HelperHandler(action string, deps HelperDeps) http.HandlerFunc {
 			return
 		}
 		req, ok := stackRequest(w, r, nil)
-		if !ok || !attachGrant(w, &req, action, deps.Grants) {
+		if !ok {
+			return
+		}
+		if deps.Defaults != nil {
+			body, err := deps.Defaults(action, req.Body)
+			if err != nil {
+				WriteJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			req.Body = body
+		}
+		if !attachGrant(w, &req, action, deps.Grants) {
 			return
 		}
 		res, err := deps.Run.Run(r.Context(), stacksdk.PrivilegedRequest{Grant: req.Grant, Action: action, Params: req.Body})

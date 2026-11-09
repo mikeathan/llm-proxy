@@ -2,7 +2,7 @@
 import { computed, onMounted } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useDeviceProbe } from "../../composables/netaudit/useDeviceProbe"
-import { HELPER_ACTION_LABELS, PROBE_NO_OS, PROBE_CLEAR, PROBE_CLEAR_HINT, PROBE_NO_UDP, PROBE_PASSPHRASE_NOTE, PROBE_RUNNING, PROBE_UDP_FILTERED } from "../../constants/netaudit"
+import { HELPER_ACTION_LABELS, PROBE_NO_OS, PROBE_OS_UNRELIABLE, PROBE_CLEAR, PROBE_CLEAR_HINT, PROBE_NO_UDP, PROBE_PASSPHRASE_NOTE, PROBE_RUNNING, PROBE_UDP_FILTERED } from "../../constants/netaudit"
 import { formatRelativeTime } from "../../utils/format/time"
 import type { OsGuess, UdpPort } from "../../types/netaudit"
 
@@ -10,7 +10,7 @@ import type { OsGuess, UdpPort } from "../../types/netaudit"
 // device. The buttons appear only when the helper is installed, ready and has the action switched on, so a computer without it sees no
 // new control; a kept result is shown whenever there is one. A UDP port with no reply is "open or blocked", never "open". Nothing here
 // makes a finding: it is what the last scan saw, with its time.
-const props = defineProps<{ ip?: string; mac?: string; udpPorts?: UdpPort[]; udpAt?: string; osGuesses?: OsGuess[]; osAt?: string }>()
+const props = defineProps<{ ip?: string; mac?: string; udpPorts?: UdpPort[]; udpAt?: string; osGuesses?: OsGuess[]; osAt?: string; noOpenPorts?: boolean }>()
 const emit = defineEmits<{ (e: "probed"): void }>()
 const { actions, running, freshUdp, freshOs, error, load, run, clear } = useDeviceProbe(() => props.ip, () => props.mac)
 onMounted(load)
@@ -63,6 +63,7 @@ async function drop(kind: "udp" | "os") {
       </span>
       <span v-if="!os.length">{{ PROBE_NO_OS }}</span>
       <span v-for="(g, i) in os" :key="i" class="break-words">{{ g.name }} ({{ g.accuracy }}%)</span>
+      <span v-if="noOpenPorts && os.length" class="text-muted" data-test="probe-os-unreliable">{{ PROBE_OS_UNRELIABLE }}</span>
     </div>
   </div>
 </template>
