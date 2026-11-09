@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -357,4 +358,158 @@ func TestManifest_TheDNSModuleDeclaresItsFinding(t *testing.T) {
 	if strings.Contains(m.Modules[0].About.Never, "Raises a finding") {
 		t.Errorf("the About text still says it never raises a finding: %q", m.Modules[0].About.Never)
 	}
+}
+
+// ---- the lying-resolver test, end to end (ADR-0036) ----
+
+// lyingDNS answers every A question over UDP on the loopback with one fixed address, as a router whose resolver has been tampered with
+// would. It stands in for the router; the stack's Guard hands the real DNS client a connection to it.
+type lyingDNS struct {
+	conn   *net.UDPConn
+	answer [4]byte
+}
+
+func startLyingDNS(t *testing.T, answer netip.Addr) *lyingDNS {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &lyingDNS{conn: conn, answer: answer.As4()}
+	t.Cleanup(func() { _ = conn.Close() })
+	go l.serve()
+	return l
+}
+
+const (
+	dnsHeaderLen   = 12
+	dnsResponseOK  = 0x8180 // a response, recursion desired and available, no error
+	dnsTypeA       = 1
+	dnsClassIN     = 1
+	dnsAnswerTTL   = 60
+	dnsNamePointer = 0xc00c // the answer's name points at the question's, at byte 12
+)
+
+// serve replies to each question with the question copied back and one A record.
+func (l *lyingDNS) serve() {
+	buf := make([]byte, 512)
+	for {
+		n, from, err := l.conn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
+		if n <= dnsHeaderLen {
+			continue
+		}
+		end := questionEnd(buf[:n])
+		if end < 0 {
+			continue
+		}
+		// Only the header and the question are echoed: the client's extra EDNS record would sit between them and the answer.
+		reply := append([]byte(nil), buf[:end]...)
+		binary.BigEndian.PutUint16(reply[2:], dnsResponseOK)
+		binary.BigEndian.PutUint16(reply[6:], 1)  // one answer
+		binary.BigEndian.PutUint16(reply[8:], 0)  // no authority records
+		binary.BigEndian.PutUint16(reply[10:], 0) // no additional records
+		reply = binary.BigEndian.AppendUint16(reply, dnsNamePointer)
+		reply = binary.BigEndian.AppendUint16(reply, dnsTypeA)
+		reply = binary.BigEndian.AppendUint16(reply, dnsClassIN)
+		reply = binary.BigEndian.AppendUint32(reply, dnsAnswerTTL)
+		reply = binary.BigEndian.AppendUint16(reply, uint16(len(l.answer)))
+		reply = append(reply, l.answer[:]...)
+		_, _ = l.conn.WriteToUDP(reply, from)
+	}
+}
+
+// questionEnd is the offset just past the first question of a query, or -1 when the query is cut short.
+func questionEnd(q []byte) int {
+	const typeAndClassLen = 4
+	i := dnsHeaderLen
+	for i < len(q) && q[i] != 0 {
+		i += int(q[i]) + 1
+	}
+	if end := i + 1 + typeAndClassLen; i < len(q) && end <= len(q) {
+		return end
+	}
+	return -1
+}
+
+// toLoopback is a Guard that lets the router lookup through, to the stand-in router instead of port 53 of the real address.
+type toLoopback struct{ to net.Addr }
+
+func (g toLoopback) DialContext(ctx context.Context, network, _ string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, g.to.String())
+}
+func (toLoopback) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+// honestOutside answers the DNS-over-HTTPS question with the real, fixed address of dns.google.
+type honestOutside struct{}
+
+func (honestOutside) Get(context.Context, stacksdk.FetchRequest) (stacksdk.FetchResponse, error) {
+	body := `{"Status":0,"Answer":[{"name":"dns.google.","type":1,"TTL":60,"data":"8.8.8.8"}]}`
+	return stacksdk.FetchResponse{Body: []byte(body)}, nil
+}
+
+// A router that keeps giving another address for a name the outside resolver knows is found by the real collector (the real Router
+// lookup over UDP, the real comparison, the stored log) on two checks in a row, and only then does the stack offer the finding.
+func TestFindings_ALyingRouterIsFoundByTheRealCollectorOnTwoChecksInARow(t *testing.T) {
+	fake := startLyingDNS(t, netip.MustParseAddr("203.0.113.9"))
+	doc := findingDoc(map[string]string{
+		"dns_check_enabled": "true", "dns_check_finding_enabled": "true",
+		"dns_check_server": `"192.168.50.1"`, "dns_check_names": `["dns.google"]`,
+	})
+	dir := &memDir{}
+	h := host(doc, dir)
+	h.Guard, h.Fetch = toLoopback{to: fake.conn.LocalAddr()}, honestOutside{}
+	s := New()
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+
+	// Start runs one cycle at once; wait for it so the checks counted below are the ones this test asks for.
+	waitForLog(t, dir, 1)
+	if got, err := s.Findings(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("one differing check is a blip, not a finding: %v %v", got, err)
+	}
+	s.collector.Tick(context.Background())
+	got, err := s.Findings(context.Background())
+	if err != nil || len(got) != 1 {
+		data, _ := dir.Read(dnscheck.LogFile)
+		t.Fatalf("two checks in a row: %v %v; log %s", got, err, data)
+	}
+	f := got[0]
+	if f.ID != FindingID || f.Subject != netip.MustParseAddr("192.168.50.1") || f.Count != 2 || len(f.Names) != 1 || f.Names[0] != "dns.google" {
+		t.Errorf("finding = %+v", f)
+	}
+
+	// The same stack against an honest router offers nothing: the finding needs a real disagreement.
+	honest := startLyingDNS(t, netip.MustParseAddr("8.8.8.8"))
+	h2 := host(doc, &memDir{})
+	h2.Guard, h2.Fetch = toLoopback{to: honest.conn.LocalAddr()}, honestOutside{}
+	s2 := New()
+	if err := s2.Start(context.Background(), h2); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s2.Stop(context.Background()) })
+	s2.collector.Tick(context.Background())
+	s2.collector.Tick(context.Background())
+	if got, err := s2.Findings(context.Background()); err != nil || len(got) != 0 {
+		t.Errorf("an honest router: %v %v", got, err)
+	}
+}
+
+// waitForLog waits until the stored log holds at least n rows.
+func waitForLog(t *testing.T, dir *memDir, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		var rows []dnscheck.Comparison
+		if data, err := dir.Read(dnscheck.LogFile); err == nil && json.Unmarshal(data, &rows) == nil && len(rows) >= n {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the log never reached %d rows", n)
 }
