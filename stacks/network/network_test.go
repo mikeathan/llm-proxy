@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -662,4 +663,127 @@ func TestManifest_TheUDPSensorIsDeclaredAndNeedsTheScopedDial(t *testing.T) {
 		t.Fatal(err)
 	}
 	var _ stacksdk.Looker = New()
+}
+
+// ---- the web sensor (ADR-0038) ----
+
+// toServer is a scoped dial that connects every address to one stand-in device, recording what was asked for.
+type toServer struct {
+	mu     sync.Mutex
+	dialed []string
+	server string
+}
+
+func (g *toServer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	g.mu.Lock()
+	g.dialed = append(g.dialed, addr)
+	g.mu.Unlock()
+	var d net.Dialer
+	return d.DialContext(ctx, network, g.server)
+}
+func (*toServer) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+func webStack(t *testing.T, g stacksdk.Guard) *Stack {
+	t.Helper()
+	h := host(&memDoc{}, &memDir{})
+	h.ScopedGuard, h.Guard = g, failingGuard{t}
+	s := New()
+	s.webPace = 0
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	return s
+}
+
+func webTarget(port int, tls bool) stacksdk.WebTarget {
+	return stacksdk.WebTarget{Addr: netip.MustParseAddr("192.168.1.30"), Port: port, TLS: tls}
+}
+
+func TestLookWeb_NamesWhatTheDeviceShowsThroughTheScopedDialAndNeverThePlainGuard(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			_, _ = w.Write([]byte("<title>Home Assistant</title>"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	g := &toServer{server: srv.Listener.Addr().String()}
+	s := webStack(t, g)
+	got, err := s.LookWeb(context.Background(), stacksdk.WebRequest{Module: WebModuleID, Targets: []stacksdk.WebTarget{webTarget(8123, false)}, LimitSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Partial || len(got.Hits) != 1 || got.Hits[0].ID != "home_assistant_page" || got.Hits[0].Addr != webTarget(8123, false).Addr || got.Hits[0].Port != 8123 {
+		t.Fatalf("hits = %+v", got)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.dialed) == 0 || g.dialed[0] != "192.168.1.30:8123" {
+		t.Errorf("every request goes through the scoped dial, to the target: %v", g.dialed)
+	}
+}
+
+func TestLookCertificates_ReadsDatesAndNothingOfTheCertificatesText(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	s := webStack(t, &toServer{server: srv.Listener.Addr().String()})
+	got, err := s.LookCertificates(context.Background(), stacksdk.WebRequest{Module: WebModuleID, Targets: []stacksdk.WebTarget{webTarget(8443, true), webTarget(8080, false)}, LimitSeconds: 60})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Facts) != 1 || got.Facts[0].Port != 8443 || got.Facts[0].NotAfter.IsZero() || got.Facts[0].NotBefore.IsZero() {
+		t.Fatalf("facts = %+v: only the secure service is handshaken with", got)
+	}
+}
+
+func TestLookWeb_RefusesAnotherModuleBadTargetsAndLimitsAndAStackWithNoScopedDial(t *testing.T) {
+	g := &toServer{server: "127.0.0.1:1"}
+	s := webStack(t, g)
+	ok := []stacksdk.WebTarget{webTarget(80, false)}
+	cases := map[string]stacksdk.WebRequest{
+		"another module":    {Module: UDPModuleID, Targets: ok, LimitSeconds: 60},
+		"no targets":        {Module: WebModuleID, LimitSeconds: 60},
+		"too many targets":  {Module: WebModuleID, Targets: make([]stacksdk.WebTarget, stacksdk.MaxWebTargets+1), LimitSeconds: 60},
+		"no limit":          {Module: WebModuleID, Targets: ok},
+		"limit too long":    {Module: WebModuleID, Targets: ok, LimitSeconds: stacksdk.MaxLookSeconds + 1},
+		"an IPv6 address":   {Module: WebModuleID, Targets: []stacksdk.WebTarget{{Addr: netip.MustParseAddr("fe80::1"), Port: 80}}, LimitSeconds: 60},
+		"port out of range": {Module: WebModuleID, Targets: []stacksdk.WebTarget{{Addr: netip.MustParseAddr("192.168.1.30"), Port: 0}}, LimitSeconds: 60},
+	}
+	for name, req := range cases {
+		if _, err := s.LookWeb(context.Background(), req); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+			t.Errorf("%s: LookWeb code = %q", name, stacksdk.CodeOf(err))
+		}
+		if _, err := s.LookCertificates(context.Background(), req); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+			t.Errorf("%s: LookCertificates code = %q", name, stacksdk.CodeOf(err))
+		}
+	}
+	g.mu.Lock()
+	n := len(g.dialed)
+	g.mu.Unlock()
+	if n != 0 {
+		t.Errorf("a refused request must send nothing, dialled %d", n)
+	}
+	bare := lookStack(t, nil)
+	if _, err := bare.LookWeb(context.Background(), stacksdk.WebRequest{Module: WebModuleID, Targets: ok, LimitSeconds: 60}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("no scoped dial: code = %q", stacksdk.CodeOf(err))
+	}
+}
+
+func TestManifest_TheWebSensorIsDeclaredAndTheCheckListIsExported(t *testing.T) {
+	m := New().Manifest()
+	if !slices.Contains(m.Looks, WebModuleID) {
+		t.Fatalf("looks = %v", m.Looks)
+	}
+	var _ stacksdk.WebLooker = New()
+	checks := WebChecks()
+	if len(checks) == 0 {
+		t.Fatal("the check list is how the core holds its words equal to the stack's")
+	}
+	for _, c := range checks {
+		if c.ID == "" || c.Title == "" || c.Severity == "" {
+			t.Errorf("check %+v", c)
+		}
+	}
 }

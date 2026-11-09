@@ -35,20 +35,18 @@ var allSuites = func() []uint16 {
 	return ids
 }()
 
-// oldVersions are the protocol versions that are offered one at a time in the second handshake, named as a person reads them.
-var oldVersions = []struct {
-	id   uint16
-	name string
-}{{tls.VersionTLS10, "TLS 1.0"}, {tls.VersionTLS11, "TLS 1.1"}}
+// oldVersions are the protocol versions that are offered one at a time in the second handshake. They leave the stack as the numbers the
+// standard gives them; the core has the words.
+var oldVersions = []uint16{tls.VersionTLS10, tls.VersionTLS11}
 
-// TLSFacts is what one secure web service showed. OldVersions lists the versions older than 1.2 that it accepted.
+// TLSFacts is what one secure web service showed. OldVersions lists, as protocol numbers, the versions older than 1.2 that it accepted.
 type TLSFacts struct {
 	Addr        netip.Addr
 	Port        int
 	NotBefore   time.Time
 	NotAfter    time.Time
 	SelfSigned  bool
-	OldVersions []string
+	OldVersions []uint16
 }
 
 // TLSResult is what a run found and whether its time limit ended it before every service was asked.
@@ -66,7 +64,6 @@ func (p *Prober) ProbeTLS(ctx context.Context, targets []Target, limit time.Dura
 	}
 	runCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	dialer := guardedDialer(p.guard)
 	var res TLSResult
 	asked := false
 	for _, t := range targets {
@@ -77,7 +74,7 @@ func (p *Prober) ProbeTLS(ctx context.Context, targets []Target, limit time.Dura
 			return finish(ctx, res)
 		}
 		asked = true
-		if facts, ok := p.handshakes(runCtx, dialer, t); ok {
+		if facts, ok := p.handshakes(runCtx, t); ok {
 			res.Facts = append(res.Facts, facts)
 		}
 		if runCtx.Err() != nil {
@@ -98,18 +95,18 @@ func finish(parent context.Context, res TLSResult) (TLSResult, error) {
 
 // handshakes reads the certificate a service presents and finds out which old versions it accepts. It reports false when the service
 // gave no certificate at all.
-func (p *Prober) handshakes(ctx context.Context, dialer *net.Dialer, t Target) (TLSFacts, bool) {
+func (p *Prober) handshakes(ctx context.Context, t Target) (TLSFacts, bool) {
 	facts := TLSFacts{Addr: t.Addr, Port: t.Port}
 	var leaf *x509.Certificate
-	if state, ok := handshake(ctx, dialer, t, tls.VersionTLS12, 0); ok {
+	if state, ok := handshake(ctx, p.dial, t, tls.VersionTLS12, 0); ok {
 		leaf = leafOf(state)
 	}
 	for _, v := range oldVersions {
 		if !p.wait(ctx) { // a small device is asked gently: a pause between its handshakes too
 			return facts, false
 		}
-		if state, ok := handshake(ctx, dialer, t, v.id, v.id); ok {
-			facts.OldVersions = append(facts.OldVersions, v.name)
+		if state, ok := handshake(ctx, p.dial, t, v, v); ok {
+			facts.OldVersions = append(facts.OldVersions, v)
 			if leaf == nil {
 				leaf = leafOf(state)
 			}
@@ -145,10 +142,10 @@ func selfSigned(c *x509.Certificate) bool {
 
 // handshake opens one connection, offers the versions from min to max (max 0 is the newest this program speaks), and closes it as soon
 // as the handshake ends. Nothing is written afterwards.
-func handshake(ctx context.Context, dialer *net.Dialer, t Target, minVersion, maxVersion uint16) (tls.ConnectionState, bool) {
+func handshake(ctx context.Context, dial Dial, t Target, minVersion, maxVersion uint16) (tls.ConnectionState, bool) {
 	hsCtx, cancel := context.WithTimeout(ctx, handshakeTimeout)
 	defer cancel()
-	conn, err := dialer.DialContext(hsCtx, "tcp", net.JoinHostPort(t.Addr.String(), strconv.Itoa(t.Port)))
+	conn, err := dialWithin(hsCtx, dial, "tcp", net.JoinHostPort(t.Addr.String(), strconv.Itoa(t.Port)))
 	if err != nil {
 		return tls.ConnectionState{}, false
 	}

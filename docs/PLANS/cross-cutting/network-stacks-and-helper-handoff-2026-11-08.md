@@ -58,6 +58,10 @@ Read this, then the plan named in the item you take. Everything up to v0.62.0 (#
 
 `docs/PLANS/cross-cutting/network-capture-window-plan.md` (Remaining Work) for item 2, or `network-stack-p3b-design.md` section 4e for item 5. Run `./scripts/check-agent-harness.sh` after any doc edit.
 
+## Added 2026-11-09, S6 step 2a: web checks (v0.65.0, uncommitted on top of 614fd555)
+
+`webprobe` moved into the Network stack (ADR-0038 "Second sensor", SPEC-003 2.53). **Differences you will see on vertex:** with Guardrails local-network access off the nightly report now says the web checks could not run (before, they ran on the declared scope alone), and a deep check in that state stores no web or certificate findings; and requests no longer ask for a compressed answer. Not run on vertex: after the first night with the web checks switched on, check that the same `web_exposure` and certificate findings appear, none resolved and none new.
+
 ## Added 2026-11-09, S6 step 1 (branch `network-small-items`, after five commits; v0.64.0, uncommitted)
 
 The scoped dial, the `Looker` method and the move of `udpchecks` into the Network stack are built and tested (ADR-0038 "Built", `network-stack-s6-plan.md`). Not run on vertex: the nightly UDP checks now go through the stack, so the first real night should show the same `udp_service` findings; if the UDP module was switched on, check that none reads as resolved and none as new.

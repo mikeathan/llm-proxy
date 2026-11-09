@@ -26,7 +26,6 @@ import (
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/core/netaudit/upnp"
-	"llm-proxy/internal/core/netaudit/webprobe"
 	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
@@ -124,7 +123,7 @@ type netauditServices struct {
 	KnownBadList   *knownBadList
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
-	WebChecker      *webprobe.Prober
+	WebChecker      netaudit.WebChecker
 	// UDPChecksConfig is the nightly switch of the two UDP questions (Constitution item 12); UDPChecks asks them through the guarded dial.
 	UDPChecksConfig *netaudit.UDPChecksConfig
 	UDPChecks       *netaudit.UDPChecks
@@ -578,13 +577,19 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	known := s.newTracking(store, scope, netTools)
 	phone := s.newPhoneHome(store, scope)
 	bad := s.newKnownBad(store, netTools)
-	webChecker := webprobe.New(func(a netip.Addr) error { return scope.Policy().Check(a) })
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
 	network, err := s.newNetworkHost(store, netTools, scope)
 	if err != nil {
 		s.logger.Error("the Network stack could not be hosted", "error", err.Error())
+	}
+	// The web and certificate checks are the Network stack's web sensor. The core checks the declared scope and the guardrails before it asks,
+	// as the prober used to, so a run the settings forbid is an error the report states.
+	webChecker := stackWebChecker{
+		host: network, module: networkWebModule,
+		scope: func(a netip.Addr) error { return scope.Policy().Check(a) },
+		ready: func() (bool, string) { return networkReady(guard(), true, false) },
 	}
 	near := s.newNearby(store, scope, netTools, guard, known.Inventory)
 

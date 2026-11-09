@@ -27,6 +27,9 @@ var cardMakerOf netaudit.VendorLookup = oui.Vendor
 // networkUDPModule is the id of the nightly UDP checks, the sensor the Network stack answers for.
 const networkUDPModule = network.UDPModuleID
 
+// networkWebModule is the id of the nightly web checks, the second sensor the Network stack answers for.
+const networkWebModule = network.WebModuleID
+
 // The registry of stacks and modules (ADR-0028) is described here, once, in the composition root. It owns no setting: each module
 // is a Switch over the setting that already holds it, doing what that feature's own route did when it was switched.
 
@@ -110,7 +113,7 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"phone_home"}, Switch: n.KnownBadConfig, Ready: n.KnownBadList.Ready},
 		{ID: "scan_on_arrival", Title: "Scan on arrival", Purpose: "Scan a new device once.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Needs: []string{"presence"}, Switch: n.FollowUpConfig},
-		{ID: "web_checks", Title: "Web and certificate checks, nightly", Purpose: "Looks at the web page and certificate of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
+		{ID: networkWebModule, Title: "Web and certificate checks, nightly", Purpose: "Looks at the web page and certificate of every device the audit finds.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Ready: lan, Switch: n.WebChecksConfig, Monitors: []string{netaudit.MonitorWebChecks}},
 		{ID: networkUDPModule, Title: "UDP checks, nightly", Purpose: "Asks each device whether its SNMP or UPnP service answers.", Stack: stack.Network, Layer: "test", Sends: stack.SendsLAN, StepUp: true,
 			Ready: lan, Switch: n.UDPChecksConfig},

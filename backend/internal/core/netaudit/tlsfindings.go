@@ -4,11 +4,9 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"llm-proxy/internal/core/netaudit/webprobe"
 )
 
-// The certificate findings (core/netaudit/webprobe, ProbeTLS): what a secure web page showed in a handshake. Expired, about to expire and
+// The certificate findings (the Network stack's handshakes, ADR-0038): what a secure web page showed in a handshake. Expired, about to expire and
 // old protocol versions are the checks nmap's scripts already make (CheckCertExpired, CheckCertExpiring, CheckTLSWeakProtocol), with the
 // same words, so one finding stands for both however it was found and it works without nmap. A device's own certificate is the new one.
 // Evidence is fixed words and dates or versions; none of the certificate's own text is ever shown.
@@ -35,7 +33,7 @@ func init() {
 
 // TLSFindings turns what the handshakes showed into findings, one per check and port. The dates in the evidence are the certificate's
 // own, which the handshake read; now is only used to decide whether one is past or near.
-func TLSFindings(facts []webprobe.TLSFacts, now time.Time) []Finding {
+func TLSFindings(facts []TLSFact, now time.Time) []Finding {
 	var out []Finding
 	for _, f := range facts {
 		add := func(check, severity, evidence, version string) {
@@ -52,18 +50,32 @@ func TLSFindings(facts []webprobe.TLSFacts, now time.Time) []Finding {
 		if f.SelfSigned {
 			add(CheckSelfSigned, SeverityLow, "The certificate was signed by the device itself, so a browser cannot check who it belongs to", selfSignedVersion)
 		}
-		if len(f.OldVersions) > 0 {
-			names := strings.Join(f.OldVersions, ", ")
+		if names := tlsVersionNames(f.OldVersions); names != "" {
 			add(CheckTLSWeakProtocol, SeverityMedium, "It still accepts old protocol versions: "+names, names)
 		}
 	}
 	return out
 }
 
+// tlsVersionWords are the protocol versions older than 1.2 the core has words for, named as a person reads them, keyed by the number the
+// standard gives them (the stack sends numbers, never words).
+var tlsVersionWords = map[uint16]string{0x0301: "TLS 1.0", 0x0302: "TLS 1.1"}
+
+// tlsVersionNames lists the words for the versions given, in the order given, leaving out a number the core has no words for.
+func tlsVersionNames(versions []uint16) string {
+	var names []string
+	for _, v := range versions {
+		if name, ok := tlsVersionWords[v]; ok {
+			names = append(names, name)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
 // mergeTLS adds the certificate findings to a run's findings. A handshake that completed is the freshest word on its port: it replaces a
 // carried deep-check finding of old protocol versions (which may have been fixed since), and a finding of the same key that nmap's
 // scripts already made is kept instead of repeated.
-func mergeTLS(findings []Finding, facts []webprobe.TLSFacts, fresh []Finding) []Finding {
+func mergeTLS(findings []Finding, facts []TLSFact, fresh []Finding) []Finding {
 	handshook := map[string]bool{}
 	for _, f := range facts {
 		handshook[Finding{Device: f.Addr.String(), Port: f.Port, Proto: "tcp", Check: CheckTLSWeakProtocol}.Key()] = true

@@ -16,6 +16,28 @@ import (
 
 func allowAll(netip.Addr) error { return nil }
 
+// Guard stands in for the declared scan scope that the host's scoped dial enforces at every connection.
+type Guard func(netip.Addr) error
+
+// scopedDial is the host's scoped dial in miniature: it asks the guard about the address it is about to connect to, then connects.
+func scopedDial(guard Guard) Dial {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		addr, err := netip.ParseAddr(host)
+		if err != nil {
+			return nil, err
+		}
+		if err := guard(addr.Unmap()); err != nil {
+			return nil, err
+		}
+		var d net.Dialer
+		return d.DialContext(ctx, network, address)
+	}
+}
+
 // recorder counts what a test server was asked.
 type recorder struct {
 	mu      sync.Mutex
@@ -49,7 +71,7 @@ func targetOf(t *testing.T, srv *httptest.Server, tls bool) Target {
 }
 
 func prober(guard Guard) *Prober {
-	p := New(guard)
+	p := New(scopedDial(guard))
 	p.pace = 0
 	return p
 }
@@ -96,7 +118,7 @@ func TestProbe_NamesWhatTheDeviceShowsAndNothingElse(t *testing.T) {
 		t.Error("a run that finished is not partial")
 	}
 	for _, h := range res.Hits {
-		if h.Title == "" || h.Severity == "" || h.Port == 0 {
+		if h.ID == "" || h.Port == 0 {
 			t.Errorf("hit = %+v", h)
 		}
 	}
@@ -169,40 +191,19 @@ func TestProbe_ReadsATLSServiceWithoutTrustingItsCertificate(t *testing.T) {
 	}
 }
 
-func TestProbe_RefusesATargetOutsideTheScopeBeforeSendingAnything(t *testing.T) {
+// The scope is enforced at every connection, by the dial: a target it refuses is never sent a request. (The core also refuses such a run before
+// it asks the stack at all, which is tested where that happens.)
+func TestProbe_ATargetTheDialRefusesIsNeverSentAnything(t *testing.T) {
 	rec := &recorder{}
 	srv := httptest.NewServer(device(rec))
 	defer srv.Close()
 	deny := func(netip.Addr) error { return errors.New("not in scope") }
-	if _, err := prober(deny).Probe(context.Background(), []Target{targetOf(t, srv, false)}, time.Minute); err == nil {
-		t.Fatal("want an error")
-	}
-	if len(rec.paths) != 0 {
-		t.Errorf("%d requests were sent to a target the scope refused", len(rec.paths))
-	}
-}
-
-func TestProbe_TheGuardIsAskedAgainAtEveryConnection(t *testing.T) {
-	rec := &recorder{}
-	srv := httptest.NewServer(device(rec))
-	defer srv.Close()
-	var mu sync.Mutex
-	calls := 0
-	guard := func(netip.Addr) error {
-		mu.Lock()
-		defer mu.Unlock()
-		calls++
-		if calls > 1 { // the check before the run passes, the connection is refused
-			return errors.New("not in scope")
-		}
-		return nil
-	}
-	res, err := prober(guard).Probe(context.Background(), []Target{targetOf(t, srv, false)}, time.Minute)
+	res, err := prober(deny).Probe(context.Background(), []Target{targetOf(t, srv, false)}, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.paths) != 0 || len(res.Hits) != 0 {
-		t.Errorf("a connection the guard refused still reached the device: %d requests, hits %v", len(rec.paths), ids(res))
+		t.Errorf("a connection the dial refused still reached the device: %d requests, hits %v", len(rec.paths), ids(res))
 	}
 }
 

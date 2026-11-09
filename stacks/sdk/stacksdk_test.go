@@ -371,3 +371,35 @@ func TestLookTypes_CarryNoTextFromTheNetwork(t *testing.T) {
 		}
 	}
 }
+
+// The web sensor's request and answers carry addresses, ports, numbers, dates and one check id, and nothing a device said: the only text is
+// the module id of a request and the id of a hit, both of which the core checks against tables it owns. Adding a text field must be a deliberate
+// change to this test (ADR-0038 rule 3).
+func TestWebTypes_CarryNoTextFromTheNetwork(t *testing.T) {
+	allowed := map[string]bool{"WebRequest.Module": true, "WebHit.ID": true}
+	for _, typ := range []reflect.Type{
+		reflect.TypeFor[WebTarget](), reflect.TypeFor[WebRequest](), reflect.TypeFor[WebHit](), reflect.TypeFor[WebResult](),
+		reflect.TypeFor[CertFact](), reflect.TypeFor[CertResult](),
+	} {
+		if err := CheckPlainData(typ); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			isText := f.Type.Kind() == reflect.String || (f.Type.Kind() == reflect.Slice && f.Type.Elem().Kind() == reflect.String)
+			if isText && !allowed[typ.Name()+"."+f.Name] {
+				t.Errorf("%s.%s is text; only WebRequest.Module and WebHit.ID may be", typ, f.Name)
+			}
+		}
+	}
+	if f, ok := reflect.TypeFor[CertFact]().FieldByName("OldVersions"); !ok || f.Type != reflect.TypeFor[[]uint16]() {
+		t.Error("protocol versions travel as numbers, so the core maps them to its own words")
+	}
+}
+
+// A request is bounded the same way on both sides: the SDK names the bounds and the stack and the host refuse more.
+func TestWebBounds_AreNamed(t *testing.T) {
+	if MaxWebTargets < 1 || MaxLookSeconds < 1 {
+		t.Fatalf("bounds: %d targets, %d seconds", MaxWebTargets, MaxLookSeconds)
+	}
+}

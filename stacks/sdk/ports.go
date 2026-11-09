@@ -102,6 +102,70 @@ type Looker interface {
 	Look(ctx context.Context, req LookRequest) (LookResult, error)
 }
 
+// The bounds of a web sensor's request, held by the host and by the stack alike.
+const (
+	// MaxWebTargets is how many web services one request names.
+	MaxWebTargets = 64
+	// MaxLookSeconds is the longest time limit a request may ask for.
+	MaxLookSeconds = 900
+)
+
+// WebTarget is one web service on one device: an address the core has already checked against the declared scan scope, a port, and whether
+// it speaks TLS.
+type WebTarget struct {
+	Addr netip.Addr `json:"addr"`
+	Port int        `json:"port"`
+	TLS  bool       `json:"tls,omitempty"`
+}
+
+// WebRequest asks a web sensor module to look at web services. LimitSeconds ends the run: what was found by then comes back with Partial set.
+type WebRequest struct {
+	// Module is the id of a module the manifest lists in Looks.
+	Module       string      `json:"module"`
+	Targets      []WebTarget `json:"targets"`
+	LimitSeconds int         `json:"limit_seconds"`
+}
+
+// WebHit is one fixed check that matched on one service. ID is a check id from the stack's fixed list; the core owns the words and the
+// severity for each id and drops an id it does not know, so nothing a device said reaches a finding.
+type WebHit struct {
+	Addr netip.Addr `json:"addr"`
+	Port int        `json:"port"`
+	ID   string     `json:"id"`
+}
+
+// WebResult is what a run of the plain web checks found and whether its time limit ended it before every service was asked.
+type WebResult struct {
+	Hits    []WebHit `json:"hits"`
+	Partial bool     `json:"partial,omitempty"`
+}
+
+// CertFact is what one secure service showed in a handshake: the dates of the certificate it presented, whether it signed itself, and the
+// protocol versions older than 1.2 that it accepted, as the numbers the TLS standard gives them (0x0301 is 1.0). The certificate's own text is
+// never read out.
+type CertFact struct {
+	Addr        netip.Addr `json:"addr"`
+	Port        int        `json:"port"`
+	NotBefore   time.Time  `json:"not_before"`
+	NotAfter    time.Time  `json:"not_after"`
+	SelfSigned  bool       `json:"self_signed,omitempty"`
+	OldVersions []uint16   `json:"old_versions,omitempty"`
+}
+
+// CertResult is what a run of the handshakes found and whether its time limit ended it before every service was asked.
+type CertResult struct {
+	Facts   []CertFact `json:"facts"`
+	Partial bool       `json:"partial,omitempty"`
+}
+
+// WebLooker is implemented by a stack with a web sensor module (Manifest.Looks). Like Looker it sends, through the host's ScopedGuard only.
+// LookWeb makes the fixed plain GET requests; LookCertificates makes the handshakes with the secure services among the targets. A failure
+// is an *Error.
+type WebLooker interface {
+	LookWeb(ctx context.Context, req WebRequest) (WebResult, error)
+	LookCertificates(ctx context.Context, req WebRequest) (CertResult, error)
+}
+
 // Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
 type Request struct {
 	Method string `json:"method"`
@@ -280,5 +344,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}}
 }

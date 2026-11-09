@@ -9,11 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/webprobe"
 	"llm-proxy/models"
 )
 
-// The web checks (core/netaudit/webprobe): a fixed list of plain GET requests aimed at the web services a scan found, in the
+// The web checks (the Network stack's webprobe, ADR-0038): a fixed list of plain GET requests aimed at the web services a scan found, in the
 // operator's deep check of one device and, while the operator has switched the module on, in the nightly audit. A hit is a
 // finding in this repository's own words, never the device's text.
 const CheckWebExposure = "web_exposure"
@@ -41,16 +40,100 @@ func init() {
 	}
 }
 
-// WebChecker asks the web services their fixed questions: *webprobe.Prober.
-type WebChecker interface {
-	Probe(ctx context.Context, targets []webprobe.Target, limit time.Duration) (webprobe.Result, error)
-	ProbeTLS(ctx context.Context, targets []webprobe.Target, limit time.Duration) (webprobe.TLSResult, error)
+// MaxWebTargets is the most web services one run is aimed at. It equals the SDK's bound, which a test in app pins.
+const MaxWebTargets = 64
+
+// WebTarget is one web service on one device: an address already approved by the scan scope, a port, and whether it speaks TLS.
+type WebTarget struct {
+	Addr netip.Addr
+	Port int
+	TLS  bool
 }
+
+// WebHit is a check that matched on one service. Only its id came from the Network stack; the words and the severity are this file's table.
+type WebHit struct {
+	Addr netip.Addr
+	Port int
+	ID   string
+}
+
+// WebResult is what a run found and whether its time limit ended it before every service was asked.
+type WebResult struct {
+	Hits    []WebHit
+	Partial bool
+}
+
+// TLSFact is what one secure web service showed: the dates of its certificate, whether it signed itself, and the protocol versions older than
+// 1.2 it accepted, as the standard's numbers.
+type TLSFact struct {
+	Addr        netip.Addr
+	Port        int
+	NotBefore   time.Time
+	NotAfter    time.Time
+	SelfSigned  bool
+	OldVersions []uint16
+}
+
+// TLSResult is what a run of the handshakes found and whether its time limit ended it before every service was asked.
+type TLSResult struct {
+	Facts   []TLSFact
+	Partial bool
+}
+
+// WebChecker asks the web services their fixed questions: the Network stack's web sensor, through the stack host.
+type WebChecker interface {
+	Probe(ctx context.Context, targets []WebTarget, limit time.Duration) (WebResult, error)
+	ProbeTLS(ctx context.Context, targets []WebTarget, limit time.Duration) (TLSResult, error)
+}
+
+// WebCheck is the words and the severity of one check id. The Network stack owns the paths and the tests of an answer; this table owns what
+// a finding says, so nothing a device sent can reach a report. A test in app holds it equal to the stack's list.
+type WebCheck struct{ ID, Title, Severity string }
+
+// webChecks is the whole list, in the order the stack asks them.
+var webChecks = []WebCheck{
+	{ID: "asus_router_login", Title: "The login page of an Asus router", Severity: SeverityInfo},
+	{ID: "brother_printer_page", Title: "The status page of a Brother printer", Severity: SeverityInfo},
+	{ID: "fuji_xerox_printer_page", Title: "The status page of a Fuji Xerox printer", Severity: SeverityInfo},
+	{ID: "samsung_printer_page", Title: "The web page of a Samsung printer", Severity: SeverityInfo},
+	{ID: "grafana_login", Title: "The login page of Grafana", Severity: SeverityInfo},
+	{ID: "home_assistant_page", Title: "The page of Home Assistant", Severity: SeverityInfo},
+	{ID: "kubernetes_dashboard", Title: "A Kubernetes dashboard", Severity: SeverityInfo},
+	{ID: "openwrt_luci_login", Title: "The login page of an OpenWrt router", Severity: SeverityInfo},
+	{ID: "openvpn_router_management", Title: "The OpenVPN page of a router", Severity: SeverityInfo},
+	{ID: "qnap_login", Title: "The login page of a QNAP storage box", Severity: SeverityInfo},
+	{ID: "truenas_login", Title: "The login page of TrueNAS", Severity: SeverityInfo},
+	{ID: "ubiquiti_edgerouter_page", Title: "The page of a Ubiquiti EdgeRouter", Severity: SeverityInfo},
+	{ID: "unifi_os_login", Title: "The login page of UniFi OS", Severity: SeverityInfo},
+	{ID: "unifi_security_gateway_page", Title: "The page of a UniFi Security Gateway", Severity: SeverityInfo},
+	{ID: "zyxel_router_page", Title: "The configuration page of a Zyxel router", Severity: SeverityInfo},
+	{ID: "jellyfin_page", Title: "The page of a Jellyfin media server", Severity: SeverityInfo},
+	{ID: "synology_api_list", Title: "Synology DSM lists its programming interface to anyone", Severity: SeverityLow},
+	{ID: "apache_status_page", Title: "An Apache status page that anyone can open", Severity: SeverityLow},
+	{ID: "nginx_status_page", Title: "An nginx status page that anyone can open", Severity: SeverityLow},
+	{ID: "metrics_exporter_page", Title: "A metrics page that anyone can open", Severity: SeverityLow},
+	{ID: "openapi_description", Title: "A description of the device's programming interface that anyone can read", Severity: SeverityLow},
+	{ID: "ds_store_file", Title: "A Mac folder-listing file that the web server hands out", Severity: SeverityLow},
+	{ID: "apache_default_page", Title: "A web server that still shows Apache's test page", Severity: SeverityLow},
+	{ID: "nginx_default_page", Title: "A web server that still shows nginx's welcome page", Severity: SeverityLow},
+}
+
+// WebChecks returns the table of check words, in the order the stack asks them.
+func WebChecks() []WebCheck { return slices.Clone(webChecks) }
+
+// webCheckByID finds a check by its id.
+var webCheckByID = func() map[string]WebCheck {
+	m := make(map[string]WebCheck, len(webChecks))
+	for _, c := range webChecks {
+		m[c.ID] = c
+	}
+	return m
+}()
 
 // WebTargets are the web services among the open-port findings of a scan: TCP ports whose service is HTTP or HTTPS, on private IPv4
 // addresses, at most a few per device and in all. A device is one address, or every device when it is empty.
-func WebTargets(findings []Finding, device string) []webprobe.Target {
-	var out []webprobe.Target
+func WebTargets(findings []Finding, device string) []WebTarget {
+	var out []WebTarget
 	perDevice := map[string]int{}
 	for _, f := range findings {
 		tls, web := webService(f.Service)
@@ -58,11 +141,11 @@ func WebTargets(findings []Finding, device string) []webprobe.Target {
 		if f.Check != CheckOpenPort || f.Proto != "tcp" || !web || err != nil || !addr.Is4() || !addr.IsPrivate() || (device != "" && f.Device != device) {
 			continue
 		}
-		if perDevice[f.Device] >= maxWebPortsPerDevice || len(out) >= webprobe.MaxTargets {
+		if perDevice[f.Device] >= maxWebPortsPerDevice || len(out) >= MaxWebTargets {
 			continue
 		}
 		perDevice[f.Device]++
-		out = append(out, webprobe.Target{Addr: addr, Port: f.Port, TLS: tls})
+		out = append(out, WebTarget{Addr: addr, Port: f.Port, TLS: tls})
 	}
 	return out
 }
@@ -81,14 +164,17 @@ func webService(service string) (tls, web bool) {
 
 // WebFindings turns hits into findings, one per web service, listing the titles of what matched. The severity is the most serious of
 // the hits; the Version is a digest of the check ids, so accepting a finding holds until a new kind of thing matches.
-func WebFindings(hits []webprobe.Hit) []Finding {
+func WebFindings(hits []WebHit) []Finding {
 	type key struct {
 		addr netip.Addr
 		port int
 	}
 	var order []key
-	group := map[key][]webprobe.Hit{}
+	group := map[key][]WebHit{}
 	for _, h := range hits {
+		if _, known := webCheckByID[h.ID]; !known {
+			continue
+		}
 		k := key{h.Addr, h.Port}
 		if _, seen := group[k]; !seen {
 			order = append(order, k)
@@ -100,9 +186,10 @@ func WebFindings(hits []webprobe.Hit) []Finding {
 		hs := group[k]
 		titles, ids, worst := make([]string, 0, len(hs)), make([]string, 0, len(hs)), SeverityInfo
 		for _, h := range hs {
-			titles, ids = append(titles, h.Title), append(ids, h.ID)
-			if severityRank(h.Severity) > severityRank(worst) {
-				worst = h.Severity
+			c := webCheckByID[h.ID]
+			titles, ids = append(titles, c.Title), append(ids, h.ID)
+			if severityRank(c.Severity) > severityRank(worst) {
+				worst = c.Severity
 			}
 		}
 		slices.Sort(ids)
@@ -157,7 +244,7 @@ func (r *RunReporter) addWebChecks(ctx context.Context, result *Result) string {
 
 // addCertificateChecks handshakes with the secure services among the targets and adds what their certificates show. A run that cannot
 // do it is said in the note and recorded as a failure of the module, like the web checks themselves.
-func (r *RunReporter) addCertificateChecks(ctx context.Context, result *Result, targets []webprobe.Target) string {
+func (r *RunReporter) addCertificateChecks(ctx context.Context, result *Result, targets []WebTarget) string {
 	secure := secureTargets(targets)
 	if len(secure) == 0 {
 		return ""
@@ -177,8 +264,8 @@ func (r *RunReporter) addCertificateChecks(ctx context.Context, result *Result, 
 }
 
 // secureTargets are the targets that speak TLS.
-func secureTargets(targets []webprobe.Target) []webprobe.Target {
-	return slices.DeleteFunc(slices.Clone(targets), func(t webprobe.Target) bool { return !t.TLS })
+func secureTargets(targets []WebTarget) []WebTarget {
+	return slices.DeleteFunc(slices.Clone(targets), func(t WebTarget) bool { return !t.TLS })
 }
 
 // WithWebChecks makes a deep check also run the web checks on the device's web ports. Without it a deep check is as it was.

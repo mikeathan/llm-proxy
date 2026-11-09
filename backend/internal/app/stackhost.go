@@ -165,3 +165,130 @@ func udpPairs(in []stacksdk.Pair) []netaudit.UDPPair {
 	}
 	return out
 }
+
+// webLookGrace is how long past a run's own time limit the host waits for a web sensor to answer: the stack ends its run at the limit and
+// returns what it found, so only the hand-over needs time. A variable so a test can shorten it.
+var webLookGrace = 30 * time.Second
+
+// webSensor holds a web request to what the manifest announced (the module is listed in Looks and the stack implements WebLooker) and to the
+// bounds, and returns the stack's sensor and a context that ends a short grace after the run's own limit. The nightly run of the web checks is
+// allowed ten minutes, so the wait follows the request, not the fixed time of the UDP look.
+func (h *stackHost) webSensor(ctx context.Context, req stacksdk.WebRequest) (stacksdk.WebLooker, context.Context, context.CancelFunc, error) {
+	id := h.stack.Manifest().ID
+	sensor, ok := h.stack.(stacksdk.WebLooker)
+	switch {
+	case !ok || !slices.Contains(h.stack.Manifest().Looks, req.Module):
+		return nil, nil, nil, fmt.Errorf("stack %q has no web sensor %q", id, req.Module)
+	case len(req.Targets) < 1 || len(req.Targets) > stacksdk.MaxWebTargets:
+		return nil, nil, nil, fmt.Errorf("stack %q was asked to look at %d web services", id, len(req.Targets))
+	case req.LimitSeconds < 1 || req.LimitSeconds > stacksdk.MaxLookSeconds:
+		return nil, nil, nil, fmt.Errorf("stack %q was given a time limit of %d seconds", id, req.LimitSeconds)
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(req.LimitSeconds)*time.Second+webLookGrace)
+	return sensor, ctx, cancel, nil
+}
+
+// LookWeb asks the stack's web sensor to make its plain requests of the named services.
+func (h *stackHost) LookWeb(ctx context.Context, req stacksdk.WebRequest) (stacksdk.WebResult, error) {
+	sensor, ctx, cancel, err := h.webSensor(ctx, req)
+	if err != nil {
+		return stacksdk.WebResult{}, err
+	}
+	defer cancel()
+	got, err := sensor.LookWeb(ctx, req)
+	if err != nil {
+		return stacksdk.WebResult{}, fmt.Errorf("stack %q could not look at the web services: %w", h.stack.Manifest().ID, err)
+	}
+	return got, nil
+}
+
+// LookCertificates asks the stack's web sensor for the handshakes with the secure services among the named ones.
+func (h *stackHost) LookCertificates(ctx context.Context, req stacksdk.WebRequest) (stacksdk.CertResult, error) {
+	sensor, ctx, cancel, err := h.webSensor(ctx, req)
+	if err != nil {
+		return stacksdk.CertResult{}, err
+	}
+	defer cancel()
+	got, err := sensor.LookCertificates(ctx, req)
+	if err != nil {
+		return stacksdk.CertResult{}, fmt.Errorf("stack %q could not read the certificates: %w", h.stack.Manifest().ID, err)
+	}
+	return got, nil
+}
+
+// stackWebChecker is the web checks' checker: the Network stack's web sensor, reached through its host, in the core's own types. Before it
+// asks, it makes the checks the prober used to make for itself, so a run the operator's settings forbid is an error the report states and not
+// a silent "nothing found": every target must be an IPv4 address inside the declared scan scope, and the guardrails must allow the local
+// network. (The stack's scoped dial enforces the scope again at every connection.)
+type stackWebChecker struct {
+	host   *stackHost
+	scope  func(netip.Addr) error // the declared scan scope
+	ready  func() (bool, string)  // whether the guardrails allow the local network, and the words for why not
+	module string
+}
+
+// request checks a run and builds the stack's request. what names the check in an error.
+func (c stackWebChecker) request(what string, targets []netaudit.WebTarget, limit time.Duration) (stacksdk.WebRequest, error) {
+	switch {
+	case len(targets) == 0 || len(targets) > netaudit.MaxWebTargets:
+		return stacksdk.WebRequest{}, fmt.Errorf("%s: %d targets, want 1 to %d", what, len(targets), netaudit.MaxWebTargets)
+	case limit < time.Second:
+		return stacksdk.WebRequest{}, fmt.Errorf("%s: a run needs a time limit of at least a second", what)
+	}
+	if ok, why := c.ready(); !ok {
+		return stacksdk.WebRequest{}, fmt.Errorf("%s: %s", what, why)
+	}
+	out := stacksdk.WebRequest{Module: c.module, LimitSeconds: int(min(limit.Seconds(), stacksdk.MaxLookSeconds)), Targets: make([]stacksdk.WebTarget, 0, len(targets))}
+	for _, t := range targets {
+		if !t.Addr.Is4() || t.Port < 1 || t.Port > 65535 {
+			return stacksdk.WebRequest{}, fmt.Errorf("%s: %s:%d is not an IPv4 address and port", what, t.Addr, t.Port)
+		}
+		if err := c.scope(t.Addr); err != nil {
+			return stacksdk.WebRequest{}, fmt.Errorf("%s: %s is outside the scan scope: %w", what, t.Addr, err)
+		}
+		out.Targets = append(out.Targets, stacksdk.WebTarget{Addr: t.Addr, Port: t.Port, TLS: t.TLS})
+	}
+	return out, nil
+}
+
+var errWebNotHosted = errors.New("the Network stack is not hosted")
+
+// Probe makes the plain web checks.
+func (c stackWebChecker) Probe(ctx context.Context, targets []netaudit.WebTarget, limit time.Duration) (netaudit.WebResult, error) {
+	req, err := c.request("web checks", targets, limit)
+	if err != nil {
+		return netaudit.WebResult{}, err
+	}
+	if c.host == nil {
+		return netaudit.WebResult{}, errWebNotHosted
+	}
+	got, err := c.host.LookWeb(ctx, req)
+	if err != nil {
+		return netaudit.WebResult{}, err
+	}
+	out := netaudit.WebResult{Hits: make([]netaudit.WebHit, 0, len(got.Hits)), Partial: got.Partial}
+	for _, h := range got.Hits {
+		out.Hits = append(out.Hits, netaudit.WebHit{Addr: h.Addr, Port: h.Port, ID: h.ID})
+	}
+	return out, nil
+}
+
+// ProbeTLS makes the certificate handshakes.
+func (c stackWebChecker) ProbeTLS(ctx context.Context, targets []netaudit.WebTarget, limit time.Duration) (netaudit.TLSResult, error) {
+	req, err := c.request("certificate checks", targets, limit)
+	if err != nil {
+		return netaudit.TLSResult{}, err
+	}
+	if c.host == nil {
+		return netaudit.TLSResult{}, errWebNotHosted
+	}
+	got, err := c.host.LookCertificates(ctx, req)
+	if err != nil {
+		return netaudit.TLSResult{}, err
+	}
+	out := netaudit.TLSResult{Facts: make([]netaudit.TLSFact, 0, len(got.Facts)), Partial: got.Partial}
+	for _, f := range got.Facts {
+		out.Facts = append(out.Facts, netaudit.TLSFact{Addr: f.Addr, Port: f.Port, NotBefore: f.NotBefore, NotAfter: f.NotAfter, SelfSigned: f.SelfSigned, OldVersions: slices.Clone(f.OldVersions)})
+	}
+	return out, nil
+}
