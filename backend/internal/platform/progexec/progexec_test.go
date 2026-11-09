@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,29 @@ func TestRun_AsksTheSandboxToConfineToRootWithTheReadPaths(t *testing.T) {
 	}
 	if len(sb.wrapped) != 1 || sb.wrapped[0].RootPath != inv.Root || sb.wrapped[0].ReadPaths[0] != "/usr/share/nmap" || !sb.wrapped[0].NetworkOn {
 		t.Errorf("wrapped = %+v", sb.wrapped)
+	}
+}
+
+// The jail's clean PATH covers only /usr/bin and /bin, so the program's own file must be granted by the runner: a program installed
+// anywhere else (the helper's own binary in /usr/local/bin) is otherwise denied its exec once the jail is on. Only the file is granted.
+func TestRun_GrantsTheProgramsOwnFileAndNotItsDirectory(t *testing.T) {
+	sb := &fakeSandbox{mechanism: sandbox.EnforcementLandlock}
+	prog := script(t, "true")
+	inv := invocation(t)
+	inv.ReadPaths = []string{"/usr/share/nmap"}
+
+	if _, err := (Runner{Sandbox: sb}).Run(context.Background(), prog, inv); err != nil {
+		t.Fatal(err)
+	}
+	got := sb.wrapped[0].ReadPaths
+	if !slices.Contains(got, prog.Binary) || !slices.Contains(got, "/usr/share/nmap") {
+		t.Errorf("the program's file and the caller's paths must both be granted: %v", got)
+	}
+	if slices.Contains(got, filepath.Dir(prog.Binary)) {
+		t.Errorf("the program's directory must not be granted: %v", got)
+	}
+	if len(inv.ReadPaths) != 1 {
+		t.Errorf("the caller's slice must not be changed: %v", inv.ReadPaths)
 	}
 }
 

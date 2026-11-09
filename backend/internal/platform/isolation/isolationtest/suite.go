@@ -70,7 +70,6 @@ func newSuite(t *testing.T) *suite {
 // probe runs one probe action under profile and returns whether it was allowed and the detail it printed.
 func (s *suite) probe(r isolation.Runner, p isolation.Profile, action, arg string) (allowed bool, detail string) {
 	s.t.Helper()
-	p.ReadPaths = append(p.ReadPaths, filepath.Dir(s.exe))
 	p.Env = append(append([]string{}, p.Env...), actionVar+"="+action, argVar+"="+arg)
 	out, err := r.Run(context.Background(), isolation.Program{Name: "probe", Binary: s.exe}, p)
 	if err != nil {
