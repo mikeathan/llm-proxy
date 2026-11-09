@@ -28,22 +28,16 @@ git fetch origin && git status -sb          # branch network-ingest-exchange-por
 
 Q1 yes (validated names); Q2 yes (an exchange port for Nearby's multicast, raw datagrams in, the stack parses); Q3 yes (the core owns every socket and pushes typed observations); programs: `nmap`, `scantool`, `wifilook` stay in the core. **Open:** `portprobe` was not named; ask before moving it.
 
-## Why no code was written (read this before starting)
+## Decisions closed 2026-11-09 (ADR-0039, "Narrowing")
 
-The first consumer must be `decoy`, but moving it is not "add a push port":
+- `portprobe` stays in the core, with `nmap`, `scantool` and `wifilook`.
+- `decoy`, `routerlog`, `phonehome` and `knownbad` **stay in the core.** Reason: their sockets, stores, alert state and twelve-file readership (for `decoy`: `decoyfindings.go`, `incident.go`, `attackpaths.go`, `overview.go`, `activity.go`, `fixguide.go`, `remediation.go`, `runreporter.go`, `app/netaudit.go`, `netaudit_alerts.go`, two handlers) are all core, so a push port would add a queue, a drop path and a second owner of the same table for no isolation gain and some cost. No state handover is needed because nothing moves.
+- The observation port is not built; revisit only for a listener whose input is untrusted bytes a stack should parse.
 
-1. `models.DecoyTouch` mixes sensing facts (source, port, first, last, count) with alert state (`Notified`). The alert state is judgement and stays in the core.
-2. Twelve core files read the touches: `core/netaudit/decoyfindings.go`, `incident.go`, `attackpaths.go`, `overview.go`, `activity.go`, `fixguide.go`, `remediation.go`, `runreporter.go`, `app/netaudit.go`, `app/netaudit_alerts.go`, and the handlers `netaudit_decoy_handlers.go`, `netaudit_overview_handlers.go`. A stack keeping the table needs a read-back method too (a typed list), which the SDK does not have. `Findings` by id is not enough.
-3. State handover: vertex has a persisted touch file. A stack starting empty changes the first night's decoy findings (rule 1 of ADR-0038), so the plan must be one of: the core pushes the existing touches once as observations with counts, or the stack reads nothing and the core keeps the table and the stack only judges. Decide with the owner.
-4. The listener callback must never wait on the stack: the host's observe is non-blocking and bounded (drop and count when full), with a test that a stalled stack does not stall the listener.
+## What to build next
 
-## What to build next, in order (each its own PR)
-
-1. **Observation port + `decoy`:** SDK `Observer` (plain data: kind id, source address, port, time), `Manifest.Observes`, the manifest check and a drift test; the host's bounded non-blocking push; the stack's decoy module; a typed read-back; golden test of the touch table and the findings pinned first (`decoyfindings_test.go`, `decoy_test.go`); the state-handover choice above. A run on vertex is required (ADR-0039 Consequences).
-2. `routerlog` counters and the DNS-query leg (syslog parsers stay in the core; names validated at the port).
-3. `phonehome`, only after splitting `Told` from the names; then `knownbad` with the ADR-0037 feed.
-4. Nearby through the exchange port (raw datagrams; the stack parses; delete the core's `ParseSSDP` copy then).
-5. The ADR-0037 lookup port and the settings flip stay last.
+1. **Nearby through the exchange port** (the only remaining S4 item that earns a move): core keeps `platform/mcast.Exchange` as `Exchange(ifc, questions, window) -> datagrams`; the stack parses the datagrams and returns typed facts (service types, ports, addresses; device free text stays in the core's Nearby text handling); delete the core's `ParseSSDP` copy. Pin the Nearby findings (`rogue_gateway`, service checks) first; bound datagram count and size at the port; needs a run on vertex.
+2. The ADR-0037 lookup port and the settings flip stay last.
 
 ## Owner items on vertex (unchanged from before)
 
