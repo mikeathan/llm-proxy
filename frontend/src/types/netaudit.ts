@@ -863,6 +863,8 @@ export interface CaptureSummary {
   stopped_by: 'window' | 'frame_limit' | 'cut' | 'interface_missing' | 'interface_down' | 'socket_error' | 'unsupported'
   elapsed_ms: number
   frames: number
+  /** Frames that were copies of one message heard moments before (an access point repeating a broadcast); the counts below leave them out. */
+  repeated_copies: number
   max_per_second: number
   kernel_seen: number
   kernel_dropped: number
@@ -870,9 +872,11 @@ export interface CaptureSummary {
     arp_requests: number; arp_replies: number; arp_gratuitous: number; dhcp_from_server: number; dhcp_from_client: number; mdns: number
     nd_router_solicit: number; nd_router_advert: number; nd_neighbor_solicit: number; nd_neighbor_advert: number; nd_redirect: number; unreadable: number
   }
-  claims: { mac: string; ip: string; gratuitous: boolean }[]
+  claims: { mac: string; ip: string; gratuitous: boolean; off_network: boolean }[]
   dhcp_server_macs: string[]
   conflicting_addresses: number
+  /** Announced addresses outside every range this link has itself, 0 when the link's own ranges are unknown. */
+  off_network_addresses: number
 }
 
 /** The answer of the capture route: the parsed summary, or why there is none. */

@@ -641,3 +641,9 @@ export const CAPTURE_STOPPED: Readonly<Record<string, string>> = {
 }
 export const CAPTURE_DHCP_NOTE = 'More than one DHCP source is worth a look (a router and a repeater can both answer); it is not proof of a problem.'
 export const CAPTURE_CONFLICT_NOTE = (n: number): string => `${n} ${n === 1 ? 'address was' : 'addresses were'} announced by more than one device. Repeaters and bonded connections can do this on purpose.`
+export const CAPTURE_CLAIMS_TITLE = (n: number): string => `Who announced an address (${n})`
+export const CAPTURE_CLAIM_SELF = 'announced its own address'
+export const CAPTURE_CLAIM_USED = 'was named as the sender of an address request'
+export const CAPTURE_OFFNET_TAG = 'outside this network'
+export const CAPTURE_OFFNET_NOTE = (n: number): string => `${n} ${n === 1 ? 'address was' : 'addresses were'} outside this network's own range. That usually means a device on another network (a separate VLAN or a guest network) is reaching this link. It is a reason to look at that device and at how the networks are separated, not proof of a problem.`
+export const CAPTURE_COPIES = (n: number): string => `${n} of them copies of the same message`

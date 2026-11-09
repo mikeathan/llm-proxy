@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"time"
@@ -66,9 +68,10 @@ func helperDefaults(iface func() (string, error)) api.HelperDefaults {
 	}
 }
 
-// keepCapture stamps a decoded summary with the time, the interface it listened on and whether that link is Wi-Fi, and keeps it. A failed
+// keepCapture stamps a decoded summary with the time, the interface it listened on and whether that link is Wi-Fi, marks the announced
+// addresses outside the ranges that link has itself (prefixes), and keeps it. A failed
 // save is logged and dropped: the operator already has the answer on screen.
-func keepCapture(sink captureSink, params []byte, s models.CaptureSummary) {
+func keepCapture(sink captureSink, prefixes func(iface string) []netip.Prefix, params []byte, s models.CaptureSummary) {
 	if sink == nil {
 		return
 	}
@@ -80,9 +83,29 @@ func keepCapture(sink captureSink, params []byte, s models.CaptureSummary) {
 	if st, err := os.Stat(filepath.Join("/sys/class/net", req.Iface, "wireless")); err == nil && st.IsDir() {
 		wireless = true
 	}
+	s = framewire.MarkOffNetwork(s, prefixes(req.Iface))
 	if err := sink.Write(framewire.Stamp(s, time.Now(), req.Iface, wireless)); err != nil {
 		logging.Warn("a capture summary was not kept", "error", err)
 	}
+}
+
+// linkPrefixes are the address ranges the named interface has itself, none when it cannot be read.
+func linkPrefixes(iface string) []netip.Prefix {
+	ifc, err := net.InterfaceByName(iface)
+	if err != nil {
+		return nil
+	}
+	addrs, err := ifc.Addrs()
+	if err != nil {
+		return nil
+	}
+	var out []netip.Prefix
+	for _, a := range addrs {
+		if p, err := netip.ParsePrefix(a.String()); err == nil {
+			out = append(out, p.Masked())
+		}
+	}
+	return out
 }
 
 // captureView is the answer of GET /admin/api/netaudit/capture-window: the last summary, or null when there has been none.

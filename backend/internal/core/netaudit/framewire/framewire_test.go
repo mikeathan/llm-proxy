@@ -2,6 +2,7 @@ package framewire
 
 import (
 	"encoding/binary"
+	"net/netip"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +165,68 @@ func TestStampFillsWhatTheFramesCannotSay(t *testing.T) {
 	s := Stamp(models0(), at, "wlp2s0", true)
 	if s.Interface != "wlp2s0" || !s.Wireless || !s.At.Equal(at) {
 		t.Fatalf("%+v", s)
+	}
+}
+
+// An access point or mesh repeats one broadcast to a Wi-Fi client in a burst of identical copies. The counts are of events, so the copies
+// inside one burst are folded and reported; the same frame a second later is a new event.
+func TestIdenticalCopiesInOneBurstAreCountedOnceAndReported(t *testing.T) {
+	f := arp(1, mac(1), [4]byte{192, 168, 1, 9}, [4]byte{192, 168, 1, 9})
+	var out []byte
+	for _, ms := range []uint32{1000, 1000, 1001, 1002, 3000} {
+		out = wire.AppendCaptureRecord(out, ms, f)
+	}
+	out = wire.AppendCaptureTrailer(out, wire.CaptureTrailer{Stop: wire.StopWindow, Frames: 5, KernelSeen: 5, ElapsedMs: 60000})
+	s, err := Summarize(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Frames != 5 || s.Counts.ARPGratuitous != 2 || s.RepeatedCopies != 3 {
+		t.Fatalf("frames=%d gratuitous=%d repeated=%d", s.Frames, s.Counts.ARPGratuitous, s.RepeatedCopies)
+	}
+	if s.MaxPerSec != 4 {
+		t.Errorf("the busiest second counts every frame heard, copies included: %d", s.MaxPerSec)
+	}
+}
+
+func TestDifferentFramesInOneBurstAreNotFolded(t *testing.T) {
+	var out []byte
+	out = wire.AppendCaptureRecord(out, 10, arp(1, mac(1), [4]byte{192, 168, 1, 9}, [4]byte{192, 168, 1, 9}))
+	out = wire.AppendCaptureRecord(out, 11, arp(1, mac(2), [4]byte{192, 168, 1, 10}, [4]byte{192, 168, 1, 10}))
+	out = wire.AppendCaptureTrailer(out, wire.CaptureTrailer{Stop: wire.StopWindow, Frames: 2})
+	s, _ := Summarize(out)
+	if s.Counts.ARPGratuitous != 2 || s.RepeatedCopies != 0 {
+		t.Fatalf("%+v repeated=%d", s.Counts, s.RepeatedCopies)
+	}
+}
+
+func TestAnAddressOutsideTheLinksOwnRangeIsMarked(t *testing.T) {
+	s, _ := Summarize(output(
+		arp(1, mac(1), [4]byte{192, 168, 50, 220}, [4]byte{192, 168, 50, 220}),
+		arp(1, mac(2), [4]byte{192, 168, 101, 212}, [4]byte{192, 168, 101, 212}),
+		arp(1, mac(3), [4]byte{}, [4]byte{192, 168, 50, 7}),
+	))
+	s = MarkOffNetwork(s, []netip.Prefix{netip.MustParsePrefix("192.168.50.7/24"), netip.MustParsePrefix("fd95::1/64")})
+	if s.OffNetworkAddresses != 1 {
+		t.Fatalf("off-network addresses = %d", s.OffNetworkAddresses)
+	}
+	for _, c := range s.Claims {
+		if c.OffNetwork != (c.IP == "192.168.101.212") {
+			t.Errorf("claim %+v", c)
+		}
+	}
+}
+
+func TestWithNoKnownRangeNothingIsMarked(t *testing.T) {
+	s, _ := Summarize(output(arp(1, mac(1), [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 1})))
+	if s = MarkOffNetwork(s, nil); s.OffNetworkAddresses != 0 || s.Claims[0].OffNetwork {
+		t.Fatalf("a link whose addresses are unknown must not mark anything: %+v", s)
+	}
+}
+
+func TestALinkWithOnlyIPv6RangesMarksNothing(t *testing.T) {
+	s, _ := Summarize(output(arp(1, mac(1), [4]byte{10, 0, 0, 1}, [4]byte{10, 0, 0, 1})))
+	if s = MarkOffNetwork(s, []netip.Prefix{netip.MustParsePrefix("fd95::1/64")}); s.OffNetworkAddresses != 0 || s.Claims[0].OffNetwork {
+		t.Fatalf("an IPv4 announcement cannot be compared with IPv6 ranges: %+v", s)
 	}
 }

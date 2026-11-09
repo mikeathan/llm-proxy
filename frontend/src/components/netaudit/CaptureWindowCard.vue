@@ -4,7 +4,7 @@ import Panel from "../common/layout/Panel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useCaptureWindow } from "../../composables/netaudit/useCaptureWindow"
 import {
-  CAPTURE_BUTTON, CAPTURE_CONFLICT_NOTE, CAPTURE_DHCP_NOTE, CAPTURE_NEVER, CAPTURE_PASSPHRASE_NOTE, CAPTURE_RUNNING, CAPTURE_SNAPSHOT_NOTE, CAPTURE_STOPPED, CAPTURE_TITLE,
+  CAPTURE_BUTTON, CAPTURE_CLAIM_SELF, CAPTURE_CLAIM_USED, CAPTURE_CLAIMS_TITLE, CAPTURE_CONFLICT_NOTE, CAPTURE_COPIES, CAPTURE_DHCP_NOTE, CAPTURE_NEVER, CAPTURE_OFFNET_NOTE, CAPTURE_OFFNET_TAG, CAPTURE_PASSPHRASE_NOTE, CAPTURE_RUNNING, CAPTURE_SNAPSHOT_NOTE, CAPTURE_STOPPED, CAPTURE_TITLE,
 } from "../../constants/netaudit"
 import { formatRelativeTime } from "../../utils/format/time"
 
@@ -27,7 +27,7 @@ onMounted(load)
       <p v-if="!summary" class="m-0 text-[length:var(--text-small)] text-muted" data-test="capture-never">{{ CAPTURE_NEVER }}</p>
       <div v-else class="flex flex-col gap-1.5 text-[length:var(--text-small)] text-secondary" data-test="capture-result">
         <span class="text-muted">{{ summary.interface }}{{ summary.wireless ? ' (Wi-Fi)' : '' }} · {{ formatRelativeTime(summary.at) }} · {{ CAPTURE_STOPPED[summary.stopped_by] ?? summary.stopped_by }}</span>
-        <span data-test="capture-frames">{{ summary.frames }} frames heard, at most {{ summary.max_per_second }} in one second<template v-if="summary.kernel_dropped"> · {{ summary.kernel_dropped }} dropped because they came too fast</template></span>
+        <span data-test="capture-frames">{{ summary.frames }} frames heard<template v-if="summary.repeated_copies"> ({{ CAPTURE_COPIES(summary.repeated_copies) }})</template>, at most {{ summary.max_per_second }} in one second<template v-if="summary.kernel_dropped"> · {{ summary.kernel_dropped }} dropped because they came too fast</template></span>
         <ul class="m-0 flex list-none flex-wrap gap-x-4 gap-y-0.5 p-0" data-test="capture-counts">
           <li>Address requests {{ summary.counts.arp_requests }}</li>
           <li>Address answers {{ summary.counts.arp_replies }}</li>
@@ -39,7 +39,19 @@ onMounted(load)
           <li>Not readable {{ summary.counts.unreadable }}</li>
         </ul>
         <p v-if="summary.dhcp_server_macs.length > 1" class="m-0 text-state-running" data-test="capture-dhcp">{{ summary.dhcp_server_macs.length }} different sources answered as a DHCP server. {{ CAPTURE_DHCP_NOTE }}</p>
+        <p v-if="summary.off_network_addresses" class="m-0 text-state-running" data-test="capture-offnet">{{ CAPTURE_OFFNET_NOTE(summary.off_network_addresses) }}</p>
         <p v-if="summary.conflicting_addresses" class="m-0 text-state-running" data-test="capture-conflict">{{ CAPTURE_CONFLICT_NOTE(summary.conflicting_addresses) }}</p>
+        <details v-if="summary.claims.length" class="text-[length:var(--text-small)] text-muted" data-test="capture-claims">
+          <summary class="cursor-pointer">{{ CAPTURE_CLAIMS_TITLE(summary.claims.length) }}</summary>
+          <ul class="m-0 mt-1.5 flex list-none flex-col gap-1 p-0 text-secondary">
+            <li v-for="c in summary.claims" :key="c.mac + c.ip" class="flex flex-wrap gap-x-2" data-test="capture-claim">
+              <span class="font-mono">{{ c.mac }}</span>
+              <span class="font-mono">{{ c.ip }}</span>
+              <span class="text-muted">{{ c.gratuitous ? CAPTURE_CLAIM_SELF : CAPTURE_CLAIM_USED }}</span>
+              <span v-if="c.off_network" class="text-state-running">{{ CAPTURE_OFFNET_TAG }}</span>
+            </li>
+          </ul>
+        </details>
       </div>
     </div>
   </Panel>
