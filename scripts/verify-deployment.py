@@ -78,28 +78,31 @@ def check_auth(base, token):
 
 def check_stacks(base, token):
     code, body = get(base, "/admin/api/stacks", token)
-    if code != 200:
+    if code != 200 or not isinstance(body, dict):
         return [result("stacks", FAIL, f"HTTP {code}")]
-    stacks = body if isinstance(body, list) else (body or {}).get("stacks", [])
     out = []
-    for s in stacks:
+    for s in body.get("stacks", []):
         sid = s.get("id", "?")
-        summary = s.get("summary", {})
-        for layer in s.get("layers", []):
+        out.append(result(f"stack {sid}", FAIL if s.get("stopped") or s.get("blocked") else PASS,
+                          f"{s.get('on', 0)} of {s.get('total', 0)} on, {s.get('stopped', 0)} stopped, {s.get('blocked', 0)} blocked"))
+        code, detail = get(base, f"/admin/api/stacks/{sid}", token)
+        if code != 200 or not isinstance(detail, dict):
+            out.append(result(f"stack {sid} modules", FAIL, f"HTTP {code}"))
+            continue
+        for layer in detail.get("layers", []):
             for m in layer.get("modules", []):
-                name = f"module {sid}/{m.get('id', '?')}"
-                if not m.get("enabled"):
-                    out.append(result(name, SKIP, "off" + (f" ({m['blocked']})" if m.get("blocked") else "")))
-                elif m.get("blocked"):
-                    out.append(result(name, FAIL, f"on but blocked: {m['blocked']}"))
-                elif m.get("health") == "stopped":
-                    out.append(result(name, FAIL, "on but stopped"))
-                else:
-                    out.append(result(name, PASS, m.get("health") or "on"))
-        out.append(result(f"stack {sid}", FAIL if summary.get("stopped") or summary.get("blocked") else PASS,
-                          f"{summary.get('on', 0)} of {summary.get('total', 0)} on, {summary.get('stopped', 0)} stopped, "
-                          f"{summary.get('blocked', 0)} blocked"))
+                out.append(judge_module(f"module {sid}/{m.get('id', '?')}", m))
     return out or [result("stacks", WARN, "no stacks listed")]
+
+
+def judge_module(name, m):
+    if not m.get("enabled"):
+        return result(name, SKIP, "off" + (f" ({m['blocked']})" if m.get("blocked") else ""))
+    if m.get("blocked"):
+        return result(name, FAIL, f"on but blocked: {m['blocked']}")
+    if m.get("health") == "stopped":
+        return result(name, FAIL, "on but stopped")
+    return result(name, PASS, m.get("health") or "on")
 
 
 # Status routes that answer {enabled, problem, ...}. A route that is off is SKIP; one that is on must have no problem and, when
@@ -158,7 +161,9 @@ def check_findings(base, token, ws, automation, save, compare):
     if not body.get("scanned"):
         return [result("findings", WARN, "this automation has not scanned yet")]
     keys, resolved = finding_keys(body)
-    out = [result("findings", PASS, f"{len(keys)} open, {len(resolved)} resolved in the last scan, "
+    fresh = sum(1 for f in body.get("findings", []) if isinstance(f, dict) and f.get("new"))
+    changed = sum(1 for f in body.get("findings", []) if isinstance(f, dict) and f.get("changed"))
+    out = [result("findings", PASS, f"{len(keys)} open ({fresh} new, {changed} changed), {len(resolved)} resolved in the last scan, "
                                     f"{body.get('devices_up', '?')} devices up, {len(body.get('unscanned', []) or [])} unscanned")]
     if save:
         Path(save).write_text(json.dumps({"keys": sorted(keys)}, indent=1))

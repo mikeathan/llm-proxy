@@ -34,8 +34,9 @@ def healthy():
         "_deny": False,
         "/admin/api/version": {"version": "0.66.0", "commit": "abc"},
         "/admin/api/auth/status": {"set_up": True, "encrypted": True},
-        "/admin/api/stacks": [{"id": "network", "summary": {"on": 1, "total": 2, "stopped": 0, "blocked": 0}, "layers": [{"modules": [
-            {"id": "udp_probes", "enabled": True, "health": "working"}, {"id": "decoys", "enabled": False}]}]}],
+        "/admin/api/stacks": {"stacks": [{"id": "network", "on": 1, "total": 2, "stopped": 0, "blocked": 0}]},
+        "/admin/api/stacks/network": {"id": "network", "summary": {"on": 1, "total": 2}, "layers": [{"modules": [
+            {"id": "udp_probes", "enabled": True, "health": "working"}, {"id": "decoys", "enabled": False}]}]},
         "/admin/api/netaudit/router-log": {"enabled": True, "listening": True},
         "/admin/api/netaudit/decoys": {"enabled": False},
         "/admin/api/netaudit/presence": {"enabled": True},
@@ -86,7 +87,7 @@ class VerifyTest(unittest.TestCase):
         self.assertEqual((code, self.status(res, "router log")), (1, "FAIL"))
 
     def test_a_stopped_module_fails(self):
-        ROUTES["/admin/api/stacks"][0]["layers"][0]["modules"][0]["health"] = "stopped"
+        ROUTES["/admin/api/stacks/network"]["layers"][0]["modules"][0]["health"] = "stopped"
         code, res = self.run_cli()
         self.assertEqual((code, self.status(res, "module network/udp_probes")), (1, "FAIL"))
 
