@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"llm-proxy-stacks/network/dnscheck"
+	"llm-proxy-stacks/network/udpchecks"
 	"llm-proxy-stacks/sdk"
 )
 
@@ -20,6 +21,9 @@ import (
 const (
 	ID       = "network"
 	ModuleID = "dns_check"
+	// UDPModuleID is the nightly UDP checks, a sensor: the core's registry defines the module and its switch, and this stack answers its
+	// Look requests (ADR-0038).
+	UDPModuleID = "udp_probes"
 	// SettingsKey is the core's `netaudit` settings document, which this stack shares with the code that has not moved yet.
 	SettingsKey = "netaudit"
 	// RoutePath is the DNS check's one route, read and written.
@@ -35,6 +39,7 @@ type Stack struct {
 	collector *dnscheck.Collector
 	store     dnscheck.Store
 	gateway   stacksdk.Gateway
+	scoped    stacksdk.Guard // the dial that applies the declared scan scope; nil when the host gave none
 	cancel    context.CancelFunc
 	done      chan struct{}
 }
@@ -63,7 +68,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Storage:  []string{dnscheck.LogFile},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortGuard, stacksdk.PortFetch, stacksdk.PortGateway},
+		Looks:    []string{UDPModuleID},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortGuard, stacksdk.PortFetch, stacksdk.PortGateway, stacksdk.PortScopedGuard},
 	}
 }
 
@@ -76,7 +82,7 @@ func (s *Stack) Start(ctx context.Context, h stacksdk.Host) error {
 	}
 	s.cfg = dnscheck.Config{Doc: h.Config}
 	server := func(ctx context.Context) netip.Addr { return routerAddress(ctx, s.cfg, h.Gateway) }
-	s.store, s.gateway = dnscheck.FileStore{Dir: h.DataDir}, h.Gateway
+	s.store, s.gateway, s.scoped = dnscheck.FileStore{Dir: h.DataDir}, h.Gateway, h.ScopedGuard
 	s.collector = dnscheck.NewCollector(dnscheck.CollectorDeps{
 		Settings: func() dnscheck.Settings { return s.cfg.Settings(context.Background()) },
 		Router:   dnscheck.Router{Guard: h.Guard, Server: server},
@@ -165,6 +171,40 @@ func (s *Stack) Findings(ctx context.Context) ([]stacksdk.StackFinding, error) {
 		return nil, nil
 	}
 	return []stacksdk.StackFinding{{ID: FindingID, Subject: router, Count: d.Count, Names: d.Names, Since: d.Since}}, nil
+}
+
+// Look asks the devices the nightly scan found the two fixed UDP questions and says which it asked and which answered in the expected form
+// (ADR-0038). Every datagram goes through the scoped dial, which refuses an address outside the operator's declared scan scope; a refusal, an
+// error and silence are all "no answer", and the caller treats an asked pair with no answer as unknown, never as fixed. Only IPv4 devices are
+// asked, the first udpchecks.MaxDevices of them. Nothing a device said is kept or returned.
+func (s *Stack) Look(ctx context.Context, req stacksdk.LookRequest) (stacksdk.LookResult, error) {
+	s.mu.Lock()
+	scoped := s.scoped
+	s.mu.Unlock()
+	switch {
+	case req.Module != UDPModuleID:
+		return stacksdk.LookResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "this stack has no such sensor")
+	case len(req.Addrs) > stacksdk.MaxLookAddrs:
+		return stacksdk.LookResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "too many addresses")
+	case scoped == nil:
+		return stacksdk.LookResult{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the stack has no scoped dial")
+	}
+	addrs := make([]netip.Addr, 0, len(req.Addrs))
+	for _, a := range req.Addrs {
+		if a.Is4() && len(addrs) < udpchecks.MaxDevices {
+			addrs = append(addrs, a)
+		}
+	}
+	out := stacksdk.LookResult{Asked: []stacksdk.Pair{}, Answered: []stacksdk.Pair{}}
+	for _, a := range addrs {
+		for _, p := range udpchecks.Probes {
+			out.Asked = append(out.Asked, stacksdk.Pair{Addr: a, Port: p.Port})
+		}
+	}
+	for _, a := range (udpchecks.Prober{Dial: scoped.DialContext}).Look(ctx, addrs) {
+		out.Answered = append(out.Answered, stacksdk.Pair{Addr: a.Addr, Port: a.Port})
+	}
+	return out, nil
 }
 
 // CallTool: the stack declares no tools yet.

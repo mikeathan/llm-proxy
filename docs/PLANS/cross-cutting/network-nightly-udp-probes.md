@@ -50,7 +50,7 @@ Left out on purpose, each with its reason, so a later reader does not re-add the
 
 ## 5. Build slices (after approval)
 
-1. `core/netaudit/udpchecks` (typed rules, the two builders, parsers, tests from real captured replies when the owner supplies them; fixtures built from the RFC form until then, said so).
+1. `stacks/network/udpchecks` (moved from `core/netaudit` on 2026-11-09, ADR-0038) (typed rules, the two builders, parsers, tests from real captured replies when the owner supplies them; fixtures built from the RFC form until then, said so).
 2. Wire into `RunReporter` beside `WithServiceChecks`, with `Carry` and the merge.
 3. Setting, Network card, Help text, SPEC-003 section, the Constitution item, learnings.
 
@@ -62,5 +62,5 @@ Left out on purpose, each with its reason, so a later reader does not re-add the
 
 ## Remaining Work
 
-Built 2026-11-08 (v0.59.0): `core/netaudit/udpchecks` (slice 1), the reporter wiring with `Carry` and the merge (slice 2), the `udp_probes` module and its switch, SPEC-003 2.46, Constitution I.12, learnings. Nothing was run on a real network.
+Built 2026-11-08 (v0.59.0): `stacks/network/udpchecks` (moved from `core/netaudit` on 2026-11-09, ADR-0038) (slice 1), the reporter wiring with `Carry` and the merge (slice 2), the `udp_probes` module and its switch, SPEC-003 2.46, Constitution I.12, learnings. Nothing was run on a real network.
 Left: (1) run the module on vertex once and keep one real SNMPv3 report and one real SSDP unicast reply as fixtures (the tests use RFC-shaped bytes); (2) Help text beyond the module's About lines if the owner wants more; (3) open question 2 was answered by building one switch, default off; change it only if the owner asks.

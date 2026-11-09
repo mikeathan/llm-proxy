@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -512,4 +514,152 @@ func waitForLog(t *testing.T, dir *memDir, n int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("the log never reached %d rows", n)
+}
+
+// ---- the UDP sensor (ADR-0038) ----
+
+// recordingScopedGuard stands in for the core's scoped dial: it records every address asked and connects only port 1900 to a stand-in
+// device on the loopback, so port 161 stays silent.
+type recordingScopedGuard struct {
+	mu     sync.Mutex
+	dialed []string
+	device net.Addr
+}
+
+func (g *recordingScopedGuard) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	g.mu.Lock()
+	g.dialed = append(g.dialed, addr)
+	g.mu.Unlock()
+	if !strings.HasSuffix(addr, ":1900") {
+		return nil, stacksdk.Errorf(stacksdk.CodeDenied, "refused")
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, g.device.String())
+}
+func (*recordingScopedGuard) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+// ssdpDevice answers any datagram with the first line of a UPnP reply, as a device with UPnP does.
+func ssdpDevice(t *testing.T) net.Addr {
+	t.Helper()
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			_, from, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return
+			}
+			_, _ = conn.WriteToUDP([]byte("HTTP/1.1 200 OK\r\nST: upnp:rootdevice\r\n\r\n"), from)
+		}
+	}()
+	return conn.LocalAddr()
+}
+
+func lookStack(t *testing.T, g stacksdk.Guard) *Stack {
+	t.Helper()
+	h := host(&memDoc{}, &memDir{})
+	h.ScopedGuard = g
+	s := New()
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	return s
+}
+
+func TestLook_ReportsEveryPairAskedAndOnlyTheOnesThatAnsweredThroughTheScopedDial(t *testing.T) {
+	g := &recordingScopedGuard{device: ssdpDevice(t)}
+	s := lookStack(t, g)
+	a, b := netip.MustParseAddr("192.168.1.30"), netip.MustParseAddr("192.168.1.31")
+	got, err := s.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: []netip.Addr{a, b, netip.MustParseAddr("fe80::1")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantAsked := []stacksdk.Pair{{Addr: a, Port: 161}, {Addr: a, Port: 1900}, {Addr: b, Port: 161}, {Addr: b, Port: 1900}}
+	slices.SortFunc(got.Asked, func(x, y stacksdk.Pair) int {
+		return strings.Compare(x.Addr.String()+itoa(x.Port), y.Addr.String()+itoa(y.Port))
+	})
+	if !slices.Equal(got.Asked, wantAsked) {
+		t.Errorf("asked = %v, want %v (IPv6 is not asked)", got.Asked, wantAsked)
+	}
+	slices.SortFunc(got.Answered, func(x, y stacksdk.Pair) int { return strings.Compare(x.Addr.String(), y.Addr.String()) })
+	if want := []stacksdk.Pair{{Addr: a, Port: 1900}, {Addr: b, Port: 1900}}; !slices.Equal(got.Answered, want) {
+		t.Errorf("answered = %v, want %v", got.Answered, want)
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if len(g.dialed) != 4 {
+		t.Errorf("every datagram goes through the scoped dial, and only for IPv4 devices: %v", g.dialed)
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+func TestLook_RefusesAnotherModuleTooManyAddressesAndAStackWithNoScopedDial(t *testing.T) {
+	g := &recordingScopedGuard{device: ssdpDevice(t)}
+	s := lookStack(t, g)
+	one := []netip.Addr{netip.MustParseAddr("192.168.1.30")}
+	if _, err := s.Look(context.Background(), stacksdk.LookRequest{Module: "dns_check", Addrs: one}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+		t.Errorf("another module: code = %q", stacksdk.CodeOf(err))
+	}
+	many := make([]netip.Addr, stacksdk.MaxLookAddrs+1)
+	for i := range many {
+		many[i] = netip.MustParseAddr("192.168.1.30")
+	}
+	if _, err := s.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: many}); stacksdk.CodeOf(err) != stacksdk.CodeInvalid {
+		t.Errorf("too many addresses: code = %q", stacksdk.CodeOf(err))
+	}
+	g.mu.Lock()
+	dialed := len(g.dialed)
+	g.mu.Unlock()
+	if dialed != 0 {
+		t.Errorf("a refused request must send nothing, dialled %d", dialed)
+	}
+	bare := New()
+	if _, err := bare.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: one}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("not started: code = %q", stacksdk.CodeOf(err))
+	}
+	noScope := lookStack(t, nil)
+	if _, err := noScope.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: one}); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("no scoped dial: code = %q", stacksdk.CodeOf(err))
+	}
+}
+
+func TestLook_NeverTouchesThePlainGuard(t *testing.T) {
+	g := &recordingScopedGuard{device: ssdpDevice(t)}
+	h := host(&memDoc{}, &memDir{})
+	h.ScopedGuard = g
+	h.Guard = failingGuard{t}
+	s := New()
+	if err := s.Start(context.Background(), h); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Stop(context.Background()) })
+	if _, err := s.Look(context.Background(), stacksdk.LookRequest{Module: UDPModuleID, Addrs: []netip.Addr{netip.MustParseAddr("192.168.1.30")}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// failingGuard fails the test if the sensor reaches for the plain guarded dial, which does not apply the declared scan scope.
+type failingGuard struct{ t *testing.T }
+
+func (g failingGuard) DialContext(context.Context, string, string) (net.Conn, error) {
+	g.t.Error("the sensor dialled through the plain guard, which does not apply the declared scan scope")
+	return nil, stacksdk.Errorf(stacksdk.CodeDenied, "refused")
+}
+func (failingGuard) Boundary(netip.Addr) stacksdk.Boundary { return stacksdk.BoundaryLAN }
+
+func TestManifest_TheUDPSensorIsDeclaredAndNeedsTheScopedDial(t *testing.T) {
+	m := New().Manifest()
+	if !slices.Contains(m.Looks, UDPModuleID) || !slices.Contains(m.Requires, stacksdk.PortScopedGuard) {
+		t.Fatalf("looks = %v, requires = %v", m.Looks, m.Requires)
+	}
+	if err := m.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	var _ stacksdk.Looker = New()
 }

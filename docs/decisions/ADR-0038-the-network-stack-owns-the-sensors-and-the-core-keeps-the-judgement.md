@@ -48,9 +48,17 @@ We will move the **sensors** into the Network stack and keep the **judgement** i
    must be checked against `webprobe` and `upnp`, which need the same input-in, typed-answers-out form, so it is designed once for all three.
    `StackFinding` has no port field today; the first sensor adds a typed one (or encodes the port in the id) and the core maps it back to today's `Finding`.
 
+### Built 2026-11-09 (v0.64.0): the contract and the first sensor, `udpchecks`
+
+- **SDK:** `PortScopedGuard` (`Host.ScopedGuard`), `Manifest.Looks`, `LookRequest`, `LookResult`, `Pair`, `MaxLookAddrs` and the optional `Looker` interface; the manifest check requires the scoped dial of a stack that lists a sensor.
+- **Core:** `stackport.ScopedGuard` (the declared scan scope, checked afresh for each datagram, then the guarded dial; a refusal reads as `CodeDenied`); `stackHost.Look` (module and bound checked before the stack is called, three-minute limit); `stackUDPAsker`; `netaudit.UDPChecks` now takes typed pairs and, when the sensor cannot look at all, keeps every earlier finding.
+- **Stack:** `stacks/network/udpchecks` moved with its tests unchanged; `Stack.Look` answers for `udp_probes`.
+- **Gates that exist:** the byte-identical findings test, the same through the whole stack path, an outside-scope address never dialled (shown to fail when the scope check is removed), the plain `Guard` never used by the sensor, and the stack's `Look` refusing another module or too many addresses.
+- **Shape check for `webprobe` and `upnp` (not built):** both fit "addresses in, typed answers out" for the probe itself, but `webprobe` returns richer facts (a certificate's fields, a page's headers) than `Pair`; before it moves, `LookResult` gets a second typed list or the module gets its own result type, decided from `webfindings.go` and `tlsfindings.go`.
+
 ## Consequences
 
-- **Order.** The scoped dial and the contract of rule 3, with the parity test, come first; then `udpchecks` (no dependency on the service, 121 lines plus
+- **Order.** The scoped dial and the contract of rule 3, with the parity test, come first with `udpchecks` as their first user (built, see above); then (no dependency on the service, 121 lines plus
   the SNMP parser), then `webprobe` and `upnp`, then the ingest port (S4) for the watchers, then the programs (S5). The lookup port of ADR-0037 is added
   with the matching code that first needs it, optional in the manifest.
 - **What improves:** the Network-specific, port-hungry code leaves the core one reviewable pull request at a time, the `models` types stay put, and an

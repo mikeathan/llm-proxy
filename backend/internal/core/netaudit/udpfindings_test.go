@@ -2,29 +2,38 @@ package netaudit
 
 import (
 	"context"
+	"errors"
 	"net/netip"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
-	"llm-proxy/internal/core/netaudit/udpchecks"
 	"llm-proxy/models"
 )
 
-// fakeAsker answers as told and records what it was asked.
+// fakeAsker answers as told and records what it was asked. Like the Network stack's sensor it reports every pair it asked (both questions
+// of each device) and the ones that answered; err stands for a sensor that could not look at all.
 type fakeAsker struct {
-	answers []udpchecks.Answer
+	answers []UDPPair
 	asked   []netip.Addr
+	err     error
 }
 
-func (f *fakeAsker) Look(_ context.Context, addrs []netip.Addr) []udpchecks.Answer {
+func (f *fakeAsker) Look(_ context.Context, addrs []netip.Addr) (UDPLooked, error) {
 	f.asked = addrs
-	return f.answers
+	if f.err != nil {
+		return UDPLooked{}, f.err
+	}
+	out := UDPLooked{Answered: f.answers}
+	for _, a := range addrs {
+		out.Asked = append(out.Asked, UDPPair{Addr: a, Port: 161}, UDPPair{Addr: a, Port: 1900})
+	}
+	return out, nil
 }
 
-func answer(addr string, port int) udpchecks.Answer {
-	return udpchecks.Answer{Addr: netip.MustParseAddr(addr), Port: port}
+func answer(addr string, port int) UDPPair {
+	return UDPPair{Addr: netip.MustParseAddr(addr), Port: port}
 }
 
 func always() bool { return true }
@@ -40,7 +49,7 @@ func udpKeys(store *memBaselines) map[string]Finding {
 }
 
 func TestUDPChecks_AnAnswerBecomesTheRuleFindingWithFixedWords(t *testing.T) {
-	asker := &fakeAsker{answers: []udpchecks.Answer{answer("10.0.0.7", 161), answer("10.0.0.7", 1900)}}
+	asker := &fakeAsker{answers: []UDPPair{answer("10.0.0.7", 161), answer("10.0.0.7", 1900)}}
 	res := (&UDPChecks{Asker: asker}).Findings(context.Background(), []Host{hostOf("10.0.0.7", true, false, 80), hostOf("fe80::1", true, false)})
 	if len(asker.asked) != 1 || asker.asked[0].String() != "10.0.0.7" {
 		t.Fatalf("asked %v: only IPv4 hosts that are up are asked", asker.asked)
@@ -64,7 +73,7 @@ func TestUDPChecks_AnAnswerBecomesTheRuleFindingWithFixedWords(t *testing.T) {
 // day the question moves into the Network stack (ADR-0038) the same answer must produce the same finding, byte for byte, or every
 // finding reads as resolved overnight and the operator's acknowledgements are lost.
 func TestUDPChecks_TheFindingsOfAnAnswerAreByteIdentical(t *testing.T) {
-	asker := &fakeAsker{answers: []udpchecks.Answer{answer("10.0.0.7", 161), answer("10.0.0.7", 1900)}}
+	asker := &fakeAsker{answers: []UDPPair{answer("10.0.0.7", 161), answer("10.0.0.7", 1900)}}
 	got := (&UDPChecks{Asker: asker}).Findings(context.Background(), []Host{hostOf("10.0.0.7", true, false, 80)}).Findings
 	want := []Finding{
 		{Device: "10.0.0.7", Port: 161, Proto: "udp", Service: "SNMP", Check: CheckUDPService, Severity: SeverityMedium,
@@ -96,7 +105,7 @@ func TestUDPChecks_DownHostsAndUnscannedHostsAreNotAsked(t *testing.T) {
 func TestUDPChecks_SilenceKeepsAnEarlierFindingAndAnAnswerRefreshesIt(t *testing.T) {
 	host := hostOf("10.0.0.7", true, false, 80)
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
-	reporter(store, reportTime.Add(-48*time.Hour)).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []udpchecks.Answer{answer("10.0.0.7", 161)}}}).Augment(scannedHosts(host), "ws", "nightly", "")
+	reporter(store, reportTime.Add(-48*time.Hour)).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []UDPPair{answer("10.0.0.7", 161)}}}).Augment(scannedHosts(host), "ws", "nightly", "")
 	if len(udpKeys(store)) != 1 {
 		t.Fatalf("first night: %v", udpKeys(store))
 	}
@@ -116,9 +125,29 @@ func TestUDPChecks_SilenceKeepsAnEarlierFindingAndAnAnswerRefreshesIt(t *testing
 	}
 }
 
+// A sensor that could not look at all (the stack is not running, or timed out) says nothing about any service, so the earlier findings of every
+// device this scan found stay, exactly as on a night when each device was silent.
+func TestUDPChecks_ASensorThatCannotLookKeepsEveryEarlierFinding(t *testing.T) {
+	host := hostOf("10.0.0.7", true, false, 80)
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	reporter(store, reportTime.Add(-48*time.Hour)).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []UDPPair{answer("10.0.0.7", 161), answer("10.0.0.7", 1900)}}}).Augment(scannedHosts(host), "ws", "nightly", "")
+	if len(udpKeys(store)) != 2 {
+		t.Fatalf("first night: %v", udpKeys(store))
+	}
+	broken := &fakeAsker{err: errors.New("the stack is not running")}
+	reporter(store, reportTime.Add(-24*time.Hour)).WithUDPChecks(always, &UDPChecks{Asker: broken}).Augment(scannedHosts(host), "ws", "nightly", "")
+	if len(udpKeys(store)) != 2 {
+		t.Fatalf("a night the sensor could not look resolved the findings: %v", udpKeys(store))
+	}
+	res := (&UDPChecks{Asker: broken}).Findings(context.Background(), []Host{host})
+	if len(res.Findings) != 0 {
+		t.Errorf("a sensor that did not look found something: %+v", res.Findings)
+	}
+}
+
 func TestUDPChecks_NotCarriedForADeviceTheScanDidNotLookAt(t *testing.T) {
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
-	reporter(store, reportTime.Add(-24*time.Hour)).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []udpchecks.Answer{answer("10.0.0.7", 161)}}}).Augment(scannedHosts(hostOf("10.0.0.7", true, false, 80)), "ws", "nightly", "")
+	reporter(store, reportTime.Add(-24*time.Hour)).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []UDPPair{answer("10.0.0.7", 161)}}}).Augment(scannedHosts(hostOf("10.0.0.7", true, false, 80)), "ws", "nightly", "")
 	reporter(store, reportTime).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{}}).Augment(scannedHosts(hostOf("10.0.0.8", true, false, 80)), "ws", "nightly", "")
 	if _, ok := udpKeys(store)["10.0.0.7|udp|161|"+CheckUDPService]; !ok {
 		t.Fatal("a device this scan did not look at must keep its earlier findings untouched")
@@ -128,7 +157,7 @@ func TestUDPChecks_NotCarriedForADeviceTheScanDidNotLookAt(t *testing.T) {
 func TestUDPChecks_ANightlyAnswerAndAHelperResultForTheSamePortAreOneFinding(t *testing.T) {
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
 	helper := models.NetworkDevice{IP: "10.0.0.7", UDPScannedAt: reportTime.Add(-72 * time.Hour), UDPPorts: []models.ProbeUDPPort{{Port: 161, State: "open"}}}
-	r := reporter(store, reportTime).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []udpchecks.Answer{answer("10.0.0.7", 161)}}})
+	r := reporter(store, reportTime).WithUDPChecks(always, &UDPChecks{Asker: &fakeAsker{answers: []UDPPair{answer("10.0.0.7", 161)}}})
 	result := Result{Findings: ProbeFindings([]models.NetworkDevice{helper})}
 	udp := r.addUDPChecks(context.Background(), &result, []Host{hostOf("10.0.0.7", true, false, 80)})
 	n := 0

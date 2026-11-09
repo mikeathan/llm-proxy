@@ -25,14 +25,13 @@ import (
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
-	"llm-proxy/internal/core/vulndata/ubuntuoval"
 	"llm-proxy/internal/core/netaudit/upnp"
-	"llm-proxy/internal/core/vulndata/vulnfeed"
-	"llm-proxy/internal/core/netaudit/udpchecks"
 	"llm-proxy/internal/core/netaudit/webprobe"
 	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/core/vulndata/ubuntuoval"
+	"llm-proxy/internal/core/vulndata/vulnfeed"
 	"llm-proxy/internal/platform/hostwatch"
 	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/logging"
@@ -346,27 +345,6 @@ func (s AppServices) NetauditUDPChecks() (func() bool, netaudit.UDPFinder) {
 	return s.netaudit.UDPChecksConfig.Enabled, s.netaudit.UDPChecks
 }
 
-// newUDPChecks builds the nightly UDP questions. Every datagram goes through the guarded dial, after a check that the address is inside
-// the declared scan scope (Constitution II.3 item 3 and item 12): an address outside it is never asked.
-func newUDPChecks(netTools *tools.NetworkTools, scope *netaudit.Scope) *netaudit.UDPChecks {
-	guarded := netTools.DialContext()
-	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
-		host, _, err := net.SplitHostPort(address)
-		if err != nil {
-			return nil, err
-		}
-		addr, err := netip.ParseAddr(host)
-		if err != nil {
-			return nil, err
-		}
-		if err := scope.Policy().Check(addr); err != nil {
-			return nil, err
-		}
-		return guarded(ctx, network, address)
-	}
-	return &netaudit.UDPChecks{Asker: udpchecks.Prober{Dial: dial}}
-}
-
 // NetauditPhoneHome is what the run reporter reads of the phone-home watch; nil until the services are wired.
 func (s AppServices) NetauditPhoneHome() netaudit.PhoneHomeSource {
 	if s.netaudit == nil || s.netaudit.PhoneHome == nil || s.netaudit.PhoneHomeConfig == nil {
@@ -604,7 +582,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
 	outside := newOutsideLookup(store, netTools, upnpClient(netTools))
-	network, err := s.newNetworkHost(store, netTools)
+	network, err := s.newNetworkHost(store, netTools, scope)
 	if err != nil {
 		s.logger.Error("the Network stack could not be hosted", "error", err.Error())
 	}
@@ -635,7 +613,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
 		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
-		UDPChecks:         newUDPChecks(netTools, scope),
+		UDPChecks:         &netaudit.UDPChecks{Asker: stackUDPAsker{host: network}},
 		RunHealth:         netaudit.NewRunHealth(),
 		PhoneHome:         phone.Watch,
 		PhoneHomeConfig:   phone.Config,

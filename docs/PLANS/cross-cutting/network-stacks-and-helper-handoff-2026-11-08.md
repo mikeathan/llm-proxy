@@ -58,6 +58,10 @@ Read this, then the plan named in the item you take. Everything up to v0.62.0 (#
 
 `docs/PLANS/cross-cutting/network-capture-window-plan.md` (Remaining Work) for item 2, or `network-stack-p3b-design.md` section 4e for item 5. Run `./scripts/check-agent-harness.sh` after any doc edit.
 
+## Added 2026-11-09, S6 step 1 (branch `network-small-items`, after five commits; v0.64.0, uncommitted)
+
+The scoped dial, the `Looker` method and the move of `udpchecks` into the Network stack are built and tested (ADR-0038 "Built", `network-stack-s6-plan.md`). Not run on vertex: the nightly UDP checks now go through the stack, so the first real night should show the same `udp_service` findings; if the UDP module was switched on, check that none reads as resolved and none as new.
+
 ## Added 2026-11-09, small items (branch `network-small-items`, local, uncommitted, v0.63.0)
 
 - **Built:** (a) `TestFindings_ALyingRouterIsFoundByTheRealCollectorOnTwoChecksInARow` (`stacks/network/network_test.go`): a UDP responder that lies, the real collector, two checks, then the finding; (b) the Playwright mock carries `finding_enabled` and the DNS card spec checks the Advanced switch; (c) OS guesses on a device with no open port are muted and have no percentage, the warning first (SPEC-003 2.51); (d) D9: a spawn with no workspace is confined (Linux provider no longer returns early; `DefaultProfile("")` is read-only system paths; SPEC-006 1.11).

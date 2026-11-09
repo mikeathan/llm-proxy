@@ -90,19 +90,18 @@ any step. If the owner wants C, this plan is done.
 **Decided:** B. ADR-0038 is accepted. Built so far on the branch: the ADR, and `TestUDPChecks_TheFindingsOfAnAnswerAreByteIdentical`, which pins the
 nightly UDP findings so a later move can be held to them.
 
-**Found while starting (2026-11-09):** the first sensor, `udpchecks`, **cannot move yet**. The stack's `Guard` port is only the guarded dial
-(`stackport.Guard` over `NetworkTools.DialContext`); it does not apply the operator's declared scan scope, which `newUDPChecks` checks before every
-datagram. A stack that dialled through it could probe LAN addresses the core refuses today. Also, `Stack.Findings` takes no input and sends nothing, while
-this sensor needs the scanned addresses and sends datagrams.
+**Built next (2026-11-09, v0.64.0): step 1, the scoped dial, the sensor method and `udpchecks`** (ADR-0038, "Built 2026-11-09"). The gap found first (the stack's
+`Guard` did not apply the declared scan scope) is closed by the scoped dial, with a test that an address outside the scope is never dialled and that fails when
+the scope check is removed.
 
 **Next, in order (each its own PR; the first two are built together with the first sensor, because neither has a caller without it):**
 
-1. **Scoped dial + input-bearing sensor method + `udpchecks` move.** SDK: a scoped dial port (declared scope, then the guarded dial, refusal as `CodeDenied`)
+1. ~~**Scoped dial + input-bearing sensor method + `udpchecks` move.**~~ **Done 2026-11-09.** Plan as written: SDK: a scoped dial port (declared scope, then the guarded dial, refusal as `CodeDenied`)
    and an optional `Look`-style method with plain-data input and typed answers (rule 3 of ADR-0038); stack: `udpchecks` and its tests moved unchanged;
    core: `UDPChecks` keeps the carry rule, the replace-a-helper-finding rule and the typed switch, and builds today's `Finding` from the typed answer. Gates: the
    parity test written first, a test that an address outside the declared scope is refused through the stack path, `StackFinding` (or the new answer) gets a
    typed port field, both boundary tests, complexity, the harness check.
-2. `webprobe` and `upnp` on the same contract (check its shape against them before step 1 is accepted).
+2. `webprobe` and `upnp` on the same contract. The shape check is in ADR-0038: `webprobe` needs richer typed facts than `Pair`, so decide that from `webfindings.go` and `tlsfindings.go` first; `upnp` is carried by `exposure.go` and `router.go`, so start with the one whose root caller is smaller.
 3. The ingest port (S4) for `routerlog`, `phonehome`, `knownbad`, `nearby`.
 4. Programs (S5): `nmap`, `portprobe`, `scantool`, `wifilook`.
 5. The ADR-0037 lookup port, with the first matching code that needs it; then the settings flip and the Modules definitions, last.

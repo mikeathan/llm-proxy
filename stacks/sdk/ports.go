@@ -21,6 +21,8 @@ type Host struct {
 	Isolation Isolation
 	// Privileged is the request channel to the privileged helper (ADR-0034); nil unless the manifest requires PortPrivileged.
 	Privileged Privileged
+	// ScopedGuard is the guarded dial that first applies the operator's declared scan scope; nil unless the manifest requires PortScopedGuard.
+	ScopedGuard Guard
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -68,6 +70,36 @@ type StackFinding struct {
 	Names []string `json:"names,omitempty"`
 	// Since is when it was first seen in this run of sightings.
 	Since time.Time `json:"since,omitempty"`
+}
+
+// MaxLookAddrs bounds how many addresses one Look request carries; the core sends no more and a stack refuses more.
+const MaxLookAddrs = 1024
+
+// Pair is a device address and a port, as typed numbers: the answer to "which of these did you ask, and which answered".
+type Pair struct {
+	Addr netip.Addr `json:"addr"`
+	Port int        `json:"port"`
+}
+
+// LookRequest asks a sensor module to look at the devices the nightly scan found. The addresses are those the core already judged
+// worth asking (live, scanned, IPv4); the stack asks no other.
+type LookRequest struct {
+	// Module is the id of a module the manifest lists in Looks.
+	Module string       `json:"module"`
+	Addrs  []netip.Addr `json:"addrs"`
+}
+
+// LookResult is what a sensor learned, as typed pairs and nothing a device said. Asked is every pair the stack sent a question to, and Answered
+// those that replied in the expected form; a pair asked and not answered is unknown, never fixed.
+type LookResult struct {
+	Asked    []Pair `json:"asked"`
+	Answered []Pair `json:"answered"`
+}
+
+// Looker is implemented by a stack with a sensor module (Manifest.Looks). Unlike Findings it sends: it asks devices through the host's
+// ScopedGuard during the nightly report. It is separate from Stack so a stack with no sensor implements nothing extra. A failure is an *Error.
+type Looker interface {
+	Look(ctx context.Context, req LookRequest) (LookResult, error)
 }
 
 // Request is one HTTP request to a stack route, as plain data. The core has already signed the caller in and checked the route's access.
@@ -248,5 +280,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}}
 }

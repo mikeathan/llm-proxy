@@ -327,3 +327,47 @@ func TestValidate_FindingIDsAreCheckedAsData(t *testing.T) {
 		}
 	}
 }
+
+// A module that sends datagrams to devices during the nightly report is declared in Looks, and the stack must require the scoped dial
+// (ADR-0038 rule 2): a dial that first applies the operator's declared scan scope, not the plain guarded dial.
+func TestValidate_LooksAreCheckedAsDataAndNeedTheScopedDial(t *testing.T) {
+	withLooks := func(looks []string, requires ...string) Manifest {
+		m := validManifest()
+		m.Looks, m.Requires = looks, requires
+		return m
+	}
+	if err := withLooks([]string{"udp_probes"}, PortConfig, PortScopedGuard).Validate(); err != nil {
+		t.Fatalf("a sensor with the scoped dial: %v", err)
+	}
+	for name, m := range map[string]Manifest{
+		"without the scoped dial":    withLooks([]string{"udp_probes"}, PortConfig, PortGuard),
+		"a bad id":                   withLooks([]string{"Udp Probes"}, PortConfig, PortScopedGuard),
+		"an empty id":                withLooks([]string{""}, PortConfig, PortScopedGuard),
+		"the same id twice":          withLooks([]string{"udp_probes", "udp_probes"}, PortConfig, PortScopedGuard),
+		"an unknown port name check": withLooks(nil, "scopedguards"),
+	} {
+		if err := m.Validate(); err == nil {
+			t.Errorf("%s: want a refusal", name)
+		}
+	}
+	if err := withLooks(nil, PortConfig, PortScopedGuard).Validate(); err != nil {
+		t.Errorf("requiring the scoped dial without a sensor is allowed: %v", err)
+	}
+}
+
+// A sensor's request and answer carry addresses, ports and one module id, and nothing a device said: the only text is the module id, which the
+// core checks against the manifest. Adding a text field to either type must be a deliberate change to this test.
+func TestLookTypes_CarryNoTextFromTheNetwork(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeFor[LookRequest](), reflect.TypeFor[LookResult](), reflect.TypeFor[Pair]()} {
+		if err := CheckPlainData(typ); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			isText := f.Type.Kind() == reflect.String || (f.Type.Kind() == reflect.Slice && f.Type.Elem().Kind() == reflect.String)
+			if isText && !(typ == reflect.TypeFor[LookRequest]() && f.Name == "Module") {
+				t.Errorf("%s.%s is text; only LookRequest.Module may be", typ, f.Name)
+			}
+		}
+	}
+}
