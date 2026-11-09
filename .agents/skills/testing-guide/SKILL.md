@@ -77,6 +77,15 @@ Each run produces:
 - Reasoning budget exceeded warnings are warn-only (expected)
 - Final report is coherent and covers all required topics
 
+## Verifying a deployed service (read-only)
+
+To check a running server (version, modules, listeners, the nightly Network findings) without clicking through the UI, run
+`scripts/verify-deployment.py --base <url>` with an admin token in `LLM_PROXY_TOKEN`. It sends only GET requests. Pass
+`--workspace-id` and `--automation` to read the audit's findings, `--save-baseline file` after one night and `--compare file` the next
+(none resolved, none new is the expected result after a refactor). Exit 0 means no FAIL, 1 a FAIL, 2 the server or token was refused.
+Its own tests: `python3 -m unittest scripts/test_verify_deployment.py`. A PASS only means the route answered healthy; it does not replace
+the owner-run checks that need a real network (lying resolver, failed-login burst).
+
 ## Common Pitfalls
 
 - **Workspace pollution** — Previous runs leave files behind. Clean workspace before tests: `rm -rf workspace-1/{dev-test,smoke-test-dir,node_modules,*.txt,*.json,*.ts,*.js}`
