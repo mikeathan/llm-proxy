@@ -952,6 +952,19 @@ export interface TrafficFlow {
   bytes_in: number
 }
 
+/** One place the data went (an address), gathered from the look's destinations and conversations for the detail panel. */
+export interface TrafficPlace {
+  address: string
+  name?: string
+  internet: boolean
+  bytes: number
+  /** Its share of everything the look counted, in whole percents. */
+  percent: number
+  flows: TrafficFlow[]
+  /** True when a helper scan may be offered: a unicast address on this network. Internet and multicast/broadcast addresses are read-only. */
+  scannable: boolean
+}
+
 /** The answer of the host traffic route: the parsed summary, or why there is none. */
 export interface HostTrafficRunResult {
   parsed?: HostTraffic

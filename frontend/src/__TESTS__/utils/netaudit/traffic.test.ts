@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chartBars, destinationLabel, kindShares, sampleNote, splitPercent, stoppedNote, trafficSentence } from '../../../utils/netaudit/traffic'
+import { chartBars, destinationLabel, flowsOfKind, isSharedAddress, kindShares, sampleNote, secondAt, secondClock, splitPercent, stoppedNote, trafficPlace, trafficSentence } from '../../../utils/netaudit/traffic'
 import type { HostTraffic } from '../../../types/netaudit'
 
 const MB = 1024 * 1024
@@ -95,5 +95,45 @@ describe('splitPercent', () => {
     expect(splitPercent(1, 2)).toEqual([33, 67])
     expect(splitPercent(1, 1)).toEqual([50, 50])
     expect(splitPercent(0, 0)).toEqual([0, 0])
+  })
+})
+
+describe('trafficPlace and friends', () => {
+  const t = {
+    bytes_in: 900, bytes_out: 100, bytes_through: 0,
+    destinations: [{ name: 'a.example', address: '1.1.1.1', bytes: 500, internet: true }],
+    flows: [
+      { address: '1.1.1.1', name: 'a.example', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: 50, bytes_in: 450 },
+      { address: '192.168.1.9', port: 22, proto: 'tcp', kind: 'ssh', internet: false, bytes_out: 10, bytes_in: 20 },
+    ],
+  } as unknown as HostTraffic
+
+  it('gathers a place from the destinations and the conversations, with its share', () => {
+    expect(trafficPlace(t, '1.1.1.1')).toMatchObject({ name: 'a.example', bytes: 500, percent: 50, scannable: false, internet: true })
+  })
+
+  it('sizes a place that is only in the conversations, and lets a device on this network be scanned', () => {
+    expect(trafficPlace(t, '192.168.1.9')).toMatchObject({ bytes: 30, percent: 3, scannable: true })
+  })
+
+  it('knows nothing of an address the look never saw', () => {
+    expect(trafficPlace(t, '9.9.9.9')).toBeNull()
+  })
+
+  it.each([['224.0.0.251', true], ['239.255.255.250', true], ['255.255.255.255', true], ['ff02::fb', true], ['192.168.1.9', false], ['10.0.0.1', false]])('says %s is shared: %s', (address, shared) => {
+    expect(isSharedAddress(address)).toBe(shared)
+  })
+
+  it('keeps the conversations of one kind, or all', () => {
+    expect(flowsOfKind(t.flows, 'ssh')).toHaveLength(1)
+    expect(flowsOfKind(t.flows, null)).toHaveLength(2)
+  })
+
+  it('keeps a click inside the seconds there are', () => {
+    expect(secondAt(0, 960, 60)).toBe(0)
+    expect(secondAt(480, 960, 60)).toBe(30)
+    expect(secondAt(5000, 960, 60)).toBe(59)
+    expect(secondAt(-4, 960, 60)).toBe(0)
+    expect(secondClock(75)).toBe('1:15')
   })
 })

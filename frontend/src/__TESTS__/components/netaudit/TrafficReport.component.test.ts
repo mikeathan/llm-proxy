@@ -86,4 +86,81 @@ describe('TrafficReport', () => {
   it('always says what the view can and cannot see', () => {
     expect(show(traffic()).get('[data-test="traffic-privacy"]').text()).toContain('only the traffic to and from this computer')
   })
+
+  describe('clicking through', () => {
+    const withLocal = () => traffic({
+      destinations: [
+        { name: 'github.com', address: '140.82.1.1', bytes: 10 * MB, internet: true },
+        { address: '192.168.50.7', bytes: 2 * MB, internet: false },
+        { address: '224.0.0.251', bytes: 1000, internet: false },
+      ],
+      flows: [
+        { address: '140.82.1.1', name: 'github.com', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: MB, bytes_in: 9 * MB },
+        { address: '192.168.50.7', port: 53, proto: 'udp', kind: 'dns', internet: false, bytes_out: 100, bytes_in: 200 },
+        { address: '224.0.0.251', port: 5353, proto: 'udp', kind: 'discovery', internet: false, bytes_out: 1000, bytes_in: 0 },
+      ],
+    })
+    const stubs = { DeviceProbe: { props: ['ip'], template: '<div data-test="probe-stub">{{ ip }}</div>' } }
+    const open = (t: HostTraffic) => mount(TrafficReport, { props: { traffic: t }, global: { stubs } })
+
+    it('opens a place from the ranking, with its size, share and conversations, and says an internet address is not scanned', async () => {
+      const w = open(withLocal())
+      expect(w.find('[data-test="traffic-detail-panel"]').exists()).toBe(false)
+      await w.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+      expect(w.get('[data-test="place-address"]').text()).toBe('140.82.1.1')
+      expect(w.get('[data-test="place-where"]').text()).toBe('On the internet')
+      expect(w.findAll('[data-test="place-flow"]')).toHaveLength(1)
+      expect(w.find('[data-test="place-read-only"]').exists()).toBe(true)
+      expect(w.find('[data-test="probe-stub"]').exists()).toBe(false)
+    })
+
+    it('opens a place from a conversation row, and offers the device scans for a device on this network', async () => {
+      const w = open(withLocal())
+      await w.findAll('[data-test="flow"]')[1]!.trigger('click')
+      expect(w.get('[data-test="place-where"]').text()).toBe('On this network')
+      expect(w.get('[data-test="probe-stub"]').text()).toBe('192.168.50.7')
+    })
+
+    it('never offers a scan for a multicast address, and says why', async () => {
+      const w = open(withLocal())
+      await w.findAll('[data-test="flow"]')[2]!.trigger('click')
+      expect(w.find('[data-test="probe-stub"]').exists()).toBe(false)
+      expect(w.find('[data-test="place-shared"]').exists()).toBe(true)
+    })
+
+    it('closes the detail, and drops it when a new look arrives', async () => {
+      const w = open(withLocal())
+      await w.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+      await w.get('[data-test="traffic-detail-close"]').trigger('click')
+      expect(w.find('[data-test="traffic-detail-panel"]').exists()).toBe(false)
+      await w.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+      await w.setProps({ traffic: withLocal() })
+      expect(w.find('[data-test="traffic-detail-panel"]').exists()).toBe(false)
+    })
+
+    it('filters the conversations to one kind, and back', async () => {
+      const w = open(withLocal())
+      expect(w.findAll('[data-test="flow"]')).toHaveLength(3)
+      await w.findAll('[data-test="kind-pick"]')[1]!.trigger('click')
+      expect(w.findAll('[data-test="kind-pick"]')[1]!.attributes('aria-pressed')).toBe('true')
+      expect(w.findAll('[data-test="flow"]')).toHaveLength(1)
+      expect(w.get('[data-test="kind-filter"]').text()).toContain('Showing only')
+      await w.get('[data-test="kind-filter-clear"]').trigger('click')
+      expect(w.findAll('[data-test="flow"]')).toHaveLength(3)
+    })
+
+    it('says so when a kind has no conversation kept, instead of an empty table', async () => {
+      const w = open(withLocal())
+      await w.findAll('[data-test="kind-pick"]')[2]!.trigger('click')
+      expect(w.find('[data-test="flows-none"]').exists()).toBe(true)
+      expect(w.find('[data-test="flows"]').exists()).toBe(false)
+    })
+
+    it('reads out the bytes of a second picked on the chart', async () => {
+      const w = open(withLocal())
+      expect(w.find('[data-test="traffic-second"]').exists()).toBe(false)
+      await w.get('[data-test="traffic-second-pick"]').setValue('1')
+      expect(w.get('[data-test="traffic-second"]').text()).toBe('0:01: 4.9 KB in this second')
+    })
+  })
 })
