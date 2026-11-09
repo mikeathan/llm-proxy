@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -170,7 +171,10 @@ func (r Runner) Run(ctx context.Context, p Program, inv Invocation) (Output, err
 	stderr := &cappedBuffer{limit: versionOutputCap}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 
-	if err := r.Sandbox.Wrap(cmd, sandbox.WorkspaceView{RootPath: inv.Root, NetworkOn: !inv.NoNetwork, ReadPaths: inv.ReadPaths, AllowUnixSockets: inv.AllowUnixSockets}); err != nil {
+	// The jail's PATH holds only /usr/bin and /bin, so the program's own file is granted here, for every caller: without it a program
+	// installed anywhere else cannot be executed once the jail is on. The file, never its directory.
+	readPaths := append(slices.Clone(inv.ReadPaths), installed)
+	if err := r.Sandbox.Wrap(cmd, sandbox.WorkspaceView{RootPath: inv.Root, NetworkOn: !inv.NoNetwork, ReadPaths: readPaths, AllowUnixSockets: inv.AllowUnixSockets}); err != nil {
 		return Output{}, fmt.Errorf("failed to confine %s: %w", p.Name, err)
 	}
 	if err := cmd.Run(); err != nil {
