@@ -13,7 +13,7 @@ superseded_by:
 ## Context
 
 `core/netaudit` is 77 files and 13,703 lines, with 16 sub-packages, 100 files that use `models` types and 21 files in `app` and the handlers that import
-it (`docs/PLANS/cross-cutting/network-stack-s6-plan.md`). Its one `migrationDebt` entry was retired on 2026-11-09, so the rule that the core never imports a
+it (`docs/PLANS/ARCHIVE/cross-cutting/network-stack-s6-plan.md`). Its one `migrationDebt` entry was retired on 2026-11-09, so the rule that the core never imports a
 stack already holds. What remained was a choice about the end state. The owner chose option B of the S6 plan on 2026-11-09.
 
 The root's inventory, baseline, ack, fix, history and alert types are read by the core's report, alerts, bell, handlers and automation. A stack cannot
@@ -82,6 +82,6 @@ We will move the **sensors** into the Network stack and keep the **judgement** i
 
 ## Links
 
-- `docs/PLANS/cross-cutting/network-stack-s6-plan.md` (the numbers and the order).
+- `docs/PLANS/ARCHIVE/cross-cutting/network-stack-s6-plan.md` (the numbers and the order).
 - ADR-0036 (findings by id), ADR-0037 (the feeds stay in the core), ADR-0035 (ports are plain data), ADR-0025 (finding text from typed fields only).
 - `backend/internal/core/netaudit/udpfindings.go`, `backend/internal/app/netaudit.go` (`newUDPChecks`), `backend/internal/core/stackport/host.go` (`Guard`).

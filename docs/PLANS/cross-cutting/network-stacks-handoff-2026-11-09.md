@@ -9,7 +9,7 @@ evidence: PR #216 merged (c4cf7b9b, v0.66.0); branch network-ingest-exchange-por
 
 # Network stacks: handoff for the next session (2026-11-09, second)
 
-Read this, then `network-stack-s6-plan.md` and ADR-0038/0039. #216 (v0.66.0) is merged and deployed by the owner.
+Read this, then `ARCHIVE/cross-cutting/network-stack-s6-plan.md` (closed) and ADR-0038/0039. #216 (v0.66.0) is merged and deployed by the owner.
 
 ## Start here
 

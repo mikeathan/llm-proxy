@@ -80,5 +80,5 @@ Built so far: nothing; the order of the moves is in the S6 plan.
 
 ## Links
 
-ADR-0038, ADR-0036 (findings by id, `Names`), ADR-0035 (ports are plain data), `docs/PLANS/cross-cutting/network-stack-s6-plan.md`,
+ADR-0038, ADR-0036 (findings by id, `Names`), ADR-0035 (ports are plain data), `docs/PLANS/ARCHIVE/cross-cutting/network-stack-s6-plan.md`,
 `docs/PLANS/cross-cutting/network-stack-p3b-design.md` (D6).

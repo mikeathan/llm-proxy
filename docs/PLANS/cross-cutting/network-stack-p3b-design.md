@@ -61,9 +61,9 @@ A leaf's callers are in `internal/app` (wiring) and in the HTTP handlers. IV.6 a
 | S1 (built, section 4c) | SDK `Route` + `Handle`, the core's mount and step-up wiring, shown on the example stack and a test double only; the baseline (section 4b). The settings adapter moved to S2 (finding 3) | routes without Network |
 | S2 | First real vertical: **DNS check** with `outsidelookup` (section 4d: a `Fetch` port, the `Config` adapter, module status, reset and lifecycle, stack-owned types and file, routes), one PR | fetch, config, status and routes on real code |
 | S3 | Pure data leaves with handlers: `vulnindex`, `vulnfeed`, `vulnmatch`, `ubuntuoval`, `upnp`, `webprobe`, `dnswire`, `names`, `nearby` | store ownership, per-workspace paths |
-| S4 | Ingest-fed: `routerlog`, `knownbad`, `phonehome`, then `mcast` users | the ingest port |
-| S5 | Programs: `nmap`, `portprobe`, `scantool`, `wifilook` (isolation, the `nmcli` Unix-socket table entry, the agent tool and prompt fragment) | isolation port and tools |
-| S6 | The root `netaudit`, `decoy`, then delete `migrationDebt` (**`migrationDebt` deleted 2026-11-09, v0.63.0; the rest is not one slice, see [`network-stack-s6-plan.md`](network-stack-s6-plan.md)**) | the end state |
+| S4 | Ingest-fed: `routerlog`, `knownbad`, `phonehome`, then `mcast` users | the ingest port. **Not built, closed 2026-11-09 (ADR-0039 "Narrowing"): these hold sockets, stores and alert state, and Nearby's output is device text a port may not carry, so they stay in the core.** |
+| S5 | **Not built: the programs stay in the core (owner, 2026-11-09).** Programs: `nmap`, `portprobe`, `scantool`, `wifilook` (isolation, the `nmcli` Unix-socket table entry, the agent tool and prompt fragment) | isolation port and tools |
+| S6 | The root `netaudit`, `decoy`, then delete `migrationDebt` (**`migrationDebt` deleted 2026-11-09, v0.63.0; the rest is not one slice, see [`../ARCHIVE/cross-cutting/network-stack-s6-plan.md`](../ARCHIVE/cross-cutting/network-stack-s6-plan.md)**) | the end state |
 
 Each slice ends with: build, tests, both boundary tests, complexity gate, harness check, an existing `settings.yml` loading
 unchanged, and the measured figures of section 4a recorded beside the baseline with no regression.

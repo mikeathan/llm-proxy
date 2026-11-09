@@ -1,11 +1,13 @@
 ---
-status: partial
+status: complete
 date: 2026-11-09
 last_reviewed: 2026-11-09
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [IV.6]
 evidence: branch network-small-items (local, uncommitted, v0.63.0); docs/decisions/ADR-0037 (accepted); docs/decisions/ADR-0036; docs/PLANS/cross-cutting/network-stack-p3b-design.md sections 4 and 4e; counts taken from backend/internal/core/netaudit on 2026-11-09 (go list, grep)
 ---
+
+> **Closed 2026-11-09.** Option B is finished (UDP, web, certificate and router sensors in the Network stack, v0.64.0 to v0.66.0). Nothing in the ingest line was built: the listeners and Nearby stay in the core (ADR-0039, "Narrowing"). Harvested into `network-stack-p3b-design.md` section 4 and `docs/learnings/network-audit.md`. The ADR-0037 lookup port and the settings flip are deferred follow-ups (see `docs/PLANS/ARCHIVE/README.md`).
 
 # S6: what is left of moving `core/netaudit` into the Network stack (2026-11-09)
 
