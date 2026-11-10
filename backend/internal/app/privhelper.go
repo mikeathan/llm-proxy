@@ -72,10 +72,11 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 	helper := port.New(port.Options{Grants: grants, Helper: helperClient, Ranges: declaredRanges{policy}})
 	on := func(action string) bool { return ctx.HostSettings().Sandboxing.HelperActionOn(action) }
 	keep := keepHelperResult(sinks)
+	running := api.NewRunningActions()
 	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}}
 	for _, rt := range api.HelperRoutes() {
 		id := rt.Path[len("/admin/api/helper/"):]
-		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: parseHelperOutput, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself})
+		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: parseHelperOutput, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself, Running: running})
 	}
 	h.capture = captureWindowHandler(sinks.Captures)
 	h.traffic = hostTrafficHandler(sinks.Traffic)
@@ -86,6 +87,7 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 		Gates:     func() ([]string, bool) { return readHelperActions(helperGatesFile) },
 		Declared:  func() []string { return rangeStrings(policy()) },
 		On:        on,
+		Running:   running.Running,
 	})
 	return h
 }

@@ -149,3 +149,15 @@ func TestDeepHandler_FixStateOfADeepFindingFollowsTheDeepCheckNotTheNightlyScan(
 		t.Errorf("a deep check after the mark that still shows it: %q", got)
 	}
 }
+
+func TestDeepHandler_AnswersWithTheWarningsOfTheCheck(t *testing.T) {
+	deep := &fakeDeep{check: models.DeepCheck{Device: "10.0.0.5", Warnings: []string{"The closer look at the encryption on port 443 did not work."}}}
+	h := NewNetauditHandlers(nil, nil, nil, nil).WithDeepChecks(deep)
+	rec := do(h.RunDeepCheck, http.MethodPost, "/admin/api/netaudit/deep", `{"workspace_id":"ws","automation":"nightly","device":"10.0.0.5"}`)
+	if !strings.Contains(rec.Body.String(), `"warnings":["The closer look at the encryption on port 443 did not work."]`) {
+		t.Errorf("the warning reaches the screen: %s", rec.Body.String())
+	}
+	if rec := do(h.RunDeepCheck, http.MethodPost, "/", `{"workspace_id":"ws","automation":"a","device":"10.0.0.5"}`); strings.Contains(rec.Body.String(), "null") {
+		t.Errorf("no warnings is an absent field, never null: %s", rec.Body.String())
+	}
+}

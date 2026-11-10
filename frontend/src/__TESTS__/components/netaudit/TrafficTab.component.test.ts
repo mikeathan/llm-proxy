@@ -99,4 +99,22 @@ describe('TrafficTab', () => {
     expect(w.get('[data-test="traffic-load-error"]').text()).not.toBe('')
     expect(w.find('[data-test="traffic-listen"]').exists()).toBe(true)
   })
+  it('after a reload mid-look, shows the look as running and then its result, with no press', async () => {
+    vi.useFakeTimers()
+    try {
+      service.helper.mockResolvedValue(ready({ actions: [{ id: 'capture_host', on: true, installed: true, running: true }] }))
+      const w = await mountTab()
+      expect(w.get('[data-test="traffic-listen"]').attributes('disabled')).toBeDefined()
+      expect(w.get('[data-test="traffic-listen"]').text()).toBe('Listening. This takes up to a minute.')
+      service.helper.mockResolvedValue(ready())
+      service.lastHostTraffic.mockResolvedValue(kept)
+      await vi.advanceTimersByTimeAsync(3000)
+      await flushPromises()
+      expect(w.get('[data-test="traffic-listen"]').attributes('disabled')).toBeUndefined()
+      expect(w.find('[data-test="traffic-report"]').exists()).toBe(true)
+      w.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -17,5 +17,9 @@ export function useDeviceNames() {
       devices.value = []
     }
   }
-  return { names: computed(() => namesByAddress(devices.value)), load }
+  /** The device that holds this IPv4 address, or none (an address of the internet, or of a device the inventory has not seen). */
+  function deviceAt(address: string): NetworkDevice | undefined {
+    return devices.value.find((d) => d.ip === address)
+  }
+  return { names: computed(() => namesByAddress(devices.value)), deviceAt, load }
 }

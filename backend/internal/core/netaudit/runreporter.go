@@ -652,6 +652,9 @@ func (r *RunReporter) addHost(ctx context.Context, result *Result) (note string,
 			note += fmt.Sprintf(" Most are in %s (%s).", look.UnreadableWhere, look.UnreadableWhy)
 		}
 	}
+	if look.PortsUnchecked {
+		note += "\n\n> Note: this computer's open ports were not checked: it could not list them (it reads Linux's /proc and the system's socket tables on macOS, and neither answered). Its startup files were compared."
+	}
 	if look.PrivilegeUnchecked {
 		note += "\n\n> Note: this computer's accounts, admin groups and kernel modules were not checked: that check reads Linux files this computer does not have."
 	}

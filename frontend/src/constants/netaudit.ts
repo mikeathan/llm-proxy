@@ -164,6 +164,7 @@ export const REQUIREMENT_COPY: Record<RequirementCode, RequirementCopy> = {
   nmap_missing: { title: 'A helper program is missing', simple: 'A free program called nmap gives better results. Until it is installed only a limited scan works.', help: 'setup' },
   vuln_data_missing: { title: 'Known-vulnerability data is not downloaded', simple: 'Audits still run, but they skip the check for known software flaws until the data is downloaded.', help: 'vulns' },
   vuln_data_old: { title: 'Known-vulnerability data is out of date', simple: 'Audits compare against an old list, so newer software flaws are missed. Updating downloads more than 100 MB.', help: 'vulns' },
+  testssl_missing: { title: 'A closer look at encryption is not installed', simple: 'The deep check still works, using nmap alone. A free program called testssl.sh gives it a closer look at encryption. It is optional.', help: 'deep' },
   no_sandbox: { title: "This computer can't fence the scan in", simple: 'Scans will not run here unless you allow them without that protection.', help: 'safety' },
 }
 
@@ -727,3 +728,11 @@ export const TRAFFIC_SECOND_READOUT = (clock: string, bytes: string): string => 
 export const TRAFFIC_CHART_WIDTH = 960
 export const TRAFFIC_CHART_HEIGHT = 140
 export const TRAFFIC_STATUS_UNKNOWN = 'The state of the privileged helper could not be read, so listening cannot be offered now. Check that the server is running, then reload.'
+
+/** How often the Traffic page asks whether a look it did not start (before a reload) has ended. */
+export const TRAFFIC_FOLLOW_INTERVAL_MS = 3000
+
+/** The deep check dialog's lines about the closer TLS look (testssl.sh); the dialog must say what will really be sent (Constitution II.3). */
+export const DEEP_TLS_NMAP = 'On a service that speaks TLS: open about 60 connections in a row to list the TLS versions and ciphers it accepts. A fragile device can slow down or restart under that.'
+export const DEEP_TLS_TESTSSL = 'On a service that speaks TLS (at most 3): testssl.sh opens a few hundred connections in a row, a minute or two for each, to list the TLS versions and weak ciphers it accepts. A fragile device can slow down or restart under that.'
+export const DEEP_INSTALL_HINT = 'testssl.sh is not installed. It is optional and gives a closer look at encryption. To install it, run:'

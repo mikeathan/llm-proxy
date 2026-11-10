@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { computed, onMounted } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import DeviceProbe from "./DeviceProbe.vue"
+import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
 import { formatBytes } from "../../utils/format/formatters"
 import {
   TRAFFIC_COLUMNS, TRAFFIC_DETAIL_ADDRESS, TRAFFIC_DETAIL_CLOSE, TRAFFIC_DETAIL_NO_FLOWS, TRAFFIC_DETAIL_NOT_A_DEVICE, TRAFFIC_DETAIL_READ_ONLY,
@@ -12,8 +14,14 @@ import type { TrafficPlace } from "../../types/netaudit"
 // What one look kept about one address: its name, size, share and conversations. For a device on this network the helper's UDP scan and OS
 // detection are offered here too (the same buttons as a device row, which show only when the helper can run them); an internet address, or one
 // many devices share, is shown and never scanned. Names are text a peer chose, so they are shown as text only.
-defineProps<{ place: TrafficPlace }>()
+const props = defineProps<{ place: TrafficPlace }>()
 const emit = defineEmits<{ (e: "close"): void }>()
+
+// The inventory's record of the device, so the scan buttons know its MAC (the clear buttons need it) and show the result kept from before.
+// A failed read leaves no record, and the buttons then work as they did without one.
+const { deviceAt, load } = useDeviceNames()
+const device = computed(() => deviceAt(props.place.address))
+onMounted(load)
 </script>
 
 <template>
@@ -53,7 +61,15 @@ const emit = defineEmits<{ (e: "close"): void }>()
       <div class="flex flex-col gap-2 border-t border-hairline pt-3">
         <template v-if="place.scannable">
           <p class="m-0 text-[length:var(--text-small)] text-muted">{{ TRAFFIC_DETAIL_SCAN_TITLE }}</p>
-          <DeviceProbe :ip="place.address" />
+          <DeviceProbe
+            :ip="place.address"
+            :mac="device?.mac"
+            :udp-ports="device?.udp_ports"
+            :udp-at="device?.udp_scanned_at"
+            :os-guesses="device?.os_guesses"
+            :os-at="device?.os_detected_at"
+            @probed="load"
+          />
         </template>
         <p v-else-if="place.internet" class="m-0 text-[length:var(--text-small)] text-muted" data-test="place-read-only">{{ TRAFFIC_DETAIL_READ_ONLY }}</p>
         <p v-else class="m-0 text-[length:var(--text-small)] text-muted" data-test="place-shared">{{ TRAFFIC_DETAIL_NOT_A_DEVICE }}</p>

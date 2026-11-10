@@ -58,6 +58,7 @@ func (s *Service) DeepScan(ctx context.Context, device string, ports []int) (Res
 	}
 	res.Engine = s.primary.Name()
 	res.Findings = DeepFindingsOf(res.Hosts)
+	s.refineTLS(ctx, scan.Targets[0], &res)
 	return res, nil
 }
 

@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { HttpError } from '../../../services/httpClient'
 import type { DeepCheck, FindingsReport as Report, ScanFinding } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ findings: vi.fn(), expectations: vi.fn(), deepChecks: vi.fn(), runDeepCheck: vi.fn() }))
+const service = vi.hoisted(() => ({ findings: vi.fn(), expectations: vi.fn(), deepChecks: vi.fn(), runDeepCheck: vi.fn(), readiness: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 const dispatcher = vi.hoisted(() => ({ triggerAutomation: vi.fn() }))
 vi.mock('../../../services/automation/dispatcherService', () => ({ DispatcherService: dispatcher }))
@@ -12,6 +12,7 @@ import FindingsReport from '../../../components/netaudit/FindingsReport.vue'
 import NetauditHelp from '../../../components/netaudit/NetauditHelp.vue'
 import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 import { useNetauditHelp } from '../../../composables/netaudit/useNetauditHelp'
+import { useNetauditReadiness } from '../../../composables/netaudit/useNetauditReadiness'
 
 const finding = (over: Partial<ScanFinding>): ScanFinding => ({
   key: 'k', device: '192.0.2.10', port: 22, proto: 'tcp', service: 'ssh', check: 'open_port', severity: 'info', new: false, changed: false, accepted: false, ...over,
@@ -44,6 +45,8 @@ describe('the deep check on a device', () => {
     service.findings.mockResolvedValue(report)
     service.expectations.mockResolvedValue([])
     service.deepChecks.mockResolvedValue([])
+    service.readiness.mockRejectedValue(new Error('not asked in this test'))
+    useNetauditReadiness().readiness.value = null // the answer is shared by the whole page, so one test's must not reach the next
     useNetauditViewMode().set('advanced')
   })
   afterEach(() => { document.body.innerHTML = '' })
@@ -54,6 +57,38 @@ describe('the deep check on a device', () => {
     useNetauditViewMode().set('simple')
     const simple = await mountReport()
     expect(simple.find('[data-test="deep-check"]').exists()).toBe(false)
+  })
+
+  const readyWith = (notices: unknown[]) => ({ ready: true, requirements: [], notices })
+
+  it('says what it sends when testssl.sh is installed: hundreds of connections, a few services at most', async () => {
+    service.readiness.mockResolvedValue(readyWith([]))
+    const w = await mountReport()
+    await deepButton(w, '192.0.2.10').trigger('click')
+    const sends = w.get('[data-test="deep-sends"]').text()
+    expect(sends).toContain('testssl.sh')
+    expect(sends).toContain('a few hundred connections')
+    expect(sends).not.toContain('about 60 connections')
+    expect(w.find('[data-test="deep-install-hint"]').exists()).toBe(false)
+  })
+
+  it('says it is not installed and what to run, and still says what nmap alone sends', async () => {
+    service.readiness.mockResolvedValue(readyWith([{ code: 'testssl_missing', message: 'x', fix: { kind: 'copy', text: 'brew install testssl' } }]))
+    const w = await mountReport()
+    await deepButton(w, '192.0.2.10').trigger('click')
+    expect(w.get('[data-test="deep-sends"]').text()).toContain('about 60 connections')
+    const hint = w.get('[data-test="deep-install-hint"]')
+    expect(hint.text()).toContain('testssl.sh is not installed')
+    expect(hint.text()).toContain('brew install testssl')
+    expect(hint.text()).toContain('optional')
+  })
+
+  it('shows no install hint when it cannot tell whether the program is there', async () => {
+    service.readiness.mockRejectedValue(new Error('down'))
+    const w = await mountReport()
+    await deepButton(w, '192.0.2.10').trigger('click')
+    expect(w.find('[data-test="deep-install-hint"]').exists()).toBe(false)
+    expect(w.get('[data-test="deep-sends"]').text()).toContain('about 60 connections')
   })
 
   it('asks first, says exactly what it will send, and starts nothing until the button in the dialog is pressed', async () => {
@@ -99,6 +134,13 @@ describe('the deep check on a device', () => {
     expect(result.text()).toContain('Nothing to check')
     expect(result.text()).toContain('not the same as nothing wrong')
     expect(result.text()).not.toContain('Nothing wrong was found')
+  })
+
+  it('shows the warnings of a deep check, such as a closer look that did not work', async () => {
+    const warning = "The closer look at the encryption on port 443 did not work, so nmap's answer for it is shown."
+    service.deepChecks.mockResolvedValue([{ ...found, warnings: [warning] }])
+    const w = await mountReport()
+    expect(w.get('[data-test="deep-warning"]').text()).toContain(warning)
   })
 
   it('holds a device back in its cool-down, and says why', async () => {

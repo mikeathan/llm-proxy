@@ -1,0 +1,155 @@
+[
+         {
+              "id"           : "engine_problem",
+              "ip"           : "/",
+              "port"         : "443",
+              "severity"     : "WARN",
+              "finding"      : "No engine or GOST support via engine with your /opt/homebrew/opt/openssl@4/bin/openssl"
+          }
+,         {
+              "id"           : "cmdline_ip-target",
+              "ip"           : "/",
+              "port"         : "443",
+              "severity"     : "WARN",
+              "finding"      : "Target is not a server name: results may be completely wrong, at minimum trust may show false results."
+          }
+,         {
+              "id"           : "service",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "HTTP"
+          }
+,         {
+              "id"           : "pre_128cipher",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "No 128 cipher limit bug"
+          }
+,         {
+              "id"           : "SSLv2",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "SSLv3",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "TLS1",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "TLS1_1",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "TLS1_2",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "finding"      : "offered"
+          }
+,         {
+              "id"           : "TLS1_3",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "finding"      : "offered with final"
+          }
+,         {
+              "id"           : "NPN",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "ALPN",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "cipherlist_NULL",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "cwe"          : "CWE-327",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "cipherlist_aNULL",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "cwe"          : "CWE-327",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "cipherlist_EXPORT",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "cwe"          : "CWE-327",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "cipherlist_LOW",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "cwe"          : "CWE-327",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "cipherlist_3DES_IDEA",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "cwe"          : "CWE-310",
+              "finding"      : "not offered"
+          }
+,         {
+              "id"           : "cipherlist_OBSOLETED",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "LOW",
+              "cwe"          : "CWE-310",
+              "finding"      : "offered"
+          }
+,         {
+              "id"           : "cipherlist_STRONG_NOFS",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "finding"      : "offered"
+          }
+,         {
+              "id"           : "cipherlist_STRONG_FS",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "OK",
+              "finding"      : "offered"
+          }
+,         {
+              "id"           : "scanTime",
+              "ip"           : "127.0.0.1/127.0.0.1",
+              "port"         : "8443",
+              "severity"     : "INFO",
+              "finding"      : "9"
+          }
+]

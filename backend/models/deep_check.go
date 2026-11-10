@@ -10,6 +10,8 @@ type DeepCheck struct {
 	At       time.Time        `json:"at"`
 	Ports    []DeepPortResult `json:"ports"`
 	Findings []ScanFinding    `json:"findings"`
+	// Warnings are fixed sentences from the program about the run itself, such as a closer look that did not work.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // DeepPortResult is one port a deep check looked at. TLS is true when the TLS script produced output on it (a TLS service

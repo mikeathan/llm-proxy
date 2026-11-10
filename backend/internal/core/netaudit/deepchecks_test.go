@@ -192,3 +192,16 @@ func TestDeepChecks_StoreKeepsOneResultPerDeviceAndIsBounded(t *testing.T) {
 		t.Errorf("the store is capped at %d devices, got %d", maxDeepDevices, len(store.items))
 	}
 }
+
+func TestDeepChecks_RunKeepsTheScansWarningsSoAFailedLookIsNotLost(t *testing.T) {
+	warn := "The closer look at the encryption on port 443 did not work, so nmap's answer for it is shown."
+	scanner := &fakeDeepScanner{res: Result{Engine: "nmap", Warnings: []string{warn}}}
+	store := &memDeepStore{}
+	got, err := newDeepChecks(scanner, baselineWith(openPortFinding("10.0.0.5", 443, "tcp")), store).Run(context.Background(), "ws", "audit", "10.0.0.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(got.Warnings, []string{warn}) || len(store.items) != 1 || !slices.Equal(store.items[0].Warnings, []string{warn}) {
+		t.Errorf("the warning is in the answer and in what is kept: %v %v", got.Warnings, store.items)
+	}
+}

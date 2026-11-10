@@ -6,7 +6,7 @@ import type { NetworkTab } from './routes'
 export type NetauditViewMode = 'simple' | 'advanced'
 
 /** What a requirement is about; the server names them, the UI picks the wording around them. */
-export type RequirementCode = 'scope_empty' | 'host_network_off' | 'nmap_missing' | 'no_sandbox' | 'vuln_data_missing' | 'vuln_data_old'
+export type RequirementCode = 'scope_empty' | 'host_network_off' | 'nmap_missing' | 'no_sandbox' | 'vuln_data_missing' | 'vuln_data_old' | 'testssl_missing'
 
 /** Where a requirement's fix lives: a Settings section, or `network-scan`, which the server still names and the Network page's own Settings tab now holds. */
 export type RequirementFixSection = SettingsTab | 'network-scan'
@@ -210,6 +210,9 @@ export interface HelpSection {
   paragraphs: readonly string[]
 }
 
+/** Whether the deep check will use testssl.sh for a closer look at TLS: the program is there, it is not, or the page could not tell. */
+export type CloserLook = 'installed' | 'missing' | 'unknown'
+
 export interface RequirementCopy {
   /** The plain sentence the Simple view shows; Advanced shows the server's message. */
   title: string
@@ -345,6 +348,8 @@ export interface DeepCheck {
   device: string
   at: string
   ports: DeepPort[]
+  /** Fixed sentences about the run itself, such as a closer look that did not work. */
+  warnings?: string[]
   findings: Array<Pick<ScanFinding, 'device' | 'port' | 'proto' | 'service' | 'check' | 'check_title' | 'severity' | 'evidence' | 'fix' | 'guide'>>
 }
 
@@ -592,6 +597,8 @@ export interface HelperAction {
   id: string
   on: boolean
   installed: boolean | null
+  /** True while a call of this action is in flight on the server (a look lasts up to a minute, longer than a visit to a page). */
+  running?: boolean
 }
 
 /** Where the privileged helper stands (GET /admin/api/helper): installed or not, ready or not and why, the declared scan ranges, and the command to run. */

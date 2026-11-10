@@ -46,6 +46,10 @@ var hostFiles = map[string]hostFileInfo{
 		"Look at /etc/resolv.conf and, on Ubuntu, resolvectl status: they show which servers answer this computer's name lookups. Network changes (a new router, a VPN, a DHCP lease) change them legitimately; if you did not expect it, find out who changed them. Whoever answers name lookups decides where every name leads.", SeverityMedium},
 	"authorized_keys": {"SSH login keys changed on this computer",
 		"Read the authorized_keys file of each account and remove any key you do not recognise. If you added a key, accept the finding; if not, treat the account as possibly taken over and change its credentials.", SeverityHigh},
+	"launch_daemons": {"Programs that start at boot changed on this computer",
+		"Look at the files in /Library/LaunchDaemons (ls -lt lists the newest first). Each one starts a program as root when the computer boots. If you installed software that adds one, accept the finding; if not, find out which program the new file starts and how it got there before the next restart.", SeverityHigh},
+	"launch_agents": {"Programs that start at login changed on this computer",
+		"Look at the files in /Library/LaunchAgents and in ~/Library/LaunchAgents (ls -lt lists the newest first). Each one starts a program when someone logs in. If you installed software that adds one, accept the finding; if not, find out which program the new file starts and how it got there.", SeverityMedium},
 	"program": {"The audit program's own file changed on this computer",
 		"This program's file was changed while it was running. If you deployed a new build, accept the finding; if not, reinstall it from a build you trust and find out who changed it.", SeverityMedium},
 }
@@ -289,6 +293,9 @@ type HostLook struct {
 	// and UnreadableWhy the operating system's reason, so the report can say where to look; both are empty when none.
 	UnreadableWhere string
 	UnreadableWhy   string
+	// PortsUnchecked is true when this computer cannot list its own open ports (it has no /proc, as on macOS): the startup files were still compared,
+	// no ports baseline was kept and no finding about ports was made, and the report says the ports were not checked. It is never a quiet computer.
+	PortsUnchecked bool
 	// PrivilegeUnchecked is true when the accounts, groups and kernel modules could not be looked at (no account file, as on
 	// macOS), so the report says "not checked" rather than nothing.
 	PrivilegeUnchecked bool
@@ -308,11 +315,16 @@ func (w *HostWatcher) Look(ctx context.Context) (HostLook, error) {
 		return HostLook{}, fmt.Errorf("failed to read the host watch baseline: %w", err)
 	}
 	listeners, err := w.src.Listeners()
-	if err != nil {
-		return HostLook{}, fmt.Errorf("failed to list the open ports: %w", err)
-	}
 	var look HostLook
-	changed := w.compareListeners(&base, listeners, &look)
+	changed := false
+	switch {
+	case errors.Is(err, hostwatch.ErrUnavailable):
+		look.PortsUnchecked = true
+	case err != nil:
+		return HostLook{}, fmt.Errorf("failed to list the open ports: %w", err)
+	default:
+		changed = w.compareListeners(&base, listeners, &look)
+	}
 	if w.compareFiles(&base, w.src.Files(), &look) {
 		changed = true
 	}
@@ -513,6 +525,32 @@ var hostFileGuides = map[string]FixGuide{
 		},
 		Risk: "Disabling a unit stops what it provides; one you disable by mistake can stop a service the computer depends on at the next boot.",
 		Undo: "Move the unit file back, run systemctl daemon-reload and enable it again with systemctl enable.",
+	},
+	"launch_daemons": {
+		Steps: []string{
+			"List the files by age, newest first, and read any you do not recognise. Each file names the program it starts as root when the computer boots (the ProgramArguments entry).",
+			"A file that starts a program from /tmp, a hidden folder or a user's home folder is the one to worry about. Software you installed (a VPN, a driver, an updater) adds its own file here.",
+			"Unload a file you did not add and move it away (do not delete it yet); keep the program it started for inspection.",
+			acceptHint,
+		},
+		Commands: []GuideCommand{
+			{platformMac, "ls -lt /Library/LaunchDaemons | head -20\nplutil -p /Library/LaunchDaemons/NAME.plist\nsudo launchctl list | head -40"},
+		},
+		Risk: "Unloading a daemon stops what it provides; one you remove by mistake can stop a driver or a service the computer depends on at the next restart.",
+		Undo: "Move the file back into /Library/LaunchDaemons and load it again with sudo launchctl bootstrap system /Library/LaunchDaemons/NAME.plist.",
+	},
+	"launch_agents": {
+		Steps: []string{
+			"List the files by age, newest first, in /Library/LaunchAgents and in your own Library/LaunchAgents, and read any you do not recognise. Each one starts a program when someone logs in.",
+			"A file that starts a program from /tmp, a hidden folder or a download is the one to worry about.",
+			"Unload a file you did not add and move it away (do not delete it yet); keep the program it started for inspection.",
+			acceptHint,
+		},
+		Commands: []GuideCommand{
+			{platformMac, "ls -lt /Library/LaunchAgents ~/Library/LaunchAgents | head -30\nplutil -p ~/Library/LaunchAgents/NAME.plist\nlaunchctl list | head -40"},
+		},
+		Risk: "Unloading an agent stops what it does at login, such as a menu bar program or a sync tool.",
+		Undo: "Move the file back into its folder and load it again with launchctl bootstrap gui/$(id -u) PATH-TO-THE-FILE.",
 	},
 	"cron": {
 		Steps: []string{

@@ -887,6 +887,21 @@ describe('VulnDataCard', () => {
   })
 })
 
+describe('ReadinessBanner testssl.sh notice', () => {
+  const notice = { code: 'testssl_missing', message: 'testssl.sh is not available (testssl is not installed; install it with: brew install testssl).', blocking: false, fix: { kind: 'copy', text: 'brew install testssl' } }
+
+  it('says it is not installed, that it is optional, and shows the command to copy, as a note and never a warning', async () => {
+    service.readiness.mockResolvedValue({ ready: true, requirements: [], notices: [notice] })
+    const w = mount(ReadinessBanner)
+    await flushPromises()
+    expect(w.text()).toContain('A closer look at encryption is not installed')
+    expect(w.text()).toContain('optional')
+    expect(w.get('code').text()).toBe('brew install testssl')
+    expect(w.get('[data-tone]').attributes('data-tone')).toBe('info')
+    expect(w.findAll('button').map((b) => b.text())).not.toContain('Update now')
+  })
+})
+
 describe('ReadinessBanner vulnerability notice', () => {
   const notice = { code: 'vuln_data_missing', message: 'Vulnerability data is not downloaded, so audits skip the check.', blocking: false, fix: { kind: 'open_settings', section: 'network-scan' } }
 

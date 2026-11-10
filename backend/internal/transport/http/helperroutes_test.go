@@ -376,3 +376,91 @@ func TestADefaultsHookCompletesTheBodyBeforeTheGrantIsMinted(t *testing.T) {
 		t.Fatalf("a refused default must stop the run: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// blockingRun holds a call open until released, so a test can look at the server while an action is running.
+type blockingRun struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingRun) Run(_ context.Context, _ stacksdk.PrivilegedRequest) (stacksdk.PrivilegedResult, error) {
+	close(b.started)
+	<-b.release
+	return stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte("x")}, nil
+}
+
+func TestRunningActions_CountsOverlappingRunsOfOneAction(t *testing.T) {
+	r := NewRunningActions()
+	if r.Running("capture_host") {
+		t.Fatal("nothing has started")
+	}
+	end1 := r.Begin("capture_host")
+	end2 := r.Begin("capture_host")
+	end1()
+	if !r.Running("capture_host") || r.Running("scan_udp") {
+		t.Error("one run of capture_host is still going, and scan_udp never started")
+	}
+	end2()
+	end2() // ending twice must not take another run's place
+	if r.Running("capture_host") {
+		t.Error("both runs ended")
+	}
+}
+
+func TestAHelperRouteIsRunningWhileTheActionIsInFlight(t *testing.T) {
+	run := &blockingRun{started: make(chan struct{}), release: make(chan struct{})}
+	running := NewRunningActions()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /admin/api/helper/capture_host", HelperHandler("capture_host", HelperDeps{Grants: &recordingMinter{}, Run: run, On: allOn, Running: running}))
+	h := AuthenticateWith(mux, newFake(), nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		postHelper(h, "/admin/api/helper/capture_host", `{"iface":"eth0","seconds":5}`, cookie("elevated"))
+	}()
+	<-run.started
+	if !running.Running("capture_host") {
+		t.Error("the action is running and the server must say so")
+	}
+	close(run.release)
+	<-done
+	if running.Running("capture_host") {
+		t.Error("the run ended and the server must stop saying it is running")
+	}
+}
+
+func TestARefusedHelperCallIsNeverRunning(t *testing.T) {
+	running := NewRunningActions()
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /admin/api/helper/capture_host", HelperHandler("capture_host", HelperDeps{Grants: &recordingMinter{}, Run: &recordingRun{err: context.DeadlineExceeded}, On: allOn, Running: running}))
+	postHelper(AuthenticateWith(mux, newFake(), nil), "/admin/api/helper/capture_host", `{"iface":"eth0","seconds":5}`, cookie("elevated"))
+	if running.Running("capture_host") {
+		t.Error("a failed run must not leave the action marked running")
+	}
+}
+
+func TestHelperStatus_ReportsAnActionThatIsRunning(t *testing.T) {
+	running := NewRunningActions()
+	src := source()
+	src.Running = running.Running
+	end := running.Begin("scan_udp")
+	byID := map[string]HelperAction{}
+	for _, a := range helperStatusOf(t, src).Actions {
+		byID[a.ID] = a
+	}
+	if !byID["scan_udp"].Running || byID["os_detect"].Running {
+		t.Errorf("only scan_udp is running: %+v", byID)
+	}
+	end()
+	for _, a := range helperStatusOf(t, src).Actions {
+		if a.Running {
+			t.Errorf("%s: nothing is running", a.ID)
+		}
+	}
+	src.Running = nil // a source with no tracker (a test, or a host without a helper) reports nothing running
+	for _, a := range helperStatusOf(t, src).Actions {
+		if a.Running {
+			t.Errorf("%s: no tracker means not running", a.ID)
+		}
+	}
+}

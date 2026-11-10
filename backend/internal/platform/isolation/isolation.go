@@ -56,6 +56,9 @@ func RunChildIfRequested() bool { return sandbox.RunChildIfRequested() }
 // Detect finds a program and asks it for its version.
 func Detect(ctx context.Context, p Program) (Installed, error) { return progexec.Detect(ctx, p) }
 
+// Present says whether a program is installed, without starting it; a missing one is a *NotInstalledError with the install command.
+func Present(p Program) error { return progexec.Lookup(p) }
+
 // Profile is everything one guarded run is allowed. The zero value of a relaxation is "refused".
 type Profile struct {
 	// Root is the directory the program runs in and may write to; the program is jailed to it.

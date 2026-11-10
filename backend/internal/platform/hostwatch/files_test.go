@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -225,5 +226,42 @@ func TestSource_IntegrityStopsWhenTheCallersContextEnds(t *testing.T) {
 	cancel() // the run or the application stopped
 	if got := src.Integrity(ctx); got.Complete {
 		t.Fatalf("a pass whose caller has stopped must say it did not finish, got %+v", got)
+	}
+}
+
+func idsOf(specs []FileSpec) []string {
+	var ids []string
+	for _, s := range specs {
+		ids = append(ids, s.ID)
+	}
+	return ids
+}
+
+// Linux watches exactly the default places; macOS adds where a program is started at boot and at login, and the SSH keys under /Users.
+func TestFileSpecsFor_LinuxIsTheDefaultAndMacOSAddsLaunchdAndItsHomes(t *testing.T) {
+	linux := FileSpecsFor("linux", "/home/svc", "/usr/bin/llm-proxy")
+	if !slices.Equal(idsOf(linux), idsOf(DefaultFileSpecs("/home/svc", "/usr/bin/llm-proxy"))) {
+		t.Errorf("linux must be unchanged: %v", idsOf(linux))
+	}
+	mac := FileSpecsFor("darwin", "/Users/me", "/usr/local/bin/llm-proxy")
+	byID := map[string]FileSpec{}
+	for _, s := range mac {
+		byID[s.ID] = s
+	}
+	if !slices.Equal(byID["launch_daemons"].Paths, []string{"/Library/LaunchDaemons"}) {
+		t.Errorf("launch_daemons: %+v", byID["launch_daemons"])
+	}
+	if !slices.Equal(byID["launch_agents"].Paths, []string{"/Library/LaunchAgents", "/Users/me/Library/LaunchAgents"}) {
+		t.Errorf("launch_agents: %+v", byID["launch_agents"])
+	}
+	if !slices.Contains(byID["authorized_keys"].Globs, "/Users/*/.ssh/authorized_keys") || !slices.Contains(byID["authorized_keys"].Globs, "/home/*/.ssh/authorized_keys") {
+		t.Errorf("authorized_keys globs: %v", byID["authorized_keys"].Globs)
+	}
+	if slices.Contains(idsOf(linux), "launch_daemons") {
+		t.Error("launchd places do not exist on Linux")
+	}
+	// An unknown home leaves its own folder out and nothing else.
+	if noHome := FileSpecsFor("darwin", "", ""); !slices.Equal(noHome[len(noHome)-1].Paths, []string{"/Library/LaunchAgents"}) {
+		t.Errorf("no home: %+v", noHome[len(noHome)-1])
 	}
 }

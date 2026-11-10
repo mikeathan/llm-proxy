@@ -50,6 +50,8 @@ type Program struct {
 	Name string
 	// Binary is the executable name to look up on PATH, or an absolute path.
 	Binary string
+	// Alternates are other executable names the same program is packaged under (Debian installs testssl.sh as testssl), tried after Binary.
+	Alternates []string
 	// VersionArgs are the fixed arguments that make the program print its version.
 	VersionArgs []string
 	// InstallHint maps a GOOS value to the command that installs the program there.
@@ -206,12 +208,20 @@ func (r Runner) checkConfinement() error {
 	return ErrUnconfined
 }
 
+// Lookup says whether the program is on the PATH without starting it: nil when it is, a *NotInstalledError carrying the install command for this OS
+// when it is not. It is the cheap check a page can make on every read; Detect also runs the program to learn its version.
+func Lookup(p Program) error {
+	_, err := lookPath(p)
+	return err
+}
+
 func lookPath(p Program) (string, error) {
-	path, err := exec.LookPath(p.Binary)
-	if err != nil {
-		return "", &NotInstalledError{Program: p.Name, Hint: p.InstallHint[runtime.GOOS]}
+	for _, name := range append([]string{p.Binary}, p.Alternates...) {
+		if path, err := exec.LookPath(name); err == nil {
+			return path, nil
+		}
 	}
-	return path, nil
+	return "", &NotInstalledError{Program: p.Name, Hint: p.InstallHint[runtime.GOOS]}
 }
 
 // CleanEnv is the environment a guarded program normally runs with: a fixed PATH, HOME and TMPDIR inside root, and
