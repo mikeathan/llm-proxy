@@ -88,6 +88,9 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}
 	withNetauditChecks(reporter, svc)
 	withNetauditProbes(reporter, svc)
+	if v, ok := svc.(interface{ NetauditFootprint() netaudit.FootprintSource }); ok && v.NetauditFootprint() != nil {
+		reporter.WithFootprint(v.NetauditFootprint())
+	}
 	withNetauditInsight(reporter, svc)
 	if v, ok := svc.(interface{ NetauditMonitors() netaudit.MonitorStalls }); ok && v.NetauditMonitors() != nil {
 		reporter.WithMonitors(v.NetauditMonitors())

@@ -749,3 +749,60 @@ export const RECHECK_VERIFIED_TAIL = 'and the problem was gone. The next audit w
 export const FINDING_THERE_SINCE = 'First seen'
 export const FINDING_CAME_BACK_ONCE = 'It came back once after it had gone away.'
 export const FINDING_CAME_BACK_MANY = 'It has come back {n} times after going away.'
+
+/** Footprint: what is visible about the operator's own domains and email addresses outside the network. */
+export const FOOTPRINT_TITLE = 'Your domains and email addresses'
+export const FOOTPRINT_INTRO = 'Watch a domain for new certificates, its expiry date and its mail-protection records, and an email address for known data breaches. Each look asks an outside service, only after you turn that service on below. Nothing here scans your network.'
+export const FOOTPRINT_LOAD_FAILED = 'The footprint could not be read.'
+export const FOOTPRINT_SAVE_FAILED = 'The change could not be saved.'
+export const FOOTPRINT_CHECK_FAILED = 'It could not be checked.'
+export const FOOTPRINT_NONE = 'Nothing is watched yet.'
+export const FOOTPRINT_ADD_DOMAIN = 'Add a domain'
+export const FOOTPRINT_ADD_EMAIL = 'Add an email address'
+export const FOOTPRINT_DOMAIN_LABEL = 'Domain'
+export const FOOTPRINT_EMAIL_LABEL = 'Email address'
+export const FOOTPRINT_DOMAIN_PLACEHOLDER = 'example.com'
+export const FOOTPRINT_EMAIL_PLACEHOLDER = 'name@example.com'
+export const FOOTPRINT_REMOVE = 'Remove'
+export const FOOTPRINT_CHECK_NOW = 'Check now'
+export const FOOTPRINT_CHECKING = 'Checking…'
+export const FOOTPRINT_SERVICES_TITLE = 'Outside services'
+export const FOOTPRINT_SERVICES_HINT = 'Each service is off until you turn it on. This says what it learns.'
+export const FOOTPRINT_KEY_LABEL = 'Breach service key'
+export const FOOTPRINT_KEY_HINT = 'Your own key from the breach service. It is stored encrypted and never shown again.'
+export const FOOTPRINT_KEY_SAVE = 'Save key'
+export const FOOTPRINT_KEY_REMOVE = 'Remove key'
+export const FOOTPRINT_KEY_SAVED = 'A key is saved.'
+export const FOOTPRINT_KEY_MISSING = 'The breach check needs a key before it can look.'
+export const FOOTPRINT_NOT_LOOKED = 'Not looked at yet.'
+export const FOOTPRINT_STALE = 'The last look is old, so this is not known any more.'
+export const FOOTPRINT_FREQUENCY_LABEL = 'How often'
+export const FOOTPRINT_FREQUENCIES: readonly { value: 'manual' | 'daily' | 'weekly'; label: string }[] = [
+  { value: 'manual', label: 'Only when I press Check now' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+]
+export const FOOTPRINT_SERVICE_TITLES: Record<string, string> = {
+  certificates: 'Certificates issued for a domain',
+  expiry: 'Domain expiry date',
+  mail_records: 'Mail-protection records (SPF and DMARC)',
+  breaches: 'Data breaches for an address',
+}
+export const FOOTPRINT_CHECK_TITLES: Record<string, string> = {
+  certificates: 'Certificates',
+  expiry: 'Expiry',
+  mail_records: 'Mail records',
+  breaches: 'Breaches',
+}
+
+/** Standing: are we getting better? Every figure says where it comes from. */
+export const STANDING_TITLE = 'Are we getting better?'
+export const STANDING_NO_HISTORY = 'There is no history yet. It starts with the next audit and fills in as audits run.'
+export const STANDING_SOURCE = 'Counted from the history this program keeps of each problem the audit finds. It started on'
+export const STANDING_TOO_SHORT = 'There is less than two weeks of history, so there is no comparison yet.'
+export const STANDING_NONE_OPEN = 'No problem is open that has a history.'
+export const STANDING_TREND_WORDS: Record<'better' | 'worse' | 'same', string> = {
+  better: 'Better: more problems went away than appeared.',
+  worse: 'Worse: more problems appeared than went away.',
+  same: 'About the same: as many appeared as went away.',
+}

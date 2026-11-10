@@ -21,6 +21,7 @@ type RunReporter struct {
 	store     BaselineStore
 	acks      AckStore         // optional: findings the operator accepted
 	fixes     FixStore         // optional: findings the operator marked as fixed
+	footprint FootprintSource  // optional: what the footprint looks last found about the operator's domains and addresses
 	life      LifeStore        // optional: when each finding first appeared, went away and came back
 	vulns     VulnSource       // optional: the vulnerability data known_vulns findings are matched against
 	expect    ExpectationStore // optional: what the operator says each device should offer
@@ -68,6 +69,31 @@ func (r *RunReporter) WithAcks(acks AckStore) *RunReporter {
 func (r *RunReporter) WithFixes(fixes FixStore) *RunReporter {
 	r.fixes = fixes
 	return r
+}
+
+// FootprintSource gives the audit the findings of the footprint watches, and which watches were looked at fully and recently. The
+// audit reads stored results only; it never asks an outside service.
+type FootprintSource interface {
+	Findings(now time.Time) (findings []Finding, checked map[string]bool)
+}
+
+// WithFootprint makes the reporter carry the footprint findings. A watch that is not fully and recently looked at keeps its earlier
+// findings and resolves nothing.
+func (r *RunReporter) WithFootprint(f FootprintSource) *RunReporter {
+	r.footprint = f
+	return r
+}
+
+// addFootprint appends the footprint findings and marks the watches they replace as scanned.
+func (r *RunReporter) addFootprint(result *Result, scanned map[string]bool, at time.Time) {
+	if r.footprint == nil {
+		return
+	}
+	findings, checked := r.footprint.Findings(at)
+	result.Findings = append(result.Findings, findings...)
+	for label := range checked {
+		scanned[label] = true
+	}
 }
 
 // WithLife makes the reporter keep each finding's history (first seen, resolved, came back) from the scans it saves.
@@ -342,6 +368,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	if hostChecked { // this computer was looked at to the end, so its earlier findings are replaced by this run's
 		scanned[HostDevice] = true
 	}
+	r.addFootprint(&result, scanned, at)
 	delta := Diff(restrictTo(prev.Findings, scanned), result.Findings)
 	shown, accepted, ackNote := r.applyAcks(workspaceID, result, delta, at)
 	view := Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted, Vulns: cov}

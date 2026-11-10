@@ -19,6 +19,8 @@ Verified against the code on 2026-11-09 (v0.68.0); the platform column comes fro
 | Device names, maker (OUI), MAC, IPv6, presence check, new-device and MAC-change alerts | `inventory.go`, `presence.go`, `discovery6.go`, `stacks/network/oui/` | both | Devices |
 | Nearby (mDNS and SSDP announcements) and rogue gateway | `core/netaudit/nearby/`, `platform/mcast/` | both | Devices |
 | Scan on arrival; follow-up scan of a new device | `followup.go` | both | message |
+| **Footprint** (outside the LAN): new certificates (crt.sh), domain expiry (RDAP), SPF and DMARC (DoH), email breaches (k-anonymity range search, own key); each service opt-in per switch, per-watch frequency and Check now; findings labelled `domain:<name>` / `email:<id>` | `core/netaudit/footprint/`, `persistence/footprint.go`, `FootprintCard.vue`; `GET/PUT /admin/api/netaudit/footprint`; ADR-0042 | both | Network → Settings, Findings |
+| **Standing** ("are we getting better?": age of open problems, came back, week against week) | `standing.go` (from the finding history only), `StandingCard.vue` | both | Overview |
 | **Finding history** (first seen, resolved by audit or recheck, came back N times) and **Check again** for one finding (a scan of its own device and port: fixed / still there / could not check; never "fixed" when the check was not made) | `lifecycle.go`, `recheck.go`, `findingsview/`, `FixGuidePanel.vue`, `useRecheck.ts`; endpoint `POST /admin/api/netaudit/recheck`; Timeline rows `finding_fixed` / `finding_returned` | both (needs nmap) | Findings card, Timeline |
 
 ## Listening and watching

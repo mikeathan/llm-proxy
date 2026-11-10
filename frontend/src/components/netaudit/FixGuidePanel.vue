@@ -5,7 +5,7 @@ import { inject } from "vue"
 import { RECHECK_INJECTION } from "../../composables/netaudit/useRecheck"
 import { FINDING_CAME_BACK_MANY, FINDING_CAME_BACK_ONCE, FINDING_THERE_SINCE, RECHECK_BUSY, RECHECK_BUTTON, RECHECK_COULD_NOT, RECHECK_FIXED, RECHECK_STILL_THERE, RECHECK_VERIFIED, RECHECK_VERIFIED_TAIL } from "../../constants/netaudit"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import { isHostDevice } from "../../utils/netaudit/friendly"
+import { isScannable } from "../../utils/netaudit/friendly"
 import type { ScanFinding } from "../../types/netaudit"
 
 // What to do about a problem a check found: the steps, what could go wrong and how to undo it, folded to one line; and the
@@ -62,7 +62,7 @@ const cameBackText = () => {
       </template>
       <template v-else>
         <span class="font-semibold text-state-running">Still showing after you marked it fixed on {{ markedOn() }}. Check the steps again, or mark it as fine.</span>
-        <BaseButton v-if="!isHostDevice(finding.device)" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('rescan', finding.device)">Scan this device again</BaseButton>
+        <BaseButton v-if="isScannable(finding.device)" variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('rescan', finding.device)">Scan this device again</BaseButton>
       </template>
       <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" @click="emit('unmark', finding)">Take back</BaseButton>
     </div>

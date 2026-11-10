@@ -74,7 +74,7 @@ func (h *NetauditOverviewHandlers) Get(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	in := netaudit.OverviewInput{Now: h.now(), Inventory: inv, Baseline: base, Acks: acks, Presence: h.presence.Status(), Series: series}
+	in := netaudit.OverviewInput{Now: h.now(), Inventory: inv, Baseline: base, Acks: acks, Presence: h.presence.Status(), Series: series, Life: h.lifeOf(q.Get("workspace_id"))}
 	if h.paths != nil && h.paths() {
 		in.AttackPaths = true
 		if h.touches != nil {
@@ -82,6 +82,21 @@ func (h *NetauditOverviewHandlers) Get(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	respondJSON(w, netaudit.OverviewOf(in))
+}
+
+// lifeOf is the workspace's finding history, when the store keeps it; unreadable history only means no standing is shown.
+func (h *NetauditOverviewHandlers) lifeOf(workspaceID string) []models.FindingLife {
+	reader, ok := h.baselines.(interface {
+		ReadLife(workspaceID string) ([]models.FindingLife, error)
+	})
+	if !ok || workspaceID == "" {
+		return nil
+	}
+	life, err := reader.ReadLife(workspaceID)
+	if err != nil {
+		return nil
+	}
+	return life
 }
 
 // acceptances are the workspace's accepted findings, when the store keeps them. Acceptances that cannot be read hide nothing.

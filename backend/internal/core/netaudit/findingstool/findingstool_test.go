@@ -188,3 +188,14 @@ func TestModule_HiddenWhenTheWorkspaceHasNoAudit(t *testing.T) {
 		t.Error("hidden with an audit")
 	}
 }
+
+// A finding about a watched address carries only its opaque id and the core's own words, so the address never reaches the model.
+func TestNetworkFindings_AnEmailFindingNeverShowsTheAddress(t *testing.T) {
+	f := finding("email_breached", "high", "email:a1b2c3d4", 0)
+	f.Evidence = "This address was found in known data breaches."
+	src := &fakeSource{reports: map[string]findingsview.Report{"a": report(time.Now(), f)}}
+	out, err := run(t, src, func(string) []string { return []string{"a"} })
+	if err != nil || strings.Contains(out, "@") || !strings.Contains(out, "email:a1b2c3d4") {
+		t.Errorf("%v %q", err, out)
+	}
+}

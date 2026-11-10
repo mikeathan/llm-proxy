@@ -20,6 +20,7 @@ import (
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/findingstool"
 	"llm-proxy/internal/core/netaudit/findingsview"
+	"llm-proxy/internal/core/netaudit/footprint"
 	"llm-proxy/internal/core/netaudit/knownbad"
 	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/internal/core/netaudit/nmap"
@@ -54,6 +55,8 @@ type netauditServices struct {
 	Expectations *netaudit.Expectations
 	// Deep runs the operator-started deep check of one device and keeps its result.
 	Deep *netaudit.DeepChecks
+	// Footprint looks at the operator's domains and email addresses outside the network; the audit reads its stored results.
+	Footprint *footprint.Manager
 	// Recheck runs one finding's own check again on its device and records whether it is gone.
 	Recheck *netaudit.Recheck
 	// Vulns holds the vulnerability data and runs its operator-started download.
@@ -458,6 +461,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.RouterWatch != nil, func(ctx context.Context) { n.RouterWatch.Run(ctx) })
 	add(n.LoginWatch != nil, func(ctx context.Context) { n.LoginWatch.Run(ctx) })
 	add(n.Wifi != nil, func(ctx context.Context) { n.Wifi.Run(ctx) })
+	add(n.Footprint != nil, func(ctx context.Context) { n.Footprint.Service.Run(ctx) })
 	add(n.PhoneHome != nil, func(ctx context.Context) {
 		n.PhoneHome.Run(ctx, func(err error) { logging.Warn("network phone-home", "error", err.Error()) })
 	})
@@ -683,6 +687,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(webChecker),
 		Recheck:      netaudit.NewRecheck(netaudit.RecheckDeps{Scan: scan.Service.Scan, Baselines: s.Persistence(), Life: s.Persistence()}),
 	}
+	s.netaudit.Footprint = s.newFootprint(store, netTools)
 	s.netaudit.WifiConfig = netaudit.NewWifiConfig(store)
 	s.netaudit.Wifi = netaudit.NewWifiWatch(netaudit.WifiWatchDeps{
 		List:    wifilook.New(scan.Runner).List,

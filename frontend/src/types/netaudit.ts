@@ -806,6 +806,24 @@ export interface NetworkOverview {
   attack_paths?: AttackPath[]
   /** Whether the attack paths module is on, so the card can tell "nothing found" from "switched off". */
   attack_paths_on?: boolean
+  /** How long the open problems have lasted and how the last week compared with the one before, from the finding history. */
+  standing?: NetworkStanding
+}
+
+export type StandingTrend = 'better' | 'worse' | 'same' | 'unknown'
+
+/** The server's `netaudit.Standing`: plain counts from the finding history; `history_since` is when that history starts. */
+export interface NetworkStanding {
+  tracked: number
+  oldest_days: number
+  median_days: number
+  over_month: number
+  came_back: number
+  week: { opened: number; resolved: number }
+  previous: { opened: number; resolved: number }
+  trend: StandingTrend
+  history_since?: string
+  enough: boolean
 }
 
 /** The list of malware host names (abuse.ch URLhaus): how many are held, when, whether an address is saved (never the address), and whether the comparison can work. */
@@ -1038,3 +1056,57 @@ export interface ChartBar {
   second: number
   bytes: number
 }
+
+/** How often a watch is looked at on its own; it can always be looked at by hand. */
+export type FootprintFrequency = 'manual' | 'daily' | 'weekly'
+export type FootprintServiceId = 'certificates' | 'expiry' | 'mail_records' | 'breaches'
+
+/** The latest answer of one check on one watch; `reason_text` is the server's fixed sentence for a look that could not be made. */
+export interface FootprintResult {
+  check: 'certificates' | 'expiry' | 'mail_records' | 'breaches'
+  status: 'looked' | 'could_not_look'
+  reason?: string
+  reason_text?: string
+  at: string
+  looked_at?: string
+  new_certs?: number
+  expires_at?: string
+  spf?: 'missing' | 'weak' | 'ok'
+  dmarc?: 'missing' | 'none' | 'ok'
+  breaches?: number
+  breach_names?: string[]
+  stale?: boolean
+}
+
+/** A watched domain, or an email address (shown masked: the full address is never sent to the page). `label` names it to the server. */
+export interface FootprintWatch {
+  label: string
+  name: string
+  kind: 'domain' | 'email'
+  frequency: FootprintFrequency
+  results: FootprintResult[]
+}
+
+/** An outside service: whether it may be asked, and what it learns (the server's fixed words). */
+export interface FootprintService {
+  id: FootprintServiceId
+  on: boolean
+  learns: string
+  needs_key?: boolean
+}
+
+export interface FootprintState {
+  watches: FootprintWatch[]
+  services: FootprintService[]
+  key_saved: boolean
+  max_domains: number
+  max_emails: number
+}
+
+/** One change to the footprint settings; only the fields of its action are read. */
+export type FootprintCommand =
+  | { action: 'add_domain'; name: string; frequency?: FootprintFrequency }
+  | { action: 'add_email'; address: string; frequency?: FootprintFrequency }
+  | { action: 'remove'; label: string }
+  | { action: 'frequency'; label: string; frequency: FootprintFrequency }
+  | { action: 'service'; service: FootprintServiceId; on: boolean }

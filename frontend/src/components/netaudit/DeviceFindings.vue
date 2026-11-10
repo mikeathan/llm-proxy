@@ -4,7 +4,7 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import CollapsibleCard from "../common/layout/CollapsibleCard.vue"
 import { formatPorts } from "../../utils/netaudit/expectations"
-import { deviceLabel, isCheck, isGuessedService, isHostDevice, isLowDetail, portCount, portLabel, serviceName, severityState } from "../../utils/netaudit/friendly"
+import { deviceLabel, isCheck, isGuessedService, isLowDetail, isScannable, portCount, portLabel, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { MORE_ACTIONS_LABEL } from "../../constants/netaudit"
 import DeepCheckResult from "./DeepCheckResult.vue"
@@ -37,7 +37,7 @@ const MIN_FOLDED = 2
 // Every action on a device (rescan, expected ports, deep check) sits behind one "⋯", so a header of many devices stays readable.
 const more = ref(false)
 // The computer the program runs on has no network address to scan, expect ports on or deep check: it shows its problems only.
-const isHost = computed(() => isHostDevice(props.group.device))
+const isHost = computed(() => !isScannable(props.group.device))
 const showLowDetail = ref(false)
 const lowDetail = computed(() => props.group.items.filter(isLowDetail))
 const foldLowDetail = computed(() => lowDetail.value.length >= MIN_FOLDED)

@@ -1,5 +1,7 @@
 package netaudit
 
+import "llm-proxy/internal/core/netaudit/footprint"
+
 // FixGuide is the longer form of a suggested fix: what to do in plain steps, commands to copy for the common platforms,
 // what could go wrong, and how to undo it. It is fixed text this repository owns, keyed by the check; nothing a device
 // sent and nothing a model wrote reaches it, and the app never runs a command in it. The operator applies the fix by
@@ -577,8 +579,97 @@ var certificateGuide = FixGuide{
 	Undo: "Put the previous certificate files back where the service reads them and reload it. Keep a copy before you replace them.",
 }
 
+// Footprint guides: what to do at the registrar, the DNS host or the account, in plain steps. No command here is run by the app.
+var footprintGuides = map[string]FixGuide{
+	footprint.CheckCertNew: {
+		Steps: []string{
+			"Open crt.sh and search for your domain to see every certificate issued for it and its subdomains, with the date and the authority.",
+			"If you or your hosting provider asked for them (a renewal, a new site), nothing more is needed.",
+			"If you did not, contact the authority that issued the certificate and ask for it to be revoked, and check who can change your domain's DNS records and mail.",
+			"Look at the next result here: new certificates are counted against the last look.",
+		},
+		Risk: "Revoking a certificate that a service of yours really uses makes that service show a security warning until a new one is installed.",
+		Undo: "Request a new certificate for the service from the authority you use.",
+	},
+	footprint.CheckDomainExpired: {
+		Steps: []string{
+			"Sign in to your domain registrar and renew the domain at once; many registrars keep it for a short grace period after it ends.",
+			"Turn on automatic renewal and put a payment method that will not expire on the account.",
+			"Check that the website and mail work again once it is renewed.",
+		},
+		Risk: "Until it is renewed, mail sent to the domain can be lost and someone else may be able to register the name.",
+		Undo: "Renewal cannot be undone; automatic renewal can be turned off at the registrar.",
+	},
+	footprint.CheckDomainExpires: {
+		Steps: []string{
+			"Sign in to your domain registrar and renew the domain.",
+			"Turn on automatic renewal and check that the payment method on the account is current.",
+			"Run the look again here: the new end date is read from the registry.",
+		},
+		Risk: "Renewing costs the registrar's fee; nothing else changes.",
+		Undo: "Automatic renewal can be turned off at the registrar before the next period.",
+	},
+	footprint.CheckSPFMissing: {
+		Steps: []string{
+			"List every service that sends mail as your domain: your mail provider, a newsletter tool, a website form.",
+			"At the place that hosts your domain's DNS, add a TXT record on the domain itself that starts with v=spf1, includes each sender, and ends in -all (use ~all while you are testing).",
+			"Send a test message to another account and check that it is not marked as suspicious.",
+		},
+		Commands: []GuideCommand{
+			{"Check (any system)", "dig +short TXT example.com   # replace example.com with your domain"},
+		},
+		Risk: "A sender you forgot to include can have its mail rejected or sent to spam.",
+		Undo: "Delete the TXT record, or change -all to ~all while you find the missing sender.",
+	},
+	footprint.CheckSPFWeak: {
+		Steps: []string{
+			"Find the domain's TXT record that starts with v=spf1 at the place that hosts its DNS.",
+			"List the servers that really send your mail, include them, and end the record in -all (or ~all while testing) instead of +all or ?all.",
+			"Send a test message to another account to check it still arrives.",
+		},
+		Commands: []GuideCommand{
+			{"Check (any system)", "dig +short TXT example.com   # replace example.com with your domain"},
+		},
+		Risk: "A legitimate sender left out of the record can have its mail rejected or sent to spam.",
+		Undo: "Put the previous record text back; keep a copy before you change it.",
+	},
+	footprint.CheckDMARCMissing: {
+		Steps: []string{
+			"At the place that hosts your DNS, add a TXT record named _dmarc with the value v=DMARC1; p=none; rua=mailto:you@your-domain.",
+			"Read the reports for a few weeks to see who sends mail as your domain.",
+			"Once only your own senders appear, tighten the policy to quarantine and then reject.",
+		},
+		Commands: []GuideCommand{
+			{"Check (any system)", "dig +short TXT _dmarc.example.com   # replace example.com with your domain"},
+		},
+		Risk: "With p=none nothing is blocked, so this step cannot lose mail; a later, stricter policy can if a sender is missing.",
+		Undo: "Delete the _dmarc TXT record.",
+	},
+	footprint.CheckDMARCNone: {
+		Steps: []string{
+			"Read the DMARC reports sent to the address in your record and confirm that every sender is yours.",
+			"Change p=none to p=quarantine in the _dmarc TXT record, wait a couple of weeks, then change it to p=reject.",
+		},
+		Risk: "A legitimate sender that is not set up for SPF or DKIM has its mail sent to spam or rejected.",
+		Undo: "Change the policy back to p=none.",
+	},
+	footprint.CheckEmailBreached: {
+		Steps: []string{
+			"Change the password of the account that uses this address, and of every other account where you used the same password.",
+			"Use a different, long password for each account, kept in a password manager.",
+			"Turn on two-step sign-in for the account and for your email.",
+			"Watch for messages asking you to confirm a sign-in or a payment you did not make.",
+		},
+		Risk: "None for the change itself; a service you forget to update keeps the old password.",
+		Undo: "A password can be changed again at any time.",
+	},
+}
+
 // GuideFor returns the fix guide of a check, and false for an open port or a check this version does not know.
 func GuideFor(check string) (FixGuide, bool) {
-	g, ok := guides[check]
+	if g, ok := guides[check]; ok {
+		return g, true
+	}
+	g, ok := footprintGuides[check]
 	return g, ok
 }

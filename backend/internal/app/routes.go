@@ -43,6 +43,7 @@ type HandlerSet struct {
 	Netaudit    *handlers.NetauditHandlers
 	Stacks      *handlers.StackHandlers
 	KnownBad    *handlers.NetauditKnownBadHandlers
+	Footprint   *handlers.NetauditFootprintHandlers
 	VulnData    *handlers.VulnDataHandlers
 	Devices     *handlers.NetauditDevicesHandlers
 	Overview    *handlers.NetauditOverviewHandlers
@@ -133,6 +134,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Helpers = handlers.NewHelpersHandlers(s)
 	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep).WithLife(s.Persistence()).WithRecheck(s.netaudit.Recheck).WithGuides(s.netauditGuides())
 	hs.KnownBad = handlers.NewNetauditKnownBadHandlers(s.netaudit.KnownBadList)
+	hs.Footprint = handlers.NewNetauditFootprintHandlers(s.netaudit.Footprint)
 	hs.Stacks = handlers.NewStackHandlers(s.netaudit.Stacks, s.stalledMonitors)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
 	hs.Decoys = handlers.NewNetauditDecoyHandlers(s.netaudit.DecoyConfig, s.netaudit.Decoys, s.netaudit.DecoyStore)
@@ -404,6 +406,11 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/profiles/{id}", hs.Profiles.Put, jsonMethodNotAllowed)
 	router.Delete("/admin/api/profiles/{id}", hs.Profiles.Delete, jsonMethodNotAllowed)
 	router.Get("/admin/api/helpers", hs.Helpers.Status, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/footprint", hs.Footprint.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/footprint", hs.Footprint.Put, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/footprint/key", hs.Footprint.PutKey, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/footprint/key", hs.Footprint.DeleteKey, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/footprint/check", hs.Footprint.Check, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/known-bad", hs.KnownBad.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/known-bad/key", hs.KnownBad.PutAddress, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/known-bad/key", hs.KnownBad.DeleteAddress, jsonMethodNotAllowed)

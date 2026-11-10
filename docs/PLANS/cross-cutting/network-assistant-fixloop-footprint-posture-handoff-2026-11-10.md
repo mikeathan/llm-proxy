@@ -11,6 +11,17 @@ evidence: docs/architecture/network-capabilities.md (read 2026-11-10); ADR-0019,
 
 Handover for a new session. The owner chose all four on 2026-11-10, after asking for "something away from what we already have, which is getting repetitive". Everything built so far answers "what is wrong on my network?". These answer other questions.
 
+## Status 2026-11-10 (end of the session that built it)
+
+Branch `network-assistant-tools` (cut from `d32cfa1a`, v0.69.0), two local commits, **not pushed**, and later work uncommitted; `VERSION` set to 0.70.0 in the working tree. **All four tasks are built; none has run on vertex.**
+- **A:** `network_findings` (`core/netaudit/findingstool`, category `netfindings`, listed in the `general` and `operator` profiles), over the shared `core/netaudit/findingsview`. `network_devices` and `network_timeline` were left out on purpose: each tool costs schema tokens in every prompt, so add them only after the three real questions have been tried.
+- **B:** `finding-life.json` per workspace (`AdvanceLife`, `UpdateLife` under a lock), `POST /admin/api/netaudit/recheck`, "Check now" on the finding card, "came back N times", Timeline rows.
+- **C:** `core/netaudit/footprint` (ADR-0042): crt.sh certificates, RDAP expiry, SPF and DMARC over DoH, breach k-anonymity range search; settings, schedule loop, Check now, step-up routes, `FootprintCard.vue` in Network → Settings. Findings are `domain:<name>` and `email:<id>`.
+- **D:** `standing.go` and `StandingCard.vue` on the Overview, from the finding history only.
+- **Checks run:** `go build`, `go test ./...` (one unrelated timing test in `guardrails` failed once under load and passed three times after), `go run ./tools/check-complexity/`, `go test -race` on the history store, footprint and tool packages, `npm test`, `npm run build`, the harness check. **Not run:** `npm run test:visual`, anything on a real server, the breach lookup with a real key (none was available), a live crt.sh answer (it returned 502 twice).
+- **Left for the owner, in order:** (1) deploy and press "Check now" on a real domain; (2) paste a breach key whose plan includes the private search, or accept "could not look: key refused"; (3) ask the assistant the three questions (urgent this week, what changed, why is X flagged) and keep the transcript in `docs/learnings/network-audit.md`; (4) after two weeks the standing card shows its first comparison; (5) decide `network_devices` and `network_timeline` from step 3.
+- **Traps:** the history starts at deploy, so "first seen" means first seen since this version; a footprint watch is carried, not resolved, when a look is missing or older than twice its frequency; the guarded client logs a request URL on failure, which holds the watched domain (a local log), and never an address (the breach look sends six hash characters only).
+
 ## 0. Gate: do this before anything else
 
 1. PR #221 (v0.69.0: closer TLS look, macOS host look, deep-check warnings) must be **merged and deployed**. Check: `gh pr view 221 --json state,mergedAt`, `git log origin/main -3`, and the version the deployed server reports (`GET` its status, or the VERSION file on vertex). If it is not merged, stop and tell the owner; do not build on the branch.

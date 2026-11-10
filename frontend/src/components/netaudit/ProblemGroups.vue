@@ -11,7 +11,7 @@ import { placeSentence, serviceName, severityState } from "../../utils/netaudit/
 import { flawsOf, flawSummary, nvdUrl } from "../../utils/netaudit/flaws"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import { MORE_ACTIONS_LABEL, SIMPLE_ACCEPT, VULN_NOT_PROOF } from "../../constants/netaudit"
-import { isHostDevice } from "../../utils/netaudit/friendly"
+import { isScannable } from "../../utils/netaudit/friendly"
 import { sharedEvidence } from "../../utils/netaudit/report"
 import type { ProblemGroup, ScanFinding } from "../../types/netaudit"
 
@@ -114,7 +114,7 @@ watch(() => props.fold?.n, () => { toggled.value = Object.fromEntries(props.grou
           </template>
           <span v-if="f.deep_at" class="text-[length:var(--text-small)] text-muted" data-test="deep-readonly">From the deep check of {{ formatAbsoluteTime(f.deep_at) }}. You can accept it after the next audit has recorded it.</span>
           <FixGuidePanel v-else :finding="f" :advanced="advanced" :steps="false" :show-mark="moreOpen === f.key" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
-          <div v-if="moreOpen === f.key && !isHostDevice(f.device)" class="flex flex-wrap items-center gap-2" data-test="problem-extras">
+          <div v-if="moreOpen === f.key && isScannable(f.device)" class="flex flex-wrap items-center gap-2" data-test="problem-extras">
             <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('rescan', f.device)">Rescan this host</BaseButton>
           </div>
         </li>

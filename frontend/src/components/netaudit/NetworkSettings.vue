@@ -9,6 +9,7 @@ import DecoysCard from "./DecoysCard.vue"
 import RouterLogCard from "./RouterLogCard.vue"
 import OutsideLookupCard from "./OutsideLookupCard.vue"
 import DnsCheckCard from "./DnsCheckCard.vue"
+import FootprintCard from "./FootprintCard.vue"
 import NearbyCard from "./NearbyCard.vue"
 import WifiCard from "./WifiCard.vue"
 import HelperCard from "./HelperCard.vue"
@@ -36,6 +37,7 @@ const GROUP_HEADING = "m-0 font-mono text-[length:var(--text-micro)] font-medium
       <RouterLogCard />
       <OutsideLookupCard />
       <DnsCheckCard />
+      <FootprintCard />
       <NearbyCard />
       <WifiCard />
       <HelperCard />
