@@ -68,6 +68,8 @@ var toolCatalog = []ToolSpec{
 	// network_scan sends connection probes to other hosts, so it is not read-only: a failed call must not let the rest
 	// of a batch run on as if nothing happened.
 	{Name: ToolNetworkScan, Category: CategoryNetaudit, Reach: ReachLAN, Gate: GateNetwork},
+	// network_findings reads a saved file in the run's own workspace: no network reach, so no gate and not scope-forbidden.
+	{Name: ToolNetworkFindings, Category: CategoryNetFindings, Effect: EffectReadOnly},
 	{Name: ToolApplyGuardrails, Category: CategoryGlobal},
 	{Name: ToolMemorySearch, Category: CategoryMemory, Effect: EffectReadOnly},
 	{Name: ToolMemoryUpdate, Category: CategoryMemory, Effect: EffectHousekeeping},

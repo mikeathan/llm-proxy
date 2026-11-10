@@ -736,3 +736,16 @@ export const TRAFFIC_FOLLOW_INTERVAL_MS = 3000
 export const DEEP_TLS_NMAP = 'On a service that speaks TLS: open about 60 connections in a row to list the TLS versions and ciphers it accepts. A fragile device can slow down or restart under that.'
 export const DEEP_TLS_TESTSSL = 'On a service that speaks TLS (at most 3): testssl.sh opens a few hundred connections in a row, a minute or two for each, to list the TLS versions and weak ciphers it accepts. A fragile device can slow down or restart under that.'
 export const DEEP_INSTALL_HINT = 'testssl.sh is not installed. It is optional and gives a closer look at encryption. To install it, run:'
+
+/** "Check again": one finding's own check run again on its device. */
+export const RECHECK_BUTTON = 'Check now'
+export const RECHECK_BUSY = 'Checking…'
+export const RECHECK_FAILED = 'It could not be checked.'
+export const RECHECK_FIXED = 'Checked just now: the problem is gone. The next audit will confirm it.'
+export const RECHECK_STILL_THERE = 'Checked just now: it is still there.'
+export const RECHECK_COULD_NOT = 'It could not be checked just now, so nothing is recorded. '
+export const RECHECK_VERIFIED = 'Checked again on'
+export const RECHECK_VERIFIED_TAIL = 'and the problem was gone. The next audit will confirm it.'
+export const FINDING_THERE_SINCE = 'First seen'
+export const FINDING_CAME_BACK_ONCE = 'It came back once after it had gone away.'
+export const FINDING_CAME_BACK_MANY = 'It has come back {n} times after going away.'

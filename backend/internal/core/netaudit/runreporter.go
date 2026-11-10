@@ -21,6 +21,7 @@ type RunReporter struct {
 	store     BaselineStore
 	acks      AckStore         // optional: findings the operator accepted
 	fixes     FixStore         // optional: findings the operator marked as fixed
+	life      LifeStore        // optional: when each finding first appeared, went away and came back
 	vulns     VulnSource       // optional: the vulnerability data known_vulns findings are matched against
 	expect    ExpectationStore // optional: what the operator says each device should offer
 	deep      DeepReader       // optional: the operator's last deep check of each device
@@ -67,6 +68,27 @@ func (r *RunReporter) WithAcks(acks AckStore) *RunReporter {
 func (r *RunReporter) WithFixes(fixes FixStore) *RunReporter {
 	r.fixes = fixes
 	return r
+}
+
+// WithLife makes the reporter keep each finding's history (first seen, resolved, came back) from the scans it saves.
+func (r *RunReporter) WithLife(life LifeStore) *RunReporter {
+	r.life = life
+	return r
+}
+
+// advanceLife records what the saved scan showed and no longer showed. A history that cannot be read or written is said in the
+// report and never stops the audit: the history is a note, not part of how scans are compared.
+func (r *RunReporter) advanceLife(workspaceID string, current, resolved []Finding, at time.Time) string {
+	if r.life == nil {
+		return ""
+	}
+	err := r.life.UpdateLife(workspaceID, func(records []models.FindingLife) []models.FindingLife {
+		return AdvanceLife(records, current, resolved, at)
+	})
+	if err != nil {
+		return fmt.Sprintf("\n\n> Note: the finding history could not be updated (%v).", err)
+	}
+	return ""
 }
 
 // WithExpectations makes the reporter compare each device that has an expectation with it. The differences join the scan's
@@ -345,6 +367,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		observed += fmt.Sprintf("\n\n> Note: this scan could not be saved for next time (%v).", err)
 	} else {
 		r.noteSaved(next.Findings, result.Hosts, devices, at)
+		observed += r.advanceLife(workspaceID, next.Findings, delta.Resolved, at)
 	}
 	return observed + "\n\n---\n\n" + AssessmentHeading + "\n\n" + report
 }

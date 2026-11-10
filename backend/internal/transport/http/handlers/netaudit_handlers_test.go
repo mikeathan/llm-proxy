@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/models"
 )
 
@@ -171,7 +172,7 @@ func TestNetauditHandlers_GetFindings(t *testing.T) {
 	}
 	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil)
 
-	var got findingsResponse
+	var got findingsview.Report
 	rec := getFindings(h, "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("code %d: %s (%v)", rec.Code, rec.Body.String(), err)
@@ -189,7 +190,7 @@ func TestNetauditHandlers_GetFindings(t *testing.T) {
 		t.Errorf("findings = %+v", got)
 	}
 
-	var none findingsResponse
+	var none findingsview.Report
 	rec = getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{}, nil), "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &none); err != nil || none.Scanned || none.Findings == nil || none.Resolved == nil {
 		t.Errorf("an automation that has not scanned: %s", rec.Body.String())
@@ -274,7 +275,7 @@ func TestNetauditHandlers_FindingsShowWhatIsAccepted(t *testing.T) {
 		{Key: ssh.Key(), AcceptedVersion: "OpenSSH 9", Note: "jump host", ExpiresAt: now.Add(24 * time.Hour)},
 		{Key: telnet.Key(), ExpiresAt: now.Add(-time.Hour)}, // expired: not accepted any more
 	}}
-	var got findingsResponse
+	var got findingsview.Report
 	rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, acks), "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
@@ -288,7 +289,7 @@ func TestNetauditHandlers_FindingsCarryTheSuggestedFixOfACheck(t *testing.T) {
 	smb := models.ScanFinding{Device: "10.0.0.1", Port: 445, Proto: "tcp", Check: netaudit.CheckSMBv1, Severity: "high"}
 	port := models.ScanFinding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: "info"}
 	baseline := models.ScanBaseline{ScannedAt: time.Now(), Engine: "nmap", Findings: []models.ScanFinding{smb, port}}
-	var got findingsResponse
+	var got findingsview.Report
 	rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil), "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
@@ -305,7 +306,7 @@ func TestNetauditHandlers_FindingsSayWhetherTheScanIsTheBaseline(t *testing.T) {
 	port := models.ScanFinding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: netaudit.CheckOpenPort, Severity: "info"}
 	for _, first := range []bool{true, false} {
 		baseline := models.ScanBaseline{ScannedAt: time.Now(), Engine: "nmap", Findings: []models.ScanFinding{port}, FirstScan: first}
-		var got findingsResponse
+		var got findingsview.Report
 		rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil), "?workspace_id=ws&automation=nightly")
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.FirstScan != first {
 			t.Errorf("first_scan = %v, want %v (err %v)", got.FirstScan, first, err)
@@ -365,7 +366,7 @@ func TestNetauditFindings_TheFirewallFindingCarriesThePlanBuiltForThisComputer(t
 		return netaudit.FirewallFacts{Networks: []string{"10.0.0.0/24"}, AppPort: 4001}, nil
 	}}
 	h := NewNetauditHandlers(nil, nil, fixedBaselines{b: models.ScanBaseline{ScannedAt: time.Now(), Findings: []models.ScanFinding{off}}}, nil).WithGuides(guides)
-	var got findingsResponse
+	var got findingsview.Report
 	rec := getFindings(h, "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Findings) != 1 || got.Findings[0].Guide == nil {
 		t.Fatalf("code %d: %s (%v)", rec.Code, rec.Body.String(), err)

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/platform/scanscope"
@@ -151,13 +152,13 @@ func TestRender_HeaderSeparatesOpenPortsFromCheckFindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(text, "2 open port(s)") || !strings.Contains(text, noCheckFindings) {
+	if !strings.Contains(text, "2 open port(s)") || !strings.Contains(text, findingsview.NoCheckFindings) {
 		t.Errorf("no check finding must be said plainly:\n%s", text)
 	}
 
 	smb := netaudit.Finding{Device: "192.168.1.5", Port: 445, Proto: "tcp", Check: netaudit.CheckSMBv1, Severity: netaudit.SeverityHigh}
 	text, _ = render(netaudit.ModeChecks, netaudit.Result{Engine: "nmap", Findings: append(ports, smb, smb)}, 0)
-	if strings.Contains(text, noCheckFindings) || !strings.Contains(text, "2 check finding(s): "+netaudit.CheckTitle(netaudit.CheckSMBv1)+" (2)") {
+	if strings.Contains(text, findingsview.NoCheckFindings) || !strings.Contains(text, "2 check finding(s): "+netaudit.CheckTitle(netaudit.CheckSMBv1)+" (2)") {
 		t.Errorf("the checks' findings must be counted and named once each:\n%s", text)
 	}
 }

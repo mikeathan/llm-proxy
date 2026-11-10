@@ -18,6 +18,8 @@ import (
 	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
+	"llm-proxy/internal/core/netaudit/findingstool"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/internal/core/netaudit/knownbad"
 	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/internal/core/netaudit/nmap"
@@ -52,6 +54,8 @@ type netauditServices struct {
 	Expectations *netaudit.Expectations
 	// Deep runs the operator-started deep check of one device and keeps its result.
 	Deep *netaudit.DeepChecks
+	// Recheck runs one finding's own check again on its device and records whether it is gone.
+	Recheck *netaudit.Recheck
 	// Vulns holds the vulnerability data and runs its operator-started download.
 	Vulns *vulnfeed.Manager
 	// Ubuntu holds Canonical's security notices for this computer's release and runs the operator-started update.
@@ -415,7 +419,9 @@ type routerLogSource struct {
 	gateway func() netip.Addr
 }
 
-func (r routerLogSource) Snapshot(now time.Time) netaudit.RouterSnapshot { return r.watch.Snapshot(now) }
+func (r routerLogSource) Snapshot(now time.Time) netaudit.RouterSnapshot {
+	return r.watch.Snapshot(now)
+}
 
 func (r routerLogSource) Router() string {
 	if gw := r.gateway(); gw.IsValid() {
@@ -675,6 +681,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Fixes:        netaudit.NewFixes(s.Persistence(), s.Persistence()),
 		Expectations: netaudit.NewExpectations(s.Persistence(), scope),
 		Deep:         netaudit.NewDeepChecks(scan.Service, s.Persistence(), s.Persistence()).WithWebChecks(webChecker),
+		Recheck:      netaudit.NewRecheck(netaudit.RecheckDeps{Scan: scan.Service.Scan, Baselines: s.Persistence(), Life: s.Persistence()}),
 	}
 	s.netaudit.WifiConfig = netaudit.NewWifiConfig(store)
 	s.netaudit.Wifi = netaudit.NewWifiWatch(netaudit.WifiWatchDeps{
@@ -718,6 +725,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))
+		registry.Use(findingstool.Module(s.findingsReader(), s.auditNames))
 	}
 }
 
@@ -918,4 +926,26 @@ func (s *AppServices) wifiReady(store netaudit.PolicyStore, cfg *netaudit.WifiCo
 		}
 		return true, ""
 	}
+}
+
+// findingsReader is the one reading of an audit's saved result, built from the same stores the Findings screen reads, so the
+// assistant's network_findings tool and the screen never disagree.
+func (s *AppServices) findingsReader() findingsview.Reader {
+	n := s.netaudit
+	return findingsview.Reader{Baselines: s.Persistence(), Acks: n.Acks, Fixes: n.Fixes, Deep: n.Deep, Life: s.Persistence(), Guide: s.netauditGuides().Guide}
+}
+
+// auditNames are the network audits of one workspace: the automations that scan, by the name their saved result is kept under.
+// The dispatcher is read when asked, so an audit added or removed after start-up is seen.
+func (s *AppServices) auditNames(workspaceID string) []string {
+	if s.dispatcher == nil {
+		return nil
+	}
+	var names []string
+	for _, e := range s.dispatcher.ListAll() {
+		if e.Workspace == workspaceID && e.Scan != nil {
+			names = append(names, e.Name)
+		}
+	}
+	return names
 }

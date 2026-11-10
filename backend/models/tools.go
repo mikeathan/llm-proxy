@@ -77,6 +77,8 @@ const (
 	ToolNetworkFetch = "fetch_url"
 	ToolNetworkScan  = "network_scan" // the netaudit category
 	ToolNetworkInfo  = "get_network_info"
+	// ToolNetworkFindings reads the saved result of the network audit; it reaches no network (the netfindings category).
+	ToolNetworkFindings = "network_findings"
 
 	// Security/Admin
 	ToolApplyGuardrails = "security_guardrails"
@@ -104,11 +106,14 @@ const (
 	CategoryFileSystem    = "filesystem"
 	CategoryNetwork       = "network"
 	CategoryNetaudit      = "netaudit"
-	CategoryGlobal        = "security"
-	CategoryMemory        = "memory"
-	CategoryReminders     = "reminders"
-	CategoryAutomation    = "automation"
-	CategorySystem        = "system"
+	// CategoryNetFindings is reading what the network audit saved. It is apart from CategoryNetaudit (scanning) so the
+	// unattended auditor, whose job is to scan, is not handed the read tool and its schema.
+	CategoryNetFindings = "netfindings"
+	CategoryGlobal      = "security"
+	CategoryMemory      = "memory"
+	CategoryReminders   = "reminders"
+	CategoryAutomation  = "automation"
+	CategorySystem      = "system"
 	// CategoryDelegation is governed by a profile's delegates list, not by its tools list.
 	CategoryDelegation = "delegation"
 	// CategoryGeneral labels a tool outside the built-in table (an MCP tool); it is not a category a profile can name.

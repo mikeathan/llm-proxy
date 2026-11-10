@@ -19,6 +19,7 @@ Verified against the code on 2026-11-09 (v0.68.0); the platform column comes fro
 | Device names, maker (OUI), MAC, IPv6, presence check, new-device and MAC-change alerts | `inventory.go`, `presence.go`, `discovery6.go`, `stacks/network/oui/` | both | Devices |
 | Nearby (mDNS and SSDP announcements) and rogue gateway | `core/netaudit/nearby/`, `platform/mcast/` | both | Devices |
 | Scan on arrival; follow-up scan of a new device | `followup.go` | both | message |
+| **Finding history** (first seen, resolved by audit or recheck, came back N times) and **Check again** for one finding (a scan of its own device and port: fixed / still there / could not check; never "fixed" when the check was not made) | `lifecycle.go`, `recheck.go`, `findingsview/`, `FixGuidePanel.vue`, `useRecheck.ts`; endpoint `POST /admin/api/netaudit/recheck`; Timeline rows `finding_fixed` / `finding_returned` | both (needs nmap) | Findings card, Timeline |
 
 ## Listening and watching
 

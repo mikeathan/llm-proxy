@@ -1,4 +1,5 @@
 // Network scan (plan network-audit): the shapes the /admin/api/netaudit endpoints return and take.
+import type { Ref } from 'vue'
 import type { SettingsTab } from './admin'
 import type { NetworkTab } from './routes'
 
@@ -97,6 +98,14 @@ export interface ScanFinding {
   accepted: boolean
   accepted_note?: string
   accepted_until?: string
+  /** When the program first saw this finding, when it last appeared, and how many times it came back after going away. */
+  first_seen?: string
+  open_since?: string
+  came_back?: number
+  /** When "Check again" found the problem gone after the scan that still lists it; the next audit confirms it. */
+  verified_fixed_at?: string
+  /** Whether "Check again" can judge this finding on its own device. */
+  recheckable?: boolean
 }
 
 /** A finding as it was, listed under "resolved" because the next scan no longer showed it. */
@@ -111,6 +120,9 @@ export interface ResolvedFinding {
   version?: string
   /** When the operator marked it fixed, if they had and this scan confirms it is gone. */
   fixed_at?: string
+  /** When and how it went away, from the finding's history: the nightly audit or the operator's recheck. */
+  resolved_at?: string
+  resolved_by?: 'audit' | 'recheck'
 }
 
 export interface FindingsReport {
@@ -318,6 +330,24 @@ export interface FixRequest {
   automation: string
   key: string
   note: string
+}
+
+/** What "Check again" found: the problem is gone, still there, or the check could not be made (never read as fixed). */
+export type RecheckOutcome = 'fixed' | 'still_there' | 'could_not_check'
+
+/** The server's answer to "Check again"; `reason` is fixed words, never text from a device. */
+export interface RecheckResult {
+  outcome: RecheckOutcome
+  reason: string
+  checked_at: string
+}
+
+/** The recheck state the Findings screen hands to the cards that show a finding: which finding is being checked, each answer by key, and the way to ask. */
+export interface RecheckController {
+  busyKey: Ref<string>
+  results: Record<string, RecheckResult>
+  errors: Record<string, string>
+  run: (key: string) => Promise<void>
 }
 
 /** What the operator says a device should offer: the TCP ports that may be open on it (none means nothing should answer). */
@@ -671,7 +701,16 @@ export interface NetworkChange {
   name?: string
 }
 
-export type ActivityKind = 'new_device' | 'address_changed' | 'alert' | 'ports_changed' | 'audit' | 'related' | 'router_blocks'
+export type ActivityKind =
+  | 'new_device'
+  | 'address_changed'
+  | 'alert'
+  | 'ports_changed'
+  | 'audit'
+  | 'related'
+  | 'router_blocks'
+  | 'finding_fixed'
+  | 'finding_returned'
 export type ActivityGroup = 'devices' | 'ports' | 'findings' | 'alerts' | 'router'
 export type ActivityFilter = 'all' | ActivityGroup
 
@@ -695,6 +734,10 @@ export interface ActivityRow {
   closed?: number
   /** The ports most tried on a router_blocks day, busiest first. */
   ports?: PortCount[]
+  /** The finding of a finding_fixed or finding_returned row: its device, port and the check's plain title. */
+  device?: string
+  port?: number
+  check?: string
 }
 
 /** How many times a destination port was tried. */

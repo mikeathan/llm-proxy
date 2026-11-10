@@ -27,6 +27,11 @@ function blocksText(count: number, ports: ActivityRow['ports']): string {
   return busiest.length ? `${base}, mostly to ${listWords(busiest)}` : base
 }
 
+function findingLabel(row: ActivityRow): string {
+  const where = row.port ? `${row.device ?? 'A device'}, port ${row.port}` : (row.device ?? 'A device')
+  return `${row.check ?? 'A problem'} on ${where}`
+}
+
 function who(row: ActivityRow): string {
   return row.name || row.ip || row.mac || 'A device'
 }
@@ -61,6 +66,10 @@ export function activityText(row: ActivityRow): string {
       return `${who(row)} appeared within an hour before a decoy service was touched`
     case 'router_blocks':
       return blocksText(row.count ?? 0, row.ports)
+    case 'finding_fixed':
+      return `${findingLabel(row)} was checked again and is fixed`
+    case 'finding_returned':
+      return `${findingLabel(row)} came back after it had gone away`
   }
 }
 

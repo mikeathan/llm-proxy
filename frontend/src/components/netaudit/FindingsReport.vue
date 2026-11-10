@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onMounted, provide, ref, watch } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
@@ -15,6 +15,7 @@ import { useNetauditReadiness } from "../../composables/netaudit/useNetauditRead
 import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
 import { useModuleSources } from "../../composables/netaudit/useModuleSources"
 import { useFindings } from "../../composables/netaudit/useFindings"
+import { RECHECK_INJECTION, useRecheck } from "../../composables/netaudit/useRecheck"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { openPortsOf } from "../../utils/netaudit/expectations"
 import { findingTitle, isCheck, portCount } from "../../utils/netaudit/friendly"
@@ -32,6 +33,8 @@ const emit = defineEmits<{ (e: "watch-live"): void }>()
 const { advanced } = useNetauditViewMode()
 const findings = useFindings(() => props.workspaceId, () => props.automation)
 const sources = useModuleSources()
+// The cards that show a finding read "Check again" from here, so it is not passed down through every list in between.
+provide(RECHECK_INJECTION, useRecheck(() => props.workspaceId, () => props.automation, () => findings.load()))
 const { report, expectations, loading, error, actionError, notice, starting } = findings
 const deepCheck = useDeepCheck(() => props.workspaceId, () => props.automation)
 // Whether the deep check will use testssl.sh decides what the dialog says it will send, so the dialog reads the same readiness answer as the banner.

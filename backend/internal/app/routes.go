@@ -131,7 +131,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Profiles = handlers.NewProfileHandlers(s.Profiles())
 	hs.Helpers = handlers.NewHelpersHandlers(s)
-	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep).WithGuides(s.netauditGuides())
+	hs.Netaudit = handlers.NewNetauditHandlers(s.netaudit.Scope, s.netaudit.Readiness, s.Persistence(), s.netaudit.Acks).WithFixes(s.netaudit.Fixes).WithExpectations(s.netaudit.Expectations).WithDeepChecks(s.netaudit.Deep).WithLife(s.Persistence()).WithRecheck(s.netaudit.Recheck).WithGuides(s.netauditGuides())
 	hs.KnownBad = handlers.NewNetauditKnownBadHandlers(s.netaudit.KnownBadList)
 	hs.Stacks = handlers.NewStackHandlers(s.netaudit.Stacks, s.stalledMonitors)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
@@ -154,7 +154,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.FollowUp = handlers.NewNetauditSwitchHandlers(s.netaudit.FollowUpConfig)
 	hs.CheckIn = handlers.NewNetauditSwitchHandlers(s.netaudit.CheckInConfig)
 	hs.UbuntuData = handlers.NewUbuntuDataHandlers(s.netaudit.Ubuntu)
-	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence())
+	hs.Activity = handlers.NewNetauditActivityHandlers(s.netaudit.Inventory, s.netaudit.Alerts, s.netaudit.History, s.Persistence()).WithLife(s.Persistence())
 	hs.Timeline = handlers.NewNetauditSummaryHandlers(hs.Activity, hs.Turns, s.modelIsLocal)
 	hs.Overview = handlers.NewNetauditOverviewHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}, s.netaudit.History, s.Persistence()).WithAttackPaths(s.netaudit.AttackPathsConfig.Enabled, s.netaudit.DecoyStore)
 
@@ -469,6 +469,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/netaudit/acks", hs.Netaudit.RevokeAck, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/fixes", hs.Netaudit.MarkFixed, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/fixes", hs.Netaudit.UnmarkFixed, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/recheck", hs.Netaudit.RecheckFinding, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/deep", hs.Netaudit.ListDeepChecks, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/deep", hs.Netaudit.RunDeepCheck, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/expectations", hs.Netaudit.ListExpectations, jsonMethodNotAllowed)

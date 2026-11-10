@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult } from '../../types/netaudit'
+import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -94,6 +94,11 @@ export class NetauditService {
 
   static markFixed(request: FixRequest): Promise<unknown> {
     return post(API_ENDPOINTS.netauditFixes, request)
+  }
+
+  /** Runs one finding's own check again on its device and answers fixed, still there or could not check. */
+  static recheck(request: FixRequest): Promise<RecheckResult> {
+    return post<RecheckResult>(API_ENDPOINTS.netauditRecheck, request)
   }
 
   static unmarkFixed(workspaceId: string, key: string): Promise<void> {

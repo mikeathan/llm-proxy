@@ -2,6 +2,8 @@ package netaudit
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"llm-proxy/models"
@@ -21,6 +23,10 @@ const (
 	// ActivityRelated says a new device appeared within an hour before a decoy service was touched. It states the timing and
 	// nothing more: the alert does not name its source in a typed field, so the two may be unrelated.
 	ActivityRelated = "related"
+	// ActivityFixed is a finding a recheck found gone, and ActivityReturned one that came back after it had gone. Both are kept
+	// in the finding's history; the row carries the device, port and check title and nothing a device wrote.
+	ActivityFixed    = "finding_fixed"
+	ActivityReturned = "finding_returned"
 )
 
 // Groups are the filters of the activity screen.
@@ -60,6 +66,10 @@ type ActivityRow struct {
 	Closed    int       `json:"closed,omitempty"`
 	// Ports are the ports most tried on a router_blocks day, busiest first.
 	Ports []models.PortCount `json:"ports,omitempty"`
+	// Device, Port and Check name the finding of a finding_fixed or finding_returned row; Check is the check's plain title.
+	Device string `json:"device,omitempty"`
+	Port   int    `json:"port,omitempty"`
+	Check  string `json:"check,omitempty"`
 }
 
 // BlockDay is one day's count of attempts the router refused.
@@ -89,6 +99,8 @@ type ActivityInput struct {
 	Alerts    []models.NetworkAlert
 	Series    []models.NetworkDay
 	Baseline  models.ScanBaseline
+	// Life is the history of each finding; a recheck's "fixed" and a return after it become rows. Optional.
+	Life []models.FindingLife
 }
 
 // ActivityOf builds the timeline, newest first and cut to limit rows (the default when limit is not positive, and never more
@@ -108,6 +120,7 @@ func ActivityOf(in ActivityInput, limit int) Activity {
 	if r, ok := auditRow(in.Baseline); ok {
 		rows = append(rows, r)
 	}
+	rows = append(rows, lifeRows(in.Life, in.Now)...)
 	slices.SortStableFunc(rows, func(a, b ActivityRow) int { return b.At.Compare(a.At) })
 	if len(rows) > limit {
 		rows = rows[:limit]
@@ -222,4 +235,47 @@ func auditRow(b models.ScanBaseline) (ActivityRow, bool) {
 		return ActivityRow{}, false
 	}
 	return ActivityRow{Kind: ActivityAudit, Group: ActivityGroupFindings, At: b.ScannedAt, Opened: len(b.NewKeys), Closed: len(b.Resolved)}, true
+}
+
+// lifeRows are the findings the operator's recheck found gone, and those that came back, within the recent window.
+func lifeRows(life []models.FindingLife, now time.Time) []ActivityRow {
+	var out []ActivityRow
+	for _, l := range life {
+		device, port, check, ok := splitFindingKey(l.Key)
+		if !ok {
+			continue
+		}
+		row := ActivityRow{Group: ActivityGroupFindings, Device: device, Port: port, Check: titleOrID(check)}
+		switch {
+		case !l.Open() && l.ResolvedBy == models.LifeByRecheck && now.Sub(l.ResolvedAt) <= recentWindow:
+			row.Kind, row.At = ActivityFixed, l.ResolvedAt
+		case l.Open() && l.Returned > 0 && now.Sub(l.OpenSince) <= recentWindow:
+			row.Kind, row.At, row.Count = ActivityReturned, l.OpenSince, l.Returned
+		default:
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// splitFindingKey reads a Finding.Key ("device|proto|port|check") back into its parts.
+func splitFindingKey(key string) (device string, port int, check string, ok bool) {
+	parts := strings.SplitN(key, "|", 4)
+	if len(parts) != 4 {
+		return "", 0, "", false
+	}
+	n, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return "", 0, "", false
+	}
+	return parts[0], n, parts[3], true
+}
+
+// titleOrID is a check's plain title, or its id when it has none (an open port).
+func titleOrID(check string) string {
+	if t := CheckTitle(check); t != "" {
+		return t
+	}
+	return check
 }
