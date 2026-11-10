@@ -551,6 +551,18 @@ func TestRunReporter_SaysHowManyWatchedPlacesItCouldNotRead(t *testing.T) {
 	}
 }
 
+func TestRunReporter_SaysThePortsWereNotCheckedOnAComputerThatCannotListThem(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	got := reporter(store, reportTime).WithHost(fakeHostLooker{look: HostLook{PortsUnchecked: true}}).Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	if !strings.Contains(got, "open ports were not checked") || !strings.Contains(got, "startup files were compared") {
+		t.Errorf("a computer whose ports were not listed must never read as a quiet one:\n%s", got)
+	}
+	quiet := reporter(store, reportTime).WithHost(fakeHostLooker{look: HostLook{}}).Augment(scanned(finding("10.0.0.1", 22, "")), "ws", "nightly", "")
+	if strings.Contains(quiet, "ports were not checked") {
+		t.Errorf("the note must appear only when the ports were not listed:\n%s", quiet)
+	}
+}
+
 func TestRunReporter_NamesWhereTheUnreadablePlacesAreAndWhy(t *testing.T) {
 	store := &memBaselines{data: map[string]models.ScanBaseline{}}
 	look := HostLook{Unreadable: 3, UnreadableWhere: "/usr/lib/modules (2), /usr/bin (1)", UnreadableWhy: "permission denied"}

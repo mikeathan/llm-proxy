@@ -157,3 +157,45 @@ func TestReadiness_NoticesSayWhatTheVulnerabilityDataLacksButNeverStopAnAudit(t 
 		t.Errorf("no data source wired: %+v", got)
 	}
 }
+
+func TestReadiness_ANoticeSaysTestsslIsNotInstalledWithTheCommandAndNeverStopsAScan(t *testing.T) {
+	deps := readyDeps()
+	deps.TLSLookPresent = func() error {
+		return &isolation.NotInstalledError{Program: "testssl", Hint: "brew install testssl"}
+	}
+	r := NewReadiness(deps)
+	got := r.Notices()
+	if len(got) != 1 || got[0].Code != models.RequirementTLSLookMissing || got[0].Blocking {
+		t.Fatalf("%+v", got)
+	}
+	if got[0].Fix == nil || got[0].Fix.Kind != models.FixCopy || got[0].Fix.Text != "brew install testssl" {
+		t.Errorf("the notice carries the install command to copy: %+v", got[0].Fix)
+	}
+	if !strings.Contains(got[0].Message, "nmap alone") {
+		t.Errorf("the notice says what the deep check does without it: %q", got[0].Message)
+	}
+	if len(r.Check(t.Context())) != 0 {
+		t.Error("an optional program must never be a requirement that stops a scan")
+	}
+}
+
+func TestReadiness_TestsslNoticeIsAbsentWhenInstalledOrNotAsked(t *testing.T) {
+	deps := readyDeps()
+	deps.TLSLookPresent = func() error { return nil }
+	if got := NewReadiness(deps).Notices(); got != nil {
+		t.Errorf("installed: %+v", got)
+	}
+	deps.TLSLookPresent = nil
+	if got := NewReadiness(deps).Notices(); got != nil {
+		t.Errorf("no check wired: %+v", got)
+	}
+}
+
+func TestReadiness_ATestsslNoticeWithoutAnInstallCommandStillSaysSo(t *testing.T) {
+	deps := readyDeps()
+	deps.TLSLookPresent = func() error { return errors.New("permission denied") }
+	got := NewReadiness(deps).Notices()
+	if len(got) != 1 || got[0].Fix != nil || !strings.Contains(got[0].Message, "permission denied") {
+		t.Errorf("%+v", got)
+	}
+}

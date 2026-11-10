@@ -258,3 +258,18 @@ func TestRun_DeniesUnixSocketsByDefaultAndLetsAProgramAllowThemAndGiveUpTheNetwo
 		t.Errorf("listing program = %+v, want Unix sockets allowed and TCP denied", ws)
 	}
 }
+
+func TestLookup_FindsAProgramUnderAnotherNameItIsPackagedAs(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "thing"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	if err := Lookup(Program{Name: "thing", Binary: "thing.sh", Alternates: []string{"thing"}}); err != nil {
+		t.Errorf("the packaged name is found: %v", err)
+	}
+	var missing *NotInstalledError
+	if err := Lookup(Program{Name: "thing", Binary: "thing.sh", Alternates: []string{"other"}, InstallHint: map[string]string{runtime.GOOS: "install it"}}); !errors.As(err, &missing) || missing.Hint != "install it" {
+		t.Errorf("none of the names found is still a not-installed answer with the hint: %v", err)
+	}
+}

@@ -15,6 +15,8 @@ const OK: TrafficAvailability = { ok: true, reason: '' }
 const summary = ref<HostTraffic | null>(null)
 const running = ref(false)
 const error = ref('')
+// True while the page is waiting on a look it did not press itself: the server said one was running (a reload mid-look). follow() ends it.
+let following = false
 
 /** Why the look cannot be pressed with the helper in this state, and the page that fixes it; ok when it can. */
 function availabilityOf(status: HelperStatus | null): TrafficAvailability {
@@ -26,6 +28,11 @@ function availabilityOf(status: HelperStatus | null): TrafficAvailability {
   if (!action || !action.on) return { ok: false, reason: TRAFFIC_ACTION_OFF, fixTab: 'settings' }
   if (action.installed === false) return { ok: false, reason: TRAFFIC_ACTION_NOT_INSTALLED, fixTab: 'settings' }
   return OK
+}
+
+/** True when the server says a capture_host look is in flight. */
+function serverIsListening(status: HelperStatus | null): boolean {
+  return status?.actions.find((a) => a.id === ACTION)?.running === true
 }
 
 /**
@@ -47,6 +54,10 @@ export function useHostTraffic() {
       status.value = await NetauditService.helper()
     } catch {
       status.value = null
+    }
+    if (!running.value && serverIsListening(status.value)) {
+      running.value = true
+      following = true
     }
     try {
       const last = await NetauditService.lastHostTraffic()
@@ -81,5 +92,28 @@ export function useHostTraffic() {
     }
   }
 
-  return { availability, summary, loaded, running, error, loadError, load, listen }
+  /**
+   * One check on a look this page did not press: when the server says it has ended, shows its result. The page calls it every few seconds
+   * while it is open; it does nothing when no look is being followed, and a failed read leaves the look marked running until one succeeds.
+   */
+  async function follow(): Promise<void> {
+    if (!following) return
+    let current: HelperStatus
+    try {
+      current = await NetauditService.helper()
+    } catch {
+      return
+    }
+    if (serverIsListening(current)) return
+    status.value = current
+    following = false
+    try {
+      summary.value = await NetauditService.lastHostTraffic()
+    } catch (err) {
+      loadError.value = errorMessage(err, TRAFFIC_LOAD_FAILED)
+    }
+    running.value = false
+  }
+
+  return { availability, summary, loaded, running, error, loadError, load, listen, follow }
 }

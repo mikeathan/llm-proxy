@@ -94,7 +94,7 @@ func (d *DeepChecks) Run(ctx context.Context, workspaceID, automation, device st
 	if base, err := d.baselines.ReadBaseline(workspaceID, automation); err == nil {
 		findings = append(slices.Clone(findings), d.webFindings(ctx, base.Findings, device)...)
 	}
-	check := models.DeepCheck{Device: device, At: now, Ports: deepPortResults(ports, res.Hosts, addr), Findings: findings}
+	check := models.DeepCheck{Device: device, At: now, Ports: deepPortResults(ports, res.Hosts, addr), Findings: findings, Warnings: res.Warnings}
 	if err := d.store.WriteDeepChecks(workspaceID, withDeepCheck(stored, check)); err != nil {
 		return models.DeepCheck{}, err
 	}

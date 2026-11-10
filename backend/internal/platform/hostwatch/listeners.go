@@ -11,9 +11,9 @@ import (
 	"strings"
 )
 
-// ErrUnavailable means this computer has no socket table to read (anything but Linux). It is an answer in its own right:
+// ErrUnavailable means this computer has no socket table this program can read (it reads /proc on Linux and the sysctl tables on macOS). It is an answer in its own right:
 // "could not check" is never reported as "nothing is listening".
-var ErrUnavailable = errors.New("this computer cannot list its own open ports (only Linux can)")
+var ErrUnavailable = errors.New("this computer cannot list its own open ports")
 
 // Listener is a port something on this computer is waiting on and other computers can reach: a protocol and a port, nothing
 // else. The program behind it is deliberately not named: its name is text any account can set.
@@ -51,6 +51,11 @@ func (p Proc) Listeners() ([]Listener, error) {
 			seen[Listener{s.Proto, s.Port}] = true
 		}
 	}
+	return sortedListeners(seen), nil
+}
+
+// sortedListeners lists the set once per protocol and port, by protocol then port.
+func sortedListeners(seen map[Listener]bool) []Listener {
 	out := make([]Listener, 0, len(seen))
 	for l := range seen {
 		out = append(out, l)
@@ -61,7 +66,7 @@ func (p Proc) Listeners() ([]Listener, error) {
 		}
 		return a.Port - b.Port
 	})
-	return out, nil
+	return out
 }
 
 // table reads one socket table. The IPv4 tables must exist; the IPv6 ones are absent on a host with IPv6 switched off.

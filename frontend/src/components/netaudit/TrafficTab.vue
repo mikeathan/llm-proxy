@@ -5,18 +5,22 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import Panel from "../common/layout/Panel.vue"
 import TrafficReport from "./TrafficReport.vue"
+import { usePolling } from "../../composables/ui/usePolling"
 import { useHostTraffic } from "../../composables/netaudit/useHostTraffic"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
   TRAFFIC_BUTTON, TRAFFIC_NEVER_BODY, TRAFFIC_NEVER_TITLE, TRAFFIC_OPEN_SETTINGS, TRAFFIC_PASSPHRASE_NOTE, TRAFFIC_RUNNING, TRAFFIC_SUBTITLE, TRAFFIC_TITLE,
+  TRAFFIC_FOLLOW_INTERVAL_MS as FOLLOW_INTERVAL_MS,
 } from "../../constants/netaudit"
 import type { NetworkTab } from "../../types/routes"
 
 // Network · Traffic: a look at this computer's own traffic for up to a minute, through the privileged helper. The button is there only when
 // the helper can do it; when it cannot, the reason and the one page that fixes it are, and the last look stays readable. It makes no finding.
 const emit = defineEmits<{ (e: "open-tab", tab: NetworkTab): void }>()
-const { availability, summary, loaded, running, error, loadError, load, listen } = useHostTraffic()
+const { availability, summary, loaded, running, error, loadError, load, listen, follow } = useHostTraffic()
 onMounted(load)
+// A look started before a reload runs on the server for up to a minute; check every few seconds whether it has ended.
+usePolling(follow, FOLLOW_INTERVAL_MS)
 </script>
 
 <template>

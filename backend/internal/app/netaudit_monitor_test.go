@@ -11,6 +11,7 @@ import (
 	"llm-proxy/internal/core/netaudit/decoy"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/platform/auth"
+	"llm-proxy/internal/platform/hostwatch"
 	"llm-proxy/models"
 )
 
@@ -122,5 +123,18 @@ func TestPhoneHomeReading_OnWhileSwitchedOnAndTheLastDNSLineIsTheLastGood(t *tes
 	// Nothing ever received: the limit starts when the watch is first seen on, so it says so after a day, not at once.
 	if r := phoneHomeReading(true, routerlog.Status{}); !r.On || !r.LastGood.IsZero() {
 		t.Fatalf("reading = %+v", r)
+	}
+}
+
+// macOS ships sshd_config whether or not Remote Login is on, so there the file's presence must not be read as an SSH server being installed.
+func TestHardenerFor_OnlyLinuxJudgesTheSSHServerSettings(t *testing.T) {
+	base := hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys"}
+	if got := hardenerFor("linux", base); got.SSHDir != "/etc/ssh" {
+		t.Errorf("linux keeps it: %+v", got)
+	}
+	for _, goos := range []string{"darwin", "freebsd", "windows"} {
+		if got := hardenerFor(goos, base); got.SSHDir != "" || got.SysDir != "/proc/sys" {
+			t.Errorf("%s: only the SSH folder is dropped: %+v", goos, got)
+		}
 	}
 }

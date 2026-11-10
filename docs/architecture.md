@@ -9,6 +9,7 @@ Load only the part your task needs:
 | File | Read it when |
 |------|--------------|
 | [`architecture/map.md`](architecture/map.md) | You need to find which package or directory owns something. |
+| [`architecture/network-capabilities.md`](architecture/network-capabilities.md) | **Before proposing or building any network audit feature:** what already exists, on which OS, and where it shows. |
 | [`architecture/contracts.md`](architecture/contracts.md) | Your change touches interfaces, events, prompts, persistence or anything shared across subsystems. |
 | [`architecture/conventions.md`](architecture/conventions.md) | You are writing tests or code and want the repo's patterns and standards. |
 | [`architecture/checklists.md`](architecture/checklists.md) | You are adding a model field, tool, tool category, connector, settings tab or endpoint — follow the ordered file list. |

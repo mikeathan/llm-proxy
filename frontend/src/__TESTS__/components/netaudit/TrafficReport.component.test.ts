@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import TrafficReport from '../../../components/netaudit/TrafficReport.vue'
 import type { HostTraffic } from '../../../types/netaudit'
+
+const service = vi.hoisted(() => ({ devices: vi.fn() }))
+vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
 const MB = 1024 * 1024
 const traffic = (over: Partial<HostTraffic> = {}): HostTraffic => ({
@@ -23,6 +26,11 @@ const traffic = (over: Partial<HostTraffic> = {}): HostTraffic => ({
 const show = (t: HostTraffic) => mount(TrafficReport, { props: { traffic: t } })
 
 describe('TrafficReport', () => {
+  beforeEach(() => {
+    service.devices.mockReset()
+    service.devices.mockResolvedValue({ devices: [] })
+  })
+
   it('opens with the one sentence a person can read, and the details under it', () => {
     const w = show(traffic())
     expect(w.get('[data-test="traffic-headline"]').text()).toBe('In 60 seconds this computer sent 4 MB and received 38 MB.')
@@ -100,7 +108,7 @@ describe('TrafficReport', () => {
         { address: '224.0.0.251', port: 5353, proto: 'udp', kind: 'discovery', internet: false, bytes_out: 1000, bytes_in: 0 },
       ],
     })
-    const stubs = { DeviceProbe: { props: ['ip'], template: '<div data-test="probe-stub">{{ ip }}</div>' } }
+    const stubs = { DeviceProbe: { props: ['ip', 'mac', 'udpAt'], template: '<div data-test="probe-stub">{{ ip }}|{{ mac }}|{{ udpAt }}</div>' } }
     const open = (t: HostTraffic) => mount(TrafficReport, { props: { traffic: t }, global: { stubs } })
 
     it('opens a place from the ranking, with its size, share and conversations, and says an internet address is not scanned', async () => {
@@ -118,7 +126,23 @@ describe('TrafficReport', () => {
       const w = open(withLocal())
       await w.findAll('[data-test="flow"]')[1]!.trigger('click')
       expect(w.get('[data-test="place-where"]').text()).toBe('On this network')
-      expect(w.get('[data-test="probe-stub"]').text()).toBe('192.168.50.7')
+      expect(w.get('[data-test="probe-stub"]').text()).toBe('192.168.50.7||')
+    })
+
+    it('gives the scan buttons the device\'s MAC and its kept scan, so the clear buttons show', async () => {
+      service.devices.mockResolvedValue({ devices: [{ mac: 'aa:bb:cc:dd:ee:07', ip: '192.168.50.7', udp_scanned_at: '2026-11-09T19:00:00Z' }] })
+      const w = open(withLocal())
+      await w.findAll('[data-test="flow"]')[1]!.trigger('click')
+      await flushPromises()
+      expect(w.get('[data-test="probe-stub"]').text()).toBe('192.168.50.7|aa:bb:cc:dd:ee:07|2026-11-09T19:00:00Z')
+    })
+
+    it('still offers the scans when the device list cannot be read', async () => {
+      service.devices.mockRejectedValue(new Error('down'))
+      const w = open(withLocal())
+      await w.findAll('[data-test="flow"]')[1]!.trigger('click')
+      await flushPromises()
+      expect(w.get('[data-test="probe-stub"]').text()).toBe('192.168.50.7||')
     })
 
     it('never offers a scan for a multicast address, and says why', async () => {

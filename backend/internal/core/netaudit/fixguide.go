@@ -22,6 +22,7 @@ type GuideCommand struct {
 const (
 	platformLinux   = "Linux"
 	platformWindows = "Windows (PowerShell as administrator)"
+	platformMac     = "macOS"
 )
 
 // guides are written for current Debian and Ubuntu style systems, Samba, Windows 10 and later, and OpenSSH. Software

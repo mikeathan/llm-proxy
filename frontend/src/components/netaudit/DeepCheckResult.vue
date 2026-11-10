@@ -25,6 +25,7 @@ const TAG: Record<string, { state: StatusState; label: string }> = {
       <StatusTag :state="TAG[outcome.state]!.state" :label="TAG[outcome.state]!.label" />
       <span><span class="font-semibold text-primary">Deep check</span>, {{ formatAbsoluteTime(check.at) }}. {{ outcome.text }}</span>
     </p>
+    <p v-for="w in check.warnings ?? []" :key="w" class="m-0 text-[length:var(--text-small)] text-muted" data-test="deep-warning">{{ w }}</p>
     <ul v-if="check.findings.length" class="m-0 flex list-none flex-col gap-2 p-0">
       <li v-for="f in check.findings" :key="`${f.port}-${f.check}`" class="flex flex-col gap-1 border-t border-hairline pt-2" data-test="deep-finding">
         <span class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] font-semibold text-primary">

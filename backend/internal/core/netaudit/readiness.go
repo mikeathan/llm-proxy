@@ -34,6 +34,8 @@ type ReadinessDeps struct {
 	HostNetworkOn func() bool
 	// VulnData reports how much of the vulnerability data is downloaded; nil means notices about it are not made.
 	VulnData func() VulnDataView
+	// TLSLookPresent reports why testssl.sh is not installed; nil means it is. It must not start a process. A nil func makes no notice.
+	TLSLookPresent func() error
 }
 
 // OldVulnDataAge is how old held vulnerability data may get before a notice offers the update.
@@ -117,6 +119,30 @@ func nmapMissing(err error) models.Requirement {
 // pre-flight does not read them. Today that is the vulnerability data, which an audit works without (the report then says
 // the known-vulnerability check was skipped).
 func (r *Readiness) Notices() []models.Requirement {
+	return append(r.vulnNotices(), r.tlsLookNotice()...)
+}
+
+// tlsLookNotice says that testssl.sh is not installed and how to install it. The deep check works without it (nmap alone), so this is a notice.
+func (r *Readiness) tlsLookNotice() []models.Requirement {
+	if r.deps.TLSLookPresent == nil {
+		return nil
+	}
+	err := r.deps.TLSLookPresent()
+	if err == nil {
+		return nil
+	}
+	req := models.Requirement{
+		Code:    models.RequirementTLSLookMissing,
+		Message: "testssl.sh is not available (" + err.Error() + "). The deep check still looks at encryption with nmap alone; testssl.sh gives it a closer look. It is optional.",
+	}
+	var notInstalled *isolation.NotInstalledError
+	if errors.As(err, &notInstalled) && notInstalled.Hint != "" {
+		req.Fix = &models.RequirementFix{Kind: models.FixCopy, Text: notInstalled.Hint}
+	}
+	return []models.Requirement{req}
+}
+
+func (r *Readiness) vulnNotices() []models.Requirement {
 	if r.deps.VulnData == nil {
 		return nil
 	}

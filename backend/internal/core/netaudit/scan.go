@@ -98,8 +98,9 @@ func (a PolicyAuthorizer) Authorize(ctx context.Context, targets []string) ([]ne
 // Service runs scans: it authorises the targets, picks the engine and keeps scans to one at a time.
 type Service struct {
 	authorizer Authorizer
-	primary    Engine // nmap
-	fallback   Engine // the limited Go prober; may be nil
+	primary    Engine    // nmap
+	fallback   Engine    // the limited Go prober; may be nil
+	tls        TLSLooker // optional: the closer look at TLS ports in a deep check (testssl.sh)
 
 	// deviceTimeout is the operator's per-device time limit (zero = each depth's standard); nil means standard.
 	deviceTimeout func() time.Duration

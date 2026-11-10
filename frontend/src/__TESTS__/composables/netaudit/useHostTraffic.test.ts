@@ -124,4 +124,44 @@ describe('useHostTraffic', () => {
     expect(reopened.running.value).toBe(false)
     expect(reopened.summary.value).toEqual(summary)
   })
+  describe('a look the server is still running (a page reloaded mid-look)', () => {
+    const busy = () => ready({ actions: [{ id: 'capture_host', on: true, installed: true, running: true }] })
+
+    it('shows as running and cannot be started again, though this page never pressed the button', async () => {
+      service.helper.mockResolvedValue(busy())
+      const t = useHostTraffic()
+      await t.load()
+      expect(t.running.value).toBe(true)
+      expect(await t.listen()).toBe(false)
+      expect(service.captureHost).not.toHaveBeenCalled()
+      await t.follow() // still running on the server: nothing changes
+      expect(t.running.value).toBe(true)
+      service.helper.mockResolvedValue(ready())
+      service.lastHostTraffic.mockResolvedValue(summary)
+      await t.follow()
+      expect(t.running.value).toBe(false)
+      expect(t.summary.value).toEqual(summary)
+    })
+
+    it('does nothing when no look was followed', async () => {
+      service.helper.mockResolvedValue(ready())
+      const t = useHostTraffic()
+      await t.load()
+      service.helper.mockClear()
+      await t.follow()
+      expect(service.helper).not.toHaveBeenCalled()
+    })
+
+    it('keeps following when the state cannot be read for a moment, and stops once it can say the look ended', async () => {
+      service.helper.mockResolvedValue(busy())
+      const t = useHostTraffic()
+      await t.load()
+      service.helper.mockRejectedValueOnce(new Error('down'))
+      await t.follow()
+      expect(t.running.value).toBe(true)
+      service.helper.mockResolvedValue(ready())
+      await t.follow()
+      expect(t.running.value).toBe(false)
+    })
+  })
 })

@@ -25,6 +25,7 @@ import (
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
+	"llm-proxy/internal/core/netaudit/testssl"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/stack"
@@ -266,8 +267,8 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 	exe, _ := os.Executable()
 	return hostwatch.Source{
 		Proc:    hostwatch.Proc{Root: "/proc"},
-		Watch:   hostwatch.Files{Specs: hostwatch.DefaultFileSpecs(home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
-		Harden:  hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf", KeyGlobs: keyGlobs(home), DiskPaths: diskPaths(home)},
+		Watch:   hostwatch.Files{Specs: hostwatch.FileSpecsFor(runtime.GOOS, home, exe), ProgramTag: strconv.FormatInt(startedAt.Unix(), 10)},
+		Harden:  hardenerFor(runtime.GOOS, hostwatch.Hardener{SSHDir: "/etc/ssh", SysDir: "/proc/sys", AptDir: "/etc/apt/apt.conf.d", UfwConf: "/etc/ufw/ufw.conf", KeyGlobs: keyGlobs(home), DiskPaths: diskPaths(home)}),
 		Patcher: hostwatch.Patcher{RebootFile: "/var/run/reboot-required", UpdatesFile: "/var/lib/update-notifier/updates-available", AutoUpgradeLog: "/var/log/unattended-upgrades/unattended-upgrades.log"},
 		Docker:  hostwatch.Docker{NetDir: "/sys/class/net"},
 		// A pass over the packaged program files; a longer one is cut short and reported as not finished.
@@ -276,6 +277,16 @@ func newHostSource(startedAt time.Time) hostwatch.Source {
 		PackagesBudget: hostIntegrityBudget,
 		Privileges:     privilegeReader(runtime.GOOS),
 	}
+}
+
+// hardenerFor leaves the SSH server's settings out of the look off Linux. A Linux computer has /etc/ssh/sshd_config only when an SSH server is
+// installed; macOS ships the file whether or not Remote Login is on, so there its presence says nothing and the look would call a computer with
+// no SSH server open to password guessing.
+func hardenerFor(goos string, h hostwatch.Hardener) hostwatch.Hardener {
+	if goos != "linux" {
+		h.SSHDir = ""
+	}
+	return h
 }
 
 // privilegeReader reads the privilege marks on Linux only. macOS has an /etc/passwd that leaves out the real accounts (they live in
@@ -723,8 +734,10 @@ func (s *AppServices) newScanning(store netaudit.PolicyStore, scope *netaudit.Sc
 	runner := isolation.NewRunner(s.AppCtx.sandboxProv, func() bool { return store.Get().AllowUnconfined })
 	nmapEngine := nmap.New(runner)
 	probe := portprobe.New(func(a netip.Addr) error { return scope.Policy().Check(a) })
-	service := netaudit.NewService(
-		netaudit.PolicyAuthorizer{Policy: scope.Policy, Resolver: net.DefaultResolver}, nmapEngine, probe).WithDeviceTimeout(scope.DeviceTimeout)
+	authorizer := netaudit.PolicyAuthorizer{Policy: scope.Policy, Resolver: net.DefaultResolver}
+	// testssl.sh gives the deep check a closer look at TLS ports. It opens its own sockets, so the scan scope is checked in the core before it runs
+	// (ADR-0039); a host without the program has the deep check of nmap alone.
+	service := netaudit.NewService(authorizer, nmapEngine, probe).WithDeviceTimeout(scope.DeviceTimeout).WithTLSLooker(testssl.New(runner, authorizer))
 
 	// The vulnerability data is downloaded only when the operator asks. It lives beside the settings, outside what a
 	// factory reset replaces, so a reset clears it too.
@@ -732,10 +745,11 @@ func (s *AppServices) newScanning(store netaudit.PolicyStore, scope *netaudit.Sc
 	s.AppCtx.AfterFactoryReset("The downloaded vulnerability data", vulns.Clear)
 
 	readiness := netaudit.NewReadiness(netaudit.ReadinessDeps{
-		Config:        store.Get,
-		Nmap:          nmapEngine,
-		Sandbox:       s.AppCtx.sandboxProv,
-		HostNetworkOn: func() bool { return s.AppCtx.HostSettings().Sandboxing.NetworkAllowed() },
+		Config:         store.Get,
+		Nmap:           nmapEngine,
+		TLSLookPresent: testssl.Present,
+		Sandbox:        s.AppCtx.sandboxProv,
+		HostNetworkOn:  func() bool { return s.AppCtx.HostSettings().Sandboxing.NetworkAllowed() },
 		VulnData: func() netaudit.VulnDataView {
 			st := vulns.Status()
 			return netaudit.VulnDataView{Running: st.State == vulnfeed.StateRunning, FilesDone: st.FilesDone, FilesTotal: st.FilesTotal, Age: st.Age(time.Now())}

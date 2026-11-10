@@ -10,6 +10,8 @@ const (
 	RequirementNoSandbox       RequirementCode = "no_sandbox"
 	RequirementVulnDataMissing RequirementCode = "vuln_data_missing"
 	RequirementVulnDataOld     RequirementCode = "vuln_data_old"
+	// RequirementTLSLookMissing is testssl.sh not being installed: the deep check still runs with nmap alone, so it is a notice and never a requirement.
+	RequirementTLSLookMissing RequirementCode = "testssl_missing"
 )
 
 // FixKind is what a person can do about a requirement.

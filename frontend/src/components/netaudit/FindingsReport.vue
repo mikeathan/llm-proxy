@@ -11,6 +11,7 @@ import FindingsAdvanced from "./FindingsAdvanced.vue"
 import FindingsSimple from "./FindingsSimple.vue"
 import UnscannedNotice from "./UnscannedNotice.vue"
 import { useDeepCheck } from "../../composables/netaudit/useDeepCheck"
+import { useNetauditReadiness } from "../../composables/netaudit/useNetauditReadiness"
 import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
 import { useModuleSources } from "../../composables/netaudit/useModuleSources"
 import { useFindings } from "../../composables/netaudit/useFindings"
@@ -19,7 +20,7 @@ import { openPortsOf } from "../../utils/netaudit/expectations"
 import { findingTitle, isCheck, portCount } from "../../utils/netaudit/friendly"
 import { deepProblemsOf, summarize } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
-import type { ScanFinding } from "../../types/netaudit"
+import type { CloserLook, ScanFinding } from "../../types/netaudit"
 
 // The latest scan of one automation. Simple: what needs a look, in plain sentences, one decision each. Advanced:
 // counts, filters, and every device with its ports and versions. Both read the same data, so switching loses nothing.
@@ -33,6 +34,11 @@ const findings = useFindings(() => props.workspaceId, () => props.automation)
 const sources = useModuleSources()
 const { report, expectations, loading, error, actionError, notice, starting } = findings
 const deepCheck = useDeepCheck(() => props.workspaceId, () => props.automation)
+// Whether the deep check will use testssl.sh decides what the dialog says it will send, so the dialog reads the same readiness answer as the banner.
+const readiness = useNetauditReadiness()
+const tlsNotice = computed(() => readiness.readiness.value?.notices?.find((n) => n.code === "testssl_missing"))
+const closerLook = computed<CloserLook>(() => (!Array.isArray(readiness.readiness.value?.notices) ? "unknown" : tlsNotice.value ? "missing" : "installed"))
+const installCommand = computed(() => (tlsNotice.value?.fix?.kind === "copy" ? tlsNotice.value.fix.text : undefined))
 const deviceNames = useDeviceNames()
 const { names } = deviceNames
 
@@ -103,7 +109,7 @@ async function saveExpected(ports: number[]) {
 }
 
 watch(() => [props.workspaceId, props.automation, props.refreshKey], () => { void findings.load(); void deepCheck.load() })
-onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load(); void deviceNames.load() })
+onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load(); void deviceNames.load(); void readiness.refresh() })
 </script>
 
 <template>
@@ -133,7 +139,7 @@ onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load
       </template>
     </fieldset>
 
-    <DeepCheckDialog :open="deepDevice !== ''" :device="deepDevice" :ports="deepPorts" :running="deepCheck.running.value !== ''" :error="deepCheck.error.value" @run="runDeep" @cancel="deepDevice = ''" />
+    <DeepCheckDialog :open="deepDevice !== ''" :device="deepDevice" :ports="deepPorts" :running="deepCheck.running.value !== ''" :error="deepCheck.error.value" :closer-look="closerLook" :install-command="installCommand" @run="runDeep" @cancel="deepDevice = ''" />
     <ExpectedPortsDialog :open="editing !== ''" :device="editing" :ports="editingPorts" :saving="saving || running" :error="actionError" @save="saveExpected" @cancel="editing = ''" />
     <AcceptDialog :open="accepting !== null || acceptingMany.length > 0" :what="acceptWhat" :saving="saving || running" :error="actionError" @accept="accept" @cancel="cancelAccept" />
   </section>

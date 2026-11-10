@@ -212,6 +212,26 @@ func DefaultFileSpecs(home, executable string) []FileSpec {
 	return specs
 }
 
+// FileSpecsFor is the watched list for one operating system: DefaultFileSpecs everywhere, and on macOS also where a program is started at boot
+// (/Library/LaunchDaemons) and at login (/Library/LaunchAgents and the account's own LaunchAgents), and the SSH keys under /Users. These are plain
+// file reads: no program is started to look. goos is runtime.GOOS; home and executable are as for DefaultFileSpecs.
+func FileSpecsFor(goos, home, executable string) []FileSpec {
+	specs := DefaultFileSpecs(home, executable)
+	if goos != "darwin" {
+		return specs
+	}
+	for i := range specs {
+		if specs[i].ID == "authorized_keys" {
+			specs[i].Globs = append(specs[i].Globs, "/Users/*/.ssh/authorized_keys")
+		}
+	}
+	agents := FileSpec{ID: "launch_agents", Paths: []string{"/Library/LaunchAgents"}}
+	if home != "" {
+		agents.Paths = append(agents.Paths, filepath.Join(home, "Library", "LaunchAgents"))
+	}
+	return append(specs, FileSpec{ID: "launch_daemons", Paths: []string{"/Library/LaunchDaemons"}}, agents)
+}
+
 // Source is what the host watch reads: this computer's open ports and its watched files.
 type Source struct {
 	Proc    Proc
@@ -254,8 +274,14 @@ func (s Source) Installed() (map[string]string, error) { return s.Pkgs.Installed
 // DockerBridge returns whether Docker has a network on this computer.
 func (s Source) DockerBridge() bool { return s.Docker.Bridge() }
 
-// Listeners returns the ports open to other computers.
-func (s Source) Listeners() ([]Listener, error) { return s.Proc.Listeners() }
+// Listeners returns the ports open to other computers: from /proc where there is one, else from the system's own socket tables (macOS).
+func (s Source) Listeners() ([]Listener, error) {
+	l, err := s.Proc.Listeners()
+	if errors.Is(err, ErrUnavailable) {
+		return systemListeners()
+	}
+	return l, err
+}
 
 // Files returns the digest of each watched place.
 func (s Source) Files() []FileState { return s.Watch.Observe() }

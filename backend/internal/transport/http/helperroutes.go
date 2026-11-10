@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"sync"
 
 	"llm-proxy-stacks/sdk"
 
@@ -13,6 +14,40 @@ import (
 // helperPathPrefix is where the privileged helper's actions are called: one fixed route per catalogue action, so each can be a step-up
 // route (the step-up table matches exact paths). The routes are the core's own, not a stack's: they run an action the operator asked for.
 const helperPathPrefix = "/admin/api/helper/"
+
+// RunningActions counts the helper calls in flight per action, so the status can tell a page that reloads mid-look that one is still running.
+// It holds counts only: no request, no result.
+type RunningActions struct {
+	mu     sync.Mutex
+	active map[string]int
+}
+
+// NewRunningActions returns an empty tracker.
+func NewRunningActions() *RunningActions { return &RunningActions{active: map[string]int{}} }
+
+// Begin marks one run of the action as started and returns the function that marks it ended. Calling that function again does nothing.
+func (r *RunningActions) Begin(action string) (end func()) {
+	r.mu.Lock()
+	r.active[action]++
+	r.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			if r.active[action]--; r.active[action] <= 0 {
+				delete(r.active, action)
+			}
+		})
+	}
+}
+
+// Running reports whether any run of the action is in flight.
+func (r *RunningActions) Running(action string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.active[action] > 0
+}
 
 // HelperRoutes are the routes of the privileged helper's actions, one per catalogue row. Every one is a step-up write; a test holds
 // stepUpExact to this list, so an action added to the catalogue without its step-up entry fails the build.
@@ -57,6 +92,8 @@ type HelperDeps struct {
 	// OmitRaw says which actions never send their raw output on to the browser (a capture's output is other devices' traffic, which the
 	// service reads and nothing else does). The answer then carries the parsed result or the reason there is none, and no bytes.
 	OmitRaw func(action string) bool
+	// Running, when set, is told of every call from the moment the grant is minted until the run ends, so the status can report it.
+	Running *RunningActions
 }
 
 // HelperDefaults completes one action's request body. An error is answered as a bad request with its text.
@@ -77,6 +114,20 @@ func (d HelperDeps) parsed(action string, res stacksdk.PrivilegedResult) (any, s
 		return nil, err.Error()
 	}
 	return v, ""
+}
+
+// answer builds a finished run's reply: the raw bytes unless the action keeps them to itself, what the parser made of them, and a copy to the
+// keeper when the parser read them.
+func (d HelperDeps) answer(action string, body []byte, res stacksdk.PrivilegedResult) HelperResult {
+	out := HelperResult{Kind: res.Kind, Data: res.Data, Truncated: res.Truncated}
+	if d.OmitRaw != nil && d.OmitRaw(action) {
+		out.Data = nil
+	}
+	out.Parsed, out.ParseError = d.parsed(action, res)
+	if out.Parsed != nil && d.Keep != nil {
+		d.Keep(action, body, out.Parsed)
+	}
+	return out
 }
 
 // HelperHandler answers one action's route (Constitution I.11): the action must be turned on in Settings, the request body must be exactly
@@ -104,6 +155,9 @@ func HelperHandler(action string, deps HelperDeps) http.HandlerFunc {
 		if !attachGrant(w, &req, action, deps.Grants) {
 			return
 		}
+		if deps.Running != nil {
+			defer deps.Running.Begin(action)()
+		}
 		res, err := deps.Run.Run(r.Context(), stacksdk.PrivilegedRequest{Grant: req.Grant, Action: action, Params: req.Body})
 		if err != nil {
 			if r.Context().Err() != nil {
@@ -112,16 +166,8 @@ func HelperHandler(action string, deps HelperDeps) http.HandlerFunc {
 			WriteJSONError(w, statusOf(stacksdk.CodeOf(err)), messageOf(err))
 			return
 		}
-		out := HelperResult{Kind: res.Kind, Data: res.Data, Truncated: res.Truncated}
-		if deps.OmitRaw != nil && deps.OmitRaw(action) {
-			out.Data = nil
-		}
-		out.Parsed, out.ParseError = deps.parsed(action, res)
-		if out.Parsed != nil && deps.Keep != nil {
-			deps.Keep(action, req.Body, out.Parsed)
-		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		_ = json.NewEncoder(w).Encode(deps.answer(action, req.Body, res))
 	}
 }
 
@@ -132,6 +178,8 @@ type HelperAction struct {
 	On bool `json:"on"`
 	// Installed is whether the root-owned list the install wrote names the action; null when no helper is installed.
 	Installed *bool `json:"installed"`
+	// Running is true while a call of this action is in flight: a look can last a minute, longer than a visit to a page.
+	Running bool `json:"running,omitempty"`
 }
 
 // HelperStatus is what the Network page needs to say plainly where the privileged helper stands and what to do next. It reports; the
@@ -171,6 +219,8 @@ type HelperSource struct {
 	// Declared returns the scan ranges in the Network settings.
 	Declared func() []string
 	On       func(action string) bool
+	// Running says whether a call of the action is in flight; nil reports none.
+	Running func(action string) bool
 }
 
 // HelperStatusHandler answers GET /admin/api/helper.
@@ -188,7 +238,7 @@ func (src HelperSource) status() HelperStatus {
 	}
 	allowed, gates := src.Gates()
 	for _, a := range catalog.All() {
-		act := HelperAction{ID: a.ID, On: src.On(a.ID)}
+		act := HelperAction{ID: a.ID, On: src.On(a.ID), Running: src.Running != nil && src.Running(a.ID)}
 		if st.Installed && gates {
 			in := slices.Contains(allowed, a.ID)
 			act.Installed = &in

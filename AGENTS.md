@@ -87,6 +87,10 @@ Non-trivial work follows **inspect → plan → implement → verify → review 
   *your assumption* (flagged). Never present an assumption as a convention.
 - If a fact is in neither the repo nor the request, say so and ask or take the smallest reversible step.
 - Investigate first: find the existing implementation and tests for the area; reuse or extend them.
+- Before proposing, planning or building a feature, search for it first: the subsystem hub's capability list (for the network audit,
+  `docs/architecture/network-capabilities.md`), the ADRs that list what was rejected or already built, and the code's own check or action
+  ids. A feature found after the work has started is a failure of this step. Add a row to the capability list in the same change that
+  adds a capability.
 
 **Proceed vs. ask.**
 - Do without asking: read/grep/search; run builds, tests, linters; add tests; fix a clear bug in the

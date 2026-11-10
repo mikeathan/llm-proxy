@@ -40,7 +40,7 @@ const automation = {
 
 async function open(page: Page) {
   await setNetauditView(page, 'advanced')
-  await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/netaudit/deep': deepChecks, '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
+  await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/netaudit/deep': deepChecks, '/netaudit/readiness': { ready: true, requirements: [], notices: [{ code: 'testssl_missing', message: 'testssl.sh is not available.', blocking: false, fix: { kind: 'copy', text: 'brew install testssl' } }] }, '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('heading', { name: 'Latest network scan' })).toBeVisible()
   // A stored deep problem opens the report on Problems; these checks are about the devices.
@@ -56,6 +56,9 @@ test('the deep check question says exactly what will be sent, and fits the scree
   await expect(dialog.getByRole('heading', { name: 'Deep check of 192.0.2.12?' })).toBeVisible()
   await expect(dialog.getByText('about 60 connections')).toBeVisible()
   await expect(dialog.getByText('made-up user name')).toBeVisible()
+  // testssl.sh is missing in this fixture: the dialog says so and gives the command to run.
+  await expect(dialog.getByText('testssl.sh is not installed')).toBeVisible()
+  await expect(dialog.getByText('brew install testssl')).toBeVisible()
   if (testInfo.project.name === 'mobile') {
     for (const name of ['Cancel', 'Run deep check']) {
       const box = await dialog.getByRole('button', { name }).boundingBox()

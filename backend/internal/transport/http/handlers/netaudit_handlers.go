@@ -587,10 +587,11 @@ type deepCheckView struct {
 	At       time.Time               `json:"at"`
 	Ports    []models.DeepPortResult `json:"ports"`
 	Findings []deepFindingView       `json:"findings"`
+	Warnings []string                `json:"warnings,omitempty"`
 }
 
 func newDeepCheckView(c models.DeepCheck) deepCheckView {
-	view := deepCheckView{Device: c.Device, At: c.At, Ports: c.Ports, Findings: make([]deepFindingView, 0, len(c.Findings))}
+	view := deepCheckView{Device: c.Device, At: c.At, Ports: c.Ports, Findings: make([]deepFindingView, 0, len(c.Findings)), Warnings: c.Warnings}
 	if view.Ports == nil {
 		view.Ports = []models.DeepPortResult{}
 	}

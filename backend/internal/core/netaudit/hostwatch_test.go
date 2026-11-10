@@ -195,12 +195,32 @@ func TestHostWatch_ANewlyWatchedPlaceIsRecordedNotReported(t *testing.T) {
 	}
 }
 
-func TestHostWatch_ACannotCheckIsAnErrorAndNeverABaseline(t *testing.T) {
+// A computer that cannot list its open ports (macOS has no /proc) is still looked at: the startup files are compared and the report says the ports were
+// not checked. It is never reported as a quiet computer: the flag is set, no ports baseline is kept, and no finding about ports is made.
+func TestHostWatch_NoPortListStillComparesTheFilesAndSaysThePortsWereNotChecked(t *testing.T) {
 	src := &fakeHost{lerr: hostwatch.ErrUnavailable, files: []hostwatch.FileState{{ID: "cron", Hash: "a"}}}
 	store := &memHostStore{}
-	_, err := newWatcher(src, store).Look(t.Context())
-	if !errors.Is(err, hostwatch.ErrUnavailable) {
-		t.Fatalf("err = %v", err)
+	w := newWatcher(src, store)
+	look, err := w.Look(t.Context())
+	if err != nil || !look.PortsUnchecked {
+		t.Fatalf("err %v, look %+v", err, look)
+	}
+	if len(store.w.Listeners) != 0 {
+		t.Errorf("no ports baseline may be kept for ports that were not listed: %+v", store.w.Listeners)
+	}
+	src.files = []hostwatch.FileState{{ID: "cron", Hash: "b"}}
+	look, err = w.Look(t.Context())
+	if err != nil || !look.PortsUnchecked || len(look.Findings) != 1 || look.Findings[0].Check != HostFileCheck("cron") {
+		t.Errorf("a changed startup file is still found: err %v, %+v", err, look)
+	}
+}
+
+// Any other failure to list ports is still a look that could not be taken.
+func TestHostWatch_AFailedPortListThatIsNotUnavailableIsAnErrorAndNeverABaseline(t *testing.T) {
+	src := &fakeHost{lerr: errors.New("permission denied"), files: []hostwatch.FileState{{ID: "cron", Hash: "a"}}}
+	store := &memHostStore{}
+	if _, err := newWatcher(src, store).Look(t.Context()); err == nil {
+		t.Fatal("a look that failed must be an error")
 	}
 	if store.writes != 0 {
 		t.Error("a look that could not be taken must not become the baseline")
@@ -223,7 +243,7 @@ func TestHostWatch_CountsWhatItCannotRead(t *testing.T) {
 }
 
 func TestHostFileTable_CoversEverythingTheReaderWatchesAndNothingElse(t *testing.T) {
-	for _, spec := range hostwatch.DefaultFileSpecs("/home/svc", "/usr/bin/llm-proxy") {
+	for _, spec := range hostwatch.FileSpecsFor("darwin", "/home/svc", "/usr/bin/llm-proxy") {
 		info, ok := hostFiles[spec.ID]
 		if !ok {
 			t.Errorf("watched place %q has no title, severity or fix", spec.ID)
@@ -237,7 +257,7 @@ func TestHostFileTable_CoversEverythingTheReaderWatchesAndNothingElse(t *testing
 			t.Errorf("%q severity %q", spec.ID, info.Severity)
 		}
 	}
-	if len(hostFiles) != len(hostwatch.DefaultFileSpecs("/home/svc", "/usr/bin/llm-proxy")) {
+	if len(hostFiles) != len(hostwatch.FileSpecsFor("darwin", "/home/svc", "/usr/bin/llm-proxy")) {
 		t.Error("the finding table lists a place the reader does not watch")
 	}
 	if RemediationFor(CheckNewListener) == "" || CheckTitle(CheckNewListener) == "" {
