@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { RouterLinkStub, flushPromises, mount } from '@vue/test-utils'
 import type { HelperStatus, HostTraffic } from '../../../types/netaudit'
 
-const service = vi.hoisted(() => ({ helper: vi.fn(), lastHostTraffic: vi.fn(), captureHost: vi.fn() }))
+const service = vi.hoisted(() => ({ helper: vi.fn(), lastHostTraffic: vi.fn(), captureHost: vi.fn(), routeTraces: vi.fn(), destinationData: vi.fn(), destinationPlaces: vi.fn(), devices: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
 import TrafficTab from '../../../components/netaudit/TrafficTab.vue'
@@ -17,7 +17,7 @@ const kept = {
   destinations: [{ address: '1.1.1.1', bytes: 3072, internet: true }], flows: [], other_flows: 0, other_bytes: 0,
 } as HostTraffic
 const mountTab = async () => {
-  const w = mount(TrafficTab)
+  const w = mount(TrafficTab, { global: { stubs: { RouterLink: RouterLinkStub } } })
   await flushPromises()
   return w
 }
@@ -27,11 +27,28 @@ describe('TrafficTab', () => {
     for (const fn of Object.values(service)) fn.mockReset()
     service.helper.mockResolvedValue(ready())
     service.lastHostTraffic.mockResolvedValue(null)
+    service.routeTraces.mockResolvedValue({ supported: true, traces: [] })
+    service.destinationData.mockResolvedValue({ ranges: 0, source: 'iptoasn.com' })
+    service.destinationPlaces.mockResolvedValue({ ranges: 0, source: 'db-ip.com' })
+    service.devices.mockResolvedValue({ devices: [] })
+  })
+
+  it('says in one line whether the naming tables are on and links to Settings, instead of drawing their cards', async () => {
+    const w = await mountTab()
+    expect(w.get('[data-test="traffic-tables-line"]').text()).toContain('are off')
+    expect(w.getComponent(RouterLinkStub).props('to')).toEqual({ name: 'network', params: { tab: 'settings' }, query: { group: 'data' } })
+    expect(w.get('[data-test="traffic-tables-link"]').text()).toBe('Turn on')
+    expect(w.find('[data-test="destination-data"]').exists()).toBe(false)
+    service.destinationData.mockResolvedValue({ ranges: 500_000, source: 'iptoasn.com' })
+    service.destinationPlaces.mockResolvedValue({ ranges: 7_000_000, source: 'db-ip.com' })
+    const on = await mountTab()
+    expect(on.get('[data-test="traffic-tables-line"]').text()).toBe('Operator and city names are on.')
+    expect(on.get('[data-test="traffic-tables-link"]').text()).toBe('Manage')
   })
 
   it('shows loading until the helper and the last look have been read', () => {
     service.helper.mockReturnValue(new Promise(() => undefined))
-    const w = mount(TrafficTab)
+    const w = mount(TrafficTab, { global: { stubs: { RouterLink: RouterLinkStub } } })
     expect(w.find('[data-test="traffic-loading"]').exists()).toBe(true)
     expect(w.find('[data-test="traffic-listen"]').exists()).toBe(false)
   })

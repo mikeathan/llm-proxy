@@ -9,7 +9,7 @@ import {
 } from "../../constants/netaudit"
 import type { DestinationTable } from "../../types/netaudit"
 
-// Network · Traffic: whether one table the look names destinations with is held (who runs each address, or the optional table of cities), the one
+// Network · Settings → Downloaded data: whether one table the traffic look names destinations with is held (who runs each address, or the optional table of cities), the one
 // button that downloads it (the server asks for the passphrase, because it makes this computer ask an outside service) and one to remove it. The
 // lookups never leave this computer.
 const props = withDefaults(defineProps<{ table?: DestinationTable }>(), { table: "owners" })

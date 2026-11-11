@@ -6,10 +6,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"llm-proxy/internal/core/netaudit/hosttraffic"
 	"llm-proxy/internal/platform/privhelper/wire"
 	"llm-proxy/models"
 )
@@ -35,9 +39,6 @@ func TestTheHostTrafficOutputIsReadInTheServiceNotTheHelper(t *testing.T) {
 }
 
 func TestAHostTrafficWindowTellsDirectionByThisComputersAddresses(t *testing.T) {
-	old := ownAddresses
-	ownAddresses = func() []netip.Addr { return []netip.Addr{netip.MustParseAddr("192.168.50.20")} }
-	t.Cleanup(func() { ownAddresses = old })
 	f := make([]byte, 14+20+20)
 	binary.BigEndian.PutUint16(f[12:], 0x0800)
 	f[14] = 0x45
@@ -48,7 +49,10 @@ func TestAHostTrafficWindowTellsDirectionByThisComputersAddresses(t *testing.T) 
 	binary.BigEndian.PutUint16(f[14+20+2:], 443)
 	f[14+20+12] = 5 << 4
 	data := wire.AppendHostTrailer(wire.AppendHostRecord(nil, 5, 1, f), wire.HostTrailer{Frames: 1, ElapsedMs: 1000, Sample: 1})
-	v, err := (helperParser{}).parse("capture_host", data)
+	self := func() hosttraffic.Self {
+		return hosttraffic.Self{Addrs: []netip.Addr{netip.MustParseAddr("192.168.50.20")}}
+	}
+	v, err := (helperParser{self: self}).parse("capture_host", data)
 	if err != nil || v.(models.HostTraffic).BytesOut != 1000 {
 		t.Fatalf("%+v %v", v, err)
 	}
@@ -95,5 +99,37 @@ func TestTheHostTrafficRouteAnswersNullBeforeTheFirstLookAndTheSummaryAfter(t *t
 	hostTrafficHandler(sink)(rec, httptest.NewRequest("GET", "/x", nil))
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "disk") {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestTheCardsHardwareAddressesAreReadFromTheSysFolderWithoutNetlink(t *testing.T) {
+	root := t.TempDir()
+	for name, addr := range map[string]string{"wlp2s0": "02:11:22:33:44:55\n", "lo": "00:00:00:00:00:00\n", "bad": "not an address\n"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name, "address"), []byte(addr), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := cardAddresses(root)
+	want := [6]byte{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	if len(got) != 2 || !slices.Contains(got, want) {
+		t.Fatalf("%x", got)
+	}
+	if cardAddresses(filepath.Join(root, "missing")) != nil {
+		t.Fatal("a missing folder listed cards")
+	}
+}
+
+func TestThisProgramsPortIsReadFromItsListenAddress(t *testing.T) {
+	for addr, want := range map[string]uint16{"0.0.0.0:4001": 4001, ":8080": 8080, "[::1]:4002": 4002, "nonsense": 0, "host:99999": 0} {
+		if got := bindPort(addr); got != want {
+			t.Errorf("%q: %d, want %d", addr, got, want)
+		}
+	}
+	self := trafficSelf(nil, func() string { return "0.0.0.0:4001" })()
+	if self.Port != 4001 {
+		t.Fatalf("%+v", self)
 	}
 }

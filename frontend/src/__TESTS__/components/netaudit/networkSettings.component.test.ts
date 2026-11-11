@@ -11,7 +11,7 @@ const GROUP_CARDS: Readonly<Record<NetworkSettingsGroup, readonly string[]>> = {
   scanning: ['scan-scope-settings-stub', 'scan-limits-settings-stub'],
   watching: ['device-check-settings-stub', 'decoys-card-stub', 'router-log-card-stub', 'dns-check-card-stub', 'nearby-card-stub', 'wifi-card-stub'],
   outside: ['outside-lookup-card-stub', 'footprint-card-stub', 'known-bad-card-stub'],
-  data: ['vuln-data-card-stub', 'ubuntu-data-card-stub'],
+  data: ['vuln-data-card-stub', 'ubuntu-data-card-stub', 'destination-data-card-stub'],
   helper: ['helper-card-stub'],
 }
 
@@ -22,6 +22,12 @@ describe('NetworkSettings', () => {
     const html = mounted(group).get(`[data-test="group-${group}"]`).html()
     for (const card of GROUP_CARDS[group]) expect(html).toContain(card)
     for (const other of NETWORK_SETTINGS_GROUPS.filter((g) => g !== group)) for (const card of GROUP_CARDS[other]) expect(html).not.toContain(card)
+  })
+
+  it('keeps both tables the Traffic tab names addresses with in Downloaded data', () => {
+    const html = mounted('data').get('[data-test="group-data"]').html()
+    expect(html.match(/<destination-data-card-stub/g)).toHaveLength(2)
+    expect(html).toContain('table="places"')
   })
 
   it('puts what may be scanned first, so a link without a group opens it', () => {

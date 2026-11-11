@@ -51,4 +51,13 @@ We will add the city table as an **optional second table that is never loaded in
 
 ## Links
 
-- Plan: `docs/PLANS/cross-cutting/network-traffic-settings-regroup-handoff-2026-11-11.md`; ADR-0043; SPEC-003 changelog 2.61.
+- Plan: SPEC-003 2.61 (the regroup handoff that carried it was finished and removed 2026-11-11); ADR-0043; SPEC-003 changelog 2.61.
+
+## Amendment 2026-11-11: index version 2 (plan network-traffic-view-redesign)
+
+Each place now also keeps the table's country (two capital letters; the country an address is used in, which can differ from the one IPtoASN says it is registered to) and
+its point, rounded to a tenth of a degree, for the map (ADR-0046). The header magic is `IPCITY02`; a first-version file is refused, so the table must be downloaded once
+more after the update. Measured on the same 85.7 MB table: keeping the exact points made 559,661 places and a 134 MB peak heap while building (194 MB before places were
+found by a hash checked against the stored bytes); rounding to a tenth gives 223,617 places, a 79 MB file, 5.3 s and a **28 MB** peak heap (the first version measured
+48 MB the same way), and still ~0 after.
+

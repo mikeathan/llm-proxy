@@ -55,11 +55,11 @@ func at(t *testing.T, x *Index, addr string) (Place, bool) {
 func TestLookupFindsTheCityAndRegionOfAnAddress(t *testing.T) {
 	x := build(t, sample)
 	for addr, want := range map[string]Place{
-		"1.0.0.0":     {Region: "Queensland", City: "South Brisbane"},
-		"1.0.1.255":   {Region: "Queensland", City: "South Brisbane"}, // two neighbouring rows of one place are one run
-		"1.0.3.1":     {Region: "Fujian", City: "Wenquan"},
-		"1.1.0.255":   {Region: "Leinster", City: "Dublin"},
-		"2001:db8::1": {Region: "Hesse", City: "Frankfurt"},
+		"1.0.0.0":     {Country: "AU", Region: "Queensland", City: "South Brisbane", Lat: -27.5, Lon: 153, Located: true},
+		"1.0.1.255":   {Country: "AU", Region: "Queensland", City: "South Brisbane", Lat: -27.5, Lon: 153, Located: true}, // one run
+		"1.0.3.1":     {Country: "CN", Region: "Fujian", City: "Wenquan", Lat: 26.1, Lon: 119.3, Located: true},
+		"1.1.0.255":   {Country: "IE", Region: "Leinster", City: "Dublin", Lat: 53.3, Lon: -6.3, Located: true},
+		"2001:db8::1": {Country: "DE", Region: "Hesse", City: "Frankfurt", Lat: 50.1, Lon: 8.6, Located: true},
 	} {
 		got, ok := at(t, x, addr)
 		if !ok || got != want {
@@ -111,5 +111,41 @@ func TestOpenRefusesAFileThatIsNotAnIndexOrIsCutShort(t *testing.T) {
 	}
 	if _, err := Open(bytes.NewReader([]byte("not an index at all, nothing in it......")), 40); err == nil {
 		t.Error("a file with another header must be refused")
+	}
+}
+
+func TestAPointOutsideTheGlobeOrNotANumberIsNoPointAndTheCityStays(t *testing.T) {
+	x := build(t, "1.0.0.0,1.0.0.255,EU,FR,Ile-de-France,Paris,95.5,2.35\n1.0.1.0,1.0.1.255,EU,FR,Ile-de-France,Lyon,abc,4.8\n1.0.2.0,1.0.2.255,EU,fr,Bretagne,Rennes,48.1,-1.68\n")
+	if p, ok := at(t, x, "1.0.0.1"); !ok || p.Located || p.City != "Paris" || p.Country != "FR" {
+		t.Errorf("%+v %v", p, ok)
+	}
+	if p, ok := at(t, x, "1.0.1.1"); !ok || p.Located || p.City != "Lyon" {
+		t.Errorf("%+v %v", p, ok)
+	}
+	if p, _ := at(t, x, "1.0.2.1"); p.Country != "" || !p.Located {
+		t.Errorf("a country that is not two capital letters was kept: %+v", p)
+	}
+}
+
+func TestAPointIsKeptToATenthOfADegreeSoTheRangesOfOneCityShareOnePlace(t *testing.T) {
+	f := &memFile{}
+	c, err := Build(strings.NewReader("1.0.0.0,1.0.0.255,EU,FR,Ile-de-France,Paris,48.8566,2.3522\n1.0.1.0,1.0.1.255,EU,FR,Ile-de-France,Paris,48.8601,2.3711\n"), f)
+	if err != nil || c.Places != 1 {
+		t.Fatalf("%+v %v", c, err)
+	}
+	x, _ := Open(bytes.NewReader(f.b), int64(len(f.b)))
+	if p, _ := at(t, x, "1.0.1.9"); p.Lat != 48.9 || p.Lon != 2.4 {
+		t.Fatalf("%+v", p)
+	}
+}
+
+func TestAnIndexOfTheFirstVersionIsRefusedSoItIsDownloadedAgain(t *testing.T) {
+	f := &memFile{}
+	if _, err := Build(strings.NewReader(sample), f); err != nil {
+		t.Fatal(err)
+	}
+	copy(f.b, "IPCITY01")
+	if _, err := Open(bytes.NewReader(f.b), int64(len(f.b))); err == nil {
+		t.Error("a first-version index, which holds no country or point, was opened")
 	}
 }

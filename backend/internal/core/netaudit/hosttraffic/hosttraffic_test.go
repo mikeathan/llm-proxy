@@ -124,7 +124,7 @@ func capture(stop wire.CaptureStop, elapsedMs uint32, frames ...kept) []byte {
 
 func summarize(t *testing.T, data []byte) models.HostTraffic {
 	t.Helper()
-	s, err := Summarize(data, local, nil)
+	s, err := Summarize(data, Self{Addrs: local}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestADNSMessageThatLoopsOrLiesIsReadSafely(t *testing.T) {
 	binary.BigEndian.PutUint16(many[6:], 60000) // claims far more answers than there are bytes
 	for name, msg := range map[string][]byte{"a pointer loop": loop, "a huge answer count": many, "cut in the header": msg6(), "empty": nil} {
 		f := ip4(router, me, protoUDP, 100, udp(53, 40000, msg))
-		if _, err := Summarize(capture(wire.StopWindow, 1000, kept{10, 1, f}), local, nil); err != nil {
+		if _, err := Summarize(capture(wire.StopWindow, 1000, kept{10, 1, f}), Self{Addrs: local}, nil); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -228,7 +228,7 @@ func TestIPv6IsReadAndTheKindsAreFixedWords(t *testing.T) {
 	ssh := ip4(me, other, protoTCP, 100, tcp(40002, 22, nil))
 	ping := ip4(me, web, protoICMP, 84, []byte{8, 0, 0, 0})
 	odd := ip4(me, other, protoTCP, 100, tcp(40003, 9999, nil))
-	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, f}, kept{2, 1, quic}, kept{3, 1, ntp}, kept{4, 1, ssh}, kept{5, 1, ping}, kept{6, 1, odd}), []netip.Addr{me, v6me}, nil)
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, f}, kept{2, 1, quic}, kept{3, 1, ntp}, kept{4, 1, ssh}, kept{5, 1, ping}, kept{6, 1, odd}), Self{Addrs: []netip.Addr{me, v6me}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,11 +312,11 @@ func TestTheStopReasonIsSaidInFixedWordsAndACutRunStillSummarises(t *testing.T) 
 		t.Errorf("stopped by %q", s.StoppedBy)
 	}
 	cut := wire.AppendHostRecord(nil, 1, 1, ip4(me, web, protoTCP, 100, tcp(1, 443, nil)))
-	s, err := Summarize(cut, local, nil)
+	s, err := Summarize(cut, Self{Addrs: local}, nil)
 	if err != nil || s.StoppedBy != "cut" || s.BytesOut != 100 {
 		t.Fatalf("%+v %v", s, err)
 	}
-	if _, err := Summarize([]byte("not a capture"), local, nil); err == nil {
+	if _, err := Summarize([]byte("not a capture"), Self{Addrs: local}, nil); err == nil {
 		t.Fatal("bytes that are not a capture were accepted")
 	}
 }
@@ -329,7 +329,8 @@ func TestNoTextFromTheNetworkIsKeptOutsideTheNamesOnDestinationsAndFlows(t *test
 		"TrafficDestination.Address": true, "TrafficDestination.NameFrom": true, // a fixed word: dns or tls
 		"TrafficOwner.Name": true, "TrafficOwner.Country": true, "TrafficCountryShare.Country": true, // the holder's own words (text only), and two capital letters
 		"TrafficOwner.Region": true, "TrafficOwner.City": true, // the places table's own words, made plain, shown as text only
-		"TrafficFlow.Address": true, "TrafficFlow.Name": true, "TrafficFlow.Proto": true, "TrafficFlow.Kind": true, "TrafficFlow.NameFrom": true,
+		"TrafficOwner.PlaceCountry": true, // two capital letters from the places table
+		"TrafficFlow.Address":       true, "TrafficFlow.Name": true, "TrafficFlow.Proto": true, "TrafficFlow.Kind": true, "TrafficFlow.NameFrom": true,
 	}
 	for _, typ := range []reflect.Type{reflect.TypeFor[models.HostTraffic](), reflect.TypeFor[models.TrafficKind](), reflect.TypeFor[models.TrafficDestination](), reflect.TypeFor[models.TrafficFlow](), reflect.TypeFor[models.TrafficOwner](), reflect.TypeFor[models.TrafficCountryShare]()} {
 		for i := 0; i < typ.NumField(); i++ {
@@ -349,7 +350,7 @@ func TestAFrameCutRightAfterThePortsIsReadAsItIsWhole(t *testing.T) {
 	in := cut(ip4(web, me, protoUDP, 1200, udp(443, 51001, make([]byte, 1000))), 5)
 	v6me, v6web := netip.MustParseAddr("2001:db8::20"), netip.MustParseAddr("2606:4700::1")
 	six := ip6(v6me, v6web, protoTCP, 1000, tcp(51000, 22, make([]byte, 900)))[:14+40+4]
-	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, out}, kept{2, 1, in}, kept{3, 1, six}), []netip.Addr{me, v6me}, nil)
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, out}, kept{2, 1, in}, kept{3, 1, six}), Self{Addrs: []netip.Addr{me, v6me}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -460,7 +461,7 @@ func (h *fakeTable) owner(a netip.Addr) (models.TrafficOwner, bool) {
 func ownedSummary(t *testing.T, frames ...kept) (models.HostTraffic, *fakeTable) {
 	t.Helper()
 	h := &fakeTable{asked: map[netip.Addr]int{}}
-	s, err := Summarize(capture(wire.StopWindow, 1000, frames...), local, h.owner)
+	s, err := Summarize(capture(wire.StopWindow, 1000, frames...), Self{Addrs: local}, h.owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,5 +532,134 @@ func TestTheSharesCoverEveryConversationInTheTableNotOnlyTheBiggestShown(t *test
 	s, _ := ownedSummary(t, frames...)
 	if len(s.Owners) != 1 || s.Owners[0].Bytes != uint64(100*(maxShownFlows+10)) {
 		t.Errorf("owners = %+v, want one holder with every conversation's bytes", s.Owners)
+	}
+}
+
+var (
+	myMAC     = [6]byte{0x02, 0x11, 0x22, 0x33, 0x44, 0x55}
+	routerMAC = [6]byte{0x02, 0xaa, 0xbb, 0xcc, 0xdd, 0xee}
+	laptop    = netip.MustParseAddr("192.168.50.251")
+)
+
+// macs sets a frame's Ethernet destination and source.
+func macs(f []byte, src, dst [6]byte) []byte {
+	copy(f[0:6], dst[:])
+	copy(f[6:12], src[:])
+	return f
+}
+
+func TestWithoutItsAddressesThisComputerIsKnownByItsNetworkCardsHardwareAddress(t *testing.T) {
+	v6me, v6web := netip.MustParseAddr("2001:db8::20"), netip.MustParseAddr("2606:4700::1")
+	out := macs(ip6(v6me, v6web, protoTCP, 1000, tcp(51000, 443, nil)), myMAC, routerMAC)
+	in := macs(ip6(v6web, v6me, protoTCP, 3000, tcp(443, 51000, nil)), routerMAC, myMAC)
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, out}, kept{2, 1, in}), Self{MACs: [][6]byte{myMAC}}, nil)
+	if err != nil || s.BytesOut != 1040 || s.BytesIn != 3040 || s.BytesThrough != 0 || s.DirectionUnknown {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestTheHardwareAddressIsLearnedFromAFrameThatCarriesThisComputersAddress(t *testing.T) {
+	v6me, v6web := netip.MustParseAddr("2001:db8::20"), netip.MustParseAddr("2606:4700::1")
+	v4 := macs(ip4(me, web, protoTCP, 100, tcp(51000, 443, nil)), myMAC, routerMAC)
+	v6 := macs(ip6(v6web, v6me, protoTCP, 960, tcp(443, 51001, nil)), routerMAC, myMAC)
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, v6}, kept{2, 1, v4}), Self{Addrs: local}, nil)
+	if err != nil || s.BytesOut != 100 || s.BytesIn != 1000 || s.BytesThrough != 0 {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestABroadcastSentByAnotherDeviceIsReceivedAndOneSentHereIsSent(t *testing.T) {
+	bcast := [6]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	theirs := macs(ip4(router, netip.MustParseAddr("192.168.50.255"), protoUDP, 200, udp(7788, 7788, nil)), routerMAC, bcast)
+	mine := macs(ip4(netip.MustParseAddr("192.168.50.21"), netip.MustParseAddr("224.0.0.251"), protoUDP, 300, udp(5353, 5353, nil)), myMAC, [6]byte{0x01, 0, 0x5e, 0, 0, 0xfb})
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, theirs}, kept{2, 1, mine}), Self{MACs: [][6]byte{myMAC}}, nil)
+	if err != nil || s.BytesIn != 200 || s.BytesOut != 300 || s.BytesThrough != 0 {
+		t.Fatalf("%+v %v", s, err)
+	}
+	for _, f := range s.Flows {
+		if f.Address == router.String() {
+			t.Fatalf("a broadcast was filed under the device that sent it, not the shared address: %+v", s.Flows)
+		}
+	}
+}
+
+func TestABroadcastOrZeroHardwareAddressIsNeverTakenForThisComputers(t *testing.T) {
+	bcast := [6]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	f := macs(ip4(router, web, protoTCP, 700, tcp(51000, 443, nil)), routerMAC, bcast)
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, f}), Self{MACs: [][6]byte{bcast, {}}}, nil)
+	if err != nil || s.BytesThrough != 700 || !s.DirectionUnknown {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestWhenNothingCanBeToldToBeThisComputersTheSummarySaysSo(t *testing.T) {
+	f := ip4(laptop, router, protoTCP, 700, tcp(58071, 4001, nil))
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, f}), Self{}, nil)
+	if err != nil || !s.DirectionUnknown {
+		t.Fatalf("%+v %v", s, err)
+	}
+	if s := summarize(t, capture(wire.StopWindow, 1000, kept{1, 1, ip4(me, web, protoTCP, 10, tcp(51000, 443, nil))})); s.DirectionUnknown {
+		t.Fatal("a window with this computer's traffic said it could not tell")
+	}
+}
+
+func TestAConnectionToAServiceHereIsOneConversationOnTheServicesPort(t *testing.T) {
+	frames := []kept{
+		{1, 1, ip4(laptop, me, protoTCP, 600, tcp(58071, 4001, nil))},
+		{2, 1, ip4(me, laptop, protoTCP, 9000, tcp(4001, 58071, nil))},
+		{3, 1, ip4(laptop, me, protoTCP, 400, tcp(58072, 4001, nil))},
+		{4, 1, ip4(me, laptop, protoTCP, 7000, tcp(4001, 58072, nil))},
+		{5, 1, ip4(me, web, protoTCP, 100, tcp(51000, 443, nil))},
+	}
+	s, err := Summarize(capture(wire.StopWindow, 1000, frames...), Self{Addrs: local, Port: 4001}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var served *models.TrafficFlow
+	for i := range s.Flows {
+		if s.Flows[i].Address == laptop.String() {
+			if served != nil {
+				t.Fatalf("the browser's connections were split: %+v", s.Flows)
+			}
+			served = &s.Flows[i]
+		}
+	}
+	if served == nil || served.Port != 4001 || !served.Served || !served.Self || served.BytesIn != 1000 || served.BytesOut != 16000 {
+		t.Fatalf("%+v", served)
+	}
+	if s.SelfBytes != 17000 {
+		t.Fatalf("self bytes %d", s.SelfBytes)
+	}
+	for _, f := range s.Flows {
+		if f.Address == web.String() && (f.Port != 443 || f.Served || f.Self || f.Kind != "https") {
+			t.Fatalf("a connection this computer opened lost its service port: %+v", f)
+		}
+	}
+}
+
+func TestTheServicePortIsTheLowOneWhenBothEndsAreBelowTheEphemeralRange(t *testing.T) {
+	cases := []struct {
+		name               string
+		sport, dport, want uint16
+		served             bool
+	}{
+		{"a client here on a low port asks a remote service", 1024, 443, 443, false},
+		{"a remote client on a high port asks a service here", 40000, 22, 22, true},
+		{"both ends high: the remote port stands", 50000, 60000, 60000, false},
+		{"the same port on both ends: the remote one", 5353, 5353, 5353, false},
+		{"both ends low, the remote's lower: the remote's is the service", 8080, 600, 600, false},
+		{"both ends low, this end's lower: a service here", 1500, 22, 22, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := ip4(me, web, protoTCP, 100, tcp(c.sport, c.dport, nil))
+			if c.served {
+				f = ip4(web, me, protoTCP, 100, tcp(c.sport, c.dport, nil))
+			}
+			s := summarize(t, capture(wire.StopWindow, 1000, kept{1, 1, f}))
+			if got := s.Flows[0]; uint16(got.Port) != c.want || got.Served != c.served {
+				t.Fatalf("%+v", got)
+			}
+		})
 	}
 }

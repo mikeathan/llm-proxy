@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import { flowsOfKind, kindShares, ownerLine, visibleFlows } from "../../utils/netaudit/traffic"
+import { flowsOfKind, kindShares, ownerLine, serviceOf, visibleFlows } from "../../utils/netaudit/traffic"
 import { formatBytes } from "../../utils/format/formatters"
 import {
   TRAFFIC_COLUMNS, TRAFFIC_FLOWS_FEWER, TRAFFIC_FLOWS_KINDS_LABEL, TRAFFIC_FLOWS_MORE, TRAFFIC_FLOWS_SHOWN, TRAFFIC_KIND_FILTER, TRAFFIC_KIND_FILTER_CLEAR,
-  TRAFFIC_KIND_FILTER_NONE, TRAFFIC_KIND_LABELS, TRAFFIC_KIND_PICK, TRAFFIC_KIND_SHORT, TRAFFIC_OPEN_PLACE,
+  TRAFFIC_KIND_FILTER_NONE, TRAFFIC_KIND_LABELS, TRAFFIC_KIND_PICK, TRAFFIC_OPEN_PLACE,
 } from "../../constants/netaudit"
 import type { HostTraffic, TrafficFlow, TrafficKindWord } from "../../types/netaudit"
 
@@ -60,10 +60,10 @@ const flowName = (f: TrafficFlow) => f.name || f.address
           </tr>
         </thead>
         <tbody>
-          <tr v-for="f in rows.shown" :key="`${f.address}|${f.port}|${f.proto}`" class="cursor-pointer border-t border-hairline hover:bg-surface-hover" data-test="flow" @click="emit('open', f.address)">
+          <tr v-for="f in rows.shown" :key="`${f.address}|${f.port}|${f.proto}|${f.served ? 's' : 'c'}`" class="cursor-pointer border-t border-hairline hover:bg-surface-hover" data-test="flow" @click="emit('open', f.address)">
             <td class="max-w-[22rem] break-all px-4 py-2 text-primary"><button type="button" class="break-all bg-transparent p-0 text-left text-primary max-sm:min-h-11" :aria-label="TRAFFIC_OPEN_PLACE(flowName(f))" data-test="flow-open">{{ flowName(f) }}</button><span v-if="ownerLine(f.owner)" class="block text-[length:var(--text-small)] text-muted" data-test="flow-owner">{{ ownerLine(f.owner) }}</span></td>
-            <td class="px-2 py-2 text-muted">{{ f.port || "·" }}</td>
-            <td class="px-2 py-2 text-muted">{{ TRAFFIC_KIND_SHORT[f.kind] }}</td>
+            <td class="px-2 py-2 text-muted">{{ f.served ? `:${f.port}` : f.port || "·" }}</td>
+            <td class="px-2 py-2 text-muted">{{ serviceOf(f) }}</td>
             <td class="px-2 py-2 text-right text-secondary">{{ formatBytes(f.bytes_out) }}</td>
             <td class="px-4 py-2 text-right text-secondary">{{ formatBytes(f.bytes_in) }}</td>
           </tr>

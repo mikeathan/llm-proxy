@@ -45,6 +45,7 @@ type HandlerSet struct {
 	KnownBad    *handlers.NetauditKnownBadHandlers
 	DestOwners  *handlers.NetauditDestinationDataHandlers
 	DestPlaces  *handlers.NetauditDestinationDataHandlers
+	RouteTrace  *handlers.NetauditRouteTraceHandlers
 	Footprint   *handlers.NetauditFootprintHandlers
 	VulnData    *handlers.VulnDataHandlers
 	Devices     *handlers.NetauditDevicesHandlers
@@ -138,6 +139,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.KnownBad = handlers.NewNetauditKnownBadHandlers(s.netaudit.KnownBadList)
 	hs.DestOwners = handlers.NewNetauditDestinationDataHandlers(s.netaudit.DestinationOwners, "iptoasn.com")
 	hs.DestPlaces = handlers.NewNetauditDestinationDataHandlers(s.netaudit.DestinationPlaces, "db-ip.com")
+	hs.RouteTrace = handlers.NewNetauditRouteTraceHandlers(s.netaudit.RouteTrace)
 	hs.Footprint = handlers.NewNetauditFootprintHandlers(s.netaudit.Footprint)
 	hs.Stacks = handlers.NewStackHandlers(s.netaudit.Stacks, s.stalledMonitors)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
@@ -149,7 +151,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
-	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), helperSinks{Probes: s.netaudit.Inventory, Captures: newCaptureStore(s.AppCtx), Traffic: newHostTrafficStore(s.AppCtx), Owners: s.netaudit.currentOwners})
+	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), helperSinks{Probes: s.netaudit.Inventory, Captures: newCaptureStore(s.AppCtx), Traffic: newHostTrafficStore(s.AppCtx), Owners: s.netaudit.currentOwners, Self: trafficSelf(s.netaudit.Scope, func() string { return bindAddress(s.AppCtx.dataMgr.System().Get()) })})
 	if s.netaudit.Network != nil {
 		hs.Hosted = append(hs.Hosted, s.netaudit.Network.stack)
 	}
@@ -425,6 +427,8 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/netaudit/destination-places", hs.DestPlaces.Get, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/destination-places/download", hs.DestPlaces.Download, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/destination-places", hs.DestPlaces.Delete, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/route-trace", hs.RouteTrace.Get, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/route-trace", hs.RouteTrace.Start, jsonMethodNotAllowed)
 	router.Get("/admin/api/stacks", hs.Stacks.List, jsonMethodNotAllowed)
 	router.Get("/admin/api/stacks/{stack}", hs.Stacks.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/stacks/{stack}/modules/{id}", hs.Stacks.PutModule, jsonMethodNotAllowed)

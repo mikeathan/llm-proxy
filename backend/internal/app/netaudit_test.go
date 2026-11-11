@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"net/netip"
 	"strings"
 	"testing"
 
@@ -97,5 +98,38 @@ func TestRunPreflight_LockDownRefusesEveryAutomation(t *testing.T) {
 	}
 	if err := s.RunPreflight()(t.Context(), entry); err != nil {
 		t.Errorf("lifted: %v", err)
+	}
+}
+
+// A route trace is allowed only while the guardrails allow internet access, to an address the blocked list does not name, that the last
+// traffic look saw.
+func TestARouteTraceIsPermittedOnlyForAnAddressTheLastLookSawWhileInternetAccessIsOn(t *testing.T) {
+	look := &memTraffic{got: models.HostTraffic{
+		Destinations: []models.TrafficDestination{{Address: "1.1.1.1"}},
+		Flows:        []models.TrafficFlow{{Address: "8.8.8.8"}},
+	}}
+	on := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
+	for _, a := range []string{"1.1.1.1", "8.8.8.8"} {
+		if err := permitRouteTrace(on, look, netip.MustParseAddr(a)); err != nil {
+			t.Errorf("%s: %v", a, err)
+		}
+	}
+	cases := []struct {
+		name string
+		g    models.NetworkGuardrailsConfig
+		addr string
+		look hostTrafficSink
+		want error
+	}{
+		{"network tools off", models.NetworkGuardrailsConfig{AllowInternetAccess: true}, "1.1.1.1", look, errRouteInternetOff},
+		{"internet off", models.NetworkGuardrailsConfig{Enabled: true}, "1.1.1.1", look, errRouteInternetOff},
+		{"blocked", models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true, BlockedIPs: []string{"1.1.1.1"}}, "1.1.1.1", look, errRouteBlocked},
+		{"not seen", on, "9.9.9.9", look, errRouteNotSeen},
+		{"no look", on, "1.1.1.1", &memTraffic{err: errors.New("unreadable")}, errRouteNotSeen},
+	}
+	for _, c := range cases {
+		if err := permitRouteTrace(c.g, c.look, netip.MustParseAddr(c.addr)); !errors.Is(err, c.want) {
+			t.Errorf("%s: %v", c.name, err)
+		}
 	}
 }

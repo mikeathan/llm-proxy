@@ -7,8 +7,11 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
+	"math"
 	"net/netip"
+	"strconv"
 
 	"llm-proxy/internal/core/netaudit/ipowners"
 )
@@ -20,6 +23,10 @@ const (
 	colLast        = 1
 	colRegion      = 4
 	colCity        = 5
+	colLat         = 6
+	colLon         = 7
+	maxLat         = 90
+	maxLon         = 180
 	maxNameRunes   = 80
 	maxPlaces      = 1 << 22
 	maxRows        = 20_000_000
@@ -37,8 +44,11 @@ type family struct {
 
 // builder writes the records of one pass over the table as they come, so no more than the places (a few hundred thousand short strings) is ever held.
 type builder struct {
-	out     *bufio.Writer
-	ids     map[string]uint32
+	out *bufio.Writer
+	// ids finds a place already stored by the hash of its bytes; a hit is checked against the stored bytes, so a collision only stores the place
+	// twice. Hashes, not the bytes, keep the map small: a table has over half a million places.
+	ids     map[uint64]uint32
+	places  int
 	offsets []uint32
 	blob    bytes.Buffer
 	v4, v6  int
@@ -50,7 +60,7 @@ type builder struct {
 // order) and writes the index to w. A row with no known country, no city and no region, an overlapping row and a row that is not a row are skipped;
 // neighbouring rows of one place are joined into one run. A table with no usable row is an error: an empty index must not read as "nowhere".
 func Build(r io.Reader, w io.WriterAt) (Counts, error) {
-	b := &builder{out: bufio.NewWriter(io.NewOffsetWriter(w, headerSize)), ids: map[string]uint32{}, offsets: []uint32{0}, f4: family{max: 1<<32 - 1}, f6: family{max: ^uint64(0)}}
+	b := &builder{out: bufio.NewWriter(io.NewOffsetWriter(w, headerSize)), ids: map[uint64]uint32{}, offsets: []uint32{0}, f4: family{max: 1<<32 - 1}, f6: family{max: ^uint64(0)}}
 	cr := csv.NewReader(bufio.NewReaderSize(r, 1<<16))
 	cr.FieldsPerRecord = -1
 	cr.ReuseRecord = true
@@ -89,9 +99,11 @@ func Build(r io.Reader, w io.WriterAt) (Counts, error) {
 type row struct {
 	v4         bool
 	start, end uint64
-	known      bool // the country is known
+	known      bool   // the country is known
+	country    string // two capital letters, or empty
 	region     string
 	city       string
+	lat, lon   int32 // in ten-thousandths of a degree, or noPoint
 }
 
 // parseRow reads one line, or says it is not a usable row: too few columns, addresses that are not addresses or are of two families, or a
@@ -105,10 +117,39 @@ func parseRow(rec []string) (row, bool) {
 	if err1 != nil || err2 != nil || first.Is4() != last.Is4() || last.Less(first) {
 		return row{}, false
 	}
+	lat, lon := pointOf(rec[colLat], rec[colLon])
 	return row{
-		v4: first.Is4(), start: keyOf(first), end: keyOf(last), known: rec[colCountry] != unknownCountry,
-		region: ipowners.PlainText(rec[colRegion], maxNameRunes), city: ipowners.PlainText(rec[colCity], maxNameRunes),
+		v4: first.Is4(), start: keyOf(first), end: keyOf(last), known: rec[colCountry] != unknownCountry, country: countryOf(rec[colCountry]),
+		region: ipowners.PlainText(rec[colRegion], maxNameRunes), city: ipowners.PlainText(rec[colCity], maxNameRunes), lat: lat, lon: lon,
 	}, true
+}
+
+// countryOf keeps a country only when it is two capital letters.
+func countryOf(c string) string {
+	if len(c) != countryBytes || c[0] < 'A' || c[0] > 'Z' || c[1] < 'A' || c[1] > 'Z' {
+		return ""
+	}
+	return c
+}
+
+// pointOf reads a latitude and a longitude into ten-thousandths of a degree; a value that is not a number or is off the globe gives no point.
+func pointOf(latText, lonText string) (lat, lon int32) {
+	la, err1 := strconv.ParseFloat(latText, 64)
+	lo, err2 := strconv.ParseFloat(lonText, 64)
+	if err1 != nil || err2 != nil || math.Abs(la) > maxLat || math.Abs(lo) > maxLon || math.IsNaN(la) || math.IsNaN(lo) {
+		return noPoint, noPoint
+	}
+	return roundPoint(la), roundPoint(lo)
+}
+
+// pointStep is the precision a point is kept at, a tenth of a degree (about 11 km): finer than any city table is right and than a world map can
+// show, and coarse enough that the ranges of one city share one place. Kept finer, the places of the real table nearly triple and so does the
+// memory a download takes to build the index.
+const pointStep = 0.1
+
+// roundPoint is a degree rounded to pointStep, in the index's ten-thousandths.
+func roundPoint(deg float64) int32 {
+	return int32(math.Round(math.Round(deg/pointStep) * pointStep * pointScale))
 }
 
 // enter notes which family the rows are in; the first IPv6 row ends the IPv4 rows, and an IPv4 row after it is an error.
@@ -138,7 +179,7 @@ func (b *builder) add(rec []string) error {
 	id := none
 	if r.known && (r.region != "" || r.city != "") {
 		var err error
-		if id, err = b.intern(r.region, r.city); err != nil {
+		if id, err = b.intern(r); err != nil {
 			return err
 		}
 	}
@@ -214,20 +255,42 @@ func (b *builder) write(v4 bool, start uint64, id uint32) error {
 	return nil
 }
 
-// intern gives a place its id, storing its text once.
-func (b *builder) intern(region, city string) (uint32, error) {
-	key := region + "\x00" + city
-	if id, ok := b.ids[key]; ok {
+// intern gives a place its id, storing it once (see Index.place for the layout).
+func (b *builder) intern(r row) (uint32, error) {
+	var head [countryBytes]byte
+	copy(head[:], r.country)
+	var point [pointBytes]byte
+	binary.BigEndian.PutUint32(point[:4], uint32(r.lat))
+	binary.BigEndian.PutUint32(point[4:], uint32(r.lon))
+	start := b.blob.Len()
+	b.blob.Write(head[:])
+	b.blob.WriteString(r.region)
+	b.blob.WriteByte(0)
+	b.blob.WriteString(r.city)
+	b.blob.Write(point[:])
+	key := b.blob.Bytes()[start:]
+	h := fnv.New64a()
+	_, _ = h.Write(key)
+	sum := h.Sum64()
+	if id, ok := b.ids[sum]; ok && bytes.Equal(b.stored(id), key) {
+		b.blob.Truncate(start)
 		return id, nil
 	}
-	if len(b.ids) >= maxPlaces {
+	if b.places >= maxPlaces {
 		return 0, fmt.Errorf("the places table holds more than %d distinct places", maxPlaces)
 	}
-	id := uint32(len(b.ids))
-	b.ids[key] = id
-	b.blob.WriteString(key)
+	id := uint32(b.places)
+	b.places++
+	if _, taken := b.ids[sum]; !taken {
+		b.ids[sum] = id
+	}
 	b.offsets = append(b.offsets, uint32(b.blob.Len()))
 	return id, nil
+}
+
+// stored is the bytes of a place already written.
+func (b *builder) stored(id uint32) []byte {
+	return b.blob.Bytes()[b.offsets[id]:b.offsets[id+1]]
 }
 
 // finish writes the offsets and the text after the records, then the header.
@@ -249,10 +312,10 @@ func (b *builder) finish(w io.WriterAt) (Counts, error) {
 	copy(h[:], magic)
 	binary.BigEndian.PutUint32(h[8:], uint32(b.v4))
 	binary.BigEndian.PutUint32(h[12:], uint32(b.v6))
-	binary.BigEndian.PutUint32(h[16:], uint32(len(b.ids)))
+	binary.BigEndian.PutUint32(h[16:], uint32(b.places))
 	binary.BigEndian.PutUint32(h[20:], uint32(b.blob.Len()))
 	if _, err := w.WriteAt(h[:], 0); err != nil {
 		return Counts{}, fmt.Errorf("the places index could not be written: %w", err)
 	}
-	return Counts{V4: b.v4, V6: b.v6, Places: len(b.ids)}, nil
+	return Counts{V4: b.v4, V6: b.v6, Places: b.places}, nil
 }

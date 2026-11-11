@@ -3,11 +3,11 @@ import { computed } from "vue"
 import { countryBars, ownerBars } from "../../utils/netaudit/traffic"
 import { formatBytes } from "../../utils/format/formatters"
 import { TRAFFIC_WHERE_NO_TABLE, TRAFFIC_WHERE_NOTHING, TRAFFIC_WHERE_OF_INTERNET, TRAFFIC_WHERE_COUNTRIES, TRAFFIC_WHERE_OWNERS } from "../../constants/netaudit"
-import type { HostTraffic } from "../../types/netaudit"
+import type { HostTraffic, TrafficWhereView } from "../../types/netaudit"
 
 // The internet traffic of one look grouped by the company that runs the network, or by country, as ranked bars. The names are the holders' own
 // words, so they are shown as text only. With no table downloaded it says how to get one; it never guesses.
-const props = defineProps<{ traffic: HostTraffic; view: "operators" | "countries" }>()
+const props = defineProps<{ traffic: HostTraffic; view: TrafficWhereView }>()
 const bars = computed(() => (props.view === "operators" ? ownerBars(props.traffic) : countryBars(props.traffic)))
 const title = computed(() => (props.view === "operators" ? TRAFFIC_WHERE_OWNERS : TRAFFIC_WHERE_COUNTRIES))
 const barWidth = (percent: number) => `${Math.max(2, Math.min(100, percent))}%`

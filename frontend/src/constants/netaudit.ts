@@ -308,7 +308,7 @@ export const SETTINGS_GROUP_COPY: Readonly<Record<NetworkSettingsGroup, { label:
   scanning: { label: 'What to scan', hint: 'Which networks may be scanned, and how long a scan may spend on one device.' },
   watching: { label: 'Watching', hint: 'What is kept an eye on: new devices, decoy services, the router\'s log and DNS, nearby devices and Wi-Fi look-alikes.' },
   outside: { label: 'Outside services', hint: 'Looks that ask a service on the internet. Each stays off until you turn it on here.' },
-  data: { label: 'Downloaded data', hint: 'Tables kept on this computer so a check can run without asking anyone: known flaws and Ubuntu security notices.' },
+  data: { label: 'Downloaded data', hint: 'Tables kept on this computer so a check can run without asking anyone: known flaws, Ubuntu security notices, and who runs each internet address and where it is used (for Traffic).' },
   helper: { label: 'Privileged helper', hint: 'The small program that lets this one computer do the few things that need more rights, and the actions it may take.' },
 }
 export const ADVANCED_SETTINGS_TITLE = 'Advanced'
@@ -687,7 +687,7 @@ export const TRAFFIC_NEVER_TITLE = 'Nothing looked at yet'
 export const TRAFFIC_NEVER_BODY = 'Press Listen now to see where this computer\'s traffic goes for the next minute.'
 export const TRAFFIC_LOAD_FAILED = 'The last look could not be read.'
 export const TRAFFIC_PRIVACY_NOTE =
-  'This shows only the traffic to and from this computer. Names come from DNS answers and from the server name in a TLS handshake, and any device can make one up, so treat a name as a hint. Who runs a server comes from a public table kept on this computer. Nothing in the traffic is kept except these totals.'
+  'This shows only the traffic to and from this computer. Names come from DNS answers and from the server name in a TLS handshake, and any device can make one up, so treat a name as a hint. Who runs a server, and the city it is used in, come from two public tables kept on this computer; a city is approximate. A route trace sends small probes towards one address and only when you press for it. Nothing in the traffic is kept except these totals.'
 export const TRAFFIC_UNSUPPORTED = 'This computer cannot listen to its own traffic: the privileged helper needs Linux with systemd.'
 export const TRAFFIC_NOT_INSTALLED = 'The privileged helper is not installed on this computer. Settings shows the one command that installs it.'
 export const TRAFFIC_NOT_READY = (why: string): string => `The privileged helper is not ready: ${why}`
@@ -699,12 +699,9 @@ export const TRAFFIC_DESTINATIONS_TITLE = 'Where the data went'
 export const TRAFFIC_KINDS_TITLE = 'What kind of traffic'
 export const TRAFFIC_SERIES_TITLE = 'Over the window'
 export const TRAFFIC_FLOWS_TITLE = 'Conversations'
-export const TRAFFIC_NO_NAME = 'no name seen'
 export const TRAFFIC_OTHERS = (n: number): string => `${n} other ${n === 1 ? 'place' : 'places'}`
 export const TRAFFIC_BUSIEST = (second: number, bytes: string): string => `busiest second: ${bytes} at 0:${String(second).padStart(2, '0')}`
-export const TRAFFIC_INTERNET_SPLIT = (internet: number, network: number): string => `${internet}% to the internet, ${network}% on this network.`
-export const TRAFFIC_DIRECTION_SPLIT = (received: number, sent: number): string => `${received}% received, ${sent}% sent.`
-export const TRAFFIC_COLUMNS = { destination: 'Destination', port: 'Port', kind: 'Kind', sent: 'Sent', received: 'Received' } as const
+export const TRAFFIC_COLUMNS = { destination: 'Destination', port: 'Port', kind: 'Kind', service: 'What', sent: 'Sent', received: 'Received' } as const
 export const TRAFFIC_KIND_LABELS: Readonly<Record<TrafficKindWord, string>> = {
   https: 'Web, encrypted (HTTPS)', http: 'Web, not encrypted (HTTP)', quic: 'Web and video (QUIC)', dns: 'Name lookups (DNS)', ssh: 'Remote login (SSH)',
   ntp: 'Clock (NTP)', discovery: 'Device discovery', icmp: 'Ping (ICMP)', tcp: 'Other (TCP)', udp: 'Other (UDP)',
@@ -724,14 +721,13 @@ export const TRAFFIC_STOPPED: Readonly<Record<string, string>> = {
 export const TRAFFIC_DROPPED = (n: number): string => `${n} ${n === 1 ? 'frame was' : 'frames were'} dropped because they came too fast, so the figures are a little low.`
 export const TRAFFIC_SAMPLED = (n: number): string => `Estimated: one ordinary frame in ${n} was counted, because there was too much traffic to keep every frame.`
 export const TRAFFIC_ENCRYPTED_KINDS: readonly TrafficKindWord[] = ['https', 'quic']
-export const TRAFFIC_TOP_DESTINATIONS = 3
 export const TRAFFIC_DETAIL_CLOSE = 'Close'
 export const TRAFFIC_DETAIL_ADDRESS = 'Address'
 export const TRAFFIC_DETAIL_WHERE = { internet: 'On the internet', network: 'On this network' } as const
 export const TRAFFIC_DETAIL_SHARE = (percent: number, bytes: string): string => `${bytes}, ${percent < 1 ? 'under 1' : percent}% of everything counted`
 export const TRAFFIC_DETAIL_NO_FLOWS = 'The look kept no separate conversations for this place; it is counted in the list of places only.'
 export const TRAFFIC_DETAIL_SCAN_TITLE = 'Look closer at this device'
-export const TRAFFIC_DETAIL_READ_ONLY = 'Scans only reach devices on your own network, so an internet address is shown but not scanned.'
+export const TRAFFIC_DETAIL_SELF = 'this page'
 export const TRAFFIC_DETAIL_NOT_A_DEVICE = 'This address is shared by many devices (broadcast or multicast), so there is no one device to scan.'
 export const TRAFFIC_OPEN_PLACE = (label: string): string => `Show details for ${label}`
 export const TRAFFIC_KIND_FILTER = (label: string): string => `Showing only ${label}.`
@@ -823,8 +819,8 @@ export const STANDING_TREND_WORDS: Record<'better' | 'worse' | 'same', string> =
 }
 
 /** Who runs the servers the traffic went to: a public table of address ranges, downloaded once and looked up on this computer. */
-export const DESTINATION_DATA_TITLE = 'Who runs these servers'
-export const DESTINATION_DATA_INTRO = 'Adds the network operator and the country to each internet address on this page, from a public table of address ranges. The table is downloaded once; every lookup happens on this computer, so none of your destinations is sent anywhere.'
+export const DESTINATION_DATA_TITLE = 'Who runs each internet address'
+export const DESTINATION_DATA_INTRO = 'Used by Network \u2192 Traffic: names the company behind each internet address and each router of a route trace (Cloudflare, your provider), and the country the address is registered in. The table is downloaded once; every lookup happens on this computer, so none of your destinations is sent anywhere.'
 export const DESTINATION_DATA_NEEDS = 'Not downloaded yet. Until it is, internet addresses show without an operator or country.'
 export const DESTINATION_DATA_SOURCE = (source: string): string => `Downloading asks ${source} for two files of address ranges (about 11 MB). It learns this computer\u2019s address and nothing about your traffic. It needs your passphrase.`
 export const DESTINATION_DATA_HELD = (ranges: string, when: string): string => `${ranges} address ranges, downloaded ${when}.`
@@ -839,9 +835,9 @@ export const DESTINATION_DATA_OLD_DAYS = 90
 export const DESTINATION_DATA_OLD = (months: number): string => `This table is about ${months} months old. Press Refresh to pick up changes; the one you have keeps working until then.`
 export const DESTINATION_DATA_ACCURACY = 'The table says who an address is registered to, not where the machine stands: a company that serves from many countries shows one.'
 /** The optional table of cities: large, kept on disk and searched there, so it costs disk and one download, not memory. */
-export const DESTINATION_PLACES_TITLE = 'Cities (optional)'
-export const DESTINATION_PLACES_INTRO = 'Adds a city and region to each internet address that has an operator. The table is about 86 MB to download and is kept on disk and searched there, so it uses almost no memory. Every lookup happens on this computer.'
-export const DESTINATION_PLACES_NEEDS = 'Not downloaded yet. Until it is, addresses show a country only.'
+export const DESTINATION_PLACES_TITLE = 'Where each internet address is used (optional)'
+export const DESTINATION_PLACES_INTRO = 'Used by Network \u2192 Traffic: puts each internet address that has an operator, and each router of a route trace, in a city, and draws them on the map. Needs the table above. About 86 MB to download; it is kept on disk and searched there, so it uses almost no memory. Every lookup happens on this computer.'
+export const DESTINATION_PLACES_NEEDS = 'Not downloaded yet. Until it is, addresses show the country they are registered in, and there is no map.'
 export const DESTINATION_PLACES_SOURCE = (source: string): string => `Downloading asks ${source} for one file (about 86 MB). It learns this computer\u2019s address and nothing about your traffic. It needs your passphrase.`
 export const DESTINATION_PLACES_ACCURACY = 'The city is where the table says an address is used, and it is approximate: a company\u2019s servers often show the city of the hub that serves them, not the machine.'
 export const DESTINATION_PLACES_CREDIT = 'IP geolocation by DB-IP (db-ip.com), CC BY 4.0.'
@@ -851,16 +847,8 @@ export const DESTINATION_TABLE_COPY: Readonly<Record<DestinationTable, { title: 
   owners: { title: DESTINATION_DATA_TITLE, intro: DESTINATION_DATA_INTRO, needs: DESTINATION_DATA_NEEDS, source: DESTINATION_DATA_SOURCE, accuracy: DESTINATION_DATA_ACCURACY, prefix: 'destination-data' },
   places: { title: DESTINATION_PLACES_TITLE, intro: DESTINATION_PLACES_INTRO, needs: DESTINATION_PLACES_NEEDS, source: DESTINATION_PLACES_SOURCE, accuracy: DESTINATION_PLACES_ACCURACY, credit: DESTINATION_PLACES_CREDIT, prefix: 'destination-places' },
 }
-export const TRAFFIC_WHERE_TITLE = 'Where it went'
 export const TRAFFIC_WHERE_VIEWS_LABEL = 'Group the places'
-export const TRAFFIC_WHERE_VIEW_LABELS: Readonly<Record<TrafficWhereView, string>> = { places: 'Places', operators: 'Operators', countries: 'Countries' }
-export const TRAFFIC_PLACE_GROUPS = {
-  internet: { title: 'On the internet', note: 'Servers run by someone else' },
-  network: { title: 'On this network', note: 'Devices at home' },
-  shared: { title: 'Shared addresses', note: 'Broadcast and multicast: one message for many devices' },
-} as const
-export const TRAFFIC_GROUP_SHARE = (percent: number, bytes: string): string => `${bytes} \u00b7 ${percent < 1 ? 'under 1' : percent}% of the total`
-export const TRAFFIC_PLACE_KINDS = (kinds: readonly string[]): string => kinds.slice(0, 3).join(', ')
+export const TRAFFIC_WHERE_VIEW_LABELS: Readonly<Record<TrafficWhereView, string>> = { operators: 'Operators', countries: 'Countries' }
 export const TRAFFIC_SUMMARY_STATS = { sent: 'Sent', received: 'Received', internet: 'To the internet', network: 'On this network' } as const
 export const TRAFFIC_FLOWS_SHOWN = 12
 export const TRAFFIC_FLOWS_MORE = (n: number): string => `Show ${n} more ${n === 1 ? 'conversation' : 'conversations'}`
@@ -870,7 +858,7 @@ export const TRAFFIC_WHAT_TITLE = 'What it was'
 export const TRAFFIC_WHERE_OWNERS = 'By network operator'
 export const TRAFFIC_WHERE_COUNTRIES = 'By country'
 export const TRAFFIC_WHERE_UNKNOWN = 'Not in the table'
-export const TRAFFIC_WHERE_NO_TABLE = 'This look was made without the table of address owners. Download it (at the bottom of this page), then listen again to see which companies and countries the traffic went to.'
+export const TRAFFIC_WHERE_NO_TABLE = 'This look was made without the table of address owners. Download it in Settings \u2192 Downloaded data, then listen again to see which companies and countries the traffic went to.'
 export const TRAFFIC_WHERE_NOTHING = 'No internet address in this look is in the table.'
 export const TRAFFIC_WHERE_OF_INTERNET = 'Shares are of the traffic to the internet.'
 export const TRAFFIC_OWNER_LINE = (name: string, country: string): string => [name, country].filter(Boolean).join(' \u00b7 ')
@@ -888,3 +876,68 @@ export const FINDING_LINK_LABEL = (title: string): string => `Show ${title} in t
 export const DEVICE_PROBLEMS_LINK = (count: number): string => `${count} ${count === 1 ? 'problem' : 'problems'}`
 export const DEVICE_PROBLEMS_LINK_LABEL = (name: string, count: number): string => `Show the ${count === 1 ? 'problem' : `${count} problems`} found on ${name}`
 export const PROBLEMS_SEE_ALL = 'See all problems'
+
+/** Network · Traffic, redesigned (plan network-traffic-view-redesign): one summary, a map, who it talked to, and the route to one address. */
+export const TRAFFIC_HEADLINE = (seconds: number, sent: string, received: string): string => `In ${seconds} ${seconds === 1 ? 'second' : 'seconds'} this computer sent ${sent} and received ${received}.`
+export const TRAFFIC_HEADLINE_QUIET = (seconds: number): string => `In ${seconds} ${seconds === 1 ? 'second' : 'seconds'} nothing was sent or received by this computer.`
+export const TRAFFIC_HEADLINE_UNKNOWN = (seconds: number, total: string): string =>
+  `In ${seconds} ${seconds === 1 ? 'second' : 'seconds'} ${total} was counted, but this computer could not tell which way it went. Listen again after the update; if this stays, the service cannot read this computer's addresses.`
+export const TRAFFIC_REACH = (internet: string, network: string): string => `${internet} to the internet, ${network} on this network.`
+export const TRAFFIC_ENCRYPTED = (percent: number): string => `${percent < 1 ? 'Under 1' : percent}% of it was encrypted web traffic.`
+export const TRAFFIC_LOOKUPS = (n: number): string => `${n} ${n === 1 ? 'name was' : 'names were'} looked up.`
+export const TRAFFIC_SELF_LINE = (bytes: string, percent: number): string =>
+  `${bytes} (${percent < 1 ? 'under 1' : percent}%) was this program's own page and API, most of it likely your browser viewing this page. It is left out of the list below.`
+export const TRAFFIC_ONLY_THIS = 'Only this computer\u2019s own traffic is seen: your phone and your other computers are not.'
+export const TRAFFIC_TALK_TITLE = 'Who it talked to'
+export const TRAFFIC_TALK_GROUPS: Readonly<Record<'internet' | 'network' | 'shared', { title: string; empty: string }>> = {
+  internet: { title: 'On the internet', empty: 'Nothing went to the internet in this look.' },
+  network: { title: 'On this network', empty: 'No device on this network was talked to.' },
+  shared: { title: 'Broadcast chatter', empty: '' },
+}
+export const TRAFFIC_TALK_SHARED_NOTE = 'Messages sent to every device at once (discovery, printers, casting). Usually noise.'
+export const TRAFFIC_TALK_SHARE = (bytes: string, percent: number): string => `${bytes} \u00b7 ${percent < 1 ? 'under 1' : percent}%`
+export const TRAFFIC_TALK_DIRECTION = (sent: string, received: string): string => `\u2191 ${sent}  \u2193 ${received}`
+export const TRAFFIC_TALK_DIRECTION_LABEL = (sent: string, received: string): string => `sent ${sent}, received ${received}`
+export const TRAFFIC_SERVED = (port: number, kind: string): string => (kind ? `${kind} to this computer :${port}` : `to this computer :${port}`)
+export const TRAFFIC_TALK_NOTHING = 'Nothing but this page\u2019s own traffic was counted.'
+export const TRAFFIC_USED_IN = (where: string): string => `used in ${where}`
+export const TRAFFIC_REGISTERED_IN = (country: string): string => `registered in ${country}`
+export const TRAFFIC_APPROXIMATE = '(approximate)'
+export const TRAFFIC_MAP_TITLE = 'On the map'
+export const TRAFFIC_MAP_LABEL = 'World map of where the internet traffic went'
+export const TRAFFIC_MAP_NOTE = 'Each dot is the city the table puts an address in: approximate, and a big company\u2019s servers often show the city of the hub that serves them.'
+export const TRAFFIC_MAP_ROUTE_NOTE = 'The line follows the routers of the open route trace that have a city, in order; it starts at the first one, not at this computer, whose place is not known.'
+export const TRAFFIC_MAP_NO_CITIES = 'Download the table of where addresses are used to see the internet traffic on a map.'
+export const TRAFFIC_MAP_NO_POINTS = 'No internet address of this look has a city in the table.'
+export const TRAFFIC_TABLES_OPEN = 'Downloaded data'
+export const TRAFFIC_TABLES_LINE = (owners: boolean, places: boolean): string =>
+  owners && places ? 'Operator and city names are on.' : owners ? 'Operator names are on; cities and the map are off.' : 'Operator and city names are off, so internet addresses show as numbers.'
+export const TRAFFIC_TABLES_ACTION = (all: boolean): string => (all ? 'Manage' : 'Turn on')
+export const TRAFFIC_ADVANCED_TITLE = 'Details'
+export const ROUTE_TITLE = 'Route from this computer'
+export const ROUTE_BUTTON = 'Trace the route'
+export const ROUTE_AGAIN = 'Trace again'
+export const ROUTE_RUNNING = 'Tracing. Each step takes up to three seconds.'
+export const ROUTE_EXPLAIN = 'Sends a few small probes towards this address, each allowed one more step than the last, and shows which router answered at each step. Asks for your passphrase.'
+export const ROUTE_UNSUPPORTED = 'A route trace needs Linux; this computer cannot send the probes without privilege.'
+export const ROUTE_LOAD_FAILED = 'The route traces could not be read.'
+export const ROUTE_START_FAILED = 'The route trace could not be started.'
+export const ROUTE_HOP_SILENT = 'no answer'
+export const ROUTE_HOP_WHERE: Readonly<Record<'this_network' | 'provider_shared' | 'internet', string>> = {
+  this_network: 'your network',
+  provider_shared: 'your provider\u2019s shared network',
+  internet: '',
+}
+export const ROUTE_HOP_TIME = (ms: string): string => `${ms} ms`
+export const ROUTE_HOP_LOSS = (answered: number, sent: number): string => `${answered} of ${sent} answered`
+export const ROUTE_REACHED = (steps: number): string => `Reached in ${steps} ${steps === 1 ? 'step' : 'steps'}.`
+export const ROUTE_NOT_REACHED = 'The address itself did not answer. Many servers ignore these probes, so the route may still end there.'
+export const ROUTE_SILENT_NOTE = 'Routers that do not answer are shown as \u201cno answer\u201d: many are set never to, and the traffic still passes through them.'
+export const ROUTE_FAILED: Readonly<Record<'unsupported' | 'time_limit' | 'stopped' | 'probe_failed', string>> = {
+  unsupported: ROUTE_UNSUPPORTED,
+  time_limit: 'The trace stopped at its 90-second limit; the steps found so far are shown.',
+  stopped: 'The trace stopped because the service stopped.',
+  probe_failed: 'A probe could not be sent, so the trace stopped.',
+}
+export const ROUTE_POLL_MS = 1000
+export const ROUTE_STEPS_LABEL = 'Steps of the route'
