@@ -31,7 +31,7 @@ const STATES = {
 async function open(page: Page, view: 'simple' | 'advanced', dns: object) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/dns-check': dns } })
-  await page.goto('network/settings')
+  await page.goto('network/settings?group=watching')
   await expect(page.getByRole('heading', { name: 'Router DNS check' })).toBeVisible()
 }
 

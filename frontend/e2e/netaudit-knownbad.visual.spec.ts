@@ -13,7 +13,7 @@ for (const [name, state] of Object.entries({
 })) {
   test(`known-bad names card, ${name}, fits the screen`, async ({ page }, testInfo) => {
     await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/known-bad': state } })
-    await page.goto('network/settings')
+    await page.goto('network/settings?group=outside')
     const card = page.locator('[data-test="known-bad"]')
     await expect(card).toBeVisible()
     await expect(card.locator('[data-test="known-bad-link"]')).toHaveAttribute('href', 'https://urlhaus.abuse.ch/api/')

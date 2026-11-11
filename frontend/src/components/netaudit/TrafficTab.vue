@@ -44,13 +44,15 @@ usePolling(follow, FOLLOW_INTERVAL_MS)
         </div>
       </Panel>
 
-      <DestinationDataCard />
-
       <template v-if="summary">
         <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="traffic-when">{{ summary.interface }} · {{ formatRelativeTime(summary.at) }}</p>
         <TrafficReport :traffic="summary" />
       </template>
       <EmptyState v-else-if="!loadError" :title="TRAFFIC_NEVER_TITLE" :body="TRAFFIC_NEVER_BODY" data-test="traffic-never" />
+
+      <!-- The table that says who runs each address is set up once, so it sits after what a look shows rather than before it. -->
+      <DestinationDataCard />
+      <DestinationDataCard table="places" />
     </template>
   </div>
 </template>

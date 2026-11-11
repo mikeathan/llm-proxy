@@ -15,7 +15,7 @@ const STATES = {
 async function open(page: Page, view: 'simple' | 'advanced', state: (typeof STATES)[keyof typeof STATES]) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/ubuntu-data': state } })
-  await page.goto('network/settings')
+  await page.goto('network/settings?group=data')
   await expect(page.getByRole('region', { name: 'Ubuntu security data' })).toBeVisible()
 }
 

@@ -76,14 +76,21 @@ test('with the table of address owners the tab names who runs each place, ranks 
     countries: [{ country: 'US', bytes: 32 * MB }, { country: 'DE', bytes: 3 * MB }],
     destinations: LOOK.destinations.map((d, i) => (i < 3 ? { ...d, name_from: i === 1 ? 'tls' : 'dns', owner: { asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' } } : d)),
   }
-  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: OWNED }, '/netaudit/destination-data': { ranges: 579453, loaded_at: new Date().toISOString(), source: 'iptoasn.com' } } })
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: OWNED }, '/netaudit/destination-data': { ranges: 579453, loaded_at: new Date().toISOString(), source: 'iptoasn.com' }, '/netaudit/destination-places': { ranges: 0, source: 'db-ip.com' } } })
   await page.goto('network/traffic')
   const tab = page.locator('[data-test="traffic-tab"]')
   await expect(tab.locator('[data-test="destination-owner"]').first()).toContainText('GOOGLE - Google LLC · United States')
-  await expect(tab.locator('[data-test="where-owners"] [data-test="where-row"]')).toHaveCount(3)
+  // The operators and the countries are two views of the same panel: one is open at a time.
+  await tab.getByRole('radio', { name: 'Operators' }).click()
+  await expect(tab.locator('[data-test="where-operators"] [data-test="where-row"]')).toHaveCount(3)
+  await tab.getByRole('radio', { name: 'Countries' }).click()
   await expect(tab.locator('[data-test="where-countries"] [data-test="where-row"]')).toHaveCount(2)
   await expect(tab.locator('[data-test="destination-data-line"]')).toContainText('579,453 address ranges')
   await expectNoSidewaysScroll(page)
-  if (testInfo.project.name === 'mobile') await expectTapArea(tab.locator('[data-test="destination-data-download"]'))
+  if (testInfo.project.name === 'mobile') {
+    // The tap check reads the viewport, and the clicks above scrolled the button away.
+    await tab.locator('[data-test="destination-data-download"]').scrollIntoViewIfNeeded()
+    await expectTapArea(tab.locator('[data-test="destination-data-download"]'))
+  }
   await lookAt(page, testInfo, 'traffic-owners.png', true)
 })

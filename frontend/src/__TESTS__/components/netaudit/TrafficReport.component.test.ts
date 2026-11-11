@@ -57,6 +57,14 @@ describe('TrafficReport', () => {
     expect(w.get('[data-test="traffic-split"]').text()).toContain('received')
   })
 
+  it('gives the four totals in the summary, beside the chart', () => {
+    const w = show(traffic())
+    expect(w.get('[data-test="stat-sent"]').text()).toBe('4 MB')
+    expect(w.get('[data-test="stat-received"]').text()).toBe('38 MB')
+    expect(w.get('[data-test="stat-internet"]').text()).toBe('41 MB')
+    expect(w.get('[data-test="stat-network"]').text()).toBe('1 MB')
+  })
+
   it('draws the seconds as a chart that has a text name for a screen reader', () => {
     const w = show(traffic())
     const chart = w.get('[data-test="traffic-chart"]')
@@ -115,36 +123,45 @@ describe('TrafficReport', () => {
       expect(w.get('[data-test="flow-owner"]').text()).toContain('United States')
     })
 
-    it('ranks the internet traffic by operator and by country, as shares of the internet traffic', () => {
+    const pick = async (w: ReturnType<typeof show>, label: string) => { await w.findAll('[role="radio"]').find((b) => b.text() === label)!.trigger('click') }
+
+    it('ranks the internet traffic by operator and by country, as shares of the internet traffic', async () => {
       const w = show(owned())
-      const owners = w.get('[data-test="where-owners"]').findAll('[data-test="where-row"]')
+      await pick(w, 'Operators')
+      const owners = w.get('[data-test="where-operators"]').findAll('[data-test="where-row"]')
       expect(owners.map((r) => r.get('[data-test="where-label"]').text())).toEqual(['GOOGLE - Google LLC AS15169 · United States', 'GITHUB AS36459 · United States'])
       expect(owners[0]!.text()).toContain('54%')
+      await pick(w, 'Countries')
       const countries = w.get('[data-test="where-countries"]').findAll('[data-test="where-row"]')
       expect(countries[0]!.get('[data-test="where-label"]').text()).toContain('United States')
       expect(countries[1]!.get('[data-test="where-label"]').text()).toContain('Germany')
     })
 
-    it('says how to get owners when the look was made without the table, and never guesses', () => {
+    it('says how to get owners when the look was made without the table, and never guesses', async () => {
       const w = show(traffic())
+      await pick(w, 'Operators')
       expect(w.get('[data-test="where-no-table"]').text()).toContain('without the table')
       expect(w.find('[data-test="where"]').exists()).toBe(false)
     })
 
-    it('says so when the table is held and none of the addresses is in it', () => {
+    it('says so when the table is held and none of the addresses is in it', async () => {
       const w = show(traffic({ owners_used: true, owners: [], countries: [] }))
+      await pick(w, 'Operators')
       expect(w.find('[data-test="where-nothing"]').exists()).toBe(true)
     })
 
-    it('draws no panel when nothing went to the internet', () => {
-      expect(show(traffic({ internet_bytes: 0, owners_used: true, owners: [] })).find('[data-test="where-no-table"]').exists()).toBe(false)
+    it('offers no operator or country view when nothing went to the internet', () => {
+      const w = show(traffic({ internet_bytes: 0, owners_used: true, owners: [] }))
+      expect(w.findAll('[role="radio"]')).toHaveLength(0)
+      expect(w.find('[data-test="where-no-table"]').exists()).toBe(false)
     })
 
-    it('treats a holder\'s name as text, never as markup', () => {
+    it('treats a holder\'s name as text, never as markup', async () => {
       const evil = '<img src=x onerror=alert(1)>'
       const w = show(traffic({ owners_used: true, owners: [{ asn: 1, name: evil, country: 'US', bytes: MB }], countries: [{ country: 'US', bytes: MB }] }))
+      await pick(w, 'Operators')
       expect(w.find('img').exists()).toBe(false)
-      expect(w.get('[data-test="where-owners"]').text()).toContain(evil)
+      expect(w.get('[data-test="where-operators"]').text()).toContain(evil)
     })
 
     it('says where a place\'s name came from and who runs it, in its detail', async () => {
@@ -264,7 +281,7 @@ describe('TrafficReport problems link', () => {
 
   it('links a device on this network that has open problems to them', async () => {
     const w = await open({ of: (a) => (a === '192.168.50.7' ? { count: 3, severity: 'high' } : null) })
-    await w.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+    await w.get('[data-test="places-network"] [data-test="destination-open"]').trigger('click')
     const link = w.get('[data-test="place-problems"] a')
     expect(link.attributes('href')).toBe('/network/findings?device=192.168.50.7')
     expect(link.text()).toBe('3 problems found on this device')
@@ -272,10 +289,51 @@ describe('TrafficReport problems link', () => {
 
   it('offers no link for an internet address or a device without problems', async () => {
     const w = await open({ of: () => ({ count: 1, severity: 'low' }) })
-    await w.findAll('[data-test="destination-open"]')[1]!.trigger('click')
+    await w.get('[data-test="places-internet"] [data-test="destination-open"]').trigger('click')
     expect(w.find('[data-test="place-problems"]').exists()).toBe(false)
     const none = await open({ of: () => null })
-    await none.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+    await none.get('[data-test="places-network"] [data-test="destination-open"]').trigger('click')
     expect(none.find('[data-test="place-problems"]').exists()).toBe(false)
+  })
+})
+
+describe('TrafficReport places in groups', () => {
+  const mixed = () => traffic({
+    owners_used: true,
+    destinations: [
+      { address: '192.168.50.251', bytes: 5 * MB, internet: false },
+      { name: 'github.com', address: '140.82.1.1', bytes: 3 * MB, internet: true, owner: { asn: 36459, name: 'GITHUB', country: 'US' } },
+      { address: '224.0.0.251', bytes: 4000, internet: false },
+      { address: '192.168.50.1', bytes: MB, internet: false },
+    ],
+    flows: [
+      { address: '140.82.1.1', name: 'github.com', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: MB, bytes_in: 2 * MB },
+      { address: '140.82.1.1', name: 'github.com', port: 22, proto: 'tcp', kind: 'ssh', internet: true, bytes_out: 1000, bytes_in: 1000 },
+    ],
+  })
+
+  it('lists the internet first, then this network, then the shared addresses, each biggest first', () => {
+    const w = show(mixed())
+    const names = (id: string) => w.get(`[data-test="places-${id}"]`).findAll('[data-test="destination-name"]').map((n) => n.text())
+    expect(names('internet')).toEqual(['github.com'])
+    expect(names('network')).toEqual(['192.168.50.251', '192.168.50.1'])
+    expect(names('shared')).toEqual(['224.0.0.251'])
+    expect(w.get('[data-test="places-internet"] [data-test="destination-owner"]').text()).toBe('GITHUB · United States')
+    expect(w.get('[data-test="places-internet"] [data-test="destination-kinds"]').text()).toBe('HTTPS, SSH')
+  })
+
+  it('names a device on this network the way the person does', async () => {
+    service.devices.mockResolvedValue({ devices: [{ mac: 'aa:bb:cc:dd:ee:01', ip: '192.168.50.1', name: 'Router' }] })
+    const w = show(mixed())
+    await flushPromises()
+    expect(w.get('[data-test="places-network"] [data-test="destination-device"]').text()).toContain('Router')
+  })
+
+  it('shows the first conversations and the rest on request', async () => {
+    const many = Array.from({ length: 15 }, (_, i) => ({ address: `10.0.0.${i + 1}`, port: 80, proto: 'tcp' as const, kind: 'http' as const, internet: false, bytes_out: 10, bytes_in: 10 }))
+    const w = show(traffic({ flows: many }))
+    expect(w.findAll('[data-test="flow"]')).toHaveLength(12)
+    await w.get('[data-test="flows-toggle"]').trigger('click')
+    expect(w.findAll('[data-test="flow"]')).toHaveLength(15)
   })
 })

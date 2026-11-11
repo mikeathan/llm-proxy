@@ -12,7 +12,7 @@ import { useNearby } from "../../composables/netaudit/useNearby"
 import { useResponsiveLayout } from "../../composables/ui/useResponsiveLayout"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { copyText } from "../../utils/clipboard"
-import { toNetwork } from "../../router/routes"
+import { toNetworkSettings } from "../../router/routes"
 import {
   NEARBY_ADVERTISES_AS, NEARBY_CHECK_NOW, NEARBY_CHECKING, NEARBY_CLOSE_DETAIL, NEARBY_COPIED, NEARBY_COPY, NEARBY_COPY_FAILED, NEARBY_COPY_HINT, NEARBY_FILTER_LABEL,
   NEARBY_FILTER_LABELS, NEARBY_FILTERS, NEARBY_GROUP_TITLES, NEARBY_KIND_ICONS, NEARBY_NO_MATCH, NEARBY_OFF_BODY, NEARBY_READ_FAILED_TITLE, NEARBY_TITLE, NEARBY_TURN_ON,
@@ -69,7 +69,7 @@ onMounted(load)
 
       <template v-else-if="!state.enabled">
         <p class="m-0 text-secondary" data-test="nearby-off">{{ NEARBY_OFF_BODY }}</p>
-        <RouterLink :to="toNetwork('settings')" class="inline-flex min-h-11 items-center self-start text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8" data-test="nearby-turn-on">{{ NEARBY_TURN_ON }}</RouterLink>
+        <RouterLink :to="toNetworkSettings('watching')" class="inline-flex min-h-11 items-center self-start text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8" data-test="nearby-turn-on">{{ NEARBY_TURN_ON }}</RouterLink>
       </template>
 
       <template v-else>

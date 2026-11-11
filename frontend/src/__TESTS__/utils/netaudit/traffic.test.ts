@@ -142,6 +142,10 @@ describe('owners of an address', () => {
   it('writes the operator and the country on one line, and the number when the holder has no name', () => {
     expect(ownerLine({ asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' })).toBe('GOOGLE - Google LLC · United States')
     expect(ownerLine({ asn: 64500, name: '', country: 'DE' })).toBe('AS64500 · Germany')
+    // With the table of cities: smallest place first, and a region that repeats the city is said once.
+    expect(ownerLine({ asn: 15169, name: 'GOOGLE', country: 'US', city: 'Mountain View', region: 'California' })).toBe('GOOGLE · Mountain View, California, United States')
+    expect(ownerLine({ asn: 1, name: 'SG', country: 'SG', city: 'Singapore', region: 'Singapore' })).toBe('SG · Singapore, Singapore')
+    expect(ownerLine({ asn: 1, name: 'X', country: 'US', region: 'Texas' })).toBe('X · Texas, United States')
     expect(ownerLine({ asn: 64500, name: 'X' })).toBe('X')
     expect(ownerLine(undefined)).toBe('')
   })

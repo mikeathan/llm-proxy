@@ -94,6 +94,11 @@ type TrafficOwner struct {
 	ASN     uint32 `json:"asn"`
 	Name    string `json:"name"`
 	Country string `json:"country,omitempty"`
+	// Region and City are where the address is used, from a second public table (DB-IP Lite City) read from disk on this computer. They are
+	// approximate (a content network shows the hub that serves an address, not the machine), empty until that table is downloaded, and text
+	// somebody else chose, so they are shown only as text.
+	Region string `json:"region,omitempty"`
+	City   string `json:"city,omitempty"`
 }
 
 // TrafficOwnerShare is the internet bytes that went to or came from one network holder.

@@ -121,6 +121,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/helper/capture_host"},              // listens on the link for up to 60 seconds with a raw-packet capability and keeps the headers of this computer's own traffic and its DNS messages (Constitution I.13)
 	// Makes this computer ask an outside service (iptoasn.com) for a table of address owners (Constitution I.2, I.13).
 	{http.MethodPost, "/admin/api/netaudit/destination-data/download"},
+	// Makes this computer ask an outside service (db-ip.com) for a table of cities, about 86 MB (Constitution I.2, I.13).
+	{http.MethodPost, "/admin/api/netaudit/destination-places/download"},
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

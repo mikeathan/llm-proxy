@@ -102,7 +102,7 @@ for (const view of ['simple', 'advanced'] as const) {
 test('the IPv6 refusal is on the Settings tab and fits a phone, and no switch is there', async ({ page }) => {
   await setNetauditView(page, 'simple')
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/devices': { devices: [], gateway: { changed: false }, baselined: true, updated_at: seen }, '/netaudit/presence': presence, '/netaudit/ipv6-discovery': { enabled: true, problem: 'not_permitted' } } })
-  await page.goto('network/settings')
+  await page.goto('network/settings?group=watching')
   const card = page.locator('[data-test="device-settings"]')
   await expect(card.locator('[data-test="ipv6-problem"]')).toBeVisible()
   await expect(card.getByText('sudo sysctl -w net.ipv4.ping_group_range')).toBeVisible()

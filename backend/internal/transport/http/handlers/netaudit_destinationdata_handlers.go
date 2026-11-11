@@ -11,22 +11,23 @@ import (
 // downloadDestinationDataLimit bounds the operator's download of the table.
 const downloadDestinationDataLimit = 3 * time.Minute
 
-// destinationDataSource is the public service the table comes from, named on the screen so the operator knows who is asked.
-const destinationDataSource = "iptoasn.com"
-
-// DestinationOwners is what the handlers use: the table of address owners the Traffic view names destinations with.
+// DestinationOwners is what the handlers use: a table the Traffic view names destinations with (the address owners, or the places they are used).
 type DestinationOwners interface {
 	Status() ipowners.Status
 	Download(ctx context.Context) error
 	Remove() error
 }
 
-// NetauditDestinationDataHandlers serve the table of address owners: what is held, the operator's download (a step-up route, because it makes
+// NetauditDestinationDataHandlers serve one table of destination data (the address owners, or the places): what is held, the operator's download (a step-up route, because it makes
 // this computer ask an outside service), and removing it. Looking an address up never leaves this computer.
-type NetauditDestinationDataHandlers struct{ owners DestinationOwners }
+type NetauditDestinationDataHandlers struct {
+	owners DestinationOwners
+	// source is the public service this table comes from, named on the screen so the operator knows who is asked.
+	source string
+}
 
-func NewNetauditDestinationDataHandlers(o DestinationOwners) *NetauditDestinationDataHandlers {
-	return &NetauditDestinationDataHandlers{owners: o}
+func NewNetauditDestinationDataHandlers(o DestinationOwners, source string) *NetauditDestinationDataHandlers {
+	return &NetauditDestinationDataHandlers{owners: o, source: source}
 }
 
 type destinationDataView struct {
@@ -36,7 +37,7 @@ type destinationDataView struct {
 }
 
 func (h *NetauditDestinationDataHandlers) view() destinationDataView {
-	return destinationDataView{Status: h.owners.Status(), Source: destinationDataSource}
+	return destinationDataView{Status: h.owners.Status(), Source: h.source}
 }
 
 // Get answers what is held.
