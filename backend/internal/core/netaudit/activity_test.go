@@ -200,3 +200,23 @@ func TestSummaryPrompt_TheRouterCountIsANumberAndItsPortsAreLeftOut(t *testing.T
 		t.Errorf("a port reached the prompt: %q", got)
 	}
 }
+
+func TestActivityOf_ARecheckThatFoundAFindingGoneAndAReturnAreRows(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	fixed, back := smbFinding("10.0.0.1"), smbFinding("10.0.0.2")
+	life := []models.FindingLife{
+		{Key: fixed.Key(), FirstSeen: now.Add(-48 * time.Hour), ResolvedAt: now.Add(-time.Hour), ResolvedBy: models.LifeByRecheck},
+		{Key: back.Key(), FirstSeen: now.Add(-72 * time.Hour), OpenSince: now.Add(-2 * time.Hour), Returned: 2},
+		{Key: "10.0.0.3|tcp|445|smb_v1", FirstSeen: now.Add(-72 * time.Hour), ResolvedAt: now.Add(-time.Hour), ResolvedBy: models.LifeByAudit},
+	}
+	got := ActivityOf(ActivityInput{Now: now, Life: life}, 10).Rows
+	if len(got) != 2 {
+		t.Fatalf("a row for the recheck's fix and the return, none for an audit's quiet resolution: %+v", got)
+	}
+	if got[0].Kind != ActivityFixed || got[0].Device != "10.0.0.1" || got[0].Port != 445 || got[0].Check != CheckTitle(CheckSMBv1) {
+		t.Errorf("fixed row: %+v", got[0])
+	}
+	if got[1].Kind != ActivityReturned || got[1].Count != 2 {
+		t.Errorf("returned row: %+v", got[1])
+	}
+}

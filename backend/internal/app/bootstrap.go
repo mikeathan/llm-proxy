@@ -66,7 +66,7 @@ type Container struct {
 func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.TaskExecutor {
 	exec := automation.NewLLMTaskExecutor(svc).(*automation.LLMTaskExecutor)
 	exec.SetShellPool(c.Infra.ShellManager)
-	reporter := netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()).WithFixes(svc.Persistence()).WithExpectations(svc.Persistence()).WithDeepChecks(svc.Persistence())
+	reporter := netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()).WithFixes(svc.Persistence()).WithExpectations(svc.Persistence()).WithDeepChecks(svc.Persistence()).WithLife(svc.Persistence())
 	withNetauditSources(reporter, svc)
 	exec.SetReportHook(reporter)
 	return exec
@@ -88,6 +88,9 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}
 	withNetauditChecks(reporter, svc)
 	withNetauditProbes(reporter, svc)
+	if v, ok := svc.(interface{ NetauditFootprint() netaudit.FootprintSource }); ok && v.NetauditFootprint() != nil {
+		reporter.WithFootprint(v.NetauditFootprint())
+	}
 	withNetauditInsight(reporter, svc)
 	if v, ok := svc.(interface{ NetauditMonitors() netaudit.MonitorStalls }); ok && v.NetauditMonitors() != nil {
 		reporter.WithMonitors(v.NetauditMonitors())

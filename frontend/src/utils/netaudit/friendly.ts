@@ -89,8 +89,21 @@ const HOST_LABEL = 'This computer'
 
 export const isHostDevice = (device: string): boolean => device === HOST_DEVICE
 
-/** A device as a person reads it: an address, or "This computer" for the machine the program runs on. */
-export const deviceLabel = (device: string): string => (isHostDevice(device) ? HOST_LABEL : device)
+/** The server labels a finding about a watched domain or email address `domain:<name>` or `email:<id>`: it has no device, so it has none of the device actions. */
+const DOMAIN_PREFIX = 'domain:'
+const EMAIL_PREFIX = 'email:'
+const EMAIL_LABEL = 'A watched email address'
+export const isFootprintDevice = (device: string): boolean => device.startsWith(DOMAIN_PREFIX) || device.startsWith(EMAIL_PREFIX)
+
+/** Whether a finding's `device` is a network address a scan, expected ports or a deep check can be aimed at: not the computer itself, not a domain or email address. */
+export const isScannable = (device: string): boolean => !isHostDevice(device) && !isFootprintDevice(device)
+
+/** A device as a person reads it: an address, "This computer" for the machine the program runs on, "Domain <name>", or "A watched email address". */
+export function deviceLabel(device: string): string {
+  if (isHostDevice(device)) return HOST_LABEL
+  if (device.startsWith(DOMAIN_PREFIX)) return `Domain ${device.slice(DOMAIN_PREFIX.length)}`
+  return device.startsWith(EMAIL_PREFIX) ? EMAIL_LABEL : device
+}
 
 /** A check is a finding beyond "this port is open": a weak setting a safe script found. */
 export const isCheck = (f: { check?: string }): boolean => !!f.check && f.check !== OPEN_PORT

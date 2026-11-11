@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/models"
 )
 
@@ -20,7 +21,26 @@ type NetauditActivityHandlers struct {
 	alerts    NetworkAlertLog
 	series    OverviewSeries
 	baselines NetauditBaselines
+	lifeStore findingsview.Life // optional: without it no finding's recheck or return is a row
 	now       func() time.Time
+}
+
+// WithLife adds the findings' history, so a recheck's fix and a return become timeline rows.
+func (h *NetauditActivityHandlers) WithLife(life findingsview.Life) *NetauditActivityHandlers {
+	h.lifeStore = life
+	return h
+}
+
+// life is the workspace's finding history; none when the store is absent or unreadable (a note, not part of the timeline's core).
+func (h *NetauditActivityHandlers) life(workspaceID string) []models.FindingLife {
+	if h.lifeStore == nil || workspaceID == "" {
+		return nil
+	}
+	records, err := h.lifeStore.ReadLife(workspaceID)
+	if err != nil {
+		return nil
+	}
+	return records
 }
 
 func NewNetauditActivityHandlers(devices DeviceInventory, alerts NetworkAlertLog, series OverviewSeries, baselines NetauditBaselines) *NetauditActivityHandlers {
@@ -68,5 +88,5 @@ func (h *NetauditActivityHandlers) build(q url.Values, limit int) (netaudit.Acti
 			return netaudit.Activity{}, err
 		}
 	}
-	return netaudit.ActivityOf(netaudit.ActivityInput{Now: h.now(), Inventory: inv, Alerts: alerts, Series: series, Baseline: base}, limit), nil
+	return netaudit.ActivityOf(netaudit.ActivityInput{Now: h.now(), Inventory: inv, Alerts: alerts, Series: series, Baseline: base, Life: h.life(q.Get("workspace_id"))}, limit), nil
 }

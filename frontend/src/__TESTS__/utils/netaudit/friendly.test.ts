@@ -104,3 +104,15 @@ describe('shortTitle', () => {
     expect(shortTitle({ device: '192.0.2.10', port: 22, service: 'ssh', check: 'open_port' })).toBe('Remote login (port 22) on 192.0.2.10')
   })
 })
+
+describe('footprint labels', () => {
+  it('has no device actions for a domain or an email address, and says what it is about', async () => {
+    const { isScannable, deviceLabel } = await import('../../../utils/netaudit/friendly')
+    expect(isScannable('10.0.0.5')).toBe(true)
+    expect(isScannable('this-computer')).toBe(false)
+    expect(isScannable('domain:example.com')).toBe(false)
+    expect(isScannable('email:a1b2c3d4')).toBe(false)
+    expect(deviceLabel('domain:example.com')).toBe('Domain example.com')
+    expect(deviceLabel('email:a1b2c3d4')).toBe('A watched email address')
+  })
+})

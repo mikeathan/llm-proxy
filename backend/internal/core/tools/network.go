@@ -135,6 +135,12 @@ func (n *NetworkTools) Open(ctx context.Context, targetURL string) (*http.Respon
 // OpenAccepting is Open for a service that serves several formats from one address: accept, if not empty, is sent as the
 // Accept header. The guard path is the same.
 func (n *NetworkTools) OpenAccepting(ctx context.Context, targetURL, accept string) (*http.Response, error) {
+	return n.OpenWith(ctx, targetURL, accept, nil)
+}
+
+// OpenWith is OpenAccepting for a service that needs request headers of its own (an API key). The guard path is the same;
+// the caller must never put a header it would not want a log to hold, and the failure log names the URL only.
+func (n *NetworkTools) OpenWith(ctx context.Context, targetURL, accept string, headers map[string]string) (*http.Response, error) {
 	cfg := n.configProvider(ctx)
 	if !cfg.Enabled {
 		return nil, ErrNetworkDisabled
@@ -163,6 +169,9 @@ func (n *NetworkTools) OpenAccepting(ctx context.Context, targetURL, accept stri
 	req.Header.Set("User-Agent", "LLM-Proxy-Agent/1.0")
 	if accept != "" {
 		req.Header.Set("Accept", accept)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 
 	resp, err := n.httpClient.Do(req)

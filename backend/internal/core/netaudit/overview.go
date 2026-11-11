@@ -38,6 +38,8 @@ type OverviewInput struct {
 	// AttackPaths is true while the attack paths module is on; Touches are the devices that connected to a decoy.
 	AttackPaths bool
 	Touches     []models.DecoyTouch
+	// Life is the history of each finding; it gives the standing. Optional.
+	Life []models.FindingLife
 }
 
 // DeviceCounts are the device numbers of the overview.
@@ -87,6 +89,8 @@ type Overview struct {
 	AttackPaths []AttackPath `json:"attack_paths"`
 	// AttackPathsOn says whether the module is on, so the card can tell "nothing found" from "switched off".
 	AttackPathsOn bool `json:"attack_paths_on"`
+	// Standing is how long the open problems have lasted and how the last week compared with the one before, from the finding history.
+	Standing Standing `json:"standing"`
 }
 
 // OverviewOf builds the overview.
@@ -100,6 +104,7 @@ func OverviewOf(in OverviewInput) Overview {
 		o.Series = []models.NetworkDay{}
 	}
 	o.AttackPaths, o.AttackPathsOn = overviewPaths(in), in.AttackPaths
+	o.Standing = StandingOf(StandingInput{Now: in.Now, Baseline: in.Baseline, Acks: in.Acks, Life: in.Life})
 	o.Posture = postureOf(o, in.Inventory.Baselined)
 	return o
 }

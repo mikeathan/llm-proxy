@@ -19,6 +19,9 @@ Verified against the code on 2026-11-09 (v0.68.0); the platform column comes fro
 | Device names, maker (OUI), MAC, IPv6, presence check, new-device and MAC-change alerts | `inventory.go`, `presence.go`, `discovery6.go`, `stacks/network/oui/` | both | Devices |
 | Nearby (mDNS and SSDP announcements) and rogue gateway | `core/netaudit/nearby/`, `platform/mcast/` | both | Devices |
 | Scan on arrival; follow-up scan of a new device | `followup.go` | both | message |
+| **Footprint** (outside the LAN): new certificates (crt.sh), domain expiry (RDAP), SPF and DMARC (DoH), email breaches (k-anonymity range search, own key); each service opt-in per switch, per-watch frequency and Check now; findings labelled `domain:<name>` / `email:<id>` | `core/netaudit/footprint/`, `persistence/footprint.go`, `FootprintCard.vue`; `GET/PUT /admin/api/netaudit/footprint`; ADR-0042 | both | Network → Settings, Findings |
+| **Standing** ("are we getting better?": age of open problems, came back, week against week) | `standing.go` (from the finding history only), `StandingCard.vue` | both | Overview |
+| **Finding history** (first seen, resolved by audit or recheck, came back N times) and **Check again** for one finding (a scan of its own device and port: fixed / still there / could not check; never "fixed" when the check was not made) | `lifecycle.go`, `recheck.go`, `findingsview/`, `FixGuidePanel.vue`, `useRecheck.ts`; endpoint `POST /admin/api/netaudit/recheck`; Timeline rows `finding_fixed` / `finding_returned` | both (needs nmap) | Findings card, Timeline |
 
 ## Listening and watching
 
@@ -39,7 +42,7 @@ Verified against the code on 2026-11-09 (v0.68.0); the platform column comes fro
 
 **Linux** (all of it): open ports and new listeners (`new_listener`) · startup and change files: systemd units, cron, SSH server config, sudoers, DNS settings, authorized_keys, this program's own file (`files.go`) · program files against dpkg's checksums (`host_file_modified`, `integrity.go`) · installed packages against Canonical's USN OVAL (`packages.go`, `flaws.go`) · patch state (`patches.go`) · hardening: firewall, auto-updates, reboot pending, disk, rp_filter, SSH root and password login (`hardening.go`) · accounts, groups, set-id files, kernel modules, preload (`privilege.go`, `hostprivilege.go`) · key-file permissions (`keyfiles.go`) · Docker bridge (`docker.go`) · failed logins from btmp (`platform/loginlog/`, `loginwatch.go`).
 
-**macOS** (since 2026-11-09, measured on a Mac, plain file reads, no program started): startup files compared, adding **LaunchDaemons and LaunchAgents** (`launch_daemons`, `launch_agents`, `FileSpecsFor` in `files.go`), sudoers, sshd_config, DNS settings, authorized_keys including `/Users/*` · **open ports and new listeners** (`new_listener`), read in pure Go from the kernel's socket tables (`platform/hostwatch/pcblist.go`, `sockets_darwin.go`; since 2026-11-10; if the table cannot be read the report says **open ports were not checked**, `HostLook.PortsUnchecked`, and no ports baseline is kept) · accounts, packages, integrity, patches and the SSH server's settings are not judged (`hardenerFor`: macOS ships `sshd_config` whether or not Remote Login is on). **Not covered on macOS:** open ports (listing them needs a program, and a guarded program does not start on macOS unless the operator allows running unconfined; the osquery and `netstat` options are in plan `network-host-and-tls-looks.md`), packages, integrity, privilege, hardening.
+**macOS** (since 2026-11-09, measured on a Mac, plain file reads, no program started): startup files compared, adding **LaunchDaemons and LaunchAgents** (`launch_daemons`, `launch_agents`, `FileSpecsFor` in `files.go`), sudoers, sshd_config, DNS settings, authorized_keys including `/Users/*` · **open ports and new listeners** (`new_listener`), read in pure Go from the kernel's socket tables (`platform/hostwatch/pcblist.go`, `sockets_darwin.go`; since 2026-11-10; if the table cannot be read the report says **open ports were not checked**, `HostLook.PortsUnchecked`, and no ports baseline is kept) · accounts, packages, integrity, patches and the SSH server's settings are not judged (`hardenerFor`: macOS ships `sshd_config` whether or not Remote Login is on). **Not covered on macOS:** packages, integrity, privilege, hardening.
 
 ## Reading and presenting
 
@@ -47,7 +50,7 @@ Findings tab (Needs you / Notes, By kind / By device) · Devices tab · Timeline
 
 ## The model and the agent
 
-The agent reads **findings and typed counts**, never raw text from a device or a program (Constitution I.8, ADR-0036, ADR-0025). `network_scan` is the agent's tool (`core/netaudit/scantool`); intrusive modes are refused to it and to scheduled runs (ADR-0012).
+The agent reads **findings and typed counts**, never raw text from a device or a program (Constitution I.8, ADR-0036, ADR-0025). `network_scan` is the agent's tool (`core/netaudit/scantool`); intrusive modes are refused to it and to scheduled runs (ADR-0012). **`network_findings`** (since 2026-11-10) reads the saved result of the workspace's latest audit for chat: fixed-wording header, a bounded worst-first list (25, open ports only when new), accepted findings left out and counted, no guide or fix text, every device-supplied string inside the untrusted-data fence (`core/netaudit/findingstool`, category `netfindings`, offered only where an audit exists; the Findings screen and the tool share `core/netaudit/findingsview`).
 
 ## Programs the core runs (guarded, `platform/progexec`, `platform/isolation`)
 

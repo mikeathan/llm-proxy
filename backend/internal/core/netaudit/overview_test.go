@@ -94,3 +94,12 @@ func TestOverview_RecentListsNewDevicesAndAddressChangesNewestFirstAndBounded(t 
 		}
 	}
 }
+
+func TestOverviewOf_CarriesTheStandingFromTheFindingHistory(t *testing.T) {
+	f := smbFinding("10.0.0.1")
+	b := models.ScanBaseline{ScannedAt: standingNow, Findings: []models.ScanFinding{f}}
+	o := OverviewOf(OverviewInput{Now: standingNow, Baseline: b, Life: []models.FindingLife{openLife(f, 40, 40, 1)}})
+	if o.Standing.Tracked != 1 || o.Standing.OverMonth != 1 || o.Standing.CameBack != 1 {
+		t.Errorf("%+v", o.Standing)
+	}
+}

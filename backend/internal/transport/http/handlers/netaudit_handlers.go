@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/internal/platform/scanscope"
 	"llm-proxy/models"
 )
@@ -65,6 +66,8 @@ type NetauditHandlers struct {
 	expects   NetauditExpectations // optional: without it the expectations endpoints answer 404
 	deep      NetauditDeep         // optional: without it the deep-check endpoints answer 404
 	guides    NetauditGuides       // optional: without it every finding gets its fixed guide
+	recheck   NetauditRechecker    // optional: without it "check again" answers 404
+	life      findingsview.Life    // optional: without it findings carry no first-seen time or came-back count
 }
 
 // NetauditGuides gives a finding its guide, built for this computer where that helps (the firewall plan). netaudit.HostGuides
@@ -76,6 +79,12 @@ type NetauditGuides interface {
 // WithGuides makes the findings carry guides built for this computer.
 func (h *NetauditHandlers) WithGuides(g NetauditGuides) *NetauditHandlers {
 	h.guides = g
+	return h
+}
+
+// WithLife makes the findings carry their history: when each first appeared and how many times it came back.
+func (h *NetauditHandlers) WithLife(life findingsview.Life) *NetauditHandlers {
+	h.life = life
 	return h
 }
 
@@ -103,159 +112,35 @@ func (h *NetauditHandlers) WithExpectations(expects NetauditExpectations) *Netau
 	return h
 }
 
-// findingView is a finding with whether the latest scan found it for the first time, and whether the operator has
-// accepted it (and until when).
-type findingView struct {
-	models.ScanFinding
-	// Key identifies the finding for accepting it; the page never builds one itself.
-	Key string `json:"key"`
-	New bool   `json:"new"`
-	// CheckTitle names the check in a few plain words, so a screen can put every place the same problem was found under
-	// one heading; empty for an open port.
-	CheckTitle string `json:"check_title,omitempty"`
-	// Fix is the suggested remedy for a check finding, fixed text the operator applies by hand; empty for an open port.
-	Fix string `json:"fix,omitempty"`
-	// Changed is true when the version differs from the scan before; PreviousVersion is what it was (possibly empty).
-	Changed         bool   `json:"changed"`
-	PreviousVersion string `json:"previous_version,omitempty"`
-	Accepted        bool   `json:"accepted"`
-	AcceptedNote    string `json:"accepted_note,omitempty"`
-	AcceptedTill    string `json:"accepted_until,omitempty"`
-	// Guide is the longer, fixed-text form of the fix for a check (steps, commands to copy, risk, undo); absent for an
-	// open port. FixState, FixMarkedAt and FixNote say what the operator told us about it: that they applied the fix,
-	// when and with what note, and whether a scan since still shows it.
-	Guide       *netaudit.FixGuide `json:"guide,omitempty"`
-	FixState    string             `json:"fix_state,omitempty"`
-	FixMarkedAt string             `json:"fix_marked_at,omitempty"`
-	FixNote     string             `json:"fix_note,omitempty"`
-}
-
-// resolvedView is a finding the latest scan no longer shows, with when the operator marked it fixed if they had.
-type resolvedView struct {
-	models.ScanFinding
-	FixedAt string `json:"fixed_at,omitempty"`
-}
-
-// findingsResponse is an automation's latest scan as a screen needs it.
-type findingsResponse struct {
-	Scanned   bool           `json:"scanned"`
-	ScannedAt string         `json:"scanned_at,omitempty"`
-	Engine    string         `json:"engine,omitempty"`
-	Findings  []findingView  `json:"findings"`
-	Resolved  []resolvedView `json:"resolved"`
-	// Unscanned are the devices the engine ran out of time on; DevicesUp is how many addresses answered.
-	Unscanned []string `json:"unscanned"`
-	DevicesUp int      `json:"devices_up"`
-	// FirstScan is true when this scan is the baseline: nothing came before it, so no open port in it is a change.
-	FirstScan bool `json:"first_scan"`
-}
-
 // GetFindings returns the latest scan of one automation: its findings (marking the new ones) and what was resolved
-// since the scan before. Scanned is false when the automation has not scanned yet.
+// since the scan before. Scanned is false when the automation has not scanned yet. The view is built by findingsview, the
+// same reading the assistant's network tools use.
 func (h *NetauditHandlers) GetFindings(w http.ResponseWriter, r *http.Request) {
 	workspaceID, automation := r.URL.Query().Get("workspace_id"), r.URL.Query().Get("automation")
 	if workspaceID == "" || automation == "" {
 		writeJSONError(w, http.StatusBadRequest, "workspace_id and automation are required")
 		return
 	}
-	b, err := h.baselines.ReadBaseline(workspaceID, automation)
+	reader := findingsview.Reader{Baselines: h.baselines, Guide: h.guideFor()}
+	// An absent store stays a nil interface, so the reader skips it; a typed-nil assignment would not.
+	if h.acks != nil {
+		reader.Acks = h.acks
+	}
+	if h.fixes != nil {
+		reader.Fixes = h.fixes
+	}
+	if h.deep != nil {
+		reader.Deep = h.deep
+	}
+	if h.life != nil {
+		reader.Life = h.life
+	}
+	report, err := reader.Read(workspaceID, automation)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	resp := findingsResponse{Findings: []findingView{}, Resolved: []resolvedView{}, Unscanned: []string{}}
-	if !b.ScannedAt.IsZero() {
-		resp.Scanned, resp.ScannedAt, resp.Engine, resp.DevicesUp, resp.FirstScan = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp, b.FirstScan
-		resp.Unscanned = append(resp.Unscanned, b.Unscanned...)
-		views := newFindingViewer(b, h.activeAcks(workspaceID), h.fixRecords(workspaceID)).withDeepChecks(h.deepTimes(workspaceID))
-		views.guide = h.guideFor()
-		for _, f := range b.Findings {
-			resp.Findings = append(resp.Findings, views.finding(f))
-		}
-		for _, r := range b.Resolved {
-			resp.Resolved = append(resp.Resolved, views.resolved(r))
-		}
-	}
-	respondJSON(w, resp)
-}
-
-// findingViewer turns the findings of one saved scan into what a screen needs, with the operator's acceptances and fix
-// records applied.
-type findingViewer struct {
-	b     models.ScanBaseline
-	isNew map[string]bool
-	acks  map[string]models.ScanAck
-	fixes map[string]models.FixRecord
-	// guide gives a finding its guide; netaudit.GuideFor unless the handlers have one built for this computer.
-	guide func(string) (netaudit.FixGuide, bool)
-	// deepAt is when each device was last checked deeply. A deep finding is carried into every audit without being checked
-	// again, so a fix mark on it is judged against that time and not against the nightly scan's.
-	deepAt map[string]time.Time
-}
-
-// withDeepChecks gives the viewer the time of each device's last deep check.
-func (v findingViewer) withDeepChecks(at map[string]time.Time) findingViewer {
-	v.deepAt = at
-	return v
-}
-
-// checkedAt is the time of the scan that last looked for this finding: the audit's, or for a deep check's finding the deep
-// check's own.
-func (v findingViewer) checkedAt(f models.ScanFinding) time.Time {
-	if at, ok := v.deepAt[f.Device]; ok && netaudit.IsDeepCheck(f.Check) {
-		return at
-	}
-	return v.b.ScannedAt
-}
-
-// deepTimes is the time of the last deep check of each device in a workspace; none when the service is absent or the
-// results cannot be read.
-func (h *NetauditHandlers) deepTimes(workspaceID string) map[string]time.Time {
-	if h.deep == nil {
-		return nil
-	}
-	items, err := h.deep.List(workspaceID)
-	if err != nil {
-		return nil
-	}
-	out := make(map[string]time.Time, len(items))
-	for _, c := range items {
-		out[c.Device] = c.At
-	}
-	return out
-}
-
-func newFindingViewer(b models.ScanBaseline, acks map[string]models.ScanAck, fixes map[string]models.FixRecord) findingViewer {
-	isNew := make(map[string]bool, len(b.NewKeys))
-	for _, k := range b.NewKeys {
-		isNew[k] = true
-	}
-	return findingViewer{b: b, isNew: isNew, acks: acks, fixes: fixes, guide: netaudit.GuideFor}
-}
-
-func (v findingViewer) finding(f models.ScanFinding) findingView {
-	key := f.Key()
-	view := findingView{ScanFinding: f, Key: key, New: v.isNew[key], CheckTitle: netaudit.CheckTitle(f.Check), Fix: netaudit.RemediationFor(f.Check)}
-	view.PreviousVersion, view.Changed = v.b.ChangedFrom[key]
-	if g, ok := v.guide(f.Check); ok {
-		view.Guide = &g
-		if rec, marked := v.fixes[key]; marked {
-			view.FixState, view.FixNote = string(netaudit.FixStateFor(rec, v.checkedAt(f))), rec.Note
-			view.FixMarkedAt = rec.AppliedAt.UTC().Format(time.RFC3339)
-		}
-	}
-	if a, ok := v.acks[key]; ok && netaudit.StateFor(a, f, time.Now()) == netaudit.AckActive {
-		view.Accepted, view.AcceptedNote, view.AcceptedTill = true, a.Note, a.ExpiresAt.UTC().Format(time.RFC3339)
-	}
-	return view
-}
-
-func (v findingViewer) resolved(r models.ScanFinding) resolvedView {
-	view := resolvedView{ScanFinding: r}
-	if at, ok := v.b.FixedAt[r.Key()]; ok {
-		view.FixedAt = at.UTC().Format(time.RFC3339)
-	}
-	return view
+	respondJSON(w, report)
 }
 
 // GetReadiness lists every unmet prerequisite with the one step that would meet it. An empty list means scans can run.
@@ -357,38 +242,6 @@ func (h *NetauditHandlers) CheckTargets(w http.ResponseWriter, r *http.Request) 
 	respondJSON(w, struct {
 		Problems []netaudit.TargetProblem `json:"problems"`
 	}{problems})
-}
-
-// activeAcks indexes the workspace's acceptances by finding key; a failure to read them lists every finding as not accepted.
-func (h *NetauditHandlers) activeAcks(workspaceID string) map[string]models.ScanAck {
-	out := map[string]models.ScanAck{}
-	if h.acks == nil {
-		return out
-	}
-	acks, err := h.acks.List(workspaceID)
-	if err != nil {
-		return out
-	}
-	for _, a := range acks {
-		out[a.Key] = a
-	}
-	return out
-}
-
-// fixRecords indexes the workspace's fix records by finding key; a failure to read them shows every finding without one.
-func (h *NetauditHandlers) fixRecords(workspaceID string) map[string]models.FixRecord {
-	out := map[string]models.FixRecord{}
-	if h.fixes == nil {
-		return out
-	}
-	records, err := h.fixes.List(workspaceID)
-	if err != nil {
-		return out
-	}
-	for _, r := range records {
-		out[r.Key] = r
-	}
-	return out
 }
 
 // ackRequest accepts one finding of an automation's latest scan.

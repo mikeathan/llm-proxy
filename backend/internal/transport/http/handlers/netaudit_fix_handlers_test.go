@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/models"
 )
 
@@ -72,12 +73,12 @@ func TestNetauditHandlers_FindingsCarryTheGuideAndWhatTheOperatorSaid(t *testing
 		{Key: smb.Key(), AppliedAt: scannedAt.Add(-time.Hour), Note: "off"}, // a scan since: still there
 		{Key: redis.Key(), AppliedAt: scannedAt.Add(time.Hour)},             // marked after the scan: waiting
 	}}
-	var got findingsResponse
+	var got findingsview.Report
 	rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil).WithFixes(fixes), "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	byKey := map[string]findingView{}
+	byKey := map[string]findingsview.Finding{}
 	for _, f := range got.Findings {
 		byKey[f.Key] = f
 	}
@@ -98,7 +99,7 @@ func TestNetauditHandlers_FindingsCarryTheGuideAndWhatTheOperatorSaid(t *testing
 func TestNetauditHandlers_FindingsStillWorkWithoutFixRecords(t *testing.T) {
 	smb := models.ScanFinding{Device: "10.0.0.1", Port: 445, Proto: "tcp", Check: netaudit.CheckSMBv1, Severity: "high"}
 	baseline := models.ScanBaseline{ScannedAt: time.Now(), Engine: "nmap", Findings: []models.ScanFinding{smb}}
-	var got findingsResponse
+	var got findingsview.Report
 	rec := getFindings(NewNetauditHandlers(nil, nil, fixedBaselines{b: baseline}, nil), "?workspace_id=ws&automation=nightly")
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Findings[0].Guide == nil || got.Findings[0].FixState != "" {
 		t.Errorf("the guide is there with no records at all: %s (%v)", rec.Body.String(), err)

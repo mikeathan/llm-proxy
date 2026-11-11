@@ -181,3 +181,12 @@ describe('router blocks', () => {
     expect(filterRows([blocks(), row({})], 'router')).toHaveLength(1)
   })
 })
+
+describe('finding rows', () => {
+  const finding = (over: Partial<ActivityRow>): ActivityRow => row({ group: 'findings', device: '192.0.2.10', port: 445, check: 'SMBv1 is on', ...over })
+
+  it('says a rechecked fix and a return in plain words, from typed fields', () => {
+    expect(activityText(finding({ kind: 'finding_fixed' }))).toBe('SMBv1 is on on 192.0.2.10, port 445 was checked again and is fixed')
+    expect(activityText(finding({ kind: 'finding_returned', count: 2 }))).toBe('SMBv1 is on on 192.0.2.10, port 445 came back after it had gone away')
+  })
+})

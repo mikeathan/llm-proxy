@@ -1,0 +1,30 @@
+{
+ "description": "RDAP bootstrap file for Domain Name System registrations",
+ "publication": "2026-10-28T22:00:04Z",
+ "services": [
+  [
+   [
+    "kg"
+   ],
+   [
+    "http://rdap.cctld.kg/"
+   ]
+  ],
+  [
+   [
+    "com"
+   ],
+   [
+    "https://rdap.verisign.com/com/v1/"
+   ]
+  ],
+  [
+   [
+    "net"
+   ],
+   [
+    "https://rdap.verisign.com/net/v1/"
+   ]
+  ]
+ ]
+}

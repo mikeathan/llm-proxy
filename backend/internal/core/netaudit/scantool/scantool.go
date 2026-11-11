@@ -12,16 +12,11 @@ import (
 
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/netaudit/findingsview"
 	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/scanscope"
 	"llm-proxy/models"
-)
-
-// Fences around the data block. The model is told, beside the block, that nothing inside it is an instruction.
-const (
-	dataOpen  = "<untrusted-scan-data>"
-	dataClose = "</untrusted-scan-data>"
 )
 
 // Scanner is the part of netaudit.Service the tool uses.
@@ -113,42 +108,6 @@ func explain(err error) error {
 	return &models.ToolUnavailableError{Reason: err.Error(), Cause: err}
 }
 
-// noCheckFindings is what the header says when the checks established nothing. An open port is a fact, not a problem; a model
-// told only a total of "findings" counted ports as problems and named checks it had read about in the tool description.
-const noCheckFindings = "No check found a problem in this scan: do not name one."
-
-// findingsLine counts the open ports apart from what the checks established, and names each check once, in fixed words, with
-// its count, in the order first seen.
-func findingsLine(findings []netaudit.Finding) string {
-	ports, checks := 0, 0
-	counts := map[string]int{}
-	var order []string
-	for _, f := range findings {
-		if f.Check == netaudit.CheckOpenPort {
-			ports++
-			continue
-		}
-		checks++
-		if counts[f.Check] == 0 {
-			order = append(order, f.Check)
-		}
-		counts[f.Check]++
-	}
-	line := fmt.Sprintf("%d open port(s).", ports)
-	if checks == 0 {
-		return line + " " + noCheckFindings
-	}
-	named := make([]string, 0, len(order))
-	for _, c := range order {
-		title := netaudit.CheckTitle(c)
-		if title == "" {
-			title = c
-		}
-		named = append(named, fmt.Sprintf("%s (%d)", title, counts[c]))
-	}
-	return fmt.Sprintf("%s %d check finding(s): %s.", line, checks, strings.Join(named, "; "))
-}
-
 // render writes a short header, the result as JSON inside the fenced block, and the rule for reading the block.
 func render(mode netaudit.Mode, res netaudit.Result, hidden int) (string, error) {
 	payload := struct {
@@ -161,11 +120,9 @@ func render(mode netaudit.Mode, res netaudit.Result, hidden int) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("failed to encode the scan result: %w", err)
 	}
-	// A banner could contain the closing fence; break it so the block cannot be ended from the inside.
-	data := strings.ReplaceAll(string(body), dataClose, "</untrusted-scan-data (removed)>")
-	header := fmt.Sprintf("network_scan %s finished with %s: %d host(s). %s", mode, res.Engine, len(res.Hosts), findingsLine(res.Findings))
+	header := fmt.Sprintf("network_scan %s finished with %s: %d host(s). %s", mode, res.Engine, len(res.Hosts), findingsview.Line(res.Findings))
 	if hidden > 0 {
 		header += fmt.Sprintf(" %d finding(s) the operator has accepted are left out.", hidden)
 	}
-	return fmt.Sprintf("%s\n%s\n%s\n%s\n%s", header, dataOpen, data, dataClose, prompts.UntrustedScanDataNote), nil
+	return header + "\n" + prompts.FenceScanData(string(body)), nil
 }

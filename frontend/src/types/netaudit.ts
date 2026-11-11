@@ -1,4 +1,5 @@
 // Network scan (plan network-audit): the shapes the /admin/api/netaudit endpoints return and take.
+import type { Ref } from 'vue'
 import type { SettingsTab } from './admin'
 import type { NetworkTab } from './routes'
 
@@ -97,6 +98,14 @@ export interface ScanFinding {
   accepted: boolean
   accepted_note?: string
   accepted_until?: string
+  /** When the program first saw this finding, when it last appeared, and how many times it came back after going away. */
+  first_seen?: string
+  open_since?: string
+  came_back?: number
+  /** When "Check again" found the problem gone after the scan that still lists it; the next audit confirms it. */
+  verified_fixed_at?: string
+  /** Whether "Check again" can judge this finding on its own device. */
+  recheckable?: boolean
 }
 
 /** A finding as it was, listed under "resolved" because the next scan no longer showed it. */
@@ -111,6 +120,9 @@ export interface ResolvedFinding {
   version?: string
   /** When the operator marked it fixed, if they had and this scan confirms it is gone. */
   fixed_at?: string
+  /** When and how it went away, from the finding's history: the nightly audit or the operator's recheck. */
+  resolved_at?: string
+  resolved_by?: 'audit' | 'recheck'
 }
 
 export interface FindingsReport {
@@ -318,6 +330,24 @@ export interface FixRequest {
   automation: string
   key: string
   note: string
+}
+
+/** What "Check again" found: the problem is gone, still there, or the check could not be made (never read as fixed). */
+export type RecheckOutcome = 'fixed' | 'still_there' | 'could_not_check'
+
+/** The server's answer to "Check again"; `reason` is fixed words, never text from a device. */
+export interface RecheckResult {
+  outcome: RecheckOutcome
+  reason: string
+  checked_at: string
+}
+
+/** The recheck state the Findings screen hands to the cards that show a finding: which finding is being checked, each answer by key, and the way to ask. */
+export interface RecheckController {
+  busyKey: Ref<string>
+  results: Record<string, RecheckResult>
+  errors: Record<string, string>
+  run: (key: string) => Promise<void>
 }
 
 /** What the operator says a device should offer: the TCP ports that may be open on it (none means nothing should answer). */
@@ -671,7 +701,16 @@ export interface NetworkChange {
   name?: string
 }
 
-export type ActivityKind = 'new_device' | 'address_changed' | 'alert' | 'ports_changed' | 'audit' | 'related' | 'router_blocks'
+export type ActivityKind =
+  | 'new_device'
+  | 'address_changed'
+  | 'alert'
+  | 'ports_changed'
+  | 'audit'
+  | 'related'
+  | 'router_blocks'
+  | 'finding_fixed'
+  | 'finding_returned'
 export type ActivityGroup = 'devices' | 'ports' | 'findings' | 'alerts' | 'router'
 export type ActivityFilter = 'all' | ActivityGroup
 
@@ -695,6 +734,10 @@ export interface ActivityRow {
   closed?: number
   /** The ports most tried on a router_blocks day, busiest first. */
   ports?: PortCount[]
+  /** The finding of a finding_fixed or finding_returned row: its device, port and the check's plain title. */
+  device?: string
+  port?: number
+  check?: string
 }
 
 /** How many times a destination port was tried. */
@@ -763,6 +806,24 @@ export interface NetworkOverview {
   attack_paths?: AttackPath[]
   /** Whether the attack paths module is on, so the card can tell "nothing found" from "switched off". */
   attack_paths_on?: boolean
+  /** How long the open problems have lasted and how the last week compared with the one before, from the finding history. */
+  standing?: NetworkStanding
+}
+
+export type StandingTrend = 'better' | 'worse' | 'same' | 'unknown'
+
+/** The server's `netaudit.Standing`: plain counts from the finding history; `history_since` is when that history starts. */
+export interface NetworkStanding {
+  tracked: number
+  oldest_days: number
+  median_days: number
+  over_month: number
+  came_back: number
+  week: { opened: number; resolved: number }
+  previous: { opened: number; resolved: number }
+  trend: StandingTrend
+  history_since?: string
+  enough: boolean
 }
 
 /** The list of malware host names (abuse.ch URLhaus): how many are held, when, whether an address is saved (never the address), and whether the comparison can work. */
@@ -995,3 +1056,57 @@ export interface ChartBar {
   second: number
   bytes: number
 }
+
+/** How often a watch is looked at on its own; it can always be looked at by hand. */
+export type FootprintFrequency = 'manual' | 'daily' | 'weekly'
+export type FootprintServiceId = 'certificates' | 'expiry' | 'mail_records' | 'breaches'
+
+/** The latest answer of one check on one watch; `reason_text` is the server's fixed sentence for a look that could not be made. */
+export interface FootprintResult {
+  check: 'certificates' | 'expiry' | 'mail_records' | 'breaches'
+  status: 'looked' | 'could_not_look'
+  reason?: string
+  reason_text?: string
+  at: string
+  looked_at?: string
+  new_certs?: number
+  expires_at?: string
+  spf?: 'missing' | 'weak' | 'ok'
+  dmarc?: 'missing' | 'none' | 'ok'
+  breaches?: number
+  breach_names?: string[]
+  stale?: boolean
+}
+
+/** A watched domain, or an email address (shown masked: the full address is never sent to the page). `label` names it to the server. */
+export interface FootprintWatch {
+  label: string
+  name: string
+  kind: 'domain' | 'email'
+  frequency: FootprintFrequency
+  results: FootprintResult[]
+}
+
+/** An outside service: whether it may be asked, and what it learns (the server's fixed words). */
+export interface FootprintService {
+  id: FootprintServiceId
+  on: boolean
+  learns: string
+  needs_key?: boolean
+}
+
+export interface FootprintState {
+  watches: FootprintWatch[]
+  services: FootprintService[]
+  key_saved: boolean
+  max_domains: number
+  max_emails: number
+}
+
+/** One change to the footprint settings; only the fields of its action are read. */
+export type FootprintCommand =
+  | { action: 'add_domain'; name: string; frequency?: FootprintFrequency }
+  | { action: 'add_email'; address: string; frequency?: FootprintFrequency }
+  | { action: 'remove'; label: string }
+  | { action: 'frequency'; label: string; frequency: FootprintFrequency }
+  | { action: 'service'; service: FootprintServiceId; on: boolean }

@@ -101,6 +101,9 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodDelete, "/admin/api/netaudit/wifi/networks"},         // stops watching a network name and forgets its confirmed access points: the same silencing
 	{http.MethodPut, "/admin/api/netaudit/known-bad/key"},            // stores the operator's abuse.ch address, which holds their key
 	{http.MethodDelete, "/admin/api/netaudit/known-bad/key"},         // removes it
+	{http.MethodPut, "/admin/api/netaudit/footprint"},                // names the operator's domains and addresses, and switches which outside services are told them
+	{http.MethodPut, "/admin/api/netaudit/footprint/key"},            // stores the operator's breach-service key
+	{http.MethodDelete, "/admin/api/netaudit/footprint/key"},         // removes it
 	{http.MethodPut, "/admin/api/netaudit/decoys"},                   // opens or closes listening sockets on this computer
 	{http.MethodDelete, "/admin/api/netaudit/decoys/touches"},        // erases the record of who probed the decoys: intrusion evidence, the same silencing
 	{http.MethodPut, "/admin/api/netaudit/router-log"},               // opens or closes the listening socket for the router's log (Constitution I.8)

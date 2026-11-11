@@ -6,6 +6,7 @@ import Sparkline from "../common/display/Sparkline.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import AttackPathsCard from "./AttackPathsCard.vue"
+import StandingCard from "./StandingCard.vue"
 import CoverageStrip from "./CoverageStrip.vue"
 import { attentionReasons, changeText, hasRouterCounts, nextAction, postureHeadline, refusedToday, seriesOf } from "../../utils/netaudit/networkOverview"
 import { formatRelativeTime, isRecorded } from "../../utils/format/time"
@@ -67,6 +68,8 @@ const devicesCaption = computed(() => {
     <CoverageStrip @open-tab="emit('open-tab', $event)" />
 
     <AttackPathsCard v-if="overview.attack_paths_on && overview.findings.scanned" :paths="overview.attack_paths ?? []" />
+
+    <StandingCard v-if="overview.standing && overview.findings.scanned" :standing="overview.standing" />
 
     <div class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] gap-px border border-hairline bg-border-hairline" data-test="stats">
       <StatCard label="Devices" :value="String(overview.devices.known)" :caption="devicesCaption">

@@ -44,6 +44,7 @@ var toolCategoryLabels = map[string]string{
 	models.CategoryFileSystem:    "Read and write files",
 	models.CategoryNetwork:       "Fetch web pages",
 	models.CategoryNetaudit:      "Scan the network",
+	models.CategoryNetFindings:   "Read network audit findings",
 	models.CategoryMemory:        "Memory",
 	models.CategoryReminders:     "Reminders",
 }

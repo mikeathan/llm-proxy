@@ -56,3 +56,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0039](ADR-0039-how-the-listening-and-discovering-sensors-reach-the-network-stack.md) | How the listening and discovering sensors reach the Network stack | proposed | 2026-11-09 | network-audit |
 | [ADR-0040](ADR-0040-the-traffic-look-is-its-own-helper-action-with-its-own-limits.md) | The traffic look is its own helper action with its own limits | proposed | 2026-11-09 | network-audit |
 | [ADR-0041](ADR-0041-testssl-and-osquery-are-looks-with-typed-results-and-one-home-for-each-fact.md) | testssl.sh and osquery are guarded looks whose results are typed, and each fact has one home | proposed | 2026-11-09 |
+| [ADR-0042](ADR-0042-the-footprint-lives-in-the-core-and-its-findings-are-keyed-on-a-label.md) | The footprint lives in the core, and its findings are keyed on a label, not a device | accepted | 2026-11-10 | network-audit |
