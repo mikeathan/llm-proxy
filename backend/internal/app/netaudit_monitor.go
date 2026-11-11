@@ -61,6 +61,9 @@ func newMonitorWatch(n *netauditServices, notify notifyFunc) *netaudit.MonitorWa
 	add(n.WebChecksConfig != nil && n.RunHealth != nil, netaudit.MonitorWebChecks, "the nightly web checks (the last run failed, or none worked for three days)", func() netaudit.MonitorReading {
 		return n.RunHealth.Reading(netaudit.MonitorWebChecks, n.WebChecksConfig.Enabled(), webChecksStallLimit)
 	})
+	add(n.RouterConnConfig != nil && n.RunHealth != nil, netaudit.MonitorRouterConn, "the nightly read of the router's connection table (the last read failed, or none worked for three days)", func() netaudit.MonitorReading {
+		return n.RunHealth.Reading(netaudit.MonitorRouterConn, n.RouterConnConfig.Enabled(), netaudit.RouterConnStallLimit)
+	})
 	add(n.LoginWatch != nil, netaudit.MonitorLoginWatch, "the watch over failed logins to this computer (the system's record cannot be read)", func() netaudit.MonitorReading {
 		return n.LoginWatch.Reading()
 	})

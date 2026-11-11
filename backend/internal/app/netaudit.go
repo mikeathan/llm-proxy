@@ -31,6 +31,7 @@ import (
 	"llm-proxy/internal/core/netaudit/phonehome"
 	"llm-proxy/internal/core/netaudit/portprobe"
 	"llm-proxy/internal/core/netaudit/routerconn"
+	"llm-proxy/internal/core/netaudit/routerhistory"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/core/netaudit/testssl"
@@ -146,6 +147,11 @@ type netauditServices struct {
 	RouteTrace *traceroute.Manager
 	// RouterConn reads the router's connection table over SSH on the operator's press (Constitution I.15).
 	RouterConn *routerconn.Manager
+	// RouterConnConfig is the router watch's switch and RouterHistory what it remembers of where each device connected (Constitution I.15).
+	RouterConnConfig *netaudit.RouterConnConfig
+	RouterHistory    *routerhistory.History
+	// RouterConnReady says whether the guardrails allow the local network, asked before each nightly read.
+	RouterConnReady func() (bool, string)
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      netaudit.WebChecker
@@ -625,6 +631,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	scan := s.newScanning(store, scope, netTools)
 	known := s.newTracking(store, scope, netTools)
 	phone := s.newPhoneHome(store, scope)
+	routerConn := s.newRouterConn(store, known.Inventory)
 	bad := s.newKnownBad(store, netTools)
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
@@ -667,7 +674,10 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		DestinationOwners: s.newDestinationOwners(netTools),
 		DestinationPlaces: s.newDestinationPlaces(netTools),
 		RouteTrace:        s.newRouteTrace(guard),
-		RouterConn:        s.newRouterConn(store),
+		RouterConn:        routerConn.Manager,
+		RouterConnConfig:  routerConn.Config,
+		RouterConnReady:   func() (bool, string) { return networkReady(guard(), true, false) },
+		RouterHistory:     routerConn.History,
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
 		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),

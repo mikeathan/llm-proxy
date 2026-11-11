@@ -25,5 +25,5 @@ export function useDeviceNames() {
   function deviceByMac(mac: string): NetworkDevice | undefined {
     return devices.value.find((d) => d.mac.toLowerCase() === mac.toLowerCase())
   }
-  return { names: computed(() => namesByAddress(devices.value)), deviceAt, deviceByMac, load }
+  return { devices, names: computed(() => namesByAddress(devices.value)), deviceAt, deviceByMac, load }
 }

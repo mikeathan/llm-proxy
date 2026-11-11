@@ -1,9 +1,9 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, expectTapArea, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Network → Traffic: a look at this computer's own traffic. With the helper ready and the action on it offers one button and shows the last
-// look as a sentence (with this program's own page set apart), a map of the internet traffic, and who the computer talked to (broadcast chatter
-// closed); a place opens its detail and the route to it. The chart, totals and tables of operators and conversations are under Advanced. With
+// Network → Traffic, by device: a list of devices (this computer, and each device of the router's table) and the picked device's page: a map, its
+// places by company, and the route to any of them. With the helper ready and the action on it offers one button and shows the last look as a
+// sentence (with this program's own page set apart); broadcast chatter is closed. The chart, totals and tables of operators and conversations are under Advanced. With
 // the action off it says why and where the fix is. At both widths nothing scrolls sideways, and on a phone the controls are 44 px targets. The data
 // is invented; the shape is the server's, after the direction fix (plan network-traffic-view-redesign).
 const MB = 1024 * 1024
@@ -65,7 +65,7 @@ test('the traffic tab shows the last look as a sentence, a map and who it talked
   await expect(tab.locator('[data-test="traffic-headline"]')).toContainText('sent 6 MB and received 38 MB')
   await expect(tab.locator('[data-test="traffic-self"]')).toContainText('own page and API')
   await expect(tab.locator('[data-test="map-dot"]')).toHaveCount(3)
-  await expect(tab.locator('[data-test="talk-internet"] [data-test="talk-row"]')).toHaveCount(3)
+  await expect(tab.locator('[data-test="group-title"]')).toHaveText(['Google LLC', 'GitHub, Inc.', 'Cloudflare, Inc.'])
   await expect(tab.locator('[data-test="talk-network"] [data-test="talk-name"]')).toHaveText(['192.168.50.1', '192.168.50.251'])
   await expect(tab.locator('[data-test="talk-shared"] [data-test="talk-row"]')).toBeHidden()
   await expect(tab.locator('[data-test="traffic-chart"]')).toHaveCount(0)
@@ -73,19 +73,20 @@ test('the traffic tab shows the last look as a sentence, a map and who it talked
   await expectNoSidewaysScroll(page)
   if (testInfo.project.name === 'mobile') {
     await expectTapArea(tab.locator('[data-test="traffic-listen"]'))
-    await tab.locator('[data-test="talk-open"]').first().scrollIntoViewIfNeeded()
-    await expectTapArea(tab.locator('[data-test="talk-open"]').first())
+    await tab.locator('[data-test="group-open"]').first().scrollIntoViewIfNeeded()
+    await expectTapArea(tab.locator('[data-test="group-open"]').first())
   }
   await lookAt(page, testInfo, 'traffic-result.png', true)
 })
 
-test('a place opened says who runs it, where it is used and registered, and shows its route on the map', async ({ page }, testInfo) => {
+test('a company opened lists its places, and a place\'s route opens under it and is drawn on the map', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: LOOK }, '/netaudit/route-trace': { supported: true, traces: [TRACE] }, ...TABLES } })
   await page.goto('network/traffic')
   const tab = page.locator('[data-test="traffic-tab"]')
-  await tab.locator('[data-test="talk-open"]', { hasText: 'registry.npmjs.org' }).click()
-  await expect(tab.locator('[data-test="place-location"]')).toContainText('used in Toronto, Canada')
-  await expect(tab.locator('[data-test="place-location"]')).toContainText('registered in United States')
+  await tab.locator('[data-test="group-open"]', { hasText: 'Cloudflare' }).click()
+  await expect(tab.locator('[data-test="place-where"]')).toContainText('registry.npmjs.org · Toronto, Canada')
+  await tab.locator('[data-test="place-route"]').click()
+  await expect(tab.locator('[data-test="place-route-panel"]')).toBeVisible()
   await expect(tab.locator('[data-test="route"] [data-test="route-hop"]')).toHaveCount(6)
   await expect(tab.locator('[data-test="route"] [data-test="route-hop-who"]').nth(3)).toHaveText('no answer')
   await expect(tab.locator('[data-test="route"] [data-test="route-outcome"]')).toHaveText('Reached in 6 steps.')
@@ -142,7 +143,7 @@ test('with the action switched off the tab says why and offers the fix, and keep
 test('before the first look the tab invites one', async ({ page }) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null } } })
   await page.goto('network/traffic')
-  await expect(page.locator('[data-test="traffic-never"]')).toContainText('Nothing looked at yet')
+  await expect(page.locator('[data-test="traffic-never"]')).toContainText('No devices yet')
   await expect(page.locator('[data-test="traffic-listen"]')).toBeVisible()
   await expectNoSidewaysScroll(page)
 })
@@ -201,19 +202,27 @@ test('the trace card traces a typed address, folds the silent steps, shows the s
   await lookAt(page, testInfo, 'traffic-trace-card.png', true)
 })
 
-test('the other devices open to what each one looked up, grouped by domain', async ({ page }, testInfo) => {
+// Choosing a device: on a wide screen it is in the list; on a phone the list opens from one button.
+async function pickDevice(page: Page, name: string) {
+  const toggle = page.locator('[data-test="picker-toggle"]')
+  if (await toggle.isVisible()) await toggle.click()
+  await page.locator('[data-test="rail-device"]', { hasText: name }).click()
+}
+
+test('a device that only asked for names is in the list, and shows what it looked up, grouped by domain', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/devices': { devices: [{ mac: 'aa:bb:cc:00:00:01', ip: '192.168.50.31', name: 'Living room hub', first_seen: new Date().toISOString(), last_seen: new Date().toISOString(), approved: true, randomized: false, new: false }] } } })
   await page.goto('network/traffic')
-  const lookups = page.locator('[data-test="lookups"]')
-  await expect(lookups.locator('[data-test="lookups-device"]')).toHaveCount(2)
-  await expect(lookups.locator('[data-test="lookups-device"]').first()).toContainText('Living room hub')
+  const tab = page.locator('[data-test="traffic-tab"]')
+  await expect(tab.locator('[data-test="device-name"]')).toContainText('Living room hub')
+  await expect(tab.locator('[data-test="device-empty"]')).toContainText('has not been read yet')
+  await expect(tab.locator('[data-test="names-group"]')).toHaveCount(2)
+  await expect(tab.locator('[data-test="names-group"]').nth(1)).toContainText('api.smartthings.com, fw-update.smartthings.com')
   if (testInfo.project.name === 'mobile') {
-    await lookups.locator('[data-test="lookups-toggle"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
-    await expectTapArea(lookups.locator('[data-test="lookups-toggle"]').first())
+    await tab.locator('[data-test="picker-toggle"]').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(tab.locator('[data-test="picker-toggle"]'))
   }
-  await lookups.locator('[data-test="lookups-toggle"]').first().click()
-  await expect(lookups.locator('[data-test="lookups-group"]')).toHaveCount(2)
-  await expect(lookups.locator('[data-test="lookups-group"]').nth(1)).toContainText('api.smartthings.com, fw-update.smartthings.com')
+  await pickDevice(page, 'Unknown device')
+  await expect(tab.locator('[data-test="names-group"]')).toHaveText([/apple\.com/])
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'traffic-lookups.png', true)
 })
@@ -221,45 +230,51 @@ test('the other devices open to what each one looked up, grouped by domain', asy
 // The router's connection table: after the setup (three steps) a press reads it, and each device opens to the internet places it connected to,
 // with who runs them, and a place can be sent to the route trace card.
 const ROUTER_READ = {
-  address: '192.168.50.1', user: 'admin', key_saved: true, fingerprint: 'SHA256:3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  address: '192.168.50.1', user: 'admin', key_saved: true, watching: true, fingerprint: 'SHA256:3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
   last: {
     at: new Date(Date.now() - 20_000).toISOString(), lines: 245, kept: 31,
     devices: [
       { address: '192.168.50.220', total: 18, places: [
         { address: '52.48.210.116', port: 8883, proto: 'tcp', state: 'ESTABLISHED', count: 17, owner: owner(16509, 'AMAZON-02', 'US', 'Dublin', 'IE', 53.3, -6.3) },
-        { address: '8.8.8.8', port: 53, proto: 'udp', count: 1, owner: GOOGLE },
+        { address: '8.8.8.8', port: 53, proto: 'udp', count: 1, owner: GOOGLE, new: true },
       ] },
       { address: '192.168.50.31', total: 13, places: [{ address: '140.82.1.1', port: 443, proto: 'tcp', state: 'ESTABLISHED', count: 13, owner: GITHUB }] },
     ],
   },
 }
 
-test('the other devices show where each one connected, from the router, and hand a place to the route trace', async ({ page }, testInfo) => {
-  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': ROUTER_READ } })
+test('the router\'s devices are in the list, with a map and company groups for each, and a route opens under a place', async ({ page }, testInfo) => {
+  const inventory = { devices: [{ mac: 'aa:bb:cc:00:00:03', ip: '192.168.50.220', name: 'Doorbell', first_seen: new Date().toISOString(), last_seen: new Date().toISOString(), approved: true, randomized: false, new: false }] }
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': ROUTER_READ, '/netaudit/devices': inventory } })
   await page.goto('network/traffic')
-  const panel = page.locator('[data-test="other-devices-views"]')
-  await panel.getByRole('radio', { name: 'Where they connected' }).click()
-  const conn = page.locator('[data-test="router-conn"]')
-  await expect(conn.locator('[data-test="router-when"]')).toContainText('245 lines, 31 connections')
-  await expect(conn.locator('[data-test="router-device"]')).toHaveCount(2)
-  await conn.locator('[data-test="router-toggle"]').first().click()
-  await expect(conn.locator('[data-test="router-place-owner"]').first()).toContainText('Dublin')
+  const tab = page.locator('[data-test="traffic-tab"]')
+  await expect(tab.locator('[data-test="router-when"]')).toContainText('245 lines, 31 connections')
+  await expect(tab.locator('[data-test="device-name"]')).toContainText('Doorbell')
+  await expect(tab.locator('[data-test="device-source"]')).toHaveText('The router\u2019s table')
+  await expect(tab.locator('[data-test="map-dot"]')).toHaveCount(2)
+  await expect(tab.locator('[data-test="group-title"]')).toHaveText(['AMAZON-02', 'Google LLC'])
+  await expect(tab.locator('[data-test="router-watch-on"]')).toBeVisible()
+  await expect(tab.locator('[data-test="stat-fresh"]')).toHaveText('1')
+  await expect(tab.locator('[data-test="group-new"]')).toHaveCount(1)
+  await tab.getByRole('radio', { name: 'New today 1' }).click()
+  await expect(tab.locator('[data-test="group-title"]')).toHaveText(['Google LLC'])
+  await tab.getByRole('radio', { name: 'All 2' }).click()
+  await tab.locator('[data-test="group-open"]').first().click()
+  await tab.locator('[data-test="place-route"]').first().click()
+  await expect(tab.locator('[data-test="place-route-from"]')).toContainText('traced from this computer')
   if (testInfo.project.name === 'mobile') {
-    await conn.locator('[data-test="router-toggle"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
-    await expectTapArea(conn.locator('[data-test="router-toggle"]').first())
-    await conn.locator('[data-test="router-trace"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
-    await expectTapArea(conn.locator('[data-test="router-trace"]').first())
+    await tab.locator('[data-test="place-route"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(tab.locator('[data-test="place-route"]').first())
   }
+  await pickDevice(page, 'Device 192.168.50.31')
+  await expect(tab.locator('[data-test="group-title"]')).toHaveText(['GitHub, Inc.'])
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'traffic-router-conn.png', true)
-  await conn.locator('[data-test="router-trace"]').first().click()
-  await expect(page.locator('[data-test="trace-address"]')).toHaveValue('52.48.210.116')
 })
 
 test('before the router is set up it walks the three steps and never shows a key', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': { address: '192.168.50.1', user: 'admin', key_saved: false } } })
   await page.goto('network/traffic')
-  await page.locator('[data-test="other-devices-views"]').getByRole('radio', { name: 'Where they connected' }).click()
   await expect(page.locator('[data-test="router-step"]')).toContainText('Step 2 of 3')
   await expect(page.locator('[data-test="router-key"]')).toBeVisible()
   await expectNoSidewaysScroll(page)

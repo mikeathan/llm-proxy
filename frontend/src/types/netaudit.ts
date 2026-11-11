@@ -1225,7 +1225,7 @@ export interface TalkGroup {
   bytes: number
 }
 
-/** One dot on the map: a place with a point, its traffic, and its words. */
+/** One dot on the map: a place with a point, its weight, and its words. */
 export interface MapDot {
   key: string
   /** The biggest place at this dot, which a click opens. */
@@ -1233,9 +1233,75 @@ export interface MapDot {
   label: string
   lat: number
   lon: number
-  bytes: number
+  /** Bytes for a look at this computer, connections for the router's table: the dot's size says which (see PlaceMeasure). */
+  weight: number
   /** True for the place that is open or traced, drawn stronger. */
   picked: boolean
+}
+
+/** What a place is measured in: bytes (a look at this computer's packets) or connections (the router's table, which keeps no bytes). */
+export type PlaceMeasure = 'bytes' | 'connections'
+
+/** Where a place was read from. */
+export type PlaceSource = 'host' | 'router'
+
+/**
+ * One internet place a device talked to, whichever source it came from: this computer's own look or the router's table. Everything the page
+ * groups, maps and traces is built from these, so a device on the network and this computer show the same way.
+ */
+export interface PlaceRow {
+  address: string
+  /** The service port and protocol when the source has them (the router does; a look keeps conversations apart). */
+  port?: number
+  proto?: string
+  /** How the router names the state of the first connection (tcp only). */
+  state?: string
+  /** Connections held to this place. */
+  count: number
+  /** Bytes carried; only a look at this computer has them. */
+  bytes?: number
+  /** A DNS or TLS name for the address, when the source read one. Text only. */
+  name?: string
+  owner?: TrafficOwner
+  /** First seen for the device in the last day, after its first day of history (the router watch keeps that history). */
+  fresh?: boolean
+  source: PlaceSource
+}
+
+/** How the places of a device are grouped on screen. */
+export type PlaceGroupBy = 'company' | 'country'
+
+/** The places of one company (or country), with what to say about them. */
+export interface PlaceGroup {
+  key: string
+  title: string
+  rows: PlaceRow[]
+  /** Connections and bytes of every row; `bytes` is 0 when the source has none. */
+  count: number
+  bytes: number
+  /** Cities of the rows that have one, most weighty first: a company's "where". For a country group, the companies instead. */
+  where: string[]
+  /** True when no row of the group has a point on the map. */
+  unlocated: boolean
+  /** How many of its rows are new today. */
+  fresh: number
+}
+
+/** One device on the Traffic page: this computer, or a device found in the router's table. */
+export interface TrafficDevice {
+  id: string
+  kind: PlaceSource
+  name: string
+  /** What the line under the name says: an address, or the capture interface for this computer. */
+  address: string
+  rows: PlaceRow[]
+  measure: PlaceMeasure
+  /** When the places were read: the look's time, or the router read's. */
+  at?: string
+  /** The hardware address the device is known by, when the inventory has it; ties it to the names it asked for. */
+  mac?: string
+  /** The flags the phone-home watch raised for this device. */
+  flags: LookupFlag[]
 }
 
 /** Where a hop of a route sits. */
@@ -1341,6 +1407,8 @@ export interface RouterPlace {
   state?: string
   count: number
   owner?: TrafficOwner
+  /** The company or country of this place was first seen for the device in the last day, after its first day of history (the router watch). */
+  new?: boolean
 }
 
 /** One device's connections from the router's table, grouped by place. */
@@ -1366,6 +1434,8 @@ export interface RouterConnState {
   key_saved: boolean
   /** The pinned router key's fingerprint; empty until the operator trusts it. */
   fingerprint?: string
+  /** The router watch is on: a history is kept of each read, and the nightly audit reads the router. */
+  watching: boolean
   last?: RouterConnections
 }
 

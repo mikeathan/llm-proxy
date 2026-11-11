@@ -91,4 +91,7 @@ type RouterPlace struct {
 	State string        `json:"state,omitempty"`
 	Count int           `json:"count"`
 	Owner *TrafficOwner `json:"owner,omitempty"`
+	// New says the company or the country of this place was first seen for the device in the last day, after the device's first day of
+	// history. It is set only while the router watch keeps a history (Constitution I.15).
+	New bool `json:"new,omitempty"`
 }

@@ -34,6 +34,10 @@ const noTraces: RouteTracesState = { supported: true, traces: [] }
 const openRow = async (w: ReturnType<typeof show>, label: string) => {
   await w.findAll('[data-test="talk-open"]').find((b) => b.text().includes(label))!.trigger('click')
 }
+// An internet place is a company group on the device's page; here it opens from the Advanced conversation table.
+const openFlow = async (w: ReturnType<typeof show>, label: string) => {
+  await w.findAll('[data-test="flow"]').find((r) => r.text().includes(label))!.trigger('click')
+}
 
 describe('TrafficReport', () => {
   beforeEach(() => {
@@ -45,41 +49,7 @@ describe('TrafficReport', () => {
     useNetauditViewMode().set('simple')
   })
 
-  describe('the summary', () => {
-    it('opens with one sentence, where it went and how encrypted it was', () => {
-      const w = show(traffic())
-      expect(w.get('[data-test="traffic-headline"]').text()).toBe('In 60 seconds this computer sent 4 MB and received 38 MB.')
-      expect(w.get('[data-test="traffic-detail"]').text()).toContain('41 MB to the internet, 1 MB on this network.')
-      expect(w.get('[data-test="traffic-only-this"]').text()).toContain('your phone and your other computers are not')
-    })
-
-    it('says it could not tell which way traffic went for a look kept before the fix, never that nothing was sent', () => {
-      const w = show(traffic({ bytes_in: 0, bytes_out: 0, bytes_through: 1_664_770 }))
-      expect(w.get('[data-test="traffic-headline"]').text()).toContain('could not tell which way it went')
-    })
-
-    it('sets this program\'s own page apart', () => {
-      expect(show(traffic({ self_bytes: 21 * MB })).get('[data-test="traffic-self"]').text()).toContain('this program\'s own page and API')
-      expect(show(traffic()).find('[data-test="traffic-self"]').exists()).toBe(false)
-    })
-
-    it('keeps the totals and the chart for Advanced', async () => {
-      const w = show(traffic())
-      expect(w.find('[data-test="traffic-stats"]').exists()).toBe(false)
-      expect(w.find('[data-test="traffic-chart"]').exists()).toBe(false)
-      useNetauditViewMode().set('advanced')
-      await flushPromises()
-      expect(w.get('[data-test="stat-sent"]').text()).toBe('4 MB')
-      expect(w.get('[data-test="traffic-chart"]').attributes('aria-label')).toContain('busiest second')
-    })
-
-    it('says when the numbers are estimates, partial, or lost frames, and nothing for a clean window', () => {
-      expect(show(traffic()).find('[data-test="traffic-notes"]').exists()).toBe(false)
-      const notes = show(traffic({ sample: 8, stopped_by: 'frame_limit', kernel_dropped: 4 })).get('[data-test="traffic-notes"]').text()
-      expect(notes).toContain('Estimated: one ordinary frame in 8')
-      expect(notes).toContain('4 frames were dropped')
-    })
-
+  describe('the footer', () => {
     it('always says what the view can and cannot see, the tables and the route trace included', () => {
       const note = show(traffic()).get('[data-test="traffic-privacy"]').text()
       expect(note).toContain('only the traffic to and from this computer')
@@ -88,10 +58,10 @@ describe('TrafficReport', () => {
   })
 
   describe('who it talked to', () => {
-    it('lists the internet, then this network, with broadcast chatter closed by default', () => {
+    it('lists this network, then broadcast chatter closed by default, and leaves the internet to the company groups of the page', () => {
       const w = show(traffic())
       const names = (id: string) => w.get(`[data-test="talk-${id}"]`).findAll('[data-test="talk-name"]').map((n) => n.text())
-      expect(names('internet')).toEqual(['generativelanguage.googleapis.com', 'github.com'])
+      expect(w.find('[data-test="talk-internet"]').exists()).toBe(false)
       expect(names('network')).toEqual(['192.168.50.7'])
       const shared = w.get('[data-test="talk-shared"]')
       expect(shared.element.tagName).toBe('DETAILS')
@@ -99,11 +69,10 @@ describe('TrafficReport', () => {
       expect(names('shared')).toEqual(['224.0.0.251'])
     })
 
-    it('says what each place was and who runs it, and which way the bytes went', () => {
-      const row = show(traffic()).get('[data-test="talk-internet"]').findAll('[data-test="talk-row"]')[0]!
-      expect(row.get('[data-test="talk-detail"]').text()).toBe('HTTPS · Google LLC · Mountain View, California, United States')
-      expect(row.get('[data-test="talk-direction"]').text()).toContain('2 MB')
-      expect(row.get('[data-test="talk-direction"]').attributes('aria-label')).toBe('sent 2 MB, received 20 MB')
+    it('says what each place was, and which way the bytes went', () => {
+      const row = show(traffic()).get('[data-test="talk-network"]').findAll('[data-test="talk-row"]')[0]!
+      expect(row.get('[data-test="talk-detail"]').text()).toBe('DNS')
+      expect(row.get('[data-test="talk-direction"]').attributes('aria-label')).toBe('sent 100 B, received 200 B')
     })
 
     it('names a device on this network the way the person does', async () => {
@@ -129,55 +98,21 @@ describe('TrafficReport', () => {
 
     it('treats a name from the network as text, never as markup', () => {
       const evil = '<img src=x onerror=alert(1)>'
-      const w = show(traffic({ destinations: [{ name: evil, address: '1.2.3.4', bytes: MB, internet: true }], flows: [] }))
+      const w = show(traffic({ destinations: [{ name: evil, address: '192.168.50.99', bytes: MB, internet: false }], flows: [] }))
       expect(w.find('img').exists()).toBe(false)
       expect(w.get('[data-test="talk-name"]').text()).toBe(evil)
     })
   })
 
-  describe('the map', () => {
-    it('draws one dot per city of the internet traffic, and a click opens the place', async () => {
-      const w = show(traffic())
-      expect(w.findAll('[data-test="map-dot"]')).toHaveLength(1)
-      await w.get('[data-test="map-dot"]').trigger('click')
-      expect(w.get('[data-test="place-address"]').text()).toBe('142.250.1.1')
-    })
-
-    it('says how to get the map when no address has a city, and is left out when nothing went to the internet', () => {
-      const plain = traffic({ destinations: [{ address: '1.2.3.4', bytes: MB, internet: true }], flows: [] })
-      expect(show(plain).get('[data-test="map-empty"]').text()).toContain('Download the table')
-      expect(show(plain).getComponent(RouterLinkStub).props('to')).toEqual({ name: 'network', params: { tab: 'settings' }, query: { group: 'data' } })
-      const local = traffic({ internet_bytes: 0, destinations: [{ address: '192.168.50.7', bytes: MB, internet: false }], flows: [] })
-      expect(show(local).find('[data-test="traffic-map"]').exists()).toBe(false)
-      expect(show(local).find('[data-test="map-empty"]').exists()).toBe(false)
-    })
-
-    it('draws the route of the open place when it has been traced', async () => {
-      service.routeTraces.mockResolvedValue({
-        supported: true,
-        traces: [{ address: '142.250.1.1', state: 'done', started_at: '2026-11-11T14:00:00Z', reached: true, hops: [
-          { ttl: 1, address: '62.252.1.1', sent: 3, answered: 3, best_ms: 5, where: 'internet', owner: { asn: 1, name: 'ISP', point: { lat: 51.5, lon: -0.1 } } },
-          { ttl: 2, address: '142.250.1.1', sent: 3, answered: 3, best_ms: 90, where: 'internet', reached: true, owner: google },
-        ] }],
-      } satisfies RouteTracesState)
-      const { useRouteTrace } = await import('../../../composables/netaudit/useRouteTrace')
-      await useRouteTrace().load()
-      const w = show(traffic())
-      await openRow(w, 'generativelanguage')
-      expect(w.find('[data-test="map-route"]').exists()).toBe(true)
-      expect(w.findAll('[data-test="map-route-point"]')).toHaveLength(2)
-      expect(w.get('[data-test="map-route-note"]').text()).toContain('not at this computer')
-      expect(w.findAll('[data-test="route-hop"]')).toHaveLength(2)
-      expect(w.get('[data-test="route-outcome"]').text()).toBe('Reached in 2 steps.')
-      service.routeTraces.mockResolvedValue(noTraces)
-      await useRouteTrace().load()
-    })
-  })
-
   describe('a place opened', () => {
     it('says who runs an internet address, where it is used and where it is registered, apart, and offers the route', async () => {
-      const w = show(traffic({ destinations: [{ name: 'one.one.one.one', address: '104.16.1.1', bytes: MB, internet: true, owner: { asn: 13335, name: 'CLOUDFLARENET - Cloudflare, Inc.', country: 'US', place_country: 'CA', city: 'Toronto', region: 'Ontario' } }], flows: [] }))
-      await openRow(w, 'one.one.one.one')
+      useNetauditViewMode().set('advanced')
+      const owner = { asn: 13335, name: 'CLOUDFLARENET - Cloudflare, Inc.', country: 'US', place_country: 'CA', city: 'Toronto', region: 'Ontario' }
+      const w = show(traffic({
+        destinations: [{ name: 'one.one.one.one', address: '104.16.1.1', bytes: MB, internet: true, owner }],
+        flows: [{ address: '104.16.1.1', name: 'one.one.one.one', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: 0, bytes_in: MB, owner }],
+      }))
+      await openFlow(w, 'one.one.one.one')
       expect(w.get('[data-test="place-owner"]').text()).toContain('Cloudflare, Inc.')
       expect(w.get('[data-test="place-owner"]').text()).toContain('AS13335')
       const where = w.get('[data-test="place-location"]').text()
@@ -190,8 +125,9 @@ describe('TrafficReport', () => {
 
     it('starts a trace of the open address', async () => {
       service.startRouteTrace.mockResolvedValue({ supported: true, traces: [{ address: '140.82.1.1', state: 'running', started_at: '2026-11-11T14:00:00Z', reached: false, hops: [] }] })
+      useNetauditViewMode().set('advanced')
       const w = show(traffic())
-      await openRow(w, 'github.com')
+      await openFlow(w, 'github.com')
       await w.get('[data-test="route-start"]').trigger('click')
       await flushPromises()
       expect(service.startRouteTrace).toHaveBeenCalledWith('140.82.1.1', false)
@@ -205,8 +141,9 @@ describe('TrafficReport', () => {
       service.routeTraces.mockResolvedValue({ supported: false, traces: [] })
       const { useRouteTrace } = await import('../../../composables/netaudit/useRouteTrace')
       await useRouteTrace().load()
+      useNetauditViewMode().set('advanced')
       const w = show(traffic())
-      await openRow(w, 'github.com')
+      await openFlow(w, 'github.com')
       expect(w.find('[data-test="route-start"]').exists()).toBe(false)
       expect(w.get('[data-test="route-unsupported"]').text()).toContain('needs Linux')
       service.routeTraces.mockResolvedValue(noTraces)
@@ -248,11 +185,12 @@ describe('TrafficReport', () => {
     })
 
     it('closes the detail, and drops it when a new look arrives', async () => {
+      useNetauditViewMode().set('advanced')
       const w = show(traffic())
-      await openRow(w, 'github.com')
+      await openFlow(w, 'github.com')
       await w.get('[data-test="traffic-detail-close"]').trigger('click')
       expect(w.find('[data-test="traffic-detail-panel"]').exists()).toBe(false)
-      await openRow(w, 'github.com')
+      await openFlow(w, 'github.com')
       await w.setProps({ traffic: traffic() })
       expect(w.find('[data-test="traffic-detail-panel"]').exists()).toBe(false)
     })
@@ -306,7 +244,10 @@ describe('TrafficReport', () => {
 describe('TrafficReport problems link', () => {
   const lan = () => traffic({
     destinations: [{ address: '192.168.50.7', bytes: 2 * MB, internet: false }, { name: 'github.com', address: '140.82.1.1', bytes: MB, internet: true }],
-    flows: [{ address: '192.168.50.7', port: 53, proto: 'udp', kind: 'dns', internet: false, bytes_out: 100, bytes_in: 200 }],
+    flows: [
+      { address: '192.168.50.7', port: 53, proto: 'udp', kind: 'dns', internet: false, bytes_out: 100, bytes_in: 200 },
+      { address: '140.82.1.1', name: 'github.com', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: 0, bytes_in: MB },
+    ],
   })
   const open = async (lookup: { of: (a: string) => { count: number; severity: string } | null }) => {
     const { createMemoryHistory } = await import('vue-router')
@@ -329,8 +270,11 @@ describe('TrafficReport problems link', () => {
 
   it('offers no link for an internet address or a device without problems', async () => {
     const w = await open({ of: () => ({ count: 1, severity: 'low' }) })
-    await w.get('[data-test="talk-internet"] [data-test="talk-open"]').trigger('click')
+    useNetauditViewMode().set('advanced')
+    await flushPromises()
+    await w.findAll('[data-test="flow"]').find((r) => r.text().includes('github.com'))!.trigger('click')
     expect(w.find('[data-test="place-problems"]').exists()).toBe(false)
+    useNetauditViewMode().set('simple')
     const none = await open({ of: () => null })
     await none.get('[data-test="talk-network"] [data-test="talk-open"]').trigger('click')
     expect(none.find('[data-test="place-problems"]').exists()).toBe(false)

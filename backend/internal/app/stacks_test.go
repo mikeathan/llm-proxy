@@ -62,6 +62,7 @@ func testNetworkServices(store netaudit.PolicyStore) *netauditServices {
 		CheckInConfig:       netaudit.NewCheckInConfig(store),
 		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
 		PhoneHomeConfig:     netaudit.NewPhoneHomeConfig(store),
+		RouterConnConfig:    netaudit.NewRouterConnConfig(store),
 		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
 		UDPChecksConfig:     netaudit.NewUDPChecksConfig(store),
 		LoginWatchConfig:    netaudit.NewLoginWatchConfig(store),
@@ -94,12 +95,12 @@ func newTestStacks(t *testing.T) *testStackDeps {
 	return d
 }
 
-// The Network stack has seventeen switches today (eleven when this was first written) (the plan said twelve, which was a miscount: the nightly audit is an automation,
+// The Network stack has eighteen switches today (eleven when this was first written) (the plan said twelve, which was a miscount: the nightly audit is an automation,
 // not a switch). This pins the ids and their layers, so adding or moving one is a deliberate edit.
 func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	want := map[string]string{
 		"presence": "discover", "ipv6_discovery": "discover", "device_names": "discover", "nearby": "discover",
-		"router_log": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen", "login_watch": "listen", "wifi_lookalikes": "discover",
+		"router_log": "listen", "router_connections": "listen", "phone_home": "listen", "known_bad": "listen", "decoys": "listen", "login_watch": "listen", "wifi_lookalikes": "discover",
 		"scan_on_arrival": "test", "web_checks": "test", "udp_probes": "test",
 		"outside_lookup": "outside", "dns_check": "outside",
 		"attack_paths": "understand", "weekly_summary": "tell", "daily_check_in": "tell",
@@ -156,7 +157,7 @@ var legacyPaths = map[string]string{
 
 // modulesWithNoOldRoute are the modules that never had a switch route of their own, and whether each needs the passphrase. Only a
 // module that probes the network or opens a socket does.
-var modulesWithNoOldRoute = map[string]bool{"attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "udp_probes": true, "login_watch": false, "wifi_lookalikes": false}
+var modulesWithNoOldRoute = map[string]bool{"router_connections": true, "attack_paths": false, "phone_home": false, "known_bad": false, "web_checks": true, "udp_probes": true, "login_watch": false, "wifi_lookalikes": false}
 
 func TestStackRegistry_StepUpMatchesTheOldRoutes(t *testing.T) {
 	// The DNS check's write moved into its stack, which declares the step-up in its manifest; the core table holds the rest.

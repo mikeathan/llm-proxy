@@ -5,13 +5,12 @@ import {
   TRAFFIC_REGISTERED_IN, TRAFFIC_SAMPLED, TRAFFIC_SELF_LINE, TRAFFIC_SERVED, TRAFFIC_STOPPED,
 } from '../../constants/netaudit'
 import type {
-  ChartBar, GeoPoint, HostTraffic, MapDot, RouteHop, RouteLine, RouteTrace, TalkGroup, TalkGroupId, TalkRow, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar,
+  ChartBar, GeoPoint, HostTraffic, RouteHop, RouteLine, RouteTrace, TalkGroup, TalkGroupId, TalkRow, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar,
 } from '../../types/netaudit'
 
 const MS_PER_SECOND = 1000
 /** IPtoASN names a holder "CLOUDFLARENET - Cloudflare, Inc.": its network's handle, then its own name. */
 const OWNER_NAME_SEPARATOR = ' - '
-const DOT_KEY_DIGITS = 1
 const SECONDS_PER_MINUTE = 60
 const PERCENT = 100
 /** The least height a bar has, so a quiet second is still a mark on the chart. */
@@ -266,26 +265,6 @@ export function talkGroups(t: HostTraffic, deviceNames: Readonly<Record<string, 
 }
 
 const TALK_GROUP_ORDER: readonly TalkGroupId[] = ['internet', 'network', 'shared']
-
-/** A key that joins the places of one city, so many addresses of one hub are one dot. */
-const dotKey = (lat: number, lon: number): string => `${lat.toFixed(DOT_KEY_DIGITS)},${lon.toFixed(DOT_KEY_DIGITS)}`
-
-/** The dots of the map: the internet places of the look that have a point, joined by city, biggest first. `picked` marks the open place. */
-export function mapDots(rows: readonly TalkRow[], picked: string | null): MapDot[] {
-  const dots = new Map<string, MapDot & { names: Set<string> }>()
-  for (const r of rows) {
-    const p = r.owner?.point
-    if (r.group !== 'internet' || !p || !r.owner) continue
-    const key = dotKey(p.lat, p.lon)
-    const dot = dots.get(key) ?? { key, address: r.address, label: '', lat: p.lat, lon: p.lon, bytes: 0, picked: false, names: new Set<string>() }
-    dot.bytes += r.bytes
-    dot.picked ||= r.address === picked
-    dot.names.add(ownerName(r.owner))
-    dot.label = [usedIn(r.owner), [...dot.names].join(', ')].filter(Boolean).join(' \u00b7 ')
-    dots.set(key, dot)
-  }
-  return [...dots.values()].map(({ names: _names, ...dot }) => dot).sort((a, b) => b.bytes - a.bytes)
-}
 
 /** The points of a route in order, for the map's line: each answering router with a point, a city repeated in a row drawn once. */
 export function routePoints(trace: RouteTrace | null): GeoPoint[] {

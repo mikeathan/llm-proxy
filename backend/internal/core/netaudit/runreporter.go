@@ -18,39 +18,40 @@ type BaselineStore interface {
 // RunReporter turns the scans an automation run made into the code-rendered part of its report, and keeps the result
 // as the baseline for the next run. It never reads the model's words: it works from what the scan tool collected.
 type RunReporter struct {
-	store     BaselineStore
-	acks      AckStore         // optional: findings the operator accepted
-	fixes     FixStore         // optional: findings the operator marked as fixed
-	footprint FootprintSource  // optional: what the footprint looks last found about the operator's domains and addresses
-	life      LifeStore        // optional: when each finding first appeared, went away and came back
-	vulns     VulnSource       // optional: the vulnerability data known_vulns findings are matched against
-	expect    ExpectationStore // optional: what the operator says each device should offer
-	deep      DeepReader       // optional: the operator's last deep check of each device
-	look      InventoryLook    // optional: who is on the network, from the host's neighbour table
-	idents    IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
-	router    RouterFindings   // optional: what the router itself offers (UPnP)
-	decoys    DecoyReader      // optional: devices that connected to a decoy service
-	hist      AuditHistory     // optional: the Network page's daily counts
-	host      HostLooker       // optional: this computer's open ports and the files that survive a reboot
-	watch     MonitorStalls    // optional: the module's own parts that are switched on and stopped working
-	nearby    NearbyFinder     // optional: what devices said about themselves (a second gateway)
-	classes   ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
-	service   ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
-	ports     PortRecorder     // optional: the ports each device had open at its last scan
-	own       OwnModelServer   // optional: which address and port is this program's own model server
-	paths     func() bool      // optional: whether the attack paths section is added to the report
-	phone     PhoneHomeSource  // optional: what the phone-home watch says about the names devices ask for
-	routerLog RouterLogSource  // optional: what the router's log says about failed sign-ins and Wi-Fi disconnects
-	web       WebChecker       // optional: the web checks
-	webOn     func() bool      // optional: whether the nightly audit runs them
-	udp       UDPFinder        // optional: the two nightly UDP questions
-	udpOn     func() bool      // optional: whether the nightly audit asks them
-	health    *RunHealth       // optional: whether each optional step of a run worked
-	histErr   func(error)
-	now       func() time.Time
-	logins    LoginSource        // optional: failed logins to this computer
-	wifi      WifiSource         // optional: access points that copy the operator's Wi-Fi name
-	offered   StackFindingSource // optional: findings the stacks' modules offer (ADR-0036)
+	store      BaselineStore
+	acks       AckStore         // optional: findings the operator accepted
+	fixes      FixStore         // optional: findings the operator marked as fixed
+	footprint  FootprintSource  // optional: what the footprint looks last found about the operator's domains and addresses
+	life       LifeStore        // optional: when each finding first appeared, went away and came back
+	vulns      VulnSource       // optional: the vulnerability data known_vulns findings are matched against
+	expect     ExpectationStore // optional: what the operator says each device should offer
+	deep       DeepReader       // optional: the operator's last deep check of each device
+	look       InventoryLook    // optional: who is on the network, from the host's neighbour table
+	idents     IdentityTracker  // optional: SSH host keys and TLS certificates compared with the last look
+	router     RouterFindings   // optional: what the router itself offers (UPnP)
+	decoys     DecoyReader      // optional: devices that connected to a decoy service
+	hist       AuditHistory     // optional: the Network page's daily counts
+	host       HostLooker       // optional: this computer's open ports and the files that survive a reboot
+	watch      MonitorStalls    // optional: the module's own parts that are switched on and stopped working
+	nearby     NearbyFinder     // optional: what devices said about themselves (a second gateway)
+	classes    ClassFinder      // optional: what kind of device each looks like, and the services it should not have open
+	service    ServiceFinder    // optional: open ports that answer without a login (a camera stream, an AI server)
+	ports      PortRecorder     // optional: the ports each device had open at its last scan
+	own        OwnModelServer   // optional: which address and port is this program's own model server
+	paths      func() bool      // optional: whether the attack paths section is added to the report
+	phone      PhoneHomeSource  // optional: what the phone-home watch says about the names devices ask for
+	routerLog  RouterLogSource  // optional: what the router's log says about failed sign-ins and Wi-Fi disconnects
+	routerConn RouterConnSource // optional: the router watch, which reads the router's connection table once a night
+	web        WebChecker       // optional: the web checks
+	webOn      func() bool      // optional: whether the nightly audit runs them
+	udp        UDPFinder        // optional: the two nightly UDP questions
+	udpOn      func() bool      // optional: whether the nightly audit asks them
+	health     *RunHealth       // optional: whether each optional step of a run worked
+	histErr    func(error)
+	now        func() time.Time
+	logins     LoginSource        // optional: failed logins to this computer
+	wifi       WifiSource         // optional: access points that copy the operator's Wi-Fi name
+	offered    StackFindingSource // optional: findings the stacks' modules offer (ADR-0036)
 }
 
 func NewRunReporter(store BaselineStore) *RunReporter {
@@ -356,7 +357,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	services := r.addServices(ctx, &result)
 	udp := r.addUDPChecks(ctx, &result, result.Hosts)
 	hostNote, hostChecked := r.addHost(ctx, &result)
-	expectNote += hostNote + r.addWebChecks(ctx, &result) + r.addStackFindings(ctx, &result)
+	expectNote += hostNote + r.addRouterConn(ctx, &result) + r.addWebChecks(ctx, &result) + r.addStackFindings(ctx, &result)
 	at := r.now()
 	prev, readErr := r.store.ReadBaseline(workspaceID, automation)
 
