@@ -33,9 +33,9 @@ We will read that file over SSH only when the operator presses a button, with `g
 - **Capturing other devices' Wi-Fi traffic.** A managed-mode card sees only its own and broadcast frames.
 - **Trust on first use of the router's host key.** A forged router on first contact would receive the key's signature; the operator's fingerprint check costs one step.
 - **A password instead of a key.** A worse secret to hold, and the router account's password would sit in the program.
-- **Reading on a schedule.** A scheduled SSH login is a standing credential use; the press keeps it an explicit act, like the traffic look.
+- **Reading on a schedule.** A scheduled SSH login is a standing credential use; the press keeps it an explicit act, like the traffic look. *Amended 2026-11-12 by ADR-0048: the owner approved a nightly read made by the audit's own code, behind its own step-up switch, with no way for an agent to reach it.*
 
 ## Links
 
-- Plan: `docs/PLANS/cross-cutting/network-traffic-more-handoff-2026-11-11.md` (B2); Constitution I.15.
-- Code: `backend/internal/platform/routerssh/`, `backend/internal/core/netaudit/routerconn/`, `backend/internal/transport/http/handlers/netaudit_routerconn_handlers.go`, `frontend/src/components/netaudit/TrafficRouterConn.vue`.
+- Plan: `docs/PLANS/cross-cutting/network-traffic-by-device-handoff-2026-11-12.md` (B2 of the earlier traffic-more handoff, now built); Constitution I.15.
+- Code: `backend/internal/platform/routerssh/`, `backend/internal/core/netaudit/routerconn/`, `backend/internal/transport/http/handlers/netaudit_routerconn_handlers.go`, `frontend/src/components/netaudit/TrafficRouterSetup.vue` (the setup and the read) and `frontend/src/components/netaudit/TrafficDevicePane.vue` (the devices it shows).

@@ -164,3 +164,32 @@ func TestThePinNeedsTheFingerprintTheOperatorSawAndSavesTheKeyOnlyThen(t *testin
 		t.Errorf("pin: %v host=%q", err, f.set.host)
 	}
 }
+
+func TestObserveSeesEachReadBeforeItIsKeptAndWatchingShowsInTheView(t *testing.T) {
+	f := newFixture(t)
+	var seen int
+	watching := true
+	f.m.deps.Observe = func(r *models.RouterConnections) {
+		seen++
+		for i := range r.Devices {
+			for j := range r.Devices[i].Places {
+				r.Devices[i].Places[j].New = true
+			}
+		}
+	}
+	f.m.deps.Watching = func() bool { return watching }
+	got, err := f.m.Read(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seen != 1 || !got.Devices[0].Places[0].New || !f.m.View().Last.Devices[0].Places[0].New {
+		t.Fatalf("the hook must run once, before the read is kept (seen=%d)", seen)
+	}
+	if !f.m.View().Watching {
+		t.Fatal("the view must say the watch is on")
+	}
+	watching = false
+	if f.m.View().Watching {
+		t.Fatal("the view must follow the switch")
+	}
+}

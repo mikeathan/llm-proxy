@@ -99,6 +99,10 @@ type NetauditConfig struct {
 	RouterConnAddress string `yaml:"router_conn_address,omitempty" json:"router_conn_address"`
 	RouterConnUser    string `yaml:"router_conn_user,omitempty" json:"router_conn_user"`
 	RouterConnHostKey string `yaml:"router_conn_host_key,omitempty" json:"router_conn_host_key"`
+	// RouterConnWatchEnabled keeps a history of what each device connects to (which companies and countries, no addresses) from every read of
+	// the router's table, and has the nightly audit's own code read it once (Constitution I.15). Off until the operator turns it on (a step-up
+	// action); it needs the router's setup to be finished.
+	RouterConnWatchEnabled bool `yaml:"router_conn_watch_enabled,omitempty" json:"router_conn_watch_enabled"`
 	// AttackPathsOff stops the attack paths (the Overview card and the report section). They only read what the audit already holds,
 	// so they are on unless switched off.
 	AttackPathsOff bool `yaml:"attack_paths_off,omitempty" json:"attack_paths_off"`

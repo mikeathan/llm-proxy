@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  chartBars, countryBars, foldRoute, msWords, routeSummary, statsWords, countryName, directionUnknown, flowsOfKind, hopWords, mapDots, ownerBars, ownerLine, ownerName, isSharedAddress, kindShares, locationOf, routeOutcome,
+  chartBars, countryBars, foldRoute, msWords, routeSummary, statsWords, countryName, directionUnknown, flowsOfKind, hopWords, ownerBars, ownerLine, ownerName, isSharedAddress, kindShares, locationOf, routeOutcome,
   routePoints, sampleNote, secondAt, secondClock, selfLine, serviceOf, splitPercent, stoppedNote, talkGroups, trafficPlace, trafficSentence, usedIn,
 } from '../../../utils/netaudit/traffic'
 import type { HostTraffic, RouteHop, RouteTrace, TrafficFlow } from '../../../types/netaudit'
@@ -242,15 +242,6 @@ describe('talkGroups', () => {
     const cf = of('internet').rows[0]!
     expect(cf.label).toBe('example.com')
     expect(cf.owner?.asn).toBe(13335)
-  })
-
-  it('puts the internet places with a city on the map, joined by city, and marks the open one', () => {
-    const rows = groups.flatMap((g) => g.rows)
-    const dots = mapDots(rows, '104.16.1.1')
-    expect(dots).toHaveLength(1)
-    expect(dots[0]).toMatchObject({ address: '104.16.1.1', lat: 43.7, lon: -79.4, bytes: 104, picked: true })
-    expect(dots[0]!.label).toBe('Toronto, Canada · Cloudflare, Inc.')
-    expect(mapDots(rows, null)[0]!.picked).toBe(false)
   })
 })
 

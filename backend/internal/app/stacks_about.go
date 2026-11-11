@@ -54,6 +54,11 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It sends nothing; names stay on this computer and are never sent to a model.",
 		ShowsUp: "In the findings, and as a message for a new place or a beat.",
 	},
+	"router_connections": {
+		Watches: "Which companies and countries each device connects to, read from the router once a night and when you press Read the router.",
+		Never:   "It keeps no address and no connection, only company and country names with dates, and only this program's own code signs in to the router.",
+		ShowsUp: "As new marks on the Traffic tab and as findings in the nightly report.",
+	},
 	"known_bad": {
 		Watches:  "The names devices ask for, compared with abuse.ch's list of hosts that serve malware.",
 		Never:    "No name a device asked for is sent anywhere; only the list is downloaded, when you press Download.",
@@ -124,18 +129,19 @@ var moduleAbout = map[string]stack.About{
 // Presence check lists none for the same reason: the nightly audit refreshes the device list itself, so its findings appear with the
 // module off.
 var moduleFinds = map[string][]string{
-	"presence":        {netaudit.CheckNewDevice, netaudit.CheckMACChanged, netaudit.CheckGatewayChanged, netaudit.CheckDuplicateMAC, netaudit.CheckDeviceMissing},
-	"nearby":          {netaudit.CheckRogueGateway},
-	"router_log":      {netaudit.CheckRouterSignInFailures, netaudit.CheckWifiDisconnectBurst, netaudit.CheckWifiDeviceDisconnects},
-	"decoys":          {netaudit.CheckDecoyTouched},
-	"phone_home":      {netaudit.CheckPhoneHomeNewPlace, netaudit.CheckPhoneHomeBeaconing, netaudit.CheckPhoneHomeEncryptedDNS},
-	"known_bad":       {netaudit.CheckPhoneHomeKnownBad},
-	"login_watch":     {netaudit.CheckHostLoginFailures},
-	"wifi_lookalikes": {netaudit.CheckWifiLookalike},
-	"web_checks":      {netaudit.CheckWebExposure, netaudit.CheckSelfSigned},
-	"udp_probes":      {netaudit.CheckUDPService},
-	"outside_lookup":  {netaudit.CheckInternetExposedPort},
-	"dns_check":       {netaudit.CheckDNSRouterDiffers},
+	"presence":           {netaudit.CheckNewDevice, netaudit.CheckMACChanged, netaudit.CheckGatewayChanged, netaudit.CheckDuplicateMAC, netaudit.CheckDeviceMissing},
+	"nearby":             {netaudit.CheckRogueGateway},
+	"router_log":         {netaudit.CheckRouterSignInFailures, netaudit.CheckWifiDisconnectBurst, netaudit.CheckWifiDeviceDisconnects},
+	"decoys":             {netaudit.CheckDecoyTouched},
+	"phone_home":         {netaudit.CheckPhoneHomeNewPlace, netaudit.CheckPhoneHomeBeaconing, netaudit.CheckPhoneHomeEncryptedDNS},
+	"known_bad":          {netaudit.CheckPhoneHomeKnownBad},
+	"router_connections": {netaudit.CheckRouterNewCompany, netaudit.CheckRouterNewCountry},
+	"login_watch":        {netaudit.CheckHostLoginFailures},
+	"wifi_lookalikes":    {netaudit.CheckWifiLookalike},
+	"web_checks":         {netaudit.CheckWebExposure, netaudit.CheckSelfSigned},
+	"udp_probes":         {netaudit.CheckUDPService},
+	"outside_lookup":     {netaudit.CheckInternetExposedPort},
+	"dns_check":          {netaudit.CheckDNSRouterDiffers},
 }
 
 // described fills in the words of each module.

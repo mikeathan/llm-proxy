@@ -783,3 +783,57 @@ func TestTheHelperAllowlistRefusesABreach(t *testing.T) {
 		t.Errorf("the allowlist is for the helper only: %v", v)
 	}
 }
+
+// routerAccess are the packages that reach the router over SSH or hold what was read from it (Constitution I.15). An agent's tools, its loop
+// and its prompts live in other packages: if one of them imported these, a model could name the router, the user or the key, or read the
+// history. The nightly read is made by the report's own code through netaudit.RouterConnSource, wired in internal/app.
+var routerAccess = []string{
+	module + "/internal/platform/routerssh",
+	module + "/internal/core/netaudit/routerconn",
+	module + "/internal/core/netaudit/routerhistory",
+}
+
+// routerAccessAllowed are the only packages that may import them: themselves, the netaudit core that defines the source, the handlers
+// that serve the operator's step-up routes, and the composition root.
+var routerAccessAllowed = []string{
+	module + "/internal/platform/routerssh",
+	module + "/internal/core/netaudit",
+	module + "/internal/core/netaudit/routerconn",
+	module + "/internal/core/netaudit/routerhistory",
+	module + "/internal/transport/http/handlers",
+	appPath,
+}
+
+// routerAccessViolations lists the imports of the router packages by a package that is not allowed to have them.
+func routerAccessViolations(p pkg) []string {
+	if slices.Contains(routerAccessAllowed, p.ImportPath) || strings.HasSuffix(p.ImportPath, "_test") {
+		return nil
+	}
+	var bad []string
+	for _, imp := range p.allImports() {
+		if slices.Contains(routerAccess, imp) {
+			bad = append(bad, p.ImportPath+" imports "+imp)
+		}
+	}
+	return bad
+}
+
+func TestOnlyTheServiceCodeReachesTheRouter(t *testing.T) {
+	var bad []string
+	for _, p := range goList(t) {
+		bad = append(bad, routerAccessViolations(p)...)
+	}
+	if len(bad) > 0 {
+		t.Fatalf("a package outside the service's own code reaches the router (Constitution I.15):\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+func TestTheRouterRuleRefusesABreach(t *testing.T) {
+	agent := pkg{ImportPath: module + "/internal/core/tools", Imports: []string{module + "/internal/core/netaudit/routerconn"}}
+	if got := routerAccessViolations(agent); len(got) != 1 {
+		t.Fatalf("a tool package importing routerconn must be refused, got %v", got)
+	}
+	if got := routerAccessViolations(pkg{ImportPath: appPath, Imports: []string{module + "/internal/core/netaudit/routerconn"}}); len(got) != 0 {
+		t.Fatalf("the composition root may wire the router, got %v", got)
+	}
+}

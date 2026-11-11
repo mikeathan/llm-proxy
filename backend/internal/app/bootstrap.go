@@ -113,6 +113,9 @@ func withNetauditInsight(reporter *netaudit.RunReporter, svc handlers.AssistantS
 		reporter.WithPhoneHome(v.NetauditPhoneHome())
 	}
 	withNetauditHostWatches(reporter, svc)
+	if v, ok := svc.(interface{ NetauditRouterConn() netaudit.RouterConnSource }); ok && v.NetauditRouterConn() != nil {
+		reporter.WithRouterConn(v.NetauditRouterConn())
+	}
 	if v, ok := svc.(interface{ NetauditRouterLog() netaudit.RouterLogSource }); ok && v.NetauditRouterLog() != nil {
 		reporter.WithRouterLog(v.NetauditRouterLog())
 	}

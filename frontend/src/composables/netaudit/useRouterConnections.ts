@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, inject, ref, type InjectionKey } from 'vue'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import { errorMessage } from '../../utils/errors'
 import { ROUTER_CONN_FAILED, ROUTER_CONN_LOAD_FAILED } from '../../constants/netaudit'
@@ -65,4 +65,12 @@ export function useRouterConnections() {
   const read = () => run('read', () => NetauditService.readRouter())
 
   return { state, loaded, busy, error, candidate, step, load, saveTarget, saveKey, removeKey, check, trust, read }
+}
+
+/** The Traffic tab provides one instance, so the setup card that reads the router and the device list that shows the reading share one state. */
+export const ROUTER_CONN_INJECTION: InjectionKey<ReturnType<typeof useRouterConnections>> = Symbol('routerConnections')
+
+/** The tab's instance; a part used on its own (a test, a later page) gets one of its own. */
+export function useSharedRouterConnections(): ReturnType<typeof useRouterConnections> {
+  return inject(ROUTER_CONN_INJECTION, null) ?? useRouterConnections()
 }

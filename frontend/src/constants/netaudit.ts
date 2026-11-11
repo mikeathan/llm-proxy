@@ -683,8 +683,6 @@ export const TRAFFIC_BUTTON = 'Listen now'
 export const TRAFFIC_RUNNING = 'Listening. This takes up to a minute.'
 export const TRAFFIC_FAILED = 'The look could not be run.'
 export const TRAFFIC_PASSPHRASE_NOTE = 'Asks for your passphrase each time.'
-export const TRAFFIC_NEVER_TITLE = 'Nothing looked at yet'
-export const TRAFFIC_NEVER_BODY = 'Press Listen now to see where this computer\'s traffic goes for the next minute.'
 export const TRAFFIC_LOAD_FAILED = 'The last look could not be read.'
 export const TRAFFIC_PRIVACY_NOTE =
   'This shows only the traffic to and from this computer. Names come from DNS answers and from the server name in a TLS handshake, and any device can make one up, so treat a name as a hint. Who runs a server, and the city it is used in, come from two public tables kept on this computer; a city is approximate. A route trace sends small probes towards one address and only when you press for it. Nothing in the traffic is kept except these totals.'
@@ -891,7 +889,7 @@ export const TRAFFIC_LOOKUPS = (n: number): string => `${n} ${n === 1 ? 'name wa
 export const TRAFFIC_SELF_LINE = (bytes: string, percent: number): string =>
   `${bytes} (${percent < 1 ? 'under 1' : percent}%) was this program's own page and API, most of it likely your browser viewing this page. It is left out of the list below.`
 export const TRAFFIC_ONLY_THIS = 'Only this computer\u2019s own traffic is seen: your phone and your other computers are not.'
-export const TRAFFIC_TALK_TITLE = 'Who it talked to'
+export const TRAFFIC_TALK_TITLE = 'On this network'
 export const TRAFFIC_TALK_GROUPS: Readonly<Record<'internet' | 'network' | 'shared', { title: string; empty: string }>> = {
   internet: { title: 'On the internet', empty: 'Nothing went to the internet in this look.' },
   network: { title: 'On this network', empty: 'No device on this network was talked to.' },
@@ -912,7 +910,6 @@ export const TRAFFIC_MAP_NOTE = 'Each dot is the city the table puts an address 
 export const TRAFFIC_MAP_ROUTE_NOTE = 'The line follows the routers of the open route trace that have a city, in order; it starts at the first one, not at this computer, whose place is not known.'
 export const TRAFFIC_MAP_NO_CITIES = 'Download the table of where addresses are used to see the internet traffic on a map.'
 export const TRAFFIC_MAP_OPEN_TABLES = 'Open Downloaded data'
-export const TRAFFIC_MAP_NO_POINTS = 'No internet address of this look has a city in the table.'
 export const TRAFFIC_TABLES_OPEN = 'Downloaded data'
 export const TRAFFIC_TABLES_LINE = (owners: boolean, places: boolean): string =>
   owners && places ? 'Operator and city names are on.' : owners ? 'Operator names are on; cities and the map are off.' : 'Operator and city names are off, so internet addresses show as numbers.'
@@ -971,18 +968,11 @@ export const ROUTE_MAP_TITLE = 'On the map'
 export const ROUTE_STEPS_SHOWN = 'Show every step'
 export const ROUTE_STEPS_FOLDED = 'Fold the silent steps'
 
-export const LOOKUPS_INTRO = 'What each device on this network asked your router for, by name. This shows lookups, not traffic: the router does not say how much a device sent or received, or where it went.'
 export const LOOKUPS_OFF = 'The Phone-home watch is off, so no lookups are being kept.'
 export const LOOKUPS_OPEN_SETTINGS = 'Open the switch'
-export const LOOKUPS_EMPTY_TITLE = 'Nothing asked yet'
-export const LOOKUPS_EMPTY = 'No device has asked the router for a name yet. The router has to send its log here, and the watch has to be on.'
 export const LOOKUPS_LOAD_FAILED = 'The lookups could not be read.'
-export const LOOKUPS_REFRESH = 'Refresh'
 export const LOOKUPS_COUNT = (today: number, total: number): string => `${today} ${today === 1 ? 'name' : 'names'} today \u00b7 ${total} kept`
 export const LOOKUPS_LAST = (when: string): string => `last lookup ${when}`
-export const LOOKUPS_OPEN = (device: string): string => `Show what ${device} looked up`
-export const LOOKUPS_CLOSE = (device: string): string => `Hide what ${device} looked up`
-export const LOOKUPS_UNKNOWN_DEVICE = 'Unknown device'
 export const LOOKUPS_NO_NAMES = 'It has asked for no name since the watch began, though it is online. It probably uses a resolver of its own.'
 export const LOOKUPS_SHOW_ALL = (n: number): string => `Show ${n} more`
 export const LOOKUPS_FEWER = 'Show fewer'
@@ -1001,9 +991,6 @@ export const LOOKUPS_FLAG_HELP: Readonly<Record<'new_place' | 'beaconing' | 'kno
   around_dns: 'It is online but asks your router for nothing.',
 }
 
-export const OTHER_DEVICES_TITLE = 'Other devices'
-export const OTHER_DEVICES_VIEWS_LABEL = 'What to show about the other devices'
-export const OTHER_DEVICES_VIEW_LABELS = { lookups: 'What they looked up', connections: 'Where they connected' } as const
 export const ROUTER_CONN_INTRO = 'Reads the router’s own list of open connections, once, when you press. It shows which device on this network connected to which place on the internet, with who runs it and where it is. It does not say how much was sent: the router does not count that.'
 export const ROUTER_CONN_LOAD_FAILED = 'The router setup could not be read.'
 export const ROUTER_CONN_FAILED = 'The router could not be read.'
@@ -1035,12 +1022,72 @@ export const ROUTER_CONN_CHANGE_ADDRESS = 'Change the address or user'
 export const ROUTER_CONN_NEVER = 'The router has not been read yet.'
 export const ROUTER_CONN_WHEN = (when: string, lines: number, kept: number): string => `Read ${when}: ${lines} lines, ${kept} connections to the internet.`
 export const ROUTER_CONN_TRUNCATED = 'The router’s list was longer than this program reads, so some connections are missing.'
-export const ROUTER_CONN_NONE = 'No device on this network held a connection to the internet when the router was read.'
 export const ROUTER_CONN_COUNT = (n: number): string => `${n} ${n === 1 ? 'connection' : 'connections'}`
 export const ROUTER_CONN_PLACES = (n: number): string => `${n} ${n === 1 ? 'place' : 'places'}`
-export const ROUTER_CONN_OPEN = (device: string): string => `Show where ${device} connected`
-export const ROUTER_CONN_CLOSE = (device: string): string => `Hide where ${device} connected`
-export const ROUTER_CONN_TRACE = 'Trace'
-export const ROUTER_CONN_TRACE_LABEL = (address: string): string => `Fill in ${address} in the route trace`
-export const ROUTER_CONN_SHOW_ALL = (n: number): string => `Show ${n} more`
-export const ROUTER_CONN_FEWER = 'Show fewer'
+// Network · Traffic by device: one list of devices, the map and the places of the picked one.
+export const PLACES_THIS_COMPUTER = 'This computer'
+export const PLACES_UNKNOWN_OWNER = 'Owner not known'
+export const PLACES_NO_COUNTRY = 'No location'
+export const PLACES_DEVICE_NAME = (address: string): string => `Device ${address}`
+/** How many cities a company's "where" line names before it says how many more. */
+export const PLACES_WHERE_SHOWN = 2
+/** Decimal places of a point that join places into one dot: one city, one dot. */
+export const PLACES_DOT_KEY_DIGITS = 1
+export const DEVICE_RAIL_LABEL = 'Devices'
+export const DEVICE_RAIL_FILTER_LABEL = 'Which devices to list'
+export const DEVICE_RAIL_FIND_LABEL = 'Find a device'
+export const DEVICE_RAIL_FIND = (n: number): string => `Find among ${n} devices`
+export const DEVICE_RAIL_ALL = (n: number): string => `All ${n}`
+export const DEVICE_RAIL_FLAGGED = (n: number): string => `Needs a look ${n}`
+export const DEVICE_RAIL_SECTION_FLAGGED = (n: number): string => `Needs a look · ${n}`
+export const DEVICE_RAIL_SECTION_OTHERS = (n: number): string => `On your network · ${n}`
+export const DEVICE_RAIL_NONE = 'No device matches.'
+export const DEVICE_RAIL_EMPTY_TITLE = 'No devices yet'
+export const DEVICE_RAIL_EMPTY_BODY = 'Press Listen now to look at this computer, or read the router below. The devices appear here.'
+export const DEVICE_RAIL_FLAG_LABEL = (name: string): string => `${name}: the watch raised a flag`
+export const DEVICE_PICKER_OPEN = 'Change'
+export const DEVICE_PICKER_CLOSE = 'Close'
+export const DEVICE_SOURCE_LABELS = { host: 'Packets on this computer', router: 'The router’s table' } as const
+export const DEVICE_STATS = { connections: 'Connections', bytes: 'Traffic', places: 'Places', companies: 'Companies', countries: 'Countries', fresh: 'New today' } as const
+export const DEVICE_MEASURE_NOTE = {
+  bytes: 'Dot size is bytes carried.',
+  connections: 'Dot size is connections held. The router keeps no byte counts.',
+} as const
+export const DEVICE_MAP_FITS = 'The map fits the places shown. Cities are approximate.'
+export const DEVICE_UNLOCATED = (n: number): string => `${n} ${n === 1 ? 'place has' : 'places have'} no location`
+export const DEVICE_NO_PLACES = 'This device held no connection to the internet when it was read.'
+export const DEVICE_NOT_READ = 'The router has not been read yet, so where this device connected is not known. What it asked for is below.'
+export const GROUPS_BY_LABEL = 'Group places by'
+export const GROUPS_BY_LABELS = { company: 'Company', country: 'Country' } as const
+export const GROUPS_FILTER_ALL = (n: number): string => `All ${n}`
+export const GROUPS_FILTER_UNLOCATED = (n: number): string => `No location ${n}`
+export const GROUPS_SEARCH = 'Search company or address'
+export const GROUPS_NONE = 'Nothing matches.'
+export const GROUPS_OPEN = (title: string): string => `Open ${title}`
+export const GROUPS_CLOSE = (title: string): string => `Close ${title}`
+export const GROUPS_PLACES = (n: number): string => `${n} ${n === 1 ? 'place' : 'places'}`
+export const GROUPS_WHERE_MORE = (n: number): string => `+${n}`
+export const GROUP_DETAIL_EMPTY_TITLE = 'Pick a company or a dot'
+export const GROUP_DETAIL_EMPTY_BODY = 'Its places appear here, each with a Route button. The map shows only what you pick.'
+export const GROUP_DETAIL_CLEAR = 'Clear'
+export const PLACE_ROUTE = 'Route'
+export const PLACE_ROUTE_CLOSE = 'Hide route'
+export const PLACE_ROUTE_LABEL = (address: string): string => `Route to ${address}`
+export const PLACE_ROUTE_FROM_HERE = 'Routes are traced from this computer, not from the device.'
+export const PLACE_NO_LOCATION = 'No location known'
+export const PLACE_SHOW_MORE = (n: number): string => `Show ${n} more places`
+export const PLACE_SHOW_FEWER = 'Show fewer places'
+export const NAMES_TITLE = 'Names it asked for'
+export const NAMES_NOTE = 'Lookups, not traffic: the router’s DNS log has names, not addresses or sizes.'
+export const NAMES_NONE = 'Nothing asked yet.'
+export const NAMES_UNKNOWN = 'The names it asked for appear once this device is in the Devices list.'
+export const NAMES_SHOWN = 6
+export const ROUTER_PANEL_TITLE = 'The router'
+export const DEVICE_EMPTY_TITLE = 'No places'
+export const GROUPS_FILTER_LABEL = 'Which places to list'
+export const GROUPS_FILTER_NEW = (n: number): string => `New today ${n}`
+export const GROUPS_NEW_CHIP = 'New today'
+export const PLACE_NEW = 'New today'
+export const ROUTER_CONN_WATCH_ON = 'Watching: a history is kept of where each device connects, and the nightly audit reads the router. New companies and countries show as New today.'
+export const ROUTER_CONN_WATCH_OFF = 'No history yet. Switch on Router connections in Modules to mark what is new each day and to read the router in the nightly audit.'
+export const ROUTER_CONN_WATCH_LINK = 'Open Modules'

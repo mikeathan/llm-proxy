@@ -63,6 +63,11 @@ type Deps struct {
 	Read     func(context.Context, routerssh.Target) ([]byte, error)
 	Probe    func(ctx context.Context, address string) (line, fingerprint string, err error)
 	Owners   func() Owners
+	// Observe is given each read before it is kept, to be added to the router watch's history, which marks the places that are new in it.
+	// It is nil, or does nothing, while the watch is off.
+	Observe func(*models.RouterConnections)
+	// Watching says whether the router watch is on, for the screen.
+	Watching func() bool
 	Now      func() time.Time
 }
 
@@ -72,8 +77,10 @@ type View struct {
 	User     string `json:"user"`
 	KeySaved bool   `json:"key_saved"`
 	// Fingerprint is the pinned router key's fingerprint, empty until pinned.
-	Fingerprint string                    `json:"fingerprint,omitempty"`
-	Last        *models.RouterConnections `json:"last,omitempty"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	// Watching says the router watch is on: a history is kept of each read and the nightly audit reads the router.
+	Watching bool                      `json:"watching"`
+	Last     *models.RouterConnections `json:"last,omitempty"`
 }
 
 // Manager keeps the setup and the last read, and reads the router one at a time.
@@ -100,6 +107,9 @@ func (m *Manager) View() View {
 	v := View{Address: addr, User: user, KeySaved: m.deps.Secret.Value() != ""}
 	if pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hostKey)); err == nil {
 		v.Fingerprint = ssh.FingerprintSHA256(pub)
+	}
+	if m.deps.Watching != nil {
+		v.Watching = m.deps.Watching()
 	}
 	m.mu.Lock()
 	v.Last = m.last
@@ -210,6 +220,9 @@ func (m *Manager) Read(ctx context.Context) (*models.RouterConnections, error) {
 	}
 	result := summarise(conns, owners)
 	result.At, result.Lines, result.Truncated, result.Kept = m.deps.Now(), lines, truncated, len(conns)
+	if m.deps.Observe != nil {
+		m.deps.Observe(result)
+	}
 	m.mu.Lock()
 	m.last = result
 	m.mu.Unlock()
