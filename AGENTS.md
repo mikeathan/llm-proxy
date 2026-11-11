@@ -146,30 +146,18 @@ When the user explicitly asks for a worktree or isolated branch, the approved wo
 3. Report results and leave changes uncommitted unless the user approves commit/push.
 Do not create a worktree, branch, commit, or PR on your own initiative.
 
-## Skills (load on demand — never all at once)
+## Skills and reference (load on demand — never all at once)
 
-`.agents/skills/<name>/SKILL.md` are Agent Skills the harness surfaces automatically: only each `name` +
-`description` are always in context; the body loads when relevant, and each skill's `references/` files
-load only when its reference table says so. **The `description` is the trigger — there is no separate
-trigger field.** Route by phase:
-- **Plan / research** → `task-planning`; add `clean-code` + `engineering-practices` and the affected
-  subsystem skill (the hub lists it; catalog: `docs/INDEX.md` → Skills).
-- **Implement** → `tdd-guide` (+ `clean-code`, `engineering-practices`).
-- **Verify / debug** → `debugging` for anything failing; `testing-guide` for authoring/running tests,
-  smoke runs, record-replay, and run analysis.
-- **Close out** → `documentation-stewardship`.
-- **Ops / config** → `llamacpp-setup`; changing a persisted config field, default or precedence →
-  `config-persistence`; inference-provider work (not search or connectors) → `provider-integration`.
-- **Commit / PR text** → `pr-commit-message`.
+`.agents/skills/<name>/SKILL.md` are Agent Skills; each `description` is the trigger and the body loads when
+relevant. Route by phase:
+- **Plan / research** → `task-planning` (+ `clean-code`, `engineering-practices`, the subsystem skill its hub lists).
+- **Implement** → `tdd-guide`. **Verify / debug** → `debugging` for failures, `testing-guide` for tests and runs.
+- **Close out** → `documentation-stewardship`. **Commit / PR text** → `pr-commit-message`.
+- **Ops / config** → `llamacpp-setup`; persisted config field, default or precedence → `config-persistence`;
+  inference-provider work → `provider-integration`.
 
-## Reference (load on demand)
-
-- `docs/INDEX.md` — router to every doc catalog (subsystems, SPECs, architecture, decisions, plans,
-  learnings, audits, skills, rules).
-- `docs/subsystems/` — one hub per subsystem; the fastest way in.
-- `docs/architecture.md` — entry to `docs/architecture/`: map, contracts, conventions, checklists, pitfalls.
-- `docs/PLANS/README.md` — open plans and what is left in each.
-- Adding a frontend settings tab? → `docs/architecture/checklists.md#adding-a-frontend-settings-tab-checklist`.
+Everything else is routed from `docs/INDEX.md` (subsystems, SPECs, architecture, plans, learnings, skills catalog).
+Adding a frontend settings tab? → `docs/architecture/checklists.md#adding-a-frontend-settings-tab-checklist`.
 
 ## Pre-Completion Review (Mandatory Gate)
 
