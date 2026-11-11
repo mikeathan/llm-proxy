@@ -152,6 +152,8 @@ type netauditServices struct {
 	RouterHistory    *routerhistory.History
 	// RouterConnReady says whether the guardrails allow the local network, asked before each nightly read.
 	RouterConnReady func() (bool, string)
+	// RouterConnGate holds the report's reads of the router to one per three hours, whoever starts the runs.
+	RouterConnGate *readGate
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      netaudit.WebChecker
@@ -677,6 +679,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		RouterConn:        routerConn.Manager,
 		RouterConnConfig:  routerConn.Config,
 		RouterConnReady:   func() (bool, string) { return networkReady(guard(), true, false) },
+		RouterConnGate:    newReadGate(routerConnReadGap, time.Now),
 		RouterHistory:     routerConn.History,
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,

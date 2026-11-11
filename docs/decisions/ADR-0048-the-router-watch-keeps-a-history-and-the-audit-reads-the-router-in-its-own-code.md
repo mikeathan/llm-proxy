@@ -34,7 +34,9 @@ under it, both amending Constitution I.15.
    (setup unfinished, router just read) is neither.
 
 **The agent cannot reach any of it.** The read is not a tool: it is a call in the reporter, wired in `internal/app`. No tool, prompt, task text or setting an
-agent writes names the router, the user or the key, starts or changes a read, switches the module, or reads the history. The test
+agent writes names the router, the user or the key, asks for or changes a read, switches the module, or reads the history. One indirect effect is accepted: the
+reporter runs at the end of any automation run that made a scan, so an agent that used the scan tool causes a read. It chooses neither whether nor how, and
+the reporter's reads are held to **one per three hours** (`readGate`), a failed read counting, so the number of runs is not the number of sign-ins. The test
 `TestOnlyTheServiceCodeReachesTheRouter` (`internal/archtest`, Constitution IV.6) fails the build if a package other than `internal/app`, the netaudit core, its
 `routerconn` and `routerhistory`, `platform/routerssh` and the operator's handlers imports them.
 

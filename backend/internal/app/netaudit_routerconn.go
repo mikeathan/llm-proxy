@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/netip"
+	"sync"
 	"time"
 
 	"llm-proxy/internal/core/netaudit"
@@ -115,6 +116,33 @@ func routerConnObserver(enabled func() bool, history *routerhistory.History, inv
 	}
 }
 
+// routerConnReadGap is the least time between two reads made by the report's code, however many runs ask: a run in which an agent made a scan
+// ends with a read, so the number of runs must not be the number of sign-ins to the router (Constitution I.15). The operator's press is not held to it.
+const routerConnReadGap = 3 * time.Hour
+
+// readGate lets the report's code read the router at most once per gap. A read that fails still counts, so a failing router is not hammered.
+type readGate struct {
+	mu   sync.Mutex
+	last time.Time
+	gap  time.Duration
+	now  func() time.Time
+}
+
+func newReadGate(gap time.Duration, now func() time.Time) *readGate {
+	return &readGate{gap: gap, now: now}
+}
+
+// Take says whether a read may be made now, and counts it when it may.
+func (g *readGate) Take() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if at := g.now(); g.last.IsZero() || at.Sub(g.last) >= g.gap {
+		g.last = at
+		return true
+	}
+	return false
+}
+
 // routerConnWatch is what the nightly report reads of the watch: the report's own code asks it to read the router once, so no tool of an
 // agent, and nothing an agent writes, reaches the router, its user or its key (Constitution I.15).
 type routerConnWatch struct {
@@ -123,6 +151,8 @@ type routerConnWatch struct {
 	history *routerhistory.History
 	// ready says whether the guardrails still allow the local network, asked at each read as the web checks do.
 	ready func() (bool, string)
+	// gate holds the report's reads to one per routerConnReadGap.
+	gate *readGate
 }
 
 func (w routerConnWatch) Enabled() bool { return w.config.Enabled() }
@@ -134,6 +164,9 @@ func (w routerConnWatch) Refresh(ctx context.Context) error {
 		if ok, why := w.ready(); !ok {
 			return errors.New(why)
 		}
+	}
+	if w.gate != nil && !w.gate.Take() {
+		return netaudit.ErrRouterConnSkipped
 	}
 	_, err := w.manager.Read(ctx)
 	return mapRefreshError(err)
@@ -160,7 +193,7 @@ func (s AppServices) NetauditRouterConn() netaudit.RouterConnSource {
 	if s.netaudit == nil || s.netaudit.RouterConn == nil || s.netaudit.RouterConnConfig == nil || s.netaudit.RouterHistory == nil {
 		return nil
 	}
-	return routerConnWatch{config: s.netaudit.RouterConnConfig, manager: s.netaudit.RouterConn, history: s.netaudit.RouterHistory, ready: s.netaudit.RouterConnReady}
+	return routerConnWatch{config: s.netaudit.RouterConnConfig, manager: s.netaudit.RouterConn, history: s.netaudit.RouterHistory, ready: s.netaudit.RouterConnReady, gate: s.netaudit.RouterConnGate}
 }
 
 // routerConnReady says whether the router watch can be switched on: the local network is allowed and the router's setup is finished

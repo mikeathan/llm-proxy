@@ -71,3 +71,31 @@ func TestTheNightlyReadSendsNothingWhenTheGuardrailsHaveClosedTheLocalNetwork(t 
 		t.Fatalf("a closed guardrail is a failure the report says, got %v", err)
 	}
 }
+
+func TestTheReportsReadsAreHeldToOnePerGapWhoeverStartsTheRuns(t *testing.T) {
+	now := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	g := newReadGate(3*time.Hour, func() time.Time { return now })
+	if !g.Take() {
+		t.Fatal("the first read is allowed")
+	}
+	for i := 0; i < 50; i++ {
+		now = now.Add(time.Minute)
+		if g.Take() {
+			t.Fatalf("a read %d minutes after the last must be refused", i+1)
+		}
+	}
+	now = now.Add(3 * time.Hour)
+	if !g.Take() {
+		t.Fatal("after the gap a read is allowed again")
+	}
+}
+
+func TestARefusedReadReadsAsNothingToDoNotAFailure(t *testing.T) {
+	now := time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC)
+	g := newReadGate(time.Hour, func() time.Time { return now })
+	g.Take()
+	w := routerConnWatch{gate: g}
+	if err := w.Refresh(t.Context()); !errors.Is(err, netaudit.ErrRouterConnSkipped) {
+		t.Fatalf("a read inside the gap must be skipped, got %v", err)
+	}
+}
