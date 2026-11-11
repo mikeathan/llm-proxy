@@ -69,6 +69,21 @@ describe('TrafficRouterConn', () => {
     expect(w.find('[data-test="router-read"]').exists()).toBe(true)
   })
 
+  it('lets the address be changed at the key and trust steps, not only once the setup is finished', async () => {
+    service.routerConn.mockResolvedValue({ address: '192.168.50.1', user: 'admin', key_saved: true })
+    const w = await show()
+    expect(w.get('[data-test="router-step"]').text()).toContain('Step 3 of 3')
+    expect(w.find('[data-test="router-address"]').exists()).toBe(false)
+    await w.get('[data-test="router-change-address"]').trigger('click')
+    expect((w.get('[data-test="router-address"]').element as HTMLInputElement).value).toBe('192.168.50.1')
+    service.setRouterTarget.mockResolvedValue({ address: '192.168.50.1:2222', user: 'admin', key_saved: true })
+    await w.get('[data-test="router-address"]').setValue('192.168.50.1:2222')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(service.setRouterTarget).toHaveBeenCalledWith('192.168.50.1:2222', 'admin')
+    expect(w.find('[data-test="router-address"]').exists()).toBe(false)
+  })
+
   it('reads the router on the press and lists each device by the name the person gave it, then its places with who runs them', async () => {
     service.routerConn.mockResolvedValue(READY)
     const w = await show()

@@ -1031,6 +1031,7 @@ export const ROUTER_CONN_READ = 'Read the router now'
 export const ROUTER_CONN_READING = 'Reading the router'
 export const ROUTER_CONN_PASSPHRASE = 'Asks for your passphrase each time.'
 export const ROUTER_CONN_CHANGE = 'Change the setup'
+export const ROUTER_CONN_CHANGE_ADDRESS = 'Change the address or user'
 export const ROUTER_CONN_NEVER = 'The router has not been read yet.'
 export const ROUTER_CONN_WHEN = (when: string, lines: number, kept: number): string => `Read ${when}: ${lines} lines, ${kept} connections to the internet.`
 export const ROUTER_CONN_TRUNCATED = 'The router’s list was longer than this program reads, so some connections are missing.'
