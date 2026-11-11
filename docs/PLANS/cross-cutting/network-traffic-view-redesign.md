@@ -143,5 +143,5 @@ DB-IP table; frontend `npx vitest run` (288 files, 2924 tests) and `npm run buil
    city alone never appears; change that only if the owner asks.
 
 **Branch state:** `network-traffic-route-map`, made from `origin/main` (21a4161c) and tracking it, so push with `git push -u origin network-traffic-route-map`, never a
-bare `git push`. Nothing is committed or pushed. Start from `backend/internal/core/netaudit/hosttraffic/hosttraffic.go` (`direction`, `servicePort`) and
+bare `git push`. Committed as c0db2d0e and opened as PR #225. Start from `backend/internal/core/netaudit/hosttraffic/hosttraffic.go` (`direction`, `servicePort`) and
 `frontend/src/components/netaudit/TrafficReport.vue`.
