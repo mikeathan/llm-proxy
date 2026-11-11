@@ -9,7 +9,7 @@ import { deviceLabel } from "../../utils/netaudit/devices"
 import { ownerLine } from "../../utils/netaudit/traffic"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
-  LOOKUPS_UNKNOWN_DEVICE, ROUTER_CONN_ADDRESS, ROUTER_CONN_ADDRESS_HINT, ROUTER_CONN_CHANGE, ROUTER_CONN_CHECK, ROUTER_CONN_CHECK_HINT, ROUTER_CONN_CLOSE, ROUTER_CONN_COUNT,
+  LOOKUPS_UNKNOWN_DEVICE, ROUTER_CONN_ADDRESS, ROUTER_CONN_ADDRESS_HINT, ROUTER_CONN_CHANGE, ROUTER_CONN_CHANGE_ADDRESS, ROUTER_CONN_CHECK, ROUTER_CONN_CHECK_HINT, ROUTER_CONN_CLOSE, ROUTER_CONN_COUNT,
   ROUTER_CONN_FEWER, ROUTER_CONN_FINGERPRINT, ROUTER_CONN_INTRO, ROUTER_CONN_KEY, ROUTER_CONN_KEY_HINT, ROUTER_CONN_KEY_REMOVE, ROUTER_CONN_KEY_SAVE, ROUTER_CONN_NEVER,
   ROUTER_CONN_NONE, ROUTER_CONN_OPEN, ROUTER_CONN_PASSPHRASE, ROUTER_CONN_PLACES, ROUTER_CONN_READ, ROUTER_CONN_READING, ROUTER_CONN_SAVE, ROUTER_CONN_SHOW_ALL,
   ROUTER_CONN_STEPS, ROUTER_CONN_TRACE, ROUTER_CONN_TRACE_LABEL, ROUTER_CONN_TRUNCATED, ROUTER_CONN_TRUST, ROUTER_CONN_TRUSTED, ROUTER_CONN_USER, ROUTER_CONN_USER_HINT,
@@ -104,8 +104,9 @@ const last = computed(() => conn.state.value?.last ?? null)
         </div>
       </div>
 
-      <div v-if="conn.state.value?.key_saved" class="flex flex-wrap items-center gap-3">
-        <BaseButton variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="!!conn.busy.value" data-test="router-remove-key" @click="conn.removeKey()">{{ ROUTER_CONN_KEY_REMOVE }}</BaseButton>
+      <div v-if="conn.step.value !== 'target' || conn.state.value?.key_saved" class="flex flex-wrap items-center gap-3">
+        <BaseButton v-if="conn.step.value !== 'ready' && conn.step.value !== 'target'" variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="!!conn.busy.value" data-test="router-change-address" @click="changing = !changing">{{ ROUTER_CONN_CHANGE_ADDRESS }}</BaseButton>
+        <BaseButton v-if="conn.state.value?.key_saved" variant="ghost" size="sm" class-name="max-sm:!h-11" :disabled="!!conn.busy.value" data-test="router-remove-key" @click="conn.removeKey()">{{ ROUTER_CONN_KEY_REMOVE }}</BaseButton>
       </div>
     </section>
 
