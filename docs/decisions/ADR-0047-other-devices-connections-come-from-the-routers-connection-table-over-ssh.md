@@ -37,5 +37,5 @@ We will read that file over SSH only when the operator presses a button, with `g
 
 ## Links
 
-- Plan: `docs/PLANS/cross-cutting/network-traffic-more-handoff-2026-11-11.md` (B2); Constitution I.15.
+- Plan: `docs/PLANS/cross-cutting/network-traffic-by-device-handoff-2026-11-12.md` (B2 of the earlier traffic-more handoff, now built); Constitution I.15.
 - Code: `backend/internal/platform/routerssh/`, `backend/internal/core/netaudit/routerconn/`, `backend/internal/transport/http/handlers/netaudit_routerconn_handlers.go`, `frontend/src/components/netaudit/TrafficRouterSetup.vue` (the setup and the read) and `frontend/src/components/netaudit/TrafficDevicePane.vue` (the devices it shows).
