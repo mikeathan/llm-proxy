@@ -70,27 +70,31 @@ const (
 
 // TrafficDestination is the bytes exchanged with one place. Name is empty when no DNS answer in the window named the address.
 type TrafficDestination struct {
-	Name     string        `json:"name,omitempty"`
-	NameFrom string        `json:"name_from,omitempty"`
-	Address  string        `json:"address"`
-	Bytes    uint64        `json:"bytes"`
-	Internet bool          `json:"internet"`
-	Owner    *TrafficOwner `json:"owner,omitempty"`
+	Name     string `json:"name,omitempty"`
+	NameFrom string `json:"name_from,omitempty"`
+	Address  string `json:"address"`
+	Bytes    uint64 `json:"bytes"`
+	Internet bool   `json:"internet"`
+	// Shared marks a broadcast or multicast address many devices share (by its IP address or the frame's hardware address); never internet.
+	Shared bool          `json:"shared,omitempty"`
+	Owner  *TrafficOwner `json:"owner,omitempty"`
 }
 
 // TrafficFlow is one conversation with a remote address and port, by protocol. Port is the service's port: the remote's when this computer
 // opened the conversation, this computer's own when Served (another machine connected to a service here). Self marks the conversations of this
 // program's own port.
 type TrafficFlow struct {
-	Address  string        `json:"address"`
-	Name     string        `json:"name,omitempty"`
-	NameFrom string        `json:"name_from,omitempty"`
-	Port     int           `json:"port"`
-	Served   bool          `json:"served,omitempty"`
-	Self     bool          `json:"self,omitempty"`
-	Proto    string        `json:"proto"`
-	Kind     string        `json:"kind"`
-	Internet bool          `json:"internet"`
+	Address  string `json:"address"`
+	Name     string `json:"name,omitempty"`
+	NameFrom string `json:"name_from,omitempty"`
+	Port     int    `json:"port"`
+	Served   bool   `json:"served,omitempty"`
+	Self     bool   `json:"self,omitempty"`
+	Proto    string `json:"proto"`
+	Kind     string `json:"kind"`
+	Internet bool   `json:"internet"`
+	// Shared marks a conversation with a broadcast or multicast address (see TrafficDestination.Shared).
+	Shared   bool          `json:"shared,omitempty"`
 	BytesOut uint64        `json:"bytes_out"`
 	BytesIn  uint64        `json:"bytes_in"`
 	Owner    *TrafficOwner `json:"owner,omitempty"`

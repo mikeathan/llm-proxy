@@ -103,7 +103,8 @@ export function trafficPlace(t: HostTraffic, address: string): TrafficPlace | nu
   const destination = t.destinations.find((d) => d.address === address)
   const flows = t.flows.filter((f) => f.address === address)
   if (!destination && flows.length === 0) return null
-  const internet = destination?.internet ?? flows[0]!.internet
+  const shared = Boolean(destination?.shared ?? flows[0]?.shared) || isSharedAddress(address)
+  const internet = !shared && (destination?.internet ?? flows[0]!.internet)
   const bytes = destination?.bytes ?? flows.reduce((n, f) => n + f.bytes_in + f.bytes_out, 0)
   const total = t.bytes_in + t.bytes_out + t.bytes_through
   const named = destination?.name ? destination : flows.find((f) => f.name)
@@ -116,7 +117,7 @@ export function trafficPlace(t: HostTraffic, address: string): TrafficPlace | nu
     bytes,
     percent: percentOf(bytes, total),
     flows,
-    scannable: !internet && !isSharedAddress(address),
+    scannable: !internet && !shared,
   }
 }
 
@@ -198,8 +199,9 @@ export function visibleFlows(flows: readonly TrafficFlow[], all: boolean, limit:
 }
 
 /** The group a place belongs to in "Who it talked to". */
-export function talkGroupOf(address: string, internet: boolean): TalkGroupId {
-  return internet ? 'internet' : isSharedAddress(address) ? 'shared' : 'network'
+export function talkGroupOf(address: string, internet: boolean, shared = false): TalkGroupId {
+  // Shared first: a look kept before the server marked broadcasts called 255.255.255.255 an internet address.
+  return shared || isSharedAddress(address) ? 'shared' : internet ? 'internet' : 'network'
 }
 
 /** What one conversation was, as a short phrase: "HTTPS", "DNS", "UDP 9999", or "SSH to this computer :22" for one served here. */
@@ -218,9 +220,10 @@ function selfBytesByAddress(flows: readonly TrafficFlow[]): Map<string, number> 
 }
 
 /** A row for an address seen in a destination or a conversation, before its conversations are added. */
-function newRow(address: string, internet: boolean, deviceNames: Readonly<Record<string, string>>, name?: string, owner?: TrafficOwner): TalkRow {
+function newRow(place: { address: string; internet: boolean; shared?: boolean; name?: string; owner?: TrafficOwner }, deviceNames: Readonly<Record<string, string>>): TalkRow {
+  const { address, internet, shared, name, owner } = place
   const label = name || deviceNames[address] || address
-  return { address, label, named: label !== address, group: talkGroupOf(address, internet), sent: 0, received: 0, bytes: 0, services: [], owner }
+  return { address, label, named: label !== address, group: talkGroupOf(address, internet, shared), sent: 0, received: 0, bytes: 0, services: [], owner }
 }
 
 /**
@@ -232,7 +235,7 @@ export function talkGroups(t: HostTraffic, deviceNames: Readonly<Record<string, 
   const self = selfBytesByAddress(t.flows)
   const rows = new Map<string, TalkRow>()
   for (const d of t.destinations) {
-    const row = rows.get(d.address) ?? newRow(d.address, d.internet, deviceNames, d.name, d.owner)
+    const row = rows.get(d.address) ?? newRow(d, deviceNames)
     row.bytes = Math.max(row.bytes, d.bytes - (self.get(d.address) ?? 0))
     rows.set(d.address, row)
   }
@@ -240,7 +243,7 @@ export function talkGroups(t: HostTraffic, deviceNames: Readonly<Record<string, 
   const flowBytes = new Map<string, number>()
   for (const f of t.flows) {
     if (f.self) continue
-    const row = rows.get(f.address) ?? newRow(f.address, f.internet, deviceNames, f.name, f.owner)
+    const row = rows.get(f.address) ?? newRow(f, deviceNames)
     row.sent += f.bytes_out
     row.received += f.bytes_in
     row.owner ??= f.owner

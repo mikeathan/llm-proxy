@@ -663,3 +663,31 @@ func TestTheServicePortIsTheLowOneWhenBothEndsAreBelowTheEphemeralRange(t *testi
 		})
 	}
 }
+
+// The look on vertex (2026-11-11, v0.73.0) put 255.255.255.255 under "on the internet" and the network's own broadcast address 192.168.50.255
+// under "on this network". A frame to a broadcast or multicast address, by its IP address or its hardware address, is shared, never internet.
+func TestABroadcastIsSharedAndNeverInternetWhetherByItsAddressOrItsHardwareAddress(t *testing.T) {
+	bcast := [6]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	limited := macs(ip4(router, netip.MustParseAddr("255.255.255.255"), protoUDP, 300, udp(9478, 9478, nil)), routerMAC, bcast)
+	subnet := macs(ip4(router, netip.MustParseAddr("192.168.50.255"), protoUDP, 200, udp(7788, 7788, nil)), routerMAC, bcast)
+	noMAC := ip4(me, netip.MustParseAddr("255.255.255.255"), protoUDP, 100, udp(68, 67, nil))
+	unicast := macs(ip4(me, web, protoTCP, 50, tcp(51000, 443, nil)), myMAC, routerMAC)
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, limited}, kept{2, 1, subnet}, kept{3, 1, noMAC}, kept{4, 1, unicast}), Self{Addrs: local, MACs: [][6]byte{myMAC}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Internet != 50 {
+		t.Fatalf("internet bytes %d, want only the unicast 50", s.Internet)
+	}
+	for _, f := range s.Flows {
+		shared := f.Address != web.String()
+		if f.Shared != shared || (f.Internet && shared) {
+			t.Errorf("%+v", f)
+		}
+	}
+	for _, d := range s.Destinations {
+		if d.Shared != (d.Address != web.String()) {
+			t.Errorf("destination %+v", d)
+		}
+	}
+}
