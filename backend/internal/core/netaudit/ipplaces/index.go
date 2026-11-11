@@ -6,17 +6,20 @@
 package ipplaces
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/netip"
 	"sort"
 )
 
 const (
 	headerSize = 32
-	magic      = "IPCITY01"
+	// magic names the version: 02 added the country and the point to each place, so a first-version file is refused and downloaded again.
+	magic      = "IPCITY02"
 	v4Record   = 8  // first address (4 bytes) and place id (4)
 	v6Record   = 12 // the first 8 bytes of the first address and place id (4)
 	offsetSize = 4
@@ -24,11 +27,25 @@ const (
 	none = ^uint32(0)
 )
 
-// Place is where an address is used. Either field may be empty; a range with neither has no place.
+// Place is where an address is used. Region or City may be empty; a range with neither has no place. Country is the table's two capital
+// letters for the place (empty when it gave none), and Lat and Lon are the city's point in degrees when Located: approximate, like the city.
 type Place struct {
-	Region string
-	City   string
+	Country string
+	Region  string
+	City    string
+	Lat     float64
+	Lon     float64
+	Located bool
 }
+
+const (
+	// pointScale stores a degree in a whole number of ten-thousandths (about 11 m), four bytes each.
+	pointScale = 1e4
+	pointBytes = 8
+	// noPoint marks a place whose table row gave no usable point.
+	noPoint      = math.MinInt32
+	countryBytes = 2
+)
 
 // Counts says what an index holds.
 type Counts struct {
@@ -128,7 +145,8 @@ func (x *Index) find(at int64, n, size int, key uint64, keyLen int) (uint32, err
 	return binary.BigEndian.Uint32(buf[size-4 : size]), nil
 }
 
-// place reads one place: two bytes of country (unused here), the region, a zero byte, and the city.
+// place reads one place: two bytes of country (zeros for none), the region, a zero byte, the city, and the point (latitude and longitude, four
+// bytes each).
 func (x *Index) place(id uint32) (Place, error) {
 	if int(id) >= x.l.counts.Places {
 		return Place{}, ErrNotAnIndex
@@ -145,10 +163,27 @@ func (x *Index) place(id uint32) (Place, error) {
 	if _, err := x.r.ReadAt(raw, x.l.blobAt+int64(start)); err != nil {
 		return Place{}, fmt.Errorf("the places table could not be read: %w", err)
 	}
-	for i, c := range raw {
-		if c == 0 {
-			return Place{Region: string(raw[:i]), City: string(raw[i+1:])}, nil
-		}
+	return decodePlace(raw)
+}
+
+// decodePlace reads one place's bytes (see place).
+func decodePlace(raw []byte) (Place, error) {
+	if len(raw) < countryBytes+1+pointBytes {
+		return Place{}, ErrNotAnIndex
 	}
-	return Place{}, ErrNotAnIndex
+	var p Place
+	if raw[0] != 0 {
+		p.Country = string(raw[:countryBytes])
+	}
+	text, point := raw[countryBytes:len(raw)-pointBytes], raw[len(raw)-pointBytes:]
+	sep := bytes.IndexByte(text, 0)
+	if sep < 0 {
+		return Place{}, ErrNotAnIndex
+	}
+	p.Region, p.City = string(text[:sep]), string(text[sep+1:])
+	lat, lon := int32(binary.BigEndian.Uint32(point[:4])), int32(binary.BigEndian.Uint32(point[4:]))
+	if lat != noPoint {
+		p.Lat, p.Lon, p.Located = float64(lat)/pointScale, float64(lon)/pointScale, true
+	}
+	return p, nil
 }

@@ -59,7 +59,7 @@ We will do both, and keep every lookup on this computer.
 - **A per-address online lookup (ipinfo, ip-api, RDAP).** Sends every destination to a third party; ruled out by I.2's spirit and by the point of the audit.
 - **MaxMind GeoLite2.** Needs an account, a licence key and an end-user agreement; IPtoASN needs none and gives the holder as well as the country.
 - **DB-IP Lite alongside IPtoASN.** Country only, which IPtoASN already gives; one source is simpler and needs no attribution.
-- **A world map.** False precision for CDN-served traffic, a new dependency, and the question "who runs it" is better answered by a name than a dot.
+- **A world map.** False precision for CDN-served traffic, a new dependency, and the question "who runs it" is better answered by a name than a dot. *(Superseded on 2026-11-11 by ADR-0046: the owner chose a map once the city table gave a point per address; it is drawn from a built-in outline, no dependency.)*
 - **Reverse DNS on each address.** Sends the address to the resolver and gives a host name, which the DNS answers and hellos already give better.
 - **Keep the whole frame for every TCP segment.** Payload of every connection; far past what the owner approved. Only a ClientHello keeps more.
 - **Read the hello in the helper.** The helper parses nothing (I.11, I.13): the service reads it.

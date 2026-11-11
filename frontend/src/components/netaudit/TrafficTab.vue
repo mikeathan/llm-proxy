@@ -4,14 +4,15 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import Panel from "../common/layout/Panel.vue"
-import DestinationDataCard from "./DestinationDataCard.vue"
 import TrafficReport from "./TrafficReport.vue"
+import TrafficTablesLine from "./TrafficTablesLine.vue"
 import { usePolling } from "../../composables/ui/usePolling"
 import { useHostTraffic } from "../../composables/netaudit/useHostTraffic"
+import { useRouteTrace } from "../../composables/netaudit/useRouteTrace"
 import { formatRelativeTime } from "../../utils/format/time"
 import {
   TRAFFIC_BUTTON, TRAFFIC_NEVER_BODY, TRAFFIC_NEVER_TITLE, TRAFFIC_OPEN_SETTINGS, TRAFFIC_PASSPHRASE_NOTE, TRAFFIC_RUNNING, TRAFFIC_SUBTITLE, TRAFFIC_TITLE,
-  TRAFFIC_FOLLOW_INTERVAL_MS as FOLLOW_INTERVAL_MS,
+  TRAFFIC_FOLLOW_INTERVAL_MS as FOLLOW_INTERVAL_MS, ROUTE_POLL_MS,
 } from "../../constants/netaudit"
 import type { NetworkTab } from "../../types/routes"
 
@@ -19,9 +20,12 @@ import type { NetworkTab } from "../../types/routes"
 // the helper can do it; when it cannot, the reason and the one page that fixes it are, and the last look stays readable. It makes no finding.
 const emit = defineEmits<{ (e: "open-tab", tab: NetworkTab): void }>()
 const { availability, summary, loaded, running, error, loadError, load, listen, follow } = useHostTraffic()
-onMounted(load)
+// The route traces are kept by the server; one running fills in step by step, so it is read every second while it runs, and not otherwise.
+const routes = useRouteTrace()
+onMounted(() => { void load(); void routes.load() })
 // A look started before a reload runs on the server for up to a minute; check every few seconds whether it has ended.
 usePolling(follow, FOLLOW_INTERVAL_MS)
+usePolling(() => void routes.refresh(), ROUTE_POLL_MS)
 </script>
 
 <template>
@@ -50,9 +54,8 @@ usePolling(follow, FOLLOW_INTERVAL_MS)
       </template>
       <EmptyState v-else-if="!loadError" :title="TRAFFIC_NEVER_TITLE" :body="TRAFFIC_NEVER_BODY" data-test="traffic-never" />
 
-      <!-- The table that says who runs each address is set up once, so it sits after what a look shows rather than before it. -->
-      <DestinationDataCard />
-      <DestinationDataCard table="places" />
+      <!-- The tables that name internet addresses are managed in Settings; here only whether they are on, and a link. -->
+      <TrafficTablesLine />
     </template>
   </div>
 </template>

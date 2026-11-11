@@ -28,6 +28,12 @@ type HostTraffic struct {
 	BytesIn      uint64 `json:"bytes_in"`
 	BytesOut     uint64 `json:"bytes_out"`
 	BytesThrough uint64 `json:"bytes_through"`
+	// DirectionUnknown says no packet could be told to be this computer's: neither its addresses nor its network cards' hardware addresses
+	// matched, so every byte is in BytesThrough. The screen says it could not tell which way traffic went, never that nothing was sent.
+	DirectionUnknown bool `json:"direction_unknown,omitempty"`
+	// SelfBytes is the part of the window that was this program's own web page or API being served (a browser viewing the page), which a look
+	// taken from that page always contains; the screen sets it apart.
+	SelfBytes    uint64 `json:"self_bytes,omitempty"`
 	Internet     uint64 `json:"internet_bytes"`
 	LocalNetwork uint64 `json:"local_network_bytes"`
 	// Lookups is how many DNS questions this computer asked in the window.
@@ -72,12 +78,16 @@ type TrafficDestination struct {
 	Owner    *TrafficOwner `json:"owner,omitempty"`
 }
 
-// TrafficFlow is one conversation with a remote address and port, by protocol.
+// TrafficFlow is one conversation with a remote address and port, by protocol. Port is the service's port: the remote's when this computer
+// opened the conversation, this computer's own when Served (another machine connected to a service here). Self marks the conversations of this
+// program's own port.
 type TrafficFlow struct {
 	Address  string        `json:"address"`
 	Name     string        `json:"name,omitempty"`
 	NameFrom string        `json:"name_from,omitempty"`
 	Port     int           `json:"port"`
+	Served   bool          `json:"served,omitempty"`
+	Self     bool          `json:"self,omitempty"`
 	Proto    string        `json:"proto"`
 	Kind     string        `json:"kind"`
 	Internet bool          `json:"internet"`
@@ -99,6 +109,16 @@ type TrafficOwner struct {
 	// somebody else chose, so they are shown only as text.
 	Region string `json:"region,omitempty"`
 	City   string `json:"city,omitempty"`
+	// PlaceCountry is the country the city table puts the address in (two capital letters), which can differ from Country, the country the
+	// range is registered to. Point is the city's latitude and longitude from the same table, for the map; approximate like the city.
+	PlaceCountry string    `json:"place_country,omitempty"`
+	Point        *GeoPoint `json:"point,omitempty"`
+}
+
+// GeoPoint is a latitude and a longitude in degrees, from the city table: where a city is, never where a machine stands.
+type GeoPoint struct {
+	Lat float64 `json:"lat"`
+	Lon float64 `json:"lon"`
 }
 
 // TrafficOwnerShare is the internet bytes that went to or came from one network holder.

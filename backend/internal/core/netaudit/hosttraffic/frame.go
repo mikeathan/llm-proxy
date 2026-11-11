@@ -21,12 +21,14 @@ const (
 	fragmentBits = 0x1fff
 )
 
-// frame is the part of a kept frame that is read: who, which protocol, which ports and how many bytes the IP packet had. Nothing else of the
-// frame is kept, and its payload is looked at only for a DNS message.
+// frame is the part of a kept frame that is read: which network cards and addresses, which protocol, which ports and how many bytes the IP
+// packet had. Nothing else of the frame is kept, and its payload is looked at only for a DNS message or a TLS hello.
 type frame struct {
-	src, dst     netip.Addr
-	proto        byte
-	sport, dport uint16
+	// srcMAC and dstMAC are the Ethernet hardware addresses, which say which way a packet went when this computer's IP addresses cannot be listed.
+	srcMAC, dstMAC [6]byte
+	src, dst       netip.Addr
+	proto          byte
+	sport, dport   uint16
 	// length is the IP packet's own length, which says how big the packet was even though only its first bytes were kept.
 	length uint64
 	// payload is the kept bytes after the TCP or UDP header (empty when none were kept).
@@ -39,14 +41,29 @@ func parseFrame(b []byte) (frame, bool) {
 	if len(b) < ethHeader {
 		return frame{}, false
 	}
+	var f frame
+	var ok bool
 	switch binary.BigEndian.Uint16(b[12:14]) {
 	case etherTypeIPv4:
-		return parseIPv4(b)
+		f, ok = parseIPv4(b)
 	case etherTypeIPv6:
-		return parseIPv6(b)
+		f, ok = parseIPv6(b)
 	}
-	return frame{}, false
+	if !ok {
+		return frame{}, false
+	}
+	f.dstMAC, f.srcMAC = [6]byte(b[0:6]), [6]byte(b[6:12])
+	return f, true
 }
+
+// groupBit marks a broadcast or multicast hardware address (the low bit of its first byte).
+const groupBit = 0x01
+
+// isGroupMAC says a hardware address names many cards: broadcast or multicast.
+func isGroupMAC(m [6]byte) bool { return m[0]&groupBit != 0 }
+
+// isCardMAC says a hardware address can be one network card's: neither all zeros nor a group address.
+func isCardMAC(m [6]byte) bool { return m != [6]byte{} && !isGroupMAC(m) }
 
 func parseIPv4(b []byte) (frame, bool) {
 	ip := b[ethHeader:]

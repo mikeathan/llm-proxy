@@ -1,10 +1,17 @@
 import { formatBytes } from '../format/formatters'
 import {
-  TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED_KINDS, TRAFFIC_OWNER_LINE, TRAFFIC_KIND_LABELS, TRAFFIC_SAMPLED, TRAFFIC_STOPPED, TRAFFIC_TOP_DESTINATIONS,
+  ROUTE_FAILED, ROUTE_HOP_SILENT, ROUTE_HOP_TIME, ROUTE_HOP_WHERE, ROUTE_NOT_REACHED, ROUTE_REACHED, TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED, TRAFFIC_ENCRYPTED_KINDS,
+  TRAFFIC_HEADLINE, TRAFFIC_HEADLINE_QUIET, TRAFFIC_HEADLINE_UNKNOWN, TRAFFIC_KIND_LABELS, TRAFFIC_KIND_SHORT, TRAFFIC_LOOKUPS, TRAFFIC_OWNER_LINE, TRAFFIC_REACH,
+  TRAFFIC_REGISTERED_IN, TRAFFIC_SAMPLED, TRAFFIC_SELF_LINE, TRAFFIC_SERVED, TRAFFIC_STOPPED,
 } from '../../constants/netaudit'
-import type { ChartBar, HostTraffic, PlaceGroups, TrafficDestination, TrafficFlow, TrafficKind, TrafficKindWord, TrafficOwner, TrafficPlace, WhereBar } from '../../types/netaudit'
+import type {
+  ChartBar, GeoPoint, HostTraffic, MapDot, RouteHop, RouteTrace, TalkGroup, TalkGroupId, TalkRow, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar,
+} from '../../types/netaudit'
 
 const MS_PER_SECOND = 1000
+/** IPtoASN names a holder "CLOUDFLARENET - Cloudflare, Inc.": its network's handle, then its own name. */
+const OWNER_NAME_SEPARATOR = ' - '
+const DOT_KEY_DIGITS = 1
 const SECONDS_PER_MINUTE = 60
 const PERCENT = 100
 /** The least height a bar has, so a quiet second is still a mark on the chart. */
@@ -12,27 +19,34 @@ const HAIRLINE = 1
 /** The space between two bars, in the chart's own units. */
 const BAR_GAP = 2
 
-const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many)
 const percentOf = (part: number, whole: number): number => (whole > 0 ? Math.round((part / whole) * PERCENT) : 0)
+
+/** True when the look could not tell which packets were this computer's: the server says so, or (a look kept before it could) nothing counted as sent or received. */
+export function directionUnknown(t: HostTraffic): boolean {
+  return Boolean(t.direction_unknown) || (t.bytes_in + t.bytes_out === 0 && t.bytes_through > 0)
+}
 
 /** The one-sentence summary of a look, and the details after it. `detail` is empty when there is nothing more to say. */
 export function trafficSentence(t: HostTraffic): { headline: string; detail: string } {
   const seconds = Math.max(1, Math.round(t.elapsed_ms / MS_PER_SECOND))
-  const when = `In ${seconds} ${plural(seconds, 'second', 'seconds')}`
   const total = t.bytes_in + t.bytes_out + t.bytes_through
-  const headline = t.bytes_in + t.bytes_out === 0
-    ? `${when} nothing was sent or received by this computer.`
-    : `${when} this computer sent ${formatBytes(t.bytes_out)} and received ${formatBytes(t.bytes_in)}.`
-  const parts: string[] = []
-  const top = t.destinations.slice(0, TRAFFIC_TOP_DESTINATIONS)
-  if (top.length === TRAFFIC_TOP_DESTINATIONS) {
-    parts.push(`${TRAFFIC_TOP_DESTINATIONS} destinations took ${percentOf(top.reduce((n, d) => n + d.bytes, 0), total)}% of it.`)
-  }
+  const headline = directionUnknown(t)
+    ? TRAFFIC_HEADLINE_UNKNOWN(seconds, formatBytes(total))
+    : total === 0 ? TRAFFIC_HEADLINE_QUIET(seconds) : TRAFFIC_HEADLINE(seconds, formatBytes(t.bytes_out), formatBytes(t.bytes_in))
+  if (total === 0) return { headline, detail: '' }
+  const parts = [TRAFFIC_REACH(formatBytes(t.internet_bytes), formatBytes(t.local_network_bytes))]
   const encrypted = t.kinds.filter((k) => TRAFFIC_ENCRYPTED_KINDS.includes(k.kind)).reduce((n, k) => n + k.bytes, 0)
   const kindTotal = t.kinds.reduce((n, k) => n + k.bytes, 0)
-  if (encrypted > 0) parts.push(`${percentOf(encrypted, kindTotal)}% was encrypted web traffic (HTTPS or QUIC).`)
-  if (t.lookups > 0) parts.push(`${t.lookups} ${plural(t.lookups, 'name was', 'names were')} looked up.`)
+  if (encrypted > 0) parts.push(TRAFFIC_ENCRYPTED(percentOf(encrypted, kindTotal)))
+  if (t.lookups > 0) parts.push(TRAFFIC_LOOKUPS(t.lookups))
   return { headline, detail: parts.join(' ') }
+}
+
+/** The line that sets this program's own page and API apart; empty when the look had none. */
+export function selfLine(t: HostTraffic): string {
+  const self = t.self_bytes ?? 0
+  if (self <= 0) return ''
+  return TRAFFIC_SELF_LINE(formatBytes(self), percentOf(self, t.bytes_in + t.bytes_out + t.bytes_through))
 }
 
 /** Each kind of traffic with its words and its share of the whole, biggest first; none when there was no traffic. */
@@ -54,11 +68,6 @@ export function chartBars(perSecond: readonly number[], width: number, height: n
   if (max === 0) return { bars, busiest: null }
   const second = perSecond.indexOf(max)
   return { bars, busiest: { second, bytes: max } }
-}
-
-/** A destination as the screen names it: the name a DNS answer gave, else the address. */
-export function destinationLabel(d: TrafficDestination): { text: string; named: boolean } {
-  return d.name ? { text: d.name, named: true } : { text: d.address, named: false }
 }
 
 /** Says the figures are estimates when ordinary frames were sampled; empty when every frame was counted. */
@@ -127,15 +136,30 @@ export function secondClock(second: number): string {
   return `${Math.floor(second / SECONDS_PER_MINUTE)}:${String(second % SECONDS_PER_MINUTE).padStart(2, '0')}`
 }
 
-/** Where an address is used, smallest first: "Mountain View, California, United States". The city and region are there only when the table of cities is held. */
-export function locationOf(owner: TrafficOwner): string {
+/** Where an address is used, smallest first, from the table of cities: "Toronto, Ontario, Canada". Empty without that table. */
+export function usedIn(owner: TrafficOwner): string {
+  if (!owner.city && !owner.region) return ''
   const region = owner.region && owner.region !== owner.city ? owner.region : ''
-  return [owner.city, region, owner.country ? countryName(owner.country) : ''].filter(Boolean).join(', ')
+  return [owner.city, region, owner.place_country ? countryName(owner.place_country) : ''].filter(Boolean).join(', ')
 }
 
-/** The holder of an address and its country on one line, as text: "GOOGLE - Google LLC · United States". Empty when no owner is known. */
+/** Where an address is, as the screen says it: where it is used when the table of cities knows, else where it is registered. Never the two mixed. */
+export function locationOf(owner: TrafficOwner): string {
+  const used = usedIn(owner)
+  if (used) return used
+  return owner.country ? TRAFFIC_REGISTERED_IN(countryName(owner.country)) : ''
+}
+
+/** The holder of an address and where it is on one line, as text: "Cloudflare · Toronto, Ontario, Canada". Empty when no owner is known. */
 export function ownerLine(owner: TrafficOwner | undefined): string {
-  return owner ? TRAFFIC_OWNER_LINE(owner.name || `AS${owner.asn}`, locationOf(owner)) : ''
+  return owner ? TRAFFIC_OWNER_LINE(ownerName(owner), locationOf(owner)) : ''
+}
+
+/** The holder's own name, shortened to the part after "AS-NAME - " when the table gives both: "Cloudflare, Inc.". */
+export function ownerName(owner: TrafficOwner): string {
+  const name = owner.name || `AS${owner.asn}`
+  const dash = name.indexOf(OWNER_NAME_SEPARATOR)
+  return dash > 0 && dash + OWNER_NAME_SEPARATOR.length < name.length ? name.slice(dash + OWNER_NAME_SEPARATOR.length) : name
 }
 
 const regionNames = ((): Intl.DisplayNames | null => {
@@ -158,7 +182,7 @@ export function countryName(code: string): string {
 /** The look's internet bytes by network holder, biggest first. */
 export function ownerBars(t: HostTraffic): WhereBar[] {
   return (t.owners ?? []).map((o) => ({
-    key: `AS${o.asn}`, label: o.name || `AS${o.asn}`, note: [`AS${o.asn}`, o.country ? countryName(o.country) : ''].filter(Boolean).join(' \u00b7 '),
+    key: `AS${o.asn}`, label: ownerName(o), note: [`AS${o.asn}`, o.country ? countryName(o.country) : ''].filter(Boolean).join(' \u00b7 '),
     bytes: o.bytes, percent: percentOf(o.bytes, t.internet_bytes),
   }))
 }
@@ -168,28 +192,121 @@ export function countryBars(t: HostTraffic): WhereBar[] {
   return (t.countries ?? []).map((c) => ({ key: c.country, label: countryName(c.country), note: c.country, bytes: c.bytes, percent: percentOf(c.bytes, t.internet_bytes) }))
 }
 
-/** The kinds of traffic each address had, biggest first, so a row of the places list can say "HTTPS, DNS" without opening the place. */
-export function kindsByAddress(flows: readonly TrafficFlow[]): Map<string, TrafficKindWord[]> {
-  const bytes = new Map<string, Map<TrafficKindWord, number>>()
-  for (const f of flows) {
-    const kinds = bytes.get(f.address) ?? new Map<TrafficKindWord, number>()
-    kinds.set(f.kind, (kinds.get(f.kind) ?? 0) + f.bytes_in + f.bytes_out)
-    bytes.set(f.address, kinds)
-  }
-  return new Map([...bytes].map(([address, kinds]) => [address, [...kinds].sort((a, b) => b[1] - a[1]).map(([kind]) => kind)]))
-}
-
-/** The places of a look in three lists, each biggest first: on the internet, devices on this network, and addresses many devices share. */
-export function placeGroups(destinations: readonly TrafficDestination[]): PlaceGroups {
-  const groups: PlaceGroups = { internet: [], network: [], shared: [] }
-  for (const d of destinations) (d.internet ? groups.internet : isSharedAddress(d.address) ? groups.shared : groups.network).push(d)
-  return groups
-}
-
-/** The bytes of a list of places. */
-export const bytesOf = (places: readonly TrafficDestination[]): number => places.reduce((n, d) => n + d.bytes, 0)
-
 /** The conversations to show first, and how many are left behind; all of them when `all` is set. */
 export function visibleFlows(flows: readonly TrafficFlow[], all: boolean, limit: number): { shown: TrafficFlow[]; hidden: number } {
   return all || flows.length <= limit ? { shown: [...flows], hidden: 0 } : { shown: flows.slice(0, limit), hidden: flows.length - limit }
+}
+
+/** The group a place belongs to in "Who it talked to". */
+export function talkGroupOf(address: string, internet: boolean): TalkGroupId {
+  return internet ? 'internet' : isSharedAddress(address) ? 'shared' : 'network'
+}
+
+/** What one conversation was, as a short phrase: "HTTPS", "DNS", "UDP 9999", or "SSH to this computer :22" for one served here. */
+export function serviceOf(f: TrafficFlow): string {
+  const named = f.kind !== 'tcp' && f.kind !== 'udp' ? TRAFFIC_KIND_SHORT[f.kind] : ''
+  if (f.served) return TRAFFIC_SERVED(f.port, named)
+  if (named) return named
+  return f.port ? `${f.proto.toUpperCase()} ${f.port}` : f.proto.toUpperCase()
+}
+
+/** The bytes of this program's own conversations with each address, so a place's total can leave them out. */
+function selfBytesByAddress(flows: readonly TrafficFlow[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const f of flows) if (f.self) out.set(f.address, (out.get(f.address) ?? 0) + f.bytes_in + f.bytes_out)
+  return out
+}
+
+/** A row for an address seen in a destination or a conversation, before its conversations are added. */
+function newRow(address: string, internet: boolean, deviceNames: Readonly<Record<string, string>>, name?: string, owner?: TrafficOwner): TalkRow {
+  const label = name || deviceNames[address] || address
+  return { address, label, named: label !== address, group: talkGroupOf(address, internet), sent: 0, received: 0, bytes: 0, services: [], owner }
+}
+
+/**
+ * "Who it talked to": one row per place, in three groups (internet, this network, broadcast chatter), biggest first. A row's traffic leaves out
+ * this program's own page and API, which the summary sets apart; a place with nothing else is left out. The conversations add what each place
+ * was (its services, by size) and which way the bytes went.
+ */
+export function talkGroups(t: HostTraffic, deviceNames: Readonly<Record<string, string>>): TalkGroup[] {
+  const self = selfBytesByAddress(t.flows)
+  const rows = new Map<string, TalkRow>()
+  for (const d of t.destinations) {
+    const row = rows.get(d.address) ?? newRow(d.address, d.internet, deviceNames, d.name, d.owner)
+    row.bytes = Math.max(row.bytes, d.bytes - (self.get(d.address) ?? 0))
+    rows.set(d.address, row)
+  }
+  const services = new Map<string, Map<string, number>>()
+  const flowBytes = new Map<string, number>()
+  for (const f of t.flows) {
+    if (f.self) continue
+    const row = rows.get(f.address) ?? newRow(f.address, f.internet, deviceNames, f.name, f.owner)
+    row.sent += f.bytes_out
+    row.received += f.bytes_in
+    row.owner ??= f.owner
+    if (!row.named && f.name) Object.assign(row, { label: f.name, named: true })
+    rows.set(f.address, row)
+    flowBytes.set(f.address, (flowBytes.get(f.address) ?? 0) + f.bytes_in + f.bytes_out)
+    const byService = services.get(f.address) ?? new Map<string, number>()
+    byService.set(serviceOf(f), (byService.get(serviceOf(f)) ?? 0) + f.bytes_in + f.bytes_out)
+    services.set(f.address, byService)
+  }
+  for (const row of rows.values()) {
+    row.bytes = Math.max(row.bytes, flowBytes.get(row.address) ?? 0)
+    row.services = [...(services.get(row.address) ?? new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([name]) => name)
+  }
+  const kept = [...rows.values()].filter((r) => r.bytes > 0).sort((a, b) => b.bytes - a.bytes || a.address.localeCompare(b.address))
+  return TALK_GROUP_ORDER.map((id) => {
+    const groupRows = kept.filter((r) => r.group === id)
+    return { id, rows: groupRows, bytes: groupRows.reduce((n, r) => n + r.bytes, 0) }
+  })
+}
+
+const TALK_GROUP_ORDER: readonly TalkGroupId[] = ['internet', 'network', 'shared']
+
+/** A key that joins the places of one city, so many addresses of one hub are one dot. */
+const dotKey = (lat: number, lon: number): string => `${lat.toFixed(DOT_KEY_DIGITS)},${lon.toFixed(DOT_KEY_DIGITS)}`
+
+/** The dots of the map: the internet places of the look that have a point, joined by city, biggest first. `picked` marks the open place. */
+export function mapDots(rows: readonly TalkRow[], picked: string | null): MapDot[] {
+  const dots = new Map<string, MapDot & { names: Set<string> }>()
+  for (const r of rows) {
+    const p = r.owner?.point
+    if (r.group !== 'internet' || !p || !r.owner) continue
+    const key = dotKey(p.lat, p.lon)
+    const dot = dots.get(key) ?? { key, address: r.address, label: '', lat: p.lat, lon: p.lon, bytes: 0, picked: false, names: new Set<string>() }
+    dot.bytes += r.bytes
+    dot.picked ||= r.address === picked
+    dot.names.add(ownerName(r.owner))
+    dot.label = [usedIn(r.owner), [...dot.names].join(', ')].filter(Boolean).join(' \u00b7 ')
+    dots.set(key, dot)
+  }
+  return [...dots.values()].map(({ names: _names, ...dot }) => dot).sort((a, b) => b.bytes - a.bytes)
+}
+
+/** The points of a route in order, for the map's line: each answering router with a point, a city repeated in a row drawn once. */
+export function routePoints(trace: RouteTrace | null): GeoPoint[] {
+  const out: GeoPoint[] = []
+  for (const hop of trace?.hops ?? []) {
+    const p = hop.owner?.point
+    if (!p) continue
+    const last = out[out.length - 1]
+    if (!last || last.lat !== p.lat || last.lon !== p.lon) out.push(p)
+  }
+  return out
+}
+
+/** The words of one step of a route: who answered, where, and how quickly. */
+export function hopWords(hop: RouteHop): { who: string; where: string; time: string } {
+  if (!hop.address) return { who: ROUTE_HOP_SILENT, where: '', time: '' }
+  const where = hop.owner ? ownerLine(hop.owner) : hop.where ? ROUTE_HOP_WHERE[hop.where] : ''
+  const time = hop.best_ms !== undefined ? ROUTE_HOP_TIME(hop.best_ms < 10 ? hop.best_ms.toFixed(1) : String(Math.round(hop.best_ms))) : ''
+  return { who: hop.address, where, time }
+}
+
+/** What a finished trace says at its end: reached in N steps, not reached, or why it failed. Empty while it runs. */
+export function routeOutcome(trace: RouteTrace): string {
+  if (trace.state === 'running') return ''
+  if (trace.state === 'failed') return ROUTE_FAILED[trace.error ?? 'probe_failed'] ?? ROUTE_FAILED.probe_failed
+  return trace.reached ? ROUTE_REACHED(trace.hops.length) : ROUTE_NOT_REACHED
 }

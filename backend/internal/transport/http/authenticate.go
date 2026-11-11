@@ -123,6 +123,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/netaudit/destination-data/download"},
 	// Makes this computer ask an outside service (db-ip.com) for a table of cities, about 86 MB (Constitution I.2, I.13).
 	{http.MethodPost, "/admin/api/netaudit/destination-places/download"},
+	// Sends probes with a limited time to live towards one internet address, so the routers on the way answer (Constitution I.14).
+	{http.MethodPost, "/admin/api/netaudit/route-trace"},
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

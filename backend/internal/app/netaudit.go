@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/core/netaudit/testssl"
+	"llm-proxy/internal/core/netaudit/traceroute"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/stack"
@@ -43,6 +45,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/platform/routeprobe"
 	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
@@ -138,6 +141,8 @@ type netauditServices struct {
 	// DestinationPlaces is the table of cities, kept as an index file that is searched on disk and never held in memory: downloaded when the
 	// operator asks. It only adds a city to an owner the first table found.
 	DestinationPlaces *ipplaces.Manager
+	// RouteTrace traces the route to one internet address the last traffic look saw, when the operator presses for it (Constitution I.14).
+	RouteTrace *traceroute.Manager
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      netaudit.WebChecker
@@ -477,6 +482,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Network != nil, func(ctx context.Context) { n.Network.Run(ctx) })
 	add(n.Decoys != nil, func(ctx context.Context) { n.Decoys.Run(ctx) })
 	add(n.Nearby != nil, func(ctx context.Context) { n.Nearby.Collector.Run(ctx) })
+	add(n.RouteTrace != nil, func(ctx context.Context) { n.RouteTrace.Run(ctx) })
 	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
 	add(n.SignIns != nil, func(ctx context.Context) { n.SignIns.Run(ctx) })
 	add(n.FollowUp != nil, func(ctx context.Context) { n.FollowUp.Run(ctx) })
@@ -657,6 +663,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		KnownBadList:      bad.List,
 		DestinationOwners: s.newDestinationOwners(netTools),
 		DestinationPlaces: s.newDestinationPlaces(netTools),
+		RouteTrace:        s.newRouteTrace(guard),
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
 		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
@@ -991,6 +998,49 @@ func (s *AppServices) newDestinationPlaces(netTools *tools.NetworkTools) *ipplac
 // destinationPlacesFile holds the index of cities, one file in the application's data folder. It is public data, so it is a plain file.
 const destinationPlacesFile = "destination-places.bin"
 
+// newRouteTrace builds the route trace. A trace is allowed only while the guardrails allow internet access, to an address the blocked list does
+// not name, that the last traffic look saw: the trace explains a look, it is not a way to probe any address.
+func (s *AppServices) newRouteTrace(guard func() models.NetworkGuardrailsConfig) *traceroute.Manager {
+	looks := persistence.NewHostTrafficStore(s.AppCtx.RootDir())
+	return traceroute.New(traceroute.Deps{
+		Probe:  routeprobe.Probe,
+		Permit: func(a netip.Addr) error { return permitRouteTrace(guard(), looks, a) },
+		Owners: func() traceroute.Owners {
+			if owners := s.netaudit.currentOwners(); owners != nil {
+				return traceroute.Owners(owners)
+			}
+			return nil
+		},
+	})
+}
+
+var (
+	errRouteInternetOff = errors.New("internet access is off in Settings → Guardrails, so nothing was sent")
+	errRouteBlocked     = errors.New("that address is on the blocked list in Settings → Guardrails")
+	errRouteNotSeen     = errors.New("only an address the last traffic look saw can be traced; listen again first")
+)
+
+// permitRouteTrace says whether a may be traced now (see newRouteTrace).
+func permitRouteTrace(g models.NetworkGuardrailsConfig, looks hostTrafficSink, a netip.Addr) error {
+	if !g.Enabled || !g.AllowInternetAccess {
+		return errRouteInternetOff
+	}
+	if slices.Contains(g.BlockedIPs, a.String()) {
+		return errRouteBlocked
+	}
+	look, err := looks.Read()
+	if err != nil || !lookSaw(look, a.String()) {
+		return errRouteNotSeen
+	}
+	return nil
+}
+
+// lookSaw says a traffic look listed the address among its places or its conversations.
+func lookSaw(t models.HostTraffic, addr string) bool {
+	return slices.ContainsFunc(t.Destinations, func(d models.TrafficDestination) bool { return d.Address == addr }) ||
+		slices.ContainsFunc(t.Flows, func(f models.TrafficFlow) bool { return f.Address == addr })
+}
+
 // currentOwners is the way to name the holder of an internet address, or nil when no table is held. When the table of cities is held too, an
 // owner it finds also says where the address is used.
 func (n *netauditServices) currentOwners() hosttraffic.Owners {
@@ -1006,7 +1056,10 @@ func (n *netauditServices) currentOwners() hosttraffic.Owners {
 			return o, false
 		}
 		if p, found := n.DestinationPlaces.Place(a); found {
-			o.Region, o.City = p.Region, p.City
+			o.Region, o.City, o.PlaceCountry = p.Region, p.City, p.Country
+			if p.Located {
+				o.Point = &models.GeoPoint{Lat: p.Lat, Lon: p.Lon}
+			}
 		}
 		return o, true
 	}

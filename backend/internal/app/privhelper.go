@@ -52,6 +52,8 @@ type helperSinks struct {
 	// Owners gives, at the moment of each look, the way to say who holds an internet address, for the traffic view: nil until the operator has
 	// downloaded the table, and whenever the table is empty.
 	Owners func() hosttraffic.Owners
+	// Self says which packets of a traffic look are this computer's (see trafficSelf).
+	Self func() hosttraffic.Self
 }
 
 // liveSandbox reads the sandbox provider at the moment of each call: the provider is built after the routes are, and the interlock must see
@@ -80,7 +82,7 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}}
 	for _, rt := range api.HelperRoutes() {
 		id := rt.Path[len("/admin/api/helper/"):]
-		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: helperParser{owners: sinks.Owners}.parse, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself, Running: running})
+		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: helperParser{owners: sinks.Owners, self: sinks.Self}.parse, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself, Running: running})
 	}
 	h.capture = captureWindowHandler(sinks.Captures)
 	h.traffic = hostTrafficHandler(sinks.Traffic)
@@ -102,7 +104,10 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 func keepsToItself(action string) bool { return action == "capture_window" || action == "capture_host" }
 
 // helperParser reads each action's raw output. owners, when set, gives the way to name the holders of the internet addresses a traffic look saw.
-type helperParser struct{ owners func() hosttraffic.Owners }
+type helperParser struct {
+	owners func() hosttraffic.Owners
+	self   func() hosttraffic.Self
+}
 
 // currentOwners is the table of address owners as it is now, or nil when there is none.
 func (p helperParser) currentOwners() hosttraffic.Owners {
@@ -122,7 +127,11 @@ func (p helperParser) parse(action string, data []byte) (any, error) {
 	case "capture_window":
 		return framewire.Summarize(data)
 	case "capture_host":
-		return readHostTraffic(data, p.currentOwners())
+		var self hosttraffic.Self
+		if p.self != nil {
+			self = p.self()
+		}
+		return readHostTraffic(data, self, p.currentOwners())
 	}
 	return nil, fmt.Errorf("no reader for the output of %q", action)
 }

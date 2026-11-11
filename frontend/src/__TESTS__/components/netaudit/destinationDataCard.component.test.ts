@@ -75,7 +75,8 @@ describe('DestinationDataCard for the table of cities', () => {
 
   it('says it is optional, how big it is, that it costs almost no memory, who a download asks and who to credit', async () => {
     const w = await mountPlaces()
-    expect(w.text()).toContain('Cities (optional)')
+    expect(w.text()).toContain('Where each internet address is used (optional)')
+    expect(w.text()).toContain('draws them on the map')
     expect(w.text()).toContain('86 MB')
     expect(w.text()).toContain('almost no memory')
     expect(w.get('[data-test="destination-places-source"]').text()).toContain('db-ip.com')

@@ -1,7 +1,7 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
 import type { KnownBadState,
-  DestinationDataState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FootprintCommand, FootprintState, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult } from '../../types/netaudit'
+  DestinationDataState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FootprintCommand, FootprintState, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult, RouteTracesState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -266,6 +266,16 @@ export class NetauditService {
   /** Listens to this computer's own traffic for up to 60 seconds (the helper's capture_host; the passphrase step as for a scan). No body: the server picks the interface. */
   static captureHost(): Promise<HostTrafficRunResult> {
     return post<HostTrafficRunResult>(API_ENDPOINTS.helperCaptureHost)
+  }
+
+  /** The kept route traces, newest first, and whether this system can trace. */
+  static routeTraces(): Promise<RouteTracesState> {
+    return get<RouteTracesState>(API_ENDPOINTS.netauditRouteTrace)
+  }
+
+  /** Starts a trace of the route to one internet address the last look saw; the server asks for the passphrase. */
+  static startRouteTrace(address: string): Promise<RouteTracesState> {
+    return post<RouteTracesState>(API_ENDPOINTS.netauditRouteTrace, { address })
   }
 
   /** The last host traffic summary the server kept, or null when there has been none. */

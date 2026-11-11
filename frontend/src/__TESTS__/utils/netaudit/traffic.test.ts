@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { chartBars, countryBars, countryName, destinationLabel, flowsOfKind, ownerBars, ownerLine, isSharedAddress, kindShares, sampleNote, secondAt, secondClock, splitPercent, stoppedNote, trafficPlace, trafficSentence } from '../../../utils/netaudit/traffic'
-import type { HostTraffic } from '../../../types/netaudit'
+import {
+  chartBars, countryBars, countryName, directionUnknown, flowsOfKind, hopWords, mapDots, ownerBars, ownerLine, ownerName, isSharedAddress, kindShares, locationOf, routeOutcome,
+  routePoints, sampleNote, secondAt, secondClock, selfLine, serviceOf, splitPercent, stoppedNote, talkGroups, trafficPlace, trafficSentence, usedIn,
+} from '../../../utils/netaudit/traffic'
+import type { HostTraffic, RouteTrace, TrafficFlow } from '../../../types/netaudit'
 
 const MB = 1024 * 1024
 const traffic = (over: Partial<HostTraffic> = {}): HostTraffic => ({
@@ -11,18 +14,22 @@ const traffic = (over: Partial<HostTraffic> = {}): HostTraffic => ({
 })
 
 describe('trafficSentence', () => {
-  it('says what went out and came in over how long, with how concentrated and how encrypted it was', () => {
-    const t = traffic({
-      destinations: [
-        { name: 'a.example', address: '1.1.1.1', bytes: 22 * MB, internet: true }, { name: 'b.example', address: '2.2.2.2', bytes: 10 * MB, internet: true },
-        { address: '3.3.3.3', bytes: 6 * MB, internet: true }, { address: '4.4.4.4', bytes: 4 * MB, internet: true },
-      ],
-    })
-    const s = trafficSentence(t)
+  it('says what went out and came in over how long, where it went and how encrypted it was', () => {
+    const s = trafficSentence(traffic())
     expect(s.headline).toBe('In 60 seconds this computer sent 4 MB and received 38 MB.')
-    expect(s.detail).toContain('3 destinations took 90% of it.')
-    expect(s.detail).toContain('95% was encrypted web traffic (HTTPS or QUIC).')
+    expect(s.detail).toContain('41 MB to the internet, 1 MB on this network.')
+    expect(s.detail).toContain('95% of it was encrypted web traffic.')
     expect(s.detail).toContain('212 names were looked up.')
+  })
+
+  it('never says nothing was sent when it could not tell which way the traffic went', () => {
+    // The look vertex kept on 2026-11-11, before the direction was fixed: everything counted as passing through, no flag.
+    const old = traffic({ bytes_in: 0, bytes_out: 0, bytes_through: 1_664_770 })
+    expect(directionUnknown(old)).toBe(true)
+    expect(trafficSentence(old).headline).toContain('could not tell which way it went')
+    expect(trafficSentence(old).headline).not.toContain('nothing was sent')
+    expect(directionUnknown(traffic({ direction_unknown: true }))).toBe(true)
+    expect(directionUnknown(traffic())).toBe(false)
   })
 
   it('leaves out what it cannot say: no destinations, no lookups, nothing sent', () => {
@@ -69,10 +76,12 @@ describe('chartBars', () => {
   })
 })
 
-describe('destinationLabel', () => {
-  it('shows the name when a DNS answer gave one and says so when it did not', () => {
-    expect(destinationLabel({ name: 'github.com', address: '1.1.1.1', bytes: 1, internet: true })).toEqual({ text: 'github.com', named: true })
-    expect(destinationLabel({ address: '34.120.1.1', bytes: 1, internet: true })).toEqual({ text: '34.120.1.1', named: false })
+describe('selfLine', () => {
+  it('sets this program\'s own page and API apart with its share, and says nothing when there was none', () => {
+    const t = traffic({ bytes_in: 300, bytes_out: 700, self_bytes: 890 })
+    expect(selfLine(t)).toContain('890 B (89%) was this program\'s own page and API')
+    expect(selfLine(t)).toContain('most of it likely your browser')
+    expect(selfLine(traffic())).toBe('')
   })
 })
 
@@ -139,15 +148,27 @@ describe('trafficPlace and friends', () => {
 })
 
 describe('owners of an address', () => {
-  it('writes the operator and the country on one line, and the number when the holder has no name', () => {
-    expect(ownerLine({ asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' })).toBe('GOOGLE - Google LLC · United States')
-    expect(ownerLine({ asn: 64500, name: '', country: 'DE' })).toBe('AS64500 · Germany')
-    // With the table of cities: smallest place first, and a region that repeats the city is said once.
-    expect(ownerLine({ asn: 15169, name: 'GOOGLE', country: 'US', city: 'Mountain View', region: 'California' })).toBe('GOOGLE · Mountain View, California, United States')
-    expect(ownerLine({ asn: 1, name: 'SG', country: 'SG', city: 'Singapore', region: 'Singapore' })).toBe('SG · Singapore, Singapore')
-    expect(ownerLine({ asn: 1, name: 'X', country: 'US', region: 'Texas' })).toBe('X · Texas, United States')
+  it('writes the operator and where the address is registered when no city is known, and the number when the holder has no name', () => {
+    expect(ownerLine({ asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' })).toBe('Google LLC · registered in United States')
+    expect(ownerLine({ asn: 64500, name: '', country: 'DE' })).toBe('AS64500 · registered in Germany')
     expect(ownerLine({ asn: 64500, name: 'X' })).toBe('X')
     expect(ownerLine(undefined)).toBe('')
+  })
+
+  it('says where an address is used from the table of cities, in that table\'s country, never mixed with the registration', () => {
+    // The Cloudflare address of the vertex look: registered in the US, used in Toronto.
+    const cf = { asn: 13335, name: 'CLOUDFLARENET - Cloudflare, Inc.', country: 'US', place_country: 'CA', region: 'Ontario', city: 'Toronto' }
+    expect(usedIn(cf)).toBe('Toronto, Ontario, Canada')
+    expect(locationOf(cf)).toBe('Toronto, Ontario, Canada')
+    expect(ownerLine(cf)).toBe('Cloudflare, Inc. · Toronto, Ontario, Canada')
+    expect(usedIn({ asn: 1, name: 'SG', country: 'SG', place_country: 'SG', city: 'Singapore', region: 'Singapore' })).toBe('Singapore, Singapore')
+    expect(usedIn({ asn: 1, name: 'X', country: 'US' })).toBe('')
+  })
+
+  it('shortens a holder named "HANDLE - Name" to its name, and keeps one that has no separator', () => {
+    expect(ownerName({ asn: 1, name: 'CLOUDFLARENET - Cloudflare, Inc.' })).toBe('Cloudflare, Inc.')
+    expect(ownerName({ asn: 1, name: 'AKAMAI-AS' })).toBe('AKAMAI-AS')
+    expect(ownerName({ asn: 1, name: 'X - ' })).toBe('X - ')
   })
 
   it('gives the country code back when it is not one the browser knows', () => {
@@ -162,5 +183,105 @@ describe('owners of an address', () => {
     const old = { internet_bytes: 200 } as unknown as HostTraffic
     expect(ownerBars(old)).toEqual([])
     expect(countryBars({ ...old, owners: null, countries: null } as unknown as HostTraffic)).toEqual([])
+  })
+})
+
+const flow = (over: Partial<TrafficFlow>): TrafficFlow => ({ address: '1.1.1.1', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: 0, bytes_in: 0, ...over })
+
+describe('serviceOf', () => {
+  it('names a conversation by its kind, by protocol and port when the kind is plain, and as served here when another machine connected', () => {
+    expect(serviceOf(flow({}))).toBe('HTTPS')
+    expect(serviceOf(flow({ kind: 'udp', proto: 'udp', port: 9999 }))).toBe('UDP 9999')
+    expect(serviceOf(flow({ kind: 'icmp', proto: 'icmp', port: 0 }))).toBe('Ping')
+    expect(serviceOf(flow({ kind: 'tcp', port: 4001, served: true }))).toBe('to this computer :4001')
+    expect(serviceOf(flow({ kind: 'ssh', port: 22, served: true }))).toBe('SSH to this computer :22')
+  })
+})
+
+describe('talkGroups', () => {
+  // Shaped like the vertex look once it is read right: the owner's browser on .251 (this program's port), one Cloudflare address, mDNS chatter.
+  const t = traffic({
+    bytes_in: 20_000, bytes_out: 1_500_000, bytes_through: 0, self_bytes: 1_480_000,
+    destinations: [
+      { address: '192.168.50.251', bytes: 1_485_688, internet: false },
+      { address: '224.0.0.251', bytes: 46_629, internet: false },
+      { address: '104.16.1.1', bytes: 104, internet: true, owner: { asn: 13335, name: 'CLOUDFLARENET - Cloudflare, Inc.', country: 'US', place_country: 'CA', city: 'Toronto', point: { lat: 43.7, lon: -79.4 } } },
+    ],
+    flows: [
+      flow({ address: '192.168.50.251', port: 4001, kind: 'tcp', internet: false, served: true, self: true, bytes_out: 1_460_000, bytes_in: 20_000 }),
+      flow({ address: '192.168.50.251', port: 22, kind: 'ssh', internet: false, served: true, bytes_out: 4_000, bytes_in: 1_688 }),
+      flow({ address: '224.0.0.251', port: 5353, proto: 'udp', kind: 'discovery', internet: false, bytes_out: 46_629 }),
+      flow({ address: '104.16.1.1', name: 'example.com', name_from: 'tls', bytes_out: 60, bytes_in: 44 }),
+    ],
+  })
+  const groups = talkGroups(t, { '192.168.50.251': 'Mike\'s Mac' })
+  const of = (id: string) => groups.find((g) => g.id === id)!
+
+  it('puts each place in its group: the internet, this network, and broadcast chatter', () => {
+    expect(groups.map((g) => g.id)).toEqual(['internet', 'network', 'shared'])
+    expect(of('internet').rows.map((r) => r.address)).toEqual(['104.16.1.1'])
+    expect(of('network').rows.map((r) => r.address)).toEqual(['192.168.50.251'])
+    expect(of('shared').rows.map((r) => r.address)).toEqual(['224.0.0.251'])
+  })
+
+  it('leaves this program\'s own page out of a place\'s total and its services, and keeps the rest', () => {
+    const mac = of('network').rows[0]!
+    expect(mac.bytes).toBe(5_688)
+    expect(mac.services).toEqual(['SSH to this computer :22'])
+    expect(mac.label).toBe('Mike\'s Mac')
+    expect(mac.named).toBe(true)
+    expect([mac.sent, mac.received]).toEqual([4_000, 1_688])
+  })
+
+  it('drops a place whose only traffic was this program\'s own page', () => {
+    const only = talkGroups(traffic({ destinations: [{ address: '192.168.50.9', bytes: 500, internet: false }], flows: [flow({ address: '192.168.50.9', internet: false, served: true, self: true, bytes_out: 500 })] }), {})
+    expect(only.every((g) => g.rows.length === 0)).toBe(true)
+  })
+
+  it('names an internet place by the TLS name of its conversation and carries its owner', () => {
+    const cf = of('internet').rows[0]!
+    expect(cf.label).toBe('example.com')
+    expect(cf.owner?.asn).toBe(13335)
+  })
+
+  it('puts the internet places with a city on the map, joined by city, and marks the open one', () => {
+    const rows = groups.flatMap((g) => g.rows)
+    const dots = mapDots(rows, '104.16.1.1')
+    expect(dots).toHaveLength(1)
+    expect(dots[0]).toMatchObject({ address: '104.16.1.1', lat: 43.7, lon: -79.4, bytes: 104, picked: true })
+    expect(dots[0]!.label).toBe('Toronto, Canada · Cloudflare, Inc.')
+    expect(mapDots(rows, null)[0]!.picked).toBe(false)
+  })
+})
+
+describe('a route trace on the screen', () => {
+  const trace: RouteTrace = {
+    address: '1.1.1.1', state: 'done', started_at: '2026-11-11T14:00:00Z', reached: true,
+    hops: [
+      { ttl: 1, address: '192.168.50.1', sent: 3, answered: 3, best_ms: 4.4, where: 'this_network' },
+      { ttl: 2, sent: 3, answered: 0 },
+      { ttl: 3, address: '90.212.129.56', sent: 3, answered: 2, best_ms: 8.49, where: 'internet', owner: { asn: 5607, name: 'BSKYB-BROADBAND-AS', country: 'GB', place_country: 'GB', city: 'London', point: { lat: 51.5, lon: -0.1 } } },
+      { ttl: 4, address: '62.252.1.1', sent: 3, answered: 3, best_ms: 12, where: 'internet', owner: { asn: 1, name: 'X', point: { lat: 51.5, lon: -0.1 } } },
+      { ttl: 5, address: '1.1.1.1', sent: 3, answered: 3, best_ms: 16.9, where: 'internet', reached: true, owner: { asn: 13335, name: 'CF', point: { lat: 51.5, lon: -0.2 } } },
+    ],
+  }
+
+  it('words each step: who answered, where it is, how quickly; a silent step says so', () => {
+    expect(hopWords(trace.hops[0]!)).toEqual({ who: '192.168.50.1', where: 'your network', time: '4.4 ms' })
+    expect(hopWords(trace.hops[1]!)).toEqual({ who: 'no answer', where: '', time: '' })
+    expect(hopWords(trace.hops[2]!).where).toBe('BSKYB-BROADBAND-AS · London, United Kingdom')
+    expect(hopWords(trace.hops[4]!).time).toBe('17 ms')
+  })
+
+  it('draws a line through the steps with a city, a city repeated in a row once', () => {
+    expect(routePoints(trace)).toEqual([{ lat: 51.5, lon: -0.1 }, { lat: 51.5, lon: -0.2 }])
+    expect(routePoints(null)).toEqual([])
+  })
+
+  it('says how a trace ended in plain words', () => {
+    expect(routeOutcome(trace)).toBe('Reached in 5 steps.')
+    expect(routeOutcome({ ...trace, reached: false })).toContain('did not answer')
+    expect(routeOutcome({ ...trace, state: 'failed', error: 'unsupported' })).toContain('needs Linux')
+    expect(routeOutcome({ ...trace, state: 'running' })).toBe('')
   })
 })

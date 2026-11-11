@@ -51,6 +51,7 @@ export const API_ENDPOINTS = {
   helperCaptureWindow: `${API_BASE}/helper/capture_window`,
   helperCaptureHost: `${API_BASE}/helper/capture_host`,
   netauditHostTraffic: `${API_BASE}/netaudit/host-traffic`,
+  netauditRouteTrace: `${API_BASE}/netaudit/route-trace`,
   netauditCaptureWindow: `${API_BASE}/netaudit/capture-window`,
   netauditDecoyTouches: `${API_BASE}/netaudit/decoys/touches`,
   netauditRouterLog: `${API_BASE}/netaudit/router-log`,

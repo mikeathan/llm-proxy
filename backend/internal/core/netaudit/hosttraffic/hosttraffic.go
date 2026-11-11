@@ -32,16 +32,33 @@ var stopWords = map[wire.CaptureStop]string{
 	wire.StopSocketError: "socket_error", wire.StopUnsupported: "unsupported", wire.StopCut: "cut",
 }
 
-// flowKey is one conversation: the remote end and the protocol.
+// flowKey is one conversation: the remote end, the service's port, whether that port is this computer's (served), and the protocol.
 type flowKey struct {
-	addr  netip.Addr
-	port  uint16
-	proto byte
+	addr   netip.Addr
+	port   uint16
+	proto  byte
+	served bool
+}
+
+// ephemeralFloor is the lowest port an operating system picks for the client end of a connection (Linux 32768; macOS and Windows start higher).
+// A port below it is taken to be a service's.
+const ephemeralFloor = 32768
+
+// Self is what says which packets are this computer's. Addrs are its IP addresses (often only the one the default route sends from, because
+// listing interfaces needs netlink, pitfall 65); MACs are its network cards' hardware addresses, read without netlink, which tell the direction
+// of IPv6 and of every address the list missed. Port is this program's own listening port: a conversation served on it is the operator's
+// browser viewing this page, and is marked so the screen can set it apart.
+type Self struct {
+	Addrs []netip.Addr
+	MACs  [][6]byte
+	Port  uint16
 }
 
 // tally is what one pass over the records adds up. The tables are bounded: flows by maxFlows, names by maxNames.
 type tally struct {
 	local     map[netip.Addr]bool
+	macs      map[[6]byte]bool
+	selfPort  uint16
 	out       models.HostTraffic
 	flows     map[flowKey]*models.TrafficFlow
 	overflow  uint64
@@ -54,20 +71,26 @@ type tally struct {
 }
 
 // Summarize decodes one run's output and reads each frame. owners, when not nil, says who holds an internet address (a table kept on this
-// computer; see Owners). local are this computer's own addresses, which say which way a packet went. The
+// computer; see Owners). self says which packets are this computer's (see Self). The
 // interface and the time are the caller's to fill in (Stamp): they come from the request and the host, not from the frames.
-func Summarize(data []byte, local []netip.Addr, owners Owners) (models.HostTraffic, error) {
+func Summarize(data []byte, self Self, owners Owners) (models.HostTraffic, error) {
 	records, trailer, err := wire.DecodeHostCapture(data)
 	if err != nil {
 		return models.HostTraffic{}, fmt.Errorf("the capture output could not be read: %w", err)
 	}
 	t := &tally{
-		local: map[netip.Addr]bool{}, flows: map[flowKey]*models.TrafficFlow{}, names: map[netip.Addr]string{}, hellos: map[flowKey]string{}, kinds: map[string]uint64{},
+		local: map[netip.Addr]bool{}, macs: map[[6]byte]bool{}, selfPort: self.Port, flows: map[flowKey]*models.TrafficFlow{}, names: map[netip.Addr]string{}, hellos: map[flowKey]string{}, kinds: map[string]uint64{},
 		seconds: make([]uint64, min(int(trailer.ElapsedMs)/msPerSecond+1, maxSeconds)),
 	}
-	for _, a := range local {
+	for _, a := range self.Addrs {
 		t.local[a.Unmap()] = true
 	}
+	for _, m := range self.MACs {
+		if isCardMAC(m) {
+			t.macs[m] = true
+		}
+	}
+	t.learnCards(records)
 	t.out = models.HostTraffic{
 		StoppedBy: stopWords[trailer.Stop], ElapsedMs: int(trailer.ElapsedMs), Frames: len(records),
 		KernelSeen: int(trailer.KernelSeen), KernelDropped: int(trailer.KernelDropped), Sample: 1,
@@ -86,7 +109,8 @@ func (t *tally) add(r wire.HostRecord) {
 		return
 	}
 	t.out.Sample = max(t.out.Sample, int(r.Sample))
-	remote, rport, dir := t.direction(f)
+	end := t.direction(f)
+	remote, dir := end.remote, end.dir
 	weight := uint64(r.Sample)
 	switch {
 	case f.isDNS(): // a DNS message is never sampled away, so it stands for itself
@@ -94,7 +118,7 @@ func (t *tally) add(r wire.HostRecord) {
 		t.readNames(f)
 	case f.isClientHello(): // nor is the first segment of a ClientHello
 		weight = 1
-		t.readServerName(f, remote, rport, dir)
+		t.readServerName(f, end)
 	}
 	bytes := f.length * weight
 	switch dir {
@@ -110,12 +134,41 @@ func (t *tally) add(r wire.HostRecord) {
 	} else {
 		t.out.LocalNetwork += bytes
 	}
-	kind := kindOf(f.proto, rport)
+	key := flowKey{addr: remote, port: end.port, proto: f.proto, served: end.served}
+	kind := kindOf(f.proto, end.port)
 	t.kinds[kind] += bytes
 	if sec := int(r.OffsetMs) / msPerSecond; sec < len(t.seconds) {
 		t.seconds[sec] += bytes
 	}
-	t.addFlow(flowKey{remote, rport, f.proto}, kind, dir, bytes)
+	if t.isSelf(key) {
+		t.out.SelfBytes += bytes
+	}
+	t.addFlow(key, kind, dir, bytes)
+}
+
+// isSelf says a conversation is this program's own page or API being served.
+func (t *tally) isSelf(k flowKey) bool {
+	return k.served && k.proto == protoTCP && t.selfPort != 0 && k.port == t.selfPort
+}
+
+// learnCards adds the hardware address of every frame that carries one of this computer's IP addresses, so the frames of its other addresses
+// (IPv6, a second address the list missed) are told apart by the card. A group or zero address is never taken.
+func (t *tally) learnCards(records []wire.HostRecord) {
+	if len(t.local) == 0 {
+		return
+	}
+	for _, r := range records {
+		f, ok := parseFrame(r.Frame)
+		if !ok {
+			continue
+		}
+		if t.local[f.src.Unmap()] && isCardMAC(f.srcMAC) {
+			t.macs[f.srcMAC] = true
+		}
+		if t.local[f.dst.Unmap()] && isCardMAC(f.dstMAC) {
+			t.macs[f.dstMAC] = true
+		}
+	}
 }
 
 type direction int
@@ -126,15 +179,47 @@ const (
 	dirThrough
 )
 
-// direction says which end is the remote one and which way the packet went, by this computer's own addresses.
-func (t *tally) direction(f frame) (remote netip.Addr, rport uint16, dir direction) {
+// end is the other end of a packet: its address, the conversation's service port, whether that port is this computer's, and which way the
+// packet went.
+type end struct {
+	remote netip.Addr
+	port   uint16
+	served bool
+	dir    direction
+}
+
+// direction says which end is the remote one and which way the packet went: by this computer's IP addresses first, then by its network cards. A
+// broadcast or multicast frame from another card is one this computer received.
+func (t *tally) direction(f frame) end {
 	switch {
-	case t.local[f.src.Unmap()]:
-		return f.dst, f.dport, dirOut
-	case t.local[f.dst.Unmap()]:
-		return f.src, f.sport, dirIn
+	case t.local[f.src.Unmap()], t.macs[f.srcMAC]:
+		return outgoing(f)
+	case t.local[f.dst.Unmap()], t.macs[f.dstMAC]:
+		port, served := servicePort(f.dport, f.sport)
+		return end{remote: f.src, port: port, served: served, dir: dirIn}
+	case len(t.macs) > 0 && isGroupMAC(f.dstMAC):
+		// A broadcast or multicast another device sent: received here, and filed under the shared address it went to, so the screen keeps it
+		// with the other chatter instead of under the device that sent it.
+		return end{remote: f.dst, port: f.dport, dir: dirIn}
 	}
-	return f.dst, f.dport, dirThrough
+	return end{remote: f.dst, port: f.dport, dir: dirThrough}
+}
+
+func outgoing(f frame) end {
+	port, served := servicePort(f.sport, f.dport)
+	return end{remote: f.dst, port: port, served: served, dir: dirOut}
+}
+
+// servicePort says which end of a conversation is the service: the end below the ephemeral range when only one is, else the lower port when both
+// are below it; served is true when that is this computer's end. Two high ports, or the same port on both ends, leave the remote's port.
+func servicePort(local, remote uint16) (port uint16, served bool) {
+	switch {
+	case local < ephemeralFloor && remote >= ephemeralFloor:
+		return local, true
+	case local < ephemeralFloor && remote < ephemeralFloor && local < remote:
+		return local, true
+	}
+	return remote, false
 }
 
 // isInternet says whether the other end is beyond this network: not private, loopback, link-local or multicast.
@@ -161,15 +246,15 @@ func (t *tally) readNames(f frame) {
 
 // readServerName names the conversation a ClientHello this computer sent opens by the server name in it. A hello that came in names this
 // computer's own server, not the other end, so it names nothing. The table is bounded like the DNS names.
-func (t *tally) readServerName(f frame, remote netip.Addr, rport uint16, dir direction) {
-	if dir != dirOut {
+func (t *tally) readServerName(f frame, e end) {
+	if e.dir != dirOut || e.served {
 		return
 	}
 	name, ok := serverName(f.payload)
 	if !ok {
 		return
 	}
-	key := flowKey{remote, rport, f.proto}
+	key := flowKey{addr: e.remote, port: e.port, proto: f.proto}
 	if _, known := t.hellos[key]; known || len(t.hellos) < maxNames {
 		t.hellos[key] = name
 	}
@@ -184,7 +269,10 @@ func (t *tally) addFlow(key flowKey, kind string, dir direction, bytes uint64) {
 			t.overflowN++
 			return
 		}
-		flow = &models.TrafficFlow{Address: key.addr.Unmap().String(), Port: int(key.port), Proto: protoName(key.proto), Kind: kind, Internet: isInternet(key.addr)}
+		flow = &models.TrafficFlow{
+			Address: key.addr.Unmap().String(), Port: int(key.port), Served: key.served, Self: t.isSelf(key), Proto: protoName(key.proto), Kind: kind,
+			Internet: isInternet(key.addr),
+		}
 		t.flows[key] = flow
 	}
 	if dir == dirIn {
@@ -197,6 +285,7 @@ func (t *tally) addFlow(key flowKey, kind string, dir direction, bytes uint64) {
 // finish ranks what was added: the biggest flows and destinations, the kinds biggest first, and the rest counted.
 func (t *tally) finish(owners Owners) models.HostTraffic {
 	out := t.out
+	out.DirectionUnknown = out.BytesIn+out.BytesOut == 0 && out.BytesThrough > 0
 	flows := make([]models.TrafficFlow, 0, len(t.flows))
 	byPlace := map[string]*models.TrafficDestination{}
 	held := newHolders(owners)

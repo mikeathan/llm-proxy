@@ -59,7 +59,7 @@ func TestAnOwnerSaysWhereItIsUsedOnlyOnceTheTableOfCitiesIsHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	o, ok = n.currentOwners()(addr)
-	if !ok || o.City != "Mountain View" || o.Region != "California" || o.Country != "US" {
+	if !ok || o.City != "Mountain View" || o.Region != "California" || o.Country != "US" || o.PlaceCountry != "US" || o.Point == nil || o.Point.Lat != 37.4 || o.Point.Lon != -122.1 {
 		t.Errorf("with the cities: %+v %v", o, ok)
 	}
 	if _, ok := n.currentOwners()(netip.MustParseAddr("9.9.9.9")); ok {

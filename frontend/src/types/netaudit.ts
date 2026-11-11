@@ -994,6 +994,10 @@ export interface HostTraffic {
   bytes_in: number
   bytes_out: number
   bytes_through: number
+  /** True when no packet could be told to be this computer's: every byte is in bytes_through, and the screen says it could not tell. */
+  direction_unknown?: boolean
+  /** The bytes of this program's own page and API being served (most of it the browser viewing this page); set apart on the screen. */
+  self_bytes?: number
   internet_bytes: number
   local_network_bytes: number
   lookups: number
@@ -1018,6 +1022,16 @@ export interface TrafficOwner {
   /** Where the address is used, from the optional table of cities; approximate. Text only. */
   region?: string
   city?: string
+  /** The country the table of cities puts the address in, which can differ from `country` (where the range is registered). */
+  place_country?: string
+  /** The city's point, for the map: approximate, like the city. */
+  point?: GeoPoint
+}
+
+/** A latitude and a longitude in degrees. */
+export interface GeoPoint {
+  lat: number
+  lon: number
 }
 
 export interface TrafficOwnerShare extends TrafficOwner {
@@ -1074,7 +1088,11 @@ export interface TrafficFlow {
   name?: string
   name_from?: TrafficNameFrom
   owner?: TrafficOwner
+  /** The service's port: the remote's, or this computer's own when `served` (another machine connected to a service here). */
   port: number
+  served?: boolean
+  /** A conversation of this program's own port: its page or API being served. */
+  self?: boolean
   proto: 'tcp' | 'udp' | 'icmp'
   kind: TrafficKindWord
   internet: boolean
@@ -1082,15 +1100,8 @@ export interface TrafficFlow {
   bytes_in: number
 }
 
-/** The places of one look in three lists: on the internet, devices on this network, and broadcast or multicast addresses many devices share. */
-export interface PlaceGroups {
-  internet: TrafficDestination[]
-  network: TrafficDestination[]
-  shared: TrafficDestination[]
-}
-
-/** The views of the "Where it went" panel: the places themselves, or the same internet traffic by operator or by country. */
-export type TrafficWhereView = 'places' | 'operators' | 'countries'
+/** The Advanced views of the internet traffic: by operator or by country. */
+export type TrafficWhereView = 'operators' | 'countries'
 
 /** One place the data went (an address), gathered from the look's destinations and conversations for the detail panel. */
 export interface TrafficPlace {
@@ -1184,3 +1195,77 @@ export type FootprintCommand =
   | { action: 'remove'; label: string }
   | { action: 'frequency'; label: string; frequency: FootprintFrequency }
   | { action: 'service'; service: FootprintServiceId; on: boolean }
+
+/** The three groups of the "Who it talked to" list. Broadcast chatter is closed by default. */
+export type TalkGroupId = 'internet' | 'network' | 'shared'
+
+/** One row of the "Who it talked to" list: one place, its traffic without this page's own, and what it was. */
+export interface TalkRow {
+  address: string
+  /** The name shown: a DNS or TLS name, what the person calls the device, or the address. */
+  label: string
+  /** True when the label is a name, not the address. */
+  named: boolean
+  group: TalkGroupId
+  sent: number
+  received: number
+  bytes: number
+  /** The services, as short words, biggest first: "HTTPS", "this computer :22". */
+  services: string[]
+  owner?: TrafficOwner
+}
+
+export interface TalkGroup {
+  id: TalkGroupId
+  rows: TalkRow[]
+  bytes: number
+}
+
+/** One dot on the map: a place with a point, its traffic, and its words. */
+export interface MapDot {
+  key: string
+  /** The biggest place at this dot, which a click opens. */
+  address: string
+  label: string
+  lat: number
+  lon: number
+  bytes: number
+  /** True for the place that is open or traced, drawn stronger. */
+  picked: boolean
+}
+
+/** Where a hop of a route sits. */
+export type RouteHopWhere = 'this_network' | 'provider_shared' | 'internet'
+
+export interface RouteHop {
+  ttl: number
+  /** Empty when no router answered at this distance. */
+  address?: string
+  sent: number
+  answered: number
+  best_ms?: number
+  where?: RouteHopWhere
+  reached?: boolean
+  owner?: TrafficOwner
+}
+
+export type RouteTraceState = 'running' | 'done' | 'failed'
+
+/** The fixed words a failed trace says. */
+export type RouteTraceFailure = 'unsupported' | 'time_limit' | 'stopped' | 'probe_failed'
+
+export interface RouteTrace {
+  address: string
+  state: RouteTraceState
+  error?: RouteTraceFailure
+  started_at: string
+  ended_at?: string
+  reached: boolean
+  hops: RouteHop[]
+}
+
+/** The answer of the route-trace route: whether this system can trace, and the kept traces, newest first. */
+export interface RouteTracesState {
+  supported: boolean
+  traces: RouteTrace[]
+}
