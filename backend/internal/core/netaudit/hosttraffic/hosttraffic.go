@@ -38,6 +38,7 @@ type flowKey struct {
 	port   uint16
 	proto  byte
 	served bool
+	shared bool
 }
 
 // ephemeralFloor is the lowest port an operating system picks for the client end of a connection (Linux 32768; macOS and Windows start higher).
@@ -111,30 +112,17 @@ func (t *tally) add(r wire.HostRecord) {
 	t.out.Sample = max(t.out.Sample, int(r.Sample))
 	end := t.direction(f)
 	remote, dir := end.remote, end.dir
-	weight := uint64(r.Sample)
-	switch {
-	case f.isDNS(): // a DNS message is never sampled away, so it stands for itself
-		weight = 1
-		t.readNames(f)
-	case f.isClientHello(): // nor is the first segment of a ClientHello
-		weight = 1
-		t.readServerName(f, end)
-	}
-	bytes := f.length * weight
-	switch dir {
-	case dirOut:
-		t.out.BytesOut += bytes
-	case dirIn:
-		t.out.BytesIn += bytes
-	default:
-		t.out.BytesThrough += bytes
-	}
-	if isInternet(remote) {
+	bytes := f.length * t.weigh(f, end, r.Sample)
+	t.countDirection(dir, bytes)
+	// A frame to a broadcast or multicast address is shared, whether its IP address says so or only its hardware address does (a subnet's
+	// own broadcast address, 192.168.50.255, looks like any other address).
+	shared := remote == f.dst && (isGroupMAC(f.dstMAC) || isSharedIP(f.dst))
+	if isInternet(remote) && !shared {
 		t.out.Internet += bytes
 	} else {
 		t.out.LocalNetwork += bytes
 	}
-	key := flowKey{addr: remote, port: end.port, proto: f.proto, served: end.served}
+	key := flowKey{addr: remote, port: end.port, proto: f.proto, served: end.served, shared: shared}
 	kind := kindOf(f.proto, end.port)
 	t.kinds[kind] += bytes
 	if sec := int(r.OffsetMs) / msPerSecond; sec < len(t.seconds) {
@@ -144,6 +132,32 @@ func (t *tally) add(r wire.HostRecord) {
 		t.out.SelfBytes += bytes
 	}
 	t.addFlow(key, kind, dir, bytes)
+}
+
+// weigh is how many frames one record stands for, and reads the names it carries: a DNS message and the first segment of a ClientHello are never
+// sampled away, so they stand for themselves.
+func (t *tally) weigh(f frame, e end, sample uint16) uint64 {
+	switch {
+	case f.isDNS():
+		t.readNames(f)
+		return 1
+	case f.isClientHello():
+		t.readServerName(f, e)
+		return 1
+	}
+	return uint64(sample)
+}
+
+// countDirection adds bytes to the total of the way they went.
+func (t *tally) countDirection(dir direction, bytes uint64) {
+	switch dir {
+	case dirOut:
+		t.out.BytesOut += bytes
+	case dirIn:
+		t.out.BytesIn += bytes
+	default:
+		t.out.BytesThrough += bytes
+	}
 }
 
 // isSelf says a conversation is this program's own page or API being served.
@@ -222,10 +236,20 @@ func servicePort(local, remote uint16) (port uint16, served bool) {
 	return remote, false
 }
 
-// isInternet says whether the other end is beyond this network: not private, loopback, link-local or multicast.
+// isInternet says whether the other end is beyond this network: not private, loopback, link-local, multicast or the limited broadcast.
 func isInternet(a netip.Addr) bool {
 	a = a.Unmap()
-	return !(a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() || a.IsMulticast() || a.IsUnspecified())
+	return !(a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() || isSharedIP(a) || a.IsUnspecified())
+}
+
+// limitedBroadcast is the IPv4 address every device on the link receives.
+var limitedBroadcast = netip.AddrFrom4([4]byte{255, 255, 255, 255})
+
+// isSharedIP says an address is many devices' by its own form: multicast or the limited broadcast. A subnet's broadcast address is only known
+// by the frame's hardware address.
+func isSharedIP(a netip.Addr) bool {
+	a = a.Unmap()
+	return a.IsMulticast() || a == limitedBroadcast
 }
 
 // readNames reads a DNS message: a question is counted, and the addresses of an answer are named by the name that was asked.
@@ -271,7 +295,7 @@ func (t *tally) addFlow(key flowKey, kind string, dir direction, bytes uint64) {
 		}
 		flow = &models.TrafficFlow{
 			Address: key.addr.Unmap().String(), Port: int(key.port), Served: key.served, Self: t.isSelf(key), Proto: protoName(key.proto), Kind: kind,
-			Internet: isInternet(key.addr),
+			Internet: isInternet(key.addr) && !key.shared, Shared: key.shared,
 		}
 		t.flows[key] = flow
 	}
@@ -334,7 +358,7 @@ func addDestination(by map[string]*models.TrafficDestination, f models.TrafficFl
 	}
 	d, ok := by[key]
 	if !ok {
-		d = &models.TrafficDestination{Name: f.Name, NameFrom: f.NameFrom, Owner: f.Owner, Address: f.Address, Internet: f.Internet}
+		d = &models.TrafficDestination{Name: f.Name, NameFrom: f.NameFrom, Owner: f.Owner, Address: f.Address, Internet: f.Internet, Shared: f.Shared}
 		by[key] = d
 	}
 	d.Bytes += flowSize(f)

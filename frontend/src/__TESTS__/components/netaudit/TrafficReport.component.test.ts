@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { RouterLinkStub, flushPromises, mount } from '@vue/test-utils'
 import TrafficReport from '../../../components/netaudit/TrafficReport.vue'
 import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 import type { HostTraffic, RouteTracesState } from '../../../types/netaudit'
@@ -28,7 +28,7 @@ const traffic = (over: Partial<HostTraffic> = {}): HostTraffic => ({
   ],
   other_flows: 3, other_bytes: 2 * MB, ...over,
 })
-const stubs = { DeviceProbe: { props: ['ip', 'mac', 'udpAt'], template: '<div data-test="probe-stub">{{ ip }}|{{ mac }}|{{ udpAt }}</div>' } }
+const stubs = { RouterLink: RouterLinkStub, DeviceProbe: { props: ['ip', 'mac', 'udpAt'], template: '<div data-test="probe-stub">{{ ip }}|{{ mac }}|{{ udpAt }}</div>' } }
 const show = (t: HostTraffic) => mount(TrafficReport, { props: { traffic: t }, global: { stubs } })
 const noTraces: RouteTracesState = { supported: true, traces: [] }
 const openRow = async (w: ReturnType<typeof show>, label: string) => {
@@ -146,6 +146,7 @@ describe('TrafficReport', () => {
     it('says how to get the map when no address has a city, and is left out when nothing went to the internet', () => {
       const plain = traffic({ destinations: [{ address: '1.2.3.4', bytes: MB, internet: true }], flows: [] })
       expect(show(plain).get('[data-test="map-empty"]').text()).toContain('Download the table')
+      expect(show(plain).getComponent(RouterLinkStub).props('to')).toEqual({ name: 'network', params: { tab: 'settings' }, query: { group: 'data' } })
       const local = traffic({ internet_bytes: 0, destinations: [{ address: '192.168.50.7', bytes: MB, internet: false }], flows: [] })
       expect(show(local).find('[data-test="traffic-map"]').exists()).toBe(false)
       expect(show(local).find('[data-test="map-empty"]').exists()).toBe(false)

@@ -908,6 +908,7 @@ export const TRAFFIC_MAP_LABEL = 'World map of where the internet traffic went'
 export const TRAFFIC_MAP_NOTE = 'Each dot is the city the table puts an address in: approximate, and a big company\u2019s servers often show the city of the hub that serves them.'
 export const TRAFFIC_MAP_ROUTE_NOTE = 'The line follows the routers of the open route trace that have a city, in order; it starts at the first one, not at this computer, whose place is not known.'
 export const TRAFFIC_MAP_NO_CITIES = 'Download the table of where addresses are used to see the internet traffic on a map.'
+export const TRAFFIC_MAP_OPEN_TABLES = 'Open Downloaded data'
 export const TRAFFIC_MAP_NO_POINTS = 'No internet address of this look has a city in the table.'
 export const TRAFFIC_TABLES_OPEN = 'Downloaded data'
 export const TRAFFIC_TABLES_LINE = (owners: boolean, places: boolean): string =>

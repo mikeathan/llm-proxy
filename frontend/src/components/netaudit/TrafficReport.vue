@@ -14,8 +14,9 @@ import { useRouteTrace } from "../../composables/netaudit/useRouteTrace"
 import { mapDots, routePoints, sampleNote, selfLine, stoppedNote, talkGroups, trafficPlace, trafficSentence } from "../../utils/netaudit/traffic"
 import { formatBytes } from "../../utils/format/formatters"
 import { motionScroll } from "../../utils/motion"
+import { toNetworkSettings } from "../../router/routes"
 import {
-  TRAFFIC_ADVANCED_TITLE, TRAFFIC_BUSIEST, TRAFFIC_MAP_NO_CITIES, TRAFFIC_MAP_NO_POINTS, TRAFFIC_MAP_NOTE, TRAFFIC_MAP_ROUTE_NOTE, TRAFFIC_MAP_TITLE,
+  TRAFFIC_ADVANCED_TITLE, TRAFFIC_BUSIEST, TRAFFIC_MAP_NO_CITIES, TRAFFIC_MAP_NO_POINTS, TRAFFIC_MAP_NOTE, TRAFFIC_MAP_OPEN_TABLES, TRAFFIC_MAP_ROUTE_NOTE, TRAFFIC_MAP_TITLE,
   TRAFFIC_ONLY_THIS, TRAFFIC_PRIVACY_NOTE, TRAFFIC_SERIES_TITLE, TRAFFIC_SUMMARY_STATS, TRAFFIC_TALK_TITLE, TRAFFIC_WHAT_TITLE, TRAFFIC_WHERE_VIEW_LABELS,
   TRAFFIC_WHERE_VIEWS_LABEL,
 } from "../../constants/netaudit"
@@ -110,7 +111,15 @@ const views: ChoiceOption[] = (["operators", "countries"] as const).map((value) 
     <Panel v-if="hasInternet" :title="TRAFFIC_MAP_TITLE">
       <div class="flex flex-col gap-2">
         <TrafficMap v-if="dots.length" :dots="dots" :route="route" @pick="openPlace" />
-        <p v-else class="m-0 text-secondary" data-test="map-empty">{{ hasCities ? TRAFFIC_MAP_NO_POINTS : TRAFFIC_MAP_NO_CITIES }}</p>
+        <p v-else class="m-0 flex flex-wrap items-center gap-x-3 text-secondary" data-test="map-empty">
+          <span>{{ hasCities ? TRAFFIC_MAP_NO_POINTS : TRAFFIC_MAP_NO_CITIES }}</span>
+          <RouterLink
+            v-if="!hasCities"
+            :to="toNetworkSettings('data')"
+            class="inline-flex min-h-11 items-center text-accent-info-text underline-offset-2 hover:underline sm:min-h-8"
+            data-test="map-open-tables"
+          >{{ TRAFFIC_MAP_OPEN_TABLES }}</RouterLink>
+        </p>
         <p v-if="dots.length" class="m-0 text-[length:var(--text-small)] text-muted">{{ TRAFFIC_MAP_NOTE }}</p>
         <p v-if="route.length > 1" class="m-0 text-[length:var(--text-small)] text-muted" data-test="map-route-note">{{ TRAFFIC_MAP_ROUTE_NOTE }}</p>
       </div>

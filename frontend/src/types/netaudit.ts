@@ -1080,6 +1080,8 @@ export interface TrafficDestination {
   address: string
   bytes: number
   internet: boolean
+  /** A broadcast or multicast address many devices share, by its address or the frame's hardware address (the server says; absent in older looks). */
+  shared?: boolean
   owner?: TrafficOwner
 }
 
@@ -1096,6 +1098,8 @@ export interface TrafficFlow {
   proto: 'tcp' | 'udp' | 'icmp'
   kind: TrafficKindWord
   internet: boolean
+  /** A conversation with a broadcast or multicast address (see TrafficDestination.shared). */
+  shared?: boolean
   bytes_out: number
   bytes_in: number
 }

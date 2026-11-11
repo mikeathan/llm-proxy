@@ -285,3 +285,24 @@ describe('a route trace on the screen', () => {
     expect(routeOutcome({ ...trace, state: 'running' })).toBe('')
   })
 })
+
+describe('broadcast chatter', () => {
+  it('files the limited and the subnet broadcast as chatter, even a look kept before the server marked them, and never on the internet', () => {
+    // The vertex look of 2026-11-11 (v0.73.0): 255.255.255.255 came marked as internet, and 192.168.50.255 as a device.
+    const t = traffic({
+      destinations: [
+        { address: '255.255.255.255', bytes: 625, internet: true },
+        { address: '192.168.50.255', bytes: 5000, internet: false, shared: true },
+        { address: '192.168.50.1', bytes: 9000, internet: false },
+      ],
+      flows: [],
+    })
+    const groups = talkGroups(t, {})
+    const ids = (id: string) => groups.find((g) => g.id === id)!.rows.map((r) => r.address)
+    expect(ids('internet')).toEqual([])
+    expect(ids('shared')).toEqual(['192.168.50.255', '255.255.255.255'])
+    expect(ids('network')).toEqual(['192.168.50.1'])
+    expect(trafficPlace(t, '255.255.255.255')).toMatchObject({ internet: false, scannable: false })
+    expect(trafficPlace(t, '192.168.50.255')).toMatchObject({ internet: false, scannable: false })
+  })
+})
