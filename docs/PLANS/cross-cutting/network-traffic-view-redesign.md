@@ -116,7 +116,7 @@ and add a map only if the path is not enough.
 
 All phases, in one branch: the route view (Constitution I.14, ADR-0045), the map (ADR-0046, superseding ADR-0043's rejection), and broadcast chatter closed by default.
 
-## Built (branch `network-traffic-route-map`, from `origin/main`, v0.73.0, uncommitted)
+## Built (merged as PR #225, `e874f844`, v0.73.0; not yet run on vertex)
 
 - **Phase 0:** `hosttraffic.Self` (addresses from `Scope.LocalAddrs`, cards from `/sys/class/net`, cards learned from frames, this program's port); `servicePort` keys a
   conversation on the service's port (`served`), `self` marks this program's own, `self_bytes` and `direction_unknown` on the summary.
@@ -142,6 +142,5 @@ DB-IP table; frontend `npx vitest run` (288 files, 2924 tests) and `npm run buil
 5. Carried from the regroup handoff (now deleted; its work is in SPEC-003 2.61 and ADR-0044): a city shows only for an address IPtoASN found an owner for, so a
    city alone never appears; change that only if the owner asks.
 
-**Branch state:** `network-traffic-route-map`, made from `origin/main` (21a4161c) and tracking it, so push with `git push -u origin network-traffic-route-map`, never a
-bare `git push`. Nothing is committed or pushed. Start from `backend/internal/core/netaudit/hosttraffic/hosttraffic.go` (`direction`, `servicePort`) and
+**Branch state:** merged to `main` as PR #225 (`e874f844`, squash) on 2026-11-11; nothing of it is left on a branch. Start from `backend/internal/core/netaudit/hosttraffic/hosttraffic.go` (`direction`, `servicePort`) and
 `frontend/src/components/netaudit/TrafficReport.vue`.
