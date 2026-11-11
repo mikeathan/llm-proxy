@@ -25,7 +25,7 @@ const scope = { ranges: [{ cidr: '192.168.1.0/24', devices: 254 }], allow_unconf
 async function open(page: Page, view: 'simple' | 'advanced', vuln: object, readiness?: object) {
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/vulndata': vuln, ...(readiness ? { '/netaudit/readiness': readiness } : {}) } })
-  await page.goto('network/settings')
+  await page.goto('network/settings?group=data')
   await expect(page.getByRole('heading', { name: 'Vulnerability data' })).toBeVisible()
 }
 

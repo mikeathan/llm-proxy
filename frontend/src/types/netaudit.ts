@@ -1015,6 +1015,9 @@ export interface TrafficOwner {
   asn: number
   name: string
   country?: string
+  /** Where the address is used, from the optional table of cities; approximate. Text only. */
+  region?: string
+  city?: string
 }
 
 export interface TrafficOwnerShare extends TrafficOwner {
@@ -1039,6 +1042,9 @@ export interface WhereBar {
 }
 
 /** What is held of the table of address owners. */
+/** The two tables a look names destinations with: who runs an address (small), and the city it is used in (large, optional). */
+export type DestinationTable = 'owners' | 'places'
+
 export interface DestinationDataState {
   ranges: number
   loaded_at?: string
@@ -1075,6 +1081,16 @@ export interface TrafficFlow {
   bytes_out: number
   bytes_in: number
 }
+
+/** The places of one look in three lists: on the internet, devices on this network, and broadcast or multicast addresses many devices share. */
+export interface PlaceGroups {
+  internet: TrafficDestination[]
+  network: TrafficDestination[]
+  shared: TrafficDestination[]
+}
+
+/** The views of the "Where it went" panel: the places themselves, or the same internet traffic by operator or by country. */
+export type TrafficWhereView = 'places' | 'operators' | 'countries'
 
 /** One place the data went (an address), gathered from the look's destinations and conversations for the detail panel. */
 export interface TrafficPlace {

@@ -113,7 +113,7 @@ for (const theme of Object.keys(SCHEMES) as (keyof typeof SCHEMES)[]) {
 test('the Nearby card on the Settings tab says what it sends and has no switch', async ({ page }) => {
   await storeTheme(page, 'retro-dark')
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/nearby': STATES.off } })
-  await page.goto('network/settings')
+  await page.goto('network/settings?group=watching')
   const card = page.locator('[data-test="nearby-card"]')
   await expect(card.locator('[data-test="module-switch-state"]')).toBeVisible()
   await expect(card.getByRole('switch')).toHaveCount(0)

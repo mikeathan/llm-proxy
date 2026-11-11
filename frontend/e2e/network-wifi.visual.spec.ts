@@ -14,7 +14,7 @@ const WIFI = {
 
 test('the Wi-Fi look-alikes card lists what advertises the name and fits the screen', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/netaudit/wifi': WIFI } })
-  await page.goto('network/settings')
+  await page.goto('network/settings?group=watching')
   const card = page.locator('[data-test="wifi"]')
   await expect(card).toBeVisible()
   await expect(card.locator('[data-test="wifi-seen"]')).toHaveCount(2)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"llm-proxy/internal/core/netaudit/hosttraffic"
 	"llm-proxy/internal/core/netaudit/ipowners"
+	"llm-proxy/internal/core/netaudit/ipplaces"
 	"net"
 	"net/netip"
 	"os"
@@ -134,6 +135,9 @@ type netauditServices struct {
 	// DestinationOwners is the table of address owners the Traffic view names destinations with: downloaded when the operator asks, looked up on
 	// this computer.
 	DestinationOwners *ipowners.Manager
+	// DestinationPlaces is the table of cities, kept as an index file that is searched on disk and never held in memory: downloaded when the
+	// operator asks. It only adds a city to an owner the first table found.
+	DestinationPlaces *ipplaces.Manager
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      netaudit.WebChecker
@@ -652,6 +656,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		KnownBad:          bad.Manager,
 		KnownBadList:      bad.List,
 		DestinationOwners: s.newDestinationOwners(netTools),
+		DestinationPlaces: s.newDestinationPlaces(netTools),
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
 		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
@@ -972,10 +977,37 @@ func (s *AppServices) newDestinationOwners(netTools *tools.NetworkTools) *ipowne
 	return m
 }
 
-// currentOwners is the way to name the holder of an internet address, or nil when no table is held.
+// newDestinationPlaces builds the table of cities: one index file in the data folder, opened but not read into memory. A file that cannot be
+// read is logged and the manager starts empty.
+func (s *AppServices) newDestinationPlaces(netTools *tools.NetworkTools) *ipplaces.Manager {
+	m, err := ipplaces.NewManager(ipplaces.Deps{Path: filepath.Join(s.AppCtx.RootDir(), destinationPlacesFile), Open: netTools.Open})
+	if err != nil {
+		logging.Warn("network destination places", "error", err.Error())
+	}
+	s.AppCtx.AfterFactoryReset("The downloaded table of cities", m.Remove)
+	return m
+}
+
+// destinationPlacesFile holds the index of cities, one file in the application's data folder. It is public data, so it is a plain file.
+const destinationPlacesFile = "destination-places.bin"
+
+// currentOwners is the way to name the holder of an internet address, or nil when no table is held. When the table of cities is held too, an
+// owner it finds also says where the address is used.
 func (n *netauditServices) currentOwners() hosttraffic.Owners {
 	if n == nil || n.DestinationOwners == nil || n.DestinationOwners.Status().Ranges == 0 {
 		return nil
 	}
-	return n.DestinationOwners.Owner
+	if n.DestinationPlaces == nil || n.DestinationPlaces.Status().Ranges == 0 {
+		return n.DestinationOwners.Owner
+	}
+	return func(a netip.Addr) (models.TrafficOwner, bool) {
+		o, ok := n.DestinationOwners.Owner(a)
+		if !ok {
+			return o, false
+		}
+		if p, found := n.DestinationPlaces.Place(a); found {
+			o.Region, o.City = p.Region, p.City
+		}
+		return o, true
+	}
 }

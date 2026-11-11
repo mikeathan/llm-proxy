@@ -173,7 +173,7 @@ func (b *builder) add(line string) {
 	if !ok {
 		return
 	}
-	org := b.intern(plainName(r.holder))
+	org := b.intern(PlainText(r.holder, maxNameRunes))
 	if r.first.Is4() {
 		s, e := r.first.As4(), r.last.As4()
 		b.v4 = append(b.v4, row4{start: be32(s), end: be32(e), asn: r.asn, country: r.country, org: org})
@@ -242,9 +242,9 @@ func (b *builder) finish() *Table {
 	return &Table{v4: slices.Clip(v4), v6: slices.Clip(v6), orgs: b.orgs}
 }
 
-// plainName makes a holder's name plain text: control, format (including the right-to-left overrides) and unprintable characters go, white space
-// is collapsed, and at most maxNameRunes characters are kept.
-func plainName(raw string) string {
+// PlainText makes a name somebody else chose plain text: control, format (including the right-to-left overrides) and unprintable characters go,
+// white space is collapsed, and at most maxRunes characters are kept.
+func PlainText(raw string, maxRunes int) string {
 	var out strings.Builder
 	runes, space := 0, false
 	for _, r := range raw {
@@ -260,7 +260,7 @@ func plainName(raw string) string {
 			runes++
 			space = false
 		}
-		if runes >= maxNameRunes {
+		if runes >= maxRunes {
 			break
 		}
 		out.WriteRune(r)

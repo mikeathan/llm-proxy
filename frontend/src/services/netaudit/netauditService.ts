@@ -76,6 +76,19 @@ export class NetauditService {
     return del<DestinationDataState>(API_ENDPOINTS.netauditDestinationData)
   }
 
+  /** What is held of the optional table of cities (kept on disk, about 86 MB). */
+  static destinationPlaces(): Promise<DestinationDataState> {
+    return get<DestinationDataState>(API_ENDPOINTS.netauditDestinationPlaces)
+  }
+
+  static downloadDestinationPlaces(): Promise<DestinationDataState> {
+    return post<DestinationDataState>(API_ENDPOINTS.netauditDestinationPlacesDownload, {})
+  }
+
+  static removeDestinationPlaces(): Promise<DestinationDataState> {
+    return del<DestinationDataState>(API_ENDPOINTS.netauditDestinationPlaces)
+  }
+
   static ubuntuData(): Promise<UbuntuDataStatus> {
     return get<UbuntuDataStatus>(API_ENDPOINTS.netauditUbuntuData)
   }

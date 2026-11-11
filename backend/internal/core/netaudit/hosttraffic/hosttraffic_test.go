@@ -328,6 +328,7 @@ func TestNoTextFromTheNetworkIsKeptOutsideTheNamesOnDestinationsAndFlows(t *test
 		"TrafficDestination.Name":    true,                                      // the one place a name may appear (Constitution I.13)
 		"TrafficDestination.Address": true, "TrafficDestination.NameFrom": true, // a fixed word: dns or tls
 		"TrafficOwner.Name": true, "TrafficOwner.Country": true, "TrafficCountryShare.Country": true, // the holder's own words (text only), and two capital letters
+		"TrafficOwner.Region": true, "TrafficOwner.City": true, // the places table's own words, made plain, shown as text only
 		"TrafficFlow.Address": true, "TrafficFlow.Name": true, "TrafficFlow.Proto": true, "TrafficFlow.Kind": true, "TrafficFlow.NameFrom": true,
 	}
 	for _, typ := range []reflect.Type{reflect.TypeFor[models.HostTraffic](), reflect.TypeFor[models.TrafficKind](), reflect.TypeFor[models.TrafficDestination](), reflect.TypeFor[models.TrafficFlow](), reflect.TypeFor[models.TrafficOwner](), reflect.TypeFor[models.TrafficCountryShare]()} {

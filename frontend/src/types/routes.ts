@@ -74,6 +74,10 @@ export type NavEntry = { kind: 'item'; item: NavItem } | { kind: 'group'; group:
 export const NETWORK_TABS = ['devices', 'findings', 'traffic', 'timeline', 'audits', 'modules', 'settings'] as const
 export type NetworkTab = (typeof NETWORK_TABS)[number]
 
+// The groups of the Network page's Settings tab, kept in the address as `?group=`. The first is the one a link without a group opens.
+export const NETWORK_SETTINGS_GROUPS = ['scanning', 'watching', 'outside', 'data', 'helper'] as const
+export type NetworkSettingsGroup = (typeof NETWORK_SETTINGS_GROUPS)[number]
+
 // The tabs of the Agents page, addressable at /agents/:tab. Activity is the page without a tab.
 export const AGENTS_TABS = ['modules'] as const
 export type AgentsTab = (typeof AGENTS_TABS)[number]

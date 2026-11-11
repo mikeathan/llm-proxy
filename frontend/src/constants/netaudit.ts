@@ -1,5 +1,6 @@
 import type { ChoiceOption } from '../types/ui'
-import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, ProblemLayout, RequirementCode, TrafficKindWord, RequirementCopy } from '../types/netaudit'
+import type { NetworkSettingsGroup } from '../types/routes'
+import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, ProblemLayout, RequirementCode, DestinationTable, TrafficKindWord, TrafficWhereView, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -296,6 +297,20 @@ export const AUDIT_HISTORY_LABEL = 'Recent runs'
 export const SETTINGS_SAVES_AT_ONCE = 'Every change saves at once.'
 export const SETTINGS_WATCHING_TITLE = 'Watching for changes'
 export const SETTINGS_EXTRAS_TITLE = 'Optional extras'
+/** Which Settings group holds the details of a module that has any; a module not listed is in the first group. */
+export const MODULE_SETTINGS_GROUP: Readonly<Record<string, NetworkSettingsGroup>> = {
+  presence: 'watching', wifi_lookalikes: 'watching', nearby: 'watching', router_log: 'watching', decoys: 'watching', dns_check: 'watching',
+  outside_lookup: 'outside', known_bad: 'outside', phone_home: 'outside',
+}
+export const SETTINGS_GROUPS_LABEL = 'Network settings'
+/** The groups of the Settings tab: what each is called and the one line that says what is inside, so a setting is found by its job. */
+export const SETTINGS_GROUP_COPY: Readonly<Record<NetworkSettingsGroup, { label: string; hint: string }>> = {
+  scanning: { label: 'What to scan', hint: 'Which networks may be scanned, and how long a scan may spend on one device.' },
+  watching: { label: 'Watching', hint: 'What is kept an eye on: new devices, decoy services, the router\'s log and DNS, nearby devices and Wi-Fi look-alikes.' },
+  outside: { label: 'Outside services', hint: 'Looks that ask a service on the internet. Each stays off until you turn it on here.' },
+  data: { label: 'Downloaded data', hint: 'Tables kept on this computer so a check can run without asking anyone: known flaws and Ubuntu security notices.' },
+  helper: { label: 'Privileged helper', hint: 'The small program that lets this one computer do the few things that need more rights, and the actions it may take.' },
+}
 export const ADVANCED_SETTINGS_TITLE = 'Advanced'
 export const MORE_ACTIONS_LABEL = 'More actions'
 export const AUDITS_NONE = 'Scan on a schedule and be told only what is new, changed or gone. This opens the new automation form with everything filled in; you can change any of it.'
@@ -819,12 +834,43 @@ export const DESTINATION_DATA_REMOVE = 'Remove the table'
 export const DESTINATION_DATA_LOAD_FAILED = 'The table of address owners could not be read.'
 export const DESTINATION_DATA_DOWNLOAD_FAILED = 'The table could not be downloaded. The one you had, if any, is still in use.'
 export const DESTINATION_DATA_REMOVE_FAILED = 'The table could not be removed.'
+/** A table older than this is said to be old: both are published monthly, and addresses move slowly, so three months is a gentle nudge. */
+export const DESTINATION_DATA_OLD_DAYS = 90
+export const DESTINATION_DATA_OLD = (months: number): string => `This table is about ${months} months old. Press Refresh to pick up changes; the one you have keeps working until then.`
 export const DESTINATION_DATA_ACCURACY = 'The table says who an address is registered to, not where the machine stands: a company that serves from many countries shows one.'
+/** The optional table of cities: large, kept on disk and searched there, so it costs disk and one download, not memory. */
+export const DESTINATION_PLACES_TITLE = 'Cities (optional)'
+export const DESTINATION_PLACES_INTRO = 'Adds a city and region to each internet address that has an operator. The table is about 86 MB to download and is kept on disk and searched there, so it uses almost no memory. Every lookup happens on this computer.'
+export const DESTINATION_PLACES_NEEDS = 'Not downloaded yet. Until it is, addresses show a country only.'
+export const DESTINATION_PLACES_SOURCE = (source: string): string => `Downloading asks ${source} for one file (about 86 MB). It learns this computer\u2019s address and nothing about your traffic. It needs your passphrase.`
+export const DESTINATION_PLACES_ACCURACY = 'The city is where the table says an address is used, and it is approximate: a company\u2019s servers often show the city of the hub that serves them, not the machine.'
+export const DESTINATION_PLACES_CREDIT = 'IP geolocation by DB-IP (db-ip.com), CC BY 4.0.'
+export const DESTINATION_PLACES_LOAD_FAILED = 'The table of cities could not be read.'
+/** What each table's card says, so one card draws both. The held line is the same for both. */
+export const DESTINATION_TABLE_COPY: Readonly<Record<DestinationTable, { title: string; intro: string; needs: string; source: (s: string) => string; accuracy: string; credit?: string; prefix: string }>> = {
+  owners: { title: DESTINATION_DATA_TITLE, intro: DESTINATION_DATA_INTRO, needs: DESTINATION_DATA_NEEDS, source: DESTINATION_DATA_SOURCE, accuracy: DESTINATION_DATA_ACCURACY, prefix: 'destination-data' },
+  places: { title: DESTINATION_PLACES_TITLE, intro: DESTINATION_PLACES_INTRO, needs: DESTINATION_PLACES_NEEDS, source: DESTINATION_PLACES_SOURCE, accuracy: DESTINATION_PLACES_ACCURACY, credit: DESTINATION_PLACES_CREDIT, prefix: 'destination-places' },
+}
 export const TRAFFIC_WHERE_TITLE = 'Where it went'
+export const TRAFFIC_WHERE_VIEWS_LABEL = 'Group the places'
+export const TRAFFIC_WHERE_VIEW_LABELS: Readonly<Record<TrafficWhereView, string>> = { places: 'Places', operators: 'Operators', countries: 'Countries' }
+export const TRAFFIC_PLACE_GROUPS = {
+  internet: { title: 'On the internet', note: 'Servers run by someone else' },
+  network: { title: 'On this network', note: 'Devices at home' },
+  shared: { title: 'Shared addresses', note: 'Broadcast and multicast: one message for many devices' },
+} as const
+export const TRAFFIC_GROUP_SHARE = (percent: number, bytes: string): string => `${bytes} \u00b7 ${percent < 1 ? 'under 1' : percent}% of the total`
+export const TRAFFIC_PLACE_KINDS = (kinds: readonly string[]): string => kinds.slice(0, 3).join(', ')
+export const TRAFFIC_SUMMARY_STATS = { sent: 'Sent', received: 'Received', internet: 'To the internet', network: 'On this network' } as const
+export const TRAFFIC_FLOWS_SHOWN = 12
+export const TRAFFIC_FLOWS_MORE = (n: number): string => `Show ${n} more ${n === 1 ? 'conversation' : 'conversations'}`
+export const TRAFFIC_FLOWS_FEWER = 'Show fewer'
+export const TRAFFIC_FLOWS_KINDS_LABEL = 'Filter conversations by kind'
+export const TRAFFIC_WHAT_TITLE = 'What it was'
 export const TRAFFIC_WHERE_OWNERS = 'By network operator'
 export const TRAFFIC_WHERE_COUNTRIES = 'By country'
 export const TRAFFIC_WHERE_UNKNOWN = 'Not in the table'
-export const TRAFFIC_WHERE_NO_TABLE = 'This look was made without the table of address owners. Download it (above), then listen again to see which companies and countries the traffic went to.'
+export const TRAFFIC_WHERE_NO_TABLE = 'This look was made without the table of address owners. Download it (at the bottom of this page), then listen again to see which companies and countries the traffic went to.'
 export const TRAFFIC_WHERE_NOTHING = 'No internet address in this look is in the table.'
 export const TRAFFIC_WHERE_OF_INTERNET = 'Shares are of the traffic to the internet.'
 export const TRAFFIC_OWNER_LINE = (name: string, country: string): string => [name, country].filter(Boolean).join(' \u00b7 ')

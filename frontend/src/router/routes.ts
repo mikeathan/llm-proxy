@@ -1,7 +1,7 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
-import type { ActivityFilters, AgentsTab, AutomationStart, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -53,6 +53,9 @@ export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRa
   params: tab ? { tab } : {},
   ...(hash ? { hash } : {}),
 })
+
+/** One group of the Network page's Settings tab (what to scan, watching, outside services, downloaded data, the helper). */
+export const toNetworkSettings = (group: NetworkSettingsGroup): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'settings' }, query: { group } })
 
 /** The Findings tab, scrolled to one finding (its key) and marked for a moment. A finding that is gone from the report says so. */
 export const toFinding = (key: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'findings' }, query: { finding: key } })

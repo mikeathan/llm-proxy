@@ -29,7 +29,7 @@ func (f *fakeOwners) Download(context.Context) error {
 func (f *fakeOwners) Remove() error { f.removed++; f.status = ipowners.Status{}; return nil }
 
 func TestDestinationDataSaysWhatIsHeldAndWhereItComesFrom(t *testing.T) {
-	h := NewNetauditDestinationDataHandlers(&fakeOwners{status: ipowners.Status{Ranges: 12}})
+	h := NewNetauditDestinationDataHandlers(&fakeOwners{status: ipowners.Status{Ranges: 12}}, "iptoasn.com")
 	rec := do(h.Get, http.MethodGet, "/admin/api/netaudit/destination-data", "")
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, `"ranges":12`) || !strings.Contains(body, `"source":"iptoasn.com"`) {
@@ -39,7 +39,7 @@ func TestDestinationDataSaysWhatIsHeldAndWhereItComesFrom(t *testing.T) {
 
 func TestDestinationDataDownloadAnswersWithTheNewStatusAndAFailureIsAGatewayError(t *testing.T) {
 	f := &fakeOwners{}
-	h := NewNetauditDestinationDataHandlers(f)
+	h := NewNetauditDestinationDataHandlers(f, "iptoasn.com")
 	if rec := do(h.Download, http.MethodPost, "/admin/api/netaudit/destination-data/download", ""); rec.Code != http.StatusOK || f.download != 1 || !strings.Contains(rec.Body.String(), `"ranges":579453`) {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
@@ -52,7 +52,7 @@ func TestDestinationDataDownloadAnswersWithTheNewStatusAndAFailureIsAGatewayErro
 
 func TestDestinationDataRemoveForgetsTheTable(t *testing.T) {
 	f := &fakeOwners{status: ipowners.Status{Ranges: 5}}
-	h := NewNetauditDestinationDataHandlers(f)
+	h := NewNetauditDestinationDataHandlers(f, "iptoasn.com")
 	if rec := do(h.Delete, http.MethodDelete, "/x", ""); rec.Code != http.StatusOK || f.removed != 1 || !strings.Contains(rec.Body.String(), `"ranges":0`) {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}

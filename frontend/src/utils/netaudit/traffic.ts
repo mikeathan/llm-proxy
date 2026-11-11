@@ -2,7 +2,7 @@ import { formatBytes } from '../format/formatters'
 import {
   TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED_KINDS, TRAFFIC_OWNER_LINE, TRAFFIC_KIND_LABELS, TRAFFIC_SAMPLED, TRAFFIC_STOPPED, TRAFFIC_TOP_DESTINATIONS,
 } from '../../constants/netaudit'
-import type { ChartBar, HostTraffic, TrafficDestination, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar } from '../../types/netaudit'
+import type { ChartBar, HostTraffic, PlaceGroups, TrafficDestination, TrafficFlow, TrafficKind, TrafficKindWord, TrafficOwner, TrafficPlace, WhereBar } from '../../types/netaudit'
 
 const MS_PER_SECOND = 1000
 const SECONDS_PER_MINUTE = 60
@@ -127,9 +127,15 @@ export function secondClock(second: number): string {
   return `${Math.floor(second / SECONDS_PER_MINUTE)}:${String(second % SECONDS_PER_MINUTE).padStart(2, '0')}`
 }
 
+/** Where an address is used, smallest first: "Mountain View, California, United States". The city and region are there only when the table of cities is held. */
+export function locationOf(owner: TrafficOwner): string {
+  const region = owner.region && owner.region !== owner.city ? owner.region : ''
+  return [owner.city, region, owner.country ? countryName(owner.country) : ''].filter(Boolean).join(', ')
+}
+
 /** The holder of an address and its country on one line, as text: "GOOGLE - Google LLC · United States". Empty when no owner is known. */
 export function ownerLine(owner: TrafficOwner | undefined): string {
-  return owner ? TRAFFIC_OWNER_LINE(owner.name || `AS${owner.asn}`, owner.country ? countryName(owner.country) : '') : ''
+  return owner ? TRAFFIC_OWNER_LINE(owner.name || `AS${owner.asn}`, locationOf(owner)) : ''
 }
 
 const regionNames = ((): Intl.DisplayNames | null => {
@@ -160,4 +166,30 @@ export function ownerBars(t: HostTraffic): WhereBar[] {
 /** The look's internet bytes by country, biggest first. */
 export function countryBars(t: HostTraffic): WhereBar[] {
   return (t.countries ?? []).map((c) => ({ key: c.country, label: countryName(c.country), note: c.country, bytes: c.bytes, percent: percentOf(c.bytes, t.internet_bytes) }))
+}
+
+/** The kinds of traffic each address had, biggest first, so a row of the places list can say "HTTPS, DNS" without opening the place. */
+export function kindsByAddress(flows: readonly TrafficFlow[]): Map<string, TrafficKindWord[]> {
+  const bytes = new Map<string, Map<TrafficKindWord, number>>()
+  for (const f of flows) {
+    const kinds = bytes.get(f.address) ?? new Map<TrafficKindWord, number>()
+    kinds.set(f.kind, (kinds.get(f.kind) ?? 0) + f.bytes_in + f.bytes_out)
+    bytes.set(f.address, kinds)
+  }
+  return new Map([...bytes].map(([address, kinds]) => [address, [...kinds].sort((a, b) => b[1] - a[1]).map(([kind]) => kind)]))
+}
+
+/** The places of a look in three lists, each biggest first: on the internet, devices on this network, and addresses many devices share. */
+export function placeGroups(destinations: readonly TrafficDestination[]): PlaceGroups {
+  const groups: PlaceGroups = { internet: [], network: [], shared: [] }
+  for (const d of destinations) (d.internet ? groups.internet : isSharedAddress(d.address) ? groups.shared : groups.network).push(d)
+  return groups
+}
+
+/** The bytes of a list of places. */
+export const bytesOf = (places: readonly TrafficDestination[]): number => places.reduce((n, d) => n + d.bytes, 0)
+
+/** The conversations to show first, and how many are left behind; all of them when `all` is set. */
+export function visibleFlows(flows: readonly TrafficFlow[], all: boolean, limit: number): { shown: TrafficFlow[]; hidden: number } {
+  return all || flows.length <= limit ? { shown: [...flows], hidden: 0 } : { shown: flows.slice(0, limit), hidden: flows.length - limit }
 }

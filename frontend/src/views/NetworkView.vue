@@ -25,11 +25,11 @@ import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode
 import { DEVICE_PROBLEMS_INJECTION, useDeviceProblems } from "../composables/netaudit/useDeviceProblems"
 import { useNetworkOverview } from "../composables/netaudit/useNetworkOverview"
 import { AUDITOR_PROFILE, AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_OVERVIEW_LABEL, NETWORK_SUBTITLE, NETWORK_TAB_LABELS, NETWORK_TITLE } from "../constants/netaudit"
-import { toNetwork } from "../router/routes"
-import { NETWORK_TABS } from "../types/routes"
+import { toNetwork, toNetworkSettings } from "../router/routes"
+import { NETWORK_SETTINGS_GROUPS, NETWORK_TABS } from "../types/routes"
 import type { NetworkAudit } from "../types/netaudit"
 import type { StackTabItem } from "../types/stacks"
-import type { NetworkTab } from "../types/routes"
+import type { NetworkSettingsGroup, NetworkTab } from "../types/routes"
 
 // Network: the home network as a security feature of its own, the first stack under the Stacks group. Overview (one verdict, the numbers,
 // what changed), Devices (who is on it), Findings (the last audit), Traffic (a look at this computer's own traffic), Timeline (one list of what happened), Audits (the scans that run on a schedule),
@@ -42,6 +42,11 @@ const { automations, fetchAutomations } = useDispatcher()
 const tab = computed<NetworkTab | null>(() => {
   const t = route.params.tab
   return typeof t === "string" && (NETWORK_TABS as readonly string[]).includes(t) ? (t as NetworkTab) : null
+})
+// The group of the Settings tab; a missing or unknown `?group=` opens the first.
+const settingsGroup = computed<NetworkSettingsGroup>(() => {
+  const g = route.query.group
+  return typeof g === "string" && (NETWORK_SETTINGS_GROUPS as readonly string[]).includes(g) ? (g as NetworkSettingsGroup) : NETWORK_SETTINGS_GROUPS[0]
 })
 const tabs: readonly StackTabItem[] = [
   { id: "overview", label: NETWORK_OVERVIEW_LABEL, to: toNetwork() },
@@ -100,11 +105,11 @@ onUnmounted(stop)
       </EmptyState>
     </template>
 
-    <TrafficTab v-else-if="tab === 'traffic'" @open-tab="$router.push(toNetwork($event))" />
+    <TrafficTab v-else-if="tab === 'traffic'" @open-tab="$router.push($event === 'settings' ? toNetworkSettings('helper') : toNetwork($event))" />
     <TimelineTab v-else-if="tab === 'timeline'" :audit="audit" />
     <AuditsPanel v-else-if="tab === 'audits'" />
     <StackModules v-else-if="tab === 'modules'" stack="network" />
-    <NetworkSettings v-else />
+    <NetworkSettings v-else :group="settingsGroup" />
 
     <NetauditHelp />
   </div>
