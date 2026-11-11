@@ -4,6 +4,7 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import Panel from "../common/layout/Panel.vue"
+import DestinationDataCard from "./DestinationDataCard.vue"
 import TrafficReport from "./TrafficReport.vue"
 import { usePolling } from "../../composables/ui/usePolling"
 import { useHostTraffic } from "../../composables/netaudit/useHostTraffic"
@@ -42,6 +43,8 @@ usePolling(follow, FOLLOW_INTERVAL_MS)
           <p v-if="loadError" role="alert" class="m-0 break-words text-[length:var(--text-small)] text-state-error" data-test="traffic-load-error">{{ loadError }}</p>
         </div>
       </Panel>
+
+      <DestinationDataCard />
 
       <template v-if="summary">
         <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="traffic-when">{{ summary.interface }} · {{ formatRelativeTime(summary.at) }}</p>

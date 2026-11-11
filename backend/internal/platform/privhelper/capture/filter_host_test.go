@@ -133,3 +133,82 @@ func TestTheHostFilterTakesOnlyPowersOfTwoUpToTheLimit(t *testing.T) {
 		}
 	}
 }
+
+// tcpPayload builds an Ethernet + IPv4 frame carrying a TCP segment with the given TCP header length in words and payload.
+func tcpPayloadV4(ihl, dataWords int, dport uint16, payload []byte) []byte {
+	ip := make([]byte, ihl*4)
+	ip[0] = byte(0x40 | ihl)
+	ip[9] = protoTCP
+	tcp := make([]byte, dataWords*4)
+	binary.BigEndian.PutUint16(tcp[0:], 51000)
+	binary.BigEndian.PutUint16(tcp[2:], dport)
+	tcp[12] = byte(dataWords << 4)
+	return eth(etherTypeIPv4, append(append(ip, tcp...), payload...)...)
+}
+
+func tcpPayloadV6(dataWords int, dport uint16, payload []byte) []byte {
+	ip := make([]byte, 40)
+	ip[6] = protoTCP
+	tcp := make([]byte, dataWords*4)
+	binary.BigEndian.PutUint16(tcp[0:], 51000)
+	binary.BigEndian.PutUint16(tcp[2:], dport)
+	tcp[12] = byte(dataWords << 4)
+	return eth(etherTypeIPv6, append(append(ip, tcp...), payload...)...)
+}
+
+// hello is the start of a TLS ClientHello: a handshake record (0x16, version 3.x) whose handshake type is 1, then filler.
+func hello(extra int) []byte {
+	return append([]byte{0x16, 0x03, 0x01, 0x02, 0x00, 0x01, 0x00, 0x01, 0xfc}, make([]byte, extra)...)
+}
+
+func TestTheHostFilterKeepsTheStartOfATLSClientHelloAndNothingElseOfAnOrdinaryFrame(t *testing.T) {
+	prog := mustHostFilter(t, 1)
+	long := hello(900)
+	cases := []struct {
+		name string
+		pkt  []byte
+		want uint32
+	}{
+		{"hello over IPv4", tcpPayloadV4(5, 5, 443, long), hostSnapHello},
+		{"hello over IPv4 with IP and TCP options", tcpPayloadV4(7, 8, 443, long), hostSnapHello},
+		{"hello over IPv6", tcpPayloadV6(5, 443, long), hostSnapHello},
+		{"hello to a port that is not 443", tcpPayloadV4(5, 5, 8443, long), hostSnapHello},
+		{"a short hello still carries what it has", tcpPayloadV4(5, 5, 443, hello(0)), hostSnapHello},
+		{"an acknowledgement with no payload is ordinary, not dropped", tcpPayloadV4(5, 5, 443, nil), snapV4},
+		{"an acknowledgement over IPv6 is ordinary", tcpPayloadV6(5, 443, nil), snapV6},
+		{"five bytes of payload is too few to be a hello", tcpPayloadV4(5, 5, 443, hello(0)[:5]), snapV4},
+		{"application data is ordinary", tcpPayloadV4(5, 5, 443, append([]byte{0x17, 0x03, 0x03, 0x02, 0x00, 0x01}, make([]byte, 600)...)), snapV4},
+		{"a ServerHello is ordinary", tcpPayloadV4(5, 5, 443, append([]byte{0x16, 0x03, 0x03, 0x02, 0x00, 0x02}, make([]byte, 600)...)), snapV4},
+		{"a handshake that is not version 3 is ordinary", tcpPayloadV4(5, 5, 443, append([]byte{0x16, 0x02, 0x01, 0x02, 0x00, 0x01}, make([]byte, 600)...)), snapV4},
+		{"plain HTTP is ordinary", tcpPayloadV4(5, 5, 80, append([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"), make([]byte, 100)...)), snapV4},
+		{"a hello over UDP is not a TLS hello", hostV4(protoUDP, 5, 0, 51000, 443), snapV4},
+		{"a DNS message over TCP keeps its own length", tcpPayloadV4(5, 5, 53, long), hostSnapDNS},
+	}
+	for _, c := range cases {
+		if got := runFilter(prog, c.pkt); got != c.want {
+			t.Errorf("%s: filter returned %d, want %d", c.name, got, c.want)
+		}
+	}
+	// The ordinary ones keep exactly their headers and ports, whatever they carry.
+	if got := runFilter(prog, tcpPayloadV4(7, 8, 443, append([]byte{0x17, 3, 3, 0, 9, 0}, make([]byte, 600)...))); got != 14+7*4+4 {
+		t.Errorf("an ordinary segment with options kept %d bytes, want %d", got, 14+7*4+4)
+	}
+}
+
+func TestAClientHelloIsNeverSampledAway(t *testing.T) {
+	prog := mustHostFilter(t, 8)
+	for draw := uint32(0); draw < 16; draw++ {
+		if got := runFilterWith(prog, tcpPayloadV4(5, 5, 443, hello(900)), draw); got != hostSnapHello {
+			t.Errorf("hello over IPv4, draw %d: kept %d, a name is never sampled away", draw, got)
+		}
+		if got := runFilterWith(prog, tcpPayloadV6(5, 443, hello(900)), draw); got != hostSnapHello {
+			t.Errorf("hello over IPv6, draw %d: kept %d", draw, got)
+		}
+	}
+}
+
+func TestNoFrameKeepsMoreThanTheWireAllows(t *testing.T) {
+	if hostSnapHello > wire.HostSnapMax || hostSnapDNS > wire.HostSnapMax {
+		t.Errorf("a kept frame of %d or %d bytes does not fit a record of %d", hostSnapHello, hostSnapDNS, wire.HostSnapMax)
+	}
+}

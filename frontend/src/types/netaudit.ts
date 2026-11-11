@@ -876,6 +876,17 @@ export interface NetworkNextAction {
 }
 
 /** The audit whose last result the overview counts. */
+/** How many open problems the latest audit found on one device, and the worst severity among them. */
+export interface DeviceProblemCount {
+  count: number
+  severity: string
+}
+
+/** What the Devices and Traffic tabs ask: the open problems on the device at an address, or null when it has none. */
+export interface DeviceProblemLookup {
+  of: (address: string) => DeviceProblemCount | null
+}
+
 export interface NetworkAudit {
   workspaceId: string
   automation: string
@@ -992,6 +1003,47 @@ export interface HostTraffic {
   flows: TrafficFlow[]
   other_flows: number
   other_bytes: number
+  /** True when the table of address owners was held when the look was read, so a place with no owner is "not in the table", not "no table". */
+  owners_used?: boolean
+  /** The internet bytes by network holder and by country, biggest first (null in a look kept before this existed). */
+  owners?: TrafficOwnerShare[] | null
+  countries?: TrafficCountryShare[] | null
+}
+
+/** Who runs the network an internet address belongs to. `name` is the holder's own words: text only. `country` is two capital letters. */
+export interface TrafficOwner {
+  asn: number
+  name: string
+  country?: string
+}
+
+export interface TrafficOwnerShare extends TrafficOwner {
+  bytes: number
+}
+
+export interface TrafficCountryShare {
+  country: string
+  bytes: number
+}
+
+/** Where a place's name came from: a DNS answer, or the server name in a TLS handshake this computer sent. */
+export type TrafficNameFrom = 'dns' | 'tls'
+
+/** One bar of the "where it went" lists: what it is, a second line, its bytes, and its share of the internet traffic in whole percents. */
+export interface WhereBar {
+  key: string
+  label: string
+  note: string
+  bytes: number
+  percent: number
+}
+
+/** What is held of the table of address owners. */
+export interface DestinationDataState {
+  ranges: number
+  loaded_at?: string
+  /** The one service the table is downloaded from. */
+  source: string
 }
 
 /** One kind of traffic, as a fixed word. */
@@ -1004,14 +1056,18 @@ export interface TrafficKind {
 
 export interface TrafficDestination {
   name?: string
+  name_from?: TrafficNameFrom
   address: string
   bytes: number
   internet: boolean
+  owner?: TrafficOwner
 }
 
 export interface TrafficFlow {
   address: string
   name?: string
+  name_from?: TrafficNameFrom
+  owner?: TrafficOwner
   port: number
   proto: 'tcp' | 'udp' | 'icmp'
   kind: TrafficKindWord
@@ -1024,6 +1080,8 @@ export interface TrafficFlow {
 export interface TrafficPlace {
   address: string
   name?: string
+  name_from?: TrafficNameFrom
+  owner?: TrafficOwner
   internet: boolean
   bytes: number
   /** Its share of everything the look counted, in whole percents. */

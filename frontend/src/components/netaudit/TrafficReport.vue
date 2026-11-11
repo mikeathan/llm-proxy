@@ -4,7 +4,8 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import TrafficChart from "./TrafficChart.vue"
 import TrafficDetail from "./TrafficDetail.vue"
-import { destinationLabel, flowsOfKind, kindShares, sampleNote, splitPercent, stoppedNote, trafficPlace, trafficSentence } from "../../utils/netaudit/traffic"
+import TrafficWhere from "./TrafficWhere.vue"
+import { destinationLabel, flowsOfKind, kindShares, ownerLine, sampleNote, splitPercent, stoppedNote, trafficPlace, trafficSentence } from "../../utils/netaudit/traffic"
 import { formatBytes } from "../../utils/format/formatters"
 import {
   TRAFFIC_BUSIEST, TRAFFIC_COLUMNS, TRAFFIC_KIND_FILTER, TRAFFIC_KIND_FILTER_CLEAR, TRAFFIC_KIND_FILTER_NONE, TRAFFIC_KIND_PICK, TRAFFIC_OPEN_PLACE, TRAFFIC_DESTINATIONS_TITLE, TRAFFIC_DIRECTION_SPLIT, TRAFFIC_FLOWS_TITLE, TRAFFIC_INTERNET_SPLIT, TRAFFIC_KIND_LABELS,
@@ -65,6 +66,7 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
               <span class="min-w-0 break-all text-primary"><span data-test="destination-name">{{ destinationLabel(d).text }}</span><span v-if="!destinationLabel(d).named" class="ml-1 text-muted">({{ TRAFFIC_NO_NAME }})</span></span>
               <span class="flex-none text-[length:var(--text-small)] text-muted">{{ formatBytes(d.bytes) }}</span>
             </span>
+            <span v-if="ownerLine(d.owner)" class="block break-words text-[length:var(--text-small)] text-muted" data-test="destination-owner">{{ ownerLine(d.owner) }}</span>
             <span class="block h-2 bg-surface-hover" aria-hidden="true"><span class="block h-2 bg-accent-info" :style="{ width: barWidth(d.bytes) }"></span></span>
             </button>
           </li>
@@ -86,6 +88,8 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
         </p>
       </Panel>
     </div>
+
+    <TrafficWhere :traffic="traffic" />
 
     <Panel v-if="traffic.per_second.length" :title="TRAFFIC_SERIES_TITLE">
       <div class="flex flex-col gap-2">
@@ -113,7 +117,7 @@ const flowName = (f: HostTraffic["flows"][number]) => f.name || f.address
           </thead>
           <tbody>
             <tr v-for="f in shownFlows" :key="`${f.address}|${f.port}|${f.proto}`" class="cursor-pointer border-t border-hairline hover:bg-surface-hover" data-test="flow" @click="openPlace(f.address)">
-              <td class="max-w-[22rem] break-all px-4 py-2 text-primary"><button type="button" class="break-all bg-transparent p-0 text-left text-primary max-sm:min-h-11" :aria-label="TRAFFIC_OPEN_PLACE(flowName(f))" data-test="flow-open">{{ flowName(f) }}</button></td>
+              <td class="max-w-[22rem] break-all px-4 py-2 text-primary"><button type="button" class="break-all bg-transparent p-0 text-left text-primary max-sm:min-h-11" :aria-label="TRAFFIC_OPEN_PLACE(flowName(f))" data-test="flow-open">{{ flowName(f) }}</button><span v-if="ownerLine(f.owner)" class="block text-[length:var(--text-small)] text-muted" data-test="flow-owner">{{ ownerLine(f.owner) }}</span></td>
               <td class="px-2 py-2 text-muted">{{ f.port || "·" }}</td>
               <td class="px-2 py-2 text-muted">{{ TRAFFIC_KIND_SHORT[f.kind] }}</td>
               <td class="px-2 py-2 text-right text-secondary">{{ formatBytes(f.bytes_out) }}</td>

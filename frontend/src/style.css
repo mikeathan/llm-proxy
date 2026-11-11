@@ -85,3 +85,9 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--border-strong)) transparent;
 }
+
+/* A finding the person came to from a link: marked for a moment, then back to normal. Colour from the tokens, no shadow. */
+[data-flash] {
+  outline: 2px solid rgb(var(--accent-info));
+  outline-offset: 2px;
+}

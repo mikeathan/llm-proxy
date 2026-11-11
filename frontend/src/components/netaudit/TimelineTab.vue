@@ -12,7 +12,7 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import { useNetworkActivity } from "../../composables/netaudit/useNetworkActivity"
 import { useTimelineSummary } from "../../composables/netaudit/useTimelineSummary"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
-import { activityText, clockTime, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay } from "../../utils/netaudit/activity"
+import { activityText, clockTime, rowLink, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay } from "../../utils/netaudit/activity"
 import {
   ACTIVITY_EMPTY, ACTIVITY_EMPTY_FILTERED, ROUTER_FILTER_OPTION, ACTIVITY_FILTER_LABEL, ACTIVITY_FILTER_OPTIONS, ACTIVITY_LIMIT_ADVANCED, ACTIVITY_LIMIT_SIMPLE,
   ACTIVITY_RELATED_NOTE, ACTIVITY_RELATED_TAG, ACTIVITY_TITLE, TIMELINE_EXPLAIN_HINT, TIMELINE_EXPLAIN_LABEL, TIMELINE_EXPLAIN_NOTE, TIMELINE_EXPLAINING, TIMELINE_EXPLAIN_NOTHING,
@@ -111,7 +111,8 @@ onMounted(() => void load())
               </template>
               <template v-else>
                 <div class="flex min-w-0 flex-col gap-1">
-                  <span class="break-words text-primary">{{ activityText(item.row) }}</span>
+                  <RouterLink v-if="rowLink(item.row)" :to="rowLink(item.row)!" class="break-words text-primary underline decoration-hairline underline-offset-2 hover:text-accent-info-text" data-test="activity-link">{{ activityText(item.row) }}</RouterLink>
+                  <span v-else class="break-words text-primary">{{ activityText(item.row) }}</span>
                   <span v-if="item.row.kind === 'related'" class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-muted">
                     <StatusTag state="warning" :label="ACTIVITY_RELATED_TAG" />{{ ACTIVITY_RELATED_NOTE }}
                   </span>

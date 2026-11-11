@@ -25,3 +25,35 @@ describe('DeviceRow DNS note', () => {
     expect(folded.find('[data-test="device-dns-note"]').exists()).toBe(false)
   })
 })
+
+describe('DeviceRow problems link', () => {
+  const withProblems = async (lookup: { of: (a: string) => { count: number; severity: string } | null } | null, d = device()) => {
+    const { createMemoryHistory } = await import('vue-router')
+    const { createAppRouter } = await import('../../../router')
+    const { DEVICE_PROBLEMS_INJECTION } = await import('../../../composables/netaudit/useDeviceProblems')
+    return mount(DeviceRow, {
+      props: { device: d, expanded: false, editing: false, draft: '', busy: false, advanced: false },
+      global: { plugins: [createAppRouter(createMemoryHistory())], provide: lookup ? { [DEVICE_PROBLEMS_INJECTION as symbol]: lookup } : {} },
+    })
+  }
+
+  it('links a device that has open problems to them, beside the row and not inside its button', async () => {
+    const w = await withProblems({ of: (a) => (a === '192.0.2.5' ? { count: 2, severity: 'high' } : null) })
+    const link = w.get('[data-test="device-problems"]')
+    expect(link.attributes('href')).toBe('/network/findings?device=192.0.2.5')
+    expect(link.text()).toBe('2 problems')
+    expect(link.attributes('aria-label')).toContain('Show the 2 problems found on Chromecast')
+    expect(w.get('[data-test="device-toggle"]').find('[data-test="device-problems"]').exists()).toBe(false)
+  })
+
+  it('says "1 problem" for one, and shows nothing for a device without problems or without a lookup', async () => {
+    expect((await withProblems({ of: () => ({ count: 1, severity: 'low' }) })).get('[data-test="device-problems"]').text()).toBe('1 problem')
+    expect((await withProblems({ of: () => null })).find('[data-test="device-problems"]').exists()).toBe(false)
+    expect((await withProblems(null)).find('[data-test="device-problems"]').exists()).toBe(false)
+  })
+
+  it('has no link for a device that has no IPv4 address to match the audit by', async () => {
+    const w = await withProblems({ of: () => ({ count: 1, severity: 'low' }) }, device({ ip: undefined }))
+    expect(w.find('[data-test="device-problems"]').exists()).toBe(false)
+  })
+})

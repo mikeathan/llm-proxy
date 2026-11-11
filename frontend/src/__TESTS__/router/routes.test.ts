@@ -9,6 +9,8 @@ import {
   toAutomationRecordings,
   toAutomations,
   toModels,
+  toDeviceFindings,
+  toFinding,
   toNetwork,
   toOverview,
   toRequirementFix,
@@ -46,6 +48,8 @@ describe('typed route builders', () => {
     ['network overview', toNetwork(), '/network'],
     ['network audits', toNetwork('audits'), '/network/audits'],
     ['network settings with an anchor', toNetwork('settings', '#scan-time'), '/network/settings#scan-time'],
+    ['a finding', toFinding('192.168.50.7|tcp|22|ssh_password_login'), '/network/findings?finding=192.168.50.7|tcp|22|ssh_password_login'],
+    ['the findings of a device', toDeviceFindings('192.168.50.7'), '/network/findings?device=192.168.50.7'],
     ['a fix the server sends to network-scan', toRequirementFix('network-scan'), '/network/settings'],
     ['a fix in another settings section', toRequirementFix('guardrails'), '/settings/guardrails'],
   ])('%s', (_label, to, path) => {

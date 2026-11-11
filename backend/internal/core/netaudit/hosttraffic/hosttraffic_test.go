@@ -124,7 +124,7 @@ func capture(stop wire.CaptureStop, elapsedMs uint32, frames ...kept) []byte {
 
 func summarize(t *testing.T, data []byte) models.HostTraffic {
 	t.Helper()
-	s, err := Summarize(data, local)
+	s, err := Summarize(data, local, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestADNSMessageThatLoopsOrLiesIsReadSafely(t *testing.T) {
 	binary.BigEndian.PutUint16(many[6:], 60000) // claims far more answers than there are bytes
 	for name, msg := range map[string][]byte{"a pointer loop": loop, "a huge answer count": many, "cut in the header": msg6(), "empty": nil} {
 		f := ip4(router, me, protoUDP, 100, udp(53, 40000, msg))
-		if _, err := Summarize(capture(wire.StopWindow, 1000, kept{10, 1, f}), local); err != nil {
+		if _, err := Summarize(capture(wire.StopWindow, 1000, kept{10, 1, f}), local, nil); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -228,7 +228,7 @@ func TestIPv6IsReadAndTheKindsAreFixedWords(t *testing.T) {
 	ssh := ip4(me, other, protoTCP, 100, tcp(40002, 22, nil))
 	ping := ip4(me, web, protoICMP, 84, []byte{8, 0, 0, 0})
 	odd := ip4(me, other, protoTCP, 100, tcp(40003, 9999, nil))
-	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, f}, kept{2, 1, quic}, kept{3, 1, ntp}, kept{4, 1, ssh}, kept{5, 1, ping}, kept{6, 1, odd}), []netip.Addr{me, v6me})
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, f}, kept{2, 1, quic}, kept{3, 1, ntp}, kept{4, 1, ssh}, kept{5, 1, ping}, kept{6, 1, odd}), []netip.Addr{me, v6me}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,11 +312,11 @@ func TestTheStopReasonIsSaidInFixedWordsAndACutRunStillSummarises(t *testing.T) 
 		t.Errorf("stopped by %q", s.StoppedBy)
 	}
 	cut := wire.AppendHostRecord(nil, 1, 1, ip4(me, web, protoTCP, 100, tcp(1, 443, nil)))
-	s, err := Summarize(cut, local)
+	s, err := Summarize(cut, local, nil)
 	if err != nil || s.StoppedBy != "cut" || s.BytesOut != 100 {
 		t.Fatalf("%+v %v", s, err)
 	}
-	if _, err := Summarize([]byte("not a capture"), local); err == nil {
+	if _, err := Summarize([]byte("not a capture"), local, nil); err == nil {
 		t.Fatal("bytes that are not a capture were accepted")
 	}
 }
@@ -324,12 +324,13 @@ func TestTheStopReasonIsSaidInFixedWordsAndACutRunStillSummarises(t *testing.T) 
 func TestNoTextFromTheNetworkIsKeptOutsideTheNamesOnDestinationsAndFlows(t *testing.T) {
 	allowed := map[string]bool{
 		"HostTraffic.Interface": true, "HostTraffic.StoppedBy": true, // from the request and fixed words
-		"TrafficKind.Kind":           true, // a fixed word
-		"TrafficDestination.Name":    true, // the one place a name may appear (Constitution I.13)
-		"TrafficDestination.Address": true,
-		"TrafficFlow.Address":        true, "TrafficFlow.Name": true, "TrafficFlow.Proto": true, "TrafficFlow.Kind": true,
+		"TrafficKind.Kind":           true,                                      // a fixed word
+		"TrafficDestination.Name":    true,                                      // the one place a name may appear (Constitution I.13)
+		"TrafficDestination.Address": true, "TrafficDestination.NameFrom": true, // a fixed word: dns or tls
+		"TrafficOwner.Name": true, "TrafficOwner.Country": true, "TrafficCountryShare.Country": true, // the holder's own words (text only), and two capital letters
+		"TrafficFlow.Address": true, "TrafficFlow.Name": true, "TrafficFlow.Proto": true, "TrafficFlow.Kind": true, "TrafficFlow.NameFrom": true,
 	}
-	for _, typ := range []reflect.Type{reflect.TypeFor[models.HostTraffic](), reflect.TypeFor[models.TrafficKind](), reflect.TypeFor[models.TrafficDestination](), reflect.TypeFor[models.TrafficFlow]()} {
+	for _, typ := range []reflect.Type{reflect.TypeFor[models.HostTraffic](), reflect.TypeFor[models.TrafficKind](), reflect.TypeFor[models.TrafficDestination](), reflect.TypeFor[models.TrafficFlow](), reflect.TypeFor[models.TrafficOwner](), reflect.TypeFor[models.TrafficCountryShare]()} {
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)
 			if f.Type.Kind() == reflect.String && !allowed[typ.Name()+"."+f.Name] {
@@ -347,7 +348,7 @@ func TestAFrameCutRightAfterThePortsIsReadAsItIsWhole(t *testing.T) {
 	in := cut(ip4(web, me, protoUDP, 1200, udp(443, 51001, make([]byte, 1000))), 5)
 	v6me, v6web := netip.MustParseAddr("2001:db8::20"), netip.MustParseAddr("2606:4700::1")
 	six := ip6(v6me, v6web, protoTCP, 1000, tcp(51000, 22, make([]byte, 900)))[:14+40+4]
-	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, out}, kept{2, 1, in}, kept{3, 1, six}), []netip.Addr{me, v6me})
+	s, err := Summarize(capture(wire.StopWindow, 1000, kept{1, 1, out}, kept{2, 1, in}, kept{3, 1, six}), []netip.Addr{me, v6me}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,5 +369,166 @@ func TestAFrameThatEndsInsideThePortsIsCountedUnreadable(t *testing.T) {
 	s := summarize(t, capture(wire.StopWindow, 1000, kept{1, 1, short}))
 	if s.Unreadable != 1 || s.BytesOut != 0 {
 		t.Fatalf("unreadable=%d out=%d", s.Unreadable, s.BytesOut)
+	}
+}
+
+// helloFrame is a frame this computer sent to a server: an IPv4 packet with a TCP segment that starts a ClientHello naming host.
+func helloFrame(dst netip.Addr, dport uint16, host string) []byte {
+	return ip4(me, dst, protoTCP, 600, tcp(51000, dport, clientHello(sniExt(host))))
+}
+
+func TestAServerNameInAClientHelloNamesAnAddressNoDNSAnswerNamed(t *testing.T) {
+	s := summarize(t, capture(wire.StopWindow, 1000, kept{10, 1, helloFrame(web, 443, "Static.Example.NET")}))
+	if len(s.Flows) != 1 || s.Flows[0].Name != "static.example.net" || s.Flows[0].NameFrom != models.NameFromTLS {
+		t.Fatalf("flows = %+v, want the name from the hello, said to be from it", s.Flows)
+	}
+	if len(s.Destinations) != 1 || s.Destinations[0].Name != "static.example.net" || s.Destinations[0].NameFrom != models.NameFromTLS {
+		t.Fatalf("destinations = %+v", s.Destinations)
+	}
+}
+
+func TestTheNameOfTheConnectionBeatsTheNameOfTheAddress(t *testing.T) {
+	// One address serves many sites: the DNS answer named the last name asked, the hello names this connection's own.
+	answer := ip4(router, me, protoUDP, 120, udp(53, 40000, dnsAnswer("other.example.com", "", web)))
+	s := summarize(t, capture(wire.StopWindow, 1000, kept{10, 1, answer}, kept{20, 1, helloFrame(web, 443, "this.example.com")}))
+	if s.Flows[0].Name != "this.example.com" || s.Flows[0].NameFrom != models.NameFromTLS {
+		t.Errorf("flow = %+v", s.Flows[0])
+	}
+	// A flow with no hello of its own keeps the name the answer gave.
+	noHello := ip4(me, web, protoTCP, 900, tcp(51001, 8443, nil))
+	s = summarize(t, capture(wire.StopWindow, 1000, kept{10, 1, answer}, kept{20, 1, noHello}))
+	if s.Flows[0].Name != "other.example.com" || s.Flows[0].NameFrom != models.NameFromDNS {
+		t.Errorf("flow = %+v", s.Flows[0])
+	}
+}
+
+func TestAHelloComingInNamesNothingOnTheOtherEnd(t *testing.T) {
+	// A server on this computer receives a hello: its server name is this computer's, not the remote client's.
+	in := ip4(other, me, protoTCP, 600, tcp(51000, 443, clientHello(sniExt("mine.example.com"))))
+	s := summarize(t, capture(wire.StopWindow, 1000, kept{10, 1, in}))
+	for _, f := range s.Flows {
+		if f.Name != "" {
+			t.Errorf("named the remote end %q from a hello it sent to this computer", f.Name)
+		}
+	}
+}
+
+func TestAHelloIsNeverMultipliedBecauseTheFilterNeverSamplesItAway(t *testing.T) {
+	s := summarize(t, capture(wire.StopWindow, 1000, kept{10, 64, helloFrame(web, 443, "a.example.com")}))
+	if s.BytesOut != 600 {
+		t.Errorf("BytesOut = %d, want the packet's own 600 (a hello stands for itself)", s.BytesOut)
+	}
+}
+
+func TestAHostileServerNameIsDroppedAndTheNamesAreBounded(t *testing.T) {
+	s := summarize(t, capture(wire.StopWindow, 1000, kept{10, 1, helloFrame(web, 443, "bad name\x01.example.com")}))
+	if s.Flows[0].Name != "" || s.Flows[0].NameFrom != "" {
+		t.Errorf("kept a hostile name: %+v", s.Flows[0])
+	}
+	var frames []kept
+	for i := range maxNames + 40 {
+		dst := netip.AddrFrom4([4]byte{93, 184, byte(i >> 8), byte(i)})
+		frames = append(frames, kept{uint32(i), 1, helloFrame(dst, 443, "h"+strings.Repeat("a", i%5)+".example.com")})
+	}
+	s = summarize(t, capture(wire.StopWindow, 1000, frames...))
+	named := 0
+	for _, f := range s.Flows {
+		if f.Name != "" {
+			named++
+		}
+	}
+	if named > maxNames {
+		t.Errorf("%d flows were named, more than the %d the table allows", named, maxNames)
+	}
+}
+
+// fakeTable is a stand-in for the downloaded table: two networks, and a record of every address it was asked about.
+type fakeTable struct{ asked map[netip.Addr]int }
+
+func (h *fakeTable) owner(a netip.Addr) (models.TrafficOwner, bool) {
+	h.asked[a]++
+	switch a {
+	case web:
+		return models.TrafficOwner{ASN: 15133, Name: "EDGECAST", Country: "US"}, true
+	case other:
+		return models.TrafficOwner{ASN: 54113, Name: "FASTLY", Country: "DE"}, true
+	}
+	return models.TrafficOwner{}, false
+}
+
+func ownedSummary(t *testing.T, frames ...kept) (models.HostTraffic, *fakeTable) {
+	t.Helper()
+	h := &fakeTable{asked: map[netip.Addr]int{}}
+	s, err := Summarize(capture(wire.StopWindow, 1000, frames...), local, h.owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s, h
+}
+
+func TestAnInternetAddressCarriesItsOwnerAndTheSharesAddUpByHolderAndCountry(t *testing.T) {
+	s, _ := ownedSummary(t,
+		kept{1, 1, ip4(me, web, protoTCP, 1000, tcp(51000, 443, nil))},
+		kept{2, 1, ip4(me, web, protoTCP, 500, tcp(51001, 80, nil))},
+		kept{3, 1, ip4(me, other, protoTCP, 300, tcp(51002, 443, nil))},
+	)
+	if !s.OwnersUsed {
+		t.Error("OwnersUsed is false though a table was given")
+	}
+	for _, f := range s.Flows {
+		if f.Owner == nil || f.Owner.ASN == 0 {
+			t.Errorf("flow %+v has no owner", f)
+		}
+	}
+	if len(s.Owners) != 2 || s.Owners[0].ASN != 15133 || s.Owners[0].Bytes != 1500 || s.Owners[1].ASN != 54113 || s.Owners[1].Bytes != 300 {
+		t.Errorf("owners = %+v, want EDGECAST 1500 then FASTLY 300", s.Owners)
+	}
+	if len(s.Countries) != 2 || s.Countries[0].Country != "US" || s.Countries[0].Bytes != 1500 || s.Countries[1].Country != "DE" {
+		t.Errorf("countries = %+v", s.Countries)
+	}
+	if s.Destinations[0].Owner == nil || s.Destinations[0].Owner.Name != "EDGECAST" {
+		t.Errorf("the biggest destination has no owner: %+v", s.Destinations[0])
+	}
+}
+
+func TestThisNetworksAddressesAreNeverLookedUpAndNothingIsAskedTwice(t *testing.T) {
+	s, h := ownedSummary(t,
+		kept{1, 1, ip4(me, router, protoUDP, 100, udp(51000, 53, nil))},
+		kept{2, 1, ip4(me, netip.MustParseAddr("224.0.0.251"), protoUDP, 100, udp(5353, 5353, nil))},
+		kept{3, 1, ip4(me, web, protoTCP, 100, tcp(51000, 443, nil))},
+		kept{4, 1, ip4(me, web, protoTCP, 100, tcp(51001, 80, nil))},
+	)
+	if h.asked[router] != 0 || h.asked[netip.MustParseAddr("224.0.0.251")] != 0 {
+		t.Errorf("a local address was looked up: %v", h.asked)
+	}
+	if h.asked[web] != 1 {
+		t.Errorf("web was looked up %d times; once a window is enough", h.asked[web])
+	}
+	for _, f := range s.Flows {
+		if !f.Internet && f.Owner != nil {
+			t.Errorf("a local flow has an owner: %+v", f)
+		}
+	}
+}
+
+func TestAnAddressNotInTheTableHasNoOwnerAndWithoutATableNoOwnerIsSaid(t *testing.T) {
+	s, _ := ownedSummary(t, kept{1, 1, ip4(me, netip.MustParseAddr("203.0.113.9"), protoTCP, 100, tcp(51000, 443, nil))})
+	if s.Flows[0].Owner != nil || len(s.Owners) != 0 || !s.OwnersUsed {
+		t.Errorf("unknown address: %+v owners=%+v used=%v", s.Flows[0], s.Owners, s.OwnersUsed)
+	}
+	plain := summarize(t, capture(wire.StopWindow, 1000, kept{1, 1, ip4(me, web, protoTCP, 100, tcp(51000, 443, nil))}))
+	if plain.OwnersUsed || plain.Flows[0].Owner != nil || len(plain.Owners) != 0 {
+		t.Errorf("no table, yet owners were said: %+v", plain)
+	}
+}
+
+func TestTheSharesCoverEveryConversationInTheTableNotOnlyTheBiggestShown(t *testing.T) {
+	var frames []kept
+	for i := range maxShownFlows + 10 {
+		frames = append(frames, kept{uint32(i), 1, ip4(me, web, protoTCP, 100, tcp(uint16(50000+i), 443, nil))})
+	}
+	s, _ := ownedSummary(t, frames...)
+	if len(s.Owners) != 1 || s.Owners[0].Bytes != uint64(100*(maxShownFlows+10)) {
+		t.Errorf("owners = %+v, want one holder with every conversation's bytes", s.Owners)
 	}
 }

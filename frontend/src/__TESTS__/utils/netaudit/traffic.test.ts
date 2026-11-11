@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chartBars, destinationLabel, flowsOfKind, isSharedAddress, kindShares, sampleNote, secondAt, secondClock, splitPercent, stoppedNote, trafficPlace, trafficSentence } from '../../../utils/netaudit/traffic'
+import { chartBars, countryBars, countryName, destinationLabel, flowsOfKind, ownerBars, ownerLine, isSharedAddress, kindShares, sampleNote, secondAt, secondClock, splitPercent, stoppedNote, trafficPlace, trafficSentence } from '../../../utils/netaudit/traffic'
 import type { HostTraffic } from '../../../types/netaudit'
 
 const MB = 1024 * 1024
@@ -135,5 +135,28 @@ describe('trafficPlace and friends', () => {
     expect(secondAt(5000, 960, 60)).toBe(59)
     expect(secondAt(-4, 960, 60)).toBe(0)
     expect(secondClock(75)).toBe('1:15')
+  })
+})
+
+describe('owners of an address', () => {
+  it('writes the operator and the country on one line, and the number when the holder has no name', () => {
+    expect(ownerLine({ asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' })).toBe('GOOGLE - Google LLC · United States')
+    expect(ownerLine({ asn: 64500, name: '', country: 'DE' })).toBe('AS64500 · Germany')
+    expect(ownerLine({ asn: 64500, name: 'X' })).toBe('X')
+    expect(ownerLine(undefined)).toBe('')
+  })
+
+  it('gives the country code back when it is not one the browser knows', () => {
+    expect(countryName('ZZ')).toBeTruthy()
+    expect(countryName('not a code')).toBe('not a code')
+  })
+
+  it('makes bars that are shares of the internet traffic, and none from a look kept before owners existed', () => {
+    const t = { internet_bytes: 200, owners: [{ asn: 1, name: 'A', country: 'US', bytes: 100 }], countries: [{ country: 'US', bytes: 150 }] } as unknown as HostTraffic
+    expect(ownerBars(t)).toEqual([{ key: 'AS1', label: 'A', note: 'AS1 · United States', bytes: 100, percent: 50 }])
+    expect(countryBars(t)[0]).toMatchObject({ label: 'United States', percent: 75 })
+    const old = { internet_bytes: 200 } as unknown as HostTraffic
+    expect(ownerBars(old)).toEqual([])
+    expect(countryBars({ ...old, owners: null, countries: null } as unknown as HostTraffic)).toEqual([])
   })
 })

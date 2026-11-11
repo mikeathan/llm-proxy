@@ -125,3 +125,74 @@ func TestALiveSamplingRateThinsOrdinaryTrafficAndRateOneKeepsAll(t *testing.T) {
 		t.Errorf("at rate 1 the kernel kept %d of %d datagrams", got, sent)
 	}
 }
+
+// A real kernel runs the ClientHello branch: scratch memory, the frame-length load and the register arithmetic are the part an interpreter
+// only models. Over loopback TCP a hello-shaped payload is kept long, an ordinary payload is cut at the ports, and the payload-free
+// acknowledgements of both are kept short instead of being dropped by a load past the end of the frame.
+func TestALiveWindowKeepsAClientHelloLongAndEveryOtherSegmentShort(t *testing.T) {
+	src, stop, err := OpenHost("lo")
+	if err != nil {
+		t.Skipf("no packet socket on lo (stop %d): the test needs CAP_NET_RAW", stop)
+	}
+	defer src.Close()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, aerr := ln.Accept()
+			if aerr != nil {
+				return
+			}
+			go func() { defer c.Close(); _, _ = bytes.NewBuffer(nil).ReadFrom(c) }()
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	hello := append([]byte{0x16, 0x03, 0x01, 0x03, 0x00, 0x01, 0x00, 0x02, 0xfc}, bytes.Repeat([]byte{0x41}, 1200)...)
+	ordinary := append([]byte{0x17, 0x03, 0x03, 0x03, 0x00, 0x00}, bytes.Repeat([]byte{0x42}, 1200)...)
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		for _, payload := range [][]byte{hello, ordinary} {
+			c, derr := net.Dial("tcp4", ln.Addr().String())
+			if derr != nil {
+				return
+			}
+			_, _ = c.Write(payload)
+			time.Sleep(100 * time.Millisecond)
+			c.Close()
+		}
+	}()
+	var longest, ordinaryMax, acks int
+	for deadline := time.Now().Add(1500 * time.Millisecond); time.Now().Before(deadline); {
+		f, nerr := src.Next()
+		if nerr != nil {
+			t.Fatal(nerr)
+		}
+		if len(f) < 14+20+4 || binary.BigEndian.Uint16(f[12:14]) != etherTypeIPv4 || f[14+9] != protoTCP {
+			continue
+		}
+		ports := [2]int{int(binary.BigEndian.Uint16(f[34:])), int(binary.BigEndian.Uint16(f[36:]))}
+		if ports[0] != port && ports[1] != port {
+			continue
+		}
+		switch {
+		case len(f) > 78 && f[14+20+int(f[14+20+12]>>4)*4] == 0x16: // the TCP header has options, so find the payload by its data offset
+			longest = max(longest, len(f))
+		case len(f) > 78:
+			ordinaryMax = max(ordinaryMax, len(f))
+		case len(f) <= 78:
+			acks++
+		}
+	}
+	if longest != wire.HostSnapHello {
+		t.Errorf("the hello was kept at %d bytes, want %d", longest, wire.HostSnapHello)
+	}
+	if ordinaryMax != 0 {
+		t.Errorf("an ordinary segment was kept at %d bytes, want the headers and ports only", ordinaryMax)
+	}
+	if acks == 0 {
+		t.Error("no short segment was kept: acknowledgements were dropped")
+	}
+}

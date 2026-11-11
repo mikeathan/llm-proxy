@@ -42,7 +42,7 @@ const fixOpen = ref<Record<string, boolean>>({})
         <BaseButton v-if="canAcceptAll(d)" variant="secondary" size="sm" class-name="max-sm:!h-11" data-test="accept-all" @click="emit('accept-many', d.items)">{{ ACCEPT_ALL }} {{ d.items.length }}</BaseButton>
       </header>
       <ul class="m-0 flex list-none flex-col p-0">
-        <li v-for="f in d.items" :key="f.key" data-test="device-problem" class="flex flex-col gap-1 border-t border-hairline py-2 first:border-t-0">
+        <li v-for="f in d.items" :key="f.key" :data-key="f.key" data-test="device-problem" class="flex flex-col gap-1 border-t border-hairline py-2 first:border-t-0">
           <div class="grid grid-cols-1 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-4">
             <span class="flex min-w-0 flex-col gap-0.5">
               <span class="break-words font-medium text-primary" data-test="device-problem-title">{{ titleOf(f) }}</span>

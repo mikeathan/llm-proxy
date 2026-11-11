@@ -55,12 +55,12 @@ func TestWithNoDefaultRouteTheOperatorIsToldInFixedWords(t *testing.T) {
 
 func TestTheCaptureOutputIsReadInTheServiceNotTheHelper(t *testing.T) {
 	data := wire.AppendCaptureTrailer(nil, wire.CaptureTrailer{Stop: wire.StopInterfaceDown})
-	v, err := parseHelperOutput("capture_window", data)
+	v, err := (helperParser{}).parse("capture_window", data)
 	s, ok := v.(models.CaptureSummary)
 	if err != nil || !ok || s.StoppedBy != "interface_down" {
 		t.Fatalf("%v %v %v", v, ok, err)
 	}
-	if _, err := parseHelperOutput("capture_window", wire.AppendCaptureTrailer(nil, wire.CaptureTrailer{Frames: 3})); err == nil {
+	if _, err := (helperParser{}).parse("capture_window", wire.AppendCaptureTrailer(nil, wire.CaptureTrailer{Frames: 3})); err == nil {
 		t.Fatal("a trailer that disagrees with its records was accepted")
 	}
 }

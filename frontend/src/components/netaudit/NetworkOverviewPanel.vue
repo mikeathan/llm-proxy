@@ -10,7 +10,7 @@ import StandingCard from "./StandingCard.vue"
 import CoverageStrip from "./CoverageStrip.vue"
 import { attentionReasons, changeText, hasRouterCounts, nextAction, postureHeadline, refusedToday, seriesOf } from "../../utils/netaudit/networkOverview"
 import { formatRelativeTime, isRecorded } from "../../utils/format/time"
-import { ACTIVITY_SEE_ALL, ROUTER_STAT_CAPTION, ROUTER_STAT_LABEL, NETWORK_CHECK_PROBLEM, NETWORK_NO_AUDIT, NETWORK_POSTURE_UNKNOWN_NEXT, NETWORK_RECENT_NONE, NETWORK_RECENT_TITLE, NETWORK_TREND_NOTE } from "../../constants/netaudit"
+import { ACTIVITY_SEE_ALL, PROBLEMS_SEE_ALL, ROUTER_STAT_CAPTION, ROUTER_STAT_LABEL, NETWORK_CHECK_PROBLEM, NETWORK_NO_AUDIT, NETWORK_POSTURE_UNKNOWN_NEXT, NETWORK_RECENT_NONE, NETWORK_RECENT_TITLE, NETWORK_TREND_NOTE } from "../../constants/netaudit"
 import type { NetworkOverview, NetworkPosture } from "../../types/netaudit"
 import type { NetworkTab } from "../../types/routes"
 import type { StatusState } from "../../types/ui"
@@ -77,6 +77,7 @@ const devicesCaption = computed(() => {
       </StatCard>
       <StatCard label="Problems" :value="hasAudit ? String(overview.findings.open) : NO_VALUE" :caption="hasAudit ? problemsCaption : NETWORK_NO_AUDIT">
         <Sparkline v-if="hasAudit" :values="findingsTrend" label="Problems" unit="problems" state="success" />
+        <button v-if="hasAudit && overview.findings.open > 0" type="button" class="inline-flex min-h-11 items-center self-start bg-transparent p-0 text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline sm:min-h-8" data-test="problems-link" @click="emit('open-tab', 'findings')">{{ PROBLEMS_SEE_ALL }}</button>
       </StatCard>
       <StatCard v-if="showRouter" :label="ROUTER_STAT_LABEL" :value="refused.toLocaleString('en-US')" :caption="ROUTER_STAT_CAPTION" data-test="router-stat">
         <Sparkline :values="refusedTrend" label="Attempts the router refused" unit="a day" state="info" />

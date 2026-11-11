@@ -34,6 +34,9 @@ Verified against the code on 2026-11-09 (v0.68.0); the platform column comes fro
 | Router DNS check; internet view of open ports; router UPnP and forwarded ports | `stacks/network/dnscheck/`, `upnp/`, `core/netaudit/outsidelookup/`, `exposure.go` | both | Overview, Findings |
 | Wi-Fi look-alikes (evil twin) | `core/netaudit/wifilook/` (nmcli) | Linux | Findings |
 | **Traffic on this computer**: a listen of up to 60 s, destinations by name, kinds, per-second chart, conversations, click-through | helper action `capture_host`, `core/netaudit/hosttraffic/`, `TrafficTab.vue`, `TrafficReport.vue`, `TrafficDetail.vue` | Linux | Traffic tab |
+| Names for a destination from the **server name of a TLS ClientHello** this computer sent (`name_from: tls`), beside the DNS answer's (Constitution I.13, ADR-0043) | `capture/filter_host.go` (768 bytes of a hello only), `core/netaudit/hosttraffic/tls.go` | Linux | Traffic tab |
+| **Who runs an internet destination** (network operator, AS number, country; ranked by holder and by country) from a public table downloaded on a press and looked up on this computer; no address is sent anywhere (ADR-0043) | `core/netaudit/ipowners/`, `hosttraffic/owners.go`, `handlers/netaudit_destinationdata_handlers.go`, `DestinationDataCard.vue`, `TrafficWhere.vue` | both (the traffic look itself is Linux) | Traffic tab |
+| **Links to the problem**: a finding or a device's findings from an attack-path step, a Timeline row, the Overview, a device row and the Traffic detail | `router/routes.ts` (`toFinding`, `toDeviceFindings`), `useFindingFocus.ts`, `useDeviceProblems.ts` | both | Findings, Overview, Devices, Traffic, Timeline |
 | Capture window (frames of the link, IPv6 check) | helper action `capture_window`, `core/netaudit/framewire/` | Linux | Network |
 
 ## This computer (the host watch)

@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue"
+import { computed, inject, onMounted } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import Panel from "../common/layout/Panel.vue"
 import DeviceProbe from "./DeviceProbe.vue"
+import { DEVICE_PROBLEMS_INJECTION } from "../../composables/netaudit/useDeviceProblems"
+import { toDeviceFindings } from "../../router/routes"
 import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
+import { ownerLine } from "../../utils/netaudit/traffic"
 import { formatBytes } from "../../utils/format/formatters"
 import {
-  TRAFFIC_COLUMNS, TRAFFIC_DETAIL_ADDRESS, TRAFFIC_DETAIL_CLOSE, TRAFFIC_DETAIL_NO_FLOWS, TRAFFIC_DETAIL_NOT_A_DEVICE, TRAFFIC_DETAIL_READ_ONLY,
+  DEVICE_PROBLEMS_LINK, DEVICE_PROBLEMS_LINK_LABEL, TRAFFIC_COLUMNS, TRAFFIC_DETAIL_ADDRESS, TRAFFIC_DETAIL_CLOSE, TRAFFIC_DETAIL_ASN, TRAFFIC_DETAIL_NAME_FROM, TRAFFIC_DETAIL_NO_FLOWS, TRAFFIC_DETAIL_OWNER, TRAFFIC_DETAIL_NOT_A_DEVICE, TRAFFIC_DETAIL_READ_ONLY,
   TRAFFIC_DETAIL_SCAN_TITLE, TRAFFIC_DETAIL_SHARE, TRAFFIC_DETAIL_WHERE, TRAFFIC_KIND_SHORT,
 } from "../../constants/netaudit"
 import type { TrafficPlace } from "../../types/netaudit"
@@ -21,6 +24,9 @@ const emit = defineEmits<{ (e: "close"): void }>()
 // A failed read leaves no record, and the buttons then work as they did without one.
 const { deviceAt, load } = useDeviceNames()
 const device = computed(() => deviceAt(props.place.address))
+// The open problems the latest audit found on this address, when the Network page knows them: a link to them.
+const problems = inject(DEVICE_PROBLEMS_INJECTION, null)
+const own = computed(() => (props.place.internet ? null : (problems?.of(props.place.address) ?? null)))
 onMounted(load)
 </script>
 
@@ -34,6 +40,13 @@ onMounted(load)
         <span class="text-muted">{{ TRAFFIC_DETAIL_ADDRESS }}</span> <span class="font-mono" data-test="place-address">{{ place.address }}</span>
         · <span data-test="place-where">{{ place.internet ? TRAFFIC_DETAIL_WHERE.internet : TRAFFIC_DETAIL_WHERE.network }}</span>
       </p>
+      <p v-if="own" class="m-0" data-test="place-problems">
+        <RouterLink :to="toDeviceFindings(place.address)" :aria-label="DEVICE_PROBLEMS_LINK_LABEL(place.name || place.address, own.count)" class="inline-flex min-h-11 items-center text-accent-info-text underline-offset-2 hover:underline sm:min-h-8">{{ DEVICE_PROBLEMS_LINK(own.count) }} found on this device</RouterLink>
+      </p>
+      <p v-if="place.owner" class="m-0 break-words text-secondary" data-test="place-owner">
+        <span class="text-muted">{{ TRAFFIC_DETAIL_OWNER }}</span> {{ ownerLine(place.owner) }} <span class="text-muted">({{ TRAFFIC_DETAIL_ASN(place.owner.asn) }})</span>
+      </p>
+      <p v-if="place.name && place.name_from" class="m-0 text-[length:var(--text-small)] text-muted" data-test="place-name-from">{{ TRAFFIC_DETAIL_NAME_FROM[place.name_from] }}</p>
       <p class="m-0 text-secondary" data-test="place-share">{{ TRAFFIC_DETAIL_SHARE(place.percent, formatBytes(place.bytes)) }}</p>
 
       <div v-if="place.flows.length" class="overflow-x-auto">

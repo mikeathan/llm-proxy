@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activityText, clockTime, dayHeading, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay, portLabel, portsLine } from '../../../utils/netaudit/activity'
+import { activityText, clockTime, dayHeading, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay, portLabel, portsLine, rowLink } from '../../../utils/netaudit/activity'
 import type { ActivityRow } from '../../../types/netaudit'
 
 const row = (over: Partial<ActivityRow>): ActivityRow => ({ kind: 'new_device', group: 'devices', at: '2026-11-04T10:00:00Z', ...over })
@@ -188,5 +188,20 @@ describe('finding rows', () => {
   it('says a rechecked fix and a return in plain words, from typed fields', () => {
     expect(activityText(finding({ kind: 'finding_fixed' }))).toBe('SMBv1 is on on 192.0.2.10, port 445 was checked again and is fixed')
     expect(activityText(finding({ kind: 'finding_returned', count: 2 }))).toBe('SMBv1 is on on 192.0.2.10, port 445 came back after it had gone away')
+  })
+})
+
+describe('rowLink', () => {
+  it('leads a fixed or returned problem to the problems of its device and an audit tally to the Findings tab', () => {
+    const base = { at: '2026-11-10T10:00:00Z', group: 'findings' as const }
+    expect(rowLink({ ...base, kind: 'finding_fixed', device: '192.168.50.7', check: 'X' })).toEqual({ name: 'network', params: { tab: 'findings' }, query: { device: '192.168.50.7' } })
+    expect(rowLink({ ...base, kind: 'finding_returned', device: '192.168.50.7' })).toMatchObject({ query: { device: '192.168.50.7' } })
+    expect(rowLink({ ...base, kind: 'audit' })).toMatchObject({ params: { tab: 'findings' } })
+  })
+
+  it('leads nowhere for a row that is not about a problem, or a problem with no device', () => {
+    const base = { at: '2026-11-10T10:00:00Z', group: 'devices' as const }
+    expect(rowLink({ ...base, kind: 'new_device' })).toBeNull()
+    expect(rowLink({ ...base, kind: 'finding_fixed' })).toBeNull()
   })
 })

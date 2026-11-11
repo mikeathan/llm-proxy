@@ -20,6 +20,14 @@ const (
 	opTxa    = 0x87 // A = X
 	opAddK   = 0x04 // A = A + k
 	opRetA   = 0x16 // return A (the length to keep, computed)
+	opTax    = 0x07 // X = A
+	opAddX   = 0x0c // A = A + X
+	opRshK   = 0x74 // A = A >> k
+	opSt     = 0x02 // scratch[k] = A
+	opLdxMem = 0x61 // X = scratch[k]
+	opLdLen  = 0x80 // A = the length of the whole frame (not the kept length)
+	opLdbInd = 0x50 // A = byte at packet[X+k]
+	opJgeX   = 0x3d // jump if A >= X
 	opLdwAbs = 0x20 // A = 32-bit word at packet[k]; with k = ancRandom, a random number (the host filter's sampling)
 	opLdhAbs = 0x28 // A = 16-bit word at packet[k]
 	opLdhInd = 0x48 // A = 16-bit word at packet[X+k]

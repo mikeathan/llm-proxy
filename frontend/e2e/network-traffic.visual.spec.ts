@@ -64,3 +64,26 @@ test('before the first look the tab invites one', async ({ page }) => {
   await expect(page.locator('[data-test="traffic-listen"]')).toBeVisible()
   await expectNoSidewaysScroll(page)
 })
+
+test('with the table of address owners the tab names who runs each place, ranks holders and countries, and fits the screen', async ({ page }, testInfo) => {
+  const OWNED = {
+    ...LOOK, owners_used: true,
+    owners: [
+      { asn: 15169, name: 'GOOGLE - Google LLC, with a name long enough to wrap on a phone', country: 'US', bytes: 22 * MB },
+      { asn: 36459, name: 'GITHUB', country: 'US', bytes: 10 * MB },
+      { asn: 13335, name: 'CLOUDFLARENET - Cloudflare, Inc.', country: 'DE', bytes: 3 * MB },
+    ],
+    countries: [{ country: 'US', bytes: 32 * MB }, { country: 'DE', bytes: 3 * MB }],
+    destinations: LOOK.destinations.map((d, i) => (i < 3 ? { ...d, name_from: i === 1 ? 'tls' : 'dns', owner: { asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' } } : d)),
+  }
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: OWNED }, '/netaudit/destination-data': { ranges: 579453, loaded_at: new Date().toISOString(), source: 'iptoasn.com' } } })
+  await page.goto('network/traffic')
+  const tab = page.locator('[data-test="traffic-tab"]')
+  await expect(tab.locator('[data-test="destination-owner"]').first()).toContainText('GOOGLE - Google LLC · United States')
+  await expect(tab.locator('[data-test="where-owners"] [data-test="where-row"]')).toHaveCount(3)
+  await expect(tab.locator('[data-test="where-countries"] [data-test="where-row"]')).toHaveCount(2)
+  await expect(tab.locator('[data-test="destination-data-line"]')).toContainText('579,453 address ranges')
+  await expectNoSidewaysScroll(page)
+  if (testInfo.project.name === 'mobile') await expectTapArea(tab.locator('[data-test="destination-data-download"]'))
+  await lookAt(page, testInfo, 'traffic-owners.png', true)
+})

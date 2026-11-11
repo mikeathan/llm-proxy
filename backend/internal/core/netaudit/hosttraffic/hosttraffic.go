@@ -47,19 +47,22 @@ type tally struct {
 	overflow  uint64
 	overflowN int
 	names     map[netip.Addr]string
-	kinds     map[string]uint64
-	seconds   []uint64
+	// hellos name a conversation by the server name in the ClientHello this computer sent it (bounded by maxNames).
+	hellos  map[flowKey]string
+	kinds   map[string]uint64
+	seconds []uint64
 }
 
-// Summarize decodes one run's output and reads each frame. local are this computer's own addresses, which say which way a packet went. The
+// Summarize decodes one run's output and reads each frame. owners, when not nil, says who holds an internet address (a table kept on this
+// computer; see Owners). local are this computer's own addresses, which say which way a packet went. The
 // interface and the time are the caller's to fill in (Stamp): they come from the request and the host, not from the frames.
-func Summarize(data []byte, local []netip.Addr) (models.HostTraffic, error) {
+func Summarize(data []byte, local []netip.Addr, owners Owners) (models.HostTraffic, error) {
 	records, trailer, err := wire.DecodeHostCapture(data)
 	if err != nil {
 		return models.HostTraffic{}, fmt.Errorf("the capture output could not be read: %w", err)
 	}
 	t := &tally{
-		local: map[netip.Addr]bool{}, flows: map[flowKey]*models.TrafficFlow{}, names: map[netip.Addr]string{}, kinds: map[string]uint64{},
+		local: map[netip.Addr]bool{}, flows: map[flowKey]*models.TrafficFlow{}, names: map[netip.Addr]string{}, hellos: map[flowKey]string{}, kinds: map[string]uint64{},
 		seconds: make([]uint64, min(int(trailer.ElapsedMs)/msPerSecond+1, maxSeconds)),
 	}
 	for _, a := range local {
@@ -72,7 +75,7 @@ func Summarize(data []byte, local []netip.Addr) (models.HostTraffic, error) {
 	for _, r := range records {
 		t.add(r)
 	}
-	return t.finish(), nil
+	return t.finish(owners), nil
 }
 
 // add reads one record into the totals.
@@ -83,13 +86,17 @@ func (t *tally) add(r wire.HostRecord) {
 		return
 	}
 	t.out.Sample = max(t.out.Sample, int(r.Sample))
+	remote, rport, dir := t.direction(f)
 	weight := uint64(r.Sample)
-	if f.isDNS() { // a DNS message is never sampled away, so it stands for itself
+	switch {
+	case f.isDNS(): // a DNS message is never sampled away, so it stands for itself
 		weight = 1
 		t.readNames(f)
+	case f.isClientHello(): // nor is the first segment of a ClientHello
+		weight = 1
+		t.readServerName(f, remote, rport, dir)
 	}
 	bytes := f.length * weight
-	remote, rport, dir := t.direction(f)
 	switch dir {
 	case dirOut:
 		t.out.BytesOut += bytes
@@ -152,6 +159,22 @@ func (t *tally) readNames(f frame) {
 	}
 }
 
+// readServerName names the conversation a ClientHello this computer sent opens by the server name in it. A hello that came in names this
+// computer's own server, not the other end, so it names nothing. The table is bounded like the DNS names.
+func (t *tally) readServerName(f frame, remote netip.Addr, rport uint16, dir direction) {
+	if dir != dirOut {
+		return
+	}
+	name, ok := serverName(f.payload)
+	if !ok {
+		return
+	}
+	key := flowKey{remote, rport, f.proto}
+	if _, known := t.hellos[key]; known || len(t.hellos) < maxNames {
+		t.hellos[key] = name
+	}
+}
+
 // addFlow adds bytes to a conversation. Past the table's cap a new conversation goes to the one bucket for the rest.
 func (t *tally) addFlow(key flowKey, kind string, dir direction, bytes uint64) {
 	flow, ok := t.flows[key]
@@ -172,15 +195,18 @@ func (t *tally) addFlow(key flowKey, kind string, dir direction, bytes uint64) {
 }
 
 // finish ranks what was added: the biggest flows and destinations, the kinds biggest first, and the rest counted.
-func (t *tally) finish() models.HostTraffic {
+func (t *tally) finish(owners Owners) models.HostTraffic {
 	out := t.out
 	flows := make([]models.TrafficFlow, 0, len(t.flows))
 	byPlace := map[string]*models.TrafficDestination{}
+	held := newHolders(owners)
 	for key, f := range t.flows {
-		f.Name = t.names[key.addr.Unmap()]
+		f.Name, f.NameFrom = t.nameOf(key)
+		f.Owner = held.of(key.addr, f)
 		flows = append(flows, *f)
 		addDestination(byPlace, *f)
 	}
+	out.OwnersUsed, out.Owners, out.Countries = held.used(), held.owners(), held.countries()
 	slices.SortFunc(flows, func(a, b models.TrafficFlow) int { return cmp.Compare(flowSize(b), flowSize(a)) })
 	out.OtherFlows, out.OtherBytes = t.overflowN, t.overflow
 	if len(flows) > maxShownFlows {
@@ -197,6 +223,17 @@ func (t *tally) finish() models.HostTraffic {
 	return out
 }
 
+// nameOf is a conversation's name and where it came from: the server name of its own hello, else the name a DNS answer gave the address.
+func (t *tally) nameOf(key flowKey) (name, from string) {
+	if name = t.hellos[key]; name != "" {
+		return name, models.NameFromTLS
+	}
+	if name = t.names[key.addr.Unmap()]; name != "" {
+		return name, models.NameFromDNS
+	}
+	return "", ""
+}
+
 // flowSize is a flow's bytes both ways.
 func flowSize(f models.TrafficFlow) uint64 { return f.BytesIn + f.BytesOut }
 
@@ -208,7 +245,7 @@ func addDestination(by map[string]*models.TrafficDestination, f models.TrafficFl
 	}
 	d, ok := by[key]
 	if !ok {
-		d = &models.TrafficDestination{Name: f.Name, Address: f.Address, Internet: f.Internet}
+		d = &models.TrafficDestination{Name: f.Name, NameFrom: f.NameFrom, Owner: f.Owner, Address: f.Address, Internet: f.Internet}
 		by[key] = d
 	}
 	d.Bytes += flowSize(f)

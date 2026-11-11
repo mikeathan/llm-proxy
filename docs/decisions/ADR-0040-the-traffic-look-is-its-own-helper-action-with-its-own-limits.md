@@ -41,7 +41,7 @@ We will add a second helper action, `capture_host` (Constitution I.13), and leav
 - The figures of a busy window are estimates (sampled), and the kernel may drop frames while the filter is changed; the screen says both, with the counts.
 - The service holds at most 8 MiB of raw output and a bounded table for a moment; it keeps one small summary.
 - A TLS server name is not read. It would need the TCP header length in the filter (scratch memory in the BPF program and its test interpreter) and its own amendment;
-  QUIC and Encrypted Client Hello hide it anyway.
+  QUIC and Encrypted Client Hello hide it anyway. **Amended by ADR-0043 (2026-11-11), which reads the server name of a ClientHello this way.**
 - The helper's install must list the new action: re-run `sudo ./setup.sh --install --build --unattended --helper` (its action list now holds `capture_host`, and so does the
   default of `scripts/install-helper.sh`), then switch the action on in Settings.
 - The route's answer never carries the raw output of a capture (`HelperDeps.OmitRaw`), so up to 8 MiB of other devices' frames is not sent on to the browser; a scan's raw

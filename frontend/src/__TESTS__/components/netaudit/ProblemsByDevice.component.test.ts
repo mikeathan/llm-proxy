@@ -43,3 +43,10 @@ describe('ProblemsByDevice', () => {
     expect(w.find('[data-test="accept"]').exists()).toBe(false)
   })
 })
+
+describe('ProblemsByDevice rows can be linked to', () => {
+  it('carries each problem\'s key on its row, so a link from another page can find it', () => {
+    const w = mount(ProblemsByDevice, { props: { devices: groupProblemsByDevice([problem('k1', '192.0.2.1', 'low'), problem('k2', '192.0.2.1', 'high')]), advanced: false } })
+    expect(w.findAll('[data-test="device-problem"]').map((r) => r.attributes('data-key')).sort()).toEqual(['k1', 'k2'])
+  })
+})

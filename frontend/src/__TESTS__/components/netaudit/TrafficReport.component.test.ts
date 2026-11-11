@@ -95,6 +95,67 @@ describe('TrafficReport', () => {
     expect(show(traffic()).get('[data-test="traffic-privacy"]').text()).toContain('only the traffic to and from this computer')
   })
 
+  describe('who runs the servers', () => {
+    const owned = () => traffic({
+      owners_used: true,
+      owners: [{ asn: 15169, name: 'GOOGLE - Google LLC', country: 'US', bytes: 22 * MB }, { asn: 36459, name: 'GITHUB', country: 'US', bytes: 10 * MB }],
+      countries: [{ country: 'US', bytes: 32 * MB }, { country: 'DE', bytes: 4 * MB }],
+      destinations: [
+        { name: 'generativelanguage.googleapis.com', name_from: 'tls', address: '142.250.1.1', bytes: 22 * MB, internet: true, owner: { asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' } },
+        { address: '34.120.1.1', bytes: 6 * MB, internet: true },
+      ],
+      flows: [{ address: '142.250.1.1', name: 'generativelanguage.googleapis.com', name_from: 'tls', port: 443, proto: 'tcp', kind: 'https', internet: true, bytes_out: 2 * MB, bytes_in: 20 * MB, owner: { asn: 15169, name: 'GOOGLE - Google LLC', country: 'US' } }],
+    })
+
+    it('puts the operator and country under a destination and a conversation that has an owner, and nothing under one that has none', () => {
+      const w = show(owned())
+      const rows = w.findAll('[data-test="destination"]')
+      expect(rows[0]!.get('[data-test="destination-owner"]').text()).toBe('GOOGLE - Google LLC · United States')
+      expect(rows[1]!.find('[data-test="destination-owner"]').exists()).toBe(false)
+      expect(w.get('[data-test="flow-owner"]').text()).toContain('United States')
+    })
+
+    it('ranks the internet traffic by operator and by country, as shares of the internet traffic', () => {
+      const w = show(owned())
+      const owners = w.get('[data-test="where-owners"]').findAll('[data-test="where-row"]')
+      expect(owners.map((r) => r.get('[data-test="where-label"]').text())).toEqual(['GOOGLE - Google LLC AS15169 · United States', 'GITHUB AS36459 · United States'])
+      expect(owners[0]!.text()).toContain('54%')
+      const countries = w.get('[data-test="where-countries"]').findAll('[data-test="where-row"]')
+      expect(countries[0]!.get('[data-test="where-label"]').text()).toContain('United States')
+      expect(countries[1]!.get('[data-test="where-label"]').text()).toContain('Germany')
+    })
+
+    it('says how to get owners when the look was made without the table, and never guesses', () => {
+      const w = show(traffic())
+      expect(w.get('[data-test="where-no-table"]').text()).toContain('without the table')
+      expect(w.find('[data-test="where"]').exists()).toBe(false)
+    })
+
+    it('says so when the table is held and none of the addresses is in it', () => {
+      const w = show(traffic({ owners_used: true, owners: [], countries: [] }))
+      expect(w.find('[data-test="where-nothing"]').exists()).toBe(true)
+    })
+
+    it('draws no panel when nothing went to the internet', () => {
+      expect(show(traffic({ internet_bytes: 0, owners_used: true, owners: [] })).find('[data-test="where-no-table"]').exists()).toBe(false)
+    })
+
+    it('treats a holder\'s name as text, never as markup', () => {
+      const evil = '<img src=x onerror=alert(1)>'
+      const w = show(traffic({ owners_used: true, owners: [{ asn: 1, name: evil, country: 'US', bytes: MB }], countries: [{ country: 'US', bytes: MB }] }))
+      expect(w.find('img').exists()).toBe(false)
+      expect(w.get('[data-test="where-owners"]').text()).toContain(evil)
+    })
+
+    it('says where a place\'s name came from and who runs it, in its detail', async () => {
+      const w = mount(TrafficReport, { props: { traffic: owned() }, global: { stubs: { DeviceProbe: true } } })
+      await w.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+      expect(w.get('[data-test="place-owner"]').text()).toContain('GOOGLE - Google LLC')
+      expect(w.get('[data-test="place-owner"]').text()).toContain('AS15169')
+      expect(w.get('[data-test="place-name-from"]').text()).toContain('TLS handshake')
+    })
+  })
+
   describe('clicking through', () => {
     const withLocal = () => traffic({
       destinations: [
@@ -186,5 +247,35 @@ describe('TrafficReport', () => {
       await w.get('[data-test="traffic-second-pick"]').setValue('1')
       expect(w.get('[data-test="traffic-second"]').text()).toBe('0:01: 4.9 KB in this second')
     })
+  })
+})
+
+describe('TrafficReport problems link', () => {
+  const lan = () => traffic({
+    destinations: [{ address: '192.168.50.7', bytes: 2 * MB, internet: false }, { name: 'github.com', address: '140.82.1.1', bytes: MB, internet: true }],
+    flows: [{ address: '192.168.50.7', port: 53, proto: 'udp', kind: 'dns', internet: false, bytes_out: 100, bytes_in: 200 }],
+  })
+  const open = async (lookup: { of: (a: string) => { count: number; severity: string } | null }) => {
+    const { createMemoryHistory } = await import('vue-router')
+    const { createAppRouter } = await import('../../../router')
+    const { DEVICE_PROBLEMS_INJECTION } = await import('../../../composables/netaudit/useDeviceProblems')
+    return mount(TrafficReport, { props: { traffic: lan() }, global: { stubs: { DeviceProbe: true }, plugins: [createAppRouter(createMemoryHistory())], provide: { [DEVICE_PROBLEMS_INJECTION as symbol]: lookup } } })
+  }
+
+  it('links a device on this network that has open problems to them', async () => {
+    const w = await open({ of: (a) => (a === '192.168.50.7' ? { count: 3, severity: 'high' } : null) })
+    await w.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+    const link = w.get('[data-test="place-problems"] a')
+    expect(link.attributes('href')).toBe('/network/findings?device=192.168.50.7')
+    expect(link.text()).toBe('3 problems found on this device')
+  })
+
+  it('offers no link for an internet address or a device without problems', async () => {
+    const w = await open({ of: () => ({ count: 1, severity: 'low' }) })
+    await w.findAll('[data-test="destination-open"]')[1]!.trigger('click')
+    expect(w.find('[data-test="place-problems"]').exists()).toBe(false)
+    const none = await open({ of: () => null })
+    await none.findAll('[data-test="destination-open"]')[0]!.trigger('click')
+    expect(none.find('[data-test="place-problems"]').exists()).toBe(false)
   })
 })

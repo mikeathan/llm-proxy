@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, provide, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
@@ -22,6 +22,7 @@ import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
 import { useDispatcher } from "../composables/automation/useDispatcher"
 import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
+import { DEVICE_PROBLEMS_INJECTION, useDeviceProblems } from "../composables/netaudit/useDeviceProblems"
 import { useNetworkOverview } from "../composables/netaudit/useNetworkOverview"
 import { AUDITOR_PROFILE, AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_OVERVIEW_LABEL, NETWORK_SUBTITLE, NETWORK_TAB_LABELS, NETWORK_TITLE } from "../constants/netaudit"
 import { toNetwork } from "../router/routes"
@@ -54,6 +55,10 @@ const audit = computed<NetworkAudit | null>(() => {
 // False until the automations have been read, so the page never offers "set up" while an audit exists.
 const automationsLoaded = ref(false)
 const { overview, error, load, start, stop } = useNetworkOverview(audit)
+// The open problems by device, for the device list and the traffic detail; read again when the audit is known and when the tab changes.
+const deviceProblems = useDeviceProblems(() => audit.value)
+provide(DEVICE_PROBLEMS_INJECTION, deviceProblems)
+watch([() => audit.value?.automation, tab], () => void deviceProblems.load())
 
 // The audit is found from the automations list, so the overview is read again once it is known.
 watch(() => audit.value?.automation, () => void load())
