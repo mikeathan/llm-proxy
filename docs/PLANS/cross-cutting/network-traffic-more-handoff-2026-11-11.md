@@ -14,8 +14,23 @@ computer (vertex). This file is the starting point for a new session. Nothing in
 
 ## Where things stand
 
-- **Merged:** #225 (v0.73.0: direction fix, summary / map / who-it-talked-to, route trace, map), #226 (docs).
-- **Open:** #227 on branch `traffic-broadcast-grouping` (v0.73.1: broadcasts are chatter, never internet; the map links to the tables). This file rides on it.
+- **Merged and deployed on vertex:** #225 (v0.73.0, commit `e874f844`; vertex's `/admin/api/version` answered it at 15:04 UTC on 2026-11-11):
+  - the direction fix (pitfall 65 a third time: every packet had counted as "passing through");
+  - a conversation keyed on the service's port, and this program's own page set apart;
+  - the Traffic tab as summary / map / "who it talked to" (broadcast chatter closed), with Advanced for the chart, totals, operator and
+    country bars and the conversations table;
+  - the route trace (Constitution I.14, ADR-0045) and the map (ADR-0046);
+  - city index version 2, and the table cards moved to Settings → Downloaded data.
+- **Merged:** #226 (docs: the redesign plan says #225 is merged).
+- **Open:** #227 on branch `traffic-broadcast-grouping`, rebased on `main` after #226 (v0.73.1):
+  - 255.255.255.255 and subnet broadcasts (known by the hardware destination) are `shared`, never internet, and filed as chatter;
+  - the map's "download the table" line links to Settings → Downloaded data;
+  - this handoff.
+- **The owner's first look at v0.73.0** (screenshot, 2026-11-11):
+  - the new layout showed after a hard reload;
+  - the minute had 625 B "to the internet", all of it 255.255.255.255 broadcasts, which is the bug #227 fixes;
+  - the 600 KB-a-second spikes were LAN traffic, likely this page's own polling (set apart by `self_bytes`; not measured);
+  - the owner could not find the download buttons once they had moved to Settings.
 - **Not yet seen on vertex:** a multi-hop trace (Colima's NAT answered only hop 1), the map with real cities (the city table must be **downloaded again**:
   the version-1 index is refused), the look after the direction fix. Do these first; they decide whether Part A's repeat mode is worth building.
 - The router is an Asus **RT-AX86U on stock firmware** (ADR-0018). It already sends its log to vertex (UDP 514 redirected to 5514), including
@@ -96,6 +111,49 @@ Then decide with the owner, in an ADR and a Constitution item:
 - The city table at full point precision costs 134 MB to build; keep points at 0.1°.
 - After a deploy, "it looks the same" is first a hard reload: a page opened before keeps the old bundle.
 - `ls` is aliased to eza here: never use `$(ls ...)` in a script.
+
+## What the owner must do on vertex (before or while Part A is built)
+
+1. Merge #227 and deploy; hard-reload the Network page (Cmd+Shift+R): a page opened before a deploy keeps the old bundle.
+2. Settings → Downloaded data:
+   - press **Download the table** under "Where each internet address is used" (about 86 MB, asks for the passphrase);
+   - check that "Who runs each internet address" is held.
+3. Traffic → **Listen now** while vertex does something online (for example an assistant question that searches the web), so the minute has
+   internet destinations.
+4. Open an internet place → **Trace the route**. Note:
+   - how many steps answered, and the times;
+   - whether the last step says "Reached";
+   - whether the map draws the line.
+
+## Recipes
+
+- **Vertex's version and the bundle it serves:**
+  - version: `curl -s -H "Authorization: Bearer $LLM_PROXY_TOKEN" http://vertex.local:4001/admin/api/version`;
+  - the UI is under `/admin/` (the root answers 404); the copy text lives in the `stacksService-*.js` chunk, so grep that chunk for a string.
+- **Vertex's last traffic look:** `GET http://vertex.local:4001/admin/api/netaudit/host-traffic` with the same header; check:
+  - `bytes_in` / `bytes_out` / `bytes_through`, `direction_unknown`, `self_bytes`;
+  - the destinations' `shared` and `owner.point`.
+- **The probe on Linux, unprivileged, from the Mac:**
+  `docker run --rm --user 65534:65534 -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GOFLAGS=-mod=mod -e GOTOOLCHAIN=local -v "$PWD":/src:ro -v ~/go/pkg/mod:/go/pkg/mod:ro -w /src golang:1.26 go test -count=1 -v ./internal/platform/routeprobe/`
+  (from `backend/`). Hops past the first never answer under Colima.
+- **City index build cost:** a throwaway test that streams the DB-IP `.csv.gz` into `ipplaces.Build` and samples `runtime.MemStats.HeapInuse`
+  every 20 ms.
+  - Last numbers: 5.3 s, 79 MB, 223,617 places, 28 MB peak.
+  - The real file was in an earlier session's scratchpad; download it again for a new measurement.
+- **Gates used:**
+  - backend: `go test ./...`, `GOOS=linux go build ./...`, `-race` on `app` / `traceroute` / `hosttraffic`, `go run ./tools/check-complexity/`;
+  - frontend: `npx vitest run`, `npm run build`, `npx playwright test e2e/network-traffic.visual.spec.ts e2e/netaudit-*.visual.spec.ts`,
+    `npm run test:visual`;
+  - docs: `./scripts/check-agent-harness.sh`.
+  - Screenshots: `SCREENSHOTS=1` writes them under `frontend/test-results/`.
+
+## Decisions waiting on the owner
+
+1. Part A: may a typed **host name** be traced (one DNS query with that name), or addresses only?
+2. Part A: build the repeat (mtr-like) mode? It depends on the first vertex trace.
+3. Part B2: enable SSH on the router, add `golang.org/x/crypto/ssh`, store the router key as a secret, and amend the Constitution? Run the
+   measurements above first.
+4. The ~260 KB spikes every 10 s seen in looks: measure which page poll it is, and whether it should be smaller.
 
 ## First step
 
