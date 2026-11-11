@@ -30,6 +30,7 @@ import (
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/core/netaudit/phonehome"
 	"llm-proxy/internal/core/netaudit/portprobe"
+	"llm-proxy/internal/core/netaudit/routerconn"
 	"llm-proxy/internal/core/netaudit/routerlog"
 	"llm-proxy/internal/core/netaudit/scantool"
 	"llm-proxy/internal/core/netaudit/testssl"
@@ -143,6 +144,8 @@ type netauditServices struct {
 	DestinationPlaces *ipplaces.Manager
 	// RouteTrace traces the route to one internet address the last traffic look saw, when the operator presses for it (Constitution I.14).
 	RouteTrace *traceroute.Manager
+	// RouterConn reads the router's connection table over SSH on the operator's press (Constitution I.15).
+	RouterConn *routerconn.Manager
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      netaudit.WebChecker
@@ -664,6 +667,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		DestinationOwners: s.newDestinationOwners(netTools),
 		DestinationPlaces: s.newDestinationPlaces(netTools),
 		RouteTrace:        s.newRouteTrace(guard),
+		RouterConn:        s.newRouterConn(store),
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
 		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
@@ -998,13 +1002,13 @@ func (s *AppServices) newDestinationPlaces(netTools *tools.NetworkTools) *ipplac
 // destinationPlacesFile holds the index of cities, one file in the application's data folder. It is public data, so it is a plain file.
 const destinationPlacesFile = "destination-places.bin"
 
-// newRouteTrace builds the route trace. A trace is allowed only while the guardrails allow internet access, to an address the blocked list does
-// not name, that the last traffic look saw: the trace explains a look, it is not a way to probe any address.
+// newRouteTrace builds the route trace. A trace is allowed only while the guardrails allow internet access, and never to an address the blocked
+// list names. The address is one the operator chose (typed, a preset, or a place in the last traffic look): the trace is started only by their
+// press, behind the passphrase (Constitution I.14).
 func (s *AppServices) newRouteTrace(guard func() models.NetworkGuardrailsConfig) *traceroute.Manager {
-	looks := persistence.NewHostTrafficStore(s.AppCtx.RootDir())
 	return traceroute.New(traceroute.Deps{
 		Probe:  routeprobe.Probe,
-		Permit: func(a netip.Addr) error { return permitRouteTrace(guard(), looks, a) },
+		Permit: func(a netip.Addr) error { return permitRouteTrace(guard(), a) },
 		Owners: func() traceroute.Owners {
 			if owners := s.netaudit.currentOwners(); owners != nil {
 				return traceroute.Owners(owners)
@@ -1017,28 +1021,17 @@ func (s *AppServices) newRouteTrace(guard func() models.NetworkGuardrailsConfig)
 var (
 	errRouteInternetOff = errors.New("internet access is off in Settings → Guardrails, so nothing was sent")
 	errRouteBlocked     = errors.New("that address is on the blocked list in Settings → Guardrails")
-	errRouteNotSeen     = errors.New("only an address the last traffic look saw can be traced; listen again first")
 )
 
 // permitRouteTrace says whether a may be traced now (see newRouteTrace).
-func permitRouteTrace(g models.NetworkGuardrailsConfig, looks hostTrafficSink, a netip.Addr) error {
+func permitRouteTrace(g models.NetworkGuardrailsConfig, a netip.Addr) error {
 	if !g.Enabled || !g.AllowInternetAccess {
 		return errRouteInternetOff
 	}
 	if slices.Contains(g.BlockedIPs, a.String()) {
 		return errRouteBlocked
 	}
-	look, err := looks.Read()
-	if err != nil || !lookSaw(look, a.String()) {
-		return errRouteNotSeen
-	}
 	return nil
-}
-
-// lookSaw says a traffic look listed the address among its places or its conversations.
-func lookSaw(t models.HostTraffic, addr string) bool {
-	return slices.ContainsFunc(t.Destinations, func(d models.TrafficDestination) bool { return d.Address == addr }) ||
-		slices.ContainsFunc(t.Flows, func(f models.TrafficFlow) bool { return f.Address == addr })
 }
 
 // currentOwners is the way to name the holder of an internet address, or nil when no table is held. When the table of cities is held too, an

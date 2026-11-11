@@ -61,3 +61,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0044](ADR-0044-a-city-table-is-an-index-file-searched-on-disk-never-held-in-memory.md) | A city table is an index file searched on disk, never held in memory | proposed | 2026-11-11 | network |
 | [ADR-0045](ADR-0045-a-route-trace-is-unprivileged-udp-probes-on-the-operators-press.md) | A route trace is unprivileged UDP probes on the operator's press, for an address the last look saw | proposed | 2026-11-11 | network |
 | [ADR-0046](ADR-0046-the-traffic-view-has-a-map-of-cities-drawn-from-a-built-in-outline.md) | The Traffic view has a map of cities, drawn from an outline built into the page | proposed | 2026-11-11 | network |
+| [ADR-0047](ADR-0047-other-devices-connections-come-from-the-routers-connection-table-over-ssh.md) | Other devices' connections come from the router's connection table, read over SSH on the operator's press | proposed | 2026-11-12 | network |

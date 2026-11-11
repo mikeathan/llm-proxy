@@ -233,3 +233,50 @@ func TestATraceEndsWhenTheApplicationStops(t *testing.T) {
 		t.Fatalf("%+v", tr)
 	}
 }
+
+// A repeated trace sends one more probe to each router that answered, round after round, and keeps how steady each one was; a silent step is
+// not probed again.
+func TestARepeatedTraceMeasuresEachRouterThatAnsweredOverTheRounds(t *testing.T) {
+	r := &route{hops: []string{"192.168.50.1", "", "62.252.1.1"}}
+	m := running(t, context.Background(), Deps{Probe: r.probe, Owners: owners, RoundGap: time.Millisecond})
+	if err := m.StartRepeat(target); err != nil {
+		t.Fatal(err)
+	}
+	tr := wait(t, m)
+	if tr.State != models.RouteDone || !tr.Repeat || tr.Rounds != RepeatRounds || tr.RoundsDone != RepeatRounds {
+		t.Fatalf("%+v", tr)
+	}
+	for i, h := range tr.Hops {
+		switch {
+		case h.Address == "" && h.Stats != nil:
+			t.Errorf("hop %d: a silent step was probed again: %+v", i+1, h.Stats)
+		case h.Address != "" && (h.Stats == nil || h.Stats.Sent != RepeatRounds || h.Stats.Answered != RepeatRounds):
+			t.Errorf("hop %d: %+v", i+1, h.Stats)
+		}
+	}
+	if s := tr.Hops[2].Stats; s.BestMs != 3 || s.AvgMs != 3 || s.WorstMs != 3 {
+		t.Errorf("times: %+v", s)
+	}
+	// 3 steps of the first pass (3 probes each) plus 10 rounds of one probe to each of the 3 steps that answered.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if got, want := len(r.sent), 3*ProbesPerHop+1*ProbesPerHop+RepeatRounds*3; got != want {
+		t.Errorf("probes sent = %d, want %d", got, want)
+	}
+}
+
+// A plain trace measures nothing more, and a trace whose first pass failed does not go on to the rounds.
+func TestAPlainTraceHasNoRoundsAndAFailedOneDoesNotRepeat(t *testing.T) {
+	r := &route{hops: []string{"192.168.50.1"}}
+	m := running(t, context.Background(), Deps{Probe: r.probe, RoundGap: time.Millisecond})
+	_ = m.Start(target)
+	if tr := wait(t, m); tr.Repeat || tr.Hops[0].Stats != nil {
+		t.Errorf("%+v", tr)
+	}
+	time.Sleep(gap + 50*time.Millisecond)
+	r.err = routeprobe.ErrUnsupported
+	_ = m.StartRepeat(netip.MustParseAddr("8.8.8.8"))
+	if tr := wait(t, m); tr.State != models.RouteFailed || tr.RoundsDone != 0 {
+		t.Errorf("%+v", tr)
+	}
+}

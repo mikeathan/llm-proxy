@@ -101,34 +101,23 @@ func TestRunPreflight_LockDownRefusesEveryAutomation(t *testing.T) {
 	}
 }
 
-// A route trace is allowed only while the guardrails allow internet access, to an address the blocked list does not name, that the last
-// traffic look saw.
-func TestARouteTraceIsPermittedOnlyForAnAddressTheLastLookSawWhileInternetAccessIsOn(t *testing.T) {
-	look := &memTraffic{got: models.HostTraffic{
-		Destinations: []models.TrafficDestination{{Address: "1.1.1.1"}},
-		Flows:        []models.TrafficFlow{{Address: "8.8.8.8"}},
-	}}
+// A route trace is allowed only while the guardrails allow internet access, and not to an address the blocked list names.
+func TestARouteTraceIsPermittedOnlyWhileInternetAccessIsOnAndTheAddressIsNotBlocked(t *testing.T) {
 	on := models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true}
-	for _, a := range []string{"1.1.1.1", "8.8.8.8"} {
-		if err := permitRouteTrace(on, look, netip.MustParseAddr(a)); err != nil {
-			t.Errorf("%s: %v", a, err)
-		}
+	if err := permitRouteTrace(on, netip.MustParseAddr("9.9.9.9")); err != nil {
+		t.Errorf("an address typed by the operator: %v", err)
 	}
 	cases := []struct {
 		name string
 		g    models.NetworkGuardrailsConfig
-		addr string
-		look hostTrafficSink
 		want error
 	}{
-		{"network tools off", models.NetworkGuardrailsConfig{AllowInternetAccess: true}, "1.1.1.1", look, errRouteInternetOff},
-		{"internet off", models.NetworkGuardrailsConfig{Enabled: true}, "1.1.1.1", look, errRouteInternetOff},
-		{"blocked", models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true, BlockedIPs: []string{"1.1.1.1"}}, "1.1.1.1", look, errRouteBlocked},
-		{"not seen", on, "9.9.9.9", look, errRouteNotSeen},
-		{"no look", on, "1.1.1.1", &memTraffic{err: errors.New("unreadable")}, errRouteNotSeen},
+		{"network tools off", models.NetworkGuardrailsConfig{AllowInternetAccess: true}, errRouteInternetOff},
+		{"internet off", models.NetworkGuardrailsConfig{Enabled: true}, errRouteInternetOff},
+		{"blocked", models.NetworkGuardrailsConfig{Enabled: true, AllowInternetAccess: true, BlockedIPs: []string{"9.9.9.9"}}, errRouteBlocked},
 	}
 	for _, c := range cases {
-		if err := permitRouteTrace(c.g, c.look, netip.MustParseAddr(c.addr)); !errors.Is(err, c.want) {
+		if err := permitRouteTrace(c.g, netip.MustParseAddr("9.9.9.9")); !errors.Is(err, c.want) {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}

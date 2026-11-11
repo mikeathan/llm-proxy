@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
-  chartBars, countryBars, countryName, directionUnknown, flowsOfKind, hopWords, mapDots, ownerBars, ownerLine, ownerName, isSharedAddress, kindShares, locationOf, routeOutcome,
+  chartBars, countryBars, foldRoute, msWords, routeSummary, statsWords, countryName, directionUnknown, flowsOfKind, hopWords, mapDots, ownerBars, ownerLine, ownerName, isSharedAddress, kindShares, locationOf, routeOutcome,
   routePoints, sampleNote, secondAt, secondClock, selfLine, serviceOf, splitPercent, stoppedNote, talkGroups, trafficPlace, trafficSentence, usedIn,
 } from '../../../utils/netaudit/traffic'
-import type { HostTraffic, RouteTrace, TrafficFlow } from '../../../types/netaudit'
+import type { HostTraffic, RouteHop, RouteTrace, TrafficFlow } from '../../../types/netaudit'
 
 const MB = 1024 * 1024
 const traffic = (over: Partial<HostTraffic> = {}): HostTraffic => ({
@@ -304,5 +304,37 @@ describe('broadcast chatter', () => {
     expect(ids('network')).toEqual(['192.168.50.1'])
     expect(trafficPlace(t, '255.255.255.255')).toMatchObject({ internet: false, scannable: false })
     expect(trafficPlace(t, '192.168.50.255')).toMatchObject({ internet: false, scannable: false })
+  })
+})
+
+describe('the route as lines', () => {
+  const silent = (ttl: number): RouteHop => ({ ttl, sent: 3, answered: 0 })
+  const heard = (ttl: number, over: Partial<RouteHop> = {}): RouteHop => ({ ttl, address: `10.0.0.${ttl}`, sent: 3, answered: 3, best_ms: ttl, ...over })
+
+  it('folds a run of silent steps into one line and leaves a single silent step alone', () => {
+    const lines = foldRoute([heard(1), silent(2), heard(3), silent(4), silent(5), silent(6), heard(7), silent(8)])
+    expect(lines.map((l) => (l.kind === 'hop' ? `hop${l.hop.ttl}` : `run${l.from}-${l.to}x${l.count}`))).toEqual(['hop1', 'hop2', 'hop3', 'run4-6x3', 'hop7', 'hop8'])
+  })
+
+  it('folds a silent tail, and nothing when every step answered', () => {
+    expect(foldRoute([heard(1), silent(2), silent(3)]).map((l) => l.kind)).toEqual(['hop', 'silent'])
+    expect(foldRoute([heard(1), heard(2)]).every((l) => l.kind === 'hop')).toBe(true)
+    expect(foldRoute([])).toEqual([])
+  })
+
+  it('sums a route up: steps, answers, the time to the last one and the countries it passes through', () => {
+    const t: RouteTrace = {
+      address: '1.1.1.1', state: 'done', started_at: '2026-11-11T14:00:00Z', reached: true,
+      hops: [heard(1), silent(2), heard(3, { owner: { asn: 1, name: 'A', country: 'GB', place_country: 'GB' }, best_ms: 2.4 }), heard(4, { owner: { asn: 2, name: 'B', country: 'US', place_country: 'US' }, best_ms: 73 })],
+    }
+    expect(routeSummary(t)).toBe('4 steps, 3 answered, 73 ms to the last one. Passes through United Kingdom, United States.')
+    expect(routeSummary({ ...t, hops: [silent(1)] })).toBe('1 step, 0 answered.')
+  })
+
+  it('says how steady a step was over the rounds, and nothing for a plain trace or a step that never answered', () => {
+    expect(statsWords(heard(1))).toBeNull()
+    expect(statsWords(heard(1, { stats: { sent: 10, answered: 9, best_ms: 2.04, avg_ms: 2.5, worst_ms: 14.6 } }))).toEqual({ answered: '9/10', best: '2.0 ms', average: '2.5 ms', worst: '15 ms' })
+    expect(statsWords(heard(1, { stats: { sent: 10, answered: 0 } }))?.best).toBe('\u2013')
+    expect(msWords(9.96)).toBe('10.0')
   })
 })

@@ -1,7 +1,7 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
 import type { KnownBadState,
-  DestinationDataState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FootprintCommand, FootprintState, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult, RouteTracesState } from '../../types/netaudit'
+  DestinationDataState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FootprintCommand, FootprintState, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult, RouteTracesState, DeviceLookupsState, RouterConnState } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -273,9 +273,49 @@ export class NetauditService {
     return get<RouteTracesState>(API_ENDPOINTS.netauditRouteTrace)
   }
 
-  /** Starts a trace of the route to one internet address the last look saw; the server asks for the passphrase. */
-  static startRouteTrace(address: string): Promise<RouteTracesState> {
-    return post<RouteTracesState>(API_ENDPOINTS.netauditRouteTrace, { address })
+  /** The router connection setup and the last read; reaches nothing. */
+  static routerConn(): Promise<RouterConnState> {
+    return get<RouterConnState>(API_ENDPOINTS.netauditRouterConn)
+  }
+
+  /** Saves where and as whom to read the router (step-up). */
+  static setRouterTarget(address: string, user: string): Promise<RouterConnState> {
+    return put<RouterConnState>(API_ENDPOINTS.netauditRouterConn, { address, user })
+  }
+
+  /** Saves the router key (step-up); the server never sends it back. */
+  static setRouterKey(key: string): Promise<RouterConnState> {
+    return put<RouterConnState>(`${API_ENDPOINTS.netauditRouterConn}/key`, { key })
+  }
+
+  /** Removes the saved router key and the last read (step-up). */
+  static deleteRouterKey(): Promise<RouterConnState> {
+    return del<RouterConnState>(`${API_ENDPOINTS.netauditRouterConn}/key`)
+  }
+
+  /** Asks the router for its SSH key's fingerprint without signing in, and saves nothing (step-up). */
+  static routerFingerprint(): Promise<{ fingerprint: string }> {
+    return post<{ fingerprint: string }>(`${API_ENDPOINTS.netauditRouterConn}/fingerprint`)
+  }
+
+  /** Trusts the router's SSH key when it still has the fingerprint the operator confirmed (step-up). */
+  static pinRouter(fingerprint: string): Promise<RouterConnState> {
+    return post<RouterConnState>(`${API_ENDPOINTS.netauditRouterConn}/pin`, { fingerprint })
+  }
+
+  /** Reads the router's connection table once (step-up). */
+  static readRouter(): Promise<RouterConnState> {
+    return post<RouterConnState>(`${API_ENDPOINTS.netauditRouterConn}/read`)
+  }
+
+  /** What each device on the network asked the router's DNS for (lookups, not traffic). */
+  static deviceLookups(): Promise<DeviceLookupsState> {
+    return get<DeviceLookupsState>(API_ENDPOINTS.netauditDeviceLookups)
+  }
+
+  /** Starts a trace of the route to one internet address the operator chose; with `repeat`, also the rounds that measure each router. The server asks for the passphrase. */
+  static startRouteTrace(address: string, repeat = false): Promise<RouteTracesState> {
+    return post<RouteTracesState>(API_ENDPOINTS.netauditRouteTrace, repeat ? { address, repeat } : { address })
   }
 
   /** The last host traffic summary the server kept, or null when there has been none. */

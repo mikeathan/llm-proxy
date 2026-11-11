@@ -45,3 +45,27 @@ type KnownBad struct {
 	LoadedAt time.Time `json:"loaded_at,omitzero"`
 	Names    []string  `json:"names"`
 }
+
+// DeviceLookups is what one device asked the router's DNS for, as the screen shows it: counts, the flags the watch raised, and the newest names.
+// It is lookups, not traffic: the router's log line has no address and no bytes. Names are text a device chose and are shown as text only.
+type DeviceLookups struct {
+	MAC   string    `json:"mac"`
+	First time.Time `json:"first"`
+	Last  time.Time `json:"last"`
+	// Today is how many different names it asked for in the last 24 hours; Total how many the watch keeps for it.
+	Today int `json:"today"`
+	Total int `json:"total"`
+	// Flags are fixed words (new_place, beaconing, known_bad, encrypted_dns, around_dns); a flag that names names says which in Names.
+	Flags []string           `json:"flags"`
+	Names []DeviceLookupName `json:"names"`
+}
+
+// DeviceLookupName is one name a device asked for. Domain is the part a person recognises (googleapis.com for a.b.googleapis.com), found without
+// any lookup; Flag is empty or the one fixed word that makes this name worth a look.
+type DeviceLookupName struct {
+	Name   string    `json:"name"`
+	Domain string    `json:"domain"`
+	Last   time.Time `json:"last"`
+	Count  int       `json:"count"`
+	Flag   string    `json:"flag,omitempty"`
+}

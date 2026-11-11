@@ -18,11 +18,11 @@ const maxRouteTraceBody = 1 << 10
 // RouteTracer is what the handlers use: the trace manager.
 type RouteTracer interface {
 	Start(netip.Addr) error
+	StartRepeat(netip.Addr) error
 	Traces() []models.RouteTrace
 }
 
-// NetauditRouteTraceHandlers serve the route trace (Constitution I.14): the operator presses for one internet address the last traffic look
-// saw, and the screen polls the kept traces while it fills in.
+// NetauditRouteTraceHandlers serve the route trace (Constitution I.14): the operator presses for one internet address they chose, and the screen polls the kept traces while it fills in.
 type NetauditRouteTraceHandlers struct {
 	tracer RouteTracer
 }
@@ -39,6 +39,8 @@ type routeTracesView struct {
 
 type routeTraceRequest struct {
 	Address string `json:"address"`
+	// Repeat asks for the rounds that measure how steady each router is.
+	Repeat bool `json:"repeat"`
 }
 
 func (h *NetauditRouteTraceHandlers) view() routeTracesView {
@@ -62,7 +64,11 @@ func (h *NetauditRouteTraceHandlers) Start(w http.ResponseWriter, r *http.Reques
 		writeJSONError(w, http.StatusBadRequest, "that is not an address")
 		return
 	}
-	if err := h.tracer.Start(addr); err != nil {
+	start := h.tracer.Start
+	if req.Repeat {
+		start = h.tracer.StartRepeat
+	}
+	if err := start(addr); err != nil {
 		writeJSONError(w, routeTraceStatus(err), err.Error())
 		return
 	}
