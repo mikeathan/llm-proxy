@@ -14,11 +14,16 @@ import (
 
 type fakeTracer struct {
 	started netip.Addr
+	repeat  bool
 	err     error
 }
 
 func (f *fakeTracer) Start(a netip.Addr) error {
 	f.started = a
+	return f.err
+}
+func (f *fakeTracer) StartRepeat(a netip.Addr) error {
+	f.started, f.repeat = a, true
 	return f.err
 }
 func (f *fakeTracer) Traces() []models.RouteTrace {
@@ -35,6 +40,18 @@ func TestARouteTraceStartsForOneAddressAndAnswersTheKeptTraces(t *testing.T) {
 	}
 	if w.Header().Get("Content-Type") != "application/json" {
 		t.Fatal("the answer is not marked as JSON")
+	}
+}
+
+// Asking for the repeat starts the rounds; asking for nothing starts a plain trace.
+func TestARouteTraceStartsTheRepeatOnlyWhenAskedTo(t *testing.T) {
+	for body, want := range map[string]bool{`{"address":"1.1.1.1"}`: false, `{"address":"1.1.1.1","repeat":true}`: true} {
+		f := &fakeTracer{}
+		w := httptest.NewRecorder()
+		NewNetauditRouteTraceHandlers(f).Start(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)))
+		if w.Code != http.StatusAccepted || f.repeat != want {
+			t.Errorf("%s: %d repeat=%v", body, w.Code, f.repeat)
+		}
 	}
 }
 

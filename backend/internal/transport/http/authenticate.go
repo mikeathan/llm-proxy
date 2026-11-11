@@ -125,6 +125,13 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/netaudit/destination-places/download"},
 	// Sends probes with a limited time to live towards one internet address, so the routers on the way answer (Constitution I.14).
 	{http.MethodPost, "/admin/api/netaudit/route-trace"},
+	// The router's SSH connection (Constitution I.15): where it connects, the key it signs in with, the router key it trusts, and the read itself.
+	{http.MethodPut, "/admin/api/netaudit/router-connections"},
+	{http.MethodPut, "/admin/api/netaudit/router-connections/key"},
+	{http.MethodDelete, "/admin/api/netaudit/router-connections/key"},
+	{http.MethodPost, "/admin/api/netaudit/router-connections/fingerprint"},
+	{http.MethodPost, "/admin/api/netaudit/router-connections/pin"},
+	{http.MethodPost, "/admin/api/netaudit/router-connections/read"},
 }
 
 // stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.

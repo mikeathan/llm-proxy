@@ -46,6 +46,8 @@ type HandlerSet struct {
 	DestOwners  *handlers.NetauditDestinationDataHandlers
 	DestPlaces  *handlers.NetauditDestinationDataHandlers
 	RouteTrace  *handlers.NetauditRouteTraceHandlers
+	Lookups     *handlers.NetauditLookupsHandlers
+	RouterConn  *handlers.NetauditRouterConnHandlers
 	Footprint   *handlers.NetauditFootprintHandlers
 	VulnData    *handlers.VulnDataHandlers
 	Devices     *handlers.NetauditDevicesHandlers
@@ -140,6 +142,13 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.DestOwners = handlers.NewNetauditDestinationDataHandlers(s.netaudit.DestinationOwners, "iptoasn.com")
 	hs.DestPlaces = handlers.NewNetauditDestinationDataHandlers(s.netaudit.DestinationPlaces, "db-ip.com")
 	hs.RouteTrace = handlers.NewNetauditRouteTraceHandlers(s.netaudit.RouteTrace)
+	hs.Lookups = handlers.NewNetauditLookupsHandlers(s.NetauditDeviceLookups)
+	hs.RouterConn = handlers.NewNetauditRouterConnHandlers(func() handlers.RouterConnControl {
+		if s.netaudit == nil || s.netaudit.RouterConn == nil {
+			return nil
+		}
+		return s.netaudit.RouterConn
+	})
 	hs.Footprint = handlers.NewNetauditFootprintHandlers(s.netaudit.Footprint)
 	hs.Stacks = handlers.NewStackHandlers(s.netaudit.Stacks, s.stalledMonitors)
 	hs.VulnData = handlers.NewVulnDataHandlers(s.netaudit.Vulns)
@@ -429,6 +438,14 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Delete("/admin/api/netaudit/destination-places", hs.DestPlaces.Delete, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/route-trace", hs.RouteTrace.Get, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/route-trace", hs.RouteTrace.Start, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/device-lookups", hs.Lookups.Get, jsonMethodNotAllowed)
+	router.Get("/admin/api/netaudit/router-connections", hs.RouterConn.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/router-connections", hs.RouterConn.PutTarget, jsonMethodNotAllowed)
+	router.Put("/admin/api/netaudit/router-connections/key", hs.RouterConn.PutKey, jsonMethodNotAllowed)
+	router.Delete("/admin/api/netaudit/router-connections/key", hs.RouterConn.DeleteKey, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/router-connections/fingerprint", hs.RouterConn.Fingerprint, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/router-connections/pin", hs.RouterConn.Pin, jsonMethodNotAllowed)
+	router.Post("/admin/api/netaudit/router-connections/read", hs.RouterConn.Read, jsonMethodNotAllowed)
 	router.Get("/admin/api/stacks", hs.Stacks.List, jsonMethodNotAllowed)
 	router.Get("/admin/api/stacks/{stack}", hs.Stacks.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/stacks/{stack}/modules/{id}", hs.Stacks.PutModule, jsonMethodNotAllowed)

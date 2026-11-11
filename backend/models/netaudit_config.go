@@ -93,6 +93,12 @@ type NetauditConfig struct {
 	// KnownBadEnabled has the phone-home watch compare the names devices ask for with abuse.ch's list of hosts that serve malware
 	// (matched on this computer). Off until the operator turns it on; it needs the watch and a downloaded list.
 	KnownBadEnabled bool `yaml:"known_bad_enabled,omitempty" json:"known_bad_enabled"`
+	// RouterConnAddress and RouterConnUser say where and as whom to read the router's connection table over SSH (Constitution I.15). The
+	// address is a private IP address with an optional port; the key is in the secrets store. RouterConnHostKey is the router's public host
+	// key, pinned by the operator after comparing its fingerprint, and checked on every read.
+	RouterConnAddress string `yaml:"router_conn_address,omitempty" json:"router_conn_address"`
+	RouterConnUser    string `yaml:"router_conn_user,omitempty" json:"router_conn_user"`
+	RouterConnHostKey string `yaml:"router_conn_host_key,omitempty" json:"router_conn_host_key"`
 	// AttackPathsOff stops the attack paths (the Overview card and the report section). They only read what the audit already holds,
 	// so they are on unless switched off.
 	AttackPathsOff bool `yaml:"attack_paths_off,omitempty" json:"attack_paths_off"`

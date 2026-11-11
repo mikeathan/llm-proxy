@@ -21,5 +21,9 @@ export function useDeviceNames() {
   function deviceAt(address: string): NetworkDevice | undefined {
     return devices.value.find((d) => d.ip === address)
   }
-  return { names: computed(() => namesByAddress(devices.value)), deviceAt, load }
+  /** The device with this hardware address, or none. */
+  function deviceByMac(mac: string): NetworkDevice | undefined {
+    return devices.value.find((d) => d.mac.toLowerCase() === mac.toLowerCase())
+  }
+  return { names: computed(() => namesByAddress(devices.value)), deviceAt, deviceByMac, load }
 }

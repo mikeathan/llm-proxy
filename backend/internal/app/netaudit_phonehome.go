@@ -12,6 +12,8 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/internal/platform/persistence"
+	"llm-proxy/internal/transport/http/handlers"
+	"llm-proxy/models"
 )
 
 // The phone-home watch (Constitution I.8, DNS query lines): the router log's listener hands each DNS query line to the intake, which
@@ -110,4 +112,34 @@ func (p phoneHomeSignals) Signals(devices []phonehome.InventoryDevice, now time.
 	}
 	state := p.watch.Snapshot()
 	return phonehome.Judge(state, devices, p.bad, now)
+}
+
+// deviceLookups is the screen of lookups' view of the watch: the names, judged the same way the nightly report judges them.
+type deviceLookups struct {
+	signals phoneHomeSignals
+	devices func() []phonehome.InventoryDevice
+}
+
+// DeviceLookups reads the watch's names. While the watch is off it answers not enabled and no rows, so a stale list is never shown as current.
+func (d deviceLookups) DeviceLookups(now time.Time) (bool, time.Time, []models.DeviceLookups) {
+	if !d.signals.enabled() {
+		return false, time.Time{}, nil
+	}
+	state := d.signals.watch.Snapshot()
+	return true, state.Since, phonehome.Lookups(state, phonehome.Judge(state, d.devices(), d.signals.bad, now), now)
+}
+
+// NetauditDeviceLookups is the source of the lookups screen; nil until the services are wired.
+func (s AppServices) NetauditDeviceLookups() handlers.DeviceLookupsSource {
+	p, ok := s.NetauditPhoneHome().(phoneHomeSignals)
+	if !ok || s.netaudit.Inventory == nil {
+		return nil
+	}
+	return deviceLookups{signals: p, devices: func() []phonehome.InventoryDevice {
+		inv, err := s.netaudit.Inventory.View()
+		if err != nil {
+			return nil
+		}
+		return netaudit.PhoneHomeDevices(inv)
+	}}
 }

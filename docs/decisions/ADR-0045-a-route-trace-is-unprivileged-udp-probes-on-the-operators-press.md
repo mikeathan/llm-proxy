@@ -45,6 +45,14 @@ for an address the last kept look listed, while the guardrails allow internet ac
 - **A per-hop online lookup (ipinfo, RIPE).** Sends every router of the path to a third party; the tables kept on this computer answer it (ADR-0043, ADR-0044).
 - **Trace any address the operator types.** Makes the page a general probing tool; tying it to the last look keeps it an explanation of traffic that already happened.
 
+## Amendment 2026-11-11: an address the operator chooses, and a repeat
+
+The owner asked to trace places chosen on purpose, not only those a look saw, and the first vertex traces answered at most hops (17 steps, 9 answering, one at "2 of 3"), which was the condition for building the repeat.
+
+- **Any single internet address the operator types or picks** (fixed presets 1.1.1.1, 8.8.8.8, 9.9.9.9; a place of a look still opens its trace). The press and the passphrase are the approval; the guardrails, the blocked list and the "single internet address" test are unchanged. **Addresses only, no host names:** a name would first send a DNS question carrying text the operator typed; that was the cheaper default and can be reversed in a later amendment. The router's upstream DNS was meant to be a preset, but the scope holds no resolver address, so it is not one.
+- **A repeat:** 10 rounds, one probe to each router that answered, one round a second, 60 seconds at most; per router, answered of sent and best, average and worst time. One trace at a time, so it is part of the trace and not a second probe stream.
+- Rejected again: trace any address from an agent or a schedule.
+
 ## Links
 
 - Plan: `docs/PLANS/cross-cutting/network-traffic-view-redesign.md`; Constitution I.14.

@@ -194,7 +194,7 @@ describe('TrafficReport', () => {
       await openRow(w, 'github.com')
       await w.get('[data-test="route-start"]').trigger('click')
       await flushPromises()
-      expect(service.startRouteTrace).toHaveBeenCalledWith('140.82.1.1')
+      expect(service.startRouteTrace).toHaveBeenCalledWith('140.82.1.1', false)
       expect(w.get('[data-test="route-start"]').text()).toContain('Tracing')
       service.routeTraces.mockResolvedValue(noTraces)
       const { useRouteTrace } = await import('../../../composables/netaudit/useRouteTrace')
@@ -279,8 +279,20 @@ describe('TrafficReport', () => {
       expect(show(traffic()).get('[data-test="where-no-table"]').text()).toContain('Settings')
     })
 
-    it('lists the conversations, filters them by kind, and opens a place from a row', async () => {
+    it('answers "what kind" with bars in Simple, and keeps the conversation table for Advanced', async () => {
+      useNetauditViewMode().set('simple')
       const w = show(traffic())
+      expect(w.findAll('[data-test="kinds-bar"]')).toHaveLength(3)
+      expect(w.get('[data-test="kinds-bars"]').text()).toContain('Web, encrypted (HTTPS)')
+      expect(w.find('[data-test="flows"]').exists()).toBe(false)
+    })
+
+    it('lists the conversations with one Service column, filters them by kind, and opens a place from a row', async () => {
+      useNetauditViewMode().set('advanced')
+      const w = show(traffic())
+      const headers = w.get('[data-test="flows"]').findAll('th').map((h) => h.text())
+      expect(headers).toEqual(['Destination', 'Service', 'Sent', 'Received'])
+      expect(w.findAll('[data-test="flow-service"]')[0]!.text()).toMatch(/^HTTPS\s*443$/)
       expect(w.findAll('[data-test="flow"]')).toHaveLength(4)
       await w.findAll('[data-test="kind-pick"]')[1]!.trigger('click')
       expect(w.findAll('[data-test="flow"]')).toHaveLength(1)

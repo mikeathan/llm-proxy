@@ -23,6 +23,8 @@ const matching = computed(() => flowsOfKind(props.traffic.flows, kindFilter.valu
 const rows = computed(() => visibleFlows(matching.value, showAll.value, TRAFFIC_FLOWS_SHOWN))
 const toggleKind = (kind: TrafficKindWord) => { kindFilter.value = kindFilter.value === kind ? null : kind; showAll.value = false }
 const flowName = (f: TrafficFlow) => f.name || f.address
+// A named kind ("HTTPS") leaves the port out of its words, so it is added; a served or unnamed one already has it.
+const portNote = (f: TrafficFlow) => (f.port && !f.served && !serviceOf(f).includes(String(f.port)) ? String(f.port) : "")
 </script>
 
 <template>
@@ -49,12 +51,11 @@ const flowName = (f: TrafficFlow) => f.name || f.address
     </p>
     <p v-if="traffic.flows.length && !rows.shown.length" class="m-0 text-[length:var(--text-small)] text-muted" data-test="flows-none">{{ TRAFFIC_KIND_FILTER_NONE }}</p>
     <div v-else-if="rows.shown.length" class="-mx-4 overflow-x-auto">
-      <table class="w-full min-w-[34rem] border-collapse text-left" data-test="flows">
+      <table class="w-full min-w-[30rem] border-collapse text-left" data-test="flows">
         <thead>
           <tr class="font-mono text-[length:var(--text-micro)] uppercase tracking-[var(--tracking-micro)] text-muted">
             <th scope="col" class="px-4 py-2 font-normal">{{ TRAFFIC_COLUMNS.destination }}</th>
-            <th scope="col" class="px-2 py-2 font-normal">{{ TRAFFIC_COLUMNS.port }}</th>
-            <th scope="col" class="px-2 py-2 font-normal">{{ TRAFFIC_COLUMNS.kind }}</th>
+            <th scope="col" class="px-2 py-2 font-normal">{{ TRAFFIC_COLUMNS.service }}</th>
             <th scope="col" class="px-2 py-2 text-right font-normal">{{ TRAFFIC_COLUMNS.sent }}</th>
             <th scope="col" class="px-4 py-2 text-right font-normal">{{ TRAFFIC_COLUMNS.received }}</th>
           </tr>
@@ -62,8 +63,7 @@ const flowName = (f: TrafficFlow) => f.name || f.address
         <tbody>
           <tr v-for="f in rows.shown" :key="`${f.address}|${f.port}|${f.proto}|${f.served ? 's' : 'c'}`" class="cursor-pointer border-t border-hairline hover:bg-surface-hover" data-test="flow" @click="emit('open', f.address)">
             <td class="max-w-[22rem] break-all px-4 py-2 text-primary"><button type="button" class="break-all bg-transparent p-0 text-left text-primary max-sm:min-h-11" :aria-label="TRAFFIC_OPEN_PLACE(flowName(f))" data-test="flow-open">{{ flowName(f) }}</button><span v-if="ownerLine(f.owner)" class="block text-[length:var(--text-small)] text-muted" data-test="flow-owner">{{ ownerLine(f.owner) }}</span></td>
-            <td class="px-2 py-2 text-muted">{{ f.served ? `:${f.port}` : f.port || "·" }}</td>
-            <td class="px-2 py-2 text-muted">{{ serviceOf(f) }}</td>
+            <td class="px-2 py-2 text-muted" data-test="flow-service">{{ serviceOf(f) }}<span v-if="portNote(f)" class="ml-1 font-mono text-faint">{{ portNote(f) }}</span></td>
             <td class="px-2 py-2 text-right text-secondary">{{ formatBytes(f.bytes_out) }}</td>
             <td class="px-4 py-2 text-right text-secondary">{{ formatBytes(f.bytes_in) }}</td>
           </tr>

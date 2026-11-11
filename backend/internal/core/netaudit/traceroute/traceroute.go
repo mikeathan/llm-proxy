@@ -1,4 +1,4 @@
-// Package traceroute traces the route from this computer to one internet address the traffic look saw, when the operator presses for it
+// Package traceroute traces the route from this computer to one internet address the operator chose, when they press for it
 // (Constitution I.14). It sends at most three small probes per distance through routeprobe, one trace at a time, and names each router that
 // answers from the tables kept on this computer: nothing is sent anywhere to look a router up. A trace is kept in memory only, and only the last
 // few.
@@ -29,6 +29,11 @@ const (
 	gap = 3 * time.Second
 	// kept is how many traces are remembered, newest first.
 	kept = 8
+	// RepeatRounds is how many rounds a repeated trace sends over the routers the first pass found, one probe per router per round; RoundGap is
+	// the time between the starts of two rounds, and repeatLimit bounds all the rounds, whatever the routers do.
+	RepeatRounds = 10
+	RoundGap     = time.Second
+	repeatLimit  = 60 * time.Second
 	// basePort is the first destination port of the probes; each probe uses the next, the convention traceroute follows.
 	basePort = 33434
 )
@@ -46,6 +51,8 @@ type Deps struct {
 	Permit func(netip.Addr) error
 	Owners func() Owners
 	Now    func() time.Time
+	// RoundGap is the time between the starts of two repeat rounds; zero means the package's RoundGap.
+	RoundGap time.Duration
 }
 
 var (
@@ -72,6 +79,9 @@ type Manager struct {
 func New(deps Deps) *Manager {
 	if deps.Now == nil {
 		deps.Now = time.Now
+	}
+	if deps.RoundGap <= 0 {
+		deps.RoundGap = RoundGap
 	}
 	return &Manager{deps: deps}
 }
@@ -107,7 +117,12 @@ func isTraceable(a netip.Addr) bool {
 }
 
 // Start begins a trace to a and returns at once; Traces shows it filling in.
-func (m *Manager) Start(a netip.Addr) error {
+func (m *Manager) Start(a netip.Addr) error { return m.begin(a, false) }
+
+// StartRepeat is Start, followed by RepeatRounds more rounds over the routers that answered, so each step says how steady it is.
+func (m *Manager) StartRepeat(a netip.Addr) error { return m.begin(a, true) }
+
+func (m *Manager) begin(a netip.Addr, repeat bool) error {
 	a = a.Unmap()
 	if !isTraceable(a) {
 		return ErrNotInternet
@@ -129,10 +144,13 @@ func (m *Manager) Start(a netip.Addr) error {
 	life := m.life
 	m.running = true
 	t := &models.RouteTrace{Address: a.String(), State: models.RouteRunning, StartedAt: m.deps.Now(), Hops: []models.RouteHop{}}
+	if repeat {
+		t.Repeat, t.Rounds = true, RepeatRounds
+	}
 	m.traces = slices.DeleteFunc(m.traces, func(old *models.RouteTrace) bool { return old.Address == t.Address })
 	m.traces = append([]*models.RouteTrace{t}, m.traces...)[:min(len(m.traces)+1, kept)]
 	m.mu.Unlock()
-	go m.run(life, a, t)
+	go m.run(life, a, t, repeat)
 	return nil
 }
 
@@ -151,7 +169,7 @@ func (m *Manager) Traces() []models.RouteTrace {
 
 // run probes each distance in turn until the address answers, a router says it cannot be reached, too many distances are silent, or the limit
 // or the application's end stops it.
-func (m *Manager) run(life context.Context, a netip.Addr, t *models.RouteTrace) {
+func (m *Manager) run(life context.Context, a netip.Addr, t *models.RouteTrace, repeat bool) {
 	ctx, cancel := context.WithTimeout(life, traceLimit)
 	defer cancel()
 	var owners Owners
@@ -179,7 +197,86 @@ func (m *Manager) run(life context.Context, a netip.Addr, t *models.RouteTrace) 
 			break
 		}
 	}
+	if repeat && failure == "" {
+		failure = m.repeat(life, a, t)
+	}
 	m.finish(t, failure)
+}
+
+// repeat sends RepeatRounds rounds, one probe to each router the first pass found, one round starting every RoundGap, and keeps for each router
+// how many answered and how quickly. It ends early at repeatLimit, which is not a failure: what was measured is kept. A probe that cannot be
+// sent fails the trace, as in the first pass.
+func (m *Manager) repeat(life context.Context, a netip.Addr, t *models.RouteTrace) string {
+	ctx, cancel := context.WithTimeout(life, repeatLimit)
+	defer cancel()
+	m.mu.Lock()
+	hops := slices.Clone(t.Hops)
+	m.mu.Unlock()
+	totals := make([]time.Duration, len(hops))
+	next := time.Now()
+	for round := range RepeatRounds {
+		if !sleepUntil(ctx, next) {
+			break
+		}
+		next = time.Now().Add(m.deps.RoundGap)
+		for i, h := range hops {
+			if h.Address == "" {
+				continue
+			}
+			r, err := m.deps.Probe(ctx, routeprobe.Request{Dst: a, TTL: h.TTL, Port: uint16(basePort + MaxHops*ProbesPerHop + round*MaxHops + h.TTL - 1), Wait: ProbeWait})
+			if err != nil {
+				if ctx.Err() != nil && life.Err() == nil {
+					return ""
+				}
+				return failureWords(err)
+			}
+			m.record(t, i, r, &totals[i])
+		}
+		m.mu.Lock()
+		t.RoundsDone = round + 1
+		m.mu.Unlock()
+	}
+	return ""
+}
+
+// record adds one repeat answer to step i of the trace: probes sent and answered, and the quickest, slowest and average time. total is the sum
+// of the answered times so far.
+func (m *Manager) record(t *models.RouteTrace, i int, r routeprobe.Reply, total *time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := t.Hops[i].Stats
+	if st == nil {
+		st = &models.RouteHopStats{}
+		t.Hops[i].Stats = st
+	}
+	st.Sent++
+	if r.Kind == routeprobe.Silent || !r.From.IsValid() {
+		return
+	}
+	st.Answered++
+	*total += r.RTT
+	ms := float64(r.RTT.Microseconds()) / 1000
+	if st.BestMs == 0 || ms < st.BestMs {
+		st.BestMs = ms
+	}
+	st.WorstMs = max(st.WorstMs, ms)
+	st.AvgMs = float64(total.Microseconds()) / 1000 / float64(st.Answered)
+}
+
+// sleepUntil waits for t; false when ctx ends first.
+func sleepUntil(ctx context.Context, t time.Time) bool {
+	d := time.Until(t)
+	if d <= 0 {
+		return ctx.Err() == nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // hop sends the probes of one distance. stop says the trace is over: the address answered, or a router said it cannot be reached.

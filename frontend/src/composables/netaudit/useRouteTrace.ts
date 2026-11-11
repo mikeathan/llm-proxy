@@ -11,10 +11,14 @@ const supported = ref(true)
 const loaded = ref(false)
 const starting = ref(false)
 const error = ref('')
+// The address the "Trace a route" card last started, so its result is still there after a visit to another tab.
+const cardAddress = ref<string | null>(null)
+// An address another part of the page asks the card to fill in (a place found by the router's table); the card takes it and clears it.
+const prefill = ref<string | null>(null)
 
 /**
- * The route trace (Constitution I.14): the routers between this computer and one internet address the last traffic look saw, traced when the
- * operator presses for it (the server asks for the passphrase). `refresh` is what a poller calls while a trace runs; it does nothing otherwise.
+ * The route trace (Constitution I.14): the routers between this computer and one internet address the operator chose, traced when they
+ * press for it (the server asks for the passphrase). `refresh` is what a poller calls while a trace runs; it does nothing otherwise.
  */
 export function useRouteTrace() {
   const running = computed(() => traces.value.some((t) => t.state === 'running'))
@@ -32,13 +36,13 @@ export function useRouteTrace() {
     loaded.value = true
   }
 
-  /** Starts a trace; true when the server took it. */
-  async function start(address: string): Promise<boolean> {
+  /** Starts a trace, with the repeated rounds when asked; true when the server took it. */
+  async function start(address: string, repeat = false): Promise<boolean> {
     if (starting.value || running.value) return false
     starting.value = true
     error.value = ''
     try {
-      const state = await NetauditService.startRouteTrace(address)
+      const state = await NetauditService.startRouteTrace(address, repeat)
       traces.value = state.traces ?? []
       supported.value = state.supported
       return true
@@ -55,5 +59,8 @@ export function useRouteTrace() {
     if (running.value) await load()
   }
 
-  return { traces, supported, loaded, starting, running, error, traceOf, load, start, refresh }
+  /** Asks the "Trace a route" card to fill in this address; it does not start a trace. */
+  const requestTrace = (address: string) => { prefill.value = address }
+
+  return { prefill, requestTrace, cardAddress, traces, supported, loaded, starting, running, error, traceOf, load, start, refresh }
 }

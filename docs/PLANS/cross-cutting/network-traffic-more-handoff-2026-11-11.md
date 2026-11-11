@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: partial
 date: 2026-11-11
 last_reviewed: 2026-11-11
 related_specs: [SPEC-003]
@@ -12,29 +12,25 @@ evidence: owner request 2026-11-11 ("i want more if possible"); docs/PLANS/cross
 The owner asked for more than v0.73.x gives: the hops to places they choose, and what the **other devices** in the house connect to, not only this
 computer (vertex). This file is the starting point for a new session. Nothing in it is built.
 
-## Where things stand
+## Where things stand (updated 2026-11-12, v0.74.0)
 
-- **Merged and deployed on vertex:** #225 (v0.73.0, commit `e874f844`; vertex's `/admin/api/version` answered it at 15:04 UTC on 2026-11-11):
-  - the direction fix (pitfall 65 a third time: every packet had counted as "passing through");
-  - a conversation keyed on the service's port, and this program's own page set apart;
-  - the Traffic tab as summary / map / "who it talked to" (broadcast chatter closed), with Advanced for the chart, totals, operator and
-    country bars and the conversations table;
-  - the route trace (Constitution I.14, ADR-0045) and the map (ADR-0046);
-  - city index version 2, and the table cards moved to Settings → Downloaded data.
-- **Merged:** #226 (docs: the redesign plan says #225 is merged).
-- **Open:** #227 on branch `traffic-broadcast-grouping`, rebased on `main` after #226 (v0.73.1):
-  - 255.255.255.255 and subnet broadcasts (known by the hardware destination) are `shared`, never internet, and filed as chatter;
-  - the map's "download the table" line links to Settings → Downloaded data;
-  - this handoff.
-- **The owner's first look at v0.73.0** (screenshot, 2026-11-11):
-  - the new layout showed after a hard reload;
-  - the minute had 625 B "to the internet", all of it 255.255.255.255 broadcasts, which is the bug #227 fixes;
-  - the 600 KB-a-second spikes were LAN traffic, likely this page's own polling (set apart by `self_bytes`; not measured);
-  - the owner could not find the download buttons once they had moved to Settings.
-- **Not yet seen on vertex:** a multi-hop trace (Colima's NAT answered only hop 1), the map with real cities (the city table must be **downloaded again**:
-  the version-1 index is refused), the look after the direction fix. Do these first; they decide whether Part A's repeat mode is worth building.
-- The router is an Asus **RT-AX86U on stock firmware** (ADR-0018). It already sends its log to vertex (UDP 514 redirected to 5514), including
-  `dnsmasq ... query[A] name from address` lines that the phone-home watch keeps per device.
+- **Merged and deployed:** #225 (v0.73.0), #226, #227 (v0.73.1, broadcasts out of the internet list). The owner then ran the Traffic tab on vertex: a 17-step trace
+  reached `91.189.91.61` (Canonical, London) through Sky, Zayo (Newark, Minneapolis, Columbia City); several steps silent; and a look with two internet places.
+- **Built on branch `traffic-broadcast-grouping` (uncommitted, v0.74.0, not run on vertex):**
+  - **Part A** done: the "Trace a route" card (typed address or presets), Constitution I.14 and ADR-0045 amended, repeat mode (10 rounds, per-step
+    answered / best / average / worst), silent steps folded, route on the map. **Decisions taken (reversible):** addresses only, no host names; no
+    router-DNS preset (the scope holds no resolver address).
+  - **B1** done: "Other devices" on the Traffic tab, from `phonehome.Lookups`; Constitution I.8 amended in one sentence.
+  - **UI:** "What it was" is now bars by kind plus, under Advanced, "Every conversation" with one Service column.
+- **Checks run:** `go test ./...`, complexity, `GOOS=linux go build`, `npx vitest run`, `npm run build`, the traffic visual spec, the harness check (see the
+  session's final report for the exact results). **Not run:** anything on vertex; `-race` is not needed for the new code except `traceroute` (run).
+- **B2 built (v0.75.0, same branch, not run against the real router):** the owner measured the RT-AX86U (readable, 245 lines, no bytes) and approved the
+  dependency (already in `go.mod`), the stored key and the Constitution text. Constitution I.15, ADR-0047, `platform/routerssh`, `core/netaudit/routerconn`,
+  the step-up routes and the "Where they connected" view. **To do on the owner's side:** make a key (`ssh-keygen -t ed25519 -N "" -f router_key`), add
+  `router_key.pub` to the router's Authorized Keys with SSH on for LAN only, then in Network → Traffic → Other devices → Where they connected: address, user,
+  key, check and trust the router's fingerprint, read. If the router refuses the ed25519 key, try an RSA key (`-t rsa -b 3072`).
+- **Left:** the owner's vertex run and first real read; optional byte counts (needs `nf_conntrack_acct` on, which stock firmware loses on reboot); the
+  decision about the ~260 KB spikes. Part A's repeat is built, so decision 2 below is answered.
 
 ## Part A: trace any internet address, and repeat it (small; needs an I.14 amendment)
 

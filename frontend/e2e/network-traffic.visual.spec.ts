@@ -86,9 +86,9 @@ test('a place opened says who runs it, where it is used and registered, and show
   await tab.locator('[data-test="talk-open"]', { hasText: 'registry.npmjs.org' }).click()
   await expect(tab.locator('[data-test="place-location"]')).toContainText('used in Toronto, Canada')
   await expect(tab.locator('[data-test="place-location"]')).toContainText('registered in United States')
-  await expect(tab.locator('[data-test="route-hop"]')).toHaveCount(6)
-  await expect(tab.locator('[data-test="route-hop-who"]').nth(3)).toHaveText('no answer')
-  await expect(tab.locator('[data-test="route-outcome"]')).toHaveText('Reached in 6 steps.')
+  await expect(tab.locator('[data-test="route"] [data-test="route-hop"]')).toHaveCount(6)
+  await expect(tab.locator('[data-test="route"] [data-test="route-hop-who"]').nth(3)).toHaveText('no answer')
+  await expect(tab.locator('[data-test="route"] [data-test="route-outcome"]')).toHaveText('Reached in 6 steps.')
   await expect(tab.locator('[data-test="map-route"]')).toHaveCount(1)
   await expectNoSidewaysScroll(page)
   if (testInfo.project.name === 'mobile') {
@@ -145,4 +145,123 @@ test('before the first look the tab invites one', async ({ page }) => {
   await expect(page.locator('[data-test="traffic-never"]')).toContainText('Nothing looked at yet')
   await expect(page.locator('[data-test="traffic-listen"]')).toBeVisible()
   await expectNoSidewaysScroll(page)
+})
+
+// "Trace a route" works for any internet address, with no look needed: the steps fold the runs of silent routers, each router that answered says
+// how steady it was, and the route is drawn on the map.
+const ZAYO_NJ = owner(6461, 'ZAYO-6461 - Zayo Bandwidth', 'US', 'Newark', 'US', 40.7, -74.2)
+const ZAYO_IN = owner(6461, 'ZAYO-6461 - Zayo Bandwidth', 'US', 'Columbia City', 'US', 41.2, -85.5)
+const CANONICAL = owner(41231, 'CANONICAL-AS Canonical Group Limited', 'GB', 'London', 'GB', 51.5, -0.1)
+const LONG_TRACE = {
+  address: '91.189.91.61', state: 'done', started_at: new Date(Date.now() - 40_000).toISOString(), ended_at: new Date().toISOString(), reached: true, repeat: true, rounds: 10, rounds_done: 10,
+  hops: [
+    { ttl: 1, address: '192.168.50.1', sent: 3, answered: 3, best_ms: 1.6, where: 'this_network', stats: { sent: 10, answered: 10, best_ms: 1.4, avg_ms: 1.9, worst_ms: 3.2 } },
+    { ttl: 2, address: '192.168.0.1', sent: 3, answered: 3, best_ms: 2.3, where: 'this_network', stats: { sent: 10, answered: 10, best_ms: 2.1, avg_ms: 2.6, worst_ms: 4.8 } },
+    { ttl: 3, address: '90.212.129.56', sent: 3, answered: 3, best_ms: 2.4, where: 'internet', owner: ISP, stats: { sent: 10, answered: 9, best_ms: 2.2, avg_ms: 2.7, worst_ms: 6 } },
+    { ttl: 4, sent: 3, answered: 0 }, { ttl: 5, sent: 3, answered: 0 },
+    { ttl: 6, address: '64.125.29.128', sent: 3, answered: 3, best_ms: 73, where: 'internet', owner: ZAYO_NJ, stats: { sent: 10, answered: 10, best_ms: 72, avg_ms: 73, worst_ms: 76 } },
+    { ttl: 7, address: '128.177.44.233', sent: 3, answered: 2, best_ms: 73, where: 'internet', owner: ZAYO_IN, stats: { sent: 10, answered: 8, best_ms: 72, avg_ms: 74, worst_ms: 90 } },
+    { ttl: 8, sent: 3, answered: 0 }, { ttl: 9, sent: 3, answered: 0 }, { ttl: 10, sent: 3, answered: 0 },
+    { ttl: 11, address: '91.189.91.61', sent: 3, answered: 3, best_ms: 97, where: 'internet', reached: true, owner: CANONICAL, stats: { sent: 10, answered: 10, best_ms: 96, avg_ms: 98, worst_ms: 104 } },
+  ],
+}
+const LOOKUPS = {
+  enabled: true, since: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+  devices: [
+    { mac: 'aa:bb:cc:00:00:01', first: new Date(Date.now() - 4 * 86_400_000).toISOString(), last: new Date(Date.now() - 60_000).toISOString(), today: 41, total: 188, flags: ['new_place'], names: [
+      { name: 'telemetry.vendor-cdn.net', domain: 'vendor-cdn.net', last: new Date(Date.now() - 60_000).toISOString(), count: 3, flag: 'new_place' },
+      { name: 'api.smartthings.com', domain: 'smartthings.com', last: new Date(Date.now() - 120_000).toISOString(), count: 30 },
+      { name: 'fw-update.smartthings.com', domain: 'smartthings.com', last: new Date(Date.now() - 3_600_000).toISOString(), count: 2 },
+    ] },
+    { mac: 'aa:bb:cc:00:00:02', first: new Date(Date.now() - 4 * 86_400_000).toISOString(), last: new Date(Date.now() - 600_000).toISOString(), today: 12, total: 60, flags: [], names: [
+      { name: 'time.apple.com', domain: 'apple.com', last: new Date(Date.now() - 600_000).toISOString(), count: 12 },
+    ] },
+  ],
+}
+
+test('the trace card traces a typed address, folds the silent steps, shows the steadiness and draws the route', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [LONG_TRACE] }, '/netaudit/device-lookups': LOOKUPS, ...TABLES } })
+  await page.goto('network/traffic')
+  const card = page.locator('[data-test="trace-card"]')
+  await expect(card.locator('[data-test="trace-result"]')).toHaveCount(0)
+  await card.locator('[data-test="trace-address"]').fill('91.189.91.61')
+  if (testInfo.project.name === 'mobile') {
+    await card.locator('[data-test="trace-go"]').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(card.locator('[data-test="trace-go"]'))
+    await card.locator('[data-test="trace-preset"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(card.locator('[data-test="trace-preset"]').first())
+  }
+  await card.locator('[data-test="trace-go"]').click()
+  await expect(card.locator('[data-test="route-summary"]')).toContainText('11 steps, 6 answered')
+  await expect(card.locator('[data-test="route-summary"]')).toContainText('United Kingdom, United States')
+  await expect(card.locator('[data-test="route-silent-run"]')).toHaveCount(2)
+  await expect(card.locator('[data-test="route-hop-stats"]').first()).toContainText('Answered 10/10')
+  await expect(card.locator('[data-test="map-route-point"]')).toHaveCount(4)
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'traffic-trace-card.png', true)
+})
+
+test('the other devices open to what each one looked up, grouped by domain', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/devices': { devices: [{ mac: 'aa:bb:cc:00:00:01', ip: '192.168.50.31', name: 'Living room hub', first_seen: new Date().toISOString(), last_seen: new Date().toISOString(), approved: true, randomized: false, new: false }] } } })
+  await page.goto('network/traffic')
+  const lookups = page.locator('[data-test="lookups"]')
+  await expect(lookups.locator('[data-test="lookups-device"]')).toHaveCount(2)
+  await expect(lookups.locator('[data-test="lookups-device"]').first()).toContainText('Living room hub')
+  if (testInfo.project.name === 'mobile') {
+    await lookups.locator('[data-test="lookups-toggle"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(lookups.locator('[data-test="lookups-toggle"]').first())
+  }
+  await lookups.locator('[data-test="lookups-toggle"]').first().click()
+  await expect(lookups.locator('[data-test="lookups-group"]')).toHaveCount(2)
+  await expect(lookups.locator('[data-test="lookups-group"]').nth(1)).toContainText('api.smartthings.com, fw-update.smartthings.com')
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'traffic-lookups.png', true)
+})
+
+// The router's connection table: after the setup (three steps) a press reads it, and each device opens to the internet places it connected to,
+// with who runs them, and a place can be sent to the route trace card.
+const ROUTER_READ = {
+  address: '192.168.50.1', user: 'admin', key_saved: true, fingerprint: 'SHA256:3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  last: {
+    at: new Date(Date.now() - 20_000).toISOString(), lines: 245, kept: 31,
+    devices: [
+      { address: '192.168.50.220', total: 18, places: [
+        { address: '52.48.210.116', port: 8883, proto: 'tcp', state: 'ESTABLISHED', count: 17, owner: owner(16509, 'AMAZON-02', 'US', 'Dublin', 'IE', 53.3, -6.3) },
+        { address: '8.8.8.8', port: 53, proto: 'udp', count: 1, owner: GOOGLE },
+      ] },
+      { address: '192.168.50.31', total: 13, places: [{ address: '140.82.1.1', port: 443, proto: 'tcp', state: 'ESTABLISHED', count: 13, owner: GITHUB }] },
+    ],
+  },
+}
+
+test('the other devices show where each one connected, from the router, and hand a place to the route trace', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': ROUTER_READ } })
+  await page.goto('network/traffic')
+  const panel = page.locator('[data-test="other-devices-views"]')
+  await panel.getByRole('radio', { name: 'Where they connected' }).click()
+  const conn = page.locator('[data-test="router-conn"]')
+  await expect(conn.locator('[data-test="router-when"]')).toContainText('245 lines, 31 connections')
+  await expect(conn.locator('[data-test="router-device"]')).toHaveCount(2)
+  await conn.locator('[data-test="router-toggle"]').first().click()
+  await expect(conn.locator('[data-test="router-place-owner"]').first()).toContainText('Dublin')
+  if (testInfo.project.name === 'mobile') {
+    await conn.locator('[data-test="router-toggle"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(conn.locator('[data-test="router-toggle"]').first())
+    await conn.locator('[data-test="router-trace"]').first().evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(conn.locator('[data-test="router-trace"]').first())
+  }
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'traffic-router-conn.png', true)
+  await conn.locator('[data-test="router-trace"]').first().click()
+  await expect(page.locator('[data-test="trace-address"]')).toHaveValue('52.48.210.116')
+})
+
+test('before the router is set up it walks the three steps and never shows a key', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': { address: '192.168.50.1', user: 'admin', key_saved: false } } })
+  await page.goto('network/traffic')
+  await page.locator('[data-test="other-devices-views"]').getByRole('radio', { name: 'Where they connected' }).click()
+  await expect(page.locator('[data-test="router-step"]')).toContainText('Step 2 of 3')
+  await expect(page.locator('[data-test="router-key"]')).toBeVisible()
+  await expectNoSidewaysScroll(page)
+  await lookAt(page, testInfo, 'traffic-router-setup.png', true)
 })

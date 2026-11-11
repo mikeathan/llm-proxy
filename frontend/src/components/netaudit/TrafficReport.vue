@@ -5,6 +5,7 @@ import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import TrafficChart from "./TrafficChart.vue"
 import TrafficDetail from "./TrafficDetail.vue"
 import TrafficFlows from "./TrafficFlows.vue"
+import TrafficKinds from "./TrafficKinds.vue"
 import TrafficMap from "./TrafficMap.vue"
 import TrafficTalk from "./TrafficTalk.vue"
 import TrafficWhere from "./TrafficWhere.vue"
@@ -17,7 +18,7 @@ import { motionScroll } from "../../utils/motion"
 import { toNetworkSettings } from "../../router/routes"
 import {
   TRAFFIC_ADVANCED_TITLE, TRAFFIC_BUSIEST, TRAFFIC_MAP_NO_CITIES, TRAFFIC_MAP_NO_POINTS, TRAFFIC_MAP_NOTE, TRAFFIC_MAP_OPEN_TABLES, TRAFFIC_MAP_ROUTE_NOTE, TRAFFIC_MAP_TITLE,
-  TRAFFIC_ONLY_THIS, TRAFFIC_PRIVACY_NOTE, TRAFFIC_SERIES_TITLE, TRAFFIC_SUMMARY_STATS, TRAFFIC_TALK_TITLE, TRAFFIC_WHAT_TITLE, TRAFFIC_WHERE_VIEW_LABELS,
+  TRAFFIC_ONLY_THIS, TRAFFIC_PRIVACY_NOTE, TRAFFIC_CONVERSATIONS_TITLE, TRAFFIC_WHAT_INTRO, TRAFFIC_SERIES_TITLE, TRAFFIC_SUMMARY_STATS, TRAFFIC_TALK_TITLE, TRAFFIC_WHAT_TITLE, TRAFFIC_WHERE_VIEW_LABELS,
   TRAFFIC_WHERE_VIEWS_LABEL,
 } from "../../constants/netaudit"
 import type { ChoiceOption } from "../../types/ui"
@@ -129,6 +130,13 @@ const views: ChoiceOption[] = (["operators", "countries"] as const).map((value) 
       <TrafficTalk :groups="groups" :total="talkTotal" :open-address="openAddress" :other-flows="traffic.other_flows" :other-bytes="traffic.other_bytes" @open="openPlace" />
     </Panel>
 
+    <Panel v-if="traffic.kinds.length" :title="TRAFFIC_WHAT_TITLE">
+      <div class="flex flex-col gap-3">
+        <TrafficKinds :traffic="traffic" />
+        <p v-if="!advanced" class="m-0 text-[length:var(--text-small)] text-muted" data-test="kinds-intro">{{ TRAFFIC_WHAT_INTRO }}</p>
+      </div>
+    </Panel>
+
     <template v-if="advanced">
       <Panel v-if="traffic.internet_bytes > 0" :title="TRAFFIC_ADVANCED_TITLE">
         <template #actions>
@@ -136,7 +144,7 @@ const views: ChoiceOption[] = (["operators", "countries"] as const).map((value) 
         </template>
         <TrafficWhere :traffic="traffic" :view="view" />
       </Panel>
-      <Panel v-if="traffic.flows.length || traffic.kinds.length" :title="TRAFFIC_WHAT_TITLE">
+      <Panel v-if="traffic.flows.length" :title="TRAFFIC_CONVERSATIONS_TITLE">
         <TrafficFlows :traffic="traffic" @open="openPlace" />
       </Panel>
     </template>

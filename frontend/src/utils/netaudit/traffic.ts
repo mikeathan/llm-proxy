@@ -1,11 +1,11 @@
 import { formatBytes } from '../format/formatters'
 import {
-  ROUTE_FAILED, ROUTE_HOP_SILENT, ROUTE_HOP_TIME, ROUTE_HOP_WHERE, ROUTE_NOT_REACHED, ROUTE_REACHED, TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED, TRAFFIC_ENCRYPTED_KINDS,
+  ROUTE_FAILED, ROUTE_HOP_SILENT, ROUTE_HOP_TIME, ROUTE_HOP_WHERE, ROUTE_NOT_REACHED, ROUTE_PASSES_THROUGH, ROUTE_REACHED, ROUTE_SUMMARY, TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED, TRAFFIC_ENCRYPTED_KINDS,
   TRAFFIC_HEADLINE, TRAFFIC_HEADLINE_QUIET, TRAFFIC_HEADLINE_UNKNOWN, TRAFFIC_KIND_LABELS, TRAFFIC_KIND_SHORT, TRAFFIC_LOOKUPS, TRAFFIC_OWNER_LINE, TRAFFIC_REACH,
   TRAFFIC_REGISTERED_IN, TRAFFIC_SAMPLED, TRAFFIC_SELF_LINE, TRAFFIC_SERVED, TRAFFIC_STOPPED,
 } from '../../constants/netaudit'
 import type {
-  ChartBar, GeoPoint, HostTraffic, MapDot, RouteHop, RouteTrace, TalkGroup, TalkGroupId, TalkRow, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar,
+  ChartBar, GeoPoint, HostTraffic, MapDot, RouteHop, RouteLine, RouteTrace, TalkGroup, TalkGroupId, TalkRow, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar,
 } from '../../types/netaudit'
 
 const MS_PER_SECOND = 1000
@@ -303,8 +303,54 @@ export function routePoints(trace: RouteTrace | null): GeoPoint[] {
 export function hopWords(hop: RouteHop): { who: string; where: string; time: string } {
   if (!hop.address) return { who: ROUTE_HOP_SILENT, where: '', time: '' }
   const where = hop.owner ? ownerLine(hop.owner) : hop.where ? ROUTE_HOP_WHERE[hop.where] : ''
-  const time = hop.best_ms !== undefined ? ROUTE_HOP_TIME(hop.best_ms < 10 ? hop.best_ms.toFixed(1) : String(Math.round(hop.best_ms))) : ''
+  const time = hop.best_ms !== undefined ? ROUTE_HOP_TIME(msWords(hop.best_ms)) : ''
   return { who: hop.address, where, time }
+}
+
+/** A time in milliseconds as short digits: one decimal under ten, whole numbers above. */
+export function msWords(ms: number): string {
+  return ms < 10 ? ms.toFixed(1) : String(Math.round(ms))
+}
+
+/** The steps of a route with each run of two or more silent steps folded into one line; a single silent step stays as it is. */
+export function foldRoute(hops: readonly RouteHop[]): RouteLine[] {
+  const out: RouteLine[] = []
+  let i = 0
+  while (i < hops.length) {
+    const hop = hops[i]!
+    let end = i
+    while (!hops[end]!.address && end + 1 < hops.length && !hops[end + 1]!.address) end++
+    if (!hop.address && end > i) {
+      out.push({ kind: 'silent', from: hops[i]!.ttl, to: hops[end]!.ttl, count: end - i + 1 })
+      i = end + 1
+    } else {
+      out.push({ kind: 'hop', hop })
+      i++
+    }
+  }
+  return out
+}
+
+/** The one line over a route: how many steps, how many answered, how long the last answer took, and the countries it passes through. */
+export function routeSummary(trace: RouteTrace): string {
+  const answered = trace.hops.filter((h) => h.address)
+  const last = answered[answered.length - 1]
+  const line = ROUTE_SUMMARY(trace.hops.length, answered.length, last?.best_ms !== undefined ? msWords(last.best_ms) : null)
+  const countries: string[] = []
+  for (const h of answered) {
+    const code = h.owner?.place_country || h.owner?.country
+    const name = code ? countryName(code) : ''
+    if (name && !countries.includes(name)) countries.push(name)
+  }
+  return countries.length > 1 ? `${line} ${ROUTE_PASSES_THROUGH(countries.join(', '))}` : line
+}
+
+/** What the repeated rounds measured at one step, as words: answered of sent, then the quickest, average and slowest time. */
+export function statsWords(hop: RouteHop): { answered: string; best: string; average: string; worst: string } | null {
+  const st = hop.stats
+  if (!st || st.sent === 0) return null
+  const ms = (v: number | undefined) => (v === undefined || st.answered === 0 ? '\u2013' : ROUTE_HOP_TIME(msWords(v)))
+  return { answered: `${st.answered}/${st.sent}`, best: ms(st.best_ms), average: ms(st.avg_ms), worst: ms(st.worst_ms) }
 }
 
 /** What a finished trace says at its end: reached in N steps, not reached, or why it failed. Empty while it runs. */

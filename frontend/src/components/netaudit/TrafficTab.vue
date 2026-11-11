@@ -4,8 +4,10 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import EmptyState from "../common/feedback/EmptyState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import Panel from "../common/layout/Panel.vue"
+import TrafficOtherDevices from "./TrafficOtherDevices.vue"
 import TrafficReport from "./TrafficReport.vue"
 import TrafficTablesLine from "./TrafficTablesLine.vue"
+import TrafficTraceCard from "./TrafficTraceCard.vue"
 import { usePolling } from "../../composables/ui/usePolling"
 import { useHostTraffic } from "../../composables/netaudit/useHostTraffic"
 import { useRouteTrace } from "../../composables/netaudit/useRouteTrace"
@@ -48,11 +50,15 @@ usePolling(() => void routes.refresh(), ROUTE_POLL_MS)
         </div>
       </Panel>
 
+      <TrafficTraceCard />
+
       <template v-if="summary">
         <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="traffic-when">{{ summary.interface }} · {{ formatRelativeTime(summary.at) }}</p>
         <TrafficReport :traffic="summary" />
       </template>
       <EmptyState v-else-if="!loadError" :title="TRAFFIC_NEVER_TITLE" :body="TRAFFIC_NEVER_BODY" data-test="traffic-never" />
+
+      <TrafficOtherDevices />
 
       <!-- The tables that name internet addresses are managed in Settings; here only whether they are on, and a link. -->
       <TrafficTablesLine />

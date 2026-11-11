@@ -1251,6 +1251,17 @@ export interface RouteHop {
   where?: RouteHopWhere
   reached?: boolean
   owner?: TrafficOwner
+  /** What the repeated rounds measured at this step; absent on a plain trace. */
+  stats?: RouteHopStats
+}
+
+/** How one router answered over the repeated rounds. */
+export interface RouteHopStats {
+  sent: number
+  answered: number
+  best_ms?: number
+  avg_ms?: number
+  worst_ms?: number
 }
 
 export type RouteTraceState = 'running' | 'done' | 'failed'
@@ -1266,6 +1277,10 @@ export interface RouteTrace {
   ended_at?: string
   reached: boolean
   hops: RouteHop[]
+  /** The operator asked for the rounds after the first pass: `rounds` of them, `rounds_done` finished so far. */
+  repeat?: boolean
+  rounds?: number
+  rounds_done?: number
 }
 
 /** The answer of the route-trace route: whether this system can trace, and the kept traces, newest first. */
@@ -1273,3 +1288,86 @@ export interface RouteTracesState {
   supported: boolean
   traces: RouteTrace[]
 }
+
+/** The flags the phone-home watch raises for a device or one of its names (fixed words). */
+export type LookupFlag = 'new_place' | 'beaconing' | 'known_bad' | 'encrypted_dns' | 'around_dns'
+
+/** One name a device asked the router's DNS for. Text a device chose: shown as text only. */
+export interface DeviceLookupName {
+  name: string
+  /** The part a person recognises (googleapis.com for a.b.googleapis.com). */
+  domain: string
+  last: string
+  count: number
+  flag?: LookupFlag
+}
+
+/** What one device asked the router's DNS for: lookups, not traffic. */
+export interface DeviceLookups {
+  mac: string
+  first: string
+  last: string
+  /** Different names asked for in the last 24 hours, and how many the watch keeps. */
+  today: number
+  total: number
+  flags: LookupFlag[]
+  names: DeviceLookupName[]
+}
+
+/** The answer of the device-lookups route; `enabled` is false while the phone-home watch is off. */
+export interface DeviceLookupsState {
+  enabled: boolean
+  since?: string
+  devices: DeviceLookups[]
+}
+
+/** The names of one registrable domain a device asked for, with the newest time and the most serious flag among them. */
+export interface LookupGroup {
+  domain: string
+  names: DeviceLookupName[]
+  last: string
+  flag?: LookupFlag
+}
+
+/** One line of a folded route: a step of its own, or a run of steps where no router answered. */
+export type RouteLine = { kind: 'hop'; hop: RouteHop } | { kind: 'silent'; from: number; to: number; count: number }
+
+/** One internet address, port and protocol a device on the network held connections to, as the router's table shows it. */
+export interface RouterPlace {
+  address: string
+  port: number
+  proto: string
+  /** The state of the first such connection (tcp), as the router names it. */
+  state?: string
+  count: number
+  owner?: TrafficOwner
+}
+
+/** One device's connections from the router's table, grouped by place. */
+export interface RouterDevice {
+  address: string
+  total: number
+  places: RouterPlace[]
+}
+
+/** One read of the router's connection table: no byte counts, because the router does not keep them. */
+export interface RouterConnections {
+  at: string
+  lines: number
+  kept: number
+  truncated?: boolean
+  devices: RouterDevice[]
+}
+
+/** The router connection setup and the last read. The key is never in it. */
+export interface RouterConnState {
+  address: string
+  user: string
+  key_saved: boolean
+  /** The pinned router key's fingerprint; empty until the operator trusts it. */
+  fingerprint?: string
+  last?: RouterConnections
+}
+
+/** The steps of the router setup, in order; `ready` means a read can be made. */
+export type RouterSetupStep = 'target' | 'key' | 'trust' | 'ready'

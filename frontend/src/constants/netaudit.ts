@@ -701,7 +701,7 @@ export const TRAFFIC_SERIES_TITLE = 'Over the window'
 export const TRAFFIC_FLOWS_TITLE = 'Conversations'
 export const TRAFFIC_OTHERS = (n: number): string => `${n} other ${n === 1 ? 'place' : 'places'}`
 export const TRAFFIC_BUSIEST = (second: number, bytes: string): string => `busiest second: ${bytes} at 0:${String(second).padStart(2, '0')}`
-export const TRAFFIC_COLUMNS = { destination: 'Destination', port: 'Port', kind: 'Kind', service: 'What', sent: 'Sent', received: 'Received' } as const
+export const TRAFFIC_COLUMNS = { destination: 'Destination', port: 'Port', kind: 'Kind', service: 'Service', sent: 'Sent', received: 'Received' } as const
 export const TRAFFIC_KIND_LABELS: Readonly<Record<TrafficKindWord, string>> = {
   https: 'Web, encrypted (HTTPS)', http: 'Web, not encrypted (HTTP)', quic: 'Web and video (QUIC)', dns: 'Name lookups (DNS)', ssh: 'Remote login (SSH)',
   ntp: 'Clock (NTP)', discovery: 'Device discovery', icmp: 'Ping (ICMP)', tcp: 'Other (TCP)', udp: 'Other (UDP)',
@@ -854,7 +854,10 @@ export const TRAFFIC_FLOWS_SHOWN = 12
 export const TRAFFIC_FLOWS_MORE = (n: number): string => `Show ${n} more ${n === 1 ? 'conversation' : 'conversations'}`
 export const TRAFFIC_FLOWS_FEWER = 'Show fewer'
 export const TRAFFIC_FLOWS_KINDS_LABEL = 'Filter conversations by kind'
-export const TRAFFIC_WHAT_TITLE = 'What it was'
+export const TRAFFIC_WHAT_TITLE = 'What kind of traffic'
+export const TRAFFIC_WHAT_INTRO = 'The share of everything counted, by kind. Open Advanced to see each conversation.'
+export const TRAFFIC_KINDS_LABEL = 'Share of the traffic by kind'
+export const TRAFFIC_CONVERSATIONS_TITLE = 'Every conversation'
 export const TRAFFIC_WHERE_OWNERS = 'By network operator'
 export const TRAFFIC_WHERE_COUNTRIES = 'By country'
 export const TRAFFIC_WHERE_UNKNOWN = 'Not in the table'
@@ -942,3 +945,101 @@ export const ROUTE_FAILED: Readonly<Record<'unsupported' | 'time_limit' | 'stopp
 }
 export const ROUTE_POLL_MS = 1000
 export const ROUTE_STEPS_LABEL = 'Steps of the route'
+
+export const TRACE_CARD_TITLE = 'Trace a route'
+export const TRACE_CARD_INTRO = 'See the routers between this computer and any internet address, with who runs each and where it is. Asks for your passphrase.'
+export const TRACE_CARD_LABEL = 'Internet address'
+export const TRACE_CARD_PLACEHOLDER = 'for example 1.1.1.1'
+export const TRACE_CARD_ADDRESS_ONLY = 'An address, not a name: looking a name up would send a question of its own.'
+export const TRACE_CARD_BUTTON = 'Trace'
+export const TRACE_CARD_PRESETS_LABEL = 'Or pick one'
+export const TRACE_CARD_PRESETS: readonly { label: string; address: string }[] = [
+  { label: 'Cloudflare', address: '1.1.1.1' },
+  { label: 'Google', address: '8.8.8.8' },
+  { label: 'Quad9', address: '9.9.9.9' },
+]
+export const TRACE_CARD_PICK = (label: string, address: string): string => `Fill in ${label}, ${address}`
+export const ROUTE_REPEAT_BUTTON = 'Measure 10 rounds'
+export const ROUTE_REPEAT_EXPLAIN = 'Also sends one more probe to each router that answered, ten times over, to show how steady each one is. Takes about fifteen seconds.'
+export const ROUTE_REPEAT_RUNNING = (done: number, total: number): string => `Measuring, round ${done} of ${total}`
+export const ROUTE_STATS_COLUMNS = { answered: 'Answered', best: 'Best', average: 'Average', worst: 'Worst' } as const
+export const ROUTE_SILENT_RUN = (n: number): string => `${n} steps with no answer`
+export const ROUTE_SUMMARY = (steps: number, answered: number, ms: string | null): string =>
+  `${steps} ${steps === 1 ? 'step' : 'steps'}, ${answered} answered${ms ? `, ${ms} ms to the last one` : ''}.`
+export const ROUTE_PASSES_THROUGH = (places: string): string => `Passes through ${places}.`
+export const ROUTE_MAP_TITLE = 'On the map'
+export const ROUTE_STEPS_SHOWN = 'Show every step'
+export const ROUTE_STEPS_FOLDED = 'Fold the silent steps'
+
+export const LOOKUPS_INTRO = 'What each device on this network asked your router for, by name. This shows lookups, not traffic: the router does not say how much a device sent or received, or where it went.'
+export const LOOKUPS_OFF = 'The Phone-home watch is off, so no lookups are being kept.'
+export const LOOKUPS_OPEN_SETTINGS = 'Open the switch'
+export const LOOKUPS_EMPTY_TITLE = 'Nothing asked yet'
+export const LOOKUPS_EMPTY = 'No device has asked the router for a name yet. The router has to send its log here, and the watch has to be on.'
+export const LOOKUPS_LOAD_FAILED = 'The lookups could not be read.'
+export const LOOKUPS_REFRESH = 'Refresh'
+export const LOOKUPS_COUNT = (today: number, total: number): string => `${today} ${today === 1 ? 'name' : 'names'} today \u00b7 ${total} kept`
+export const LOOKUPS_LAST = (when: string): string => `last lookup ${when}`
+export const LOOKUPS_OPEN = (device: string): string => `Show what ${device} looked up`
+export const LOOKUPS_CLOSE = (device: string): string => `Hide what ${device} looked up`
+export const LOOKUPS_UNKNOWN_DEVICE = 'Unknown device'
+export const LOOKUPS_NO_NAMES = 'It has asked for no name since the watch began, though it is online. It probably uses a resolver of its own.'
+export const LOOKUPS_SHOW_ALL = (n: number): string => `Show ${n} more`
+export const LOOKUPS_FEWER = 'Show fewer'
+export const LOOKUPS_FLAG_LABELS: Readonly<Record<'new_place' | 'beaconing' | 'known_bad' | 'encrypted_dns' | 'around_dns', string>> = {
+  new_place: 'New place',
+  beaconing: 'Regular calls',
+  known_bad: 'Known malware host',
+  encrypted_dns: 'Encrypted DNS',
+  around_dns: 'Asks nothing',
+}
+export const LOOKUPS_FLAG_HELP: Readonly<Record<'new_place' | 'beaconing' | 'known_bad' | 'encrypted_dns' | 'around_dns', string>> = {
+  new_place: 'A name it did not ask for in its first week.',
+  beaconing: 'A new name it asks for at a steady beat.',
+  known_bad: 'On abuse.ch\u2019s list of hosts that serve malware.',
+  encrypted_dns: 'A public encrypted-DNS server: it may send its lookups there instead of to your router.',
+  around_dns: 'It is online but asks your router for nothing.',
+}
+
+export const OTHER_DEVICES_TITLE = 'Other devices'
+export const OTHER_DEVICES_VIEWS_LABEL = 'What to show about the other devices'
+export const OTHER_DEVICES_VIEW_LABELS = { lookups: 'What they looked up', connections: 'Where they connected' } as const
+export const ROUTER_CONN_INTRO = 'Reads the router’s own list of open connections, once, when you press. It shows which device on this network connected to which place on the internet, with who runs it and where it is. It does not say how much was sent: the router does not count that.'
+export const ROUTER_CONN_LOAD_FAILED = 'The router setup could not be read.'
+export const ROUTER_CONN_FAILED = 'The router could not be read.'
+export const ROUTER_CONN_STEPS: Readonly<Record<'target' | 'key' | 'trust' | 'ready', string>> = {
+  target: 'Step 1 of 3: where the router is',
+  key: 'Step 2 of 3: the key this program signs in with',
+  trust: 'Step 3 of 3: trust the router’s own key',
+  ready: 'Ready',
+}
+export const ROUTER_CONN_ADDRESS = 'Router address'
+export const ROUTER_CONN_ADDRESS_HINT = 'An address on this network, such as 192.168.50.1. Add :port if SSH is not on 22.'
+export const ROUTER_CONN_USER = 'Router user'
+export const ROUTER_CONN_USER_HINT = 'The account you sign in to the router with.'
+export const ROUTER_CONN_SAVE = 'Save'
+export const ROUTER_CONN_KEY = 'Private key'
+export const ROUTER_CONN_KEY_HINT = 'Make one just for this: ssh-keygen -t ed25519 -N "" -f router_key. Paste the contents of router_key here, and the contents of router_key.pub into the router’s Authorized Keys (Administration, System, with SSH on for the local network only). The key is stored encrypted and never shown again.'
+export const ROUTER_CONN_KEY_SAVE = 'Save the key'
+export const ROUTER_CONN_KEY_REMOVE = 'Remove the key'
+export const ROUTER_CONN_CHECK = 'Check the router’s key'
+export const ROUTER_CONN_CHECK_HINT = 'Asks the router for its SSH key without signing in. Compare the fingerprint with the one the router shows (on Asus routers, in the SSH settings) before you trust it.'
+export const ROUTER_CONN_FINGERPRINT = (fp: string): string => `The router says its key is ${fp}`
+export const ROUTER_CONN_TRUST = 'Trust this key'
+export const ROUTER_CONN_TRUSTED = (fp: string): string => `Trusted router key ${fp}. A router that shows another key is refused.`
+export const ROUTER_CONN_READ = 'Read the router now'
+export const ROUTER_CONN_READING = 'Reading the router'
+export const ROUTER_CONN_PASSPHRASE = 'Asks for your passphrase each time.'
+export const ROUTER_CONN_CHANGE = 'Change the setup'
+export const ROUTER_CONN_NEVER = 'The router has not been read yet.'
+export const ROUTER_CONN_WHEN = (when: string, lines: number, kept: number): string => `Read ${when}: ${lines} lines, ${kept} connections to the internet.`
+export const ROUTER_CONN_TRUNCATED = 'The router’s list was longer than this program reads, so some connections are missing.'
+export const ROUTER_CONN_NONE = 'No device on this network held a connection to the internet when the router was read.'
+export const ROUTER_CONN_COUNT = (n: number): string => `${n} ${n === 1 ? 'connection' : 'connections'}`
+export const ROUTER_CONN_PLACES = (n: number): string => `${n} ${n === 1 ? 'place' : 'places'}`
+export const ROUTER_CONN_OPEN = (device: string): string => `Show where ${device} connected`
+export const ROUTER_CONN_CLOSE = (device: string): string => `Hide where ${device} connected`
+export const ROUTER_CONN_TRACE = 'Trace'
+export const ROUTER_CONN_TRACE_LABEL = (address: string): string => `Fill in ${address} in the route trace`
+export const ROUTER_CONN_SHOW_ALL = (n: number): string => `Show ${n} more`
+export const ROUTER_CONN_FEWER = 'Show fewer'
