@@ -24,12 +24,12 @@ func (m *memTraffic) Write(t models.HostTraffic) error  { m.got = t; return m.er
 
 func TestTheHostTrafficOutputIsReadInTheServiceNotTheHelper(t *testing.T) {
 	data := wire.AppendHostTrailer(nil, wire.HostTrailer{Stop: wire.StopInterfaceDown, Sample: 1})
-	v, err := parseHelperOutput("capture_host", data)
+	v, err := (helperParser{}).parse("capture_host", data)
 	s, ok := v.(models.HostTraffic)
 	if err != nil || !ok || s.StoppedBy != "interface_down" {
 		t.Fatalf("%v %v %v", v, ok, err)
 	}
-	if _, err := parseHelperOutput("capture_host", wire.AppendHostTrailer(nil, wire.HostTrailer{Frames: 3})); err == nil {
+	if _, err := (helperParser{}).parse("capture_host", wire.AppendHostTrailer(nil, wire.HostTrailer{Frames: 3})); err == nil {
 		t.Fatal("a trailer that disagrees with its records was accepted")
 	}
 }
@@ -48,7 +48,7 @@ func TestAHostTrafficWindowTellsDirectionByThisComputersAddresses(t *testing.T) 
 	binary.BigEndian.PutUint16(f[14+20+2:], 443)
 	f[14+20+12] = 5 << 4
 	data := wire.AppendHostTrailer(wire.AppendHostRecord(nil, 5, 1, f), wire.HostTrailer{Frames: 1, ElapsedMs: 1000, Sample: 1})
-	v, err := parseHelperOutput("capture_host", data)
+	v, err := (helperParser{}).parse("capture_host", data)
 	if err != nil || v.(models.HostTraffic).BytesOut != 1000 {
 		t.Fatalf("%+v %v", v, err)
 	}

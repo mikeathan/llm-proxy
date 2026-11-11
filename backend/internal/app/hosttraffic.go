@@ -47,8 +47,8 @@ var ownAddresses = func() []netip.Addr {
 }
 
 // readHostTraffic reads one run's output in this unprivileged process (Constitution I.13).
-func readHostTraffic(data []byte) (models.HostTraffic, error) {
-	return hosttraffic.Summarize(data, ownAddresses())
+func readHostTraffic(data []byte, owners hosttraffic.Owners) (models.HostTraffic, error) {
+	return hosttraffic.Summarize(data, ownAddresses(), owners)
 }
 
 // keepHostTraffic stamps a decoded summary with the time and the interface it listened on, and keeps it. A failed save is logged and dropped:

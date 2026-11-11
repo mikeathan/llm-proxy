@@ -672,7 +672,7 @@ export const TRAFFIC_NEVER_TITLE = 'Nothing looked at yet'
 export const TRAFFIC_NEVER_BODY = 'Press Listen now to see where this computer\'s traffic goes for the next minute.'
 export const TRAFFIC_LOAD_FAILED = 'The last look could not be read.'
 export const TRAFFIC_PRIVACY_NOTE =
-  'This shows only the traffic to and from this computer. Names come from DNS answers, and any device can make one up, so treat a name as a hint. Nothing in the traffic is kept except these totals.'
+  'This shows only the traffic to and from this computer. Names come from DNS answers and from the server name in a TLS handshake, and any device can make one up, so treat a name as a hint. Who runs a server comes from a public table kept on this computer. Nothing in the traffic is kept except these totals.'
 export const TRAFFIC_UNSUPPORTED = 'This computer cannot listen to its own traffic: the privileged helper needs Linux with systemd.'
 export const TRAFFIC_NOT_INSTALLED = 'The privileged helper is not installed on this computer. Settings shows the one command that installs it.'
 export const TRAFFIC_NOT_READY = (why: string): string => `The privileged helper is not ready: ${why}`
@@ -806,3 +806,39 @@ export const STANDING_TREND_WORDS: Record<'better' | 'worse' | 'same', string> =
   worse: 'Worse: more problems appeared than went away.',
   same: 'About the same: as many appeared as went away.',
 }
+
+/** Who runs the servers the traffic went to: a public table of address ranges, downloaded once and looked up on this computer. */
+export const DESTINATION_DATA_TITLE = 'Who runs these servers'
+export const DESTINATION_DATA_INTRO = 'Adds the network operator and the country to each internet address on this page, from a public table of address ranges. The table is downloaded once; every lookup happens on this computer, so none of your destinations is sent anywhere.'
+export const DESTINATION_DATA_NEEDS = 'Not downloaded yet. Until it is, internet addresses show without an operator or country.'
+export const DESTINATION_DATA_SOURCE = (source: string): string => `Downloading asks ${source} for two files of address ranges (about 11 MB). It learns this computer\u2019s address and nothing about your traffic. It needs your passphrase.`
+export const DESTINATION_DATA_HELD = (ranges: string, when: string): string => `${ranges} address ranges, downloaded ${when}.`
+export const DESTINATION_DATA_DOWNLOAD = 'Download the table'
+export const DESTINATION_DATA_REFRESH = 'Refresh the table'
+export const DESTINATION_DATA_REMOVE = 'Remove the table'
+export const DESTINATION_DATA_LOAD_FAILED = 'The table of address owners could not be read.'
+export const DESTINATION_DATA_DOWNLOAD_FAILED = 'The table could not be downloaded. The one you had, if any, is still in use.'
+export const DESTINATION_DATA_REMOVE_FAILED = 'The table could not be removed.'
+export const DESTINATION_DATA_ACCURACY = 'The table says who an address is registered to, not where the machine stands: a company that serves from many countries shows one.'
+export const TRAFFIC_WHERE_TITLE = 'Where it went'
+export const TRAFFIC_WHERE_OWNERS = 'By network operator'
+export const TRAFFIC_WHERE_COUNTRIES = 'By country'
+export const TRAFFIC_WHERE_UNKNOWN = 'Not in the table'
+export const TRAFFIC_WHERE_NO_TABLE = 'This look was made without the table of address owners. Download it (above), then listen again to see which companies and countries the traffic went to.'
+export const TRAFFIC_WHERE_NOTHING = 'No internet address in this look is in the table.'
+export const TRAFFIC_WHERE_OF_INTERNET = 'Shares are of the traffic to the internet.'
+export const TRAFFIC_OWNER_LINE = (name: string, country: string): string => [name, country].filter(Boolean).join(' \u00b7 ')
+export const TRAFFIC_DETAIL_OWNER = 'Run by'
+export const TRAFFIC_DETAIL_ASN = (asn: number): string => `network AS${asn}`
+export const TRAFFIC_DETAIL_NAME_FROM: Readonly<Record<'dns' | 'tls', string>> = {
+  dns: 'Name from a DNS answer this computer received.',
+  tls: 'Name from the TLS handshake this computer sent, which is the server name it asked this address for.',
+}
+
+/** Said on the Findings tab when a link names a finding that the latest report does not hold. */
+export const FINDING_NOT_OPEN = 'That problem is not in the latest report any more. It may have been fixed, or marked as fine.'
+/** The words of the links that lead to a finding or to a device's findings. */
+export const FINDING_LINK_LABEL = (title: string): string => `Show ${title} in the findings`
+export const DEVICE_PROBLEMS_LINK = (count: number): string => `${count} ${count === 1 ? 'problem' : 'problems'}`
+export const DEVICE_PROBLEMS_LINK_LABEL = (name: string, count: number): string => `Show the ${count === 1 ? 'problem' : `${count} problems`} found on ${name}`
+export const PROBLEMS_SEE_ALL = 'See all problems'

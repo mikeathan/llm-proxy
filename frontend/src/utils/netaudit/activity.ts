@@ -1,4 +1,6 @@
 import { PORT_NAMES, ROUTER_PORTS_SHOWN } from '../../constants/netaudit'
+import { toDeviceFindings, toNetwork } from '../../router/routes'
+import type { RouteLocationNamedRaw } from 'vue-router'
 import type { ActivityFilter, ActivityGroupOfRows, ActivityItem, ActivityRow } from '../../types/netaudit'
 
 const MS_PER_DAY = 86_400_000
@@ -162,4 +164,13 @@ export function dropEchoedAlerts(rows: ActivityRow[]): ActivityRow[] {
     const at = new Date(r.at).getTime()
     return !devices.some((d) => at - d >= 0 && at - d < ECHO_WINDOW_MS)
   })
+}
+
+/**
+ * Where a row about a problem leads: a fixed or returned problem to the problems of its device, and an audit's tally to the Findings tab.
+ * Rows that are not about a problem lead nowhere.
+ */
+export function rowLink(row: ActivityRow): RouteLocationNamedRaw | null {
+  if ((row.kind === 'finding_fixed' || row.kind === 'finding_returned') && row.device) return toDeviceFindings(row.device)
+  return row.kind === 'audit' ? toNetwork('findings') : null
 }

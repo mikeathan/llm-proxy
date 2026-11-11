@@ -100,7 +100,7 @@ const inventorySummary = computed(() => seenSentence(devicesIn(props.report.find
     </Disclosure>
     <Disclosure v-if="summary.accepted.length" aria-label="Marked as fine" data-test="accepted" title="Marked as fine" :summary="String(summary.accepted.length)" :open="acceptedOpen" @update:open="acceptedOpen = $event">
       <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
-        <li v-for="f in summary.accepted" :key="f.key" class="flex items-center justify-between gap-3 py-1 first:pt-0 last:pb-0">
+        <li v-for="f in summary.accepted" :key="f.key" :data-key="f.key" class="flex items-center justify-between gap-3 py-1 first:pt-0 last:pb-0">
           <span class="min-w-0 break-words text-[length:var(--text-small)] text-secondary">{{ shortTitle(f) }}<template v-if="f.accepted_note"> · {{ f.accepted_note }}</template></span>
           <BaseButton variant="ghost" size="sm" class-name="flex-none max-sm:!h-11" @click="emit('revoke', f)">Take back</BaseButton>
         </li>

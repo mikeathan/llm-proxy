@@ -14,6 +14,7 @@ func runFilter(prog []filterInstruction, pkt []byte) uint32 {
 // runFilterWith is runFilter with the number the kernel's random ancillary load would answer, so a sampling filter is tested for each draw.
 func runFilterWith(prog []filterInstruction, pkt []byte, random uint32) uint32 {
 	var a, x uint32
+	var mem [16]uint32
 	pc := 0
 	u16 := func(off uint32) (uint32, bool) {
 		if int(off)+2 > len(pkt) {
@@ -39,6 +40,23 @@ func runFilterWith(prog []filterInstruction, pkt []byte, random uint32) uint32 {
 			a += in.K
 		case opRetA:
 			return a
+		case opTax:
+			x = a
+		case opAddX:
+			a += x
+		case opRshK:
+			a >>= in.K
+		case opSt:
+			mem[in.K] = a
+		case opLdxMem:
+			x = mem[in.K]
+		case opLdLen:
+			a = uint32(len(pkt)) // the whole frame's length, as the kernel's length load answers
+		case opLdbInd:
+			if int(x+in.K) >= len(pkt) {
+				return 0 // a load past the end of the frame ends the program with a drop, as in the kernel
+			}
+			a = uint32(pkt[x+in.K])
 		case opLdbAbs:
 			if int(in.K) >= len(pkt) {
 				return 0
@@ -57,8 +75,8 @@ func runFilterWith(prog []filterInstruction, pkt []byte, random uint32) uint32 {
 				return 0
 			}
 			x = 4 * uint32(pkt[in.K]&0xf)
-		case opJeq, opJgt, opJge, opJset:
-			cond := map[uint16]bool{opJeq: a == in.K, opJgt: a > in.K, opJge: a >= in.K, opJset: a&in.K != 0}[in.Code]
+		case opJeq, opJgt, opJge, opJset, opJgeX:
+			cond := map[uint16]bool{opJeq: a == in.K, opJgt: a > in.K, opJge: a >= in.K, opJset: a&in.K != 0, opJgeX: a >= x}[in.Code]
 			if cond {
 				pc += int(in.Jt)
 			} else {

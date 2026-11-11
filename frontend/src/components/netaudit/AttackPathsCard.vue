@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Panel from "../common/layout/Panel.vue"
-import { ATTACK_PATHS_FIX_LABEL, ATTACK_PATHS_MARK_HINT, ATTACK_PATHS_NONE, ATTACK_PATHS_TITLE } from "../../constants/netaudit"
+import { toFinding } from "../../router/routes"
+import { ATTACK_PATHS_FIX_LABEL, FINDING_LINK_LABEL, ATTACK_PATHS_MARK_HINT, ATTACK_PATHS_NONE, ATTACK_PATHS_TITLE } from "../../constants/netaudit"
 import { breaksLine, prizeText, stepText } from "../../utils/netaudit/attackPaths"
 import type { AttackPath } from "../../types/netaudit"
 
@@ -17,7 +18,7 @@ defineProps<{ paths: AttackPath[] }>()
           <li v-for="p in paths" :key="p.id" :class="['flex flex-col gap-1', p.all_accepted ? 'opacity-70' : '']" :data-test="`path-${p.id}`">
             <span class="text-primary">{{ p.entry.text }}</span>
             <ul class="m-0 flex list-none flex-col gap-0.5 p-0 pl-4">
-              <li v-for="s in p.steps" :key="s.key" class="text-[length:var(--text-small)] text-secondary" data-test="path-step"><span aria-hidden="true" class="mr-1.5 text-muted">&rarr;</span>{{ stepText(s) }}</li>
+              <li v-for="s in p.steps" :key="s.key" class="text-[length:var(--text-small)] text-secondary" data-test="path-step"><span aria-hidden="true" class="mr-1.5 text-muted">&rarr;</span><RouterLink :to="toFinding(s.key)" :aria-label="FINDING_LINK_LABEL(s.title)" class="text-secondary underline decoration-hairline underline-offset-2 hover:text-accent-info-text" data-test="path-step-link">{{ stepText(s) }}</RouterLink></li>
               <li class="text-[length:var(--text-small)] font-medium text-primary" data-test="path-prize"><span aria-hidden="true" class="mr-1.5 text-muted">&rarr;</span>{{ prizeText(p.prize) }}</li>
             </ul>
             <p class="m-0 text-[length:var(--text-small)] text-muted" data-test="path-fix"><span class="font-medium text-secondary">{{ ATTACK_PATHS_FIX_LABEL }}:</span> {{ p.fix.text }} {{ breaksLine(p.breaks) }}</p>

@@ -108,13 +108,13 @@ func packetStats(fd int) (uint32, uint32) {
 
 func (s *packetSource) Close() error { return unix.Close(s.fd) }
 
-// hostPacketSource reads frames for the host traffic look: up to hostSnapDNS bytes of each, and a filter the sampling rate can replace.
+// hostPacketSource reads frames for the host traffic look: up to wire.HostSnapMax bytes of each, and a filter the sampling rate can replace.
 type hostPacketSource struct {
 	fd  int
-	buf [hostSnapDNS]byte
+	buf [wire.HostSnapMax]byte
 }
 
-// Next reads one frame, at most hostSnapDNS bytes of it (the filter decides how many it keeps).
+// Next reads one frame, at most wire.HostSnapMax bytes of it (the filter decides how many it keeps).
 func (s *hostPacketSource) Next() ([]byte, error) {
 	n, _, err := unix.Recvfrom(s.fd, s.buf[:], 0)
 	switch {

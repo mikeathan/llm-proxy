@@ -122,3 +122,13 @@ describe('NetworkOverviewPanel', () => {
   })
 })
 
+
+describe('NetworkOverviewPanel problems link', () => {
+  it('leads from the problems figure to the Findings tab, only when there are problems', async () => {
+    const w = mount(NetworkOverviewPanel, { props: { overview: overview(), hasAudit: true } })
+    await w.get('[data-test="problems-link"]').trigger('click')
+    expect(w.emitted('open-tab')?.slice(-1)[0]).toEqual(['findings'])
+    const none = mount(NetworkOverviewPanel, { props: { overview: overview({ findings: { scanned: true, open: 0, serious: 0, new: 0 } }), hasAudit: true } })
+    expect(none.find('[data-test="problems-link"]').exists()).toBe(false)
+  })
+})

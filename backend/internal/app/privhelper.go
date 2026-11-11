@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"llm-proxy/internal/core/netaudit/hosttraffic"
 	"net/http"
 	"net/netip"
 	"os"
@@ -48,6 +49,9 @@ type helperSinks struct {
 	Probes   probeSink
 	Captures captureSink
 	Traffic  hostTrafficSink
+	// Owners gives, at the moment of each look, the way to say who holds an internet address, for the traffic view: nil until the operator has
+	// downloaded the table, and whenever the table is empty.
+	Owners func() hosttraffic.Owners
 }
 
 // liveSandbox reads the sandbox provider at the moment of each call: the provider is built after the routes are, and the interlock must see
@@ -76,7 +80,7 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}}
 	for _, rt := range api.HelperRoutes() {
 		id := rt.Path[len("/admin/api/helper/"):]
-		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: parseHelperOutput, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself, Running: running})
+		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: helperParser{owners: sinks.Owners}.parse, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself, Running: running})
 	}
 	h.capture = captureWindowHandler(sinks.Captures)
 	h.traffic = hostTrafficHandler(sinks.Traffic)
@@ -97,17 +101,28 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 // back when the parser could not.
 func keepsToItself(action string) bool { return action == "capture_window" || action == "capture_host" }
 
-// parseHelperOutput reads one action's raw output in this unprivileged process (Constitution I.11, I.13): a scan is nmap's XML and a capture is
+// helperParser reads each action's raw output. owners, when set, gives the way to name the holders of the internet addresses a traffic look saw.
+type helperParser struct{ owners func() hosttraffic.Owners }
+
+// currentOwners is the table of address owners as it is now, or nil when there is none.
+func (p helperParser) currentOwners() hosttraffic.Owners {
+	if p.owners == nil {
+		return nil
+	}
+	return p.owners()
+}
+
+// parse reads one action's raw output in this unprivileged process (Constitution I.11, I.13): a scan is nmap's XML and a capture is
 // a few kept bytes of each frame, and each parser keeps only typed, cleaned and bounded fields. An action added to the catalogue gets its case here; one
 // without a case is answered as raw bytes only, which the route says in parse_error.
-func parseHelperOutput(action string, data []byte) (any, error) {
+func (p helperParser) parse(action string, data []byte) (any, error) {
 	switch action {
 	case "scan_udp", "os_detect":
 		return nmap.ParseProbe(data)
 	case "capture_window":
 		return framewire.Summarize(data)
 	case "capture_host":
-		return readHostTraffic(data)
+		return readHostTraffic(data, p.currentOwners())
 	}
 	return nil, fmt.Errorf("no reader for the output of %q", action)
 }

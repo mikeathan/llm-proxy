@@ -14,6 +14,7 @@ import { useDeepCheck } from "../../composables/netaudit/useDeepCheck"
 import { useNetauditReadiness } from "../../composables/netaudit/useNetauditReadiness"
 import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
 import { useModuleSources } from "../../composables/netaudit/useModuleSources"
+import { useFindingFocus } from "../../composables/netaudit/useFindingFocus"
 import { useFindings } from "../../composables/netaudit/useFindings"
 import { RECHECK_INJECTION, useRecheck } from "../../composables/netaudit/useRecheck"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
@@ -21,6 +22,7 @@ import { openPortsOf } from "../../utils/netaudit/expectations"
 import { findingTitle, isCheck, portCount } from "../../utils/netaudit/friendly"
 import { deepProblemsOf, summarize } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
+import { FINDING_NOT_OPEN } from "../../constants/netaudit"
 import type { CloserLook, ScanFinding } from "../../types/netaudit"
 
 // The latest scan of one automation. Simple: what needs a look, in plain sentences, one decision each. Advanced:
@@ -69,6 +71,11 @@ async function runDeep() {
 }
 
 const summary = computed(() => (report.value ? summarize(report.value) : null))
+
+// A link from another page (an attack path, a timeline row, a device) names a finding or a device: it is scrolled to and marked once the report is
+// drawn, and a finding that is not in the report any more is said so.
+const section = ref<HTMLElement | null>(null)
+const { missing: focusMissing } = useFindingFocus(section, computed(() => !!report.value?.scanned && !!summary.value))
 // Problems from a deep check no audit has carried into the report yet: shown with the others, read-only and dated.
 const deepProblems = computed(() => (report.value ? deepProblemsOf(report.value, deepCheck.checks.value) : []))
 
@@ -116,7 +123,7 @@ onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load
 </script>
 
 <template>
-  <section aria-label="Latest network scan" class="min-w-0">
+  <section ref="section" aria-label="Latest network scan" class="min-w-0">
     <h2 class="sr-only">Latest network scan</h2>
     <div v-if="running" role="status" data-test="scan-running" class="mb-3 flex flex-wrap items-center justify-between gap-2 border border-hairline bg-surface px-3 py-2.5">
       <span class="min-w-0 break-words text-primary"><span class="font-semibold">{{ runningText }}</span> The buttons are off until it finishes.</span>
@@ -132,6 +139,7 @@ onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load
       <p class="m-0 text-secondary" data-test="scan-meta">{{ meta }}</p>
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
+      <p v-if="focusMissing" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="focus-missing">{{ FINDING_NOT_OPEN }}</p>
 
       <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" :extra-problems="deepProblems" :names="names" :expectations="expectations" :deep-checks="deepCheck.checks.value" :deep-running="deepCheck.running.value" @deep="deepDevice = $event" @expect="findings.setExpected" @edit-expected="editing = $event" @unexpect="findings.removeExpected($event)" @accept="accepting = $event" @accept-many="acceptingMany = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
         <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" /></template>

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"llm-proxy/internal/core/netaudit/hosttraffic"
+	"llm-proxy/internal/core/netaudit/ipowners"
 	"net"
 	"net/netip"
 	"os"
@@ -129,6 +131,9 @@ type netauditServices struct {
 	KnownBadConfig *netaudit.KnownBadConfig
 	KnownBad       *knownbad.Manager
 	KnownBadList   *knownBadList
+	// DestinationOwners is the table of address owners the Traffic view names destinations with: downloaded when the operator asks, looked up on
+	// this computer.
+	DestinationOwners *ipowners.Manager
 	// WebChecksConfig is the nightly switch of the web checks; WebChecker asks the web pages their fixed questions.
 	WebChecksConfig *netaudit.WebChecksConfig
 	WebChecker      netaudit.WebChecker
@@ -646,6 +651,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		KnownBadConfig:    bad.Config,
 		KnownBad:          bad.Manager,
 		KnownBadList:      bad.List,
+		DestinationOwners: s.newDestinationOwners(netTools),
 		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
 		WebChecker:        webChecker,
 		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
@@ -953,4 +959,23 @@ func (s *AppServices) auditNames(workspaceID string) []string {
 		}
 	}
 	return names
+}
+
+// newDestinationOwners builds the table of address owners. It is public data downloaded only when the operator presses the button; a stored copy
+// is read back at start. A copy that cannot be read is logged and the manager starts empty.
+func (s *AppServices) newDestinationOwners(netTools *tools.NetworkTools) *ipowners.Manager {
+	file := withReset(s.AppCtx, "The downloaded table of address owners", persistence.NewIPOwnersStore(s.AppCtx.RootDir()))
+	m, err := ipowners.NewManager(ipowners.Deps{Store: file, Open: netTools.Open})
+	if err != nil {
+		logging.Warn("network destination owners", "error", err.Error())
+	}
+	return m
+}
+
+// currentOwners is the way to name the holder of an internet address, or nil when no table is held.
+func (n *netauditServices) currentOwners() hosttraffic.Owners {
+	if n == nil || n.DestinationOwners == nil || n.DestinationOwners.Status().Ranges == 0 {
+		return nil
+	}
+	return n.DestinationOwners.Owner
 }

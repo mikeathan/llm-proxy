@@ -54,6 +54,12 @@ export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRa
   ...(hash ? { hash } : {}),
 })
 
+/** The Findings tab, scrolled to one finding (its key) and marked for a moment. A finding that is gone from the report says so. */
+export const toFinding = (key: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'findings' }, query: { finding: key } })
+
+/** The Findings tab, scrolled to the first finding of one device (its address) with all of that device's findings marked. */
+export const toDeviceFindings = (device: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'findings' }, query: { device } })
+
 /** The Agents page; without a tab it opens on the activity. */
 export const toAgents = (tab?: AgentsTab): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.agents,

@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, useId } from "vue"
+import { computed, inject, useId } from "vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
 import DeviceProbe from "./DeviceProbe.vue"
-import { DEVICE_DNS_NOTE, DEVICE_DNS_TAG, DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
+import { DEVICE_PROBLEMS_INJECTION } from "../../composables/netaudit/useDeviceProblems"
+import { toDeviceFindings } from "../../router/routes"
+import { severityState } from "../../utils/netaudit/friendly"
+import { DEVICE_PROBLEMS_LINK, DEVICE_PROBLEMS_LINK_LABEL, DEVICE_DNS_NOTE, DEVICE_DNS_TAG, DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
 import { isRecorded } from "../../utils/format/time"
 import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, portsLine, portsSummary } from "../../utils/netaudit/devices"
 import { formatRelativeTime } from "../../utils/format/time"
@@ -37,6 +40,9 @@ const emit = defineEmits<{
 }>()
 
 const bodyId = useId()
+// The open problems the latest audit found on this device, when the Network page knows them: a link to them, beside the row and not inside it.
+const problems = inject(DEVICE_PROBLEMS_INJECTION, null)
+const own = computed(() => (props.device.ip ? (problems?.of(props.device.ip) ?? null) : null))
 const status = computed(() => deviceStatus(props.device))
 const ports = computed(() => (props.advanced ? portsLine(props.device) : portsSummary(props.device)))
 const portsRecorded = computed(() => isRecorded(props.device.ports_scanned_at))
@@ -45,11 +51,12 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
 
 <template>
   <li class="border-b border-hairline last:border-b-0" :data-test="`device-${device.mac}`">
+    <div class="flex items-center gap-1">
     <button
       type="button"
       :aria-expanded="expanded"
       :aria-controls="expanded ? bodyId : undefined"
-      class="flex min-h-11 w-full items-center gap-3 rounded-[var(--radius-md)] px-2 py-1.5 text-left hover:bg-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus-ring"
+      class="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-[var(--radius-md)] px-2 py-1.5 text-left hover:bg-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-focus-ring"
       data-test="device-toggle"
       @click="emit('toggle')"
     >
@@ -67,6 +74,10 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
         <span class="max-sm:sr-only">{{ status === "online" ? "Online" : deviceSeen(device) }}</span>
       </span>
     </button>
+    <RouterLink v-if="own" :to="toDeviceFindings(device.ip!)" :aria-label="DEVICE_PROBLEMS_LINK_LABEL(deviceLabel(device), own.count)" class="flex min-h-11 flex-none items-center px-1 sm:min-h-8" data-test="device-problems">
+      <StatusTag :state="severityState(own.severity)" :label="DEVICE_PROBLEMS_LINK(own.count)" />
+    </RouterLink>
+    </div>
 
     <div v-if="expanded" :id="bodyId" class="flex flex-col gap-2 pb-3 pl-7 pr-2">
       <p class="m-0 text-[length:var(--text-small)] text-muted">

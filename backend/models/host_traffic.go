@@ -41,6 +41,12 @@ type HostTraffic struct {
 	Flows      []TrafficFlow `json:"flows"`
 	OtherFlows int           `json:"other_flows"`
 	OtherBytes uint64        `json:"other_bytes"`
+	// OwnersUsed says the table of address owners was downloaded when the window was read, so a missing owner means "not in the table" and not "no
+	// table". Owners and Countries are the internet bytes of the table's conversations by network holder (at most 8) and by country (at most 12),
+	// biggest first; they cover the conversations the table kept, so they can sum to less than Internet.
+	OwnersUsed bool                  `json:"owners_used"`
+	Owners     []TrafficOwnerShare   `json:"owners"`
+	Countries  []TrafficCountryShare `json:"countries"`
 }
 
 // TrafficKind is the bytes of one kind of traffic. Kind is one of a fixed set of words (https, http, quic, dns, ssh, ntp, discovery, icmp,
@@ -50,22 +56,54 @@ type TrafficKind struct {
 	Bytes uint64 `json:"bytes"`
 }
 
+// The two places a traffic view's name can come from. A name is a hint either way: a peer chose the text.
+const (
+	NameFromDNS = "dns" // the question of a DNS answer that gave the address
+	NameFromTLS = "tls" // the server name in a TLS ClientHello this computer sent to the address
+)
+
 // TrafficDestination is the bytes exchanged with one place. Name is empty when no DNS answer in the window named the address.
 type TrafficDestination struct {
-	Name     string `json:"name,omitempty"`
-	Address  string `json:"address"`
-	Bytes    uint64 `json:"bytes"`
-	Internet bool   `json:"internet"`
+	Name     string        `json:"name,omitempty"`
+	NameFrom string        `json:"name_from,omitempty"`
+	Address  string        `json:"address"`
+	Bytes    uint64        `json:"bytes"`
+	Internet bool          `json:"internet"`
+	Owner    *TrafficOwner `json:"owner,omitempty"`
 }
 
 // TrafficFlow is one conversation with a remote address and port, by protocol.
 type TrafficFlow struct {
-	Address  string `json:"address"`
-	Name     string `json:"name,omitempty"`
-	Port     int    `json:"port"`
-	Proto    string `json:"proto"`
-	Kind     string `json:"kind"`
-	Internet bool   `json:"internet"`
-	BytesOut uint64 `json:"bytes_out"`
-	BytesIn  uint64 `json:"bytes_in"`
+	Address  string        `json:"address"`
+	Name     string        `json:"name,omitempty"`
+	NameFrom string        `json:"name_from,omitempty"`
+	Port     int           `json:"port"`
+	Proto    string        `json:"proto"`
+	Kind     string        `json:"kind"`
+	Internet bool          `json:"internet"`
+	BytesOut uint64        `json:"bytes_out"`
+	BytesIn  uint64        `json:"bytes_in"`
+	Owner    *TrafficOwner `json:"owner,omitempty"`
+}
+
+// TrafficOwner is who runs the network an internet address belongs to, from a public table of address ranges kept on this computer (plan
+// network-clickable-findings-traffic-owners, Constitution I.13). ASN is the autonomous system number, Country two capital letters, and Name the
+// holder's own words in that table: text somebody else chose, so it appears only on this view and only as text, and is never put in a finding,
+// an alert, a log, a prompt or the Timeline. Nothing is sent anywhere to look an address up.
+type TrafficOwner struct {
+	ASN     uint32 `json:"asn"`
+	Name    string `json:"name"`
+	Country string `json:"country,omitempty"`
+}
+
+// TrafficOwnerShare is the internet bytes that went to or came from one network holder.
+type TrafficOwnerShare struct {
+	TrafficOwner
+	Bytes uint64 `json:"bytes"`
+}
+
+// TrafficCountryShare is the internet bytes that went to or came from addresses of one country (two capital letters).
+type TrafficCountryShare struct {
+	Country string `json:"country"`
+	Bytes   uint64 `json:"bytes"`
 }

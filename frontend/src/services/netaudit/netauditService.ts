@@ -1,6 +1,7 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, postFile, put } from '../httpClient'
-import type { KnownBadState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FootprintCommand, FootprintState, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult } from '../../types/netaudit'
+import type { KnownBadState,
+  DestinationDataState, AcceptRequest, DeepCheck, DeviceExpectation, DecoyState, RouterLogState, OutsideLookupState, OutsideLookupUpdate, DnsCheckState, DnsCheckUpdate, DeviceInventory, IPv6DiscoveryState, PresenceState, PresenceUpdate, ExpectationRequest, FixRequest, FootprintCommand, FootprintState, RecheckResult, FindingsReport, NetworkActivity, NetworkOverview, Readiness, TimelineSummary, UbuntuDataStatus, ScanAck, ScanScope, ScopeUpdate, TargetProblem, VulnDataStatus, VulnImportSource, NetauditSwitch, NearbyState, WifiState, HelperStatus, HelperRunResult, CaptureRunResult, CaptureSummary, HostTraffic, HostTrafficRunResult } from '../../types/netaudit'
 import type { NetworkAlertEvents } from '../../types/notifications'
 
 const query = (params: Record<string, string>) => `?${new URLSearchParams(params).toString()}`
@@ -59,6 +60,20 @@ export class NetauditService {
   /** Fetches the list now with the saved address. */
   static downloadKnownBad(): Promise<KnownBadState> {
     return post<KnownBadState>(API_ENDPOINTS.netauditKnownBadDownload, {})
+  }
+
+  /** What is held of the table of address owners the Traffic page names destinations with. */
+  static destinationData(): Promise<DestinationDataState> {
+    return get<DestinationDataState>(API_ENDPOINTS.netauditDestinationData)
+  }
+
+  /** Downloads the table now; it asks an outside service, so the server asks for the passphrase first. */
+  static downloadDestinationData(): Promise<DestinationDataState> {
+    return post<DestinationDataState>(API_ENDPOINTS.netauditDestinationDataDownload, {})
+  }
+
+  static removeDestinationData(): Promise<DestinationDataState> {
+    return del<DestinationDataState>(API_ENDPOINTS.netauditDestinationData)
   }
 
   static ubuntuData(): Promise<UbuntuDataStatus> {

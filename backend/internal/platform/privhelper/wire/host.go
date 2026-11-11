@@ -17,8 +17,13 @@ const (
 	// and the first four bytes after it, which are the ports. That is the addresses, the ports and the size, and no payload byte; a typical
 	// IPv4 frame keeps 38 bytes and an IPv6 frame 58.
 	HostSnapHeaders = 14 + 60 + 4
-	// HostSnapMax is the most bytes of any frame that are kept (a DNS message). It bounds a record.
-	HostSnapMax = 512
+	// HostSnapDNS is how many bytes of a DNS message are kept, because a name is in it.
+	HostSnapDNS = 512
+	// HostSnapHello is how many bytes of the first segment of a TLS ClientHello are kept (the frame's own headers included), because the
+	// server name an outside address was asked for is in it (Constitution I.13). It is the most any frame keeps.
+	HostSnapHello = 768
+	// HostSnapMax is the most bytes of any frame that are kept. It bounds a record.
+	HostSnapMax = HostSnapHello
 	// HostRecordHeader is the start of a record: 4 bytes of milliseconds since the window began, 2 bytes of kept length, 2 bytes of the
 	// sampling rate in force (1 in N of the ordinary frames was kept; 1 means all of them).
 	HostRecordHeader = 8

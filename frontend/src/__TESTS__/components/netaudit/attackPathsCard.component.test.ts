@@ -45,3 +45,16 @@ describe('AttackPathsCard', () => {
     expect(w.get('[data-test="path-prize"]').text()).toContain('<img src=x')
   })
 })
+
+describe('AttackPathsCard links', () => {
+  it('links each step to its finding on the Findings tab', async () => {
+    const { createMemoryHistory } = await import('vue-router')
+    const { createAppRouter } = await import('../../../router')
+    const router = createAppRouter(createMemoryHistory())
+    const key = '192.168.50.7|tcp|22|ssh_password_login'
+    const w = mount(AttackPathsCard, { props: { paths: [path({ steps: [{ key, check: 'ssh_password_login', title: 'SSH accepts password login', severity: 'low' }] })] }, global: { plugins: [router] } })
+    const link = w.get('[data-test="path-step-link"]')
+    expect(link.attributes('href')).toBe(`/network/findings?finding=${key}`)
+    expect(link.attributes('aria-label')).toBe('Show SSH accepts password login in the findings')
+  })
+})

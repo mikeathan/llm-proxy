@@ -1,8 +1,8 @@
 import { formatBytes } from '../format/formatters'
 import {
-  TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED_KINDS, TRAFFIC_KIND_LABELS, TRAFFIC_SAMPLED, TRAFFIC_STOPPED, TRAFFIC_TOP_DESTINATIONS,
+  TRAFFIC_DROPPED, TRAFFIC_ENCRYPTED_KINDS, TRAFFIC_OWNER_LINE, TRAFFIC_KIND_LABELS, TRAFFIC_SAMPLED, TRAFFIC_STOPPED, TRAFFIC_TOP_DESTINATIONS,
 } from '../../constants/netaudit'
-import type { ChartBar, HostTraffic, TrafficDestination, TrafficFlow, TrafficKind, TrafficPlace } from '../../types/netaudit'
+import type { ChartBar, HostTraffic, TrafficDestination, TrafficFlow, TrafficKind, TrafficOwner, TrafficPlace, WhereBar } from '../../types/netaudit'
 
 const MS_PER_SECOND = 1000
 const SECONDS_PER_MINUTE = 60
@@ -97,9 +97,12 @@ export function trafficPlace(t: HostTraffic, address: string): TrafficPlace | nu
   const internet = destination?.internet ?? flows[0]!.internet
   const bytes = destination?.bytes ?? flows.reduce((n, f) => n + f.bytes_in + f.bytes_out, 0)
   const total = t.bytes_in + t.bytes_out + t.bytes_through
+  const named = destination?.name ? destination : flows.find((f) => f.name)
   return {
     address,
-    name: destination?.name || flows.find((f) => f.name)?.name,
+    name: named?.name,
+    name_from: named?.name_from,
+    owner: destination?.owner ?? flows.find((f) => f.owner)?.owner,
     internet,
     bytes,
     percent: percentOf(bytes, total),
@@ -122,4 +125,39 @@ export function secondAt(x: number, width: number, seconds: number): number {
 /** A second as a clock, 0:07. */
 export function secondClock(second: number): string {
   return `${Math.floor(second / SECONDS_PER_MINUTE)}:${String(second % SECONDS_PER_MINUTE).padStart(2, '0')}`
+}
+
+/** The holder of an address and its country on one line, as text: "GOOGLE - Google LLC · United States". Empty when no owner is known. */
+export function ownerLine(owner: TrafficOwner | undefined): string {
+  return owner ? TRAFFIC_OWNER_LINE(owner.name || `AS${owner.asn}`, owner.country ? countryName(owner.country) : '') : ''
+}
+
+const regionNames = ((): Intl.DisplayNames | null => {
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' })
+  } catch {
+    return null
+  }
+})()
+
+/** A two-letter country code as its English name; the code itself when the browser does not know it. */
+export function countryName(code: string): string {
+  try {
+    return regionNames?.of(code) ?? code
+  } catch {
+    return code
+  }
+}
+
+/** The look's internet bytes by network holder, biggest first. */
+export function ownerBars(t: HostTraffic): WhereBar[] {
+  return (t.owners ?? []).map((o) => ({
+    key: `AS${o.asn}`, label: o.name || `AS${o.asn}`, note: [`AS${o.asn}`, o.country ? countryName(o.country) : ''].filter(Boolean).join(' \u00b7 '),
+    bytes: o.bytes, percent: percentOf(o.bytes, t.internet_bytes),
+  }))
+}
+
+/** The look's internet bytes by country, biggest first. */
+export function countryBars(t: HostTraffic): WhereBar[] {
+  return (t.countries ?? []).map((c) => ({ key: c.country, label: countryName(c.country), note: c.country, bytes: c.bytes, percent: percentOf(c.bytes, t.internet_bytes) }))
 }
