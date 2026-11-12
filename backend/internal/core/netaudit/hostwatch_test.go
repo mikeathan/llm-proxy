@@ -3,6 +3,8 @@ package netaudit
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -348,10 +350,12 @@ func TestHostWatch_AChangedProgramFileIsOneHighFindingWithTheCountAndThePaths(t 
 	if f.Device != HostDevice || f.Severity != SeverityHigh || f.Port != 0 {
 		t.Errorf("finding = %+v", f)
 	}
-	for _, want := range []string{"12 program files", "/usr/sbin/sshd", "/usr/bin/sudo", "and 10 more"} {
-		if !strings.Contains(f.Evidence, want) {
-			t.Errorf("evidence lacks %q: %s", want, f.Evidence)
-		}
+	if !strings.Contains(f.Evidence, "12 program files") {
+		t.Errorf("evidence lacks the count: %s", f.Evidence)
+	}
+	want := []models.FindingDetail{{Label: "Changed file", Value: "/usr/sbin/sshd"}, {Label: "Changed file", Value: "/usr/bin/sudo"}, {Label: "Not listed", Value: "10 more"}}
+	if !reflect.DeepEqual(f.Details, want) {
+		t.Errorf("details = %+v, want %+v", f.Details, want)
 	}
 	if _, ok := GuideFor(CheckHostFilesModified); !ok || CheckTitle(CheckHostFilesModified) == "" {
 		t.Error("the check needs a title and a fix guide")
@@ -432,5 +436,75 @@ func TestHostWatcher_ARunNearItsTimeCapStillGetsTheWholePass(t *testing.T) {
 	}
 	if !src.integrityRan || src.integrityErr != nil {
 		t.Fatalf("the run's time cap cut the pass short: %v", src.integrityErr)
+	}
+}
+
+func entries(pairs ...string) []hostwatch.FileEntry {
+	var out []hostwatch.FileEntry
+	for i := 0; i+1 < len(pairs); i += 2 {
+		out = append(out, hostwatch.FileEntry{Path: pairs[i], Sum: pairs[i+1]})
+	}
+	return out
+}
+
+func detailsOf(f Finding) map[string]string {
+	out := map[string]string{}
+	for _, d := range f.Details {
+		out[d.Label] = d.Value
+	}
+	return out
+}
+
+func TestHostWatch_AChangedPlaceNamesTheFilesAddedEditedAndRemoved(t *testing.T) {
+	src := &fakeHost{files: []hostwatch.FileState{{ID: "systemd_units", Hash: "aaaaaaaaaaaaaaaa", Entries: entries("/etc/systemd/system/a.service", "1", "/etc/systemd/system/b.service", "2", "/etc/systemd/system/c.service", "3")}}}
+	w := newWatcher(src, &memHostStore{})
+	if _, err := w.Look(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	src.files = []hostwatch.FileState{{ID: "systemd_units", Hash: "bbbbbbbbbbbbbbbb", Entries: entries("/etc/systemd/system/a.service", "1", "/etc/systemd/system/b.service", "9", "/etc/systemd/system/d.service", "4")}}
+	look, err := w.Look(t.Context())
+	if err != nil || len(look.Findings) != 1 {
+		t.Fatalf("look = %+v, %v", look, err)
+	}
+	got := detailsOf(look.Findings[0])
+	if got["Added"] != "/etc/systemd/system/d.service" || got["Edited"] != "/etc/systemd/system/b.service" || got["Removed"] != "/etc/systemd/system/c.service" {
+		t.Errorf("details = %+v", look.Findings[0].Details)
+	}
+	if strings.Contains(look.Findings[0].Evidence, "does not show") {
+		t.Errorf("the evidence must not claim the change is hidden: %q", look.Findings[0].Evidence)
+	}
+}
+
+func TestHostWatch_APlaceRecordedBeforeNamesWereKeptSaysSoAndNamesChangesFromThatLook(t *testing.T) {
+	store := &memHostStore{}
+	src := &fakeHost{files: []hostwatch.FileState{{ID: "cron", Hash: "aa"}}} // the first look kept no list
+	w := newWatcher(src, store)
+	if _, err := w.Look(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	src.files = []hostwatch.FileState{{ID: "cron", Hash: "bb", Entries: entries("/etc/cron.d/x", "1")}}
+	look, _ := w.Look(t.Context())
+	if len(look.Findings) != 1 || !strings.Contains(detailsOf(look.Findings[0])["Which file"], "cannot be named") {
+		t.Fatalf("a place with no earlier list must say what it cannot name: %+v", look.Findings)
+	}
+	src.files = []hostwatch.FileState{{ID: "cron", Hash: "cc", Entries: entries("/etc/cron.d/x", "1", "/etc/cron.d/y", "2")}}
+	look, _ = w.Look(t.Context())
+	if got := detailsOf(look.Findings[0]); got["Added"] != "/etc/cron.d/y" {
+		t.Errorf("from the look that started the list, a new file is named: %+v", look.Findings[0].Details)
+	}
+}
+
+func TestHostWatch_ALongListOfChangedFilesIsCutWithACount(t *testing.T) {
+	var many []hostwatch.FileEntry
+	for i := range 15 {
+		many = append(many, hostwatch.FileEntry{Path: fmt.Sprintf("/etc/cron.d/f%02d", i), Sum: "1"})
+	}
+	src := &fakeHost{files: []hostwatch.FileState{{ID: "cron", Hash: "aa", Entries: entries("/etc/cron.d/keep", "1")}}}
+	w := newWatcher(src, &memHostStore{})
+	_, _ = w.Look(t.Context())
+	src.files = []hostwatch.FileState{{ID: "cron", Hash: "bb", Entries: append(entries("/etc/cron.d/keep", "1"), many...)}}
+	look, _ := w.Look(t.Context())
+	if v := detailsOf(look.Findings[0])["Added"]; !strings.Contains(v, "and 5 more") || strings.Count(v, "/etc/cron.d/f") != maxNamedFiles {
+		t.Errorf("added = %q", v)
 	}
 }

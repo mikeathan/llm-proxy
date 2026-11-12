@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"llm-proxy/models"
 )
 
 // Observed is everything the code-rendered part of a report states.
@@ -158,7 +160,7 @@ func writeChecks(b *strings.Builder, title string, findings []Finding, withFixes
 	}
 	fmt.Fprintf(b, "\n### %s\n\n| Severity | Finding | Where |\n|---|---|---|\n", title)
 	for _, g := range groups {
-		fmt.Fprintf(b, "| %s | %s | %s |\n", cell(g.severity), cell(g.evidence), cell(strings.Join(firstN(g.where, maxListedAddrs), ", ")))
+		fmt.Fprintf(b, "| %s | %s | %s |\n", cell(g.severity), cell(g.evidence+detailText(g.details)), cell(strings.Join(firstN(g.where, maxListedAddrs), ", ")))
 	}
 	if !withFixes {
 		return
@@ -176,7 +178,21 @@ func writeChecks(b *strings.Builder, title string, findings []Finding, withFixes
 // checkGroup is one distinct problem and every place it was found.
 type checkGroup struct {
 	check, severity, evidence string
+	details                   []models.FindingDetail
 	where                     []string
+}
+
+// detailText is a finding's details written after its evidence, "Edited: /etc/a; Added: /etc/b", so the report names what the table
+// cannot show; empty when there are none.
+func detailText(details []models.FindingDetail) string {
+	if len(details) == 0 {
+		return ""
+	}
+	parts := make([]string, len(details))
+	for i, d := range details {
+		parts[i] = d.Label + ": " + d.Value
+	}
+	return " (" + strings.Join(parts, "; ") + ")"
 }
 
 // groupChecks merges the check findings that say the same thing (same check, severity and words) and orders the result
@@ -188,12 +204,12 @@ func groupChecks(findings []Finding) []checkGroup {
 		if f.Check == CheckOpenPort {
 			continue
 		}
-		key := [3]string{f.Check, f.Severity, f.Evidence}
+		key := [3]string{f.Check, f.Severity, f.Evidence + detailText(f.Details)}
 		i, ok := index[key]
 		if !ok {
 			i = len(groups)
 			index[key] = i
-			groups = append(groups, checkGroup{check: f.Check, severity: f.Severity, evidence: f.Evidence})
+			groups = append(groups, checkGroup{check: f.Check, severity: f.Severity, evidence: f.Evidence, details: f.Details})
 		}
 		groups[i].where = append(groups[i].where, where(f))
 	}

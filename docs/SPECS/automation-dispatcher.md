@@ -1,9 +1,9 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.25"
+version: "1.26"
 status: stable
-last_updated: 2026-10-30
+last_updated: 2026-11-12
 constitution_references: []
 related_specs: [SPEC-001, SPEC-003, SPEC-005, SPEC-006]
 supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
@@ -13,6 +13,10 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.26 (2026-11-12)** — §II.5: a run's saved report lives in **a folder per run**, `reports/<automation>/<start time>-<run id>/report.md`, with any
+  file a report hook adds beside it (an audit's typed record, `audit.json`, §II.8): a report and its record are never loose pairs. The saved-reports list reads
+  both layouts (a report saved before run folders is still `<start time>-<run id>.md` and ages out with the 200-report limit); pruning an old run removes its
+  plain files and then the folder, and never a sub-folder a person made in it. `ReportHook` gains `Files(ctx)`. The task-file picker no longer offers `reports/`.
 - **1.25 (2026-11-12)** — §II.8: the Observed section of a repeat audit also has **Still open** (every check finding not accepted and not under New checks) and the window's movement (**Last day** or **Last week before this scan**: scans, ports that went away or came back, activity), both written by code; the model's assessment is at most three items on what to look at first.
 - **1.24 (2026-11-12)** — §II.8: the Observed section of an audit also lists the **exposed services worth reviewing** (remote administration, file sharing and databases the scan identified; an accepted port and a guessed name are left out), written by code on every run; the model is not asked to list them. The model reads a compact, cap-sized view of the scan with guessed names left out (ADR-0049).
 - **1.23 (2026-10-30)** — §V.1 wording: the operator's cancel route is "behind the admin sign-in", not "admin auth"
@@ -201,7 +205,7 @@ Each run produces:
 - `recording.jsonl` — LLM request/response recordings (when `--record` is active).
 
 **Saved final report.** Besides the run folder (which the 30-day reaper clears and which exists only with run logging on),
-a run that ends with a report writes it to the workspace: `reports/<automation>/<UTC start time>-<run id>.md`
+a run that ends with a report writes it to the workspace: `reports/<automation>/<UTC start time>-<run id>/report.md` (since SPEC 1.26; earlier reports are `…-<run id>.md`)
 (`persistence.WorkspaceManager.WriteReport`, called from `handleAgentSuccess`). The file holds the report as the UI shows
 it (a reply wrapped whole in a code fence is unwrapped; no run header) after `tools.RedactForRecording`. The folder is
 inside the workspace, so the Files page and the agent's `read_file` open it like any file; the automation name and run id

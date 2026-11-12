@@ -148,6 +148,8 @@ type ReportHook interface {
 	// Summary is a short account of the run written by code from what the hook collected, safe to send through a
 	// connector in place of the report; "" when the run has none.
 	Summary(ctx context.Context) string
+	// Files are more files to keep in the run's folder beside the report (a typed record of what the hook collected); none when the run has none.
+	Files(ctx context.Context) []models.ReportFile
 }
 
 // SetReportHook installs the report hook; nil (the default) leaves reports as the agent wrote them.
@@ -483,7 +485,8 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 		}
 	}
 
-	output, outcome.resp.Summary = e.applyReportHook(ctx, outcome.req, output)
+	var files []models.ReportFile
+	output, outcome.resp.Summary, files = e.applyReportHook(ctx, outcome.req, output)
 
 	elapsed := time.Since(outcome.startTime)
 	fullOutput := fmt.Sprintf("%s⏱ **Duration:** %s\n\n### Final Report\n\n%s", header, formatDuration(elapsed), output)
@@ -525,7 +528,7 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 	}
 
 	if finalReply != "" {
-		outcome.reportPath = e.keepFinalReport(outcome, output)
+		outcome.reportPath = e.keepFinalReport(outcome, output, files)
 	}
 
 	e.recordRun(outcome, runResult, runError, time.Since(outcome.startTime))
@@ -534,39 +537,43 @@ func (e *LLMTaskExecutor) handleAgentSuccess(ctx context.Context, outcome runOut
 
 // applyReportHook lets the report hook add what it collected during the run and supply the summary a connector carries
 // instead; without a hook the report is the agent's own and there is no summary.
-func (e *LLMTaskExecutor) applyReportHook(ctx context.Context, req ExecuteRequest, report string) (string, string) {
+func (e *LLMTaskExecutor) applyReportHook(ctx context.Context, req ExecuteRequest, report string) (string, string, []models.ReportFile) {
 	if e.reports == nil {
-		return report, ""
+		return report, "", nil
 	}
-	return e.reports.Augment(ctx, req.WorkspaceID, req.AutomationName, report), e.reports.Summary(ctx)
+	return e.reports.Augment(ctx, req.WorkspaceID, req.AutomationName, report), e.reports.Summary(ctx), e.reports.Files(ctx)
 }
 
 // reportWriter saves a run's final report in the workspace and returns the path it used.
 // *persistence.WorkspaceManager satisfies it.
 type reportWriter interface {
-	WriteReport(workspaceID, automation, runID string, at time.Time, content string) (string, error)
+	WriteReport(workspaceID, automation, runID string, at time.Time, content string, extras ...models.ReportFile) (string, error)
 }
 
 // saveFinalReport keeps a run's final report as a file in the workspace, so the next run of the same automation does not
 // replace it and the 30-run history does not push it out. It returns the saved path, or "" when there is nothing worth
 // keeping: no reply from the agent, or a heartbeat that found nothing to report. Credential-shaped text is masked first,
 // as the report becomes a new file the agent can read in a later run.
-func saveFinalReport(w reportWriter, outcome runOutcome, report string) (string, error) {
+func saveFinalReport(w reportWriter, outcome runOutcome, report string, files ...models.ReportFile) (string, error) {
 	if strings.TrimSpace(report) == "" || isQuietResponse(outcome.resp) {
 		return "", nil
 	}
-	return w.WriteReport(outcome.req.WorkspaceID, outcome.req.AutomationName, outcome.runID, outcome.startTime, tools.RedactForRecording(report))
+	kept := make([]models.ReportFile, len(files))
+	for i, f := range files {
+		kept[i] = models.ReportFile{Name: f.Name, Content: tools.RedactForRecording(f.Content)}
+	}
+	return w.WriteReport(outcome.req.WorkspaceID, outcome.req.AutomationName, outcome.runID, outcome.startTime, tools.RedactForRecording(report), kept...)
 }
 
 // keepFinalReport saves the report of a finished run, logs where it went and returns that path ("" when nothing was
 // saved). A failure to save is logged, never fatal: the run itself succeeded and its report is still in the run history.
-func (e *LLMTaskExecutor) keepFinalReport(outcome runOutcome, report string) string {
+func (e *LLMTaskExecutor) keepFinalReport(outcome runOutcome, report string, files []models.ReportFile) string {
 	store := e.svc.Persistence()
 	if store == nil {
 		return ""
 	}
 	log := e.svc.ProcessLogger(outcome.req.WorkspaceID)
-	path, err := saveFinalReport(store, outcome, report)
+	path, err := saveFinalReport(store, outcome, report, files...)
 	if err != nil {
 		log.Warn("failed to save the final report", "automation", outcome.req.AutomationName, "error", err)
 		return ""

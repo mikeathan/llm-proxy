@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"time"
 
 	"llm-proxy/models"
@@ -367,6 +368,14 @@ func (r *RunReporter) Summary(ctx context.Context) string {
 	return ""
 }
 
+// Files are the files to keep beside the run's report: the audit's typed record, or none when the run made no scan.
+func (r *RunReporter) Files(ctx context.Context) []models.ReportFile {
+	if collector := CollectorFrom(ctx); collector != nil {
+		return collector.Files()
+	}
+	return nil
+}
+
 // Begin makes the run's context collect scan results. It is cheap, so every automation run gets it.
 func (r *RunReporter) Begin(ctx context.Context) context.Context {
 	ctx, _ = WithCollector(ctx)
@@ -430,7 +439,8 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		// A baseline that could not be read says nothing about whether one existed, so it is not called a first scan.
 		FirstScan: readErr == nil && prev.ScannedAt.IsZero(),
 	}
-	next.Unscanned, next.DevicesUp = carryOver(prev, result.Hosts)
+	next.Unscanned, next.UpAddrs = carryOver(prev, result.Hosts)
+	next.DevicesUp = len(next.UpAddrs)
 	fixedAt, fixNote := r.confirmFixes(workspaceID, delta.Resolved)
 	next.FixedAt = fixedAt
 	observed += fixNote
@@ -440,6 +450,9 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 		r.noteSaved(next.Findings, result.Hosts, devices, at)
 		observed += r.advanceLife(workspaceID, next.Findings, delta.Resolved, at)
 		observed += r.noteScan(ctx, workspaceID, automation, next)
+	}
+	if file, ok := RecordOf(view, automation, observed, report).File(); ok {
+		collector.SetFiles([]models.ReportFile{file})
 	}
 	return observed + "\n\n---\n\n" + AssessmentHeading + "\n\n" + report
 }
@@ -467,17 +480,19 @@ func unscannedDevices(hosts []Host) []string {
 	return out
 }
 
-// carryOver is the unscanned list and the count of answering addresses after this run. A run that looked at only some
+// carryOver is the unscanned list and the answering addresses (sorted) after this run. A run that looked at only some
 // devices (a rescan, or an audit aimed at one range) does not forget the others: a device flagged earlier and not
 // looked at now stays flagged, and a device that earlier had findings or was flagged counts as answering.  A run over
 // every device changes nothing here, because every earlier device is among this run's hosts.
-func carryOver(prev models.ScanBaseline, hosts []Host) ([]string, int) {
+func carryOver(prev models.ScanBaseline, hosts []Host) (unscanned, up []string) {
 	seen := make(map[string]bool, len(hosts))
 	for _, h := range hosts {
 		seen[h.Addr.String()] = true
+		if h.Up {
+			up = append(up, h.Addr.String())
+		}
 	}
-	unscanned := unscannedDevices(hosts)
-	up := devicesUp(hosts)
+	unscanned = unscannedDevices(hosts)
 	kept := map[string]bool{}
 	for _, d := range prev.Unscanned {
 		if !seen[d] && !kept[d] {
@@ -490,17 +505,11 @@ func carryOver(prev models.ScanBaseline, hosts []Host) ([]string, int) {
 			kept[f.Device] = true
 		}
 	}
-	return unscanned, up + len(kept)
-}
-
-func devicesUp(hosts []Host) int {
-	n := 0
-	for _, h := range hosts {
-		if h.Up {
-			n++
-		}
+	for d := range kept {
+		up = append(up, d)
 	}
-	return n
+	slices.Sort(up)
+	return unscanned, up
 }
 
 func keysOf(findings []Finding) []string {

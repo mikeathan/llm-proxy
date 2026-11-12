@@ -5,11 +5,13 @@ import EmptyState from "../common/feedback/EmptyState.vue"
 import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import AcceptDialog from "./AcceptDialog.vue"
+import AuditOverview from "./AuditOverview.vue"
 import DeepCheckDialog from "./DeepCheckDialog.vue"
 import ExpectedPortsDialog from "./ExpectedPortsDialog.vue"
 import FindingsAdvanced from "./FindingsAdvanced.vue"
 import FindingsSimple from "./FindingsSimple.vue"
 import UnscannedNotice from "./UnscannedNotice.vue"
+import { useAuditRecord } from "../../composables/netaudit/useAuditRecord"
 import { useDeepCheck } from "../../composables/netaudit/useDeepCheck"
 import { useNetauditReadiness } from "../../composables/netaudit/useNetauditReadiness"
 import { useDeviceNames } from "../../composables/netaudit/useDeviceNames"
@@ -29,7 +31,8 @@ import type { CloserLook, ScanFinding } from "../../types/netaudit"
 // counts, filters, and every device with its ports and versions. Both read the same data, so switching loses nothing.
 // `refreshKey` changes when a run starts or finishes; the report is read again then, so a finished scan shows up
 // without leaving the page.
-const props = defineProps<{ workspaceId: string; automation: string; refreshKey?: string; busy?: boolean }>()
+// `reportPath` is the latest saved report of this audit; the typed record beside it (when it has one) is shown above the problems.
+const props = defineProps<{ workspaceId: string; automation: string; refreshKey?: string; busy?: boolean; reportPath?: string }>()
 const emit = defineEmits<{ (e: "watch-live"): void }>()
 
 const { advanced } = useNetauditViewMode()
@@ -72,6 +75,15 @@ async function runDeep() {
 
 const summary = computed(() => (report.value ? summarize(report.value) : null))
 
+// The record is shown only when it is of the scan the findings below come from: a newer scan the page has not read yet, or an older record, is left out.
+const SAME_SCAN_MS = 2000
+const auditRecord = useAuditRecord(() => props.workspaceId, () => props.reportPath ?? "", () => props.refreshKey ?? "")
+const overview = computed(() => {
+  const rec = auditRecord.record.value
+  const at = report.value?.scanned_at
+  return rec && at && Math.abs(Date.parse(rec.scanned_at) - Date.parse(at)) <= SAME_SCAN_MS ? rec : null
+})
+
 // A link from another page (an attack path, a timeline row, a device) names a finding or a device: it is scrolled to and marked once the report is
 // drawn, and a finding that is not in the report any more is said so.
 const section = ref<HTMLElement | null>(null)
@@ -87,7 +99,7 @@ const meta = computed(() => {
   if (!r?.scanned) return ""
   const open = r.findings.filter((f) => isCheck(f) && !f.accepted).length + deepProblems.value.length
   const accepted = r.findings.filter((f) => isCheck(f) && f.accepted).length
-  const problems = open || accepted ? `${open} ${open === 1 ? "problem" : "problems"} found by checks${accepted ? ` (${accepted} accepted)` : ""}` : ""
+  const problems = open || accepted ? `${open} ${open === 1 ? "problem" : "problems"} found by checks${accepted ? `, and ${accepted} more you accepted` : ""}` : ""
   const parts = [formatAbsoluteTime(r.scanned_at ?? ""), r.engine, `${r.devices_up} ${r.devices_up === 1 ? "device" : "devices"} up`, `${portCount(r.findings)} open ${portCount(r.findings) === 1 ? "port" : "ports"}`, problems]
   return parts.filter(Boolean).join(" · ")
 })
@@ -140,6 +152,8 @@ onMounted(() => { void findings.load(); void deepCheck.load(); void sources.load
       <p v-if="actionError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error">{{ actionError }}</p>
       <p v-if="notice" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="scan-notice">{{ notice }}</p>
       <p v-if="focusMissing" role="status" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="focus-missing">{{ FINDING_NOT_OPEN }}</p>
+
+      <AuditOverview v-if="overview" :record="overview" :names="names" />
 
       <FindingsAdvanced v-if="advanced" :report="report" :summary="summary" :extra-problems="deepProblems" :names="names" :expectations="expectations" :deep-checks="deepCheck.checks.value" :deep-running="deepCheck.running.value" @deep="deepDevice = $event" @expect="findings.setExpected" @edit-expected="editing = $event" @unexpect="findings.removeExpected($event)" @accept="accepting = $event" @accept-many="acceptingMany = $event" @revoke="findings.revoke($event.key)" @rescan="findings.rescan($event)" @mark="findings.markFixed($event.key)" @unmark="findings.unmarkFixed($event.key)">
         <template #notice><UnscannedNotice :devices="report.unscanned" :has-earlier="hasEarlier" @rescan="findings.rescan($event)" /></template>

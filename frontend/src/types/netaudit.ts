@@ -63,6 +63,12 @@ export interface ScopeUpdate {
   device_timeout_minutes?: number
 }
 
+/** One labelled fact behind a finding's sentence ("Edited": a file's path). The server writes it; a label can repeat (one row per file). */
+export interface FindingDetail {
+  label: string
+  value: string
+}
+
 /** One fact about a device, with whether the latest scan found it new and whether it has been accepted. */
 export interface ScanFinding {
   /** What the server accepts a finding by. */
@@ -77,6 +83,8 @@ export interface ScanFinding {
   check_title?: string
   severity: string
   evidence?: string
+  /** The facts behind the evidence as rows (the files that changed, say); absent when the check has none. */
+  details?: FindingDetail[]
   /** A known_vulns finding: every CVE id (sorted), the ones CISA lists as exploited, and each one's base score. */
   cves?: string[]
   exploited?: string[]
@@ -135,6 +143,8 @@ export interface FindingsReport {
   unscanned: string[]
   /** How many addresses answered. */
   devices_up: number
+  /** Which addresses answered (sorted); absent from a server that does not name them, empty for a scan saved before they were kept. */
+  up?: string[]
   /** Nothing was scanned before this: the open ports are the baseline, not changes. Absent in a report from an older server. */
   first_scan?: boolean
 }

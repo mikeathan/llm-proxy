@@ -48,12 +48,20 @@ export function buildFileTree(entries: TreeEntry[]): FileTreeNode[] {
   return sortRecursively(roots)
 }
 
-/** The tree's file paths, sorted — e.g. for a task-file picker. */
+/** The tree's file paths, sorted. */
 export function treeFilePaths(tree: WorkspaceTree): string[] {
   return tree.entries
     .filter((entry) => entry.type === 'file')
     .map((entry) => entry.path)
     .sort()
+}
+
+/** Folders the program writes into: a run's saved report and its typed record are results, never something to choose as a task. */
+const RUN_OUTPUT_FOLDERS = ['reports']
+
+/** The files a task-file picker offers: every file except what runs saved (the folders above), sorted. */
+export function taskFileChoices(tree: WorkspaceTree): string[] {
+  return treeFilePaths(tree).filter((path) => !RUN_OUTPUT_FOLDERS.some((folder) => path.startsWith(`${folder}/`)))
 }
 
 /**

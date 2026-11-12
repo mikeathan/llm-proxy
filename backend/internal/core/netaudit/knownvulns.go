@@ -29,13 +29,16 @@ var distroBuild = regexp.MustCompile(`(?i)\b(ubuntu|debian|raspbian|fedora|cento
 // was checked than was.
 type VulnCoverage struct {
 	// Enabled is true when matching was asked for at all; nothing about vulnerabilities is reported otherwise.
-	Enabled bool
+	Enabled bool `json:"enabled"`
 	// Skipped is true when it was asked for but there was no vulnerability data to compare with.
-	Skipped bool
+	Skipped bool `json:"skipped,omitempty"`
 	// Total is the open services on the addresses scanned to the end; Checked the ones that gave a version to compare;
 	// Coarse the ones whose version was only a major number (Samba "4"), too vague to compare; Uncomparable the CVEs whose
 	// version could not be compared.
-	Total, Checked, Coarse, Uncomparable int
+	Total        int `json:"total"`
+	Checked      int `json:"checked"`
+	Coarse       int `json:"coarse"`
+	Uncomparable int `json:"uncomparable"`
 }
 
 // KnownVulnFindings compares the software the scan recognised with the index: one finding per open port that may be

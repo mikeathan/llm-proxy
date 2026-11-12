@@ -179,8 +179,8 @@ func TestRunReporter_TheBaselineRecordsWhatChangedWhatWasUnscannedAndHowManyAnsw
 	if len(b.Unscanned) != 1 || b.Unscanned[0] != "10.0.0.2" {
 		t.Errorf("Unscanned = %v", b.Unscanned)
 	}
-	if b.DevicesUp != 2 {
-		t.Errorf("DevicesUp = %d, want 2", b.DevicesUp)
+	if b.DevicesUp != 2 || !slices.Equal(b.UpAddrs, []string{"10.0.0.1", "10.0.0.2"}) {
+		t.Errorf("DevicesUp = %d, UpAddrs = %v, want the two that answered, named", b.DevicesUp, b.UpAddrs)
 	}
 }
 
@@ -203,8 +203,8 @@ func TestRunReporter_ARescanOfOneDeviceKeepsWhatIsKnownAboutTheOthers(t *testing
 	if len(b.Unscanned) != 1 || b.Unscanned[0] != "10.0.0.3" {
 		t.Errorf("a device this run did not look at stays flagged: Unscanned = %v", b.Unscanned)
 	}
-	if b.DevicesUp != 3 {
-		t.Errorf("DevicesUp = %d, want 3 (the rescanned device, the one with findings, the flagged one)", b.DevicesUp)
+	if b.DevicesUp != 3 || !slices.Equal(b.UpAddrs, []string{"10.0.0.1", "10.0.0.2", "10.0.0.3"}) {
+		t.Errorf("DevicesUp = %d, UpAddrs = %v, want 3 (the rescanned device, the one with findings, the flagged one)", b.DevicesUp, b.UpAddrs)
 	}
 }
 
@@ -600,5 +600,26 @@ func TestRunReporter_TheReportListsExposedServicesAndKeepsWhatTheOperatorAccepte
 	got = reporter(&memBaselines{data: map[string]models.ScanBaseline{}}, reportTime).WithAcks(&memAcks{acks: []models.ScanAck{ack}}).Augment(scannedHosts(ssh), "ws", "nightly", "")
 	if strings.Contains(got, "22/tcp | ssh") || !strings.Contains(got, "| 10.0.0.1 | 21/tcp | ftp |") {
 		t.Errorf("an accepted port is not listed, the other still is:\n%s", got)
+	}
+}
+
+func TestRunReporter_AnAuditLeavesItsTypedRecordForTheRunFolder(t *testing.T) {
+	store := &memBaselines{data: map[string]models.ScanBaseline{}}
+	r := reporter(store, reportTime)
+	ctx, c := WithCollector(context.Background())
+	c.Add(Result{Engine: "nmap", Hosts: []Host{{Addr: netip.MustParseAddr("10.0.0.1"), Up: true, Ports: []Port{{Number: 22, Proto: "tcp", State: "open"}}}}, Findings: []Finding{finding("10.0.0.1", 22, "")}})
+	r.Augment(ctx, "ws", "nightly", "1. Look at the ssh port.")
+
+	files := r.Files(ctx)
+	if len(files) != 1 || files[0].Name != RecordFileName {
+		t.Fatalf("files = %+v", files)
+	}
+	for _, want := range []string{`"audit": "nightly"`, `"up": 1`, `"assessment": "1. Look at the ssh port."`} {
+		if !strings.Contains(files[0].Content, want) {
+			t.Errorf("record lacks %s:\n%s", want, files[0].Content)
+		}
+	}
+	if none := r.Files(context.Background()); len(none) != 0 {
+		t.Errorf("a run that is not collecting has no record: %+v", none)
 	}
 }

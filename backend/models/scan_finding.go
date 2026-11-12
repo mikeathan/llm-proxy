@@ -24,6 +24,15 @@ type ScanFinding struct {
 	// CVEScores gives each of those CVEs its base score, so a screen can list them most serious first. It is for showing
 	// only: comparing scans and accepting a finding use the id sets above.
 	CVEScores map[string]float64 `json:"cve_scores,omitempty"`
+	// Details are the facts behind Evidence as label and value pairs, so a screen can show them as a list instead of a sentence. Each
+	// value is fixed words or text the finding's own check already vetted (a plain path, a port number); never raw device text.
+	Details []FindingDetail `json:"details,omitempty"`
+}
+
+// FindingDetail is one labelled fact of a finding ("Edited": "/etc/systemd/system/a.service").
+type FindingDetail struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 // Key identifies what a finding is about, independent of its wording, for comparing scans.
@@ -52,6 +61,9 @@ type ScanBaseline struct {
 	FirstScan bool `json:"first_scan,omitempty"`
 	// DevicesUp counts the addresses that answered in this scan.
 	DevicesUp int `json:"devices_up,omitempty"`
+	// UpAddrs names those devices, sorted, so a screen can list the ones that answered and had nothing open. It is empty in a
+	// baseline saved before the list was kept.
+	UpAddrs []string `json:"up_addrs,omitempty"`
 	// FixedAt maps the key of each finding the operator had marked as fixed, and that this scan no longer shows, to when
 	// they marked it, so a screen can say "you marked it fixed and the scan confirms it".
 	FixedAt map[string]time.Time `json:"fixed_at,omitempty"`

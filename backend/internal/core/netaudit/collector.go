@@ -4,6 +4,8 @@ import (
 	"context"
 	"slices"
 	"sync"
+
+	"llm-proxy/models"
 )
 
 type collectorKey struct{}
@@ -14,6 +16,21 @@ type Collector struct {
 	mu      sync.Mutex
 	results []Result
 	summary string
+	files   []models.ReportFile
+}
+
+// SetFiles records the files to keep beside the run's report (the audit's typed record).
+func (c *Collector) SetFiles(f []models.ReportFile) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.files = f
+}
+
+// Files returns what SetFiles recorded; none when the run made no scan.
+func (c *Collector) Files() []models.ReportFile {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.files)
 }
 
 // SetSummary records the short, code-written summary of the run (see SummaryOf) for delivery through a connector.

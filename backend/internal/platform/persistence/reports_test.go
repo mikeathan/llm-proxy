@@ -3,12 +3,14 @@ package persistence
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"llm-proxy/internal/platform/storage"
+	"llm-proxy/models"
 )
 
 func newReportsManager(t *testing.T) (*WorkspaceManager, string) {
@@ -28,7 +30,7 @@ func TestWriteReport_SavesUnderTheAutomationFolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteReport: %v", err)
 	}
-	want := "reports/daily-news/20261021T130509Z-run_42.md"
+	want := "reports/daily-news/20261021T130509Z-run_42/report.md"
 	if rel != want {
 		t.Fatalf("path %q, want %q", rel, want)
 	}
@@ -60,8 +62,8 @@ func TestWriteReport_NamesCannotEscapeTheReportsFolder(t *testing.T) {
 			t.Fatalf("%q: %v", name, err)
 		}
 		parts := strings.Split(rel, "/")
-		if len(parts) != 3 || parts[0] != "reports" {
-			t.Errorf("%q gave %q: not one folder under reports/", name, rel)
+		if len(parts) != 4 || parts[0] != "reports" || parts[3] != "report.md" {
+			t.Errorf("%q gave %q: not one automation folder and one run folder under reports/", name, rel)
 		}
 		for _, part := range parts {
 			if part == "" || part == "." || part == ".." {
@@ -257,5 +259,74 @@ func TestPruneReports_MissingFolderIsFine(t *testing.T) {
 	writeReports(t, mgr, "other", 1) // the workspace exists, the automation's folder does not
 	if err := mgr.pruneReports("ws", "reports/none", 2); err != nil {
 		t.Fatalf("pruneReports: %v", err)
+	}
+}
+
+// A run's files live together in one folder named by the run, so a report and its record are never loose pairs in the
+// automation's folder.
+func TestWriteReport_KeepsTheReportAndItsExtraFilesInOneRunFolder(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	rel, err := mgr.WriteReport("ws", "network-audit", "run_7", reportTime, "# Report", models.ReportFile{Name: "audit.json", Content: `{"v":1}`})
+	if err != nil {
+		t.Fatalf("WriteReport: %v", err)
+	}
+	if want := "reports/network-audit/20261021T130509Z-run_7/report.md"; rel != want {
+		t.Fatalf("path %q, want %q", rel, want)
+	}
+	if got, err := mgr.ReadTaskFile("ws", "reports/network-audit/20261021T130509Z-run_7/audit.json"); err != nil || got != `{"v":1}` {
+		t.Fatalf("the record is beside the report: %q, %v", got, err)
+	}
+	list, _ := mgr.ListReports("ws", "network-audit")
+	if len(list.Reports) != 1 || list.Reports[0].Path != rel || list.Reports[0].RunID != "run_7" || list.Reports[0].SizeBytes != int64(len("# Report")) {
+		t.Fatalf("the list has one report per run, not one per file: %+v", list.Reports)
+	}
+}
+
+func TestWriteReport_AnExtraFileCannotLeaveTheRunFolder(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	for _, name := range []string{"../x.json", "a/b.json", ".hidden", "", "report.md"} {
+		if _, err := mgr.WriteReport("ws", "a", "r", reportTime, "x", models.ReportFile{Name: name, Content: "{}"}); err == nil {
+			t.Errorf("extra file name %q must be refused", name)
+		}
+	}
+}
+
+func TestListReports_ShowsReportsSavedBeforeRunFoldersBesideTheNewOnes(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	if err := mgr.WriteTaskFile("ws", "reports/a/20261020T010000Z-old.md", "old"); err != nil {
+		t.Fatal(err)
+	}
+	newer, _ := mgr.WriteReport("ws", "a", "new", reportTime, "new")
+	list, _ := mgr.ListReports("ws", "a")
+	if len(list.Reports) != 2 || list.Reports[0].Path != newer || list.Reports[1].RunID != "old" {
+		t.Fatalf("newest first across both layouts: %+v", list.Reports)
+	}
+}
+
+func TestListReports_SkipsARunFolderWithNoReport(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	_ = mgr.WriteTaskFile("ws", "reports/a/20261020T010000Z-half/audit.json", "{}")
+	if list, _ := mgr.ListReports("ws", "a"); len(list.Reports) != 0 {
+		t.Fatalf("a folder without report.md is not a report: %+v", list.Reports)
+	}
+}
+
+func TestPruneReports_RemovesAnOldRunFolderButNotWhatAPersonPutInIt(t *testing.T) {
+	mgr, _ := newReportsManager(t)
+	old, _ := mgr.WriteReport("ws", "a", "old", reportTime.Add(-48*time.Hour), "old", models.ReportFile{Name: "audit.json", Content: "{}"})
+	_ = mgr.WriteTaskFile("ws", path.Join(path.Dir(old), "notes", "mine.txt"), "keep")
+	_, _ = mgr.WriteReport("ws", "a", "new", reportTime, "new")
+	if err := mgr.pruneReports("ws", "reports/a", 1); err != nil {
+		t.Fatal(err)
+	}
+	// a missing file reads as "", so absence is "no content"
+	if got, _ := mgr.ReadTaskFile("ws", old); got != "" {
+		t.Errorf("the old report must be removed, read %q", got)
+	}
+	if got, _ := mgr.ReadTaskFile("ws", path.Join(path.Dir(old), "audit.json")); got != "" {
+		t.Errorf("the old run's record goes with its report, read %q", got)
+	}
+	if got, err := mgr.ReadTaskFile("ws", path.Join(path.Dir(old), "notes", "mine.txt")); err != nil || got != "keep" {
+		t.Errorf("a sub-folder a person made is never deleted: %q, %v", got, err)
 	}
 }

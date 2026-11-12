@@ -1658,7 +1658,7 @@ describe('Accepted problems and the counts', () => {
 
   it('says how many problems are open and how many were accepted, so the line and the pills agree', async () => {
     const w = await mountMixed()
-    expect(w.get('[data-test="scan-meta"]').text()).toContain('1 problem found by checks (2 accepted)')
+    expect(w.get('[data-test="scan-meta"]').text()).toContain('1 problem found by checks, and 2 more you accepted')
     expect(w.get('[role="radio"][aria-checked="true"]').text()).toBe('Problems (1)')
   })
 
