@@ -21,6 +21,8 @@ type Observed struct {
 	// Exposed are the remote-administration, file-sharing and database services this scan identified (see ExposedServices); listed
 	// on every run, not only when new, because they are what the operator is asked to review.
 	Exposed []ExposedService
+	// Window is how the network moved over the audit's window (see WindowDigest); nil when the run is not an audit or none was built.
+	Window *WindowDigest
 }
 
 // ObservedHeading titles the section the code writes. The model's text follows it under its own heading.
@@ -69,6 +71,7 @@ func RenderObserved(o Observed) string {
 		writeInventory(&b, "Open ports", o.Result.Findings)
 		writeChecks(&b, "Checks", o.Result.Findings, true)
 		writeExposed(&b, o.Exposed)
+		writeWindow(&b, o.Window)
 		return strings.TrimRight(b.String(), "\n")
 	}
 	writeTable(&b, "New", o.Delta.New)
@@ -81,8 +84,28 @@ func RenderObserved(o Observed) string {
 			fmt.Fprintf(&b, "| %s | %d/%s | %s | %s |\n", cell(c.After.Device), c.After.Port, cell(c.After.Proto), cell(changeText(c.Before)), cell(changeText(c.After)))
 		}
 	}
+	writeChecks(&b, "Still open", standingChecks(o), true)
 	writeExposed(&b, o.Exposed)
+	writeWindow(&b, o.Window)
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// standingChecks are the problems this scan shows that it did not just find: every check finding the operator has not accepted,
+// less the ones the New checks table above already lists. A repeat scan lists only what changed, so without this a high finding that
+// stays open night after night would appear nowhere in the report. A first scan lists every check in its own table, so it has no
+// standing ones.
+func standingChecks(o Observed) []Finding {
+	fresh := make(map[string]bool, len(o.Delta.New))
+	for _, f := range o.Delta.New {
+		fresh[f.Key()] = true
+	}
+	var out []Finding
+	for _, f := range o.Result.Findings {
+		if f.Check != CheckOpenPort && !fresh[f.Key()] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // maxListedAddrs bounds how many addresses a note names.

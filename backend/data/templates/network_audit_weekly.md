@@ -12,7 +12,7 @@
 **Checks:** on
 **Known vulnerabilities:** on
 
-Scan the network and report what changed since the last scan: new open ports, services that disappeared, software versions that changed and weak settings the safe checks found. The scan facts are written by the system, not the model, so the report is comparable from one scan to the next. It runs on the schedule you choose when you create the automation (every Sunday at 03:00 to start with); set it to manual to run it only when you press Run.
+Scans the networks you allowed and checks them for common weak settings. The system writes the report from the scan and from what it kept over the last week: what was scanned, what is new, resolved or changed since the scan before, every problem still open with its fix, the exposed services worth reviewing, and how the network moved over the window. A short assessment follows it. The scan facts are written by the system, not the model, so the report is comparable from one scan to the next. It runs on the schedule you choose when you create the automation (every Sunday at 03:00 to start with); set it to manual to run it only when you press Run.
 
 ### Before the first run
 
@@ -35,8 +35,8 @@ Anything the assessment should take into account, in plain words, for example "t
 
 **Action:** Run `network_scan` once. The system applies this audit's settings whatever you pass, so pass `mode: "checks"` and nothing else.
 
-Then write a short assessment (at most five items) of what the window's records show. The system lists the exposed services worth reviewing (remote administration, file sharing, databases) in the observed part, so do not list them. The scan's result also carries a window digest: the scans, history and activity the program kept over the audit's window (the last week here; the daily audit reads a day), so the assessment can say how the network moved, not only how it looks now. The system adds the observed facts above it (the comparison with the last scan and every check's problem and fix), so do not restate the problems the checks found, and do not say what is new, changed or gone since the last scan: you are not given that comparison.
+Then write the assessment the security-auditor profile describes: what the operator should look at first, in at most three items. The system writes everything else in the report, so follow the profile where this text and it differ.
 
 ### Result
 
-**PASS** if the scan ran and the assessment says what the window's records show across the scans (the system lists the exposed services worth reviewing in the observed part, so the assessment does not). **FAIL** with the reason if the scan was refused or could not run.
+**PASS** if the scan ran and an assessment was written. **FAIL** with the reason if the scan was refused or could not run.

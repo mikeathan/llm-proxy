@@ -982,6 +982,15 @@ func (s *AppServices) digestSource() netaudit.DigestSource {
 	return netaudit.DigestSource{Store: s.Persistence(), Inventory: n.Inventory, Alerts: n.Alerts, Series: n.History}
 }
 
+// NetauditWindow is what the audit's report reads to say how the network moved over the audit's window: the same records the model's
+// digest reads, so the report and the digest cannot disagree. Nil before the module is built.
+func (s *AppServices) NetauditWindow() netaudit.WindowSource {
+	if s.netaudit == nil {
+		return nil
+	}
+	return s.digestSource()
+}
+
 // auditNames are the network audits of one workspace: the automations that scan, by the name their saved result is kept under.
 // The dispatcher is read when asked, so an audit added or removed after start-up is seen.
 func (s *AppServices) auditNames(workspaceID string) []string {
