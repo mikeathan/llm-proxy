@@ -177,3 +177,26 @@ func auditReading(series func(int) ([]models.NetworkDay, error)) netaudit.Monito
 	}
 	return r
 }
+
+// moduleTallies reads what the Network stack's modules did over the last 24 hours: counts the stack reports through its status, worded
+// here from the core's own table (the stack sends no text, ADR-0036).
+type moduleTallies struct{ n *netauditServices }
+
+func (m moduleTallies) Tallies(ctx context.Context) []netaudit.ModuleTally {
+	if m.n == nil || m.n.Network == nil {
+		return nil
+	}
+	st, ok := m.n.Network.Module(ctx, netaudit.MonitorDNS)
+	if !ok {
+		return nil
+	}
+	return dnsTallies(st)
+}
+
+// dnsTallies words the router DNS check's status as a tally; a check that did nothing in the period gives none, so no line says "0 checks".
+func dnsTallies(st stacksdk.ModuleStatus) []netaudit.ModuleTally {
+	if st.Recent.Done == 0 {
+		return nil
+	}
+	return []netaudit.ModuleTally{{Title: "Router DNS check", Noun: "checks", FlaggedWord: "differed", Done: st.Recent.Done, Flagged: st.Recent.Flagged, Unclear: st.Recent.Unclear}}
+}

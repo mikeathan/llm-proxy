@@ -33,6 +33,8 @@ type DigestInput struct {
 	Alerts    []models.NetworkAlert
 	Series    []models.NetworkDay
 	Inventory models.DeviceInventory
+	// Tallies are what the background modules did over the last 24 hours (see ModuleTally); empty when none keeps one.
+	Tallies []ModuleTally
 	// Current is the scan being made now, which the digest's records do not include. When set, the digest is checked against it, so
 	// the model is never handed "gone" for a port the scan it is reading shows open (it cannot diff two lists reliably).
 	Current *CurrentScan
@@ -161,6 +163,8 @@ type WindowDigest struct {
 	ReturnedInWindow []DigestChange `json:"returned_in_window,omitempty"`
 	ReturnedMore     int            `json:"returned_more,omitempty"`
 	Activity         DigestActivity `json:"activity"`
+	// Modules are what the background modules (the router DNS check) did over the last 24 hours, whatever the audit's window.
+	Modules []ModuleTally `json:"modules,omitempty"`
 	// Unread names a record that could not be read, so the digest is never taken for a quiet network.
 	Unread []string `json:"unread,omitempty"`
 }
@@ -174,6 +178,11 @@ func DigestOf(in DigestInput) WindowDigest {
 	d.Open, d.OpenMore, d.OpenPorts = digestOpen(in, hidden)
 	d.digestLife(in, from, hidden)
 	d.Activity = digestActivity(in, from)
+	for _, t := range in.Tallies {
+		if t.Done > 0 {
+			d.Modules = append(d.Modules, t)
+		}
+	}
 	return d
 }
 

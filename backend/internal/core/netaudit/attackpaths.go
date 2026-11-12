@@ -99,7 +99,7 @@ const (
 	prizeComputerWords     = "this computer"
 	prizeRouterWords       = "your router"
 	prizeImportantWords    = "the important device at "
-	pathsReportHeading     = "Ways in that matter:"
+	pathsReportHeading     = "### Ways in that matter"
 	pathsReportBreaksWords = "One fix breaks %d of these paths."
 )
 

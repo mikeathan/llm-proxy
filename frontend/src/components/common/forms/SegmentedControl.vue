@@ -4,8 +4,10 @@ import type { ChoiceOption } from "../../../types/ui"
 
 // One-of-n choice drawn as joined segments: a radio group, so only the checked
 // segment is in the tab order and the arrow keys move (and wrap).
-// `tone="running"` tints the chosen segment amber while something runs, so it is clear at a glance that the page is live;
-// an option marked `live` carries a pulsing dot (still while motion is reduced).
+// `tone="running"` fills the chosen segment with the theme's brand colour while something runs, so it is clear at a glance that the
+// page is live (the brand fill and its label colour are a contrast-proven pair in every theme); an option marked `live` carries a
+// pulsing dot and, while it is not the chosen one, a brand outline so the way to the running view stands out (the dot is in the label
+// colour on the chosen segment, and still while motion is reduced).
 // `touch` makes each segment 44 px high on a phone, for a control that is the way around a page; the default stays compact.
 // `variant="tabs"` draws the same radio group as an underlined row (scrolls sideways on a phone) for the parts of one page;
 // `variant="compact"` is the quiet look at 28 px high on every screen, whose tap area is still 44 px: an invisible layer reaches 8 px
@@ -54,12 +56,12 @@ async function onKeydown(event: KeyboardEvent, index: number) {
         'h-7 px-3 font-mono text-[length:var(--text-small)] font-medium transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset',
         touch ? 'max-sm:h-11' : '',
         index > 0 ? 'border-l border-hairline' : '',
-        option.value === modelValue ? (tone === 'running' ? 'bg-state-running/[0.28] text-primary ring-1 ring-inset ring-state-running' : 'bg-surface-active text-primary') : 'text-muted hover:bg-surface-hover hover:text-primary',
+        option.value === modelValue ? (tone === 'running' ? 'bg-accent-brand text-on-accent' : 'bg-surface-active text-primary') : (tone === 'running' && option.live ? 'text-primary ring-1 ring-inset ring-accent-brand hover:bg-surface-hover' : 'text-muted hover:bg-surface-hover hover:text-primary'),
       ]"
       @click="emit('update:modelValue', option.value)"
       @keydown="onKeydown($event, index)"
     >
-      <span v-if="option.live" data-test="live-dot" aria-hidden="true" class="mr-1.5 inline-block size-1.5 rounded-full bg-state-running motion-safe:animate-pulse" />{{ option.label }}<span v-if="option.live" class="sr-only"> (running)</span>
+      <span v-if="option.live" data-test="live-dot" aria-hidden="true" :class="['mr-1.5 inline-block size-1.5 rounded-full motion-safe:animate-pulse', tone === 'running' && option.value === modelValue ? 'bg-text-on-accent' : 'bg-accent-brand']" />{{ option.label }}<span v-if="option.live" class="sr-only"> (running)</span>
     </button>
   </div>
 </template>

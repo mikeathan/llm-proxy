@@ -138,3 +138,13 @@ func TestHardenerFor_OnlyLinuxJudgesTheSSHServerSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestDNSTallies_WordsACheckThatRanAndSaysNothingForOneThatDidNot(t *testing.T) {
+	got := dnsTallies(stacksdk.ModuleStatus{Recent: stacksdk.Tally{Done: 24, Flagged: 1, Unclear: 2}})
+	if len(got) != 1 || got[0].Line() != "Router DNS check, last 24 h: 24 checks, 1 differed, 2 could not be compared." {
+		t.Errorf("tally = %+v", got)
+	}
+	if none := dnsTallies(stacksdk.ModuleStatus{}); len(none) != 0 {
+		t.Errorf("a check that did nothing in the period adds no line: %+v", none)
+	}
+}

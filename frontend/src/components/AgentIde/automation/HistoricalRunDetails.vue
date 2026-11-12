@@ -4,7 +4,7 @@ import { useConfirm } from "../../../composables/ui/useConfirm";
 import { formatAbsoluteTime, formatDuration } from "../../../utils/format/time";
 import { automationTarget } from "../../../utils/runs/runTarget";
 import { toWorkspace } from "../../../router/routes";
-import MarkdownViewer from "../../common/display/MarkdownViewer.vue";
+import AuditReport from "./AuditReport.vue";
 import StatusTag from "../../common/display/StatusTag.vue";
 import { runOutcomeTag } from "../../../utils/automation/runOutcome";
 import RunWarnings from "../../common/display/RunWarnings.vue";
@@ -126,7 +126,7 @@ async function handleClearRuns() {
         Saved as <SavedReportLink :workspace-id="run.workspace_id" :path="run.report_path" />
       </p>
       <div class="border border-hairline bg-canvas p-3">
-        <MarkdownViewer :content="run.output" />
+        <AuditReport :content="run.output" />
       </div>
     </section>
   </article>

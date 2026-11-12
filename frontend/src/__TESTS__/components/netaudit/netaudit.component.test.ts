@@ -1674,15 +1674,16 @@ describe('Accepted problems and the counts', () => {
 })
 
 describe('SegmentedControl while something runs', () => {
-  it('marks a live segment with a dot, and tints the chosen one when the control is in the running tone', async () => {
+  it('marks a live segment with a dot, fills the chosen one with the brand colour and outlines the live one when the control is in the running tone', async () => {
     const { default: SegmentedControl } = await import('../../../components/common/forms/SegmentedControl.vue')
     const options = [{ value: 'a', label: 'Results' }, { value: 'b', label: 'Live run', live: true }]
     const idle = mount(SegmentedControl, { props: { modelValue: 'a', options, label: 'x' } })
     expect(idle.findAll('[data-test="live-dot"]')).toHaveLength(1)
-    expect(idle.findAll('[role="radio"]')[0]!.classes().join(' ')).not.toContain('state-running')
+    expect(idle.findAll('[role="radio"]')[0]!.classes().join(' ')).not.toContain('accent-brand')
     const running = mount(SegmentedControl, { props: { modelValue: 'a', options, label: 'x', tone: 'running' } })
-    expect(running.findAll('[role="radio"]')[0]!.classes().join(' ')).toContain('state-running')
-    expect(running.findAll('[role="radio"]')[1]!.classes().join(' ')).not.toContain('bg-state-running')
+    expect(running.findAll('[role="radio"]')[0]!.classes()).toEqual(expect.arrayContaining(['bg-accent-brand', 'text-on-accent']))
+    expect(running.findAll('[role="radio"]')[1]!.classes()).toEqual(expect.arrayContaining(['ring-accent-brand']))
+    expect(running.findAll('[role="radio"]')[1]!.classes()).not.toContain('bg-accent-brand')
   })
 })
 

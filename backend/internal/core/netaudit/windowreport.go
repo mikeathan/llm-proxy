@@ -29,6 +29,9 @@ func writeWindow(b *strings.Builder, d *WindowDigest) {
 	if line := activityText(d.Activity); line != "" {
 		fmt.Fprintf(b, "\n- Activity: %s.", line)
 	}
+	for _, m := range d.Modules {
+		fmt.Fprintf(b, "\n- %s", cell(m.Line()))
+	}
 	if len(d.Unread) > 0 {
 		fmt.Fprintf(b, "\n- Not read, so not counted: %s.", cell(strings.Join(d.Unread, ", ")))
 	}

@@ -347,13 +347,22 @@ describe('AutomationDetails of a network audit', () => {
     expect(tab(w, 'Live run').attributes('aria-checked')).toBe('true')
   })
 
-  it('shows the live run tab with a dot and tints the chosen tab while a run is on, and neither when idle', async () => {
+  it('shows the live run tab with a dot and a brand outline, fills the chosen tab with the brand colour while a run is on, and none of it when idle', async () => {
     const busy = await mountDetails({ automation: AUDIT, isExecuting: true })
     expect(tab(busy, 'Live run').find('[data-test="live-dot"]').exists()).toBe(true)
-    expect(tab(busy, 'Results').classes().join(' ')).toContain('state-running')
+    expect(tab(busy, 'Live run').classes().join(' ')).toContain('ring-accent-brand')
+    expect(tab(busy, 'Results').classes().join(' ')).toContain('bg-accent-brand')
     const idle = await mountDetails({ automation: AUDIT })
     expect(idle.find('[data-test="live-dot"]').exists()).toBe(false)
-    expect(tab(idle, 'Results').classes().join(' ')).not.toContain('state-running')
+    expect(tab(idle, 'Results').classes().join(' ')).not.toContain('accent-brand')
+    expect(tab(idle, 'Live run').classes().join(' ')).not.toContain('ring-accent-brand')
+  })
+
+  it('fills the live tab itself with the brand colour when it is the one chosen', async () => {
+    const busy = await mountDetails({ automation: AUDIT, isExecuting: true })
+    await tab(busy, 'Live run').trigger('click')
+    expect(tab(busy, 'Live run').classes().join(' ')).toContain('bg-accent-brand')
+    expect(tab(busy, 'Live run').find('[data-test="live-dot"]').classes().join(' ')).toContain('bg-text-on-accent')
   })
 
   it('says on the results tab that the last run failed, and leads to why', async () => {

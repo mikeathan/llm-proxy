@@ -149,8 +149,10 @@ func (s *Stack) Status(ctx context.Context) ([]stacksdk.ModuleStatus, error) {
 		return nil, nil
 	}
 	set, st := cfg.Settings(ctx), c.Status()
+	// A log that cannot be read only means no tally this time: the check's own problem is reported through Problem.
+	recent, _ := c.Recent(time.Now())
 	return []stacksdk.ModuleStatus{{
-		ID: ModuleID, Enabled: set.Enabled && len(set.Names) > 0, Every: set.Every, LastRun: st.LastRun, Problem: st.Problem,
+		ID: ModuleID, Enabled: set.Enabled && len(set.Names) > 0, Every: set.Every, LastRun: st.LastRun, Problem: st.Problem, Recent: recent,
 	}}, nil
 }
 

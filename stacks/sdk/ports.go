@@ -55,6 +55,18 @@ type ModuleStatus struct {
 	Every   time.Duration `json:"every,omitempty"`
 	LastRun time.Time     `json:"last_run,omitempty"`
 	Problem string        `json:"problem,omitempty"`
+	// Recent is what the module did over the last 24 hours, in counts only (ADR-0049); the zero value when it did nothing in that time or
+	// keeps no tally. It has no free text: the core words it from its own table, so nothing a device or a resolver sent can reach a report
+	// through it.
+	Recent Tally `json:"recent,omitzero"`
+}
+
+// Tally is what a module's background work did over a period: how many times it looked, how many looks found something worth a second
+// look, and how many could not be judged (the other side gave no usable answer). Counts only.
+type Tally struct {
+	Done    int `json:"done"`
+	Flagged int `json:"flagged"`
+	Unclear int `json:"unclear"`
 }
 
 // StackFinding is one finding a stack offers (ADR-0036). It is typed fields only, with no free-text field: the core words the finding
@@ -387,5 +399,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}}
 }
