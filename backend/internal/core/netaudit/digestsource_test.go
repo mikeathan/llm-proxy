@@ -38,7 +38,7 @@ func newSource(store fakeDigestStore) DigestSource {
 
 func TestDigestSource_AnOrdinaryChatScanGetsNoDigest(t *testing.T) {
 	ctx := models.WithWorkspaceID(context.Background(), "ws")
-	if got := newSource(fakeDigestStore{}).Digest(ctx); got != "" {
+	if got := newSource(fakeDigestStore{}).Digest(ctx, nil); got != "" {
 		t.Errorf("only an audit run has settings, so only it gets a digest: %q", got)
 	}
 }
@@ -48,15 +48,15 @@ func TestDigestSource_ReadsTheRunsOwnAuditAndWindow(t *testing.T) {
 		{Automation: "network-audit", At: wdAgo(30), DevicesUp: 1},
 		{Automation: "network-audit", At: wdAgo(2), DevicesUp: 15},
 	}}
-	day := newSource(store).Digest(auditCtx(models.ScanWindowDay))
-	week := newSource(store).Digest(auditCtx(models.ScanWindowWeek))
+	day := newSource(store).Digest(auditCtx(models.ScanWindowDay), nil)
+	week := newSource(store).Digest(auditCtx(models.ScanWindowWeek), nil)
 	if !strings.Contains(day, "last 24h): 1 scan(s)") || !strings.Contains(week, "last 7d): 2 scan(s)") {
 		t.Errorf("window not applied:\n%s\n%s", day, week)
 	}
 }
 
 func TestDigestSource_APartThatCannotBeReadIsSaidNotLeftOut(t *testing.T) {
-	got := newSource(fakeDigestStore{logErr: errors.New("corrupt")}).Digest(auditCtx(""))
+	got := newSource(fakeDigestStore{logErr: errors.New("corrupt")}).Digest(auditCtx(""), nil)
 	if !strings.Contains(got, `"unread":["scan log"]`) {
 		t.Errorf("an unreadable log must be named, never read as a quiet network: %s", got)
 	}

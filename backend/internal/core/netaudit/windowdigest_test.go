@@ -153,3 +153,97 @@ func TestDigestOf_NothingInTheWindowIsSaidPlainlyNotLeftBlank(t *testing.T) {
 		t.Errorf("an empty window must say there was no scan: %s", text)
 	}
 }
+
+func wdCurrent(open ...string) *CurrentScan {
+	c := &CurrentScan{Open: map[string]bool{}, Unscanned: map[string]bool{}}
+	for _, k := range open {
+		c.Open[k] = true
+	}
+	return c
+}
+
+// The records end at the scan before this one. A local model cannot diff two JSON lists, so the digest is corrected against the scan
+// it travels with: a port the records call gone but this scan shows open is back, and the reverse.
+func TestDigestOf_ChangesTheScanBeingReadContradictsAreCorrected(t *testing.T) {
+	back := wdKey("10.0.0.1", 5000, CheckOpenPort)    // gone in the records, open now
+	closed := wdKey("10.0.0.2", 49152, CheckOpenPort) // new in the records, closed now
+	whole := wdKey("10.0.0.3", 22, CheckOpenPort)     // open all window in the records, closed now
+	udp := "10.0.0.4|udp|5353|udp_service"            // not a TCP port: the scan cannot say
+	life := []models.FindingLife{
+		{Key: back, FirstSeen: wdAgo(100), OpenSince: wdAgo(100), LastSeen: wdAgo(9), ResolvedAt: wdAgo(8)},
+		{Key: closed, FirstSeen: wdAgo(5), OpenSince: wdAgo(5), LastSeen: wdAgo(1)},
+		{Key: whole, FirstSeen: wdAgo(100), OpenSince: wdAgo(100), LastSeen: wdAgo(1)},
+		{Key: udp, FirstSeen: wdAgo(3), OpenSince: wdAgo(3), LastSeen: wdAgo(1)},
+	}
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Life: life, Current: wdCurrent(back)})
+	if len(d.ReturnedInWindow) != 1 || d.ReturnedInWindow[0].Device != "10.0.0.1" {
+		t.Errorf("a port gone in the records and open now is back: %+v", d.ReturnedInWindow)
+	}
+	if len(d.GoneInWindow) != 2 || d.OpenAllWindow != 0 {
+		t.Errorf("a port the scan shows closed is gone, whether the records called it new or old: %+v (open all window %d)", d.GoneInWindow, d.OpenAllWindow)
+	}
+	for _, c := range d.GoneInWindow {
+		if c.At.IsZero() {
+			t.Errorf("a corrected change is dated as of this scan, never zero: %+v", c)
+		}
+	}
+	if len(d.NewInWindow) != 1 || d.NewInWindow[0].Device != "10.0.0.4" {
+		t.Errorf("a finding the scan cannot speak to (UDP) keeps its class: %+v", d.NewInWindow)
+	}
+	if plain := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Life: life}); len(plain.GoneInWindow) != 1 {
+		t.Errorf("without the scan the records are untouched: %+v", plain.GoneInWindow)
+	}
+}
+
+func TestDigestOf_ADeviceTheScanDidNotFinishIsNotReconciled(t *testing.T) {
+	key := wdKey("10.0.0.1", 80, CheckOpenPort)
+	life := []models.FindingLife{{Key: key, FirstSeen: wdAgo(100), OpenSince: wdAgo(100), LastSeen: wdAgo(1)}}
+	cur := wdCurrent()
+	cur.Unscanned["10.0.0.1"] = true
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Life: life, Current: cur})
+	if d.OpenAllWindow != 1 || len(d.GoneInWindow) != 0 {
+		t.Errorf("unknown ports are not closed ports: %+v", d)
+	}
+}
+
+func TestDigestOf_AnOpenFindingTheScanNoLongerShowsIsMarked(t *testing.T) {
+	f := models.ScanFinding{Device: "10.0.0.1", Port: 23, Proto: "tcp", Check: "telnet_open", Severity: "high"}
+	still := models.ScanFinding{Device: "10.0.0.1", Port: 80, Proto: "tcp", Check: "web_exposure", Severity: "info"}
+	cur := wdCurrent(wdKey("10.0.0.1", 80, CheckOpenPort))
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Baseline: wdBaseline(f, still), Current: cur})
+	got := map[string]bool{}
+	for _, o := range d.Open {
+		got[o.Check] = o.NotInThisScan
+	}
+	if len(d.Open) != 2 || !got[titleOrID("telnet_open")] || got[titleOrID("web_exposure")] {
+		t.Errorf("only the finding whose port is closed now is marked: %+v", d.Open)
+	}
+	if !d.AsOf.Equal(wdAgo(1)) {
+		t.Errorf("the digest says when its records end: %v", d.AsOf)
+	}
+}
+
+// Accepting a check's finding is a decision about that port: the port's own history must not reach the model either, or it reads
+// "port 23 appeared" about an exposure the operator already accepted.
+func TestDigestOf_AcceptingACheckHidesTheWholePort(t *testing.T) {
+	telnet := models.ScanFinding{Device: "10.0.0.1", Port: 23, Proto: "tcp", Check: "telnet_open", Severity: "high"}
+	port := models.ScanFinding{Device: "10.0.0.1", Port: 23, Proto: "tcp", Check: CheckOpenPort}
+	web := models.ScanFinding{Device: "10.0.0.1", Port: 80, Proto: "tcp", Check: "web_exposure", Severity: "info"}
+	acks := map[string]models.ScanAck{telnet.Key(): {Key: telnet.Key(), ExpiresAt: wdNow.Add(24 * time.Hour)}}
+	life := []models.FindingLife{
+		{Key: port.Key(), FirstSeen: wdAgo(3), OpenSince: wdAgo(3), LastSeen: wdAgo(1)},
+		{Key: web.Key(), FirstSeen: wdAgo(3), OpenSince: wdAgo(3), LastSeen: wdAgo(1)},
+	}
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Baseline: wdBaseline(telnet, port, web), Acks: acks, Life: life})
+	if len(d.NewInWindow) != 1 || d.NewInWindow[0].Port != 80 || len(d.Open) != 1 || d.Open[0].Port != 80 {
+		t.Errorf("port 23 must be absent everywhere, port 80 kept: new %+v open %+v", d.NewInWindow, d.Open)
+	}
+}
+
+func TestRenderDigest_WithoutALoggedScanItNamesTheLatestSavedScan(t *testing.T) {
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Baseline: wdBaseline()})
+	out := RenderDigest(d)
+	if !strings.Contains(out, "latest saved scan is from 2026-11-12 11:00") || strings.Contains(out, "no scan was recorded") {
+		t.Errorf("an empty scan log beside a saved scan must not read as no scan at all:\n%s", out)
+	}
+}
