@@ -95,6 +95,14 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	if v, ok := svc.(interface{ NetauditMonitors() netaudit.MonitorStalls }); ok && v.NetauditMonitors() != nil {
 		reporter.WithMonitors(v.NetauditMonitors())
 	}
+	withNetauditWindow(reporter, svc)
+}
+
+// withNetauditWindow lets the report say how the network moved over the audit's window, from the same records the model's digest reads.
+func withNetauditWindow(reporter *netaudit.RunReporter, svc handlers.AssistantService) {
+	if v, ok := svc.(interface{ NetauditWindow() netaudit.WindowSource }); ok && v.NetauditWindow() != nil {
+		reporter.WithWindow(v.NetauditWindow())
+	}
 }
 
 // withNetauditInsight gives the run reporter what turns findings into judgements: the phone-home watch's signals and the switch of

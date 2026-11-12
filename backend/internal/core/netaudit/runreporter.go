@@ -23,6 +23,7 @@ type RunReporter struct {
 	fixes      FixStore         // optional: findings the operator marked as fixed
 	footprint  FootprintSource  // optional: what the footprint looks last found about the operator's domains and addresses
 	scanLog    ScanLogStore     // optional: one row per saved scan, for the window digest
+	window     WindowSource     // optional: how the network moved over the audit's window, written into the report
 	life       LifeStore        // optional: when each finding first appeared, went away and came back
 	vulns      VulnSource       // optional: the vulnerability data known_vulns findings are matched against
 	expect     ExpectationStore // optional: what the operator says each device should offer
@@ -102,6 +103,25 @@ func (r *RunReporter) addFootprint(result *Result, scanned map[string]bool, at t
 func (r *RunReporter) WithLife(life LifeStore) *RunReporter {
 	r.life = life
 	return r
+}
+
+// WithWindow makes the reporter write how the network moved over the audit's window into the report. The source is read, never run: it
+// probes nothing.
+func (r *RunReporter) WithWindow(w WindowSource) *RunReporter {
+	r.window = w
+	return r
+}
+
+// windowOf is the window digest for the run, checked against the scan being made, or nil.
+func (r *RunReporter) windowOf(ctx context.Context, workspaceID, automation string, result Result) *WindowDigest {
+	if r.window == nil {
+		return nil
+	}
+	d, ok := r.window.Build(ctx, workspaceID, automation, CurrentOf(result))
+	if !ok {
+		return nil
+	}
+	return &d
 }
 
 // WithScanLog makes the reporter add a row for each saved scan to the workspace's scan log, which the window digest reads.
@@ -395,7 +415,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	delta := Diff(restrictTo(prev.Findings, scanned), result.Findings)
 	shown, accepted, ackNote := r.applyAcks(workspaceID, result, delta, at)
 	view := Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted, Vulns: cov,
-		Exposed: ExposedServices(shown.result.Hosts, CoveredPorts(shown.accepted))}
+		Exposed: ExposedServices(shown.result.Hosts, CoveredPorts(shown.accepted)), Window: r.windowOf(ctx, workspaceID, automation, result)}
 	observed := RenderObserved(view)
 	collector.SetSummary(SummaryOf(Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: result, Delta: shown.delta, Accepted: accepted, Vulns: cov}, automation))
 	if readErr != nil {

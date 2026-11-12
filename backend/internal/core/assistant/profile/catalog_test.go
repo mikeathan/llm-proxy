@@ -275,7 +275,7 @@ func TestSecurityAuditorReadsTheWindowDigestAndKeepsTheFactsToCode(t *testing.T)
 	c, _ := newCatalog(t)
 	p, _ := c.Get("security-auditor")
 	text := strings.ToLower(p.Instructions)
-	for _, must := range []string{"window digest", "never count the list yourself", "not a quiet network", "must not copy or restate", "never raise, soften or invent", "never group findings under a severity heading", "never list one twice", "at most five items", "do not list the services"} {
+	for _, must := range []string{"window digest", "never count the list yourself", "not a quiet network", "never raise, soften or invent", "never group findings under a severity heading", "never list one twice", "at most three items", "what the operator should look at first", "must not copy, restate, count or list"} {
 		if !strings.Contains(text, must) {
 			t.Errorf("the auditor prompt must say %q", must)
 		}

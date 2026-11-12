@@ -34,14 +34,17 @@ type DigestSource struct {
 // seriesDays covers the longest window (a week) with a day to spare.
 const seriesDays = 8
 
-// Digest is the rendered digest, fitted to budget characters (see RenderDigest), for the run in ctx, checked against current (the scan being made, nil when there is none), or "" when the run is not an audit (an ordinary chat has no scan settings, so
-// no window and no audit name). A part that cannot be read is named in the digest, so the model never reads it as a quiet network.
-func (s DigestSource) Digest(ctx context.Context, current *CurrentScan, budget int) string {
+// Build reads the records of one audit of one workspace and returns the digest, checked against current (the scan being made, nil when
+// there is none). The window comes from the run's scan settings in ctx; ok is false when the run is not an audit (an ordinary chat has
+// no scan settings, so no window) or there is no store. The workspace and the audit are passed, not read from ctx: the run's own context
+// does not carry the workspace (a tool call adds it). A part that cannot be read is named in the digest's Unread, so it is never read as
+// a quiet network.
+func (s DigestSource) Build(ctx context.Context, workspaceID, automation string, current *CurrentScan) (WindowDigest, bool) {
 	settings, ok := models.ScanSettingsFrom(ctx)
 	if !ok || s.Store == nil {
-		return ""
+		return WindowDigest{}, false
 	}
-	ws, automation := models.GetWorkspaceID(ctx), models.GetTaskName(ctx)
+	ws := workspaceID
 	now := time.Now()
 	if s.Now != nil {
 		now = s.Now()
@@ -80,5 +83,14 @@ func (s DigestSource) Digest(ctx context.Context, current *CurrentScan, budget i
 	}
 	d := DigestOf(in)
 	d.Unread = unread
+	return d, true
+}
+
+// Digest is the rendered digest, fitted to budget characters (see RenderDigest), or "" when the run is not an audit.
+func (s DigestSource) Digest(ctx context.Context, current *CurrentScan, budget int) string {
+	d, ok := s.Build(ctx, models.GetWorkspaceID(ctx), models.GetTaskName(ctx), current)
+	if !ok {
+		return ""
+	}
 	return RenderDigest(d, budget)
 }
