@@ -33,6 +33,47 @@ type DigestInput struct {
 	Alerts    []models.NetworkAlert
 	Series    []models.NetworkDay
 	Inventory models.DeviceInventory
+	// Current is the scan being made now, which the digest's records do not include. When set, the digest is checked against it, so
+	// the model is never handed "gone" for a port the scan it is reading shows open (it cannot diff two lists reliably).
+	Current *CurrentScan
+}
+
+// CurrentScan is what the scan being made now found, reduced to what reconciling the digest needs.
+type CurrentScan struct {
+	// Open are the keys of the open TCP ports of the scan. Unscanned are the devices it did not finish: their ports are unknown, so
+	// nothing about them is reconciled.
+	Open      map[string]bool
+	Unscanned map[string]bool
+}
+
+// CurrentOf reduces a scan result. The result must be the full one, not what the operator accepted taken out.
+func CurrentOf(res Result) *CurrentScan {
+	c := &CurrentScan{Open: map[string]bool{}, Unscanned: map[string]bool{}}
+	for _, h := range res.Hosts {
+		if h.Unscanned {
+			c.Unscanned[h.Addr.String()] = true
+		}
+		for _, p := range h.Ports {
+			if p.State == "open" && p.Proto == "tcp" {
+				c.Open[Finding{Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Check: CheckOpenPort}.Key()] = true
+			}
+		}
+	}
+	return c
+}
+
+// now says whether the scan shows a finding's TCP port open: known is false when it cannot say (a UDP or whole-device finding, or a
+// device the scan did not finish).
+func (c *CurrentScan) now(key string) (open, known bool) {
+	if c == nil {
+		return false, false
+	}
+	dev, port, _, ok := splitFindingKey(key)
+	parts := strings.SplitN(key, "|", 4)
+	if !ok || port == 0 || len(parts) < 2 || parts[1] != "tcp" || c.Unscanned[dev] {
+		return false, false
+	}
+	return c.Open[portOf(key)+"|"+CheckOpenPort], true
 }
 
 // DigestRange is the lowest and highest of a number across the window's scans.
@@ -74,6 +115,8 @@ type DigestOpen struct {
 	Version   string `json:"version,omitempty"`
 	FirstSeen string `json:"first_seen,omitempty"`
 	CameBack  int    `json:"came_back,omitempty"`
+	// NotInThisScan is set when the scan being read shows the port closed: the finding was open in the latest saved scan, not now.
+	NotInThisScan bool `json:"not_in_this_scan,omitempty"`
 }
 
 // DigestChange is a finding that appeared, went away or came back inside the window. Check is the check's plain title.
@@ -99,10 +142,12 @@ type DigestActivity struct {
 // WindowDigest is the bounded, typed account of the last window of the network: the scans, what is open, what changed and what
 // else happened. It is built only from records the program already keeps; building it probes nothing and keeps nothing.
 type WindowDigest struct {
-	Window string      `json:"window"`
-	From   time.Time   `json:"from"`
-	To     time.Time   `json:"to"`
-	Scans  DigestScans `json:"scans"`
+	Window string    `json:"window"`
+	From   time.Time `json:"from"`
+	To     time.Time `json:"to"`
+	// AsOf is when the latest saved scan was made: the records below end there, and the scan being read now is later.
+	AsOf  time.Time   `json:"records_end_at,omitempty"`
+	Scans DigestScans `json:"scans"`
 	// Open are the problems of the latest saved scan, worst first, without what the operator accepted and without known-vulnerability
 	// findings (the report adds those itself). OpenPorts is how many open ports it showed.
 	Open      []DigestOpen `json:"open,omitempty"`
@@ -124,7 +169,7 @@ type WindowDigest struct {
 // DigestOf builds the digest for [Now-Window, Now]. It is a pure function of its input.
 func DigestOf(in DigestInput) WindowDigest {
 	from := in.Now.Add(-in.Window)
-	d := WindowDigest{Window: windowLabel(in.Window), From: from, To: in.Now}
+	d := WindowDigest{Window: windowLabel(in.Window), From: from, To: in.Now, AsOf: in.Baseline.ScannedAt}
 	d.Scans = digestScans(in, from)
 	hidden := hiddenKeys(in)
 	d.Open, d.OpenMore, d.OpenPorts = digestOpen(in, hidden)
@@ -172,19 +217,39 @@ func digestScans(in DigestInput, from time.Time) DigestScans {
 	return s
 }
 
-// hiddenKeys are the findings the digest never shows: what the operator accepted, whatever the check. Known-vulnerability findings
-// are left out by their check, not here.
-func hiddenKeys(in DigestInput) map[string]bool {
-	hidden := map[string]bool{}
-	for _, f := range in.Baseline.Findings {
-		if a, ok := in.Acks[f.Key()]; ok && StateFor(a, f, in.Now) == AckActive {
-			hidden[f.Key()] = true
-		}
-	}
-	return hidden
+// hiddenSet is what the digest never shows: findings the operator accepted, and every finding on a port where the operator accepted
+// a check's finding (the same rule as HideAccepted, so the digest and the scan result never disagree about what the model may see).
+// Known-vulnerability findings are left out by their check, not here.
+type hiddenSet struct {
+	keys  map[string]bool
+	ports map[string]bool
 }
 
-func digestOpen(in DigestInput, hidden map[string]bool) (open []DigestOpen, more, ports int) {
+func portOf(key string) string {
+	if parts := strings.SplitN(key, "|", 4); len(parts) == 4 {
+		return strings.Join(parts[:3], "|")
+	}
+	return key
+}
+
+func (h hiddenSet) has(key string) bool { return h.keys[key] || h.ports[portOf(key)] }
+
+func hiddenKeys(in DigestInput) hiddenSet {
+	h := hiddenSet{keys: map[string]bool{}, ports: map[string]bool{}}
+	for _, f := range in.Baseline.Findings {
+		a, ok := in.Acks[f.Key()]
+		if !ok || StateFor(a, f, in.Now) != AckActive {
+			continue
+		}
+		h.keys[f.Key()] = true
+		if f.Port > 0 && f.Check != CheckKnownVulns {
+			h.ports[portOf(f.Key())] = true
+		}
+	}
+	return h
+}
+
+func digestOpen(in DigestInput, hidden hiddenSet) (open []DigestOpen, more, ports int) {
 	life := make(map[string]models.FindingLife, len(in.Life))
 	for _, l := range in.Life {
 		life[l.Key] = l
@@ -194,7 +259,7 @@ func digestOpen(in DigestInput, hidden map[string]bool) (open []DigestOpen, more
 		switch {
 		case f.Check == CheckOpenPort:
 			ports++
-		case f.Check == CheckKnownVulns, hidden[f.Key()]:
+		case f.Check == CheckKnownVulns, hidden.has(f.Key()):
 		default:
 			pick = append(pick, f)
 		}
@@ -212,6 +277,9 @@ func digestOpen(in DigestInput, hidden map[string]bool) (open []DigestOpen, more
 		o := DigestOpen{Device: f.Device, Port: f.Port, Proto: f.Proto, Check: titleOrID(f.Check), Severity: f.Severity, Service: f.Service, Version: f.Version}
 		if l, ok := life[f.Key()]; ok {
 			o.FirstSeen, o.CameBack = l.FirstSeen.UTC().Format(time.RFC3339), l.Returned
+		}
+		if open, known := in.Current.now(f.Key()); known && !open {
+			o.NotInThisScan = true
 		}
 		open = append(open, o)
 	}
@@ -261,15 +329,36 @@ func classifyLife(l models.FindingLife, from time.Time) (lifeKind, time.Time) {
 	return lifeQuiet, time.Time{}
 }
 
+// reconcileLife corrects a history class that the scan being read contradicts. A finding the records call gone, whose port the scan
+// shows open, is back; one the records call new or returned, whose port the scan shows closed, is gone again. Only open ports are
+// compared: the scan alone cannot say whether a module's finding still holds.
+func reconcileLife(kind lifeKind, cur *CurrentScan, key string) lifeKind {
+	open, known := cur.now(key)
+	switch {
+	case !known:
+		return kind
+	case kind == lifeGone && open:
+		return lifeReturned
+	case (kind == lifeNew || kind == lifeReturned) && !open:
+		return lifeGone
+	case kind == lifeWhole && !open:
+		return lifeGone
+	}
+	return kind
+}
+
 // digestLife reads each finding's history for what began, ended or came back inside the window.
-func (d *WindowDigest) digestLife(in DigestInput, from time.Time, hidden map[string]bool) {
+func (d *WindowDigest) digestLife(in DigestInput, from time.Time, hidden hiddenSet) {
 	var fresh, gone, back []DigestChange
 	for _, l := range in.Life {
 		dev, port, check, ok := splitFindingKey(l.Key)
-		if !ok || check == CheckKnownVulns || hidden[l.Key] {
+		if !ok || check == CheckKnownVulns || hidden.has(l.Key) {
 			continue
 		}
 		kind, at := classifyLife(l, from)
+		if fixed := reconcileLife(kind, in.Current, l.Key); fixed != kind {
+			kind, at = fixed, in.Now // what the scan being read changed happened as of that scan
+		}
 		change := DigestChange{Device: dev, Port: port, Check: titleOrID(check), At: at, CameBack: l.Returned}
 		switch kind {
 		case lifeNew:
@@ -345,10 +434,14 @@ func RenderDigest(d WindowDigest) string {
 }
 
 func digestHeader(d WindowDigest) string {
+	const reading = " These records end at the latest saved scan, which is earlier than the scan you were just given: where a record disagrees with that scan, the scan is current, and a record marked not_in_this_scan was open before it and is not open in it."
 	if d.Scans.Count == 0 {
-		return fmt.Sprintf("window digest (last %s): no scan was recorded in this window; the rest is what the program kept from earlier scans and from its watches.", d.Window)
+		if !d.AsOf.IsZero() {
+			return fmt.Sprintf("window digest (last %s): the scan log has no scan in this window; the latest saved scan is from %s, and the rest is what the program kept from it and from its watches.%s", d.Window, d.AsOf.UTC().Format("2006-01-02 15:04 MST"), reading)
+		}
+		return fmt.Sprintf("window digest (last %s): no scan was recorded in this window and none was saved before; the rest is what the program kept from its watches.", d.Window)
 	}
-	return fmt.Sprintf("window digest (last %s): %d scan(s) recorded, %d scheduled and %d pressed. Counts are exact; lists are cut worst or newest first and the cut is stated.", d.Window, d.Scans.Count, d.Scans.Scheduled, d.Scans.Pressed)
+	return fmt.Sprintf("window digest (last %s): %d scan(s) recorded, %d scheduled and %d pressed. Counts are exact; lists are cut worst or newest first and the cut is stated.%s", d.Window, d.Scans.Count, d.Scans.Scheduled, d.Scans.Pressed, reading)
 }
 
 // shrink halves the longest list and reports whether it cut anything.

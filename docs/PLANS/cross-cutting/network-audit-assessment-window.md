@@ -9,7 +9,7 @@ evidence: vertex v0.77.0 run 06356dd58f9747f4 (2026-11-11 20:02Z), read through 
 
 # Network audit · the assessment reads the window's data
 
-**Status:** partial (branch `audit-assessment-uses-the-days-data`, from `origin/main` at v0.77.0, v0.78.0: phases 1 to 4 built and tested, uncommitted; **not run on vertex**; ADR-0049).
+**Status:** partial (v0.78.0 merged and deployed as #232; v0.78.1 fixes on branch `audit-assessment-accuracy`, not yet run on vertex; earlier branch `audit-assessment-uses-the-days-data`, from `origin/main` at v0.77.0, v0.78.0: phases 1 to 4 built and tested, uncommitted; **not run on vertex**; ADR-0049).
 
 ## Why
 
@@ -65,9 +65,13 @@ the raw findings of every scan would be.
 
 Phase 1 `scanlog.go` + `persistence/scanlog.go` (named "scan log": `journal` is the automations' journal) and `RunReporter.WithScanLog`; phase 2 `windowdigest.go` (pure, 9,000-byte ceiling, a mutation check on the accepted-findings rule); phase 3 `digestsource.go`, `scantool` attaches the digest in its own fence for audit runs only, a typed "devices answered of addresses" header, `ScanSettings.Window` through validation, template header, form field; phase 4 the rewritten `security-auditor.md` profile, `**Window:**` on `network_audit.md` and a new `network_audit_weekly.md`. Checks run: `go build ./...`, `go test ./...`, `go run ./tools/check-complexity/`, frontend `npm test` and `npm run build`, `./scripts/check-agent-harness.sh`.
 
+## Fixed after the first vertex run (v0.78.1, branch `audit-assessment-accuracy`)
+
+Run `122538f7` on v0.78.0 used the digest (host findings, UPnP, activity) and had the right counts, and showed four faults, each now fixed and tested: (1) an **accepted** Telnet was still shown as a check finding because `HideAccepted` filtered only the bare open-port key and rebuilt findings from the hosts; (2) the digest said "gone" for ports the same scan showed open, because its records end at the previous scan (now reconciled, `reconcileLife`); (3) "no scan was recorded" beside a saved scan; (4) a 254-address host list in the scan result (down addresses are no longer listed), and the prompt now says to name each address and never write a range. The alert read and the scan log wiring were checked and are correct (`After` is newest-first, as the activity handler uses it; `WithScanLog` is wired in `bootstrap.go`).
+
 ## Remaining Work
 
-1. **Deploy and replay on vertex** (the phase 4 acceptance, not done): press Run on `network-audit`, then read the report and the digest in the run record. Compare with run `06356dd5`: devices up, severities, whether it uses the window (needs a recording; the run had none). The first digest after deploy has one scan row, so the window grows over the next days.
+1. **Deploy v0.78.1 and replay on vertex** (press Run; the first run showed the faults above): press Run on `network-audit`, then read the report and the digest in the run record. Compare with run `06356dd5`: devices up, severities, whether it uses the window (needs a recording; the run had none). The first digest after deploy has one scan row, so the window grows over the next days.
 2. The weekly audit's scan rows are only its own; reading the daily audit's rows for it needs a decision on mixed targets.
 3. The digest does not include this run's add-ons (computed after the model writes); the latest saved scan carries the earlier ones.
 4. If the local model's context is small, lower `DigestMaxBytes` (`windowdigest.go`).

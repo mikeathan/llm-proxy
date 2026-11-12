@@ -2,6 +2,7 @@ package netaudit
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -142,5 +143,50 @@ func TestHideAccepted_TheModelNeverSeesWhatTheOperatorAccepted(t *testing.T) {
 	res2 := Result{Hosts: hostsWith(changed), Findings: []Finding{changed}}
 	if _, n := HideAccepted(res2, []models.ScanAck{ack}, ackNow); n != 0 {
 		t.Error("an acceptance of another version hides nothing")
+	}
+}
+
+// An acceptance of a check's finding (not only of the bare open port) is the operator's decision about that exposure. The
+// findings are rebuilt from the hosts, so the port has to leave the hosts too, or the check comes straight back to the model.
+func TestHideAccepted_AnAcceptedCheckFindingIsHiddenWithItsPort(t *testing.T) {
+	telnetPort := Finding{Device: "10.0.0.1", Port: 23, Proto: "tcp", Check: CheckOpenPort, Service: "telnet"}
+	telnetCheck := Finding{Device: "10.0.0.1", Port: 23, Proto: "tcp", Check: CheckTelnetOpen, Severity: "high"}
+	web := finding("10.0.0.1", 80, "")
+	hosts := hostsWith(telnetPort, web)
+	hosts[0].Ports[0].Service = "telnet"
+	res := Result{Engine: "nmap", Hosts: hosts, Findings: FindingsOf(hosts)}
+	if !slices.ContainsFunc(res.Findings, func(f Finding) bool { return f.Check == CheckTelnetOpen }) {
+		t.Fatalf("the scan must produce the telnet check for this test to mean anything: %+v", res.Findings)
+	}
+	ack, _ := NewAck(telnetCheck, "", 30, ackNow.AddDate(0, 0, -1))
+
+	got, hidden := HideAccepted(res, []models.ScanAck{ack}, ackNow)
+	if hidden != 1 {
+		t.Errorf("hidden = %d, want 1", hidden)
+	}
+	for _, p := range got.Hosts[0].Ports {
+		if p.Number == 23 {
+			t.Errorf("port 23 must leave the hosts: %+v", got.Hosts[0].Ports)
+		}
+	}
+	for _, f := range got.Findings {
+		if f.Port == 23 {
+			t.Errorf("no finding of port 23 may reach the model: %+v", f)
+		}
+	}
+	if len(got.Findings) == 0 {
+		t.Error("what was not accepted stays")
+	}
+}
+
+// A known-vulnerability acceptance is about those CVEs, not about the service being reachable: the port stays visible.
+func TestHideAccepted_AcceptedKnownVulnsKeepThePortVisible(t *testing.T) {
+	smb := finding("10.0.0.1", 445, "Samba smbd 4.6.2")
+	res := Result{Hosts: hostsWith(smb), Findings: []Finding{smb}}
+	vuln := Finding{Device: "10.0.0.1", Port: 445, Proto: "tcp", Check: CheckKnownVulns, Version: "Samba smbd 4.6.2"}
+	ack, _ := NewAck(vuln, "", 30, ackNow.AddDate(0, 0, -1))
+	got, hidden := HideAccepted(res, []models.ScanAck{ack}, ackNow)
+	if hidden != 0 || len(got.Hosts[0].Ports) != 1 {
+		t.Errorf("hidden %d, ports %+v", hidden, got.Hosts[0].Ports)
 	}
 }

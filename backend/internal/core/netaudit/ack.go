@@ -146,15 +146,21 @@ func RemoveAck(acks []models.ScanAck, key string) ([]models.ScanAck, bool) {
 	return out, len(out) != len(acks)
 }
 
-// HideAccepted returns the scan result as the model should see it: the open ports an active acceptance covers are left
-// out of the hosts and the findings, and the number left out is returned. The input is not changed.
+// HideAccepted returns the scan result as the model should see it: every open port an active acceptance covers is left out of the
+// hosts and the findings, and the number left out is returned. An acceptance of a check's finding (telnet open, SSH password login)
+// is the operator's decision about that exposure on that port, so the port goes with it: the findings are rebuilt from the hosts,
+// and a port left in would bring the accepted check straight back. A known-vulnerability acceptance is about those CVEs, not about
+// the service being reachable, so it hides nothing here. The input is not changed.
 func HideAccepted(res Result, acks []models.ScanAck, now time.Time) (Result, int) {
 	if len(acks) == 0 {
 		return res, 0
 	}
 	accepted := map[string]bool{}
 	for _, f := range ApplyAcks(res.Findings, acks, now).Accepted {
-		accepted[f.Key()] = true
+		if f.Check == CheckKnownVulns || f.Port == 0 {
+			continue
+		}
+		accepted[Finding{Device: f.Device, Port: f.Port, Proto: f.Proto, Check: CheckOpenPort}.Key()] = true
 	}
 	if len(accepted) == 0 {
 		return res, 0

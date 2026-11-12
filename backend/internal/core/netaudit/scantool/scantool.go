@@ -33,7 +33,7 @@ type AckSource interface {
 // acks, when given, keeps the findings the operator accepted out of what the model is shown. digest, when given, returns the
 // record of the audit's window (netaudit.DigestSource.Digest); the tool adds it after the scan in its own fence, and a run it
 // returns "" for (an ordinary chat) gets the scan alone.
-func Module(scanner Scanner, acks AckSource, available func(context.Context) bool, digest func(context.Context) string) toolregistry.Module {
+func Module(scanner Scanner, acks AckSource, available func(context.Context) bool, digest func(context.Context, *netaudit.CurrentScan) string) toolregistry.Module {
 	return toolregistry.Module{
 		Handlers: map[string]toolregistry.ToolHandler{
 			models.ToolNetworkScan: toolregistry.Handle(func(ctx context.Context, args scanArgs) (any, error) {
@@ -74,7 +74,7 @@ type scanArgs struct {
 	Thorough bool `json:"thorough"`
 }
 
-func run(ctx context.Context, scanner Scanner, acks AckSource, digest func(context.Context) string, args scanArgs) (any, error) {
+func run(ctx context.Context, scanner Scanner, acks AckSource, digest func(context.Context, *netaudit.CurrentScan) string, args scanArgs) (any, error) {
 	req := netaudit.Request{Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Thorough: args.Thorough}
 	// A network audit has its own settings, kept with the automation: they decide what is scanned and how, and nothing
 	// the model passes changes them. A run without settings (an ordinary chat or automation) uses its arguments.
@@ -100,7 +100,7 @@ func run(ctx context.Context, scanner Scanner, acks AckSource, digest func(conte
 	if err != nil || digest == nil {
 		return text, err
 	}
-	if d := digest(ctx); d != "" {
+	if d := digest(ctx, netaudit.CurrentOf(res)); d != "" {
 		text += "\n\n" + prompts.FenceScanData(d)
 	}
 	return text, nil
@@ -124,16 +124,29 @@ func render(mode netaudit.Mode, res netaudit.Result, hidden int) (string, error)
 		Hosts    []netaudit.Host    `json:"hosts"`
 		Findings []netaudit.Finding `json:"findings"`
 		Warnings []string           `json:"warnings,omitempty"`
-	}{res.Engine, res.Hosts, res.Findings, res.Warnings}
+	}{res.Engine, answered(res.Hosts), res.Findings, res.Warnings}
 	body, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to encode the scan result: %w", err)
 	}
-	header := fmt.Sprintf("network_scan %s finished with %s: %d device(s) answered of %d address(es) looked at. %s", mode, res.Engine, devicesUp(res.Hosts), len(res.Hosts), findingsview.Line(res.Findings))
+	header := fmt.Sprintf("network_scan %s finished with %s: %d device(s) answered of %d address(es) looked at; only the devices that answered are listed. %s", mode, res.Engine, devicesUp(res.Hosts), len(res.Hosts), findingsview.Line(res.Findings))
 	if hidden > 0 {
 		header += fmt.Sprintf(" %d finding(s) the operator has accepted are left out.", hidden)
 	}
 	return header + "\n" + prompts.FenceScanData(string(body)), nil
+}
+
+// answered leaves out the addresses that did not answer: a /24 scan lists all 254 of them, which is thousands of tokens of
+// {"up":false} that bury the devices and invite the model to invent ranges. The header still says how many addresses were looked at,
+// and a device that was not finished (unscanned) stays, because its ports are unknown.
+func answered(hosts []netaudit.Host) []netaudit.Host {
+	out := make([]netaudit.Host, 0, len(hosts))
+	for _, h := range hosts {
+		if h.Up || h.Unscanned || len(h.Ports) > 0 {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // devicesUp counts the hosts that answered. The count is typed, so the model does not have to count the list, which holds every
