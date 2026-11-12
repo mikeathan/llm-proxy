@@ -36,9 +36,9 @@ type scanView struct {
 	Warnings []string           `json:"warnings,omitempty"`
 }
 
-// viewOf reduces a result. A service name that is only the usual name for that port number carries "(guess)" in the text itself, so
-// it cannot be read as confirmed; a product name nmap gave from the shape of a reply alone is left out, because it is not software
-// the scan identified ("Cloudflare public DNS" for a router's DNS port).
+// viewOf reduces a result. A service name that is only the usual name for that port number, and a product name nmap gave from the
+// shape of a reply alone ("Cloudflare public DNS" for a router's DNS port), are left out, wherever they appear: marked "(guess)" they
+// were still repeated as fact, and a port with no name gives the model nothing to repeat. The report's tables still show them.
 func viewOf(res netaudit.Result) scanView {
 	v := scanView{Engine: res.Engine, Hosts: []viewHost{}, Findings: []netaudit.Finding{}, Warnings: res.Warnings}
 	for _, h := range res.Hosts {
@@ -55,6 +55,7 @@ func viewOf(res netaudit.Result) scanView {
 	}
 	for _, f := range res.Findings {
 		if f.Check != netaudit.CheckOpenPort {
+			f.Service, f.Version = netaudit.ConfirmedText(f.Service), netaudit.ConfirmedText(f.Version)
 			v.Findings = append(v.Findings, f)
 		}
 	}
@@ -66,8 +67,8 @@ func viewPortOf(p netaudit.Port) viewPort {
 	if p.Proto != "tcp" {
 		out.Proto = p.Proto
 	}
-	if p.Guessed && out.Service != "" {
-		out.Service += " (guess)"
+	if p.Guessed {
+		out.Service = ""
 	}
 	if p.ProductGuessed {
 		out.Product = ""

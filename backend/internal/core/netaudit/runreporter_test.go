@@ -585,3 +585,20 @@ func TestPrivilegeNotes_SayEachUnfinishedPartAndTheStartingPoint(t *testing.T) {
 		}
 	}
 }
+
+func TestRunReporter_TheReportListsExposedServicesAndKeepsWhatTheOperatorAccepted(t *testing.T) {
+	ssh := Host{Addr: netip.MustParseAddr("10.0.0.1"), Up: true, Ports: []Port{
+		{Number: 22, Proto: "tcp", State: "open", Service: "ssh", Product: "OpenSSH", Version: "9.6p1"},
+		{Number: 21, Proto: "tcp", State: "open", Service: "ftp"},
+	}}
+	got := reporter(&memBaselines{data: map[string]models.ScanBaseline{}}, reportTime).Augment(scannedHosts(ssh), "ws", "nightly", "")
+	if !strings.Contains(got, "### Exposed services worth reviewing") || !strings.Contains(got, "| 10.0.0.1 | 22/tcp | ssh | OpenSSH 9.6p1 | Remote administration |") || !strings.Contains(got, "| 10.0.0.1 | 21/tcp | ftp |") {
+		t.Errorf("the report lists the services:\n%s", got)
+	}
+
+	ack, _ := NewAck(Finding{Device: "10.0.0.1", Port: 22, Proto: "tcp", Check: CheckOpenPort, Service: "ssh", Version: "OpenSSH 9.6p1"}, "jump host", 30, reportTime.Add(-time.Hour))
+	got = reporter(&memBaselines{data: map[string]models.ScanBaseline{}}, reportTime).WithAcks(&memAcks{acks: []models.ScanAck{ack}}).Augment(scannedHosts(ssh), "ws", "nightly", "")
+	if strings.Contains(got, "22/tcp | ssh") || !strings.Contains(got, "| 10.0.0.1 | 21/tcp | ftp |") {
+		t.Errorf("an accepted port is not listed, the other still is:\n%s", got)
+	}
+}

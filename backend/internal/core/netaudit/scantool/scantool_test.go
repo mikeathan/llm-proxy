@@ -399,13 +399,13 @@ func TestTool_AFullSubnetResultFitsTheResultCapWithNoCut(t *testing.T) {
 			t.Errorf("device %s was left out although the result fits", h.Addr)
 		}
 	}
-	for _, bad := range []string{"filtered", "64680", "Cloudflare", `"check":"open_port"`, "not listed"} {
+	for _, bad := range []string{"filtered", "64680", "Cloudflare", `"check":"open_port"`, "not listed", "guess"} {
 		if strings.Contains(text, bad) {
 			t.Errorf("the model's view must not contain %q:\n%s", bad, text[:600])
 		}
 	}
-	if !strings.Contains(text, `"service":"http (guess)"`) || !strings.Contains(text, "15 device(s) answered of 254 address(es)") {
-		t.Errorf("a guessed name is marked in the text, and the header counts:\n%s", text[:700])
+	if !strings.Contains(text, "15 device(s) answered of 254 address(es)") || !strings.Contains(text, `{"port":8080,"product":"nginx"`) {
+		t.Errorf("a guessed name is left out (the port stays, with nothing to repeat), and the header counts:\n%s", text[:700])
 	}
 }
 
@@ -427,5 +427,31 @@ func TestTool_ASmallCapStatesWhatItLeavesOutAndNeverCutsAnEntry(t *testing.T) {
 	var back map[string]any
 	if err := json.Unmarshal([]byte(text[start:end]), &back); err != nil {
 		t.Errorf("what is left must be whole JSON: %v", err)
+	}
+}
+
+// A guessed name reaches the model by three paths: a host's port, a check finding's service and version text (the stored findings
+// carry the "(guess)" mark), and the digest. None may carry it.
+func TestTool_NoGuessedNameReachesTheModelByAnyPath(t *testing.T) {
+	host := netaudit.Host{Addr: netip.MustParseAddr("10.0.0.1"), Up: true, Ports: []netaudit.Port{
+		{Number: 53, Proto: "tcp", State: "open", Service: "domain", Product: "Cloudflare public DNS", ProductGuessed: true},
+		{Number: 7000, Proto: "tcp", State: "open", Service: "afs3-fileserver", Guessed: true},
+		{Number: 22, Proto: "tcp", State: "open", Service: "ssh", Product: "OpenSSH", Version: "9.6p1"},
+	}}
+	finding := netaudit.Finding{Device: "10.0.0.1", Port: 7000, Proto: "tcp", Check: netaudit.CheckTelnetOpen, Severity: "high", Service: "afs3-fileserver (guess)", Version: "Cloudflare public DNS (guess)"}
+	res := netaudit.Result{Engine: "nmap", Hosts: []netaudit.Host{host}, Findings: append(netaudit.FindingsOf([]netaudit.Host{host}), finding)}
+	r := toolregistry.NewLocalToolRegistry(nil, nil, nil, nil, nil, nil).Use(Module(&fakeScanner{res: res}, nil, nil, nil))
+	out, err := r.ExecuteTool(context.Background(), proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolNetworkScan, Arguments: `{"mode":"checks"}`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := out.(string)
+	for _, bad := range []string{"guess", "afs3", "Cloudflare"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("%q reached the model:\n%s", bad, text)
+		}
+	}
+	if !strings.Contains(text, `"service":"ssh"`) || !strings.Contains(text, `"version":"9.6p1"`) && !strings.Contains(text, "OpenSSH") {
+		t.Errorf("a confirmed service stays:\n%s", text)
 	}
 }

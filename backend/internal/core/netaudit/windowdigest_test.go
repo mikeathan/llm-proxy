@@ -280,3 +280,21 @@ func TestRenderDigest_DoesNotClaimHowAScanWasStarted(t *testing.T) {
 		t.Errorf("the scan log cannot tell a scheduled run from a pressed one:\n%s", out)
 	}
 }
+
+func TestRenderDigest_HasNoSeriousCountAndNoGuessedName(t *testing.T) {
+	entry := wdScan(2, true, 15, 36)
+	entry.BySeverity = map[string]int{"high": 4}
+	guessed := models.ScanFinding{Device: "10.0.0.1", Port: 53, Proto: "tcp", Check: "web_exposure", Severity: "info", Service: "domain (guess)", Version: "Cloudflare public DNS (guess)"}
+	known := models.ScanFinding{Device: "10.0.0.2", Port: 22, Proto: "tcp", Check: "ssh_weak_algorithms", Severity: "low", Service: "ssh", Version: "OpenSSH 9.6p1"}
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Automation: "network-audit", Log: []models.ScanEntry{entry}, Baseline: wdBaseline(guessed, known)})
+	out := RenderDigest(d, 0)
+	if strings.Contains(out, "serious") {
+		t.Errorf("a count the listed findings cannot reproduce must not be in the digest:\n%s", out)
+	}
+	if strings.Contains(out, "guess") || strings.Contains(out, "Cloudflare") || strings.Contains(out, "domain") {
+		t.Errorf("a guessed name must not reach the model, even inside a finding:\n%s", out)
+	}
+	if !strings.Contains(out, "OpenSSH 9.6p1") {
+		t.Errorf("a confirmed version stays:\n%s", out)
+	}
+}

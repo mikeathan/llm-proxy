@@ -146,6 +146,24 @@ func RemoveAck(acks []models.ScanAck, key string) ([]models.ScanAck, bool) {
 	return out, len(out) != len(acks)
 }
 
+// CoveredPorts are the ports an accepted finding is about, as "device|proto|port": the one rule for what an acceptance of a check
+// takes out of sight (the scan result the model reads, the window digest, the report's list of exposed services). A known-vulnerability
+// acceptance is about those CVEs, not about the service being reachable, so it covers nothing here.
+func CoveredPorts(accepted []Finding) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range accepted {
+		if f.Check != CheckKnownVulns && f.Port > 0 {
+			out[portOf(f.Key())] = true
+		}
+	}
+	return out
+}
+
+// portKeyOf is the "device|proto|port" key of a host's port.
+func portKeyOf(h Host, p Port) string {
+	return portOf(Finding{Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Check: CheckOpenPort}.Key())
+}
+
 // HideAccepted returns the scan result as the model should see it: every open port an active acceptance covers is left out of the
 // hosts and the findings, and the number left out is returned. An acceptance of a check's finding (telnet open, SSH password login)
 // is the operator's decision about that exposure on that port, so the port goes with it: the findings are rebuilt from the hosts,
@@ -155,14 +173,8 @@ func HideAccepted(res Result, acks []models.ScanAck, now time.Time) (Result, int
 	if len(acks) == 0 {
 		return res, 0
 	}
-	accepted := map[string]bool{}
-	for _, f := range ApplyAcks(res.Findings, acks, now).Accepted {
-		if f.Check == CheckKnownVulns || f.Port == 0 {
-			continue
-		}
-		accepted[Finding{Device: f.Device, Port: f.Port, Proto: f.Proto, Check: CheckOpenPort}.Key()] = true
-	}
-	if len(accepted) == 0 {
+	covered := CoveredPorts(ApplyAcks(res.Findings, acks, now).Accepted)
+	if len(covered) == 0 {
 		return res, 0
 	}
 	out := res
@@ -172,8 +184,7 @@ func HideAccepted(res Result, acks []models.ScanAck, now time.Time) (Result, int
 		kept := h
 		kept.Ports = nil
 		for _, p := range h.Ports {
-			key := Finding{Device: h.Addr.String(), Port: p.Number, Proto: p.Proto, Check: CheckOpenPort}.Key()
-			if p.State == "open" && accepted[key] {
+			if p.State == "open" && covered[portKeyOf(h, p)] {
 				hidden++
 				continue
 			}

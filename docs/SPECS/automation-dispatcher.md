@@ -1,7 +1,7 @@
 ---
 id: SPEC-007
 title: Automation Dispatcher
-version: "1.23"
+version: "1.24"
 status: stable
 last_updated: 2026-10-30
 constitution_references: []
@@ -13,6 +13,7 @@ supersedes: docs/PLANS/automation/automation-dispatcher-blueprint.md
 
 ## Changelog
 
+- **1.24 (2026-11-12)** — §II.8: the Observed section of an audit also lists the **exposed services worth reviewing** (remote administration, file sharing and databases the scan identified; an accepted port and a guessed name are left out), written by code on every run; the model is not asked to list them. The model reads a compact, cap-sized view of the scan with guessed names left out (ADR-0049).
 - **1.23 (2026-10-30)** — §V.1 wording: the operator's cancel route is "behind the admin sign-in", not "admin auth"
   (there was no auth when it was written; since 0.18.0 every `/admin/api` route needs a session or an admin token once
   a passphrase exists). No behaviour change.
@@ -338,7 +339,8 @@ scan (SPEC-006 §II.7.6) and gives the automation a local-network grant.
 - **Observed vs assessment.** The scan tool also hands its structured result to the run. After the run, code compares it with
   the automation's **latest scan** (`baseline/<automation>.json` in the workspace's metadata folder, outside the agent's
   workspace; two automations never share one; deleted with the automation) and writes the "Observed" section: what was
-  scanned, and what is new, resolved or changed. An address the run did not scan is not reported resolved, and its earlier
+  scanned, and what is new, resolved or changed, then the exposed services worth reviewing (confirmed remote-administration,
+  file-sharing and database services; not a guessed name, not a port an accepted finding covers). An address the run did not scan is not reported resolved, and its earlier
   findings are carried forward. Values from the network are escaped so they cannot break the table. The model's report
   follows under "Assessment (written by the model)".
 - **Delivery.** A connector message for an audit is the summary above, never the findings.

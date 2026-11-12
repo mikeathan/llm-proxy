@@ -18,6 +18,9 @@ type Observed struct {
 	Accepted int
 	// Vulns says how far known-vulnerability matching reached; the zero value means it was not asked for.
 	Vulns VulnCoverage
+	// Exposed are the remote-administration, file-sharing and database services this scan identified (see ExposedServices); listed
+	// on every run, not only when new, because they are what the operator is asked to review.
+	Exposed []ExposedService
 }
 
 // ObservedHeading titles the section the code writes. The model's text follows it under its own heading.
@@ -65,6 +68,7 @@ func RenderObserved(o Observed) string {
 	if o.Previous.IsZero() {
 		writeInventory(&b, "Open ports", o.Result.Findings)
 		writeChecks(&b, "Checks", o.Result.Findings, true)
+		writeExposed(&b, o.Exposed)
 		return strings.TrimRight(b.String(), "\n")
 	}
 	writeTable(&b, "New", o.Delta.New)
@@ -77,6 +81,7 @@ func RenderObserved(o Observed) string {
 			fmt.Fprintf(&b, "| %s | %d/%s | %s | %s |\n", cell(c.After.Device), c.After.Port, cell(c.After.Proto), cell(changeText(c.Before)), cell(changeText(c.After)))
 		}
 	}
+	writeExposed(&b, o.Exposed)
 	return strings.TrimRight(b.String(), "\n")
 }
 
