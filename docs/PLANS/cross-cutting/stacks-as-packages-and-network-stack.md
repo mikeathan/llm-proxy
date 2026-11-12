@@ -120,7 +120,7 @@ found, the learnings ledger; archive this plan.
 `Runner`, over the unchanged `platform/sandbox` and `platform/progexec`. `isolation/isolationtest` is the conformance suite (filesystem
 jail, TCP denial, Unix-socket denial incl. the per-spawn and operator relaxations, clean environment, per-file size limit, honest
 reporting). The relaxation inventory and the override measurement are in `docs/learnings/guardrails.md`. Existing importers (22 files)
-still import `sandbox` and `progexec` directly and no test moved; switching them to `isolation` is a mechanical follow-up inside P2.
+still imported `sandbox` and `progexec` directly at the time; they were switched by the Network moves and the last two (`privhelper/client`) on 2026-11-12, and `TestOnlyTheIsolationLibraryImportsTheSandboxAndTheRunner` now keeps it so ([`isolation-importers-switch.md`](isolation-importers-switch.md)).
 **P2 built 2026-11-06 (same branch, uncommitted).** `stacks/sdk` (manifest and `Validate`, `Stack`/`Host` and the ports Config,
 Events, Logger, DataDir, Guard, Isolation, `Error` with a code, `CheckPlainData`; stdlib only); `stacks/example` (the reference
 stack, not registered); `core/stack` reads manifests (`StackFromManifest`, `ModulesFromManifest`, `Wiring`) and `StackID.Valid` is now
@@ -153,3 +153,8 @@ so a developer's local `go.work` cannot change the result.
 **P3b S1 built 2026-11-07 (in PR #203):** routes as data in the SDK, `MountStackRoutes` and `AuthenticateWith` in the core (not wired until S2), the baseline figures; details and the refinements to D8 in the design note section 4c. **P3b design written 2026-11-07:** [`network-stack-p3b-design.md`](network-stack-p3b-design.md) (corrects the P3a advice to move `core/netaudit` early: it is the hub and moves last; consumers move with each leaf); decisions D5 to D9 accepted by the owner 2026-11-07, with the conditions: no performance regression, no extra processing, no unnecessary complexity (design note section 4a). Next: S1.
 ADR-0032, ADR-0033 and IV.6 were accepted by merging #201 (2026-11-07). Owner decision still waiting: the override finding (approved calls
 skip the checks after the one shown). Next: P3b on the owner's go-ahead.
+
+**Status 2026-11-12 (supersedes the "not built" lines above).** P3b S2 to S6 are built and merged (option B finished: the sensors that send to devices and parse
+untrusted answers are in `stacks/network`; the listeners, Nearby, `portprobe` and the judgement stay in the core by design, ADR-0038 and ADR-0039; see
+`network-stacks-handoff-2026-11-09.md`). The `isolation` switch is done ([`isolation-importers-switch.md`](isolation-importers-switch.md)). A second stack, Agents,
+is built on a branch ([`agents-stack-watch.md`](agents-stack-watch.md), ADR-0051 proposed). Left here: P4 harvest and the owner's vertex checks.

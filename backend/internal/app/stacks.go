@@ -1,20 +1,24 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/netip"
 	"time"
 
+	"llm-proxy-stacks/agents"
 	"llm-proxy-stacks/network"
 	"llm-proxy-stacks/network/oui"
 	"llm-proxy-stacks/sdk"
 
+	"llm-proxy/internal/core/agentwatch"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/stackport"
 	"llm-proxy/internal/core/tools"
+	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/loginlog"
 	"llm-proxy/internal/platform/neighbors"
 	"llm-proxy/models"
@@ -216,6 +220,38 @@ func (s *AppServices) newNetworkHost(store netaudit.PolicyStore, netTools *tools
 	return h, nil
 }
 
+// agentsStack is the Agents stack: the watch side of what the agents do. Only this file imports a stack (Constitution IV.6).
+func agentsStack() stacksdk.Stack { return agents.New() }
+
+// agentAlertIDs are the alert ids the Agents stack can publish; a test holds the core's table of words to them.
+func agentAlertIDs() []string { return agents.AlertIDs() }
+
+// newAgentsHost hosts the Agents stack over the core's own services, one adapter per port its manifest requires: the settings document (the
+// `agents` key, unchanged), the alert sink (which words each alert and sends it to the connectors), the service's log, the data folder
+// restricted to the one file the manifest lists, and the secrets scan (the folder walk stays in the core, so no file's bytes cross). The
+// record file is removed by a factory reset, as the store it replaces was.
+func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context.Context, message string) error) (*stackHost, error) {
+	st := agentsStack()
+	files := st.Manifest().Storage
+	if _, err := claimedFiles(networkStack().Manifest(), st.Manifest()); err != nil {
+		return nil, err
+	}
+	dir := s.AppCtx.RootDir()
+	host := stacksdk.Host{
+		Config:     stackport.Config[models.AgentsConfig]{Store: policy},
+		Events:     agentwatch.Alerts{Notify: notify, OnError: func(err error) { logging.Warn("agent watch", "error", err.Error()) }},
+		Log:        stackport.Log{Stack: st.Manifest().ID},
+		DataDir:    stackport.DataDir{Dir: dir, Files: files},
+		SecretScan: agentwatch.Scanner{Workspaces: s.workspaceDirs},
+	}
+	h, err := newStackHost(st, host)
+	if err != nil {
+		return nil, err
+	}
+	s.AppCtx.AfterFactoryReset("The agent security record", func() error { return stackport.Remove(dir, files) })
+	return h, nil
+}
+
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes
 // now and not at the next tick. A write that failed wakes nothing.
 type pokedSwitch struct {
@@ -257,6 +293,25 @@ func (a agentPart) Set(enabled bool) error {
 		*a.off(c) = !enabled
 		return nil
 	})
+}
+
+// observeTimeout bounds how long describing a module waits for its stack's status; a stack's status reads a counter or one small file.
+const observeTimeout = 2 * time.Second
+
+// observedModule is the registry's observer: it asks each hosted stack how a module is doing and gives back when it last ran and what is
+// wrong with it, in the stack's own fixed words. A module no hosted stack reports, or a stack that is not hosted, says nothing.
+func (n *netauditServices) observedModule(id string) (stack.Observed, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
+	defer cancel()
+	for _, h := range []*stackHost{n.Network, n.Agents} {
+		if h == nil {
+			continue
+		}
+		if st, ok := h.Module(ctx, id); ok {
+			return stack.Observed{LastRun: st.LastRun, Problem: st.Problem}, true
+		}
+	}
+	return stack.Observed{}, false
 }
 
 // stalledMonitors are the ids of the monitored parts that have stopped, for the health of the modules that own them.

@@ -837,3 +837,58 @@ func TestTheRouterRuleRefusesABreach(t *testing.T) {
 		t.Fatalf("the composition root may wire the router, got %v", got)
 	}
 }
+
+// isolationDoors are the two packages that run or confine a program. Everything outside the isolation library reaches them through
+// platform/isolation, so a stack and the helper see one door whose guarantees one conformance suite checks (ADR-0033).
+var isolationDoors = []string{
+	module + "/internal/platform/sandbox",
+	module + "/internal/platform/progexec",
+}
+
+// isolationDoorAllowed are the only packages that may import a door: the doors themselves (progexec confines through sandbox) and the
+// isolation library that re-exports both.
+var isolationDoorAllowed = []string{
+	module + "/internal/platform/sandbox",
+	module + "/internal/platform/progexec",
+	module + "/internal/platform/isolation",
+	module + "/internal/platform/isolation/isolationtest",
+}
+
+// isolationDoorViolations lists the imports of the sandbox or the program runner by a package that is not allowed to have them. Tests
+// count: a test double should use the same re-exported types.
+func isolationDoorViolations(p pkg) []string {
+	if slices.Contains(isolationDoorAllowed, p.ImportPath) || strings.HasSuffix(p.ImportPath, "_test") {
+		return nil
+	}
+	var bad []string
+	for _, imp := range p.allImports() {
+		if slices.Contains(isolationDoors, imp) {
+			bad = append(bad, p.ImportPath+" imports "+imp+", use platform/isolation")
+		}
+	}
+	return bad
+}
+
+func TestOnlyTheIsolationLibraryImportsTheSandboxAndTheRunner(t *testing.T) {
+	var bad []string
+	for _, p := range goList(t) {
+		bad = append(bad, isolationDoorViolations(p)...)
+	}
+	if len(bad) > 0 {
+		t.Fatalf("a package reaches the sandbox or the program runner without the isolation library (ADR-0033):\n%s", strings.Join(bad, "\n"))
+	}
+}
+
+func TestTheIsolationDoorRuleRefusesABreach(t *testing.T) {
+	client := pkg{ImportPath: privhelperPath + "/client", Imports: []string{module + "/internal/platform/sandbox"}}
+	if got := isolationDoorViolations(client); len(got) != 1 {
+		t.Fatalf("a package importing sandbox directly must be refused, got %v", got)
+	}
+	viaTest := pkg{ImportPath: privhelperPath + "/client", TestImport: []string{module + "/internal/platform/progexec"}}
+	if got := isolationDoorViolations(viaTest); len(got) != 1 {
+		t.Fatalf("a test importing the runner directly must be refused, got %v", got)
+	}
+	if got := isolationDoorViolations(pkg{ImportPath: module + "/internal/platform/isolation", Imports: isolationDoors}); len(got) != 0 {
+		t.Fatalf("the isolation library may import both doors, got %v", got)
+	}
+}

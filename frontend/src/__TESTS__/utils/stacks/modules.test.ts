@@ -35,3 +35,26 @@ describe('layerNumber', () => {
     expect([0, 1, 2].map((i) => layerNumber(i, 3))).toEqual(['03', '02', '01'])
   })
 })
+
+describe('moduleStatus: when it last ran and what is wrong', () => {
+  const NOW = Date.parse('2026-11-12T12:00:00Z')
+
+  it('says when a module that is on last ran', () => {
+    expect(moduleStatus(mod({ enabled: true, sends: 'message', last_run: '2026-11-12T09:00:00Z' }), NOW)).toEqual({ text: 'On · sends a message · last ran 3 hours ago', tone: 'success' })
+  })
+
+  it('says nothing about a run that has not happened, or a time the server sends for never', () => {
+    expect(moduleStatus(mod({ enabled: true, sends: 'nothing' }), NOW).text).toBe('On · sends nothing')
+    expect(moduleStatus(mod({ enabled: true, sends: 'nothing', last_run: '0001-01-01T00:00:00Z' }), NOW).text).toBe('On · sends nothing')
+  })
+
+  it('shows the stack\'s own words for a problem, in amber, and still says when it last ran', () => {
+    const got = moduleStatus(mod({ enabled: true, sends: 'message', last_run: '2026-11-12T09:00:00Z', problem: 'the queue was full and some events were not recorded' }), NOW)
+    expect(got).toEqual({ text: 'On · sends a message · last ran 3 hours ago · the queue was full and some events were not recorded', tone: 'warning' })
+  })
+
+  it('shows a problem under Working too, and never for a module that is off', () => {
+    expect(moduleStatus(mod({ enabled: true, health: 'working', sends: 'nothing', problem: 'p.' }), NOW)).toEqual({ text: 'Working · sends nothing · p.', tone: 'warning' })
+    expect(moduleStatus(mod({ enabled: false, problem: 'p.', last_run: '2026-11-12T09:00:00Z' }), NOW).text).toBe('Off · LAN')
+  })
+})

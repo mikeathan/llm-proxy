@@ -23,6 +23,8 @@ type Host struct {
 	Privileged Privileged
 	// ScopedGuard is the guarded dial that first applies the operator's declared scan scope; nil unless the manifest requires PortScopedGuard.
 	ScopedGuard Guard
+	// SecretScan is the core's look through the files agents wrote; nil unless the manifest requires PortSecretScan.
+	SecretScan SecretScan
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -44,6 +46,65 @@ type Stack interface {
 	// Handle answers one request on a route the manifest declares. A failure the caller should see as a refusal is an *Error; the Response
 	// carries every ordinary answer, including a 4xx.
 	Handle(ctx context.Context, req Request) (Response, error)
+}
+
+// The kinds of observation a stack may list in Manifest.Observes. A refusal and an approval come from the agents' tool calls; a fetch is a
+// tool call that fetched a web page.
+const (
+	ObservedRefused  = "tool_refused"
+	ObservedApproval = "approval_asked"
+	ObservedFetch    = "fetch"
+)
+
+// Observation is one thing the service saw an agent do. The tool, automation and host are names the core already vetted as plain tokens; the
+// workspace is the id the service made. It has no arguments, no URL path or query, no error text and no model words: the core keeps those out
+// before it pushes. Its fields are about agents; a stack that listens to something else declares its own kinds and the fields it needs.
+type Observation struct {
+	Kind string `json:"kind"`
+	// Workspace is the workspace's id, as the service made it (not vetted: the record has always kept it as it was).
+	Workspace string `json:"workspace"`
+	// Automation names the automation of the run; empty for a chat.
+	Automation string `json:"automation,omitempty"`
+	// Unattended is true when an automation ran it, with nobody there to be told.
+	Unattended bool `json:"unattended,omitempty"`
+	// Tool is the tool's name (a refusal or an approval); Host the host of a fetch.
+	Tool string `json:"tool,omitempty"`
+	Host string `json:"host,omitempty"`
+}
+
+// Observer is implemented by a stack that takes in what the service sees (Manifest.Observes). The core pushes each observation as it happens, on
+// the goroutine that saw it, so Observe must never block: a stack queues the observation and returns, and counts one it dropped.
+type Observer interface {
+	Observe(o Observation)
+}
+
+// SecretHit is one place an agent left what looks like a credential: the workspace, the workspace-relative path, and the kind of secret in
+// fixed words. The secret itself never crosses the port.
+type SecretHit struct {
+	Workspace string `json:"workspace"`
+	Where     string `json:"where"`
+	Kind      string `json:"kind"`
+}
+
+// SecretScan asks the core to look through the files agents wrote in every workspace for credentials. The core keeps the folder walk, the size
+// and file-count bounds and the secret shapes; what comes back is places and kinds only. A failure is an *Error.
+type SecretScan interface {
+	Scan(ctx context.Context) ([]SecretHit, error)
+}
+
+// EventAlert is the Event type of an alert. Its Data is an Alert; the core words it from its own table for ID and sends it to the operator.
+const EventAlert = "alert"
+
+// Alert is what a stack publishes when the operator should be told: an id from the stack's fixed list, and the vetted tokens it is about. The
+// core drops an id it does not know and words the rest, so no sentence is built from text the stack kept.
+type Alert struct {
+	ID         string `json:"id"`
+	Workspace  string `json:"workspace,omitempty"`
+	Automation string `json:"automation,omitempty"`
+	Tool       string `json:"tool,omitempty"`
+	Host       string `json:"host,omitempty"`
+	// Count is how many places or entries the alert is about (the secrets alert).
+	Count int `json:"count,omitempty"`
 }
 
 // ModuleStatus is what one module's background work has done. Problem is a fixed phrase (never text from the network), or empty.
@@ -399,5 +460,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}}
 }

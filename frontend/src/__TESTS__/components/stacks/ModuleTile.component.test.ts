@@ -10,7 +10,7 @@ const module_ = (over: Partial<StackModule> = {}): StackModule => ({
   finds: [], sends: 'nothing', step_up: false, enabled: true, needs: [], ...over,
 })
 const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/', name: 'home', component: { template: '<div/>' } }, { path: '/n/settings', name: 'settings', component: { template: '<div/>' } }] })
-const mountTile = (m: StackModule, settingsTo?: { name: string }) => mount(ModuleTile, { props: { module: m, busy: false, settingsTo }, global: { plugins: [router] } })
+const mountTile = (m: StackModule, settingsTo?: { name: string }, titles: Record<string, string> = {}) => mount(ModuleTile, { props: { module: m, busy: false, settingsTo, titles }, global: { plugins: [router] } })
 
 describe('ModuleTile', () => {
   it('folds what the module watches, never does and shows up as, and opens on a tap', async () => {
@@ -30,5 +30,22 @@ describe('ModuleTile', () => {
     const without = mountTile(module_({ about: { watches: 'w.', never: 'n.', shows_up: 's.' } }), { name: 'settings' })
     await without.get('[data-test="module-about"] button').trigger('click')
     expect(without.find('[data-test="module-settings"]').exists()).toBe(false)
+  })
+
+  it('points at each module it needs that is off, by name, and says so when asked', async () => {
+    const w = mountTile(module_({ enabled: true, blocked: 'needs Router log', blocked_by: ['router_log'] }), undefined, { router_log: 'Router log' })
+    const link = w.get('[data-test="module-need-router_log"]')
+    expect(link.text()).toBe('Go to Router log')
+    await link.trigger('click')
+    expect(w.emitted('goto')).toEqual([['router_log']])
+  })
+
+  it('shows no pointer when nothing it needs is off, and falls back to the id for a module it has no title for', () => {
+    expect(mountTile(module_()).find('[data-test^="module-need-"]').exists()).toBe(false)
+    expect(mountTile(module_({ blocked_by: ['unknown_mod'] })).get('[data-test="module-need-unknown_mod"]').text()).toBe('Go to unknown_mod')
+  })
+
+  it('can be found by id so a pointer can scroll to it', () => {
+    expect(mountTile(module_()).get('li').attributes('id')).toBe('module-phone_home')
   })
 })

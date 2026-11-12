@@ -3,6 +3,7 @@ package stack
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 // fakeSwitch is a Switch over a bool, so a test can see what the registry did.
@@ -244,5 +245,79 @@ func TestView_AsksEachModulesReadinessOnce(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("readiness asked %d times for one module in one view: it may read the disk", calls)
+	}
+}
+
+func TestView_ShowsWhenAnOnModuleLastRanAndItsProblemAndAsksOnlyForTheDetailView(t *testing.T) {
+	ran := time.Date(2026, 11, 12, 3, 0, 0, 0, time.UTC)
+	asked := map[string]int{}
+	r := build(t,
+		Module{ID: "pass", Title: "Pass", Stack: Agents, Layer: "watch", Sends: SendsMessage, Switch: &fakeSwitch{on: true}},
+		Module{ID: "off", Title: "Off", Stack: Agents, Layer: "watch", Sends: SendsMessage, Switch: &fakeSwitch{on: false}},
+		Module{ID: "quiet", Title: "Quiet", Stack: Agents, Layer: "watch", Sends: SendsMessage, Switch: &fakeSwitch{on: true}},
+	)
+	r.WithObserver(func(id string) (Observed, bool) {
+		asked[id]++
+		if id == "quiet" {
+			return Observed{}, false
+		}
+		return Observed{LastRun: ran, Problem: "the queue was full"}, true
+	})
+	r.Stacks(nil)
+	if asked["pass"] != 0 {
+		t.Fatalf("the summary must not ask a stack for its status: %v", asked)
+	}
+	v, err := r.View(Agents, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]ModuleView{}
+	for _, m := range v.Layers[0].Modules {
+		byID[m.ID] = m
+	}
+	if m := byID["pass"]; m.LastRun == nil || !m.LastRun.Equal(ran) || m.Problem != "the queue was full" {
+		t.Errorf("pass = %+v, want the last run and the problem", m)
+	}
+	if m := byID["off"]; m.LastRun != nil || m.Problem != "" || asked["off"] != 0 {
+		t.Errorf("a module that is off shows nothing and is not asked: %+v %v", m, asked)
+	}
+	if m := byID["quiet"]; m.LastRun != nil || m.Problem != "" {
+		t.Errorf("a stack with nothing to say adds nothing: %+v", m)
+	}
+	zero := build(t, Module{ID: "never", Title: "Never", Stack: Agents, Layer: "watch", Sends: SendsMessage, Switch: &fakeSwitch{on: true}})
+	zero.WithObserver(func(string) (Observed, bool) { return Observed{}, true })
+	zv, _ := zero.View(Agents, nil)
+	if m := zv.Layers[0].Modules[0]; m.LastRun != nil {
+		t.Errorf("a module that has not run yet has no last run, got %v", m.LastRun)
+	}
+}
+
+func TestView_ABlockedModuleNamesTheModulesItNeedsByID(t *testing.T) {
+	a, b := &fakeSwitch{on: false}, &fakeSwitch{on: true}
+	r := build(t,
+		Module{ID: "a", Title: "A", Stack: Network, Layer: "discover", Sends: SendsLAN, Switch: a},
+		Module{ID: "b", Title: "B", Stack: Network, Layer: "discover", Sends: SendsLAN, Switch: b},
+		Module{ID: "c", Title: "C", Stack: Network, Layer: "listen", Sends: SendsNothing, Switch: &fakeSwitch{on: true}, Needs: []string{"a", "b"}},
+	)
+	v, _ := r.View(Network, nil)
+	var c ModuleView
+	for _, l := range v.Layers {
+		for _, m := range l.Modules {
+			if m.ID == "c" {
+				c = m
+			}
+		}
+	}
+	if c.Blocked != "needs A" || len(c.BlockedBy) != 1 || c.BlockedBy[0] != "a" {
+		t.Errorf("c = %+v, want blocked by module a only", c)
+	}
+	a.on = true
+	v, _ = r.View(Network, nil)
+	for _, l := range v.Layers {
+		for _, m := range l.Modules {
+			if m.ID == "c" && (m.Blocked != "" || len(m.BlockedBy) != 0) {
+				t.Errorf("c = %+v, want nothing blocking it once a is on", m)
+			}
+		}
 	}
 }

@@ -19,6 +19,8 @@ import (
 type stackHost struct {
 	stack stacksdk.Stack
 	host  stacksdk.Host
+	// observes is the kinds of observation the manifest announced, read once: Observe runs on every agent event, so it must not rebuild the manifest.
+	observes map[string]bool
 }
 
 // newStackHost checks the manifest and that the host gives every port the manifest requires (and none it does not).
@@ -30,7 +32,11 @@ func newStackHost(s stacksdk.Stack, h stacksdk.Host) (*stackHost, error) {
 	if err := checkPorts(m, h); err != nil {
 		return nil, err
 	}
-	return &stackHost{stack: s, host: h}, nil
+	observes := make(map[string]bool, len(m.Observes))
+	for _, kind := range m.Observes {
+		observes[kind] = true
+	}
+	return &stackHost{stack: s, host: h, observes: observes}, nil
 }
 
 // checkPorts holds the host to the manifest: a stack gets exactly the ports it declared.
@@ -39,7 +45,7 @@ func checkPorts(m stacksdk.Manifest, h stacksdk.Host) error {
 		stacksdk.PortConfig: h.Config != nil, stacksdk.PortEvents: h.Events != nil, stacksdk.PortLog: h.Log != nil,
 		stacksdk.PortDataDir: h.DataDir != nil, stacksdk.PortGuard: h.Guard != nil, stacksdk.PortFetch: h.Fetch != nil,
 		stacksdk.PortGateway: h.Gateway != nil, stacksdk.PortIsolation: h.Isolation != nil, stacksdk.PortPrivileged: h.Privileged != nil,
-		stacksdk.PortScopedGuard: h.ScopedGuard != nil,
+		stacksdk.PortScopedGuard: h.ScopedGuard != nil, stacksdk.PortSecretScan: h.SecretScan != nil,
 	}
 	for port, has := range given {
 		if want := slices.Contains(m.Requires, port); want != has {
@@ -57,6 +63,17 @@ func (h *stackHost) Run(ctx context.Context) {
 		return
 	}
 	context.AfterFunc(ctx, func() { _ = h.stack.Stop(context.Background()) })
+}
+
+// Observe pushes one observation to a stack that takes them in (Manifest.Observes), as plain data and without waiting: the stack queues it.
+// A stack that did not announce the kind, or does not implement Observer, is never pushed one. It is safe on a nil host (the stack was not hosted).
+func (h *stackHost) Observe(o stacksdk.Observation) {
+	if h == nil {
+		return
+	}
+	if obs, ok := h.stack.(stacksdk.Observer); ok && h.observes[o.Kind] {
+		obs.Observe(o)
+	}
 }
 
 // Module returns the status of one module of the stack, if the stack reports it.
