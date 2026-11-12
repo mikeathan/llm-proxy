@@ -28,7 +28,9 @@ type DigestSource struct {
 	Series interface {
 		Series(n int) ([]models.NetworkDay, error)
 	}
-	Now func() time.Time
+	// Tallies is optional: what the background modules did over the last 24 hours.
+	Tallies TallySource
+	Now     func() time.Time
 }
 
 // seriesDays covers the longest window (a week) with a day to spare.
@@ -80,6 +82,9 @@ func (s DigestSource) Build(ctx context.Context, workspaceID, automation string,
 	if s.Series != nil {
 		in.Series, err = s.Series.Series(seriesDays)
 		note("daily history", err)
+	}
+	if s.Tallies != nil {
+		in.Tallies = s.Tallies.Tallies(ctx)
 	}
 	d := DigestOf(in)
 	d.Unread = unread

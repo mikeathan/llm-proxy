@@ -979,7 +979,7 @@ func (s *AppServices) findingsReader() findingsview.Reader {
 // the stores the screens read and starts nothing.
 func (s *AppServices) digestSource() netaudit.DigestSource {
 	n := s.netaudit
-	return netaudit.DigestSource{Store: s.Persistence(), Inventory: n.Inventory, Alerts: n.Alerts, Series: n.History}
+	return netaudit.DigestSource{Store: s.Persistence(), Inventory: n.Inventory, Alerts: n.Alerts, Series: n.History, Tallies: moduleTallies{n: n}}
 }
 
 // NetauditWindow is what the audit's report reads to say how the network moved over the audit's window: the same records the model's

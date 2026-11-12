@@ -131,3 +131,32 @@ func TestRunReporter_TheWindowIsReadForTheWorkspaceTheReporterIsToldNotOneFromTh
 		t.Errorf("a run with no scan settings is not an audit and gets no window:\n%s", out)
 	}
 }
+
+func TestRenderObserved_TheWindowSectionSaysWhatTheBackgroundModulesDidAndNothingForOneThatDidNothing(t *testing.T) {
+	d := WindowDigest{Window: "7d", AsOf: ackNow.Add(-time.Hour), Scans: DigestScans{Count: 1, DevicesUp: DigestRange{15, 15}, OpenPorts: DigestRange{36, 36}},
+		Modules: []ModuleTally{{Title: "Router DNS check", Noun: "checks", FlaggedWord: "differed", Done: 24, Flagged: 2, Unclear: 1}}}
+	out := RenderObserved(Observed{ScannedAt: ackNow, Previous: ackNow.Add(-time.Hour), Result: Result{Engine: "nmap"}, Window: &d})
+	if !strings.Contains(out, "- Router DNS check, last 24 h: 24 checks, 2 differed, 1 could not be compared.") {
+		t.Errorf("the tally is worded by the core, with its own period (24 h even in a weekly window):\n%s", out)
+	}
+	d.Modules = nil
+	if strings.Contains(RenderObserved(Observed{ScannedAt: ackNow, Previous: ackNow.Add(-time.Hour), Result: Result{Engine: "nmap"}, Window: &d}), "Router DNS") {
+		t.Error("no module tally, no line")
+	}
+}
+
+type fakeTallies []ModuleTally
+
+func (f fakeTallies) Tallies(context.Context) []ModuleTally { return f }
+
+func TestDigestSource_CarriesTheModuleTalliesAndDropsOneThatDidNothing(t *testing.T) {
+	src := newSource(fakeDigestStore{})
+	src.Tallies = fakeTallies{{Title: "Router DNS check", Noun: "checks", FlaggedWord: "differed", Done: 24}, {Title: "Idle", Done: 0}}
+	d, ok := src.Build(auditCtx(""), "ws", "network-audit", nil)
+	if !ok || len(d.Modules) != 1 || d.Modules[0].Title != "Router DNS check" {
+		t.Fatalf("only the module that did something: %+v", d.Modules)
+	}
+	if out := RenderDigest(d, 0); !strings.Contains(out, `"modules":[{"title":"Router DNS check"`) {
+		t.Errorf("the model reads the same tally:\n%s", out)
+	}
+}

@@ -49,9 +49,10 @@ test('while a scan runs the report says so, its buttons are off, and the banner 
   await expect(page.getByRole('button', { name: 'More actions' }).first()).toBeDisabled()
   const watch = page.getByRole('button', { name: 'Watch it live' })
   if (testInfo.project.name === 'mobile') expect((await watch.boundingBox())?.height).toBeGreaterThanOrEqual(44)
-  // The tab bar says the page is live: a dot on Live run, and the chosen tab is tinted instead of plain.
+  // The tab bar says the page is live: a dot and a brand outline on Live run, and the chosen tab is filled with the brand colour instead of plain.
   await expect(page.getByRole('radio', { name: /Live run/ }).locator('[data-test="live-dot"]')).toBeVisible()
-  await expect(page.getByRole('radio', { name: 'Results' })).toHaveClass(/state-running/)
+  await expect(page.getByRole('radio', { name: /Live run/ })).toHaveClass(/ring-accent-brand/)
+  await expect(page.getByRole('radio', { name: 'Results' })).toHaveClass(/bg-accent-brand/)
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'audit-running.png')
   await watch.click()

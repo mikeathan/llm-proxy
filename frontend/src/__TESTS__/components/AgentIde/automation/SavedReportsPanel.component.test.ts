@@ -53,6 +53,37 @@ describe('SavedReportsPanel', () => {
     expect(w.find('.md').exists()).toBe(false)
   })
 
+  it('folds the list to one line that says how many reports there are and how new the newest is', async () => {
+    const w = await mountPanel()
+    const list = w.get('[data-test="saved-list"]')
+    expect(list.text()).toContain('All saved reports')
+    expect(list.text()).toMatch(/2 reports, newest/)
+    expect(list.get('button[aria-expanded]').attributes('aria-expanded')).toBe('false')
+    await list.get('button[aria-expanded]').trigger('click')
+    expect(list.get('button[aria-expanded]').attributes('aria-expanded')).toBe('true')
+  })
+
+  it('puts the opened report above the list and folds the list, so a long list never pushes it off the screen', async () => {
+    const w = await mountPanel()
+    await w.get('[data-test="saved-list"] button[aria-expanded]').trigger('click')
+    await w.findAll('tbody tr')[1]!.trigger('click')
+    await flushPromises()
+    const opened = w.get('[data-test="opened-report"]')
+    const list = w.get('[data-test="saved-list"]')
+    expect(opened.element.compareDocumentPosition(list.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(list.get('button[aria-expanded]').attributes('aria-expanded')).toBe('false')
+    expect(opened.text()).toContain(OLDEST.path)
+  })
+
+  it('shows an audit report with its assessment first and the reference parts folded', async () => {
+    readMock.mockResolvedValue(['## Observed (generated from the scan data, not written by the model)', '', 'Scanned 10 address(es).', '', '### Resolved', '', '| D | P | S | V |', '|---|---|---|---|', '| 192.0.2.1 | 22/tcp |  |  |', '', '---', '', '## Assessment (written by the model)', '', 'Look at 192.0.2.1 first.'].join('\n'))
+    const w = await mountPanel()
+    await w.findAll('tbody tr')[0]!.trigger('click')
+    await flushPromises()
+    expect(w.find('[data-test="audit-assessment"]').exists()).toBe(true)
+    expect(w.get('[data-test="audit-folded-Resolved"] button[aria-expanded]').attributes('aria-expanded')).toBe('false')
+  })
+
   it('opens a report in place when its row is activated, with a link to the file and a way to close it', async () => {
     const w = await mountPanel()
     await w.findAll('tbody tr')[1]!.trigger('click')
