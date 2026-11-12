@@ -13,14 +13,14 @@ describe('scanSummary', () => {
 
 describe('scan form conversion', () => {
   it('turns what was typed into settings, and back', () => {
-    const settings = scanFromForm({ scanTargets: ' 192.168.1.0/24,\n192.168.1.5 , ', scanDepth: 'quick', scanPorts: ' 22,80 ', scanChecks: false, scanKnownVulns: false })
-    expect(settings).toEqual({ targets: ['192.168.1.0/24', '192.168.1.5'], depth: 'quick', ports: '22,80', checks: false, known_vulns: false })
-    expect(formFromScan(settings)).toEqual({ scanTargets: '192.168.1.0/24, 192.168.1.5', scanDepth: 'quick', scanPorts: '22,80', scanChecks: false, scanKnownVulns: false })
+    const settings = scanFromForm({ scanTargets: ' 192.168.1.0/24,\n192.168.1.5 , ', scanDepth: 'quick', scanPorts: ' 22,80 ', scanChecks: false, scanKnownVulns: false, scanWindow: 'week' })
+    expect(settings).toEqual({ targets: ['192.168.1.0/24', '192.168.1.5'], depth: 'quick', ports: '22,80', checks: false, known_vulns: false, window: 'week' })
+    expect(formFromScan(settings)).toEqual({ scanTargets: '192.168.1.0/24, 192.168.1.5', scanDepth: 'quick', scanPorts: '22,80', scanChecks: false, scanKnownVulns: false, scanWindow: 'week' })
   })
 
   it('leaves out what was left empty, and reads missing settings as the defaults', () => {
-    expect(scanFromForm({ scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true, scanKnownVulns: true })).toEqual({ depth: 'thorough', checks: true, known_vulns: true })
-    expect(formFromScan(undefined)).toEqual({ scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true, scanKnownVulns: true })
+    expect(scanFromForm({ scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true, scanKnownVulns: true, scanWindow: 'day' })).toEqual({ depth: 'thorough', checks: true, known_vulns: true, window: 'day' })
+    expect(formFromScan(undefined)).toEqual({ scanTargets: '', scanDepth: 'thorough', scanPorts: '', scanChecks: true, scanKnownVulns: true, scanWindow: 'day' })
     expect(formFromScan({ depth: 'quick' })).toMatchObject({ scanDepth: 'quick', scanChecks: true })
   })
 })

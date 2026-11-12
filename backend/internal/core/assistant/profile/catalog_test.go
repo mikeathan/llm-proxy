@@ -267,3 +267,22 @@ func TestSecurityAuditorIsNotAskedForTheComparisonItDoesNotHave(t *testing.T) {
 		}
 	}
 }
+
+// The auditor reads a window digest the scan tool attaches (netaudit.DigestSource). The prompt describes the data it is given and
+// asks for reasoning across the window; it names no particular service or scenario, and it keeps the facts the code writes (the
+// counts, the severities, the comparison) out of the model's hands.
+func TestSecurityAuditorReadsTheWindowDigestAndKeepsTheFactsToCode(t *testing.T) {
+	c, _ := newCatalog(t)
+	p, _ := c.Get("security-auditor")
+	text := strings.ToLower(p.Instructions)
+	for _, must := range []string{"window digest", "never count the list yourself", "not a quiet network", "must not copy or restate", "never raise, soften or invent"} {
+		if !strings.Contains(text, must) {
+			t.Errorf("the auditor prompt must say %q", must)
+		}
+	}
+	for _, scenario := range []string{"samba", "nagios", "dropbear", "192.168"} {
+		if strings.Contains(text, scenario) {
+			t.Errorf("the prompt is generic; it must not name %q", scenario)
+		}
+	}
+}

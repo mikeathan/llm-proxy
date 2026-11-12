@@ -48,6 +48,7 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `sandbox-conformance-probe.md` | Sandbox conformance probe (OS-jail / run capability) |
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
 | `network_audit.md` | Network audit: scan, compare with the last scan, assess (declares the Security auditor, local-network access, journal off, a 02:00 schedule) |
+| `network_audit_weekly.md` | The same audit read over a week (`**Window:** week`, a Sunday 03:00 schedule); the assessment reads a week of scans, history and activity |
 | `workspace_health_audit.md` | Workspace storage & health audit |
 | `web_discovery_fast.md` | Fast AI/LLM news discovery — token-efficient search digest |
 | `llm_ai_release_brief.md` | LLM & AI release news brief |

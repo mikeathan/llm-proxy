@@ -20,6 +20,7 @@ const (
 	templateJournalField  = "**Journal:**"
 	templateScheduleField = "**Schedule:**"
 	templateDepthField    = "**Depth:**"
+	templateWindowField   = "**Window:**"
 	templateChecksField   = "**Checks:**"
 	templateVulnsField    = "**Known vulnerabilities:**"
 	templatePortsField    = "**Ports:**"
@@ -148,6 +149,11 @@ var headerFields = []struct {
 	{templateDepthField, func(m *models.TemplateMetadata, v string) {
 		if v == models.ScanDepthQuick || v == models.ScanDepthThorough {
 			m.Defaults.ScanSettings().Depth = v
+		}
+	}},
+	{templateWindowField, func(m *models.TemplateMetadata, v string) {
+		if v == models.ScanWindowDay || v == models.ScanWindowWeek {
+			m.Defaults.ScanSettings().Window = v
 		}
 	}},
 	{templatePortsField, func(m *models.TemplateMetadata, v string) { m.Defaults.ScanSettings().Ports = v }},

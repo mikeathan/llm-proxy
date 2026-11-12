@@ -47,3 +47,14 @@ func TestRequestFromSettings_TheSettingsDecideEverythingTheModelCouldHave(t *tes
 		t.Errorf("the defaults are a thorough checks scan of every allowed network: %+v", req)
 	}
 }
+
+func TestValidateScanSettings_TheWindowIsDayWeekOrUnset(t *testing.T) {
+	for _, ok := range []string{"", models.ScanWindowDay, models.ScanWindowWeek} {
+		if err := ValidateScanSettings(models.ScanSettings{Window: ok}); err != nil {
+			t.Errorf("window %q refused: %v", ok, err)
+		}
+	}
+	if err := ValidateScanSettings(models.ScanSettings{Window: "year"}); err == nil {
+		t.Error("an unknown window must be refused before it is saved")
+	}
+}

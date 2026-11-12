@@ -66,7 +66,7 @@ type Container struct {
 func (c *Container) BuildTaskExecutor(svc handlers.AssistantService) automation.TaskExecutor {
 	exec := automation.NewLLMTaskExecutor(svc).(*automation.LLMTaskExecutor)
 	exec.SetShellPool(c.Infra.ShellManager)
-	reporter := netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()).WithFixes(svc.Persistence()).WithExpectations(svc.Persistence()).WithDeepChecks(svc.Persistence()).WithLife(svc.Persistence())
+	reporter := netaudit.NewRunReporter(svc.Persistence()).WithAcks(svc.Persistence()).WithFixes(svc.Persistence()).WithExpectations(svc.Persistence()).WithDeepChecks(svc.Persistence()).WithLife(svc.Persistence()).WithScanLog(svc.Persistence())
 	withNetauditSources(reporter, svc)
 	exec.SetReportHook(reporter)
 	return exec

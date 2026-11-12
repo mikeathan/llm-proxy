@@ -1,6 +1,6 @@
 import type { LoopStrategy } from './model'
 import type { NetworkGrant } from './admin'
-import type { ScanDepth, ScanSettings } from './netaudit'
+import type { ScanDepth, ScanSettings, ScanWindow } from './netaudit'
 
 // MemoryMode overrides the global hot-memory default for one surface ('' = use the default).
 // Mirrors the backend models.MemoryMode.
@@ -71,4 +71,5 @@ export interface AutomationFormData {
   scanPorts: string
   scanChecks: boolean
   scanKnownVulns: boolean
+  scanWindow: ScanWindow
 }

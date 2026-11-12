@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -85,5 +86,20 @@ func TestScanSettings_KnownVulnsDefaultsOnAndAnExplicitOffSurvivesNormalizing(t 
 	}
 	if n := (ScanSettings{}).Normalized(); n.KnownVulns == nil || !*n.KnownVulns {
 		t.Errorf("Normalized must fill the default in: %+v", n.KnownVulns)
+	}
+}
+
+func TestScanSettings_TheWindowIsADayUnlessWeekIsAskedFor(t *testing.T) {
+	if got := (ScanSettings{}).WindowDuration(); got != 24*time.Hour {
+		t.Errorf("default window is a day, got %v", got)
+	}
+	if got := (ScanSettings{Window: ScanWindowWeek}).WindowDuration(); got != 7*24*time.Hour {
+		t.Errorf("week window, got %v", got)
+	}
+	if got := (ScanSettings{Window: "anything-else"}).Normalized().Window; got != ScanWindowDay {
+		t.Errorf("an unknown window normalises to a day, got %q", got)
+	}
+	if got := (ScanSettings{Window: ScanWindowWeek}).Normalized().Window; got != ScanWindowWeek {
+		t.Errorf("week survives normalising, got %q", got)
 	}
 }

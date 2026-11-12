@@ -26,6 +26,9 @@ func ValidateScanSettings(s models.ScanSettings) error {
 	if s.Depth != "" && s.Depth != models.ScanDepthQuick && s.Depth != models.ScanDepthThorough {
 		errs = append(errs, fmt.Errorf("depth must be %q or %q", models.ScanDepthQuick, models.ScanDepthThorough))
 	}
+	if s.Window != "" && s.Window != models.ScanWindowDay && s.Window != models.ScanWindowWeek {
+		errs = append(errs, fmt.Errorf("window must be %q or %q", models.ScanWindowDay, models.ScanWindowWeek))
+	}
 	if s.Ports != "" {
 		if _, err := ValidatePorts(s.Ports); err != nil {
 			errs = append(errs, fmt.Errorf("ports: %w", err))

@@ -1,6 +1,9 @@
 package models
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // AuditorProfileID is the built-in prompt profile a network audit runs under.
 const AuditorProfileID = "security-auditor"
@@ -9,6 +12,13 @@ const AuditorProfileID = "security-auditor"
 const (
 	ScanDepthQuick    = "quick"
 	ScanDepthThorough = "thorough"
+)
+
+// Scan windows: how far back the assessment reads what the program kept about the network. A day is the usual audit; a week
+// is for a weekly one.
+const (
+	ScanWindowDay  = "day"
+	ScanWindowWeek = "week"
 )
 
 // ScanSettings are a network audit's own settings: what it scans and how. They belong to the automation and are
@@ -26,6 +36,17 @@ type ScanSettings struct {
 	// KnownVulns says whether the audit's report looks for known vulnerabilities in the software the scan recognised; nil
 	// is on. A pointer for the same reason as Checks.
 	KnownVulns *bool `yaml:"known_vulns,omitempty" json:"known_vulns,omitempty"`
+	// Window is ScanWindowDay or ScanWindowWeek: how far back the audit's assessment reads the scans, history and activity the
+	// program kept. Empty is a day.
+	Window string `yaml:"window,omitempty" json:"window,omitempty"`
+}
+
+// WindowDuration is how far back the assessment reads: a week for ScanWindowWeek, a day for anything else.
+func (s ScanSettings) WindowDuration() time.Duration {
+	if s.Window == ScanWindowWeek {
+		return 7 * 24 * time.Hour
+	}
+	return 24 * time.Hour
 }
 
 // Thorough reports whether the scan looks harder (anything but an explicit quick).
@@ -45,6 +66,9 @@ func (s ScanSettings) Normalized() ScanSettings {
 		depth = ScanDepthQuick
 	}
 	s.Depth = depth
+	if s.Window != ScanWindowWeek {
+		s.Window = ScanWindowDay
+	}
 	on := s.ChecksOn()
 	s.Checks = &on
 	vulns := s.KnownVulnsOn()

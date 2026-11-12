@@ -4,7 +4,7 @@ import type { ScanSettings } from '../../types/netaudit'
 // A network audit's settings in the two shapes the form needs: as typed (text fields) and as the server keeps them.
 // Depth, checks and the known-vulnerability look default to thorough and on, as the server's own defaults do.
 
-type ScanFields = Pick<AutomationFormData, 'scanTargets' | 'scanDepth' | 'scanPorts' | 'scanChecks' | 'scanKnownVulns'>
+type ScanFields = Pick<AutomationFormData, 'scanTargets' | 'scanDepth' | 'scanPorts' | 'scanChecks' | 'scanKnownVulns' | 'scanWindow'>
 
 const TARGET_SEPARATOR = /[\n,]/
 
@@ -14,11 +14,11 @@ export const splitTargets = (text: string): string[] => text.split(TARGET_SEPARA
 export function scanFromForm(f: ScanFields): ScanSettings {
   const targets = splitTargets(f.scanTargets)
   const ports = f.scanPorts.trim()
-  return { ...(targets.length ? { targets } : {}), depth: f.scanDepth, ...(ports ? { ports } : {}), checks: f.scanChecks, known_vulns: f.scanKnownVulns }
+  return { ...(targets.length ? { targets } : {}), depth: f.scanDepth, ...(ports ? { ports } : {}), checks: f.scanChecks, known_vulns: f.scanKnownVulns, window: f.scanWindow }
 }
 
 export function formFromScan(s: ScanSettings | undefined): ScanFields {
-  return { scanTargets: (s?.targets ?? []).join(', '), scanDepth: s?.depth ?? 'thorough', scanPorts: s?.ports ?? '', scanChecks: s?.checks ?? true, scanKnownVulns: s?.known_vulns ?? true }
+  return { scanTargets: (s?.targets ?? []).join(', '), scanDepth: s?.depth ?? 'thorough', scanPorts: s?.ports ?? '', scanChecks: s?.checks ?? true, scanKnownVulns: s?.known_vulns ?? true, scanWindow: s?.window ?? 'day' }
 }
 
 /** What an audit will do, in one plain line. */
