@@ -34,9 +34,9 @@ type DigestSource struct {
 // seriesDays covers the longest window (a week) with a day to spare.
 const seriesDays = 8
 
-// Digest is the rendered digest for the run in ctx, checked against current (the scan being made, nil when there is none), or "" when the run is not an audit (an ordinary chat has no scan settings, so
+// Digest is the rendered digest, fitted to budget characters (see RenderDigest), for the run in ctx, checked against current (the scan being made, nil when there is none), or "" when the run is not an audit (an ordinary chat has no scan settings, so
 // no window and no audit name). A part that cannot be read is named in the digest, so the model never reads it as a quiet network.
-func (s DigestSource) Digest(ctx context.Context, current *CurrentScan) string {
+func (s DigestSource) Digest(ctx context.Context, current *CurrentScan, budget int) string {
 	settings, ok := models.ScanSettingsFrom(ctx)
 	if !ok || s.Store == nil {
 		return ""
@@ -80,5 +80,5 @@ func (s DigestSource) Digest(ctx context.Context, current *CurrentScan) string {
 	}
 	d := DigestOf(in)
 	d.Unread = unread
-	return RenderDigest(d)
+	return RenderDigest(d, budget)
 }

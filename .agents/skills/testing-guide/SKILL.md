@@ -71,6 +71,8 @@ Each run produces:
 - `events.jsonl` — SSE events (lifecycle, stuck, fallback)
 - `final-report.md` — agent's final output
 
+**On a deployed server** (admin token needed): `GET /admin/api/recordings` lists each run's recording; match the run's `run_dir_name` (the activity row's `recording_ref` is empty), then `GET /admin/api/recordings/content/<id>`. Parse each line as JSON; the last `request` holds the messages the model was given, and a `tool` message's content is a JSON-encoded string (parse with `strict=False`). Search it for `SYSTEM TRUNCATED` first: a cut tool result means the model never saw its middle, whatever the report says. Judge a model's wrong statement against this input, not against the stored data.
+
 **Checklist for a successful run:**
 - `run-meta.json` shows `error null` or missing error field
 - Tool calls match task steps (no missed steps, no extras)

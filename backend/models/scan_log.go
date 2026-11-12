@@ -9,7 +9,8 @@ import "time"
 type ScanEntry struct {
 	Automation string    `json:"automation"`
 	At         time.Time `json:"at"`
-	// Unattended is true when the schedule started the run, false when someone pressed Run.
+	// Unattended is true when an automation ran the scan (a scheduled run and a pressed Run are both automation runs), false for a scan
+	// made in a chat. It does not say whether the schedule or a person started the run, so the digest does not show it.
 	Unattended bool   `json:"unattended,omitempty"`
 	Engine     string `json:"engine,omitempty"`
 	DevicesUp  int    `json:"devices_up"`

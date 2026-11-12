@@ -1,6 +1,7 @@
 package netaudit
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ func wdScan(h int, unattended bool, up, ports int) models.ScanEntry {
 func TestDigestOf_ADaysScansAreCountedAndTheirRangeKept(t *testing.T) {
 	log := []models.ScanEntry{wdScan(30, true, 9, 20), wdScan(20, false, 15, 34), wdScan(10, false, 12, 34), wdScan(2, true, 15, 36)}
 	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Automation: "network-audit", Log: log})
-	if d.Scans.Count != 3 || d.Scans.Scheduled != 1 || d.Scans.Pressed != 2 {
+	if d.Scans.Count != 3 {
 		t.Errorf("counts wrong (the 30 h old scan is outside a 24 h window): %+v", d.Scans)
 	}
 	if d.Scans.DevicesUp.Min != 12 || d.Scans.DevicesUp.Max != 15 || d.Scans.OpenPorts.Max != 36 {
@@ -123,7 +124,7 @@ func TestDigestOf_ActivityIsCountsOfKindsAndNeverText(t *testing.T) {
 	if d.Activity.Alerts["presence"] != 3 || len(d.Activity.Alerts) != 1 {
 		t.Errorf("alert counts: %+v", d.Activity.Alerts)
 	}
-	text := RenderDigest(d)
+	text := RenderDigest(d, 0)
 	for _, bad := range []string{"IGNORE", "again", "too old"} {
 		if strings.Contains(text, bad) {
 			t.Errorf("text from an alert reached the digest: %q in %s", bad, text)
@@ -142,13 +143,13 @@ func TestDigestOf_TheRenderedDigestStaysUnderTheByteBudgetWhateverTheVolume(t *t
 		fs = append(fs, models.ScanFinding{Device: fmt.Sprintf("10.0.%d.%d", i/200, i%200), Port: 1000 + i, Proto: "udp", Check: "udp_service", Severity: "low", Version: strings.Repeat("v", 300)})
 	}
 	d := DigestOf(DigestInput{Now: wdNow, Window: 7 * 24 * time.Hour, Automation: "a", Log: log, Life: life, Baseline: wdBaseline(fs...)})
-	if n := len(RenderDigest(d)); n > DigestMaxBytes {
+	if n := len(RenderDigest(d, 0)); n > DigestMaxBytes {
 		t.Errorf("digest is %d bytes, budget %d", n, DigestMaxBytes)
 	}
 }
 
 func TestDigestOf_NothingInTheWindowIsSaidPlainlyNotLeftBlank(t *testing.T) {
-	text := RenderDigest(DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour}))
+	text := RenderDigest(DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour}), 0)
 	if !strings.Contains(text, "no scan") {
 		t.Errorf("an empty window must say there was no scan: %s", text)
 	}
@@ -242,8 +243,40 @@ func TestDigestOf_AcceptingACheckHidesTheWholePort(t *testing.T) {
 
 func TestRenderDigest_WithoutALoggedScanItNamesTheLatestSavedScan(t *testing.T) {
 	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Baseline: wdBaseline()})
-	out := RenderDigest(d)
+	out := RenderDigest(d, 0)
 	if !strings.Contains(out, "latest saved scan is from 2026-11-12 11:00") || strings.Contains(out, "no scan was recorded") {
 		t.Errorf("an empty scan log beside a saved scan must not read as no scan at all:\n%s", out)
+	}
+}
+
+// The result cap leaves the digest only what the scan did not use, measured on the encoded text (quotes double), so the agent never
+// has to cut the result. A smaller budget gives a shorter digest, with the cut stated, and counts are kept.
+func TestRenderDigest_FitsTheBudgetItIsGivenOnTheEncodedText(t *testing.T) {
+	var fs []models.ScanFinding
+	for i := range 40 {
+		fs = append(fs, models.ScanFinding{Device: fmt.Sprintf("10.0.0.%d", i), Port: 1000 + i, Proto: "udp", Check: "udp_service", Severity: "low", Service: "UPnP"})
+	}
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Automation: "network-audit", Baseline: wdBaseline(fs...), Log: []models.ScanEntry{wdScan(2, true, 15, 36)}})
+	big, small := RenderDigest(d, 0), RenderDigest(d, 2500)
+	for _, c := range []struct {
+		name string
+		text string
+		max  int
+	}{{"default", big, DigestMaxBytes}, {"small", small, 2500}} {
+		enc, _ := json.Marshal(c.text)
+		if len(enc) > c.max {
+			t.Errorf("%s: encoded length %d over the budget %d", c.name, len(enc), c.max)
+		}
+	}
+	if len(small) >= len(big) || !strings.Contains(small, `"open_more"`) || !strings.Contains(small, `"count":1`) {
+		t.Errorf("a small budget cuts the lists, says so, and keeps the counts:\n%s", small)
+	}
+}
+
+func TestRenderDigest_DoesNotClaimHowAScanWasStarted(t *testing.T) {
+	d := DigestOf(DigestInput{Now: wdNow, Window: 24 * time.Hour, Automation: "network-audit", Log: []models.ScanEntry{wdScan(2, true, 15, 36), wdScan(5, false, 15, 36)}})
+	out := RenderDigest(d, 0)
+	if strings.Contains(out, "scheduled") || strings.Contains(out, "pressed") {
+		t.Errorf("the scan log cannot tell a scheduled run from a pressed one:\n%s", out)
 	}
 }
