@@ -84,20 +84,17 @@ type DigestRange struct {
 
 // DigestScanRow is one scan of the window.
 type DigestScanRow struct {
-	At         time.Time `json:"at"`
-	Unattended bool      `json:"scheduled,omitempty"`
-	DevicesUp  int       `json:"devices_up"`
-	OpenPorts  int       `json:"open_ports"`
-	Serious    int       `json:"serious,omitempty"`
-	New        int       `json:"new,omitempty"`
-	Resolved   int       `json:"resolved,omitempty"`
+	At        time.Time `json:"at"`
+	DevicesUp int       `json:"devices_up"`
+	OpenPorts int       `json:"open_ports"`
+	Serious   int       `json:"serious,omitempty"`
+	New       int       `json:"new,omitempty"`
+	Resolved  int       `json:"resolved,omitempty"`
 }
 
 // DigestScans is what the window's scans looked like. Count is every scan; Rows are the latest few, oldest first.
 type DigestScans struct {
 	Count     int             `json:"count"`
-	Scheduled int             `json:"scheduled"`
-	Pressed   int             `json:"pressed"`
 	DevicesUp DigestRange     `json:"devices_up"`
 	OpenPorts DigestRange     `json:"open_ports"`
 	Rows      []DigestScanRow `json:"rows,omitempty"`
@@ -192,17 +189,12 @@ func digestScans(in DigestInput, from time.Time) DigestScans {
 		if e.Automation != in.Automation || e.At.Before(from) || e.At.After(in.Now) {
 			continue
 		}
-		rows = append(rows, DigestScanRow{At: e.At, Unattended: e.Unattended, DevicesUp: e.DevicesUp, OpenPorts: e.OpenPorts,
+		rows = append(rows, DigestScanRow{At: e.At, DevicesUp: e.DevicesUp, OpenPorts: e.OpenPorts,
 			Serious: e.BySeverity[SeverityHigh] + e.BySeverity[SeverityCritical], New: e.New, Resolved: e.Resolved})
 	}
 	slices.SortStableFunc(rows, func(a, b DigestScanRow) int { return a.At.Compare(b.At) })
 	for i, r := range rows {
 		s.Count++
-		if r.Unattended {
-			s.Scheduled++
-		} else {
-			s.Pressed++
-		}
 		if i == 0 {
 			s.DevicesUp, s.OpenPorts = DigestRange{r.DevicesUp, r.DevicesUp}, DigestRange{r.OpenPorts, r.OpenPorts}
 			continue
@@ -419,16 +411,21 @@ func digestActivity(in DigestInput, from time.Time) DigestActivity {
 }
 
 // RenderDigest is the digest as the model reads it: one fixed sentence saying what it covers, then compact JSON. A window with no
-// recorded scan says so in words, so an empty digest is never read as a quiet network. Lists are halved, longest first, until it
-// fits DigestMaxBytes, and the cut is added to each list's "more".
-func RenderDigest(d WindowDigest) string {
+// recorded scan says so in words, so an empty digest is never read as a quiet network. Lists are halved, longest first, until the
+// JSON-encoded text fits budget (the room the result cap leaves; a budget of 0 or less, or above DigestMaxBytes, means
+// DigestMaxBytes), and the cut is added to each list's "more".
+func RenderDigest(d WindowDigest, budget int) string {
+	if budget <= 0 || budget > DigestMaxBytes {
+		budget = DigestMaxBytes
+	}
 	for {
 		body, err := json.Marshal(d)
 		if err != nil {
 			return "window digest: could not be built."
 		}
-		if len(body) <= DigestMaxBytes || !d.shrink() {
-			return digestHeader(d) + "\n" + string(body)
+		text := digestHeader(d) + "\n" + string(body)
+		if encoded, err := json.Marshal(text); (err == nil && len(encoded) <= budget) || !d.shrink() {
+			return text
 		}
 	}
 }
@@ -441,7 +438,7 @@ func digestHeader(d WindowDigest) string {
 		}
 		return fmt.Sprintf("window digest (last %s): no scan was recorded in this window and none was saved before; the rest is what the program kept from its watches.", d.Window)
 	}
-	return fmt.Sprintf("window digest (last %s): %d scan(s) recorded, %d scheduled and %d pressed. Counts are exact; lists are cut worst or newest first and the cut is stated.%s", d.Window, d.Scans.Count, d.Scans.Scheduled, d.Scans.Pressed, reading)
+	return fmt.Sprintf("window digest (last %s): %d scan(s) recorded. Counts are exact; lists are cut worst or newest first and the cut is stated.%s", d.Window, d.Scans.Count, reading)
 }
 
 // shrink halves the longest list and reports whether it cut anything.

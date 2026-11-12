@@ -69,6 +69,10 @@ Phase 1 `scanlog.go` + `persistence/scanlog.go` (named "scan log": `journal` is 
 
 Run `122538f7` on v0.78.0 used the digest (host findings, UPnP, activity) and had the right counts, and showed four faults, each now fixed and tested: (1) an **accepted** Telnet was still shown as a check finding because `HideAccepted` filtered only the bare open-port key and rebuilt findings from the hosts; (2) the digest said "gone" for ports the same scan showed open, because its records end at the previous scan (now reconciled, `reconcileLife`); (3) "no scan was recorded" beside a saved scan; (4) a 254-address host list in the scan result (down addresses are no longer listed), and the prompt now says to name each address and never write a range. The alert read and the scan log wiring were checked and are correct (`After` is newest-first, as the activity handler uses it; `WithScanLog` is wired in `bootstrap.go`).
 
+## Fixed after reading vertex's recordings (v0.78.2, branch `audit-scan-result-fits-its-cap`)
+
+The recordings (`/admin/api/recordings`, matched on the run's `run_dir_name`) show the model's exact input. **Every audit result was truncated by the agent's tool-result cap**, so the model read 5 of 15 devices; v0.78.1's other fixes were real but this was the main cause of the wrong and missing statements. Fixed: a compact, cap-sized scan view; the digest fitted to the room left; guessed names marked; no "scheduled/pressed" claim. **Acceptance on vertex:** read the new run's recording: the tool message has no `SYSTEM TRUNCATED`, every answering address is present, no guessed product text, no scheduled/pressed claim.
+
 ## Remaining Work
 
 1. **Deploy v0.78.1 and replay on vertex** (press Run; the first run showed the faults above): press Run on `network-audit`, then read the report and the digest in the run record. Compare with run `06356dd5`: devices up, severities, whether it uses the window (needs a recording; the run had none). The first digest after deploy has one scan row, so the window grows over the next days.
