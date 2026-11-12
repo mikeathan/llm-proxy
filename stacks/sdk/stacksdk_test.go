@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -401,5 +402,48 @@ func TestWebTypes_CarryNoTextFromTheNetwork(t *testing.T) {
 func TestWebBounds_AreNamed(t *testing.T) {
 	if MaxWebTargets < 1 || MaxLookSeconds < 1 {
 		t.Fatalf("bounds: %d targets, %d seconds", MaxWebTargets, MaxLookSeconds)
+	}
+}
+
+// A stack that listens to what the service sees (an observer) names the kinds of observation it takes in Observes, as clean ids declared
+// once. It needs no extra port: the core pushes, and the stack never reaches for the event bus (Constitution IV.6).
+func TestValidate_ObservesAreCheckedAsData(t *testing.T) {
+	with := func(kinds ...string) Manifest {
+		m := validManifest()
+		m.Observes = kinds
+		return m
+	}
+	if err := with(ObservedRefused, ObservedFetch).Validate(); err != nil {
+		t.Fatalf("an observer: %v", err)
+	}
+	for name, m := range map[string]Manifest{
+		"a bad id":          with("Tool Refused"),
+		"an empty id":       with(""),
+		"the same id twice": with(ObservedRefused, ObservedRefused),
+	} {
+		if err := m.Validate(); err == nil {
+			t.Errorf("%s: want a refusal", name)
+		}
+	}
+}
+
+// What the core pushes to an observer, what a stack asks the core to scan for and what it publishes as an alert carry ids and names the core
+// already vetted (the workspace is the service's own id), and nothing else. Adding a text field to any of them must be a deliberate change to this test.
+func TestAgentWatchTypes_CarryOnlyIdsAndVettedTokens(t *testing.T) {
+	allowed := map[reflect.Type][]string{
+		reflect.TypeFor[Observation](): {"Kind", "Workspace", "Automation", "Tool", "Host"},
+		reflect.TypeFor[SecretHit]():   {"Workspace", "Where", "Kind"},
+		reflect.TypeFor[Alert]():       {"ID", "Workspace", "Automation", "Tool", "Host"},
+	}
+	for typ, names := range allowed {
+		if err := CheckPlainData(typ); err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+		for i := range typ.NumField() {
+			f := typ.Field(i)
+			if f.Type.Kind() == reflect.String && !slices.Contains(names, f.Name) {
+				t.Errorf("%s.%s is a text field that is not on the list of vetted tokens", typ, f.Name)
+			}
+		}
 	}
 }

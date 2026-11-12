@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"time"
 
 	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/buildinfo"
-	"llm-proxy/internal/core/agentwatch"
 	"llm-proxy/internal/core/automation"
 	"llm-proxy/internal/core/chat"
 	"llm-proxy/internal/core/eventbus"
@@ -65,7 +63,6 @@ type HandlerSet struct {
 	OutsideLook *handlers.NetauditOutsideLookupHandlers
 	Nearby      *handlers.NetauditNearbyHandlers
 	Alerts      *handlers.NetauditAlertHandlers
-	AgentWatch  *handlers.AgentWatchHandlers
 	Lockdown    *handlers.LockdownHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
@@ -158,11 +155,13 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.OutsideLook = handlers.NewNetauditOutsideLookupHandlers(s.netaudit.OutsideLookupConfig, s.netaudit.Exposure)
 	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
-	hs.AgentWatch = handlers.NewAgentWatchHandlers(s.netaudit.AgentWatch, agentwatch.LearnFor(), time.Now)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
 	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), helperSinks{Probes: s.netaudit.Inventory, Captures: newCaptureStore(s.AppCtx), Traffic: newHostTrafficStore(s.AppCtx), Owners: s.netaudit.currentOwners, Self: trafficSelf(s.netaudit.Scope, func() string { return bindAddress(s.AppCtx.dataMgr.System().Get()) })})
 	if s.netaudit.Network != nil {
 		hs.Hosted = append(hs.Hosted, s.netaudit.Network.stack)
+	}
+	if s.netaudit.Agents != nil {
+		hs.Hosted = append(hs.Hosted, s.netaudit.Agents.stack)
 	}
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports).WithVendors(cardMakerOf).WithDNSSilence(dnsSilence{source: s.NetauditPhoneHome})
@@ -493,7 +492,6 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/nearby", hs.Nearby.Put, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/nearby/look", hs.Nearby.Look, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
-	router.Get("/admin/api/agent-watch", hs.AgentWatch.Get, jsonMethodNotAllowed)
 	router.Get("/admin/api/lockdown", hs.Lockdown.Get, jsonMethodNotAllowed)
 	router.Post("/admin/api/lockdown", hs.Lockdown.Engage, jsonMethodNotAllowed)
 	router.Delete("/admin/api/lockdown", hs.Lockdown.Release, jsonMethodNotAllowed)

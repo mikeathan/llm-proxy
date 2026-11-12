@@ -424,7 +424,7 @@ Every switchable capability is a **module** of a **layer** of a **stack**, descr
   `TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase` walks every such module; `TestStackRegistry_StepUpMatchesTheOldRoutes` pins each
   module's flag to its old route's entry in `stepUpExact`, so the two lists cannot drift. `api.WithStepUp` is the one place a request's step-up status is set.
 - **Agents.** `models.AgentsConfig` (settings.yml `agents:`, its own `storage` view like `netaudit:`) holds `activity_off` and `secrets_pass_off`; both parts
-  always ran, so an absent field keeps them on. `agentwatch.Deps.ActivityOn` is read on every `Observe` and `SecretsPassOn` on every pass. Both modules
+  always ran, so an absent field keeps them on. `agentwatch.Feed.ActivityOn` is read on every event (in the core, before anything is pushed) and the Agents stack reads `secrets_pass_off` on every pass. Both modules
   need the passphrase to switch (switching one off silences a security record). Lock down is the stack's action: listed on the stack, never a module,
   and still served by `/admin/api/lockdown`.
 - **UI.** `components/stacks/` (`StackModules`, `ModuleTile`, `StackTabs`, `ModuleSwitchNote`), `composables/stacks/useStack.ts`, `utils/stacks/modules.ts`
@@ -520,13 +520,16 @@ The address is in the secrets store (`netaudit` / `urlhaus_list`): `PUT`/`DELETE
   on one of this computer's addresses (`cachedOwnAddress`) and a catalogue local model's port into `own_model_server_open`, whose guide is
   the `model_host` setting. `models.DefaultAppConfig` starts the model server on 127.0.0.1 for a new install; an existing settings file keeps
   its value and Settings → Sign-in → Exposure says `model_server_open` while it is not loopback.
-- **Agent security record** (`core/agentwatch`, `agent-watch.json`, v0.47.0). `Bus.SetTap` hands every published agent event to
-  `Watch.Observe`, which queues (256, drops are counted) and returns; `Watch.Run` (in `netauditLoops`) keeps vetted names only: a refused
-  tool (`guardrail_violation`), an approval asked (`guardrail_blocked`), and for `fetch_url` calls of automations the host, learned for a week
-  per automation (`AgentDestinations`; more than 8 hosts while learning marks a browsing automation, whose new hosts are recorded and never
-  alerted). An unattended run's first refusal of the day and a stable automation's new host send an `agent` alert (one a day per key).
-  The same loop runs a nightly secrets pass over the workspace folders (not dot-folders, not `node_modules`, not links, files up to 1 MiB,
-  5,000 files a pass) with `tools.SecretKindIn`, and records each place once (`SecretsSeen`), never the value.
+- **Agent security record** (the Agents stack, `stacks/agents`, `agent-watch.json`, moved into the stack in v0.83.0; ADR-0051). `Bus.SetTap` hands every
+  published agent event to `agentwatch.Feed.Observe` (the core), which does a cheap typed read of the activity switch and pushes the stack a plain
+  `stacksdk.Observation` (kind, workspace, automation, unattended, tool, host: vetted tokens only, no arguments, URL path or error text). The stack's
+  `Observe` queues (256, drops are counted) and returns; its loop keeps the record: a refused tool, an approval asked, and for `fetch_url` calls of
+  automations the host, learned for a week per automation (more than 8 hosts while learning marks a browsing automation, whose new hosts are
+  recorded and never alerted). An unattended run's first refusal of the day and a stable automation's new host publish an alert (one a day per
+  key). The stack publishes a typed `stacksdk.Alert` (an id and vetted tokens); `agentwatch.Words` is the only place the sentence is built and
+  `agentwatch.Alerts` sends it as an `agent` alert. The nightly secrets pass is the stack's schedule over the core's `SecretScan` port:
+  `agentwatch.Scanner` walks the workspace folders (not dot-folders, not `node_modules`, not links, files up to 1 MiB, 5,000 files a pass) with
+  `tools.SecretKindIn` and returns places and kinds only, so no file's bytes cross; the stack records each place once (`SecretsSeen`), never the value.
 - **Daily check-in and alert delivery** (`core/netaudit/checkin.go`, v0.47.0). `CheckIn.Run` (15-minute tick) sends one note a day while
   `NetauditConfig.DailyCheckIn` is on, naming the stopped monitors (`MonitorWatch.Stalled`); the last send time is
   `NetworkHistory.CheckInAt`. The monitor part `alerts` reads the alert log: healthy while the newest alert went out or had no connector,
@@ -535,7 +538,7 @@ The address is in the secrets store (`netaudit` / `urlhaus_list`): `PUT`/`DELETE
   network-gated tools and MCP tools), the automation pre-flight (`AppServices.RunPreflight`, code `locked_down`) and the webhook handler. Switching it on
   (step-up) also ends every other session (`auth.RevokeOtherSessions`) and, if asked, every token (`auth.RevokeAllTokens`). No setting is
   changed, so lifting it restores everything; an unreadable switch file keeps it on.
-- All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`, `agentwatch.Watch`, `CheckIn`) start from `netauditLoops`.
+- All new loops (`MonitorWatch`, `SignInAlerts`, `FollowUp`, `CheckIn`) start from `netauditLoops`; the Agents stack starts there too, as `Agents.Run`.
 
 ## Appendix A — what packet capture (wireshark/tcpdump) would need
 

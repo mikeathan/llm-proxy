@@ -124,8 +124,10 @@ type netauditServices struct {
 	FollowUpConfig *netaudit.FollowUpConfig
 	// SignIns sends the admin sign-in's lockouts and sign-ins from new addresses, from its own loop.
 	SignIns *netaudit.SignInAlerts
-	// AgentWatch is the agent security record: refused tool calls, approvals, new destinations of stable automations.
-	AgentWatch *agentwatch.Watch
+	// Agents is the Agents stack as it runs in the service: the agent security record (refused tool calls, approvals, new destinations of
+	// stable automations, secrets left in files). AgentFeed pushes it what the event bus carries; the record itself lives in the stack.
+	Agents    *stackHost
+	AgentFeed agentwatch.Feed
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
 	Monitors *netaudit.MonitorWatch
 	// CheckIn sends the daily "still running" note while CheckInConfig has it switched on.
@@ -497,7 +499,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.Monitors != nil, func(ctx context.Context) { n.Monitors.Run(ctx) })
 	add(n.SignIns != nil, func(ctx context.Context) { n.SignIns.Run(ctx) })
 	add(n.FollowUp != nil, func(ctx context.Context) { n.FollowUp.Run(ctx) })
-	add(n.AgentWatch != nil, func(ctx context.Context) { n.AgentWatch.Run(ctx) })
+	add(n.Agents != nil, func(ctx context.Context) { n.Agents.Run(ctx) })
 	add(n.CheckIn != nil, func(ctx context.Context) { n.CheckIn.Run(ctx) })
 	return loops
 }
@@ -524,10 +526,10 @@ func (s AppServices) workspaceDirs() ([]agentwatch.WorkspaceDir, error) {
 func (s AppServices) AttachAgentWatch(bus interface {
 	SetTap(func(string, assistantPkg.AgentEvent))
 }) {
-	if s.netaudit == nil || s.netaudit.AgentWatch == nil || bus == nil {
+	if s.netaudit == nil || s.netaudit.Agents == nil || bus == nil {
 		return
 	}
-	bus.SetTap(s.netaudit.AgentWatch.Observe)
+	bus.SetTap(s.netaudit.AgentFeed.Observe)
 }
 
 // NetauditMonitors is what the nightly report reads about the module's own parts that stopped; nil until the services are wired.
@@ -747,14 +749,13 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		OnError: func(err error) { logging.Warn("network daily check-in", "error", err.Error()) },
 	})
 	agents := dataMgr.Agents()
-	s.netaudit.AgentWatch = agentwatch.New(agentwatch.Deps{
-		Store:         withReset(s.AppCtx, "The agent security record", persistence.NewAgentWatchStore(s.AppCtx.RootDir())),
-		Notify:        s.alertNotifier(alerts.Log, models.NetworkAlertAgent),
-		OnError:       func(err error) { logging.Warn("agent watch", "error", err.Error()) },
-		Workspaces:    s.workspaceDirs,
-		ActivityOn:    agentActivitySwitch(agents).Enabled,
-		SecretsPassOn: secretsPassSwitch(agents).Enabled,
-	})
+	// The record lives in the Agents stack; the feed hands it what the bus carries, gated by the operator's switch (read on every event, never cached).
+	agentsHost, err := s.newAgentsHost(agents, s.alertNotifier(alerts.Log, models.NetworkAlertAgent))
+	if err != nil {
+		s.logger.Error("the Agents stack could not be hosted", "error", err.Error())
+	}
+	s.netaudit.Agents = agentsHost
+	s.netaudit.AgentFeed = agentwatch.Feed{Push: agentsHost.Observe, ActivityOn: agentActivitySwitch(agents).Enabled}
 
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
 	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Guard: guard})

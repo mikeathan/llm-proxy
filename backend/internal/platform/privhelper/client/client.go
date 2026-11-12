@@ -12,9 +12,9 @@ import (
 	"net"
 	"time"
 
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/wire"
-	"llm-proxy/internal/platform/sandbox"
 )
 
 // callGrace is the time allowed beyond an action's own timeout for the helper to start, answer and clean up.
@@ -45,7 +45,7 @@ func (r *Refusal) Error() string {
 
 // Sandbox is the part of the sandbox provider the interlock reads.
 type Sandbox interface {
-	Effective() sandbox.EffectiveState
+	Effective() isolation.EffectiveState
 }
 
 // Client calls the helper at one socket path.
@@ -66,7 +66,7 @@ func (c *Client) safeHost() error {
 		return ErrUnsafeHost
 	}
 	e := c.sandbox.Effective()
-	if e.Filesystem.Mechanism == sandbox.EnforcementNone || e.UnixSockets.Mechanism == sandbox.EnforcementNone {
+	if e.Filesystem.Mechanism == isolation.EnforcementNone || e.UnixSockets.Mechanism == isolation.EnforcementNone {
 		return ErrUnsafeHost
 	}
 	return nil

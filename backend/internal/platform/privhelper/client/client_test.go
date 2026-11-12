@@ -11,21 +11,21 @@ import (
 	"testing"
 	"time"
 
+	"llm-proxy/internal/platform/isolation"
 	"llm-proxy/internal/platform/privhelper/catalog"
 	"llm-proxy/internal/platform/privhelper/helpertest"
 	"llm-proxy/internal/platform/privhelper/wire"
-	"llm-proxy/internal/platform/sandbox"
 )
 
 const scanParams = `{"target":"192.168.1.5","ports":[53,161]}`
 
-type fakeSandbox struct{ state sandbox.EffectiveState }
+type fakeSandbox struct{ state isolation.EffectiveState }
 
-func (f fakeSandbox) Effective() sandbox.EffectiveState { return f.state }
+func (f fakeSandbox) Effective() isolation.EffectiveState { return f.state }
 
 func enforcing() fakeSandbox {
-	on := sandbox.SurfaceState{Mechanism: sandbox.EnforcementLandlock}
-	return fakeSandbox{sandbox.EffectiveState{Filesystem: on, UnixSockets: on, Provider: "test"}}
+	on := isolation.SurfaceState{Mechanism: isolation.EnforcementLandlock}
+	return fakeSandbox{isolation.EffectiveState{Filesystem: on, UnixSockets: on, Provider: "test"}}
 }
 
 func echo(context.Context, catalog.Prepared) ([]byte, error) { return []byte("PORT STATE"), nil }
@@ -46,13 +46,13 @@ func TestACallReturnsWhatTheHelperRan(t *testing.T) {
 }
 
 func TestNoCallIsMadeUnlessTheSandboxIsEnforcing(t *testing.T) {
-	on := sandbox.SurfaceState{Mechanism: sandbox.EnforcementLandlock}
-	off := sandbox.SurfaceState{Mechanism: sandbox.EnforcementNone, Reason: "off"}
+	on := isolation.SurfaceState{Mechanism: isolation.EnforcementLandlock}
+	off := isolation.SurfaceState{Mechanism: isolation.EnforcementNone, Reason: "off"}
 	cases := map[string]Sandbox{
 		"no provider":          nil,
-		"no file confinement":  fakeSandbox{sandbox.EffectiveState{Filesystem: off, UnixSockets: on}},
-		"unix sockets allowed": fakeSandbox{sandbox.EffectiveState{Filesystem: on, UnixSockets: off}},
-		"nothing enforced":     fakeSandbox{sandbox.EffectiveState{Filesystem: off, UnixSockets: off}},
+		"no file confinement":  fakeSandbox{isolation.EffectiveState{Filesystem: off, UnixSockets: on}},
+		"unix sockets allowed": fakeSandbox{isolation.EffectiveState{Filesystem: on, UnixSockets: off}},
+		"nothing enforced":     fakeSandbox{isolation.EffectiveState{Filesystem: off, UnixSockets: off}},
 	}
 	for name, sb := range cases {
 		f := helpertest.New(t, echo)

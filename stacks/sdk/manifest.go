@@ -148,6 +148,9 @@ type Manifest struct {
 	// The core's registry defines the module itself; this only says which ids the stack will answer for. A stack that lists one must
 	// require PortScopedGuard.
 	Looks []string `json:"looks,omitempty"`
+	// Observes lists the kinds of observation (Observed*) the stack takes in: the service pushes each one it sees, as plain data, to a stack that
+	// implements Observer. A stack that lists none is never pushed one.
+	Observes []string `json:"observes,omitempty"`
 	// Requires lists the ports the stack uses; each must be one of the Port* names below.
 	Requires []string `json:"requires"`
 }
@@ -167,9 +170,12 @@ const (
 	// PortScopedGuard is the guarded dial that first applies the operator's declared scan scope: a stack that sends to local devices
 	// uses it, so it cannot reach an address the operator did not declare (ADR-0038).
 	PortScopedGuard = "scopedguard"
+	// PortSecretScan asks the core to look through the files the agents wrote for credentials and report only where and what kind: the stack
+	// never reads a workspace folder and no file's bytes cross the port (Constitution IV.6).
+	PortSecretScan = "secretscan"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 
@@ -182,23 +188,10 @@ func (m Manifest) Validate() error {
 	if m.Settings.Key == "" {
 		return fmt.Errorf("manifest %q: settings key is required", m.ID)
 	}
-	if err := m.checkLayers(); err != nil {
-		return err
-	}
-	if err := m.checkModules(); err != nil {
-		return err
-	}
-	if err := m.checkTools(); err != nil {
-		return err
-	}
-	if err := m.checkRoutes(); err != nil {
-		return err
-	}
-	if err := m.checkStorage(); err != nil {
-		return err
-	}
-	if err := m.checkLooks(); err != nil {
-		return err
+	for _, check := range []func() error{m.checkLayers, m.checkModules, m.checkTools, m.checkRoutes, m.checkStorage, m.checkLooks, m.checkObserves} {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	for _, p := range m.Requires {
 		if !slices.Contains(portNames, p) {
@@ -333,6 +326,21 @@ func (m Manifest) checkLooks() error {
 	}
 	if len(m.Looks) > 0 && !slices.Contains(m.Requires, PortScopedGuard) {
 		return fmt.Errorf("manifest %q: a stack with a sensor must require the %q port", m.ID, PortScopedGuard)
+	}
+	return nil
+}
+
+// checkObserves holds each observed kind to a clean id declared once.
+func (m Manifest) checkObserves() error {
+	seen := map[string]bool{}
+	for _, id := range m.Observes {
+		if !idPattern.MatchString(id) {
+			return fmt.Errorf("manifest %q: observation %q must be lower-case letters, digits and underscores", m.ID, id)
+		}
+		if seen[id] {
+			return fmt.Errorf("manifest %q: observation %q is listed twice", m.ID, id)
+		}
+		seen[id] = true
 	}
 	return nil
 }

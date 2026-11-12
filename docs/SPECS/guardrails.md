@@ -20,7 +20,7 @@ supersedes:
   (`core/lockdown`, `lockdown.json` in the data root, step-up `POST`/`DELETE /admin/api/lockdown`), the hard gate refuses the terminal,
   every host-network-gated tool and every tool outside the built-in catalog (MCP tools) with `lockdown.ErrLockedDown` before any override or approval, and the agent loop treats it as a security
   boundary (no approval prompt). Reading and writing the workspace stays allowed. A switch file that cannot be read keeps lock down on.
-  Guardrail refusals and approval prompts are also recorded, by name only, in the agent security record (`core/agentwatch`).
+  Guardrail refusals and approval prompts are also recorded, by name only, in the agent security record (kept by the Agents stack, `stacks/agents`, fed by `core/agentwatch`).
 - **1.7 (2026-10-25)** — Guarded programs (new §II.7.6): a known external program (nmap first) is started only by
   `platform/progexec` with code-built arguments, an explicit environment and a private run directory, through the
   sandbox provider; on a host with no OS file confinement it does not run unless the operator opts in. The scan tool
