@@ -9,7 +9,7 @@ evidence: vertex v0.77.0 run 06356dd58f9747f4 (2026-11-11 20:02Z), read through 
 
 # Network audit · the assessment reads the window's data
 
-**Status:** partial (v0.78.0 merged and deployed as #232; v0.78.1 fixes on branch `audit-assessment-accuracy`, not yet run on vertex; earlier branch `audit-assessment-uses-the-days-data`, from `origin/main` at v0.77.0, v0.78.0: phases 1 to 4 built and tested, uncommitted; **not run on vertex**; ADR-0049).
+**Status:** partial, see the handoff (v0.78.0 merged and deployed as #232; v0.78.1 fixes on branch `audit-assessment-accuracy`, not yet run on vertex; earlier branch `audit-assessment-uses-the-days-data`, from `origin/main` at v0.77.0, v0.78.0: phases 1 to 4 built and tested, uncommitted; **not run on vertex**; ADR-0049).
 
 ## Why
 
@@ -75,7 +75,5 @@ The recordings (`/admin/api/recordings`, matched on the run's `run_dir_name`) sh
 
 ## Remaining Work
 
-1. **Deploy v0.78.1 and replay on vertex** (press Run; the first run showed the faults above): press Run on `network-audit`, then read the report and the digest in the run record. Compare with run `06356dd5`: devices up, severities, whether it uses the window (needs a recording; the run had none). The first digest after deploy has one scan row, so the window grows over the next days.
-2. The weekly audit's scan rows are only its own; reading the daily audit's rows for it needs a decision on mixed targets.
-3. The digest does not include this run's add-ons (computed after the model writes); the latest saved scan carries the earlier ones.
-4. If the local model's context is small, lower `DigestMaxBytes` (`windowdigest.go`).
+Built, merged and deployed through v0.81.0; what is left, the verification recipe and the traps are in
+[`network-audit-assessment-handoff-2026-11-12.md`](network-audit-assessment-handoff-2026-11-12.md).

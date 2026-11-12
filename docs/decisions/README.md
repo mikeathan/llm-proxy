@@ -64,3 +64,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0047](ADR-0047-other-devices-connections-come-from-the-routers-connection-table-over-ssh.md) | Other devices' connections come from the router's connection table, read over SSH on the operator's press | proposed | 2026-11-12 | network |
 | [ADR-0048](ADR-0048-the-router-watch-keeps-a-history-and-the-audit-reads-the-router-in-its-own-code.md) | The router watch keeps a history of companies and countries, and the audit's own code reads the router once a night (proposed, with the I.15 amendment) |
 | [ADR-0049](ADR-0049-the-audit-assessment-reads-a-bounded-window-digest-attached-to-the-scan-result.md) | The audit's assessment reads a bounded window digest that the scan result carries |
+| [ADR-0050](ADR-0050-a-finding-carries-typed-details-and-the-host-watch-keeps-file-names.md) | A finding carries typed details, and the host watch keeps file names with a short sum for each |

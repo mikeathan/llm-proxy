@@ -32,13 +32,13 @@ const maxExposedRows = 40
 
 // ExposedService is one open port whose service the scan identified as a remote-administration, file-sharing or database service.
 type ExposedService struct {
-	Device  string
-	Port    int
-	Proto   string
-	Service string
+	Device  string `json:"device"`
+	Port    int    `json:"port"`
+	Proto   string `json:"proto"`
+	Service string `json:"service"`
 	// Detail is the product and version the scan read, or "" (a product nmap only guessed is left out).
-	Detail string
-	Kind   string
+	Detail string `json:"detail,omitempty"`
+	Kind   string `json:"kind"`
 }
 
 // ExposedServices lists the open ports that carry such a service, by address and then port. It is a pure function of the scan:

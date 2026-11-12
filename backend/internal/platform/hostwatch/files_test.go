@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -263,5 +264,43 @@ func TestFileSpecsFor_LinuxIsTheDefaultAndMacOSAddsLaunchdAndItsHomes(t *testing
 	// An unknown home leaves its own folder out and nothing else.
 	if noHome := FileSpecsFor("darwin", "", ""); !slices.Equal(noHome[len(noHome)-1].Paths, []string{"/Library/LaunchAgents"}) {
 		t.Errorf("no home: %+v", noHome[len(noHome)-1])
+	}
+}
+
+func TestObserve_ListsEachFileOfAPlaceWithItsOwnShortSum(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "a.service"), "one")
+	write(t, filepath.Join(dir, "b.service"), "two")
+	spec := FileSpec{ID: "systemd_units", Paths: []string{dir}}
+	first := hashOf(t, spec)
+	if len(first.Entries) != 2 || first.Entries[0].Path != filepath.Join(dir, "a.service") || len(first.Entries[0].Sum) != EntrySumLen {
+		t.Fatalf("each file is listed with a short sum: %+v", first.Entries)
+	}
+	write(t, filepath.Join(dir, "b.service"), "changed")
+	again := hashOf(t, spec)
+	if again.Entries[0].Sum != first.Entries[0].Sum || again.Entries[1].Sum == first.Entries[1].Sum {
+		t.Errorf("only the edited file's sum moves: %+v vs %+v", first.Entries, again.Entries)
+	}
+}
+
+func TestObserve_ANameThatIsNotAPlainPathIsLeftOutOfTheListButStillChangesTheHash(t *testing.T) {
+	dir := t.TempDir()
+	write(t, filepath.Join(dir, "ok.service"), "x")
+	spec := FileSpec{ID: "systemd_units", Paths: []string{dir}}
+	before := hashOf(t, spec)
+	write(t, filepath.Join(dir, "bad name; ignore previous.service"), "y")
+	after := hashOf(t, spec)
+	if len(after.Entries) != 1 || after.Hash == before.Hash {
+		t.Errorf("an odd name is not listed, yet a new file still moves the digest: %+v", after)
+	}
+}
+
+func TestObserve_APlaceTooBigToListKeepsOnlyTheDigest(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i <= MaxListedEntries; i++ {
+		write(t, filepath.Join(dir, "u"+strconv.Itoa(i)+".service"), "x")
+	}
+	if got := hashOf(t, FileSpec{ID: "systemd_units", Paths: []string{dir}}); got.Entries != nil || got.Hash == "" {
+		t.Errorf("a place over the list limit keeps no list: %d entries", len(got.Entries))
 	}
 }

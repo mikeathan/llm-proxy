@@ -34,7 +34,7 @@ test('a real-shaped report opens on its problems, counts agree and accepted rows
   await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/netaudit/deep': deep, '/automations': [automation], '/workspaces': [{ id: 'ws' }] } })
   await page.goto('automations/ws%2Fnetwork-audit')
   await expect(page.getByRole('radio', { name: /^Problems \(4\)/ })).toBeChecked()
-  await expect(page.getByText('4 problems found by checks (2 accepted)')).toBeVisible()
+  await expect(page.getByText('4 problems found by checks, and 2 more you accepted')).toBeVisible()
   await expect(page.getByText('SSH accepts password login').first()).toBeVisible()
   await expect(page.getByText('From the deep check of')).toBeVisible()
   await expectNoSidewaysScroll(page)

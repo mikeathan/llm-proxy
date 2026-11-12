@@ -107,3 +107,9 @@ export function groupByDevice<T extends { device: string }>(items: readonly T[])
   }
   return [...groups.values()]
 }
+
+/** The devices that answered the scan and have no open port or problem in the report: they are in no other list. Empty for a server that does not name them. */
+export function quietDevices(report: Pick<FindingsReport, 'up' | 'findings'>): string[] {
+  const listed = new Set(report.findings.map((f) => f.device))
+  return (report.up ?? []).filter((d) => !listed.has(d))
+}

@@ -243,7 +243,7 @@ const (
 	newListenerEvidence = "Something on this computer is waiting for connections on this port, and it was not when the audit first looked. The audit does not say which program it is"
 	// dockerListenerNote is added when Docker has a network here: the port may be a container's, and those bypass ufw.
 	dockerListenerNote = ". Docker is installed on this computer: a port a container publishes is open to the network even when the computer's firewall is on"
-	hostFileEvidence   = "A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed). The audit does not show what changed"
+	hostFileEvidence   = "A place that decides what runs on this computer after a reboot changed since the audit first recorded it (edited, added to or removed)"
 	// shortHash is how much of a digest goes in a finding's version.
 	shortHash = 12
 )
@@ -420,7 +420,7 @@ func (w *HostWatcher) compareIntegrity(base *models.HostWatch, res hostwatch.Int
 		modified, paths = base.Integrity.Modified, base.Integrity.Paths
 	}
 	if modified > 0 {
-		look.Findings = append(look.Findings, Finding{Device: HostDevice, Check: CheckHostFilesModified, Severity: SeverityHigh, Evidence: integrityEvidence(modified, paths)})
+		look.Findings = append(look.Findings, Finding{Device: HostDevice, Check: CheckHostFilesModified, Severity: SeverityHigh, Evidence: integrityEvidence(modified), Details: integrityDetails(modified, paths)})
 	}
 	return stored
 }
@@ -456,21 +456,25 @@ func (w *HostWatcher) compareFlaws(base *models.HostWatch, look *HostLook) bool 
 	return true
 }
 
-// integrityEvidence is the finding's words: how many files, up to ten plain paths the reader already vetted, and what the
-// audit cannot tell.
-func integrityEvidence(modified int, paths []string) string {
+// integrityEvidence is the finding's words: how many files and what the audit cannot tell. The paths are the finding's details.
+func integrityEvidence(modified int) string {
 	verb := "no longer match"
 	if modified == 1 {
 		verb = "no longer matches"
 	}
-	out := plural(modified, "program file", "program files") + " that packages installed on this computer " + verb + " the checksum the package shipped"
-	if len(paths) > 0 {
-		out += ": " + strings.Join(paths, ", ")
-		if more := modified - len(paths); more > 0 {
-			out += fmt.Sprintf(", and %d more", more)
-		}
+	return plural(modified, "program file", "program files") + " that packages installed on this computer " + verb + " the checksum the package shipped. A change by hand, by an attack or by a failing disk looks the same; the audit cannot tell which"
+}
+
+// integrityDetails lists up to ten plain paths the reader already vetted, one row each, and counts the rest.
+func integrityDetails(modified int, paths []string) []models.FindingDetail {
+	out := make([]models.FindingDetail, 0, len(paths)+1)
+	for _, p := range paths {
+		out = append(out, models.FindingDetail{Label: "Changed file", Value: p})
 	}
-	return out + ". A change by hand, by an attack or by a failing disk looks the same; the audit cannot tell which"
+	if more := modified - len(paths); more > 0 && len(paths) > 0 {
+		out = append(out, models.FindingDetail{Label: "Not listed", Value: fmt.Sprintf("%d more", more)})
+	}
+	return out
 }
 
 func (w *HostWatcher) compareFiles(base *models.HostWatch, now []hostwatch.FileState, look *HostLook) bool {
@@ -484,19 +488,109 @@ func (w *HostWatcher) compareFiles(base *models.HostWatch, now []hostwatch.FileS
 		i := indexOfHostFile(base.Files, f.ID)
 		switch {
 		case i < 0: // a place with no earlier look
-			base.Files = append(base.Files, models.HostFile{ID: f.ID, Hash: f.Hash, Tag: f.Tag})
+			base.Files = append(base.Files, w.newHostFile(f))
 			changed = true
 		case base.Files[i].Tag != f.Tag: // the program was restarted, perhaps after an upgrade
-			base.Files[i] = models.HostFile{ID: f.ID, Hash: f.Hash, Tag: f.Tag}
+			base.Files[i] = w.newHostFile(f)
 			changed = true
 		case base.Files[i].Hash != f.Hash:
+			details := w.fileDetails(&base.Files[i], f, &changed)
 			look.Findings = append(look.Findings, Finding{
 				Device: HostDevice, Check: HostFileCheck(f.ID), Severity: info.Severity, Version: f.Hash[:min(shortHash, len(f.Hash))],
-				Evidence: hostFileEvidence,
+				Evidence: hostFileEvidence, Details: details,
 			})
 		}
 	}
 	return changed
+}
+
+// newHostFile is the first look at a place: its digest and the list of its files.
+func (w *HostWatcher) newHostFile(f hostwatch.FileState) models.HostFile {
+	out := models.HostFile{ID: f.ID, Hash: f.Hash, Tag: f.Tag, Entries: hostEntries(f.Entries)}
+	if len(out.Entries) > 0 {
+		out.ListedAt = w.now()
+	}
+	return out
+}
+
+func hostEntries(in []hostwatch.FileEntry) []models.HostFileEntry {
+	out := make([]models.HostFileEntry, len(in))
+	for i, e := range in {
+		out[i] = models.HostFileEntry{Path: e.Path, Sum: e.Sum}
+	}
+	return out
+}
+
+const (
+	// maxNamedFiles is how many file names one detail row lists; the rest are counted.
+	maxNamedFiles = 10
+	// listLimitValue says why a place with no list cannot name a change.
+	listLimitValue = "The audit could not list the files of this place (too many), so it knows the place changed but not which file"
+	fileDateLayout = "2 Jan 2006"
+)
+
+// fileDetails names what changed in a place against the list kept at the first look. A place first recorded before lists were kept
+// gets its list now (reported through changed) and says what it cannot name; a place too big to list says that.
+func (w *HostWatcher) fileDetails(rec *models.HostFile, f hostwatch.FileState, changed *bool) []models.FindingDetail {
+	const label = "Which file"
+	if len(f.Entries) == 0 {
+		return []models.FindingDetail{{Label: label, Value: listLimitValue}}
+	}
+	if len(rec.Entries) == 0 {
+		rec.Entries, rec.ListedAt = hostEntries(f.Entries), w.now()
+		*changed = true
+		return []models.FindingDetail{{Label: label, Value: "This place was first recorded as a digest only, so what changed before " + w.now().Format(fileDateLayout) + " cannot be named. Files are named from this look on"}}
+	}
+	added, edited, removed := diffEntries(rec.Entries, f.Entries)
+	var out []models.FindingDetail
+	for _, row := range []struct {
+		label string
+		paths []string
+	}{{"Added", added}, {"Edited", edited}, {"Removed", removed}} {
+		if len(row.paths) > 0 {
+			out = append(out, models.FindingDetail{Label: row.label, Value: namedFiles(row.paths)})
+		}
+	}
+	if len(out) == 0 { // the digest moved but no listed file did: a folder or link that is not listed, or names that were left out as not plain
+		out = []models.FindingDetail{{Label: label, Value: "The change is in something the audit does not list by name (a folder, or a file whose name is not a plain path)"}}
+	}
+	if !rec.ListedAt.IsZero() {
+		out = append(out, models.FindingDetail{Label: "Compared with", Value: "the list kept on " + rec.ListedAt.Format(fileDateLayout)})
+	}
+	return out
+}
+
+// diffEntries returns the paths in now but not in then (added), in both with a different sum (edited), and in then but not now (removed).
+func diffEntries(then []models.HostFileEntry, now []hostwatch.FileEntry) (added, edited, removed []string) {
+	before := make(map[string]string, len(then))
+	for _, e := range then {
+		before[e.Path] = e.Sum
+	}
+	seen := make(map[string]bool, len(now))
+	for _, e := range now {
+		seen[e.Path] = true
+		sum, ok := before[e.Path]
+		switch {
+		case !ok:
+			added = append(added, e.Path)
+		case sum != e.Sum:
+			edited = append(edited, e.Path)
+		}
+	}
+	for _, e := range then {
+		if !seen[e.Path] {
+			removed = append(removed, e.Path)
+		}
+	}
+	return added, edited, removed
+}
+
+// namedFiles joins up to maxNamedFiles paths and counts the rest.
+func namedFiles(paths []string) string {
+	if len(paths) <= maxNamedFiles {
+		return strings.Join(paths, ", ")
+	}
+	return fmt.Sprintf("%s, and %d more", strings.Join(paths[:maxNamedFiles], ", "), len(paths)-maxNamedFiles)
 }
 
 func indexOfHostFile(files []models.HostFile, id string) int {

@@ -52,7 +52,14 @@ type TreeEntry struct {
 	Collapsed bool          `json:"collapsed,omitempty"`
 }
 
-// SavedReport is one saved final report of an automation run (reports/<automation>/<start time>-<run id>.md).
+// ReportFile is one more file saved beside a run's report in the run's folder (an audit's typed record, say). Name is a plain file name.
+type ReportFile struct {
+	Name    string
+	Content string
+}
+
+// SavedReport is one saved final report of an automation run: reports/<automation>/<start time>-<run id>/report.md, with the
+// run's other files beside it. Reports saved before runs had folders are reports/<automation>/<start time>-<run id>.md.
 type SavedReport struct {
 	Path      string    `json:"path"` // workspace-relative, slash-separated
 	RunID     string    `json:"run_id"`

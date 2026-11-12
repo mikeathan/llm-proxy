@@ -5,9 +5,10 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import CollapsibleCard from "../common/layout/CollapsibleCard.vue"
 import DeviceFindings from "./DeviceFindings.vue"
 import ProblemGroups from "./ProblemGroups.vue"
+import QuietDevices from "./QuietDevices.vue"
 import { describePort, deviceLabel, isCheck } from "../../utils/netaudit/friendly"
 import { openPortsOf } from "../../utils/netaudit/expectations"
-import { groupByDevice, groupProblems } from "../../utils/netaudit/report"
+import { groupByDevice, groupProblems, quietDevices } from "../../utils/netaudit/report"
 import { formatAbsoluteTime } from "../../utils/format/time"
 import type { DeepCheck, DeviceExpectation, FindingFilter, FindingsReport, ReportSummary, ScanFinding } from "../../types/netaudit"
 
@@ -41,10 +42,11 @@ const foldAll = (all: boolean) => { fold.value = { all, n: fold.value.n + 1 }; t
 
 // One row of pills, each a part of the report with its count, so a long report is read one part at a time. Problems come
 // first and are what opens when there are any; "Devices" is every device with its ports.
+const quiet = computed(() => quietDevices(props.report))
 const countOf = (value: FindingFilter): number => {
   switch (value) {
     case "problems": return allProblems.value.length
-    case "all": return groupByDevice(props.report.findings.filter((f) => !isCheck(f))).length
+    case "all": return groupByDevice(props.report.findings.filter((f) => !isCheck(f))).length + quiet.value.length
     case "new": return props.summary.added.length
     case "changed": return props.summary.changed.length
     case "resolved": return props.summary.resolved.length
@@ -113,7 +115,7 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
     <ProblemGroups :groups="problemGroups" :fold="fold" :names="names" advanced @accept="emit('accept', $event)" @accept-many="emit('accept-many', $event)" @mark="emit('mark', $event)" @unmark="emit('unmark', $event)" @rescan="emit('rescan', $event)" />
 
     <template v-if="showDevices">
-      <p v-if="!groups.length && !problemGroups.length" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT[filter] ?? "Nothing to show here." }}</p>
+      <p v-if="!groups.length && !problemGroups.length && !(filter === 'all' && quiet.length)" class="m-0 text-muted" data-test="empty-part">{{ EMPTY_TEXT[filter] ?? "Nothing to show here." }}</p>
       <DeviceFindings
         v-for="g in groups"
         :key="g.device"
@@ -136,7 +138,9 @@ const toggle = (device: string) => { toggled.value = { ...toggled.value, [device
       />
     </template>
 
-    <template v-else-if="filter === 'resolved'">
+    <QuietDevices v-if="filter === 'all'" :devices="quiet" :names="names" />
+
+    <template v-if="filter === 'resolved'">
       <p v-if="!resolvedGroups.length" class="m-0 text-muted">Nothing has gone away since the scan before.</p>
       <CollapsibleCard v-for="g in resolvedGroups" :key="g.device" :label="g.device" :open="isOpen(g.device)" @update:open="toggle(g.device)">
         <template #title><span class="font-mono text-[length:var(--text-heading)] text-primary">{{ deviceLabel(g.device) }}</span></template>

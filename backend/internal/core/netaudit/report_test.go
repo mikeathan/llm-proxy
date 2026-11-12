@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/models"
 )
 
 var reportTime = time.Date(2026, 10, 25, 2, 0, 0, 0, time.UTC)
@@ -156,5 +158,14 @@ func TestRenderObserved_AFindingWithoutAProtocolOrPortIsWrittenWithoutThem(t *te
 		if strings.Contains(got, bad) {
 			t.Errorf("must not contain %q:\n%s", bad, got)
 		}
+	}
+}
+
+func TestRenderObserved_AChecksDetailsAreWrittenAfterItsEvidence(t *testing.T) {
+	f := Finding{Device: HostDevice, Check: HostFileCheck("cron"), Severity: SeverityMedium, Evidence: "A place changed", Details: []models.FindingDetail{{Label: "Added", Value: "/etc/cron.d/y"}, {Label: "Edited", Value: "/etc/cron.d/x"}}}
+	var b strings.Builder
+	writeChecks(&b, "Checks", []Finding{f}, false)
+	if !strings.Contains(b.String(), "A place changed (Added: /etc/cron.d/y; Edited: /etc/cron.d/x)") {
+		t.Errorf("report = %s", b.String())
 	}
 }

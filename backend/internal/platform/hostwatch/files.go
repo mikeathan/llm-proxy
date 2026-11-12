@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"os"
@@ -51,7 +52,25 @@ type FileState struct {
 	// Unreadable counts the paths this account may not read. They add a fixed token to the hash, so they never look like a
 	// change, and the count lets the screen say what is not being watched.
 	Unreadable int
+	// Entries lists each file or link the digest covered, with a short sum of its own, so a later look can name what was added,
+	// edited or removed. Only plain paths are listed (see safeListedPath), and a place with more than MaxListedEntries keeps no list:
+	// the digest alone still says it changed.
+	Entries []FileEntry
 }
+
+// FileEntry is one file or link of a watched place: its plain path and the first EntrySumLen hex digits of its own digest. No byte
+// of the file is kept.
+type FileEntry struct {
+	Path string
+	Sum  string
+}
+
+const (
+	// EntrySumLen is how much of a file's digest is kept in its entry: enough to tell two contents apart.
+	EntrySumLen = 12
+	// MaxListedEntries is the most files one place lists; the stored baseline stays small.
+	MaxListedEntries = 1000
+)
 
 // Files looks at a list of FileSpecs.
 type Files struct {
@@ -93,6 +112,9 @@ func (f Files) observe(spec FileSpec) FileState {
 		walk(h, p, limit, 0, &budget, &st, spec.SkipNames)
 	}
 	st.Hash = hex.EncodeToString(h.Sum(nil))
+	if len(st.Entries) > MaxListedEntries || spec.Program {
+		st.Entries = nil
+	}
 	if spec.Program {
 		st.Tag = f.ProgramTag
 	}
@@ -126,14 +148,38 @@ func walk(h io.Writer, path string, limit int64, depth int, budget *int, st *Fil
 			io.WriteString(h, "unreadable\x00")
 			return
 		}
-		fmt.Fprintf(h, "link\x00%s\x00", target)
+		leaf := newLeaf(h, path, st)
+		fmt.Fprintf(leaf, "link\x00%s\x00", target)
+		leaf.close()
 	case info.IsDir():
 		walkDir(h, path, limit, depth, budget, st, skip)
 	case info.Mode().IsRegular():
-		hashFile(h, path, info.Size(), limit, st)
+		leaf := newLeaf(h, path, st)
+		hashFile(leaf, path, info.Size(), limit, st)
+		leaf.close()
 	default:
 		io.WriteString(h, "other\x00")
 	}
+}
+
+// leaf writes one file's bytes to the place's digest and to a digest of its own, and on close lists the file with the short sum.
+type leaf struct {
+	io.Writer
+	own  hash.Hash
+	path string
+	st   *FileState
+}
+
+func newLeaf(h io.Writer, path string, st *FileState) *leaf {
+	own := sha256.New()
+	return &leaf{Writer: io.MultiWriter(h, own), own: own, path: path, st: st}
+}
+
+func (l *leaf) close() {
+	if !safeListedPath.MatchString(l.path) || len(l.st.Entries) > MaxListedEntries {
+		return
+	}
+	l.st.Entries = append(l.st.Entries, FileEntry{Path: l.path, Sum: hex.EncodeToString(l.own.Sum(nil))[:EntrySumLen]})
 }
 
 func walkDir(h io.Writer, path string, limit int64, depth int, budget *int, st *FileState, skip []string) {

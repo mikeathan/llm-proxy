@@ -248,7 +248,7 @@ const runKey = (run: AutomationRun) => run.id;
       </Callout>
       <ScanSummary v-if="automation.scan" :scan="automation.scan" data-test="scans" />
       <AuditSetupCheck :profile="automation.profile" :network-grant="automation.network_grant" :automation-id="automation.id" />
-      <FindingsReport :workspace-id="automation.workspace" :automation="automation.name" :busy="showLiveUI" :refresh-key="`${showLiveUI}|${activeRun?.id ?? ''}`" @watch-live="auditTab = 'live'" />
+      <FindingsReport :workspace-id="automation.workspace" :automation="automation.name" :busy="showLiveUI" :report-path="automation.last_report_path ?? ''" :refresh-key="`${showLiveUI}|${activeRun?.id ?? ''}`" @watch-live="auditTab = 'live'" />
       <NetauditHelp />
     </template>
 

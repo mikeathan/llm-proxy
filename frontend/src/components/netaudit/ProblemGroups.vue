@@ -6,6 +6,7 @@ import StatusTag from "../common/display/StatusTag.vue"
 import Disclosure from "../common/layout/Disclosure.vue"
 import FixGuidePanel from "./FixGuidePanel.vue"
 import FixGuideSteps from "./FixGuideSteps.vue"
+import FindingDetails from "./FindingDetails.vue"
 import FoundBy from "./FoundBy.vue"
 import { placeSentence, serviceName, severityState } from "../../utils/netaudit/friendly"
 import { flawsOf, flawSummary, nvdUrl } from "../../utils/netaudit/flaws"
@@ -101,6 +102,7 @@ watch(() => props.fold?.n, () => { toggled.value = Object.fromEntries(props.grou
               <BaseButton variant="ghost" size="sm" icon="more" icon-only :label="MORE_ACTIONS_LABEL" class-name="max-sm:!h-11 max-sm:!w-11" data-test="problem-more" :aria-expanded="moreOpen === f.key" @click="toggleMore(f.key)" />
             </span>
           </div>
+          <FindingDetails v-if="f.details?.length" :details="f.details" />
           <template v-if="advanced && f.check === KNOWN_VULNS && flawsOf(f).length">
             <Disclosure class="w-full font-normal" data-test="vuln-flaws" :title="`All ${flawsOf(f).length} known flaws`" :open="!!flawsOpen[f.key]" @update:open="flawsOpen[f.key] = $event">
               <ul class="m-0 flex list-none flex-col gap-1 p-0">

@@ -66,6 +66,8 @@ type Report struct {
 	// Unscanned are the devices the engine ran out of time on; DevicesUp is how many addresses answered.
 	Unscanned []string `json:"unscanned"`
 	DevicesUp int      `json:"devices_up"`
+	// Up names the devices that answered (sorted), so a screen lists the ones that had nothing open; empty for a scan saved before the list was kept.
+	Up []string `json:"up"`
 	// FirstScan is true when this scan is the baseline: nothing came before it, so no open port in it is a change.
 	FirstScan bool `json:"first_scan"`
 }
@@ -88,12 +90,13 @@ type Input struct {
 // Of builds the report. A baseline that was never scanned gives Scanned false and empty (never nil) lists.
 func Of(in Input) Report {
 	b := in.Baseline
-	rep := Report{Findings: []Finding{}, Resolved: []Resolved{}, Unscanned: []string{}}
+	rep := Report{Findings: []Finding{}, Resolved: []Resolved{}, Unscanned: []string{}, Up: []string{}}
 	if b.ScannedAt.IsZero() {
 		return rep
 	}
 	rep.Scanned, rep.ScannedAt, rep.Engine, rep.DevicesUp, rep.FirstScan = true, b.ScannedAt.UTC().Format(time.RFC3339), b.Engine, b.DevicesUp, b.FirstScan
 	rep.Unscanned = append(rep.Unscanned, b.Unscanned...)
+	rep.Up = append(rep.Up, b.UpAddrs...)
 	v := newViewer(in)
 	for _, f := range b.Findings {
 		rep.Findings = append(rep.Findings, v.finding(f))

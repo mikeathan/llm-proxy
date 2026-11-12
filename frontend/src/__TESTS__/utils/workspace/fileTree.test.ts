@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFileTree, filterTreeEntries, hasSelectionWithin, isCoveredBySelection, isPathWithin, topLevelPaths, treeFilePaths, withoutNestedPaths } from '../../../utils/workspace/fileTree'
+import { buildFileTree, filterTreeEntries, hasSelectionWithin, isCoveredBySelection, isPathWithin, taskFileChoices, topLevelPaths, treeFilePaths, withoutNestedPaths } from '../../../utils/workspace/fileTree'
 import type { FileTreeNode, TreeEntry } from '../../../types/workspace'
 
 const file = (path: string): TreeEntry => ({ path, type: 'file' })
@@ -47,6 +47,13 @@ describe('buildFileTree', () => {
 describe('treeFilePaths', () => {
   it('lists file paths only, sorted by path', () => {
     expect(treeFilePaths({ entries: [dir('docs'), file('docs/a.md'), file('b.md')], truncated: false })).toEqual(['b.md', 'docs/a.md'])
+  })
+})
+
+describe('taskFileChoices', () => {
+  it('leaves out what runs saved, keeps a task that merely mentions reports', () => {
+    const tree = { entries: [file('network-audit.md'), file('reports-plan.md'), file('reports/network-audit/20261112T020000Z-r1/report.md'), file('reports/network-audit/20261112T020000Z-r1/audit.json'), file('docs/reports/a.md')], truncated: false }
+    expect(taskFileChoices(tree)).toEqual(['docs/reports/a.md', 'network-audit.md', 'reports-plan.md'])
   })
 })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deepProblemsOf, groupByDevice, groupProblems, groupProblemsByDevice, sharedEvidence, splitProblems, summarize } from '../../../utils/netaudit/report'
+import { deepProblemsOf, groupByDevice, groupProblems, groupProblemsByDevice, quietDevices, sharedEvidence, splitProblems, summarize } from '../../../utils/netaudit/report'
 import type { DeepCheck, FindingsReport, ScanFinding } from '../../../types/netaudit'
 
 const f = (key: string, over: Partial<ScanFinding> = {}): ScanFinding =>
@@ -152,5 +152,15 @@ describe('sharedEvidence', () => {
     expect(sharedEvidence([f('1', { evidence: 'same' }), f('2', { evidence: 'other' })])).toBe('')
     expect(sharedEvidence([f('1', { evidence: 'same' })])).toBe('')
     expect(sharedEvidence([f('1'), f('2')])).toBe('')
+  })
+})
+
+describe('quietDevices', () => {
+  const f = (device: string) => ({ key: device, device, check: 'open_port', severity: 'info', new: false, changed: false, accepted: false })
+  it('keeps the devices that answered and have no finding of their own', () => {
+    expect(quietDevices({ up: ['10.0.0.1', '10.0.0.2', '10.0.0.3'], findings: [f('10.0.0.2')] })).toEqual(['10.0.0.1', '10.0.0.3'])
+  })
+  it('is empty for a server that does not name the devices', () => {
+    expect(quietDevices({ findings: [f('10.0.0.2')] })).toEqual([])
   })
 })

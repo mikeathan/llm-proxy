@@ -198,5 +198,5 @@ func dnsTallies(st stacksdk.ModuleStatus) []netaudit.ModuleTally {
 	if st.Recent.Done == 0 {
 		return nil
 	}
-	return []netaudit.ModuleTally{{Title: "Router DNS check", Noun: "checks", FlaggedWord: "differed", Done: st.Recent.Done, Flagged: st.Recent.Flagged, Unclear: st.Recent.Unclear}}
+	return []netaudit.ModuleTally{{Title: "Router DNS check", Noun: "comparisons", FlaggedWord: "differed", Done: st.Recent.Done, Flagged: st.Recent.Flagged, Unclear: st.Recent.Unclear}}
 }

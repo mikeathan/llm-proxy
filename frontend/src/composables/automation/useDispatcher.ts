@@ -5,7 +5,7 @@ import { useAppBanner } from '../ui/useAppBanner'
 import { DispatcherService } from '../../services/automation/dispatcherService'
 import type { WorkspaceTree } from '../../types/workspace'
 import type { AutomationPayload } from '../../types/automation'
-import { treeFilePaths, withoutNestedPaths } from '../../utils/workspace/fileTree'
+import { taskFileChoices, withoutNestedPaths } from '../../utils/workspace/fileTree'
 
 const { show: showBanner, clear: clearBanner } = useAppBanner()
 
@@ -18,10 +18,10 @@ const workspaces = ref<{ id: string }[]>([])
 // One tree per workspace. shallowRef + markRaw: trees can hold thousands of
 // entries and are replaced wholesale, never mutated (performance budget).
 const workspaceTrees = shallowRef<Record<string, WorkspaceTree>>({})
-// File paths per workspace (e.g. the automation task-file picker), derived from
-// the tree — one listing, one derivation.
+// The files the automation task-file picker offers per workspace, derived from the
+// tree — one listing, one derivation. What runs saved (reports/) is left out: it is a result, not a task.
 const workspaceFiles = computed<Record<string, string[]>>(() =>
-  Object.fromEntries(Object.entries(workspaceTrees.value).map(([ws, tree]) => [ws, treeFilePaths(tree)])),
+  Object.fromEntries(Object.entries(workspaceTrees.value).map(([ws, tree]) => [ws, taskFileChoices(tree)])),
 )
 const loading = ref(false)
 

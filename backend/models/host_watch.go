@@ -14,6 +14,16 @@ type HostFile struct {
 	ID   string `json:"id"`
 	Hash string `json:"hash"`
 	Tag  string `json:"tag,omitempty"`
+	// Entries are the files the place held at the first look, each with a short sum of its own, and ListedAt when the list was
+	// taken (a place first recorded before lists were kept gets one at its next look, and what changed earlier cannot be named).
+	Entries  []HostFileEntry `json:"entries,omitempty"`
+	ListedAt time.Time       `json:"listed_at,omitzero"`
+}
+
+// HostFileEntry is one file of a watched place: a plain path and the first digits of its own digest.
+type HostFileEntry struct {
+	Path string `json:"path"`
+	Sum  string `json:"sum"`
 }
 
 // HostWatch is what the host watch compared against: the open ports and the file digests of its first look. A zero

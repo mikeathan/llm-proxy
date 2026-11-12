@@ -23,10 +23,12 @@ type fakeReportWriter struct {
 	workspace, auto    string
 	runID, content, at string
 	err                error
+	extras             []models.ReportFile
 }
 
-func (f *fakeReportWriter) WriteReport(workspaceID, automation, runID string, at time.Time, content string) (string, error) {
+func (f *fakeReportWriter) WriteReport(workspaceID, automation, runID string, at time.Time, content string, extras ...models.ReportFile) (string, error) {
 	f.calls++
+	f.extras = extras
 	f.workspace, f.auto, f.runID, f.content, f.at = workspaceID, automation, runID, content, at.UTC().Format(time.RFC3339)
 	return "reports/x/y.md", f.err
 }
@@ -235,7 +237,7 @@ func TestHandleAgentSuccess_RecordsTheReportPathOnTheRun(t *testing.T) {
 	if _, err := e.handleAgentSuccess(context.Background(), outcome, "# Body", nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "reports/daily-news/20261021T070000Z-run_7.md"
+	want := "reports/daily-news/20261021T070000Z-run_7/report.md"
 	if got := state.History[0].ReportPath; got != want {
 		t.Errorf("report path %q, want %q", got, want)
 	}
@@ -263,6 +265,10 @@ type fakeHook struct {
 type hookKey struct{}
 
 func (f *fakeHook) Summary(context.Context) string { return "SUMMARY: 1 new" }
+
+func (f *fakeHook) Files(context.Context) []models.ReportFile {
+	return []models.ReportFile{{Name: "audit.json", Content: `{"ok":true}`}}
+}
 
 func (f *fakeHook) Begin(ctx context.Context) context.Context {
 	f.began = true
@@ -325,5 +331,17 @@ func TestHandleAgentSuccess_WithoutAHookTheReportIsTheAgentsOwn(t *testing.T) {
 	_, resp := finishRun(t, "plain report", reportOutcome())
 	if resp.Report != "plain report" {
 		t.Errorf("report = %q", resp.Report)
+	}
+}
+
+// What the report hook offers to keep beside the report goes into the run's folder, masked like the report is.
+func TestSaveFinalReport_KeepsTheHooksFilesBesideTheReportAndMasksThem(t *testing.T) {
+	w := &fakeReportWriter{}
+	secret := "sk-" + strings.Repeat("a", 40)
+	if _, err := saveFinalReport(w, reportOutcome(), "# R", models.ReportFile{Name: "audit.json", Content: `{"note":"` + secret + `"}`}); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.extras) != 1 || w.extras[0].Name != "audit.json" || strings.Contains(w.extras[0].Content, secret) {
+		t.Errorf("extras = %+v: the file is kept, and a secret-shaped text is masked", w.extras)
 	}
 }

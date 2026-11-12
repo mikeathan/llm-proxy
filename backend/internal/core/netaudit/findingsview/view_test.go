@@ -100,3 +100,17 @@ func TestOf_OnlyWhatASingleDeviceScanCanJudgeIsRecheckable(t *testing.T) {
 		t.Errorf("recheckable flags: %v %v", rep.Findings[0].Recheckable, rep.Findings[1].Recheckable)
 	}
 }
+
+func TestOf_NamesTheDevicesThatAnsweredAndKeepsAFindingsDetails(t *testing.T) {
+	f := models.ScanFinding{Device: "this-computer", Check: netaudit.CheckHostFilesModified, Severity: "high", Evidence: "e", Details: []models.FindingDetail{{Label: "Changed file", Value: "/usr/bin/x"}}}
+	rep := Of(Input{Baseline: models.ScanBaseline{ScannedAt: at(0), DevicesUp: 2, UpAddrs: []string{"10.0.0.1", "10.0.0.2"}, Findings: []models.ScanFinding{f}}})
+	if len(rep.Up) != 2 || rep.Up[1] != "10.0.0.2" {
+		t.Errorf("Up = %v", rep.Up)
+	}
+	if len(rep.Findings[0].Details) != 1 || rep.Findings[0].Details[0].Value != "/usr/bin/x" {
+		t.Errorf("details are lost: %+v", rep.Findings[0])
+	}
+	if old := Of(Input{Baseline: models.ScanBaseline{ScannedAt: at(0)}}); old.Up == nil {
+		t.Error("a scan saved before the list was kept has an empty list, never null")
+	}
+}
