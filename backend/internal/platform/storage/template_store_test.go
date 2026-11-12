@@ -302,3 +302,16 @@ func TestTemplateStore_ReadsTheAuditSettingsAPlaybookDeclares(t *testing.T) {
 		}
 	}
 }
+
+func TestTemplateStore_ReadsTheWindowAPlaybookDeclares(t *testing.T) {
+	store := NewTemplateStore(fstest.MapFS{
+		"w.md": {Data: []byte("## Task: W\n**ID:** `w`\n**Category:** x\n**Window:** week\n")},
+		"x.md": {Data: []byte("## Task: X\n**ID:** `x`\n**Category:** x\n**Window:** fortnight\n")},
+	})
+	if w, _ := store.Get("w"); w.Defaults.Scan == nil || w.Defaults.Scan.Window != "week" {
+		t.Errorf("a week window must be read: %+v", w.Defaults.Scan)
+	}
+	if x, _ := store.Get("x"); x.Defaults.Scan != nil {
+		t.Errorf("a window that is not valid declares nothing: %+v", x.Defaults.Scan)
+	}
+}

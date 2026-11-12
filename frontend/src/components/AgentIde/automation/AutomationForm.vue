@@ -396,7 +396,7 @@ const review = computed(() => [
     </Panel>
 
     <Panel v-if="form.profile === AUDITOR_PROFILE" title="What the audit scans">
-      <ScanSettingsFields v-model:targets="form.scanTargets" v-model:depth="form.scanDepth" v-model:ports="form.scanPorts" v-model:checks="form.scanChecks" v-model:known-vulns="form.scanKnownVulns" />
+      <ScanSettingsFields v-model:targets="form.scanTargets" v-model:depth="form.scanDepth" v-model:ports="form.scanPorts" v-model:checks="form.scanChecks" v-model:known-vulns="form.scanKnownVulns" v-model:window="form.scanWindow" />
     </Panel>
 
     <Panel title="Delivery">

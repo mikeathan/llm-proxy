@@ -30,12 +30,14 @@ type AckSource interface {
 }
 
 // Module builds the tool module. available hides the tool while it returns false (see netaudit.Readiness.Blocking).
-// acks, when given, keeps the findings the operator accepted out of what the model is shown.
-func Module(scanner Scanner, acks AckSource, available func(context.Context) bool) toolregistry.Module {
+// acks, when given, keeps the findings the operator accepted out of what the model is shown. digest, when given, returns the
+// record of the audit's window (netaudit.DigestSource.Digest); the tool adds it after the scan in its own fence, and a run it
+// returns "" for (an ordinary chat) gets the scan alone.
+func Module(scanner Scanner, acks AckSource, available func(context.Context) bool, digest func(context.Context) string) toolregistry.Module {
 	return toolregistry.Module{
 		Handlers: map[string]toolregistry.ToolHandler{
 			models.ToolNetworkScan: toolregistry.Handle(func(ctx context.Context, args scanArgs) (any, error) {
-				return run(ctx, scanner, acks, args)
+				return run(ctx, scanner, acks, digest, args)
 			}),
 		},
 		Available: available,
@@ -72,7 +74,7 @@ type scanArgs struct {
 	Thorough bool `json:"thorough"`
 }
 
-func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (any, error) {
+func run(ctx context.Context, scanner Scanner, acks AckSource, digest func(context.Context) string, args scanArgs) (any, error) {
 	req := netaudit.Request{Targets: args.Targets, Mode: netaudit.Mode(args.Mode), Ports: args.Ports, Thorough: args.Thorough}
 	// A network audit has its own settings, kept with the automation: they decide what is scanned and how, and nothing
 	// the model passes changes them. A run without settings (an ordinary chat or automation) uses its arguments.
@@ -94,7 +96,14 @@ func run(ctx context.Context, scanner Scanner, acks AckSource, args scanArgs) (a
 			shown, hidden = netaudit.HideAccepted(res, accepted, time.Now())
 		}
 	}
-	return render(req.Mode, shown, hidden)
+	text, err := render(req.Mode, shown, hidden)
+	if err != nil || digest == nil {
+		return text, err
+	}
+	if d := digest(ctx); d != "" {
+		text += "\n\n" + prompts.FenceScanData(d)
+	}
+	return text, nil
 }
 
 // explain turns a refusal that only the operator can fix into ErrToolUnavailable, so the loop stops retrying; every
@@ -120,9 +129,21 @@ func render(mode netaudit.Mode, res netaudit.Result, hidden int) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("failed to encode the scan result: %w", err)
 	}
-	header := fmt.Sprintf("network_scan %s finished with %s: %d host(s). %s", mode, res.Engine, len(res.Hosts), findingsview.Line(res.Findings))
+	header := fmt.Sprintf("network_scan %s finished with %s: %d device(s) answered of %d address(es) looked at. %s", mode, res.Engine, devicesUp(res.Hosts), len(res.Hosts), findingsview.Line(res.Findings))
 	if hidden > 0 {
 		header += fmt.Sprintf(" %d finding(s) the operator has accepted are left out.", hidden)
 	}
 	return header + "\n" + prompts.FenceScanData(string(body)), nil
+}
+
+// devicesUp counts the hosts that answered. The count is typed, so the model does not have to count the list, which holds every
+// address looked at and shows ports only for the ones that had any.
+func devicesUp(hosts []netaudit.Host) int {
+	n := 0
+	for _, h := range hosts {
+		if h.Up {
+			n++
+		}
+	}
+	return n
 }

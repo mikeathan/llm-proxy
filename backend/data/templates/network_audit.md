@@ -2,12 +2,13 @@
 
 **ID:** `network-audit`
 **Category:** network
-**Summary:** Scans the networks you allowed, checks them for common weak settings, compares with the last scan and tells you what is new, changed or gone.
+**Summary:** Scans the networks you allowed, checks them for common weak settings, compares with the last scan and reads the last day's scans and activity to tell you what is worth your attention.
 **Agent:** security-auditor
 **Network:** lan
 **Journal:** off
 **Schedule:** 0 2 * * *
 **Depth:** thorough
+**Window:** day
 **Checks:** on
 **Known vulnerabilities:** on
 
@@ -34,7 +35,7 @@ Anything the assessment should take into account, in plain words, for example "t
 
 **Action:** Run `network_scan` once. The system applies this audit's settings whatever you pass, so pass `mode: "checks"` and nothing else.
 
-Then write a short assessment (the system adds the observed facts, with the comparison with the last scan and every check's problem and fix, above it), following the extra instructions. Do not restate the problems the checks found, and do not say what is new, changed or gone: you are not given the comparison.
+Then write a short assessment. The scan's result also carries a window digest: the scans, history and activity the program kept over the audit's window (the last day here; the weekly audit reads a week), so the assessment can say how the network moved, not only how it looks now. The system adds the observed facts above it (the comparison with the last scan and every check's problem and fix), so do not restate the problems the checks found, and do not say what is new, changed or gone since the last scan: you are not given that comparison.
 
 ### Result
 

@@ -5,11 +5,11 @@ import ToggleField from "../common/forms/ToggleField.vue"
 import Callout from "../common/feedback/Callout.vue"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { useTargetCheck } from "../../composables/netaudit/useTargetCheck"
-import { SCAN_CHECKS_DETAILS, SCAN_CHECKS_HINT, SCAN_DEPTH_OPTIONS, SCAN_KNOWN_VULNS_DETAILS, SCAN_KNOWN_VULNS_HINT, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
+import { SCAN_CHECKS_DETAILS, SCAN_CHECKS_HINT, SCAN_DEPTH_OPTIONS, SCAN_KNOWN_VULNS_DETAILS, SCAN_KNOWN_VULNS_HINT, SCAN_WINDOW_OPTIONS, VIEW_MODE_OPTIONS } from "../../constants/netaudit"
 import ScanSummary from "./ScanSummary.vue"
 import { scanFromForm } from "../../utils/netaudit/scan"
 import { toNetwork } from "../../router/routes"
-import type { ScanDepth } from "../../types/netaudit"
+import type { ScanDepth, ScanWindow } from "../../types/netaudit"
 import { computed } from "vue"
 
 // What a network audit scans and how. Simple is two choices (how hard, and whether to run the safe checks); Advanced
@@ -20,11 +20,12 @@ const depth = defineModel<ScanDepth>("depth", { required: true })
 const ports = defineModel<string>("ports", { required: true })
 const checks = defineModel<boolean>("checks", { required: true })
 const knownVulns = defineModel<boolean>("knownVulns", { required: true })
+const window = defineModel<ScanWindow>("window", { required: true })
 
 const { mode, advanced, set } = useNetauditViewMode()
 // Say now, not at 2 a.m., which typed networks the audit would refuse.
 const { problems } = useTargetCheck(() => targets.value)
-const summary = computed(() => scanFromForm({ scanTargets: targets.value, scanDepth: depth.value, scanPorts: ports.value, scanChecks: checks.value, scanKnownVulns: knownVulns.value }))
+const summary = computed(() => scanFromForm({ scanTargets: targets.value, scanDepth: depth.value, scanPorts: ports.value, scanChecks: checks.value, scanKnownVulns: knownVulns.value, scanWindow: window.value }))
 const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-control bg-canvas px-2 font-mono text-[length:var(--text-small)] text-primary focus-visible:outline-none focus-visible:ring-2"
 </script>
 
@@ -38,6 +39,13 @@ const INPUT_CLASS = "h-8 min-w-0 rounded-[var(--radius-md)] border border-contro
       <template #default="{ id, describedBy }">
         <select :id="id" v-model="depth" :aria-describedby="describedBy" class="form-control">
           <option v-for="o in SCAN_DEPTH_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+        </select>
+      </template>
+    </FormField>
+    <FormField label="What the assessment reads" hint="The assessment looks back over the scans, findings and activity the program kept for this long, not only at tonight's scan. Use a week for a weekly audit.">
+      <template #default="{ id, describedBy }">
+        <select :id="id" v-model="window" :aria-describedby="describedBy" class="form-control" data-test="scan-window">
+          <option v-for="o in SCAN_WINDOW_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
         </select>
       </template>
     </FormField>

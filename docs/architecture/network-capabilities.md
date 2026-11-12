@@ -61,6 +61,8 @@ Findings tab (Needs you / Notes, By kind / By device) · Devices tab · Timeline
 
 The agent reads **findings and typed counts**, never raw text from a device or a program (Constitution I.8, ADR-0036, ADR-0025). `network_scan` is the agent's tool (`core/netaudit/scantool`); intrusive modes are refused to it and to scheduled runs (ADR-0012). **`network_findings`** (since 2026-11-10) reads the saved result of the workspace's latest audit for chat: fixed-wording header, a bounded worst-first list (25, open ports only when new), accepted findings left out and counted, no guide or fix text, every device-supplied string inside the untrusted-data fence (`core/netaudit/findingstool`, category `netfindings`, offered only where an audit exists; the Findings screen and the tool share `core/netaudit/findingsview`).
 
+**Window digest** (since v0.78.0, ADR-0049): an audit's `network_scan` result carries a bounded typed record of the last day or week (scan log rows, finding history, the latest saved scan's open problems, activity counts) for the assessment to reason over; `core/netaudit/windowdigest.go`, `digestsource.go`, `scanlog.go`; setting `ScanSettings.Window`, template header `**Window:**`, templates `network-audit` (day) and `network-audit-weekly`. It reads, and starts nothing.
+
 ## Programs the core runs (guarded, `platform/progexec`, `platform/isolation`)
 
 `nmap` (both) · `nmcli` (Linux) · the privileged helper's pure-Go actions (Linux). `testssl.sh` (a closer look inside the deep check, `core/netaudit/testssl/`); osquery was measured and is **not** being integrated (it cannot name another account's program on Linux without root, and the host watch already covers Linux).

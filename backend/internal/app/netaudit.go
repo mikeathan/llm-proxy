@@ -764,7 +764,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.Stacks = registry
 
 	if registry := localRegistry(s.toolProvider); registry != nil {
-		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }))
+		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }, s.digestSource().Digest))
 		registry.Use(findingstool.Module(s.findingsReader(), s.auditNames))
 	}
 }
@@ -973,6 +973,13 @@ func (s *AppServices) wifiReady(store netaudit.PolicyStore, cfg *netaudit.WifiCo
 func (s *AppServices) findingsReader() findingsview.Reader {
 	n := s.netaudit
 	return findingsview.Reader{Baselines: s.Persistence(), Acks: n.Acks, Fixes: n.Fixes, Deep: n.Deep, Life: s.Persistence(), Guide: s.netauditGuides().Guide}
+}
+
+// digestSource is what the audit's scan result adds after the scan: the window of what the program kept about the network. It reads
+// the stores the screens read and starts nothing.
+func (s *AppServices) digestSource() netaudit.DigestSource {
+	n := s.netaudit
+	return netaudit.DigestSource{Store: s.Persistence(), Inventory: n.Inventory, Alerts: n.Alerts, Series: n.History}
 }
 
 // auditNames are the network audits of one workspace: the automations that scan, by the name their saved result is kept under.

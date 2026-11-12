@@ -22,6 +22,7 @@ type RunReporter struct {
 	acks       AckStore         // optional: findings the operator accepted
 	fixes      FixStore         // optional: findings the operator marked as fixed
 	footprint  FootprintSource  // optional: what the footprint looks last found about the operator's domains and addresses
+	scanLog    ScanLogStore     // optional: one row per saved scan, for the window digest
 	life       LifeStore        // optional: when each finding first appeared, went away and came back
 	vulns      VulnSource       // optional: the vulnerability data known_vulns findings are matched against
 	expect     ExpectationStore // optional: what the operator says each device should offer
@@ -101,6 +102,27 @@ func (r *RunReporter) addFootprint(result *Result, scanned map[string]bool, at t
 func (r *RunReporter) WithLife(life LifeStore) *RunReporter {
 	r.life = life
 	return r
+}
+
+// WithScanLog makes the reporter add a row for each saved scan to the workspace's scan log, which the window digest reads.
+func (r *RunReporter) WithScanLog(l ScanLogStore) *RunReporter {
+	r.scanLog = l
+	return r
+}
+
+// noteScan adds the saved scan's row. A log that cannot be written is said in the report and never stops the audit: it is a
+// note for later reading, not part of how scans are compared.
+func (r *RunReporter) noteScan(ctx context.Context, workspaceID, automation string, next models.ScanBaseline) string {
+	if r.scanLog == nil {
+		return ""
+	}
+	row := EntryOf(automation, next, models.IsUnattendedRun(ctx))
+	if err := r.scanLog.UpdateScanLog(workspaceID, func(rows []models.ScanEntry) []models.ScanEntry {
+		return AppendEntry(rows, row, next.ScannedAt)
+	}); err != nil {
+		return fmt.Sprintf("\n\n> Note: the scan log could not be updated (%v).", err)
+	}
+	return ""
 }
 
 // advanceLife records what the saved scan showed and no longer showed. A history that cannot be read or written is said in the
@@ -396,6 +418,7 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	} else {
 		r.noteSaved(next.Findings, result.Hosts, devices, at)
 		observed += r.advanceLife(workspaceID, next.Findings, delta.Resolved, at)
+		observed += r.noteScan(ctx, workspaceID, automation, next)
 	}
 	return observed + "\n\n---\n\n" + AssessmentHeading + "\n\n" + report
 }

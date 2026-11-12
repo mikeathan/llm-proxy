@@ -202,6 +202,9 @@ export interface AcceptRequest {
 /** How hard an audit scans: quick checks the common ports in seconds; thorough looks harder and takes minutes. */
 export type ScanDepth = 'quick' | 'thorough'
 
+/** How far back an audit's assessment reads. */
+export type ScanWindow = 'day' | 'week'
+
 /** What a network audit scans and how; kept with the automation and applied by the server, not by the model. */
 export interface ScanSettings {
   /** Addresses, ranges or names; empty or absent means every network allowed in Settings. */
@@ -212,6 +215,8 @@ export interface ScanSettings {
   checks?: boolean
   /** Look for known vulnerabilities in the software the scan recognised; absent means on. */
   known_vulns?: boolean
+  /** How far back the assessment reads what the program kept: a day (the usual audit) or a week. Absent means a day. */
+  window?: ScanWindow
 }
 
 /** The parts of the Help panel; a warning opens it on the one that explains it. */

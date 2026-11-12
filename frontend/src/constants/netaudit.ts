@@ -196,6 +196,12 @@ export const SCAN_DEPTH_OPTIONS: ChoiceOption[] = [
   { value: 'quick', label: 'Quick (seconds)' },
 ]
 
+/** How far back an audit's assessment reads. */
+export const SCAN_WINDOW_OPTIONS: ChoiceOption[] = [
+  { value: 'day', label: 'The last day' },
+  { value: 'week', label: 'The last week' },
+]
+
 /** The wording around the vulnerability data: where it comes from, and what a match does and does not say. */
 export const VULN_ATTRIBUTION = "Data from the U.S. National Vulnerability Database (NVD) and CISA's Known Exploited Vulnerabilities catalog. Not endorsed by NIST or CISA."
 export const VULN_NOT_PROOF = 'A match means the software may be affected, not proof that it is: the maker may have fixed it without changing the version number.'

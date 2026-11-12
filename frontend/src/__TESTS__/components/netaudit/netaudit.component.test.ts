@@ -658,7 +658,7 @@ describe('ScanSettingsFields target warning', () => {
     try {
       service.checkTargets.mockResolvedValue([{ entry: '10.9.9.9', reason: 'It is outside the networks allowed for scanning.' }])
       useNetauditViewMode().set('advanced')
-      const w = mount(ScanSettingsFields, { props: { targets: '', depth: 'thorough' as const, ports: '', checks: true, knownVulns: true, 'onUpdate:targets': (v: string) => w.setProps({ targets: v }) } })
+      const w = mount(ScanSettingsFields, { props: { targets: '', depth: 'thorough' as const, ports: '', checks: true, knownVulns: true, window: 'day' as const, 'onUpdate:targets': (v: string) => w.setProps({ targets: v }) } })
       expect(w.find('[data-test="target-problems"]').exists()).toBe(false)
       await w.get('input[placeholder="every allowed network"]').setValue('10.9.9.9')
       await vi.advanceTimersByTimeAsync(500)
@@ -673,11 +673,21 @@ describe('ScanSettingsFields target warning', () => {
 
 describe('ScanSettingsFields known vulnerabilities', () => {
   it('offers "Look for known vulnerabilities" in Simple and passes the choice on', async () => {
-    const w = mount(ScanSettingsFields, { props: { targets: '', depth: 'thorough' as const, ports: '', checks: true, knownVulns: true } })
+    const w = mount(ScanSettingsFields, { props: { targets: '', depth: 'thorough' as const, ports: '', checks: true, knownVulns: true, window: 'day' as const } })
     const toggle = w.findAll('label').find((l) => l.text() === 'Look for known vulnerabilities')!.get('input[role="switch"]')
     await toggle.setValue(false)
     expect(w.emitted('update:knownVulns')?.[0]).toEqual([false])
     expect(w.text()).toContain('may be affected')
+  })
+})
+
+describe('ScanSettingsFields assessment window', () => {
+  it('offers a day or a week in Simple and passes the choice on', async () => {
+    const w = mount(ScanSettingsFields, { props: { targets: '', depth: 'thorough' as const, ports: '', checks: true, knownVulns: true, window: 'day' as const } })
+    const select = w.get('[data-test="scan-window"]')
+    expect(select.findAll('option').map((o) => o.text())).toEqual(['The last day', 'The last week'])
+    await select.setValue('week')
+    expect(w.emitted('update:window')?.[0]).toEqual(['week'])
   })
 })
 
