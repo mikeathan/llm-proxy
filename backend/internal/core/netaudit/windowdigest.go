@@ -82,12 +82,14 @@ type DigestRange struct {
 	Max int `json:"max"`
 }
 
-// DigestScanRow is one scan of the window.
+// DigestScanRow is one scan of the window. How the scan was started is not given: the log records only that an automation ran it,
+// which is true of a scheduled and of a pressed run alike. It carries no count of serious findings either: the scan log counts every
+// finding, the digest hides what the operator accepted and the known-vulnerability findings, and a number the list beside it cannot
+// reproduce misleads.
 type DigestScanRow struct {
 	At        time.Time `json:"at"`
 	DevicesUp int       `json:"devices_up"`
 	OpenPorts int       `json:"open_ports"`
-	Serious   int       `json:"serious,omitempty"`
 	New       int       `json:"new,omitempty"`
 	Resolved  int       `json:"resolved,omitempty"`
 }
@@ -190,7 +192,7 @@ func digestScans(in DigestInput, from time.Time) DigestScans {
 			continue
 		}
 		rows = append(rows, DigestScanRow{At: e.At, DevicesUp: e.DevicesUp, OpenPorts: e.OpenPorts,
-			Serious: e.BySeverity[SeverityHigh] + e.BySeverity[SeverityCritical], New: e.New, Resolved: e.Resolved})
+			New: e.New, Resolved: e.Resolved})
 	}
 	slices.SortStableFunc(rows, func(a, b DigestScanRow) int { return a.At.Compare(b.At) })
 	for i, r := range rows {
@@ -227,17 +229,15 @@ func portOf(key string) string {
 func (h hiddenSet) has(key string) bool { return h.keys[key] || h.ports[portOf(key)] }
 
 func hiddenKeys(in DigestInput) hiddenSet {
-	h := hiddenSet{keys: map[string]bool{}, ports: map[string]bool{}}
+	h := hiddenSet{keys: map[string]bool{}}
+	var accepted []models.ScanFinding
 	for _, f := range in.Baseline.Findings {
-		a, ok := in.Acks[f.Key()]
-		if !ok || StateFor(a, f, in.Now) != AckActive {
-			continue
-		}
-		h.keys[f.Key()] = true
-		if f.Port > 0 && f.Check != CheckKnownVulns {
-			h.ports[portOf(f.Key())] = true
+		if a, ok := in.Acks[f.Key()]; ok && StateFor(a, f, in.Now) == AckActive {
+			h.keys[f.Key()] = true
+			accepted = append(accepted, f)
 		}
 	}
+	h.ports = CoveredPorts(accepted)
 	return h
 }
 
@@ -266,7 +266,7 @@ func digestOpen(in DigestInput, hidden hiddenSet) (open []DigestOpen, more, port
 		more, pick = len(pick)-DigestMaxOpen, pick[:DigestMaxOpen]
 	}
 	for _, f := range pick {
-		o := DigestOpen{Device: f.Device, Port: f.Port, Proto: f.Proto, Check: titleOrID(f.Check), Severity: f.Severity, Service: f.Service, Version: f.Version}
+		o := DigestOpen{Device: f.Device, Port: f.Port, Proto: f.Proto, Check: titleOrID(f.Check), Severity: f.Severity, Service: ConfirmedText(f.Service), Version: ConfirmedText(f.Version)}
 		if l, ok := life[f.Key()]; ok {
 			o.FirstSeen, o.CameBack = l.FirstSeen.UTC().Format(time.RFC3339), l.Returned
 		}

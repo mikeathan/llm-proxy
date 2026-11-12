@@ -394,7 +394,8 @@ func (r *RunReporter) Augment(ctx context.Context, workspaceID, automation, repo
 	r.addFootprint(&result, scanned, at)
 	delta := Diff(restrictTo(prev.Findings, scanned), result.Findings)
 	shown, accepted, ackNote := r.applyAcks(workspaceID, result, delta, at)
-	view := Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted, Vulns: cov}
+	view := Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: shown.result, Delta: shown.delta, Accepted: accepted, Vulns: cov,
+		Exposed: ExposedServices(shown.result.Hosts, CoveredPorts(shown.accepted))}
 	observed := RenderObserved(view)
 	collector.SetSummary(SummaryOf(Observed{ScannedAt: at, Previous: prev.ScannedAt, Result: result, Delta: shown.delta, Accepted: accepted, Vulns: cov}, automation))
 	if readErr != nil {

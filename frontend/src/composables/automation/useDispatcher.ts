@@ -25,11 +25,17 @@ const workspaceFiles = computed<Record<string, string[]>>(() =>
 )
 const loading = ref(false)
 
+// The page asks for the list again and again while a run is in flight, and a reply can arrive after a newer one: only the
+// reply to the latest request is applied, so an older state (a run still shown as running) never replaces a newer one.
+let latestAutomationsRequest = 0
+
 async function fetchAutomations(silent = false) {
   if (!silent) loading.value = true
   clearBanner()
+  const request = ++latestAutomationsRequest
   try {
-    automations.value = await DispatcherService.listAutomations()
+    const list = await DispatcherService.listAutomations()
+    if (request === latestAutomationsRequest) automations.value = list
   } catch (e) {
     showBanner({ severity: 'error', message: e instanceof Error ? e.message : 'Failed to fetch automations' })
     console.error('fetchAutomations error:', e)

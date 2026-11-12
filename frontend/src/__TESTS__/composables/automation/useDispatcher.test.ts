@@ -134,4 +134,30 @@ describe('useDispatcher', () => {
     expect(show).toHaveBeenCalledTimes(1)
     expect(show).toHaveBeenCalledWith({ severity: 'error', message: 'Could not delete 1 of 2: busy (workspace is running)' })
   })
+
+  // The page polls while a run is in flight; a reply for an older request can arrive after a newer one. It must not put the
+  // older state (a run shown as still running) back on the screen.
+  it('fetchAutomations ignores a reply that arrives after a newer one', async () => {
+    const running = [{ id: 'a', name: 'nightly', workspace: 'ws', is_running: true }]
+    const finished = [{ id: 'a', name: 'nightly', workspace: 'ws', is_running: false }]
+    let releaseOld!: (v: unknown) => void
+    listAutomationsMock.mockReturnValueOnce(new Promise((resolve) => { releaseOld = resolve }))
+    listAutomationsMock.mockResolvedValueOnce(finished)
+
+    const { fetchAutomations, automations } = useDispatcher()
+    const older = fetchAutomations(true)
+    await fetchAutomations(true)
+    expect(automations.value[0]?.is_running).toBe(false)
+
+    releaseOld(running)
+    await older
+    expect(automations.value[0]?.is_running).toBe(false)
+  })
+
+  it('fetchAutomations still applies the reply when nothing newer was asked', async () => {
+    listAutomationsMock.mockResolvedValueOnce([{ id: 'b', name: 'x', workspace: 'ws', is_running: true }])
+    const { fetchAutomations, automations } = useDispatcher()
+    await fetchAutomations(true)
+    expect(automations.value[0]?.id).toBe('b')
+  })
 })

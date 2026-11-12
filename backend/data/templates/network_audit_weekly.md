@@ -35,8 +35,8 @@ Anything the assessment should take into account, in plain words, for example "t
 
 **Action:** Run `network_scan` once. The system applies this audit's settings whatever you pass, so pass `mode: "checks"` and nothing else.
 
-Then write a short assessment. The scan's result also carries a window digest: the scans, history and activity the program kept over the audit's window (the last week here; the daily audit reads a day), so the assessment can say how the network moved, not only how it looks now. The system adds the observed facts above it (the comparison with the last scan and every check's problem and fix), so do not restate the problems the checks found, and do not say what is new, changed or gone since the last scan: you are not given that comparison.
+Then write a short assessment (at most five items) of what the window's records show. The system lists the exposed services worth reviewing (remote administration, file sharing, databases) in the observed part, so do not list them. The scan's result also carries a window digest: the scans, history and activity the program kept over the audit's window (the last week here; the daily audit reads a day), so the assessment can say how the network moved, not only how it looks now. The system adds the observed facts above it (the comparison with the last scan and every check's problem and fix), so do not restate the problems the checks found, and do not say what is new, changed or gone since the last scan: you are not given that comparison.
 
 ### Result
 
-**PASS** if the scan ran and the assessment covers which exposed services are worth the operator's review. **FAIL** with the reason if the scan was refused or could not run.
+**PASS** if the scan ran and the assessment says what the window's records show across the scans (the system lists the exposed services worth reviewing in the observed part, so the assessment does not). **FAIL** with the reason if the scan was refused or could not run.
