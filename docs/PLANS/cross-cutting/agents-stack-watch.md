@@ -52,7 +52,8 @@ Removed from the core: `core/agentwatch` watch and secrets code, `persistence.Ag
 - `go run ./tools/check-complexity/`: found `stacksdk.Manifest.Validate` at 13 after the new check; refactored to a loop of checks; now no new violations.
 - Every stack module with `GOWORK=off go vet && go test -race` (agents, example, network, sdk): pass.
 - The isolation fitness test failed first on `privhelper/client`, then passed ([`isolation-importers-switch.md`](isolation-importers-switch.md)).
-- **Not run:** `npm test` / `npm run build` (no frontend file changed; the route and its JSON are unchanged); anything on vertex.
+- Frontend: `npm test` (303 files, 3039 tests), `npm run build` (lint, type check) and `npm run test:visual` (372) pass; the Modules tab changes are covered by `modules.test.ts`, `ModuleTile.component.test.ts` and `StackModules.component.test.ts`.
+- **Not run:** anything on vertex; the Modules tab in a real browser with a real stack status (the visual tests use fixtures).
 
 ## Handoff
 
@@ -78,8 +79,8 @@ tried against vertex's real file.
    ones the run path does not call: the agent profile catalogue and its UI routes (ADR-0009), memory capture review (`core/memorycapture`), and the delegation
    pool. Each needs the same question answered first: can the engine reach it only through a port with plain data? The engine itself (the loop, `tool_exec`,
    guardrails, runlane) is the product and is not a candidate without a new rule (see the owner's note in the conversation of 2026-11-12 and ADR-0051).
-4. `Stack.Status` reports the two parts for any caller; the registry does not read it yet (the Agents modules have no monitor id). Wire it if the modules
-   screen should show "last run" for the secrets pass.
+4. ~~`Stack.Status` reports the two parts but the registry does not read it~~ Built in the same PR: `Registry.WithObserver` asks the hosted stacks, `ModuleView` gains `last_run`, `problem` and `blocked_by`,
+   and the Modules tab shows them (SPEC-003 2.66). Left: a link to the Guardrails setting for the network-access blocks (the readiness reason is text only).
 
 ## Traps found
 

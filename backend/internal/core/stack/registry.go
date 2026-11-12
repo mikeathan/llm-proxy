@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 // StackID names a stack: a top-level area of the platform.
@@ -133,7 +134,19 @@ func (e *NeedError) Is(target error) bool { return target == ErrNeedOff }
 type Registry struct {
 	stacks  []Stack
 	modules []Module
+	observe func(moduleID string) (Observed, bool)
 }
+
+// Observed is what a running stack says about one of its modules: when it last ran (zero before its first run) and a fixed phrase for what
+// is wrong with it, or empty. The phrase is the stack's own fixed words, never text from the network.
+type Observed struct {
+	LastRun time.Time
+	Problem string
+}
+
+// WithObserver gives the registry a way to ask the stack that runs a module how it is doing. It is set once while the application is wired,
+// before anything serves, and read only when a stack is described module by module, never for the summary counts.
+func (r *Registry) WithObserver(f func(moduleID string) (Observed, bool)) { r.observe = f }
 
 // New checks the description and returns the registry. It refuses anything inconsistent, so a mistake in the wiring fails at
 // start and not on a screen.
@@ -277,8 +290,14 @@ type ModuleView struct {
 	// Health is set only while the module is on and has a monitor.
 	Health Health `json:"health,omitempty"`
 	// Blocked says in plain words why the module cannot work now ("needs Presence check", or its readiness reason).
-	Blocked string   `json:"blocked,omitempty"`
-	Needs   []string `json:"needs"`
+	Blocked string `json:"blocked,omitempty"`
+	// BlockedBy are the ids of the modules this one needs that are off, so the screen can point at them; empty when nothing it needs is off.
+	BlockedBy []string `json:"blocked_by,omitempty"`
+	Needs     []string `json:"needs"`
+	// LastRun is when the module's background work last ran, and Problem a fixed phrase for what is wrong with it. Both come from the stack
+	// that runs the module and are set only while it is on, in the stack's own view.
+	LastRun *time.Time `json:"last_run,omitempty"`
+	Problem string     `json:"problem,omitempty"`
 }
 
 // LayerView is a tier of a stack with the modules on it.
@@ -320,6 +339,7 @@ func (r *Registry) View(id StackID, stalled map[string]bool) (StackView, error) 
 		for _, m := range r.modules {
 			if m.Stack == id && m.Layer == l.ID {
 				mv := r.moduleView(m, stalled) // once per module: a readiness check may touch the disk
+				r.addObserved(&mv)
 				lv.Modules = append(lv.Modules, mv)
 				v.Summary.add(mv)
 			}
@@ -361,6 +381,11 @@ func (c *Counts) add(mv ModuleView) {
 func (r *Registry) moduleView(m Module, stalled map[string]bool) ModuleView {
 	on := m.Switch.Enabled()
 	mv := ModuleView{ID: m.ID, Title: m.Title, Purpose: m.Purpose, About: m.About, Sends: m.Sends, StepUp: m.StepUp, Enabled: on, Blocked: r.blockedBy(m), Needs: slices.Clone(m.Needs), Finds: slices.Clone(m.Finds)}
+	for _, id := range m.Needs {
+		if need, ok := r.find(id); ok && !need.Switch.Enabled() {
+			mv.BlockedBy = append(mv.BlockedBy, id)
+		}
+	}
 	if mv.Needs == nil {
 		mv.Needs = []string{}
 	}
@@ -374,6 +399,22 @@ func (r *Registry) moduleView(m Module, stalled map[string]bool) ModuleView {
 		}
 	}
 	return mv
+}
+
+// addObserved adds what the stack that runs a switched-on module says about it. A stack that has nothing to say adds nothing.
+func (r *Registry) addObserved(mv *ModuleView) {
+	if r.observe == nil || !mv.Enabled {
+		return
+	}
+	o, ok := r.observe(mv.ID)
+	if !ok {
+		return
+	}
+	if !o.LastRun.IsZero() {
+		last := o.LastRun
+		mv.LastRun = &last
+	}
+	mv.Problem = o.Problem
 }
 
 // blockedBy says what stops the module working: first the modules it needs that are off, then its own readiness.

@@ -33,7 +33,13 @@ export interface StackModule {
   health?: ModuleHealth
   /** Plain words for what stops the module working now ("needs Presence check"); absent when nothing does. */
   blocked?: string
+  /** The ids of the modules this one needs that are off, so the page can point at them; absent when nothing it needs is off. */
+  blocked_by?: string[]
   needs: string[]
+  /** When the module's background work last ran (ISO time); absent before its first run or while it is off. */
+  last_run?: string
+  /** The stack's own fixed phrase for what is wrong with a module that is on; absent when nothing is. */
+  problem?: string
 }
 
 export interface StackLayer {

@@ -295,6 +295,25 @@ func (a agentPart) Set(enabled bool) error {
 	})
 }
 
+// observeTimeout bounds how long describing a module waits for its stack's status; a stack's status reads a counter or one small file.
+const observeTimeout = 2 * time.Second
+
+// observedModule is the registry's observer: it asks each hosted stack how a module is doing and gives back when it last ran and what is
+// wrong with it, in the stack's own fixed words. A module no hosted stack reports, or a stack that is not hosted, says nothing.
+func (n *netauditServices) observedModule(id string) (stack.Observed, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
+	defer cancel()
+	for _, h := range []*stackHost{n.Network, n.Agents} {
+		if h == nil {
+			continue
+		}
+		if st, ok := h.Module(ctx, id); ok {
+			return stack.Observed{LastRun: st.LastRun, Problem: st.Problem}, true
+		}
+	}
+	return stack.Observed{}, false
+}
+
 // stalledMonitors are the ids of the monitored parts that have stopped, for the health of the modules that own them.
 func (s AppServices) stalledMonitors() []string {
 	if s.netaudit == nil || s.netaudit.Monitors == nil {

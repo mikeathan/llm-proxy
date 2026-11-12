@@ -24,6 +24,10 @@ export const HEALTH_WORDS: Record<ModuleHealth, string> = {
 }
 
 export const MODULE_OFF_WORD = 'Off'
+export const MODULE_LAST_RAN_PREFIX = 'last ran'
+/** The id a module tile carries, so a pointer to it can scroll there. */
+export const moduleElementId = (id: string): string => `module-${id}`
+export const goToModuleLabel = (title: string): string => `Go to ${title}`
 export const MODULE_BLOCKED_WORD = 'Blocked'
 
 export const stackSummaryLine = (on: number, total: number): string => `${on} of ${total} on`

@@ -762,6 +762,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	if err != nil {
 		panic(err)
 	}
+	registry.WithObserver(s.netaudit.observedModule)
 	s.netaudit.Stacks = registry
 
 	if registry := localRegistry(s.toolProvider); registry != nil {

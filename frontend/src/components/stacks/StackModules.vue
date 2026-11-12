@@ -5,7 +5,7 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import ModuleTile from "./ModuleTile.vue"
 import { useStack } from "../../composables/stacks/useStack"
-import { LEFT_BLOCKED_PREFIX, STACK_MODULES_INTRO, stackSummaryLine } from "../../constants/stacks"
+import { LEFT_BLOCKED_PREFIX, STACK_MODULES_INTRO, moduleElementId, stackSummaryLine } from "../../constants/stacks"
 import { layerNumber } from "../../utils/stacks/modules"
 import { toNetworkSettings } from "../../router/routes"
 import { MODULE_SETTINGS_GROUP } from "../../constants/netaudit"
@@ -19,6 +19,14 @@ const props = defineProps<{ stack: StackId }>()
 const { stack, error, errorFor, busyModule, leftBlocked, load, set } = useStack(props.stack)
 
 const summary = computed(() => stack.value?.summary)
+const titles = computed<Record<string, string>>(() => Object.fromEntries((stack.value?.layers ?? []).flatMap((l) => l.modules.map((m) => [m.id, m.title]))))
+
+// A pointer from a blocked module takes you to the module it needs: scrolled into view and focused, so a keyboard or screen reader follows.
+function goTo(id: string): void {
+  const el = document.getElementById(moduleElementId(id))
+  el?.scrollIntoView({ block: "center", behavior: "smooth" })
+  el?.focus({ preventScroll: true })
+}
 onMounted(load)
 </script>
 
@@ -58,9 +66,11 @@ onMounted(load)
             :key="m.id"
             :module="m"
             :settings-to="props.stack === 'network' ? toNetworkSettings(MODULE_SETTINGS_GROUP[m.id] ?? NETWORK_SETTINGS_GROUPS[0]) : undefined"
+            :titles="titles"
             :busy="busyModule === m.id"
             :error="errorFor?.module === m.id ? errorFor.message : undefined"
             @switch="set(m.id, $event)"
+            @goto="goTo"
           />
         </ul>
       </section>

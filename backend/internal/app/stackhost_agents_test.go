@@ -262,3 +262,47 @@ func TestStackHost_ObserveHoldsTheStackToWhatItAnnouncedAndIsSafeWhenNotHosted(t
 		t.Error("an observation of a kind the manifest did not announce reached the stack")
 	}
 }
+
+// reporting is a stack that says how one module is doing.
+type reporting struct {
+	portsOnly
+	status []stacksdk.ModuleStatus
+}
+
+func (r reporting) Status(context.Context) ([]stacksdk.ModuleStatus, error) { return r.status, nil }
+
+// The registry asks the hosted stacks how their modules are doing, and a module no stack reports adds nothing.
+func TestObservedModule_ComesFromTheHostedStackThatRunsIt(t *testing.T) {
+	ran := time.Date(2026, 11, 12, 3, 0, 0, 0, time.UTC)
+	host, err := newStackHost(reporting{portsOnly: portsOnly{manifest: baseManifest(stacksdk.PortLog)}, status: []stacksdk.ModuleStatus{
+		{ID: "m", Enabled: true, LastRun: ran, Problem: "the queue was full"},
+		{ID: "never", Enabled: true},
+	}}, stacksdk.Host{Log: nopLog{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := &netauditServices{Agents: host}
+	if got, ok := n.observedModule("m"); !ok || !got.LastRun.Equal(ran) || got.Problem != "the queue was full" {
+		t.Errorf("observed = %+v %v", got, ok)
+	}
+	if got, ok := n.observedModule("never"); !ok || !got.LastRun.IsZero() {
+		t.Errorf("a module that has not run: %+v %v", got, ok)
+	}
+	if _, ok := n.observedModule("unknown"); ok {
+		t.Error("no stack runs this module")
+	}
+	if _, ok := (&netauditServices{}).observedModule("m"); ok {
+		t.Error("with no stack hosted there is nothing to ask, and no crash")
+	}
+}
+
+// The real Agents stack answers for both of its modules, and says nothing is wrong while it runs.
+func TestObservedModule_TheAgentsStackAnswersForBothOfItsParts(t *testing.T) {
+	r := newAgentsRig(t)
+	n := &netauditServices{Agents: r.host}
+	for _, id := range []string{"agent_activity", "secrets_pass"} {
+		if got, ok := n.observedModule(id); !ok || got.Problem != "" {
+			t.Errorf("%s: %+v %v", id, got, ok)
+		}
+	}
+}

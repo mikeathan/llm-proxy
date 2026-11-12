@@ -10,7 +10,7 @@ import StackModules from '../../../components/stacks/StackModules.vue'
 const network = (): StackView => ({
   id: 'network', title: 'Network', purpose: '', actions: [], summary: { on: 1, total: 3, stopped: 1, blocked: 1 },
   layers: [
-    { id: 'tell', title: 'Tell', modules: [{ id: 'weekly_summary', title: 'Weekly summary', purpose: 'Counts of the week to your phone.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'message', step_up: false, enabled: false, blocked: 'needs Presence check', needs: ['presence'] }] },
+    { id: 'tell', title: 'Tell', modules: [{ id: 'weekly_summary', title: 'Weekly summary', purpose: 'Counts of the week to your phone.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'message', step_up: false, enabled: false, blocked: 'needs Presence check', blocked_by: ['presence'], needs: ['presence'] }] },
     { id: 'discover', title: 'Discover', modules: [
       { id: 'presence', title: 'Presence check', purpose: 'Notice new and missing devices.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'lan', step_up: false, enabled: true, health: 'stopped', needs: [] },
       { id: 'nearby', title: 'Nearby', purpose: 'What devices announce.', about: { watches: 'w.', never: 'n.', shows_up: 's.' }, finds: [], sends: 'lan', step_up: true, enabled: false, needs: [] },
@@ -20,7 +20,7 @@ const network = (): StackView => ({
 
 let wrapper: VueWrapper | undefined
 const mountIt = async () => {
-  wrapper = mount(StackModules, { props: { stack: 'network' } })
+  wrapper = mount(StackModules, { props: { stack: 'network' }, attachTo: document.body })
   await flushPromises()
   return wrapper
 }
@@ -97,5 +97,16 @@ describe('StackModules', () => {
     await w.get('button').trigger('click')
     await flushPromises()
     expect(w.find('[data-test="stack-modules"] h3').exists()).toBe(true)
+  })
+
+  it('lets a blocked module take you to the module it needs, by name', async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    const w = await mountIt()
+    const link = w.get('[data-test="module-need-presence"]')
+    expect(link.text()).toBe('Go to Presence check')
+    await link.trigger('click')
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(document.activeElement?.id).toBe('module-presence')
   })
 })
