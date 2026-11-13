@@ -82,7 +82,7 @@ for a in "${GOOD[@]}"; do { echo; echo "== survey $a (channels tried: $(tr '\n' 
 # Event capture: every adapter at once, on the router's channel if it can, else on channel 6 (2.4 GHz).
 echo
 echo "NEXT: a ${ES}-second capture. When you press Enter, make things happen and, EACH TIME, type a short note and press Enter, e.g.:"
-echo "    phone wifi off      phone wifi on      zigbee lamp 1 on      zigbee sensor off      forgot network on laptop"
+echo "    phone wifi off      phone wifi on      zigbee lamp on      zigbee lamp brightness up      zigbee sensor off      forgot network on laptop"
 echo "(the notes are time-stamped so I can line them up with the radio data; more varied events is better)"
 read -r -p "Press Enter to start (Ctrl-C to skip)... " _ </dev/tty || true
 echo ">>> CAPTURING for ${ES}s. Do something, then type what you did and press Enter (an empty Enter also marks the time)."
@@ -103,7 +103,7 @@ wait
 echo "analysing..."
 for a in "${GOOD[@]}"; do
   for p in "$OUT/$a"/ch*.pcap; do [ -s "$p" ] && "$HERE/analyse.sh" "$p" "$a $(basename "$p" .pcap) (${SECS}s)" >>"$OUT/$a/details.txt" 2>&1; done
-  "$HERE/analyse.sh" "$OUT/$a/events.pcap" "$a EVENTS on channel $(cat "$OUT/$a/event-channel.txt") (${ES}s)" >>"$S" 2>&1
+  MARKS="$OUT/marks.txt" "$HERE/analyse.sh" "$OUT/$a/events.pcap" "$a EVENTS on channel $(cat "$OUT/$a/event-channel.txt") (${ES}s)" >>"$S" 2>&1
 done
 cat "$S" "$OUT"/*/details.txt >"$OUT/report.txt" 2>/dev/null
 echo; echo "done. Paste this file back: $OUT/report.txt   (long; if it is too long to paste, paste $S first)"

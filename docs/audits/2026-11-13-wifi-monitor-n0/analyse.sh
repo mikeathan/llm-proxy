@@ -85,6 +85,19 @@ awk -F'\t' -v list="$TOP" -v t0="$T0" 'BEGIN { m=split(list, L, " "); for (i=1;i
   $3=="2" && $4!="" { cl=($4==$6)?$5:$4; if (cl in want) { b=int(($1-t0)/10); v[cl, b]+=$7; if (b>mx) mx=b } }
   END { for (i=1;i<=m;i++) { printf "  %-17s", L[i]; for (b=0;b<=mx;b++) printf " %d", v[L[i], b]/1024; printf "\n" } }' "$TSV"
 
+if [ -s "${MARKS:-}" ]; then
+  echo; echo "-- who woke up after each of your notes: frames from a device in the 10 s after the note, against its normal rate (any frame type)"
+  echo "   (a Zigbee device has no Wi-Fi frames of its own; look for its hub or bridge here, or for the phone/app that controls it)"
+  awk -F'\t' -v dur="$DUR" '
+    function group(a,  d) { d=substr(a,2,1); return (d ~ /[13579bdfBDF]/) }
+    NR==FNR { n=split($0, a, " "); me[++M]=a[1]; t=""; for (j=3;j<=n;j++) t=t (j>3?" ":"") a[j]; nt[M]=(t==""?"(mark)":t); next }
+    { k=($4!="")?$4:$5; if (k=="" || group(k)) next; tot[k]++; seen[k]=1
+      for (i=1;i<=M;i++) if ($1>=me[i]-1 && $1<=me[i]+10) w[i,k]++ }
+    END { for (i=1;i<=M;i++) for (k in seen) { e=tot[k]*11/dur; v=w[i,k]+0
+            if (v>=3 && v>3*e+2) printf "%d\t%.1f\t%s\t%d\t%.1f\t%s\n", i, v/(e+0.5), k, v, e, nt[i] } }' "$MARKS" "$TSV" |
+    sort -t"$(printf '\t')" -k1,1n -k2,2nr | awk -F'\t' '{ if ($1!=last) { last=$1; c=0; printf "  after note [%s]:\n", $6 } if (++c<=6) printf "      %-17s %4d frames in the window (normally about %.1f)\n", $3,$4,$5 }'
+fi
+
 echo; echo "-- connection events (assoc, reassoc, disassoc, auth, deauth) with reason; time = seconds from capture start"
 awk -F'\t' -v t0="$T0" 'function nm(s) { if (s==0) return "assoc-req"; if (s==1) return "assoc-resp"; if (s==2) return "reassoc-req"; if (s==3) return "reassoc-resp"; if (s==10) return "DISASSOC"; if (s==11) return "auth"; return "DEAUTH" }
   $2==0||$2==1||$2==2||$2==3||$2==10||$2==11||$2==12 { printf "  %7.1f s  %-12s %s -> %s  bssid %s  reason %s  signal %s\n", $1-t0, nm($2), $4, $5, $6, ($10==""?"-":$10), $9 }' "$TSV" | head -150
