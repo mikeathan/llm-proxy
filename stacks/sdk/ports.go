@@ -399,6 +399,12 @@ type DataDir interface {
 	Quarantine(name string) error
 }
 
+// FilePather is implemented by a DataDir that can name where a file is, for a stack that keeps a database (SQLite opens a path, not bytes). Only a
+// name the manifest lists in Storage resolves; any other is refused with CodeDenied, as for Read and Write.
+type FilePather interface {
+	Path(name string) (string, error)
+}
+
 // Boundary classifies a destination the way Constitution I.3 does.
 type Boundary string
 

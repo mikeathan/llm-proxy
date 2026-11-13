@@ -54,3 +54,16 @@ func TestDataDir_QuarantineSetsAFileAsideAndRemoveClearsBoth(t *testing.T) {
 		t.Errorf("left behind: %v", entries)
 	}
 }
+
+func TestDataDirPathResolvesOnlyListedNames(t *testing.T) {
+	d := DataDir{Dir: t.TempDir(), Files: []string{"radio.db"}}
+	p, err := d.Path("radio.db")
+	if err != nil || filepath.Base(p) != "radio.db" || filepath.Dir(p) != d.Dir {
+		t.Fatalf("%q %v", p, err)
+	}
+	for _, name := range []string{"other.db", "../radio.db", "a/radio.db"} {
+		if _, err := d.Path(name); stacksdk.CodeOf(err) != stacksdk.CodeDenied {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+}
