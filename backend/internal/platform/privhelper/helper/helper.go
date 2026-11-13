@@ -290,6 +290,10 @@ func (h *Helper) step(ctx context.Context, profile isolation.Profile, s catalog.
 	}
 	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
+	// The one relaxation of the file jail: iw resolves an interface name with if_nametoindex, which opens a Unix socket, and the jail refuses
+	// socket(AF_UNIX) to every child (a jailed `iw dev <name> set type` failed with ENOENT on a real host). The steps are fixed argv from the
+	// catalogue with a checked interface name; the program that runs between them keeps the refusal.
+	profile.AllowUnixSockets = true
 	profile.Timeout, profile.MaxOutput = stepTimeout, wire.RadioReportMax
 	out, err := h.cfg.Runner.Run(ctx, prog, profile, s.Args...)
 	if err != nil {
