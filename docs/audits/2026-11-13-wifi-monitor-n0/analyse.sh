@@ -5,19 +5,22 @@
 # Prints to stdout; run.sh appends it to out-*/summary.txt. The pcap holds neighbours' MAC addresses: keep it private.
 set -u
 IN=${1:?usage: analyse.sh <capture.pcap|fields.tsv> [label]}; LABEL=${2:-$1}
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/wifi-analyse.XXXXXX") || exit 1
+trap 'rm -rf "$WORK"' EXIT
 if [ "${IN%.tsv}" != "$IN" ]; then
   TSV=$IN; PCAP=${IN%.tsv}
 else
-  PCAP=$IN; TSV=$IN.tsv
+  PCAP=$IN; TSV=$WORK/fields.tsv
   command -v tshark >/dev/null || { echo "== $LABEL: tshark missing (sudo apt install tshark), then: ./analyse.sh $IN"; exit 0; }
   # columns: 1 time 2 subtype 3 type 4 transmitter 5 receiver 6 bssid 7 length 8 retry 9 signal 10 reason 11 rate 12 ssid 13 freq
   tshark -r "$PCAP" -T fields -E separator=/t -e frame.time_epoch -e wlan.fc.type_subtype -e wlan.fc.type -e wlan.ta -e wlan.ra \
     -e wlan.bssid -e frame.len -e wlan.fc.retry -e radiotap.dbm_antsignal -e wlan.fixed.reason_code -e radiotap.datarate \
-    -e wlan.ssid -e radiotap.channel.freq >"$TSV" 2>"$PCAP.tshark.err"
+    -e wlan.ssid -e radiotap.channel.freq >"$TSV" 2>"$WORK/tshark.err"
+  cp "$TSV" "$PCAP.tsv" 2>/dev/null || true   # kept for a later re-run, when the folder is writable
 fi
 [ -s "$TSV" ] || { echo "== $LABEL: no frames"; exit 0; }
 # Normalise (this tshark prints subtypes as 0x0008, booleans as True/False and SSIDs as hex; the report below needs plain numbers and text).
-NORM=$TSV.norm
+NORM=$WORK/fields.norm
 HEXSSID=$(awk -F'\t' '$12!="" && $12!="<MISSING>" && $12 !~ /^[0-9a-fA-F]+$/ {f=1} END{print f+0}' "$TSV")
 awk -F'\t' -v OFS='\t' -v dohex="$([ "$HEXSSID" = 0 ] && echo 1 || echo 0)" '
 function hex(h,  i,v) { h=tolower(h); sub(/^0x/,"",h); v=0; for (i=1;i<=length(h);i++) v=v*16+index("0123456789abcdef",substr(h,i,1))-1; return v }
@@ -47,10 +50,10 @@ END { printf "frames %d in %.0f s (%.0f/s)\n", n, t1-t0, (t1>t0)?n/(t1-t0):n
 
 echo; echo "-- how much of the air this adapter can decode (frames with each radio header)"
 if command -v tshark >/dev/null && [ -f "$PCAP" ]; then
-  tshark -G fields 2>/dev/null >"$PCAP.fields"
+  tshark -G fields 2>/dev/null >"$WORK/tshark.fields"
   for f in radiotap.present.mcs radiotap.present.vht radiotap.present.he; do
-    if grep -Fq "	$f	" "$PCAP.fields"; then
-      echo "  $f: $(tshark -r "$PCAP" -Y "$f" -T fields -e frame.number 2>/dev/null | wc -l) frames"
+    if grep -Fq "	$f	" "$WORK/tshark.fields"; then
+      echo "  $f: $(tshark -r "$PCAP" -Y "$f == 1" -T fields -e frame.number 2>/dev/null | wc -l) frames"
     else echo "  $f: field not known to this tshark"; fi
   done
   echo "  (present.he = Wi-Fi 6 frames. Zero beside an AX router and busy devices means this adapter cannot read Wi-Fi 6 frames; see also trigger frames in the type list: they exist only in Wi-Fi 6.)"
@@ -110,7 +113,7 @@ if command -v tshark >/dev/null && [ -f "$PCAP" ]; then
   echo; echo "-- what each access point announces (one beacon each): security, management-frame protection, WPS, load, country, standards"
   for b in $(awk -F'\t' '$2==8 {n[$6]++} END{for(k in n) print n[k], k}' "$TSV" | sort -rn | head -10 | cut -d' ' -f2); do
     echo "  BSSID $b"
-    tshark -V -r "$PCAP" -Y "wlan.bssid==$b && wlan.fc.type_subtype==8" 2>"$PCAP.tshark-ie.err" | awk '/^Frame /{n++} n>1{exit} {print}' |
+    tshark -V -r "$PCAP" -Y "wlan.bssid==$b && wlan.fc.type_subtype==8" 2>"$WORK/tshark-ie.err" | awk '/^Frame /{n++} n>1{exit} {print}' |
       grep -iE 'SSID:|Country Code|AKM|Cipher Suite|Pairwise|Management Frame Protection|RSN Capabilities|Wi-Fi Protected Setup|WPS|Config Methods|Device Name|Model|Manufacturer|Channel Utilization|Station Count|HE Capabilities|VHT Capabilities|HT Capabilities|Extended Capabilities|Vendor Specific' |
       sed 's/^ *//' | sort -u | cut -c1-110 | head -28 | sed 's/^/      /'
   done

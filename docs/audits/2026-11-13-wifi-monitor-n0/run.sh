@@ -105,5 +105,6 @@ for a in "${GOOD[@]}"; do
   for p in "$OUT/$a"/ch*.pcap; do [ -s "$p" ] && "$HERE/analyse.sh" "$p" "$a $(basename "$p" .pcap) (${SECS}s)" >>"$OUT/$a/details.txt" 2>&1; done
   MARKS="$OUT/marks.txt" "$HERE/analyse.sh" "$OUT/$a/events.pcap" "$a EVENTS on channel $(cat "$OUT/$a/event-channel.txt") (${ES}s)" >>"$S" 2>&1
 done
+[ -n "${SUDO_USER:-}" ] && chown -R "$SUDO_USER" "$OUT" 2>/dev/null   # run.sh runs as root; hand the results to the person who ran sudo
 cat "$S" "$OUT"/*/details.txt >"$OUT/report.txt" 2>/dev/null
 echo; echo "done. Paste this file back: $OUT/report.txt   (long; if it is too long to paste, paste $S first)"
