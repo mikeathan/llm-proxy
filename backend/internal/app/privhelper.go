@@ -30,15 +30,15 @@ import (
 // the operator installs the unit, and then every call reports the helper unavailable.
 const helperSocket = "/run/llm-proxy-helper-net.sock"
 
-// helperRadioSocket is where the radio-class unit listens (docs/services/llm-proxy-helper-radio.socket, Constitution I.16). It is a separate
-// install, off by default; with no unit there, a radio action reports the helper unavailable.
+// helperRadioSocket is where the radio-class unit listens (docs/services/llm-proxy-helper-radio.socket, Constitution I.16). It has its own
+// units, installed with the net class by `setup.sh --helper` (or alone); with no unit there, a radio action reports the helper unavailable.
 const helperRadioSocket = "/run/llm-proxy-helper-radio.sock"
 
 // helperGatesFile is the root-owned drop-in `scripts/install-helper.sh` writes: the actions and the scan ranges the helper holds. It is
 // world-readable, so the service can show what the install did, and nothing the service can write decides what the helper does.
 const helperGatesFile = "/etc/systemd/system/llm-proxy-helper-net@.service.d/10-gates.conf"
 
-// helperRadioGatesFile is the same drop-in of the radio class, which is installed on its own (`install-helper.sh radio`).
+// helperRadioGatesFile is the same drop-in of the radio class, which has its own units (`install-helper.sh radio`, run by `setup.sh --helper`).
 const helperRadioGatesFile = "/etc/systemd/system/llm-proxy-helper-radio@.service.d/10-gates.conf"
 
 // helperRoutes is the service's side of the privileged helper (ADR-0034, Constitution I.11), built once here: the one-use grant store, the
