@@ -677,6 +677,7 @@ const privhelperPath = module + "/internal/platform/privhelper"
 
 var privhelperImporters = map[string][]string{
 	privhelperPath + "/grant":      {appPath},
+	privhelperPath + "/session":    {appPath, module + "/internal/transport/http", privhelperPath + "/port"},
 	privhelperPath + "/port":       {appPath},
 	privhelperPath + "/client":     {appPath, privhelperPath + "/port"},
 	privhelperPath + "/helpertest": {},

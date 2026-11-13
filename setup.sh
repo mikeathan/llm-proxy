@@ -732,6 +732,10 @@ helper_step() {
       step "Privileged helper"
       "$PRJ_ROOT/scripts/install-helper.sh" net --uninstall || warn "helper removal reported a problem"
     fi
+    # The radio unit (Constitution I.16) is its own install, with scripts/install-helper.sh radio; removing the helper removes it too.
+    if systemctl cat llm-proxy-helper-radio.socket >/dev/null 2>&1; then
+      "$PRJ_ROOT/scripts/install-helper.sh" radio --uninstall || warn "radio helper removal reported a problem"
+    fi
     return 0
   fi
   if [[ $HELPER == 0 ]]; then

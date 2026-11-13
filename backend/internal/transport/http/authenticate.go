@@ -119,6 +119,9 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/helper/os_detect"},                 // the same for OS detection
 	{http.MethodPost, "/admin/api/helper/capture_window"},            // listens on the link for up to 60 seconds with a raw-packet capability and keeps the first 64 bytes of broadcast frames (Constitution I.11)
 	{http.MethodPost, "/admin/api/helper/capture_host"},              // listens on the link for up to 60 seconds with a raw-packet capability and keeps the headers of this computer's own traffic and its DNS messages (Constitution I.13)
+	{http.MethodPost, "/admin/api/helper/radio_probe"},               // reads which wireless adapters this computer has and what each can do; sends nothing (Constitution I.16)
+	{http.MethodPost, "/admin/api/helper/radio_listen"},              // puts one USB Wi-Fi adapter in monitor mode for up to 30 seconds with CAP_NET_ADMIN and keeps the headers of the frames it hears (Constitution I.16)
+	{http.MethodPost, "/admin/api/helper/sessions"},                  // approves a list of requests the core may then serve without a step-up each time, for up to 12 hours (Constitution I.17)
 	// Makes this computer ask an outside service (iptoasn.com) for a table of address owners (Constitution I.2, I.13).
 	{http.MethodPost, "/admin/api/netaudit/destination-data/download"},
 	// Makes this computer ask an outside service (db-ip.com) for a table of cities, about 86 MB (Constitution I.2, I.13).

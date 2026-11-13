@@ -48,15 +48,34 @@ type Sandbox interface {
 	Effective() isolation.EffectiveState
 }
 
-// Client calls the helper at one socket path.
+// Client calls the helper's units: one socket for each privilege class.
 type Client struct {
 	socket  string
+	others  map[catalog.Class]string
 	sandbox Sandbox
 }
 
-// New returns a Client for the helper's socket. The sandbox is read on every call, because it can change at runtime.
+// New returns a Client for the net class's socket. The sandbox is read on every call, because it can change at runtime.
 func New(socket string, sb Sandbox) *Client {
 	return &Client{socket: socket, sandbox: sb}
+}
+
+// WithClass sets the socket of another class's unit and returns the client. An action goes to the socket of its own class and never to
+// another's: a unit refuses an action of a class it does not hold, so a mistake here is a refusal, not a capability.
+func (c *Client) WithClass(class catalog.Class, socket string) *Client {
+	if c.others == nil {
+		c.others = map[catalog.Class]string{}
+	}
+	c.others[class] = socket
+	return c
+}
+
+// socketFor is where an action of the class is asked for: the net socket unless the class has its own.
+func (c *Client) socketFor(class catalog.Class) string {
+	if s, ok := c.others[class]; ok {
+		return s
+	}
+	return c.socket
 }
 
 // safeHost reports whether this service's own children are kept from Unix sockets, which is what makes the helper's socket
@@ -95,7 +114,7 @@ func (c *Client) Call(ctx context.Context, action string, params json.RawMessage
 	}
 	ctx, cancel := context.WithTimeout(ctx, a.Caps.Timeout+callGrace)
 	defer cancel()
-	resp, err := c.exchange(ctx, wire.Request{V: wire.Version, ID: id, Action: a.ID, Params: params})
+	resp, err := c.exchange(ctx, c.socketFor(a.Class), wire.Request{V: wire.Version, ID: id, Action: a.ID, Params: params})
 	if err != nil {
 		return wire.Result{}, err
 	}
@@ -120,8 +139,8 @@ func resultOf(a catalog.Action, resp wire.Response) (wire.Result, error) {
 
 // exchange sends one request on a new connection and reads its one response. The connection ends with the call; when ctx ends first the
 // connection is closed, which is how the helper learns to cancel the run.
-func (c *Client) exchange(ctx context.Context, req wire.Request) (wire.Response, error) {
-	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", c.socket)
+func (c *Client) exchange(ctx context.Context, socket string, req wire.Request) (wire.Response, error) {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	if err != nil {
 		return wire.Response{}, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}

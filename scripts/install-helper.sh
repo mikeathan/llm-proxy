@@ -3,9 +3,10 @@
 #
 #   sudo scripts/install-helper.sh net --install --bin ./llm-proxy-helper
 #   sudo scripts/install-helper.sh net --uninstall
+#   sudo scripts/install-helper.sh radio --install --bin ./llm-proxy-helper   (Wi-Fi listening through a USB adapter, Constitution I.16)
 #
 # What it does, in order, stopping at the first problem: checks the host (Linux with systemd, ptrace_scope not 0, the service's group exists,
-# nmap is installed), installs the binary root-owned, renders the units from docs/services/, writes the root-owned drop-in with the one setting
+# nmap is installed for the net class, iw and ip for the radio class), installs the binary root-owned, renders the units from docs/services/, writes the root-owned drop-in with the one setting
 # the service cannot change (HELPER_ACTIONS: the actions this install allows; --actions defaults to all of the catalogue), reloads systemd and
 # starts the socket. The scan ranges are not here: they are the ones in the Network settings, and the service holds every call to them. Nothing runs as root until the socket is
 # used, and then one short-lived process per connection. Re-running it replaces the units and the drop-in.
@@ -15,15 +16,19 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DOCS="$HERE/../docs/services"
 UNIT_DIR="${UNIT_DIR:-/etc/systemd/system}"
-CLASS="" MODE="" ACTIONS="scan_udp,os_detect,capture_window,capture_host" BIN="" GROUP="llm-proxy" SERVICE_UNIT="llm-proxy.service" DRY=0
+CLASS="" MODE="" ACTIONS="" BIN="" GROUP="llm-proxy" SERVICE_UNIT="llm-proxy.service" DRY=0
 HELPER_BIN="${HELPER_BIN:-/usr/local/bin/llm-proxy-helper}"
 
 die() { printf 'install-helper: %s\n' "$*" >&2; exit 1; }
 say() { printf '  %s\n' "$*"; }
 
-[[ $# -ge 1 ]] || die "usage: install-helper.sh net --install [--actions a,b] --bin PATH | net --uninstall"
+[[ $# -ge 1 ]] || die "usage: install-helper.sh net|radio --install [--actions a,b] --bin PATH | net|radio --uninstall"
 CLASS="$1"; shift
-[[ "$CLASS" == "net" ]] || die "the class must be net (the log class is deferred)"
+case "$CLASS" in
+  net) DEFAULT_ACTIONS="scan_udp,os_detect,capture_window,capture_host" ;;
+  radio) DEFAULT_ACTIONS="radio_probe,radio_listen" ;;
+  *) die "the class must be net or radio (the log class is deferred)" ;;
+esac
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --install) MODE=install; shift ;;
@@ -37,6 +42,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 [[ -n "$MODE" ]] || die "give --install or --uninstall"
+ACTIONS="${ACTIONS:-$DEFAULT_ACTIONS}"
 
 SOCKET_UNIT="llm-proxy-helper-$CLASS.socket"
 SERVICE_TPL="llm-proxy-helper-$CLASS@.service"
@@ -47,9 +53,16 @@ run() { if [[ $DRY -eq 1 ]]; then printf '  would run: %s\n' "$*"; else "$@"; fi
 uninstall() {
   [[ $DRY -eq 1 || "$(id -u)" -eq 0 ]] || die "run as root (sudo)"
   run systemctl disable --now "$SOCKET_UNIT" 2>/dev/null || true
-  run rm -rf "$DROPIN_DIR" "$UNIT_DIR/$SOCKET_UNIT" "$UNIT_DIR/$SERVICE_TPL" "$HELPER_BIN"
+  run rm -rf "$DROPIN_DIR" "$UNIT_DIR/$SOCKET_UNIT" "$UNIT_DIR/$SERVICE_TPL"
+  # The binary is shared by the classes: it goes only with the last class's units.
+  local other=radio; [[ "$CLASS" == "net" ]] || other=net
+  if [[ -e "$UNIT_DIR/llm-proxy-helper-$other.socket" ]]; then
+    say "kept the helper binary: the $other class is still installed."
+  else
+    run rm -f "$HELPER_BIN"
+  fi
   run systemctl daemon-reload
-  say "removed: the helper's units, drop-in and binary. The service keeps working; its privileged actions now report unavailable."
+  say "removed: the $CLASS class's units and drop-in. The service keeps working; its privileged actions of that class now report unavailable."
 }
 
 # validate_list checks a comma-separated list against a pattern, so nothing but what is expected can reach a unit file.
@@ -65,7 +78,13 @@ install_checks() {
   validate_list --actions "$ACTIONS" '[a-z][a-z0-9_]{0,31}'
   [[ -n "$BIN" && -f "$BIN" ]] || die "--bin must be the built helper (cd backend && go build -o llm-proxy-helper ./cmd/llm-proxy-helper)"
   getent group "$GROUP" >/dev/null || die "the group '$GROUP' does not exist: it is the service's group, the only one allowed to open the socket"
-  command -v nmap >/dev/null || die "nmap is not installed (sudo apt install nmap)"
+  case "$CLASS" in
+    net) command -v nmap >/dev/null || die "nmap is not installed (sudo apt install nmap)" ;;
+    radio)
+      command -v iw >/dev/null || die "iw is not installed (sudo apt install iw)"
+      command -v ip >/dev/null || die "ip is not installed (sudo apt install iproute2)"
+      ;;
+  esac
   local scope_file=/proc/sys/kernel/yama/ptrace_scope
   [[ -r "$scope_file" ]] || die "Yama ptrace_scope is not available: without it a child of the service could read the service's memory, and the helper refuses to run"
   [[ "$(cat "$scope_file")" != "0" ]] || die "ptrace_scope is 0 (sudo sysctl kernel.yama.ptrace_scope=1): the helper refuses to run while a process can read another's memory"
@@ -95,7 +114,12 @@ install_all() {
   systemctl enable --now "$SOCKET_UNIT"
   systemctl is-active --quiet "$SOCKET_UNIT" || die "the socket did not start: systemctl status $SOCKET_UNIT"
   say "the socket is listening. It does nothing until the service calls it, and refuses every caller but the service's main process."
-  say "Next: declare a scan range and turn each action on in the admin interface (Network -> Settings; the switch needs your passphrase), then check from the assistant's terminal that it is refused:"
+  if [[ "$CLASS" == "radio" ]]; then
+    say "Next: turn each action on in the admin interface (Radio; the switch needs your passphrase). Capture is off until you do, and nothing here listens by itself."
+  else
+    say "Next: declare a scan range and turn each action on in the admin interface (Network -> Settings; the switch needs your passphrase)."
+  fi
+  say "Then check from the assistant's terminal that the socket is refused:"
   say "  python3 -c \"import socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/llm-proxy-helper-$CLASS.sock')\"   (expect: refused)"
 }
 

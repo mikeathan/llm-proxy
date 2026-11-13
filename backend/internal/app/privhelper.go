@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 
+	stacksdk "llm-proxy-stacks/sdk"
+
 	"llm-proxy/internal/core/netaudit/framewire"
 	"llm-proxy/internal/core/netaudit/nmap"
 	"llm-proxy/internal/platform/isolation"
@@ -18,6 +20,7 @@ import (
 	"llm-proxy/internal/platform/privhelper/client"
 	"llm-proxy/internal/platform/privhelper/grant"
 	"llm-proxy/internal/platform/privhelper/port"
+	"llm-proxy/internal/platform/privhelper/session"
 	"llm-proxy/internal/platform/scanscope"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -26,6 +29,10 @@ import (
 // helperSocket is where the privileged helper's net-class unit listens (docs/services/llm-proxy-helper-net.socket). Nothing is there until
 // the operator installs the unit, and then every call reports the helper unavailable.
 const helperSocket = "/run/llm-proxy-helper-net.sock"
+
+// helperRadioSocket is where the radio-class unit listens (docs/services/llm-proxy-helper-radio.socket, Constitution I.16). It is a separate
+// install, off by default; with no unit there, a radio action reports the helper unavailable.
+const helperRadioSocket = "/run/llm-proxy-helper-radio.sock"
 
 // helperGatesFile is the root-owned drop-in `scripts/install-helper.sh` writes: the actions and the scan ranges the helper holds. It is
 // world-readable, so the service can show what the install did, and nothing the service can write decides what the helper does.
@@ -41,6 +48,37 @@ type helperRoutes struct {
 	capture http.HandlerFunc
 	// traffic answers the last capture_host summary (GET /admin/api/netaudit/host-traffic).
 	traffic http.HandlerFunc
+	// sessions are the routes of bounded sessions (Constitution I.17): list, begin (a step-up route), end one, end all.
+	sessionList, sessionBegin, sessionEnd, sessionEndAll http.HandlerFunc
+	// port and sessions let a stack be given the port that serves its sessions (StackPrivileged).
+	port     *port.Port
+	sessions *session.Store
+	on       func(action string) bool
+}
+
+// sessionStacks are the stacks that are given a port which serves bounded sessions. A session names one of them.
+var sessionStacks = []string{"radio"}
+
+// StackPrivileged is the Privileged port of one stack: a request with a grant takes the grant path, a request with none is served only
+// while an open session of that stack approved exactly that request (Constitution I.17). The stack never holds a token.
+func (h *helperRoutes) StackPrivileged(stack string) stacksdk.Privileged {
+	return h.port.ForStack(stack, h.sessions, h.on)
+}
+
+// switchedOffSessions ends sessions whose action has been switched off, so a session never shows as open while nothing can use it. The port
+// checks the switch on every use as well; this only keeps the list honest.
+type switchedOffSessions struct {
+	*session.Store
+	on func(action string) bool
+}
+
+func (s switchedOffSessions) Open() (open, ended []session.View) {
+	for _, a := range catalog.All() {
+		if a.Standing && !s.on(a.ID) {
+			s.EndAction(a.ID)
+		}
+	}
+	return s.Store.Open()
 }
 
 // helperSinks is where the helper's results are kept: scan results on the device inventory, and the last summary of each look. Any may be
@@ -74,12 +112,16 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 		policy = func() scanscope.Policy { return scanscope.Policy{} }
 	}
 	grants := grant.NewStore(grant.Options{})
-	helperClient := client.New(helperSocket, liveSandbox{ctx})
+	helperClient := client.New(helperSocket, liveSandbox{ctx}).WithClass(catalog.ClassRadio, helperRadioSocket)
 	helper := port.New(port.Options{Grants: grants, Helper: helperClient, Ranges: declaredRanges{policy}})
 	on := func(action string) bool { return ctx.HostSettings().Sandboxing.HelperActionOn(action) }
+	sessions := session.New(session.Options{Log: logging.Info})
+	sessionDeps := api.HelperSessionDeps{Sessions: switchedOffSessions{sessions, on}, On: on, Stacks: sessionStacks}
 	keep := keepHelperResult(sinks)
 	running := api.NewRunningActions()
-	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}}
+	h := &helperRoutes{handlers: map[string]http.HandlerFunc{}, port: helper, sessions: sessions, on: on}
+	h.sessionList, h.sessionBegin = api.HelperSessionsList(sessionDeps), api.HelperSessionsBegin(sessionDeps)
+	h.sessionEnd, h.sessionEndAll = api.HelperSessionEnd(sessionDeps), api.HelperSessionsEndAll(sessionDeps)
 	for _, rt := range api.HelperRoutes() {
 		id := rt.Path[len("/admin/api/helper/"):]
 		h.handlers[rt.Path] = api.HelperHandler(id, api.HelperDeps{Grants: grants, Run: helper, On: on, Parse: helperParser{owners: sinks.Owners, self: sinks.Self}.parse, Keep: keep, Defaults: helperDefaults(defaultInterface), OmitRaw: keepsToItself, Running: running})
@@ -98,10 +140,12 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 	return h
 }
 
-// keepsToItself says which actions' raw output stays in the service: a capture's bytes are frames of other devices' traffic, so the answer to the
+// keepsToItself says which actions' raw output stays in the service: a capture's bytes are frames of other devices' traffic (a radio window's too: Constitution I.16), so the answer to the
 // browser is the parsed summary and never the bytes (Constitution I.13). A scan's raw output is still sent, so the operator can read what came
 // back when the parser could not.
-func keepsToItself(action string) bool { return action == "capture_window" || action == "capture_host" }
+func keepsToItself(action string) bool {
+	return action == "capture_window" || action == "capture_host" || action == "radio_listen"
+}
 
 // helperParser reads each action's raw output. owners, when set, gives the way to name the holders of the internet addresses a traffic look saw.
 type helperParser struct {

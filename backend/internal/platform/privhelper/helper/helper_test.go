@@ -38,6 +38,15 @@ type rig struct {
 	gotProg  string
 	logs     []string
 	capRaise int
+	raised   []int
+	// calls is every program run, as "name args", in order; failCall makes the run whose line contains it fail; blockMain makes the program
+	// named radio-listen wait until its context ends.
+	calls     []string
+	failCall  string
+	blockMain bool
+	mainRan   chan struct{}
+	ifaceErr  error
+	ifaces    []string
 }
 
 func (r *rig) note(s string) {
@@ -46,11 +55,28 @@ func (r *rig) note(s string) {
 	r.mu.Unlock()
 }
 
-func (r *rig) Clear() error      { r.note("clear"); return nil }
-func (r *rig) Raise(c int) error { r.note("raise"); r.capRaise = c; return nil }
+func (r *rig) Clear() error { r.note("clear"); return nil }
+func (r *rig) Raise(c int) error {
+	r.note("raise")
+	r.capRaise = c
+	r.raised = append(r.raised, c)
+	return nil
+}
 func (r *rig) Run(ctx context.Context, p isolation.Program, prof isolation.Profile, args ...string) (isolation.Output, error) {
 	r.note("run")
 	r.gotProg, r.gotProf, r.gotArgs = p.Name, prof, args
+	line := p.Name + " " + strings.Join(args, " ")
+	r.mu.Lock()
+	r.calls = append(r.calls, line)
+	r.mu.Unlock()
+	if r.failCall != "" && strings.Contains(line, r.failCall) {
+		return isolation.Output{}, errors.New("step failed")
+	}
+	if r.blockMain && p.Name == "radio-listen" {
+		close(r.mainRan)
+		<-ctx.Done()
+		return isolation.Output{}, ctx.Err()
+	}
 	if r.ran != nil {
 		close(r.ran)
 		<-ctx.Done()
@@ -66,7 +92,7 @@ func newRig() *rig {
 func (r *rig) helper(t *testing.T, actions ...string) *Helper {
 	t.Helper()
 	h, err := New(Config{
-		Class: catalog.ClassNet, Actions: actions, Capability: CapNetRaw,
+		Class: catalog.ClassNet, Actions: actions, Capabilities: []int{CapNetRaw},
 		Programs: map[string]isolation.Program{"nmap": {Name: "nmap", Binary: "nmap"}},
 		DataDirs: []string{"/definitely/not/a/dir", t.TempDir()},
 		Runner:   r, Ambient: r,

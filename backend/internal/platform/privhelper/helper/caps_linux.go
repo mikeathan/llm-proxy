@@ -42,5 +42,8 @@ func (ThreadAmbient) Raise(capability int) error {
 	return nil
 }
 
-// CapNetRaw is the capability the net class needs.
+// CapNetRaw is the capability the net class needs, and the radio class too (to read frames).
 const CapNetRaw = unix.CAP_NET_RAW
+
+// CapNetAdmin is the capability the radio class needs to change an adapter's mode and channel.
+const CapNetAdmin = unix.CAP_NET_ADMIN

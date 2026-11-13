@@ -285,6 +285,10 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/helper", hs.Helper.status, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/capture-window", hs.Helper.capture, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/host-traffic", hs.Helper.traffic, jsonMethodNotAllowed)
+	router.Get(api.HelperSessionsPath, hs.Helper.sessionList, jsonMethodNotAllowed)
+	router.Post(api.HelperSessionsPath, hs.Helper.sessionBegin, jsonMethodNotAllowed)
+	router.Delete(api.HelperSessionsPath, hs.Helper.sessionEndAll, jsonMethodNotAllowed)
+	router.Delete(api.HelperSessionPath, hs.Helper.sessionEnd, jsonMethodNotAllowed)
 	for _, rt := range api.HelperRoutes() {
 		router.Post(rt.Path, hs.Helper.handlers[rt.Path], jsonMethodNotAllowed)
 	}

@@ -223,3 +223,27 @@ func TestAgainstARealHelper(t *testing.T) {
 		t.Errorf("an action that is not in the install's list must be a disabled refusal, got %v", err)
 	}
 }
+
+// An action goes to the unit of its own class: a radio action reaches the radio socket, and a net action still reaches the net one.
+func TestAnActionGoesToTheSocketOfItsClass(t *testing.T) {
+	var ran []string
+	note := func(name string) helpertest.RunFunc {
+		return func(context.Context, catalog.Prepared) ([]byte, error) {
+			ran = append(ran, name)
+			return []byte("ok"), nil
+		}
+	}
+	net, radio := helpertest.New(t, note("net")), helpertest.New(t, note("radio"))
+	c := New(net.Path, enforcing()).WithClass(catalog.ClassRadio, radio.Path)
+	for _, call := range []struct{ action, params string }{{"radio_probe", `{}`}, {"capture_window", `{"iface":"eth0","seconds":5}`}} {
+		if _, err := c.Call(t.Context(), call.action, json.RawMessage(call.params)); err != nil {
+			t.Fatalf("%s: %v", call.action, err)
+		}
+	}
+	if len(ran) != 2 || ran[0] != "radio" || ran[1] != "net" {
+		t.Errorf("each action reaches its own class's socket: %v", ran)
+	}
+	if _, err := New("/nonexistent", enforcing()).Call(t.Context(), "radio_probe", json.RawMessage(`{}`)); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("with no radio unit the action falls to the net socket, which is absent here: %v", err)
+	}
+}

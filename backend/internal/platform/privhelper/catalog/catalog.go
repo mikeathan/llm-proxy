@@ -37,6 +37,8 @@ type Class string
 const (
 	ClassNet Class = "net" // CAP_NET_RAW and packet sockets
 	ClassLog Class = "log" // the adm group, no network (no action yet: deferred by D1)
+	// ClassRadio holds CAP_NET_ADMIN and CAP_NET_RAW, to put one USB Wi-Fi adapter in monitor mode and read its frames (Constitution I.16).
+	ClassRadio Class = "radio"
 )
 
 // ResultKind is the shape of what an action returns.
@@ -66,6 +68,20 @@ type Prepared struct {
 	Canonical []byte
 	// Target is the one address the action touches, for the helper's own scope check; "" when the action touches no host.
 	Target string
+	// Iface is the one network interface the action touches, for the helper's own check of the host (a USB adapter that carries no
+	// connection); "" when the action touches no interface.
+	Iface string
+	// Before runs, in order, ahead of the program; the first step that fails ends the action. After runs once the program has ended, on every
+	// path (success, failure, timeout, cancel), each step whether or not an earlier one failed: it puts back what Before changed.
+	Before, After []Step
+}
+
+// Step is one program the helper runs around an action's own program, with a complete argument list the catalogue built.
+type Step struct {
+	Program string
+	Args    []string
+	// Report keeps this step's output (up to wire.RadioReportMax bytes) in the result, so the service can read what the step found.
+	Report bool
 }
 
 // Action is one row of the catalogue.
@@ -76,6 +92,10 @@ type Action struct {
 	Caps   Caps
 	Jail   Jail
 	Result ResultKind
+	// Standing says the action may run under a bounded session a person approved (Constitution I.17), not only on a person's step-up for
+	// each request. It is set in code for the radio actions only; a scan, a capture of this computer's traffic or any action that sends
+	// something is never standing.
+	Standing bool
 
 	prepare func(raw json.RawMessage) (Prepared, error)
 }
@@ -99,7 +119,7 @@ func Code(err error) wire.Code {
 
 // row builds an Action whose parameters are a P; Host is the one address the parameters name, which the helper checks against its own scope. check validates P against the action's scope and puts it in canonical form (so two
 // spellings of one request have one canonical bytes); build turns the checked P into arguments and takes nothing else.
-func row[P interface{ Host() string }](a Action, program string, check func(*P) error, build func(P) []string) Action {
+func row[P interface{ Host() string }](a Action, program string, check func(*P) error, build func(P) []string, extras ...func(P, *Prepared)) Action {
 	a.prepare = func(raw json.RawMessage) (Prepared, error) {
 		var p P
 		if len(raw) == 0 {
@@ -115,7 +135,11 @@ func row[P interface{ Host() string }](a Action, program string, check func(*P) 
 		if err != nil {
 			return Prepared{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
-		return Prepared{Program: program, Args: build(p), Canonical: canon, Target: p.Host()}, nil
+		prepared := Prepared{Program: program, Args: build(p), Canonical: canon, Target: p.Host()}
+		for _, extra := range extras {
+			extra(p, &prepared)
+		}
+		return prepared, nil
 	}
 	return a
 }
@@ -139,7 +163,7 @@ func checkTarget(target *string) error {
 
 // All returns every action, in a fixed order.
 func All() []Action {
-	return []Action{scanUDP(), osDetect(), captureWindow(), captureHost()}
+	return []Action{scanUDP(), osDetect(), captureWindow(), captureHost(), radioProbe(), radioListen()}
 }
 
 // Lookup returns the action with the given ID.

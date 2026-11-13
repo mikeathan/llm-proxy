@@ -36,6 +36,7 @@ const (
 	defaultUnit     = "llm-proxy.service"
 	listenFD        = 3 // SD_LISTEN_FDS_START
 	nmapProgName    = "nmap"
+	radioProgName   = "radio-listen"
 )
 
 // nmapData are where nmap keeps its data files on the supported hosts.
@@ -44,6 +45,22 @@ var nmapData = []string{"/usr/share/nmap", "/usr/local/share/nmap"}
 var nmap = isolation.Program{
 	Name: nmapProgName, Binary: nmapProgName, VersionArgs: []string{"--version"},
 	InstallHint: map[string]string{"linux": "sudo apt install nmap   (or: sudo dnf install nmap)"},
+}
+
+// The radio class runs iw and ip to read and change an adapter (Constitution I.16); the catalogue builds every argument.
+const (
+	iwProgName = "iw"
+	ipProgName = "ip"
+)
+
+var iw = isolation.Program{
+	Name: iwProgName, Binary: iwProgName, VersionArgs: []string{"--version"},
+	InstallHint: map[string]string{"linux": "sudo apt install iw   (or: sudo dnf install iw)"},
+}
+
+var ip = isolation.Program{
+	Name: ipProgName, Binary: ipProgName, VersionArgs: []string{"-V"},
+	InstallHint: map[string]string{"linux": "sudo apt install iproute2"},
 }
 
 func main() {
@@ -60,6 +77,10 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == wire.HostCommand {
 		os.Exit(capture.HostMain(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	// The radio_listen action runs this same binary the same way, for the frames a USB Wi-Fi adapter hears (Constitution I.16).
+	if len(os.Args) > 1 && os.Args[1] == wire.RadioCommand {
+		os.Exit(capture.RadioMain(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	os.Exit(run(os.Args[1:], os.Environ(), os.Stderr))
 }
 
@@ -67,7 +88,7 @@ func run(args []string, env []string, stderr io.Writer) int {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	fs := flag.NewFlagSet("llm-proxy-helper", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	class := fs.String("class", "", "privilege class of this unit: net")
+	class := fs.String("class", "", "privilege class of this unit: net or radio")
 	actions := fs.String("actions", "", "comma-separated actions this unit may run")
 	socket := fs.String("socket", "", "listen here and serve one connection (by hand); default: the socket systemd passes")
 	unit := fs.String("unit", defaultUnit, "the service unit whose main process may call")
@@ -93,13 +114,13 @@ func run(args []string, env []string, stderr io.Writer) int {
 }
 
 func build(class, actions, unit string, log *slog.Logger) (*helper.Helper, error) {
-	if class != string(catalog.ClassNet) {
-		return nil, fmt.Errorf("--class must be %q (the log class is deferred)", catalog.ClassNet)
+	if class != string(catalog.ClassNet) && class != string(catalog.ClassRadio) {
+		return nil, fmt.Errorf("--class must be %q or %q (the log class is deferred)", catalog.ClassNet, catalog.ClassRadio)
 	}
 	list := splitList(actions)
 	for _, id := range list {
-		if _, err := catalog.Lookup(id); err != nil {
-			return nil, fmt.Errorf("--actions names %q, which is not in the catalogue", id)
+		if a, err := catalog.Lookup(id); err != nil || string(a.Class) != class {
+			return nil, fmt.Errorf("--actions names %q, which is not an action of the %s class", id, class)
 		}
 	}
 	self, err := os.Executable()
@@ -107,13 +128,19 @@ func build(class, actions, unit string, log *slog.Logger) (*helper.Helper, error
 		return nil, fmt.Errorf("the helper cannot find its own path for the capture program: %w", err)
 	}
 	runner := isolation.NewRunner(isolation.New(isolation.Config{Filesystem: true}), nil)
-	return helper.New(helper.Config{
-		Class: catalog.ClassNet, Actions: list, Capability: helper.CapNetRaw,
+	cfg := helper.Config{
+		Class: catalog.ClassNet, Actions: list, Capabilities: []int{helper.CapNetRaw},
 		Programs: map[string]isolation.Program{nmapProgName: nmap, captureProgName: {Name: captureProgName, Binary: self}, hostProgName: {Name: hostProgName, Binary: self}}, DataDirs: nmapData,
 		Runner: runner, Ambient: helper.ThreadAmbient{},
 		Identify: helper.IdentifyPeer, MainPID: helper.SystemdMainPID(runner, unit), PtraceScope: helper.YamaPtraceScope,
 		Log: func(msg string, kv ...any) { log.Warn(msg, kv...) },
-	})
+	}
+	if class == string(catalog.ClassRadio) {
+		cfg.Class, cfg.Capabilities, cfg.DataDirs = catalog.ClassRadio, []int{helper.CapNetAdmin, helper.CapNetRaw}, nil
+		cfg.Programs = map[string]isolation.Program{iwProgName: iw, ipProgName: ip, radioProgName: {Name: radioProgName, Binary: self}}
+		cfg.Interface = helper.SystemRadioHost().Check
+	}
+	return helper.New(cfg)
 }
 
 func splitList(s string) []string {
