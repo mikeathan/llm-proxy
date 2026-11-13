@@ -265,7 +265,8 @@ func TestWatch_ObserveNeverBlocksAndRunDrains(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() { w.run(ctx); close(done) }()
-	deadline := time.Now().Add(2 * time.Second)
+	// A slow runner (coverage, -race) rewrites the record 256 times; the loop ends as soon as all are in, so a long limit costs nothing.
+	deadline := time.Now().Add(30 * time.Second)
 	for len(f.record(t).Events) < queueSize && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
