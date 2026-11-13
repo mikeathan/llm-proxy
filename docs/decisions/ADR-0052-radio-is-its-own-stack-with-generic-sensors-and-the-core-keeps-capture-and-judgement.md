@@ -1,7 +1,7 @@
 ---
 id: ADR-0052
 title: Radio is its own stack with generic sensors, and the core keeps the capture and the judgement
-status: proposed
+status: accepted
 date: 2026-11-13
 subsystems: [network-audit]
 supersedes:
@@ -10,7 +10,7 @@ superseded_by:
 
 # ADR-0052: Radio is its own stack with generic sensors, and the core keeps the capture and the judgement
 
-Proposed: in force when the owner accepts it. Follows [ADR-0028](ADR-0028-stack-module-registry.md), [ADR-0032](ADR-0032-a-stack-is-a-package-with-a-manifest-kept-apart-by-tests.md),
+Accepted 2026-11-13 by the owner (R0), with the duty-cycled-windows form of capture settled for the first build. Follows [ADR-0028](ADR-0028-stack-module-registry.md), [ADR-0032](ADR-0032-a-stack-is-a-package-with-a-manifest-kept-apart-by-tests.md),
 [ADR-0034](ADR-0034-the-privileged-helper-is-core-not-a-stack-and-decides-who-is-calling.md), [ADR-0036](ADR-0036-a-stack-offers-findings-by-id-and-the-core-words-them.md) and
 [ADR-0038](ADR-0038-the-network-stack-owns-the-sensors-and-the-core-keeps-the-judgement.md).
 
@@ -33,7 +33,7 @@ We will build **Radio as a third stack** (`stacks/radio`), separate from Network
 ## Consequences
 - Network stays IP-shaped; Radio can grow to Bluetooth, 802.15.4 and SDR without touching it.
 - The stack platform gets its third stack, so the stacks overview page (ADR-0028) is due.
-- Two SDK additions: the `vault` port (ADR-0053) and a storage report (plan `data-management-page`).
+- Two SDK additions: the `vault` port (ADR-0053) and a storage report (plan `data-management-page`). Built as the `PortVault` port and an optional `StorageReporter` interface a stack implements (the core asks it; no host adapter), which is the smaller surface.
 - A cross-stack join goes through the core, which costs a port call per lookup but keeps IV.6 intact.
 - A new Constitution item and a new helper unit class are needed before capture is built.
 

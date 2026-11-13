@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"llm-proxy-stacks/sdk"
 	"llm-proxy/internal/core/netaudit/hosttraffic"
 	"llm-proxy/internal/core/netaudit/ipowners"
 	"llm-proxy/internal/core/netaudit/ipplaces"
@@ -128,6 +129,8 @@ type netauditServices struct {
 	// stable automations, secrets left in files). AgentFeed pushes it what the event bus carries; the record itself lives in the stack.
 	Agents    *stackHost
 	AgentFeed agentwatch.Feed
+	// Radio is the Radio stack as it runs in the service: the radios on this computer and what each can do. It starts no goroutine of its own.
+	Radio *stackHost
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
 	Monitors *netaudit.MonitorWatch
 	// CheckIn sends the daily "still running" note while CheckInConfig has it switched on.
@@ -500,8 +503,20 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.SignIns != nil, func(ctx context.Context) { n.SignIns.Run(ctx) })
 	add(n.FollowUp != nil, func(ctx context.Context) { n.FollowUp.Run(ctx) })
 	add(n.Agents != nil, func(ctx context.Context) { n.Agents.Run(ctx) })
+	add(n.Radio != nil, func(ctx context.Context) { n.Radio.Run(ctx) })
 	add(n.CheckIn != nil, func(ctx context.Context) { n.CheckIn.Run(ctx) })
 	return loops
+}
+
+// hostedStacks are the stacks running in the service, each of which mounts the routes its manifest declares.
+func (n *netauditServices) hostedStacks() []stacksdk.Stack {
+	var out []stacksdk.Stack
+	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio} {
+		if h != nil {
+			out = append(out, h.stack)
+		}
+	}
+	return out
 }
 
 // workspaceDirs lists every workspace and its folder, for the agent watch's nightly secrets pass.
@@ -757,8 +772,15 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.Agents = agentsHost
 	s.netaudit.AgentFeed = agentwatch.Feed{Push: agentsHost.Observe, ActivityOn: agentActivitySwitch(agents).Enabled}
 
+	radioPolicy := dataMgr.Radio()
+	radioHost, err := s.newRadioHost(radioPolicy)
+	if err != nil {
+		s.logger.Error("the Radio stack could not be hosted", "error", err.Error())
+	}
+	s.netaudit.Radio = radioHost
+
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
-	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Guard: guard})
+	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Radio: radioPolicy, Guard: guard})
 	if err != nil {
 		panic(err)
 	}

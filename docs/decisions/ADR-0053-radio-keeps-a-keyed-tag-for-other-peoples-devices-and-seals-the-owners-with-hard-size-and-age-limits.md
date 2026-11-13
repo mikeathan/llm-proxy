@@ -1,7 +1,7 @@
 ---
 id: ADR-0053
 title: Radio keeps a keyed tag for other people's devices and seals the owner's, with hard size and age limits
-status: proposed
+status: accepted
 date: 2026-11-13
 subsystems: [network-audit]
 supersedes:
@@ -10,7 +10,7 @@ superseded_by:
 
 # ADR-0053: Radio keeps a keyed tag for other people's devices and seals the owner's, with hard size and age limits
 
-Proposed: in force when the owner accepts it. Part of [ADR-0052](ADR-0052-radio-is-its-own-stack-with-generic-sensors-and-the-core-keeps-capture-and-judgement.md). Constitution III.2 (atomic persistence), III.6 (secrets are encrypted), IV.6.
+Accepted 2026-11-13 by the owner, with the UK-law question accepted as an **open risk** (not advice taken): it stays open until the owner takes advice, and the capture must not be enabled by default before then. Part of [ADR-0052](ADR-0052-radio-is-its-own-stack-with-generic-sensors-and-the-core-keeps-capture-and-judgement.md). Constitution III.2 (atomic persistence), III.6 (secrets are encrypted), IV.6.
 
 ## Context
 A monitor-mode radio hears every device in range, including neighbours' and passers-by's. The owner wants to recognise them again (after a restart, or when one leaves and returns) without storing personal information and without filling

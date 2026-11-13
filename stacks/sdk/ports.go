@@ -25,6 +25,8 @@ type Host struct {
 	ScopedGuard Guard
 	// SecretScan is the core's look through the files agents wrote; nil unless the manifest requires PortSecretScan.
 	SecretScan SecretScan
+	// Vault is the core's keyed tags and sealed values; nil unless the manifest requires PortVault.
+	Vault Vault
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -90,6 +92,48 @@ type SecretHit struct {
 // and file-count bounds and the secret shapes; what comes back is places and kinds only. A failure is an *Error.
 type SecretScan interface {
 	Scan(ctx context.Context) ([]SecretHit, error)
+}
+
+// MaxVaultPurpose and MaxVaultBytes bound what crosses the vault: a purpose is a short plain token and a value is a small identifier or a
+// short label, never a document.
+const (
+	MaxVaultPurpose = 32
+	MaxVaultBytes   = 4096
+)
+
+// Vault gives a stack tags and sealed values for data it must keep about people or things it does not own. The key never crosses the port: the
+// core derives a subkey for each purpose from its master key, so one purpose's tags cannot be matched to another's. Failures are an *Error:
+// CodeInvalid for a purpose that is not a clean token or a value that is empty or too large, CodeDenied for a sealed value that does not open
+// (altered, or from before the key was rotated), CodeUnavailable when the core has no key yet.
+type Vault interface {
+	// Tag returns the same bytes for the same purpose and value for as long as the purpose's key lives, and a value that cannot be turned back
+	// into the input. Rotating the purpose's key makes every old tag stop matching.
+	Tag(ctx context.Context, purpose string, value []byte) ([]byte, error)
+	// Seal returns the value encrypted so that only Open can read it; the result differs on every call.
+	Seal(ctx context.Context, purpose string, value []byte) ([]byte, error)
+	// Open returns what Seal sealed for the same purpose.
+	Open(ctx context.Context, purpose string, sealed []byte) ([]byte, error)
+}
+
+// StorageUse is how much of its data folder one file of a stack uses and the most it may use. It is counts and a time only, no names of
+// what is inside, so the data management page can show it for every stack the same way.
+type StorageUse struct {
+	// File is a file the manifest lists in Storage.
+	File string `json:"file"`
+	// Bytes is its size now; CapBytes the most the stack lets it reach (zero when the stack sets no cap).
+	Bytes    int64 `json:"bytes"`
+	CapBytes int64 `json:"cap_bytes,omitempty"`
+	// Rows is how many records it holds (zero when it is not a table of records).
+	Rows int `json:"rows,omitempty"`
+	// Oldest is the time of the oldest record, zero when there is none; KeepFor how long the stack keeps a record before it removes it.
+	Oldest  time.Time     `json:"oldest,omitempty"`
+	KeepFor time.Duration `json:"keep_for,omitempty"`
+}
+
+// StorageReporter is implemented by a stack that keeps data (Manifest.Storage). The core asks it for the data management page. It must be quick
+// and must not write.
+type StorageReporter interface {
+	StorageUse(ctx context.Context) ([]StorageUse, error)
 }
 
 // EventAlert is the Event type of an alert. Its Data is an Alert; the core words it from its own table for ID and sends it to the operator.
@@ -460,5 +504,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}}
 }

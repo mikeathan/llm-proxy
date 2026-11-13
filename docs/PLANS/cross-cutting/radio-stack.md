@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-13
 last_reviewed: 2026-11-13
 related_specs: [SPEC-006]
@@ -132,6 +132,13 @@ Neighbourhood (counts by class, "unknown device close to the house") · Timeline
 
 Ask first (AGENTS.md): the `modernc.org/sqlite` dependency in the stack's `go.mod`; the Constitution I.16 item; any SDK port added. Windows against a long-lived sensor (R0). The Realtek heard 0 frames on one channel in one run, so channel read-back is mandatory. DFS: the router can leave channel 60. A Wi-Fi 6 adapter on 5 GHz is untested (R2 or a later measurement). UK law (ADR-0053). Adapter power and heat over hours (unmeasured). Linux only (macOS idle).
 
+## Progress (2026-11-13)
+
+- **R0 done.** The owner accepted ADR-0052 and ADR-0053 (now `accepted`), the SDK ports, the `modernc.org/sqlite` dependency, **duty-cycled windows** for capture, and the UK-law question as an **open risk** (no advice taken; capture must not default on before the owner takes it). The Constitution I.16 text (§6) is **not** in `CONSTITUTION.md` yet: it rides in the PR that builds R2 (`radio_probe`, `radio_listen`), the first code that needs a helper action.
+- **R1 built** (branch `radio-stack-plan`, uncommitted): `stacks/radio` (manifest, one module `radio_sensors`, one read-only route `GET /admin/api/radio/sensors`, discovery from `/sys` with capability records and the used / unused list); SDK `PortVault` + `Vault` interface and the optional `StorageReporter`; core wiring (`models.RadioConfig`, storage `Radio()` view, registry stack `radio`, hosted stack, off until switched on); the Radio page (Sensors, Modules) in the Stacks group. Idle by construction: **no goroutine ever** in R1 (discovery runs when the page asks), nothing written, a test checks both.
+- **Not in R1, on purpose:** the vault *adapter* in the core (no stack uses it until R3; the port and its types exist and are tested as plain data); the storage-report consumer (the data page, D1); SQLite (R2, the first thing that stores).
+- **Still to do for R1's check:** "with a fake adapter tree it lists capabilities, including an unused one" is covered by `stacks/radio` tests; the privileged probe (bands, widths, modes) is R2.
+
 ## Remaining work
 
-Everything. First: the owner reads ADR-0052 and ADR-0053 and the §6 text; then R1.
+R2 onward as §9: the Constitution I.16 text and the helper actions `radio_probe` / `radio_listen`, the parser with fuzzing, the SQLite store with caps and retention. R2 needs **a pcap from vertex** (capture with tcpdump on a monitor interface; keep it out of the repo, derive a small synthetic fixture).

@@ -40,6 +40,7 @@ export const API_ENDPOINTS = {
   netauditDeviceNames: `${API_BASE}/netaudit/device-names`,
   netauditFollowUpScan: `${API_BASE}/netaudit/follow-up-scan`,
   agentWatch: `${API_BASE}/agent-watch`,
+  radioSensors: `${API_BASE}/radio/sensors`,
   lockdown: `${API_BASE}/lockdown`,
   netauditDevices: `${API_BASE}/netaudit/devices`,
   netauditGatewayConfirm: `${API_BASE}/netaudit/devices/gateway/confirm`,

@@ -4,31 +4,31 @@ date: 2026-11-13
 last_reviewed: 2026-11-13
 related_specs: [SPEC-006]
 constitution_references: [I.5, I.8, I.11, II.3, III.6, IV.6]
-evidence: Session of 2026-11-13 (investigation, owner-run vertex captures, literature search, plan set). Replaces nothing; delete this file when R1 merges (harvest first, documentation-stewardship).
+evidence: Session of 2026-11-13 (investigation, owner-run vertex captures, literature search, plan set). Replaces nothing; delete this file when R2 merges (harvest first, documentation-stewardship).
 ---
 
 # Radio stack: handoff for the next session (2026-11-13)
 
-Start here, then open only what you need. **Nothing is built: this is investigation, measurement and design. Docs only.**
+Start here, then open only what you need. **R0 is accepted and R1 (the skeleton) is built, uncommitted; R2 onward is not started.**
 
 ## State
 
-- **Branch `radio-stack-plan`**, from `origin/main` (`ddfa9d2b`, v0.83.x), **one local commit, not pushed, no PR**. (A chained commit, push and PR command was once refused by the auto-mode classifier as an external write; run git steps one at a time and ask.) Merge order: this docs PR has no code dependency.
-- It carries: the plan [`radio-stack.md`](radio-stack.md), [`data-management-page.md`](data-management-page.md), ADR-0052 and ADR-0053 (both `proposed`), the literature digest [`../../audits/2026-11-13-wifi-sensing-research.md`](../../audits/2026-11-13-wifi-sensing-research.md), a ledger entry in [`../../learnings/network-audit.md`](../../learnings/network-audit.md) (the 2026-11-13 Wi-Fi entry holds every measured number and six tool traps), index rows and the Network hub links. **It also deletes the owner-run capture scripts** (see Recovery).
-- Checks run: `./scripts/check-agent-harness.sh` PASS. Not run: any Go or frontend build (no code changed).
+- **Branch `radio-stack-plan`**, from `origin/main` (`ddfa9d2b`). **One local commit (the docs) plus the R1 build, uncommitted, not pushed, no PR**; version bumped to 0.84.0 in `VERSION`. (A chained commit, push and PR command was once refused by the auto-mode classifier as an external write; run git steps one at a time and ask.) The docs commit also deletes the owner-run capture scripts (see Recovery).
+- **R0 is done** (owner, 2026-11-13: "r0 yes to all"): ADR-0052 and ADR-0053 are `accepted`; ports, `modernc.org/sqlite`, duty-cycled windows accepted; UK-law risk accepted as **open** (capture must not default on before the owner takes advice). Constitution I.16 (plan §6) is still **not** in `CONSTITUTION.md`: it rides in the R2 PR.
+- **R1 is built** (plan "Progress"): `stacks/radio/` (`radio.go`, `sensors.go`, tests), SDK `PortVault`/`Vault`/`StorageUse`/`StorageReporter` (`stacks/sdk/manifest.go`, `ports.go`), core wiring (`backend/models/radio_config.go`, `backend/internal/platform/storage/radio_view.go`, `backend/internal/app/stacks.go` `radioModules`/`newRadioHost`, `netaudit.go` `hostedStacks`, `routes.go`, `stacks_about.go`, `core/stack/registry.go`, `backend/go.mod`), frontend (`views/RadioView.vue`, `components/radio/RadioSensors.vue`, composable, service, types, constants, `nav-radio.svg`, nav and route entries; the built `frontend_dist/index.html` is modified: the owner wants it committed with frontend changes).
+- **Checks run (all pass):** `go build ./...`, `go test ./...` for `internal/app`, `internal/core/...`, `internal/transport/...`, `internal/archtest`, `internal/platform/storage`, `models`; `GOWORK=off go vet` and `go test -race` in `stacks/radio`; `go test` in `stacks/sdk`; `go run ./tools/check-complexity/` (one new function went over 12; fixed by `hostedStacks`); frontend `npm test` (3043 pass) and `npm run build`; `npm run test:visual` (372 pass, run before the last doc edits; no Radio page visual spec was added). **Not run:** a real run on vertex (the page has only been exercised by tests and a fake `/sys`); `go test ./...` across the whole backend after the last edit (the touched packages were run).
 - Local leftovers, safe to ignore or delete with the owner's say: branch `wifi-monitor-findings-ledger` (no commits of mine), merged branches `wifi-monitor-mode-measurement-script`, `wifi-monitor-analyser-fixes`.
 
 ## Owner decisions already made (2026-11-13, quote-level)
 
-New **Radio** stack (not a layer of Network) · retention **14 days for neighbours' devices, 30 days for everything else** (daily rollups 30 days by my assumption, adjustable) · small bounded storage that cannot fill the disk · **SQLite yes** (`modernc.org/sqlite` in the stack; it is the ask-first item, answered yes) · hashed or encrypted at minimum information but matchable after a restart or re-entry (design: keyed tag for others, sealed address for the owner's) ·
-classes **Infrastructure, Personal, Neighbour, Transient** (I added **Unknown**) with dynamically adjustable rules · generic for **any number of adapters**, extensible, pluggable, stack on or off, **does nothing with no adapter**, unused capabilities reported in the UI · a system-wide data management page.
+New **Radio** stack (not a layer of Network) · retention **14 days for neighbours' devices, 30 days for everything else** (daily rollups 30 days by my assumption, adjustable) · small bounded storage that cannot fill the disk · **SQLite yes** · hashed or encrypted at minimum information but matchable after a restart or re-entry (design: keyed tag for others, sealed address for the owner's) · classes **Infrastructure, Personal, Neighbour, Transient** (I added **Unknown**) with dynamically adjustable rules · generic for **any number of adapters**, extensible, pluggable, stack on or off, **does nothing with no adapter**, unused capabilities reported in the UI · a system-wide data management page · **R0: yes to all** (ADRs, new SDK ports, windows, UK-law as an open risk).
 
 ## What is left, in order (each item: what it needs from the owner)
 
-1. **R0.** Owner reads ADR-0052, ADR-0053 and plan §6 (the draft Constitution **I.16 Radio Sensor** text) and accepts or edits them. **Needs:** (a) accept the ADRs; (b) **windows or a long-lived sensor** for capture (the plan assumes duty-cycled windows, 20 s a channel every 5 min; a long-lived unit needs a bigger amendment); (c) the **UK-law risk**: accept it as open or take advice (a persistent tag is a pseudonymous identifier; search found no guidance on passive capture of neighbours' frames; not legal advice). CONSTITUTION.md is **not** edited yet: its text rides in the implementing PR.
-2. **R1 skeleton** (plan §9): `stacks/radio` module, manifest, two new SDK ports (`vault`: `Tag`, `Seal`, `Open`; a storage report), discovery from `/sys/class/net`, capability records, Sensors page, idle behaviour. Ask-first: new SDK ports, `modernc.org/sqlite` in the stack's `go.mod`. TDD; the check is that with no adapter it starts no goroutine and writes nothing.
-3. R2 to R8 as in the plan. R2 needs **a pcap from vertex** to replay (capture one with tcpdump on a monitor interface; it holds neighbours' addresses: keep it out of the repo, derive a small synthetic fixture).
-4. [`data-management-page.md`](data-management-page.md) D1 can start independently of Radio.
+1. **Review and commit R1.** Needs the owner: look at the diff (`git diff HEAD`), say whether to commit and push (one command at a time). Try the page on vertex: plug in an adapter, open Radio, press Look again; the built-in card should show "Will not listen", a USB adapter "Can listen".
+2. **R2 Capture** (plan §9): the I.16 text into `CONSTITUTION.md`, helper actions `radio_probe` and `radio_listen` (closed catalogue, I.11), the parser (fuzzed), `modernc.org/sqlite` in `stacks/radio/go.mod`, the store with caps and retention, the vault *adapter* in the core (a `stackport.Vault` over `secretcrypto`, subkey per purpose). **Needs a pcap from vertex** to replay (tcpdump on a monitor interface; it holds neighbours' addresses: keep it out of the repo, derive a small synthetic fixture).
+3. R3 to R8 as in the plan.
+4. [`data-management-page.md`](data-management-page.md) D1 can start independently of Radio; the Radio stack will implement `StorageReporter` when it stores.
 
 ## Facts the owner can still supply (they sharpen the classifier and the findings)
 

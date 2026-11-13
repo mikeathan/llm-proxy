@@ -173,9 +173,13 @@ const (
 	// PortSecretScan asks the core to look through the files the agents wrote for credentials and report only where and what kind: the stack
 	// never reads a workspace folder and no file's bytes cross the port (Constitution IV.6).
 	PortSecretScan = "secretscan"
+	// PortVault gives a stack keyed, one-way tags and sealed values without ever showing it a key: the core derives a subkey per purpose from its
+	// own master key (Constitution III.6), so a stack that keeps a record about other people's devices can match a returning one without keeping
+	// what identifies it.
+	PortVault = "vault"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

@@ -447,3 +447,12 @@ func TestAgentWatchTypes_CarryOnlyIdsAndVettedTokens(t *testing.T) {
 		}
 	}
 }
+
+// A stack may require the vault port, and the storage report is plain data.
+func TestManifest_AcceptsTheVaultPort(t *testing.T) {
+	m := validManifest()
+	m.Requires = append(m.Requires, PortVault)
+	if err := m.Validate(); err != nil {
+		t.Fatalf("a manifest requiring %q must validate: %v", PortVault, err)
+	}
+}

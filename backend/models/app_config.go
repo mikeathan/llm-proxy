@@ -19,6 +19,7 @@ type AppConfig struct {
 	RunLogging     *RunLoggingConfig        `yaml:"run_logging,omitempty" json:"run_logging,omitempty"`
 	Netaudit       *NetauditConfig          `yaml:"netaudit,omitempty" json:"netaudit,omitempty"`
 	Agents         *AgentsConfig            `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Radio          *RadioConfig             `yaml:"radio,omitempty" json:"radio,omitempty"`
 }
 
 // AppServerConfig is the infrastructure-level server section of AppConfig

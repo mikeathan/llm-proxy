@@ -1,5 +1,5 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { toActivity, toAgents, toAutomations, toModels, toNetwork, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
+import { toActivity, toAgents, toAutomations, toRadio, toModels, toNetwork, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
 import type { Destination, NavEntry, NavGroup, NavGroupId, NavId, NavItem } from '../types/routes'
 import type { NotificationItem } from '../types/notifications'
@@ -52,6 +52,7 @@ const SPECS: readonly NavSpec[] = [
   { id: 'automations', label: 'Automations', icon: 'nav-automations', tab: true, to: toAutomations, current: onDestination('automations') },
   { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'stacks', to: () => toNetwork(), current: onDestination('network') },
   { id: 'agents', label: 'Agents', icon: 'nav-agents', tab: false, group: 'stacks', to: () => toAgents(), current: onDestination('agents') },
+  { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', to: () => toRadio(), current: onDestination('radio') },
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: true, to: toReminders, current: onDestination('reminders') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },
