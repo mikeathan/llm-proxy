@@ -8,7 +8,7 @@ const item = (items: ReturnType<typeof buildNavigation>, id: string) => items.fi
 
 describe('buildNavigation', () => {
   it('lists Assistant first, then the rest, with Workspace singular', () => {
-    expect(buildNavigation(base).map((i) => i.label)).toEqual(['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Agents', 'Reminders', 'Models', 'Activity', 'Settings'])
+    expect(buildNavigation(base).map((i) => i.label)).toEqual(['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings'])
   })
 
   it('opens the assistant and the files of the workspace last used', () => {
@@ -41,26 +41,26 @@ describe('buildNavigation', () => {
 
   it('carries each badge count, zero when there is none', () => {
     const items = buildNavigation({ ...base, badges: { assistant: 2, automations: 1 } })
-    expect(items.map((i) => i.badge)).toEqual([2, 0, 0, 1, 0, 0, 0, 0, 0, 0])
+    expect(items.map((i) => i.badge)).toEqual([2, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0])
   })
 
   it('puts four destinations in the phone tab bar and leaves the rest to More', () => {
     const items = buildNavigation(base)
     expect(items.filter((i) => i.tab).map((i) => i.id)).toEqual(['assistant', 'workspace', 'automations', 'reminders'])
-    expect(items.filter((i) => !i.tab).map((i) => i.id)).toEqual(['overview', 'network', 'agents', 'models', 'activity', 'settings'])
+    expect(items.filter((i) => !i.tab).map((i) => i.id)).toEqual(['overview', 'network', 'agents', 'radio', 'models', 'activity', 'settings'])
   })
 })
 
 describe('groupNavigation', () => {
   const entries = (over: Partial<Parameters<typeof buildNavigation>[0]> = {}) => groupNavigation(buildNavigation({ ...base, ...over }))
 
-  it('places Stacks where its first child sat, with Network and Agents inside it', () => {
+  it('places Stacks where its first child sat, with Network, Agents and Radio inside it', () => {
     const list = entries()
     expect(list.map((e) => (e.kind === 'group' ? `[${e.group.label}]` : e.item.label))).toEqual([
       'Assistant', 'Overview', 'Workspace', 'Automations', '[Stacks]', 'Reminders', 'Models', 'Activity', 'Settings',
     ])
     const group = list.find((e) => e.kind === 'group')
-    expect(group?.kind === 'group' && group.group.items.map((i) => i.id)).toEqual(['network', 'agents'])
+    expect(group?.kind === 'group' && group.group.items.map((i) => i.id)).toEqual(['network', 'agents', 'radio'])
   })
 
   it('is current, and carries the unread count, when a child is', () => {

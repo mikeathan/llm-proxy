@@ -66,3 +66,5 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0049](ADR-0049-the-audit-assessment-reads-a-bounded-window-digest-attached-to-the-scan-result.md) | The audit's assessment reads a bounded window digest that the scan result carries |
 | [ADR-0050](ADR-0050-a-finding-carries-typed-details-and-the-host-watch-keeps-file-names.md) | A finding carries typed details, and the host watch keeps file names with a short sum for each |
 | [ADR-0051](ADR-0051-the-agents-stack-takes-the-watch-and-the-core-keeps-the-walk-the-words-and-the-gate.md) | The Agents stack takes the watch; the core keeps the folder walk, the words and the gate |
+| [ADR-0052](ADR-0052-radio-is-its-own-stack-with-generic-sensors-and-the-core-keeps-capture-and-judgement.md) | Radio is its own stack with generic sensors, and the core keeps the capture and the judgement |
+| [ADR-0053](ADR-0053-radio-keeps-a-keyed-tag-for-other-peoples-devices-and-seals-the-owners-with-hard-size-and-age-limits.md) | Radio keeps a keyed tag for other people's devices and seals the owner's, with hard size and age limits |

@@ -117,6 +117,11 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It reads a record of what the agents did and does not stop them.",
 		ShowsUp: "As messages and on the Agents page.",
 	},
+	"radio_sensors": {
+		Watches: "The wireless adapters plugged into this computer, from the system's own records.",
+		Never:   "It sends nothing and listens to nothing yet. With no adapter it does nothing at all.",
+		ShowsUp: "On the Radio page.",
+	},
 	"secrets_pass": {
 		Watches: "Workspace files, each night, for credentials left in them.",
 		Never:   "It never shows a secret, only the file and the kind.",

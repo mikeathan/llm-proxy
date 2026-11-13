@@ -1,7 +1,7 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
-import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
+import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RadioTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
 
 // Typed navigation targets (plan D18): the only way the app builds a route.
 // Each returns a named location, so a path change touches the route table only.
@@ -66,6 +66,12 @@ export const toDeviceFindings = (device: string): RouteLocationNamedRaw => ({ na
 /** The Agents page; without a tab it opens on the activity. */
 export const toAgents = (tab?: AgentsTab): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.agents,
+  params: tab ? { tab } : {},
+})
+
+/** The Radio page; without a tab it opens on the sensors. */
+export const toRadio = (tab?: RadioTab): RouteLocationNamedRaw => ({
+  name: ROUTE_NAMES.radio,
   params: tab ? { tab } : {},
 })
 

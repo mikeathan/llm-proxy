@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io/fs"
 	"net/netip"
+	"slices"
 	"time"
 
 	"llm-proxy-stacks/agents"
 	"llm-proxy-stacks/network"
 	"llm-proxy-stacks/network/oui"
+	"llm-proxy-stacks/radio"
 	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/core/agentwatch"
@@ -46,10 +48,17 @@ type agentsPolicy interface {
 	Update(func(*models.AgentsConfig) error) error
 }
 
+// radioPolicy is the Radio stack's stored switch: *storage's radio view.
+type radioPolicy interface {
+	Get() models.RadioConfig
+	Update(func(*models.RadioConfig) error) error
+}
+
 // stackDeps are what the registry is built from.
 type stackDeps struct {
 	Network *netauditServices
 	Agents  agentsPolicy
+	Radio   radioPolicy
 	// Guard reads the network Guardrails each time, so a change in Settings shows at once.
 	Guard func() models.NetworkGuardrailsConfig
 }
@@ -62,7 +71,7 @@ const (
 )
 
 func newStackRegistry(d stackDeps) (*stack.Registry, error) {
-	reg, err := stack.New(stackDefinitions(), described(append(networkModules(d), agentModules(d)...)))
+	reg, err := stack.New(stackDefinitions(), described(slices.Concat(networkModules(d), agentModules(d), radioModules(d))))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the stack registry: %w", err)
 	}
@@ -86,6 +95,10 @@ func stackDefinitions() []stack.Stack {
 			ID: stack.Agents, Title: "Agents", Purpose: "Watch what the agents on this computer do.",
 			Layers:  []stack.Layer{{ID: "watch", Title: "Watch", Purpose: "What the agents did"}},
 			Actions: []stack.Action{{ID: "lockdown", Title: "Lock down", Purpose: "Stop the agents and sign out every other session."}},
+		},
+		{
+			ID: stack.Radio, Title: "Radio", Purpose: "Listen to the radio around this computer, with the adapters you plug in.",
+			Layers: []stack.Layer{{ID: "sensors", Title: "Sensors", Purpose: "The radios this computer has, and what each can do"}},
 		},
 	}
 }
@@ -162,6 +175,26 @@ func agentModules(d stackDeps) []stack.Module {
 		{ID: "secrets_pass", Title: "Secrets pass", Purpose: "A nightly look through workspace files for credentials.", Stack: stack.Agents, Layer: "watch", Sends: stack.SendsMessage, StepUp: true,
 			Switch: secretsPassSwitch(d.Agents)},
 	}
+}
+
+// radioModules are the Radio stack's switches. The stack is off until the operator opts in, and it sends nothing, so its switch needs no passphrase.
+func radioModules(d stackDeps) []stack.Module {
+	return []stack.Module{
+		{ID: radio.SensorsModuleID, Title: "Radio sensors", Purpose: "Find the radios on this computer and say what each can do.", Stack: stack.Radio, Layer: "sensors", Sends: stack.SendsNothing,
+			Switch: radioSwitch{d.Radio}},
+	}
+}
+
+// radioSwitch is the Radio policy's one flag read as a switch.
+type radioSwitch struct{ store radioPolicy }
+
+func (r radioSwitch) Enabled() bool { return r.store.Get().Enabled }
+
+func (r radioSwitch) Set(enabled bool) error {
+	return r.store.Update(func(c *models.RadioConfig) error {
+		c.Enabled = enabled
+		return nil
+	})
 }
 
 // presenceSwitch turns the presence check on or off without touching the interval the operator chose.
@@ -252,6 +285,22 @@ func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context
 	return h, nil
 }
 
+// radioStack is the Radio stack: the sensors of wireless radios. Only this file imports a stack (Constitution IV.6). It reads the real /sys.
+func radioStack() stacksdk.Stack { return radio.New(nil) }
+
+// newRadioHost hosts the Radio stack over the core's own services, one adapter per port its manifest requires: the settings document (the
+// `radio` key) and the service's log. It stores nothing yet, so a factory reset has nothing of it to remove.
+func (s *AppServices) newRadioHost(policy radioPolicy) (*stackHost, error) {
+	st := radioStack()
+	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
+		return nil, err
+	}
+	return newStackHost(st, stacksdk.Host{
+		Config: stackport.Config[models.RadioConfig]{Store: policy},
+		Log:    stackport.Log{Stack: st.Manifest().ID},
+	})
+}
+
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes
 // now and not at the next tick. A write that failed wakes nothing.
 type pokedSwitch struct {
@@ -303,7 +352,7 @@ const observeTimeout = 2 * time.Second
 func (n *netauditServices) observedModule(id string) (stack.Observed, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
 	defer cancel()
-	for _, h := range []*stackHost{n.Network, n.Agents} {
+	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio} {
 		if h == nil {
 			continue
 		}

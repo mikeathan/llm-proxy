@@ -10,7 +10,7 @@ vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: { fetchVersion: () => Promise.resolve({ version: 'v1.2.3' }) },
 }))
 
-const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Agents', 'Reminders', 'Models', 'Activity', 'Settings']
+const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings']
 
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())
@@ -39,7 +39,7 @@ describe('AppSidebar', () => {
     expect(navLinks(wrapper).every((a) => a.attributes('href'))).toBe(true)
   })
 
-  it('keeps Network and Agents under an expandable Stacks group, open by default and remembered when closed', async () => {
+  it('keeps Network, Agents and Radio under an expandable Stacks group, open by default and remembered when closed', async () => {
     const { wrapper } = await mountAt('/overview')
     const toggle = wrapper.get('[data-test="group-stacks"]')
     expect(toggle.attributes('aria-expanded')).toBe('true')

@@ -56,3 +56,9 @@ export const coverageLine = (on: number, total: number): string => `${on} of ${t
 export const COVERAGE_ALL_ON = 'Every protection is on.'
 export const COVERAGE_OFF_INTRO = 'Off, and what each would watch:'
 export const HELP_MODULES_TITLE = 'What each switch does'
+
+/** The Radio page. Sensors is the page without a tab. */
+export const RADIO_TITLE = 'Radio'
+export const RADIO_SUBTITLE = 'The radios this computer has, and what each of them can do.'
+export const RADIO_SENSORS_LABEL = 'Sensors'
+export const RADIO_TAB_LABELS = { modules: 'Modules' } as const

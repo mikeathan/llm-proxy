@@ -40,6 +40,7 @@ type DataManager struct {
 	hostView     *hostSettingsView
 	netauditView *netauditView
 	agentsView   *agentsView
+	radioView    *radioView
 
 	// Secrets (Credentials)
 	encSecretStore *Store[models.EncryptedSecretData]
@@ -94,6 +95,7 @@ func NewDataManager(p paths.Paths) (*DataManager, error) {
 	m.hostView = &hostSettingsView{mgr: m}
 	m.netauditView = &netauditView{mgr: m}
 	m.agentsView = &agentsView{mgr: m}
+	m.radioView = &radioView{mgr: m}
 
 	return m, nil
 }
@@ -366,6 +368,9 @@ func (m *DataManager) Netaudit() *netauditView { return m.netauditView }
 
 // Agents is the host-wide Agents stack policy view.
 func (m *DataManager) Agents() *agentsView { return m.agentsView }
+
+// Radio is the Radio stack's policy (settings.yml → radio:), off until the operator switches it on.
+func (m *DataManager) Radio() *radioView { return m.radioView }
 
 func (m *DataManager) Secrets() models.SecretsStore {
 	m.secretsMu.RLock()

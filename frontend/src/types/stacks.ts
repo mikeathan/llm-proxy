@@ -2,7 +2,7 @@ import type { RouteLocationNamedRaw } from 'vue-router'
 
 // The stacks of switchable modules (ADR-0028): a stack holds layers, a layer holds modules. These mirror /admin/api/stacks.
 
-export const STACK_IDS = ['network', 'agents'] as const
+export const STACK_IDS = ['network', 'agents', 'radio'] as const
 export type StackId = (typeof STACK_IDS)[number]
 
 /** What a module sends or opens, in the server's words. */
