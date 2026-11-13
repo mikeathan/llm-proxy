@@ -80,6 +80,8 @@ type Result struct {
 	Kind      string `json:"kind"`
 	Data      []byte `json:"data"`
 	Truncated bool   `json:"truncated,omitempty"`
+	// Report is the output of the steps an action marks to be reported (the radio class's channel read-back); empty for most actions.
+	Report []byte `json:"report,omitempty"`
 }
 
 // Response answers one Request, carrying its ID.

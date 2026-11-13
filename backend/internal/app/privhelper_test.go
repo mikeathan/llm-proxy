@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"llm-proxy/internal/platform/privhelper/client"
 	"llm-proxy/internal/platform/privhelper/port"
+	"llm-proxy/internal/platform/privhelper/session"
 	"llm-proxy/internal/platform/scanscope"
 	api "llm-proxy/internal/transport/http"
 	"llm-proxy/models"
@@ -161,5 +163,38 @@ func TestAResultThatCannotBeKeptIsDroppedWithoutPanicking(t *testing.T) {
 	keep("scan_udp", []byte(`{"target":"192.168.50.10"}`), probe) // the sink errors: logged, not raised
 	if len(sink.udp) != 1 || len(sink.os) != 0 {
 		t.Errorf("udp %v os %v: only the one well-formed call reaches the sink", sink.udp, sink.os)
+	}
+}
+
+// The bytes of a radio window are other people's frames: the browser gets a summary or nothing, never the bytes (Constitution I.16). A probe's
+// output is the system's own description of an adapter and may be shown.
+func TestARadioWindowsRawBytesStayInTheService(t *testing.T) {
+	if !keepsToItself("radio_listen") || keepsToItself("radio_probe") {
+		t.Error("radio_listen's bytes stay in the service; radio_probe's do not")
+	}
+}
+
+// A session never shows as open while its action is off: the list ends it, and the port refuses it on every use as well.
+func TestASessionEndsWhenItsActionIsSwitchedOff(t *testing.T) {
+	store := session.New(session.Options{})
+	if _, err := store.Begin(session.Spec{Stack: "radio", Label: "x", TTL: time.Hour, MaxUses: 5,
+		Requests: []session.Request{{Action: "radio_listen", Canonical: []byte(`{"iface":"w","channel":1,"seconds":20}`)}}}); err != nil {
+		t.Fatal(err)
+	}
+	on := true
+	view := switchedOffSessions{store, func(string) bool { return on }}
+	if open, _ := view.Open(); len(open) != 1 {
+		t.Fatalf("switched on: %d open", len(open))
+	}
+	on = false
+	if open, ended := view.Open(); len(open) != 0 || len(ended) != 1 || ended[0].Ended != "the action was switched off" {
+		t.Errorf("switched off: open %v ended %+v", open, ended)
+	}
+}
+
+func TestAStackIsGivenThePortThatServesItsSessions(t *testing.T) {
+	h := newHelperRoutes(&AppContext{}, nil, helperSinks{})
+	if h.StackPrivileged("radio") == nil || h.sessionBegin == nil || h.sessionList == nil || h.sessionEnd == nil || h.sessionEndAll == nil {
+		t.Error("the session routes and the stack port are built with the helper's routes")
 	}
 }

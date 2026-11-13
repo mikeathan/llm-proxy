@@ -17,3 +17,6 @@ func (ThreadAmbient) Raise(int) error { return errNoCaps }
 
 // CapNetRaw is CAP_NET_RAW's number; off Linux nothing uses it.
 const CapNetRaw = 13
+
+// CapNetAdmin is CAP_NET_ADMIN's number; off Linux nothing uses it.
+const CapNetAdmin = 12

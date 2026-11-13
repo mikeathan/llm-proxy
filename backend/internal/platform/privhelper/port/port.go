@@ -31,6 +31,8 @@ const (
 	msgNoRange     = "no scan range is declared: declare one in the Network settings first"
 	msgRangeError  = "the scan ranges could not be checked"
 	msgHourly      = "the hourly limit for this action is reached; try again later"
+	msgSession     = "no open session covers this request"
+	msgOff         = "this action is switched off"
 )
 
 // Typed answers from a Ranges check; match them with errors.Is.
@@ -118,6 +120,19 @@ func (l *limiter) take(action string, max int) bool {
 // Run checks the request and runs it. The parameters are checked against the catalogue first, because a grant is bound to their
 // canonical form; the grant is used up before the helper is called, so one click is one attempt.
 func (p *Port) Run(ctx context.Context, req stacksdk.PrivilegedRequest) (stacksdk.PrivilegedResult, error) {
+	return p.run(ctx, req, func(a catalog.Action, prepared catalog.Prepared) error {
+		if err := p.grants.Consume(req.Grant, a.ID, prepared.Canonical); err != nil {
+			return stacksdk.Errorf(stacksdk.CodeDenied, msgGrant)
+		}
+		return nil
+	})
+}
+
+// authorize is what lets a request through once its parameters and target are checked: a grant used up, or a session use counted. It runs
+// before the hourly limit and the helper, and its error is what the caller is told.
+type authorize func(a catalog.Action, prepared catalog.Prepared) error
+
+func (p *Port) run(ctx context.Context, req stacksdk.PrivilegedRequest, allow authorize) (stacksdk.PrivilegedResult, error) {
 	a, err := catalog.Lookup(req.Action)
 	if err != nil {
 		return stacksdk.PrivilegedResult{}, stacksdk.Errorf(stacksdk.CodeInvalid, "no such action")
@@ -129,8 +144,8 @@ func (p *Port) Run(ctx context.Context, req stacksdk.PrivilegedRequest) (stacksd
 	if err := p.checkRanges(prepared.Target); err != nil {
 		return stacksdk.PrivilegedResult{}, err
 	}
-	if err := p.grants.Consume(req.Grant, a.ID, prepared.Canonical); err != nil {
-		return stacksdk.PrivilegedResult{}, stacksdk.Errorf(stacksdk.CodeDenied, msgGrant)
+	if err := allow(a, prepared); err != nil {
+		return stacksdk.PrivilegedResult{}, err
 	}
 	if !p.limits.take(a.ID, a.Caps.MaxPerHour) {
 		return stacksdk.PrivilegedResult{}, stacksdk.Errorf(stacksdk.CodeUnavailable, msgHourly)

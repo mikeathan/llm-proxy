@@ -42,6 +42,16 @@ func OpenHost(name string) (HostSource, wire.CaptureStop, error) {
 	return &hostPacketSource{fd: fd}, wire.StopWindow, nil
 }
 
+// OpenRadio opens a packet socket on a monitor-mode adapter for the radio_listen action. There is no filter: a monitor interface carries only
+// radiotap frames, and every one is wanted. It is never put in promiscuous mode here (monitor mode is the helper's step, not the program's).
+func OpenRadio(name string) (Source, wire.CaptureStop, error) {
+	fd, stop, err := openSocket(name, nil)
+	if err != nil {
+		return nil, stop, err
+	}
+	return &radioPacketSource{fd: fd}, wire.StopWindow, nil
+}
+
 // openSocket opens the socket. The order matters: the socket is created with protocol 0, so nothing is queued; the filter is attached; and
 // only then is it bound to the interface with every protocol, so no frame reaches the program before the filter has seen it (a socket created
 // with ETH_P_ALL starts queuing at once). Promiscuous mode is never requested: there is no PACKET_ADD_MEMBERSHIP.
@@ -57,9 +67,11 @@ func openSocket(name string, prog []filterInstruction) (int, wire.CaptureStop, e
 	if err != nil {
 		return 0, wire.StopSocketError, errNotOpened
 	}
-	if err := attachFilter(fd, prog); err != nil {
-		unix.Close(fd)
-		return 0, wire.StopSocketError, errNotOpened
+	if prog != nil {
+		if err := attachFilter(fd, prog); err != nil {
+			unix.Close(fd)
+			return 0, wire.StopSocketError, errNotOpened
+		}
 	}
 	if err := unix.Bind(fd, &unix.SockaddrLinklayer{Protocol: htons(unix.ETH_P_ALL), Ifindex: ifc.Index}); err != nil {
 		unix.Close(fd)
@@ -139,3 +151,26 @@ func (s *hostPacketSource) SetSample(n uint16) error {
 func (s *hostPacketSource) Stats() (uint32, uint32) { return packetStats(s.fd) }
 
 func (s *hostPacketSource) Close() error { return unix.Close(s.fd) }
+
+// radioPacketSource reads frames for the radio window: up to wire.RadioSnapBeacon bytes of each (the kernel cuts a longer frame to the buffer).
+type radioPacketSource struct {
+	fd  int
+	buf [wire.RadioSnapBeacon]byte
+}
+
+// Next reads one frame, at most wire.RadioSnapBeacon bytes of it.
+func (s *radioPacketSource) Next() ([]byte, error) {
+	n, _, err := unix.Recvfrom(s.fd, s.buf[:], 0)
+	switch {
+	case err == nil:
+		return append([]byte(nil), s.buf[:n]...), nil
+	case errors.Is(err, unix.EAGAIN), errors.Is(err, unix.EINTR):
+		return nil, nil
+	}
+	return nil, err
+}
+
+// Stats reads the socket's counters once; reading them resets them in the kernel.
+func (s *radioPacketSource) Stats() (uint32, uint32) { return packetStats(s.fd) }
+
+func (s *radioPacketSource) Close() error { return unix.Close(s.fd) }

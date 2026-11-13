@@ -61,8 +61,9 @@ type Config struct {
 	Class catalog.Class
 	// Actions is the root-owned list of actions this unit may run (HELPER_ACTIONS): the third gate.
 	Actions []string
-	// Capability is the one capability the actions of this class need while they run (CAP_NET_RAW for the net class); 0 means none.
-	Capability int
+	// Capabilities are the capabilities the actions of this class need while they run (CAP_NET_RAW for the net class; CAP_NET_ADMIN and
+	// CAP_NET_RAW for the radio class); none means none.
+	Capabilities []int
 	// Programs maps a catalogue program name to how it is found.
 	Programs map[string]isolation.Program
 	// DataDirs are directories a program may read besides its own binary's (nmap's data files); those that do not exist are skipped.
@@ -75,6 +76,9 @@ type Config struct {
 	// PtraceScope returns the host's Yama ptrace_scope.
 	PtraceScope func() (int, error)
 	Ambient     Ambient
+	// Interface checks, from the host's own records, that an action may touch the named interface (the radio class: a USB adapter that does
+	// not carry the host's connection). It is required for the radio class and is not asked of a class whose actions name no interface.
+	Interface func(ctx context.Context, iface string) error
 	// Log writes one line to the journal.
 	Log func(msg string, kv ...any)
 }
@@ -89,8 +93,10 @@ func New(cfg Config) (*Helper, error) {
 	switch {
 	case cfg.Runner == nil || cfg.Identify == nil || cfg.MainPID == nil || cfg.PtraceScope == nil || cfg.Ambient == nil || cfg.Log == nil:
 		return nil, errors.New("helper: every seam is required")
-	case cfg.Class != catalog.ClassNet && cfg.Class != catalog.ClassLog:
+	case cfg.Class != catalog.ClassNet && cfg.Class != catalog.ClassLog && cfg.Class != catalog.ClassRadio:
 		return nil, fmt.Errorf("helper: unknown class %q", cfg.Class)
+	case cfg.Class == catalog.ClassRadio && cfg.Interface == nil:
+		return nil, errors.New("helper: the radio class needs a check of the interface it is asked to touch")
 	}
 	return &Helper{cfg: cfg}, nil
 }
@@ -120,16 +126,16 @@ func (h *Helper) Serve(ctx context.Context, conn net.Conn) {
 		reply(conn, refusal("", wire.CodeInvalid, msgInvalid))
 		return
 	}
-	prepared, action, ok := h.admit(conn, req)
+	prepared, action, ok := h.admit(ctx, conn, req)
 	if !ok {
 		return
 	}
-	if h.cfg.Capability != 0 {
-		if err := h.cfg.Ambient.Raise(h.cfg.Capability); err != nil {
+	for _, c := range h.cfg.Capabilities {
+		raised = true // a thread that held an ambient capability, even part of the set, is left to end with its goroutine
+		if err := h.cfg.Ambient.Raise(c); err != nil {
 			h.refuse(conn, req.ID, wire.CodeFailed, msgFailed, "raise capability", err)
 			return
 		}
-		raised = true
 	}
 	h.run(ctx, conn, req.ID, action, prepared)
 }
@@ -161,7 +167,7 @@ func (h *Helper) callerIsTheService(ctx context.Context, conn net.Conn) bool {
 // admit applies the gates and the checks that need no program: the action must be in this unit's class and list, and its parameters must
 // pass the catalogue, whose fixed rules are the helper's whole scope: one private IPv4 host, a fixed port list. The operator's declared
 // scan ranges are enforced by the service before it asks (a root-held copy would only be copied from a file the service can write).
-func (h *Helper) admit(conn net.Conn, req wire.Request) (catalog.Prepared, catalog.Action, bool) {
+func (h *Helper) admit(ctx context.Context, conn net.Conn, req wire.Request) (catalog.Prepared, catalog.Action, bool) {
 	action, err := catalog.Lookup(req.Action)
 	if err != nil || action.Class != h.cfg.Class {
 		reply(conn, refusal(req.ID, wire.CodeUnknown, msgInvalid))
@@ -180,8 +186,33 @@ func (h *Helper) admit(conn net.Conn, req wire.Request) (catalog.Prepared, catal
 		reply(conn, refusal(req.ID, code, msg))
 		return catalog.Prepared{}, catalog.Action{}, false
 	}
+	if prepared.Iface != "" && !h.interfaceAllowed(ctx, conn, req.ID, prepared.Iface) {
+		return catalog.Prepared{}, catalog.Action{}, false
+	}
 	return prepared, action, true
 }
+
+// interfaceAllowed asks the host's own records whether the action may touch the interface; the reason goes to the journal and the peer is told
+// only that the request is outside what the action may do.
+func (h *Helper) interfaceAllowed(ctx context.Context, conn net.Conn, id, iface string) bool {
+	if h.cfg.Interface == nil {
+		h.refuse(conn, id, wire.CodeFailed, msgFailed, "no interface check", errors.New(iface))
+		return false
+	}
+	if err := h.cfg.Interface(ctx, iface); err != nil {
+		h.cfg.Log("refused: the interface is not one this action may touch", "iface", iface, "error", err)
+		reply(conn, refusal(id, wire.CodeScope, msgScope))
+		return false
+	}
+	return true
+}
+
+// stepTimeout bounds one step the catalogue puts around an action's program (ip or iw changing an adapter), and restoreTimeout the whole of the
+// steps that put it back: they must finish even when the action's own time is spent.
+const (
+	stepTimeout    = 10 * time.Second
+	restoreTimeout = 20 * time.Second
+)
 
 // run starts the program under the file jail with the action's caps and replies with what it printed. The run ends when the peer
 // disconnects or the action's timeout passes.
@@ -208,7 +239,7 @@ func (h *Helper) run(ctx context.Context, conn net.Conn, id string, action catal
 	profile := isolation.ProfileFor(root)
 	profile.Timeout, profile.MaxOutput, profile.NoNetwork = action.Caps.Timeout, action.Caps.MaxOutputBytes, !action.Jail.Network
 	profile.ReadPaths = h.dataDirs()
-	out, err := h.cfg.Runner.Run(ctx, prog, profile, p.Args...)
+	out, report, err := h.runAround(ctx, prog, profile, p)
 	switch {
 	case errors.Is(err, isolation.ErrTimedOut):
 		// What a long scan printed before the timeout is worth returning; the reply says it was cut.
@@ -218,8 +249,52 @@ func (h *Helper) run(ctx context.Context, conn net.Conn, id string, action catal
 		return
 	}
 	reply(conn, wire.Response{V: wire.Version, ID: id, Status: wire.StatusOK, Result: &wire.Result{
-		Kind: string(action.Result), Data: out.Stdout, Truncated: out.Truncated,
+		Kind: string(action.Result), Data: out.Stdout, Truncated: out.Truncated, Report: report,
 	}})
+}
+
+// runAround runs the steps before the program, the program, and the steps after it. The steps after run on every path, each whether or not an
+// earlier one failed, on a context that outlives a cancelled run, and finish before this returns: an adapter put in monitor mode is back in
+// managed mode before the peer is told anything. A step before that fails ends the action without the program.
+func (h *Helper) runAround(ctx context.Context, prog isolation.Program, profile isolation.Profile, p catalog.Prepared) (out isolation.Output, report []byte, err error) {
+	if len(p.After) > 0 {
+		defer func() {
+			restore, cancel := context.WithTimeout(context.WithoutCancel(ctx), restoreTimeout)
+			defer cancel()
+			for _, s := range p.After {
+				if _, serr := h.step(restore, profile, s); serr != nil {
+					h.cfg.Log("a step that puts an adapter back failed", "program", s.Program, "error", serr)
+				}
+			}
+		}()
+	}
+	for _, s := range p.Before {
+		stepOut, serr := h.step(ctx, profile, s)
+		if serr != nil {
+			return isolation.Output{}, nil, serr
+		}
+		if s.Report {
+			report = stepOut
+		}
+	}
+	out, err = h.cfg.Runner.Run(ctx, prog, profile, p.Args...)
+	return out, report, err
+}
+
+// step runs one catalogue step under the same jail as the program, with its own short time and a small output cap, and returns what it printed.
+func (h *Helper) step(ctx context.Context, profile isolation.Profile, s catalog.Step) ([]byte, error) {
+	prog, ok := h.cfg.Programs[s.Program]
+	if !ok {
+		return nil, fmt.Errorf("no such program: %s", s.Program)
+	}
+	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
+	defer cancel()
+	profile.Timeout, profile.MaxOutput = stepTimeout, wire.RadioReportMax
+	out, err := h.cfg.Runner.Run(ctx, prog, profile, s.Args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", s.Program, err)
+	}
+	return out.Stdout, nil
 }
 
 // dataDirs are the readable data directories that exist.

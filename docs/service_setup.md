@@ -203,7 +203,9 @@ only the ranges you declared in the Network settings (Network, Settings, "What m
 there applies at once, and while none is declared nothing can be scanned. `--helper` is remembered: later `--install --build --unattended` runs
 keep the helper and refresh its binary.
 `sudo ./setup.sh --install --unattended --no-helper` removes only the helper; `--uninstall` removes it with the service. Every build also compiles
-`backend/llm-proxy-helper`; building installs nothing. Without `setup.sh`: `sudo scripts/install-helper.sh net --install --bin backend/llm-proxy-helper --group llm-proxy` (`--actions` defaults to all).
+`backend/llm-proxy-helper`; building installs nothing. Without `setup.sh`: `sudo scripts/install-helper.sh net --install --bin backend/llm-proxy-helper --group llm-proxy` (`--actions` defaults to all of the class's actions).
+
+**Radio unit (Wi-Fi listening, Constitution I.16; separate, off by default).** `sudo scripts/install-helper.sh radio --install --bin backend/llm-proxy-helper --group llm-proxy` installs the radio class's own unit and socket (`/run/llm-proxy-helper-radio.sock`) with `radio_probe` and `radio_listen`; it needs `iw` and `ip`. The unit holds `CAP_NET_ADMIN` and `CAP_NET_RAW`, listens only through a USB adapter that carries neither the default route nor an SSH session, sends no frame, and puts the adapter back in managed mode after every window. Each action stays off until you switch it on with your passphrase, and capture must not be switched on before you have taken advice on the law where you live (ADR-0053). **Not yet run on a real host:** the jailed `ip` and `iw`, the capability set and the unit's system-call filter are checked by tests with fakes only.
 
 **Try it first** on any Linux host with systemd and nmap, before the real install (installs throw-away units for a test service, removes them
 afterwards; aim it at one device of yours):
