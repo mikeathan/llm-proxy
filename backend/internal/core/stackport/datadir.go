@@ -35,6 +35,9 @@ func (d DataDir) path(name string) (string, error) {
 	return filepath.Join(d.Dir, name), nil
 }
 
+// Path is the file's place on disk, for a stack that keeps a database (stacksdk.FilePather). Only a listed name resolves.
+func (d DataDir) Path(name string) (string, error) { return d.path(name) }
+
 // Read returns the file's bytes.
 func (d DataDir) Read(name string) ([]byte, error) {
 	p, err := d.path(name)

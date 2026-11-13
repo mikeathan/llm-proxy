@@ -48,6 +48,7 @@ type Stack struct {
 	mu      sync.Mutex
 	h       stacksdk.Host
 	started bool
+	store   *Store
 }
 
 // New returns the stack, reading the system's records from sys. Pass nil to read the real /sys.
@@ -73,7 +74,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		},
 		Routes:   []stacksdk.RouteSpec{{Method: http.MethodGet, Path: RoutePath}},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault},
+		Storage:  []string{DBFile},
 	}
 }
 
@@ -93,7 +95,7 @@ func (s *Stack) Stop(context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.h, s.started = stacksdk.Host{}, false
-	return nil
+	return s.closeStoreLocked()
 }
 
 // ConfigChanged has nothing to re-read: the switch is read each time it is asked.

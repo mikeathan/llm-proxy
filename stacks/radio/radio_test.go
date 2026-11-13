@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -150,5 +153,50 @@ func TestStack_StartTwiceIsRefusedAndNoToolsOrFindingsYet(t *testing.T) {
 	}
 	if _, err := s.CallTool(context.Background(), "x", nil); stacksdk.CodeOf(err) != stacksdk.CodeNotFound {
 		t.Errorf("no tools: %v", err)
+	}
+}
+
+type pathDir struct {
+	recordingDir
+	dir string
+}
+
+func (d *pathDir) Path(name string) (string, error) { return filepath.Join(d.dir, name), nil }
+
+func TestStorageUse_NothingUntilSomethingIsStored(t *testing.T) {
+	dir := &pathDir{dir: t.TempDir()}
+	s := New(fstest.MapFS{})
+	if err := s.Start(context.Background(), host(`{}`, dir)); err != nil {
+		t.Fatal(err)
+	}
+	use, err := s.StorageUse(context.Background())
+	if err != nil || use != nil {
+		t.Fatalf("an idle stack reports nothing: %v %v", use, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir.dir, DBFile)); err == nil {
+		t.Fatal("reporting must not create the database")
+	}
+	st, err := OpenStore(filepath.Join(dir.dir, DBFile), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.SeenDevice(context.Background(), Seen{Tag: tag(1), At: t0})
+	_ = st.Close()
+	use, err = s.StorageUse(context.Background())
+	if err != nil || len(use) != 1 || use[0].Rows != 1 {
+		t.Fatalf("%+v %v", use, err)
+	}
+	if err := s.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestManifest_StoresOneFileAndNeedsTheVault(t *testing.T) {
+	m := New(fstest.MapFS{}).Manifest()
+	if len(m.Storage) != 1 || m.Storage[0] != DBFile {
+		t.Errorf("storage %v", m.Storage)
+	}
+	if !slices.Contains(m.Requires, stacksdk.PortVault) {
+		t.Errorf("requires %v", m.Requires)
 	}
 }

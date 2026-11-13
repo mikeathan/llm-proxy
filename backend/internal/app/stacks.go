@@ -23,6 +23,7 @@ import (
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/loginlog"
 	"llm-proxy/internal/platform/neighbors"
+	"llm-proxy/internal/platform/storage"
 	"llm-proxy/models"
 )
 
@@ -289,16 +290,27 @@ func (s *AppServices) newAgentsHost(policy agentsPolicy, notify func(ctx context
 func radioStack() stacksdk.Stack { return radio.New(nil) }
 
 // newRadioHost hosts the Radio stack over the core's own services, one adapter per port its manifest requires: the settings document (the
-// `radio` key) and the service's log. It stores nothing yet, so a factory reset has nothing of it to remove.
+// `radio` key), the service's log, the data folder restricted to the one file the manifest lists (the database), and the vault, which derives
+// a subkey per purpose from the master key so the stack never sees a key. The database is removed by a factory reset, which also replaces the key.
 func (s *AppServices) newRadioHost(policy radioPolicy) (*stackHost, error) {
 	st := radioStack()
+	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
 		return nil, err
 	}
-	return newStackHost(st, stacksdk.Host{
-		Config: stackport.Config[models.RadioConfig]{Store: policy},
-		Log:    stackport.Log{Stack: st.Manifest().ID},
+	dir := s.AppCtx.RootDir()
+	configDir := s.AppCtx.dataMgr.ConfigDir()
+	h, err := newStackHost(st, stacksdk.Host{
+		Config:  stackport.Config[models.RadioConfig]{Store: policy},
+		Log:     stackport.Log{Stack: st.Manifest().ID},
+		DataDir: stackport.DataDir{Dir: dir, Files: files},
+		Vault:   stackport.Vault{Key: func() ([]byte, error) { return storage.GetMasterKey(configDir) }},
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.AppCtx.AfterFactoryReset("The radio database", func() error { return stackport.Remove(dir, files) })
+	return h, nil
 }
 
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes
