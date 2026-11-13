@@ -631,6 +631,8 @@ export const HELPER_ACTION_LABELS: Readonly<Record<string, { title: string; hint
   os_detect: { title: 'OS detection', hint: 'Guesses what kind of device it is.' },
   capture_host: { title: 'Traffic on this computer', hint: 'Listens for up to 60 seconds to this computer\'s own traffic and shows where it went. The Traffic tab uses it.' },
   capture_window: { title: 'Listen on this network', hint: 'Listens for up to 60 seconds for broadcast frames on this computer\'s link and counts them.' },
+  radio_probe: { title: 'Read Wi-Fi adapters', hint: 'Asks the system what each Wi-Fi adapter can do. Sends nothing and listens to nothing.' },
+  radio_listen: { title: 'Listen to nearby Wi-Fi', hint: 'Puts one USB Wi-Fi adapter in listen mode for up to 30 seconds and keeps frame headers only. Never the built-in card.' },
 }
 // The UDP ports the helper may scan (the catalogue's fixed list); the button asks for all of them.
 export const HELPER_UDP_PORTS: readonly number[] = [53, 67, 69, 123, 137, 161, 500, 1900, 5353]

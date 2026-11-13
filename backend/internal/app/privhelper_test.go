@@ -83,6 +83,30 @@ func TestReadHelperActionsSaysUnknownWhenItCannotRead(t *testing.T) {
 	}
 }
 
+// The radio class is a separate install with its own drop-in, so the status must read the actions of every class's file, or a radio action
+// that is installed shows as missing.
+func TestReadAllHelperActionsJoinsTheFilesOfEveryInstalledClass(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, actions string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("[Service]\nEnvironment=HELPER_ACTIONS="+actions+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	net, radio := write("net.conf", "scan_udp"), write("radio.conf", "radio_probe,radio_listen")
+	absent := filepath.Join(dir, "absent.conf")
+	if got, ok := readAllHelperActions(net, radio); !ok || !slices.Equal(got, []string{"scan_udp", "radio_probe", "radio_listen"}) {
+		t.Errorf("both installed: %v %v", got, ok)
+	}
+	if got, ok := readAllHelperActions(net, absent); !ok || !slices.Equal(got, []string{"scan_udp"}) {
+		t.Errorf("only net installed: %v %v", got, ok)
+	}
+	if _, ok := readAllHelperActions(absent, absent); ok {
+		t.Error("no readable file must read as unknown")
+	}
+}
+
 // The helper holds no range of its own, so these are the checks that keep a helper call inside what the operator declared.
 func TestAHelperTargetMustBeInsideTheDeclaredRanges(t *testing.T) {
 	policy := func(cidrs ...string) func() scanscope.Policy {

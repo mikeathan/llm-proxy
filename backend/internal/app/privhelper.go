@@ -30,13 +30,16 @@ import (
 // the operator installs the unit, and then every call reports the helper unavailable.
 const helperSocket = "/run/llm-proxy-helper-net.sock"
 
-// helperRadioSocket is where the radio-class unit listens (docs/services/llm-proxy-helper-radio.socket, Constitution I.16). It is a separate
-// install, off by default; with no unit there, a radio action reports the helper unavailable.
+// helperRadioSocket is where the radio-class unit listens (docs/services/llm-proxy-helper-radio.socket, Constitution I.16). It has its own
+// units, installed with the net class by `setup.sh --helper` (or alone); with no unit there, a radio action reports the helper unavailable.
 const helperRadioSocket = "/run/llm-proxy-helper-radio.sock"
 
 // helperGatesFile is the root-owned drop-in `scripts/install-helper.sh` writes: the actions and the scan ranges the helper holds. It is
 // world-readable, so the service can show what the install did, and nothing the service can write decides what the helper does.
 const helperGatesFile = "/etc/systemd/system/llm-proxy-helper-net@.service.d/10-gates.conf"
+
+// helperRadioGatesFile is the same drop-in of the radio class, which has its own units (`install-helper.sh radio`, run by `setup.sh --helper`).
+const helperRadioGatesFile = "/etc/systemd/system/llm-proxy-helper-radio@.service.d/10-gates.conf"
 
 // helperRoutes is the service's side of the privileged helper (ADR-0034, Constitution I.11), built once here: the one-use grant store, the
 // client that reads the sandbox's state on every call, and the port that checks a grant before the client is used. It is the only place
@@ -132,7 +135,7 @@ func newHelperRoutes(ctx *AppContext, policy func() scanscope.Policy, sinks help
 		Supported: func() bool { return runtime.GOOS == "linux" },
 		Installed: helperSocketPresent,
 		Interlock: helperClient.Ready,
-		Gates:     func() ([]string, bool) { return readHelperActions(helperGatesFile) },
+		Gates:     func() ([]string, bool) { return readAllHelperActions(helperGatesFile, helperRadioGatesFile) },
 		Declared:  func() []string { return rangeStrings(policy()) },
 		On:        on,
 		Running:   running.Running,
@@ -249,6 +252,17 @@ func readHelperActions(path string) (actions []string, ok bool) {
 		}
 	}
 	return nil, false
+}
+
+// readAllHelperActions joins the actions of every class's drop-in that can be read. ok is false only when none can, so a class that is
+// not installed shows its actions as missing while the installed ones show as present.
+func readAllHelperActions(paths ...string) (actions []string, ok bool) {
+	for _, p := range paths {
+		if a, found := readHelperActions(p); found {
+			actions, ok = append(actions, a...), true
+		}
+	}
+	return actions, ok
 }
 
 func splitCSV(s string) []string {
