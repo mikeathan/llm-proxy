@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"llm-proxy/internal/platform/isolation"
@@ -292,7 +293,7 @@ func (h *Helper) step(ctx context.Context, profile isolation.Profile, s catalog.
 	profile.Timeout, profile.MaxOutput = stepTimeout, wire.RadioReportMax
 	out, err := h.cfg.Runner.Run(ctx, prog, profile, s.Args...)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", s.Program, err)
+		return nil, fmt.Errorf("%s %s: %w", s.Program, strings.Join(s.Args, " "), err)
 	}
 	return out.Stdout, nil
 }
