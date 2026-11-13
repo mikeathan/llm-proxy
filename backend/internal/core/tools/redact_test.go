@@ -67,7 +67,7 @@ func TestRedactForRecording_KeepsTheLabelAndIsIdempotent(t *testing.T) {
 }
 
 func TestRedactForRecording_FastPathAndLargeInput(t *testing.T) {
-	big := strings.Repeat("plain tool output with no secrets in it\n", 50_000) // ~2 MB
+	big := strings.Repeat("plain tool output with no secrets in it\n", 5_000) // ~200 KB: still far over any line-by-line cost, and the race detector makes 2 MB take seconds
 	if got := RedactForRecording(big); got != big {
 		t.Error("a large text with nothing to mask must come back unchanged")
 	}

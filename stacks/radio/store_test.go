@@ -108,11 +108,12 @@ func TestStoreForgetOthersKeepsTheOwners(t *testing.T) {
 
 // The store cannot fill the disk: a flood of devices stops at the cap, the lowest-value rows go first, and the owner's rows stay.
 func TestStoreFloodStaysUnderTheCap(t *testing.T) {
-	const capBytes = 1 << 20
+	// A small cap keeps the flood short (every write is a transaction): the rule is the same at any cap.
+	const capBytes, flood = 128 << 10, 6000
 	s, p := openTest(t, capBytes)
 	ctx := context.Background()
 	_ = s.SeenDevice(ctx, Seen{Tag: tag(-1), Owner: true, Sealed: []byte("sealed"), Label: "mine", At: t0})
-	for i := 0; i < 40000; i++ {
+	for i := 0; i < flood; i++ {
 		if err := s.SeenDevice(ctx, Seen{Tag: tag(i), Signal: -50, SignalOK: true, At: t0.Add(time.Duration(i) * time.Second)}); err != nil {
 			t.Fatalf("write %d: %v", i, err)
 		}
@@ -120,7 +121,7 @@ func TestStoreFloodStaysUnderTheCap(t *testing.T) {
 	if _, ok, _ := s.Device(ctx, tag(-1)); !ok {
 		t.Error("the owner's device was evicted")
 	}
-	if c, _ := s.count("devices"); c >= 40000 {
+	if c, _ := s.count("devices"); c >= flood {
 		t.Errorf("nothing was evicted: %d rows", c)
 	}
 	if err := s.Close(); err != nil {

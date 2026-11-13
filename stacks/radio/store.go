@@ -31,6 +31,7 @@ const (
 
 	pageSize   = 4096
 	evictAbove = 90 // percent of the cap at which the lowest-value rows start to go
+	evictTo    = 80 // percent they go down to, so one eviction makes room for many writes, not one
 	evictBatch = 500
 )
 
@@ -255,7 +256,11 @@ func (s *Store) write(ctx context.Context, fn func() error) error {
 			return err
 		}
 	}
-	return s.evict(ctx, evictAbove)
+	u, err := s.used(ctx)
+	if err != nil || u <= s.capBytes*evictAbove/100 {
+		return err
+	}
+	return s.evict(ctx, evictTo)
 }
 
 func isFull(err error) bool {
@@ -287,7 +292,7 @@ var evictions = []string{
 func (s *Store) evict(ctx context.Context, percent int64) error {
 	limit := s.capBytes * percent / 100
 	if percent == 0 {
-		limit = s.capBytes * (evictAbove - 10) / 100
+		limit = s.capBytes * evictTo / 100
 	}
 	for {
 		u, err := s.used(ctx)

@@ -144,7 +144,7 @@ func TestRunHostNeverSamplesCoarserThanTheLimit(t *testing.T) {
 		frames = append(frames, []byte{1})
 	}
 	src := hostSource(frames...)
-	src.tick = time.Microsecond
+	src.tick = time.Millisecond // 1,000 frames a second against a budget of 2: the rate doubles every second
 	cfg := defaultHostConfig(60)
 	cfg.BudgetPerSecond = 2
 	_, tr := runHost(t, src, cfg)
