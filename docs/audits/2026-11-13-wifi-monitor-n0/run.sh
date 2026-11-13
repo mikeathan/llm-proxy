@@ -70,6 +70,7 @@ survey() { # $1 = interface
   for ch in ${RCH:-6} 1 6 11 36 52 100 149; do case "$sup" in *" $ch "*) printf '%s\n' "$ch";; esac; done | awk '!s[$0]++' >"$OUT/$a/channels.txt"
   while read -r ch; do
     iw dev "$a" set channel "$ch" 2>"$OUT/$a/ch$ch.err" || { echo "channel $ch: set failed" >>"$OUT/$a/survey.log"; continue; }
+    sleep 1; echo "channel $ch: adapter reports: $(iw dev "$a" info | grep -E 'channel' | tr -s ' ')" >>"$OUT/$a/survey.log"
     timeout "$SECS" tcpdump -i "$a" -e -n -s 512 -w "$OUT/$a/ch$ch.pcap" >/dev/null 2>>"$OUT/$a/ch$ch.err"
     echo "channel $ch: $(tcpdump -n -r "$OUT/$a/ch$ch.pcap" 2>/dev/null | wc -l) frames in ${SECS}s" >>"$OUT/$a/survey.log"
   done <"$OUT/$a/channels.txt"
@@ -84,6 +85,7 @@ echo "NEXT: a ${ES}-second capture. When you press Enter, make things happen and
 echo "    phone wifi off      phone wifi on      zigbee lamp 1 on      zigbee sensor off      forgot network on laptop"
 echo "(the notes are time-stamped so I can line them up with the radio data; more varied events is better)"
 read -r -p "Press Enter to start (Ctrl-C to skip)... " _ </dev/tty || true
+echo ">>> CAPTURING for ${ES}s. Do something, then type what you did and press Enter (an empty Enter also marks the time)."
 EPOCH0=$(date +%s)
 for a in "${GOOD[@]}"; do
   sup=" $(supported_channels "$a" | tr '\n' ' ') "; ec=6; case "$sup" in *" ${RCH:-6} "*) ec=${RCH:-6};; esac
@@ -92,7 +94,7 @@ for a in "${GOOD[@]}"; do
 done
 END=$(( $(date +%s) + ES )); : >"$OUT/marks.txt"
 while [ "$(date +%s)" -lt "$END" ]; do
-  if read -r -t 2 note </dev/tty; then echo "$(date +%s) $(date +%T) $note" >>"$OUT/marks.txt"; echo "   noted"; fi
+  if read -r -t 2 note </dev/tty; then echo "$(date +%s) $(date +%T) ${note:-(mark)}" >>"$OUT/marks.txt"; echo "   noted at $(date +%T)"; fi
 done
 wait
 { echo; echo "== your notes (epoch, clock, note). Capture started at epoch $EPOCH0"; cat "$OUT/marks.txt"; } >>"$S"

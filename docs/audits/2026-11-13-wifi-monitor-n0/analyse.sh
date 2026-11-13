@@ -16,7 +16,19 @@ else
     -e wlan.ssid -e radiotap.channel.freq >"$TSV" 2>"$PCAP.tshark.err"
 fi
 [ -s "$TSV" ] || { echo "== $LABEL: no frames"; exit 0; }
+# Normalise (this tshark prints subtypes as 0x0008, booleans as True/False and SSIDs as hex; the report below needs plain numbers and text).
+NORM=$TSV.norm
+HEXSSID=$(awk -F'\t' '$12!="" && $12!="<MISSING>" && $12 !~ /^[0-9a-fA-F]+$/ {f=1} END{print f+0}' "$TSV")
+awk -F'\t' -v OFS='\t' -v dohex="$([ "$HEXSSID" = 0 ] && echo 1 || echo 0)" '
+function hex(h,  i,v) { h=tolower(h); sub(/^0x/,"",h); v=0; for (i=1;i<=length(h);i++) v=v*16+index("0123456789abcdef",substr(h,i,1))-1; return v }
+function unhex(h,  i,c,o) { o=""; for (i=1;i<length(h);i+=2) { c=hex(substr(h,i,2)); o = o ((c>=32 && c<127) ? sprintf("%c",c) : "?") } return o }
+{ if ($2 ~ /^0x/) $2=hex($2); if ($3 ~ /^0x/) $3=hex($3)
+  if ($8=="True" || $8=="true") $8=1; else if ($8=="False" || $8=="false") $8=0
+  if ($12=="<MISSING>" || $12=="") $12="(hidden/any)"; else if (dohex && length($12)%2==0 && $12 ~ /^[0-9a-fA-F]+$/) $12=unhex($12)
+  print }' "$TSV" >"$NORM"
+TSV=$NORM
 T0=$(head -1 "$TSV" | cut -f1)
+DUR=$(awk -F'\t' 'NR==1{a=$1}{b=$1}END{print b-a}' "$TSV")
 echo; echo "================ $LABEL ================"
 
 awk -F'\t' '
@@ -36,12 +48,12 @@ END { printf "frames %d in %.0f s (%.0f/s)\n", n, t1-t0, (t1>t0)?n/(t1-t0):n
 echo; echo "-- how much of the air this adapter can decode (frames with each radio header)"
 if command -v tshark >/dev/null && [ -f "$PCAP" ]; then
   tshark -G fields 2>/dev/null >"$PCAP.fields"
-  for f in radiotap.mcs radiotap.vht radiotap.he; do
+  for f in radiotap.present.mcs radiotap.present.vht radiotap.present.he; do
     if grep -Fq "	$f	" "$PCAP.fields"; then
       echo "  $f: $(tshark -r "$PCAP" -Y "$f" -T fields -e frame.number 2>/dev/null | wc -l) frames"
     else echo "  $f: field not known to this tshark"; fi
   done
-  echo "  (he = Wi-Fi 6. Zero beside an AX router and busy devices means this adapter cannot read Wi-Fi 6 frames.)"
+  echo "  (present.he = Wi-Fi 6 frames. Zero beside an AX router and busy devices means this adapter cannot read Wi-Fi 6 frames; see also trigger frames in the type list: they exist only in Wi-Fi 6.)"
 fi
 
 echo; echo "-- access points seen (beacons): count, BSSID, frequency MHz, mean signal dBm, name"
@@ -59,6 +71,13 @@ $3=="2" && $4!="" {
   fr[cl]++; seen[cl]=1 }
 END { for (c in seen) printf "%d\t%s\t%d\t%d\t%d\t%.0f\t%.0f\t%s\n", up[c]+dn[c], c, up[c], dn[c], fr[c], su[c]?100*rt[c]/su[c]:0, su[c]?sg[c]/su[c]:0, (c ~ /^\(/)?"":(locadm(c)?"private(random)":"hardware") }' "$TSV" |
   sort -rn | head -30 | awk -F'\t' '{printf "  %-17s up %9d  down %9d  frames %6d  retry %3d%%  signal %4d dBm  %s\n", $2,$3,$4,$5,$6,$7,$8}'
+
+echo; echo "-- airtime by sender: frame length / data rate, for frames sent at a legacy rate (group traffic is sent at the lowest rate and costs the most)"
+awk -F'\t' '$11!="" && ($11+0)>0 { k=($4!="")?$4:$5; a[k]+=$7*8/$11 } END { for (k in a) printf "%d\t%s\n", a[k], k }' "$TSV" | sort -rn | head -10 |
+  awk -F'\t' -v dur="$DUR" '{printf "  %-17s %7.2f s of air  (%.1f%% of the %.0f s capture)\n", $2, $1/1e6, (dur>0)?100*($1/1e6)/dur:0, dur}'
+
+echo; echo "-- control-frame activity per device (RTS, CTS, block ack): a stand-in for volume where data frames cannot be decoded"
+awk -F'\t' '$2==27||$2==25||$2==24 { n[$4]++ } $2==28 { n[$5]++ } END { for (k in n) if (k!="") printf "%d\t%s\n", n[k], k }' "$TSV" | sort -rn | head -12 | awk -F'\t' '{printf "  %-17s %7d frames\n", $2, $1}'
 
 echo; echo "-- activity timeline of the 6 busiest devices: kB per 10 s bucket, first bucket = capture start ($T0)"
 TOP=$(awk -F'\t' '$3=="2" && $4!="" { cl=($4==$6)?$5:$4; b[cl]+=$7 } END { for (c in b) print b[c] "\t" c }' "$TSV" | sort -rn | grep -v '^[0-9]*\s*\(ff:\|01:\|33:33\)' | head -6 | cut -f2 | tr '\n' ' ')
@@ -78,7 +97,7 @@ if command -v tshark >/dev/null && [ -f "$PCAP" ]; then
   echo; echo "-- what each access point announces (one beacon each): security, management-frame protection, WPS, load, country, standards"
   for b in $(awk -F'\t' '$2==8 {n[$6]++} END{for(k in n) print n[k], k}' "$TSV" | sort -rn | head -10 | cut -d' ' -f2); do
     echo "  BSSID $b"
-    tshark -V -r "$PCAP" -Y "wlan.bssid==$b && wlan.fc.type_subtype==8" -c 1 2>/dev/null |
+    tshark -V -r "$PCAP" -Y "wlan.bssid==$b && wlan.fc.type_subtype==8" 2>"$PCAP.tshark-ie.err" | awk '/^Frame /{n++} n>1{exit} {print}' |
       grep -iE 'SSID:|Country Code|AKM|Cipher Suite|Pairwise|Management Frame Protection|RSN Capabilities|Wi-Fi Protected Setup|WPS|Config Methods|Device Name|Model|Manufacturer|Channel Utilization|Station Count|HE Capabilities|VHT Capabilities|HT Capabilities|Extended Capabilities|Vendor Specific' |
       sed 's/^ *//' | sort -u | cut -c1-110 | head -28 | sed 's/^/      /'
   done
