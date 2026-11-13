@@ -72,6 +72,35 @@ func TestAListenPutsTheAdapterUpRunsTheProgramAndPutsItBack(t *testing.T) {
 	}
 }
 
+// iw turns an interface name into an index with glibc's if_nametoindex, which opens a Unix socket first. The jail refuses socket(AF_UNIX) to
+// every child, so on a real host the jailed `iw dev <name> set type` failed with "No such file or directory (-2)" while `iw list` (no name)
+// worked. The fixed ip and iw steps are the one relaxation; the program that listens never makes a Unix socket.
+func TestOnlyTheFixedAdapterStepsMayMakeAUnixSocket(t *testing.T) {
+	r := newRig()
+	r.runOut = isolation.Output{Stdout: []byte("frames")}
+	if resp := call(t, r.radioHelper(t, "radio_listen"), listenBody); resp.Status != wire.StatusOK {
+		t.Fatalf("got %+v", resp)
+	}
+	for line, unix := range r.unixOf {
+		if want := !strings.HasPrefix(line, "radio-listen "); unix != want {
+			t.Errorf("%q: AllowUnixSockets=%v, want %v", line, unix, want)
+		}
+	}
+	if len(r.unixOf) != len(upSteps)+1+len(backSteps)-len(overlap(upSteps, backSteps)) {
+		t.Errorf("every distinct run is checked: %v", r.unixOf)
+	}
+}
+
+func overlap(a, b []string) []string {
+	var out []string
+	for _, x := range a {
+		if slices.Contains(b, x) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 func TestTheChannelReadBackIsReturnedInTheReport(t *testing.T) {
 	r := newRig()
 	r.runOut = isolation.Output{Stdout: []byte("channel 60 (5300 MHz)")}

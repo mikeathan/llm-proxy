@@ -42,6 +42,7 @@ type rig struct {
 	// calls is every program run, as "name args", in order; failCall makes the run whose line contains it fail; blockMain makes the program
 	// named radio-listen wait until its context ends.
 	calls     []string
+	unixOf    map[string]bool // AllowUnixSockets of each run, keyed by its "name args" line
 	failCall  string
 	blockMain bool
 	mainRan   chan struct{}
@@ -68,6 +69,10 @@ func (r *rig) Run(ctx context.Context, p isolation.Program, prof isolation.Profi
 	line := p.Name + " " + strings.Join(args, " ")
 	r.mu.Lock()
 	r.calls = append(r.calls, line)
+	if r.unixOf == nil {
+		r.unixOf = map[string]bool{}
+	}
+	r.unixOf[line] = prof.AllowUnixSockets
 	r.mu.Unlock()
 	if r.failCall != "" && strings.Contains(line, r.failCall) {
 		return isolation.Output{}, errors.New("step failed")
