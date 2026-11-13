@@ -3,47 +3,78 @@ status: partial
 date: 2026-11-13
 last_reviewed: 2026-11-13
 related_specs: [SPEC-006]
-constitution_references: [I.5, I.8, I.11, II.3, III.6, IV.6]
-evidence: Session of 2026-11-13 (investigation, owner-run vertex captures, literature search, plan set). Replaces nothing; delete this file when R2 merges (harvest first, documentation-stewardship).
+constitution_references: [I.5, I.8, I.11, I.16, I.17, II.3, III.6, IV.6]
+evidence: Sessions of 2026-11-13 (R0 to R2 built, then the first run of the helper on vertex with the owner). Replaces the earlier version of this file; delete it when R8 (or the last phase the owner keeps) merges (harvest first, documentation-stewardship).
 ---
 
-# Radio stack: handoff for the next session (2026-11-13)
+# Radio stack: handoff for the next session (2026-11-13): R3 to the end in one go
 
-Start here, then open only what you need. **R0, R1 and the first R2 slice are merged (#245, #246). The helper actions and bounded sessions are built and in **PR #247** (branch `ci-faster-backend-test-and-coverage`, pushed, v0.85.0, never run on a real host, waiting for the owner to read Constitution I.17 and merge); the next work is the list under "After the helper actions".**
+Start here, then open only what you need. **R0, R1 and R2 are merged and the capture path is verified on vertex** (v0.85.2). The next session builds **R3 (pipeline, scheduler, tracker) and everything after it (R4 to R8)** from [`radio-stack.md`](radio-stack.md) §9. The owner asked for it in one go: work phase by phase, each ending with its check, and stop only for the ask-first items and the owner-run vertex checks listed below.
 
-## State
+## State (verified)
 
-- **R0 and R1 are merged** (PR #245, v0.84.0, on `main` as `00af060f`). **Branch `radio-r2-capture`** (commit `e8d0052e`: I.16 and the parser; the vault, store and recorder are after it) is cut from that `origin/main`, empty except for this handoff (the temporary capture script is deleted on purpose; the owner does not want it kept, and the two captures it made are the only input R2 needs). Nothing pushed, no PR. Run git steps one at a time and ask (a chained commit, push and PR was once refused by the auto-mode classifier).
-- **Decided** (owner, 2026-11-13): ADR-0052 and ADR-0053 accepted; SDK ports; `modernc.org/sqlite`; duty-cycled windows; the UK-law question is an **open risk** (capture must not default on before the owner takes advice). Constitution I.16 (plan §6) is **not** in `CONSTITUTION.md`: it is the first item of R2.
-- **What R1 built** (plan "Progress"): `stacks/radio` (idle by construction: no goroutine, no write; discovery from `/sys`; capability list), SDK `PortVault`/`Vault`/`StorageReporter`, `models.RadioConfig` + storage `Radio()` view, registry stack `radio`, `hostedStacks()`, the Radio page. The owner ran it on vertex (2026-11-13): the Sensors page works (built-in card refused, the USB Realtek 'Can listen'); the owner calls the layout temporary.
-- **Real captures exist on the owner's Mac** (not in the repo, hold neighbours' addresses): `~/radio-pcap/wlxf0090da058a3-ch60-20261113-152701.pcap` (5 GHz, channel 60, 81,798 packets, 8.7 MB: 25k CTS, 20k RTS, 3,388 beacons, 3,632 data frames, 54 probe responses, 30 probe requests, 13 authentication / deauthentication / disassociation frames) and `…-ch1-20261113-152954.pcap` (2.4 GHz, 2,288 packets: 1,357 beacons, 253 probe responses, 116 probe requests, 132 data, 1 authentication and 1 association request). Link type radiotap (`IEEE802_11_RADIO`); each frame carries signal per antenna, frequency and rate; the adapter is the Realtek `wlxf0090da058a3`. The Mac has `tcpdump` but not `tshark`. The owner has **not yet said when they toggled a phone's Wi-Fi**, so the join and leave frames are not matched to an event: ask.
-- **Checks run at the end of R1 (all pass):** backend build, tests, complexity; `stacks/*` tests (`GOWORK=off`); frontend `npm test`, `npm run build`, `npm run test:visual`; harness. Baselines for R2: run the same.
+- **Merged to `main`:** #245 (R1 skeleton), #246 (I.16, frame parser, vault adapter, SQLite store), #247 (radio helper class, bounded sessions, I.17, ADR-0054), #248 (helper status reads every class's gates, labels), #249 (the jailed `ip`/`iw` steps may make a Unix socket, v0.85.2). **PR #250 (docs only, this file and the ledger) may still be open: merge order is #250 only.**
+- **Verified on vertex (2026-11-13, with the owner):** `radio_probe` returns `iw list`; a 10 s `radio_listen` on channel 60 with the USB adapter `wlxf0090da058a3` runs end to end (helper unit ran 14 s, no warning, adapter back to `managed`, built-in `wlp2s0` untouched, SSH never dropped). The browser got `parse_error: no reader for the output of "radio_listen"`, which is correct: nothing in the service reads window bytes yet. **Not verified:** that the frames carry frequency 5300 (nothing reads them).
+- **`setup.sh --helper` now installs every helper class** (net and radio); `--helper=net` or `--helper=radio` narrows it; the choice is remembered. Installing switches nothing on: each action stays off until the owner turns it on with the passphrase (Network, Settings, Privileged helper card).
+- **Capture must not default on** (UK-law question is an open risk, ADR-0053). Everything you build that starts a listen must be behind a bounded session (I.17) the owner starts, never at boot or on a timer of its own.
 
-## Owner decisions already made (2026-11-13, quote-level)
+## What exists (read these, do not rebuild)
 
-New **Radio** stack (not a layer of Network) · retention **14 days for neighbours' devices, 30 days for everything else** (daily rollups 30 days by my assumption, adjustable) · small bounded storage that cannot fill the disk · **SQLite yes** · hashed or encrypted at minimum information but matchable after a restart or re-entry (keyed tag for others, sealed address for the owner's) · classes **Infrastructure, Personal, Neighbour, Transient** (I added **Unknown**), rules adjustable · generic for **any number of adapters**, extensible, pluggable, stack on or off, **does nothing with no adapter**, unused capabilities listed in the UI · a system-wide data management page · "r0 yes to all". **Owner constraint for captures: never cut vertex's connection** (the owner works over SSH, and the built-in card `wlp2s0` carries it: I once told them to use it, they lost the connection; a new capture, if ever needed, must refuse any interface that carries the connection and any non-USB adapter, and restore the adapter on every exit path).
+| Piece | Where | State |
+|---|---|---|
+| Frame parser (`Parse`, radiotap + 802.11 to typed facts), fuzzed, real-frame fixtures, replay test | `stacks/radio/frame.go`, `testdata/`, `replay_test.go` | done |
+| Window bytes decoder (`wire.DecodeRadio` returns records and a trailer: stop reason, frames, kernel seen/dropped, elapsed) | `backend/internal/platform/privhelper/wire/radio.go` | done; the service does not call it yet |
+| SQLite store with 20 MB cap, 14/30-day retention, eviction, `ForgetOthers`, `StorageUse` | `stacks/radio/store.go` | done |
+| `Recorder` (`Record(ctx, Frame, at)`, `AddOwnerDevice`): the only code that sees an address; keyed tags for others, sealed address for the owner's | `stacks/radio/recorder.go` | done, nothing calls `Record` |
+| Vault adapter (HKDF subkey per purpose, HMAC tags, AES-GCM) | `core/stackport/vault.go` | done; reads the master key from disk on each call |
+| Stack (no goroutine, no write; discovery from `/sys`; capability list; route `GET /admin/api/radio/sensors`) | `stacks/radio/radio.go`, `sensors.go` | done |
+| Helper actions `radio_probe` and `radio_listen` (`{iface, channel, seconds}`, one channel a call, USB only, never the connection, restore on every path, `Result.Report` carries the channel read-back) | `backend/internal/platform/privhelper/{catalog/radio.go,helper/,capture/radio.go}`, `cmd/llm-proxy-helper/main.go`, `docs/services/llm-proxy-helper-radio*` | done, verified |
+| Bounded sessions: `platform/privhelper/session`, `port.ForStack`, `helperRoutes.StackPrivileged("radio")` (a per-stack port that serves a request with no grant only while an open session of that stack approved exactly that request), routes `GET/POST/DELETE /admin/api/helper/sessions` (POST is step-up) | `backend/internal/app/privhelper.go` (`sessionStacks`), `transport/http/helpersessions.go` | done; no UI, no scheduler |
+| Radio page: Sensors and Modules | `frontend` (Stacks group) | done; layout is temporary (owner's word) |
 
 ## What is left, in order (each item: what it needs from the owner)
 
-1. **R2 Capture** (plan §9), in this order, TDD:
-   1. **DONE** (owner approved 2026-11-13, commit `e8d0052e`): Constitution I.16 text into `CONSTITUTION.md` (draft in plan §6) and the harness check; **ask the owner to read the diff before building on it** (it is a Constitution change: ask-first).
-   2. **DONE** (`stacks/radio/frame.go`, fuzzed 3M execs clean, fixtures in `testdata/`, replay matches tcpdump; commit `e8d0052e`): the **parser**: radiotap and the 802.11 header from bytes, strict bounds, fuzzed (`go test -fuzz`), in `stacks/radio`, typed facts out (a beacon with its security fields, a probe request, an association, authentication, deauthentication and disassociation with reason code, a data or control frame as a count and a signal sample). Fixtures: **derive small synthetic frames** from the two captures (anonymise every address); never commit a real pcap. A replay test: the synthetic fixture gives the same typed facts as `tcpdump -nn -e` shows for the same frames.
-   3. **BUILT, IN PR #247, NOT RUN ON A HOST** (branch `ci-faster-backend-test-and-coverage`): helper actions `radio_probe` and `radio_listen` in the new `radio` class (see the plan's Progress). Decisions: one channel a call (the stack loops over the list), channel read-back returned in `Result.Report` and also checkable from the radiotap frequency of the frames, USB-only and never-the-connection guard in `helper/radioguard.go`, `ip` and `iw` jailed. Tests use fakes; nothing ran as root.
-   4. **DONE** (second commit on the branch): the core `stackport.Vault` adapter over `platform/secretcrypto` (subkey per purpose) and `modernc.org/sqlite` in `stacks/radio/go.mod` (ask-first, **already approved**), the store with the 20 MB cap, retention (14 / 30 days) and eviction, a test that floods rows and a test that greps the DB for any raw address of another person.
-   5. **DONE** `StorageReporter` implemented by the stack. Owner agreed (2026-11-13): the helper runs jailed `ip` and `iw` (no netlink library); R2 order was adapter and store first, helper actions last.
-2. R3 to R8 as in the plan. The data page [`data-management-page.md`](data-management-page.md) D1 can start independently.
+**Phase R3, part 1: the pipeline and the scheduler** (plan §9 R3 and "After the helper actions" of the earlier handoff)
+1. **Service side of the radio unit.** Status (installed? action switched on?) for the Radio page; the Sensors page fills "not read yet" from `radio_probe` (the stack parses `iw list`, maps each `phy` to an interface through `/sys/class/net/<if>/phy80211/name`). Parse with strict bounds; the text is untrusted (I.11).
+2. **The channel read-back is not carried by the SDK.** `stacksdk.PrivilegedResult` has no field for `Result.Report`. Adding one changes a public interface: **ask first**. Until the owner answers, check a window's channel from the radiotap frequency in the frames.
+3. **The pipeline:** `radio_listen` bytes, `wire.DecodeRadio`, `Parse`, `Recorder.Record`; per-window summary (frames, drops, trailer stop reason) kept as plain data; a cached master key in the vault adapter that is dropped on factory reset; hourly rollups (daily rollups kept 30 days: my assumption, adjustable).
+4. **The scheduler** inside the stack, started only by an open session: `StackPrivileged("radio")` with no grant, the channel list from settings, 20 s a channel and a cycle every 5 minutes (both settings with caps, plan §6). Stops on session end, on a time cap and on a frame cap; one goroutine, owned by the stack's `Start`/`Stop`, no goroutine when no session is open (the idle test must still pass).
+5. **The Radio page control to start a session** (hours, adapter, channels), a visible "listening until" state and a stop button, and a plain failure when the helper is not installed or the action is off (UX rule: problems shown with their fix). The owner has to pass the passphrase step-up, so the control cannot be driven by a token.
+6. **Owner devices UI** (`Recorder.AddOwnerDevice` has none) and the owner's own networks (SSIDs `netsink`, `netsink-2G`, `netsink-Guest`), the strongest evidence for classing a device.
+   *Check (plan R3):* a device re-enters after a restart and matches its row; forget-neighbours makes every old tag stop matching; the test that greps the DB finds no raw address of another person.
 
-## After the helper actions (brief for a fresh session)
+**Phase R3, part 2: tracker and classes v1** (plan §4): rules as versioned data (`classifier_v<N>`) in the database, thresholds **from vertex's measured captures** (the owner's two pcaps are on their Mac, see below), owner labels as ground truth, classes Infrastructure, Personal, Neighbour, Transient, Unknown. Nothing is reclassified silently.
 
-Merge order: PR #247 only (it is cut from `main` after #246). Verify first, on vertex, with the owner (needs root and the USB adapter `wlxf0090da058a3`; never the built-in `wlp2s0`, which carries the owner's SSH): `sudo scripts/install-helper.sh radio --install --bin backend/llm-proxy-helper --group llm-proxy`, switch the two actions on in host settings, call `radio_probe` (does the jailed `iw list` run? is `/sys` or `/etc` needed in the jail?), then one `radio_listen` on channel 60 for 10 s (does the jailed `ip`/`iw` get `CAP_NET_ADMIN`? does the adapter return to managed? do frames come back with frequency 5300?). Unverified guesses: Landlock lets `ip` and `iw` run and reach netlink; `RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_PACKET` is enough for the unit (the main-pid check uses systemctl); `ThreadAmbient.Raise` twice on one thread works.
+**R4 findings and digest** (plan §7): finding ids by the ADR-0036 rule (`radio_rogue_twin`, `radio_deauth_burst`, `radio_open_or_weak_ap`, `radio_pmf_off`, `radio_hidden_ap_near`, `radio_unknown_strong_device`, `radio_join_foreign_network`, `radio_sensor_blind`), the typed bounded read-only digest tool (precedent: `network_findings`, ADR-0049; every device-chosen string inside the untrusted-data fence, I.8; other people's devices only as counts by class), an automation template and an Analyse button. *Check:* no device-chosen string outside the fence; byte-identical wording tests (ADR-0038 rule 1). Adding a tool: `engineering-practices` checklist.
 
-Then, in order:
-1. **Scheduled windows run under a bounded session: built, needs the owner's reading.** Constitution I.17 and ADR-0054 (both `proposed`; the owner's merge accepts them). The core has `platform/privhelper/session`, the `Standing` flag on the two radio actions, `port.ForStack` (a per-stack port that serves a request with no grant only while an open session of that stack approved exactly that request), and the routes `GET/POST/DELETE /admin/api/helper/sessions` (POST is step-up). R3 gives the radio stack `helperRoutes.StackPrivileged("radio")` as its `Privileged` port and calls it with no grant. Still to build: the Radio page control to start a session (hours, adapter, channels), a visible "listening until" state and a stop button; the scheduler itself.
-2. **`Result.Report` is not carried by the SDK.** `stacksdk.PrivilegedResult` has no field for it (adding one changes a public interface: ask first). Until then the service can check a window's channel from the radiotap frequency in the frames.
-3. **The service side of the radio unit:** status (installed? switched on?) for the Radio page (the net status reads `helperGatesFile`), the Sensors page filling "not read yet" from `radio_probe` (the stack parses `iw list`, mapping each `phy` to an interface through `/sys/class/net/<if>/phy80211/name`), then R3 (the pipeline from window bytes to `Parse` and `Recorder.Record`, the scheduler, hourly rollups, a cached master key in the vault adapter).
-4. `setup.sh --helper` installs every class (net and radio); `--helper=net` or `--helper=radio` narrows it (owner decision 2026-11-13, reversing the earlier separate install: installing switches nothing on, and each action is still off until the passphrase). `--no-helper` and `--uninstall` remove both.
+**R5 screens** (plan §8): Air overview, Devices, Neighbourhood, Timeline and patterns, Airwaves, Sensors, Modules, Settings; Simple and Advanced, mobile first, no hidden knowledge. *Check:* Vitest, `npm run build`, `npm run test:visual`, viewed at 390 px. Commit `frontend_dist/index.html` with every frontend change.
 
-Owner constraints that still stand: never cut vertex's connection; capture must not default on (UK-law risk is open); do not commit a real pcap.
+**R6 position** (plan §5): distance bands from signal (always with uncertainty), then multi-sensor. *Needs the owner:* a walked, labelled device on vertex and the stated uncertainty containing the truth. vertex's own card (about -18 dBm) is a known anchor.
+
+**R7 learning loop** (plan §4): proposed groups, versioned classifier, label-driven thresholds; every change logged in the Timeline with its reason and confidence.
+
+**R8 Bluetooth driver (optional):** `hci0` is on vertex; proves the plug-in point. Skip unless the owner asks.
+
+Also independent and waiting: the data page ([`data-management-page.md`](data-management-page.md) D1).
+
+## Ask first, and stop for
+
+- Any SDK port or `PrivilegedResult` field (public interface), a new third-party dependency, any change to `CONSTITUTION.md`, a change to I.16/I.17 or ADR-0052/0053/0054 wording.
+- Any git mutation beyond what the owner already approved: **the owner has said "stop ping-ponging" and approved branch, commit, push and PR for this work**, but not a force-push, a remote branch delete (the auto-mode classifier refused one) or a merge.
+- **Vertex checks are the owner's.** You cannot SSH there and the admin token is refused on step-up routes. Give the owner one paste at a time and read what comes back; do not hand them a bisect of five things.
+
+## Running things on vertex (the recipe that worked)
+
+Deploy: `sudo ./setup.sh --install --build --unattended --helper` after pulling. Then, in the **signed-in admin browser tab's console** (a step-up route needs the passphrase and a token is refused): confirm first with `fetch('/admin/api/auth/reauth', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({passphrase: prompt('Passphrase')})})`, then call the route in the same snippet (the confirmation is short). Look at the helper with `iw dev` and `journalctl -u 'llm-proxy-helper-radio@*' -n 40 --no-pager`. The adapter is `wlxf0090da058a3`; **never** `wlp2s0` (it carries the owner's SSH).
+
+## Traps found in this session
+
+- **The jail refuses `socket(AF_UNIX)` to every child**, and `iw dev <name> ...` resolves the name with `if_nametoindex`, which opens one, so a jailed `iw dev X set type` failed with `No such file or directory (-2)` while `iw list` and `ip` worked. Fixed for the fixed `ip`/`iw` steps only (`Helper.step`); the `radio-listen` program keeps the refusal. Any new jailed program that resolves an interface name will hit this. To tell a unit property from the helper's own jail, run the same steps unjailed and under `systemd-run -p ...` with the unit's properties.
+- **A squash-merged branch is gone from your history's point of view:** a PR merged while you were still pushing leaves the later commits out of `main`. Check `gh pr view <n> --json state` before pushing more to a branch, and cut a fresh branch from `origin/main` (cherry-pick) when it merged.
+- The helper's status read only the net unit's gates drop-in, so radio actions showed "not installed" (fixed: `readAllHelperActions`). Each class has its own `llm-proxy-helper-<class>@.service.d/10-gates.conf`.
+- macOS `sed -i` needs a suffix and a failed `sed` in an `&&` chain silently skips what follows: edit with Python or the Edit tool. Run `stacks/*` tests with `GOWORK=off` from the folder. `stacks/radio` is not in `go.work`.
+- A chained `git switch && cherry-pick && push && push --delete` was refused by the auto-mode classifier; run git steps one at a time.
+- `radio_listen`'s raw bytes are never returned to the browser (`keepsToItself`); the answer is the parsed summary. No service parser exists yet, hence the `parse_error` above.
 
 ## Facts the owner can still supply (they sharpen the classifier and the findings)
 
@@ -59,7 +90,4 @@ tshark here prints subtypes as `0x0008`, booleans `True`/`False`, SSIDs hex, rea
 
 ## First files to open
 
-For the helper actions: `backend/internal/platform/privhelper/catalog/radio.go`, `helper/helper.go` (`runAround`) and `helper/radioguard.go`, `capture/radio.go`, `wire/radio.go`, `cmd/llm-proxy-helper/main.go`, `docs/services/llm-proxy-helper-radio@.service`.
-
-
-[`radio-stack.md`](radio-stack.md) §1 to §3 and §6 · `stacks/sdk/manifest.go` (`Manifest`, ports) and `stacks/sdk/ports.go` · `stacks/agents/` (the smallest working stack: `agents.go`, `watch.go`) and ADR-0051 (how a stack gets a new port: `PortSecretScan` is the template) · `backend/internal/platform/db/db.go` · `backend/internal/platform/secretcrypto/crypto.go` · ADR-0034 and Constitution I.11 (the helper) · `docs/architecture/network-capabilities.md` (read before proposing any network feature). First command: `git log -1 && ./scripts/check-agent-harness.sh`.
+`radio-stack.md` §2 to §9 · `stacks/radio/radio.go`, `recorder.go`, `store.go`, `frame.go` · `backend/internal/platform/privhelper/wire/radio.go` (`DecodeRadio`) · `backend/internal/app/privhelper.go` (`sessionStacks`, `StackPrivileged`) · `backend/internal/platform/privhelper/session/` and `port/` · `stacks/sdk/manifest.go` and `ports.go` · `stacks/agents/` (the smallest working stack) and ADR-0051 (how a stack gets a new port) · ADR-0034, ADR-0053, ADR-0054, Constitution I.11, I.16, I.17 · `docs/architecture/network-capabilities.md` (read before proposing any network feature) · `docs/learnings/network-audit.md` (the 2026-11-13 Radio entries). Skills: `task-planning` (start here: this is multi-phase), `tdd-guide`, `engineering-practices`, `documentation-stewardship`, `pr-commit-message`. First command: `git log -1 && ./scripts/check-agent-harness.sh`.
