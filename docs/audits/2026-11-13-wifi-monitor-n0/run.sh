@@ -70,6 +70,7 @@ survey() { # $1 = interface
   for ch in ${RCH:-6} 1 6 11 36 52 100 149; do case "$sup" in *" $ch "*) printf '%s\n' "$ch";; esac; done | awk '!s[$0]++' >"$OUT/$a/channels.txt"
   while read -r ch; do
     iw dev "$a" set channel "$ch" 2>"$OUT/$a/ch$ch.err" || { echo "channel $ch: set failed" >>"$OUT/$a/survey.log"; continue; }
+    sleep 1; echo "channel $ch: adapter reports: $(iw dev "$a" info | grep -E 'channel' | tr -s ' ')" >>"$OUT/$a/survey.log"
     timeout "$SECS" tcpdump -i "$a" -e -n -s 512 -w "$OUT/$a/ch$ch.pcap" >/dev/null 2>>"$OUT/$a/ch$ch.err"
     echo "channel $ch: $(tcpdump -n -r "$OUT/$a/ch$ch.pcap" 2>/dev/null | wc -l) frames in ${SECS}s" >>"$OUT/$a/survey.log"
   done <"$OUT/$a/channels.txt"
@@ -81,9 +82,10 @@ for a in "${GOOD[@]}"; do { echo; echo "== survey $a (channels tried: $(tr '\n' 
 # Event capture: every adapter at once, on the router's channel if it can, else on channel 6 (2.4 GHz).
 echo
 echo "NEXT: a ${ES}-second capture. When you press Enter, make things happen and, EACH TIME, type a short note and press Enter, e.g.:"
-echo "    phone wifi off      phone wifi on      zigbee lamp 1 on      zigbee sensor off      forgot network on laptop"
+echo "    phone wifi off      phone wifi on      zigbee lamp on      zigbee lamp brightness up      zigbee sensor off      forgot network on laptop"
 echo "(the notes are time-stamped so I can line them up with the radio data; more varied events is better)"
 read -r -p "Press Enter to start (Ctrl-C to skip)... " _ </dev/tty || true
+echo ">>> CAPTURING for ${ES}s. Do something, then type what you did and press Enter (an empty Enter also marks the time)."
 EPOCH0=$(date +%s)
 for a in "${GOOD[@]}"; do
   sup=" $(supported_channels "$a" | tr '\n' ' ') "; ec=6; case "$sup" in *" ${RCH:-6} "*) ec=${RCH:-6};; esac
@@ -92,7 +94,7 @@ for a in "${GOOD[@]}"; do
 done
 END=$(( $(date +%s) + ES )); : >"$OUT/marks.txt"
 while [ "$(date +%s)" -lt "$END" ]; do
-  if read -r -t 2 note </dev/tty; then echo "$(date +%s) $(date +%T) $note" >>"$OUT/marks.txt"; echo "   noted"; fi
+  if read -r -t 2 note </dev/tty; then echo "$(date +%s) $(date +%T) ${note:-(mark)}" >>"$OUT/marks.txt"; echo "   noted at $(date +%T)"; fi
 done
 wait
 { echo; echo "== your notes (epoch, clock, note). Capture started at epoch $EPOCH0"; cat "$OUT/marks.txt"; } >>"$S"
@@ -101,7 +103,7 @@ wait
 echo "analysing..."
 for a in "${GOOD[@]}"; do
   for p in "$OUT/$a"/ch*.pcap; do [ -s "$p" ] && "$HERE/analyse.sh" "$p" "$a $(basename "$p" .pcap) (${SECS}s)" >>"$OUT/$a/details.txt" 2>&1; done
-  "$HERE/analyse.sh" "$OUT/$a/events.pcap" "$a EVENTS on channel $(cat "$OUT/$a/event-channel.txt") (${ES}s)" >>"$S" 2>&1
+  MARKS="$OUT/marks.txt" "$HERE/analyse.sh" "$OUT/$a/events.pcap" "$a EVENTS on channel $(cat "$OUT/$a/event-channel.txt") (${ES}s)" >>"$S" 2>&1
 done
 cat "$S" "$OUT"/*/details.txt >"$OUT/report.txt" 2>/dev/null
 echo; echo "done. Paste this file back: $OUT/report.txt   (long; if it is too long to paste, paste $S first)"
