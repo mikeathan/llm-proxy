@@ -50,11 +50,51 @@ func (s *Stack) existingStore() (*Store, error) {
 	return st, nil
 }
 
+// recorder is the one Recorder over the store, made when the first thing needs it so the run and the routes share one view of the epoch.
+func (s *Stack) recorder(h stacksdk.Host) (*Recorder, *Store, error) {
+	st, err := s.openStore()
+	if err != nil {
+		return nil, nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rec == nil {
+		if h.Vault == nil {
+			return nil, nil, errors.New("radio: no vault")
+		}
+		s.rec = NewRecorder(h.Vault, st)
+	}
+	return s.rec, st, nil
+}
+
+// openStore opens the database for writing, creating it when the first run stores something.
+func (s *Stack) openStore() (*Store, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.store != nil {
+		return s.store, nil
+	}
+	fp, ok := s.h.DataDir.(stacksdk.FilePather)
+	if !s.started || !ok {
+		return nil, errors.New("radio: no place to keep the database")
+	}
+	p, err := fp.Path(DBFile)
+	if err != nil {
+		return nil, err
+	}
+	st, err := OpenStore(p, 0)
+	if err != nil {
+		return nil, err
+	}
+	s.store = st
+	return st, nil
+}
+
 func (s *Stack) closeStoreLocked() error {
 	if s.store == nil {
 		return nil
 	}
 	err := s.store.Close()
-	s.store = nil
+	s.store, s.rec = nil, nil
 	return err
 }

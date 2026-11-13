@@ -48,7 +48,7 @@ func host(doc string, dir stacksdk.DataDir) stacksdk.Host {
 	return stacksdk.Host{Config: fakeConfig{doc}, Log: fakeLog{}, DataDir: dir}
 }
 
-func TestManifest_IsValidAndDeclaresNoPrivilege(t *testing.T) {
+func TestManifest_IsValidAndNamesNoGrantAction(t *testing.T) {
 	m := New(fstest.MapFS{}).Manifest()
 	if err := m.Validate(); err != nil {
 		t.Fatalf("the manifest must validate: %v", err)
@@ -62,8 +62,9 @@ func TestManifest_IsValidAndDeclaresNoPrivilege(t *testing.T) {
 		}
 	}
 	for _, rt := range m.Routes {
-		if rt.Action != "" || rt.Method != http.MethodGet {
-			t.Errorf("R1 has only reads and no privileged action: %+v", rt)
+		// The run asks the helper with no grant (a bounded session approves it), so no route names an action or needs a step-up.
+		if rt.Action != "" || rt.Level() != stacksdk.AccessAdmin {
+			t.Errorf("no route names a privileged action: %+v", rt)
 		}
 	}
 }

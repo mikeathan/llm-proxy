@@ -171,6 +171,13 @@ A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `
 | POST | `/admin/api/helper/radio_listen` | **Step-up.** Puts one USB Wi-Fi adapter `{iface, channel, seconds}` in monitor mode for up to 30 seconds through the radio unit, then returns it to managed mode on every path. The bytes are other devices' frames and are never sent to the browser. Refuses a built-in card and any interface that carries the default route or an SSH session (Constitution I.16) |
 | GET | `/admin/api/helper/sessions` | The open **bounded sessions** and the last ten that ended with the reason, and the hard limits (`max_hours` 12, `max_uses` 5000, `max_requests` 64, `max_open` 4). A session lets a stack run an approved list of actions without a step-up each time (Constitution I.17) |
 | POST | `/admin/api/helper/sessions` | **Step-up.** Approves a session: `{stack, label, hours, max_uses?, requests: [{action, params}]}`. Only standing actions (`radio_probe`, `radio_listen`) that are switched on, with parameters the catalogue accepts. Answers the session (201); it has no token, because the session is the core's |
+| GET | `/admin/api/radio/listening` | The listening run: whether it is going, until when, cycles, frames heard and the last windows as counts and words (never an address). Also why the last run ended |
+| POST | `/admin/api/radio/listening` | Starts a run `{adapter, hours}` (at most 12). It asks the helper with no grant, so it does nothing unless an open session approved the list from `listening/plan`; refused when the Radio stack is off or a run is going |
+| DELETE | `/admin/api/radio/listening` | Stops the run. Ending the session is a separate call (`DELETE /admin/api/helper/sessions/{id}`) |
+| GET | `/admin/api/radio/listening/plan?adapter=` | The exact request list a session must approve for that adapter, with the plan's channels and times |
+| GET, POST | `/admin/api/radio/devices/mine` | The owner's named devices (id, name, days seen; never the address) and adding one `{address, label}`; the address is sealed |
+| DELETE | `/admin/api/radio/devices/mine/{id}` | Removes one of the owner's devices |
+| POST | `/admin/api/radio/forget` | Forgets everything kept about other people's devices and networks and rotates the tags; refused while a run is recording |
 | DELETE | `/admin/api/helper/sessions/{id}` | Ends one session at once. No step-up: ending only takes authority away |
 | DELETE | `/admin/api/helper/sessions` | Ends every open session |
 | GET | `/admin/api/netaudit/host-traffic` | The last host traffic summary kept, as `{summary}`; `summary` is `null` before the first look. Names appear only here |

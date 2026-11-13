@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"llm-proxy-stacks/sdk"
 )
@@ -29,6 +30,11 @@ const (
 // computer that never opted in listens to nothing.
 type Settings struct {
 	Enabled bool `json:"enabled"`
+	// Channels, WindowSeconds and CycleSeconds shape a listening run (Plan applies the defaults and caps): the channels to visit, how long one
+	// window lasts and the time from one cycle's start to the next.
+	Channels      []int `json:"channels,omitempty"`
+	WindowSeconds int   `json:"window_seconds,omitempty"`
+	CycleSeconds  int   `json:"cycle_seconds,omitempty"`
 }
 
 // View is what the Sensors page shows.
@@ -49,6 +55,42 @@ type Stack struct {
 	h       stacksdk.Host
 	started bool
 	store   *Store
+	// run is the listening run, nil until one is started (listen.go).
+	run *run
+	// rec is the recorder over store (storage.go).
+	rec *Recorder
+	// clock, sleep and maxFrames are what a test replaces.
+	clock     func() time.Time
+	sleep     func(context.Context, time.Duration) error
+	maxFrames int
+}
+
+func (s *Stack) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
+}
+
+func (s *Stack) wait(ctx context.Context, d time.Duration) error {
+	if s.sleep != nil {
+		return s.sleep(ctx, d)
+	}
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Stack) frameCap() int {
+	if s.maxFrames > 0 {
+		return s.maxFrames
+	}
+	return defaultFrameCap
 }
 
 // New returns the stack, reading the system's records from sys. Pass nil to read the real /sys.
@@ -72,9 +114,15 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 					ShowsUp: "On the Radio page.",
 				}},
 		},
-		Routes:   []stacksdk.RouteSpec{{Method: http.MethodGet, Path: RoutePath}},
+		Routes: []stacksdk.RouteSpec{
+			{Method: http.MethodGet, Path: RoutePath},
+			{Method: http.MethodGet, Path: ListenPath}, {Method: http.MethodPost, Path: ListenPath}, {Method: http.MethodDelete, Path: ListenPath},
+			{Method: http.MethodGet, Path: PlanPath},
+			{Method: http.MethodGet, Path: DevicesPath}, {Method: http.MethodPost, Path: DevicesPath}, {Method: http.MethodDelete, Path: DevicePath},
+			{Method: http.MethodPost, Path: ForgetPath},
+		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged},
 		Storage:  []string{DBFile},
 	}
 }
@@ -90,16 +138,23 @@ func (s *Stack) Start(_ context.Context, h stacksdk.Host) error {
 	return nil
 }
 
-// Stop forgets the host.
+// Stop ends a listening run, if one is going, and forgets the host.
 func (s *Stack) Stop(context.Context) error {
+	s.endRun(EndedStack)
 	s.mu.Lock()
+	s.run = nil
 	defer s.mu.Unlock()
 	s.h, s.started = stacksdk.Host{}, false
 	return s.closeStoreLocked()
 }
 
-// ConfigChanged has nothing to re-read: the switch is read each time it is asked.
-func (s *Stack) ConfigChanged(context.Context) error { return nil }
+// ConfigChanged ends a listening run when the stack has been switched off; the settings are read each time they are needed.
+func (s *Stack) ConfigChanged(ctx context.Context) error {
+	if h, started := s.snapshot(); started && !s.settings(ctx, h).Enabled {
+		s.endRun(EndedSwitchedOff)
+	}
+	return nil
+}
 
 // Status reports the module's switch; nothing runs in the background, so there is no last run.
 func (s *Stack) Status(ctx context.Context) ([]stacksdk.ModuleStatus, error) {
@@ -120,6 +175,12 @@ func (s *Stack) Findings(context.Context) ([]stacksdk.StackFinding, error) { ret
 
 // Handle answers the one route: discovery, read fresh each time (a few small files), so a plugged-in adapter shows on the next look.
 func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
+	switch req.Path {
+	case ListenPath, PlanPath:
+		return s.handleListen(ctx, req)
+	case DevicesPath, DevicePath, ForgetPath:
+		return s.handleDevices(ctx, req)
+	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 	}

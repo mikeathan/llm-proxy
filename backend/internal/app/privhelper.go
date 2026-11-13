@@ -173,6 +173,8 @@ func (p helperParser) parse(action string, data []byte) (any, error) {
 		return nmap.ParseProbe(data)
 	case "capture_window":
 		return framewire.Summarize(data)
+	case "radio_listen":
+		return summarizeRadioWindow(data)
 	case "capture_host":
 		var self hosttraffic.Self
 		if p.self != nil {
