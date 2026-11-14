@@ -176,7 +176,7 @@ func TestListenWalksTheChannelsEveryCycleAndKeepsWhatItHeard(t *testing.T) {
 		t.Errorf("channel 60 frames are on 60 and not on 1: %+v", st.Windows)
 	}
 	r.step <- struct{}{}
-	waitFor(t, "the second cycle", func() bool { return r.priv.count() == 4 })
+	waitFor(t, "the second cycle to finish", func() bool { return r.priv.count() == 4 && len(r.nap) == 1 })
 	if st := r.state(t); st.Cycles < 2 || st.Until.IsZero() {
 		t.Errorf("%+v", st)
 	}
