@@ -25,7 +25,7 @@ Checks run before merge: `stacks/radio` `GOWORK=off go test -race ./...` (pass),
 - **Own networks.** `own_networks` in `models.RadioConfig` (core) and `Settings`; a beacon with one of the names *proposes* a sealed access point, the owner confirms (`PUT/GET /admin/api/radio/networks`, `POST .../{id}/confirm`, `DELETE .../{id}`); an association request to a confirmed one sets `joined_own`, the strongest class evidence. Rotation re-tags the owner's access points.
 - **Owner devices** show their class and who decided it; the add form takes an optional class (the owner's word).
 
-## Built on branch `radio-next-work-handoff` (v0.88.0; rebased on `origin/main` at v0.87.1; not run on vertex)
+## Built on branch `radio-next-work-handoff` (PR #254; three commits on top of the handover commit, pushed with `--force-with-lease` after the rebase; merge order: this PR alone; v0.88.0; rebased on `origin/main` at v0.87.1; not run on vertex)
 
 Checks run (each with its exit code in the session): `stacks/radio` `GOWORK=off go vet` and `go test -race ./...` (pass); `backend` `go build ./...`, `go test ./...` (pass), `go run ./tools/check-complexity/` (clean after refactoring five new functions); `frontend` `npm test`, `npm run build` (includes lint), `npm run test:visual` (the whole suite, then the Radio spec at both widths; Neighbourhood and My devices viewed at 390 px); `./scripts/check-agent-harness.sh` (pass). **Not run:** anything on vertex.
 
