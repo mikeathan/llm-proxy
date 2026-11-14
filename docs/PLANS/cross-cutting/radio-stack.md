@@ -146,6 +146,8 @@ Ask first (AGENTS.md): the `modernc.org/sqlite` dependency in the stack's `go.mo
 
 - **R3 part 2 merged (#252, v0.87.0); 2026-11-14 owner verdict on the Listening tab: the UI is temporary and lacks useful, openable data.** Next, in one branch: R5's useful core (readable windows, openable Around you, presence, hourly rollups), then R4. Order and detail: the handoff file.
 
+- **R5 core and R4 (stack side) built (2026-11-14, branch `radio-next-work-handoff`, v0.88.0; not run on vertex):** readable window rows; Neighbourhood (each class opens onto its devices, with what an unsorted device waits for); Airwaves; presence by hour for the owner's devices; the Simple/Advanced choice shared with the Network screens; the digest (`GET /admin/api/radio/digest`) with eight finding ids, tiers and a could-not-see list. All eight finding ids have evidence (schema 5). Not built: the agent digest tool (no core consumer of a stack's tools yet), the nightly-report path (`StackFinding` has no wireless subject: SDK change, ask first), the automation template and Analyse button. See the handoff.
+
 ## Remaining work
 
 R2 onward as §9 (I.16 and the parser are done): the helper actions `radio_probe` / `radio_listen`, the parser with fuzzing, the SQLite store with caps and retention. R2 needs **a pcap from vertex** (capture with tcpdump on a monitor interface; keep it out of the repo, derive a small synthetic fixture).
