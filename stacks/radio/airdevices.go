@@ -275,6 +275,11 @@ type PresenceHour struct {
 	Hour   string `json:"hour"` // RFC 3339, the start of the hour (UTC)
 	State  string `json:"state"`
 	Signal string `json:"signal,omitempty"`
+	// Dbm is the hour's mean signal and NearM to FarM the range it implies (the radar's model), set only for an hour the device was heard in with a
+	// measured signal. The channel is the first one the device has been heard on, so the range is as rough as the radar's.
+	Dbm   int     `json:"dbm,omitempty"`
+	NearM float64 `json:"near_m,omitempty"`
+	FarM  float64 `json:"far_m,omitempty"`
 }
 
 // PresenceDevice is one of the owner's devices over the last presenceHours.
@@ -299,6 +304,7 @@ func (s *Stack) presence(ctx context.Context, store *Store) (stacksdk.Response, 
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the presence could not be read")
 	}
+	model := s.distanceModel(ctx, store)
 	now := hourNumber(s.now())
 	from := now - presenceHours + 1
 	listening, err := store.airHours(ctx, from)
@@ -311,7 +317,7 @@ func (s *Stack) presence(ctx context.Context, store *Store) (stacksdk.Response, 
 	}
 	v := PresenceView{Devices: []PresenceDevice{}}
 	for _, o := range owners {
-		d, err := presenceOf(ctx, store, rules, o, listening, from, now)
+		d, err := presenceOf(ctx, store, rules, model, o, listening, from, now)
 		if err != nil {
 			return plainError(http.StatusInternalServerError, "the presence could not be read")
 		}
@@ -321,12 +327,16 @@ func (s *Stack) presence(ctx context.Context, store *Store) (stacksdk.Response, 
 }
 
 // presenceOf lays one owner device's hours from `from` to `now` over what the sensor listened to.
-func presenceOf(ctx context.Context, store *Store, rules Rules, o Device, listening map[int64]int, from, now int64) (PresenceDevice, error) {
+func presenceOf(ctx context.Context, store *Store, rules Rules, model DistanceModel, o Device, listening map[int64]int, from, now int64) (PresenceDevice, error) {
 	heard, last, err := store.ownerHours(ctx, o.Tag, from)
 	if err != nil {
 		return PresenceDevice{}, err
 	}
 	joined, err := store.JoinedOwn(ctx, o.Tag)
+	if err != nil {
+		return PresenceDevice{}, err
+	}
+	channel, err := store.firstChannelOf(ctx, o.Tag)
 	if err != nil {
 		return PresenceDevice{}, err
 	}
@@ -336,6 +346,10 @@ func presenceOf(ctx context.Context, store *Store, rules Rules, o Device, listen
 		switch {
 		case heard[h].Cycles > 0:
 			c.State, c.Signal = hourHere, signalBand(rules, Features{HasSignal: heard[h].SigN > 0, SignalMean: heard[h].Mean()})
+			if heard[h].SigN > 0 {
+				near, far := model.Range(heard[h].Mean(), channel)
+				c.Dbm, c.NearM, c.FarM = int(math.Round(heard[h].Mean())), round1(near), round1(far)
+			}
 		case listening[h] > 0:
 			c.State = hourAway
 		}

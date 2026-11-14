@@ -313,3 +313,16 @@ export const radioScanSummary = (channels: number, window: number, cycle: number
   `${channels} ${channels === 1 ? 'channel' : 'channels'}, ${window} seconds each, every ${radioSecondsLabel(cycle)}: ${perHour} windows an hour${custom ? '' : ' (the default)'}.`
 export const radioScanTooMany = (max: number): string => `That is more than ${max} windows an hour. Choose fewer channels or a longer cycle.`
 export const RADIO_SCAN_NO_FIT = 'The windows do not fit in one cycle. Shorten them, choose fewer channels or a longer cycle.'
+
+// Radio · usual positions and changes from them (the stored days, day resolution).
+export const RADIO_RADAR_USUAL_LEGEND = 'Hollow dots are devices usually here that are not heard now, placed by their average over the days kept. They show where things usually are, not where they were at any moment.'
+export const radioUsualMore = (n: number): string => `${n} ${n === 1 ? 'device is' : 'devices are'} usually here and not heard now.`
+export const RADIO_RADAR_USUAL_SHOW = 'Show them'
+export const RADIO_RADAR_USUAL_HIDE = 'Hide them'
+export const RADIO_RADAR_USUAL_ROW = 'usually here'
+export const radioShiftWord = (shift: number, usual: number): string =>
+  shift > 0 ? `${shift} dB stronger than its usual ${usual} dBm: closer than usual` : `${-shift} dB weaker than its usual ${usual} dBm: farther than usual`
+export const radioUnusualSummary = (n: number): string => `${n} ${n === 1 ? 'is' : 'are'} unlike ${n === 1 ? 'its' : 'their'} usual.`
+export const RADIO_PRESENCE_DISTANCE = 'Distance over the same hours: the bar is the range it could be in, from the radar’s model.'
+export const RADIO_PRESENCE_CLOSER = 'closer'
+export const RADIO_PRESENCE_FARTHER = 'farther'

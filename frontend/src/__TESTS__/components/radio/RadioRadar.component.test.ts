@@ -71,4 +71,33 @@ describe('RadioRadar', () => {
     w = await show()
     expect(w.get('[data-test="radio-radar-error"]').text()).toBe('down')
   })
+
+  it('draws the devices usually here as hollow dots, lists them only on request, and never offers to calibrate from one', async () => {
+    service.live.mockResolvedValue(view([dev({ id: 'now1', near_m: 3, far_m: 9 }), dev({ id: 'usual1', usual: true, heard: false, mine: true, label: 'my laptop', near_m: 2, far_m: 5, trend: 'unknown' }), dev({ id: 'usual2', usual: true, heard: false, near_m: 9, far_m: 30, trend: 'unknown' })]))
+    const w = await show()
+    expect(w.get('[data-test="radio-radar-summary"]').text()).toBe('1 device heard now')
+    expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
+    expect(w.findAll('[data-test="radio-dot"][data-usual="1"]')).toHaveLength(2)
+    expect(w.get('[data-test="radio-radar-usual"]').text()).toContain('2 devices are usually here and not heard now.')
+    expect(w.get('[data-test="radio-radar-legend"]').text()).toContain('not where they were at any moment')
+    expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(1)
+    await w.get('[data-test="radio-usual-toggle"]').trigger('click')
+    const rows = w.findAll('[data-test="radio-radar-row"]')
+    expect(rows).toHaveLength(3)
+    expect(rows[1]!.text()).toContain('my laptop')
+    expect(rows[1]!.text()).toContain('usually here')
+    expect(rows[1]!.text()).not.toContain('too new to tell')
+    await rows[1]!.get('button').trigger('click')
+    expect(w.get('[data-test="radio-radar-chosen"]').text()).toContain('usually')
+    expect(w.find('[data-test="radio-calibrate"]').exists()).toBe(false)
+  })
+
+  it('rings a device that is far from its own usual, and says by how much and which way', async () => {
+    service.live.mockResolvedValue(view([dev({ id: 'moved', unusual: true, usual_dbm: -80, shift_db: 30, dbm: -50 }), dev({ id: 'calm', usual_dbm: -70, shift_db: 1 })]))
+    const w = await show()
+    expect(w.findAll('[data-test="radio-dot-unusual"]')).toHaveLength(1)
+    expect(w.get('[data-test="radio-radar-unusual"]').text()).toBe('1 is unlike its usual.')
+    expect(w.get('[data-test="radio-row-unusual"]').text()).toBe('30 dB stronger than its usual -80 dBm: closer than usual')
+  })
 })
+

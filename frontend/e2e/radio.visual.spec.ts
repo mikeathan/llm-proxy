@@ -61,10 +61,13 @@ const LIVE = {
   devices: [
     { id: 'ab', mine: true, label: 'my phone', class: 'personal', dbm: -48, near_m: 1.4, far_m: 3.2, ring: 'room', angle: 40, trend: 'steady', channel: 6, heard: true },
     { id: 'c0ffee11', mine: false, class: 'infrastructure', dbm: -55, near_m: 2.1, far_m: 6, ring: 'room', angle: 130, trend: 'steady', channel: 6, heard: true },
-    { id: 'a1b2c3d4', mine: false, class: 'unknown', dbm: -62, near_m: 3, far_m: 11, ring: 'house', angle: 215, trend: 'closer', channel: 60, heard: true },
+    { id: 'a1b2c3d4', mine: false, class: 'unknown', dbm: -62, near_m: 3, far_m: 11, ring: 'house', angle: 215, trend: 'closer', channel: 60, heard: true, unusual: true, usual_dbm: -78, shift_db: 16 },
     { id: 'e5f6a7b8', mine: false, class: 'neighbour', dbm: -70, near_m: 5, far_m: 24, ring: 'house', angle: 300, trend: 'away', channel: 11, heard: false },
     { id: '99aa00bb', mine: false, class: 'neighbour', dbm: -78, near_m: 8, far_m: 48, ring: 'nearby', angle: 75, trend: 'unknown', channel: 1, heard: true },
     { id: '12ab34cd', mine: false, class: 'transient', dbm: -84, near_m: 14, far_m: 100, ring: 'nearby', angle: 255, trend: 'unknown', channel: 36, heard: true },
+    { id: 'beefcafe', mine: true, label: 'my laptop', class: 'infrastructure', dbm: -52, near_m: 1.7, far_m: 4.5, ring: 'room', angle: 170, trend: 'unknown', channel: 36, heard: false, usual: true },
+    { id: '0badf00d', mine: false, class: 'infrastructure', dbm: -66, near_m: 4, far_m: 16, ring: 'house', angle: 20, trend: 'unknown', channel: 6, heard: false, usual: true },
+    { id: 'feedbeef', mine: false, class: 'neighbour', dbm: -81, near_m: 10, far_m: 60, ring: 'nearby', angle: 330, trend: 'unknown', channel: 1, heard: false, usual: true },
   ],
 }
 const SCAN = {
@@ -72,7 +75,7 @@ const SCAN = {
   custom: false, windows_per_hour: 72,
   limits: { channels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 149, 153, 157, 161, 165], max_channels: 16, min_window_seconds: 1, max_window_seconds: 30, min_cycle_seconds: 60, max_windows_per_hour: 200 },
 }
-const HOURS = Array.from({ length: 48 }, (_, i) => ({ hour: new Date(Date.UTC(2026, 10, 13, 15 + i)).toISOString(), state: i < 20 ? 'not_listening' : i % 5 === 0 ? 'away' : 'here', signal: 'strong' }))
+const HOURS = Array.from({ length: 48 }, (_, i) => ({ hour: new Date(Date.UTC(2026, 10, 13, 15 + i)).toISOString(), state: i < 20 ? 'not_listening' : i % 5 === 0 ? 'away' : 'here', signal: 'strong', ...(i >= 20 && i % 5 !== 0 ? { dbm: -48 - (i % 7) * 3, near_m: 1.4 + (i % 7) * 0.5, far_m: 3.2 + (i % 7) * 2 } : {}) }))
 const PRESENCE = { devices: [{ id: 'ab', label: 'my phone', state: 'here', signal: 'strong', last_heard: '2026-11-14T15:00:00Z', joined_own: true, hours: HOURS }] }
 const DIGEST = {
   listening: { cycles: 30, min_cycles: 12, window_days: 7, cycles_last_24h: 30 }, own: { devices: 1, access_points: 2, confirmed_access_points: 1 }, others: [],
@@ -125,9 +128,13 @@ test('Around you: the radar, the kinds of device that open onto their devices, a
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('radio/around')
   await expect(page.locator('[data-test="radio-finding"]')).toContainText('management frames')
-  await expect(page.locator('[data-test="radio-radar-summary"]')).toHaveText('6 devices heard now, 1 of them yours')
-  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(6)
+  await expect(page.locator('[data-test="radio-radar-summary"]')).toContainText('6 devices heard now, 1 of them yours')
+  await expect(page.locator('[data-test="radio-radar-unusual"]')).toHaveText('1 is unlike its usual.')
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(9)
+  await expect(page.locator('[data-test="radio-dot"][data-usual="1"]')).toHaveCount(3)
   await expect(page.locator('[data-test="radio-dot-label"]')).toHaveText('my phone')
+  await page.locator('[data-test="radio-usual-toggle"]').click()
+  await expect(page.locator('[data-test="radio-radar-row"][data-usual="1"]')).toHaveCount(3)
   await page.locator('[data-test="radio-radar-row"]').nth(2).locator('button').click()
   await expect(page.locator('[data-test="radio-radar-chosen"]')).toContainText('dBm on channel')
   await expect(page.locator('[data-test="radio-around-provisional"]')).toContainText('first draft')
@@ -161,6 +168,7 @@ test('My devices: the owner’s devices with their kind, and the networks to con
   await expect(page.locator('[data-test="radio-device-class"]')).toHaveText('Comes and goes')
   await expect(page.locator('[data-test="radio-device-presence"]')).toContainText('Here now')
   await expect(page.locator('[data-test="radio-presence-hour"]')).toHaveCount(48)
+  await expect(page.locator('[data-test="radio-presence-bar"]').first()).toBeVisible()
   await lookAt(page, testInfo, 'my-devices', true)
   await expect(page.locator('[data-test="radio-ap"][data-confirmed="false"]')).toContainText('Candidate')
   await expectNoSidewaysScroll(page)

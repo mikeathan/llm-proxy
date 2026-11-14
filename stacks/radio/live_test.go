@@ -97,8 +97,10 @@ func TestLiveShowsTheOpenCycleAndKeepsOnlyMemory(t *testing.T) {
 	}
 	rec.DropCycle()
 	rec.ClearLive()
-	if got := liveOf(t, r); len(got.Devices) != 0 {
-		t.Errorf("clearing forgets everything: %+v", got)
+	for _, d := range liveOf(t, r).Devices {
+		if !d.Usual || d.Heard || d.Trend != TrendUnknown {
+			t.Errorf("clearing forgets what was heard now; only the stored days remain, drawn as usual: %+v", d)
+		}
 	}
 }
 
@@ -138,9 +140,14 @@ func TestADeviceNotHeardForSomeCyclesLeavesTheLivePicture(t *testing.T) {
 	for i := 0; i < liveKeepCycles+1; i++ {
 		cycleOf(t, rec, r.now, dataAt(other, -60))
 	}
-	v := liveOf(t, r)
-	if len(v.Devices) != 1 {
-		t.Fatalf("the silent one must be gone: %+v", v.Devices)
+	var now []LiveDevice
+	for _, d := range liveOf(t, r).Devices {
+		if !d.Usual {
+			now = append(now, d)
+		}
+	}
+	if len(now) != 1 {
+		t.Fatalf("the silent one must leave the live picture: %+v", now)
 	}
 }
 
@@ -177,4 +184,103 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+func TestTheStoredDaysDrawWhatIsUsuallyHereButNotHeardNow(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	other := MAC{0xb8, 0x27, 0xeb, 7, 7, 7}
+	for i := 0; i < 3; i++ {
+		cycleOf(t, rec, r.now, dataAt(neighbour, -60), dataAt(other, -75))
+	}
+	rec.ClearLive() // a restart: nothing in memory, the days on disk remain
+	v := liveOf(t, r)
+	if len(v.Devices) != 2 {
+		t.Fatalf("both known devices are drawn from their days: %+v", v.Devices)
+	}
+	for _, d := range v.Devices {
+		if !d.Usual || d.Heard || d.Trend != TrendUnknown || d.NearM <= 0 || d.FarM <= d.NearM || d.Label != "" {
+			t.Errorf("a usual dot has a range, no trend and no label: %+v", d)
+		}
+	}
+	if v.Devices[0].Dbm != -60 || v.Devices[1].Dbm != -75 {
+		t.Errorf("a usual dot sits at its mean signal: %+v", v.Devices)
+	}
+	cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+	var usual, now int
+	for _, d := range liveOf(t, r).Devices {
+		if d.Usual {
+			usual++
+		} else {
+			now++
+		}
+	}
+	if usual != 1 || now != 1 {
+		t.Errorf("a device heard now is drawn once, as live: usual %d now %d", usual, now)
+	}
+}
+
+func TestADeviceMuchCloserThanItsOwnUsualIsFlagged(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	steady := MAC{0xb8, 0x27, 0xeb, 7, 7, 7}
+	for i := 0; i < 12; i++ {
+		cycleOf(t, rec, r.now, dataAt(neighbour, -80), dataAt(steady, -60))
+	}
+	rec.BeginCycle()
+	record(t, rec, dataAt(neighbour, -50), r.now)
+	record(t, rec, dataAt(steady, -61), r.now)
+	byDbm := map[int]LiveDevice{}
+	for _, d := range liveOf(t, r).Devices {
+		byDbm[d.Dbm] = d
+	}
+	moved := byDbm[-50]
+	if !moved.Unusual || moved.UsualDbm != -80 || moved.ShiftDB != 30 {
+		t.Errorf("30 dB above its usual is unusual: %+v", moved)
+	}
+	if calm := byDbm[-61]; calm.Unusual || calm.UsualDbm != -60 {
+		t.Errorf("1 dB is not: %+v", calm)
+	}
+}
+
+func TestADeviceWithTooFewStoredSamplesIsNeverCalledUnusual(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	cycleOf(t, rec, r.now, dataAt(neighbour, -80))
+	rec.BeginCycle()
+	record(t, rec, dataAt(neighbour, -40), r.now)
+	if d := liveOf(t, r).Devices[0]; d.Unusual || d.UsualDbm != 0 {
+		t.Errorf("one old sample is no baseline: %+v", d)
+	}
+}
+
+func TestAnOwnerDeviceHoursCarryADistanceRangeWhenHeard(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	if err := rec.AddOwnerDevice(context.Background(), neighbour, "Phone", r.now); err != nil {
+		t.Fatal(err)
+	}
+	cycleOf(t, rec, r.now, dataAt(neighbour, -55))
+	var v PresenceView
+	getQ(t, r, PresencePath, "", &v)
+	if len(v.Devices) != 1 {
+		t.Fatalf("%+v", v)
+	}
+	var here, other int
+	for _, h := range v.Devices[0].Hours {
+		if h.State == hourHere {
+			here++
+			if h.Dbm != -55 || h.NearM <= 0 || h.FarM <= h.NearM {
+				t.Errorf("a heard hour carries its mean signal and range: %+v", h)
+			}
+		} else {
+			other++
+			if h.Dbm != 0 || h.NearM != 0 {
+				t.Errorf("an hour with no reading carries no distance: %+v", h)
+			}
+		}
+	}
+	if here != 1 || other == 0 {
+		t.Errorf("here %d other %d", here, other)
+	}
 }

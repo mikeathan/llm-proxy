@@ -127,6 +127,13 @@ type LiveDevice struct {
 	Trend   string  `json:"trend"`
 	Channel int     `json:"channel"`
 	Heard   bool    `json:"heard"`
+	// Usual is a device drawn from its stored days only: it is not being heard now, and Dbm is its mean over the days kept.
+	Usual bool `json:"usual,omitempty"`
+	// UsualDbm is the device's own mean over the days kept, when there are enough samples to call it a baseline; ShiftDB is how far the signal now is
+	// from it, and Unusual says the shift is large against the device's own spread.
+	UsualDbm int  `json:"usual_dbm,omitempty"`
+	ShiftDB  int  `json:"shift_db,omitempty"`
+	Unusual  bool `json:"unusual,omitempty"`
 }
 
 // LiveView is the answer of LivePath.
@@ -137,6 +144,14 @@ type LiveView struct {
 	Devices   []LiveDevice   `json:"devices"`
 	Rings     map[string]int `json:"rings"`
 }
+
+const (
+	// usualMinSamples is how many stored signal readings make a baseline; unusualMinDB and unusualSpreads are how far from it a signal must be.
+	usualMinSamples = 10
+	unusualMinDB    = 8.0
+	unusualSpreads  = 2.0
+	maxUsualDots    = 300
+)
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
 
@@ -150,10 +165,44 @@ func (s *Stack) distanceModel(ctx context.Context, store *Store) DistanceModel {
 	return m
 }
 
+// baseline is what a device's stored days say its signal usually is.
+type baseline struct {
+	mean, std float64
+	row       FeatureRow
+	ok        bool // enough samples to call it a baseline
+}
+
+func baselineOf(r FeatureRow, listened map[int64]int) baseline {
+	f := FeaturesOf(r, listened)
+	return baseline{mean: f.SignalMean, std: f.SignalStd, row: r, ok: f.HasSignal && r.SigN >= usualMinSamples}
+}
+
+// dotOf places a signal on the model: the range, the ring and a stable angle.
+func dotOf(model DistanceModel, tag []byte, signal float64, channel int) LiveDevice {
+	near, far := model.Range(signal, channel)
+	return LiveDevice{ID: shortID(tag), Dbm: int(math.Round(signal)), NearM: round1(near), FarM: round1(far), Ring: RingOf(near, far), Angle: angleOf(tag), Channel: channel}
+}
+
+func classWord(c string) string {
+	if c == "" {
+		return string(ClassUnknown)
+	}
+	return c
+}
+
 func (s *Stack) live(ctx context.Context, rec *Recorder, store *Store) (stacksdk.Response, error) {
 	model := s.distanceModel(ctx, store)
 	st := s.listenState(ctx, s.h)
 	v := LiveView{Listening: st.Listening, Cycles: st.Cycles, Model: model, Devices: []LiveDevice{}, Rings: map[string]int{}}
+	_, rows, listened, err := s.airRows(ctx, store)
+	if err != nil {
+		return plainError(http.StatusInternalServerError, "the air could not be read")
+	}
+	base := map[string]baseline{}
+	for _, r := range rows {
+		base[string(r.Tag)] = baselineOf(r, listened)
+	}
+	now := map[string]bool{}
 	for _, sm := range rec.LiveSnapshot() {
 		dev, ok, err := store.Device(ctx, sm.tag)
 		if err != nil {
@@ -162,22 +211,50 @@ func (s *Stack) live(ctx context.Context, rec *Recorder, store *Store) (stacksdk
 		if !ok {
 			continue
 		}
-		near, far := model.Range(sm.signal, sm.channel)
-		d := LiveDevice{
-			ID: shortID(sm.tag), Mine: dev.Owner, Class: dev.Class, Dbm: int(math.Round(sm.signal)), NearM: round1(near), FarM: round1(far),
-			Ring: RingOf(near, far), Angle: angleOf(sm.tag), Trend: TrendOf(sm.trail), Channel: sm.channel, Heard: sm.heard,
-		}
-		if d.Class == "" {
-			d.Class = string(ClassUnknown)
-		}
+		now[string(sm.tag)] = true
+		d := dotOf(model, sm.tag, sm.signal, sm.channel)
+		d.Mine, d.Class, d.Trend, d.Heard = dev.Owner, classWord(dev.Class), TrendOf(sm.trail), sm.heard
 		if dev.Owner {
 			d.Label = dev.Label
+		}
+		if b := base[string(sm.tag)]; b.ok {
+			compareToUsual(&d, sm.signal, b)
 		}
 		v.Rings[d.Ring]++
 		v.Devices = append(v.Devices, d)
 	}
 	sort.Slice(v.Devices, func(i, j int) bool { return v.Devices[i].Dbm > v.Devices[j].Dbm })
+	v.Devices = append(v.Devices, usualDots(model, base, now)...)
 	return jsonResponse(http.StatusOK, v)
+}
+
+// compareToUsual sets how far a device's signal now is from its own baseline, and whether that is unusual for it.
+func compareToUsual(d *LiveDevice, signal float64, b baseline) {
+	d.UsualDbm = int(math.Round(b.mean))
+	shift := signal - b.mean
+	d.ShiftDB = int(math.Round(shift))
+	d.Unusual = math.Abs(shift) >= math.Max(unusualMinDB, unusualSpreads*b.std)
+}
+
+// usualDots draws every device the stored days know that is not being heard now, at its mean signal. Stored data is day-level (ADR-0053), so
+// these dots say where a device usually is, never where it was at some moment.
+func usualDots(model DistanceModel, base map[string]baseline, now map[string]bool) []LiveDevice {
+	var out []LiveDevice
+	for tag, b := range base {
+		if now[tag] || b.row.SigN == 0 || b.row.Cycles == 0 {
+			continue
+		}
+		d := dotOf(model, b.row.Tag, b.mean, firstChannel(b.row.Channels))
+		d.Mine, d.Class, d.Trend, d.Usual = b.row.Owner, classWord(b.row.Class), TrendUnknown, true
+		if b.row.Owner {
+			d.Label = b.row.Label
+		}
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Dbm > out[j].Dbm || (out[i].Dbm == out[j].Dbm && out[i].ID < out[j].ID)
+	})
+	return out[:min(len(out), maxUsualDots)]
 }
 
 // calibrate takes the owner's device as standing one metre from the sensor: its signal now is the signal at one metre for its band.

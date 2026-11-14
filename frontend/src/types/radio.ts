@@ -227,6 +227,12 @@ export interface RadioLiveDevice {
   trend: RadioTrend
   channel: number
   heard: boolean
+  /** Drawn from the stored days only: not heard now, and `dbm` is its mean over the days kept. */
+  usual?: boolean
+  /** The device's own mean over the days kept, when there are enough readings; `shift_db` is how far it is now, `unusual` says that is a lot for it. */
+  usual_dbm?: number
+  shift_db?: number
+  unusual?: boolean
 }
 
 /** GET /admin/api/radio/air/live: what the sensor is hearing now (memory only, forgotten when the run ends). */
@@ -247,7 +253,8 @@ export interface RadioPresenceDevice {
   signal?: RadioSignal
   last_heard?: string
   joined_own: boolean
-  hours: { hour: string; state: RadioHourState; signal?: RadioSignal }[]
+  /** `dbm`, `near_m` and `far_m` are set for an hour the device was heard in with a measured signal: the mean and the range the radar's model gives. */
+  hours: { hour: string; state: RadioHourState; signal?: RadioSignal; dbm?: number; near_m?: number; far_m?: number }[]
 }
 
 /** GET /admin/api/radio/devices/mine/presence */
