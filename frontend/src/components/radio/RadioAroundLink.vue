@@ -13,6 +13,6 @@ onMounted(() => { void a.load() })
 <template>
   <p v-if="a.air.value" class="m-0 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-[var(--radius-md)] bg-surface-raised px-4 py-3" data-test="radio-around-link">
     <span class="text-primary" data-test="radio-around-total">{{ total || a.air.value.listened_cycles ? radioAroundTotal(total) : RADIO_AROUND_EMPTY }}</span>
-    <RouterLink :to="toRadio('neighbourhood')" class="inline-flex min-h-11 items-center text-accent-brand hover:underline" :aria-label="RADIO_TAB_LINK_AROUND">{{ RADIO_NEIGH_LINK }}</RouterLink>
+    <RouterLink :to="toRadio('around')" class="inline-flex min-h-11 items-center text-accent-brand hover:underline" :aria-label="RADIO_TAB_LINK_AROUND">{{ RADIO_NEIGH_LINK }}</RouterLink>
   </p>
 </template>

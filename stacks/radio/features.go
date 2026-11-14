@@ -410,3 +410,13 @@ func (s *Store) DeleteOwnAP(ctx context.Context, tag []byte) (bool, error) {
 	})
 	return found, err
 }
+
+// firstChannelOf is the first channel a device has been heard on in the days kept (0 when none), which the distance model needs to pick a band.
+func (s *Store) firstChannelOf(ctx context.Context, tag []byte) (int, error) {
+	var mask sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `SELECT channels FROM daily WHERE tag = ? ORDER BY day DESC LIMIT 1`, tag).Scan(&mask)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return firstChannel(uint64(mask.Int64)), err
+}

@@ -188,6 +188,75 @@ export interface RadioAirwaves {
   listened_cycles: number
 }
 
+export interface RadioScanPlan {
+  channels: number[]
+  window_seconds: number
+  cycle_seconds: number
+}
+
+/** GET/PUT /admin/api/radio/listening/settings: the scan plan and what it may be. */
+export interface RadioScan {
+  plan: RadioScanPlan
+  default: RadioScanPlan
+  custom: boolean
+  windows_per_hour: number
+  limits: {
+    channels: number[]
+    max_channels: number
+    min_window_seconds: number
+    max_window_seconds: number
+    min_cycle_seconds: number
+    max_windows_per_hour: number
+  }
+}
+
+export type RadioRing = 'room' | 'house' | 'nearby' | 'far'
+export type RadioTrend = 'closer' | 'away' | 'steady' | 'unknown'
+
+/** One dot of the radar. A neighbour is a short id and a class; only the owner's devices carry a label. Direction is not measured: `angle` is a stable place on the ring. */
+export interface RadioLiveDevice {
+  id: string
+  mine: boolean
+  label?: string
+  class: RadioClass
+  dbm: number
+  near_m: number
+  far_m: number
+  ring: RadioRing
+  angle: number
+  trend: RadioTrend
+  channel: number
+  heard: boolean
+  /** Drawn from the stored days only: not heard now, and `dbm` is its mean over the days kept. */
+  usual?: boolean
+  /** The device's own mean over the days kept, when there are enough readings; `shift_db` is how far it is now, `unusual` says that is a lot for it. */
+  usual_dbm?: number
+  shift_db?: number
+  unusual?: boolean
+}
+
+/** One cycle of a track: `ago` counts cycles back from now (0 is the latest); a cycle the device was silent in has no point. */
+export interface RadioTrackPoint { ago: number; dbm: number; near_m: number; far_m: number }
+
+/** GET /admin/api/radio/air/track/{id}: one device's signal over this run, oldest first (memory only, forgotten when the run ends). */
+export interface RadioTrack {
+  id: string
+  mine: boolean
+  label?: string
+  trend: RadioTrend
+  cycles: number
+  points: RadioTrackPoint[]
+}
+
+/** GET /admin/api/radio/air/live: what the sensor is hearing now (memory only, forgotten when the run ends). */
+export interface RadioLive {
+  listening: boolean
+  cycles: number
+  model: { ref_24_dbm: number; ref_5_dbm: number; calibrated: boolean; provisional: boolean }
+  devices: RadioLiveDevice[]
+  rings: Partial<Record<RadioRing, number>>
+}
+
 export type RadioHourState = 'here' | 'away' | 'not_listening'
 
 export interface RadioPresenceDevice {
@@ -197,7 +266,8 @@ export interface RadioPresenceDevice {
   signal?: RadioSignal
   last_heard?: string
   joined_own: boolean
-  hours: { hour: string; state: RadioHourState; signal?: RadioSignal }[]
+  /** `dbm`, `near_m` and `far_m` are set for an hour the device was heard in with a measured signal: the mean and the range the radar's model gives. */
+  hours: { hour: string; state: RadioHourState; signal?: RadioSignal; dbm?: number; near_m?: number; far_m?: number }[]
 }
 
 /** GET /admin/api/radio/devices/mine/presence */

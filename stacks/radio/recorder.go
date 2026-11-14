@@ -28,10 +28,13 @@ type Recorder struct {
 	epoch  int
 
 	// cmu guards the open cycle, the owner's network names and the tags of the owner's confirmed access points.
-	cmu      sync.Mutex
-	cycle    map[string]*agg
-	ownNames map[string]bool
-	ownAPs   map[string]bool
+	cmu       sync.Mutex
+	cycle     map[string]*agg
+	ownNames  map[string]bool
+	ownAPs    map[string]bool
+	live      map[string]*liveDev
+	tracks    map[string][]trackPt // memory only, per run (live.go)
+	liveCycle int
 }
 
 // NewRecorder returns a Recorder over the vault and the store.
@@ -110,6 +113,7 @@ func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
 	r.cmu.Lock()
 	heard := r.cycle
 	r.cycle = nil
+	r.absorbCycle(heard)
 	r.cmu.Unlock()
 	if heard == nil {
 		return nil

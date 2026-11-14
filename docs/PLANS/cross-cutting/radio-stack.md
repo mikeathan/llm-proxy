@@ -124,7 +124,7 @@ Neighbourhood (counts by class, "unknown device close to the house") · Timeline
 - **R3 Tracker.** Tags, sealed owner list, classes v1 from measured data, owner labels. *Check:* a device re-enters after a restart and matches its row; forget-neighbours makes every old tag stop matching; no raw address of another person in the file (test greps the DB).
 - **R4 Findings and digest.** The finding ids, the digest tool, the template, the Analyse button. *Check:* digest has no device-chosen string outside the fence; byte-identical wording tests (ADR-0038 rule 1).
 - **R5 Screens.** The pages in §8. *Check:* Vitest, `npm run build`, visual tests, viewed at 390 px.
-- **R6 Position.** Distance bands, then multi-sensor. *Check:* measured on vertex with a walked device; the stated uncertainty contains the truth in the owner's test.
+- **R6 Position.** Distance bands, then multi-sensor. **Single-sensor part built in v0.89.0** (`stacks/radio/distance.go`, `live.go`, the radar on the Around you tab): a near-far range from two path-loss exponents, a ring, a trend, an owner calibration at one metre; direction is not measured. The multi-sensor part and the walked-device check are still open. *Check:* measured on vertex with a walked device; the stated uncertainty contains the truth in the owner's test.
 - **R7 Learning loop.** Proposed groups, versioned classifier, label-driven thresholds. *Check:* a label changes a class and the change is in the Timeline with its reason.
 - **R8 Bluetooth driver (optional).** Proves the plug-in point with a second radio kind.
 

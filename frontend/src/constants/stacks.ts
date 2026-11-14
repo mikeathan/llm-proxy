@@ -61,4 +61,4 @@ export const HELP_MODULES_TITLE = 'What each switch does'
 export const RADIO_TITLE = 'Radio'
 export const RADIO_SUBTITLE = 'Listen to the radio around this computer, and see what is there.'
 export const RADIO_LISTENING_LABEL = 'Listening'
-export const RADIO_TAB_LABELS = { neighbourhood: 'Neighbourhood', airwaves: 'Airwaves', devices: 'My devices', sensors: 'Sensors', modules: 'Modules' } as const
+export const RADIO_TAB_LABELS = { around: 'Around you', devices: 'My devices', sensors: 'Sensors', modules: 'Modules' } as const

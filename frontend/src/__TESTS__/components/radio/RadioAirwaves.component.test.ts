@@ -33,10 +33,11 @@ describe('RadioAirwaves', () => {
     expect(w.get('[data-test="radio-air-busiest"]').text()).toBe('Busiest: channel 6, 12 devices.')
     expect(w.get('[data-test="radio-air-router"]').text()).toBe('netsink: channel 60')
     expect(w.get('[data-test="radio-air-near"]').text()).toContain('2 devices that are not yet sorted have a strong signal')
-    expect(w.find('[data-test="radio-air-channel"]').exists()).toBe(false)
+    expect(w.findAll('[data-test="radio-air-channel"]')).toHaveLength(3) // the bars are the answer to where it is crowded, so Simple has them
+    expect(w.find('[data-test="radio-air-class"]').exists()).toBe(false)
   })
 
-  it('shows the tables in Advanced: a bar per channel, and retries by kind of device', async () => {
+  it('shows retries by kind of device in Advanced', async () => {
     useNetauditViewMode().set('advanced')
     const w = await show()
     const rows = w.findAll('[data-test="radio-air-channel"]')
@@ -47,6 +48,14 @@ describe('RadioAirwaves', () => {
     expect(classes[1]!.text()).toContain('Outside your walls')
     expect(classes[1]!.text()).toContain('31% retried')
     expect(w.get('[data-test="radio-air-cap-note"]').text()).toContain('4,000 frames')
+  })
+
+  it('says so when the adapter reports no retried frame at all, instead of a column of 0%', async () => {
+    useNetauditViewMode().set('advanced')
+    service.airwaves.mockResolvedValue(view({ classes: [{ class: 'infrastructure', devices: 4, frames: 9000, retry_percent: 0 }, { class: 'neighbour', devices: 9, frames: 4000, retry_percent: 0 }] }))
+    const w = await show()
+    expect(w.get('[data-test="radio-air-retries-silent"]').text()).toContain('reports no retried frames')
+    expect(w.findAll('[data-test="radio-air-class"]')[0]!.text()).not.toContain('retried')
   })
 
   it('says nothing was counted yet, and shows a failed read', async () => {
