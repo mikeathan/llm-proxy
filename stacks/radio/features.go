@@ -34,7 +34,7 @@ func channelBit(ch int) uint64 {
 
 // channelsOf lists the channels a mask holds, in the order of validChannels.
 func channelsOf(mask uint64) []int {
-	var out []int
+	out := []int{} // never nil: a null in the JSON broke the page that reads its length
 	for i, ch := range validChannels {
 		if mask&(1<<uint(i)) != 0 {
 			out = append(out, ch)

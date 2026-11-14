@@ -15,7 +15,7 @@ import type { RadioClass } from "../../types/radio"
 import {
   RADIO_CLASS_BY_OWNER, RADIO_CLASS_BY_RULES, RADIO_CLASS_ORDER, RADIO_CLASS_PICK, RADIO_CLASS_WORDS,
   RADIO_DEVICES_EMPTY, RADIO_DEVICES_INTRO, RADIO_DEVICES_TITLE, RADIO_DEVICE_ADD, RADIO_DEVICE_ADDRESS, RADIO_DEVICE_LABEL, RADIO_DEVICE_REMOVE,
-  RADIO_FORGET, RADIO_FORGET_BODY, RADIO_JOINED_EVIDENCE, RADIO_NEVER_HEARD, RADIO_NOW_WORDS, RADIO_PRESENCE_EMPTY, RADIO_PRESENCE_INTRO, RADIO_SIGNAL_WORDS,
+  RADIO_JOINED_EVIDENCE, RADIO_NEVER_HEARD, RADIO_NOW_WORDS, RADIO_PRESENCE_EMPTY, RADIO_PRESENCE_INTRO, RADIO_SIGNAL_WORDS,
   radioLastHeardLine,
 } from "../../constants/radio"
 
@@ -67,11 +67,6 @@ onMounted(() => { void d.load(); void p.load() })
         <FormField :label="RADIO_CLASS_PICK"><template #default><SelectInput v-model="cls" :options="classOptions" :label="RADIO_CLASS_PICK" /></template></FormField>
         <BaseButton variant="primary" type="submit" class-name="max-sm:!h-11" :disabled="d.busy.value || !address || !label" data-test="radio-device-add">{{ RADIO_DEVICE_ADD }}</BaseButton>
       </form>
-      <div class="flex flex-col gap-2 border-t border-hairline pt-3">
-        <p class="m-0 text-[length:var(--text-small)] text-muted">{{ RADIO_FORGET_BODY }}</p>
-        <p v-if="d.notice.value" class="m-0 text-[length:var(--text-small)] text-state-success" data-test="radio-forget-done">{{ d.notice.value }}</p>
-        <div><BaseButton variant="danger" class-name="max-sm:!h-11" :disabled="d.busy.value" data-test="radio-forget" @click="d.forget">{{ RADIO_FORGET }}</BaseButton></div>
-      </div>
     </div>
   </Panel>
 </template>

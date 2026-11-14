@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"llm-proxy-stacks/sdk"
@@ -28,13 +29,15 @@ type Recorder struct {
 	epoch  int
 
 	// cmu guards the open cycle, the owner's network names and the tags of the owner's confirmed access points.
-	cmu       sync.Mutex
-	cycle     map[string]*agg
-	ownNames  map[string]bool
-	ownAPs    map[string]bool
-	live      map[string]*liveDev
-	tracks    map[string][]trackPt // memory only, per run (live.go)
-	liveCycle int
+	cmu        sync.Mutex
+	cycle      map[string]*agg
+	ownNames   map[string]bool
+	ownAPs     map[string]bool
+	live       map[string]*liveDev
+	tracks     map[string][]trackPt // memory only, per run (live.go)
+	trackHours atomic.Int32         // 0: nothing finer than a day goes to the disk (ADR-0055)
+	liveCycle  int
+	lastCycle  int64 // unix time of the last finished cycle of this run
 }
 
 // NewRecorder returns a Recorder over the vault and the store.
@@ -113,12 +116,15 @@ func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
 	r.cmu.Lock()
 	heard := r.cycle
 	r.cycle = nil
-	r.absorbCycle(heard)
+	r.absorbCycle(heard, at)
 	r.cmu.Unlock()
 	if heard == nil {
 		return nil
 	}
 	if err := r.store.FlushCycle(ctx, at, heard); err != nil {
+		return err
+	}
+	if err := r.keepTrack(ctx, at, heard); err != nil {
 		return err
 	}
 	_, err := r.store.ClassifyAll(ctx, at)

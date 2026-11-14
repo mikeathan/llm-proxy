@@ -37,6 +37,8 @@ type Settings struct {
 	Channels      []int `json:"channels,omitempty"`
 	WindowSeconds int   `json:"window_seconds,omitempty"`
 	CycleSeconds  int   `json:"cycle_seconds,omitempty"`
+	// TrackHours is how long a per-device signal track is kept on disk: 0 (off, the default), 24 or 48 (ADR-0055).
+	TrackHours int `json:"track_hours,omitempty"`
 }
 
 // View is what the Sensors page shows.
@@ -61,6 +63,8 @@ type Stack struct {
 	run *run
 	// rec is the recorder over store (storage.go).
 	rec *Recorder
+	// lastPrune is when retention last ran (pruneIfDue).
+	lastPrune time.Time
 	// clock, sleep and maxFrames are what a test replaces.
 	clock     func() time.Time
 	sleep     func(context.Context, time.Duration) error
@@ -124,6 +128,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: ForgetPath},
 			{Method: http.MethodGet, Path: AirPath}, {Method: http.MethodGet, Path: AirDevicesPath}, {Method: http.MethodGet, Path: AirwavesPath},
 			{Method: http.MethodGet, Path: LivePath}, {Method: http.MethodPost, Path: CalibratePath}, {Method: http.MethodGet, Path: TrackPath},
+			{Method: http.MethodGet, Path: KeepPath}, {Method: http.MethodPut, Path: KeepPath}, {Method: http.MethodDelete, Path: KeepPath},
 			{Method: http.MethodGet, Path: PresencePath}, {Method: http.MethodGet, Path: DigestPath},
 			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
 			{Method: http.MethodPost, Path: NetworkConfirmPath}, {Method: http.MethodDelete, Path: NetworkPath},
@@ -189,7 +194,7 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return s.handleDigest(ctx, req)
 	case DevicesPath, DevicePath, ForgetPath, PresencePath:
 		return s.handleDevices(ctx, req)
-	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, TrackPath, NetworksPath, NetworkPath, NetworkConfirmPath:
+	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, TrackPath, KeepPath, NetworksPath, NetworkPath, NetworkConfirmPath:
 		return s.handleAir(ctx, req)
 	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {

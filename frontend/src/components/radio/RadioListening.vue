@@ -11,7 +11,7 @@ import { useRadioListening } from "../../composables/radio/useRadioListening"
 import { useRadioSensors } from "../../composables/radio/useRadioSensors"
 import {
   RADIO_ENDED, RADIO_LISTEN_ADAPTER, RADIO_LISTEN_HOURS, RADIO_LISTEN_HOUR_CHOICES, RADIO_LISTEN_INTRO, RADIO_LISTEN_NO_ADAPTER, RADIO_LISTEN_OFF,
-  RADIO_LISTEN_START, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, radioCycleLine,
+  RADIO_LISTEN_START, RADIO_LISTEN_MANUAL, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, radioCycleLine,
   radioFramesLine, radioHoursLabel, radioListeningUntil,
 } from "../../constants/radio"
 
@@ -68,6 +68,7 @@ onMounted(async () => {
         <FormField :label="RADIO_LISTEN_HOURS"><template #default><SelectInput v-model="hours" :options="hourOptions" :label="RADIO_LISTEN_HOURS" /></template></FormField>
         <BaseButton variant="primary" class-name="max-sm:!h-11" :disabled="!canStart" data-test="radio-listen-start" @click="start">{{ RADIO_LISTEN_START }}</BaseButton>
       </div>
+      <p v-if="!running && !off && adapters.length" class="m-0 text-[length:var(--text-small)] text-muted" data-test="radio-listen-manual">{{ RADIO_LISTEN_MANUAL }}</p>
 
       <Callout v-if="l.error.value" tone="error" title="Listening did not start"><span data-test="radio-listen-error">{{ l.error.value }}</span></Callout>
       <Callout v-if="ended" tone="info" :title="ended.title"><span data-test="radio-listen-ended">{{ ended.next }}</span><span v-if="l.state.value?.last_error" class="block text-muted" data-test="radio-listen-last-error">{{ l.state.value.last_error }}</span></Callout>

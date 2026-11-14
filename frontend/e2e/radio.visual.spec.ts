@@ -57,11 +57,12 @@ const AIRWAVES = {
 }
 const LIVE = {
   listening: true, cycles: 6, model: { ref_24_dbm: -40, ref_5_dbm: -47, calibrated: false, provisional: true },
-  rings: { room: 2, house: 2, nearby: 2 },
+  rings: { room: 2, house: 2, nearby: 2 }, cycle_seconds: 300, last_cycle_at: Math.floor(Date.now() / 1000) - 100, listened_cycles: 5, min_listened_cycles: 12,
   devices: [
-    { id: 'ab', mine: true, label: 'my phone', class: 'personal', dbm: -48, near_m: 1.4, far_m: 3.2, ring: 'room', angle: 40, trend: 'steady', channel: 6, heard: true },
+    { id: 'ab', mine: true, label: 'my phone', class: 'personal', dbm: -48, near_m: 1.4, far_m: 3.2, ring: 'room', angle: 40, trend: 'steady', channel: 6, heard: true, tail_m: [2.4, 2.2, 2.3, 2.2] },
     { id: 'c0ffee11', mine: false, class: 'infrastructure', dbm: -55, near_m: 2.1, far_m: 6, ring: 'room', angle: 130, trend: 'steady', channel: 6, heard: true },
-    { id: 'a1b2c3d4', mine: false, class: 'unknown', dbm: -62, near_m: 3, far_m: 11, ring: 'house', angle: 215, trend: 'closer', channel: 60, heard: true, unusual: true, usual_dbm: -78, shift_db: 16 },
+    { id: 'a1b2c3d4', mine: false, class: 'unknown', dbm: -62, near_m: 3, far_m: 11, ring: 'house', angle: 215, trend: 'closer', channel: 60, heard: true, unusual: true, usual_dbm: -78, shift_db: 16,
+      tail_m: [14, 11, 8, 5, 3.5], detail: { id: 'a1b2c3d4', class: 'unknown', why: 'needs_more_listening', signal: 'weak', first_seen: '2026-11-12', last_seen: '2026-11-14', cycles_heard: 2, need_heard: 3, retry_percent: 12, channels: [1, 11, 60], random_address: false, joined_own: false } },
     { id: 'e5f6a7b8', mine: false, class: 'neighbour', dbm: -70, near_m: 5, far_m: 24, ring: 'house', angle: 300, trend: 'away', channel: 11, heard: false },
     { id: '99aa00bb', mine: false, class: 'neighbour', dbm: -78, near_m: 8, far_m: 48, ring: 'nearby', angle: 75, trend: 'unknown', channel: 1, heard: true },
     { id: '12ab34cd', mine: false, class: 'transient', dbm: -84, near_m: 14, far_m: 100, ring: 'nearby', angle: 255, trend: 'unknown', channel: 36, heard: true },
@@ -69,6 +70,10 @@ const LIVE = {
     { id: '0badf00d', mine: false, class: 'infrastructure', dbm: -66, near_m: 4, far_m: 16, ring: 'house', angle: 20, trend: 'unknown', channel: 6, heard: false, usual: true },
     { id: 'feedbeef', mine: false, class: 'neighbour', dbm: -81, near_m: 10, far_m: 60, ring: 'nearby', angle: 330, trend: 'unknown', channel: 1, heard: false, usual: true },
   ],
+}
+const TRACK = {
+  id: 'a1b2c3d4', mine: false, trend: 'closer', stored: true, now: 1_800_000_000,
+  points: Array.from({ length: 40 }, (_, i) => ({ at: 1_800_000_000 - (40 - i) * 600 - (i > 22 ? 5400 : 0), dbm: -80 + i, near_m: 12 - i * 0.2, far_m: 40 - i * 0.7, run: i > 22 ? 1 : 0 })),
 }
 const SCAN = {
   plan: { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 }, default: { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 },
@@ -84,7 +89,7 @@ const DIGEST = {
 }
 const ANSWERS = {
   '/radio/digest': DIGEST,
-  '/radio/sensors': SENSORS, '/radio/listening': LISTENING, '/radio/air': AIR, '/radio/air/devices': AIR_DEVICES, '/radio/air/airwaves': AIRWAVES, '/radio/air/live': LIVE, '/radio/listening/settings': SCAN,
+  '/radio/sensors': SENSORS, '/radio/listening': LISTENING, '/radio/air': AIR, '/radio/air/devices': AIR_DEVICES, '/radio/air/airwaves': AIRWAVES, '/radio/air/live': LIVE, '/radio/air/track/a1b2c3d4': TRACK, '/radio/listening/settings': SCAN,
   '/radio/devices/mine': DEVICES, '/radio/devices/mine/presence': PRESENCE, '/radio/networks': NETWORKS,
 }
 
@@ -123,25 +128,30 @@ test('Listening: the scan plan opens to channel chips, and a plan that cannot ru
   await touchTargets(page, testInfo)
 })
 
-test('Around you: the radar, the kinds of device that open onto their devices, and the channels', async ({ page }, testInfo) => {
+test('Around you: the status line, the radar with one list, the device opened below and the channels', async ({ page }, testInfo) => {
   await setNetauditView(page, 'advanced')
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('radio/around')
   await expect(page.locator('[data-test="radio-finding"]')).toContainText('management frames')
+  await expect(page.locator('[data-test="radio-status-next"]')).toContainText('Next reading in')
+  await expect(page.locator('[data-test="radio-status-sorting"]')).toContainText('Sorting starts after 12 cycles (5 done)')
   await expect(page.locator('[data-test="radio-radar-summary"]')).toContainText('6 devices heard now, 1 of them yours')
-  await expect(page.locator('[data-test="radio-radar-unusual"]')).toHaveText('1 is unlike its usual.')
   await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(9)
   await expect(page.locator('[data-test="radio-dot"][data-usual="1"]')).toHaveCount(3)
   await expect(page.locator('[data-test="radio-dot-label"]')).toHaveText('my phone')
+  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(6)
+  await page.locator('[data-filter="neighbour"]').click()
+  await expect(page.locator('[data-test="radio-radar-row"]')).toHaveCount(2)
+  await page.locator('[data-filter="all"]').click()
   await page.locator('[data-test="radio-usual-toggle"]').click()
   await expect(page.locator('[data-test="radio-radar-row"][data-usual="1"]')).toHaveCount(3)
-  await page.locator('[data-test="radio-radar-row"]').nth(2).locator('button').click()
+  await page.locator('[data-test="radio-radar-row"]', { hasText: 'a1b2c3d4' }).locator('button').click()
   await expect(page.locator('[data-test="radio-radar-chosen"]')).toContainText('dBm on channel')
+  await expect(page.locator('[data-test="radio-air-waiting"]')).toContainText('Waiting:')
+  await expect(page.locator('[data-test="radio-track"] svg')).toBeVisible()
+  await expect(page.locator('[data-test="radio-track-line"]')).toHaveCount(2)
+  await page.locator('[data-test="radio-guide"] summary').click()
   await expect(page.locator('[data-test="radio-around-provisional"]')).toContainText('first draft')
-  await page.locator('[data-class="neighbour"] [data-test="radio-class-open"]').click()
-  await expect(page.locator('[data-test="radio-air-device"]')).toHaveCount(2)
-  await expect(page.locator('[data-test="radio-air-device"]').first()).toContainText('a1b2c3d4')
-  await expect(page.locator('[data-test="radio-air-channel"]')).toHaveCount(3)
   await expect(page.locator('[data-test="radio-air-busiest"]')).toHaveText('Busiest: channel 6, 12 devices.')
   await lookAt(page, testInfo, 'around-you', true)
   await expectNoSidewaysScroll(page)

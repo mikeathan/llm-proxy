@@ -78,6 +78,9 @@ func newRig(t *testing.T, doc string, next func(int, ListenParams) (stacksdk.Pri
 		}
 	}
 	h := host(doc, r.dir)
+	cfg := &memConfig{doc: map[string]json.RawMessage{}}
+	_ = json.Unmarshal([]byte(doc), &cfg.doc)
+	h.Config = cfg
 	h.Privileged, h.Vault = r.priv, fakeVault{}
 	if err := r.s.Start(context.Background(), h); err != nil {
 		t.Fatal(err)

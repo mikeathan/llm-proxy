@@ -69,3 +69,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0052](ADR-0052-radio-is-its-own-stack-with-generic-sensors-and-the-core-keeps-capture-and-judgement.md) | Radio is its own stack with generic sensors, and the core keeps the capture and the judgement |
 | [ADR-0053](ADR-0053-radio-keeps-a-keyed-tag-for-other-peoples-devices-and-seals-the-owners-with-hard-size-and-age-limits.md) | Radio keeps a keyed tag for other people's devices and seals the owner's, with hard size and age limits |
 | [ADR-0054](ADR-0054-a-scheduled-privileged-action-runs-under-a-bounded-session-a-person-approved.md) | A scheduled privileged action runs under a bounded session a person approved | proposed | 2026-11-13 |
+| [ADR-0055](ADR-0055-radio-may-keep-a-short-signal-track-per-device-on-disk-only-when-the-owner-turns-it-on.md) | Radio may keep a short signal track per device on disk, only when the owner turns it on | proposed | 2026-11-14 |

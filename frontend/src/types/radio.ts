@@ -169,15 +169,6 @@ export interface RadioAirDevice {
   joined_own: boolean
 }
 
-/** GET /admin/api/radio/air/devices */
-export interface RadioAirDevices {
-  listened_cycles: number
-  min_listened_cycles: number
-  total: number
-  devices: RadioAirDevice[]
-}
-
-export type RadioAirSort = 'last_heard' | 'cycles' | 'signal' | 'retries'
 
 /** GET /admin/api/radio/air/airwaves: counts only. */
 export interface RadioAirwaves {
@@ -233,19 +224,33 @@ export interface RadioLiveDevice {
   usual_dbm?: number
   shift_db?: number
   unusual?: boolean
+  /** Where its middle distance was in the last few cycles (metres, oldest first), for the tail behind a dot. */
+  tail_m?: number[]
+  /** The evidence behind the kind it was sorted into; never present for the owner's own devices. */
+  detail?: RadioAirDevice
 }
 
-/** One cycle of a track: `ago` counts cycles back from now (0 is the latest); a cycle the device was silent in has no point. */
-export interface RadioTrackPoint { ago: number; dbm: number; near_m: number; far_m: number }
+/** One cycle of a track: `at` is unix seconds; a `run` is an unbroken stretch, so a new run is drawn as a gap. */
+export interface RadioTrackPoint { at: number; dbm: number; near_m: number; far_m: number; run: number }
 
-/** GET /admin/api/radio/air/track/{id}: one device's signal over this run, oldest first (memory only, forgotten when the run ends). */
+/** GET /admin/api/radio/air/track/{id}: one device's signal, oldest first. `stored` says it came from the disk (the owner keeps tracks);
+ * otherwise it is this run's memory, forgotten when listening stops. `now` is unix seconds. */
 export interface RadioTrack {
   id: string
   mine: boolean
   label?: string
   trend: RadioTrend
-  cycles: number
+  stored: boolean
+  now: number
   points: RadioTrackPoint[]
+}
+
+/** GET/PUT/DELETE /admin/api/radio/keeping: how long signal tracks are kept on disk (0 = off, the default). */
+export interface RadioKeeping {
+  track_hours: number
+  choices: number[]
+  stored_points: number
+  oldest?: string
 }
 
 /** GET /admin/api/radio/air/live: what the sensor is hearing now (memory only, forgotten when the run ends). */
@@ -255,6 +260,11 @@ export interface RadioLive {
   model: { ref_24_dbm: number; ref_5_dbm: number; calibrated: boolean; provisional: boolean }
   devices: RadioLiveDevice[]
   rings: Partial<Record<RadioRing, number>>
+  /** The cycle length, when the last cycle of this run finished (unix seconds, 0 before the first), and how far the sorting has got. */
+  cycle_seconds: number
+  last_cycle_at: number
+  listened_cycles: number
+  min_listened_cycles: number
 }
 
 export type RadioHourState = 'here' | 'away' | 'not_listening'

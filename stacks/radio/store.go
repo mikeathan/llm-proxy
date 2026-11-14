@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, val INTEGER NOT NULL) WIT
 type Store struct {
 	db       *sql.DB
 	capBytes int64
+	// trackRowCap is the most rows air_track may hold (ADR-0055); the oldest go first.
+	trackRowCap int
 }
 
 // OpenStore opens (creating it if needed) the database at path. capBytes <= 0 means DefaultCapBytes.
@@ -80,7 +82,7 @@ func OpenStore(path string, capBytes int64) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("radio store: page size %d, want %d: %v", ps, pageSize, err)
 	}
-	return &Store{db: db, capBytes: capBytes}, nil
+	return &Store{db: db, capBytes: capBytes, trackRowCap: MaxTrackRows}, nil
 }
 
 // Close closes the database, which checkpoints the log.
@@ -291,6 +293,7 @@ func (s *Store) used(ctx context.Context) (int64, error) {
 }
 
 var evictions = []string{
+	`DELETE FROM air_track WHERE rowid IN (SELECT rowid FROM air_track ORDER BY at ASC LIMIT ?)`,
 	`DELETE FROM events WHERE (day, kind, owner, tag) IN (SELECT day, kind, owner, tag FROM events WHERE owner = 0 ORDER BY day ASC, n ASC LIMIT ?)`,
 	`DELETE FROM beacons WHERE tag IN (SELECT tag FROM beacons WHERE own = 0 ORDER BY visits ASC, last_day ASC LIMIT ?)`,
 	`DELETE FROM devices WHERE tag IN (SELECT tag FROM devices WHERE owner = 0 ORDER BY visits ASC, last_day ASC LIMIT ?)`,
@@ -363,6 +366,8 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int, error) {
 		{`DELETE FROM air_hours WHERE hour < ?`, owner * 24},
 		{`DELETE FROM daily WHERE day < ? AND tag NOT IN (SELECT tag FROM devices WHERE owner = 1)`, other},
 		{`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices) AND ? >= 0`, 0},
+		// Nothing in air_track outlives the ceiling whatever the setting says (ADR-0055).
+		{`DELETE FROM air_track WHERE at < ?`, now.Add(-MaxTrackHours * time.Hour).Unix()},
 	} {
 		res, err := s.db.ExecContext(ctx, q.sql, q.arg)
 		if err != nil {
@@ -379,7 +384,8 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int, error) {
 // supports it, makes them unmatchable as well; this removes them outright.)
 func (s *Store) ForgetOthers(ctx context.Context) error {
 	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons WHERE own = 0`, `DELETE FROM events WHERE owner = 0`,
-		`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices)`, `DELETE FROM class_log WHERE owner = 0`} {
+		`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices)`, `DELETE FROM class_log WHERE owner = 0`,
+		`DELETE FROM air_track WHERE tag NOT IN (SELECT tag FROM devices WHERE owner = 1)`} {
 		if _, err := s.db.ExecContext(ctx, q); err != nil {
 			return err
 		}
@@ -463,7 +469,8 @@ func (s *Store) Rotate(ctx context.Context, epoch int, retag, retagAP map[string
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons`, `DELETE FROM events WHERE owner = 0`,
-		`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices)`, `DELETE FROM class_log WHERE owner = 0`} {
+		`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices)`, `DELETE FROM class_log WHERE owner = 0`,
+		`DELETE FROM air_track`} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}

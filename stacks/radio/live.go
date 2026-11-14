@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"time"
 
 	"llm-proxy-stacks/sdk"
 )
@@ -38,6 +39,7 @@ type liveDev struct {
 // trackPt is one cycle a device was heard in: which cycle (counted from the start of the run) and its mean signal.
 type trackPt struct {
 	cycle   int
+	at      int64 // unix seconds of the cycle
 	signal  float64
 	channel int
 }
@@ -59,7 +61,7 @@ func firstChannel(mask uint64) int {
 }
 
 // absorbCycle folds a finished cycle into the picture. cmu is held.
-func (r *Recorder) absorbCycle(heard map[string]*agg) {
+func (r *Recorder) absorbCycle(heard map[string]*agg, at time.Time) {
 	if r.live == nil {
 		r.live = map[string]*liveDev{}
 	}
@@ -72,7 +74,8 @@ func (r *Recorder) absorbCycle(heard map[string]*agg) {
 		}
 	}
 	r.liveCycle++
-	r.absorbTracks(heard)
+	r.lastCycle = at.Unix()
+	r.absorbTracks(heard, at)
 	for tag, a := range heard {
 		if a.n == 0 {
 			continue
@@ -95,7 +98,7 @@ func (r *Recorder) absorbCycle(heard map[string]*agg) {
 
 // absorbTracks adds the finished cycle to each heard device's track and forgets the tracks that have gone a whole track length without a point.
 // cmu is held; r.liveCycle already counts this cycle.
-func (r *Recorder) absorbTracks(heard map[string]*agg) {
+func (r *Recorder) absorbTracks(heard map[string]*agg, at time.Time) {
 	if r.tracks == nil {
 		r.tracks = map[string][]trackPt{}
 	}
@@ -112,7 +115,7 @@ func (r *Recorder) absorbTracks(heard map[string]*agg) {
 		if !ok && len(r.tracks) >= liveMaxDevices {
 			continue
 		}
-		pts = append(pts, trackPt{cycle: r.liveCycle, signal: float64(a.sum) / float64(a.n), channel: firstChannel(a.channels)})
+		pts = append(pts, trackPt{cycle: r.liveCycle, at: at.Unix(), signal: float64(a.sum) / float64(a.n), channel: firstChannel(a.channels)})
 		if len(pts) > liveTrackCycles {
 			pts = pts[len(pts)-liveTrackCycles:]
 		}
@@ -120,11 +123,18 @@ func (r *Recorder) absorbTracks(heard map[string]*agg) {
 	}
 }
 
+// LastCycleAt is the unix time the last cycle of this run finished, 0 before the first.
+func (r *Recorder) LastCycleAt() int64 {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	return r.lastCycle
+}
+
 // ClearLive forgets the picture and every track: a run that ends leaves nothing behind.
 func (r *Recorder) ClearLive() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.live, r.tracks, r.liveCycle = nil, nil, 0
+	r.live, r.tracks, r.liveCycle, r.lastCycle = nil, nil, 0, 0
 }
 
 // TrackSnapshot is the device whose short id this is: its points, the cycle count now and whether any is a point at all. It copies; the caller
@@ -188,6 +198,10 @@ type LiveDevice struct {
 	UsualDbm int  `json:"usual_dbm,omitempty"`
 	ShiftDB  int  `json:"shift_db,omitempty"`
 	Unusual  bool `json:"unusual,omitempty"`
+	// TailM is where the device's middle distance was in the last few cycles, in metres and oldest first, so a dot can show where it came from. Detail is the evidence behind the kind it was
+	// sorted into (never for the owner's devices, which the owner named).
+	TailM  []float64  `json:"tail_m,omitempty"`
+	Detail *AirDevice `json:"detail,omitempty"`
 }
 
 // LiveView is the answer of LivePath.
@@ -197,6 +211,12 @@ type LiveView struct {
 	Model     DistanceModel  `json:"model"`
 	Devices   []LiveDevice   `json:"devices"`
 	Rings     map[string]int `json:"rings"`
+	// CycleSeconds and LastCycleAt (unix, 0 before the first cycle of this run) let the page count down to the next reading. Listened and
+	// MinListened are the cycles the sensor has listened through and the number the sorting needs.
+	CycleSeconds int   `json:"cycle_seconds"`
+	LastCycleAt  int64 `json:"last_cycle_at"`
+	Listened     int   `json:"listened_cycles"`
+	MinListened  int   `json:"min_listened_cycles"`
 }
 
 const (
@@ -206,6 +226,16 @@ const (
 	unusualSpreads  = 2.0
 	maxUsualDots    = 300
 )
+
+// tailOf is a trail of signals as the middle of the distance range each stood for.
+func tailOf(model DistanceModel, trail []float64, channel int) []float64 {
+	out := make([]float64, len(trail))
+	for i, v := range trail {
+		near, far := model.Range(v, channel)
+		out[i] = round1(math.Sqrt(near * far))
+	}
+	return out
+}
 
 func round1(v float64) float64 { return math.Round(v*10) / 10 }
 
@@ -244,17 +274,25 @@ func classWord(c string) string {
 	return c
 }
 
-func (s *Stack) live(ctx context.Context, rec *Recorder, store *Store) (stacksdk.Response, error) {
+func (s *Stack) live(ctx context.Context, h stacksdk.Host, rec *Recorder, store *Store) (stacksdk.Response, error) {
 	model := s.distanceModel(ctx, store)
 	st := s.listenState(ctx, s.h)
-	v := LiveView{Listening: st.Listening, Cycles: st.Cycles, Model: model, Devices: []LiveDevice{}, Rings: map[string]int{}}
-	_, rows, listened, err := s.airRows(ctx, store)
+	v := LiveView{Listening: st.Listening, Cycles: st.Cycles, Model: model, Devices: []LiveDevice{}, Rings: map[string]int{}, CycleSeconds: s.settings(ctx, h).Plan().CycleSeconds, LastCycleAt: rec.LastCycleAt()}
+	rules, rows, listened, err := s.airRows(ctx, store)
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the air could not be read")
 	}
+	v.MinListened = rules.MinCyclesListened
+	for _, n := range listened {
+		v.Listened += n
+	}
+	detail := map[string]AirDevice{}
 	base := map[string]baseline{}
 	for _, r := range rows {
 		base[string(r.Tag)] = baselineOf(r, listened)
+		if !r.Owner {
+			detail[string(r.Tag)] = airDevice(rules, r, listened)
+		}
 	}
 	now := map[string]bool{}
 	for _, sm := range rec.LiveSnapshot() {
@@ -274,11 +312,15 @@ func (s *Stack) live(ctx context.Context, rec *Recorder, store *Store) (stacksdk
 		if b := base[string(sm.tag)]; b.ok {
 			compareToUsual(&d, sm.signal, b)
 		}
+		d.TailM = tailOf(model, sm.trail, sm.channel)
+		if ad, ok := detail[string(sm.tag)]; ok && !dev.Owner {
+			d.Detail = &ad
+		}
 		v.Rings[d.Ring]++
 		v.Devices = append(v.Devices, d)
 	}
 	sort.Slice(v.Devices, func(i, j int) bool { return v.Devices[i].Dbm > v.Devices[j].Dbm })
-	v.Devices = append(v.Devices, usualDots(model, base, now)...)
+	v.Devices = append(v.Devices, usualDots(model, base, detail, now)...)
 	return jsonResponse(http.StatusOK, v)
 }
 
@@ -292,7 +334,7 @@ func compareToUsual(d *LiveDevice, signal float64, b baseline) {
 
 // usualDots draws every device the stored days know that is not being heard now, at its mean signal. Stored data is day-level (ADR-0053), so
 // these dots say where a device usually is, never where it was at some moment.
-func usualDots(model DistanceModel, base map[string]baseline, now map[string]bool) []LiveDevice {
+func usualDots(model DistanceModel, base map[string]baseline, detail map[string]AirDevice, now map[string]bool) []LiveDevice {
 	var out []LiveDevice
 	for tag, b := range base {
 		if now[tag] || b.row.SigN == 0 || b.row.Cycles == 0 {
@@ -302,6 +344,9 @@ func usualDots(model DistanceModel, base map[string]baseline, now map[string]boo
 		d.Mine, d.Class, d.Trend, d.Usual = b.row.Owner, classWord(b.row.Class), TrendUnknown, true
 		if b.row.Owner {
 			d.Label = b.row.Label
+		}
+		if ad, ok := detail[tag]; ok {
+			d.Detail = &ad
 		}
 		out = append(out, d)
 	}
@@ -329,49 +374,81 @@ func (s *Stack) calibrate(ctx context.Context, rec *Recorder, store *Store, id s
 	return plainError(http.StatusNotFound, "only a device of yours that is being heard can be used to calibrate")
 }
 
-// TrackPoint is one cycle of a track. Ago counts cycles back from now (0 is the latest); a cycle the device was silent in has no point, so the
-// gaps show in Ago.
+// TrackPoint is one cycle of a track. At is the unix time of the cycle; Run counts unbroken stretches, so a device that was silent for several
+// cycles starts a new run and the chart leaves a gap there instead of drawing a line through nothing.
 type TrackPoint struct {
-	Ago   int     `json:"ago"`
+	At    int64   `json:"at"`
 	Dbm   int     `json:"dbm"`
 	NearM float64 `json:"near_m"`
 	FarM  float64 `json:"far_m"`
+	Run   int     `json:"run"`
 }
 
-// TrackView is the answer of TrackPath: one device's signal over this run, oldest first. It is memory only (ADR-0053).
+// TrackView is the answer of TrackPath: one device's signal, oldest first. Stored says the points came from the disk (the owner turned the
+// track on, ADR-0055); otherwise they are this run's memory and are gone when listening stops. Now is the unix time of the answer.
 type TrackView struct {
 	ID     string       `json:"id"`
 	Mine   bool         `json:"mine"`
 	Label  string       `json:"label,omitempty"`
 	Trend  string       `json:"trend"`
-	Cycles int          `json:"cycles"`
+	Stored bool         `json:"stored"`
+	Now    int64        `json:"now"`
 	Points []TrackPoint `json:"points"`
 }
 
-// track answers one device's track. A device that is not in the run's memory (the run ended, or it was silent for a whole track) is not found.
-func (s *Stack) track(ctx context.Context, rec *Recorder, store *Store, id string) (stacksdk.Response, error) {
-	tag, pts, now, ok := rec.TrackSnapshot(id)
-	if !ok {
-		return plainError(http.StatusNotFound, "this device has no track in this run")
+// gapCycles is how many cycles of silence end a run of a track.
+const gapCycles = 2.5
+
+// track answers one device's track: from the disk when the owner keeps tracks, else from this run's memory. A device with no points is not found.
+func (s *Stack) track(ctx context.Context, h stacksdk.Host, rec *Recorder, store *Store, id string) (stacksdk.Response, error) {
+	set := s.settings(ctx, h)
+	tag, pts, stored, err := s.trackSource(ctx, rec, store, id, set.TrackHours)
+	if err != nil {
+		return plainError(http.StatusInternalServerError, "the air could not be read")
+	}
+	if len(pts) == 0 {
+		return plainError(http.StatusNotFound, "this device has no track yet")
 	}
 	dev, found, err := store.Device(ctx, tag)
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the air could not be read")
 	}
 	if !found {
-		return plainError(http.StatusNotFound, "this device has no track in this run")
+		return plainError(http.StatusNotFound, "this device has no track yet")
 	}
 	model := s.distanceModel(ctx, store)
-	v := TrackView{ID: id, Mine: dev.Owner, Cycles: now, Points: make([]TrackPoint, 0, len(pts))}
+	gap := int64(float64(set.Plan().CycleSeconds) * gapCycles)
+	v := TrackView{ID: id, Mine: dev.Owner, Stored: stored, Now: s.now().Unix(), Points: make([]TrackPoint, 0, len(pts))}
 	if dev.Owner {
 		v.Label = dev.Label
 	}
+	run := 0
 	sig := make([]float64, 0, len(pts))
-	for _, p := range pts {
+	for i, p := range pts {
+		if i > 0 && p.at-pts[i-1].at > gap {
+			run++
+		}
 		near, far := model.Range(p.signal, p.channel)
-		v.Points = append(v.Points, TrackPoint{Ago: now - p.cycle, Dbm: int(math.Round(p.signal)), NearM: round1(near), FarM: round1(far)})
+		v.Points = append(v.Points, TrackPoint{At: p.at, Dbm: int(math.Round(p.signal)), NearM: round1(near), FarM: round1(far), Run: run})
 		sig = append(sig, p.signal)
 	}
 	v.Trend = TrendOf(sig[max(0, len(sig)-liveTrailCycles):])
 	return jsonResponse(http.StatusOK, v)
+}
+
+// trackSource is where a device's points come from: the disk when tracks are kept, else this run's memory.
+func (s *Stack) trackSource(ctx context.Context, rec *Recorder, store *Store, id string, hours int) ([]byte, []trackPt, bool, error) {
+	if hours <= 0 {
+		tag, pts, _, ok := rec.TrackSnapshot(id)
+		if !ok {
+			return nil, nil, false, nil
+		}
+		return tag, pts, false, nil
+	}
+	tag, err := store.TagByShortID(ctx, id)
+	if err != nil || tag == nil {
+		return nil, nil, true, err
+	}
+	pts, err := store.TrackPoints(ctx, tag, s.now().Add(-time.Duration(hours)*time.Hour))
+	return tag, pts, true, err
 }
