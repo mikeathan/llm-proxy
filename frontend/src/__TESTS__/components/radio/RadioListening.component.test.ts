@@ -12,7 +12,7 @@ import RadioOwnerDevices from '../../../components/radio/RadioOwnerDevices.vue'
 
 const plan = { channels: [1, 60], window_seconds: 20, cycle_seconds: 300 }
 const idle = { listening: false, cycles: 0, frames: 0, windows: [], plan }
-const sensors = (over = {}) => ({ enabled: true, unused: 0, sensors: [{ id: 'wlx00', kind: 'wifi', eligible: true, why: '', capabilities: [] }], ...over })
+const sensors = (over = {}) => ({ enabled: true, unused: 0, sensors: [{ id: 'wlx00', kind: 'wifi', role: 'can_listen', eligible: true, why: '', capabilities: [] }], ...over })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -56,6 +56,22 @@ describe('RadioListening', () => {
     expect(w.get('[data-test="radio-listen-last-error"]').text()).toBe('the action is switched off')
   })
 
+  it('says where in the cycle the run is, so "0 cycles done" never reads as broken', async () => {
+    const win = (channel: number) => ({ channel, frames: 5, recorded: 5, unread: 0, stop: 'window', kernel_seen: 5, kernel_dropped: 0, elapsed_ms: 20000, on_channel: 5, off_channel: 0, channel_matched: true, at: `2026-11-13T10:0${channel % 10}:00Z` })
+    service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', frames: 5, windows: [win(1)] })
+    let w = await show()
+    expect(w.get('[data-test="radio-listen-progress"]').text()).toContain('Cycle 1 in progress: 1 of 2 channels heard.')
+    service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', cycles: 1, frames: 10, windows: [win(1), win(60)] })
+    w = await show()
+    expect(w.get('[data-test="radio-listen-progress"]').text()).toContain('1 cycle done. Waiting for the next one.')
+  })
+
+  it('says when a window was cut at the frame limit, so the count is read as a floor', async () => {
+    service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', windows: [{ channel: 60, frames: 4000, recorded: 4000, unread: 0, stop: 'frame_cap', kernel_seen: 9000, kernel_dropped: 0, elapsed_ms: 9000, on_channel: 4000, off_channel: 0, channel_matched: true, at: '2026-11-13T10:00:00Z' }] })
+    const w = await show()
+    expect(w.get('[data-test="radio-window-cut"]').text()).toContain('4,000-frame limit')
+  })
+
   it('shows windows as counts and words, not addresses', async () => {
     service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', windows: [{ channel: 60, frames: 40, recorded: 40, unread: 0, stop: 'window', kernel_seen: 40, kernel_dropped: 0, elapsed_ms: 20000, on_channel: 40, off_channel: 0, channel_matched: true, at: '2026-11-13T10:00:00Z' }] })
     const w = await show()
@@ -65,7 +81,7 @@ describe('RadioListening', () => {
 })
 
 describe('RadioOwnerDevices', () => {
-  const device = { id: 'ab', label: 'my phone', visits: 3, first_seen: '2026-11-10', last_seen: '2026-11-13' }
+  const device = { id: 'ab', label: 'my phone', visits: 3, first_seen: '2026-11-10', last_seen: '2026-11-13', class: 'personal', class_by: 'owner' }
 
   it('lists devices by name and days, never an address, and adds and removes them', async () => {
     service.ownerDevices.mockResolvedValue([device])
@@ -74,6 +90,8 @@ describe('RadioOwnerDevices', () => {
     const w = mount(RadioOwnerDevices)
     await flushPromises()
     expect(w.get('[data-test="radio-device"]').text()).toContain('my phone')
+    expect(w.get('[data-test="radio-device-class"]').text()).toBe('Comes and goes')
+    expect(w.get('[data-test="radio-device"]').text()).toContain('your word')
     await w.get('[data-test="radio-device-label"]').setValue('tv')
     await w.get('[data-test="radio-device-address"]').setValue('3a:91:5c:d2:7e:44')
     await w.get('form').trigger('submit')

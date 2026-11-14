@@ -6,4 +6,7 @@ package models
 type RadioConfig struct {
 	// Enabled is the master switch of the Radio stack (module radio_sensors).
 	Enabled bool `yaml:"enabled,omitempty" json:"enabled"`
+	// OwnNetworks are the names the operator's own Wi-Fi networks go by. A beacon with one of these names only proposes an access point: the
+	// operator confirms which addresses are theirs, because anyone can broadcast the same name.
+	OwnNetworks []string `yaml:"own_networks,omitempty" json:"own_networks"`
 }

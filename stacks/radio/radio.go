@@ -30,6 +30,8 @@ const (
 // computer that never opted in listens to nothing.
 type Settings struct {
 	Enabled bool `json:"enabled"`
+	// OwnNetworks are the names of the operator's own networks (see NetworksPath).
+	OwnNetworks []string `json:"own_networks,omitempty"`
 	// Channels, WindowSeconds and CycleSeconds shape a listening run (Plan applies the defaults and caps): the channels to visit, how long one
 	// window lasts and the time from one cycle's start to the next.
 	Channels      []int `json:"channels,omitempty"`
@@ -44,7 +46,7 @@ type View struct {
 	Sensors []Sensor `json:"sensors"`
 	// Reason is a fixed phrase, set when there is nothing to list.
 	Reason string `json:"reason,omitempty"`
-	// Unused counts the capabilities found and not used yet (by design, not built, or no driver): the operator's list for later.
+	// Unused counts what could be built next: capabilities the radio has and the stack does not use yet, and radios nothing drives.
 	Unused int `json:"unused"`
 }
 
@@ -120,6 +122,9 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: PlanPath},
 			{Method: http.MethodGet, Path: DevicesPath}, {Method: http.MethodPost, Path: DevicesPath}, {Method: http.MethodDelete, Path: DevicePath},
 			{Method: http.MethodPost, Path: ForgetPath},
+			{Method: http.MethodGet, Path: AirPath},
+			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
+			{Method: http.MethodPost, Path: NetworkConfirmPath}, {Method: http.MethodDelete, Path: NetworkPath},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged},
@@ -180,6 +185,8 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return s.handleListen(ctx, req)
 	case DevicesPath, DevicePath, ForgetPath:
 		return s.handleDevices(ctx, req)
+	case AirPath, NetworksPath, NetworkPath, NetworkConfirmPath:
+		return s.handleAir(ctx, req)
 	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
@@ -189,6 +196,7 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the radio stack is not running")
 	}
 	snap := Discover(s.sys)
+	snap.Sensors = Describe(snap.Sensors, s.lastProbe(ctx), s.listeningAdapter(), s.phyOf)
 	v := View{Enabled: s.settings(ctx, h).Enabled, Sensors: snap.Sensors, Reason: snap.Reason, Unused: unusedCount(snap.Sensors)}
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -220,10 +228,37 @@ func unusedCount(sensors []Sensor) int {
 	n := 0
 	for _, s := range sensors {
 		for _, c := range s.Capabilities {
-			if c.Use != UseUsed {
+			if c.Use == UseNotBuilt || c.Use == UseNoDriver {
 				n++
 			}
 		}
 	}
 	return n
+}
+
+// lastProbe is the last read of the adapters' capabilities, or nil when none was made (or there is no database yet: reading the page creates none).
+func (s *Stack) lastProbe(ctx context.Context) *ProbeRead {
+	st, err := s.existingStore()
+	if err != nil || st == nil {
+		return nil
+	}
+	var read ProbeRead
+	if ok, err := st.GetDoc(ctx, probeDoc, &read); err != nil || !ok {
+		return nil
+	}
+	return &read
+}
+
+// listeningAdapter is the adapter a run is listening with now, or "".
+func (s *Stack) listeningAdapter() string {
+	s.mu.Lock()
+	r := s.run
+	s.mu.Unlock()
+	if r == nil {
+		return ""
+	}
+	if st := r.snapshot(); st.Listening {
+		return st.Adapter
+	}
+	return ""
 }

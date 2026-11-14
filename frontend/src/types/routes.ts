@@ -83,8 +83,8 @@ export type NetworkSettingsGroup = (typeof NETWORK_SETTINGS_GROUPS)[number]
 export const AGENTS_TABS = ['modules'] as const
 export type AgentsTab = (typeof AGENTS_TABS)[number]
 
-// The tabs of the Radio page, addressable at /radio/:tab. Sensors is the page without a tab.
-export const RADIO_TABS = ['modules'] as const
+// The tabs of the Radio page, addressable at /radio/:tab. Listening is the page without a tab.
+export const RADIO_TABS = ['sensors', 'devices', 'modules'] as const
 export type RadioTab = (typeof RADIO_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the

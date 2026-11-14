@@ -71,7 +71,7 @@ func OpenStore(path string, capBytes int64) (*Store, error) {
 		return nil, fmt.Errorf("radio store: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema); err != nil {
+	if err := migrate(db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("radio store schema: %w", err)
 	}
@@ -175,6 +175,7 @@ type Device struct {
 	Owner                bool
 	Sealed               []byte
 	Label, Class         string
+	ClassVer             int
 	Visits               int
 	FirstDay, LastDay    int64
 	SignalMin, SignalMax int
@@ -285,6 +286,7 @@ var evictions = []string{
 	`DELETE FROM events WHERE (day, kind, owner, tag) IN (SELECT day, kind, owner, tag FROM events WHERE owner = 0 ORDER BY day ASC, n ASC LIMIT ?)`,
 	`DELETE FROM beacons WHERE tag IN (SELECT tag FROM beacons WHERE own = 0 ORDER BY visits ASC, last_day ASC LIMIT ?)`,
 	`DELETE FROM devices WHERE tag IN (SELECT tag FROM devices WHERE owner = 0 ORDER BY visits ASC, last_day ASC LIMIT ?)`,
+	`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices) AND ? > 0`,
 }
 
 // evict removes other people's lowest-value rows (fewest visits, then oldest) until the data is at or below percent of the cap; percent 0 means
@@ -345,6 +347,12 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int, error) {
 		{`DELETE FROM beacons WHERE own = 0 AND last_day < ?`, other},
 		{`DELETE FROM events WHERE owner = 0 AND day < ?`, other},
 		{`DELETE FROM events WHERE owner = 1 AND day < ?`, owner},
+		{`DELETE FROM class_log WHERE owner = 0 AND day < ?`, other},
+		{`DELETE FROM class_log WHERE owner = 1 AND day < ?`, owner},
+		{`DELETE FROM air_days WHERE day < ?`, owner},
+		{`DELETE FROM daily WHERE day < ?`, owner},
+		{`DELETE FROM daily WHERE day < ? AND tag NOT IN (SELECT tag FROM devices WHERE owner = 1)`, other},
+		{`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices) AND ? >= 0`, 0},
 	} {
 		res, err := s.db.ExecContext(ctx, q.sql, q.arg)
 		if err != nil {
@@ -360,7 +368,8 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int, error) {
 // ForgetOthers removes every row about someone else's devices, access points and events; the owner's stay. (Rotating the tag key, once the vault
 // supports it, makes them unmatchable as well; this removes them outright.)
 func (s *Store) ForgetOthers(ctx context.Context) error {
-	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons WHERE own = 0`, `DELETE FROM events WHERE owner = 0`} {
+	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons WHERE own = 0`, `DELETE FROM events WHERE owner = 0`,
+		`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices)`, `DELETE FROM class_log WHERE owner = 0`} {
 		if _, err := s.db.ExecContext(ctx, q); err != nil {
 			return err
 		}
@@ -437,16 +446,20 @@ func (s *Store) OwnerRows(ctx context.Context) ([]OwnerRow, error) {
 // Rotate starts a new epoch in one transaction: everything about someone else goes, the owner's rows (and their events) move to the tags in
 // retag (old tag to new tag), and the epoch number is stored. A row of the owner's with no new tag is dropped rather than kept under a tag
 // that can no longer match.
-func (s *Store) Rotate(ctx context.Context, epoch int, retag map[string][]byte) error {
+func (s *Store) Rotate(ctx context.Context, epoch int, retag, retagAP map[string][]byte) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons`, `DELETE FROM events WHERE owner = 0`} {
+	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons`, `DELETE FROM events WHERE owner = 0`,
+		`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices)`, `DELETE FROM class_log WHERE owner = 0`} {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}
+	}
+	if err := retagOwnAPs(ctx, tx, retagAP); err != nil {
+		return err
 	}
 	old, err := ownerTags(ctx, tx)
 	if err != nil {
@@ -465,6 +478,38 @@ func (s *Store) Rotate(ctx context.Context, epoch int, retag map[string][]byte) 
 	}
 	_, err = s.db.ExecContext(ctx, "PRAGMA incremental_vacuum")
 	return err
+}
+
+// retagOwnAPs gives each of the owner's access points its tag in the new epoch, or drops it when there is none.
+func retagOwnAPs(ctx context.Context, tx *sql.Tx, retag map[string][]byte) error {
+	rows, err := tx.QueryContext(ctx, `SELECT tag FROM own_aps`)
+	if err != nil {
+		return err
+	}
+	var old [][]byte
+	for rows.Next() {
+		var t []byte
+		if err := rows.Scan(&t); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		old = append(old, t)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, t := range old {
+		var err error
+		if nt := retag[string(t)]; nt != nil {
+			_, err = tx.ExecContext(ctx, `UPDATE own_aps SET tag = ? WHERE tag = ?`, nt, t)
+		} else {
+			_, err = tx.ExecContext(ctx, `DELETE FROM own_aps WHERE tag = ?`, t)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ownerTags lists the tags of the owner's devices inside the transaction.
@@ -489,14 +534,14 @@ func ownerTags(ctx context.Context, tx *sql.Tx) ([][]byte, error) {
 func moveOwner(ctx context.Context, tx *sql.Tx, oldTag, newTag []byte) error {
 
 	if newTag == nil {
-		for _, q := range []string{`DELETE FROM devices WHERE tag = ?`, `DELETE FROM events WHERE tag = ?`} {
+		for _, q := range []string{`DELETE FROM devices WHERE tag = ?`, `DELETE FROM events WHERE tag = ?`, `DELETE FROM daily WHERE tag = ?`, `DELETE FROM class_log WHERE tag = ?`} {
 			if _, err := tx.ExecContext(ctx, q, oldTag); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	for _, q := range []string{`UPDATE devices SET tag = ? WHERE tag = ?`, `UPDATE events SET tag = ? WHERE tag = ?`} {
+	for _, q := range []string{`UPDATE devices SET tag = ? WHERE tag = ?`, `UPDATE events SET tag = ? WHERE tag = ?`, `UPDATE daily SET tag = ? WHERE tag = ?`, `UPDATE class_log SET tag = ? WHERE tag = ?`} {
 		if _, err := tx.ExecContext(ctx, q, newTag, oldTag); err != nil {
 			return err
 		}
@@ -506,7 +551,7 @@ func moveOwner(ctx context.Context, tx *sql.Tx, oldTag, newTag []byte) error {
 
 // OwnerDevices lists the owner's devices, oldest first.
 func (s *Store) OwnerDevices(ctx context.Context) ([]Device, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT tag, label, visits, first_day, last_day FROM devices WHERE owner = 1 ORDER BY first_day, label`)
+	rows, err := s.db.QueryContext(ctx, `SELECT tag, label, class, class_ver, visits, first_day, last_day FROM devices WHERE owner = 1 ORDER BY first_day, label`)
 	if err != nil {
 		return nil, err
 	}
@@ -514,7 +559,7 @@ func (s *Store) OwnerDevices(ctx context.Context) ([]Device, error) {
 	var out []Device
 	for rows.Next() {
 		d := Device{Owner: true}
-		if err := rows.Scan(&d.Tag, &d.Label, &d.Visits, &d.FirstDay, &d.LastDay); err != nil {
+		if err := rows.Scan(&d.Tag, &d.Label, &d.Class, &d.ClassVer, &d.Visits, &d.FirstDay, &d.LastDay); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

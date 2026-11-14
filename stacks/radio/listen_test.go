@@ -20,10 +20,17 @@ type scriptedPriv struct {
 	mu     sync.Mutex
 	asked  []ListenParams
 	grants []string
+	probes int
 	next   func(n int, p ListenParams) (stacksdk.PrivilegedResult, error)
 }
 
 func (p *scriptedPriv) Run(_ context.Context, req stacksdk.PrivilegedRequest) (stacksdk.PrivilegedResult, error) {
+	if req.Action == "radio_probe" {
+		p.mu.Lock()
+		p.probes++
+		p.mu.Unlock()
+		return stacksdk.PrivilegedResult{Kind: "bytes", Data: []byte(iwList)}, nil
+	}
 	var lp ListenParams
 	_ = json.Unmarshal(req.Params, &lp)
 	p.mu.Lock()
@@ -137,7 +144,7 @@ func TestPlanDefaultsAndCaps(t *testing.T) {
 func TestRequestListIsTheOneListTheSessionApprovesAndTheSchedulerAsks(t *testing.T) {
 	plan := Settings{Channels: []int{1, 60}, WindowSeconds: 20}.Plan()
 	list := plan.Requests("wlx00")
-	if len(list) != 2 || list[1].Action != "radio_listen" || string(list[1].Params) != `{"iface":"wlx00","channel":60,"seconds":20}` {
+	if len(list) != 3 || list[0].Action != "radio_probe" || list[2].Action != "radio_listen" || string(list[2].Params) != `{"iface":"wlx00","channel":60,"seconds":20}` {
 		t.Errorf("%+v", list)
 	}
 }

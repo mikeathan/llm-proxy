@@ -111,7 +111,7 @@ func TestDiscover_ListsWhatIsUsedAndWhatIsNot(t *testing.T) {
 	for id, want := range map[string]Use{
 		"discovery":       UseUsed,
 		"frame_injection": UseByDesign,
-		"monitor_capture": UseNotBuilt,
+		"monitor_capture": UseReady,
 		"he_decode":       UseNotBuilt,
 		"ranging":         UseNotBuilt,
 	} {

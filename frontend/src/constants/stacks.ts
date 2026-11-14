@@ -59,6 +59,6 @@ export const HELP_MODULES_TITLE = 'What each switch does'
 
 /** The Radio page. Sensors is the page without a tab. */
 export const RADIO_TITLE = 'Radio'
-export const RADIO_SUBTITLE = 'The radios this computer has, and what each of them can do.'
-export const RADIO_SENSORS_LABEL = 'Sensors'
-export const RADIO_TAB_LABELS = { modules: 'Modules' } as const
+export const RADIO_SUBTITLE = 'Listen to the radio around this computer, and see what is there.'
+export const RADIO_LISTENING_LABEL = 'Listening'
+export const RADIO_TAB_LABELS = { sensors: 'Sensors', devices: 'My devices', modules: 'Modules' } as const
