@@ -74,6 +74,7 @@ func (s *Stack) handleAir(ctx context.Context, req stacksdk.Request) (stacksdk.R
 		http.MethodGet + " " + AirDevicesPath:      func() (stacksdk.Response, error) { return s.airDevices(ctx, store, req.Query) },
 		http.MethodGet + " " + AirwavesPath:        func() (stacksdk.Response, error) { return s.airwaves(ctx, store) },
 		http.MethodGet + " " + LivePath:            func() (stacksdk.Response, error) { return s.live(ctx, rec, store) },
+		http.MethodGet + " " + TrackPath:           func() (stacksdk.Response, error) { return s.track(ctx, rec, store, id) },
 		http.MethodPost + " " + CalibratePath:      func() (stacksdk.Response, error) { return s.calibrate(ctx, rec, store, id) },
 		http.MethodGet + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.networks(ctx, h, store) },
 		http.MethodPut + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.setNetworkNames(ctx, h, rec, req.Body) },

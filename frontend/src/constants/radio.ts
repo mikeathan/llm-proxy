@@ -326,3 +326,11 @@ export const radioUnusualSummary = (n: number): string => `${n} ${n === 1 ? 'is'
 export const RADIO_PRESENCE_DISTANCE = 'Distance over the same hours: the bar is the range it could be in, from the radar’s model.'
 export const RADIO_PRESENCE_CLOSER = 'closer'
 export const RADIO_PRESENCE_FARTHER = 'farther'
+
+export const RADIO_TRACK_TITLE = 'Distance over this run'
+export const RADIO_TRACK_FAILED = 'The track could not be read.'
+export const RADIO_TRACK_NONE = 'No track yet: this device has not been heard in a finished cycle of this run.'
+export const RADIO_TRACK_NOTE = 'Kept in memory only and forgotten when listening stops. The band is the range the distance can be in.'
+export function radioTrackSummary(heard: number, cycles: number): string {
+  return `Heard in ${heard} of ${cycles} cycles so far`
+}

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { RadioLive, RadioLiveDevice } from '../../../types/radio'
 
-const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn() }))
+const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn(), track: vi.fn() }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
 import RadioRadar from '../../../components/radio/RadioRadar.vue'
@@ -18,6 +18,9 @@ beforeEach(() => {
   vi.clearAllMocks()
   service.live.mockResolvedValue(view([dev({ id: 'far1', near_m: 8, far_m: 40, ring: 'nearby' }), dev({ id: 'mine1', mine: true, label: 'my phone', class: 'personal', near_m: 1.2, far_m: 3 }), dev({ id: 'close1', near_m: 2, far_m: 6, trend: 'closer' })]))
   service.calibrate.mockResolvedValue({ calibrated: true })
+  service.track.mockResolvedValue({ id: 'close1', mine: false, trend: 'closer', cycles: 5, points: [
+    { ago: 4, dbm: -80, near_m: 10, far_m: 40 }, { ago: 3, dbm: -70, near_m: 5, far_m: 20 }, { ago: 1, dbm: -60, near_m: 2, far_m: 6 }, { ago: 0, dbm: -58, near_m: 2, far_m: 5 },
+  ] })
 })
 
 async function show() {
@@ -99,5 +102,22 @@ describe('RadioRadar', () => {
     expect(w.get('[data-test="radio-radar-unusual"]').text()).toBe('1 is unlike its usual.')
     expect(w.get('[data-test="radio-row-unusual"]').text()).toBe('30 dB stronger than its usual -80 dBm: closer than usual')
   })
-})
 
+  it('draws a chosen device’s track in runs, leaving a gap for a cycle it was silent in', async () => {
+    const w = await show()
+    await w.findAll('[data-test="radio-radar-row"]')[1]?.find('button').trigger('click')
+    await flushPromises()
+    expect(service.track).toHaveBeenCalledWith('close1')
+    expect(w.findAll('[data-test="radio-track-line"]')).toHaveLength(2) // runs: ago 4-3, then 1-0
+    expect(w.get('[data-test="radio-track-summary"]').text()).toContain('Heard in 4 of 5 cycles so far')
+  })
+
+  it('says there is no track yet, without an error, when the server has none', async () => {
+    service.track.mockRejectedValue(new Error('this device has no track in this run'))
+    const w = await show()
+    await w.findAll('[data-test="radio-radar-row"]')[1]?.find('button').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-test="radio-track-none"]').exists()).toBe(true)
+    expect(w.find('[data-test="radio-track-error"]').exists()).toBe(false)
+  })
+})

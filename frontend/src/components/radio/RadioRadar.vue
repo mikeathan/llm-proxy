@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import Callout from "../common/feedback/Callout.vue"
+import RadioTrack from "./RadioTrack.vue"
 import { useRadioLive } from "../../composables/radio/useRadioLive"
 import { usePolling } from "../../composables/ui/usePolling"
 import {
@@ -99,6 +100,7 @@ usePolling(() => { void live.load() }, REFRESH_MS)
             </p>
             <div v-if="chosen" class="flex flex-col gap-2 rounded-[var(--radius-md)] bg-surface-raised px-3 py-2" data-test="radio-radar-chosen">
               <span class="text-primary">{{ radioDotLabel(chosen) }}: {{ chosen.usual ? "usually " : "" }}{{ chosen.dbm }} dBm on channel {{ chosen.channel }}, {{ radioRangeLine(chosen.near_m, chosen.far_m) }}<template v-if="!chosen.usual">, {{ RADIO_TREND_WORDS[chosen.trend] }}</template>.</span>
+              <RadioTrack v-if="!chosen.usual" :id="chosen.id" />
               <button v-if="chosen.mine && !chosen.usual" type="button" class="min-h-11 self-start rounded-[var(--radius-md)] border border-hairline px-3 text-primary hover:bg-surface-hover disabled:opacity-60" :disabled="live.busy.value" data-test="radio-calibrate" @click="live.calibrate(chosen.id)">{{ RADIO_RADAR_CALIBRATE }}</button>
               <span v-if="live.error.value" class="text-state-error" data-test="radio-radar-action-error">{{ live.error.value }}</span>
             </div>

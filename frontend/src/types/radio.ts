@@ -235,6 +235,19 @@ export interface RadioLiveDevice {
   unusual?: boolean
 }
 
+/** One cycle of a track: `ago` counts cycles back from now (0 is the latest); a cycle the device was silent in has no point. */
+export interface RadioTrackPoint { ago: number; dbm: number; near_m: number; far_m: number }
+
+/** GET /admin/api/radio/air/track/{id}: one device's signal over this run, oldest first (memory only, forgotten when the run ends). */
+export interface RadioTrack {
+  id: string
+  mine: boolean
+  label?: string
+  trend: RadioTrend
+  cycles: number
+  points: RadioTrackPoint[]
+}
+
 /** GET /admin/api/radio/air/live: what the sensor is hearing now (memory only, forgotten when the run ends). */
 export interface RadioLive {
   listening: boolean

@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { HelperSession, RadioAir, RadioAirDevices, RadioAirSort, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioPresence, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import type { HelperSession, RadioAir, RadioAirDevices, RadioAirSort, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioTrack, RadioPresence, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -81,6 +81,11 @@ export class RadioService {
   /** Takes one of the owner's devices as standing one metre from the computer, so every distance is measured from it. */
   static calibrate(id: string): Promise<{ calibrated: boolean }> {
     return post<{ calibrated: boolean }>(`${API_ENDPOINTS.radioCalibrate}/${encodeURIComponent(id)}`, {})
+  }
+
+  /** One device's signal over this run, from memory; 404 when the run ended or the device was silent for a whole track. */
+  static track(id: string): Promise<RadioTrack> {
+    return get<RadioTrack>(`${API_ENDPOINTS.radioTrack}/${encodeURIComponent(id)}`)
   }
 
   static digest(): Promise<RadioDigest> {

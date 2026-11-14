@@ -16,10 +16,15 @@ const (
 	// LivePath answers the radar (GET); CalibratePath stands one of the owner's devices one metre from the sensor (POST).
 	LivePath      = "/admin/api/radio/air/live"
 	CalibratePath = "/admin/api/radio/air/calibrate/{id}"
+	// TrackPath answers one device's signal over the run (GET), from memory.
+	TrackPath = "/admin/api/radio/air/track/{id}"
 
 	liveTrailCycles = 8   // cycles of signal a device keeps
 	liveKeepCycles  = 6   // cycles a device may be silent before it leaves the picture
 	liveMaxDevices  = 500 // the most devices the picture holds
+	// liveTrackCycles is how many cycles a device's track keeps (memory only; with the shortest cycle, 60 s, six hours). A device silent for that
+	// long loses its track, so memory is bounded by devices x cycles and nothing outlives a run.
+	liveTrackCycles = 360
 	distanceDoc     = "radio_distance"
 )
 
@@ -28,6 +33,13 @@ type liveDev struct {
 	trail   []float64
 	channel int
 	missed  int
+}
+
+// trackPt is one cycle a device was heard in: which cycle (counted from the start of the run) and its mean signal.
+type trackPt struct {
+	cycle   int
+	signal  float64
+	channel int
 }
 
 // liveSample is a device as the picture holds it at one moment.
@@ -59,6 +71,8 @@ func (r *Recorder) absorbCycle(heard map[string]*agg) {
 			delete(r.live, tag)
 		}
 	}
+	r.liveCycle++
+	r.absorbTracks(heard)
 	for tag, a := range heard {
 		if a.n == 0 {
 			continue
@@ -79,11 +93,51 @@ func (r *Recorder) absorbCycle(heard map[string]*agg) {
 	}
 }
 
-// ClearLive forgets the picture: a run that ends leaves nothing behind.
+// absorbTracks adds the finished cycle to each heard device's track and forgets the tracks that have gone a whole track length without a point.
+// cmu is held; r.liveCycle already counts this cycle.
+func (r *Recorder) absorbTracks(heard map[string]*agg) {
+	if r.tracks == nil {
+		r.tracks = map[string][]trackPt{}
+	}
+	for tag, pts := range r.tracks {
+		if r.liveCycle-pts[len(pts)-1].cycle >= liveTrackCycles {
+			delete(r.tracks, tag)
+		}
+	}
+	for tag, a := range heard {
+		if a.n == 0 {
+			continue
+		}
+		pts, ok := r.tracks[tag]
+		if !ok && len(r.tracks) >= liveMaxDevices {
+			continue
+		}
+		pts = append(pts, trackPt{cycle: r.liveCycle, signal: float64(a.sum) / float64(a.n), channel: firstChannel(a.channels)})
+		if len(pts) > liveTrackCycles {
+			pts = pts[len(pts)-liveTrackCycles:]
+		}
+		r.tracks[tag] = pts
+	}
+}
+
+// ClearLive forgets the picture and every track: a run that ends leaves nothing behind.
 func (r *Recorder) ClearLive() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.live = nil
+	r.live, r.tracks, r.liveCycle = nil, nil, 0
+}
+
+// TrackSnapshot is the device whose short id this is: its points, the cycle count now and whether any is a point at all. It copies; the caller
+// holds nothing.
+func (r *Recorder) TrackSnapshot(id string) (tag []byte, pts []trackPt, now int, ok bool) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	for t, p := range r.tracks {
+		if shortID([]byte(t)) == id {
+			return []byte(t), append([]trackPt(nil), p...), r.liveCycle, true
+		}
+	}
+	return nil, nil, r.liveCycle, false
 }
 
 // LiveSnapshot is every device in the picture, the open cycle's reading first.
@@ -273,4 +327,51 @@ func (s *Stack) calibrate(ctx context.Context, rec *Recorder, store *Store, id s
 		return jsonResponse(http.StatusOK, model)
 	}
 	return plainError(http.StatusNotFound, "only a device of yours that is being heard can be used to calibrate")
+}
+
+// TrackPoint is one cycle of a track. Ago counts cycles back from now (0 is the latest); a cycle the device was silent in has no point, so the
+// gaps show in Ago.
+type TrackPoint struct {
+	Ago   int     `json:"ago"`
+	Dbm   int     `json:"dbm"`
+	NearM float64 `json:"near_m"`
+	FarM  float64 `json:"far_m"`
+}
+
+// TrackView is the answer of TrackPath: one device's signal over this run, oldest first. It is memory only (ADR-0053).
+type TrackView struct {
+	ID     string       `json:"id"`
+	Mine   bool         `json:"mine"`
+	Label  string       `json:"label,omitempty"`
+	Trend  string       `json:"trend"`
+	Cycles int          `json:"cycles"`
+	Points []TrackPoint `json:"points"`
+}
+
+// track answers one device's track. A device that is not in the run's memory (the run ended, or it was silent for a whole track) is not found.
+func (s *Stack) track(ctx context.Context, rec *Recorder, store *Store, id string) (stacksdk.Response, error) {
+	tag, pts, now, ok := rec.TrackSnapshot(id)
+	if !ok {
+		return plainError(http.StatusNotFound, "this device has no track in this run")
+	}
+	dev, found, err := store.Device(ctx, tag)
+	if err != nil {
+		return plainError(http.StatusInternalServerError, "the air could not be read")
+	}
+	if !found {
+		return plainError(http.StatusNotFound, "this device has no track in this run")
+	}
+	model := s.distanceModel(ctx, store)
+	v := TrackView{ID: id, Mine: dev.Owner, Cycles: now, Points: make([]TrackPoint, 0, len(pts))}
+	if dev.Owner {
+		v.Label = dev.Label
+	}
+	sig := make([]float64, 0, len(pts))
+	for _, p := range pts {
+		near, far := model.Range(p.signal, p.channel)
+		v.Points = append(v.Points, TrackPoint{Ago: now - p.cycle, Dbm: int(math.Round(p.signal)), NearM: round1(near), FarM: round1(far)})
+		sig = append(sig, p.signal)
+	}
+	v.Trend = TrendOf(sig[max(0, len(sig)-liveTrailCycles):])
+	return jsonResponse(http.StatusOK, v)
 }

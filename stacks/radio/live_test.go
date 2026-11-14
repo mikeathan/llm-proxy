@@ -284,3 +284,68 @@ func TestAnOwnerDeviceHoursCarryADistanceRangeWhenHeard(t *testing.T) {
 		t.Errorf("here %d other %d", here, other)
 	}
 }
+
+func trackOf(t *testing.T, r *listenRig, id string) (TrackView, int) {
+	t.Helper()
+	resp, err := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodGet, Path: TrackPath, Params: map[string]string{"id": id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v TrackView
+	if resp.Status == http.StatusOK {
+		if err := json.Unmarshal(resp.Body, &v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return v, resp.Status
+}
+
+func TestATrackKeepsEveryCycleHeardInMemoryAndMarksTheGaps(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	cycleOf(t, rec, r.now, dataAt(neighbour, -80))
+	cycleOf(t, rec, r.now, dataAt(neighbour, -70))
+	cycleOf(t, rec, r.now) // silent cycle: a gap, not a point
+	cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+	id := liveOf(t, r).Devices[0].ID
+	v, code := trackOf(t, r, id)
+	if code != http.StatusOK || len(v.Points) != 3 {
+		t.Fatalf("three points expected: %d %+v", code, v)
+	}
+	if v.Points[0].Dbm != -80 || v.Points[2].Dbm != -60 || v.Points[0].Ago != 3 || v.Points[2].Ago != 0 {
+		t.Errorf("oldest first, ago counted in cycles, the gap kept: %+v", v.Points)
+	}
+	if v.Points[2].NearM >= v.Points[0].NearM || v.Trend != TrendCloser {
+		t.Errorf("a stronger signal is nearer: %+v", v)
+	}
+	if strings.Contains(string(mustJSON(t, v)), "b8:27") {
+		t.Error("an address leaked into a track")
+	}
+	var n int
+	_ = store.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name LIKE '%track%'`).Scan(&n)
+	if n != 0 {
+		t.Error("a track must never have a table (ADR-0053)")
+	}
+	rec.ClearLive()
+	if _, code := trackOf(t, r, id); code != http.StatusNotFound {
+		t.Errorf("a run that ends leaves no track: %d", code)
+	}
+}
+
+func TestATrackIsBoundedInLengthAndAge(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	for i := 0; i < liveTrackCycles+20; i++ {
+		cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+	}
+	id := liveOf(t, r).Devices[0].ID
+	if v, _ := trackOf(t, r, id); len(v.Points) != liveTrackCycles {
+		t.Errorf("a track keeps at most %d cycles, got %d", liveTrackCycles, len(v.Points))
+	}
+	for i := 0; i < liveTrackCycles+1; i++ {
+		cycleOf(t, rec, r.now)
+	}
+	if _, code := trackOf(t, r, id); code != http.StatusNotFound {
+		t.Errorf("a device silent for a whole track length is forgotten: %d", code)
+	}
+}
