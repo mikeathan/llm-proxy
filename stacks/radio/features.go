@@ -5,6 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -13,14 +16,40 @@ import (
 // agg is what one device did in one listening cycle: the frames it sent and their signal. A cycle visits every channel of the plan once.
 type agg struct {
 	frames, n int
+	retries   int
+	channels  uint64 // a bit for each channel heard on (channelBit)
 	sum, sq   int64
 	max       int
 	hasMax    bool
 	random    bool
 }
 
-func (a *agg) add(signal int, ok bool) {
+// channelBit is the bit a channel has in a channel mask: its place in validChannels (0 for a channel the plan cannot visit).
+func channelBit(ch int) uint64 {
+	if i := slices.Index(validChannels, ch); i >= 0 {
+		return 1 << uint(i)
+	}
+	return 0
+}
+
+// channelsOf lists the channels a mask holds, in the order of validChannels.
+func channelsOf(mask uint64) []int {
+	var out []int
+	for i, ch := range validChannels {
+		if mask&(1<<uint(i)) != 0 {
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
+func (a *agg) add(f Frame) {
 	a.frames++
+	if f.Retry {
+		a.retries++
+	}
+	a.channels |= channelBit(channelOf(int(f.FreqMHz)))
+	signal, ok := f.Signal, f.SignalOK
 	if !ok {
 		return
 	}
@@ -45,16 +74,23 @@ func (s *Store) FlushCycle(ctx context.Context, at time.Time, heard map[string]*
 		if _, err := tx.ExecContext(ctx, `INSERT INTO air_days(day, cycles) VALUES(?,1) ON CONFLICT(day) DO UPDATE SET cycles = cycles + 1`, day); err != nil {
 			return err
 		}
+		hour := hourNumber(at)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO air_hours(hour, cycles) VALUES(?,1) ON CONFLICT(hour) DO UPDATE SET cycles = cycles + 1`, hour); err != nil {
+			return err
+		}
 		for tag, a := range heard {
 			var mx any
 			if a.hasMax {
 				mx = a.max
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO daily(tag, day, cycles, frames, sig_n, sig_sum, sig_sq, sig_max) VALUES(?,?,1,?,?,?,?,?)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO daily(tag, day, cycles, frames, sig_n, sig_sum, sig_sq, sig_max, retries, channels) VALUES(?,?,1,?,?,?,?,?,?,?)
 				ON CONFLICT(tag, day) DO UPDATE SET cycles = cycles + 1, frames = frames + excluded.frames, sig_n = sig_n + excluded.sig_n,
-				sig_sum = sig_sum + excluded.sig_sum, sig_sq = sig_sq + excluded.sig_sq,
+				sig_sum = sig_sum + excluded.sig_sum, sig_sq = sig_sq + excluded.sig_sq, retries = retries + excluded.retries, channels = channels | excluded.channels,
 				sig_max = CASE WHEN excluded.sig_max IS NULL THEN sig_max WHEN sig_max IS NULL THEN excluded.sig_max ELSE max(sig_max, excluded.sig_max) END`,
-				[]byte(tag), day, a.frames, a.n, a.sum, a.sq, mx); err != nil {
+				[]byte(tag), day, a.frames, a.n, a.sum, a.sq, mx, a.retries, int64(a.channels)); err != nil {
+				return err
+			}
+			if err := flushOwnerHour(ctx, tx, []byte(tag), hour, a, mx); err != nil {
 				return err
 			}
 			if a.random {
@@ -65,6 +101,29 @@ func (s *Store) FlushCycle(ctx context.Context, at time.Time, heard map[string]*
 		}
 		return tx.Commit()
 	})
+}
+
+// hourNumber is the hour since the Unix epoch, in UTC: the resolution of the owner's own presence rows. Nothing finer is kept, and nothing at all
+// of this kind is kept for anyone else (ADR-0053).
+func hourNumber(t time.Time) int64 { return t.UTC().Unix() / 3600 }
+
+// flushOwnerHour adds one cycle to the hour's row of a device of the owner's. A device of anyone else writes nothing here.
+func flushOwnerHour(ctx context.Context, tx *sql.Tx, tag []byte, hour int64, a *agg, sigMax any) error {
+	var owner bool
+	if err := tx.QueryRowContext(ctx, `SELECT owner FROM devices WHERE tag = ?`, tag).Scan(&owner); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if !owner {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO owner_hours(tag, hour, cycles, sig_n, sig_sum, sig_max) VALUES(?,?,1,?,?,?)
+		ON CONFLICT(tag, hour) DO UPDATE SET cycles = cycles + 1, sig_n = sig_n + excluded.sig_n, sig_sum = sig_sum + excluded.sig_sum,
+		sig_max = CASE WHEN excluded.sig_max IS NULL THEN sig_max WHEN sig_max IS NULL THEN excluded.sig_max ELSE max(sig_max, excluded.sig_max) END`,
+		tag, hour, a.n, a.sum, sigMax)
+	return err
 }
 
 // MarkJoinedOwn records that a device asked to join one of the owner's confirmed access points.
@@ -84,9 +143,12 @@ type FeatureRow struct {
 	Random       bool
 	JoinedOwn    bool
 	FirstDay     int64 // the first day with a row
+	LastDay      int64 // the last day with a row (the device's own last day when it has none)
 	Days         int
 	Cycles       int
 	Frames       int
+	Retries      int
+	Channels     uint64
 	SigN         int64
 	SigSum       int64
 	SigSq        int64
@@ -97,9 +159,13 @@ type FeatureRow struct {
 // FeatureRows adds up every device's daily rows from sinceDay on, and returns them with the number of cycles the sensor listened through on each
 // of those days (the denominator of "present most of the time").
 func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, map[int64]int, error) {
+	// A device with no row in the window is still a row here (it has been heard, and has not yet been through a finished cycle), so every
+	// device is sorted and the card and the list agree. The owner's devices are listed only once they have a row.
 	rows, err := s.db.QueryContext(ctx, `SELECT d.tag, d.owner, d.label, d.class, d.class_ver, d.random, d.joined_own,
-			min(x.day), count(x.day), sum(x.cycles), sum(x.frames), sum(x.sig_n), sum(x.sig_sum), sum(x.sig_sq), max(x.sig_max)
-		FROM devices d JOIN daily x ON x.tag = d.tag WHERE x.day >= ? GROUP BY d.tag`, sinceDay)
+			COALESCE(min(x.day), d.first_day), COALESCE(max(x.day), d.last_day), count(x.day), COALESCE(sum(x.cycles), 0), COALESCE(sum(x.frames), 0), COALESCE(sum(x.retries), 0),
+			COALESCE(group_concat(x.channels), ''), COALESCE(sum(x.sig_n), 0), COALESCE(sum(x.sig_sum), 0), COALESCE(sum(x.sig_sq), 0), max(x.sig_max)
+		FROM devices d LEFT JOIN daily x ON x.tag = d.tag AND x.day >= ?1
+		WHERE d.owner = 0 OR x.day IS NOT NULL GROUP BY d.tag`, sinceDay)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -108,10 +174,12 @@ func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, 
 	for rows.Next() {
 		var r FeatureRow
 		var mx sql.NullInt64
+		var masks string
 		if err := rows.Scan(&r.Tag, &r.Owner, &r.Label, &r.Class, &r.ClassVer, &r.Random, &r.JoinedOwn,
-			&r.FirstDay, &r.Days, &r.Cycles, &r.Frames, &r.SigN, &r.SigSum, &r.SigSq, &mx); err != nil {
+			&r.FirstDay, &r.LastDay, &r.Days, &r.Cycles, &r.Frames, &r.Retries, &masks, &r.SigN, &r.SigSum, &r.SigSq, &mx); err != nil {
 			return nil, nil, err
 		}
+		r.Channels = orMasks(masks)
 		r.SigMax, r.HasMax = int(mx.Int64), mx.Valid
 		out = append(out, r)
 	}
@@ -120,6 +188,17 @@ func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, 
 	}
 	air, err := s.airDays(ctx, sinceDay)
 	return out, air, err
+}
+
+// orMasks joins the channel masks of a device's days (a comma-separated list, as group_concat gives it) into one.
+func orMasks(list string) uint64 {
+	var out uint64
+	for _, f := range strings.Split(list, ",") {
+		if n, err := strconv.ParseInt(f, 10, 64); err == nil {
+			out |= uint64(n)
+		}
+	}
+	return out
 }
 
 func (s *Store) airDays(ctx context.Context, sinceDay int64) (map[int64]int, error) {
@@ -266,8 +345,10 @@ type OwnAP struct {
 	Confirmed bool
 	Channel   int
 	Security  string
-	FirstDay  int64
-	LastDay   int64
+	// PMF is whether the access point protects its management frames: off, capable or required ("" until a beacon said).
+	PMF      string
+	FirstDay int64
+	LastDay  int64
 }
 
 // ProposeOwnAP records an access point that broadcasts one of the owner's network names. It stays a proposal until the owner confirms it: anyone
@@ -275,16 +356,16 @@ type OwnAP struct {
 func (s *Store) ProposeOwnAP(ctx context.Context, a OwnAP, at time.Time) error {
 	d := dayNumber(at)
 	return s.write(ctx, func() error {
-		_, err := s.db.ExecContext(ctx, `INSERT INTO own_aps(tag, sealed, name, confirmed, channel, security, first_day, last_day) VALUES(?,?,?,0,?,?,?,?)
-			ON CONFLICT(tag) DO UPDATE SET last_day = max(last_day, excluded.last_day), channel = excluded.channel, security = excluded.security`,
-			a.Tag, a.Sealed, a.Name, a.Channel, a.Security, d, d)
+		_, err := s.db.ExecContext(ctx, `INSERT INTO own_aps(tag, sealed, name, confirmed, channel, security, pmf, first_day, last_day) VALUES(?,?,?,0,?,?,?,?,?)
+			ON CONFLICT(tag) DO UPDATE SET last_day = max(last_day, excluded.last_day), channel = excluded.channel, security = excluded.security, pmf = excluded.pmf`,
+			a.Tag, a.Sealed, a.Name, a.Channel, a.Security, a.PMF, d, d)
 		return err
 	})
 }
 
 // OwnAPs lists the owner's access points, confirmed first.
 func (s *Store) OwnAPs(ctx context.Context) ([]OwnAP, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT tag, sealed, name, confirmed, channel, security, first_day, last_day FROM own_aps ORDER BY confirmed DESC, name, first_day`)
+	rows, err := s.db.QueryContext(ctx, `SELECT tag, sealed, name, confirmed, channel, security, pmf, first_day, last_day FROM own_aps ORDER BY confirmed DESC, name, first_day`)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +373,7 @@ func (s *Store) OwnAPs(ctx context.Context) ([]OwnAP, error) {
 	var out []OwnAP
 	for rows.Next() {
 		var a OwnAP
-		if err := rows.Scan(&a.Tag, &a.Sealed, &a.Name, &a.Confirmed, &a.Channel, &a.Security, &a.FirstDay, &a.LastDay); err != nil {
+		if err := rows.Scan(&a.Tag, &a.Sealed, &a.Name, &a.Confirmed, &a.Channel, &a.Security, &a.PMF, &a.FirstDay, &a.LastDay); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

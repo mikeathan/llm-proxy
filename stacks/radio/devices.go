@@ -76,15 +76,15 @@ func (s *Stack) handleDevices(ctx context.Context, req stacksdk.Request) (stacks
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be opened")
 	}
-	switch {
-	case req.Path == DevicesPath && req.Method == http.MethodGet:
-		return s.listOwners(ctx, store)
-	case req.Path == DevicesPath && req.Method == http.MethodPost:
-		return s.addOwner(ctx, rec, req.Body)
-	case req.Path == DevicePath && req.Method == http.MethodDelete:
-		return s.removeOwner(ctx, store, req.Params["id"])
-	case req.Path == ForgetPath && req.Method == http.MethodPost:
-		return s.forget(ctx, rec)
+	routes := map[string]func() (stacksdk.Response, error){
+		http.MethodGet + " " + DevicesPath:   func() (stacksdk.Response, error) { return s.listOwners(ctx, store) },
+		http.MethodPost + " " + DevicesPath:  func() (stacksdk.Response, error) { return s.addOwner(ctx, rec, req.Body) },
+		http.MethodGet + " " + PresencePath:  func() (stacksdk.Response, error) { return s.presence(ctx, store) },
+		http.MethodDelete + " " + DevicePath: func() (stacksdk.Response, error) { return s.removeOwner(ctx, store, req.Params["id"]) },
+		http.MethodPost + " " + ForgetPath:   func() (stacksdk.Response, error) { return s.forget(ctx, rec) },
+	}
+	if f, ok := routes[req.Method+" "+req.Path]; ok {
+		return f()
 	}
 	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 }

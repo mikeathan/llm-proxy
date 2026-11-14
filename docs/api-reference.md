@@ -178,6 +178,10 @@ A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `
 | GET, POST | `/admin/api/radio/devices/mine` | The owner's named devices (id, name, days seen; never the address) and adding one `{address, label}`; the address is sealed |
 | DELETE | `/admin/api/radio/devices/mine/{id}` | Removes one of the owner's devices |
 | POST | `/admin/api/radio/forget` | Forgets everything kept about other people's devices and networks and rotates the tags; refused while a run is recording |
+| GET | `/admin/api/radio/air/devices?class=&sort=` | Other people's devices, one row each by a short id (four bytes of the keyed tag; never an address or a name): class, why, signal band, first and last day, cycles heard, retry share, channels. At most 200 rows; `class` is a known class, `sort` one of `last_heard`, `cycles`, `signal`, `retries` |
+| GET | `/admin/api/radio/air/airwaves` | Counts only: devices heard per channel, frames and retry share per class, the owner's confirmed access points with their channel, and how many unsorted devices have a strong signal |
+| GET | `/admin/api/radio/devices/mine/presence` | Each of the owner's devices over the last 48 hours, an hour a cell: `here`, `away` or `not_listening`, with a signal band, the last hour it was heard and whether it joined an own network |
+| GET | `/admin/api/radio/digest` | What the stack found: counts by class (inferred), all eight finding ids with fixed wording and how each is known (seen, inferred, estimated), and the checks it could not run. No field can hold text a device chose |
 | DELETE | `/admin/api/helper/sessions/{id}` | Ends one session at once. No step-up: ending only takes authority away |
 | DELETE | `/admin/api/helper/sessions` | Ends every open session |
 | GET | `/admin/api/netaudit/host-traffic` | The last host traffic summary kept, as `{summary}`; `summary` is `null` before the first look. Names appear only here |

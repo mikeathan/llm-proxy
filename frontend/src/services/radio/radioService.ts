@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { HelperSession, RadioAir, RadioClass, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import type { HelperSession, RadioAir, RadioAirDevices, RadioAirSort, RadioAirwaves, RadioClass, RadioDigest, RadioPresence, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -50,6 +50,27 @@ export class RadioService {
 
   static air(): Promise<RadioAir> {
     return get<RadioAir>(API_ENDPOINTS.radioAir)
+  }
+
+  /** Other people's devices, one row each by a short id; `cls` narrows to one kind. */
+  static airDevices(cls?: RadioClass, sort?: RadioAirSort): Promise<RadioAirDevices> {
+    const q = new URLSearchParams()
+    if (cls) q.set('class', cls)
+    if (sort) q.set('sort', sort)
+    const query = q.toString()
+    return get<RadioAirDevices>(query ? `${API_ENDPOINTS.radioAirDevices}?${query}` : API_ENDPOINTS.radioAirDevices)
+  }
+
+  static airwaves(): Promise<RadioAirwaves> {
+    return get<RadioAirwaves>(API_ENDPOINTS.radioAirwaves)
+  }
+
+  static digest(): Promise<RadioDigest> {
+    return get<RadioDigest>(API_ENDPOINTS.radioDigest)
+  }
+
+  static presence(): Promise<RadioPresence> {
+    return get<RadioPresence>(API_ENDPOINTS.radioPresence)
   }
 
   static networks(): Promise<RadioNetworks> {

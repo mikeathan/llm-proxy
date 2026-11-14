@@ -138,9 +138,11 @@ type WindowAsked struct {
 
 // WindowSummary is what one window amounts to, as plain data: counts and words, never an address or a name (Constitution I.16).
 type WindowSummary struct {
-	Channel       int    `json:"channel"`
-	Frames        int    `json:"frames"`
-	Recorded      int    `json:"recorded"`
+	Channel  int `json:"channel"`
+	Frames   int `json:"frames"`
+	Recorded int `json:"recorded"`
+	// OwnFrames is how many of the recorded frames were sent by one of the owner's devices.
+	OwnFrames     int    `json:"own_frames"`
 	Unread        int    `json:"unread"`
 	Stop          string `json:"stop"`
 	KernelSeen    uint32 `json:"kernel_seen"`
@@ -182,10 +184,14 @@ func Ingest(ctx context.Context, rec *Recorder, raw []byte, asked WindowAsked, s
 		if ch != 0 {
 			heard[ch] = true
 		}
-		if err := rec.Record(ctx, f, start.Add(time.Duration(r.OffsetMs)*time.Millisecond)); err != nil {
+		owner, err := rec.RecordSeen(ctx, f, start.Add(time.Duration(r.OffsetMs)*time.Millisecond))
+		if err != nil {
 			return sum, err
 		}
 		sum.Recorded++
+		if owner {
+			sum.OwnFrames++
+		}
 	}
 	for ch := range heard {
 		sum.HeardChannels = append(sum.HeardChannels, ch)

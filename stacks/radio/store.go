@@ -206,15 +206,19 @@ type Beacon struct {
 	Name     string
 	Security string
 	Channel  int
+	// Signal is the signal the beacon was heard at (dBm), when the adapter measured one.
+	Signal   int
+	SignalOK bool
 	At       time.Time
 }
 
 const upsertBeacon = `
-INSERT INTO beacons(tag, own, name, name_len, name_hash, security, channel, visits, first_day, last_day) VALUES(?,?,?,?,?,?,?,1,?,?)
+INSERT INTO beacons(tag, own, name, name_len, name_hash, security, channel, visits, first_day, last_day, sig_max) VALUES(?,?,?,?,?,?,?,1,?,?,?)
 ON CONFLICT(tag) DO UPDATE SET
 	visits = visits + (CASE WHEN last_day < excluded.last_day THEN 1 ELSE 0 END),
 	last_day = max(last_day, excluded.last_day), own = max(own, excluded.own), name = excluded.name, name_len = excluded.name_len,
-	name_hash = excluded.name_hash, security = excluded.security, channel = excluded.channel`
+	name_hash = excluded.name_hash, security = excluded.security, channel = excluded.channel,
+	sig_max = CASE WHEN excluded.sig_max IS NULL THEN sig_max WHEN sig_max IS NULL THEN excluded.sig_max ELSE max(sig_max, excluded.sig_max) END`
 
 // SeenBeacon records a sighting of an access point.
 func (s *Store) SeenBeacon(ctx context.Context, b Beacon) error {
@@ -228,7 +232,11 @@ func (s *Store) SeenBeacon(ctx context.Context, b Beacon) error {
 	h := sha256.Sum256([]byte(b.Name))
 	d := dayNumber(b.At)
 	return s.write(ctx, func() error {
-		_, err := s.db.ExecContext(ctx, upsertBeacon, b.Tag, b.Own, name, len(b.Name), h[:8], b.Security, b.Channel, d, d)
+		var sig any
+		if b.SignalOK {
+			sig = b.Signal
+		}
+		_, err := s.db.ExecContext(ctx, upsertBeacon, b.Tag, b.Own, name, len(b.Name), h[:8], b.Security, b.Channel, d, d, sig)
 		return err
 	})
 }
@@ -351,6 +359,8 @@ func (s *Store) Prune(ctx context.Context, now time.Time) (int, error) {
 		{`DELETE FROM class_log WHERE owner = 1 AND day < ?`, owner},
 		{`DELETE FROM air_days WHERE day < ?`, owner},
 		{`DELETE FROM daily WHERE day < ?`, owner},
+		{`DELETE FROM owner_hours WHERE hour < ?`, owner * 24},
+		{`DELETE FROM air_hours WHERE hour < ?`, owner * 24},
 		{`DELETE FROM daily WHERE day < ? AND tag NOT IN (SELECT tag FROM devices WHERE owner = 1)`, other},
 		{`DELETE FROM daily WHERE tag NOT IN (SELECT tag FROM devices) AND ? >= 0`, 0},
 	} {
@@ -534,14 +544,14 @@ func ownerTags(ctx context.Context, tx *sql.Tx) ([][]byte, error) {
 func moveOwner(ctx context.Context, tx *sql.Tx, oldTag, newTag []byte) error {
 
 	if newTag == nil {
-		for _, q := range []string{`DELETE FROM devices WHERE tag = ?`, `DELETE FROM events WHERE tag = ?`, `DELETE FROM daily WHERE tag = ?`, `DELETE FROM class_log WHERE tag = ?`} {
+		for _, q := range []string{`DELETE FROM devices WHERE tag = ?`, `DELETE FROM events WHERE tag = ?`, `DELETE FROM daily WHERE tag = ?`, `DELETE FROM owner_hours WHERE tag = ?`, `DELETE FROM class_log WHERE tag = ?`} {
 			if _, err := tx.ExecContext(ctx, q, oldTag); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	for _, q := range []string{`UPDATE devices SET tag = ? WHERE tag = ?`, `UPDATE events SET tag = ? WHERE tag = ?`, `UPDATE daily SET tag = ? WHERE tag = ?`, `UPDATE class_log SET tag = ? WHERE tag = ?`} {
+	for _, q := range []string{`UPDATE devices SET tag = ? WHERE tag = ?`, `UPDATE events SET tag = ? WHERE tag = ?`, `UPDATE daily SET tag = ? WHERE tag = ?`, `UPDATE owner_hours SET tag = ? WHERE tag = ?`, `UPDATE class_log SET tag = ? WHERE tag = ?`} {
 		if _, err := tx.ExecContext(ctx, q, newTag, oldTag); err != nil {
 			return err
 		}
@@ -578,7 +588,11 @@ func (s *Store) DeleteOwner(ctx context.Context, tag []byte) (bool, error) {
 		n, _ := res.RowsAffected()
 		found = n > 0
 		if found {
-			_, err = s.db.ExecContext(ctx, `DELETE FROM events WHERE tag = ?`, tag)
+			for _, q := range []string{`DELETE FROM events WHERE tag = ?`, `DELETE FROM owner_hours WHERE tag = ?`} {
+				if _, err = s.db.ExecContext(ctx, q, tag); err != nil {
+					return err
+				}
+			}
 		}
 		return err
 	})

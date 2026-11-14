@@ -6,11 +6,12 @@ import Callout from "../common/feedback/Callout.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
 import FormField from "../common/forms/FormField.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import RadioWindows from "./RadioWindows.vue"
 import { useRadioListening } from "../../composables/radio/useRadioListening"
 import { useRadioSensors } from "../../composables/radio/useRadioSensors"
 import {
   RADIO_ENDED, RADIO_LISTEN_ADAPTER, RADIO_LISTEN_HOURS, RADIO_LISTEN_HOUR_CHOICES, RADIO_LISTEN_INTRO, RADIO_LISTEN_NO_ADAPTER, RADIO_LISTEN_OFF,
-  RADIO_LISTEN_START, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, RADIO_WINDOWS_TITLE, RADIO_WINDOW_CUT, RADIO_WINDOW_MISSED, RADIO_WINDOW_OFF_CHANNEL, RADIO_WINDOW_ON_CHANNEL, radioCycleLine,
+  RADIO_LISTEN_START, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, radioCycleLine,
   radioFramesLine, radioHoursLabel, radioListeningUntil,
 } from "../../constants/radio"
 
@@ -71,18 +72,7 @@ onMounted(async () => {
       <Callout v-if="l.error.value" tone="error" title="Listening did not start"><span data-test="radio-listen-error">{{ l.error.value }}</span></Callout>
       <Callout v-if="ended" tone="info" :title="ended.title"><span data-test="radio-listen-ended">{{ ended.next }}</span><span v-if="l.state.value?.last_error" class="block text-muted" data-test="radio-listen-last-error">{{ l.state.value.last_error }}</span></Callout>
 
-      <div v-if="l.state.value?.windows.length" class="flex flex-col gap-1">
-        <h3 class="m-0 text-[length:var(--text-small)] font-medium text-secondary">{{ RADIO_WINDOWS_TITLE }}</h3>
-        <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
-          <li v-for="w in [...l.state.value.windows].reverse().slice(0, 8)" :key="w.at + w.channel" class="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 text-[length:var(--text-small)]" data-test="radio-window">
-            <span class="font-mono text-primary">ch {{ w.channel }}</span>
-            <span class="text-secondary">{{ w.frames }} frames</span>
-            <span v-if="w.kernel_dropped" class="text-state-running">{{ w.kernel_dropped }} {{ RADIO_WINDOW_MISSED }}</span>
-            <span v-if="w.stop === 'frame_cap'" class="text-state-running" data-test="radio-window-cut">{{ RADIO_WINDOW_CUT }}</span>
-            <span class="text-muted">{{ w.frames === 0 ? w.stop.replace(/_/g, " ") : w.channel_matched ? RADIO_WINDOW_ON_CHANNEL : RADIO_WINDOW_OFF_CHANNEL }}</span>
-          </li>
-        </ul>
-      </div>
+      <RadioWindows v-if="l.state.value && (l.state.value.windows.length || running)" :windows="l.state.value.windows" />
     </div>
   </Panel>
 </template>

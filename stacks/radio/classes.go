@@ -42,6 +42,7 @@ const (
 	WhyNoRuleFits      Why = "no_rule_fits"
 	WhyOwnerSaid       Why = "owner_said"
 	WhyFirstClassified Why = "first_look"
+	WhyNotHeardLately  Why = "not_heard_lately"
 )
 
 // Rules is one version of the classifier.
@@ -180,6 +181,9 @@ func (s *Store) ClassifyAll(ctx context.Context, now time.Time) (int, error) {
 	for _, r := range rows {
 		if r.Class != "" && r.ClassVer == 0 {
 			continue // the owner's word
+		}
+		if r.Class != "" && r.Cycles == 0 {
+			continue // sorted once and not heard in the window: no new evidence, so no change (a silent week is not "not enough evidence")
 		}
 		cls, why := rules.Classify(FeaturesOf(r, listened))
 		if string(cls) == r.Class && r.ClassVer == rules.Version {
