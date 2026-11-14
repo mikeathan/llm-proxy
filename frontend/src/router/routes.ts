@@ -69,7 +69,7 @@ export const toAgents = (tab?: AgentsTab): RouteLocationNamedRaw => ({
   params: tab ? { tab } : {},
 })
 
-/** The Radio page; without a tab it opens on the sensors. */
+/** The Radio page; without a tab it opens on Listening. */
 export const toRadio = (tab?: RadioTab): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.radio,
   params: tab ? { tab } : {},

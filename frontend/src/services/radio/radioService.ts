@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
-import { del, get, post } from '../httpClient'
-import type { HelperSession, RadioListenState, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import { del, get, post, put } from '../httpClient'
+import type { HelperSession, RadioAir, RadioClass, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -44,8 +44,28 @@ export class RadioService {
     return r.devices
   }
 
-  static addOwnerDevice(address: string, label: string): Promise<{ label: string }> {
-    return post<{ label: string }>(API_ENDPOINTS.radioOwnerDevices, { address, label })
+  static addOwnerDevice(address: string, label: string, cls?: RadioClass): Promise<{ label: string }> {
+    return post<{ label: string }>(API_ENDPOINTS.radioOwnerDevices, cls ? { address, label, class: cls } : { address, label })
+  }
+
+  static air(): Promise<RadioAir> {
+    return get<RadioAir>(API_ENDPOINTS.radioAir)
+  }
+
+  static networks(): Promise<RadioNetworks> {
+    return get<RadioNetworks>(API_ENDPOINTS.radioNetworks)
+  }
+
+  static setNetworkNames(names: string[]): Promise<{ names: string[] }> {
+    return put<{ names: string[] }>(API_ENDPOINTS.radioNetworks, { names })
+  }
+
+  static confirmNetwork(id: string): Promise<{ confirmed: boolean }> {
+    return post<{ confirmed: boolean }>(`${API_ENDPOINTS.radioNetworks}/${encodeURIComponent(id)}/confirm`)
+  }
+
+  static dropNetwork(id: string): Promise<void> {
+    return del(`${API_ENDPOINTS.radioNetworks}/${encodeURIComponent(id)}`)
   }
 
   static removeOwnerDevice(id: string): Promise<void> {

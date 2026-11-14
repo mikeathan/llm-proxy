@@ -118,7 +118,8 @@ func (p ListenParams) request() ListenRequest {
 // Requests is the one list that both the session and the scheduler use: a session approves exactly these, and the run asks exactly these, so
 // the two cannot differ.
 func (p Plan) Requests(adapter string) []ListenRequest {
-	out := make([]ListenRequest, 0, len(p.Channels))
+	out := make([]ListenRequest, 0, len(p.Channels)+1)
+	out = append(out, probeRequest())
 	for _, c := range p.Channels {
 		out = append(out, ListenParams{Iface: adapter, Channel: c, Seconds: p.WindowSeconds}.request())
 	}
@@ -243,6 +244,10 @@ func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be opened")
 	}
+	rec.SetOwnNetworks(set.OwnNetworks)
+	if err := rec.RefreshOwnAPs(ctx); err != nil {
+		return plainError(http.StatusInternalServerError, "the radio database could not be read")
+	}
 	plan := set.Plan()
 	now := s.now()
 	until := now.Add(time.Duration(b.Hours * float64(time.Hour)))
@@ -300,45 +305,31 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 			}
 		})
 	}
+	defer rec.DropCycle()
+	if err := s.readProbe(ctx, priv, rec.store); err != nil {
+		if ctx.Err() != nil {
+			finish(EndedStopped)
+			return
+		}
+		r.update(func(st *ListenState) { st.LastError = messageOf(err) })
+		finish(EndedNoSession)
+		return
+	}
 	failures := 0
 	for {
+		rec.BeginCycle()
 		for _, ch := range plan.Channels {
 			if reason := s.reasonToStop(ctx, r, until); reason != "" {
 				finish(reason)
 				return
 			}
-			start := s.now()
-			res, err := priv.Run(ctx, stacksdk.PrivilegedRequest{Action: listenAction, Params: ListenParams{Iface: adapter, Channel: ch, Seconds: plan.WindowSeconds}.request().Params})
-			if ctx.Err() != nil {
-				finish(EndedStopped)
+			if reason := s.runWindow(ctx, priv, rec, r, ListenParams{Iface: adapter, Channel: ch, Seconds: plan.WindowSeconds}, &failures); reason != "" {
+				finish(reason)
 				return
 			}
-			if err != nil {
-				if stacksdk.CodeOf(err) == stacksdk.CodeDenied {
-					r.update(func(st *ListenState) { st.LastError = messageOf(err) })
-					finish(EndedNoSession)
-					return
-				}
-				failures++
-				r.update(func(st *ListenState) { st.LastError = messageOf(err) })
-				if failures >= maxFailures {
-					finish(EndedFailing)
-					return
-				}
-				continue
-			}
-			failures = 0
-			sum, ierr := Ingest(ctx, rec, res.Data, WindowAsked{Channel: ch}, start)
-			if ierr != nil {
-				sum = WindowSummary{Channel: ch, Stop: "unreadable", At: start}
-			}
-			r.update(func(st *ListenState) {
-				st.Frames += sum.Frames
-				st.Windows = append(st.Windows, sum)
-				if len(st.Windows) > keptWindows {
-					st.Windows = st.Windows[len(st.Windows)-keptWindows:]
-				}
-			})
+		}
+		if err := rec.EndCycle(ctx, s.now()); err != nil {
+			r.update(func(st *ListenState) { st.LastError = "a cycle could not be written to the database" })
 		}
 		r.update(func(st *ListenState) { st.Cycles++ })
 		wait := time.Duration(max(plan.CycleSeconds-len(plan.Channels)*plan.WindowSeconds, 5)) * time.Second
@@ -347,6 +338,40 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 			return
 		}
 	}
+}
+
+// runWindow asks for one window and keeps what it heard. A non-empty answer is why the run ends; empty means go on (a window that failed
+// is counted and the next one is tried, up to maxFailures in a row).
+func (s *Stack) runWindow(ctx context.Context, priv stacksdk.Privileged, rec *Recorder, r *run, p ListenParams, failures *int) string {
+	start := s.now()
+	res, err := priv.Run(ctx, stacksdk.PrivilegedRequest{Action: listenAction, Params: p.request().Params})
+	if ctx.Err() != nil {
+		return EndedStopped
+	}
+	if err != nil {
+		r.update(func(st *ListenState) { st.LastError = messageOf(err) })
+		if stacksdk.CodeOf(err) == stacksdk.CodeDenied {
+			return EndedNoSession
+		}
+		*failures++
+		if *failures >= maxFailures {
+			return EndedFailing
+		}
+		return ""
+	}
+	*failures = 0
+	sum, ierr := Ingest(ctx, rec, res.Data, WindowAsked{Channel: p.Channel}, start)
+	if ierr != nil {
+		sum = WindowSummary{Channel: p.Channel, Stop: "unreadable", At: start}
+	}
+	r.update(func(st *ListenState) {
+		st.Frames += sum.Frames
+		st.Windows = append(st.Windows, sum)
+		if len(st.Windows) > keptWindows {
+			st.Windows = st.Windows[len(st.Windows)-keptWindows:]
+		}
+	})
+	return ""
 }
 
 func (s *Stack) reasonToStop(ctx context.Context, r *run, until time.Time) string {
@@ -375,3 +400,5 @@ func messageOf(err error) string {
 	}
 	return msg
 }
+
+func jsonBytes(v any) ([]byte, error) { return json.Marshal(v) }

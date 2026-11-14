@@ -26,6 +26,12 @@ type Recorder struct {
 	mu     sync.Mutex
 	loaded bool
 	epoch  int
+
+	// cmu guards the open cycle, the owner's network names and the tags of the owner's confirmed access points.
+	cmu      sync.Mutex
+	cycle    map[string]*agg
+	ownNames map[string]bool
+	ownAPs   map[string]bool
 }
 
 // NewRecorder returns a Recorder over the vault and the store.
@@ -33,6 +39,12 @@ func NewRecorder(v stacksdk.Vault, s *Store) *Recorder { return &Recorder{vault:
 
 // AddOwnerDevice marks an address as the owner's own device: the row keeps the sealed address and the label until the owner deletes it.
 func (r *Recorder) AddOwnerDevice(ctx context.Context, mac MAC, label string, at time.Time) error {
+	return r.AddOwnerDeviceClass(ctx, mac, label, "", at)
+}
+
+// AddOwnerDeviceClass is AddOwnerDevice with the operator's own word on what class it is. A class given here is ground truth: the rules never
+// change it. Left empty, the rules decide.
+func (r *Recorder) AddOwnerDeviceClass(ctx context.Context, mac MAC, label string, class Class, at time.Time) error {
 	tag, err := r.tag(ctx, tagDevice, mac[:])
 	if err != nil {
 		return err
@@ -41,7 +53,7 @@ func (r *Recorder) AddOwnerDevice(ctx context.Context, mac MAC, label string, at
 	if err != nil {
 		return err
 	}
-	return r.store.SeenDevice(ctx, Seen{Tag: tag, Owner: true, Sealed: sealed, Label: label, At: at})
+	return r.store.SeenDevice(ctx, Seen{Tag: tag, Owner: true, Sealed: sealed, Label: label, Class: string(class), At: at})
 }
 
 // Record stores what one frame says: the sender's sighting, an access point's beacon, and a join, leave or refusal as a count.
@@ -60,9 +72,110 @@ func (r *Recorder) Record(ctx context.Context, f Frame, at time.Time) error {
 	if err != nil {
 		return err
 	}
+	r.addToCycle(tag, f)
+	if f.Kind == KindAssociationRequest && f.HasBSSID {
+		if err := r.noteJoin(ctx, tag, f.BSSID); err != nil {
+			return err
+		}
+	}
 	if kind := eventKind(f.Kind); kind != "" {
 		return r.store.AddEvent(ctx, kind, tag, owner, at)
 	}
+	return nil
+}
+
+// BeginCycle opens a cycle: until EndCycle, what each sender did is gathered, one entry a device however many frames it sent.
+func (r *Recorder) BeginCycle() {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	r.cycle = map[string]*agg{}
+}
+
+// DropCycle discards the open cycle: a run that stopped halfway through one has not listened on every channel, so counting it would bias every
+// share it feeds.
+func (r *Recorder) DropCycle() {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	r.cycle = nil
+}
+
+// EndCycle writes the finished cycle and then lets the classifier look at what it changed.
+func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
+	r.cmu.Lock()
+	heard := r.cycle
+	r.cycle = nil
+	r.cmu.Unlock()
+	if heard == nil {
+		return nil
+	}
+	if err := r.store.FlushCycle(ctx, at, heard); err != nil {
+		return err
+	}
+	_, err := r.store.ClassifyAll(ctx, at)
+	return err
+}
+
+func (r *Recorder) addToCycle(tag []byte, f Frame) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	if r.cycle == nil {
+		return
+	}
+	a := r.cycle[string(tag)]
+	if a == nil {
+		a = &agg{}
+		r.cycle[string(tag)] = a
+	}
+	a.add(f.Signal, f.SignalOK)
+	if f.Transmitter[0]&2 != 0 { // a locally administered address: a phone's per-network random one
+		a.random = true
+	}
+}
+
+// noteJoin records that a device asked to join an access point, when that access point is one of the owner's confirmed ones.
+func (r *Recorder) noteJoin(ctx context.Context, device []byte, bssid MAC) error {
+	ap, err := r.tag(ctx, tagAP, bssid[:])
+	if err != nil {
+		return err
+	}
+	r.cmu.Lock()
+	own := r.ownAPs[string(ap)]
+	r.cmu.Unlock()
+	if !own {
+		return nil
+	}
+	return r.store.MarkJoinedOwn(ctx, device)
+}
+
+// SetOwnNetworks sets the names the owner's own networks go by. A beacon with one of these names proposes an access point; only the owner's
+// confirmation makes it count.
+func (r *Recorder) SetOwnNetworks(names []string) {
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		if n != "" {
+			set[n] = true
+		}
+	}
+	r.cmu.Lock()
+	r.ownNames = set
+	r.cmu.Unlock()
+}
+
+// RefreshOwnAPs reloads the tags of the owner's confirmed access points; call it after a confirmation and after the epoch changes.
+func (r *Recorder) RefreshOwnAPs(ctx context.Context) error {
+	aps, err := r.store.OwnAPs(ctx)
+	if err != nil {
+		return err
+	}
+	set := map[string]bool{}
+	for _, a := range aps {
+		if a.Confirmed {
+			set[string(a.Tag)] = true
+		}
+	}
+	r.cmu.Lock()
+	r.ownAPs = set
+	r.cmu.Unlock()
 	return nil
 }
 
@@ -96,6 +209,18 @@ func (r *Recorder) recordBeacon(ctx context.Context, f Frame, at time.Time) erro
 	tag, err := r.tag(ctx, tagAP, f.BSSID[:])
 	if err != nil {
 		return err
+	}
+	r.cmu.Lock()
+	proposes := f.SSID != "" && r.ownNames[f.SSID]
+	r.cmu.Unlock()
+	if proposes {
+		sealed, err := r.vault.Seal(ctx, sealOwner, f.BSSID[:])
+		if err != nil {
+			return err
+		}
+		if err := r.store.ProposeOwnAP(ctx, OwnAP{Tag: tag, Sealed: sealed, Name: f.SSID, Channel: f.Channel, Security: string(f.Security.Mode)}, at); err != nil {
+			return err
+		}
 	}
 	return r.store.SeenBeacon(ctx, Beacon{Tag: tag, Name: f.SSID, Security: string(f.Security.Mode), Channel: f.Channel, At: at})
 }
@@ -156,9 +281,25 @@ func (r *Recorder) ForgetNeighbours(ctx context.Context) error {
 		}
 		retag[string(o.Tag)] = nt
 	}
-	if err := r.store.Rotate(ctx, next, retag); err != nil {
+	aps, err := r.store.OwnAPs(ctx)
+	if err != nil {
+		return err
+	}
+	retagAP := make(map[string][]byte, len(aps))
+	for _, a := range aps {
+		mac, err := r.vault.Open(ctx, sealOwner, a.Sealed)
+		if err != nil {
+			continue
+		}
+		nt, err := r.vault.Tag(ctx, purpose(tagAP, next), mac)
+		if err != nil {
+			return err
+		}
+		retagAP[string(a.Tag)] = nt
+	}
+	if err := r.store.Rotate(ctx, next, retag, retagAP); err != nil {
 		return err
 	}
 	r.epoch = next
-	return nil
+	return r.RefreshOwnAPs(ctx)
 }

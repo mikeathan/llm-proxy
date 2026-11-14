@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -33,11 +34,16 @@ type OwnerDevice struct {
 	Visits   int    `json:"visits"`
 	FirstDay string `json:"first_seen"`
 	LastDay  string `json:"last_seen"`
+	// Class is what kind of device it is; ClassBy says who decided: "owner" (the operator's word) or "rules" (the classifier, with Why).
+	Class   string `json:"class"`
+	ClassBy string `json:"class_by"`
+	Why     string `json:"why,omitempty"`
 }
 
 type ownerBody struct {
 	Address string `json:"address"`
 	Label   string `json:"label"`
+	Class   string `json:"class,omitempty"`
 }
 
 // ParseMAC reads the usual forms (colons or dashes, any case). A group address is not a device and is refused.
@@ -90,7 +96,12 @@ func (s *Stack) listOwners(ctx context.Context, store *Store) (stacksdk.Response
 	}
 	out := make([]OwnerDevice, 0, len(rows))
 	for _, d := range rows {
-		out = append(out, OwnerDevice{ID: hex.EncodeToString(d.Tag), Label: d.Label, Visits: d.Visits, FirstDay: dayString(d.FirstDay), LastDay: dayString(d.LastDay)})
+		by := "rules"
+		if d.Class != "" && d.ClassVer == 0 {
+			by = "owner"
+		}
+		out = append(out, OwnerDevice{ID: hex.EncodeToString(d.Tag), Label: d.Label, Visits: d.Visits, FirstDay: dayString(d.FirstDay), LastDay: dayString(d.LastDay),
+			Class: string(orUnknown(d.Class)), ClassBy: by})
 	}
 	return jsonResponse(http.StatusOK, map[string]any{"devices": out})
 }
@@ -110,7 +121,11 @@ func (s *Stack) addOwner(ctx context.Context, rec *Recorder, body []byte) (stack
 	case label == "" || utf8.RuneCountInString(label) > maxLabel || strings.ContainsFunc(label, func(r rune) bool { return r < 0x20 || r == 0x7f }):
 		return plainError(http.StatusBadRequest, "give the device a name of up to 60 characters")
 	}
-	if err := rec.AddOwnerDevice(ctx, mac, label, s.now()); err != nil {
+	class := Class(b.Class)
+	if class != "" && !slices.Contains(Classes, class) || class == ClassUnknown {
+		return plainError(http.StatusBadRequest, "the class is infrastructure, personal, neighbour or transient, or left out")
+	}
+	if err := rec.AddOwnerDeviceClass(ctx, mac, label, class, s.now()); err != nil {
 		return plainError(http.StatusInternalServerError, "the device could not be saved")
 	}
 	return jsonResponse(http.StatusCreated, map[string]string{"label": label})
@@ -142,4 +157,11 @@ func (s *Stack) forget(ctx context.Context, rec *Recorder) (stacksdk.Response, e
 		return plainError(http.StatusInternalServerError, "the neighbours could not be forgotten")
 	}
 	return jsonResponse(http.StatusOK, map[string]bool{"forgotten": true})
+}
+
+func orUnknown(c string) Class {
+	if c == "" {
+		return ClassUnknown
+	}
+	return Class(c)
 }

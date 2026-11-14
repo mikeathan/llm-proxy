@@ -28,12 +28,16 @@ const (
 	ModeOther   Mode = "other"
 )
 
-// Use says what the stack does with a capability. The words on the Sensors page come from these four ids, so a new capability needs no
+// Use says what the stack does with a capability. The words on the Sensors page come from these ids, so a new capability needs no
 // new screen code.
 type Use string
 
-// The four answers.
+// The answers.
 const (
+	// UseReady: the radio can do it and the stack can, and it is not doing it right now (it needs the operator to start listening).
+	UseReady Use = "ready"
+	// UseUnsupported: this radio cannot do it, said by the adapter's own probe: a fact about the hardware, not a gap in the stack.
+	UseUnsupported Use = "unsupported"
 	// UseUsed: the stack uses it now.
 	UseUsed Use = "used"
 	// UseByDesign: the radio can do it and the stack refuses to (Constitution I.16 draft: nothing is ever sent).
@@ -57,15 +61,39 @@ type Capability struct {
 // Sensor is one radio found on this computer, described from the system's own records only. Every field is a fixed word, a number or a
 // plain token: nothing a device or a neighbour sent.
 type Sensor struct {
-	ID           string       `json:"id"`
-	Kind         Kind         `json:"kind"`
-	Bus          string       `json:"bus,omitempty"`
-	Driver       string       `json:"driver,omitempty"`
-	USBID        string       `json:"usb_id,omitempty"`
-	Mode         Mode         `json:"mode,omitempty"`
-	Eligible     bool         `json:"eligible"`
-	Why          string       `json:"why"`
-	Capabilities []Capability `json:"capabilities"`
+	ID       string `json:"id"`
+	Kind     Kind   `json:"kind"`
+	Bus      string `json:"bus,omitempty"`
+	Driver   string `json:"driver,omitempty"`
+	USBID    string `json:"usb_id,omitempty"`
+	Mode     Mode   `json:"mode,omitempty"`
+	Eligible bool   `json:"eligible"`
+	Why      string `json:"why"`
+	// Role is the one word the page leads with: listening now, can listen, will not be used, or found with no driver.
+	Role Role `json:"role"`
+	// Bands and Standards say what the adapter's own probe found, and are empty until it has been read.
+	Probe        *ProbeSummary `json:"probe,omitempty"`
+	Capabilities []Capability  `json:"capabilities"`
+}
+
+// Role is what a sensor is to the stack right now.
+type Role string
+
+// The roles.
+const (
+	RoleListening Role = "listening"
+	RoleCanListen Role = "can_listen"
+	RoleWontUse   Role = "wont_use"
+	RoleNoDriver  Role = "no_driver"
+)
+
+// ProbeSummary is what the probe read about one adapter, as the page shows it.
+type ProbeSummary struct {
+	ReadAt    string   `json:"read_at"`
+	Modes     []string `json:"modes"`
+	Bands     []string `json:"bands"`
+	Standards []string `json:"standards"`
+	Monitor   bool     `json:"monitor"`
 }
 
 // Snapshot is what discovery found. Reason is a fixed phrase and is set when there is nothing to list.
@@ -143,19 +171,23 @@ func netSensor(sys fs.FS, name string) (Sensor, bool) {
 	linkType := readTrim(sys, path.Join(dir, "type"))
 	switch {
 	case linkType == link802154:
-		return Sensor{ID: name, Kind: KindIEEE802154, Why: whyNoDriver, Capabilities: noDriverCapabilities(KindIEEE802154)}, true
+		return Sensor{ID: name, Kind: KindIEEE802154, Why: whyNoDriver, Role: RoleNoDriver, Capabilities: noDriverCapabilities(KindIEEE802154)}, true
 	case !exists(sys, path.Join(dir, "phy80211")) && !exists(sys, path.Join(dir, "wireless")):
 		return Sensor{}, false
 	}
 	s := Sensor{ID: name, Kind: KindWifi, Mode: modeOf(linkType)}
 	s.Bus, s.Driver, s.USBID = describeDevice(sys, path.Dir(path.Dir(dir)))
 	s.Eligible, s.Why = eligibility(s, readTrim(sys, path.Join(dir, "operstate")), linkType)
-	s.Capabilities = wifiCapabilities()
+	s.Role = RoleWontUse
+	if s.Eligible {
+		s.Role = RoleCanListen
+	}
+	s.Capabilities = wifiCapabilities(s, nil, false)
 	return s, true
 }
 
 func bluetoothSensor(sys fs.FS, name string) Sensor {
-	s := Sensor{ID: name, Kind: KindBluetooth, Why: whyNoDriver, Capabilities: noDriverCapabilities(KindBluetooth)}
+	s := Sensor{ID: name, Kind: KindBluetooth, Why: whyNoDriver, Role: RoleNoDriver, Capabilities: noDriverCapabilities(KindBluetooth)}
 	if dir, ok := deviceDir(sys, "bluetooth", name); ok {
 		s.Bus, s.Driver, s.USBID = describeDevice(sys, path.Dir(path.Dir(dir)))
 	}
@@ -216,15 +248,124 @@ func eligibility(s Sensor, operstate, linkType string) (bool, string) {
 	return true, whyEligible
 }
 
-func wifiCapabilities() []Capability {
-	return []Capability{
-		{ID: "discovery", Title: "Found and described", Use: UseUsed, Known: true, Note: "Read from the system's own records: bus, driver, mode."},
-		{ID: "monitor_capture", Title: "Listen to nearby Wi-Fi", Use: UseNotBuilt, Note: "Frame headers only, in short windows. Not built yet; it needs the privileged probe first."},
-		{ID: "frame_injection", Title: "Send frames", Use: UseByDesign, Note: "The adapter may be able to. The Radio stack never sends anything."},
-		{ID: "he_decode", Title: "Read Wi-Fi 6 traffic", Use: UseNotBuilt, Note: "Older adapters cannot decode it, so volumes on 5 GHz are undercounted. Not measured on this adapter."},
-		{ID: "six_ghz", Title: "6 GHz band", Use: UseNotBuilt, Note: "Only on adapters that support it. Not built yet."},
-		{ID: "ranging", Title: "Measure distance by timing", Use: UseNotBuilt, Note: "Rare in cheap adapters. Distance comes from signal strength for now, and is only a band."},
+// wifiCapabilities says, for one Wi-Fi adapter, what each thing it might do comes to. probe is what the adapter's own probe said (nil until
+// it has been read); listening is whether the stack is listening with it now. An adapter the stack will not use gets one line: the rest would
+// be a list of things nobody will do.
+func wifiCapabilities(s Sensor, probe *PhyCaps, listening bool) []Capability {
+	found := Capability{ID: "discovery", Title: "Found and described", Use: UseUsed, Known: true, Note: "Read from the system's own records: bus, driver, mode."}
+	if !s.Eligible {
+		return []Capability{found, {ID: "monitor_capture", Title: "Listen to nearby Wi-Fi", Use: UseByDesign, Known: true, Note: s.Why + "."}}
 	}
+	return []Capability{
+		found,
+		monitorCapability(probe, listening),
+		{ID: "frame_injection", Title: "Send frames", Use: UseByDesign, Known: true, Note: "The adapter may be able to. The Radio stack never sends anything."},
+		generationCapability(probe),
+		bandCapability(probe),
+		rangingCapability(probe),
+	}
+}
+
+func monitorCapability(probe *PhyCaps, listening bool) Capability {
+	c := Capability{ID: "monitor_capture", Title: "Listen to nearby Wi-Fi", Known: probe != nil}
+	switch {
+	case probe != nil && !probe.Monitor():
+		c.Use, c.Note = UseUnsupported, "This adapter does not offer monitor mode, so it cannot listen."
+	case listening:
+		c.Use, c.Known, c.Note = UseUsed, true, "Listening now, in short windows, frame headers only."
+	default:
+		c.Use, c.Note = UseReady, "Ready: frame headers only, in short windows, when you start listening."
+	}
+	return c
+}
+
+func generationCapability(probe *PhyCaps) Capability {
+	c := Capability{ID: "he_decode", Title: "Read Wi-Fi 6 traffic", Known: probe != nil}
+	switch {
+	case probe == nil:
+		c.Use, c.Note = UseNotBuilt, "Older adapters cannot decode it, so volumes on 5 GHz are undercounted. Read from the adapter when you first listen."
+	case !probe.HE:
+		c.Use, c.Note = UseUnsupported, "This adapter cannot decode Wi-Fi 6, so volumes on 5 GHz are undercounted. Joins, leaves and beacons are still complete."
+	default:
+		c.Use, c.Note = UseNotBuilt, "The adapter lists Wi-Fi 6. Whether it decodes it in monitor mode has not been measured."
+	}
+	return c
+}
+
+func bandCapability(probe *PhyCaps) Capability {
+	c := Capability{ID: "six_ghz", Title: "6 GHz band", Known: probe != nil}
+	switch {
+	case probe == nil:
+		c.Use, c.Note = UseNotBuilt, "Only on adapters that support it. Read from the adapter when you first listen."
+	case probe.Channels6 == 0:
+		c.Use, c.Note = UseUnsupported, "This adapter does not list any 6 GHz channel."
+	default:
+		c.Use, c.Note = UseNotBuilt, "The adapter lists 6 GHz channels. The stack does not listen there yet."
+	}
+	return c
+}
+
+func rangingCapability(probe *PhyCaps) Capability {
+	c := Capability{ID: "ranging", Title: "Measure distance by timing", Known: probe != nil}
+	switch {
+	case probe == nil:
+		c.Use, c.Note = UseNotBuilt, "Rare in cheap adapters. Distance comes from signal strength for now, and is only a band."
+	case !probe.Ranging:
+		c.Use, c.Note = UseUnsupported, "This adapter does not do timing measurement. Distance comes from signal strength, and is only a band."
+	default:
+		c.Use, c.Note = UseNotBuilt, "The adapter lists timing measurement. The stack does not use it yet."
+	}
+	return c
+}
+
+// Describe adds what the stack knows beyond the system's records: what each adapter's probe said, and which adapter is listening now. phyOf maps a
+// network interface to its wireless device name. The result is a new list; sensors is not changed.
+func Describe(sensors []Sensor, read *ProbeRead, listeningOn string, phyOf func(string) string) []Sensor {
+	out := make([]Sensor, len(sensors))
+	for i, s := range sensors {
+		out[i] = s
+		if s.Kind != KindWifi {
+			continue
+		}
+		var probe *PhyCaps
+		if read != nil {
+			for j := range read.Phys {
+				if read.Phys[j].Phy == phyOf(s.ID) && phyOf(s.ID) != "" {
+					probe = &read.Phys[j]
+				}
+			}
+		}
+		listening := s.Eligible && s.ID == listeningOn
+		if listening {
+			out[i].Role = RoleListening
+		}
+		if probe != nil {
+			out[i].Probe = summarise(probe, read.At.Format("2006-01-02"))
+		}
+		out[i].Capabilities = wifiCapabilities(s, probe, listening)
+	}
+	return out
+}
+
+func summarise(p *PhyCaps, readAt string) *ProbeSummary {
+	sum := &ProbeSummary{ReadAt: readAt, Modes: append([]string{}, p.Modes...), Bands: []string{}, Standards: []string{}, Monitor: p.Monitor()}
+	for _, b := range []struct {
+		n    int
+		name string
+	}{{p.Channels24, "2.4 GHz"}, {p.Channels5, "5 GHz"}, {p.Channels6, "6 GHz"}} {
+		if b.n > 0 {
+			sum.Bands = append(sum.Bands, b.name)
+		}
+	}
+	for _, g := range []struct {
+		on   bool
+		name string
+	}{{p.HT, "Wi-Fi 4"}, {p.VHT, "Wi-Fi 5"}, {p.HE, "Wi-Fi 6"}, {p.EHT, "Wi-Fi 7"}} {
+		if g.on {
+			sum.Standards = append(sum.Standards, g.name)
+		}
+	}
+	return sum
 }
 
 func noDriverCapabilities(k Kind) []Capability {

@@ -45,6 +45,8 @@ export const API_ENDPOINTS = {
   radioListeningPlan: `${API_BASE}/radio/listening/plan`,
   radioOwnerDevices: `${API_BASE}/radio/devices/mine`,
   radioForget: `${API_BASE}/radio/forget`,
+  radioAir: `${API_BASE}/radio/air`,
+  radioNetworks: `${API_BASE}/radio/networks`,
   helperSessions: `${API_BASE}/helper/sessions`,
   lockdown: `${API_BASE}/lockdown`,
   netauditDevices: `${API_BASE}/netaudit/devices`,

@@ -4,8 +4,8 @@ export type RadioKind = 'wifi' | 'bluetooth' | 'ieee802154'
 
 export type RadioMode = 'managed' | 'monitor' | 'other'
 
-/** What the stack does with a capability: the four answers the Sensors page groups by. */
-export type CapabilityUse = 'used' | 'unused_by_design' | 'unused_not_built' | 'found_no_driver'
+/** What the stack does with a capability. `unsupported` is a fact about the hardware (its own probe said so); `ready` can be used and is not running. */
+export type CapabilityUse = 'used' | 'ready' | 'unsupported' | 'unused_by_design' | 'unused_not_built' | 'found_no_driver'
 
 export interface RadioCapability {
   id: string
@@ -16,6 +16,17 @@ export interface RadioCapability {
   note: string
 }
 
+/** What the adapter's own probe said, once it has been read (the first time the stack listens). */
+export interface RadioProbe {
+  read_at: string
+  modes: string[]
+  bands: string[]
+  standards: string[]
+  monitor: boolean
+}
+
+export type RadioRole = 'listening' | 'can_listen' | 'wont_use' | 'no_driver'
+
 export interface RadioSensor {
   id: string
   kind: RadioKind
@@ -25,6 +36,8 @@ export interface RadioSensor {
   mode?: RadioMode
   eligible: boolean
   why: string
+  role: RadioRole
+  probe?: RadioProbe
   capabilities: RadioCapability[]
 }
 
@@ -87,12 +100,40 @@ export interface RadioPlanView {
   max_hours: number
 }
 
+export type RadioClass = 'infrastructure' | 'personal' | 'neighbour' | 'transient' | 'unknown'
+
 export interface RadioOwnerDevice {
   id: string
   label: string
   visits: number
   first_seen: string
   last_seen: string
+  class: RadioClass
+  /** Who decided the class: the owner's own word, or the classifier's rules. */
+  class_by: 'owner' | 'rules'
+}
+
+/** GET /admin/api/radio/air: other people's devices as counts by class, never a device. */
+export interface RadioAir {
+  rules: { version: number; provisional: boolean; window_days: number; min_cycles_listened: number }
+  listened_cycles: number
+  counts: Record<RadioClass, number>
+  total: number
+  changes: { day: string; from: string; to: string; version: number; reason: string; n: number }[]
+}
+
+export interface RadioNetworkAP {
+  id: string
+  name: string
+  channel: number
+  security: string
+  confirmed: boolean
+  last_seen: string
+}
+
+export interface RadioNetworks {
+  names: string[]
+  access_points: RadioNetworkAP[]
 }
 
 /** A bounded session as the core lists it (Constitution I.17). */

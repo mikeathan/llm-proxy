@@ -10,8 +10,8 @@ import { useRadioListening } from "../../composables/radio/useRadioListening"
 import { useRadioSensors } from "../../composables/radio/useRadioSensors"
 import {
   RADIO_ENDED, RADIO_LISTEN_ADAPTER, RADIO_LISTEN_HOURS, RADIO_LISTEN_HOUR_CHOICES, RADIO_LISTEN_INTRO, RADIO_LISTEN_NO_ADAPTER, RADIO_LISTEN_OFF,
-  RADIO_LISTEN_START, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, RADIO_WINDOWS_TITLE, RADIO_WINDOW_OFF_CHANNEL, RADIO_WINDOW_ON_CHANNEL, radioCycleLine,
-  radioHoursLabel, radioListeningUntil,
+  RADIO_LISTEN_START, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, RADIO_WINDOWS_TITLE, RADIO_WINDOW_CUT, RADIO_WINDOW_MISSED, RADIO_WINDOW_OFF_CHANNEL, RADIO_WINDOW_ON_CHANNEL, radioCycleLine,
+  radioFramesLine, radioHoursLabel, radioListeningUntil,
 } from "../../constants/radio"
 
 // Radio · Listening: choose an adapter and a time, confirm the passphrase once, and watch the windows come in. The run is the stack's; a
@@ -28,6 +28,13 @@ const off = computed(() => !!s.view.value && !s.view.value.enabled)
 const running = computed(() => !!l.state.value?.listening)
 const ended = computed(() => (l.state.value && !l.state.value.listening && l.state.value.ended ? RADIO_ENDED[l.state.value.ended] : null))
 const until = computed(() => (l.state.value?.until ? new Date(l.state.value.until).toLocaleString() : ""))
+// Where in the cycle the run is: the position of the last window's channel in the plan (a cycle visits each channel once, in order).
+const channels = computed(() => l.state.value?.plan.channels ?? [])
+const heardInCycle = computed(() => {
+  const windows = l.state.value?.windows ?? []
+  const last = windows[windows.length - 1]
+  return last ? channels.value.indexOf(last.channel) + 1 : 0
+})
 const canStart = computed(() => !off.value && !running.value && !l.busy.value && !!(adapter.value || adapters.value.length))
 
 function start(): void { void l.start(adapter.value || adapters.value[0]?.id || "", Number(hours.value)) }
@@ -51,7 +58,7 @@ onMounted(async () => {
           <StatusTag state="running" label="Listening" />
           <span data-test="radio-listen-until">{{ radioListeningUntil(until) }}</span>
         </p>
-        <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ radioCycleLine(l.state.value?.cycles ?? 0, l.state.value?.frames ?? 0) }}</p>
+        <p class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-listen-progress">{{ radioCycleLine(l.state.value?.cycles ?? 0, heardInCycle, channels.length) }} {{ radioFramesLine(l.state.value?.frames ?? 0) }}</p>
         <div><BaseButton variant="secondary" class-name="max-sm:!h-11" :disabled="l.busy.value" data-test="radio-listen-stop" @click="l.stop">{{ RADIO_LISTEN_STOP }}</BaseButton></div>
       </div>
 
@@ -70,7 +77,8 @@ onMounted(async () => {
           <li v-for="w in [...l.state.value.windows].reverse().slice(0, 8)" :key="w.at + w.channel" class="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5 text-[length:var(--text-small)]" data-test="radio-window">
             <span class="font-mono text-primary">ch {{ w.channel }}</span>
             <span class="text-secondary">{{ w.frames }} frames</span>
-            <span v-if="w.kernel_dropped" class="text-state-running">{{ w.kernel_dropped }} missed</span>
+            <span v-if="w.kernel_dropped" class="text-state-running">{{ w.kernel_dropped }} {{ RADIO_WINDOW_MISSED }}</span>
+            <span v-if="w.stop === 'frame_cap'" class="text-state-running" data-test="radio-window-cut">{{ RADIO_WINDOW_CUT }}</span>
             <span class="text-muted">{{ w.frames === 0 ? w.stop.replace(/_/g, " ") : w.channel_matched ? RADIO_WINDOW_ON_CHANNEL : RADIO_WINDOW_OFF_CHANNEL }}</span>
           </li>
         </ul>

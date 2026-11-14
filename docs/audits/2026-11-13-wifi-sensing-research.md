@@ -10,7 +10,7 @@ date: 2026-11-13
 
 Evidence for the (not yet written) Wi-Fi radio sensor plan. Web search on 2026-11-13; **most items below were read as search
 summaries, not as full papers** — check the paper before relying on a number. Our own measurements are in
-`docs/learnings/network-audit.md` (2026-11-13 entry) and the owner-run capture scripts (removed from the tree, kept in git history; see `docs/PLANS/cross-cutting/radio-stack-handoff-2026-11-13.md`). Not instructions.
+`docs/learnings/network-audit.md` (2026-11-13 entry) and the owner-run capture scripts (removed from the tree, kept in git history; see `docs/PLANS/cross-cutting/radio-stack-handoff-2026-11-14.md`). Not instructions.
 
 **Design rule these findings support:** a *sensor* is any monitor-mode adapter (one, two or more). The software must not assume a
 count, a band or a chip. A sensor declares what it can decode (bands, HT/VHT/HE), and everything downstream works with whatever
