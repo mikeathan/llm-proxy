@@ -71,6 +71,8 @@ func (s *Stack) handleAir(ctx context.Context, req stacksdk.Request) (stacksdk.R
 	id := req.Params["id"]
 	routes := map[string]func() (stacksdk.Response, error){
 		http.MethodGet + " " + AirPath:             func() (stacksdk.Response, error) { return s.air(ctx, store) },
+		http.MethodGet + " " + AirDevicesPath:      func() (stacksdk.Response, error) { return s.airDevices(ctx, store, req.Query) },
+		http.MethodGet + " " + AirwavesPath:        func() (stacksdk.Response, error) { return s.airwaves(ctx, store) },
 		http.MethodGet + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.networks(ctx, h, store) },
 		http.MethodPut + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.setNetworkNames(ctx, h, rec, req.Body) },
 		http.MethodPost + " " + NetworkConfirmPath: func() (stacksdk.Response, error) { return s.confirmNetwork(ctx, rec, store, id) },

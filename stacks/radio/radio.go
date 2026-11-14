@@ -122,7 +122,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: PlanPath},
 			{Method: http.MethodGet, Path: DevicesPath}, {Method: http.MethodPost, Path: DevicesPath}, {Method: http.MethodDelete, Path: DevicePath},
 			{Method: http.MethodPost, Path: ForgetPath},
-			{Method: http.MethodGet, Path: AirPath},
+			{Method: http.MethodGet, Path: AirPath}, {Method: http.MethodGet, Path: AirDevicesPath}, {Method: http.MethodGet, Path: AirwavesPath},
+			{Method: http.MethodGet, Path: PresencePath}, {Method: http.MethodGet, Path: DigestPath},
 			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
 			{Method: http.MethodPost, Path: NetworkConfirmPath}, {Method: http.MethodDelete, Path: NetworkPath},
 		},
@@ -183,9 +184,11 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 	switch req.Path {
 	case ListenPath, PlanPath:
 		return s.handleListen(ctx, req)
-	case DevicesPath, DevicePath, ForgetPath:
+	case DigestPath:
+		return s.handleDigest(ctx, req)
+	case DevicesPath, DevicePath, ForgetPath, PresencePath:
 		return s.handleDevices(ctx, req)
-	case AirPath, NetworksPath, NetworkPath, NetworkConfirmPath:
+	case AirPath, AirDevicesPath, AirwavesPath, NetworksPath, NetworkPath, NetworkConfirmPath:
 		return s.handleAir(ctx, req)
 	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {

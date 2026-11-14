@@ -9,10 +9,26 @@ import (
 // place and never rebuilt. Version 0 is a file with the first schema (or none); each step below runs once, inside one transaction.
 //
 //	1 the first schema (devices, beacons, events, meta)
+//	5 R4: the strongest signal an access point was heard at (a hidden one close to the house)
+//	4 R4: whether each of the owner's own access points protects its management frames (from its beacon)
+//	3 R5: how often a device retried and the channels it was heard on (per day), and the owner's own presence by hour
 //	2 R3 part 2: day-level aggregates for the classifier, the owner's own access points, stored documents (the probe, the rules) and the class log
-const schemaVersion = 2
+const schemaVersion = 5
 
 var migrations = map[int][]string{
+	5: {`ALTER TABLE beacons ADD COLUMN sig_max INTEGER`},
+	4: {`ALTER TABLE own_aps ADD COLUMN pmf TEXT NOT NULL DEFAULT ''`},
+	3: {
+		`ALTER TABLE daily ADD COLUMN retries INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE daily ADD COLUMN channels INTEGER NOT NULL DEFAULT 0`,
+		// The owner's devices by hour (UTC hours since the epoch): how many cycles heard each, with its signal. Nobody else's device has a row here.
+		`CREATE TABLE owner_hours (
+			tag BLOB NOT NULL, hour INTEGER NOT NULL, cycles INTEGER NOT NULL, sig_n INTEGER NOT NULL, sig_sum INTEGER NOT NULL, sig_max INTEGER,
+			PRIMARY KEY (tag, hour)
+		) WITHOUT ROWID`,
+		// How many cycles the sensor listened through in an hour: what tells "away" from "nobody was listening".
+		`CREATE TABLE air_hours (hour INTEGER PRIMARY KEY, cycles INTEGER NOT NULL) WITHOUT ROWID`,
+	},
 	2: {
 		`ALTER TABLE devices ADD COLUMN random INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE devices ADD COLUMN joined_own INTEGER NOT NULL DEFAULT 0`,

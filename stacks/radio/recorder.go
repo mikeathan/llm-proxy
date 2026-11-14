@@ -58,30 +58,36 @@ func (r *Recorder) AddOwnerDeviceClass(ctx context.Context, mac MAC, label strin
 
 // Record stores what one frame says: the sender's sighting, an access point's beacon, and a join, leave or refusal as a count.
 func (r *Recorder) Record(ctx context.Context, f Frame, at time.Time) error {
+	_, err := r.RecordSeen(ctx, f, at)
+	return err
+}
+
+// RecordSeen is Record that also says whether the frame was sent by one of the owner's devices, so a window can count them.
+func (r *Recorder) RecordSeen(ctx context.Context, f Frame, at time.Time) (bool, error) {
 	if f.Kind == KindBeacon || f.Kind == KindProbeResponse {
-		return r.recordBeacon(ctx, f, at)
+		return false, r.recordBeacon(ctx, f, at)
 	}
 	if !f.HasTransmitter || f.Transmitter[0]&1 != 0 { // a sender is never a group address
-		return nil
+		return false, nil
 	}
 	tag, err := r.tag(ctx, tagDevice, f.Transmitter[:])
 	if err != nil {
-		return err
+		return false, err
 	}
 	owner, err := r.sight(ctx, tag, f, at)
 	if err != nil {
-		return err
+		return false, err
 	}
 	r.addToCycle(tag, f)
 	if f.Kind == KindAssociationRequest && f.HasBSSID {
-		if err := r.noteJoin(ctx, tag, f.BSSID); err != nil {
-			return err
+		if err := r.noteJoin(ctx, tag, owner, f.BSSID, at); err != nil {
+			return owner, err
 		}
 	}
 	if kind := eventKind(f.Kind); kind != "" {
-		return r.store.AddEvent(ctx, kind, tag, owner, at)
+		return owner, r.store.AddEvent(ctx, kind, tag, owner, at)
 	}
-	return nil
+	return owner, nil
 }
 
 // BeginCycle opens a cycle: until EndCycle, what each sender did is gathered, one entry a device however many frames it sent.
@@ -126,25 +132,33 @@ func (r *Recorder) addToCycle(tag []byte, f Frame) {
 		a = &agg{}
 		r.cycle[string(tag)] = a
 	}
-	a.add(f.Signal, f.SignalOK)
+	a.add(f)
 	if f.Transmitter[0]&2 != 0 { // a locally administered address: a phone's per-network random one
 		a.random = true
 	}
 }
 
-// noteJoin records that a device asked to join an access point, when that access point is one of the owner's confirmed ones.
-func (r *Recorder) noteJoin(ctx context.Context, device []byte, bssid MAC) error {
+// eventJoinForeign counts a device of the owner's asking to join an access point that is not one of the owner's confirmed ones.
+const eventJoinForeign = "join_foreign"
+
+// noteJoin records that a device asked to join an access point. A join to one of the owner's confirmed access points marks the device as the
+// owner's evidence; a join by one of the owner's own devices to any other is counted as an event (no address, no name), but only once the owner
+// has confirmed an access point at all, because before that every network is unknown.
+func (r *Recorder) noteJoin(ctx context.Context, device []byte, owner bool, bssid MAC, at time.Time) error {
 	ap, err := r.tag(ctx, tagAP, bssid[:])
 	if err != nil {
 		return err
 	}
 	r.cmu.Lock()
-	own := r.ownAPs[string(ap)]
+	own, anyOwn := r.ownAPs[string(ap)], len(r.ownAPs) > 0
 	r.cmu.Unlock()
-	if !own {
-		return nil
+	switch {
+	case own:
+		return r.store.MarkJoinedOwn(ctx, device)
+	case owner && anyOwn:
+		return r.store.AddEvent(ctx, eventJoinForeign, device, true, at)
 	}
-	return r.store.MarkJoinedOwn(ctx, device)
+	return nil
 }
 
 // SetOwnNetworks sets the names the owner's own networks go by. A beacon with one of these names proposes an access point; only the owner's
@@ -218,11 +232,22 @@ func (r *Recorder) recordBeacon(ctx context.Context, f Frame, at time.Time) erro
 		if err != nil {
 			return err
 		}
-		if err := r.store.ProposeOwnAP(ctx, OwnAP{Tag: tag, Sealed: sealed, Name: f.SSID, Channel: f.Channel, Security: string(f.Security.Mode)}, at); err != nil {
+		if err := r.store.ProposeOwnAP(ctx, OwnAP{Tag: tag, Sealed: sealed, Name: f.SSID, Channel: f.Channel, Security: string(f.Security.Mode), PMF: pmfOf(f.Security)}, at); err != nil {
 			return err
 		}
 	}
-	return r.store.SeenBeacon(ctx, Beacon{Tag: tag, Name: f.SSID, Security: string(f.Security.Mode), Channel: f.Channel, At: at})
+	return r.store.SeenBeacon(ctx, Beacon{Tag: tag, Name: f.SSID, Security: string(f.Security.Mode), Channel: f.Channel, Signal: f.Signal, SignalOK: f.SignalOK, At: at})
+}
+
+// pmfOf says whether a beacon's security protects management frames (802.11w): the state a deauthentication flood depends on.
+func pmfOf(s Security) string {
+	switch {
+	case s.PMFRequired:
+		return PMFRequired
+	case s.PMFCapable:
+		return PMFCapable
+	}
+	return PMFOff
 }
 
 // purpose is the vault purpose of a tag in the current epoch. Epoch 0 is the plain name, so a database made before any rotation still matches.
