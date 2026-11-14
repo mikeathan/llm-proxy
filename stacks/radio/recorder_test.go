@@ -138,3 +138,100 @@ func TestRecorderLeavesNoAddressOrProbeNameInTheFile(t *testing.T) {
 	}
 	_ = filepath.Base(p)
 }
+
+// R3's check (plan §9): a device re-enters after a restart and matches its row.
+func TestADeviceReEntersAfterARestartAndMatchesItsRow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "radio.db")
+	ctx := context.Background()
+	s, _ := OpenStore(path, 0)
+	record(t, NewRecorder(fakeVault{}, s), data(neighbour), t0)
+	_ = s.Close()
+
+	s, err := OpenStore(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	record(t, NewRecorder(fakeVault{}, s), data(neighbour), day(1))
+	tg, _ := fakeVault{}.Tag(ctx, tagDevice, neighbour[:])
+	if d, ok, _ := s.Device(ctx, tg); !ok || d.Visits != 2 {
+		t.Errorf("the second visit must land on the first row: %+v", d)
+	}
+	if n, _ := s.count("devices"); n != 1 {
+		t.Errorf("%d rows for one device", n)
+	}
+}
+
+// R3's check: forget-neighbours makes every old tag stop matching, and the owner's own devices still match.
+func TestForgetNeighboursRotatesTheTagsAndKeepsTheOwnersDevices(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "radio.db")
+	ctx := context.Background()
+	s, _ := OpenStore(path, 0)
+	vault := fakeVault{}
+	r := NewRecorder(vault, s)
+	_ = r.AddOwnerDevice(ctx, mineMAC, "my phone", t0)
+	record(t, r, data(mineMAC), t0)
+	record(t, r, data(neighbour), t0)
+	record(t, r, beacon("neighbour wifi"), t0)
+	oldTag, _ := vault.Tag(ctx, tagDevice, neighbour[:])
+
+	if err := r.ForgetNeighbours(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := s.count("devices"); n != 1 {
+		t.Errorf("only the owner's device stays: %d rows", n)
+	}
+	if n, _ := s.count("beacons"); n != 0 {
+		t.Errorf("%d beacons stay", n)
+	}
+	// The neighbour comes back: it is a new device, not the one that was forgotten.
+	record(t, r, data(neighbour), day(1))
+	newTag, _ := r.tag(ctx, tagDevice, neighbour[:])
+	if bytes.Equal(oldTag, newTag) {
+		t.Fatal("the neighbour's tag did not change")
+	}
+	if d, ok, _ := s.Device(ctx, newTag); !ok || d.Visits != 1 || d.FirstDay != dayNumber(day(1)) {
+		t.Errorf("a returning neighbour starts again: %+v", d)
+	}
+	// The owner's device still matches its row, with its label, and keeps one row.
+	record(t, r, data(mineMAC), day(1))
+	mine, _ := r.tag(ctx, tagDevice, mineMAC[:])
+	if d, ok, _ := s.Device(ctx, mine); !ok || !d.Owner || d.Label != "my phone" || d.Visits != 2 {
+		t.Errorf("the owner's device lost its row: %+v", d)
+	}
+	// The rotation survives a restart: a new recorder over the same file uses the new tags.
+	_ = s.Close()
+	s2, _ := OpenStore(path, 0)
+	defer s2.Close()
+	r2 := NewRecorder(vault, s2)
+	record(t, r2, data(neighbour), day(2))
+	if d, ok, _ := s2.Device(ctx, newTag); !ok || d.Visits != 2 {
+		t.Errorf("after a restart the epoch is read back: %+v", d)
+	}
+}
+
+// R3's check: the database holds no raw address of another person, in any form.
+func TestTheDatabaseFileHoldsNoAddressOfAnotherPerson(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "radio.db")
+	s, _ := OpenStore(path, 0)
+	r := NewRecorder(fakeVault{}, s)
+	_ = r.AddOwnerDevice(context.Background(), mineMAC, "mine", t0)
+	for _, m := range []MAC{neighbour, neighbourAP, macPhone} {
+		record(t, r, data(m), t0)
+	}
+	record(t, r, beacon("home"), t0) // the access point macAP
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{path, path + "-wal"} {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		for _, m := range []MAC{neighbour, neighbourAP, macPhone, macAP} {
+			if bytes.Contains(raw, m[:]) || bytes.Contains(bytes.ToLower(raw), []byte(m.String())) {
+				t.Errorf("%s holds the address %s", filepath.Base(f), m)
+			}
+		}
+	}
+}

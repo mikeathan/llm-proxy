@@ -131,6 +131,8 @@ type netauditServices struct {
 	AgentFeed agentwatch.Feed
 	// Radio is the Radio stack as it runs in the service: the radios on this computer and what each can do. It starts no goroutine of its own.
 	Radio *stackHost
+	// RadioPrivileged is the Radio stack's request channel to the helper, attached when the helper's routes are built.
+	RadioPrivileged *latePrivileged
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
 	Monitors *netaudit.MonitorWatch
 	// CheckIn sends the daily "still running" note while CheckInConfig has it switched on.
@@ -773,7 +775,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.AgentFeed = agentwatch.Feed{Push: agentsHost.Observe, ActivityOn: agentActivitySwitch(agents).Enabled}
 
 	radioPolicy := dataMgr.Radio()
-	radioHost, err := s.newRadioHost(radioPolicy)
+	s.netaudit.RadioPrivileged = &latePrivileged{}
+	radioHost, err := s.newRadioHost(radioPolicy, s.netaudit.RadioPrivileged)
 	if err != nil {
 		s.logger.Error("the Radio stack could not be hosted", "error", err.Error())
 	}

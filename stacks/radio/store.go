@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS beacons (
 CREATE TABLE IF NOT EXISTS events (
 	day INTEGER NOT NULL, kind TEXT NOT NULL, owner INTEGER NOT NULL, tag BLOB NOT NULL, n INTEGER NOT NULL,
 	PRIMARY KEY (day, kind, owner, tag)
-) WITHOUT ROWID;`
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, val INTEGER NOT NULL) WITHOUT ROWID;`
 
 // Store is the Radio stack's database.
 type Store struct {
@@ -397,4 +398,144 @@ func (s *Store) StorageUse(ctx context.Context) ([]stacksdk.StorageUse, error) {
 		use.Oldest = dayTime(oldest.Int64)
 	}
 	return []stacksdk.StorageUse{use}, nil
+}
+
+// Epoch is the number the tags are keyed with (0 until the neighbours are first forgotten). Rotating it makes every tag of the old epoch stop
+// matching, which is how "forget neighbours" works even for a copy of the file made earlier.
+func (s *Store) Epoch(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT val FROM meta WHERE key='epoch'`).Scan(&n)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return n, err
+}
+
+// OwnerRow is a device the owner named: its tag and its sealed address, which is what lets the tag be made again under a new epoch.
+type OwnerRow struct {
+	Tag, Sealed []byte
+}
+
+// OwnerRows lists the owner's devices.
+func (s *Store) OwnerRows(ctx context.Context) ([]OwnerRow, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT tag, sealed FROM devices WHERE owner = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []OwnerRow
+	for rows.Next() {
+		var r OwnerRow
+		if err := rows.Scan(&r.Tag, &r.Sealed); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// Rotate starts a new epoch in one transaction: everything about someone else goes, the owner's rows (and their events) move to the tags in
+// retag (old tag to new tag), and the epoch number is stored. A row of the owner's with no new tag is dropped rather than kept under a tag
+// that can no longer match.
+func (s *Store) Rotate(ctx context.Context, epoch int, retag map[string][]byte) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, q := range []string{`DELETE FROM devices WHERE owner = 0`, `DELETE FROM beacons`, `DELETE FROM events WHERE owner = 0`} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	old, err := ownerTags(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, t := range old {
+		if err := moveOwner(ctx, tx, t, retag[string(t)]); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO meta(key, val) VALUES('epoch', ?) ON CONFLICT(key) DO UPDATE SET val = excluded.val`, epoch); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, "PRAGMA incremental_vacuum")
+	return err
+}
+
+// ownerTags lists the tags of the owner's devices inside the transaction.
+func ownerTags(ctx context.Context, tx *sql.Tx) ([][]byte, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT tag FROM devices WHERE owner = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var t []byte
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+// moveOwner gives one owner device its new tag, or drops it (and its events) when there is none.
+func moveOwner(ctx context.Context, tx *sql.Tx, oldTag, newTag []byte) error {
+
+	if newTag == nil {
+		for _, q := range []string{`DELETE FROM devices WHERE tag = ?`, `DELETE FROM events WHERE tag = ?`} {
+			if _, err := tx.ExecContext(ctx, q, oldTag); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, q := range []string{`UPDATE devices SET tag = ? WHERE tag = ?`, `UPDATE events SET tag = ? WHERE tag = ?`} {
+		if _, err := tx.ExecContext(ctx, q, newTag, oldTag); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// OwnerDevices lists the owner's devices, oldest first.
+func (s *Store) OwnerDevices(ctx context.Context) ([]Device, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT tag, label, visits, first_day, last_day FROM devices WHERE owner = 1 ORDER BY first_day, label`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Device
+	for rows.Next() {
+		d := Device{Owner: true}
+		if err := rows.Scan(&d.Tag, &d.Label, &d.Visits, &d.FirstDay, &d.LastDay); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DeleteOwner removes one of the owner's devices and its events, and says whether there was one.
+func (s *Store) DeleteOwner(ctx context.Context, tag []byte) (bool, error) {
+	var found bool
+	err := s.write(ctx, func() error {
+		res, err := s.db.ExecContext(ctx, `DELETE FROM devices WHERE tag = ? AND owner = 1`, tag)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		found = n > 0
+		if found {
+			_, err = s.db.ExecContext(ctx, `DELETE FROM events WHERE tag = ?`, tag)
+		}
+		return err
+	})
+	return found, err
 }

@@ -7,9 +7,9 @@ constitution_references: [I.5, I.8, I.11, I.16, I.17, II.3, III.6, IV.6]
 evidence: Sessions of 2026-11-13 (R0 to R2 built, then the first run of the helper on vertex with the owner). Replaces the earlier version of this file; delete it when R8 (or the last phase the owner keeps) merges (harvest first, documentation-stewardship).
 ---
 
-# Radio stack: handoff for the next session (2026-11-13): R3 to the end in one go
+# Radio stack: handoff for the next session (2026-11-13): R3 part 2 and R4 onward
 
-Start here, then open only what you need. **R0, R1 and R2 are merged and the capture path is verified on vertex** (v0.85.2). The next session builds **R3 (pipeline, scheduler, tracker) and everything after it (R4 to R8)** from [`radio-stack.md`](radio-stack.md) §9. The owner asked for it in one go: work phase by phase, each ending with its check, and stop only for the ask-first items and the owner-run vertex checks listed below.
+Start here, then open only what you need. **R0 to R2 are merged and the capture path is verified on vertex** (v0.85.2). **R3 part 1 is built on branch `radio-r3-unit-pipeline-sessions` (v0.86.0, see "Built since" below; not merged, not run on vertex).** The next session continues with **R3 part 2 (tracker and classes) and R4 to R8** from [`radio-stack.md`](radio-stack.md) §9, phase by phase, each ending with its check, stopping only for the ask-first items and the owner-run vertex checks below.
 
 ## State (verified)
 
@@ -17,6 +17,16 @@ Start here, then open only what you need. **R0, R1 and R2 are merged and the cap
 - **Verified on vertex (2026-11-13, with the owner):** `radio_probe` returns `iw list`; a 10 s `radio_listen` on channel 60 with the USB adapter `wlxf0090da058a3` runs end to end (helper unit ran 14 s, no warning, adapter back to `managed`, built-in `wlp2s0` untouched, SSH never dropped). The browser got `parse_error: no reader for the output of "radio_listen"`, which is correct: nothing in the service reads window bytes yet. **Not verified:** that the frames carry frequency 5300 (nothing reads them).
 - **`setup.sh --helper` now installs every helper class** (net and radio); `--helper=net` or `--helper=radio` narrows it; the choice is remembered. Installing switches nothing on: each action stays off until the owner turns it on with the passphrase (Network, Settings, Privileged helper card).
 - **Capture must not default on** (UK-law question is an open risk, ADR-0053). Everything you build that starts a listen must be behind a bounded session (I.17) the owner starts, never at boot or on a timer of its own.
+
+## Built since (R3 part 1, branch `radio-r3-unit-pipeline-sessions`, v0.86.0; checks run: `go build/test` for backend and `stacks/radio -race`, complexity, `npm test` 3056 pass, `npm run build`; **not run:** `npm run test:visual`, anything on vertex)
+
+- `stacks/radio/window.go`: strict window reader + `Ingest` (window to `Parse` to `Recorder.Record`) + plain-data `WindowSummary`; contract test in `backend/internal/app/radio_window_contract_test.go`; the core's manual `radio_listen` now answers counts (`summarizeRadioWindow`), so the `parse_error` is gone.
+- `stacks/radio/listen.go`: the run (one goroutine owned by the stack, asks with no grant, stops on denial, time, frame cap, repeated failure, stop, switch-off, service stop), `Plan` (defaults and caps, at most 200 windows an hour), routes under `/admin/api/radio/listening` and `.../plan`; the stack now requires `PortPrivileged` (late-bound in the core: `latePrivileged`).
+- `stacks/radio/devices.go`, `recorder.go`, `store.go`: owner devices (add, list, remove, never shown an address), **forget neighbours = tag-epoch rotation** (`Recorder.ForgetNeighbours`, `Store.Rotate`), tests for the three R3 checks (re-enter after restart, old tags stop matching, no raw address in the file).
+- `core/stackport/keycache.go`: the vault reads the key once, dropped on factory reset.
+- Frontend: `RadioListening.vue` (adapter, hours, start, listening until, stop, why it ended with its fix, last windows), `RadioOwnerDevices.vue` (My devices, Forget the neighbours), `useRadioListening` (plan, then session, then start; undone if a step fails; stop ends the radio sessions).
+- **Not built from the earlier list:** the Sensors page's "not read yet" from `radio_probe` (parse `iw list` in the service, bounded, I.11; a place to keep it); hourly rollups; the owner's own SSIDs; the `PrivilegedResult` report field (ask first; the frames' radiotap frequency stands in, `WindowSummary.ChannelMatched`).
+- **Owner check on vertex, one paste at a time:** deploy; Radio page, switch the stack on in Modules; Start listening for 1 hour (passphrase prompt); read the last windows (expect `on the channel asked` on channel 60); stop; add the phone's address under My devices and see it matched next session; Forget the neighbours.
 
 ## What exists (read these, do not rebuild)
 
@@ -34,14 +44,11 @@ Start here, then open only what you need. **R0, R1 and R2 are merged and the cap
 
 ## What is left, in order (each item: what it needs from the owner)
 
-**Phase R3, part 1: the pipeline and the scheduler** (plan §9 R3 and "After the helper actions" of the earlier handoff)
-1. **Service side of the radio unit.** Status (installed? action switched on?) for the Radio page; the Sensors page fills "not read yet" from `radio_probe` (the stack parses `iw list`, maps each `phy` to an interface through `/sys/class/net/<if>/phy80211/name`). Parse with strict bounds; the text is untrusted (I.11).
-2. **The channel read-back is not carried by the SDK.** `stacksdk.PrivilegedResult` has no field for `Result.Report`. Adding one changes a public interface: **ask first**. Until the owner answers, check a window's channel from the radiotap frequency in the frames.
-3. **The pipeline:** `radio_listen` bytes, `wire.DecodeRadio`, `Parse`, `Recorder.Record`; per-window summary (frames, drops, trailer stop reason) kept as plain data; a cached master key in the vault adapter that is dropped on factory reset; hourly rollups (daily rollups kept 30 days: my assumption, adjustable).
-4. **The scheduler** inside the stack, started only by an open session: `StackPrivileged("radio")` with no grant, the channel list from settings, 20 s a channel and a cycle every 5 minutes (both settings with caps, plan §6). Stops on session end, on a time cap and on a frame cap; one goroutine, owned by the stack's `Start`/`Stop`, no goroutine when no session is open (the idle test must still pass).
-5. **The Radio page control to start a session** (hours, adapter, channels), a visible "listening until" state and a stop button, and a plain failure when the helper is not installed or the action is off (UX rule: problems shown with their fix). The owner has to pass the passphrase step-up, so the control cannot be driven by a token.
-6. **Owner devices UI** (`Recorder.AddOwnerDevice` has none) and the owner's own networks (SSIDs `netsink`, `netsink-2G`, `netsink-Guest`), the strongest evidence for classing a device.
-   *Check (plan R3):* a device re-enters after a restart and matches its row; forget-neighbours makes every old tag stop matching; the test that greps the DB finds no raw address of another person.
+**Phase R3, part 1: remaining**
+1. The Sensors page's "not read yet": parse `radio_probe` (`iw list`) in the stack with strict bounds (text is untrusted, I.11) and keep the last read; map each `phy` to an interface through `/sys/class/net/<if>/phy80211/name`. Needs a design for where the privileged call comes from (a session, or a step-up route with `Action`).
+2. **Ask first:** `stacksdk.PrivilegedResult` has no field for `Result.Report` (the channel read-back). Until the owner answers, `ChannelMatched` from the radiotap frequency is the check.
+3. The owner's own networks (SSIDs `netsink`, `netsink-2G`, `netsink-Guest`) as evidence for classing a device; hourly rollups if a page needs them.
+4. The vertex check above.
 
 **Phase R3, part 2: tracker and classes v1** (plan §4): rules as versioned data (`classifier_v<N>`) in the database, thresholds **from vertex's measured captures** (the owner's two pcaps are on their Mac, see below), owner labels as ground truth, classes Infrastructure, Personal, Neighbour, Transient, Unknown. Nothing is reclassified silently.
 
@@ -73,6 +80,8 @@ Deploy: `sudo ./setup.sh --install --build --unattended --helper` after pulling.
 - **A squash-merged branch is gone from your history's point of view:** a PR merged while you were still pushing leaves the later commits out of `main`. Check `gh pr view <n> --json state` before pushing more to a branch, and cut a fresh branch from `origin/main` (cherry-pick) when it merged.
 - The helper's status read only the net unit's gates drop-in, so radio actions showed "not installed" (fixed: `readAllHelperActions`). Each class has its own `llm-proxy-helper-<class>@.service.d/10-gates.conf`.
 - macOS `sed -i` needs a suffix and a failed `sed` in an `&&` chain silently skips what follows: edit with Python or the Edit tool. Run `stacks/*` tests with `GOWORK=off` from the folder. `stacks/radio` is not in `go.work`.
+- The scheduler test cannot advance a fake clock during `Run`, so the wait between cycles is the nominal `cycle - channels x window` (the real run does include setup time; a cycle is a little longer than its setting).
+- A stack route that declares no `Action` and no step-up is safe to start a run because the core serves the helper request only under an open session; do not add a grant path to the run.
 - A chained `git switch && cherry-pick && push && push --delete` was refused by the auto-mode classifier; run git steps one at a time.
 - `radio_listen`'s raw bytes are never returned to the browser (`keepsToItself`); the answer is the parsed summary. No service parser exists yet, hence the `parse_error` above.
 

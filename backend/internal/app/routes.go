@@ -157,6 +157,9 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
 	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), helperSinks{Probes: s.netaudit.Inventory, Captures: newCaptureStore(s.AppCtx), Traffic: newHostTrafficStore(s.AppCtx), Owners: s.netaudit.currentOwners, Self: trafficSelf(s.netaudit.Scope, func() string { return bindAddress(s.AppCtx.dataMgr.System().Get()) })})
+	if s.netaudit.RadioPrivileged != nil {
+		s.netaudit.RadioPrivileged.Set(hs.Helper.StackPrivileged("radio"))
+	}
 	hs.Hosted = append(hs.Hosted, s.netaudit.hostedStacks()...)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
 	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports).WithVendors(cardMakerOf).WithDNSSilence(dnsSilence{source: s.NetauditPhoneHome})

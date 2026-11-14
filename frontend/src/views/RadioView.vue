@@ -5,6 +5,8 @@ import PageHeader from "../components/common/layout/PageHeader.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
 import StackModules from "../components/stacks/StackModules.vue"
 import RadioSensors from "../components/radio/RadioSensors.vue"
+import RadioListening from "../components/radio/RadioListening.vue"
+import RadioOwnerDevices from "../components/radio/RadioOwnerDevices.vue"
 import { RADIO_SENSORS_LABEL, RADIO_SUBTITLE, RADIO_TAB_LABELS, RADIO_TITLE } from "../constants/stacks"
 import { toRadio } from "../router/routes"
 import { RADIO_TABS } from "../types/routes"
@@ -28,6 +30,10 @@ const tabs: readonly StackTabItem[] = [
     <PageHeader :title="RADIO_TITLE" :subtitle="RADIO_SUBTITLE" subtitle-hidden-on-phone />
     <StackTabs :label="RADIO_TITLE" :tabs="tabs" :active="tab ?? 'sensors'" />
     <StackModules v-if="tab === 'modules'" stack="radio" />
-    <RadioSensors v-else />
+    <template v-else>
+      <RadioListening />
+      <RadioSensors />
+      <RadioOwnerDevices />
+    </template>
   </div>
 </template>

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"net/netip"
 	"slices"
+	"sync"
 	"time"
 
 	"llm-proxy-stacks/agents"
@@ -292,7 +293,10 @@ func radioStack() stacksdk.Stack { return radio.New(nil) }
 // newRadioHost hosts the Radio stack over the core's own services, one adapter per port its manifest requires: the settings document (the
 // `radio` key), the service's log, the data folder restricted to the one file the manifest lists (the database), and the vault, which derives
 // a subkey per purpose from the master key so the stack never sees a key. The database is removed by a factory reset, which also replaces the key.
-func (s *AppServices) newRadioHost(policy radioPolicy) (*stackHost, error) {
+//
+// The helper's routes are built after the stacks are, so the stack's Privileged port is a late-bound one (latePrivileged) that routes.go fills when
+// the helper routes exist; until then a request is refused as unavailable.
+func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged) (*stackHost, error) {
 	st := radioStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
@@ -300,16 +304,20 @@ func (s *AppServices) newRadioHost(policy radioPolicy) (*stackHost, error) {
 	}
 	dir := s.AppCtx.RootDir()
 	configDir := s.AppCtx.dataMgr.ConfigDir()
+	keys := stackport.NewKeyCache(func() ([]byte, error) { return storage.GetMasterKey(configDir) })
 	h, err := newStackHost(st, stacksdk.Host{
-		Config:  stackport.Config[models.RadioConfig]{Store: policy},
-		Log:     stackport.Log{Stack: st.Manifest().ID},
-		DataDir: stackport.DataDir{Dir: dir, Files: files},
-		Vault:   stackport.Vault{Key: func() ([]byte, error) { return storage.GetMasterKey(configDir) }},
+		Config:     stackport.Config[models.RadioConfig]{Store: policy},
+		Log:        stackport.Log{Stack: st.Manifest().ID},
+		DataDir:    stackport.DataDir{Dir: dir, Files: files},
+		Vault:      stackport.Vault{Key: keys.Get},
+		Privileged: priv,
 	})
 	if err != nil {
 		return nil, err
 	}
 	s.AppCtx.AfterFactoryReset("The radio database", func() error { return stackport.Remove(dir, files) })
+	// The reset replaces the master key: forget the one held in memory, or every tag would still be made with the old one.
+	s.AppCtx.AfterFactoryReset("The radio key held in memory", func() error { keys.Drop(); return nil })
 	return h, nil
 }
 
@@ -398,4 +406,49 @@ func loginRecordReady(r loginlog.Reader) (bool, string) {
 		return false, "this program may not read the system's record of failed logins; add the utmp group to the service (see the service setup notes)"
 	}
 	return false, "the system's record of failed logins could not be read"
+}
+
+// latePrivileged is a Privileged port whose helper is attached after the stack is hosted. Safe for concurrent use.
+type latePrivileged struct {
+	mu sync.RWMutex
+	p  stacksdk.Privileged
+}
+
+// Set attaches the port that serves the stack's requests.
+func (l *latePrivileged) Set(p stacksdk.Privileged) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.p = p
+}
+
+// Run implements stacksdk.Privileged.
+func (l *latePrivileged) Run(ctx context.Context, req stacksdk.PrivilegedRequest) (stacksdk.PrivilegedResult, error) {
+	l.mu.RLock()
+	p := l.p
+	l.mu.RUnlock()
+	if p == nil {
+		return stacksdk.PrivilegedResult{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the privileged helper is not set up yet")
+	}
+	return p.Run(ctx, req)
+}
+
+var _ stacksdk.Privileged = (*latePrivileged)(nil)
+
+// radioWindowCounts is what a manual radio_listen shows in the browser: counts and a reason, never a frame (Constitution I.16, I.13).
+type radioWindowCounts struct {
+	Frames        int    `json:"frames"`
+	Stop          string `json:"stop"`
+	KernelSeen    uint32 `json:"kernel_seen"`
+	KernelDropped uint32 `json:"kernel_dropped"`
+	ElapsedMs     uint32 `json:"elapsed_ms"`
+}
+
+// summarizeRadioWindow reads a radio_listen output with the Radio stack's own strict reader (the layout is the helper's, wire/radio.go; the
+// contract test in stacks_test.go writes windows with the helper's writer and reads them here) and keeps the counts.
+func summarizeRadioWindow(data []byte) (radioWindowCounts, error) {
+	w, err := radio.DecodeWindow(data)
+	if err != nil {
+		return radioWindowCounts{}, err
+	}
+	return radioWindowCounts{Frames: len(w.Records), Stop: w.Trailer.Stop.String(), KernelSeen: w.Trailer.KernelSeen, KernelDropped: w.Trailer.KernelDropped, ElapsedMs: w.Trailer.ElapsedMs}, nil
 }
