@@ -119,10 +119,11 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		Routes: []stacksdk.RouteSpec{
 			{Method: http.MethodGet, Path: RoutePath},
 			{Method: http.MethodGet, Path: ListenPath}, {Method: http.MethodPost, Path: ListenPath}, {Method: http.MethodDelete, Path: ListenPath},
-			{Method: http.MethodGet, Path: PlanPath},
+			{Method: http.MethodGet, Path: PlanPath}, {Method: http.MethodGet, Path: ScanPath}, {Method: http.MethodPut, Path: ScanPath},
 			{Method: http.MethodGet, Path: DevicesPath}, {Method: http.MethodPost, Path: DevicesPath}, {Method: http.MethodDelete, Path: DevicePath},
 			{Method: http.MethodPost, Path: ForgetPath},
 			{Method: http.MethodGet, Path: AirPath}, {Method: http.MethodGet, Path: AirDevicesPath}, {Method: http.MethodGet, Path: AirwavesPath},
+			{Method: http.MethodGet, Path: LivePath}, {Method: http.MethodPost, Path: CalibratePath},
 			{Method: http.MethodGet, Path: PresencePath}, {Method: http.MethodGet, Path: DigestPath},
 			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
 			{Method: http.MethodPost, Path: NetworkConfirmPath}, {Method: http.MethodDelete, Path: NetworkPath},
@@ -182,13 +183,13 @@ func (s *Stack) Findings(context.Context) ([]stacksdk.StackFinding, error) { ret
 // Handle answers the one route: discovery, read fresh each time (a few small files), so a plugged-in adapter shows on the next look.
 func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
 	switch req.Path {
-	case ListenPath, PlanPath:
+	case ListenPath, PlanPath, ScanPath:
 		return s.handleListen(ctx, req)
 	case DigestPath:
 		return s.handleDigest(ctx, req)
 	case DevicesPath, DevicePath, ForgetPath, PresencePath:
 		return s.handleDevices(ctx, req)
-	case AirPath, AirDevicesPath, AirwavesPath, NetworksPath, NetworkPath, NetworkConfirmPath:
+	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, NetworksPath, NetworkPath, NetworkConfirmPath:
 		return s.handleAir(ctx, req)
 	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {

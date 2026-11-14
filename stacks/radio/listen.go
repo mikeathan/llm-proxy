@@ -192,16 +192,19 @@ func (s *Stack) handleListen(ctx context.Context, req stacksdk.Request) (stacksd
 	if !started {
 		return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the radio stack is not running")
 	}
-	switch {
-	case req.Path == PlanPath && req.Method == http.MethodGet:
-		return s.handlePlan(ctx, h, req)
-	case req.Path == ListenPath && req.Method == http.MethodGet:
-		return jsonResponse(http.StatusOK, s.listenState(ctx, h))
-	case req.Path == ListenPath && req.Method == http.MethodPost:
-		return s.startListen(ctx, h, req.Body)
-	case req.Path == ListenPath && req.Method == http.MethodDelete:
-		s.endRun(EndedStopped)
-		return jsonResponse(http.StatusOK, s.listenState(ctx, h))
+	routes := map[string]func() (stacksdk.Response, error){
+		http.MethodGet + " " + ScanPath:    func() (stacksdk.Response, error) { return s.handleScan(ctx, h, req) },
+		http.MethodPut + " " + ScanPath:    func() (stacksdk.Response, error) { return s.handleScan(ctx, h, req) },
+		http.MethodGet + " " + PlanPath:    func() (stacksdk.Response, error) { return s.handlePlan(ctx, h, req) },
+		http.MethodGet + " " + ListenPath:  func() (stacksdk.Response, error) { return jsonResponse(http.StatusOK, s.listenState(ctx, h)) },
+		http.MethodPost + " " + ListenPath: func() (stacksdk.Response, error) { return s.startListen(ctx, h, req.Body) },
+		http.MethodDelete + " " + ListenPath: func() (stacksdk.Response, error) {
+			s.endRun(EndedStopped)
+			return jsonResponse(http.StatusOK, s.listenState(ctx, h))
+		},
+	}
+	if f, ok := routes[req.Method+" "+req.Path]; ok {
+		return f()
 	}
 	return stacksdk.Response{}, stacksdk.Errorf(stacksdk.CodeNotFound, "no route "+req.Method+" "+req.Path)
 }
@@ -305,7 +308,7 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 			}
 		})
 	}
-	defer rec.DropCycle()
+	defer func() { rec.DropCycle(); rec.ClearLive() }()
 	if err := s.readProbe(ctx, priv, rec.store); err != nil {
 		if ctx.Err() != nil {
 			finish(EndedStopped)

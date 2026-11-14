@@ -32,6 +32,7 @@ type Recorder struct {
 	cycle    map[string]*agg
 	ownNames map[string]bool
 	ownAPs   map[string]bool
+	live     map[string]*liveDev
 }
 
 // NewRecorder returns a Recorder over the vault and the store.
@@ -110,6 +111,7 @@ func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
 	r.cmu.Lock()
 	heard := r.cycle
 	r.cycle = nil
+	r.absorbCycle(heard)
 	r.cmu.Unlock()
 	if heard == nil {
 		return nil

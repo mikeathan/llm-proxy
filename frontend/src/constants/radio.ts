@@ -1,4 +1,4 @@
-import type { CapabilityUse, RadioAirSort, RadioClass, RadioHourState, RadioKind, RadioRole, RadioSignal, RadioTier } from '../types/radio'
+import type { CapabilityUse, RadioAirSort, RadioClass, RadioHourState, RadioKind, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
 import type { StatusState } from '../types/ui'
 
 // The words of the Radio · Sensors page. Capability titles and notes come from the server; these are the fixed phrases around them.
@@ -189,7 +189,7 @@ export const RADIO_NEIGH_OPEN = 'Show devices'
 export const RADIO_NEIGH_CLOSE = 'Hide devices'
 export const RADIO_NEIGH_NONE = 'No device of this kind yet.'
 export const RADIO_NEIGH_LINK = 'See who is around'
-export const RADIO_TAB_LINK_AROUND = 'Open the Neighbourhood tab to see who is around'
+export const RADIO_TAB_LINK_AROUND = 'Open the Around you tab to see who is around'
 export const RADIO_NEIGH_FAILED = 'The devices around you could not be read.'
 export const radioNeighNearUnknown = (n: number): string => `${n} ${n === 1 ? 'device that is not yet sorted has' : 'devices that are not yet sorted have'} a strong signal: close to the house.`
 export const RADIO_SIGNAL_WORDS: Record<RadioSignal, string> = { strong: 'Strong', medium: 'Medium', weak: 'Weak', unknown: 'Not measured' }
@@ -235,6 +235,7 @@ export const RADIO_AIR_FAILED = 'The airwaves could not be read.'
 export const radioAirRouter = (name: string, channel: number): string => `${name}: channel ${channel}`
 export const radioAirBusiest = (channel: number, devices: number): string => `Busiest: channel ${channel}, ${devices} ${devices === 1 ? 'device' : 'devices'}.`
 export const radioAirClassLine = (devices: number, frames: number, percent: number): string => `${devices} ${devices === 1 ? 'device' : 'devices'}, ${frames.toLocaleString()} frames, ${percent}% retried`
+export const radioAirFramesLine = (devices: number, frames: number): string => `${devices} ${devices === 1 ? 'device' : 'devices'}, ${frames.toLocaleString()} frames`
 export const RADIO_AIR_CAP_NOTE = 'On a busy channel a window stops at 4,000 frames, so counts there are a floor.'
 
 // Radio · My devices: where each device is, hour by hour.
@@ -266,3 +267,49 @@ export const RADIO_TIER_HELP: Record<RadioTier, string> = {
 export const radioFindingCount = (n: number): string => (n === 1 ? '1 case' : `${n} cases`)
 export const radioUnseenLine = (n: number): string => `${n} ${n === 1 ? 'check cannot' : 'checks cannot'} run yet, so a quiet list does not mean they are clear.`
 export const RADIO_UNSEEN_TITLE = 'Checks that cannot run yet'
+
+// Radio · the radar: what the sensor hears now, placed by signal strength. One adapter measures how strong, not which way.
+export const RADIO_RADAR_TITLE = 'Around the computer'
+export const RADIO_RADAR_INTRO = 'Every device the sensor hears, placed by how strong its signal is. The line behind a dot is the range it could be in. Which way a device lies is not measured, so a dot only keeps a steady place on its ring.'
+export const RADIO_RADAR_EMPTY = 'Nothing is being heard. Start listening on the Listening tab and the devices appear here.'
+export const RADIO_LIVE_FAILED = 'The live picture could not be read.'
+export const RADIO_CALIBRATE_FAILED = 'The distances could not be calibrated.'
+export const RADIO_RADAR_LABEL = 'Radar of devices around the computer'
+export const RADIO_RING_WORDS: Record<RadioRing, string> = { room: 'In this room', house: 'In the house', nearby: 'Next door or the street', far: 'Too weak to place' }
+export const RADIO_RING_ORDER: RadioRing[] = ['room', 'house', 'nearby', 'far']
+export const RADIO_TREND_WORDS: Record<RadioTrend, string> = { closer: 'getting closer', away: 'moving away', steady: 'steady', unknown: 'too new to tell' }
+export const RADIO_TREND_MARK: Record<RadioTrend, string> = { closer: '▲', away: '▼', steady: '•', unknown: '' }
+export const RADIO_RADAR_CLOSEST = 'Closest first'
+export const RADIO_RADAR_MINE = 'Yours'
+export const RADIO_RADAR_NOT_HEARD = 'not heard this cycle'
+export const RADIO_RADAR_LIVE_NOTE = 'Updates every few seconds while a cycle is open; a device that stays silent for six cycles leaves the picture. Kept in memory only and forgotten when listening stops.'
+export const RADIO_RADAR_PROVISIONAL = 'Distances come from a starting guess for how fast a signal fades, so read them as rough rings, not metres. Stand one of your devices one metre from this computer and press Calibrate to measure from it.'
+export const RADIO_RADAR_CALIBRATED = 'Calibrated against your device at one metre. Still a range: walls and antennas move it.'
+export const RADIO_RADAR_CALIBRATE = 'Calibrate: this device is 1 m from the computer'
+export const radioRangeLine = (near: number, far: number): string => (near >= far - 0.05 ? `about ${near} m` : `${near}–${far} m`)
+export const radioDotLabel = (d: { mine: boolean; label?: string; id: string }): string => (d.mine ? d.label || d.id : d.id)
+export const radioRadarSummary = (n: number, mine: number): string => `${n} ${n === 1 ? 'device' : 'devices'} heard now${mine ? `, ${mine} of them yours` : ''}`
+export const RADIO_RETRIES_NOT_REPORTED = 'This adapter reports no retried frames at all (0 of every frame heard), so retry shares are not shown. The code reads the flag correctly in its tests, so the adapter or its driver may be hiding it: not yet confirmed.'
+
+// Radio · Scan plan: which channels a run visits, how long it stays on each and how often it comes round.
+export const RADIO_SCAN_TITLE = 'Scan plan'
+export const RADIO_SCAN_INTRO = 'A run visits each chosen channel for a short window, then comes round again. More channels or shorter cycles hear more and ask the helper for more windows. A new plan takes effect the next time you start listening, and that start asks for your passphrase again.'
+export const RADIO_SCAN_CHANGE = 'Change the plan'
+export const RADIO_SCAN_CLOSE = 'Close'
+export const RADIO_SCAN_CHANNELS = 'Channels to visit'
+export const RADIO_SCAN_WINDOW = 'Time on each channel'
+export const RADIO_SCAN_CYCLE = 'Come round every'
+export const RADIO_SCAN_SAVE = 'Save plan'
+export const RADIO_SCAN_RESET = 'Use the default plan'
+export const RADIO_SCAN_SAVED = 'Saved. It applies the next time you start listening.'
+export const RADIO_SCAN_FAILED = 'The scan plan could not be read.'
+export const RADIO_SCAN_SAVE_FAILED = 'The scan plan could not be saved.'
+export const RADIO_SCAN_RUNNING = 'A run is listening now. Stop it to change the plan.'
+export const RADIO_SCAN_NONE = 'Choose at least one channel.'
+export const RADIO_SCAN_WINDOW_CHOICES = [5, 10, 20, 30]
+export const RADIO_SCAN_CYCLE_CHOICES = [60, 120, 300, 600, 900, 1800]
+export const radioSecondsLabel = (s: number): string => (s % 60 === 0 ? `${s / 60} ${s === 60 ? 'minute' : 'minutes'}` : `${s} seconds`)
+export const radioScanSummary = (channels: number, window: number, cycle: number, perHour: number, custom: boolean): string =>
+  `${channels} ${channels === 1 ? 'channel' : 'channels'}, ${window} seconds each, every ${radioSecondsLabel(cycle)}: ${perHour} windows an hour${custom ? '' : ' (the default)'}.`
+export const radioScanTooMany = (max: number): string => `That is more than ${max} windows an hour. Choose fewer channels or a longer cycle.`
+export const RADIO_SCAN_NO_FIT = 'The windows do not fit in one cycle. Shorten them, choose fewer channels or a longer cycle.'
