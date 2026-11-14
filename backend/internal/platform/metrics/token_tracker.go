@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -36,7 +37,17 @@ func (t *TokenTracker) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// promptSpeedMarkers label lines that report prompt-processing speed (the
+// per-second progress lines and the "prompt eval time" summary); that is not
+// the generation rate the dashboard shows.
+var promptSpeedMarkers = []string{"prompt processing", "prompt eval time"}
+
 func (t *TokenTracker) parseLine(line string) {
+	for _, marker := range promptSpeedMarkers {
+		if strings.Contains(line, marker) {
+			return
+		}
+	}
 	m := tokensPerSecondRe.FindStringSubmatch(line)
 	if len(m) < 2 {
 		return
