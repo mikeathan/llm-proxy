@@ -55,6 +55,8 @@ export interface RadioWindow {
   channel: number
   frames: number
   recorded: number
+  /** How many of the recorded frames one of the owner's devices sent. */
+  own_frames: number
   unread: number
   stop: string
   kernel_seen: number
@@ -145,4 +147,71 @@ export interface HelperSession {
   expires: string
   uses: number
   max_uses: number
+}
+
+/** How strong a device's signal is, against the rules' thresholds. */
+export type RadioSignal = 'strong' | 'medium' | 'weak' | 'unknown'
+
+/** One device of someone else, by a short id (four bytes of a keyed tag): never an address. */
+export interface RadioAirDevice {
+  id: string
+  class: RadioClass
+  /** The fixed reason word the rules gave. */
+  why: string
+  signal: RadioSignal
+  first_seen: string
+  last_seen: string
+  cycles_heard: number
+  need_heard: number
+  retry_percent: number
+  channels: number[]
+  random_address: boolean
+  joined_own: boolean
+}
+
+/** GET /admin/api/radio/air/devices */
+export interface RadioAirDevices {
+  listened_cycles: number
+  min_listened_cycles: number
+  total: number
+  devices: RadioAirDevice[]
+}
+
+export type RadioAirSort = 'last_heard' | 'cycles' | 'signal' | 'retries'
+
+/** GET /admin/api/radio/air/airwaves: counts only. */
+export interface RadioAirwaves {
+  channels: { channel: number; devices: number }[]
+  classes: { class: RadioClass; devices: number; frames: number; retry_percent: number }[]
+  routers: { name: string; channel: number }[]
+  near_unknown: number
+  listened_cycles: number
+}
+
+export type RadioHourState = 'here' | 'away' | 'not_listening'
+
+export interface RadioPresenceDevice {
+  id: string
+  label: string
+  state: RadioHourState
+  signal?: RadioSignal
+  last_heard?: string
+  joined_own: boolean
+  hours: { hour: string; state: RadioHourState; signal?: RadioSignal }[]
+}
+
+/** GET /admin/api/radio/devices/mine/presence */
+export interface RadioPresence {
+  devices: RadioPresenceDevice[]
+}
+
+export type RadioTier = 'seen' | 'inferred' | 'estimated'
+
+/** GET /admin/api/radio/digest: what the stack found, as fixed words and counts. No text a device chose is ever in it. */
+export interface RadioDigest {
+  listening: { cycles: number; min_cycles: number; window_days: number; cycles_last_24h: number }
+  own: { devices: number; access_points: number; confirmed_access_points: number }
+  others: { class: RadioClass; count: number; tier: RadioTier }[]
+  findings: { id: string; tier: RadioTier; count: number; claim: string }[]
+  could_not_see: { id: string; reason: string }[]
 }

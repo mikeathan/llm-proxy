@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const service = vi.hoisted(() => ({
   sensors: vi.fn(), listening: vi.fn(), plan: vi.fn(), beginSession: vi.fn(), start: vi.fn(), stop: vi.fn(), openSessions: vi.fn(), endSession: vi.fn(),
-  ownerDevices: vi.fn(), addOwnerDevice: vi.fn(), removeOwnerDevice: vi.fn(), forgetNeighbours: vi.fn(),
+  ownerDevices: vi.fn(), presence: vi.fn(), addOwnerDevice: vi.fn(), removeOwnerDevice: vi.fn(), forgetNeighbours: vi.fn(),
 }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
@@ -18,6 +18,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   service.sensors.mockResolvedValue(sensors())
   service.listening.mockResolvedValue(idle)
+  service.presence.mockResolvedValue({ devices: [] })
 })
 
 async function show() {
@@ -100,6 +101,29 @@ describe('RadioOwnerDevices', () => {
     await w.get('[data-test="radio-device-remove"]').trigger('click')
     await flushPromises()
     expect(service.removeOwnerDevice).toHaveBeenCalledWith('ab')
+  })
+
+  it('shows where each device is now and when it was last heard, hour by hour', async () => {
+    service.ownerDevices.mockResolvedValue([device])
+    const hours = Array.from({ length: 48 }, (_, i) => ({ hour: new Date(Date.UTC(2026, 10, 13, 12 + i)).toISOString(), state: i % 2 ? 'here' : 'away' }))
+    service.presence.mockResolvedValue({ devices: [{ id: 'ab', label: 'my phone', state: 'here', signal: 'strong', last_heard: new Date().toISOString(), joined_own: true, hours }] })
+    const w = mount(RadioOwnerDevices)
+    await flushPromises()
+    expect(w.get('[data-test="radio-device-presence"]').text()).toContain('Here now')
+    expect(w.get('[data-test="radio-device-last-heard"]').text()).toContain('Last heard')
+    const cells = w.findAll('[data-test="radio-presence-hour"]')
+    expect(cells).toHaveLength(48)
+    expect(cells.filter((c) => c.attributes('data-state') === 'here')).toHaveLength(24)
+    expect(w.get('[role="img"]').attributes('aria-label')).toBe('my phone: heard in 24 of the last 48 hours')
+  })
+
+  it('still lists the devices when the presence cannot be read', async () => {
+    service.ownerDevices.mockResolvedValue([device])
+    service.presence.mockRejectedValue(new Error('down'))
+    const w = mount(RadioOwnerDevices)
+    await flushPromises()
+    expect(w.get('[data-test="radio-device"]').text()).toContain('my phone')
+    expect(w.find('[data-test="radio-device-presence"]').exists()).toBe(false)
   })
 
   it('shows the server’s plain refusal and keeps what was typed', async () => {
