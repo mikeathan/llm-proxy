@@ -1,7 +1,7 @@
 ---
 id: ADR-0055
 title: Radio may keep a short signal track per device on disk, only when the owner turns it on
-status: proposed
+status: accepted
 date: 2026-11-14
 subsystems: [network-audit]
 supersedes:
@@ -10,7 +10,7 @@ superseded_by:
 
 # ADR-0055: Radio may keep a short signal track per device on disk, only when the owner turns it on
 
-Proposed 2026-11-14 after the owner's decision in conversation: **off by default; 24 or 48 hours when on; a delete control; turning it off deletes.** It narrows one line of [ADR-0053](ADR-0053-radio-keeps-a-keyed-tag-for-other-peoples-devices-and-seals-the-owners-with-hard-size-and-age-limits.md) ("nothing finer than a day") for this one case and changes nothing else in it. It becomes accepted when the owner accepts it in the PR; the legal question below stays an **open risk the owner accepts, not advice taken**.
+Accepted by the owner 2026-11-15 (after proposing on 2026-11-14 from the owner's decision in conversation): **off by default; 24 or 48 hours when on; a delete control; turning it off deletes.** It narrows one line of [ADR-0053](ADR-0053-radio-keeps-a-keyed-tag-for-other-peoples-devices-and-seals-the-owners-with-hard-size-and-age-limits.md) ("nothing finer than a day") for this one case and changes nothing else in it. The legal question below stays an **open risk the owner accepts, not advice taken**.
 
 ## Context
 The radar (v0.89.0) draws a device's distance from its signal. The track of one device over a run is built in memory only (v0.90.0): it shows what happened this evening and is gone when listening stops or the service restarts. The owner wants it to survive a restart and to look back a day or two. ADR-0053 allows only day-level rows for other people's devices. Facts that bound the choice: a keyed tag is still personal data in the ICO's reading (pseudonymisation does not change that); a per-cycle series says **when** a device is near the house, which a day row does not; the household-exemption question was not found by search.
