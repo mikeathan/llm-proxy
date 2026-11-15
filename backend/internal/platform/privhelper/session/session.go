@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	// MaxTTL is the longest a session may last, whatever was asked.
-	MaxTTL = 12 * time.Hour
-	// MaxUses is the most requests one session may serve, whatever was asked.
-	MaxUses = 5000
+	// MaxTTL is the longest a session may last, whatever was asked: seven days (ADR-0056).
+	MaxTTL = 7 * 24 * time.Hour
+	// MaxUses is the most requests one session may serve, whatever was asked: the helper's own hourly cap for a standing action (240) over
+	// MaxTTL. The helper still enforces that cap every hour, so this bounds a whole session, never the rate.
+	MaxUses = 7 * 24 * 240
 	// MaxRequests is the most entries one approved list may hold.
 	MaxRequests = 64
 	// DefaultMaxOpen is how many sessions may be open at once.

@@ -40,6 +40,30 @@ describe('RadioListening', () => {
     expect(w.find('[data-test="radio-listen-start"]').exists()).toBe(false)
   })
 
+  it('offers to resume a watch a restart stopped, and resuming starts it for the hours that are left', async () => {
+    service.listening.mockResolvedValue({ ...idle, resume: { adapter: 'wlx00', until: '2026-11-20T12:00:00Z', hours_left: 42, why: 'stack_stopped' } })
+    service.plan.mockResolvedValue({ adapter: 'wlx00', plan, requests: [], max_hours: 168 })
+    service.beginSession.mockResolvedValue({ id: 's1', stack: 'radio' })
+    service.start.mockResolvedValue({ ...idle, listening: true, until: '2026-11-20T12:00:00Z' })
+    const w = await show()
+    expect(w.get('[data-test="radio-resume-line"]').text()).toContain('The service restarted.')
+    expect(w.get('[data-test="radio-resume-line"]').text()).toContain('42 hours')
+    await w.get('[data-test="radio-resume"]').trigger('click')
+    await flushPromises()
+    expect(service.start).toHaveBeenCalledWith('wlx00', 42)
+    expect(w.find('[data-test="radio-resume"]').exists()).toBe(false)
+  })
+
+  it('shows no resume offer when nothing was stopped early', async () => {
+    const w = await show()
+    expect(w.find('[data-test="radio-resume"]').exists()).toBe(false)
+  })
+
+  it('offers seven days as the longest time to listen', async () => {
+    const w = await show()
+    expect(w.text()).toContain('7 days')
+  })
+
   it('says why it cannot start, with the fix: stack off, and no adapter', async () => {
     service.sensors.mockResolvedValue(sensors({ enabled: false }))
     let w = await show()

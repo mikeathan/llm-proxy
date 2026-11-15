@@ -74,6 +74,20 @@ describe('usePolling', () => {
     visibility.mockRestore()
   })
 
+  it('does not poll on its tick while the tab is hidden', () => {
+    vi.useFakeTimers()
+    const task = vi.fn()
+    mount(hostWith(task))
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    visibility.mockReturnValue('hidden')
+    vi.advanceTimersByTime(INTERVAL_MS * 5)
+    expect(task).not.toHaveBeenCalled()
+    visibility.mockReturnValue('visible')
+    vi.advanceTimersByTime(INTERVAL_MS)
+    expect(task).toHaveBeenCalledTimes(1)
+    visibility.mockRestore()
+  })
+
   it('does not refresh on return while a kept-alive view is in the background', async () => {
     vi.useFakeTimers()
     const task = vi.fn()

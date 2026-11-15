@@ -71,8 +71,11 @@ export const RADIO_LISTEN_STOP = 'Stop listening'
 export const RADIO_LISTEN_NO_ADAPTER = 'No adapter can listen. Plug in a USB Wi-Fi adapter and look again.'
 export const RADIO_LISTEN_OFF = 'Switch the Radio stack on in Modules before listening.'
 export const RADIO_LISTEN_START_FAILED = 'Listening could not start.'
-export const RADIO_LISTEN_HOUR_CHOICES = [1, 2, 4, 8, 12]
-export const radioHoursLabel = (h: number): string => (h === 1 ? '1 hour' : `${h} hours`)
+export const RADIO_LISTEN_HOUR_CHOICES = [1, 4, 12, 24, 72, 168]
+export const radioHoursLabel = (h: number): string => {
+  if (h >= 24 && h % 24 === 0) return h === 24 ? '1 day' : `${h / 24} days`
+  return h === 1 ? '1 hour' : `${h} hours`
+}
 export const radioListeningUntil = (when: string): string => `Listening until ${when}.`
 export const radioFramesLine = (frames: number): string => `${frames.toLocaleString()} frames heard so far.`
 /** Where the run is: a cycle is one window on each channel of the plan. */
@@ -367,4 +370,9 @@ export const RADIO_DETAIL_FIRST = 'First heard'
 export const RADIO_GUIDE_TITLE = 'How to read this'
 export const RADIO_GUIDE_DIRECTION = 'Which way a device lies is not measured with one adapter, so a dot keeps a steady place on its ring. Only how far is estimated, as a range, from how strong its signal is.'
 export const RADIO_GUIDE_MOTION = 'A dot moves once a cycle, when the sensor has been round every channel. A shorter cycle in the scan plan gives more frequent movement.'
-export const RADIO_LISTEN_MANUAL = 'A run lasts the hours you choose, up to 12, then ends by itself. Nothing starts a run on its own, and a restart of the service ends one that is going.'
+export const RADIO_LISTEN_MANUAL = 'A run lasts the time you choose, up to 7 days, then ends by itself. Nothing starts a run on its own. A restart of the service ends one that is going, and this page then offers to resume it, which asks for your passphrase again.'
+export const RADIO_RESUME_TITLE = 'Listening stopped before its time'
+export const RADIO_RESUME_BUTTON = 'Resume listening'
+export const RADIO_RESUME_DISMISS = 'No, leave it stopped'
+export const radioResumeLine = (why: string | undefined, hoursLeft: number, until: string): string =>
+  `${why === 'stack_stopped' ? 'The service restarted.' : 'Something stopped it.'} It was set to run until ${until}. Resuming listens for the ${radioHoursLabel(hoursLeft)} that are left and asks for your passphrase again.`

@@ -48,7 +48,7 @@ func TestASessionIsApprovedListedAndEnded(t *testing.T) {
 		Open   []session.View `json:"open"`
 		Limits sessionLimits  `json:"limits"`
 	}
-	if err := json.Unmarshal(list.Body.Bytes(), &got); err != nil || len(got.Open) != 1 || got.Limits.MaxHours != 12 {
+	if err := json.Unmarshal(list.Body.Bytes(), &got); err != nil || len(got.Open) != 1 || got.Limits.MaxHours != 168 {
 		t.Fatalf("%s %v", list.Body, err)
 	}
 	if rec := send(mux, "DELETE", HelperSessionsPath+"/"+view.ID, ""); rec.Code != http.StatusNoContent {
@@ -62,6 +62,15 @@ func TestASessionIsApprovedListedAndEnded(t *testing.T) {
 	}
 }
 
+func TestAWeekLongSessionIsApprovedWithUsesForItsWholeTime(t *testing.T) {
+	mux, _ := sessionMux(t, allOn)
+	// 7 days of a 6-channel plan every 5 minutes is 12,096 requests: more than the old 5,000, far below the helper's own hourly cap (240 an hour).
+	rec := send(mux, "POST", HelperSessionsPath, `{"stack":"radio","hours":168,"max_uses":12200,"requests":[`+listenReq+`]}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestASessionIsRefusedWhenItAsksForMoreThanMayBeApproved(t *testing.T) {
 	mux, _ := sessionMux(t, allOn)
 	cases := map[string]struct {
@@ -69,7 +78,7 @@ func TestASessionIsRefusedWhenItAsksForMoreThanMayBeApproved(t *testing.T) {
 		want int
 	}{
 		"another stack":                 {`{"stack":"network","hours":1,"requests":[` + listenReq + `]}`, 400},
-		"more than 12 hours":            {`{"stack":"radio","hours":13,"requests":[` + listenReq + `]}`, 400},
+		"more than 7 days":              {`{"stack":"radio","hours":169,"requests":[` + listenReq + `]}`, 400},
 		"no time":                       {`{"stack":"radio","requests":[` + listenReq + `]}`, 400},
 		"no requests":                   {`{"stack":"radio","hours":1,"requests":[]}`, 400},
 		"an action that must not stand": {`{"stack":"radio","hours":1,"requests":[{"action":"scan_udp","params":{"target":"192.168.1.5","ports":[53]}}]}`, 403},
@@ -77,7 +86,7 @@ func TestASessionIsRefusedWhenItAsksForMoreThanMayBeApproved(t *testing.T) {
 		"a channel outside the list":    {`{"stack":"radio","hours":1,"requests":[{"action":"radio_listen","params":{"iface":"w","channel":14,"seconds":20}}]}`, 403},
 		"a window too long":             {`{"stack":"radio","hours":1,"requests":[{"action":"radio_listen","params":{"iface":"w","channel":1,"seconds":31}}]}`, 403},
 		"an unknown field":              {`{"stack":"radio","hours":1,"max_hours":99,"requests":[` + listenReq + `]}`, 400},
-		"too many uses":                 {`{"stack":"radio","hours":1,"max_uses":5001,"requests":[` + listenReq + `]}`, 400},
+		"too many uses":                 {`{"stack":"radio","hours":1,"max_uses":40321,"requests":[` + listenReq + `]}`, 400},
 		"not json":                      {`nope`, 400},
 	}
 	for name, c := range cases {

@@ -288,7 +288,7 @@ func TestAnOwnerDeviceHoursCarryADistanceRangeWhenHeard(t *testing.T) {
 
 func trackOf(t *testing.T, r *listenRig, id string) (TrackView, int) {
 	t.Helper()
-	resp, err := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodGet, Path: TrackPath, Params: map[string]string{"id": id}})
+	resp, err := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodGet, Path: strings.Replace(TrackPath, "{id}", id, 1), Params: map[string]string{"id": id}})
 	if err != nil {
 		t.Fatal(err)
 	}

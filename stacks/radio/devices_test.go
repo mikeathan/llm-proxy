@@ -20,7 +20,7 @@ func call(t *testing.T, r *listenRig, method, path, body string) (stacksdk.Respo
 	t.Helper()
 	req := stacksdk.Request{Method: method, Path: path, Body: []byte(body)}
 	if i := strings.LastIndex(path, "/"); method == http.MethodDelete && strings.HasPrefix(path, DevicesPath+"/") {
-		req.Path, req.Params = DevicePath, map[string]string{"id": path[i+1:]}
+		req.Params = map[string]string{"id": path[i+1:]} // the path stays as requested, as the core sends it
 	}
 	return r.s.Handle(context.Background(), req)
 }

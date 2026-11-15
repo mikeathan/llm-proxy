@@ -4,13 +4,16 @@ import { errorMessage } from '../../utils/errors'
 import { RADIO_LISTEN_START_FAILED } from '../../constants/radio'
 import type { RadioListenState } from '../../types/radio'
 
-const POLL_MS = 5000
+const POLL_MS = 15000
 const SESSION_STACK = 'radio'
 
-/** The most uses a session may be approved for (the core's hard limit is 5000). Windows an hour times the hours, plus a margin for a run that restarts. */
+/** The core's hard limit on a session's uses: the helper's own cap an hour (240) over the longest session (7 days). */
+const SESSION_MAX_USES = 7 * 24 * 240
+
+/** The uses a session is approved for: windows an hour times the hours, plus a margin for a run that restarts, never past the core's limit. */
 function usesFor(state: { channels: number; cycleSeconds: number }, hours: number): number {
   const perHour = Math.ceil((state.channels * 3600) / state.cycleSeconds)
-  return Math.min(5000, Math.ceil(perHour * hours) + state.channels * 2)
+  return Math.min(SESSION_MAX_USES, Math.ceil(perHour * hours) + state.channels * 2)
 }
 
 /**
@@ -79,5 +82,11 @@ export function useRadioListening() {
 
   onBeforeUnmount(() => { if (timer) clearInterval(timer) })
 
-  return { state, error, busy, refresh, start, stop }
+  /** Starts the watch again with the time it had left. It asks for the passphrase like any start: nothing about the old permission is kept. */
+  async function resume(): Promise<void> {
+    const offer = state.value?.resume
+    if (offer) await start(offer.adapter, offer.hours_left)
+  }
+
+  return { state, error, busy, refresh, start, stop, resume }
 }

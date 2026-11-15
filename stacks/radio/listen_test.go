@@ -58,6 +58,8 @@ type listenRig struct {
 	mu   sync.Mutex
 	nap  chan time.Duration // each wait between cycles, as asked
 	step chan struct{}      // the test lets a wait finish
+	h    stacksdk.Host      // the host the stack was started with, so a test can restart it
+	ev   *captureEvents     // what the stack told the operator
 }
 
 func newRig(t *testing.T, doc string, next func(int, ListenParams) (stacksdk.PrivilegedResult, error)) *listenRig {
@@ -82,6 +84,9 @@ func newRig(t *testing.T, doc string, next func(int, ListenParams) (stacksdk.Pri
 	_ = json.Unmarshal([]byte(doc), &cfg.doc)
 	h.Config = cfg
 	h.Privileged, h.Vault = r.priv, fakeVault{}
+	r.ev = &captureEvents{}
+	h.Events = r.ev
+	r.h = h
 	if err := r.s.Start(context.Background(), h); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +256,7 @@ func TestListenIsRefusedWhenOffWhenRunningAndWithABadBody(t *testing.T) {
 		t.Errorf("off: %d %s", resp.Status, resp.Body)
 	}
 	on := newRig(t, twoChannels, okWindow)
-	for _, bad := range []string{`{`, `{"adapter":"","hours":1}`, `{"adapter":"a b","hours":1}`, `{"adapter":"wlx00","hours":0}`, `{"adapter":"wlx00","hours":13}`, `{"adapter":"wlx00","hours":1,"x":1}`} {
+	for _, bad := range []string{`{`, `{"adapter":"","hours":1}`, `{"adapter":"a b","hours":1}`, `{"adapter":"wlx00","hours":0}`, `{"adapter":"wlx00","hours":169}`, `{"adapter":"wlx00","hours":1,"x":1}`} {
 		if resp := on.post(t, bad); resp.Status != http.StatusBadRequest {
 			t.Errorf("%s: %d", bad, resp.Status)
 		}
@@ -322,4 +327,96 @@ func containsHex(b []byte, m MAC) bool {
 		}
 	}
 	return false
+}
+
+func TestTheFrameCapIsARatePerHourSoAWeekLongWatchIsNotCutShortByABusyHome(t *testing.T) {
+	s := New(nil)
+	// A busy home was measured at about 9,000 frames a cycle: 2.6 million a day. A seven-day watch must not stop at the old flat 2 million.
+	if got := s.frameCapFor(168); got < 7*2_600_000 {
+		t.Errorf("a week allows %d frames, a busy home reads %d", got, 7*2_600_000)
+	}
+	if got := s.frameCapFor(0.1); got < minFrameCap {
+		t.Errorf("a short run is cut by a few busy minutes: %d", got)
+	}
+	if s.frameCapFor(24) <= s.frameCapFor(12) {
+		t.Error("the cap must grow with the hours")
+	}
+}
+
+func TestAStartTakesUpToSevenDaysAndRefusesMore(t *testing.T) {
+	r := newRig(t, `{"enabled":true,"channels":[60]}`, okWindow)
+	if resp := r.post(t, `{"adapter":"wlx00","hours":169}`); resp.Status != http.StatusBadRequest {
+		t.Errorf("169 hours: %d", resp.Status)
+	}
+	if resp := r.post(t, `{"adapter":"wlx00","hours":168}`); resp.Status != http.StatusAccepted {
+		t.Errorf("168 hours: %d %s", resp.Status, resp.Body)
+	}
+}
+
+// restart stops the stack as a deploy does and starts it again over the same files.
+func (r *listenRig) restart(t *testing.T) {
+	t.Helper()
+	if err := r.s.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.s.Start(context.Background(), r.h); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAWatchStoppedByARestartIsOfferedForResumeWithTheTimeItHadLeft(t *testing.T) {
+	r := newRig(t, `{"enabled":true,"channels":[60]}`, okWindow)
+	r.post(t, `{"adapter":"wlx00","hours":48}`)
+	waitFor(t, "a wait", func() bool { return len(r.nap) == 1 })
+	r.mu.Lock()
+	r.now = r.now.Add(6 * time.Hour)
+	r.mu.Unlock()
+	r.restart(t)
+	st := r.state(t)
+	if st.Listening || st.Resume == nil {
+		t.Fatalf("a restart must offer a resume: %+v", st)
+	}
+	if st.Resume.Adapter != "wlx00" || st.Resume.HoursLeft != 42 || st.Resume.Why != EndedStack {
+		t.Errorf("%+v", st.Resume)
+	}
+}
+
+func TestAWatchTheOperatorStoppedOrThatRanOutIsNotOfferedForResume(t *testing.T) {
+	r := newRig(t, `{"enabled":true,"channels":[60]}`, okWindow)
+	r.post(t, `{"adapter":"wlx00","hours":48}`)
+	waitFor(t, "a wait", func() bool { return len(r.nap) == 1 })
+	if _, err := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodDelete, Path: ListenPath}); err != nil {
+		t.Fatal(err)
+	}
+	r.restart(t)
+	if st := r.state(t); st.Resume != nil {
+		t.Errorf("the operator stopped it: %+v", st.Resume)
+	}
+
+	r2 := newRig(t, `{"enabled":true,"channels":[60]}`, okWindow)
+	r2.post(t, `{"adapter":"wlx00","hours":1}`)
+	waitFor(t, "a wait", func() bool { return len(r2.nap) == 1 })
+	r2.restart(t)
+	r2.mu.Lock()
+	r2.now = r2.now.Add(2 * time.Hour)
+	r2.mu.Unlock()
+	if st := r2.state(t); st.Resume != nil {
+		t.Errorf("its time is up: %+v", st.Resume)
+	}
+}
+
+func TestStoppingWhenNothingRunsDismissesAResumeOffer(t *testing.T) {
+	r := newRig(t, `{"enabled":true,"channels":[60]}`, okWindow)
+	r.post(t, `{"adapter":"wlx00","hours":48}`)
+	waitFor(t, "a wait", func() bool { return len(r.nap) == 1 })
+	r.restart(t)
+	if r.state(t).Resume == nil {
+		t.Fatal("expected an offer")
+	}
+	if _, err := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodDelete, Path: ListenPath}); err != nil {
+		t.Fatal(err)
+	}
+	if st := r.state(t); st.Resume != nil {
+		t.Errorf("dismissed, still offered: %+v", st.Resume)
+	}
 }

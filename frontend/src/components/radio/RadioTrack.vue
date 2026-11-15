@@ -9,7 +9,7 @@ import type { RadioTrack } from "../../types/radio"
 // Radio · one device's distance over this run: a band (the range it can be in) with a line through its middle, oldest on the left. A cycle the
 // device was silent in is a gap, never a guessed point. Memory only on the server (ADR-0053), so a run that ends leaves nothing to draw.
 const props = defineProps<{ id: string }>()
-const REFRESH_MS = 5000
+const REFRESH_MS = 15000 // the picture changes once a cycle (5 minutes by default)
 const W = 320
 const H = 90
 const PAD = 6

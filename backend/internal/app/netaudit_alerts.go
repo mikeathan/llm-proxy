@@ -240,6 +240,14 @@ func (s *AppServices) alertNotifier(alerts *netaudit.AlertLog, kind models.Netwo
 	}
 }
 
+// bellNotifier logs an alert for the bell and the Timeline and sends it to no connector, by the operator's choice (ADR-0056). The entry is marked
+// as shown in the app, so nothing looks undelivered.
+func (s *AppServices) bellNotifier(alerts *netaudit.AlertLog, kind models.NetworkAlertKind) notifyFunc {
+	return func(ctx context.Context, message string) error {
+		return alerts.Send(ctx, kind, message, func(context.Context, string) error { return netaudit.ErrInAppOnly })
+	}
+}
+
 // newDigest builds the weekly summary, which the presence look sends when it is due.
 func (s *AppServices) newDigest(inventory *netaudit.Inventory, history *netaudit.History, summary *netaudit.SummaryConfig,
 	notify notifyFunc) *netaudit.WeeklyDigest {

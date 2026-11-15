@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, ref, shallowRef } from 'vue'
 import { createNetworkAlerts } from '../../../composables/netaudit/useNetworkAlerts'
-import { toAgents, toNetwork, toSettings } from '../../../router/routes'
+import { toAgents, toNetwork, toRadio, toSettings } from '../../../router/routes'
 import type { GlobalRunTick } from '../../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../../types/notifications'
 
@@ -89,6 +89,15 @@ describe('network alerts', () => {
     await poll()
     expect(published[0]![0]!.target).toEqual(toAgents())
     expect(published[0]![0]!.destination).toBe('agents')
+  })
+
+  it('aims a Radio watch alert at the Radio page, and marks it as shown in the app', async () => {
+    const { poll, replies, published } = setup(1)
+    replies.push({ cursor: 2, items: [alert(2, { kind: 'radio', delivery: 'in_app', message: 'Radio: listening ends in about 30 hours.' })] })
+    await poll()
+    expect(published[0]![0]!.target).toEqual(toRadio())
+    expect(published[0]![0]!.destination).toBe('radio')
+    expect(published[0]![0]).toMatchObject({ alertKind: 'radio', delivery: 'in_app' })
   })
 
   it('carries what became of the send and how often a decoy alert repeated', async () => {

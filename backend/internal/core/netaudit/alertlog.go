@@ -16,6 +16,10 @@ import (
 // say so.
 var ErrNoConnector = errors.New("no connector is set up to send alerts")
 
+// ErrInAppOnly is what a send function returns for an alert that belongs on the bell only (the Radio watch notices): the entry is logged
+// for the web UI, marked as in-app by choice, and Send returns no error.
+var ErrInAppOnly = errors.New("this alert is shown in the app only")
+
 const (
 	maxAlerts = 50
 	// repeatWindow is how long a repeating decoy alert for the same sources keeps updating one entry.
@@ -52,6 +56,9 @@ func (l *AlertLog) Send(ctx context.Context, kind models.NetworkAlertKind, messa
 	if id != 0 {
 		l.settle(id, deliveryOf(err))
 	}
+	if errors.Is(err, ErrInAppOnly) {
+		return nil
+	}
 	return err
 }
 
@@ -59,6 +66,8 @@ func deliveryOf(err error) models.NetworkAlertDelivery {
 	switch {
 	case err == nil:
 		return models.NetworkAlertSent
+	case errors.Is(err, ErrInAppOnly):
+		return models.NetworkAlertInApp
 	case errors.Is(err, ErrNoConnector):
 		return models.NetworkAlertNoConnector
 	}
@@ -80,7 +89,7 @@ func (l *AlertLog) record(kind models.NetworkAlertKind, message string) int64 {
 	if i := lastOfKind(items, kind); i >= 0 && items[i].Message == message {
 		prev := &items[i]
 		switch {
-		case prev.Delivery != models.NetworkAlertSent:
+		case prev.Delivery != models.NetworkAlertSent && prev.Delivery != models.NetworkAlertInApp:
 			// A retry of what was never sent: the same alert, not a new one.
 			return prev.ID
 		case kind == models.NetworkAlertDecoy && now.Sub(prev.At) < repeatWindow:

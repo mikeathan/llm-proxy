@@ -55,6 +55,15 @@ describe('describeNotification', () => {
   })
 })
 
+describe('describeNotification for a Radio watch alert', () => {
+  it('says radio, and never claims a connector is missing: it is for the bell by choice', () => {
+    const row = describeNotification(network({ alertKind: 'radio', delivery: 'in_app', message: 'Radio: listening ends in about 30 hours.' }))
+    expect(row).toEqual({ label: 'radio', tone: 'warning', text: 'Radio: listening ends in about 30 hours.' })
+    expect(row.fix).toBeUndefined()
+    expect(row.detail).toBeUndefined()
+  })
+})
+
 describe('describeNotification for a network alert', () => {
   it.each([
     ['decoy', 'decoy', 'error'],

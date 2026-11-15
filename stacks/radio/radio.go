@@ -12,6 +12,8 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,11 +94,12 @@ func (s *Stack) wait(ctx context.Context, d time.Duration) error {
 	}
 }
 
-func (s *Stack) frameCap() int {
+// frameCapFor is the most frames a run of this many hours may read: a rate an hour, with a floor for a short run.
+func (s *Stack) frameCapFor(hours float64) int {
 	if s.maxFrames > 0 {
 		return s.maxFrames
 	}
-	return defaultFrameCap
+	return max(int(hours*framesPerHour), minFrameCap)
 }
 
 // New returns the stack, reading the system's records from sys. Pass nil to read the real /sys.
@@ -134,7 +137,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPost, Path: NetworkConfirmPath}, {Method: http.MethodDelete, Path: NetworkPath},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged},
 		Storage:  []string{DBFile},
 	}
 }
@@ -142,11 +145,13 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 // Start remembers the host. It starts no goroutine: discovery runs when the page asks.
 func (s *Stack) Start(_ context.Context, h stacksdk.Host) error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.started {
+		s.mu.Unlock()
 		return errors.New("the radio stack is already running")
 	}
 	s.h, s.started = h, true
+	s.mu.Unlock()
+	s.announceInterrupted()
 	return nil
 }
 
@@ -187,6 +192,7 @@ func (s *Stack) Findings(context.Context) ([]stacksdk.StackFinding, error) { ret
 
 // Handle answers the one route: discovery, read fresh each time (a few small files), so a plugged-in adapter shows on the next look.
 func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
+	req.Path = routePattern(req.Path)
 	switch req.Path {
 	case ListenPath, PlanPath, ScanPath:
 		return s.handleListen(ctx, req)
@@ -270,4 +276,44 @@ func (s *Stack) listeningAdapter() string {
 		return st.Adapter
 	}
 	return ""
+}
+
+// wildcardRoutes are the routes of this stack that carry a {id} segment. The core hands Handle the path as it was requested
+// (".../track/9714bc3d"), not the pattern the route was declared with, so dispatch first maps it back to the pattern.
+var wildcardRoutes = []string{DevicePath, CalibratePath, TrackPath, NetworkPath, NetworkConfirmPath}
+
+// fixedRoutes are the routes a wildcard route would also match ("/devices/mine/presence" against ".../mine/{id}"); like the core's
+// router, a fixed route wins over a wildcard.
+var fixedRoutes = []string{DevicesPath, PresencePath, ForgetPath, AirPath, AirDevicesPath, AirwavesPath, LivePath, KeepPath, NetworksPath}
+
+// routePattern returns the declared wildcard route that path matches, or path itself when none does (a fixed route, or an unknown one).
+func routePattern(path string) string {
+	if slices.Contains(fixedRoutes, path) {
+		return path
+	}
+	got := strings.Split(path, "/")
+	for _, pattern := range wildcardRoutes {
+		if matchesPattern(strings.Split(pattern, "/"), got) {
+			return pattern
+		}
+	}
+	return path
+}
+
+func matchesPattern(want, got []string) bool {
+	if len(want) != len(got) {
+		return false
+	}
+	for i, w := range want {
+		if w == "{id}" {
+			if got[i] == "" {
+				return false
+			}
+			continue
+		}
+		if w != got[i] {
+			return false
+		}
+	}
+	return true
 }

@@ -235,3 +235,48 @@ func TestTheDatabaseFileHoldsNoAddressOfAnotherPerson(t *testing.T) {
 		}
 	}
 }
+
+func TestRepeatedFramesOfOneDeviceKeepTheStrongestAndWeakestSignalWithoutAWritePerFrame(t *testing.T) {
+	s, _ := openTest(t, 0)
+	r := NewRecorder(fakeVault{}, s)
+	ctx := context.Background()
+	var m MAC
+	m[0], m[5] = 0x02, 9
+	tag, _ := fakeVault{}.Tag(ctx, tagDevice, m[:])
+	r.BeginCycle()
+	for i, sig := range []int{-60, -60, -72, -60, -48, -55, -72} {
+		f := Frame{Kind: KindData, Transmitter: m, HasTransmitter: true, Signal: sig, SignalOK: true}
+		if _, err := r.RecordSeen(ctx, f, t0.Add(time.Duration(i)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d, ok, err := s.Device(ctx, tag)
+	if err != nil || !ok {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if !d.HasSignal || d.SignalMin != -72 || d.SignalMax != -48 {
+		t.Errorf("min %d max %d, want -72 and -48: %+v", d.SignalMin, d.SignalMax, d)
+	}
+	if d.Visits != 1 {
+		t.Errorf("one day is one visit, got %d", d.Visits)
+	}
+}
+
+func TestAnOwnerDeviceAddedDuringACycleIsTheOwnersFromTheNextFrame(t *testing.T) {
+	s, _ := openTest(t, 0)
+	r := NewRecorder(fakeVault{}, s)
+	ctx := context.Background()
+	var m MAC
+	m[0], m[5] = 0x02, 7
+	f := Frame{Kind: KindData, Transmitter: m, HasTransmitter: true, Signal: -50, SignalOK: true}
+	r.BeginCycle()
+	if owner, _ := r.RecordSeen(ctx, f, t0); owner {
+		t.Fatal("not yet the owner's")
+	}
+	if err := r.AddOwnerDevice(ctx, m, "phone", t0); err != nil {
+		t.Fatal(err)
+	}
+	if owner, _ := r.RecordSeen(ctx, f, t0.Add(time.Second)); !owner {
+		t.Error("the next frame must count as the owner's, not come from the cycle's memory")
+	}
+}
