@@ -149,6 +149,8 @@ type Alert struct {
 	Host       string `json:"host,omitempty"`
 	// Count is how many places or entries the alert is about (the secrets alert).
 	Count int `json:"count,omitempty"`
+	// Hours is how many hours are left of what the alert is about (a Radio watch that is ending or stopped early).
+	Hours int `json:"hours,omitempty"`
 }
 
 // ModuleStatus is what one module's background work has done. Problem is a fixed phrase (never text from the network), or empty.

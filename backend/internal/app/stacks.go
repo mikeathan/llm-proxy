@@ -18,7 +18,9 @@ import (
 
 	"llm-proxy/internal/core/agentwatch"
 	"llm-proxy/internal/core/netaudit"
+	"llm-proxy/internal/core/radiowatch"
 	"llm-proxy/internal/core/stack"
+	"llm-proxy/internal/core/stackalerts"
 	"llm-proxy/internal/core/stackport"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
@@ -296,7 +298,7 @@ func radioStack() stacksdk.Stack { return radio.New(nil) }
 //
 // The helper's routes are built after the stacks are, so the stack's Privileged port is a late-bound one (latePrivileged) that routes.go fills when
 // the helper routes exist; until then a request is refused as unavailable.
-func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged) (*stackHost, error) {
+func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, notify func(ctx context.Context, message string) error) (*stackHost, error) {
 	st := radioStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
@@ -307,6 +309,7 @@ func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged) (*s
 	keys := stackport.NewKeyCache(func() ([]byte, error) { return storage.GetMasterKey(configDir) })
 	h, err := newStackHost(st, stacksdk.Host{
 		Config:     stackport.Config[models.RadioConfig]{Store: policy},
+		Events:     stackalerts.Sink{Words: radiowatch.Words, Notify: notify, OnError: func(err error) { logging.Warn("radio watch", "error", err.Error()) }},
 		Log:        stackport.Log{Stack: st.Manifest().ID},
 		DataDir:    stackport.DataDir{Dir: dir, Files: files},
 		Vault:      stackport.Vault{Key: keys.Get},

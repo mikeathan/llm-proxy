@@ -27,14 +27,18 @@ const (
 	PlanPath = "/admin/api/radio/listening/plan"
 
 	listenAction = "radio_listen"
-	// MaxHours is the longest run a start may ask for: the longest session the core allows.
-	MaxHours = 12
+	// MaxHours is the longest run a start may ask for: the longest session the core allows, seven days (ADR-0056).
+	MaxHours = 168
 	// MaxWindowsPerHour is what the helper's own hourly cap for radio_listen (240) leaves room for.
 	MaxWindowsPerHour = 200
 	// maxChannels is how many channels a plan may list.
 	maxChannels = 16
-	// defaultFrameCap is the most frames one run may read before it stops: a run that heard this many is in a place too busy to keep up with.
-	defaultFrameCap = 2_000_000
+	// framesPerHour is how many frames an hour of listening may read before the run stops: a run that heard more is in a place too busy to keep
+	// up with. It is a rate, so a seven-day watch gets seven days of it; a flat total would end a busy home's long watch within a day (measured
+	// at about 9,000 frames a cycle, 2.6 million a day).
+	framesPerHour = 170_000
+	// minFrameCap keeps a short run from being cut by a few busy minutes.
+	minFrameCap = 100_000
 	// maxFailures is how many windows in a row may fail (not be refused) before the run stops.
 	maxFailures = 3
 	keptWindows = 24
@@ -138,6 +142,8 @@ type ListenState struct {
 	Ended     string          `json:"ended,omitempty"`
 	LastError string          `json:"last_error,omitempty"`
 	Plan      Plan            `json:"plan"`
+	// Resume is set when no run is going and the last watch was stopped before its time by a restart or a failure (watch.go).
+	Resume *Resume `json:"resume,omitempty"`
 }
 
 // PlanView is the answer of PlanPath.
@@ -155,10 +161,12 @@ type listenBody struct {
 
 // run is the state of the one run.
 type run struct {
-	mu     sync.Mutex
-	state  ListenState
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu       sync.Mutex
+	state    ListenState
+	frameCap int  // the most frames this run may read (frameCapFor its hours)
+	warned   bool // the operator has been told the watch is ending (alerts.go)
+	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
 func (r *run) snapshot() ListenState {
@@ -200,6 +208,9 @@ func (s *Stack) handleListen(ctx context.Context, req stacksdk.Request) (stacksd
 		http.MethodPost + " " + ListenPath: func() (stacksdk.Response, error) { return s.startListen(ctx, h, req.Body) },
 		http.MethodDelete + " " + ListenPath: func() (stacksdk.Response, error) {
 			s.endRun(EndedStopped)
+			if _, store, err := s.recorder(h); err == nil {
+				s.endWatch(store, EndedStopped) // also dismisses an offer to resume, when nothing was running
+			}
 			return jsonResponse(http.StatusOK, s.listenState(ctx, h))
 		},
 	}
@@ -218,6 +229,9 @@ func (s *Stack) listenState(ctx context.Context, h stacksdk.Host) ListenState {
 		st = r.snapshot()
 	}
 	st.Plan = s.settings(ctx, h).Plan()
+	if !st.Listening {
+		st.Resume = s.resumeOffer()
+	}
 	return st
 }
 
@@ -263,12 +277,13 @@ func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (
 		return plainError(http.StatusConflict, "it is already listening: stop it first")
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	r := &run{cancel: cancel, done: make(chan struct{}), state: ListenState{
+	r := &run{frameCap: s.frameCapFor(b.Hours), cancel: cancel, done: make(chan struct{}), state: ListenState{
 		Listening: true, Adapter: b.Adapter, Started: now, Until: until, Windows: []WindowSummary{}, Plan: plan,
 	}}
 	s.run = r
 	s.mu.Unlock()
 
+	saveWatch(store, watchRecord{Adapter: b.Adapter, Until: until}, now)
 	go func() {
 		defer close(r.done)
 		s.listen(runCtx, h.Privileged, rec, r, b.Adapter, plan, until)
@@ -309,6 +324,7 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 				st.Ended = reason
 			}
 		})
+		s.endWatch(rec.store, r.snapshot().Ended)
 	}
 	defer func() { rec.DropCycle(); rec.ClearLive() }()
 	if err := s.readProbe(ctx, priv, rec.store); err != nil {
@@ -337,6 +353,7 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 			r.update(func(st *ListenState) { st.LastError = "a cycle could not be written to the database" })
 		}
 		r.update(func(st *ListenState) { st.Cycles++ })
+		s.warnIfEnding(r)
 		wait := time.Duration(max(plan.CycleSeconds-len(plan.Channels)*plan.WindowSeconds, 5)) * time.Second
 		if err := s.wait(ctx, wait); err != nil {
 			finish(EndedStopped)
@@ -387,7 +404,7 @@ func (s *Stack) reasonToStop(ctx context.Context, r *run, until time.Time) strin
 		return EndedTime
 	}
 	st := r.snapshot()
-	if st.Frames >= s.frameCap() {
+	if st.Frames >= r.frameCap {
 		return EndedFrames
 	}
 	return ""

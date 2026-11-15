@@ -76,6 +76,14 @@ export interface RadioPlan {
   cycle_seconds: number
 }
 
+/** A watch that a restart or a failure stopped before its time; the Listening tab offers to resume it. */
+export interface RadioResume {
+  adapter: string
+  until: string
+  hours_left: number
+  why?: RadioEnded
+}
+
 export interface RadioListenState {
   listening: boolean
   adapter?: string
@@ -87,6 +95,7 @@ export interface RadioListenState {
   ended?: RadioEnded
   last_error?: string
   plan: RadioPlan
+  resume?: RadioResume
 }
 
 export interface RadioListenRequest {

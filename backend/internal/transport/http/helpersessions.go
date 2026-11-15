@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"slices"
@@ -122,7 +123,7 @@ func (d HelperSessionDeps) spec(b sessionBody) (session.Spec, int, string) {
 		return session.Spec{}, http.StatusBadRequest, "that stack does not take sessions"
 	}
 	if math.IsNaN(b.Hours) || b.Hours <= 0 || b.Hours > session.MaxTTL.Hours() {
-		return session.Spec{}, http.StatusBadRequest, "the time must be more than 0 and at most 12 hours"
+		return session.Spec{}, http.StatusBadRequest, fmt.Sprintf("the time must be more than 0 and at most %d hours (7 days)", int(session.MaxTTL.Hours()))
 	}
 	spec := session.Spec{Stack: b.Stack, Label: b.Label, TTL: time.Duration(b.Hours * float64(time.Hour))}
 	perHour := 0

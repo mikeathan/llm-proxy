@@ -2,10 +2,10 @@ package agentwatch
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"llm-proxy-stacks/sdk"
+	"llm-proxy/internal/core/stackalerts"
 )
 
 // plainOr returns a workspace id that is a plain name, or a fixed word.
@@ -52,8 +52,8 @@ func AlertIDs() []string {
 	return []string{"agent_tool_refused", "agent_new_destination", "agent_secrets_found"}
 }
 
-// Alerts is the stack's Events port: it takes an alert the stack published, words it and sends it to the operator. Notify sends a message to the
-// operator's connectors (through the alert log); OnError hears an alert that could not be worded or sent.
+// Alerts is the Agents stack's Events port: it takes an alert the stack published, words it and sends it to the operator. Notify sends a message
+// to the operator's connectors (through the alert log); OnError hears an alert that could not be worded or sent.
 type Alerts struct {
 	Notify  func(ctx context.Context, message string) error
 	OnError func(error)
@@ -61,26 +61,5 @@ type Alerts struct {
 
 // Publish words and sends one alert. An event that is not an alert, or an alert that cannot be worded, is dropped and reported.
 func (a Alerts) Publish(ctx context.Context, e stacksdk.Event) error {
-	var alert stacksdk.Alert
-	if e.Type != stacksdk.EventAlert || json.Unmarshal(e.Data, &alert) != nil {
-		return a.fail(stacksdk.Errorf(stacksdk.CodeInvalid, "not an alert"))
-	}
-	message, ok := Words(alert)
-	if !ok {
-		return a.fail(stacksdk.Errorf(stacksdk.CodeInvalid, "an alert the service has no words for"))
-	}
-	if a.Notify == nil {
-		return nil
-	}
-	if err := a.Notify(ctx, message); err != nil {
-		return a.fail(stacksdk.Errorf(stacksdk.CodeInternal, "the alert could not be sent"))
-	}
-	return nil
-}
-
-func (a Alerts) fail(err *stacksdk.Error) error {
-	if a.OnError != nil {
-		a.OnError(err)
-	}
-	return err
+	return stackalerts.Sink{Words: Words, Notify: a.Notify, OnError: a.OnError}.Publish(ctx, e)
 }

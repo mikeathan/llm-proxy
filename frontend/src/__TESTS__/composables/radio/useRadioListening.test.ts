@@ -35,8 +35,28 @@ describe('useRadioListening', () => {
   it('never asks for more uses than the core allows', async () => {
     const l = useRadioListening()
     service.plan.mockResolvedValue({ ...plan, plan: { ...plan.plan, cycle_seconds: 60 } })
-    await l.start('wlx00', 12)
-    expect(service.beginSession.mock.calls[0]![0].max_uses).toBeLessThanOrEqual(5000)
+    await l.start('wlx00', 168)
+    expect(service.beginSession.mock.calls[0]![0].max_uses).toBe(7 * 24 * 240)
+  })
+
+  it('asks for the uses a seven-day watch needs, which the old 5000 limit could not cover', async () => {
+    const l = useRadioListening()
+    await l.start('wlx00', 168)
+    expect(service.beginSession.mock.calls[0]![0].max_uses).toBe(12096 + 12) // 72 windows an hour for 168 hours, plus a margin
+  })
+
+  it('resumes a stopped watch for the hours it had left, through the same session start', async () => {
+    const l = useRadioListening()
+    l.state.value = { ...running, listening: false, resume: { adapter: 'wlx00', until: '2026-11-20T12:00:00Z', hours_left: 42, why: 'stack_stopped' } }
+    await l.resume()
+    expect(service.beginSession.mock.calls[0]![0].hours).toBe(42)
+    expect(service.start).toHaveBeenCalledWith('wlx00', 42)
+  })
+
+  it('does nothing on resume when there is no offer', async () => {
+    const l = useRadioListening()
+    await l.resume()
+    expect(service.beginSession).not.toHaveBeenCalled()
   })
 
   it('ends the session it opened when the run would not start', async () => {
@@ -69,12 +89,12 @@ describe('useRadioListening', () => {
     service.listening.mockResolvedValue(running)
     const l = useRadioListening()
     await l.refresh()
-    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(30_000) // every 15 s: a cycle is 5 minutes, so nothing changes faster
     expect(service.listening).toHaveBeenCalledTimes(3)
     service.listening.mockResolvedValue({ ...running, listening: false, ended: 'time' })
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(15_000)
     const calls = service.listening.mock.calls.length
-    await vi.advanceTimersByTimeAsync(20_000)
+    await vi.advanceTimersByTimeAsync(60_000)
     expect(service.listening.mock.calls.length).toBe(calls)
   })
 })

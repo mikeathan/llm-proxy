@@ -29,13 +29,15 @@ const (
 	// NetworkAlertWifi is from the Wi-Fi look-alike watch: an access point advertises the operator's network name from an address the
 	// operator has not confirmed.
 	NetworkAlertWifi NetworkAlertKind = "wifi"
+	// NetworkAlertRadio is from the Radio stack's watch: a long listening watch is about to end, or stopped before its time.
+	NetworkAlertRadio NetworkAlertKind = "radio"
 )
 
 // Valid reports whether k is one of the known kinds.
 func (k NetworkAlertKind) Valid() bool {
 	switch k {
 	case NetworkAlertDecoy, NetworkAlertPresence, NetworkAlertSummary, NetworkAlertMonitor, NetworkAlertSignIn, NetworkAlertFollowUp,
-		NetworkAlertAgent, NetworkAlertPhoneHome, NetworkAlertRouter, NetworkAlertLogin, NetworkAlertWifi:
+		NetworkAlertAgent, NetworkAlertPhoneHome, NetworkAlertRouter, NetworkAlertLogin, NetworkAlertWifi, NetworkAlertRadio:
 		return true
 	}
 	return false
@@ -50,6 +52,8 @@ const (
 	NetworkAlertSent        NetworkAlertDelivery = "sent"
 	NetworkAlertNoConnector NetworkAlertDelivery = "no_connector"
 	NetworkAlertFailed      NetworkAlertDelivery = "failed"
+	// NetworkAlertInApp is an alert that is meant for the bell only: it was never to be sent to a connector, so nothing is missing.
+	NetworkAlertInApp NetworkAlertDelivery = "in_app"
 )
 
 // NetworkAlert is one entry of the Network alert log: the exact text sent to the connectors, and what became of the send.

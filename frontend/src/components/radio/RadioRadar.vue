@@ -14,7 +14,7 @@ import { RADIO_AROUND_TITLE, RADIO_RADAR_EMPTY, radioRadarSummary, radioUnusualS
 // Radio · Around you: the radar and the one list of devices, with a status line that says whether it is live. Selecting a dot or a row opens that
 // device below. The picture is the server's live answer (memory while listening, the stored days for devices not heard now).
 const live = useRadioLive()
-const REFRESH_MS = 5000
+const REFRESH_MS = 15000 // the picture changes once a cycle (5 minutes by default)
 const selected = ref<string | null>(null)
 const view = computed(() => live.view.value)
 const everyone = computed(() => view.value?.devices ?? [])

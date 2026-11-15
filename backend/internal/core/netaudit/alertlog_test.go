@@ -213,3 +213,25 @@ func TestAlertLog_VisibilityWhileSending(t *testing.T) {
 		t.Errorf("a changed outcome must reach a client whose cursor passed the entry, got %+v", again)
 	}
 }
+
+func TestAlertLog_InAppOnlyAlertIsLoggedForTheBellAndNeverSentToConnectors(t *testing.T) {
+	ctx := context.Background()
+	r := newAlertRig()
+	sent := 0
+	send := func(context.Context, string) error { sent++; return ErrInAppOnly }
+	if err := r.log.Send(ctx, models.NetworkAlertRadio, "Listening ends in 33 hours.", send); err != nil {
+		t.Fatalf("a bell-only alert is not a failure: %v", err)
+	}
+	if len(r.store.items) != 1 || r.store.items[0].Delivery != models.NetworkAlertInApp || r.store.items[0].Kind != models.NetworkAlertRadio {
+		t.Fatalf("%+v", r.store.items)
+	}
+	// The same words later (another watch) is a new alert for the bell, not a retry of an unsent one.
+	r.now = r.now.Add(48 * time.Hour)
+	_ = r.log.Send(ctx, models.NetworkAlertRadio, "Listening ends in 33 hours.", send)
+	if len(r.store.items) != 2 || r.store.items[1].ID <= r.store.items[0].ID {
+		t.Errorf("want a second, newer entry: %+v", r.store.items)
+	}
+	if !models.NetworkAlertRadio.Valid() {
+		t.Error("radio must be a known kind")
+	}
+}

@@ -31,6 +31,7 @@ type Recorder struct {
 	// cmu guards the open cycle, the owner's network names and the tags of the owner's confirmed access points.
 	cmu        sync.Mutex
 	cycle      map[string]*agg
+	sighted    map[string]*sighting // what is already written of each sender this cycle, so a repeat frame inside it costs no write
 	ownNames   map[string]bool
 	ownAPs     map[string]bool
 	live       map[string]*liveDev
@@ -59,7 +60,13 @@ func (r *Recorder) AddOwnerDeviceClass(ctx context.Context, mac MAC, label strin
 	if err != nil {
 		return err
 	}
-	return r.store.SeenDevice(ctx, Seen{Tag: tag, Owner: true, Sealed: sealed, Label: label, Class: string(class), At: at})
+	if err := r.store.SeenDevice(ctx, Seen{Tag: tag, Owner: true, Sealed: sealed, Label: label, Class: string(class), At: at}); err != nil {
+		return err
+	}
+	r.cmu.Lock()
+	delete(r.sighted, string(tag)) // the open cycle must see it as the owner's from the next frame on
+	r.cmu.Unlock()
+	return nil
 }
 
 // Record stores what one frame says: the sender's sighting, an access point's beacon, and a join, leave or refusal as a count.
@@ -101,6 +108,7 @@ func (r *Recorder) BeginCycle() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
 	r.cycle = map[string]*agg{}
+	r.sighted = map[string]*sighting{}
 }
 
 // DropCycle discards the open cycle: a run that stopped halfway through one has not listened on every channel, so counting it would bias every
@@ -108,7 +116,7 @@ func (r *Recorder) BeginCycle() {
 func (r *Recorder) DropCycle() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.cycle = nil
+	r.cycle, r.sighted = nil, nil
 }
 
 // EndCycle writes the finished cycle and then lets the classifier look at what it changed.
@@ -203,13 +211,61 @@ func (r *Recorder) RefreshOwnAPs(ctx context.Context) error {
 	return nil
 }
 
-// sight records the sender and says whether it is one of the owner's devices.
+// sighting is what a cycle has already written of one sender: whose it is, the day, and the signal range stored. A later frame of the same
+// sender on the same day with a signal inside that range would change no stored value, so it is not written (a busy window repeats the same
+// few devices thousands of times).
+type sighting struct {
+	owner  bool
+	day    int64
+	lo, hi int
+	hasSig bool
+}
+
+// covers says whether writing this frame would change nothing already stored for the sender.
+func (g *sighting) covers(day int64, f Frame) bool {
+	return g.day == day && (!f.SignalOK || (g.hasSig && f.Signal >= g.lo && f.Signal <= g.hi))
+}
+
+func (g *sighting) widen(f Frame) {
+	if !f.SignalOK {
+		return
+	}
+	if !g.hasSig {
+		g.lo, g.hi, g.hasSig = f.Signal, f.Signal, true
+		return
+	}
+	g.lo, g.hi = min(g.lo, f.Signal), max(g.hi, f.Signal)
+}
+
+// sight records the sender and says whether it is one of the owner's devices. A sender already written this cycle with a signal inside the
+// stored range is answered from memory.
 func (r *Recorder) sight(ctx context.Context, tag []byte, f Frame, at time.Time) (bool, error) {
+	day := dayNumber(at)
+	r.cmu.Lock()
+	g := r.sighted[string(tag)]
+	if g != nil && g.covers(day, f) {
+		owner := g.owner
+		r.cmu.Unlock()
+		return owner, nil
+	}
+	r.cmu.Unlock()
 	owner, err := r.store.TouchOwner(ctx, tag, f.Signal, f.SignalOK, at)
-	if err != nil || owner {
+	if err == nil && !owner {
+		err = r.store.SeenDevice(ctx, Seen{Tag: tag, Signal: f.Signal, SignalOK: f.SignalOK, At: at})
+	}
+	if err != nil {
 		return owner, err
 	}
-	return false, r.store.SeenDevice(ctx, Seen{Tag: tag, Signal: f.Signal, SignalOK: f.SignalOK, At: at})
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	if r.sighted != nil {
+		if g == nil || g.day != day {
+			g = &sighting{owner: owner, day: day}
+			r.sighted[string(tag)] = g
+		}
+		g.widen(f)
+	}
+	return owner, nil
 }
 
 func eventKind(k FrameKind) string {
@@ -336,5 +392,8 @@ func (r *Recorder) ForgetNeighbours(ctx context.Context) error {
 		return err
 	}
 	r.epoch = next
+	r.cmu.Lock()
+	r.sighted = map[string]*sighting{} // every tag of the old epoch is gone
+	r.cmu.Unlock()
 	return r.RefreshOwnAPs(ctx)
 }

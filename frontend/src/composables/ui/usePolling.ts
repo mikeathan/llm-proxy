@@ -7,17 +7,22 @@ import { onActivated, onDeactivated, onMounted, onUnmounted } from "vue"
  * that comes back to the foreground (a phone with the screen off, a window
  * behind another) also runs it at once: its timers were paused or slowed, so
  * a run that ended meanwhile would otherwise still show as running. The timer
- * and the listener are owned by the component and removed on unmount.
+ * and the listener are owned by the component and removed on unmount. A tick
+ * while the tab is hidden does nothing (the return above refreshes), so a page
+ * left open for days costs the server no requests.
  */
 export function usePolling(task: () => void, intervalMs: number) {
   let timer: ReturnType<typeof setInterval> | null = null
 
+  function tick() {
+    if (document.visibilityState !== "hidden") task()
+  }
   function onVisible() {
     if (document.visibilityState === "visible") task()
   }
   function start() {
     if (timer !== null) return
-    timer = setInterval(task, intervalMs)
+    timer = setInterval(tick, intervalMs)
     document.addEventListener("visibilitychange", onVisible)
   }
   function stop() {
