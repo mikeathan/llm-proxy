@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"llm-proxy-stacks/sdk"
 )
@@ -300,20 +301,32 @@ func trackOf(t *testing.T, r *listenRig, id string) (TrackView, int) {
 	return v, resp.Status
 }
 
+func cyclesAt(t *testing.T, rec *Recorder, r *listenRig, mins []int, signals []float64) {
+	t.Helper()
+	for i, m := range mins {
+		at := r.now.Add(time.Duration(m) * time.Minute)
+		if signals[i] == 0 {
+			cycleOf(t, rec, at)
+			continue
+		}
+		cycleOf(t, rec, at, dataAt(neighbour, int(signals[i])))
+	}
+}
+
 func TestATrackKeepsEveryCycleHeardInMemoryAndMarksTheGaps(t *testing.T) {
 	r := devRig(t)
 	rec, store, _ := r.s.recorder(r.s.h)
-	cycleOf(t, rec, r.now, dataAt(neighbour, -80))
-	cycleOf(t, rec, r.now, dataAt(neighbour, -70))
-	cycleOf(t, rec, r.now) // silent cycle: a gap, not a point
-	cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+	cyclesAt(t, rec, r, []int{0, 5, 10, 15, 20, 25}, []float64{-80, -70, 0, 0, 0, -60})
 	id := liveOf(t, r).Devices[0].ID
 	v, code := trackOf(t, r, id)
-	if code != http.StatusOK || len(v.Points) != 3 {
-		t.Fatalf("three points expected: %d %+v", code, v)
+	if code != http.StatusOK || len(v.Points) != 3 || v.Stored {
+		t.Fatalf("three points from memory expected: %d %+v", code, v)
 	}
-	if v.Points[0].Dbm != -80 || v.Points[2].Dbm != -60 || v.Points[0].Ago != 3 || v.Points[2].Ago != 0 {
-		t.Errorf("oldest first, ago counted in cycles, the gap kept: %+v", v.Points)
+	if v.Points[0].Dbm != -80 || v.Points[2].Dbm != -60 || v.Points[0].At >= v.Points[2].At {
+		t.Errorf("oldest first: %+v", v.Points)
+	}
+	if v.Points[1].Run != v.Points[0].Run || v.Points[2].Run == v.Points[1].Run {
+		t.Errorf("three silent cycles are a gap, a new run: %+v", v.Points)
 	}
 	if v.Points[2].NearM >= v.Points[0].NearM || v.Trend != TrendCloser {
 		t.Errorf("a stronger signal is nearer: %+v", v)
@@ -321,14 +334,12 @@ func TestATrackKeepsEveryCycleHeardInMemoryAndMarksTheGaps(t *testing.T) {
 	if strings.Contains(string(mustJSON(t, v)), "b8:27") {
 		t.Error("an address leaked into a track")
 	}
-	var n int
-	_ = store.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE name LIKE '%track%'`).Scan(&n)
-	if n != 0 {
-		t.Error("a track must never have a table (ADR-0053)")
+	if n, _ := store.count("air_track"); n != 0 {
+		t.Error("with the setting off nothing is written")
 	}
 	rec.ClearLive()
 	if _, code := trackOf(t, r, id); code != http.StatusNotFound {
-		t.Errorf("a run that ends leaves no track: %d", code)
+		t.Errorf("a run that ends leaves no track while the setting is off: %d", code)
 	}
 }
 
@@ -336,16 +347,53 @@ func TestATrackIsBoundedInLengthAndAge(t *testing.T) {
 	r := devRig(t)
 	rec, _, _ := r.s.recorder(r.s.h)
 	for i := 0; i < liveTrackCycles+20; i++ {
-		cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+		cycleOf(t, rec, r.now.Add(time.Duration(i)*time.Minute), dataAt(neighbour, -60))
 	}
 	id := liveOf(t, r).Devices[0].ID
 	if v, _ := trackOf(t, r, id); len(v.Points) != liveTrackCycles {
 		t.Errorf("a track keeps at most %d cycles, got %d", liveTrackCycles, len(v.Points))
 	}
 	for i := 0; i < liveTrackCycles+1; i++ {
-		cycleOf(t, rec, r.now)
+		cycleOf(t, rec, r.now.Add(time.Duration(liveTrackCycles+20+i)*time.Minute))
 	}
 	if _, code := trackOf(t, r, id); code != http.StatusNotFound {
 		t.Errorf("a device silent for a whole track length is forgotten: %d", code)
+	}
+}
+
+func TestLiveCarriesTheEvidenceTheTailAndTheCycleTiming(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	if err := rec.AddOwnerDevice(context.Background(), neighbour, "Sam's phone", r.now); err != nil {
+		t.Fatal(err)
+	}
+	other := MAC{0xb8, 0x27, 0xeb, 7, 7, 7}
+	for i := 0; i < 3; i++ {
+		cycleOf(t, rec, r.now.Add(time.Duration(i)*time.Minute), dataAt(neighbour, -45), dataAt(other, -70-i))
+	}
+	v := liveOf(t, r)
+	if v.LastCycleAt != r.now.Add(2*time.Minute).Unix() || v.CycleSeconds <= 0 || v.MinListened <= 0 || v.Listened < 3 {
+		t.Errorf("cycle timing: %+v", v)
+	}
+	var mine, theirs int
+	for _, d := range v.Devices {
+		switch {
+		case d.Mine:
+			mine++
+			if d.Detail != nil {
+				t.Error("the owner's device carries no sorting evidence")
+			}
+		default:
+			theirs++
+			if d.Detail == nil || d.Detail.Why == "" || d.Detail.ID != d.ID || len(d.Detail.Channels) == 0 {
+				t.Errorf("a neighbour carries the evidence behind its kind: %+v", d.Detail)
+			}
+			if len(d.TailM) != 3 || d.TailM[0] >= d.TailM[2] {
+				t.Errorf("tail oldest first, a weaker signal is farther: %v", d.TailM)
+			}
+		}
+	}
+	if mine != 1 || theirs != 1 {
+		t.Errorf("mine %d theirs %d", mine, theirs)
 	}
 }

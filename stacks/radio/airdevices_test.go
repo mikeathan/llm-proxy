@@ -188,3 +188,10 @@ func TestTheFirstReleaseFilesGainTheNewTables(t *testing.T) {
 		_ = rows.Close()
 	}
 }
+
+func TestADeviceWithNoRecordedChannelHasAnEmptyListNotNull(t *testing.T) {
+	// A null here reached the page, which read its length in a row of the device list and blanked the whole panel.
+	if b, _ := json.Marshal(AirDevice{Channels: channelsOf(0)}); !strings.Contains(string(b), `"channels":[]`) {
+		t.Errorf("channels must be an empty list: %s", b)
+	}
+}

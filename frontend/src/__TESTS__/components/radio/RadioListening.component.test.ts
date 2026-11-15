@@ -139,14 +139,4 @@ describe('RadioOwnerDevices', () => {
     expect(w.get('[data-test="radio-devices-error"]').text()).toBe('an address is six pairs of digits')
     expect((w.get('[data-test="radio-device-address"]').element as HTMLInputElement).value).toBe('nope')
   })
-
-  it('forgets the neighbours and says so', async () => {
-    service.ownerDevices.mockResolvedValue([])
-    service.forgetNeighbours.mockResolvedValue({ forgotten: true })
-    const w = mount(RadioOwnerDevices)
-    await flushPromises()
-    await w.get('[data-test="radio-forget"]').trigger('click')
-    await flushPromises()
-    expect(w.get('[data-test="radio-forget-done"]').text()).toContain('forgotten')
-  })
 })

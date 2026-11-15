@@ -133,7 +133,7 @@ func TestStoreFloodStaysUnderTheCap(t *testing.T) {
 }
 
 func TestStoreOwnersAloneOverTheCapIsAnError(t *testing.T) {
-	s, _ := openTest(t, 64<<10)
+	s, _ := openTest(t, 128<<10)
 	var err error
 	for i := 0; i < 5000 && err == nil; i++ {
 		err = s.SeenDevice(context.Background(), Seen{Tag: tag(i), Owner: true, Sealed: bytes.Repeat([]byte{1}, 100), At: t0})

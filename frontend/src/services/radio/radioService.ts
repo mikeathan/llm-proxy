@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { HelperSession, RadioAir, RadioAirDevices, RadioAirSort, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioTrack, RadioPresence, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import type { HelperSession, RadioAir, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -52,15 +52,6 @@ export class RadioService {
     return get<RadioAir>(API_ENDPOINTS.radioAir)
   }
 
-  /** Other people's devices, one row each by a short id; `cls` narrows to one kind. */
-  static airDevices(cls?: RadioClass, sort?: RadioAirSort): Promise<RadioAirDevices> {
-    const q = new URLSearchParams()
-    if (cls) q.set('class', cls)
-    if (sort) q.set('sort', sort)
-    const query = q.toString()
-    return get<RadioAirDevices>(query ? `${API_ENDPOINTS.radioAirDevices}?${query}` : API_ENDPOINTS.radioAirDevices)
-  }
-
   static airwaves(): Promise<RadioAirwaves> {
     return get<RadioAirwaves>(API_ENDPOINTS.radioAirwaves)
   }
@@ -86,6 +77,20 @@ export class RadioService {
   /** One device's signal over this run, from memory; 404 when the run ended or the device was silent for a whole track. */
   static track(id: string): Promise<RadioTrack> {
     return get<RadioTrack>(`${API_ENDPOINTS.radioTrack}/${encodeURIComponent(id)}`)
+  }
+
+  static keeping(): Promise<RadioKeeping> {
+    return get<RadioKeeping>(API_ENDPOINTS.radioKeeping)
+  }
+
+  /** 0 turns the track off and deletes what is stored; 24 or 48 keeps it that many hours. */
+  static setKeeping(trackHours: number): Promise<RadioKeeping> {
+    return put<RadioKeeping>(API_ENDPOINTS.radioKeeping, { track_hours: trackHours })
+  }
+
+  /** Deletes the stored tracks and leaves the choice as it is. */
+  static dropTracks(): Promise<RadioKeeping> {
+    return del<RadioKeeping>(API_ENDPOINTS.radioKeeping)
   }
 
   static digest(): Promise<RadioDigest> {

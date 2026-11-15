@@ -243,11 +243,13 @@ func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (
 	case h.Privileged == nil || h.Vault == nil:
 		return plainError(http.StatusConflict, "the privileged helper is not available to the Radio stack")
 	}
-	rec, _, err := s.recorder(h)
+	rec, store, err := s.recorder(h)
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be opened")
 	}
+	s.pruneIfDue(ctx, store, set.TrackHours)
 	rec.SetOwnNetworks(set.OwnNetworks)
+	rec.SetTrackHours(set.TrackHours)
 	if err := rec.RefreshOwnAPs(ctx); err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be read")
 	}

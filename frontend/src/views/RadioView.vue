@@ -8,9 +8,9 @@ import RadioSensors from "../components/radio/RadioSensors.vue"
 import RadioListening from "../components/radio/RadioListening.vue"
 import RadioAroundLink from "../components/radio/RadioAroundLink.vue"
 import RadioFindings from "../components/radio/RadioFindings.vue"
-import RadioNeighbourhood from "../components/radio/RadioNeighbourhood.vue"
 import RadioAirwaves from "../components/radio/RadioAirwaves.vue"
 import RadioScanPlan from "../components/radio/RadioScanPlan.vue"
+import RadioKeeping from "../components/radio/RadioKeeping.vue"
 import RadioRadar from "../components/radio/RadioRadar.vue"
 import SegmentedControl from "../components/common/forms/SegmentedControl.vue"
 import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
@@ -52,7 +52,6 @@ const tabs: readonly StackTabItem[] = [
     <template v-else-if="tab === 'around'">
       <RadioFindings />
       <RadioRadar />
-      <RadioNeighbourhood />
       <RadioAirwaves />
     </template>
     <template v-else-if="tab === 'devices'">
@@ -62,6 +61,7 @@ const tabs: readonly StackTabItem[] = [
     <template v-else>
       <RadioListening />
       <RadioScanPlan />
+      <RadioKeeping />
       <RadioAroundLink />
     </template>
   </div>

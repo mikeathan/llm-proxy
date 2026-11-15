@@ -68,13 +68,19 @@ func (s *Stack) handleAir(ctx context.Context, req stacksdk.Request) (stacksdk.R
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be opened")
 	}
+	hours := s.settings(ctx, h).TrackHours
+	rec.SetTrackHours(hours)
+	s.pruneIfDue(ctx, store, hours)
 	id := req.Params["id"]
 	routes := map[string]func() (stacksdk.Response, error){
 		http.MethodGet + " " + AirPath:             func() (stacksdk.Response, error) { return s.air(ctx, store) },
 		http.MethodGet + " " + AirDevicesPath:      func() (stacksdk.Response, error) { return s.airDevices(ctx, store, req.Query) },
 		http.MethodGet + " " + AirwavesPath:        func() (stacksdk.Response, error) { return s.airwaves(ctx, store) },
-		http.MethodGet + " " + LivePath:            func() (stacksdk.Response, error) { return s.live(ctx, rec, store) },
-		http.MethodGet + " " + TrackPath:           func() (stacksdk.Response, error) { return s.track(ctx, rec, store, id) },
+		http.MethodGet + " " + LivePath:            func() (stacksdk.Response, error) { return s.live(ctx, h, rec, store) },
+		http.MethodGet + " " + TrackPath:           func() (stacksdk.Response, error) { return s.track(ctx, h, rec, store, id) },
+		http.MethodGet + " " + KeepPath:            func() (stacksdk.Response, error) { return s.keepView(ctx, h, store) },
+		http.MethodPut + " " + KeepPath:            func() (stacksdk.Response, error) { return s.setKeep(ctx, h, rec, store, req.Body) },
+		http.MethodDelete + " " + KeepPath:         func() (stacksdk.Response, error) { return s.dropTracks(ctx, h, store) },
 		http.MethodPost + " " + CalibratePath:      func() (stacksdk.Response, error) { return s.calibrate(ctx, rec, store, id) },
 		http.MethodGet + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.networks(ctx, h, store) },
 		http.MethodPut + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.setNetworkNames(ctx, h, rec, req.Body) },

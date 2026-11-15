@@ -9,13 +9,19 @@ import (
 // place and never rebuilt. Version 0 is a file with the first schema (or none); each step below runs once, inside one transaction.
 //
 //	1 the first schema (devices, beacons, events, meta)
+//	6 ADR-0055: the optional per-cycle signal track (off by default; empty unless the owner turns it on)
 //	5 R4: the strongest signal an access point was heard at (a hidden one close to the house)
 //	4 R4: whether each of the owner's own access points protects its management frames (from its beacon)
 //	3 R5: how often a device retried and the channels it was heard on (per day), and the owner's own presence by hour
 //	2 R3 part 2: day-level aggregates for the classifier, the owner's own access points, stored documents (the probe, the rules) and the class log
-const schemaVersion = 5
+const schemaVersion = 6
 
 var migrations = map[int][]string{
+	6: {
+		`CREATE TABLE air_track (tag BLOB NOT NULL, at INTEGER NOT NULL, sig INTEGER NOT NULL, channel INTEGER NOT NULL)`,
+		`CREATE INDEX air_track_tag_at ON air_track(tag, at)`,
+		`CREATE INDEX air_track_at ON air_track(at)`,
+	},
 	5: {`ALTER TABLE beacons ADD COLUMN sig_max INTEGER`},
 	4: {`ALTER TABLE own_aps ADD COLUMN pmf TEXT NOT NULL DEFAULT ''`},
 	3: {

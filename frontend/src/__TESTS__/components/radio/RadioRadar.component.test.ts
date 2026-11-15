@@ -6,25 +6,28 @@ const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn(), track: vi
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
 import RadioRadar from '../../../components/radio/RadioRadar.vue'
+import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 
 const dev = (over: Partial<RadioLiveDevice>): RadioLiveDevice => ({
   id: 'aa', mine: false, class: 'neighbour', dbm: -70, near_m: 5, far_m: 20, ring: 'house', angle: 90, trend: 'steady', channel: 6, heard: true, ...over,
 })
 const view = (devices: RadioLiveDevice[], over: Partial<RadioLive['model']> = {}): RadioLive => ({
-  listening: true, cycles: 4, model: { ref_24_dbm: -40, ref_5_dbm: -47, calibrated: false, provisional: true, ...over }, devices, rings: {},
+  listening: true, cycles: 4, model: { ref_24_dbm: -40, ref_5_dbm: -47, calibrated: false, provisional: true, ...over }, devices, rings: {}, cycle_seconds: 300, last_cycle_at: 0, listened_cycles: 5, min_listened_cycles: 12,
 })
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useNetauditViewMode().set('simple')
   service.live.mockResolvedValue(view([dev({ id: 'far1', near_m: 8, far_m: 40, ring: 'nearby' }), dev({ id: 'mine1', mine: true, label: 'my phone', class: 'personal', near_m: 1.2, far_m: 3 }), dev({ id: 'close1', near_m: 2, far_m: 6, trend: 'closer' })]))
   service.calibrate.mockResolvedValue({ calibrated: true })
-  service.track.mockResolvedValue({ id: 'close1', mine: false, trend: 'closer', cycles: 5, points: [
-    { ago: 4, dbm: -80, near_m: 10, far_m: 40 }, { ago: 3, dbm: -70, near_m: 5, far_m: 20 }, { ago: 1, dbm: -60, near_m: 2, far_m: 6 }, { ago: 0, dbm: -58, near_m: 2, far_m: 5 },
+  service.track.mockResolvedValue({ id: 'close1', mine: false, trend: 'closer', stored: false, now: 2000, points: [
+    { at: 1000, dbm: -80, near_m: 10, far_m: 40, run: 0 }, { at: 1300, dbm: -70, near_m: 5, far_m: 20, run: 0 },
+    { at: 1900, dbm: -60, near_m: 2, far_m: 6, run: 1 }, { at: 2000, dbm: -58, near_m: 2, far_m: 5, run: 1 },
   ] })
 })
 
 async function show() {
-  const w = mount(RadioRadar)
+  const w = mount(RadioRadar, { global: { stubs: { RouterLink: { template: '<a data-test="radio-status-start"><slot /></a>' } } } })
   await flushPromises()
   return w
 }
@@ -108,8 +111,8 @@ describe('RadioRadar', () => {
     await w.findAll('[data-test="radio-radar-row"]')[1]?.find('button').trigger('click')
     await flushPromises()
     expect(service.track).toHaveBeenCalledWith('close1')
-    expect(w.findAll('[data-test="radio-track-line"]')).toHaveLength(2) // runs: ago 4-3, then 1-0
-    expect(w.get('[data-test="radio-track-summary"]').text()).toContain('Heard in 4 of 5 cycles so far')
+    expect(w.findAll('[data-test="radio-track-line"]')).toHaveLength(2) // two runs: a gap between them
+    expect(w.get('[data-test="radio-track-summary"]').text()).toContain('Heard 4 times in the last 17 minutes')
   })
 
   it('says there is no track yet, without an error, when the server has none', async () => {
@@ -119,5 +122,67 @@ describe('RadioRadar', () => {
     await flushPromises()
     expect(w.find('[data-test="radio-track-none"]').exists()).toBe(true)
     expect(w.find('[data-test="radio-track-error"]').exists()).toBe(false)
+  })
+
+  it('filters the one list with chips that carry counts', async () => {
+    const w = await show()
+    expect(w.findAll('[data-test="radio-chip"]').map((c) => c.text())).toEqual(['All3', 'Yours1', 'Outside2'])
+    await w.get('[data-filter="mine"]').trigger('click')
+    expect(w.findAll('[data-test="radio-radar-row"]').map((r) => r.text())).toEqual([expect.stringContaining('my phone')])
+    await w.get('[data-filter="neighbour"]').trigger('click')
+    expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(2)
+  })
+
+  it('says whether it is live: the time to the next reading and how far the sorting has got', async () => {
+    service.live.mockResolvedValue({ ...view([dev({ id: 'x1' })]), last_cycle_at: Math.floor(Date.now() / 1000) - 100, cycle_seconds: 300 })
+    const w = await show()
+    expect(w.get('[data-test="radio-status-next"]').text()).toMatch(/^Listening\. Next reading in 3:\d\d$/)
+    expect(w.get('[data-test="radio-status-sorting"]').text()).toBe('Sorting starts after 12 cycles (5 done)')
+  })
+
+  it('says it is not listening, and shows the way to start', async () => {
+    service.live.mockResolvedValue({ ...view([dev({ id: 'u1', usual: true, heard: false })]), listening: false })
+    const w = await show()
+    expect(w.get('[data-test="radio-status-idle"]').text()).toContain('Not listening')
+    expect(w.find('[data-test="radio-status-start"]').exists()).toBe(true)
+  })
+
+  it('opens a device with what it is waiting for, or why it was sorted, and keeps retries and channels for Advanced', async () => {
+    const detail = { id: 'w1', class: 'unknown' as const, why: 'needs_more_listening', signal: 'weak' as const, first_seen: '2026-11-12', last_seen: '2026-11-14', cycles_heard: 2, need_heard: 3, retry_percent: 12, channels: [1, 11], random_address: true, joined_own: false }
+    service.live.mockResolvedValue(view([
+      dev({ id: 'w1', class: 'unknown', detail }),
+      dev({ id: 's1', class: 'neighbour', detail: { ...detail, id: 's1', class: 'neighbour', why: 'never_strong' } }),
+      dev({ id: 'n1', class: 'neighbour', detail: { ...detail, id: 'n1', channels: null as unknown as number[] } }),
+    ]))
+    let w = await show()
+    await w.findAll('[data-test="radio-radar-row"]')[0]!.find('button').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-test="radio-air-waiting"]').exists() || w.find('[data-test="radio-air-why"]').exists()).toBe(true)
+    expect(w.find('[data-test="radio-air-retries"]').exists()).toBe(false)
+    useNetauditViewMode().set('advanced')
+    w = await show()
+    for (const row of w.findAll('[data-test="radio-radar-row"]')) {
+      await row.find('button').trigger('click')
+      await flushPromises()
+      expect(w.get('[data-test="radio-air-retries"]').text()).toBe('12%') // a device with a null channel list must not blank the panel
+      expect(w.get('[data-test="radio-air-channels"]').text()).toMatch(/1, 11|none/)
+      await row.find('button').trigger('click')
+    }
+  })
+
+  it('shows twelve rows and offers the rest', async () => {
+    service.live.mockResolvedValue(view(Array.from({ length: 15 }, (_, i) => dev({ id: `d${i}`, near_m: 5 + i, far_m: 20 + i }))))
+    const w = await show()
+    expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(12)
+    await w.get('[data-test="radio-list-more"]').trigger('click')
+    expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(15)
+  })
+
+  it('gives a dot a tail and a pulse only while it is heard, and never an address', async () => {
+    service.live.mockResolvedValue(view([dev({ id: 'h1', tail_m: [9, 8, 7] }), dev({ id: 'q1', heard: false, tail_m: [9, 8] })]))
+    const w = await show()
+    expect(w.findAll('[data-test="radio-dot-tail"]')).toHaveLength(3)
+    expect(w.findAll('[data-test="radio-dot-pulse"]')).toHaveLength(1)
+    expect(w.html()).not.toMatch(/([0-9a-f]{2}:){5}[0-9a-f]{2}/i)
   })
 })

@@ -1,4 +1,4 @@
-import type { CapabilityUse, RadioAirSort, RadioClass, RadioHourState, RadioKind, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
+import type { CapabilityUse, RadioClass, RadioHourState, RadioKind, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
 import type { StatusState } from '../types/ui'
 
 // The words of the Radio · Sensors page. Capability titles and notes come from the server; these are the fixed phrases around them.
@@ -183,14 +183,8 @@ export const radioWindowsHint = (cycleSeconds: number, windowSeconds: number): s
 export const RADIO_WINDOWS_EMPTY = 'No window has finished yet. The first one takes about 20 seconds.'
 
 // Radio · Neighbourhood: other people's devices, by kind, each kind opening onto its devices. A device is a short id and words, never an address.
-export const RADIO_NEIGH_TITLE = 'Neighbourhood'
-export const RADIO_NEIGH_INTRO = 'Who is around the house. Open a kind to see its devices. Nothing here is an address or a name: each device is a short id that only means something on this computer.'
-export const RADIO_NEIGH_OPEN = 'Show devices'
-export const RADIO_NEIGH_CLOSE = 'Hide devices'
-export const RADIO_NEIGH_NONE = 'No device of this kind yet.'
 export const RADIO_NEIGH_LINK = 'See who is around'
 export const RADIO_TAB_LINK_AROUND = 'Open the Around you tab to see who is around'
-export const RADIO_NEIGH_FAILED = 'The devices around you could not be read.'
 export const radioNeighNearUnknown = (n: number): string => `${n} ${n === 1 ? 'device that is not yet sorted has' : 'devices that are not yet sorted have'} a strong signal: close to the house.`
 export const RADIO_SIGNAL_WORDS: Record<RadioSignal, string> = { strong: 'Strong', medium: 'Medium', weak: 'Weak', unknown: 'Not measured' }
 export const RADIO_SIGNAL_HELP: Record<RadioSignal, string> = {
@@ -199,17 +193,10 @@ export const RADIO_SIGNAL_HELP: Record<RadioSignal, string> = {
   weak: 'far, or behind walls',
   unknown: 'no signal was measured',
 }
-export const RADIO_SORT_LABEL = 'Sort by'
-export const RADIO_SORT_OPTIONS: { value: RadioAirSort; label: string }[] = [
-  { value: 'last_heard', label: 'Last heard' },
-  { value: 'cycles', label: 'Heard most often' },
-  { value: 'signal', label: 'Strongest signal' },
-  { value: 'retries', label: 'Most retries' },
-]
 export const RADIO_DEVICE_COLUMNS = { id: 'Device', signal: 'Signal', heard: 'Heard in', retries: 'Retries', channels: 'Channels', last: 'Last heard' } as const
 export const radioHeardLine = (heard: number, listened: number): string => `${heard} of ${listened} cycles`
 export const radioRetryWord = (percent: number): string => `${percent}%`
-export const radioChannelsLine = (channels: number[]): string => (channels.length ? channels.join(', ') : 'none')
+export const radioChannelsLine = (channels: number[] | null): string => (channels?.length ? channels.join(', ') : 'none')
 export const RADIO_RANDOM_ADDRESS = 'Uses a changing address, like a phone does'
 export const RADIO_JOINED_OWN = 'Joined your network'
 /** What a device that is still unsorted is waiting for: more cycles heard, and more cycles listened to overall. */
@@ -222,7 +209,6 @@ export const radioWaitingLine = (heard: number, needHeard: number, listened: num
 /** How far along the evidence is, 0 to 100, for the bar of an unsorted device. */
 export const radioWaitingPercent = (heard: number, needHeard: number, listened: number, needListened: number): number =>
   Math.round(100 * Math.min(1, Math.min(heard / Math.max(needHeard, 1), listened / Math.max(needListened, 1))))
-export const RADIO_FILTER_ALL = 'All kinds'
 
 // Radio · Airwaves: how the channels and the kinds of device use the air. Counts only.
 export const RADIO_AIR_TITLE = 'Airwaves'
@@ -269,8 +255,6 @@ export const radioUnseenLine = (n: number): string => `${n} ${n === 1 ? 'check c
 export const RADIO_UNSEEN_TITLE = 'Checks that cannot run yet'
 
 // Radio · the radar: what the sensor hears now, placed by signal strength. One adapter measures how strong, not which way.
-export const RADIO_RADAR_TITLE = 'Around the computer'
-export const RADIO_RADAR_INTRO = 'Every device the sensor hears, placed by how strong its signal is. The line behind a dot is the range it could be in. Which way a device lies is not measured, so a dot only keeps a steady place on its ring.'
 export const RADIO_RADAR_EMPTY = 'Nothing is being heard. Start listening on the Listening tab and the devices appear here.'
 export const RADIO_LIVE_FAILED = 'The live picture could not be read.'
 export const RADIO_CALIBRATE_FAILED = 'The distances could not be calibrated.'
@@ -279,10 +263,8 @@ export const RADIO_RING_WORDS: Record<RadioRing, string> = { room: 'In this room
 export const RADIO_RING_ORDER: RadioRing[] = ['room', 'house', 'nearby', 'far']
 export const RADIO_TREND_WORDS: Record<RadioTrend, string> = { closer: 'getting closer', away: 'moving away', steady: 'steady', unknown: 'too new to tell' }
 export const RADIO_TREND_MARK: Record<RadioTrend, string> = { closer: '▲', away: '▼', steady: '•', unknown: '' }
-export const RADIO_RADAR_CLOSEST = 'Closest first'
 export const RADIO_RADAR_MINE = 'Yours'
 export const RADIO_RADAR_NOT_HEARD = 'not heard this cycle'
-export const RADIO_RADAR_LIVE_NOTE = 'Updates every few seconds while a cycle is open; a device that stays silent for six cycles leaves the picture. Kept in memory only and forgotten when listening stops.'
 export const RADIO_RADAR_PROVISIONAL = 'Distances come from a starting guess for how fast a signal fades, so read them as rough rings, not metres. Stand one of your devices one metre from this computer and press Calibrate to measure from it.'
 export const RADIO_RADAR_CALIBRATED = 'Calibrated against your device at one metre. Still a range: walls and antennas move it.'
 export const RADIO_RADAR_CALIBRATE = 'Calibrate: this device is 1 m from the computer'
@@ -327,10 +309,62 @@ export const RADIO_PRESENCE_DISTANCE = 'Distance over the same hours: the bar is
 export const RADIO_PRESENCE_CLOSER = 'closer'
 export const RADIO_PRESENCE_FARTHER = 'farther'
 
-export const RADIO_TRACK_TITLE = 'Distance over this run'
+export const RADIO_TRACK_TITLE = 'Distance over time'
 export const RADIO_TRACK_FAILED = 'The track could not be read.'
-export const RADIO_TRACK_NONE = 'No track yet: this device has not been heard in a finished cycle of this run.'
-export const RADIO_TRACK_NOTE = 'Kept in memory only and forgotten when listening stops. The band is the range the distance can be in.'
-export function radioTrackSummary(heard: number, cycles: number): string {
-  return `Heard in ${heard} of ${cycles} cycles so far`
+export const RADIO_TRACK_NONE = 'No track yet: this device has not been heard in a finished cycle.'
+export const RADIO_TRACK_NOTE_MEMORY = 'Kept in memory only and forgotten when listening stops. The band is the range the distance can be in.'
+export const RADIO_TRACK_NOTE_DISK = 'Kept on this computer for the time you chose under What is kept. The band is the range the distance can be in.'
+export function radioTrackSummary(heard: number, spanSeconds: number): string {
+  const mins = Math.max(1, Math.round(spanSeconds / 60))
+  const span = mins >= 90 ? `${Math.round(mins / 60)} hours` : `${mins} minutes`
+  return `Heard ${heard} times in the last ${span}`
 }
+
+export const RADIO_KEEP_TITLE = 'What is kept'
+export const RADIO_KEEP_INTRO = 'Other people’s devices are kept as a one-way code with a kind and a signal band, by the day, for 14 days. Nothing finer is written to disk unless you turn the track on.'
+export const RADIO_KEEP_TRACK_LABEL = 'Signal track on disk'
+export const RADIO_KEEP_CHOICES = [
+  { value: '0', label: 'Off' },
+  { value: '24', label: '24 hours' },
+  { value: '48', label: '48 hours' },
+]
+export const RADIO_KEEP_OFF_NOTE = 'Off: a track is drawn from memory while listening and is gone when it stops.'
+export const RADIO_KEEP_ON_NOTE = 'On: each device’s signal is kept every cycle, so a track survives a restart. It holds a one-way code, a time and a signal, never an address, and it is deleted when it is older than the time you chose.'
+export const RADIO_KEEP_FAILED = 'What is kept could not be read or changed.'
+export const RADIO_KEEP_DROP = 'Delete stored tracks'
+export const RADIO_KEEP_DROPPED = 'The stored tracks are deleted.'
+export const RADIO_KEEP_TURNED_OFF = 'Tracks are off and the stored ones are deleted.'
+export function radioKeepStored(points: number, oldest?: string): string {
+  if (!points) return 'Nothing is stored yet.'
+  const since = oldest ? `, the oldest from ${new Date(oldest).toLocaleString()}` : ''
+  return `${points.toLocaleString()} points stored${since}.`
+}
+
+// Radio · Around you: the status line, the filter chips and the chosen device.
+export const RADIO_STATUS_IDLE = 'Not listening. Showing where devices usually are.'
+export const RADIO_STATUS_START = 'Start listening'
+export const RADIO_STATUS_READING = 'Reading the air now'
+export const radioStatusListening = (secondsLeft: number): string => {
+  const m = Math.floor(secondsLeft / 60)
+  const sec = String(secondsLeft % 60).padStart(2, '0')
+  return `Listening. Next reading in ${m}:${sec}`
+}
+export const radioStatusSorting = (done: number, need: number): string => `Sorting starts after ${need} cycles (${done} done)`
+export const RADIO_FILTER_LABEL = 'Show devices'
+export const RADIO_FILTER_ALL = 'All'
+export const RADIO_FILTER_MINE = 'Yours'
+export const RADIO_CHIP_WORDS: Record<RadioClass, string> = {
+  infrastructure: 'Always here', personal: 'Comes and goes', neighbour: 'Outside', transient: 'Passing by', unknown: 'Not sorted',
+}
+export const RADIO_LIST_NONE = 'No device in this group.'
+export const radioListMore = (n: number): string => `Show ${n} more`
+export const RADIO_LIST_LESS = 'Show fewer'
+export const RADIO_DETAIL_CLOSE = 'Close'
+export const RADIO_DETAIL_WHY = 'Why this kind'
+export const RADIO_DETAIL_SIGNAL = 'Signal'
+export const RADIO_DETAIL_LAST = 'Last heard'
+export const RADIO_DETAIL_FIRST = 'First heard'
+export const RADIO_GUIDE_TITLE = 'How to read this'
+export const RADIO_GUIDE_DIRECTION = 'Which way a device lies is not measured with one adapter, so a dot keeps a steady place on its ring. Only how far is estimated, as a range, from how strong its signal is.'
+export const RADIO_GUIDE_MOTION = 'A dot moves once a cycle, when the sensor has been round every channel. A shorter cycle in the scan plan gives more frequent movement.'
+export const RADIO_LISTEN_MANUAL = 'A run lasts the hours you choose, up to 12, then ends by itself. Nothing starts a run on its own, and a restart of the service ends one that is going.'
