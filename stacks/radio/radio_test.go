@@ -209,6 +209,7 @@ func TestRoutePatternMapsARequestedPathBackToItsDeclaredRoute(t *testing.T) {
 		{"/admin/api/radio/networks/0ed34613cd", NetworkPath},
 		{"/admin/api/radio/devices/mine/7", DevicePath},
 		{"/admin/api/radio/air/calibrate/7", CalibratePath},
+		{"/admin/api/radio/air/mine/9714bc3d", MarkMinePath},
 		{"/admin/api/radio/air/live", LivePath},
 		{"/admin/api/radio/networks", NetworksPath},
 		{"/admin/api/radio/devices/mine/presence", PresencePath},

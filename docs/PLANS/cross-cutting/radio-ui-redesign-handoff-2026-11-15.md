@@ -40,6 +40,15 @@ The Radio page has four tabs: **Listening** (the run, resume card, scan plan, Wh
 4. **A compact status header** that makes the watch state obvious on a phone: listening or not, time left, next reading, resume; the bell notice lands on it.
 Not yet asked, worth asking: what the owner actually checks the page for (new device? my phone home? neighbour noise?), whether the radar picture earns its space on a phone, whether a text "what changed" is better than any picture, and Simple vs Advanced for the radar.
 
+## Owner answers (2026-11-15, after the three mockups)
+
+Mockups: A Focus radar, B What changed first, C Channel-led, plus a My devices fix (scratchpad artifact, nothing built).
+1. **All three views, chosen from a drop-down** (A, B, C), so one tab supports every view.
+2. **Centre line: yes, as an optional toggle** (off by default; direction is not measured, I.16).
+3. **Airwaves:** the owner asked to "check 1 answer": read as "covered by answer 1" (Airwaves lives inside view C, and a small channel strip in A). Confirm when the build starts.
+4. **Mark as mine from a radar row: yes.** The owner sees only random ids ("random numbers") and cannot tell what a device is: the row must show useful information. Open design problem: a neighbour is a keyed tag with no address (ADR-0053), so no vendor or name can be looked up later. Options to decide: an auto description from what is known (channel, band, kind, range, how long, how often), and a nickname the owner gives; or keep a 3-byte vendor prefix at parse time (an ADR-0053 change, owner decision).
+5. **Class colours stay, labelled "provisional", with an on/off toggle.**
+
 ## Questions to settle in the discussion, then record the answers here
 1. What question should the page answer in five seconds? Rank: new or unusual device, are my devices home, channel congestion, am I being watched or deauthed.
 2. Radar: keep as the hero, make it secondary, or replace with a list-first view with a small range chart?
@@ -54,3 +63,11 @@ Not yet asked, worth asking: what the owner actually checks the page for (new de
 4. Then build the chosen one on a fresh branch from `origin/main`, with the visual spec updated (desktop and 390 px mobile), `npm test`, `npm run build`, `npm run test:visual`.
 
 **First file to open:** `frontend/src/components/radio/RadioRadar.vue` (the composition of the Around you tab), then `RadioRadarCanvas.vue`. The vertex recipe is in `radio-stack-handoff-2026-11-14.md` ("Running things on vertex").
+
+## Built on branch `radio-around-you-views` (v0.93.0, 2026-11-15, uncommitted, not run on vertex)
+
+Decisions above are built: a View drop-down (radar, what changed, by channel); chips and channel narrow radar and list together; a picked device is drawn alone ("Show all devices" restores); switches for range labels, a centre line, colour by kind (labelled provisional) and where devices usually are (off by default); rows and the opened device say maker, Wi-Fi generation, network name (memory only), fixed or random address, heard ago, history, a mini trail; "This is mine" and "Find my device" (strongest devices heard now) name a device from the radar. Server: `oui.go` + `oui_data.tsv.gz` + `tools/ouigen`, migration 7 (`devices.maker`, `devices.wifi_gen`), `POST radio/air/mine/{id}`, `heard_since`/`last_at`/`network` on live dots. **ADR-0057 and the I.16 wording are proposed; they bind when the owner merges.**
+
+**Checks run:** `go build`, `go test ./...` and complexity in `backend`; `go vet` and `go test -race` in `stacks/radio` (`GOWORK=off`: the stack is not in `go.work`); `npm test` (3,135), `npm run build` (lint, tsc, vite), the Radio visual spec at desktop and 390 px. **Not run:** anything on vertex; the harness check was run after the docs edits (see the final report).
+
+**Left, in order:** (1) the owner reads ADR-0057 and merges; (2) deploy, then look at the maker names on real access points and TVs and say what reads wrong; (3) re-measure `GET radio/air/live` cost now that rows carry more (still unmeasured, the handoff above); (4) refresh the maker table now and then (`go run ./tools/ouigen`); (5) a per-device presence strip for neighbours (direction 3) and a time scrubber are not built.

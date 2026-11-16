@@ -50,6 +50,7 @@ export const API_ENDPOINTS = {
   radioDigest: `${API_BASE}/radio/digest`,
   radioLive: `${API_BASE}/radio/air/live`,
   radioCalibrate: `${API_BASE}/radio/air/calibrate`,
+  radioMarkMine: `${API_BASE}/radio/air/mine`,
   radioTrack: `${API_BASE}/radio/air/track`,
   radioKeeping: `${API_BASE}/radio/keeping`,
   radioAirwaves: `${API_BASE}/radio/air/airwaves`,

@@ -397,3 +397,15 @@ func TestLiveCarriesTheEvidenceTheTailAndTheCycleTiming(t *testing.T) {
 		t.Errorf("mine %d theirs %d", mine, theirs)
 	}
 }
+
+func TestLiveSaysWhenADeviceWasFirstAndLastHeardThisRun(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+	later := r.now.Add(10 * time.Minute)
+	cycleOf(t, rec, later, dataAt(neighbour, -60))
+	d := liveOf(t, r).Devices[0]
+	if d.HeardSince != r.now.Unix() || d.LastAt != later.Unix() {
+		t.Errorf("heard since %d, last %d; want %d and %d", d.HeardSince, d.LastAt, r.now.Unix(), later.Unix())
+	}
+}

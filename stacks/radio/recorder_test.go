@@ -280,3 +280,57 @@ func TestAnOwnerDeviceAddedDuringACycleIsTheOwnersFromTheNextFrame(t *testing.T)
 		t.Error("the next frame must count as the owner's, not come from the cycle's memory")
 	}
 }
+
+// ADR-0057: the maker and the Wi-Fi generation are kept next to the tag, a network name lives in memory for the run only, and the address is
+// never in the file.
+func TestWhatAFrameSaysAboutADeviceIsKeptWithoutItsAddressOrNetworkName(t *testing.T) {
+	s, p := openTest(t, 0)
+	r := NewRecorder(fakeVault{}, s)
+	ctx := context.Background()
+	randomPhone := MAC{0xda, 0x11, 0x22, 0x33, 0x44, 0x55}
+	r.BeginCycle()
+	record(t, r, data(neighbourAP), t0)
+	record(t, r, data(randomPhone), t0)
+	b := hdr(0x80, 0, macBroad, neighbourAP, neighbourAP)
+	record(t, r, rtap(cat(b, make([]byte, 12), ie(0, []byte("CafeNetwork")...), ie(3, 6), ie(255, 35))), t0)
+	if err := r.EndCycle(ctx, t0); err != nil {
+		t.Fatal(err)
+	}
+	rows, _, err := s.FeatureRows(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	apTag, _ := fakeVault{}.Tag(ctx, tagDevice, neighbourAP[:])
+	phoneTag, _ := fakeVault{}.Tag(ctx, tagDevice, randomPhone[:])
+	for _, row := range rows {
+		switch string(row.Tag) {
+		case string(apTag):
+			if row.Maker == "" || row.WifiGen != 6 {
+				t.Errorf("an access point from a registered block should carry its maker and generation 6: %+v", row)
+			}
+		case string(phoneTag):
+			if row.Maker != "" {
+				t.Errorf("a random address has no maker: %q", row.Maker)
+			}
+		}
+	}
+	if got := r.NetworkName(apTag); got != "CafeNetwork" {
+		t.Errorf("the network name should be held for the run: %q", got)
+	}
+	r.ClearLive()
+	if got := r.NetworkName(apTag); got != "" {
+		t.Errorf("a run that ends leaves no network name: %q", got)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{p, p + "-wal"} {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if bytes.Contains(raw, []byte("CafeNetwork")) || bytes.Contains(raw, neighbourAP[:]) {
+			t.Errorf("%s holds a network name or an address", filepath.Base(f))
+		}
+	}
+}

@@ -1,3 +1,4 @@
+import type { ComputedRef, Ref } from 'vue'
 /** GET /admin/api/radio/sensors: the radios on this computer and what each can do. Every word is the server's fixed one. */
 
 export type RadioKind = 'wifi' | 'bluetooth' | 'ieee802154'
@@ -176,6 +177,10 @@ export interface RadioAirDevice {
   channels: number[]
   random_address: boolean
   joined_own: boolean
+  /** Who the address block was assigned to, read from its frames; absent for a random address. The address itself is never kept. */
+  maker?: string
+  /** The highest Wi-Fi generation it announced: 4, 5 or 6. */
+  wifi_generation?: number
 }
 
 
@@ -237,6 +242,11 @@ export interface RadioLiveDevice {
   tail_m?: number[]
   /** The evidence behind the kind it was sorted into; never present for the owner's own devices. */
   detail?: RadioAirDevice
+  /** The name an access point broadcasts: held in memory for this run, never on the disk. */
+  network?: string
+  /** Unix seconds of the first and latest finished cycle of this run that heard it. */
+  heard_since?: number
+  last_at?: number
 }
 
 /** One cycle of a track: `at` is unix seconds; a `run` is an unbroken stretch, so a new run is drawn as a gap. */
@@ -304,3 +314,49 @@ export interface RadioDigest {
   findings: { id: string; tier: RadioTier; count: number; claim: string }[]
   could_not_see: { id: string; reason: string }[]
 }
+
+/** The three ways the Around you tab can be read; one drop-down switches between them over the same data. */
+export type RadioAroundView = 'radar' | 'changes' | 'channels'
+
+/** What the Around you list and radar are narrowed to: everyone, the owner's devices, those unlike their usual, or one kind. */
+export type RadioAroundFilter = 'all' | 'mine' | 'unusual' | RadioClass
+
+/** The device the owner named from the radar. */
+export interface RadioMarkedMine { label: string }
+
+/** One line of the "What changed" view: a device that is new today, unlike its usual, or usually here and not heard now. */
+export interface RadioChange {
+  kind: 'arrival' | 'unusual' | 'departure'
+  device: RadioLiveDevice
+}
+
+/** How many devices heard now are on one channel. */
+export interface RadioChannelCount { channel: number; devices: number }
+
+/** The radar switches of the Around you tab, remembered per person. */
+export interface RadioAroundToggles { range: boolean; spoke: boolean; colours: boolean; usual: boolean }
+
+/** What the Around you views share: the chosen view, the radar switches, the narrowing and the picked device (see composables/radio/useRadioAround). */
+export interface RadioAroundState {
+  mode: Ref<RadioAroundView>
+  toggles: Ref<RadioAroundToggles>
+  filter: Ref<RadioAroundFilter>
+  channel: Ref<number | null>
+  selected: Ref<string | null>
+  focused: Ref<boolean>
+  everyone: ComputedRef<RadioLiveDevice[]>
+  /** Everything the chips, the channel and the "usual" switch allow, closest first. */
+  shown: ComputedRef<RadioLiveDevice[]>
+  /** How many devices the chips and the channel allow that are usually here and not heard now, while the switch keeps them out. */
+  usualHidden: ComputedRef<number>
+  chosen: ComputedRef<RadioLiveDevice | null>
+  /** What the radar draws: only the picked device while focus is on, otherwise `shown`. */
+  drawn: ComputedRef<RadioLiveDevice[]>
+  pick: (id: string) => void
+  setToggle: (key: keyof RadioAroundToggles, on: boolean) => void
+  setFilter: (next: RadioAroundFilter) => void
+  setChannel: (next: number | null) => void
+}
+
+/** A short tag on a device row: far from its usual (a warning) or how many cycles remain before it can be sorted. `test` is the row's test hook. */
+export interface RadioDeviceTag { text: string; warn: boolean; test: string }

@@ -95,11 +95,13 @@ func dayTime(d int64) time.Time { return time.Unix(d*86400, 0).UTC() }
 // Seen is one sighting of a device. Tag is the vault's tag of its address. A row of the owner's (Owner) carries the sealed address and a
 // label; a row of anyone else carries neither.
 type Seen struct {
-	Tag      []byte
-	Owner    bool
-	Sealed   []byte
-	Label    string
-	Class    string
+	Tag    []byte
+	Owner  bool
+	Sealed []byte
+	Label  string
+	Class  string
+	// Maker is the maker the address block was assigned to (oui.go), derived by the recorder; the address itself is not passed on.
+	Maker    string
 	Signal   int
 	SignalOK bool
 	At       time.Time
@@ -118,7 +120,7 @@ func (v Seen) check() error {
 }
 
 const upsertDevice = `
-INSERT INTO devices(tag, owner, sealed, label, class, visits, first_day, last_day, sig_min, sig_max) VALUES(?,?,?,?,?,1,?,?,?,?)
+INSERT INTO devices(tag, owner, sealed, label, class, maker, visits, first_day, last_day, sig_min, sig_max) VALUES(?,?,?,?,?,?,1,?,?,?,?)
 ON CONFLICT(tag) DO UPDATE SET
 	visits = visits + (CASE WHEN last_day < excluded.last_day THEN 1 ELSE 0 END),
 	first_day = min(first_day, excluded.first_day),
@@ -127,6 +129,7 @@ ON CONFLICT(tag) DO UPDATE SET
 	sealed = coalesce(excluded.sealed, sealed),
 	label = CASE WHEN excluded.label != '' THEN excluded.label ELSE label END,
 	class = CASE WHEN excluded.class != '' THEN excluded.class ELSE class END,
+	maker = CASE WHEN excluded.maker != '' THEN excluded.maker ELSE maker END,
 	sig_min = CASE WHEN excluded.sig_min IS NULL THEN sig_min WHEN sig_min IS NULL THEN excluded.sig_min ELSE min(sig_min, excluded.sig_min) END,
 	sig_max = CASE WHEN excluded.sig_max IS NULL THEN sig_max WHEN sig_max IS NULL THEN excluded.sig_max ELSE max(sig_max, excluded.sig_max) END`
 
@@ -141,7 +144,7 @@ func (s *Store) SeenDevice(ctx context.Context, v Seen) error {
 	}
 	d := dayNumber(v.At)
 	return s.write(ctx, func() error {
-		_, err := s.db.ExecContext(ctx, upsertDevice, v.Tag, v.Owner, v.Sealed, v.Label, v.Class, d, d, sig, sig)
+		_, err := s.db.ExecContext(ctx, upsertDevice, v.Tag, v.Owner, v.Sealed, v.Label, v.Class, v.Maker, d, d, sig, sig)
 		return err
 	})
 }
@@ -604,4 +607,33 @@ func (s *Store) DeleteOwner(ctx context.Context, tag []byte) (bool, error) {
 		return err
 	})
 	return found, err
+}
+
+// NeighbourTags lists the tags of other people's devices whose short id (the first bytes of the tag, in hex) is id. More than one means the short
+// id is ambiguous and no device should be picked by it.
+func (s *Store) NeighbourTags(ctx context.Context, id string) ([][]byte, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT tag FROM devices WHERE owner = 0 AND lower(substr(hex(tag), 1, ?)) = lower(?)`, len(id), id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var tag []byte
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		out = append(out, tag)
+	}
+	return out, rows.Err()
+}
+
+// MarkTagOwner makes the row of someone else's device the owner's, under the owner's name and an optional class the rules then never change. The
+// row has no sealed address, because only the tag of a neighbour is ever known.
+func (s *Store) MarkTagOwner(ctx context.Context, tag []byte, label, class string) error {
+	return s.write(ctx, func() error {
+		_, err := s.db.ExecContext(ctx, `UPDATE devices SET owner = 1, label = ?, class = CASE WHEN ? != '' THEN ? ELSE class END, class_ver = CASE WHEN ? != '' THEN 0 ELSE class_ver END WHERE tag = ? AND owner = 0`,
+			label, class, class, class, tag)
+		return err
+	})
 }

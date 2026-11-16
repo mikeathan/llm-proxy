@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { RadioService } from '../../services/radio/radioService'
 import { errorMessage } from '../../utils/errors'
-import { RADIO_LIVE_FAILED, RADIO_CALIBRATE_FAILED } from '../../constants/radio'
+import { RADIO_LIVE_FAILED, RADIO_CALIBRATE_FAILED, RADIO_MARK_FAILED } from '../../constants/radio'
 import type { RadioLive } from '../../types/radio'
 
 /** Radio · the radar: what the sensor hears now, and the one-metre calibration. */
@@ -32,5 +32,20 @@ export function useRadioLive() {
     }
   }
 
-  return { view, error, busy, load, calibrate }
+  async function markMine(id: string, label: string): Promise<boolean> {
+    busy.value = true
+    try {
+      await RadioService.markMine(id, label)
+      error.value = ''
+      await load()
+      return true
+    } catch (err) {
+      error.value = errorMessage(err, RADIO_MARK_FAILED)
+      return false
+    } finally {
+      busy.value = false
+    }
+  }
+
+  return { view, error, busy, load, calibrate, markMine }
 }

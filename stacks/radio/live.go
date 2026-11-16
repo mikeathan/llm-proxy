@@ -51,6 +51,8 @@ type liveSample struct {
 	trail   []float64 // the finished cycles, then the open one
 	channel int
 	heard   bool
+	// since and last are the unix times of the first and the last finished cycle of this run that heard the device, 0 when none did yet.
+	since, last int64
 }
 
 func firstChannel(mask uint64) int {
@@ -134,7 +136,7 @@ func (r *Recorder) LastCycleAt() int64 {
 func (r *Recorder) ClearLive() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.live, r.tracks, r.liveCycle, r.lastCycle = nil, nil, 0, 0
+	r.live, r.tracks, r.netNames, r.liveCycle, r.lastCycle = nil, nil, nil, 0, 0
 }
 
 // TrackSnapshot is the device whose short id this is: its points, the cycle count now and whether any is a point at all. It copies; the caller
@@ -159,6 +161,9 @@ func (r *Recorder) LiveSnapshot() []liveSample {
 	for tag, d := range r.live {
 		seen[tag] = true
 		s := liveSample{tag: []byte(tag), trail: append([]float64(nil), d.trail...), channel: d.channel, heard: d.missed == 0}
+		if pts := r.tracks[tag]; len(pts) > 0 {
+			s.since, s.last = pts[0].at, pts[len(pts)-1].at
+		}
 		if a := r.cycle[tag]; a != nil && a.n > 0 {
 			s.trail = append(s.trail, float64(a.sum)/float64(a.n))
 			s.channel, s.heard = firstChannel(a.channels), true
@@ -202,6 +207,11 @@ type LiveDevice struct {
 	// sorted into (never for the owner's devices, which the owner named).
 	TailM  []float64  `json:"tail_m,omitempty"`
 	Detail *AirDevice `json:"detail,omitempty"`
+	// Network is the name an access point broadcasts, held in memory for this run only and never written to the disk (ADR-0053).
+	Network string `json:"network,omitempty"`
+	// HeardSince and LastAt are the unix times of the first and the latest finished cycle of this run that heard the device (memory only, like the picture).
+	HeardSince int64 `json:"heard_since,omitempty"`
+	LastAt     int64 `json:"last_at,omitempty"`
 }
 
 // LiveView is the answer of LivePath.
@@ -313,6 +323,8 @@ func (s *Stack) live(ctx context.Context, h stacksdk.Host, rec *Recorder, store 
 			compareToUsual(&d, sm.signal, b)
 		}
 		d.TailM = tailOf(model, sm.trail, sm.channel)
+		d.Network = rec.NetworkName(sm.tag)
+		d.HeardSince, d.LastAt = sm.since, sm.last
 		if ad, ok := detail[string(sm.tag)]; ok && !dev.Owner {
 			d.Detail = &ad
 		}

@@ -9,14 +9,19 @@ import (
 // place and never rebuilt. Version 0 is a file with the first schema (or none); each step below runs once, inside one transaction.
 //
 //	1 the first schema (devices, beacons, events, meta)
+//	7 ADR-0057: what a frame says about a device, kept next to its tag (the maker from its address block, its Wi-Fi generation); never the address, and a network name only in memory
 //	6 ADR-0055: the optional per-cycle signal track (off by default; empty unless the owner turns it on)
 //	5 R4: the strongest signal an access point was heard at (a hidden one close to the house)
 //	4 R4: whether each of the owner's own access points protects its management frames (from its beacon)
 //	3 R5: how often a device retried and the channels it was heard on (per day), and the owner's own presence by hour
 //	2 R3 part 2: day-level aggregates for the classifier, the owner's own access points, stored documents (the probe, the rules) and the class log
-const schemaVersion = 6
+const schemaVersion = 7
 
 var migrations = map[int][]string{
+	7: {
+		`ALTER TABLE devices ADD COLUMN maker TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN wifi_gen INTEGER NOT NULL DEFAULT 0`,
+	},
 	6: {
 		`CREATE TABLE air_track (tag BLOB NOT NULL, at INTEGER NOT NULL, sig INTEGER NOT NULL, channel INTEGER NOT NULL)`,
 		`CREATE INDEX air_track_tag_at ON air_track(tag, at)`,
