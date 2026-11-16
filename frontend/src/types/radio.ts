@@ -110,6 +110,8 @@ export interface RadioPlanView {
   plan: RadioPlan
   requests: RadioListenRequest[]
   max_hours: number
+  /** How long the saved plan says a start runs for. */
+  hours: number
 }
 
 export type RadioClass = 'infrastructure' | 'personal' | 'neighbour' | 'transient' | 'unknown'
@@ -199,12 +201,20 @@ export interface RadioScanPlan {
   cycle_seconds: number
 }
 
+/** What a save of the scan plan sends: the plan and how long a start runs for (0 hours, like empty channels and zero seconds, means the default). */
+export interface RadioScanSave extends RadioScanPlan {
+  watch_hours: number
+}
+
 /** GET/PUT /admin/api/radio/listening/settings: the scan plan and what it may be. */
 export interface RadioScan {
   plan: RadioScanPlan
   default: RadioScanPlan
   custom: boolean
   windows_per_hour: number
+  /** How long a start runs for now, and when none is set. */
+  hours: number
+  default_hours: number
   limits: {
     channels: number[]
     max_channels: number
@@ -212,6 +222,7 @@ export interface RadioScan {
     max_window_seconds: number
     min_cycle_seconds: number
     max_windows_per_hour: number
+    max_hours: number
   }
 }
 

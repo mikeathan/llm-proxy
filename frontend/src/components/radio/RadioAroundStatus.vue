@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { usePolling } from "../../composables/ui/usePolling"
+import { useRadioListening } from "../../composables/radio/useRadioListening"
 import { toRadio } from "../../router/routes"
 import {
-  RADIO_STATUS_IDLE, RADIO_STATUS_READING, RADIO_STATUS_START, radioStatusListening, radioStatusSorting,
+  RADIO_STATUS_IDLE, RADIO_STATUS_READING, RADIO_STATUS_RESUME, RADIO_STATUS_START, radioStatusListening, radioStatusSorting, radioStatusStopped,
 } from "../../constants/radio"
 import type { RadioLive } from "../../types/radio"
 
@@ -14,6 +15,10 @@ const now = ref(Math.floor(Date.now() / 1000))
 usePolling(() => { now.value = Math.floor(Date.now() / 1000) }, 1000)
 
 const left = computed(() => (props.view.last_cycle_at ? props.view.last_cycle_at + props.view.cycle_seconds - now.value : null))
+// A watch a restart or a failure cut short is offered again; the page says so here too, not only on the Listening tab.
+const l = useRadioListening()
+const resume = computed(() => (props.view.listening ? null : l.state.value?.resume ?? null))
+onMounted(() => { if (!props.view.listening) void l.refresh() })
 const sorting = computed(() => props.view.listened_cycles < props.view.min_listened_cycles)
 </script>
 
@@ -25,8 +30,9 @@ const sorting = computed(() => props.view.listened_cycles < props.view.min_liste
       <span v-if="sorting" class="text-[length:var(--text-small)] text-muted" data-test="radio-status-sorting">{{ radioStatusSorting(view.listened_cycles, view.min_listened_cycles) }}</span>
     </template>
     <template v-else>
-      <span class="text-secondary" data-test="radio-status-idle">{{ RADIO_STATUS_IDLE }}</span>
-      <RouterLink :to="toRadio()" class="inline-flex min-h-11 items-center text-accent-brand hover:underline" data-test="radio-status-start">{{ RADIO_STATUS_START }}</RouterLink>
+      <span v-if="resume" class="text-state-warning" data-test="radio-status-stopped">{{ radioStatusStopped(resume.why, resume.hours_left) }}</span>
+      <span v-else class="text-secondary" data-test="radio-status-idle">{{ RADIO_STATUS_IDLE }}</span>
+      <RouterLink :to="toRadio()" class="inline-flex min-h-11 items-center text-accent-brand hover:underline" :data-test="resume ? 'radio-status-resume' : 'radio-status-start'">{{ resume ? RADIO_STATUS_RESUME : RADIO_STATUS_START }}</RouterLink>
     </template>
   </p>
 </template>

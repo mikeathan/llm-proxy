@@ -70,6 +70,8 @@ var toolCatalog = []ToolSpec{
 	{Name: ToolNetworkScan, Category: CategoryNetaudit, Reach: ReachLAN, Gate: GateNetwork},
 	// network_findings reads a saved file in the run's own workspace: no network reach, so no gate and not scope-forbidden.
 	{Name: ToolNetworkFindings, Category: CategoryNetFindings, Effect: EffectReadOnly},
+	// radio_digest asks the Radio stack for its digest, a read of what it already kept: it listens to nothing, sends nothing and reaches no network.
+	{Name: ToolRadioDigest, Category: CategoryNetFindings, Effect: EffectReadOnly},
 	{Name: ToolApplyGuardrails, Category: CategoryGlobal},
 	{Name: ToolMemorySearch, Category: CategoryMemory, Effect: EffectReadOnly},
 	{Name: ToolMemoryUpdate, Category: CategoryMemory, Effect: EffectHousekeeping},

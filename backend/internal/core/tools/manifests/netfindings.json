@@ -6,6 +6,15 @@
     "type": "object",
     "properties": {}
   },
+  "runtime": {
+    "radio_digest": {
+      "description": "Read what the Wi-Fi listening sensor has found around the house: how much it has listened, how many of the owner's devices and access points it knows, other people's devices counted by kind (never named), and findings in fixed words (an impostor of the owner's network, a burst of disconnect frames, weak protection, a hidden network nearby). It reads what the sensor already kept and listens to nothing, so use it for 'is anything odd in the air?' or 'is the radio sensor working?'. A short run of listening says so and is not a quiet air. It has no addresses or names to report; do not guess any.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  },
   "guardrails": {
     "enabled": true
   }

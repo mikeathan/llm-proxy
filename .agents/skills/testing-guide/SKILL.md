@@ -49,6 +49,7 @@ Template files live in `backend/data/templates/` and are copied to the workspace
 | `ts-logic-interface-test.md` | TypeScript type system, interfaces, generics |
 | `network_audit.md` | Network audit: scan, compare with the last scan, assess (declares the Security auditor, local-network access, journal off, a 02:00 schedule) |
 | `network_audit_weekly.md` | The same audit read over a week (`**Window:** week`, a Sunday 03:00 schedule); the assessment reads a week of scans, history and activity |
+| `radio_watch_report.md` | A daily 07:00 report from the Radio digest under the `radio-reporter` profile (local model only, `netfindings` tools only, no memory): one `radio_digest` call; it must say when there has been too little listening or no watch is running, and never name a device or address |
 | `workspace_health_audit.md` | Workspace storage & health audit |
 | `web_discovery_fast.md` | Fast AI/LLM news discovery — token-efficient search digest |
 | `llm_ai_release_brief.md` | LLM & AI release news brief |

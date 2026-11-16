@@ -79,6 +79,8 @@ const (
 	ToolNetworkInfo  = "get_network_info"
 	// ToolNetworkFindings reads the saved result of the network audit; it reaches no network (the netfindings category).
 	ToolNetworkFindings = "network_findings"
+	// ToolRadioDigest reads what the Radio stack's listening has found: counts and fixed wording, no address and no name (the netfindings category).
+	ToolRadioDigest = "radio_digest"
 
 	// Security/Admin
 	ToolApplyGuardrails = "security_guardrails"

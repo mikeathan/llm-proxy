@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 
 const service = vi.hoisted(() => ({
   sensors: vi.fn(), listening: vi.fn(), plan: vi.fn(), beginSession: vi.fn(), start: vi.fn(), stop: vi.fn(), openSessions: vi.fn(), endSession: vi.fn(),
-  ownerDevices: vi.fn(), presence: vi.fn(), addOwnerDevice: vi.fn(), removeOwnerDevice: vi.fn(), forgetNeighbours: vi.fn(),
+  scan: vi.fn(), ownerDevices: vi.fn(), presence: vi.fn(), addOwnerDevice: vi.fn(), removeOwnerDevice: vi.fn(), forgetNeighbours: vi.fn(),
 }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
@@ -19,6 +19,7 @@ beforeEach(() => {
   service.sensors.mockResolvedValue(sensors())
   service.listening.mockResolvedValue(idle)
   service.presence.mockResolvedValue({ devices: [] })
+  service.scan.mockResolvedValue({ plan, default: plan, custom: false, windows_per_hour: 24, hours: 168, default_hours: 168, limits: {} })
 })
 
 async function show() {
@@ -28,14 +29,17 @@ async function show() {
 }
 
 describe('RadioListening', () => {
-  it('starts with the chosen adapter and time', async () => {
-    service.plan.mockResolvedValue({ adapter: 'wlx00', plan, requests: [], max_hours: 12 })
+  it('starts with the first adapter for the length the scan plan sets, with no choice to make here', async () => {
+    service.plan.mockResolvedValue({ adapter: 'wlx00', plan, requests: [], max_hours: 168, hours: 168 })
     service.beginSession.mockResolvedValue({ id: 's1', stack: 'radio' })
     service.start.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z' })
     const w = await show()
+    expect(w.get('[data-test="radio-listen-length"]').text()).toBe('Runs for 7 days. Change it in the scan plan below.')
+    expect(w.find('select[aria-label="For"]').exists()).toBe(false)
     await w.get('[data-test="radio-listen-start"]').trigger('click')
     await flushPromises()
-    expect(service.start).toHaveBeenCalledWith('wlx00', 1)
+    expect(service.beginSession.mock.calls[0]![0].hours).toBe(168)
+    expect(service.start).toHaveBeenCalledWith('wlx00', 168)
     expect(w.find('[data-test="radio-listen-running"]').exists()).toBe(true)
     expect(w.find('[data-test="radio-listen-start"]').exists()).toBe(false)
   })

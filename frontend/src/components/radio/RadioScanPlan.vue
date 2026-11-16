@@ -7,19 +7,21 @@ import SelectInput from "../common/forms/SelectInput.vue"
 import FormField from "../common/forms/FormField.vue"
 import { useRadioScanPlan } from "../../composables/radio/useRadioScanPlan"
 import {
-  RADIO_SCAN_CHANGE, RADIO_SCAN_CHANNELS, RADIO_SCAN_CLOSE, RADIO_SCAN_CYCLE, RADIO_SCAN_INTRO, RADIO_SCAN_NONE, RADIO_SCAN_NO_FIT, RADIO_SCAN_RESET,
-  RADIO_SCAN_RUNNING, RADIO_SCAN_SAVE, RADIO_SCAN_SAVED, RADIO_SCAN_TITLE, RADIO_SCAN_WINDOW, RADIO_SCAN_WINDOW_CHOICES, RADIO_SCAN_CYCLE_CHOICES,
-  radioBand, radioScanSummary, radioScanTooMany, radioSecondsLabel,
+  RADIO_SCAN_CHANGE, RADIO_SCAN_CHANNELS, RADIO_SCAN_CLOSE, RADIO_SCAN_CYCLE, RADIO_SCAN_HOURS, RADIO_SCAN_INTRO, RADIO_SCAN_NONE, RADIO_SCAN_NO_FIT, RADIO_SCAN_RESET,
+  RADIO_SCAN_RUNNING, RADIO_SCAN_SAVE, RADIO_SCAN_SAVED, RADIO_SCAN_TITLE, RADIO_SCAN_WINDOW, RADIO_SCAN_WINDOW_CHOICES, RADIO_SCAN_CYCLE_CHOICES, RADIO_LISTEN_HOUR_CHOICES,
+  radioBand, radioHoursLabel, radioScanLength, radioScanSummary, radioScanTooMany, radioSecondsLabel,
 } from "../../constants/radio"
 
 // Radio · Scan plan: the channels a listening run visits, the time on each and how often it comes round. The server checks every change and says
 // in a sentence what is wrong; the same checks run here so Save is only offered for a plan that will be accepted. A running run keeps the plan it
 // started with, so the editor is closed to it: stopping is what makes a change possible.
+const emit = defineEmits<{ saved: [] }>()
 const p = useRadioScanPlan()
 const open = ref(false)
 const channels = ref<number[]>([])
 const windowSeconds = ref("20")
 const cycleSeconds = ref("300")
+const watchHours = ref("168")
 
 const scan = computed(() => p.scan.value)
 const limits = computed(() => scan.value?.limits)
@@ -33,6 +35,7 @@ const groups = computed(() => {
 const choices = (base: number[], current: number): number[] => [...new Set([...base, current])].sort((a, b) => a - b)
 const windowOptions = computed(() => choices(RADIO_SCAN_WINDOW_CHOICES, Number(windowSeconds.value)).map((v) => ({ value: String(v), label: `${v} seconds` })))
 const cycleOptions = computed(() => choices(RADIO_SCAN_CYCLE_CHOICES, Number(cycleSeconds.value)).map((v) => ({ value: String(v), label: radioSecondsLabel(v) })))
+const hourOptions = computed(() => choices(RADIO_LISTEN_HOUR_CHOICES, Number(watchHours.value)).map((v) => ({ value: String(v), label: radioHoursLabel(v) })))
 const perHour = computed(() => Math.floor((channels.value.length * 3600) / Math.max(Number(cycleSeconds.value), 1)))
 const problem = computed(() => {
   if (!limits.value) return ""
@@ -48,11 +51,15 @@ function fill(): void {
   channels.value = [...plan.channels]
   windowSeconds.value = String(plan.window_seconds)
   cycleSeconds.value = String(plan.cycle_seconds)
+  watchHours.value = String(scan.value?.hours ?? 168)
 }
 function openClose(): void { open.value = !open.value; if (open.value) void p.load() }
 function toggle(c: number): void { channels.value = channels.value.includes(c) ? channels.value.filter((x) => x !== c) : [...channels.value, c].sort((a, b) => a - b) }
-function save(): void { void p.save({ channels: channels.value, window_seconds: Number(windowSeconds.value), cycle_seconds: Number(cycleSeconds.value) }) }
-function reset(): void { void p.reset().then(fill) }
+async function save(): Promise<void> {
+  await p.save({ channels: channels.value, window_seconds: Number(windowSeconds.value), cycle_seconds: Number(cycleSeconds.value), watch_hours: Number(watchHours.value) })
+  if (!p.error.value) emit("saved")
+}
+async function reset(): Promise<void> { await p.reset(); fill(); if (!p.error.value) emit("saved") }
 
 watch(scan, fill)
 onMounted(() => { void p.load() })
@@ -68,6 +75,7 @@ onMounted(() => { void p.load() })
           <span data-test="radio-scan-summary">{{ radioScanSummary(scan.plan.channels.length, scan.plan.window_seconds, scan.plan.cycle_seconds, scan.windows_per_hour, scan.custom) }}</span>
           <BaseButton variant="secondary" class-name="max-sm:!h-11" :aria-expanded="open" data-test="radio-scan-toggle" @click="openClose">{{ open ? RADIO_SCAN_CLOSE : RADIO_SCAN_CHANGE }}</BaseButton>
         </p>
+        <p class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-scan-length">{{ radioScanLength(scan.hours, !scan.custom) }}</p>
         <div v-if="open" class="flex flex-col gap-3" data-test="radio-scan-editor">
           <p v-if="p.running.value" class="m-0 text-state-running" data-test="radio-scan-running">{{ RADIO_SCAN_RUNNING }}</p>
           <div v-for="g in groups" :key="g.band" class="flex flex-col gap-1">
@@ -84,6 +92,7 @@ onMounted(() => { void p.load() })
           <div class="flex flex-wrap items-end gap-3">
             <FormField :label="RADIO_SCAN_WINDOW"><template #default><SelectInput v-model="windowSeconds" :options="windowOptions" :label="RADIO_SCAN_WINDOW" /></template></FormField>
             <FormField :label="RADIO_SCAN_CYCLE"><template #default><SelectInput v-model="cycleSeconds" :options="cycleOptions" :label="RADIO_SCAN_CYCLE" /></template></FormField>
+            <FormField :label="RADIO_SCAN_HOURS"><template #default><SelectInput v-model="watchHours" :options="hourOptions" :label="RADIO_SCAN_HOURS" /></template></FormField>
           </div>
           <p class="m-0 text-[length:var(--text-small)]" :class="problem ? 'text-state-error' : 'text-secondary'" data-test="radio-scan-check">{{ problem || radioScanSummary(channels.length, Number(windowSeconds), Number(cycleSeconds), perHour, true) }}</p>
           <Callout v-if="p.error.value" tone="error" title="Not saved"><span data-test="radio-scan-save-error">{{ p.error.value }}</span></Callout>

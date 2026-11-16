@@ -2,6 +2,7 @@ package radio
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"time"
@@ -45,6 +46,12 @@ var findingIDs = []string{
 	"radio_hidden_ap_near", "radio_unknown_strong_device", "radio_join_foreign_network", "radio_sensor_blind",
 }
 
+// FindingIDs lists every finding id the digest can carry, so a test in the service can hold the core's table of words to it.
+func FindingIDs() []string { return slices.Clone(findingIDs) }
+
+// FindingWords is the stack's wording of each finding id, so the same test can hold the core's own table to it word for word.
+func FindingWords() map[string]string { return maps.Clone(claimWords) }
+
 var claimWords = map[string]string{
 	"radio_rogue_twin":            "An access point that you have not confirmed is broadcasting the name of one of your own networks. It may be a neighbour's, a repeater or an impostor.",
 	"radio_deauth_burst":          "One sender transmitted a burst of deauthentication frames in the last two days. That is how devices are knocked off a network, and also what some routers do when they change channel.",
@@ -87,6 +94,17 @@ type DigestListening struct {
 	MinCycles    int `json:"min_cycles"`
 	WindowDays   int `json:"window_days"`
 	CyclesLast24 int `json:"cycles_last_24h"`
+	// Now says a watch is running at this moment, and HoursLeft how long it has (whole hours, at least one while it runs). A report made with
+	// no watch running rests on what was kept earlier.
+	Now       bool `json:"now"`
+	HoursLeft int  `json:"hours_left,omitempty"`
+}
+
+// DigestClassifier says which rules sorted the devices and that they are provisional (a guess, not a fitted result), so a report words the
+// kinds the way the screen does.
+type DigestClassifier struct {
+	Version     int  `json:"version"`
+	Provisional bool `json:"provisional"`
 }
 
 // DigestOwn counts what is the owner's.
@@ -98,11 +116,12 @@ type DigestOwn struct {
 
 // Digest is the answer of DigestPath.
 type Digest struct {
-	Listening   DigestListening `json:"listening"`
-	Own         DigestOwn       `json:"own"`
-	Others      []DigestOthers  `json:"others"`
-	Findings    []DigestFinding `json:"findings"`
-	CouldNotSee []DigestUnseen  `json:"could_not_see"`
+	Listening   DigestListening  `json:"listening"`
+	Classifier  DigestClassifier `json:"classifier"`
+	Own         DigestOwn        `json:"own"`
+	Others      []DigestOthers   `json:"others"`
+	Findings    []DigestFinding  `json:"findings"`
+	CouldNotSee []DigestUnseen   `json:"could_not_see"`
 }
 
 func (s *Stack) handleDigest(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {
@@ -117,14 +136,14 @@ func (s *Stack) handleDigest(ctx context.Context, req stacksdk.Request) (stacksd
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be opened")
 	}
-	d, err := s.digest(ctx, store)
+	d, err := s.digest(ctx, h, store)
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the findings could not be read")
 	}
 	return jsonResponse(http.StatusOK, d)
 }
 
-func (s *Stack) digest(ctx context.Context, store *Store) (Digest, error) {
+func (s *Stack) digest(ctx context.Context, h stacksdk.Host, store *Store) (Digest, error) {
 	now := s.now()
 	rules, rows, listened, err := s.airRows(ctx, store)
 	if err != nil {
@@ -135,7 +154,8 @@ func (s *Stack) digest(ctx context.Context, store *Store) (Digest, error) {
 	if err != nil {
 		return d, err
 	}
-	d.Listening = listeningOf(rules, listened, hours, hourNumber(now))
+	d.Listening = s.listeningNow(ctx, h, listeningOf(rules, listened, hours, hourNumber(now)), now)
+	d.Classifier = DigestClassifier{Version: rules.Version, Provisional: rules.Provisional}
 	if d.Others, err = othersOf(ctx, store); err != nil {
 		return d, err
 	}
@@ -197,6 +217,14 @@ func recentEvidence(ctx context.Context, store *Store, now time.Time, rules Rule
 	}
 	e.hidden, err = store.hiddenNear(ctx, since, rules.StrongDBm)
 	return e, err
+}
+
+// listeningNow adds to what the listening rests on whether a watch is running at this moment and how many whole hours it has left.
+func (s *Stack) listeningNow(ctx context.Context, h stacksdk.Host, l DigestListening, now time.Time) DigestListening {
+	if st := s.listenState(ctx, h); st.Listening {
+		l.Now, l.HoursLeft = true, hoursLeft(st.Until.Sub(now))
+	}
+	return l
 }
 
 // listeningOf says how much listening the claims rest on: the cycles in the rules' window and in the last day.

@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { HelperSession, RadioAir, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioMarkedMine, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import type { HelperSession, RadioAir, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanSave, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioMarkedMine, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -61,7 +61,7 @@ export class RadioService {
   }
 
   /** Empty channels and zero seconds put the default back. */
-  static saveScan(plan: RadioScanPlan): Promise<RadioScan> {
+  static saveScan(plan: RadioScanSave): Promise<RadioScan> {
     return put<RadioScan>(API_ENDPOINTS.radioScan, plan)
   }
 

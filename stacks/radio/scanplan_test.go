@@ -115,3 +115,41 @@ func TestAStartedRunUsesTheSavedPlan(t *testing.T) {
 		t.Errorf("the session must approve the saved plan: %+v", pv)
 	}
 }
+
+func TestScanPlanKeepsHowLongAWatchRunsAndOffersItToAStart(t *testing.T) {
+	s, _ := scanRig(t)
+	_, v := scanCall(t, s, http.MethodGet, "")
+	if v.Hours != DefaultWatchHours || v.DefaultHours != DefaultWatchHours || v.Custom || v.Limits.MaxHours != MaxHours {
+		t.Fatalf("a plan with no length runs for the default: %+v", v)
+	}
+	resp, v := scanCall(t, s, http.MethodPut, `{"channels":[],"window_seconds":0,"cycle_seconds":0,"watch_hours":4}`)
+	if resp.Status != http.StatusOK || v.Hours != 4 || !v.Custom {
+		t.Fatalf("set length: %d %+v", resp.Status, v)
+	}
+	pr, err := s.Handle(context.Background(), stacksdk.Request{Method: http.MethodGet, Path: PlanPath, Query: "adapter=wlan9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pv PlanView
+	_ = json.Unmarshal(pr.Body, &pv)
+	if pv.Hours != 4 {
+		t.Errorf("a start must be offered the saved length: %+v", pv)
+	}
+	_, v = scanCall(t, s, http.MethodPut, `{"channels":[],"window_seconds":0,"cycle_seconds":0,"watch_hours":0}`)
+	if v.Hours != DefaultWatchHours || v.Custom {
+		t.Errorf("zero resets the length: %+v", v)
+	}
+}
+
+func TestScanPlanRefusesALengthPastTheCeiling(t *testing.T) {
+	s, cfg := scanRig(t)
+	for _, body := range []string{`{"watch_hours":169}`, `{"watch_hours":-1}`} {
+		resp, _ := scanCall(t, s, http.MethodPut, body)
+		if resp.Status != http.StatusBadRequest || !strings.Contains(string(resp.Body), "at most 168 hours") {
+			t.Errorf("%s: %d %s", body, resp.Status, resp.Body)
+		}
+	}
+	if _, ok := cfg.doc["watch_hours"]; ok {
+		t.Error("a refused length must save nothing")
+	}
+}

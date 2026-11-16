@@ -124,12 +124,13 @@ func (c *Collector) Tick(ctx context.Context) {
 	if ctx.Err() != nil {
 		return // stopped mid-cycle: the failed questions are the stop, not a silent router, and are not comparisons
 	}
-	c.mu.Lock()
-	c.status = Status{LastRun: now, Problem: problem}
-	c.mu.Unlock()
 	if len(rows) > 0 {
 		c.record(rows)
 	}
+	// Published last: a reader that sees this run must find its log written (it used to see the run first, and a file that was not there yet).
+	c.mu.Lock()
+	c.status = Status{LastRun: now, Problem: problem}
+	c.mu.Unlock()
 }
 
 // refusedBySettings names the setting that stopped a question, or is empty: a refusal is not a comparison, so nothing is logged.

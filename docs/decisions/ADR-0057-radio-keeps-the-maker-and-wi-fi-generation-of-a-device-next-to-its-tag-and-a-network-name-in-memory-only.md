@@ -1,7 +1,7 @@
 ---
 id: ADR-0057
 title: Radio keeps the maker and Wi-Fi generation of a device next to its tag, and a network name in memory only
-status: proposed
+status: accepted
 date: 2026-11-15
 subsystems: [network-audit]
 supersedes:
@@ -9,6 +9,8 @@ superseded_by:
 ---
 
 # ADR-0057: Radio keeps the maker and Wi-Fi generation of a device next to its tag, and a network name in memory only
+
+**Accepted 2026-11-16:** the pull request that carries it (#258) was merged by the owner, which this ADR named as its acceptance.
 
 Proposed 2026-11-15; becomes accepted when the owner merges the pull request that carries the amended Constitution I.16. Amends [ADR-0053](ADR-0053-radio-keeps-a-keyed-tag-for-other-peoples-devices-and-seals-the-owners-with-hard-size-and-age-limits.md) (what is kept beside a neighbour's tag).
 

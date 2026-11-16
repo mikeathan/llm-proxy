@@ -39,6 +39,8 @@ type Settings struct {
 	Channels      []int `json:"channels,omitempty"`
 	WindowSeconds int   `json:"window_seconds,omitempty"`
 	CycleSeconds  int   `json:"cycle_seconds,omitempty"`
+	// WatchHours is how long a start runs for, 1 to MaxHours; 0 means DefaultWatchHours. The Start button uses it, so the length is part of the plan.
+	WatchHours int `json:"watch_hours,omitempty"`
 	// TrackHours is how long a per-device signal track is kept on disk: 0 (off, the default), 24 or 48 (ADR-0055).
 	TrackHours int `json:"track_hours,omitempty"`
 }
