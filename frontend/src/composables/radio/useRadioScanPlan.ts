@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { RadioService } from '../../services/radio/radioService'
 import { errorMessage } from '../../utils/errors'
 import { RADIO_SCAN_FAILED, RADIO_SCAN_SAVE_FAILED } from '../../constants/radio'
-import type { RadioScan, RadioScanPlan } from '../../types/radio'
+import type { RadioScan, RadioScanSave } from '../../types/radio'
 
 /** Radio · Scan plan: which channels a listening run visits, how long on each and how often. */
 export function useRadioScanPlan() {
@@ -22,7 +22,7 @@ export function useRadioScanPlan() {
     }
   }
 
-  async function save(plan: RadioScanPlan): Promise<void> {
+  async function save(plan: RadioScanSave): Promise<void> {
     busy.value = true
     saved.value = false
     try {
@@ -36,5 +36,5 @@ export function useRadioScanPlan() {
     }
   }
 
-  return { scan, error, busy, saved, running, load, save, reset: () => save({ channels: [], window_seconds: 0, cycle_seconds: 0 }) }
+  return { scan, error, busy, saved, running, load, save, reset: () => save({ channels: [], window_seconds: 0, cycle_seconds: 0, watch_hours: 0 }) }
 }

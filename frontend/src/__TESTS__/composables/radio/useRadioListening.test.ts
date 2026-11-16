@@ -32,6 +32,14 @@ describe('useRadioListening', () => {
     expect(l.state.value?.listening).toBe(true)
   })
 
+  it('takes the length from the saved plan when the caller names none', async () => {
+    const l = useRadioListening()
+    service.plan.mockResolvedValue({ ...plan, hours: 168 })
+    await l.start('wlx00')
+    expect(service.beginSession.mock.calls[0]![0].hours).toBe(168)
+    expect(service.start).toHaveBeenCalledWith('wlx00', 168)
+  })
+
   it('never asks for more uses than the core allows', async () => {
     const l = useRadioListening()
     service.plan.mockResolvedValue({ ...plan, plan: { ...plan.plan, cycle_seconds: 60 } })

@@ -331,3 +331,32 @@ func TestDNSCollector_ACycleTheContextStoppedLogsNothing(t *testing.T) {
 		t.Fatalf("a stopped cycle logged %+v", store.items)
 	}
 }
+
+// A cycle is not "run" until its log is written: a reader that sees the last run and then looks for the log must find it. The status used to be
+// published first, so a reader could see the run and find no file (it made a core test fail now and then).
+func TestDNSCollector_TheCycleIsPublishedOnlyAfterItsLogIsWritten(t *testing.T) {
+	router := &fakeDNS{by: map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8")}}
+	outside := &fakeDNS{by: map[string][]netip.Addr{"dns.google": dnsIPs("8.8.8.8")}}
+	store := &memDNSStore{}
+	c, _ := newTestCollector(router, outside, store, "dns.google")
+	var seenDuringWrite time.Time
+	c.deps.Store = writeSpy{inner: store, during: func() { seenDuringWrite = c.Status().LastRun }}
+	c.Tick(context.Background())
+	if !seenDuringWrite.IsZero() {
+		t.Errorf("the last run was already published while its log was being written: %v", seenDuringWrite)
+	}
+	if !c.Status().LastRun.Equal(dnsNow) {
+		t.Errorf("the run must be published once the log is written: %+v", c.Status())
+	}
+}
+
+type writeSpy struct {
+	inner  *memDNSStore
+	during func()
+}
+
+func (w writeSpy) Read() ([]Comparison, error) { return w.inner.Read() }
+func (w writeSpy) Write(v []Comparison) error {
+	w.during()
+	return w.inner.Write(v)
+}

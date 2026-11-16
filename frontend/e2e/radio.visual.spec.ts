@@ -78,8 +78,8 @@ const TRACK = {
 }
 const SCAN = {
   plan: { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 }, default: { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 },
-  custom: false, windows_per_hour: 72,
-  limits: { channels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 149, 153, 157, 161, 165], max_channels: 16, min_window_seconds: 1, max_window_seconds: 30, min_cycle_seconds: 60, max_windows_per_hour: 200 },
+  custom: false, windows_per_hour: 72, hours: 168, default_hours: 168,
+  limits: { channels: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 149, 153, 157, 161, 165], max_channels: 16, min_window_seconds: 1, max_window_seconds: 30, min_cycle_seconds: 60, max_windows_per_hour: 200, max_hours: 168 },
 }
 const HOURS = Array.from({ length: 48 }, (_, i) => ({ hour: new Date(Date.UTC(2026, 10, 13, 15 + i)).toISOString(), state: i < 20 ? 'not_listening' : i % 5 === 0 ? 'away' : 'here', signal: 'strong', ...(i >= 20 && i % 5 !== 0 ? { dbm: -48 - (i % 7) * 3, near_m: 1.4 + (i % 7) * 0.5, far_m: 3.2 + (i % 7) * 2 } : {}) }))
 const PRESENCE = { devices: [{ id: 'ab', label: 'my phone', state: 'here', signal: 'strong', last_heard: '2026-11-14T15:00:00Z', joined_own: true, hours: HOURS }] }
@@ -99,7 +99,7 @@ async function touchTargets(page: import('@playwright/test').Page, testInfo: imp
   for (const b of await page.locator('main button, main [role="button"]').all()) {
     if (!(await b.isVisible())) continue
     // The Simple/Advanced control is drawn 28 px high; the area around it answers for it (a 44 px target).
-    if (await b.evaluate((el) => !!el.closest('[role="radiogroup"]'))) { await b.scrollIntoViewIfNeeded(); await expectTapArea(b); continue }
+    if (await b.evaluate((el) => !!el.closest('[role="radiogroup"]'))) { await b.evaluate((el) => el.scrollIntoView({ block: 'center' })); await expectTapArea(b); continue } // centred: at the screen's edge the fixed bottom bar can sit over the area under the control
     expect((await b.boundingBox())?.height).toBeGreaterThanOrEqual(44)
   }
 }
@@ -134,6 +134,8 @@ test('Around you: the status line, the radar with one list, the device opened be
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('radio/around')
   await expect(page.locator('[data-test="radio-finding"]')).toContainText('management frames')
+  await expect(page.locator('[data-test="radio-report-setup"]')).toBeVisible() // the report card: no automation yet, so it asks when to run
+  await expect(page.locator('[data-test="radio-report-go"]')).toHaveText('Set up and analyse')
   await expect(page.locator('[data-test="radio-status-next"]')).toContainText('Next reading in')
   await expect(page.locator('[data-test="radio-status-sorting"]')).toContainText('Sorting starts after 12 cycles (5 done)')
   await expect(page.locator('[data-test="radio-radar-summary"]')).toContainText('6 devices heard now, 1 of them yours')

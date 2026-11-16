@@ -29,23 +29,28 @@ type ScanLimits struct {
 	MaxWindowSeconds  int   `json:"max_window_seconds"`
 	MinCycleSeconds   int   `json:"min_cycle_seconds"`
 	MaxWindowsPerHour int   `json:"max_windows_per_hour"`
+	MaxHours          int   `json:"max_hours"`
 }
 
 // ScanView is the answer of ScanPath.
 type ScanView struct {
 	// Plan is what a run would do now; Default is what it does with nothing set; Custom says the operator has set something.
-	Plan           Plan       `json:"plan"`
-	Default        Plan       `json:"default"`
-	Custom         bool       `json:"custom"`
-	WindowsPerHour int        `json:"windows_per_hour"`
-	Limits         ScanLimits `json:"limits"`
+	Plan           Plan `json:"plan"`
+	Default        Plan `json:"default"`
+	Custom         bool `json:"custom"`
+	WindowsPerHour int  `json:"windows_per_hour"`
+	// Hours is how long a start runs for (the plan's length, DefaultHours when none is set).
+	Hours        int        `json:"hours"`
+	DefaultHours int        `json:"default_hours"`
+	Limits       ScanLimits `json:"limits"`
 }
 
-// scanBody is a PUT: all three fields at once. An empty list and zero seconds mean "the default", which is how the plan is reset.
+// scanBody is a PUT: all four fields at once. An empty list and zero seconds or hours mean "the default", which is how the plan is reset.
 type scanBody struct {
 	Channels      []int `json:"channels"`
 	WindowSeconds int   `json:"window_seconds"`
 	CycleSeconds  int   `json:"cycle_seconds"`
+	WatchHours    int   `json:"watch_hours"`
 }
 
 func (p Plan) windowsPerHour() int { return len(p.Channels) * 3600 / max(p.CycleSeconds, 1) }
@@ -54,10 +59,11 @@ func scanView(set Settings) ScanView {
 	plan := set.Plan()
 	return ScanView{
 		Plan: plan, Default: Settings{}.Plan(), WindowsPerHour: plan.windowsPerHour(),
-		Custom: len(set.Channels) > 0 || set.WindowSeconds > 0 || set.CycleSeconds > 0,
+		Custom: len(set.Channels) > 0 || set.WindowSeconds > 0 || set.CycleSeconds > 0 || set.WatchHours > 0,
+		Hours:  set.Hours(), DefaultHours: DefaultWatchHours,
 		Limits: ScanLimits{
 			Channels: validChannels, MaxChannels: maxChannels, MinWindowSeconds: minWindowSeconds, MaxWindowSeconds: maxWindowSeconds,
-			MinCycleSeconds: minCycleSeconds, MaxWindowsPerHour: MaxWindowsPerHour,
+			MinCycleSeconds: minCycleSeconds, MaxWindowsPerHour: MaxWindowsPerHour, MaxHours: MaxHours,
 		},
 	}
 }
@@ -98,6 +104,9 @@ func checkScanFields(b scanBody) string {
 	if b.CycleSeconds != 0 && b.CycleSeconds < minCycleSeconds {
 		return fmt.Sprintf("a cycle is at least %d seconds", minCycleSeconds)
 	}
+	if b.WatchHours < 0 || b.WatchHours > MaxHours {
+		return fmt.Sprintf("a watch lasts at most %d hours", MaxHours)
+	}
 	return ""
 }
 
@@ -117,7 +126,7 @@ func (s *Stack) handleScan(ctx context.Context, h stacksdk.Host, req stacksdk.Re
 	}
 	channels := append([]int{}, b.Channels...)
 	slices.Sort(channels)
-	doc, _ := jsonBytes(map[string]any{"channels": channels, "window_seconds": b.WindowSeconds, "cycle_seconds": b.CycleSeconds})
+	doc, _ := jsonBytes(map[string]any{"channels": channels, "window_seconds": b.WindowSeconds, "cycle_seconds": b.CycleSeconds, "watch_hours": b.WatchHours})
 	if err := h.Config.Save(ctx, doc); err != nil {
 		return plainError(http.StatusInternalServerError, "the plan could not be saved")
 	}

@@ -1,9 +1,9 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.7"
+version: "1.8"
 status: draft
-last_updated: 2026-10-25
+last_updated: 2026-11-16
 constitution_references: [II.13, II.3]
 related_specs: [SPEC-001, SPEC-004, SPEC-007, SPEC-011]
 supersedes:
@@ -13,6 +13,11 @@ supersedes:
 
 ## Changelog
 
+- **1.8 (2026-11-16)** — The built-in **Radio reporter** (`radio-reporter`: only `netfindings`, memory off, nothing saved, local
+  only) that the daily radio report runs under, and the `radio_digest` tool in the `netfindings` category (counts, tiers and
+  the core's own words for each finding; the stack's ids, tiers and kinds are checked against fixed lists and the answer is
+  fenced as untrusted data). A profile with no `tools:` line is offered every tool, so an unattended run that must read
+  only one family needs its own profile. Nine built-ins now ship.
 - **1.7 (2026-10-25)** — `local_only: true` (a run whose model client is not local stops before any prompt is sent,
   `models.ErrLocalOnly`; enforced in `Agent.Execute`), the `netaudit` tool category (`network_scan`; listed by the
   `general` and `operator` built-ins), and the built-in **Security auditor** (`security-auditor`: only `netaudit`, memory

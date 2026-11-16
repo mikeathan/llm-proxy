@@ -1,7 +1,7 @@
 ---
 id: ADR-0056
 title: Radio may watch for up to seven days under one session, and a stopped watch is offered again, never resumed by itself
-status: proposed
+status: accepted
 date: 2026-11-15
 subsystems: [network-audit]
 supersedes:
@@ -9,6 +9,8 @@ superseded_by:
 ---
 
 # ADR-0056: Radio may watch for up to seven days under one session, and a stopped watch is offered again, never resumed by itself
+
+**Accepted 2026-11-16:** the pull request that carries it (#257) was merged by the owner, which this ADR named as its acceptance.
 
 Proposed 2026-11-15; becomes accepted when the owner merges the pull request that carries the amended Constitution I.16 and I.17. Amends [ADR-0054](ADR-0054-a-scheduled-privileged-action-runs-under-a-bounded-session-a-person-approved.md) (its twelve-hour limit and its note that "a longer or indefinite sensor needs an amendment"). ADR-0054's own status line still says `proposed` although I.17 has been in force since the radio branch merged; the owner's merge of this change accepts both.
 
@@ -18,7 +20,7 @@ A bounded session lasts at most 12 hours and ends with the service. The owner de
 Measured on 2026-11-15 on a development machine: recording one full 4,000-frame window and finishing its cycle took 182 ms (10.7 ms after this change); a finished cycle over 10,000 stored devices took about 110 ms. Nothing is measured on the server yet (helper CPU, file growth over a day, kernel drops); the handoff lists it as the acceptance check.
 
 ## Decision
-- **Ceiling: 7 days** (the owner chose 7 over 3 on 2026-11-15). The session's hard limits become 7 days and 40,320 requests (the helper's own 240 an hour over 7 days). The helper's hourly cap, the three gates, the scope and the action's switch are unchanged and still checked on every request. The Radio page offers 1, 4, 12 hours, 1, 3 and 7 days.
+- **Ceiling: 7 days** (the owner chose 7 over 3 on 2026-11-15). The session's hard limits become 7 days and 40,320 requests (the helper's own 240 an hour over 7 days). The helper's hourly cap, the three gates, the scope and the action's switch are unchanged and still checked on every request. The Radio page offers 1, 4, 12 hours, 1, 3 and 7 days. **The length is part of the scan plan** (`watch_hours`, 0 means the default of 7 days), not a dropdown on the start form: the form's own default was 1 hour, so a watch ended an hour after it began unless the owner remembered to change it (2026-11-16). The Start button reads the saved length from the plan the stack returns (`PlanView.hours`), so what the session approves is always what the plan says.
 - **The request count of a session is derived from the approved plan** (windows an hour times the hours, plus a margin), never a flat number, so a stack cannot spend requests faster than the plan a person approved.
 - **No approval outlives the process.** A restart still ends every session. Nothing is stored that could authorise a window (no token, no sealed approval). Rejected: a sealed approval in the core with an expiry; it would be a standing credential, the thing ADR-0054 prevents.
 - **A stopped watch is offered again.** The Radio stack keeps one small record of the watch (adapter, end time, and why it ended) in its own database. When the watch ended before its time through a restart, a crash, a failing adapter or a refusal, the Listening tab says so and offers **Resume listening** for the hours left, or **No, leave it stopped**. Resuming opens a new session and asks for the passphrase like any start. A watch the operator stopped, that ran out its time or that hit its frame budget is not offered again.

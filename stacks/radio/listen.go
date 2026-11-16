@@ -29,6 +29,9 @@ const (
 	listenAction = "radio_listen"
 	// MaxHours is the longest run a start may ask for: the longest session the core allows, seven days (ADR-0056).
 	MaxHours = 168
+	// DefaultWatchHours is how long a start runs for when the plan sets no length: the longest watch, as the owner asked (a 1 hour default ended
+	// every watch an hour after it began).
+	DefaultWatchHours = MaxHours
 	// MaxWindowsPerHour is what the helper's own hourly cap for radio_listen (240) leaves room for.
 	MaxWindowsPerHour = 200
 	// maxChannels is how many channels a plan may list.
@@ -66,6 +69,14 @@ var validChannels = []int{
 }
 
 var adapterName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,14}$`)
+
+// Hours is how long a start runs for: the plan's length, or DefaultWatchHours, never past MaxHours.
+func (s Settings) Hours() int {
+	if s.WatchHours <= 0 {
+		return DefaultWatchHours
+	}
+	return min(s.WatchHours, MaxHours)
+}
 
 // Plan is what the settings amount to once their caps are applied.
 type Plan struct {
@@ -152,6 +163,8 @@ type PlanView struct {
 	Plan     Plan            `json:"plan"`
 	Requests []ListenRequest `json:"requests"`
 	MaxHours int             `json:"max_hours"`
+	// Hours is how long the plan says a start runs for; the page asks the session for exactly this.
+	Hours int `json:"hours"`
 }
 
 type listenBody struct {
@@ -241,8 +254,9 @@ func (s *Stack) handlePlan(ctx context.Context, h stacksdk.Host, req stacksdk.Re
 	if err != nil || !adapterName.MatchString(adapter) {
 		return plainError(http.StatusBadRequest, "name the adapter to listen with")
 	}
-	plan := s.settings(ctx, h).Plan()
-	return jsonResponse(http.StatusOK, PlanView{Adapter: adapter, Plan: plan, Requests: plan.Requests(adapter), MaxHours: MaxHours})
+	set := s.settings(ctx, h)
+	plan := set.Plan()
+	return jsonResponse(http.StatusOK, PlanView{Adapter: adapter, Plan: plan, Requests: plan.Requests(adapter), MaxHours: MaxHours, Hours: set.Hours()})
 }
 
 func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (stacksdk.Response, error) {

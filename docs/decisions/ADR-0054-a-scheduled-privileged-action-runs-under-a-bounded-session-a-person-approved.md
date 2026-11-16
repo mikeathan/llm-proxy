@@ -1,7 +1,7 @@
 ---
 id: ADR-0054
 title: A scheduled privileged action runs under a bounded session a person approved
-status: proposed
+status: accepted
 date: 2026-11-13
 subsystems: [network-audit]
 supersedes:
@@ -9,6 +9,8 @@ superseded_by:
 ---
 
 # ADR-0054: A scheduled privileged action runs under a bounded session a person approved
+
+**Accepted 2026-11-16:** the pull request that carries it (#247) was merged by the owner, which this ADR named as its acceptance.
 
 Proposed 2026-11-13; becomes accepted when the owner merges the pull request that carries Constitution I.17. Builds on [ADR-0034](ADR-0034-the-privileged-helper-is-core-not-a-stack-and-decides-who-is-calling.md) (the helper, its three gates and one-use grants) and [ADR-0052](ADR-0052-radio-is-its-own-stack-with-generic-sensors-and-the-core-keeps-capture-and-judgement.md) (duty-cycled windows).
 

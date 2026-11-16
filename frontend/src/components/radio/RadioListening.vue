@@ -9,22 +9,23 @@ import StatusTag from "../common/display/StatusTag.vue"
 import RadioWindows from "./RadioWindows.vue"
 import { useRadioListening } from "../../composables/radio/useRadioListening"
 import { useRadioSensors } from "../../composables/radio/useRadioSensors"
+import { useRadioScanPlan } from "../../composables/radio/useRadioScanPlan"
 import {
-  RADIO_ENDED, RADIO_LISTEN_ADAPTER, RADIO_LISTEN_HOURS, RADIO_LISTEN_HOUR_CHOICES, RADIO_LISTEN_INTRO, RADIO_LISTEN_NO_ADAPTER, RADIO_LISTEN_OFF,
+  RADIO_ENDED, RADIO_LISTEN_ADAPTER, RADIO_LISTEN_INTRO, RADIO_LISTEN_NO_ADAPTER, RADIO_LISTEN_OFF,
   RADIO_LISTEN_START, RADIO_LISTEN_MANUAL, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, radioCycleLine,
-  radioFramesLine, radioHoursLabel, radioListeningUntil, RADIO_RESUME_BUTTON, RADIO_RESUME_DISMISS, RADIO_RESUME_TITLE, radioResumeLine,
+  radioFramesLine, radioListenLength, radioListeningUntil, RADIO_RESUME_BUTTON, RADIO_RESUME_DISMISS, RADIO_RESUME_TITLE, radioResumeLine,
 } from "../../constants/radio"
 
 // Radio · Listening: choose an adapter and a time, confirm the passphrase once, and watch the windows come in. The run is the stack's; a
 // session in the core is what lets it ask the helper, and stopping ends both. Only counts and words are shown here, never an address.
 const l = useRadioListening()
 const s = useRadioSensors()
+const p = useRadioScanPlan()
 const adapter = ref("")
-const hours = ref("1")
 
 const adapters = computed(() => (s.view.value?.sensors ?? []).filter((x) => x.kind === "wifi" && x.eligible))
 const adapterOptions = computed(() => adapters.value.map((x) => ({ value: x.id, label: x.id })))
-const hourOptions = RADIO_LISTEN_HOUR_CHOICES.map((h) => ({ value: String(h), label: radioHoursLabel(h) }))
+const lengthLine = computed(() => (p.scan.value ? radioListenLength(p.scan.value.hours) : ""))
 const off = computed(() => !!s.view.value && !s.view.value.enabled)
 const running = computed(() => !!l.state.value?.listening)
 const ended = computed(() => (l.state.value && !l.state.value.listening && l.state.value.ended ? RADIO_ENDED[l.state.value.ended] : null))
@@ -40,10 +41,10 @@ const resumeOffer = computed(() => (!running.value && !off.value ? l.state.value
 const resumeLine = computed(() => (resumeOffer.value ? radioResumeLine(resumeOffer.value.why, resumeOffer.value.hours_left, new Date(resumeOffer.value.until).toLocaleString()) : ""))
 const canStart = computed(() => !off.value && !running.value && !l.busy.value && !!(adapter.value || adapters.value.length))
 
-function start(): void { void l.start(adapter.value || adapters.value[0]?.id || "", Number(hours.value)) }
+function start(): void { void l.start(adapter.value || adapters.value[0]?.id || "") }
 
 onMounted(async () => {
-  await Promise.all([l.refresh(), s.load()])
+  await Promise.all([l.refresh(), s.load(), p.load()])
   adapter.value = adapters.value[0]?.id ?? ""
 })
 </script>
@@ -75,9 +76,9 @@ onMounted(async () => {
 
       <div v-else-if="!off && adapters.length" class="flex flex-wrap items-end gap-3">
         <FormField :label="RADIO_LISTEN_ADAPTER"><template #default><SelectInput v-model="adapter" :options="adapterOptions" :label="RADIO_LISTEN_ADAPTER" /></template></FormField>
-        <FormField :label="RADIO_LISTEN_HOURS"><template #default><SelectInput v-model="hours" :options="hourOptions" :label="RADIO_LISTEN_HOURS" /></template></FormField>
         <BaseButton variant="primary" class-name="max-sm:!h-11" :disabled="!canStart" data-test="radio-listen-start" @click="start">{{ RADIO_LISTEN_START }}</BaseButton>
       </div>
+      <p v-if="!running && !off && adapters.length && lengthLine" class="m-0 text-[length:var(--text-small)] text-primary" data-test="radio-listen-length">{{ lengthLine }}</p>
       <p v-if="!running && !off && adapters.length" class="m-0 text-[length:var(--text-small)] text-muted" data-test="radio-listen-manual">{{ RADIO_LISTEN_MANUAL }}</p>
 
       <Callout v-if="l.error.value" tone="error" title="Listening did not start"><span data-test="radio-listen-error">{{ l.error.value }}</span></Callout>

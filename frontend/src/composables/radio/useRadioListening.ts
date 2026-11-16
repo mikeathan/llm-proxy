@@ -44,12 +44,13 @@ export function useRadioListening() {
     if (!want && timer) { clearInterval(timer); timer = null }
   }
 
-  async function start(adapter: string, hours: number): Promise<void> {
+  async function start(adapter: string, askedHours?: number): Promise<void> {
     busy.value = true
     error.value = ''
     let sessionId = ''
     try {
       const plan = await RadioService.plan(adapter)
+      const hours = askedHours ?? plan.hours
       const session = await RadioService.beginSession({
         stack: SESSION_STACK, label: `Listening on ${adapter}`, hours, requests: plan.requests,
         max_uses: usesFor({ channels: plan.plan.channels.length, cycleSeconds: plan.plan.cycle_seconds }, hours),

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -454,4 +455,21 @@ func summarizeRadioWindow(data []byte) (radioWindowCounts, error) {
 		return radioWindowCounts{}, err
 	}
 	return radioWindowCounts{Frames: len(w.Records), Stop: w.Trailer.Stop.String(), KernelSeen: w.Trailer.KernelSeen, KernelDropped: w.Trailer.KernelDropped, ElapsedMs: w.Trailer.ElapsedMs}, nil
+}
+
+// radioDigest is the Radio stack's digest for the assistant's radio_digest tool, asked of the stack in process.
+func (s *AppServices) radioDigest(ctx context.Context) (json.RawMessage, error) {
+	if s.netaudit == nil || s.netaudit.Radio == nil {
+		return nil, fmt.Errorf("the radio stack is not running")
+	}
+	return s.netaudit.Radio.Read(ctx, radio.DigestPath)
+}
+
+// radioOn says whether the Radio stack is switched on, which is when the tool is offered.
+func (s *AppServices) radioOn(ctx context.Context) bool {
+	if s.netaudit == nil || s.netaudit.Radio == nil {
+		return false
+	}
+	st, ok := s.netaudit.Radio.Module(ctx, radio.SensorsModuleID)
+	return ok && st.Enabled
 }

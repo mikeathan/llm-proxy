@@ -9,8 +9,8 @@ import RadioScanPlan from '../../../components/radio/RadioScanPlan.vue'
 
 const DEFAULT = { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 }
 const scan = (over: Partial<RadioScan> = {}): RadioScan => ({
-  plan: DEFAULT, default: DEFAULT, custom: false, windows_per_hour: 72,
-  limits: { channels: [1, 6, 11, 36, 60, 149, 165], max_channels: 16, min_window_seconds: 1, max_window_seconds: 30, min_cycle_seconds: 60, max_windows_per_hour: 200 },
+  plan: DEFAULT, default: DEFAULT, custom: false, windows_per_hour: 72, hours: 168, default_hours: 168,
+  limits: { channels: [1, 6, 11, 36, 60, 149, 165], max_channels: 16, min_window_seconds: 1, max_window_seconds: 30, min_cycle_seconds: 60, max_windows_per_hour: 200, max_hours: 168 },
   ...over,
 })
 
@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   service.scan.mockResolvedValue(scan())
   service.listening.mockResolvedValue({ listening: false })
-  service.saveScan.mockImplementation(async (p) => scan({ plan: p, custom: true, windows_per_hour: Math.floor((p.channels.length * 3600) / p.cycle_seconds) }))
+  service.saveScan.mockImplementation(async (p) => scan({ plan: { channels: p.channels, window_seconds: p.window_seconds, cycle_seconds: p.cycle_seconds }, hours: p.watch_hours || 168, custom: true, windows_per_hour: Math.floor((p.channels.length * 3600) / p.cycle_seconds) }))
 })
 
 async function show() {
@@ -47,7 +47,7 @@ describe('RadioScanPlan', () => {
     await w.get('[data-channel="165"]').trigger('click')
     await w.get('[data-test="radio-scan-save"]').trigger('click')
     await flushPromises()
-    expect(service.saveScan).toHaveBeenCalledWith({ channels: [1, 6, 11, 36, 60, 165], window_seconds: 20, cycle_seconds: 300 })
+    expect(service.saveScan).toHaveBeenCalledWith({ channels: [1, 6, 11, 36, 60, 165], window_seconds: 20, cycle_seconds: 300, watch_hours: 168 })
     expect(w.get('[data-test="radio-scan-saved"]').text()).toContain('next time you start listening')
     expect(w.find('[data-test="radio-scan-reset"]').exists()).toBe(true)
   })
@@ -71,7 +71,7 @@ describe('RadioScanPlan', () => {
     await open(w)
     await w.get('[data-test="radio-scan-reset"]').trigger('click')
     await flushPromises()
-    expect(service.saveScan).toHaveBeenCalledWith({ channels: [], window_seconds: 0, cycle_seconds: 0 })
+    expect(service.saveScan).toHaveBeenCalledWith({ channels: [], window_seconds: 0, cycle_seconds: 0, watch_hours: 0 })
     service.listening.mockResolvedValue({ listening: true })
     const running = await show()
     await open(running)
@@ -87,5 +87,28 @@ describe('RadioScanPlan', () => {
     await w.get('[data-test="radio-scan-save"]').trigger('click')
     await flushPromises()
     expect(w.get('[data-test="radio-scan-save-error"]').text()).toBe('channel 99 cannot be listened on')
+  })
+
+  it('says how long a start runs for, lets it be chosen up to seven days, and tells the page when it is saved', async () => {
+    const w = await show()
+    expect(w.get('[data-test="radio-scan-length"]').text()).toBe('A start runs for 7 days (the default), then stops by itself.')
+    await open(w)
+    const options = w.findAll('select[aria-label="Run for"] option').map((o) => o.text())
+    expect(options).toEqual(['1 hour', '4 hours', '12 hours', '1 day', '3 days', '7 days'])
+    await w.find('select[aria-label="Run for"]').setValue('24')
+    await w.get('[data-test="radio-scan-save"]').trigger('click')
+    await flushPromises()
+    expect(service.saveScan).toHaveBeenCalledWith({ channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300, watch_hours: 24 })
+    expect(w.emitted('saved')).toHaveLength(1)
+    expect(w.get('[data-test="radio-scan-length"]').text()).toBe('A start runs for 1 day, then stops by itself.')
+  })
+
+  it('does not tell the page of a save that failed', async () => {
+    service.saveScan.mockRejectedValue(new Error('no'))
+    const w = await show()
+    await open(w)
+    await w.get('[data-test="radio-scan-save"]').trigger('click')
+    await flushPromises()
+    expect(w.emitted('saved')).toBeUndefined()
   })
 })

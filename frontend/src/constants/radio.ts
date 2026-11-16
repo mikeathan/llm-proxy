@@ -63,9 +63,8 @@ export const radioUnusedLine = (n: number): string => (n === 1 ? '1 thing could 
 
 // Radio · Listening: starting a bounded run, and what each way it can end means. Every ending names its fix (UX rule: problems shown with their fix).
 export const RADIO_LISTEN_TITLE = 'Listening'
-export const RADIO_LISTEN_INTRO = 'Listens on one adapter, a short window on each channel in turn, for the hours you choose. It sends nothing. You confirm your passphrase once; it stops when the time is up or when you stop it.'
+export const RADIO_LISTEN_INTRO = 'Listens on one adapter, a short window on each channel in turn, for the length the scan plan sets. It sends nothing. You confirm your passphrase once; it stops when the time is up or when you stop it.'
 export const RADIO_LISTEN_ADAPTER = 'Adapter'
-export const RADIO_LISTEN_HOURS = 'For'
 export const RADIO_LISTEN_START = 'Start listening'
 export const RADIO_LISTEN_STOP = 'Stop listening'
 export const RADIO_LISTEN_NO_ADAPTER = 'No adapter can listen. Plug in a USB Wi-Fi adapter and look again.'
@@ -278,12 +277,13 @@ export const RADIO_RETRIES_NOT_REPORTED = 'This adapter reports no retried frame
 
 // Radio · Scan plan: which channels a run visits, how long it stays on each and how often it comes round.
 export const RADIO_SCAN_TITLE = 'Scan plan'
-export const RADIO_SCAN_INTRO = 'A run visits each chosen channel for a short window, then comes round again. More channels or shorter cycles hear more and ask the helper for more windows. A new plan takes effect the next time you start listening, and that start asks for your passphrase again.'
+export const RADIO_SCAN_INTRO = 'A run visits each chosen channel for a short window, then comes round again. More channels or shorter cycles hear more and ask the helper for more windows. The plan also says how long a start runs for, up to 7 days. A new plan takes effect the next time you start listening, and that start asks for your passphrase again.'
 export const RADIO_SCAN_CHANGE = 'Change the plan'
 export const RADIO_SCAN_CLOSE = 'Close'
 export const RADIO_SCAN_CHANNELS = 'Channels to visit'
 export const RADIO_SCAN_WINDOW = 'Time on each channel'
 export const RADIO_SCAN_CYCLE = 'Come round every'
+export const RADIO_SCAN_HOURS = 'Run for'
 export const RADIO_SCAN_SAVE = 'Save plan'
 export const RADIO_SCAN_RESET = 'Use the default plan'
 export const RADIO_SCAN_SAVED = 'Saved. It applies the next time you start listening.'
@@ -296,6 +296,8 @@ export const RADIO_SCAN_CYCLE_CHOICES = [60, 120, 300, 600, 900, 1800]
 export const radioSecondsLabel = (s: number): string => (s % 60 === 0 ? `${s / 60} ${s === 60 ? 'minute' : 'minutes'}` : `${s} seconds`)
 export const radioScanSummary = (channels: number, window: number, cycle: number, perHour: number, custom: boolean): string =>
   `${channels} ${channels === 1 ? 'channel' : 'channels'}, ${window} seconds each, every ${radioSecondsLabel(cycle)}: ${perHour} windows an hour${custom ? '' : ' (the default)'}.`
+export const radioScanLength = (hours: number, isDefault: boolean): string => `A start runs for ${radioHoursLabel(hours)}${isDefault ? ' (the default)' : ''}, then stops by itself.`
+export const radioListenLength = (hours: number): string => `Runs for ${radioHoursLabel(hours)}. Change it in the scan plan below.`
 export const radioScanTooMany = (max: number): string => `That is more than ${max} windows an hour. Choose fewer channels or a longer cycle.`
 export const RADIO_SCAN_NO_FIT = 'The windows do not fit in one cycle. Shorten them, choose fewer channels or a longer cycle.'
 
@@ -346,6 +348,10 @@ export function radioKeepStored(points: number, oldest?: string): string {
 // Radio · Around you: the status line, the filter chips and the chosen device.
 export const RADIO_STATUS_IDLE = 'Not listening. Showing where devices usually are.'
 export const RADIO_STATUS_START = 'Start listening'
+export const RADIO_STATUS_RESUME = 'Resume listening'
+/** The watch stopped early and can be taken up again: say why, in the fixed words, and how long it had left. */
+export const radioStatusStopped = (why: string | undefined, hoursLeft: number): string =>
+  `${why === 'stack_stopped' ? 'The service restarted, so the watch stopped.' : 'The watch stopped early.'} ${radioHoursLabel(hoursLeft)} were left.`
 export const RADIO_STATUS_READING = 'Reading the air now'
 export const radioStatusListening = (secondsLeft: number): string => {
   const m = Math.floor(secondsLeft / 60)
@@ -370,7 +376,7 @@ export const RADIO_DETAIL_FIRST = 'First heard'
 export const RADIO_GUIDE_TITLE = 'How to read this'
 export const RADIO_GUIDE_DIRECTION = 'Which way a device lies is not measured with one adapter, so a dot keeps a steady place on its ring. Only how far is estimated, as a range, from how strong its signal is.'
 export const RADIO_GUIDE_MOTION = 'A dot moves once a cycle, when the sensor has been round every channel. A shorter cycle in the scan plan gives more frequent movement.'
-export const RADIO_LISTEN_MANUAL = 'A run lasts the time you choose, up to 7 days, then ends by itself. Nothing starts a run on its own. A restart of the service ends one that is going, and this page then offers to resume it, which asks for your passphrase again.'
+export const RADIO_LISTEN_MANUAL = 'A run lasts the length the scan plan sets, up to 7 days, then ends by itself. Nothing starts a run on its own. A restart of the service ends one that is going, and this page then offers to resume it, which asks for your passphrase again.'
 export const RADIO_RESUME_TITLE = 'Listening stopped before its time'
 export const RADIO_RESUME_BUTTON = 'Resume listening'
 export const RADIO_RESUME_DISMISS = 'No, leave it stopped'
@@ -459,3 +465,32 @@ export const RADIO_CHANNELS_HEAD = 'Devices heard now, by channel. Pick one to s
 export const RADIO_CHANNEL_MINE = 'your network'
 export const radioChannelCrowd = (name: string, channel: number, devices: number, quietest: number): string =>
   `${name} is on channel ${channel} with ${devices} ${devices === 1 ? 'device' : 'devices'}. Channel ${quietest} is the quietest.`
+
+// Radio · Report: the daily radio report as an automation, set up and run from the Around you tab.
+/** The playbook's id, and the name of the automation and its task file made from it. */
+export const RADIO_REPORT_ID = 'radio-watch-report'
+export const RADIO_REPORT_TITLE = 'Radio report'
+export const RADIO_REPORT_INTRO = 'Asks the assistant to read what the sensor has found and write a short report. It runs on a local model only and does not listen itself: it reads what was already heard.'
+export const RADIO_REPORT_SCHEDULE_LABEL = 'When it runs'
+export const RADIO_REPORT_MANUAL = 'Only when I press Analyse'
+export const RADIO_REPORT_DAILY = 'Every morning at 7:00'
+export const RADIO_REPORT_WORKSPACE = 'Workspace'
+export const RADIO_REPORT_SETUP = 'Set up and analyse'
+export const RADIO_REPORT_ANALYSE = 'Analyse now'
+export const RADIO_REPORT_RUNNING = 'Analysing…'
+export const RADIO_REPORT_QUEUED = 'Waiting for its turn…'
+export const RADIO_REPORT_LAST = 'Last report'
+export const RADIO_REPORT_OPEN = 'Open it in Automations'
+export const RADIO_REPORT_OFF = 'Switch the Radio stack on in Modules first: the report has nothing to read while it is off.'
+export const RADIO_REPORT_NOT_LISTENING = 'Not listening now. The report will rest on what was heard earlier.'
+export const RADIO_REPORT_START = 'Start listening'
+export const RADIO_REPORT_FAILED = 'The report could not be set up or run.'
+export const RADIO_REPORT_NO_WORKSPACE = 'There is no workspace to put the report in. Create one first.'
+export const RADIO_REPORT_RUNS_MANUAL = 'Runs only when you press Analyse.'
+/** The playbook's own schedule, which has its own words; any other schedule is told as "on its schedule" and left to the Automations page. */
+export const RADIO_REPORT_DAILY_CRON = '0 7 * * *'
+export const radioReportRuns = (cron: string | undefined, next: string | undefined): string => {
+  const when = cron === RADIO_REPORT_DAILY_CRON ? 'every morning at 7:00' : 'on its own schedule'
+  return `Runs ${when}${next ? `; next run ${new Date(next).toLocaleString()}` : ''}.`
+}
+

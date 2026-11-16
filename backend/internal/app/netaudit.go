@@ -39,6 +39,7 @@ import (
 	"llm-proxy/internal/core/netaudit/traceroute"
 	"llm-proxy/internal/core/netaudit/upnp"
 	"llm-proxy/internal/core/netaudit/wifilook"
+	"llm-proxy/internal/core/radiodigest"
 	"llm-proxy/internal/core/stack"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/core/vulndata/ubuntuoval"
@@ -793,6 +794,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	if registry := localRegistry(s.toolProvider); registry != nil {
 		registry.Use(scantool.Module(scan.Service, s.Persistence(), func(context.Context) bool { return len(scan.Readiness.Blocking()) == 0 }, s.digestSource().Digest))
 		registry.Use(findingstool.Module(s.findingsReader(), s.auditNames))
+		registry.Use(radiodigest.Module(s.radioDigest, s.radioOn))
 	}
 }
 

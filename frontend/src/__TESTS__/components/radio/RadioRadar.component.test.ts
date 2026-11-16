@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { RadioLive, RadioLiveDevice } from '../../../types/radio'
 
-const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn(), track: vi.fn(), airwaves: vi.fn(), markMine: vi.fn() }))
+const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn(), track: vi.fn(), airwaves: vi.fn(), markMine: vi.fn(), listening: vi.fn() }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
 import RadioRadar from '../../../components/radio/RadioRadar.vue'
@@ -18,6 +18,7 @@ const view = (devices: RadioLiveDevice[], over: Partial<RadioLive['model']> = {}
 beforeEach(() => {
   vi.clearAllMocks()
   useNetauditViewMode().set('simple')
+  service.listening.mockResolvedValue({ listening: false, cycles: 0, frames: 0, windows: [], plan: { channels: [1], window_seconds: 20, cycle_seconds: 300 } })
   service.live.mockResolvedValue(view([dev({ id: 'far1', near_m: 8, far_m: 40, ring: 'nearby' }), dev({ id: 'mine1', mine: true, label: 'my phone', class: 'personal', near_m: 1.2, far_m: 3 }), dev({ id: 'close1', near_m: 2, far_m: 6, trend: 'closer' })]))
   service.calibrate.mockResolvedValue({ calibrated: true })
   service.airwaves.mockResolvedValue({ channels: [], classes: [], routers: [], near_unknown: 0, listened_cycles: 5 })
@@ -149,6 +150,15 @@ describe('RadioRadar', () => {
     const w = await show()
     expect(w.get('[data-test="radio-status-idle"]').text()).toContain('Not listening')
     expect(w.find('[data-test="radio-status-start"]').exists()).toBe(true)
+  })
+
+  it('says a watch was cut short by a restart, how long it had left, and sends the owner to resume it', async () => {
+    service.live.mockResolvedValue({ ...view([dev({ id: 'u1', usual: true, heard: false })]), listening: false })
+    service.listening.mockResolvedValue({ listening: false, cycles: 0, frames: 0, windows: [], plan: { channels: [1], window_seconds: 20, cycle_seconds: 300 }, resume: { adapter: 'wlx00', until: '2026-11-20T12:00:00Z', hours_left: 42, why: 'stack_stopped' } })
+    const w = await show()
+    expect(w.get('[data-test="radio-status-stopped"]').text()).toBe('The service restarted, so the watch stopped. 42 hours were left.')
+    expect(w.get('[data-test="radio-status-resume"]').text()).toBe('Resume listening')
+    expect(w.find('[data-test="radio-status-idle"]').exists()).toBe(false)
   })
 
   it('opens a device with what it is waiting for, or why it was sorted, and keeps retries and channels for Advanced', async () => {

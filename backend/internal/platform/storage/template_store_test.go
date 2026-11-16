@@ -253,6 +253,20 @@ func TestTemplateStore_ReadsTheSettingsAPlaybookDeclares(t *testing.T) {
 	}
 }
 
+// The Radio page's Analyse card reads these defaults to make the automation, so the playbook must declare them.
+func TestShippedRadioReportDeclaresItsLockedDownProfileAndMorningSchedule(t *testing.T) {
+	got, err := NewTemplateStore(shipped.FS).Get("radio-watch-report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Defaults.Profile != "radio-reporter" || got.Defaults.Schedule != "0 7 * * *" || got.Defaults.Journal == nil || *got.Defaults.Journal {
+		t.Errorf("the radio report must ask for the radio-reporter profile, a 07:00 schedule and no journal: %+v", got.Defaults)
+	}
+	if got.Defaults.NetworkGrant != "" || got.Description == "" {
+		t.Errorf("it asks for no network access and says what it is for: %+v", got)
+	}
+}
+
 func TestShippedNetworkAuditDeclaresTheAuditorSettings(t *testing.T) {
 	got, err := NewTemplateStore(shipped.FS).Get("network-audit")
 	if err != nil {

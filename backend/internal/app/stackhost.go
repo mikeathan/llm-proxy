@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"slices"
 	"time"
@@ -88,6 +90,19 @@ func (h *stackHost) Module(ctx context.Context, id string) (stacksdk.ModuleStatu
 		}
 	}
 	return stacksdk.ModuleStatus{}, false
+}
+
+// Read asks the stack for one of its read routes in process, as the core's own route table would, and returns the answer's body. A stack that is
+// not running, or an answer that is not a success, is an error: it must never read as an empty result.
+func (h *stackHost) Read(ctx context.Context, path string) (json.RawMessage, error) {
+	resp, err := h.stack.Handle(ctx, stacksdk.Request{Method: http.MethodGet, Path: path})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Status != http.StatusOK {
+		return nil, fmt.Errorf("the stack answered %d", resp.Status)
+	}
+	return resp.Body, nil
 }
 
 // claimedFiles checks that no two stacks claim one file and returns every claimed name. A core store's file is never claimed by a stack:

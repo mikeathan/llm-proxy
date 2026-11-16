@@ -1525,3 +1525,36 @@ func TestValidateAutomation_ScanSettings(t *testing.T) {
 		})
 	}
 }
+
+// The Radio page's Analyse card creates its automation with exactly these payloads (frontend useRadioReport.ts): empty strategy, model, loop
+// strategy, network grant and memory mode, a manual trigger with no value, or the playbook's own cron. A strictness added here that the card does
+// not meet would fail the owner's first press on a real server, where its tests mock this endpoint.
+func TestCreateAutomation_AcceptsWhatTheRadioReportCardSends(t *testing.T) {
+	for name, trigger := range map[string]string{
+		"manual": `{"type":"manual","value":""}`,
+		"daily":  `{"type":"cron","value":"0 7 * * *"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			tmp := t.TempDir()
+			mgr := persistence.NewWorkspaceManager(storage.NewPathResolver(tmp, tmp, tmp))
+			if err := mgr.WriteConfig("ws", &models.WorkspaceConfig{}); err != nil {
+				t.Fatalf("WriteConfig: %v", err)
+			}
+			td := &testDispatcher{mgr: mgr}
+			h := NewDispatcherHandlers(td, NewWorkspaceService(mgr), logging.NewNopLogger())
+			body := `{"name":"radio-watch-report","trigger":` + trigger + `,"task_file":"radio-watch-report.md","strategy":"","model":"","loop_strategy":"","network_grant":"","memory_mode":"","notify":null,"skip_if_busy":false,"journal":false,"profile":"radio-reporter"}`
+			req := httptest.NewRequest("POST", "/admin/api/dispatcher/workspaces/ws/automations", strings.NewReader(body))
+			req.SetPathValue(models.WorkspaceIDParam, "ws")
+			rr := httptest.NewRecorder()
+			h.CreateAutomation(rr, req)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+			}
+			cfg, err := mgr.ReadConfig("ws")
+			if err != nil || len(cfg.Automations) != 1 || cfg.Automations[0].Profile != "radio-reporter" {
+				t.Fatalf("stored = %+v, %v", cfg, err)
+			}
+		})
+	}
+}
+

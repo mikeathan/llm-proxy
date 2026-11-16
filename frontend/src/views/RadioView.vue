@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { useRoute } from "vue-router"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
@@ -8,6 +8,7 @@ import RadioSensors from "../components/radio/RadioSensors.vue"
 import RadioListening from "../components/radio/RadioListening.vue"
 import RadioAroundLink from "../components/radio/RadioAroundLink.vue"
 import RadioFindings from "../components/radio/RadioFindings.vue"
+import RadioReport from "../components/radio/RadioReport.vue"
 import RadioScanPlan from "../components/radio/RadioScanPlan.vue"
 import RadioKeeping from "../components/radio/RadioKeeping.vue"
 import RadioRadar from "../components/radio/RadioRadar.vue"
@@ -29,6 +30,8 @@ import type { StackTabItem } from "../types/stacks"
 // are the same remembered choice as on the Network screens.
 const { mode, set } = useNetauditViewMode()
 const route = useRoute()
+// Counts the saves of the scan plan: the Listening panel is rebuilt on each, so its "runs for" line never shows an old length.
+const planSaves = ref(0)
 const tab = computed<RadioTab | null>(() => {
   const t = route.params.tab
   return typeof t === "string" && (RADIO_TABS as readonly string[]).includes(t) ? (t as RadioTab) : null
@@ -51,14 +54,15 @@ const tabs: readonly StackTabItem[] = [
     <template v-else-if="tab === 'around'">
       <RadioFindings />
       <RadioRadar />
+      <RadioReport />
     </template>
     <template v-else-if="tab === 'devices'">
       <RadioOwnerDevices />
       <RadioNetworks />
     </template>
     <template v-else>
-      <RadioListening />
-      <RadioScanPlan />
+      <RadioListening :key="planSaves" />
+      <RadioScanPlan @saved="planSaves++" />
       <RadioKeeping />
       <RadioAroundLink />
     </template>

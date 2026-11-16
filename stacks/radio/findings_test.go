@@ -198,3 +198,40 @@ func TestEveryClaimIsFixedWording(t *testing.T) {
 		t.Errorf("the eight ids of plan section 7: %v", findingIDs)
 	}
 }
+
+func TestDigestSaysWhetherAWatchIsRunningNowAndHowProvisionalTheKindsAre(t *testing.T) {
+	r := devRig(t)
+	d := digestOf(t, r)
+	if d.Listening.Now || d.Listening.HoursLeft != 0 {
+		t.Errorf("no watch is running: %+v", d.Listening)
+	}
+	if d.Classifier.Version != 1 || !d.Classifier.Provisional {
+		t.Errorf("the digest must say which classifier sorted the devices and that it is provisional: %+v", d.Classifier)
+	}
+}
+
+func TestEveryFindingIdHasItsWordsAndTheIdListIsExported(t *testing.T) {
+	ids := FindingIDs()
+	if len(ids) != len(findingIDs) {
+		t.Fatalf("FindingIDs = %v", ids)
+	}
+	for _, id := range ids {
+		if claimWords[id] == "" {
+			t.Errorf("no words for %s", id)
+		}
+	}
+}
+
+func TestDigestSaysAWatchIsRunningWithTheHoursItHasLeft(t *testing.T) {
+	r := devRig(t)
+	if resp := r.post(t, `{"adapter":"wlan9","hours":3}`); resp.Status != http.StatusAccepted {
+		t.Fatalf("start: %d %s", resp.Status, resp.Body)
+	}
+	t.Cleanup(func() {
+		_, _ = r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodDelete, Path: ListenPath})
+	})
+	d := digestOf(t, r)
+	if !d.Listening.Now || d.Listening.HoursLeft < 1 || d.Listening.HoursLeft > 3 {
+		t.Errorf("a running watch must show in the digest: %+v", d.Listening)
+	}
+}
