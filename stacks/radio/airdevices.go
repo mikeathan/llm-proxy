@@ -63,6 +63,10 @@ type AirDevice struct {
 	Channels     []int  `json:"channels"`
 	Random       bool   `json:"random_address"`
 	JoinedOwn    bool   `json:"joined_own"`
+	// Maker is who the address block was assigned to and WifiGeneration the highest Wi-Fi generation it announced (4, 5 or 6). Both are read from
+	// its frames and kept next to the tag; the address is not (ADR-0057).
+	Maker          string `json:"maker,omitempty"`
+	WifiGeneration int    `json:"wifi_generation,omitempty"`
 }
 
 // AirDevices is the answer of AirDevicesPath.
@@ -153,7 +157,7 @@ func airDevice(rules Rules, r FeatureRow, listened map[int64]int) AirDevice {
 	return AirDevice{
 		ID: shortID(r.Tag), Class: class, Why: string(why), Signal: signalBand(rules, f),
 		FirstSeen: dayString(r.FirstDay), LastSeen: dayString(last), CyclesHeard: r.Cycles, NeedHeard: rules.MinCyclesHeard,
-		RetryPercent: percent(r.Retries, r.Frames), Channels: channelsOf(r.Channels), Random: r.Random, JoinedOwn: r.JoinedOwn,
+		RetryPercent: percent(r.Retries, r.Frames), Channels: channelsOf(r.Channels), Random: r.Random, JoinedOwn: r.JoinedOwn, Maker: r.Maker, WifiGeneration: r.WifiGen,
 	}
 }
 

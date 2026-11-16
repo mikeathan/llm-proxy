@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { RADIO_RADAR_LABEL, radioDotLabel } from "../../constants/radio"
+import { RADIO_RADAR_LABEL, radioRangeLine } from "../../constants/radio"
+import { deviceLabel } from "../../utils/radio/describe"
 import type { RadioClass, RadioLiveDevice } from "../../types/radio"
 
 // Radio · the radar picture. Distance rings round the computer; one dot per device, placed by how strong its signal is on a log scale, with the
 // range it could be in behind it and a fading tail of where it was in the last cycles. A dot glides to its new place and a device heard in the
 // current cycle pulses; both stop for a person who asks for less motion. The direction is not measured: a dot keeps a stable place on its ring.
-const props = defineProps<{ devices: RadioLiveDevice[]; selected: string | null }>()
+// `ranges` labels every dot with its distance range; `spoke` draws a line from the centre to each dot (distance only, never a bearing); `colours` colours
+// a dot by its provisional kind, or all neutral when off. The devices given are the ones to draw: the list, the chips and the focus have already narrowed them.
+const props = withDefaults(defineProps<{ devices: RadioLiveDevice[]; selected: string | null; ranges?: boolean; spoke?: boolean; colours?: boolean }>(), { ranges: false, spoke: false, colours: true })
 const emit = defineEmits<{ (e: "pick", id: string): void }>()
 
 const SIZE = 400
@@ -17,7 +20,8 @@ const RING_METRES = [3, 10, 30]
 const CLASS_COLOUR: Record<RadioClass, string> = {
   infrastructure: "rgb(var(--accent-info))", personal: "rgb(var(--state-running))", neighbour: "rgb(var(--text-muted))", transient: "rgb(var(--state-queued))", unknown: "rgb(var(--text-faint))",
 }
-function colour(d: RadioLiveDevice): string { return d.mine ? "rgb(var(--accent-brand))" : CLASS_COLOUR[d.class] }
+const NEUTRAL = "rgb(var(--text-muted))"
+function colour(d: RadioLiveDevice): string { return d.mine ? "rgb(var(--accent-brand))" : props.colours ? CLASS_COLOUR[d.class] : NEUTRAL }
 function radius(metres: number): number { return Math.min(MAX_R, (MAX_R * Math.log(Math.max(1, metres))) / Math.log(MAX_M)) }
 function point(angle: number, r: number): { x: number; y: number } {
   const a = ((angle - 90) * Math.PI) / 180
@@ -33,7 +37,8 @@ function rel(d: RadioLiveDevice, metres: number) {
 }
 function move(d: RadioLiveDevice): { transform: string } { const p = place(d); return { transform: `translate(${p.x}px, ${p.y}px)` } }
 function tail(d: RadioLiveDevice) { return (d.tail_m ?? []).slice(0, -1).map((m, i, all) => ({ ...rel(d, m), a: 0.15 + (0.35 * (i + 1)) / all.length })) }
-function showLabel(d: RadioLiveDevice): boolean { return d.id === props.selected || (d.mine && !d.usual) }
+function showLabel(d: RadioLiveDevice): boolean { return props.ranges || d.id === props.selected || (d.mine && !d.usual) }
+function labelText(d: RadioLiveDevice): string { return d.id === props.selected || d.mine ? `${deviceLabel(d)} · ${radioRangeLine(d.near_m, d.far_m)}` : radioRangeLine(d.near_m, d.far_m) }
 function labelSide(d: RadioLiveDevice): number { return place(d).x > CENTRE ? 1 : -1 }
 </script>
 
@@ -46,12 +51,13 @@ function labelSide(d: RadioLiveDevice): number { return place(d).x > CENTRE ? 1 
       v-for="d in devices" :key="d.id" class="radio-dot cursor-pointer" :style="move(d)" data-test="radio-dot" :data-id="d.id" :data-ring="d.ring" :data-usual="d.usual ? 1 : 0"
       :opacity="d.usual ? 0.5 : d.heard ? 1 : 0.4" @click="emit('pick', d.id)"
     >
+      <line v-if="spoke" :x1="CENTRE - place(d).x" :y1="CENTRE - place(d).y" x2="0" y2="0" class="stroke-current text-muted" stroke-dasharray="2 3" opacity="0.5" data-test="radio-dot-spoke" />
       <circle v-if="d.heard && !d.usual" r="7" fill="none" stroke-width="2" class="radio-pulse" :style="{ stroke: colour(d) }" data-test="radio-dot-pulse" />
       <circle v-for="(t, i) in tail(d)" :key="i" :cx="t.x" :cy="t.y" r="2" :style="{ fill: colour(d) }" :opacity="t.a" data-test="radio-dot-tail" />
       <circle v-if="d.unusual" r="9" fill="none" stroke-width="2" stroke-dasharray="2 2" style="stroke: rgb(var(--state-running))" data-test="radio-dot-unusual" />
       <line v-if="!d.usual" :x1="rel(d, d.near_m).x" :y1="rel(d, d.near_m).y" :x2="rel(d, d.far_m).x" :y2="rel(d, d.far_m).y" :style="{ stroke: colour(d) }" stroke-width="3" stroke-linecap="round" opacity="0.35" />
       <circle :r="d.mine ? 7 : 4.5" :style="{ fill: d.usual ? 'none' : colour(d), stroke: d.id === selected ? 'rgb(var(--text-primary))' : d.usual ? colour(d) : 'none' }" stroke-width="2" />
-      <text v-if="showLabel(d)" :x="labelSide(d) * 11" y="4" :text-anchor="labelSide(d) > 0 ? 'start' : 'end'" class="fill-current text-[11px] text-primary" data-test="radio-dot-label">{{ radioDotLabel(d) }}</text>
+      <text v-if="showLabel(d)" :x="labelSide(d) * 11" y="4" :text-anchor="labelSide(d) > 0 ? 'start' : 'end'" class="fill-current text-[11px] text-primary" data-test="radio-dot-label">{{ labelText(d) }}</text>
     </g>
   </svg>
 </template>

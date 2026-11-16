@@ -3,29 +3,47 @@ import { computed, onMounted, ref } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import Callout from "../common/feedback/Callout.vue"
 import RadioAroundStatus from "./RadioAroundStatus.vue"
-import RadioRadarCanvas from "./RadioRadarCanvas.vue"
-import RadioDeviceList from "./RadioDeviceList.vue"
+import RadioAroundControls from "./RadioAroundControls.vue"
+import RadioViewRadar from "./RadioViewRadar.vue"
+import RadioViewChanges from "./RadioViewChanges.vue"
+import RadioViewChannels from "./RadioViewChannels.vue"
 import RadioDeviceDetail from "./RadioDeviceDetail.vue"
+import RadioFindMine from "./RadioFindMine.vue"
+import RadioAirwaves from "./RadioAirwaves.vue"
 import RadioReadGuide from "./RadioReadGuide.vue"
 import { useRadioLive } from "../../composables/radio/useRadioLive"
+import { useRadioAround } from "../../composables/radio/useRadioAround"
+import { useRadioAirwaves } from "../../composables/radio/useRadioAirwaves"
+import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { usePolling } from "../../composables/ui/usePolling"
 import { RADIO_AROUND_TITLE, RADIO_RADAR_EMPTY, radioRadarSummary, radioUnusualSummary } from "../../constants/radio"
+import type { RadioAroundToggles } from "../../types/radio"
 
-// Radio · Around you: the radar and the one list of devices, with a status line that says whether it is live. Selecting a dot or a row opens that
-// device below. The picture is the server's live answer (memory while listening, the stored days for devices not heard now).
+// Radio · Around you: one tab, three views of the same picture (radar, what changed, by channel) picked from a drop-down. The picture is the server's
+// live answer (memory while listening, the stored days for devices not heard now). The chips, the channel and the picked device narrow the radar and
+// the list together; a picked device is drawn alone until "show all". A device opens below with what its frames say about it and a way to name it.
 const live = useRadioLive()
+const airwaves = useRadioAirwaves()
+const { advanced } = useNetauditViewMode()
 const REFRESH_MS = 15000 // the picture changes once a cycle (5 minutes by default)
-const selected = ref<string | null>(null)
+const MS_PER_SECOND = 1000
 const view = computed(() => live.view.value)
-const everyone = computed(() => view.value?.devices ?? [])
+const around = useRadioAround(view)
+const now = ref(Math.floor(Date.now() / MS_PER_SECOND))
+const today = computed(() => new Date(now.value * 1000).toISOString().slice(0, 10))
+const everyone = computed(() => around.everyone.value)
 const heard = computed(() => everyone.value.filter((d) => !d.usual))
 const mineCount = computed(() => heard.value.filter((d) => d.mine).length)
 const unusualCount = computed(() => heard.value.filter((d) => d.unusual).length)
-const chosen = computed(() => everyone.value.find((d) => d.id === selected.value) ?? null)
-function pick(id: string): void { selected.value = selected.value === id ? null : id }
+const routers = computed(() => airwaves.view.value?.routers ?? [])
 
-onMounted(() => { void live.load() })
+async function mark(id: string, label: string): Promise<void> {
+  if (await live.markMine(id, label)) around.selected.value = null
+}
+
+onMounted(() => { void live.load(); void airwaves.load() })
 usePolling(() => { void live.load() }, REFRESH_MS)
+usePolling(() => { now.value = Math.floor(Date.now() / MS_PER_SECOND) }, MS_PER_SECOND)
 </script>
 
 <template>
@@ -37,12 +55,14 @@ usePolling(() => { void live.load() }, REFRESH_MS)
         <p v-if="!everyone.length" class="m-0 text-secondary" data-test="radio-radar-empty">{{ RADIO_RADAR_EMPTY }}</p>
         <template v-else>
           <p class="m-0 text-primary" data-test="radio-radar-summary">{{ radioRadarSummary(heard.length, mineCount) }}<template v-if="unusualCount"><span class="ml-2 text-state-running" data-test="radio-radar-unusual">{{ radioUnusualSummary(unusualCount) }}</span></template></p>
-          <div class="grid gap-4 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)]">
-            <RadioRadarCanvas :devices="everyone" :selected="selected" @pick="pick" />
-            <RadioDeviceList :devices="everyone" :selected="selected" @pick="pick" />
-          </div>
-          <RadioDeviceDetail v-if="chosen" :device="chosen" :listened="view.listened_cycles" :min-listened="view.min_listened_cycles" :busy="live.busy.value" @close="selected = null" @calibrate="live.calibrate" />
+          <RadioAroundControls :mode="around.mode.value" :range="around.toggles.value.range" :spoke="around.toggles.value.spoke" :colours="around.toggles.value.colours" :usual="around.toggles.value.usual" @update:mode="around.mode.value = $event" @toggle="(k: keyof RadioAroundToggles, on: boolean) => around.setToggle(k, on)" />
+          <RadioViewRadar v-if="around.mode.value === 'radar'" :around="around" :routers="routers" :now="now" />
+          <RadioViewChanges v-else-if="around.mode.value === 'changes'" :around="around" :today="today" :now="now" />
+          <RadioViewChannels v-else :around="around" :routers="routers" :now="now" />
+          <RadioDeviceDetail v-if="around.chosen.value" :device="around.chosen.value" :listened="view.listened_cycles" :min-listened="view.min_listened_cycles" :busy="live.busy.value" :now="now" @close="around.selected.value = null" @calibrate="live.calibrate" @mark="mark" />
+          <RadioFindMine :devices="everyone" :busy="live.busy.value" :now="now" @mark="mark" />
           <p v-if="live.error.value" class="m-0 text-state-error" data-test="radio-radar-action-error">{{ live.error.value }}</p>
+          <RadioAirwaves v-if="advanced && around.mode.value === 'channels'" />
           <RadioReadGuide :calibrated="view.model.calibrated" :has-usual="everyone.some((d) => d.usual)" />
         </template>
       </template>

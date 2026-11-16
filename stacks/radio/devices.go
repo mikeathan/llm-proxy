@@ -23,6 +23,8 @@ const (
 	DevicePath = "/admin/api/radio/devices/mine/{id}"
 	// ForgetPath makes the stack forget everything about other people's devices and rotates the tags (POST).
 	ForgetPath = "/admin/api/radio/forget"
+	// MarkMinePath makes a device heard on the radar the owner's (POST), by its short id.
+	MarkMinePath = "/admin/api/radio/air/mine/{id}"
 
 	maxLabel = 60
 )
@@ -113,21 +115,59 @@ func (s *Stack) addOwner(ctx context.Context, rec *Recorder, body []byte) (stack
 	if err := strictDecode(body, &b); err != nil {
 		return plainError(http.StatusBadRequest, "give the device's address and a name for it")
 	}
-	label := strings.TrimSpace(b.Label)
 	mac, err := ParseMAC(b.Address)
-	switch {
-	case err != nil:
+	if err != nil {
 		return plainError(http.StatusBadRequest, err.Error())
-	case label == "" || utf8.RuneCountInString(label) > maxLabel || strings.ContainsFunc(label, func(r rune) bool { return r < 0x20 || r == 0x7f }):
-		return plainError(http.StatusBadRequest, "give the device a name of up to 60 characters")
 	}
-	class := Class(b.Class)
-	if class != "" && !slices.Contains(Classes, class) || class == ClassUnknown {
-		return plainError(http.StatusBadRequest, "the class is infrastructure, personal, neighbour or transient, or left out")
+	label, class, bad := ownerFields(b.Label, b.Class)
+	if bad != "" {
+		return plainError(http.StatusBadRequest, bad)
 	}
 	if err := rec.AddOwnerDeviceClass(ctx, mac, label, class, s.now()); err != nil {
 		return plainError(http.StatusInternalServerError, "the device could not be saved")
 	}
+	return jsonResponse(http.StatusCreated, map[string]string{"label": label})
+}
+
+// ownerFields checks the name and the optional class an owner gives a device. It returns the sentence to answer with when one is wrong.
+func ownerFields(rawLabel, rawClass string) (label string, class Class, bad string) {
+	label = strings.TrimSpace(rawLabel)
+	if label == "" || utf8.RuneCountInString(label) > maxLabel || strings.ContainsFunc(label, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
+		return "", "", "give the device a name of up to 60 characters"
+	}
+	class = Class(rawClass)
+	if class != "" && !slices.Contains(Classes, class) || class == ClassUnknown {
+		return "", "", "the class is infrastructure, personal, neighbour or transient, or left out"
+	}
+	return label, class, ""
+}
+
+// markMine makes a device heard on the radar the owner's, by the short id the radar shows. Only the keyed tag is known for someone else's device, so
+// there is no address to seal: the mark holds while the tag matches, which for a device with a random address is until it changes address, and
+// it ends when the neighbours are forgotten (the rotation keeps only rows it can tag again from a sealed address).
+func (s *Stack) markMine(ctx context.Context, rec *Recorder, store *Store, id string, body []byte) (stacksdk.Response, error) {
+	var b struct {
+		Label string `json:"label"`
+		Class string `json:"class,omitempty"`
+	}
+	if err := strictDecode(body, &b); err != nil {
+		return plainError(http.StatusBadRequest, "give the device a name")
+	}
+	label, class, bad := ownerFields(b.Label, b.Class)
+	if bad != "" {
+		return plainError(http.StatusBadRequest, bad)
+	}
+	tags, err := store.NeighbourTags(ctx, id)
+	switch {
+	case err != nil:
+		return plainError(http.StatusInternalServerError, "the device could not be saved")
+	case len(tags) != 1:
+		return plainError(http.StatusNotFound, "that device is no longer known: it may have been forgotten or already be yours")
+	}
+	if err := store.MarkTagOwner(ctx, tags[0], label, string(class)); err != nil {
+		return plainError(http.StatusInternalServerError, "the device could not be saved")
+	}
+	rec.ForgetSighting(tags[0])
 	return jsonResponse(http.StatusCreated, map[string]string{"label": label})
 }
 

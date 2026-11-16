@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { HelperSession, RadioAir, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import type { HelperSession, RadioAir, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanPlan, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioMarkedMine, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -72,6 +72,11 @@ export class RadioService {
   /** Takes one of the owner's devices as standing one metre from the computer, so every distance is measured from it. */
   static calibrate(id: string): Promise<{ calibrated: boolean }> {
     return post<{ calibrated: boolean }>(`${API_ENDPOINTS.radioCalibrate}/${encodeURIComponent(id)}`, {})
+  }
+
+  /** Makes a device heard on the radar the owner's, by the short id the radar shows. Only a marker is kept, not an address. */
+  static markMine(id: string, label: string): Promise<RadioMarkedMine> {
+    return post<RadioMarkedMine>(`${API_ENDPOINTS.radioMarkMine}/${encodeURIComponent(id)}`, { label })
   }
 
   /** One device's signal over this run, from memory; 404 when the run ended or the device was silent for a whole track. */

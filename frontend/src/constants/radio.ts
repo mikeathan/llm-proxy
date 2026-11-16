@@ -1,4 +1,4 @@
-import type { CapabilityUse, RadioClass, RadioHourState, RadioKind, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
+import type { CapabilityUse, RadioAroundView, RadioChange, RadioClass, RadioHourState, RadioKind, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
 import type { StatusState } from '../types/ui'
 
 // The words of the Radio · Sensors page. Capability titles and notes come from the server; these are the fixed phrases around them.
@@ -376,3 +376,86 @@ export const RADIO_RESUME_BUTTON = 'Resume listening'
 export const RADIO_RESUME_DISMISS = 'No, leave it stopped'
 export const radioResumeLine = (why: string | undefined, hoursLeft: number, until: string): string =>
   `${why === 'stack_stopped' ? 'The service restarted.' : 'Something stopped it.'} It was set to run until ${until}. Resuming listens for the ${radioHoursLabel(hoursLeft)} that are left and asks for your passphrase again.`
+
+// Radio · Around you: the three views, the toggles, what a device row says about itself, and marking a device as yours.
+export const RADIO_VIEW_LABEL = 'View'
+export const RADIO_VIEW_WORDS: Record<RadioAroundView, string> = { radar: 'Radar', changes: 'What changed', channels: 'By channel' }
+export const RADIO_VIEW_ORDER: RadioAroundView[] = ['radar', 'changes', 'channels']
+export const RADIO_VIEW_HELP: Record<RadioAroundView, string> = {
+  radar: 'The radar and one list. Pick a group or a device to see only those.',
+  changes: 'New devices, devices unlike their usual, and devices that are usually here and not heard now.',
+  channels: 'How crowded each channel is. Pick a channel to see only the devices on it.',
+}
+export const RADIO_TOGGLE_RANGE = 'Range labels'
+export const RADIO_TOGGLE_SPOKE = 'Line from the centre'
+export const RADIO_TOGGLE_COLOURS = 'Colour by kind'
+export const RADIO_TOGGLE_USUAL = 'Where devices usually are'
+export const RADIO_TOGGLE_SPOKE_HELP = 'A line from the computer to each dot. Only how far is measured, never which way, so the line shows distance and nothing else.'
+export const RADIO_COLOURS_PROVISIONAL = 'Kinds are provisional: the rules that sort devices have not been measured yet.'
+export const RADIO_FILTER_UNUSUAL = 'Unusual'
+export const RADIO_FOCUS_ALL = 'Show all devices'
+export const radioFocusLine = (title: string): string => `Showing only ${title}.`
+export const RADIO_CHANNEL_ALL = 'All channels'
+export const radioChannelFilterLine = (channel: number): string => `Only the devices heard on channel ${channel}.`
+export const RADIO_RADAR_NO_DIRECTION = 'Which way a device lies is not measured: a dot keeps a steady place on its ring. Only the distance range is real.'
+
+// A row says what the device is, as far as its frames reveal. Never an address.
+export const RADIO_MAKER_RANDOM = 'Random address'
+export const RADIO_MAKER_UNKNOWN = 'Maker not listed'
+export const RADIO_MAKER_RANDOM_HELP = 'Phones and laptops send a made-up address on purpose, so their maker cannot be read.'
+export const radioWifiWord = (generation: number): string => `Wi-Fi ${generation}`
+export const radioChannelBand = (channel: number): string => `channel ${channel}, ${radioBand(channel)}`
+export const radioHeardAgo = (secondsAgo: number): string => {
+  if (secondsAgo < 90) return `heard ${Math.max(1, Math.round(secondsAgo))} s ago`
+  if (secondsAgo < 5400) return `heard ${Math.round(secondsAgo / 60)} min ago`
+  return `heard ${Math.round(secondsAgo / 3600)} h ago`
+}
+export const radioDbmLine = (dbm: number): string => `${dbm} dBm`
+export const radioSortsIn = (cycles: number): string => `sorted in ${cycles} more ${cycles === 1 ? 'cycle' : 'cycles'}`
+export const radioUsualLine = (usualDbm: number, nowDbm: number): string => `Usually ${usualDbm} dBm, now ${nowDbm} dBm.`
+export const radioFirstHeardRun = (secondsAgo: number): string => `First heard this run ${Math.max(1, Math.round(secondsAgo / 60))} min ago`
+export const radioHeardCycles = (cycles: number): string => `heard in ${cycles} ${cycles === 1 ? 'cycle' : 'cycles'}`
+export const RADIO_DETAIL_MAKER = 'Maker'
+export const RADIO_DETAIL_WIFI = 'Wi-Fi'
+export const RADIO_DETAIL_NETWORK = 'Broadcasts the network'
+export const RADIO_DETAIL_HISTORY = 'History'
+export const RADIO_DETAIL_WHERE = 'Where'
+export const RADIO_DETAIL_ADDRESS = 'Address'
+export const RADIO_DETAIL_ADDRESS_VALUE = 'Fixed'
+export const RADIO_DETAIL_ADDRESS_RANDOM = 'Random: changes now and then'
+export const RADIO_DETAIL_NETWORK_NOTE = 'Shown while it is heard. A network name is never stored.'
+
+// Mark a device as yours from the radar.
+export const RADIO_MARK_BUTTON = 'This is mine'
+export const RADIO_MARK_LABEL = 'Name it'
+export const RADIO_MARK_PLACEHOLDER = 'for example: hall plug'
+export const RADIO_MARK_SAVE = 'Save as mine'
+export const RADIO_MARK_FAILED = 'The device could not be saved as yours.'
+export const RADIO_MARK_NOTE = 'Only a marker for this device is kept, not its address. A phone with a random address stops matching when it picks a new one, and every mark ends when you forget the neighbours.'
+export const RADIO_MARK_NO_NAME = 'Give it a name first.'
+
+// Find mine: hold the device by the computer and pick it from the strongest.
+export const RADIO_FIND_BUTTON = 'Find my device'
+export const RADIO_FIND_TITLE = 'Find my device'
+export const RADIO_FIND_STEPS = 'Hold your device next to the computer and make it send something: open a web page on it. The strongest devices heard now are listed. Wait for the next reading if yours is not there.'
+export const RADIO_FIND_NONE = 'Nothing is being heard strongly yet.'
+export const RADIO_FIND_CLOSE = 'Close'
+export const RADIO_FIND_CANDIDATE = 'Strongest now'
+
+// What changed.
+export const RADIO_AROUND_CHANGES_TITLE = 'What changed'
+export const RADIO_CHANGES_NONE = 'Nothing new, nothing unlike its usual, and everything that is usually here is here.'
+export const RADIO_CHANGE_WORDS: Record<RadioChange['kind'], string> = { arrival: 'New today', unusual: 'Unusual', departure: 'Not heard now' }
+export const RADIO_CHANGE_FILTERS: { id: 'all' | RadioChange['kind']; label: string }[] = [
+  { id: 'all', label: 'Everything' }, { id: 'arrival', label: 'New today' }, { id: 'unusual', label: 'Unusual' }, { id: 'departure', label: 'Not heard now' },
+]
+export const RADIO_CHANGES_PICK = 'Pick an item to see only that device on the radar.'
+export const radioAroundChangeLine = (kind: RadioChange['kind']): string =>
+  kind === 'arrival' ? 'first heard today' : kind === 'unusual' ? 'its signal is far from its usual' : 'usually here, not heard in this reading'
+
+// By channel.
+export const RADIO_CHANNELS_TITLE = 'Channels'
+export const RADIO_CHANNELS_HEAD = 'Devices heard now, by channel. Pick one to see only those.'
+export const RADIO_CHANNEL_MINE = 'your network'
+export const radioChannelCrowd = (name: string, channel: number, devices: number, quietest: number): string =>
+  `${name} is on channel ${channel} with ${devices} ${devices === 1 ? 'device' : 'devices'}. Channel ${quietest} is the quietest.`

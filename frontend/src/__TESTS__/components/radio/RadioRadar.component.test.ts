@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { RadioLive, RadioLiveDevice } from '../../../types/radio'
 
-const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn(), track: vi.fn() }))
+const service = vi.hoisted(() => ({ live: vi.fn(), calibrate: vi.fn(), track: vi.fn(), airwaves: vi.fn(), markMine: vi.fn() }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
 import RadioRadar from '../../../components/radio/RadioRadar.vue'
@@ -20,6 +20,9 @@ beforeEach(() => {
   useNetauditViewMode().set('simple')
   service.live.mockResolvedValue(view([dev({ id: 'far1', near_m: 8, far_m: 40, ring: 'nearby' }), dev({ id: 'mine1', mine: true, label: 'my phone', class: 'personal', near_m: 1.2, far_m: 3 }), dev({ id: 'close1', near_m: 2, far_m: 6, trend: 'closer' })]))
   service.calibrate.mockResolvedValue({ calibrated: true })
+  service.airwaves.mockResolvedValue({ channels: [], classes: [], routers: [], near_unknown: 0, listened_cycles: 5 })
+  service.markMine.mockResolvedValue({ label: 'x' })
+  globalThis.localStorage?.clear?.()
   service.track.mockResolvedValue({ id: 'close1', mine: false, trend: 'closer', stored: false, now: 2000, points: [
     { at: 1000, dbm: -80, near_m: 10, far_m: 40, run: 0 }, { at: 1300, dbm: -70, near_m: 5, far_m: 20, run: 0 },
     { at: 1900, dbm: -60, near_m: 2, far_m: 6, run: 1 }, { at: 2000, dbm: -58, near_m: 2, far_m: 5, run: 1 },
@@ -37,7 +40,7 @@ describe('RadioRadar', () => {
     const w = await show()
     expect(w.get('[data-test="radio-radar-summary"]').text()).toBe('3 devices heard now, 1 of them yours')
     expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
-    expect(w.findAll('[data-test="radio-dot-label"]').map((l) => l.text())).toEqual(['my phone'])
+    expect(w.findAll('[data-test="radio-dot-label"]').map((l) => l.text())).toEqual(['my phone · 1.2–3 m'])
   })
 
   it('lists the owner’s devices first and then the closest, with a range and a trend, never a point', async () => {
@@ -51,7 +54,7 @@ describe('RadioRadar', () => {
   it('labels a neighbour only once it is chosen, and offers calibration only for the owner’s device', async () => {
     const w = await show()
     await w.findAll('[data-test="radio-radar-row"]')[1]!.get('button').trigger('click')
-    expect(w.findAll('[data-test="radio-dot-label"]').map((l) => l.text())).toEqual(['my phone', 'close1'])
+    expect(w.findAll('[data-test="radio-dot-label"]').map((l) => l.text())).toEqual(['close1 · 2–6 m']) // a picked device is drawn alone
     expect(w.find('[data-test="radio-calibrate"]').exists()).toBe(false)
     await w.findAll('[data-test="radio-radar-row"]')[0]!.get('button').trigger('click')
     await w.get('[data-test="radio-calibrate"]').trigger('click')
@@ -82,12 +85,13 @@ describe('RadioRadar', () => {
     service.live.mockResolvedValue(view([dev({ id: 'now1', near_m: 3, far_m: 9 }), dev({ id: 'usual1', usual: true, heard: false, mine: true, label: 'my laptop', near_m: 2, far_m: 5, trend: 'unknown' }), dev({ id: 'usual2', usual: true, heard: false, near_m: 9, far_m: 30, trend: 'unknown' })]))
     const w = await show()
     expect(w.get('[data-test="radio-radar-summary"]').text()).toBe('1 device heard now')
-    expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
-    expect(w.findAll('[data-test="radio-dot"][data-usual="1"]')).toHaveLength(2)
+    expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(1) // the ones usually here stay out until asked for
     expect(w.get('[data-test="radio-radar-usual"]').text()).toContain('2 devices are usually here and not heard now.')
     expect(w.get('[data-test="radio-radar-legend"]').text()).toContain('not where they were at any moment')
     expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(1)
     await w.get('[data-test="radio-usual-toggle"]').trigger('click')
+    expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
+    expect(w.findAll('[data-test="radio-dot"][data-usual="1"]')).toHaveLength(2)
     const rows = w.findAll('[data-test="radio-radar-row"]')
     expect(rows).toHaveLength(3)
     expect(rows[1]!.text()).toContain('my laptop')
@@ -103,7 +107,7 @@ describe('RadioRadar', () => {
     const w = await show()
     expect(w.findAll('[data-test="radio-dot-unusual"]')).toHaveLength(1)
     expect(w.get('[data-test="radio-radar-unusual"]').text()).toBe('1 is unlike its usual.')
-    expect(w.get('[data-test="radio-row-unusual"]').text()).toBe('30 dB stronger than its usual -80 dBm: closer than usual')
+    expect(w.get('[data-tag="radio-row-unusual"]').text()).toBe('30 dB stronger than its usual -80 dBm: closer than usual')
   })
 
   it('draws a chosen device’s track in runs, leaving a gap for a cycle it was silent in', async () => {
@@ -184,5 +188,127 @@ describe('RadioRadar', () => {
     expect(w.findAll('[data-test="radio-dot-tail"]')).toHaveLength(3)
     expect(w.findAll('[data-test="radio-dot-pulse"]')).toHaveLength(1)
     expect(w.html()).not.toMatch(/([0-9a-f]{2}:){5}[0-9a-f]{2}/i)
+  })
+
+  describe('views, narrowing and naming', () => {
+    const detail = (id: string, over: Record<string, unknown> = {}) => ({ id, class: 'infrastructure' as const, why: 'always_here_steady_signal', signal: 'strong' as const, first_seen: '2026-11-01', last_seen: '2026-11-15', cycles_heard: 50, need_heard: 12, retry_percent: 0, channels: [60], random_address: false, joined_own: false, ...over })
+    const crowd = () => view([
+      dev({ id: 'a1', class: 'infrastructure', channel: 60, near_m: 2, far_m: 6, last_at: 1, detail: detail('a1', { maker: 'TP-Link', wifi_generation: 5 }) }),
+      dev({ id: 'b2', class: 'neighbour', channel: 60, near_m: 8, far_m: 30, last_at: 1, detail: detail('b2', { class: 'neighbour' }) }),
+      dev({ id: 'c3', class: 'neighbour', channel: 11, near_m: 9, far_m: 33, unusual: true, usual_dbm: -80, shift_db: 20, last_at: 1, detail: detail('c3', { class: 'neighbour', random_address: true }) }),
+    ])
+
+    it('narrows the radar and the list together when a chip is chosen', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
+      await w.get('[data-filter="infrastructure"]').trigger('click')
+      expect(w.findAll('[data-test="radio-dot"]').map((d) => d.attributes('data-id'))).toEqual(['a1'])
+      expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(1)
+      await w.get('[data-filter="unusual"]').trigger('click')
+      expect(w.findAll('[data-test="radio-dot"]').map((d) => d.attributes('data-id'))).toEqual(['c3'])
+    })
+
+    it('shows only the picked device on the radar until “show all”, and says what the device is', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      await w.findAll('[data-test="radio-radar-row-button"]')[0]!.trigger('click')
+      expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(1)
+      expect(w.get('[data-test="radio-focus-note"]').text()).toContain('Showing only TP-Link')
+      expect(w.get('[data-test="radio-detail-maker"]').text()).toBe('TP-Link')
+      expect(w.get('[data-test="radio-detail-facts"]').text()).toContain('Wi-Fi 5')
+      await w.get('[data-test="radio-focus-all"]').trigger('click')
+      expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
+    })
+
+    it('shows each device by its maker, with the kind, Wi-Fi generation and channel, and says a random address has none', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      const titles = w.findAll('[data-test="radio-row-title"]').map((t) => t.text())
+      expect(titles).toEqual(['TP-Link', 'Maker not listed', 'Random address'])
+      expect(w.findAll('[data-test="radio-row-facts"]')[0]!.text()).toBe('Always here · Wi-Fi 5 · channel 60, 5 GHz')
+    })
+
+    it('labels every dot with its range, and draws a line from the centre, only when asked', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      expect(w.findAll('[data-test="radio-dot-label"]')).toHaveLength(0)
+      expect(w.findAll('[data-test="radio-dot-spoke"]')).toHaveLength(0)
+      await w.get('[data-test="radio-toggle-range"] input').setValue(true)
+      await w.get('[data-test="radio-toggle-spoke"] input').setValue(true)
+      expect(w.findAll('[data-test="radio-dot-label"]')).toHaveLength(3)
+      expect(w.findAll('[data-test="radio-dot-spoke"]')).toHaveLength(3)
+    })
+
+    it('colours by kind with a provisional note, and goes neutral when switched off', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      expect(w.get('[data-test="radio-colours-note"]').text()).toContain('provisional')
+      expect(w.find('[data-test="radio-legend"]').exists()).toBe(true)
+      await w.get('[data-test="radio-toggle-colours"] input').setValue(false)
+      expect(w.find('[data-test="radio-legend"]').exists()).toBe(false)
+    })
+
+    it('switches between the three views from one drop-down', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      expect(w.find('[data-test="radio-view-radar"]').exists()).toBe(true)
+      await w.get('[data-test="radio-view-select"]').setValue('changes')
+      expect(w.find('[data-test="radio-view-changes"]').exists()).toBe(true)
+      expect(w.findAll('[data-test="radio-change"]')).toHaveLength(1) // c3 is unusual; nothing is new today or missing
+      await w.get('[data-test="radio-view-select"]').setValue('channels')
+      expect(w.find('[data-test="radio-view-channels"]').exists()).toBe(true)
+    })
+
+    it('by channel: a pick narrows the radar and the list, and marks your own network on its channel', async () => {
+      service.live.mockResolvedValue(crowd())
+      service.airwaves.mockResolvedValue({ channels: [], classes: [], routers: [{ name: 'netsink', channel: 60 }], near_unknown: 0, listened_cycles: 5 })
+      const w = await show()
+      await w.get('[data-test="radio-view-select"]').setValue('channels')
+      expect(w.get('[data-test="radio-channels-headline"]').text()).toBe('netsink is on channel 60 with 2 devices. Channel 11 is the quietest.')
+      expect(w.get('[data-channel="60"] [data-test="radio-channel-mine"]').text()).toBe('your network')
+      await w.get('[data-channel="11"]').trigger('click')
+      expect(w.findAll('[data-test="radio-dot"]').map((d) => d.attributes('data-id'))).toEqual(['c3'])
+      expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(1)
+      await w.get('[data-test="radio-channel-clear"]').trigger('click')
+      expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
+    })
+
+    it('names a device as yours from its row, and asks for a name first', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      await w.findAll('[data-test="radio-radar-row-button"]')[1]!.trigger('click')
+      await w.get('[data-test="radio-mark-open"]').trigger('click')
+      await w.get('[data-test="radio-mark-save"]').trigger('submit')
+      expect(w.find('[data-test="radio-mark-missing"]').exists()).toBe(true)
+      expect(service.markMine).not.toHaveBeenCalled()
+      await w.get('[data-test="radio-mark-input"]').setValue('hall plug')
+      await w.get('[data-test="radio-mark-save"]').trigger('submit')
+      await flushPromises()
+      expect(service.markMine).toHaveBeenCalledWith('b2', 'hall plug')
+      expect(service.live).toHaveBeenCalledTimes(2) // reloaded so it shows as yours
+    })
+
+    it('finds my device: lists the strongest devices heard now and names the chosen one', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      await w.get('[data-test="radio-find-open"]').trigger('click')
+      const found = w.findAll('[data-test="radio-find-candidate"]')
+      expect(found).toHaveLength(3)
+      await found[0]!.get('button').trigger('click')
+      await w.get('[data-test="radio-find-input"]').setValue('my tablet')
+      await w.get('[data-test="radio-find-save"]').trigger('submit')
+      await flushPromises()
+      expect(service.markMine).toHaveBeenCalledTimes(1)
+      expect(service.markMine.mock.calls[0]![1]).toBe('my tablet')
+    })
+
+    it('says why a maker cannot be read for a device with a random address', async () => {
+      service.live.mockResolvedValue(crowd())
+      const w = await show()
+      await w.findAll('[data-test="radio-radar-row-button"]')[2]!.trigger('click')
+      expect(w.get('[data-test="radio-detail-address"]').text()).toContain('Random')
+      expect(w.html()).not.toMatch(/([0-9a-f]{2}:){5}[0-9a-f]{2}/i)
+    })
   })
 })

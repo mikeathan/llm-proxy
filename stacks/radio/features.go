@@ -22,6 +22,8 @@ type agg struct {
 	max       int
 	hasMax    bool
 	random    bool
+	// gen is the highest Wi-Fi generation a frame of this device announced (4, 5 or 6), 0 when none did.
+	gen int
 }
 
 // channelBit is the bit a channel has in a channel mask: its place in validChannels (0 for a channel the plan cannot visit).
@@ -45,6 +47,7 @@ func channelsOf(mask uint64) []int {
 
 func (a *agg) add(f Frame) {
 	a.frames++
+	a.gen = max(a.gen, f.Beacon.Generation)
 	if f.Retry {
 		a.retries++
 	}
@@ -98,6 +101,11 @@ func (s *Store) FlushCycle(ctx context.Context, at time.Time, heard map[string]*
 					return err
 				}
 			}
+			if a.gen > 0 {
+				if _, err := tx.ExecContext(ctx, `UPDATE devices SET wifi_gen = max(wifi_gen, ?) WHERE tag = ?`, a.gen, []byte(tag)); err != nil {
+					return err
+				}
+			}
 		}
 		return tx.Commit()
 	})
@@ -142,18 +150,21 @@ type FeatureRow struct {
 	ClassVer     int
 	Random       bool
 	JoinedOwn    bool
-	FirstDay     int64 // the first day with a row
-	LastDay      int64 // the last day with a row (the device's own last day when it has none)
-	Days         int
-	Cycles       int
-	Frames       int
-	Retries      int
-	Channels     uint64
-	SigN         int64
-	SigSum       int64
-	SigSq        int64
-	SigMax       int
-	HasMax       bool
+	// Maker and WifiGen are what its frames said about it (ADR-0057): the maker of its address block and the highest Wi-Fi generation it announced.
+	Maker    string
+	WifiGen  int
+	FirstDay int64 // the first day with a row
+	LastDay  int64 // the last day with a row (the device's own last day when it has none)
+	Days     int
+	Cycles   int
+	Frames   int
+	Retries  int
+	Channels uint64
+	SigN     int64
+	SigSum   int64
+	SigSq    int64
+	SigMax   int
+	HasMax   bool
 }
 
 // FeatureRows adds up every device's daily rows from sinceDay on, and returns them with the number of cycles the sensor listened through on each
@@ -161,7 +172,7 @@ type FeatureRow struct {
 func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, map[int64]int, error) {
 	// A device with no row in the window is still a row here (it has been heard, and has not yet been through a finished cycle), so every
 	// device is sorted and the card and the list agree. The owner's devices are listed only once they have a row.
-	rows, err := s.db.QueryContext(ctx, `SELECT d.tag, d.owner, d.label, d.class, d.class_ver, d.random, d.joined_own,
+	rows, err := s.db.QueryContext(ctx, `SELECT d.tag, d.owner, d.label, d.class, d.class_ver, d.random, d.joined_own, d.maker, d.wifi_gen,
 			COALESCE(min(x.day), d.first_day), COALESCE(max(x.day), d.last_day), count(x.day), COALESCE(sum(x.cycles), 0), COALESCE(sum(x.frames), 0), COALESCE(sum(x.retries), 0),
 			COALESCE(group_concat(x.channels), ''), COALESCE(sum(x.sig_n), 0), COALESCE(sum(x.sig_sum), 0), COALESCE(sum(x.sig_sq), 0), max(x.sig_max)
 		FROM devices d LEFT JOIN daily x ON x.tag = d.tag AND x.day >= ?1
@@ -175,7 +186,7 @@ func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, 
 		var r FeatureRow
 		var mx sql.NullInt64
 		var masks string
-		if err := rows.Scan(&r.Tag, &r.Owner, &r.Label, &r.Class, &r.ClassVer, &r.Random, &r.JoinedOwn,
+		if err := rows.Scan(&r.Tag, &r.Owner, &r.Label, &r.Class, &r.ClassVer, &r.Random, &r.JoinedOwn, &r.Maker, &r.WifiGen,
 			&r.FirstDay, &r.LastDay, &r.Days, &r.Cycles, &r.Frames, &r.Retries, &masks, &r.SigN, &r.SigSum, &r.SigSq, &mx); err != nil {
 			return nil, nil, err
 		}
@@ -419,4 +430,31 @@ func (s *Store) firstChannelOf(ctx context.Context, tag []byte) (int, error) {
 		return 0, nil
 	}
 	return firstChannel(uint64(mask.Int64)), err
+}
+
+// NetInfo is the Wi-Fi generation a beacon announced for the device that sent it.
+type NetInfo struct {
+	Tag []byte
+	Gen int
+}
+
+// SetWifiGenerations writes what beacons announced onto the device rows of the access points that sent them. A device with no row is left alone:
+// it is not in the picture, so there is nothing to describe yet. The generation only grows.
+func (s *Store) SetWifiGenerations(ctx context.Context, infos []NetInfo) error {
+	if len(infos) == 0 {
+		return nil
+	}
+	return s.write(ctx, func() error {
+		tx, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		for _, n := range infos {
+			if _, err := tx.ExecContext(ctx, `UPDATE devices SET wifi_gen = max(wifi_gen, ?) WHERE tag = ? AND owner = 0`, n.Gen, n.Tag); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	})
 }

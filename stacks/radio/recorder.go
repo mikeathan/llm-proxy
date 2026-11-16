@@ -34,6 +34,8 @@ type Recorder struct {
 	sighted    map[string]*sighting // what is already written of each sender this cycle, so a repeat frame inside it costs no write
 	ownNames   map[string]bool
 	ownAPs     map[string]bool
+	apNets     map[MAC]apNet     // the networks beacons announced this cycle, until the cycle ends (the address is only ever in memory)
+	netNames   map[string]string // device tag to the network name it broadcasts: memory only, per run, never written (ADR-0053)
 	live       map[string]*liveDev
 	tracks     map[string][]trackPt // memory only, per run (live.go)
 	trackHours atomic.Int32         // 0: nothing finer than a day goes to the disk (ADR-0055)
@@ -60,7 +62,7 @@ func (r *Recorder) AddOwnerDeviceClass(ctx context.Context, mac MAC, label strin
 	if err != nil {
 		return err
 	}
-	if err := r.store.SeenDevice(ctx, Seen{Tag: tag, Owner: true, Sealed: sealed, Label: label, Class: string(class), At: at}); err != nil {
+	if err := r.store.SeenDevice(ctx, Seen{Tag: tag, Owner: true, Sealed: sealed, Label: label, Class: string(class), Maker: MakerOf(mac), At: at}); err != nil {
 		return err
 	}
 	r.cmu.Lock()
@@ -108,6 +110,7 @@ func (r *Recorder) BeginCycle() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
 	r.cycle = map[string]*agg{}
+	r.apNets = nil
 	r.sighted = map[string]*sighting{}
 }
 
@@ -116,20 +119,23 @@ func (r *Recorder) BeginCycle() {
 func (r *Recorder) DropCycle() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.cycle, r.sighted = nil, nil
+	r.cycle, r.sighted, r.apNets = nil, nil, nil
 }
 
 // EndCycle writes the finished cycle and then lets the classifier look at what it changed.
 func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
 	r.cmu.Lock()
-	heard := r.cycle
-	r.cycle = nil
+	heard, nets := r.cycle, r.apNets
+	r.cycle, r.apNets = nil, nil
 	r.absorbCycle(heard, at)
 	r.cmu.Unlock()
 	if heard == nil {
 		return nil
 	}
 	if err := r.store.FlushCycle(ctx, at, heard); err != nil {
+		return err
+	}
+	if err := r.writeNetworks(ctx, nets); err != nil {
 		return err
 	}
 	if err := r.keepTrack(ctx, at, heard); err != nil {
@@ -251,7 +257,7 @@ func (r *Recorder) sight(ctx context.Context, tag []byte, f Frame, at time.Time)
 	r.cmu.Unlock()
 	owner, err := r.store.TouchOwner(ctx, tag, f.Signal, f.SignalOK, at)
 	if err == nil && !owner {
-		err = r.store.SeenDevice(ctx, Seen{Tag: tag, Signal: f.Signal, SignalOK: f.SignalOK, At: at})
+		err = r.store.SeenDevice(ctx, Seen{Tag: tag, Maker: MakerOf(f.Transmitter), Signal: f.Signal, SignalOK: f.SignalOK, At: at})
 	}
 	if err != nil {
 		return owner, err
@@ -302,6 +308,7 @@ func (r *Recorder) recordBeacon(ctx context.Context, f Frame, at time.Time) erro
 			return err
 		}
 	}
+	r.noteNetwork(f)
 	return r.store.SeenBeacon(ctx, Beacon{Tag: tag, Name: f.SSID, Security: string(f.Security.Mode), Channel: f.Channel, Signal: f.Signal, SignalOK: f.SignalOK, At: at})
 }
 
@@ -362,6 +369,9 @@ func (r *Recorder) ForgetNeighbours(ctx context.Context) error {
 	}
 	retag := make(map[string][]byte, len(owners))
 	for _, o := range owners {
+		if len(o.Sealed) == 0 {
+			continue // marked from the radar: only its tag was ever known, so it cannot be tagged again and ends with the rotation
+		}
 		mac, err := r.vault.Open(ctx, sealOwner, o.Sealed)
 		if err != nil {
 			continue // a row that will not open is dropped by Rotate
@@ -396,4 +406,81 @@ func (r *Recorder) ForgetNeighbours(ctx context.Context) error {
 	r.sighted = map[string]*sighting{} // every tag of the old epoch is gone
 	r.cmu.Unlock()
 	return r.RefreshOwnAPs(ctx)
+}
+
+// apNet is what a beacon said about the access point that sent it.
+type apNet struct {
+	name string
+	gen  int
+}
+
+// maxCycleNets bounds the networks one cycle remembers: a flood of forged beacons cannot grow it.
+const maxCycleNets = 512
+
+// noteNetwork remembers a beacon's network name and generation until the cycle ends, when they are written onto the access point's device row.
+func (r *Recorder) noteNetwork(f Frame) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	if r.cycle == nil || (f.SSID == "" && f.Beacon.Generation == 0) {
+		return
+	}
+	if r.apNets == nil {
+		r.apNets = map[MAC]apNet{}
+	}
+	if _, known := r.apNets[f.BSSID]; !known && len(r.apNets) >= maxCycleNets {
+		return
+	}
+	n := r.apNets[f.BSSID]
+	if f.SSID != "" {
+		n.name = f.SSID
+	}
+	n.gen = max(n.gen, f.Beacon.Generation)
+	r.apNets[f.BSSID] = n
+}
+
+// writeNetworks tags the remembered access points, writes the Wi-Fi generation their beacons announced onto their device rows and keeps the
+// network names in memory for the run: a neighbour's network name is shown while it is heard and is never written to the disk.
+func (r *Recorder) writeNetworks(ctx context.Context, nets map[MAC]apNet) error {
+	infos := make([]NetInfo, 0, len(nets))
+	names := make(map[string]string, len(nets))
+	for mac, n := range nets {
+		tag, err := r.tag(ctx, tagDevice, mac[:])
+		if err != nil {
+			return err
+		}
+		infos = append(infos, NetInfo{Tag: tag, Gen: n.gen})
+		if n.name != "" {
+			names[string(tag)] = n.name
+		}
+	}
+	r.rememberNames(names)
+	return r.store.SetWifiGenerations(ctx, infos)
+}
+
+// rememberNames adds network names to the run's memory, bounded like the live picture.
+func (r *Recorder) rememberNames(names map[string]string) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	if r.netNames == nil {
+		r.netNames = map[string]string{}
+	}
+	for tag, name := range names {
+		if _, known := r.netNames[tag]; known || len(r.netNames) < liveMaxDevices {
+			r.netNames[tag] = name
+		}
+	}
+}
+
+// NetworkName is the name the device with this tag broadcasts as a network, when it is an access point heard this run.
+func (r *Recorder) NetworkName(tag []byte) string {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	return r.netNames[string(tag)]
+}
+
+// ForgetSighting drops what the open cycle remembers of one device, so its next frame is read afresh (for one that has just been marked as the owner's).
+func (r *Recorder) ForgetSighting(tag []byte) {
+	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	delete(r.sighted, string(tag))
 }

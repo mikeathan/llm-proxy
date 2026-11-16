@@ -60,11 +60,12 @@ const LIVE = {
   rings: { room: 2, house: 2, nearby: 2 }, cycle_seconds: 300, last_cycle_at: Math.floor(Date.now() / 1000) - 100, listened_cycles: 5, min_listened_cycles: 12,
   devices: [
     { id: 'ab', mine: true, label: 'my phone', class: 'personal', dbm: -48, near_m: 1.4, far_m: 3.2, ring: 'room', angle: 40, trend: 'steady', channel: 6, heard: true, tail_m: [2.4, 2.2, 2.3, 2.2] },
-    { id: 'c0ffee11', mine: false, class: 'infrastructure', dbm: -55, near_m: 2.1, far_m: 6, ring: 'room', angle: 130, trend: 'steady', channel: 6, heard: true },
+    { id: 'c0ffee11', mine: false, class: 'infrastructure', dbm: -55, near_m: 2.1, far_m: 6, ring: 'room', angle: 130, trend: 'steady', channel: 6, heard: true, network: 'netsink-2G', last_at: Math.floor(Date.now() / 1000) - 40, tail_m: [4, 4, 3.9, 4],
+      detail: { id: 'c0ffee11', class: 'infrastructure', why: 'always_here_steady_signal', signal: 'strong', first_seen: '2026-11-06', last_seen: '2026-11-14', cycles_heard: 118, need_heard: 12, retry_percent: 0, channels: [6], random_address: false, joined_own: false, maker: 'TP-Link', wifi_generation: 5 } },
     { id: 'a1b2c3d4', mine: false, class: 'unknown', dbm: -62, near_m: 3, far_m: 11, ring: 'house', angle: 215, trend: 'closer', channel: 60, heard: true, unusual: true, usual_dbm: -78, shift_db: 16,
       tail_m: [14, 11, 8, 5, 3.5], detail: { id: 'a1b2c3d4', class: 'unknown', why: 'needs_more_listening', signal: 'weak', first_seen: '2026-11-12', last_seen: '2026-11-14', cycles_heard: 2, need_heard: 3, retry_percent: 12, channels: [1, 11, 60], random_address: false, joined_own: false } },
     { id: 'e5f6a7b8', mine: false, class: 'neighbour', dbm: -70, near_m: 5, far_m: 24, ring: 'house', angle: 300, trend: 'away', channel: 11, heard: false },
-    { id: '99aa00bb', mine: false, class: 'neighbour', dbm: -78, near_m: 8, far_m: 48, ring: 'nearby', angle: 75, trend: 'unknown', channel: 1, heard: true },
+    { id: '99aa00bb', mine: false, class: 'neighbour', last_at: Math.floor(Date.now() / 1000) - 300, dbm: -78, near_m: 8, far_m: 48, ring: 'nearby', angle: 75, trend: 'unknown', channel: 1, heard: true },
     { id: '12ab34cd', mine: false, class: 'transient', dbm: -84, near_m: 14, far_m: 100, ring: 'nearby', angle: 255, trend: 'unknown', channel: 36, heard: true },
     { id: 'beefcafe', mine: true, label: 'my laptop', class: 'infrastructure', dbm: -52, near_m: 1.7, far_m: 4.5, ring: 'room', angle: 170, trend: 'unknown', channel: 36, heard: false, usual: true },
     { id: '0badf00d', mine: false, class: 'infrastructure', dbm: -66, near_m: 4, far_m: 16, ring: 'house', angle: 20, trend: 'unknown', channel: 6, heard: false, usual: true },
@@ -136,24 +137,57 @@ test('Around you: the status line, the radar with one list, the device opened be
   await expect(page.locator('[data-test="radio-status-next"]')).toContainText('Next reading in')
   await expect(page.locator('[data-test="radio-status-sorting"]')).toContainText('Sorting starts after 12 cycles (5 done)')
   await expect(page.locator('[data-test="radio-radar-summary"]')).toContainText('6 devices heard now, 1 of them yours')
-  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(9)
-  await expect(page.locator('[data-test="radio-dot"][data-usual="1"]')).toHaveCount(3)
-  await expect(page.locator('[data-test="radio-dot-label"]')).toHaveText('my phone')
-  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(6)
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(6) // the three usually here stay out until asked for
+  await expect(page.locator('[data-test="radio-dot-label"]')).toHaveText('my phone · 1.4–3.2 m')
+  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(7)
+  await expect(page.locator('[data-test="radio-row-title"]').first()).toBeVisible()
   await page.locator('[data-filter="neighbour"]').click()
   await expect(page.locator('[data-test="radio-radar-row"]')).toHaveCount(2)
   await page.locator('[data-filter="all"]').click()
   await page.locator('[data-test="radio-usual-toggle"]').click()
   await expect(page.locator('[data-test="radio-radar-row"][data-usual="1"]')).toHaveCount(3)
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(9)
   await page.locator('[data-test="radio-radar-row"]', { hasText: 'a1b2c3d4' }).locator('button').click()
   await expect(page.locator('[data-test="radio-radar-chosen"]')).toContainText('dBm on channel')
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(1) // a picked device is drawn alone
   await expect(page.locator('[data-test="radio-air-waiting"]')).toContainText('Waiting:')
   await expect(page.locator('[data-test="radio-track"] svg')).toBeVisible()
   await expect(page.locator('[data-test="radio-track-line"]')).toHaveCount(2)
   await page.locator('[data-test="radio-guide"] summary').click()
   await expect(page.locator('[data-test="radio-around-provisional"]')).toContainText('first draft')
-  await expect(page.locator('[data-test="radio-air-busiest"]')).toHaveText('Busiest: channel 6, 12 devices.')
   await lookAt(page, testInfo, 'around-you', true)
+  await expectNoSidewaysScroll(page)
+  await touchTargets(page, testInfo)
+})
+
+test('Around you: what a device is (maker, Wi-Fi, network), the switches, naming one, and the other two views', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: ANSWERS })
+  await page.goto('radio/around')
+  await expect(page.locator('[data-test="radio-row-title"]', { hasText: 'netsink-2G' })).toBeVisible()
+  await page.locator('[data-test="radio-radar-row-button"]', { hasText: 'netsink-2G' }).click()
+  await expect(page.locator('[data-test="radio-detail-maker"]')).toHaveText('TP-Link')
+  await expect(page.locator('[data-test="radio-detail-network"]')).toHaveText('netsink-2G')
+  await expect(page.locator('[data-test="radio-detail-facts"]')).toContainText('Wi-Fi 5')
+  await expect(page.locator('[data-test="radio-focus-note"]')).toContainText('Showing only netsink-2G')
+  await page.locator('[data-test="radio-focus-all"]').click()
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(6)
+  await page.locator('[data-test="radio-toggle-range"]').click()
+  await page.locator('[data-test="radio-toggle-spoke"]').click()
+  await expect(page.locator('[data-test="radio-dot-spoke"]')).toHaveCount(6)
+  await page.locator('[data-test="radio-mark-open"]').click()
+  await expect(page.locator('[data-test="radio-mark-input"]')).toBeVisible()
+  await page.locator('[data-test="radio-find-open"]').click()
+  await expect(page.locator('[data-test="radio-find-candidate"]')).toHaveCount(3)
+  await lookAt(page, testInfo, 'around-you-device', true)
+  await page.locator('[data-test="radio-view-select"]').selectOption('changes')
+  await expect(page.locator('[data-test="radio-view-changes"]')).toBeVisible()
+  await expect(page.locator('[data-test="radio-change"]').first()).toBeVisible()
+  await lookAt(page, testInfo, 'around-you-changes', true)
+  await page.locator('[data-test="radio-view-select"]').selectOption('channels')
+  await expect(page.locator('[data-test="radio-channels-headline"]')).toContainText('netsink is on channel 60')
+  await page.locator('[data-channel="6"]').click()
+  await expect(page.locator('[data-test="radio-channel-note"]')).toContainText('channel 6')
+  await lookAt(page, testInfo, 'around-you-channels', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)
 })

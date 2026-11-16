@@ -130,7 +130,7 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: DevicesPath}, {Method: http.MethodPost, Path: DevicesPath}, {Method: http.MethodDelete, Path: DevicePath},
 			{Method: http.MethodPost, Path: ForgetPath},
 			{Method: http.MethodGet, Path: AirPath}, {Method: http.MethodGet, Path: AirDevicesPath}, {Method: http.MethodGet, Path: AirwavesPath},
-			{Method: http.MethodGet, Path: LivePath}, {Method: http.MethodPost, Path: CalibratePath}, {Method: http.MethodGet, Path: TrackPath},
+			{Method: http.MethodGet, Path: LivePath}, {Method: http.MethodPost, Path: CalibratePath}, {Method: http.MethodPost, Path: MarkMinePath}, {Method: http.MethodGet, Path: TrackPath},
 			{Method: http.MethodGet, Path: KeepPath}, {Method: http.MethodPut, Path: KeepPath}, {Method: http.MethodDelete, Path: KeepPath},
 			{Method: http.MethodGet, Path: PresencePath}, {Method: http.MethodGet, Path: DigestPath},
 			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
@@ -200,7 +200,7 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return s.handleDigest(ctx, req)
 	case DevicesPath, DevicePath, ForgetPath, PresencePath:
 		return s.handleDevices(ctx, req)
-	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, TrackPath, KeepPath, NetworksPath, NetworkPath, NetworkConfirmPath:
+	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, MarkMinePath, TrackPath, KeepPath, NetworksPath, NetworkPath, NetworkConfirmPath:
 		return s.handleAir(ctx, req)
 	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {
@@ -280,7 +280,7 @@ func (s *Stack) listeningAdapter() string {
 
 // wildcardRoutes are the routes of this stack that carry a {id} segment. The core hands Handle the path as it was requested
 // (".../track/9714bc3d"), not the pattern the route was declared with, so dispatch first maps it back to the pattern.
-var wildcardRoutes = []string{DevicePath, CalibratePath, TrackPath, NetworkPath, NetworkConfirmPath}
+var wildcardRoutes = []string{DevicePath, CalibratePath, MarkMinePath, TrackPath, NetworkPath, NetworkConfirmPath}
 
 // fixedRoutes are the routes a wildcard route would also match ("/devices/mine/presence" against ".../mine/{id}"); like the core's
 // router, a fixed route wins over a wildcard.
