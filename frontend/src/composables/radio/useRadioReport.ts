@@ -24,6 +24,9 @@ export function useRadioReport() {
   const { writeFile } = useWorkspaceFileWriter()
   const automation = ref<Automation | null>(null)
   const workspaces = ref<string[]>([])
+  // The last run's saved report: the clean text the run wrote, not the run's log (last_output is the log, with the executor's own lines around it).
+  const report = ref('')
+  let reportPath = ''
   // Whether a watch is running: one look, not a second poller (the Listening panel owns the polling).
   const listening = ref<boolean | null>(null)
   const error = ref('')
@@ -42,6 +45,7 @@ export function useRadioReport() {
       listening.value = state
       automation.value = all.find((a) => a.name === RADIO_REPORT_ID) ?? null
       settle()
+      await loadReport()
       workspaces.value = spaces.map((w) => w.id)
       error.value = ''
     } catch (err) {
@@ -50,8 +54,23 @@ export function useRadioReport() {
     sync()
   }
 
-  /** What tells one result from the next: the number of runs kept and the last output and error. */
-  const marker = (a: Automation | null): string => `${a?.history?.length ?? 0}|${a?.last_output ?? ''}|${a?.last_error ?? ''}`
+  /** Reads the saved report when the last run's report is a different file from the one shown. A failed read is tried again at the next look. */
+  async function loadReport(): Promise<void> {
+    const a = automation.value
+    const path = a?.last_report_path ?? ''
+    if (path === reportPath) return
+    reportPath = path
+    report.value = ''
+    if (!a || !path) return
+    try {
+      report.value = await DispatcherService.readWorkspaceFile(a.workspace, path)
+    } catch {
+      reportPath = ''
+    }
+  }
+
+  /** What tells one result from the next: the number of runs kept, the last saved report and the last error. */
+  const marker = (a: Automation | null): string => `${a?.history?.length ?? 0}|${a?.last_report_path ?? ''}|${a?.last_error ?? ''}`
 
   /** Ends the wait once the pressed run has been seen going and gone, a new result is there, or too many looks found it idle. */
   function settle(): void {
@@ -116,5 +135,5 @@ export function useRadioReport() {
   }
 
   onBeforeUnmount(() => { if (timer) clearInterval(timer) })
-  return { automation, workspaces, listening, error, busy, waiting, load, setUp, analyse }
+  return { automation, workspaces, report, listening, error, busy, waiting, load, setUp, analyse }
 }

@@ -24,7 +24,7 @@ describe('device description', () => {
   })
 
   it('says the kind, the Wi-Fi generation and the channel, and keeps the maker beside a network name', () => {
-    expect(deviceFacts(dev({ detail: detail({ wifi_generation: 5 }) }))).toEqual(['Always here', 'Wi-Fi 5', 'channel 36, 5 GHz'])
+    expect(deviceFacts(dev({ detail: detail({ wifi_generation: 5 }) }))).toEqual(['Always here', 'Access point', 'Wi-Fi 5', 'channel 36, 5 GHz'])
     expect(deviceFacts(dev({ mine: true, label: 'x' }))).toEqual(['channel 36, 5 GHz'])
     expect(deviceMakerNote(dev({ network: 'netsink', detail: detail({ maker: 'TP-Link' }) }))).toBe('TP-Link')
     expect(deviceMakerNote(dev({ detail: detail({ maker: 'TP-Link' }) }))).toBe('')

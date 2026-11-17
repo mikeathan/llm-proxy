@@ -9,10 +9,11 @@ import RadioFindings from '../../../components/radio/RadioFindings.vue'
 import { useNetauditViewMode } from '../../../composables/netaudit/useNetauditViewMode'
 
 const digest = (over: Partial<RadioDigest> = {}): RadioDigest => ({
-  listening: { cycles: 30, min_cycles: 12, window_days: 7, cycles_last_24h: 30 },
+  listening: { cycles: 30, min_cycles: 12, window_days: 7, cycles_last_24h: 30, now: true, hours_left: 100 },
+  classifier: { version: 2, provisional: true },
   own: { devices: 2, access_points: 3, confirmed_access_points: 2 },
   others: [],
-  findings: [{ id: 'radio_rogue_twin', tier: 'seen', count: 1, claim: 'An access point that you have not confirmed is broadcasting the name of one of your own networks.' }],
+  findings: [{ id: 'radio_rogue_twin', tier: 'seen', count: 1, claim: 'Access points that you have not confirmed are broadcasting the name of one of your own networks.', means: 'A neighbour’s network or a repeater can share a name, so these are candidates, not proof.' }],
   could_not_see: [{ id: 'radio_hidden_ap_near', reason: 'A beacon’s signal strength is not kept per access point.' }],
   ...over,
 })
@@ -33,9 +34,10 @@ describe('RadioFindings', () => {
   it('shows each finding in the stack’s own words with how it is known', async () => {
     const w = await show()
     const f = w.get('[data-test="radio-finding"]')
-    expect(f.text()).toContain('An access point that you have not confirmed')
+    expect(f.text()).toContain('Access points that you have not confirmed')
     expect(f.get('[data-test="radio-finding-tier"]').text()).toBe('Seen')
     expect(f.get('[data-test="radio-finding-count"]').text()).toBe('1 case')
+    expect(f.get('[data-test="radio-finding-means"]').text()).toContain('candidates, not proof')
   })
 
   it('says a quiet list is not a clean bill when checks cannot run, and names them in Advanced', async () => {
@@ -51,7 +53,7 @@ describe('RadioFindings', () => {
     service.digest.mockResolvedValue(digest({ findings: [] }))
     let w = await show()
     expect(w.get('[data-test="radio-findings-none"]').text()).toContain('Nothing to look at')
-    service.digest.mockResolvedValue(digest({ findings: [], listening: { cycles: 2, min_cycles: 12, window_days: 7, cycles_last_24h: 2 } }))
+    service.digest.mockResolvedValue(digest({ findings: [], listening: { cycles: 2, min_cycles: 12, window_days: 7, cycles_last_24h: 2, now: false } }))
     w = await show()
     expect(w.get('[data-test="radio-findings-thin"]').text()).toContain('Keep listening')
   })

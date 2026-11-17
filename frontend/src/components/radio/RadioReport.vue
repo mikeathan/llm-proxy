@@ -7,6 +7,7 @@ import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
 import FormField from "../common/forms/FormField.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import MarkdownViewer from "../common/display/MarkdownViewer.vue"
 import { useRadioReport } from "../../composables/radio/useRadioReport"
 import { useRadioSensors } from "../../composables/radio/useRadioSensors"
 import { toAutomation, toRadio } from "../../router/routes"
@@ -67,9 +68,9 @@ onMounted(async () => {
 
       <Callout v-if="r.error.value" tone="error" title="The report did not run"><span data-test="radio-report-error">{{ r.error.value }}</span></Callout>
       <Callout v-else-if="found?.last_error && !running" tone="error" title="The last run failed"><span data-test="radio-report-last-error">{{ found.last_error }}</span></Callout>
-      <div v-else-if="found?.last_output && !running" class="flex flex-col gap-1">
+      <div v-else-if="r.report.value && !running" class="flex flex-col gap-1">
         <span class="text-[length:var(--text-small)] text-secondary">{{ RADIO_REPORT_LAST }}</span>
-        <p class="m-0 whitespace-pre-wrap text-primary" data-test="radio-report-output">{{ found.last_output }}</p>
+        <MarkdownViewer :content="r.report.value" data-test="radio-report-output" />
       </div>
     </div>
   </Panel>

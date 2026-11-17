@@ -26,17 +26,24 @@ const (
 	maxCount   = 1_000_000
 )
 
-// claims are the words of each finding, in the order a report reads them (worst first). The ids and the words are held to the stack's by a test
-// in the service (TestRadioDigestTool_TheCoreHasWordsForEveryFindingTheStackOffers).
-var claims = []struct{ id, words string }{
-	{"radio_rogue_twin", "An access point that you have not confirmed is broadcasting the name of one of your own networks. It may be a neighbour's, a repeater or an impostor."},
-	{"radio_deauth_burst", "One sender transmitted a burst of deauthentication frames in the last two days. That is how devices are knocked off a network, and also what some routers do when they change channel."},
-	{"radio_open_or_weak_ap", "One of your confirmed access points is open or uses an outdated protection (open, WEP or WPA)."},
-	{"radio_pmf_off", "One of your confirmed WPA2 access points does not protect its management frames, so a device can be disconnected by a forged frame."},
-	{"radio_join_foreign_network", "One of your devices tried to join a network that is not yours."},
-	{"radio_hidden_ap_near", "A hidden network is close to the house."},
-	{"radio_unknown_strong_device", "A device that no rule can place has a strong signal: it is close to the house and has been heard often enough to be sorted."},
-	{"radio_sensor_blind", "The sensor has not finished a listening cycle in the last day, so nothing new is known about the air."},
+// claims are the words of each finding, in the order a report reads them (worst first): what the evidence is, and what it usually means and how much
+// it matters, both fixed and hedged. The ids and the words are held to the stack's by a test in the service
+// (TestRadioDigestTool_TheCoreHasWordsForEveryFindingTheStackOffers). The owner approves them.
+var claims = []struct{ id, words, means string }{
+	{"radio_rogue_twin", "Access points that you have not confirmed are broadcasting the name of one of your own networks. They may be a neighbour's, a repeater or an impostor.",
+		"A neighbour's network or a repeater can share a name, so these are candidates, not proof. Under Your networks you confirm which access points are yours."},
+	{"radio_deauth_burst", "Senders that transmitted a burst of deauthentication frames in the last two days. That is how devices are knocked off a network, and also what some routers do when they change channel.",
+		"A router that changes channel can do this too, so one burst is not proof of an attack. Repeated bursts from the same sender are worth a look."},
+	{"radio_open_or_weak_ap", "Confirmed access points of yours that are open or use an outdated protection (open, WEP or WPA).",
+		"These protections are weak or absent. Most routers offer WPA2 or WPA3 in their wireless settings."},
+	{"radio_pmf_off", "Confirmed WPA2 access points of yours that do not protect their management frames, so a device can be disconnected by a forged frame.",
+		"Common on home routers and low risk on its own: someone nearby could disconnect a device, not read what it sends. Where the router offers protected management frames (802.11w), turning it on closes this."},
+	{"radio_join_foreign_network", "Devices of yours that tried to join a network that is not yours.",
+		"Phones and laptops often try networks they have seen before, such as a café or a neighbour's. It is worth a look only if it keeps happening."},
+	{"radio_hidden_ap_near", "Hidden networks that are close to the house.",
+		"Hidden networks are common (some routers, printers and smart-home devices hide theirs) and are not a sign of attack on their own."},
+	{"radio_sensor_blind", "The sensor has not finished a listening cycle in the last day, so nothing new is known about the air.",
+		"Start a watch on the Listening tab. The adapter may also have been unplugged."},
 }
 
 var (
@@ -44,17 +51,17 @@ var (
 	classes = []string{"infrastructure", "personal", "neighbour", "transient", "unknown"}
 )
 
-func wordsOf(id string) (string, bool) {
+func wordsOf(id string) (words, means string, ok bool) {
 	for _, c := range claims {
 		if c.id == id {
-			return c.words, true
+			return c.words, c.means, true
 		}
 	}
-	return "", false
+	return "", "", false
 }
 
-// Words is the core's wording of a finding id, so a test can hold it to the stack's.
-func Words(id string) (string, bool) { return wordsOf(id) }
+// Words is the core's wording of a finding id and its "what this usually means" line, so a test can hold them to the stack's.
+func Words(id string) (words, means string, ok bool) { return wordsOf(id) }
 
 // FindingIDs lists the finding ids the core has words for, so a test can hold them to the stack's.
 func FindingIDs() []string {
@@ -109,6 +116,7 @@ type found struct {
 	Tier  string `json:"tier"`
 	Count int    `json:"count"`
 	Claim string `json:"claim"`
+	Means string `json:"what_it_usually_means"`
 }
 type told struct {
 	Listening struct {
@@ -119,6 +127,7 @@ type told struct {
 		HoursLeft    int  `json:"watch_hours_left,omitempty"`
 	} `json:"listening"`
 	Classifier    string      `json:"classifier"`
+	OthersTotal   int         `json:"other_peoples_devices_total"`
 	Own           string      `json:"own"`
 	Others        []kindCount `json:"other_peoples_devices_by_kind"`
 	Findings      []found     `json:"findings"`
@@ -163,32 +172,58 @@ func tell(h heard) told {
 	var t told
 	t.Listening.Cycles, t.Listening.MinCycles, t.Listening.CyclesLast24 = clamp(h.Listening.Cycles), clamp(h.Listening.MinCycles), clamp(h.Listening.CyclesLast24)
 	t.Listening.WatchNow, t.Listening.HoursLeft = h.Listening.Now, clamp(h.Listening.HoursLeft)
-	t.Classifier = fmt.Sprintf("kinds of device are sorted by rules version %d%s", max(h.Classifier.Version, 0), map[bool]string{true: ", which are provisional: a first guess, not a fitted result", false: ""}[h.Classifier.Provisional])
+	t.Classifier = fmt.Sprintf("kinds of device are sorted by rule set number %d", max(h.Classifier.Version, 0))
+	if h.Classifier.Provisional {
+		t.Classifier = "kinds of device are sorted by a first-guess (provisional) rule set, not yet fitted to this house's air"
+	}
 	t.Own = fmt.Sprintf("%d of the owner's devices, %d access points (%d confirmed)", clamp(h.Own.Devices), clamp(h.Own.APs), clamp(h.Own.Confirmed))
-	t.Others, t.Findings = []kindCount{}, []found{}
-	for _, o := range h.Others {
-		if !slices.Contains(classes, o.Class) || !slices.Contains(tiers, o.Tier) || len(t.Others) >= maxEntries {
-			t.NotRecognised++
-			continue
-		}
-		t.Others = append(t.Others, kindCount{o.Class, clamp(o.Count), o.Tier})
-	}
-	for _, f := range h.Findings {
-		words, ok := wordsOf(f.ID)
-		if !ok || !slices.Contains(tiers, f.Tier) || len(t.Findings) >= maxEntries {
-			t.NotRecognised++
-			continue
-		}
-		t.Findings = append(t.Findings, found{f.ID, f.Tier, clamp(f.Count), words})
-	}
-	for _, c := range h.CouldNotSee {
-		if _, ok := wordsOf(c.ID); !ok || len(t.CouldNotRun) >= maxEntries {
-			t.NotRecognised++
-			continue
-		}
-		t.CouldNotRun = append(t.CouldNotRun, c.ID)
-	}
+	t.Others, t.OthersTotal, t.NotRecognised = tellOthers(h)
+	var dropped int
+	t.Findings, dropped = tellFindings(h)
+	t.NotRecognised += dropped
+	t.CouldNotRun, dropped = tellUnseen(h)
+	t.NotRecognised += dropped
 	return t
+}
+
+// tellOthers keeps the counts of other people's devices whose kind and tier the core knows, with their total and how many it left out.
+func tellOthers(h heard) (kept []kindCount, total, dropped int) {
+	kept = []kindCount{}
+	for _, o := range h.Others {
+		if !slices.Contains(classes, o.Class) || !slices.Contains(tiers, o.Tier) || len(kept) >= maxEntries {
+			dropped++
+			continue
+		}
+		kept = append(kept, kindCount{o.Class, clamp(o.Count), o.Tier})
+		total += clamp(o.Count)
+	}
+	return kept, total, dropped
+}
+
+// tellFindings words each finding the core knows from its own table, and counts the ones it does not.
+func tellFindings(h heard) (kept []found, dropped int) {
+	kept = []found{}
+	for _, f := range h.Findings {
+		words, means, ok := wordsOf(f.ID)
+		if !ok || !slices.Contains(tiers, f.Tier) || len(kept) >= maxEntries {
+			dropped++
+			continue
+		}
+		kept = append(kept, found{f.ID, f.Tier, clamp(f.Count), words, means})
+	}
+	return kept, dropped
+}
+
+// tellUnseen keeps the ids of checks that could not run, when the core knows the check.
+func tellUnseen(h heard) (kept []string, dropped int) {
+	for _, c := range h.CouldNotSee {
+		if _, _, ok := wordsOf(c.ID); !ok || len(kept) >= maxEntries {
+			dropped++
+			continue
+		}
+		kept = append(kept, c.ID)
+	}
+	return kept, dropped
 }
 
 // header is fixed wording and numbers only. It says how much listening the claims rest on, and whether a watch is running, before it says what
@@ -206,6 +241,13 @@ func header(t told) string {
 		b.WriteString("There has been too little listening to sort devices or call the air quiet. ")
 	}
 	b.WriteString(t.Classifier + ". ")
+	if t.OthersTotal > 0 {
+		parts := make([]string, len(t.Others))
+		for i, o := range t.Others {
+			parts[i] = fmt.Sprintf("%d %s", o.Count, o.Class)
+		}
+		fmt.Fprintf(&b, "%d devices of other people are counted, by kind: %s. ", t.OthersTotal, strings.Join(parts, ", "))
+	}
 	switch n := len(t.Findings); n {
 	case 0:
 		b.WriteString("No findings. ")

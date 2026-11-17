@@ -319,10 +319,12 @@ export type RadioTier = 'seen' | 'inferred' | 'estimated'
 
 /** GET /admin/api/radio/digest: what the stack found, as fixed words and counts. No text a device chose is ever in it. */
 export interface RadioDigest {
-  listening: { cycles: number; min_cycles: number; window_days: number; cycles_last_24h: number }
+  listening: { cycles: number; min_cycles: number; window_days: number; cycles_last_24h: number; now: boolean; hours_left?: number }
+  /** Which rule set sorted the devices, and that it is provisional (a first guess, not fitted to the house's air). */
+  classifier: { version: number; provisional: boolean }
   own: { devices: number; access_points: number; confirmed_access_points: number }
   others: { class: RadioClass; count: number; tier: RadioTier }[]
-  findings: { id: string; tier: RadioTier; count: number; claim: string }[]
+  findings: { id: string; tier: RadioTier; count: number; claim: string; means: string }[]
   could_not_see: { id: string; reason: string }[]
 }
 

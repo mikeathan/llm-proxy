@@ -106,7 +106,7 @@ anything else), parsed in the unprivileged stack with strict bounds and fuzzing 
 ## 7. Findings, the digest and the agent
 
 The stack offers **findings by id** and the core words them (ADR-0036): `radio_rogue_twin` (same name, different or cloned address), `radio_deauth_burst`, `radio_open_or_weak_ap`, `radio_pmf_off` (management-frame
-protection off on the owner's network), `radio_hidden_ap_near`, `radio_unknown_strong_device`, `radio_join_foreign_network` (an owner device repeatedly trying another network), `radio_sensor_blind` (an adapter that cannot decode what the air carries).
+protection off on the owner's network), `radio_hidden_ap_near`, ~~`radio_unknown_strong_device`~~ (retired 2026-11-16: the rules' version 2 leaves no strong device unplaced, and it had fired on the owner's own access points), `radio_join_foreign_network` (an owner device repeatedly trying another network), `radio_sensor_blind` (an adapter that cannot decode what the air carries).
 For the agent: a **typed, bounded, read-only digest** (the precedent is `network_findings` and the audit window digest, ADR-0049): per owner's device presence, arrivals and departures, class changes, movement, anomaly counts, airtime shares, new
 classes near the house, each claim with a **confidence tier set by code** (seen, inferred, estimated), the sensors that saw it and a "could not see" list; every device-chosen string inside the untrusted-data fence (I.8); other people's devices
 only as counts by class. Two ways to use it: an automation template (nightly or weekly trends) and an **Analyse** button on the Radio page that runs the same tool and saves a report like the audit reports. The model words and interprets; code computes classes, positions and counts.

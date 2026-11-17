@@ -43,7 +43,7 @@ const (
 // The finding ids of plan §7. The stack offers ids; the wording is this table's, byte for byte (ADR-0036, ADR-0038 rule 1).
 var findingIDs = []string{
 	"radio_rogue_twin", "radio_deauth_burst", "radio_open_or_weak_ap", "radio_pmf_off",
-	"radio_hidden_ap_near", "radio_unknown_strong_device", "radio_join_foreign_network", "radio_sensor_blind",
+	"radio_hidden_ap_near", "radio_join_foreign_network", "radio_sensor_blind",
 }
 
 // FindingIDs lists every finding id the digest can carry, so a test in the service can hold the core's table of words to it.
@@ -52,15 +52,31 @@ func FindingIDs() []string { return slices.Clone(findingIDs) }
 // FindingWords is the stack's wording of each finding id, so the same test can hold the core's own table to it word for word.
 func FindingWords() map[string]string { return maps.Clone(claimWords) }
 
+// FindingMeanings is the stack's "what this usually means" line of each finding id, for the same parity test.
+func FindingMeanings() map[string]string { return maps.Clone(meaningWords) }
+
+// claimWords says what the evidence is, in words that do not depend on how many (the count is shown beside them): "access points", never "one access
+// point" beside a 3.
 var claimWords = map[string]string{
-	"radio_rogue_twin":            "An access point that you have not confirmed is broadcasting the name of one of your own networks. It may be a neighbour's, a repeater or an impostor.",
-	"radio_deauth_burst":          "One sender transmitted a burst of deauthentication frames in the last two days. That is how devices are knocked off a network, and also what some routers do when they change channel.",
-	"radio_open_or_weak_ap":       "One of your confirmed access points is open or uses an outdated protection (open, WEP or WPA).",
-	"radio_pmf_off":               "One of your confirmed WPA2 access points does not protect its management frames, so a device can be disconnected by a forged frame.",
-	"radio_hidden_ap_near":        "A hidden network is close to the house.",
-	"radio_unknown_strong_device": "A device that no rule can place has a strong signal: it is close to the house and has been heard often enough to be sorted.",
-	"radio_join_foreign_network":  "One of your devices tried to join a network that is not yours.",
-	"radio_sensor_blind":          "The sensor has not finished a listening cycle in the last day, so nothing new is known about the air.",
+	"radio_rogue_twin":           "Access points that you have not confirmed are broadcasting the name of one of your own networks. They may be a neighbour's, a repeater or an impostor.",
+	"radio_deauth_burst":         "Senders that transmitted a burst of deauthentication frames in the last two days. That is how devices are knocked off a network, and also what some routers do when they change channel.",
+	"radio_open_or_weak_ap":      "Confirmed access points of yours that are open or use an outdated protection (open, WEP or WPA).",
+	"radio_pmf_off":              "Confirmed WPA2 access points of yours that do not protect their management frames, so a device can be disconnected by a forged frame.",
+	"radio_hidden_ap_near":       "Hidden networks that are close to the house.",
+	"radio_join_foreign_network": "Devices of yours that tried to join a network that is not yours.",
+	"radio_sensor_blind":         "The sensor has not finished a listening cycle in the last day, so nothing new is known about the air.",
+}
+
+// meaningWords is what a finding usually means, in fixed hedged words, so a report or the page can say how much it matters without anyone improvising.
+// None names a router menu or promises a fix it cannot know about. They are the owner's to approve; the core holds the same table for the assistant.
+var meaningWords = map[string]string{
+	"radio_rogue_twin":           "A neighbour's network or a repeater can share a name, so these are candidates, not proof. Under Your networks you confirm which access points are yours.",
+	"radio_deauth_burst":         "A router that changes channel can do this too, so one burst is not proof of an attack. Repeated bursts from the same sender are worth a look.",
+	"radio_open_or_weak_ap":      "These protections are weak or absent. Most routers offer WPA2 or WPA3 in their wireless settings.",
+	"radio_pmf_off":              "Common on home routers and low risk on its own: someone nearby could disconnect a device, not read what it sends. Where the router offers protected management frames (802.11w), turning it on closes this.",
+	"radio_hidden_ap_near":       "Hidden networks are common (some routers, printers and smart-home devices hide theirs) and are not a sign of attack on their own.",
+	"radio_join_foreign_network": "Phones and laptops often try networks they have seen before, such as a café or a neighbour's. It is worth a look only if it keeps happening.",
+	"radio_sensor_blind":         "Start a watch on the Listening tab. The adapter may also have been unplugged.",
 }
 
 // couldNotSee is why a check cannot run, as a fixed phrase, keyed by finding id. A check that cannot run is not a clean result. Every check of plan
@@ -73,6 +89,8 @@ type DigestFinding struct {
 	Tier  string `json:"tier"`
 	Count int    `json:"count"`
 	Claim string `json:"claim"`
+	// Means is what it usually means and how much it matters, in fixed words.
+	Means string `json:"means"`
 }
 
 // DigestUnseen is a check that could not run, and why.
@@ -145,7 +163,7 @@ func (s *Stack) handleDigest(ctx context.Context, req stacksdk.Request) (stacksd
 
 func (s *Stack) digest(ctx context.Context, h stacksdk.Host, store *Store) (Digest, error) {
 	now := s.now()
-	rules, rows, listened, err := s.airRows(ctx, store)
+	rules, _, listened, err := s.airRows(ctx, store)
 	if err != nil {
 		return Digest{}, err
 	}
@@ -178,17 +196,16 @@ func (s *Stack) digest(ctx context.Context, h stacksdk.Host, store *Store) (Dige
 		tier string
 		n    int
 	}{
-		"radio_rogue_twin":            {TierSeen, twins},
-		"radio_open_or_weak_ap":       {TierSeen, weak},
-		"radio_pmf_off":               {TierSeen, noPMF},
-		"radio_deauth_burst":          {TierSeen, seen.bursts},
-		"radio_unknown_strong_device": {TierInferred, unknownStrong(rules, rows, listened, d.Listening)},
-		"radio_sensor_blind":          {TierSeen, blindCount(hours, d.Listening)},
-		"radio_join_foreign_network":  {TierSeen, seen.foreign},
-		"radio_hidden_ap_near":        {TierEstimated, seen.hidden},
+		"radio_rogue_twin":           {TierSeen, twins},
+		"radio_open_or_weak_ap":      {TierSeen, weak},
+		"radio_pmf_off":              {TierSeen, noPMF},
+		"radio_deauth_burst":         {TierSeen, seen.bursts},
+		"radio_sensor_blind":         {TierSeen, blindCount(hours, d.Listening)},
+		"radio_join_foreign_network": {TierSeen, seen.foreign},
+		"radio_hidden_ap_near":       {TierEstimated, seen.hidden},
 	} {
 		if c.n > 0 {
-			counts[id] = DigestFinding{ID: id, Tier: c.tier, Count: c.n, Claim: claimWords[id]}
+			counts[id] = DigestFinding{ID: id, Tier: c.tier, Count: c.n, Claim: claimWords[id], Means: meaningWords[id]}
 		}
 	}
 	for _, id := range findingIDs { // the table's order, so the same evidence reads the same
@@ -287,24 +304,6 @@ func ownAPFindings(aps []OwnAP) (twins, weak, noPMF, confirmed int) {
 		}
 	}
 	return twins, weak, noPMF, confirmed
-}
-
-// unknownStrong counts devices that no rule can place although the sensor has listened enough to sort them, and whose signal is strong.
-func unknownStrong(rules Rules, rows []FeatureRow, listened map[int64]int, l DigestListening) int {
-	if l.Cycles < l.MinCycles {
-		return 0
-	}
-	n := 0
-	for _, r := range rows {
-		if r.Owner {
-			continue
-		}
-		f := FeaturesOf(r, listened)
-		if cls, why := rules.Classify(f); cls == ClassUnknown && why == WhyNoRuleFits && signalBand(rules, f) == bandStrong {
-			n++
-		}
-	}
-	return n
 }
 
 // deauthSenders counts the senders with at least min deauthentication frames from sinceDay on.

@@ -150,6 +150,12 @@ export const RADIO_REASONS: Record<string, string> = {
   never_strong: 'its signal was never strong',
   strong_and_comes_and_goes: 'strong, and comes and goes',
   no_rule_fits: 'no rule fits yet',
+  owner_said: 'you said so',
+  first_look: 'a first look at it',
+  access_point_always_here: 'a Wi-Fi access point that is always here',
+  access_point_comes_and_goes: 'a Wi-Fi access point that comes and goes (a router, not a phone)',
+  always_here_signal_varies: 'always here, though its signal moves about',
+  maker_is_smart_home: 'made by a maker of smart-home modules',
   not_heard_lately: 'sorted before, and not heard in the last few days',
 }
 export const radioChangeLine = (n: number, from: string, to: string, reason: string): string => {
@@ -410,6 +416,8 @@ export const RADIO_MAKER_RANDOM = 'Random address'
 export const RADIO_MAKER_UNKNOWN = 'Maker not listed'
 export const RADIO_MAKER_RANDOM_HELP = 'Phones and laptops send a made-up address on purpose, so their maker cannot be read.'
 export const radioWifiWord = (generation: number): string => `Wi-Fi ${generation}`
+/** A device that sent beacons: it announces a network, so it is an access point (a phone does not). */
+export const RADIO_ACCESS_POINT = 'Access point'
 export const radioChannelBand = (channel: number): string => `channel ${channel}, ${radioBand(channel)}`
 export const radioHeardAgo = (secondsAgo: number): string => {
   if (secondsAgo < 90) return `heard ${Math.max(1, Math.round(secondsAgo))} s ago`
