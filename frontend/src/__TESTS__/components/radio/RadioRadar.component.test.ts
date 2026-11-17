@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { RadioLive, RadioLiveDevice } from '../../../types/radio'
 
@@ -30,8 +30,14 @@ beforeEach(() => {
   ] })
 })
 
+// Every wrapper is unmounted after its test: the radar polls on timers, and one left mounted ticks after the environment is torn down
+// (`document is not defined`), an uncaught error that fails the CI run although every test passed.
+const mounted: Array<{ unmount: () => void }> = []
+afterEach(() => { mounted.splice(0).forEach((w) => w.unmount()) })
+
 async function show() {
   const w = mount(RadioRadar, { global: { stubs: { RouterLink: { template: '<a data-test="radio-status-start"><slot /></a>' } } } })
+  mounted.push(w)
   await flushPromises()
   return w
 }
