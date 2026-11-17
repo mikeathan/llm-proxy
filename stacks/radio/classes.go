@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -43,7 +45,18 @@ const (
 	WhyOwnerSaid       Why = "owner_said"
 	WhyFirstClassified Why = "first_look"
 	WhyNotHeardLately  Why = "not_heard_lately"
+	// Version 2 (2026-11-16, from what vertex's air showed): an access point is a device whose beacon or probe response announced a Wi-Fi generation.
+	WhyAccessPointAlways    Why = "access_point_always_here"
+	WhyAccessPointSometimes Why = "access_point_comes_and_goes"
+	WhyAlwaysVaries         Why = "always_here_signal_varies"
+	WhySmartHomeMaker       Why = "maker_is_smart_home"
 )
+
+// Whys lists every reason the rules can give, so a test can hold the page's table of plain words to it.
+func Whys() []Why {
+	return []Why{WhyNeedsMore, WhyJoinsAlways, WhyJoinsSometimes, WhyAlwaysSteady, WhyBrief, WhyNeverStrong, WhyStrongOnAndOff, WhyNoRuleFits,
+		WhyOwnerSaid, WhyFirstClassified, WhyNotHeardLately, WhyAccessPointAlways, WhyAccessPointSometimes, WhyAlwaysVaries, WhySmartHomeMaker}
+}
 
 // Rules is one version of the classifier.
 type Rules struct {
@@ -64,16 +77,21 @@ type Rules struct {
 	// BriefDays and BriefShare: a device seen on at most BriefDays days and in at most BriefShare of the cycles is a passer-by.
 	BriefDays  int     `json:"brief_days"`
 	BriefShare float64 `json:"brief_share"`
+	// SmartHomeMakers are parts of a maker's name (lower case) whose devices are smart-home modules: always-on things that are heard part of the time.
+	// A small fixed list, provisional like the rest; a device on a random address is never sorted by its maker.
+	SmartHomeMakers []string `json:"smart_home_makers"`
 }
 
-// DefaultRules is version 1: provisional values chosen to be cautious (Unknown until there is evidence), not measured ones.
+// DefaultRules is version 2 (version 1 plus access points, always-here devices whose signal is not steady, and the smart-home makers): provisional
+// values chosen to be cautious (Unknown until there is evidence), not measured ones.
 func DefaultRules() Rules {
 	return Rules{
-		Version: 1, Provisional: true, WindowDays: 7,
+		Version: 2, Provisional: true, WindowDays: 7,
 		MinCyclesListened: 12, MinCyclesHeard: 3,
 		AlwaysShare: 0.8, SteadyStd: 5,
 		StrongDBm: -60, WeakDBm: -75,
 		BriefDays: 1, BriefShare: 0.15,
+		SmartHomeMakers: []string{"espressif", "tuya", "shelly"}, // each matches the embedded registry (checked: 420 Espressif or Tuya blocks, 1 Shelly)
 	}
 }
 
@@ -85,11 +103,14 @@ type Features struct {
 	SignalMax                         int
 	HasSignal                         bool
 	Random, JoinsOwn                  bool
+	// AccessPoint is set when a beacon or probe response from the device announced a Wi-Fi generation (a phone's probe request does not; a phone hotspot does); Maker is who its address block was assigned to.
+	AccessPoint bool
+	Maker       string
 }
 
 // FeaturesOf turns a device's rows into features. listened is the cycles the sensor listened through on each day.
 func FeaturesOf(r FeatureRow, listened map[int64]int) Features {
-	f := Features{Days: r.Days, CyclesHeard: r.Cycles, Random: r.Random, JoinsOwn: r.JoinedOwn}
+	f := Features{Days: r.Days, CyclesHeard: r.Cycles, Random: r.Random, JoinsOwn: r.JoinedOwn, AccessPoint: r.WifiGen > 0, Maker: r.Maker}
 	for day, n := range listened {
 		if day >= r.FirstDay {
 			f.CyclesListened += n
@@ -118,8 +139,19 @@ var ruleOrder = []rule{
 		return ClassInfrastructure, WhyJoinsAlways, f.JoinsOwn && f.Share >= r.AlwaysShare
 	},
 	func(_ Rules, f Features) (Class, Why, bool) { return ClassPersonal, WhyJoinsSometimes, f.JoinsOwn },
+	// An access point that was never strong is a neighbour's; one that is always here is the house's own (its signal wobbles, so steadiness is not asked).
+	func(r Rules, f Features) (Class, Why, bool) {
+		return ClassNeighbour, WhyNeverStrong, f.AccessPoint && f.HasSignal && f.SignalMax <= r.WeakDBm
+	},
+	func(r Rules, f Features) (Class, Why, bool) {
+		return ClassInfrastructure, WhyAccessPointAlways, f.AccessPoint && f.Share >= r.AlwaysShare
+	},
 	func(r Rules, f Features) (Class, Why, bool) {
 		return ClassInfrastructure, WhyAlwaysSteady, f.Share >= r.AlwaysShare && f.HasSignal && f.SignalStd <= r.SteadyStd && !f.Random
+	},
+	// Heard in nearly every cycle, signal steady or not: always on. (Version 1 had no rule here and left seven such devices unknown.)
+	func(r Rules, f Features) (Class, Why, bool) {
+		return ClassInfrastructure, WhyAlwaysVaries, f.Share >= r.AlwaysShare && !(f.HasSignal && f.SignalMax <= r.WeakDBm)
 	},
 	func(r Rules, f Features) (Class, Why, bool) {
 		return ClassTransient, WhyBrief, f.Days <= r.BriefDays && f.Share <= r.BriefShare
@@ -127,9 +159,23 @@ var ruleOrder = []rule{
 	func(r Rules, f Features) (Class, Why, bool) {
 		return ClassNeighbour, WhyNeverStrong, f.HasSignal && f.SignalMax <= r.WeakDBm
 	},
+	// A smart-home module is heard part of the time and sits in one place; a random address says nothing about its maker, so it is left to the rules below.
+	func(r Rules, f Features) (Class, Why, bool) {
+		return ClassInfrastructure, WhySmartHomeMaker, !f.Random && r.smartHome(f.Maker)
+	},
+	// A router that comes and goes is somebody's access point, never a personal device.
+	func(_ Rules, f Features) (Class, Why, bool) {
+		return ClassNeighbour, WhyAccessPointSometimes, f.AccessPoint
+	},
 	func(r Rules, f Features) (Class, Why, bool) {
 		return ClassPersonal, WhyStrongOnAndOff, f.HasSignal && f.SignalMax >= r.StrongDBm && f.Share < r.AlwaysShare
 	},
+}
+
+// smartHome says whether a maker's name is on the rules' list of smart-home module makers.
+func (r Rules) smartHome(maker string) bool {
+	name := strings.ToLower(maker)
+	return name != "" && slices.ContainsFunc(r.SmartHomeMakers, func(part string) bool { return part != "" && strings.Contains(name, part) })
 }
 
 // Classify applies the rules in order and says why; when none applies the answer is Unknown, which is not a guess.
@@ -147,23 +193,25 @@ const (
 	rulesCurrent = "classifier_current"
 )
 
-// CurrentRules reads the rules in force, seeding version 1 the first time.
+// CurrentRules reads the rules in force. A store that holds an older version than this code carries is moved to the code's: the new version is
+// published (its document is kept beside the old one) and becomes current, so the next ClassifyAll looks at every device again and logs each
+// class that changed with the new version and its reason. A newer version in the store (a fitted one) is left alone.
 func (s *Store) CurrentRules(ctx context.Context, at time.Time) (Rules, error) {
 	v, err := s.MetaInt(ctx, rulesCurrent)
 	if err != nil {
 		return Rules{}, err
 	}
-	if v > 0 {
+	latest := DefaultRules()
+	if v >= latest.Version {
 		var r Rules
 		if ok, err := s.GetDoc(ctx, fmt.Sprintf(rulesKey, v), &r); err != nil || ok {
 			return r, err
 		}
 	}
-	r := DefaultRules()
-	if err := s.PutDoc(ctx, fmt.Sprintf(rulesKey, r.Version), r, at); err != nil {
+	if err := s.PutDoc(ctx, fmt.Sprintf(rulesKey, latest.Version), latest, at); err != nil {
 		return Rules{}, err
 	}
-	return r, s.SetMetaInt(ctx, rulesCurrent, r.Version)
+	return latest, s.SetMetaInt(ctx, rulesCurrent, latest.Version)
 }
 
 // ClassifyAll runs the rules over every device with rows in the window and records each class that changed, with the reason. A device whose class

@@ -1,5 +1,5 @@
 import {
-  RADIO_CLASS_WORDS, RADIO_MAKER_RANDOM, RADIO_MAKER_UNKNOWN, radioChannelBand, radioDotLabel, radioHeardAgo, radioShiftWord, radioSortsIn, radioWifiWord,
+  RADIO_ACCESS_POINT, RADIO_CLASS_WORDS, RADIO_MAKER_RANDOM, RADIO_MAKER_UNKNOWN, radioChannelBand, radioDotLabel, radioHeardAgo, radioShiftWord, radioSortsIn, radioWifiWord,
 } from "../../constants/radio"
 import type { RadioDeviceTag, RadioLiveDevice } from "../../types/radio"
 
@@ -23,7 +23,7 @@ export function deviceLabel(d: RadioLiveDevice): string {
 export function deviceFacts(d: RadioLiveDevice): string[] {
   const out: string[] = []
   if (!d.mine) out.push(RADIO_CLASS_WORDS[d.class])
-  if (d.detail?.wifi_generation) out.push(radioWifiWord(d.detail.wifi_generation))
+  if (d.detail?.wifi_generation) out.push(RADIO_ACCESS_POINT, radioWifiWord(d.detail.wifi_generation))
   if (d.channel) out.push(radioChannelBand(d.channel))
   return out
 }

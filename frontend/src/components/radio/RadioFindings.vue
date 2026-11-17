@@ -26,6 +26,7 @@ onMounted(() => { void d.load() })
         <ul v-if="view.findings.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
           <li v-for="f in view.findings" :key="f.id" class="flex flex-col gap-1 py-2" data-test="radio-finding" :data-id="f.id">
             <span class="text-primary">{{ f.claim }}</span>
+            <span v-if="f.means" class="text-[length:var(--text-small)] text-secondary" data-test="radio-finding-means">{{ f.means }}</span>
             <span class="flex flex-wrap items-baseline gap-x-3 text-[length:var(--text-small)] text-muted">
               <span class="text-secondary" data-test="radio-finding-tier" :title="RADIO_TIER_HELP[f.tier]">{{ RADIO_TIER_WORDS[f.tier] }}</span>
               <span data-test="radio-finding-count">{{ radioFindingCount(f.count) }}</span>

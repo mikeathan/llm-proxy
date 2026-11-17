@@ -236,7 +236,7 @@ describe('RadioRadar', () => {
       const w = await show()
       const titles = w.findAll('[data-test="radio-row-title"]').map((t) => t.text())
       expect(titles).toEqual(['TP-Link', 'Maker not listed', 'Random address'])
-      expect(w.findAll('[data-test="radio-row-facts"]')[0]!.text()).toBe('Always here · Wi-Fi 5 · channel 60, 5 GHz')
+      expect(w.findAll('[data-test="radio-row-facts"]')[0]!.text()).toBe('Always here · Access point · Wi-Fi 5 · channel 60, 5 GHz')
     })
 
     it('labels every dot with its range, and draws a line from the centre, only when asked', async () => {

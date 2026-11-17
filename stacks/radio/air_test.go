@@ -33,7 +33,7 @@ func TestAirShowsCountsByClassAndTheRulesAndNothingAboutAnyDevice(t *testing.T) 
 	}
 	var v AirView
 	get(t, r, AirPath, &v)
-	if v.Rules.Version != 1 || !v.Rules.Provisional || v.Listened != 14 || v.Total != 1 || v.Counts["infrastructure"] != 1 || v.Counts["personal"] != 0 {
+	if v.Rules.Version != 2 || !v.Rules.Provisional || v.Listened != 14 || v.Total != 1 || v.Counts["infrastructure"] != 1 || v.Counts["personal"] != 0 {
 		t.Errorf("%+v", v)
 	}
 	if len(v.Changes) == 0 || v.Changes[0].Reason == "" {

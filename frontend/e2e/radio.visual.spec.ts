@@ -84,8 +84,8 @@ const SCAN = {
 const HOURS = Array.from({ length: 48 }, (_, i) => ({ hour: new Date(Date.UTC(2026, 10, 13, 15 + i)).toISOString(), state: i < 20 ? 'not_listening' : i % 5 === 0 ? 'away' : 'here', signal: 'strong', ...(i >= 20 && i % 5 !== 0 ? { dbm: -48 - (i % 7) * 3, near_m: 1.4 + (i % 7) * 0.5, far_m: 3.2 + (i % 7) * 2 } : {}) }))
 const PRESENCE = { devices: [{ id: 'ab', label: 'my phone', state: 'here', signal: 'strong', last_heard: '2026-11-14T15:00:00Z', joined_own: true, hours: HOURS }] }
 const DIGEST = {
-  listening: { cycles: 30, min_cycles: 12, window_days: 7, cycles_last_24h: 30 }, own: { devices: 1, access_points: 2, confirmed_access_points: 1 }, others: [],
-  findings: [{ id: 'radio_pmf_off', tier: 'seen', count: 1, claim: 'One of your confirmed WPA2 access points does not protect its management frames, so a device can be disconnected by a forged frame.' }],
+  listening: { cycles: 30, min_cycles: 12, window_days: 7, cycles_last_24h: 30, now: true, hours_left: 100 }, classifier: { version: 2, provisional: true }, own: { devices: 1, access_points: 2, confirmed_access_points: 1 }, others: [],
+  findings: [{ id: 'radio_pmf_off', tier: 'seen', count: 1, claim: 'Confirmed WPA2 access points of yours that do not protect their management frames, so a device can be disconnected by a forged frame.', means: 'Common on home routers and low risk on its own: someone nearby could disconnect a device, not read what it sends.' }],
   could_not_see: [{ id: 'radio_hidden_ap_near', reason: 'A beacon’s signal strength is not kept per access point, so how close a hidden network is cannot be told.' }],
 }
 const ANSWERS = {
@@ -134,6 +134,7 @@ test('Around you: the status line, the radar with one list, the device opened be
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('radio/around')
   await expect(page.locator('[data-test="radio-finding"]')).toContainText('management frames')
+  await expect(page.locator('[data-test="radio-finding-means"]')).toContainText('low risk on its own')
   await expect(page.locator('[data-test="radio-report-setup"]')).toBeVisible() // the report card: no automation yet, so it asks when to run
   await expect(page.locator('[data-test="radio-report-go"]')).toHaveText('Set up and analyse')
   await expect(page.locator('[data-test="radio-status-next"]')).toContainText('Next reading in')

@@ -3,7 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { routes } from '../../../router'
 
-const dispatcher = vi.hoisted(() => ({ listAutomations: vi.fn(), listWorkspaces: vi.fn(), triggerAutomation: vi.fn(), createAutomation: vi.fn() }))
+const dispatcher = vi.hoisted(() => ({ listAutomations: vi.fn(), listWorkspaces: vi.fn(), triggerAutomation: vi.fn(), createAutomation: vi.fn(), readWorkspaceFile: vi.fn() }))
 const templates = vi.hoisted(() => ({ getTemplate: vi.fn() }))
 const writer = vi.hoisted(() => ({ writeFile: vi.fn() }))
 const radio = vi.hoisted(() => ({ sensors: vi.fn(), listening: vi.fn() }))
@@ -15,6 +15,8 @@ vi.mock('../../../services/radio/radioService', () => ({ RadioService: radio }))
 import RadioReport from '../../../components/radio/RadioReport.vue'
 
 const idle = { listening: false, cycles: 0, frames: 0, windows: [], plan: { channels: [1], window_seconds: 20, cycle_seconds: 300 } }
+// The server's last_output is the run's log (executor lines around the report); the clean report is the saved file at last_report_path.
+const LOG = '[2026-11-16 20:07:57] ▶ Executing automation `radio-watch-report` in workspace `workspace-1`...\nReading task file: `radio-watch-report.md`\n\n⏱ **Duration:** 32s\n'
 const existing = { id: 'ws1/radio-watch-report', workspace: 'ws1', name: 'radio-watch-report', task_file: 'radio-watch-report.md', strategy: '', trigger: 'manual', trigger_type: 'manual' }
 
 beforeEach(() => {
@@ -23,6 +25,7 @@ beforeEach(() => {
   dispatcher.listWorkspaces.mockResolvedValue([{ id: 'ws1' }])
   dispatcher.createAutomation.mockResolvedValue(undefined)
   dispatcher.triggerAutomation.mockResolvedValue({})
+  dispatcher.readWorkspaceFile.mockResolvedValue('')
   templates.getTemplate.mockResolvedValue({ id: 'radio-watch-report', content: 'TASK', defaults: { profile: 'radio-reporter', schedule: '0 7 * * *', journal: false } })
   writer.writeFile.mockResolvedValue('created')
   radio.sensors.mockResolvedValue({ enabled: true, unused: 0, sensors: [] })
@@ -60,11 +63,14 @@ describe('RadioReport', () => {
   })
 
   it('only runs an automation that exists, and creates nothing', async () => {
-    dispatcher.listAutomations.mockResolvedValue([{ ...existing, last_output: 'No findings.' }])
+    dispatcher.listAutomations.mockResolvedValue([{ ...existing, last_output: LOG + 'No findings.', last_report_path: 'reports/radio-watch-report/a/report.md' }])
+    dispatcher.readWorkspaceFile.mockResolvedValue('No findings.')
     const w = await show()
     expect(w.find('[data-test="radio-report-setup"]').exists()).toBe(false)
     expect(w.get('[data-test="radio-report-runs"]').text()).toBe('Runs only when you press Analyse.')
+    expect(dispatcher.readWorkspaceFile).toHaveBeenCalledWith('ws1', 'reports/radio-watch-report/a/report.md')
     expect(w.get('[data-test="radio-report-output"]').text()).toBe('No findings.')
+    expect(w.text()).not.toContain('Executing automation')
     await w.get('[data-test="radio-report-go"]').trigger('click')
     await flushPromises()
     expect(dispatcher.createAutomation).not.toHaveBeenCalled()
@@ -115,7 +121,8 @@ describe('RadioReport', () => {
 
   it('keeps waiting when the first look after a press still shows the old result, and shows the new one when it lands', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
-    const old = { ...existing, last_output: 'Old report.' }
+    const old = { ...existing, last_output: LOG, last_report_path: 'reports/radio-watch-report/old/report.md' }
+    dispatcher.readWorkspaceFile.mockImplementation(async (_ws: string, path: string) => (path.includes('/new/') ? 'New report.' : 'Old report.'))
     dispatcher.listAutomations.mockResolvedValueOnce([old]) // the card's own first look
     const w = await show()
     expect(w.get('[data-test="radio-report-output"]').text()).toBe('Old report.')
@@ -128,7 +135,7 @@ describe('RadioReport', () => {
     await vi.advanceTimersByTimeAsync(3000)
     await flushPromises()
     expect(w.find('[data-test="radio-report-running"]').exists()).toBe(true)
-    dispatcher.listAutomations.mockResolvedValueOnce([{ ...old, last_output: 'New report.' }])
+    dispatcher.listAutomations.mockResolvedValueOnce([{ ...old, last_report_path: 'reports/radio-watch-report/new/report.md' }])
     await vi.advanceTimersByTimeAsync(3000)
     await flushPromises()
     expect(w.find('[data-test="radio-report-running"]').exists()).toBe(false)
@@ -143,6 +150,16 @@ describe('RadioReport', () => {
     expect(line).not.toContain('* *')
     dispatcher.listAutomations.mockResolvedValue([{ ...existing, trigger: 'cron', trigger_type: 'cron', trigger_value: '30 2 * * 1' }])
     expect((await show()).get('[data-test="radio-report-runs"]').text()).toBe('Runs on its own schedule.')
+  })
+
+  it('shows the saved report as formatted text, not as markdown symbols', async () => {
+    dispatcher.listAutomations.mockResolvedValue([{ ...existing, last_output: LOG, last_report_path: 'reports/radio-watch-report/a/report.md' }])
+    dispatcher.readWorkspaceFile.mockResolvedValue('**Listening:** 94 cycles.\n\n- first finding\n- second finding')
+    const w = await show()
+    const out = w.get('[data-test="radio-report-output"]')
+    expect(out.findAll('li')).toHaveLength(2)
+    expect(out.text()).not.toContain('**')
+    expect(out.html()).toContain('<strong>')
   })
 })
 

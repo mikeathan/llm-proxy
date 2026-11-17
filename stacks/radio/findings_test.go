@@ -129,25 +129,19 @@ func dataAt(from MAC, dbm int) []byte {
 	return f
 }
 
-func TestAStrongDeviceNoRuleFitsIsAFindingOnlyAfterEnoughListening(t *testing.T) {
+// Version 2 of the rules leaves no strong device unplaced (always here is infrastructure, intermittent and strong is personal, or a neighbour's access
+// point), so the finding "a strong device no rule can place" that vertex's air raised on the owner's own access points is retired.
+func TestNoFindingIsRaisedForAStrongDeviceTheRulesCanPlace(t *testing.T) {
 	r := devRig(t)
 	rec, _, _ := r.s.recorder(r.s.h)
-	// Heard in every cycle, so always here; but the signal swings between -40 and -60 (a mean of -50, a spread of 10 dB), so it is not steady
-	// either, and strong: no rule fits.
-	for i := 0; i < 11; i++ {
+	for i := 0; i < 14; i++ {
 		cycleOf(t, rec, r.now, dataAt(neighbour, -40+20*(i%2)))
 	}
-	if _, ok := findingOf(digestOf(t, r), "radio_unknown_strong_device"); ok {
-		t.Fatal("11 cycles is too little listening to say anything")
-	}
-	cycleOf(t, rec, r.now, dataAt(neighbour, -40))
-	cycleOf(t, rec, r.now, dataAt(neighbour, -60))
 	d := digestOf(t, r)
-	f, ok := findingOf(d, "radio_unknown_strong_device")
-	if !ok || f.Tier != TierInferred || f.Count != 1 {
-		t.Fatalf("%+v %v (%+v)", f, ok, d.Listening)
+	if len(d.Findings) != 0 {
+		t.Errorf("a strong device that is always here is infrastructure, not a finding: %+v", d.Findings)
 	}
-	if len(d.Others) != 1 || d.Others[0].Class != "unknown" || d.Others[0].Tier != TierInferred {
+	if len(d.Others) != 1 || d.Others[0].Class != "infrastructure" {
 		t.Errorf("%+v", d.Others)
 	}
 }
@@ -194,8 +188,8 @@ func TestEveryClaimIsFixedWording(t *testing.T) {
 			t.Errorf("%s has no wording", id)
 		}
 	}
-	if len(findingIDs) != 8 {
-		t.Errorf("the eight ids of plan section 7: %v", findingIDs)
+	if len(findingIDs) != 7 {
+		t.Errorf("the seven ids left of plan section 7 (the strong-unknown-device one is retired, see the rules' version 2): %v", findingIDs)
 	}
 }
 
@@ -205,7 +199,7 @@ func TestDigestSaysWhetherAWatchIsRunningNowAndHowProvisionalTheKindsAre(t *test
 	if d.Listening.Now || d.Listening.HoursLeft != 0 {
 		t.Errorf("no watch is running: %+v", d.Listening)
 	}
-	if d.Classifier.Version != 1 || !d.Classifier.Provisional {
+	if d.Classifier.Version != 2 || !d.Classifier.Provisional {
 		t.Errorf("the digest must say which classifier sorted the devices and that it is provisional: %+v", d.Classifier)
 	}
 }

@@ -37,8 +37,13 @@ func TestRadioDigestTool_TheCoreHasWordsForEveryFindingTheStackOffers(t *testing
 		t.Fatalf("the core words %v, the stack offers %v", core, stk)
 	}
 	for id, theirs := range radio.FindingWords() {
-		if ours, _ := radiodigest.Words(id); ours != theirs {
+		if ours, _, _ := radiodigest.Words(id); ours != theirs {
 			t.Errorf("%s: the core says %q, the stack says %q", id, ours, theirs)
+		}
+	}
+	for id, theirs := range radio.FindingMeanings() {
+		if _, ours, _ := radiodigest.Words(id); ours != theirs {
+			t.Errorf("%s: the core's meaning line says %q, the stack's says %q", id, ours, theirs)
 		}
 	}
 }

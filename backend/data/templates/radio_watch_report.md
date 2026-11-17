@@ -17,10 +17,10 @@ Reads the Radio sensor's digest and writes a short report: whether the sensor ha
 
 **Action:** Run `radio_digest` once, with no arguments. It is the only tool this automation needs.
 
-Then write the report as the radio-reporter profile describes: how much the sensor has listened and whether a watch is running now, the findings in the digest's own words with their tier and count, a line that the kinds of device are provisional, and at most two things to look at first, or "nothing". Follow the profile where this text and it differ. The digest has no addresses, names or earlier reports, so the report says nothing about them.
+Then write the report as the radio-reporter profile describes: how much the sensor has listened and whether a watch is running now, the findings in the digest's own words with their tier, count and what each usually means, a line with how many devices of other people were counted by kind and that the sorting is provisional, and at most two things to look at first, or "nothing". Follow the profile where this text and it differ. The digest has no addresses, names or earlier reports, so the report says nothing about them.
 
 This automation runs only on a local model and saves nothing to memory.
 
 ### Result
 
-**PASS** if the digest was read and the report written. **FAIL** with the reason if `radio_digest` was not available or returned an error (for example the Radio stack is off).
+The report is the result. If `radio_digest` was not available or returned an error (for example the Radio stack is off), say so in the report and stop. Do not print a status or PASS/FAIL line.
