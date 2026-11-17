@@ -103,15 +103,11 @@ jobs:
           cache-dependency-path: backend/go.sum
       # Also runs the stack-boundary fitness functions (Constitution IV.6, internal/archtest)
       # and the isolation conformance suite: they are ordinary tests. The SDK and stack modules
-      # live outside backend/ and are tested by the step below.
-      - name: Test (race + coverage)
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
-      # Stack code is not in coverage.out (a separate module); -cover prints its coverage in this log.
-      - name: Stack modules (test, workspace off)
-        run: |
-          for d in ../stacks/*/; do
-            (cd "$d" && GOWORK=off go test ./... -race -cover)
-          done
+      # live outside backend/ and are tested by the `stacks` job.
+      # No -race here: the race run is its own job (backend-race) so the two run side by side. Race plus atomic coverage
+      # on one runner took over 3 minutes of wall time.
+      - name: Test (coverage)
+        run: go test ./... -coverprofile=coverage.out -covermode=count
       - name: Coverage report
         run: |
           set -euo pipefail
@@ -154,6 +150,46 @@ jobs:
             backend/coverage-summary.md
           retention-days: 14
           if-no-files-found: ignore
+
+  backend-race:
+    name: Backend (race)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Test (race)
+        run: go test ./... -race
+
+  # Each stack module is its own module (workspace off, so it can use only what its go.mod lists) and its own job:
+  # they ran one after another inside the backend job, and radio alone took minutes under -race.
+  stacks:
+    name: Stack module (${{ matrix.stack }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        stack: [agents, example, network, radio, sdk]
+    defaults:
+      run:
+        working-directory: stacks/${{ matrix.stack }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: stacks/*/go.sum
+      - name: Test (race, workspace off)
+        env:
+          GOWORK: "off"
+        run: go test ./... -race -cover
 
   # OS-sandbox conformance (plan §9 T2): the Landlock/Effective probes and the
   # isolation conformance suite (internal/platform/isolation) must RUN and match
