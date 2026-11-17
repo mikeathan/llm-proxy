@@ -11,6 +11,9 @@ func TestLiveCostStaysUnderASecondWhenTheAirIsBusy(t *testing.T) {
 	if testing.Short() {
 		t.Skip("seeds thousands of devices")
 	}
+	if underRace {
+		t.Skip("a wall-clock limit means nothing under the race detector, and seeding 3000 devices takes ~50s there")
+	}
 	for _, n := range []int{200, 1000, 3000} {
 		r := devRig(t)
 		rec, _, _ := r.s.recorder(r.s.h)
