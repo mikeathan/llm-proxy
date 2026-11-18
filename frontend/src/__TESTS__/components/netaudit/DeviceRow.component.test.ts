@@ -79,4 +79,21 @@ describe('DeviceRow air phrase', () => {
     const folded = mount(DeviceRow, { props: { device: heard, expanded: false, editing: false, draft: '', busy: false, advanced: false, airState: 'listening' } })
     expect(folded.find('[data-test="device-air"]').exists()).toBe(false)
   })
+
+  // The "heard" words open the device's Radio page when the core gave its id; plain words when it did not, or gave one that is not an id.
+  it("links the heard words to the device's Radio page", async () => {
+    const { createMemoryHistory } = await import('vue-router')
+    const { createAppRouter } = await import('../../../router')
+    const linked = (air: NetworkDevice['air'], airLastCycle?: string) =>
+      mount(DeviceRow, { props: { device: device({ air }), expanded: true, editing: false, draft: '', busy: false, advanced: false, airState: 'listening', airLastCycle }, global: { plugins: [createAppRouter(createMemoryHistory())] } })
+    const at = new Date().toISOString()
+    const w = linked({ heard: at, ring: 'room', page: '4ded1379' }, at)
+    const link = w.get('[data-test="device-air-link"]')
+    expect(link.text()).toBe("heard over the air in Radio's last listen")
+    expect(link.attributes('href')).toBe('/radio/device/4ded1379')
+    expect(link.attributes('aria-label')).toBe('Open Chromecast on the Radio page')
+    expect(w.get('[data-test="device-air"]').text()).toContain(', near this computer')
+    expect(linked({ heard: at, ring: 'room' }).find('[data-test="device-air-link"]').exists()).toBe(false)
+    expect(linked({ heard: at, page: '../admin' }).find('[data-test="device-air-link"]').exists()).toBe(false)
+  })
 })

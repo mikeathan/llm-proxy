@@ -4,63 +4,55 @@ date: 2026-11-18
 last_reviewed: 2026-11-18
 related_specs: [SPEC-006]
 constitution_references: [I.16, IV.6]
-evidence: ADR-0061; docs/PLANS/cross-cutting/network-radio-joined-by-tag.md (chosen design); the tests named below; no run on vertex.
+evidence: ADR-0061 (accepted); docs/PLANS/cross-cutting/network-radio-joined-by-tag.md; vertex read-only GET of /admin/api/netaudit/devices 2026-11-18 18:37Z; the tests named below.
 ---
 
 # Network and Radio joined by tag (handoff)
 
-**Branch `network-radio-join`**, made from `main` at `05cb1edb` (v0.101.0). Committed and pushed on 2026-11-18 with the pull request open for review; v0.102.0 is in `VERSION`.
-The design and the reasons are in `network-radio-joined-by-tag.md` (Chosen design) and ADR-0061.
+## Branch state
+- **v0.102.0 (the join) is merged:** PR #268, merge commit `2b5c5282`, deployed on vertex and seen working there (the s24's row read "heard
+  over the air 3 minutes ago, near this computer, 5 GHz, on your Wi-Fi, Radio thinks: Phone or tablet").
+- **v0.103.0 is on branch `network-air-radio-link`**, made from `origin/main` at `2b5c5282`, committed and pushed with its pull request
+  open. Merge it on its own; nothing else waits on it.
 
-## What is built
-- SDK (`stacks/sdk/ports.go`, `manifest.go`): `LANDevice.Presence`, `LANPresence`; `AirFact`, `AirReport`, `AirReporter`,
-  `MaxAirFacts` and the word lists `AirBands`, `AirRings`, `AirKinds`; `Manifest.ReportsAir` (needs `PortLAN`); `StackFinding.Device`.
-- Core: `core/devicejoin` (the join, `NewDeviceNote`), `stackport.AskedPurposes` and presence on the `lan` port, `netaudit.PresenceOf`
-  (online within 30 min, unknown when the check is off or has not looked for an hour), `netaudit.StackFindingSources`, the
-  `radio_join_foreign_network` wording and guide, per-id name checks, the alert's `AirNote`, `DeviceView.Air` and `InventoryView.Air`.
-- App: `internal/app/devicejoin.go` (the one wiring place), `stackHost.Air` and the tag mapping in `stackHost.Offered`,
-  `radioHostDeps` (newRadioHost had six parameters), the devices route `.WithAir`, the nightly report pulling Network and Radio.
-- Radio: `stacks/radio/airreport.go` (`Air`, `Findings`), presence on `LANInfo` and `PresenceDevice.Network`, the manifest's
-  `ReportsAir` and `Finds`.
-- UI: `utils/netaudit/air.ts` and the phrase on `DeviceRow.vue`'s "First seen" line; `rowState` in `utils/radio/myDevices.ts` and
-  "Home · on the network" on `RadioMyDeviceRow.vue`. No element was added to a closed row or a list.
+## What v0.103.0 built
+- The Network row says **"heard over the air in Radio's last listen"** for a device heard in Radio's latest cycle, instead of "3 minutes
+  ago" (which read as if the device had left while it showed Online). On vertex every heard device had `heard` = `air.last_cycle`, because
+  Radio stamps a device with the end of the cycle that heard it (`LastAt`, `stacks/radio/live.go`). An earlier cycle keeps the time.
+  Code: `frontend/src/utils/netaudit/air.ts` (`airWords`, `heard >= last_cycle`), `DeviceRow.vue` (prop `airLastCycle`).
+- Those "heard …" words **link to the device's Radio page** (`/radio/device/<id>`). The core makes the id from the fact's own tag (first 4
+  bytes hex, Radio's `shortID`): `devicejoin.pageOf` → `models.DeviceAir.Page` (`page` in the API). No SDK or Constitution change: the stack
+  answers nothing new, and `TestAirFact_CarriesOnlyFixedWords` still holds. ADR-0061 marked accepted, with a consequence line for the link.
 
-## Checks run (2026-11-18, on the branch as it stands)
-- `cd backend && go build ./... && go test ./...`: pass (no failing package).
-- `cd backend && go run ./tools/check-complexity/`: OK, 49 known-debt functions, no new violation (it also scans `stacks/`).
-- `cd stacks/sdk && go test ./...`: pass. `cd stacks/radio && GOWORK=off go test ./...`: pass.
-- `cd frontend && npm test`: 326 files, 3197 tests pass. Run together with the visual suite and the Go tests, 10 unrelated component
-  tests (Settings, Activity, AppSidebar, BottomTabs, HostStats) failed under the load and all passed when `npm test` ran alone.
-- `cd frontend && npm run build` (lint included): pass; `frontend_dist/index.html` rebuilt. `npm run test:visual`: 394 pass, with new states
-  in `netaudit-devices.visual.spec.ts` (`air`, Simple and Advanced at phone width) and `radio.visual.spec.ts` (My devices, `network: online`).
+## Checks run on v0.103.0 (2026-11-18)
+- `cd backend && go build ./... && go test ./...`: pass, no failing package. `go run ./tools/check-complexity/`: OK, no new violations.
+- `cd stacks/radio && GOWORK=off go test ./...`: pass (new `TestAirFactTagOpensTheDevicePage`). `cd stacks/sdk && go test ./...`: pass.
+- `cd frontend && npm test`: 326 files, 3200 tests pass. `npm run build` (lint): pass, `frontend_dist/index.html` rebuilt.
+- `npx playwright test e2e/netaudit-devices.visual.spec.ts`: 26 pass (the air states check the link text and href). **The full
+  `npm run test:visual` was not run.**
 - `./scripts/check-agent-harness.sh`: PASS.
-- **Not run:** anything on vertex. **Not covered by a test:** the real Radio stack hosted end to end in `internal/app` (hosting it needs a fake
-  adapter and helper). The round trip is tested with the real vault, `lan` port, purposes memory, join and stack host and a stack that tags
-  as Radio does (`internal/app/devicejoin_test.go`); Radio's side is tested in `stacks/radio/airreport_test.go`.
+- **Not run on vertex.**
 
 ## What is left, in order
-1. **Owner: read the I.16 amendment** (Constitution I.16, "The air report") and ADR-0061, in particular that the new-device alert now carries a
-   fixed phrase about where Radio heard the device. Merging the pull request is the approval; ADR-0061 then becomes accepted.
-2. **Owner: review and merge the pull request, then deploy.**
-3. **Check on vertex after deploy** (read-only GETs): `/admin/api/netaudit/devices` has `air.state: "listening"` during a watch and an
-   `air` object on the phone's row; `/admin/api/radio/devices/mine/presence` has `network: "online"` for `4ded1379` between hearings; the
-   Radio page shows "Home · on the network" for it instead of "Not heard lately".
+1. **Owner: merge the v0.103.0 pull request and deploy.** Then on vertex open Network → Devices → a heard device: the phrase says "in
+   Radio's last listen" and tapping it opens that device's Radio page.
+2. **Device page rough edge:** a Radio My devices row reading "Home · on the network" opens a device page that may still say "not heard in the
+   last few days". The page could say the network sees it now (the presence is already on `LANInfo`). Not built; small, Radio-only.
+3. **Devices matched but not heard:** on vertex the iPhone, Lindiwe's iPhone, the Samsung TV, espressif and nodeherder had an air fact with no
+   `heard` (so "not heard over the air lately"). Unverified why: iPhones rotate their private Wi-Fi address, others may be quiet or off the
+   listened channels. Look at `/admin/api/radio/air/live` and the scan plan's channels before changing anything.
 4. **Parked 3a** (deauthentication burst and devices dropping off): needs the presence check to keep when a device left (it keeps only
-   `LastSeen`); Radio counts deauthentication senders per day. Needs a plan of its own and the owner's go-ahead.
-5. **Parked 3d** (one look-alike check): Radio's `radio_rogue_twin` raises no alert and is about an access point, so switching
-   `wifi_lookalikes` off while Radio listens would lose the alert. The owner decides whether the two lists of confirmed access points
-   become one (the core's `WifiNetworks` and Radio's own access points) and whether Radio alerts.
-
-6. **A known rough edge:** a My devices row that reads "Home · on the network" opens the device page, which answers "not in the picture: it
-   has not been heard in the last few days" when the air has not heard it lately. The device page could say the network sees it; not built.
+   `LastSeen`); a plan of its own and the owner's go-ahead.
+5. **Parked 3d** (one look-alike check): the owner decides whether the core's `WifiNetworks` and Radio's own access points become one list
+   and whether `radio_rogue_twin` alerts.
 
 ## Traps found
-- `stacks/radio` is not in `go.work`: run its tests with `GOWORK=off` from the folder (the baseline `go test ./...` from the repo root fails
-  with "outside module roots").
-- `json.Unmarshal` into a reused struct keeps a field the new answer omits (`omitempty`): a test of "the field is gone" must decode into a
-  fresh value.
-- `NetauditDevicesHandlers.respondChange` called `List(w, nil)`; a list that reads the request's context needs the request passed through.
-- Radio's `presenceOf` already names the owner-hours function in `airdevices.go`; the LAN filter is `lanPresence`.
+- `stacks/radio` is not in `go.work`: test it with `GOWORK=off` from its folder.
+- The app is served under `/admin`: a RouterLink's href is `/admin/radio/device/<id>` in the visual suite, `/radio/device/<id>` in a
+  memory-history unit test.
+- `src/utils` may not export types (lint rule): put interfaces in `src/types/`.
+- `json.Unmarshal` into a reused struct keeps a field the new answer omits: decode into a fresh value to test a field is gone.
+- The DeviceRow unit tests print happy-dom `AbortError` traces at teardown when a router is mounted; they still pass.
 
 ## First file to open
-`backend/internal/core/devicejoin/join.go`, then `internal/app/devicejoin.go`.
+`backend/internal/core/devicejoin/join.go`, then `frontend/src/utils/netaudit/air.ts`.

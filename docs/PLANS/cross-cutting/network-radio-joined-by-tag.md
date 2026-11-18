@@ -93,5 +93,5 @@ raises no alert and its subject is an access point, which no inventory device is
 alert; merging the two lists of confirmed access points is the owner's decision.
 
 ## Remaining work
-Built in v0.102.0 on branch `network-radio-join` (ADR-0061). What is left, the checks run and the owner's decisions are in
+Built in v0.102.0 (merged as #268, ADR-0061 accepted); v0.103.0 on branch `network-air-radio-link` adds the link to the Radio page. What is left, the checks run and the owner's decisions are in
 [`network-radio-join-handoff-2026-11-18.md`](network-radio-join-handoff-2026-11-18.md).

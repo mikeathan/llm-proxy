@@ -28,7 +28,7 @@ const STATES = {
   },
   // What Radio heard follows "First seen" in an opened row (ADR-0061): the longest Advanced phrase must still fit a phone.
   air: {
-    devices: { devices: [device({ name: 'Phone', air: { heard: seen, ring: 'house', band: '5G', moving: true, on_your_wifi: true, kind: 'tv' } }), device({ mac: 'aa:bb:cc:00:00:02', ip: '192.168.1.6', name: 'Laptop', air: { kind: 'computer' } })], gateway: { changed: false }, baselined: true, updated_at: seen, air: { state: 'listening', last_cycle: seen, bands: ['2G', '5G'] } },
+    devices: { devices: [device({ name: 'Phone', air: { heard: seen, ring: 'house', band: '5G', moving: true, on_your_wifi: true, kind: 'tv', page: '4ded1379' } }), device({ mac: 'aa:bb:cc:00:00:02', ip: '192.168.1.6', name: 'Laptop', air: { kind: 'computer' } })], gateway: { changed: false }, baselined: true, updated_at: seen, air: { state: 'listening', last_cycle: seen, bands: ['2G', '5G'] } },
     presence,
   },
   // Unnamed devices: the open ports from the last scan help tell them apart, and the prompt opens the naming list.
@@ -97,7 +97,8 @@ for (const view of ['simple', 'advanced'] as const) {
         const folded = card.locator('[data-test="device-toggle"][aria-expanded="false"]')
         while (await folded.count()) await folded.first().click()
         const phone = card.locator('[data-test="device-aa:bb:cc:00:00:01"] [data-test="device-air"]')
-        await expect(phone).toContainText('heard over the air')
+        await expect(phone.locator('[data-test="device-air-link"]')).toHaveText("heard over the air in Radio's last listen")
+        await expect(phone.locator('[data-test="device-air-link"]')).toHaveAttribute('href', /\/radio\/device\/4ded1379$/)
         await expect(phone).toContainText('in the house')
         await expect(card.locator('[data-test="device-aa:bb:cc:00:00:02"] [data-test="device-air"]')).toContainText('not heard over the air lately')
         if (view === 'advanced') await expect(phone).toContainText('Radio thinks: TV or streamer')
