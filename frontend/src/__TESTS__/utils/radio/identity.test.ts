@@ -36,7 +36,17 @@ describe('radio identity', () => {
     expect(brandModel(ident({ brand: 'ASUSTek COMPUTER INC.', model: 'RT-AX88U' }))).toBe('ASUSTek RT-AX88U')
     expect(brandModel(ident({ brand: 'Netgear', model: 'Netgear Orbi RBR50' }))).toBe('Netgear Orbi RBR50')
     expect(brandModel(ident({ brand: 'Apple', brand_hint: true, model: '' }))).toBe('')
-    expect(shortBrand('Hui Zhou Gaoshengda Technology Co.,LTD')).toBe('Hui Zhou')
+    expect(shortBrand('Hui Zhou Gaoshengda Technology Co.,LTD')).toBe('Gaoshengda')
+    expect(shortBrand('Shenzhen Century Xinyang Technology Co., Ltd')).toBe('Century Xinyang')
+    expect(shortBrand('Shenzhen')).toBe('Shenzhen')
+  })
+
+  it("names this computer's own Wi-Fi card as this computer, before any maker or guess", () => {
+    const self = dev({ class: 'infrastructure', ident: ident({ this_computer: 'wlp2s0', kind: 'computer', kind_source: 'this_computer', brand: 'Hui Zhou Gaoshengda', on_your_wifi: true }) })
+    expect(nameOf(self)).toBe('This computer’s Wi-Fi (wlp2s0)')
+    expect(conclusionOf(self)).toBe('This computer, the one listening')
+    expect(ownershipOf(self)).toBe('likely')
+    expect(nameOf({ ...self, mine: true, label: 'vertex' })).toBe('vertex')
   })
 
   it('lists the evidence for whose it is, or says there is none', () => {

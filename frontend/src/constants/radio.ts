@@ -91,6 +91,15 @@ export const radioRouterLine = (r: { box_name?: string; main?: boolean; band: st
 /** How long ago the router's list was read. */
 export const radioReadAgo = (secondsAgo: number): string =>
   secondsAgo < 90 ? `read ${Math.max(1, Math.round(secondsAgo))} s ago` : `read ${Math.round(secondsAgo / 60)} min ago`
+/** Where in the house, from the radar and the router's boxes (utils/radio/where.ts). */
+export const RADIO_WHERE_NEAR_HOST = 'Near this computer'
+export const RADIO_WHERE_FAR_HOST = 'Far from this computer'
+const whereBox = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `${radioRouterBox(r)}${r.guest ? ' (guest)' : ''}`
+export const radioWhereNearBox = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `Near ${whereBox(r)}`
+export const radioWhereJoined = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `Joined to ${whereBox(r)}`
+export const radioWhereHouse = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `In the house, joined to ${whereBox(r)}`
+export const radioWhereFar = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `Far from this computer, joined to ${whereBox(r)}`
+export const RADIO_WHERE_HELP = 'An estimate from two listeners: this computer’s radio and your router’s boxes. Near means one of them hears it strongly.'
 /** The short form for a row. */
 export const radioRouterShort = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `via ${radioRouterBox(r)}${r.guest ? ' (guest)' : ''}`
 /** Where the run is: a cycle is one window on each channel of the plan. */
@@ -119,8 +128,25 @@ export const RADIO_ENDED: Record<string, { title: string; next: string }> = {
 
 // Radio · My devices: the owner names the devices that are theirs; everyone else's is only counted.
 export const RADIO_DEVICES_TITLE = 'My devices'
-export const RADIO_DEVICES_INTRO = 'Name the devices that are yours so they are told apart from your neighbours’. The address is kept sealed and is never shown again.'
-export const RADIO_DEVICES_EMPTY = 'No device named yet.'
+export const RADIO_DEVICES_INTRO = 'The devices you marked as yours, whether they are home, and which router box they are on. Open one to see it on the radar, rename it or change its kind.'
+export const RADIO_DEVICES_EMPTY = 'No device marked as yours yet. On Around you, hold a device next to this computer and use Find my device.'
+/** The line above the list: how many are home now, or that nothing is known while not listening. */
+export const radioMySummary = (here: number, total: number, listening: boolean): string =>
+  listening ? `${here} of ${total} ${total === 1 ? 'device' : 'devices'} home now` : `${total} ${total === 1 ? 'device' : 'devices'}. Not listening now, so who is home is not known.`
+export const RADIO_MY_START = 'Start listening'
+export const RADIO_DUP_TITLE = 'Some devices share a name'
+export const radioDupLine = (label: string, count: number): string => `${count} devices are called “${label}”. Open each one and rename it so you can tell them apart.`
+export const RADIO_ADD_OPEN = 'Add a device by its address'
+export const RADIO_ADD_HINT = 'Easier: on Around you, hold the device next to this computer and use Find my device. Use this only when you know its address.'
+export const RADIO_ADD_CLOSE = 'Cancel'
+export const RADIO_REMOVE_TITLE = 'Remove this device?'
+export const radioRemoveBody = (label: string): string => `“${label}” stops being marked as yours, and its name, its sealed address and its hour-by-hour history are deleted. If it is heard again it starts as an unknown device.`
+/** One sentence for a device's last day, in place of a chart. */
+export const radioHoursLine = (heard: number, listened: number, day: number): string => {
+  if (listened === 0) return `Not listened to in the last ${day} hours`
+  if (heard === 0) return listened === day ? `Not heard in the last ${day} hours` : `Not heard in the ${listened} hours listened today`
+  return listened === day ? `Heard in ${heard} of the last ${day} hours` : `Heard in ${heard} of the ${listened} hours listened today`
+}
 export const RADIO_DEVICE_ADDRESS = 'Address (like 3a:91:5c:d2:7e:44)'
 export const RADIO_DEVICE_LABEL = 'Name'
 export const RADIO_DEVICE_ADD = 'Add device'
@@ -185,8 +211,17 @@ export const radioChangeLine = (n: number, from: string, to: string, reason: str
 }
 
 // Radio · Your networks: the names of your own Wi-Fi, and which access points are yours.
-export const RADIO_NETWORKS_TITLE = 'Your networks'
-export const RADIO_NETWORKS_INTRO = 'Name your own Wi-Fi networks. An access point that broadcasts one of the names is only a candidate: anyone can use the same name, so you confirm which ones are yours. A device that joins a confirmed one is sorted as yours.'
+export const RADIO_NETWORKS_TITLE = 'Your Wi-Fi networks'
+export const RADIO_NETWORKS_INTRO = 'A device that joins one of these is sorted as yours. Anyone can use the same network name, so an access point counts only once you confirm it.'
+/** A network's one line: its band and channels and how many of its access points you confirmed. */
+export const radioNetworkLine = (channels: number[], confirmed: number): string => {
+  const where = channels.length ? `${[...new Set(channels.map((c) => radioBand(c)))].join(' and ')} · channel ${channels.join(', ')} · ` : ''
+  return confirmed ? `${where}${confirmed} ${confirmed === 1 ? 'access point' : 'access points'} confirmed` : 'No access point confirmed yet'
+}
+export const RADIO_NETWORK_ASK_TITLE = 'Are these yours?'
+export const radioNetworkAsk = (n: number): string => `${n} ${n === 1 ? 'access point broadcasts' : 'access points broadcast'} one of your network names. Confirm the ones that are yours.`
+export const RADIO_NETWORK_ADD_OPEN = 'Add a network name'
+export const RADIO_NETWORK_ADD_CLOSE = 'Cancel'
 export const RADIO_NETWORK_NAME = 'Network name'
 export const RADIO_NETWORK_ADD = 'Add name'
 export const RADIO_NETWORK_NONE = 'No network named yet.'
@@ -194,7 +229,6 @@ export const RADIO_NETWORK_REMOVE_NAME = 'Remove name'
 export const RADIO_AP_CONFIRM = 'Yes, this is mine'
 export const RADIO_AP_REJECT = 'Not mine'
 export const RADIO_AP_CONFIRMED = 'Confirmed as yours'
-export const RADIO_AP_CANDIDATE = 'Candidate: confirm it, or say it is not yours'
 export const radioApLine = (name: string, channel: number, security: string, seen: string): string => `${name} · channel ${channel} · ${security || 'security unknown'} · last heard ${seen}`
 export const RADIO_NETWORKS_FAILED = 'Your networks could not be read.'
 export const RADIO_CLASS_PICK = 'Kind of device (optional)'
@@ -258,15 +292,12 @@ export const RADIO_AIR_CAP_NOTE = 'On a busy channel a window stops at 4,000 fra
 
 // Radio · My devices: where each device is, hour by hour.
 export const RADIO_PRESENCE_TITLE = 'Where your devices are'
-export const RADIO_PRESENCE_INTRO = 'Each square is one hour of the last two days. Filled means the sensor heard the device; outlined means it listened and did not hear it; pale means it was not listening, so nothing is known.'
-export const RADIO_PRESENCE_EMPTY = 'Add a device below and start listening to see when it is here.'
 export const RADIO_HOUR_WORDS: Record<RadioHourState, string> = { here: 'here', away: 'not heard', not_listening: 'not listening' }
 export const RADIO_NOW_WORDS: Record<RadioHourState, string> = { here: 'Here now', away: 'Not heard lately', not_listening: 'Not listening, so not known' }
 export const radioLastHeardLine = (when: string): string => `Last heard ${when}`
 export const RADIO_NEVER_HEARD = 'Never heard yet'
 export const radioHourTitle = (when: string, state: RadioHourState, signal?: RadioSignal): string =>
   `${when}: ${RADIO_HOUR_WORDS[state]}${state === 'here' && signal && signal !== 'unknown' ? `, ${RADIO_SIGNAL_WORDS[signal].toLowerCase()} signal` : ''}`
-export const RADIO_JOINED_EVIDENCE = 'Has joined one of your networks'
 
 // Detail level (the same Simple and Advanced as the Network screens).
 export const RADIO_DETAIL_LABEL = 'How much detail'
@@ -339,9 +370,8 @@ export const RADIO_RADAR_USUAL_ROW = 'usually here'
 export const radioShiftWord = (shift: number, usual: number): string =>
   shift > 0 ? `${shift} dB stronger than its usual ${usual} dBm: closer than usual` : `${-shift} dB weaker than its usual ${usual} dBm: farther than usual`
 export const radioUnusualSummary = (n: number): string => `${n} ${n === 1 ? 'is' : 'are'} unlike ${n === 1 ? 'its' : 'their'} usual.`
-export const RADIO_PRESENCE_DISTANCE = 'Distance over the same hours: the bar is the range it could be in, from the radar’s model.'
-export const RADIO_PRESENCE_CLOSER = 'closer'
-export const RADIO_PRESENCE_FARTHER = 'farther'
+export const RADIO_PRESENCE_NOW = 'now'
+export const radioPresenceAgo = (hours: number): string => `${hours} hours ago`
 
 export const RADIO_TRACK_TITLE = 'Distance over time'
 export const RADIO_TRACK_FAILED = 'The track could not be read.'

@@ -44,6 +44,7 @@ type Recorder struct {
 	// lmu guards the LAN join (lan.go).
 	lmu        sync.Mutex
 	lan        stacksdk.LAN
+	host       []HostRadio // this computer's wireless interfaces (host.go)
 	lanIndex   map[string]LANInfo
 	lanAt      time.Time
 	live       map[string]*liveDev

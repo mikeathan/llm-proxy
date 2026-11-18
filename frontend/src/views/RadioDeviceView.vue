@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { whereOf } from "../utils/radio/where"
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import Panel from "../components/common/layout/Panel.vue"
@@ -16,7 +17,7 @@ import { toRadio } from "../router/routes"
 import {
   RADIO_CLASS_HELP, RADIO_CLASS_ORDER, RADIO_CLASS_WORDS, RADIO_DETAIL_NETWORK_NOTE, RADIO_DETAIL_SIGNAL, RADIO_DEVICE_COLUMNS, RADIO_MAKER_RANDOM_HELP,
   RADIO_MARK_BUTTON, RADIO_MARK_LABEL, RADIO_MARK_NO_NAME, RADIO_MARK_NOTE, RADIO_MARK_PLACEHOLDER, RADIO_MARK_SAVE, RADIO_RENAME_BUTTON, RADIO_RENAME_SAVE, RADIO_REASONS, RADIO_RING_WORDS, RADIO_SIGNAL_HELP,
-  RADIO_MOVING_NOW, RADIO_SIGNAL_WORDS, RADIO_TREND_WORDS, radioChannelBand, radioReadAgo, radioRouterLine, radioChannelsLine, radioDbmLine, radioHeardLine, radioHeardSpan, radioRangeLine,
+  RADIO_MOVING_NOW, RADIO_SIGNAL_WORDS, RADIO_TREND_WORDS, radioChannelBand, radioReadAgo, radioRouterLine, RADIO_WHERE_HELP, radioChannelsLine, radioDbmLine, radioHeardLine, radioHeardSpan, radioRangeLine,
   radioRetryWord, radioUsualLine, radioWaitingLine, radioWaitingPercent, radioWifiWord,
 } from "../constants/radio"
 import {
@@ -47,6 +48,8 @@ const now = ref(Math.floor(Date.now() / MS_PER_SECOND))
 const v = computed(() => dev.view.value)
 const d = computed(() => v.value?.device ?? null)
 const ident = computed(() => d.value?.ident)
+// The lead line only when your router lists it: without the router it would only repeat the range line's ring.
+const where = computed(() => (d.value ? whereOf(d.value) : ""))
 const own = computed(() => (d.value ? ownershipOf(d.value) : "unknown"))
 const edge = computed(() => (d.value ? edgeToFit([d.value.far_m * 1.2]) : 80))
 const evidence = computed(() => (d.value ? evidenceOf(d.value, {
@@ -102,6 +105,7 @@ usePolling(() => { void dev.load(); now.value = Math.floor(Date.now() / MS_PER_S
         <div class="flex flex-col gap-4">
           <Panel :title="RADIO_DEVICE_WHERE">
             <div class="flex flex-col gap-2" data-test="radio-device-where">
+              <p v-if="where && d.router" class="m-0 flex flex-col gap-0.5"><span class="font-medium text-primary" data-test="radio-device-where-line">{{ where }}</span><span class="text-[length:var(--text-small)] text-muted">{{ RADIO_WHERE_HELP }}</span></p>
               <RadioRadarCanvas :devices="[d]" :selected="d.id" :edge="edge" solo />
               <p class="m-0 text-primary" data-test="radio-device-range">{{ radioRangeLine(d.near_m, d.far_m) }} · {{ RADIO_RING_WORDS[d.ring] }}</p>
               <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ radioDbmLine(d.dbm) }}<template v-if="d.channel"> · {{ radioChannelBand(d.channel) }}</template><template v-if="!d.usual && d.trend !== 'unknown'"> · {{ RADIO_TREND_WORDS[d.trend] }}</template><template v-if="ident?.motion"> · {{ RADIO_MOTION_WORDS[ident.motion] }}</template><template v-if="d.moving"> · <span class="text-accent-brand" data-test="radio-device-moving">{{ RADIO_MOVING_NOW }}</span></template></p>

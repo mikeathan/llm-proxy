@@ -69,6 +69,7 @@ func (s *Stack) recorder(h stacksdk.Host) (*Recorder, *Store, error) {
 		if h.Mesh != nil {
 			s.rec.SetMesh(h.Mesh)
 		}
+		s.rec.SetHost(HostRadios(s.sys))
 	}
 	return s.rec, st, nil
 }

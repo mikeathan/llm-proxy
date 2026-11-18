@@ -8,7 +8,6 @@ const service = vi.hoisted(() => ({
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 
 import RadioListening from '../../../components/radio/RadioListening.vue'
-import RadioOwnerDevices from '../../../components/radio/RadioOwnerDevices.vue'
 
 const plan = { channels: [1, 60], window_seconds: 20, cycle_seconds: 300 }
 const idle = { listening: false, cycles: 0, frames: 0, windows: [], plan }
@@ -115,65 +114,5 @@ describe('RadioListening', () => {
     const w = await show()
     expect(w.get('[data-test="radio-window"]').text()).toContain('40 frames')
     expect(w.get('[data-test="radio-window"]').text()).toContain('on the channel asked')
-  })
-})
-
-describe('RadioOwnerDevices', () => {
-  const device = { id: 'ab', label: 'my phone', visits: 3, first_seen: '2026-11-10', last_seen: '2026-11-13', class: 'personal', class_by: 'owner' }
-
-  it('lists devices by name and days, never an address, and adds and removes them', async () => {
-    service.ownerDevices.mockResolvedValue([device])
-    service.addOwnerDevice.mockResolvedValue({ label: 'x' })
-    service.removeOwnerDevice.mockResolvedValue(undefined)
-    const w = mount(RadioOwnerDevices)
-    await flushPromises()
-    expect(w.get('[data-test="radio-device"]').text()).toContain('my phone')
-    expect(w.get('[data-test="radio-device-class"]').text()).toBe('Comes and goes')
-    expect(w.get('[data-test="radio-device"]').text()).toContain('your word')
-    await w.get('[data-test="radio-device-label"]').setValue('tv')
-    await w.get('[data-test="radio-device-address"]').setValue('3a:91:5c:d2:7e:44')
-    await w.get('form').trigger('submit')
-    await flushPromises()
-    expect(service.addOwnerDevice).toHaveBeenCalledWith('3a:91:5c:d2:7e:44', 'tv')
-    await w.get('[data-test="radio-device-remove"]').trigger('click')
-    await flushPromises()
-    expect(service.removeOwnerDevice).toHaveBeenCalledWith('ab')
-  })
-
-  it('shows where each device is now and when it was last heard, hour by hour', async () => {
-    service.ownerDevices.mockResolvedValue([device])
-    const hours = Array.from({ length: 48 }, (_, i) => ({ hour: new Date(Date.UTC(2026, 10, 13, 12 + i)).toISOString(), state: i % 2 ? 'here' : 'away' }))
-    service.presence.mockResolvedValue({ devices: [{ id: 'ab', label: 'my phone', state: 'here', signal: 'strong', last_heard: new Date().toISOString(), joined_own: true, hours }] })
-    const w = mount(RadioOwnerDevices)
-    await flushPromises()
-    expect(w.get('[data-test="radio-device-presence"]').text()).toContain('Here now')
-    expect(w.get('[data-test="radio-device-last-heard"]').text()).toContain('Last heard')
-    const cells = w.findAll('[data-test="radio-presence-hour"]')
-    expect(cells).toHaveLength(48)
-    expect(cells.filter((c) => c.attributes('data-state') === 'here')).toHaveLength(24)
-    expect(w.get('[role="img"]').attributes('aria-label')).toBe('my phone: heard in 24 of the last 48 hours')
-  })
-
-  it('still lists the devices when the presence cannot be read', async () => {
-    service.ownerDevices.mockResolvedValue([device])
-    service.presence.mockRejectedValue(new Error('down'))
-    const w = mount(RadioOwnerDevices)
-    await flushPromises()
-    expect(w.get('[data-test="radio-device"]').text()).toContain('my phone')
-    expect(w.find('[data-test="radio-device-presence"]').exists()).toBe(false)
-  })
-
-  it('shows the server’s plain refusal and keeps what was typed', async () => {
-    service.ownerDevices.mockResolvedValue([])
-    const { HttpError } = await import('../../../services/httpClient')
-    service.addOwnerDevice.mockRejectedValue(new HttpError('an address is six pairs of digits', undefined, 400))
-    const w = mount(RadioOwnerDevices)
-    await flushPromises()
-    await w.get('[data-test="radio-device-label"]').setValue('tv')
-    await w.get('[data-test="radio-device-address"]').setValue('nope')
-    await w.get('form').trigger('submit')
-    await flushPromises()
-    expect(w.get('[data-test="radio-devices-error"]').text()).toBe('an address is six pairs of digits')
-    expect((w.get('[data-test="radio-device-address"]').element as HTMLInputElement).value).toBe('nope')
   })
 })

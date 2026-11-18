@@ -56,4 +56,4 @@ stored number, a class or the "on your Wi-Fi" evidence, and a guest-network clie
 ## Links
 - `docs/audits/2026-11-18-radio-continuous-monitoring.md` §7 (focus windows), §8 (the router read)
 - Constitution I.15 (amended by this ADR), I.16, I.17
-- Handoff `docs/PLANS/cross-cutting/radio-card-kind-fixes-handoff-2026-11-18.md`
+- Handoff `docs/PLANS/cross-cutting/radio-device-identity-and-my-devices-handoff-2026-11-18.md`

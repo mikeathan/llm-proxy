@@ -17,7 +17,7 @@ import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode
 import { RADIO_DETAIL_LABEL } from "../constants/radio"
 import { VIEW_MODE_OPTIONS } from "../constants/netaudit"
 import type { NetauditViewMode } from "../types/netaudit"
-import RadioOwnerDevices from "../components/radio/RadioOwnerDevices.vue"
+import RadioMyDevices from "../components/radio/RadioMyDevices.vue"
 import RadioNetworks from "../components/radio/RadioNetworks.vue"
 import { RADIO_LISTENING_LABEL, RADIO_SUBTITLE, RADIO_TAB_LABELS, RADIO_TITLE } from "../constants/stacks"
 import { toRadio } from "../router/routes"
@@ -57,7 +57,7 @@ const tabs: readonly StackTabItem[] = [
       <RadioReport />
     </template>
     <template v-else-if="tab === 'devices'">
-      <RadioOwnerDevices />
+      <RadioMyDevices />
       <RadioNetworks />
     </template>
     <template v-else>
