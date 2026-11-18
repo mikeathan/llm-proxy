@@ -95,6 +95,15 @@ describe('RadioListening', () => {
     expect(w.get('[data-test="radio-listen-progress"]').text()).toContain('1 cycle done. Waiting for the next one.')
   })
 
+  it('counts the extra windows on your devices\' channels, and says plainly when they stopped while the sweep goes on', async () => {
+    service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', cycles: 2, frames: 10, windows: [], focus_windows: 3 })
+    let w = await show()
+    expect(w.get('[data-test="radio-listen-progress"]').text()).toContain("3 extra windows on your devices' channels.")
+    service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', cycles: 2, frames: 10, windows: [], focus_windows: 3, focus_off: true })
+    w = await show()
+    expect(w.get('[data-test="radio-listen-progress"]').text()).toContain('every channel is still swept')
+  })
+
   it('says when a window was cut at the frame limit, so the count is read as a floor', async () => {
     service.listening.mockResolvedValue({ ...idle, listening: true, until: '2026-11-14T10:00:00Z', windows: [{ channel: 60, frames: 4000, recorded: 4000, unread: 0, stop: 'frame_cap', kernel_seen: 9000, kernel_dropped: 0, elapsed_ms: 9000, on_channel: 4000, off_channel: 0, channel_matched: true, at: '2026-11-13T10:00:00Z' }] })
     const w = await show()

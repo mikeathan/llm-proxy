@@ -50,7 +50,14 @@ type Recorder struct {
 	tracks     map[string][]trackPt // memory only, per run (live.go)
 	trackHours atomic.Int32         // 0: nothing finer than a day goes to the disk (ADR-0055)
 	liveCycle  int
-	lastCycle  int64 // unix time of the last finished cycle of this run
+	lastCycle  int64                     // unix time of the last finished cycle of this run
+	focus      map[string][]focusReading // the focus windows' readings: memory only, per run, bounded (focus.go)
+	// The router's list of joined devices (mesh.go): the port, when it was last asked, the latest list and each device's router readings.
+	meshPort   stacksdk.MeshClients
+	meshAsked  time.Time
+	meshListAt int64
+	meshIdx    map[string]meshSeen
+	meshTrail  map[string][]focusReading
 }
 
 // NewRecorder returns a Recorder over the vault and the store.

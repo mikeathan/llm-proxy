@@ -167,7 +167,7 @@ func rowByShort(set liveSet, id string) (FeatureRow, []byte) {
 func (s *Stack) explain(set liveSet, row FeatureRow, out *DeviceView) {
 	f := FeaturesOf(row, set.listened)
 	out.Evidence = evidenceOf(f, row)
-	vec := vectorOf(set.rules, f, KindOf(row, set.ident.votes).Kind, signalOffset(set.rows))
+	vec := ownedVector(vectorOf(set.rules, f, KindOf(row, set.ident.votes).Kind, signalOffset(set.rows)), row)
 	m := s.model(set)
 	for c, p := range m.Posterior(vec) {
 		out.Chances[string(c)] = int(math.Round(100 * p))

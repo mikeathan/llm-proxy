@@ -104,6 +104,7 @@ func (s *Stack) handleAir(ctx context.Context, req stacksdk.Request) (stacksdk.R
 		http.MethodPut + " " + ClassPath:           func() (stacksdk.Response, error) { return s.setClass(ctx, store, id, req.Body) },
 		http.MethodPut + " " + GuestPath:           func() (stacksdk.Response, error) { return s.setGuest(ctx, rec, store, id, req.Body) },
 		http.MethodPost + " " + MarkMinePath:       func() (stacksdk.Response, error) { return s.markMine(ctx, rec, store, id, req.Body) },
+		http.MethodPut + " " + MarkMinePath:        func() (stacksdk.Response, error) { return s.renameMine(ctx, store, id, req.Body) },
 		http.MethodGet + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.networks(ctx, h, store) },
 		http.MethodPut + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.setNetworkNames(ctx, h, rec, req.Body) },
 		http.MethodPost + " " + NetworkConfirmPath: func() (stacksdk.Response, error) { return s.confirmNetwork(ctx, rec, store, id) },

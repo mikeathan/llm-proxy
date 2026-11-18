@@ -22,6 +22,7 @@ type fakeRouter struct {
 	mu       sync.Mutex
 	commands []string
 	output   string
+	conns    int // connections signed in
 }
 
 func newSigner(t *testing.T) (ssh.Signer, []byte) {
@@ -77,6 +78,9 @@ func (r *fakeRouter) serve(c net.Conn, cfg *ssh.ServerConfig) {
 	if err != nil {
 		return
 	}
+	r.mu.Lock()
+	r.conns++
+	r.mu.Unlock()
 	defer conn.Close()
 	go ssh.DiscardRequests(reqs)
 	for nc := range chans {
@@ -161,5 +165,59 @@ func TestAnOversizedTableAndAnUnusableKeyAreRefused(t *testing.T) {
 	}
 	if _, err := ReadTable(context.Background(), Target{Address: r.addr, User: "admin", Key: []byte("nonsense"), HostKey: line}); err == nil || !strings.Contains(err.Error(), "usable private key") {
 		t.Errorf("bad key: %v", err)
+	}
+}
+
+// The list of joined devices is read over one connection kept open: each read is a new session running only ClientsCommand, and a closed
+// connection reads nothing.
+func TestTheClientListIsReadWithItsOneCommandOnAConnectionKeptOpen(t *testing.T) {
+	signer, pemKey := newSigner(t)
+	r := startRouter(t, signer.PublicKey(), `{"box":{"5G":{}}}`)
+	line, _, err := ProbeHostKey(context.Background(), r.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Dial(context.Background(), Target{Address: r.addr, User: "admin", Key: pemKey, HostKey: line})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if out, err := c.ReadClients(context.Background()); err != nil || string(out) != `{"box":{"5G":{}}}` {
+			t.Fatalf("%q %v", out, err)
+		}
+	}
+	_ = c.Close()
+	if _, err := c.ReadClients(context.Background()); err == nil {
+		t.Error("a closed connection must not read")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.conns != 1 {
+		t.Errorf("three reads on one connection, signed in %d times", r.conns)
+	}
+	for _, cmd := range r.commands {
+		if cmd != ClientsCommand {
+			t.Errorf("only the list's command may run: %q", cmd)
+		}
+	}
+	if len(r.commands) != 3 {
+		t.Errorf("one session a read: %q", r.commands)
+	}
+}
+
+func TestTheClientListIsBoundedAndNeedsThePinnedKey(t *testing.T) {
+	signer, pemKey := newSigner(t)
+	r := startRouter(t, signer.PublicKey(), strings.Repeat("x", MaxClientsBytes+1))
+	if _, err := Dial(context.Background(), Target{Address: r.addr, User: "admin", Key: pemKey}); !errors.Is(err, ErrNoHostKey) {
+		t.Errorf("no pinned key, no connection: %v", err)
+	}
+	line, _, _ := ProbeHostKey(context.Background(), r.addr)
+	c, err := Dial(context.Background(), Target{Address: r.addr, User: "admin", Key: pemKey, HostKey: line})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.ReadClients(context.Background()); !errors.Is(err, ErrTooMuch) {
+		t.Errorf("a list over %d bytes is refused: %v", MaxClientsBytes, err)
 	}
 }

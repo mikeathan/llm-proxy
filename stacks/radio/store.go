@@ -636,6 +636,21 @@ func (s *Store) NeighbourTags(ctx context.Context, id string) ([][]byte, error) 
 
 // MarkTagOwner makes the row of someone else's device the owner's, under the owner's name and an optional class the rules then never change. The
 // row has no sealed address, because only the tag of a neighbour is ever known.
+// RenameOwner gives one of the owner's devices a new name. It says false when the row is not the owner's, so a rename never makes a device theirs.
+func (s *Store) RenameOwner(ctx context.Context, tag []byte, label string) (bool, error) {
+	var found bool
+	err := s.write(ctx, func() error {
+		res, err := s.db.ExecContext(ctx, `UPDATE devices SET label = ? WHERE tag = ? AND owner = 1`, label, tag)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		found = n > 0
+		return nil
+	})
+	return found, err
+}
+
 func (s *Store) MarkTagOwner(ctx context.Context, tag []byte, label, class string) error {
 	return s.write(ctx, func() error {
 		_, err := s.db.ExecContext(ctx, `UPDATE devices SET owner = 1, label = ?, class = CASE WHEN ? != '' THEN ? ELSE class END, class_ver = CASE WHEN ? != '' THEN 0 ELSE class_ver END WHERE tag = ? AND owner = 0`,

@@ -66,6 +66,9 @@ func (s *Stack) recorder(h stacksdk.Host) (*Recorder, *Store, error) {
 		if h.LAN != nil {
 			s.rec.SetLAN(h.LAN)
 		}
+		if h.Mesh != nil {
+			s.rec.SetMesh(h.Mesh)
+		}
 	}
 	return s.rec, st, nil
 }

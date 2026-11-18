@@ -150,9 +150,14 @@ type ListenState struct {
 	Cycles    int             `json:"cycles"`
 	Frames    int             `json:"frames"`
 	Windows   []WindowSummary `json:"windows"`
-	Ended     string          `json:"ended,omitempty"`
-	LastError string          `json:"last_error,omitempty"`
-	Plan      Plan            `json:"plan"`
+	// FocusWindows and FocusFrames count the focus windows between sweeps (focus.go) and what they read; their frames have their own budget,
+	// so they are not in Frames. FocusOff says focusing stopped for this run (a focus window was refused or failed), with the sweep going on.
+	FocusWindows int    `json:"focus_windows"`
+	FocusFrames  int    `json:"focus_frames"`
+	FocusOff     bool   `json:"focus_off,omitempty"`
+	Ended        string `json:"ended,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
+	Plan         Plan   `json:"plan"`
 	// Resume is set when no run is going and the last watch was stopped before its time by a restart or a failure (watch.go).
 	Resume *Resume `json:"resume,omitempty"`
 }
@@ -165,11 +170,17 @@ type PlanView struct {
 	MaxHours int             `json:"max_hours"`
 	// Hours is how long the plan says a start runs for; the page asks the session for exactly this.
 	Hours int `json:"hours"`
+	// WindowsPerHour is every window an hour the run may ask for, the sweep's and the focus windows' (focus.go): the page sizes the session's
+	// uses from it, so focus windows never spend a session meant for sweeps only.
+	WindowsPerHour int `json:"windows_per_hour"`
 }
 
 type listenBody struct {
 	Adapter string  `json:"adapter"`
 	Hours   float64 `json:"hours"`
+	// Focus says the session was sized for the focus windows too (PlanView.WindowsPerHour). A start without it only sweeps: a session's uses
+	// are one pool, so focus windows on a session sized for sweeps would spend the sweeps' uses and end the watch early.
+	Focus bool `json:"focus,omitempty"`
 }
 
 // run is the state of the one run.
@@ -177,6 +188,7 @@ type run struct {
 	mu       sync.Mutex
 	state    ListenState
 	frameCap int  // the most frames this run may read (frameCapFor its hours)
+	focus    bool // the start asked for focus windows, so its session was sized for them (listenBody.Focus)
 	warned   bool // the operator has been told the watch is ending (alerts.go)
 	cancel   context.CancelFunc
 	done     chan struct{}
@@ -256,7 +268,8 @@ func (s *Stack) handlePlan(ctx context.Context, h stacksdk.Host, req stacksdk.Re
 	}
 	set := s.settings(ctx, h)
 	plan := set.Plan()
-	return jsonResponse(http.StatusOK, PlanView{Adapter: adapter, Plan: plan, Requests: plan.Requests(adapter), MaxHours: MaxHours, Hours: set.Hours()})
+	return jsonResponse(http.StatusOK, PlanView{Adapter: adapter, Plan: plan, Requests: plan.Requests(adapter), MaxHours: MaxHours, Hours: set.Hours(),
+		WindowsPerHour: plan.sessionWindowsPerHour()})
 }
 
 func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (stacksdk.Response, error) {
@@ -291,7 +304,7 @@ func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (
 		return plainError(http.StatusConflict, "it is already listening: stop it first")
 	}
 	runCtx, cancel := context.WithCancel(context.Background())
-	r := &run{frameCap: s.frameCapFor(b.Hours), cancel: cancel, done: make(chan struct{}), state: ListenState{
+	r := &run{frameCap: s.frameCapFor(b.Hours), focus: b.Focus, cancel: cancel, done: make(chan struct{}), state: ListenState{
 		Listening: true, Adapter: b.Adapter, Started: now, Until: until, Windows: []WindowSummary{}, Plan: plan,
 	}}
 	s.run = r
@@ -351,17 +364,22 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 		return
 	}
 	failures := 0
+	f := &focuser{s: s, priv: priv, rec: rec, r: r, adapter: adapter, plan: plan, budget: focusBudget{started: s.now()}, off: !r.focus}
 	for {
 		rec.BeginCycle()
+		sweep := make([]WindowSummary, 0, len(plan.Channels))
 		for _, ch := range plan.Channels {
 			if reason := s.reasonToStop(ctx, r, until); reason != "" {
 				finish(reason)
 				return
 			}
-			if reason := s.runWindow(ctx, priv, rec, r, ListenParams{Iface: adapter, Channel: ch, Seconds: plan.WindowSeconds}, &failures); reason != "" {
+			sum, reason := s.runWindow(ctx, priv, rec, r, ListenParams{Iface: adapter, Channel: ch, Seconds: plan.WindowSeconds}, &failures)
+			if reason != "" {
 				finish(reason)
 				return
 			}
+			sweep = append(sweep, sum)
+			rec.RefreshMesh(ctx, s.now())
 		}
 		if err := rec.EndCycle(ctx, s.now()); err != nil {
 			r.update(func(st *ListenState) { st.LastError = "a cycle could not be written to the database" })
@@ -369,7 +387,7 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 		r.update(func(st *ListenState) { st.Cycles++ })
 		s.warnIfEnding(r)
 		wait := time.Duration(max(plan.CycleSeconds-len(plan.Channels)*plan.WindowSeconds, 5)) * time.Second
-		if err := s.wait(ctx, wait); err != nil {
+		if err := f.until(ctx, s.now().Add(wait), until, newFocusPlan(sweep)); err != nil {
 			finish(EndedStopped)
 			return
 		}
@@ -378,22 +396,22 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 
 // runWindow asks for one window and keeps what it heard. A non-empty answer is why the run ends; empty means go on (a window that failed
 // is counted and the next one is tried, up to maxFailures in a row).
-func (s *Stack) runWindow(ctx context.Context, priv stacksdk.Privileged, rec *Recorder, r *run, p ListenParams, failures *int) string {
+func (s *Stack) runWindow(ctx context.Context, priv stacksdk.Privileged, rec *Recorder, r *run, p ListenParams, failures *int) (WindowSummary, string) {
 	start := s.now()
 	res, err := priv.Run(ctx, stacksdk.PrivilegedRequest{Action: listenAction, Params: p.request().Params})
 	if ctx.Err() != nil {
-		return EndedStopped
+		return WindowSummary{}, EndedStopped
 	}
 	if err != nil {
 		r.update(func(st *ListenState) { st.LastError = messageOf(err) })
 		if stacksdk.CodeOf(err) == stacksdk.CodeDenied {
-			return EndedNoSession
+			return WindowSummary{}, EndedNoSession
 		}
 		*failures++
 		if *failures >= maxFailures {
-			return EndedFailing
+			return WindowSummary{}, EndedFailing
 		}
-		return ""
+		return WindowSummary{}, ""
 	}
 	*failures = 0
 	sum, ierr := Ingest(ctx, rec, res.Data, WindowAsked{Channel: p.Channel}, start)
@@ -407,7 +425,7 @@ func (s *Stack) runWindow(ctx context.Context, priv stacksdk.Privileged, rec *Re
 			st.Windows = st.Windows[len(st.Windows)-keptWindows:]
 		}
 	})
-	return ""
+	return sum, ""
 }
 
 func (s *Stack) reasonToStop(ctx context.Context, r *run, until time.Time) string {

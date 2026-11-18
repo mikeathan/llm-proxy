@@ -777,7 +777,8 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	radioPolicy := dataMgr.Radio()
 	s.netaudit.RadioPrivileged = &latePrivileged{}
-	radioHost, err := s.newRadioHost(radioPolicy, s.netaudit.RadioPrivileged, s.bellNotifier(alerts.Log, models.NetworkAlertRadio), known.Inventory.View)
+	radioHost, err := s.newRadioHost(radioPolicy, s.netaudit.RadioPrivileged, s.bellNotifier(alerts.Log, models.NetworkAlertRadio), known.Inventory.View,
+		s.netaudit.RouterConn.MeshClients)
 	if err != nil {
 		s.logger.Error("the Radio stack could not be hosted", "error", err.Error())
 	}

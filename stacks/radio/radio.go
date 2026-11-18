@@ -132,7 +132,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: DevicesPath}, {Method: http.MethodPost, Path: DevicesPath}, {Method: http.MethodDelete, Path: DevicePath},
 			{Method: http.MethodPost, Path: ForgetPath},
 			{Method: http.MethodGet, Path: AirPath}, {Method: http.MethodGet, Path: AirDevicesPath}, {Method: http.MethodGet, Path: AirwavesPath},
-			{Method: http.MethodGet, Path: LivePath}, {Method: http.MethodPost, Path: CalibratePath}, {Method: http.MethodPost, Path: MarkMinePath}, {Method: http.MethodGet, Path: TrackPath},
+			{Method: http.MethodGet, Path: LivePath}, {Method: http.MethodPost, Path: CalibratePath}, {Method: http.MethodPost, Path: MarkMinePath}, {Method: http.MethodPut, Path: MarkMinePath},
+			{Method: http.MethodGet, Path: TrackPath},
 			{Method: http.MethodGet, Path: KeepPath}, {Method: http.MethodPut, Path: KeepPath}, {Method: http.MethodDelete, Path: KeepPath},
 			{Method: http.MethodGet, Path: PresencePath}, {Method: http.MethodGet, Path: DigestPath},
 			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
@@ -141,8 +142,9 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodPut, Path: KindPath}, {Method: http.MethodPut, Path: ClassPath}, {Method: http.MethodPut, Path: GuestPath},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged, stacksdk.PortLAN},
-		Storage:  []string{DBFile},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged, stacksdk.PortLAN,
+			stacksdk.PortMeshClients},
+		Storage: []string{DBFile},
 	}
 }
 

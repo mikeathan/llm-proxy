@@ -1,6 +1,7 @@
-// Package routerssh reads the router's connection table over SSH (Constitution I.15) and does nothing else: it connects to one private address
-// with a key, checks the router's pinned host key, runs one fixed command and returns at most MaxBytes of its output. It sends no other command,
-// opens no other channel and forwards nothing. It is the only place the program makes an SSH connection.
+// Package routerssh reads the router over SSH (Constitution I.15) and does nothing else: it connects to one private address with a key, checks
+// the router's pinned host key, and runs one of two fixed commands: the connection table (ReadTable, one connection a read) or, while a radio
+// watch runs, the mesh's list of joined devices (Conn.ReadClients, on a connection kept open between reads, ADR-0059). It sends no other
+// command, opens no other channel and forwards nothing. It is the only place the program makes an SSH connection.
 package routerssh
 
 import (
@@ -18,8 +19,12 @@ import (
 )
 
 const (
-	// Command is the one command that is ever run: the router's connection table, read-only.
+	// Command is the connection table's command, read-only.
 	Command = "cat /proc/net/nf_conntrack"
+	// ClientsCommand is the only other command: the mesh router's list of the devices joined to each of its boxes, read-only (ADR-0059).
+	ClientsCommand = "cat /tmp/clientlist.json"
+	// MaxClientsBytes bounds what is read of the list (it is under 1 KB on the measured router).
+	MaxClientsBytes = 64 << 10
 	// MaxBytes bounds what is read of the output, and Timeout the whole connection.
 	MaxBytes = 4 << 20
 	Timeout  = 20 * time.Second
@@ -97,6 +102,49 @@ func ProbeHostKey(ctx context.Context, address string) (line, fingerprint string
 
 // ReadTable connects with the key, checks the host key against the pinned one, runs Command and returns its output.
 func ReadTable(ctx context.Context, t Target) ([]byte, error) {
+	client, err := signIn(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	defer client.Close()
+	out, err := run(ctx, client, Command, MaxBytes)
+	if err != nil && !errors.Is(err, ErrTooMuch) && ctx.Err() == nil {
+		return nil, fmt.Errorf("failed to read the router's table: %w", err)
+	}
+	return out, err
+}
+
+// Conn is a connection kept open between reads of the list of joined devices: each read is a new session on it. The caller closes it; it
+// runs nothing but ClientsCommand.
+type Conn struct {
+	client *ssh.Client
+}
+
+// Dial signs in for reads of the list of joined devices, with the same checks as ReadTable.
+func Dial(ctx context.Context, t Target) (*Conn, error) {
+	client, err := signIn(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return &Conn{client: client}, nil
+}
+
+// ReadClients runs ClientsCommand in a new session, bounded to Timeout and MaxClientsBytes.
+func (c *Conn) ReadClients(ctx context.Context) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	defer cancel()
+	out, err := run(ctx, c.client, ClientsCommand, MaxClientsBytes)
+	if err != nil && !errors.Is(err, ErrTooMuch) && ctx.Err() == nil {
+		return nil, fmt.Errorf("failed to read the router's list of devices: %w", err)
+	}
+	return out, err
+}
+
+// Close ends the connection.
+func (c *Conn) Close() error { return c.client.Close() }
+
+// signIn connects to the target with its key and refuses a router whose host key is not the pinned one.
+func signIn(ctx context.Context, t Target) (*ssh.Client, error) {
 	if t.HostKey == "" {
 		return nil, ErrNoHostKey
 	}
@@ -119,20 +167,20 @@ func ReadTable(ctx context.Context, t Target) ([]byte, error) {
 		},
 		Timeout: Timeout,
 	}
-	client, err := connect(ctx, t.Address, cfg)
-	if err != nil {
-		return nil, err
-	}
-	defer client.Close()
+	return connect(ctx, t.Address, cfg)
+}
+
+// run runs one fixed command in a new session and returns at most limit bytes of its output. Only this package names a command.
+func run(ctx context.Context, client *ssh.Client, command string, limit int) ([]byte, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("failed to open a session on the router: %w", err)
 	}
 	defer session.Close()
-	out := &capped{max: MaxBytes}
+	out := &capped{max: limit}
 	session.Stdout = out
 	done := make(chan error, 1)
-	go func() { done <- session.Run(Command) }()
+	go func() { done <- session.Run(command) }()
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -141,7 +189,7 @@ func ReadTable(ctx context.Context, t Target) ([]byte, error) {
 			return nil, ErrTooMuch
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to read the router's table: %w", err)
+			return nil, err
 		}
 	}
 	return out.buf.Bytes(), nil

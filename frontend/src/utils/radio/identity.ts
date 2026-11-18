@@ -99,14 +99,14 @@ export function evidenceOf(d: Nameable, words: {
   return out.length ? out : [words.none]
 }
 
-/** The label offered when you say a device is yours: its make and model, its maker and kind, or its kind. Never its name on your network or the
- * network it broadcasts: those are kept off the disk (ADR-0058, Constitution I.16), and a label is written to it. You can type anything instead. */
+/** The label offered when you say a device is yours: its make and model, its maker, or "My device". Never its kind: that is a guess shown beside
+ * the name, where it can change, and a label is kept (two Macs guessed phones were saved as "Phone or tablet", 2026-11-18). Never its name on
+ * your network or the network it broadcasts: those are kept off the disk (ADR-0058, Constitution I.16), and a label is written to it. You can
+ * type anything instead, and rename it later. */
 export function defaultLabel(d: Nameable): string {
   const id = d.ident
   const bm = brandModel(id)
   if (bm) return bm
-  const kind = RADIO_KIND_WORDS[kindOf(d)]
   const brand = id?.brand ?? d.detail?.maker
-  if (brand) return kindOf(d) === 'unknown' ? shortBrand(brand) : radioBrandKind(shortBrand(brand), kind)
-  return kind === RADIO_KIND_WORDS.unknown ? RADIO_MY_DEVICE : kind
+  return brand ? shortBrand(brand) : RADIO_MY_DEVICE
 }

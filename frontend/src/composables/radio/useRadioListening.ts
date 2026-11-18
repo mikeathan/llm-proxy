@@ -11,9 +11,8 @@ const SESSION_STACK = 'radio'
 const SESSION_MAX_USES = 7 * 24 * 240
 
 /** The uses a session is approved for: windows an hour times the hours, plus a margin for a run that restarts, never past the core's limit. */
-function usesFor(state: { channels: number; cycleSeconds: number }, hours: number): number {
-  const perHour = Math.ceil((state.channels * 3600) / state.cycleSeconds)
-  return Math.min(SESSION_MAX_USES, Math.ceil(perHour * hours) + state.channels * 2)
+function usesFor(state: { channels: number; windowsPerHour: number }, hours: number): number {
+  return Math.min(SESSION_MAX_USES, Math.ceil(state.windowsPerHour * hours) + state.channels * 2)
 }
 
 /**
@@ -53,7 +52,7 @@ export function useRadioListening() {
       const hours = askedHours ?? plan.hours
       const session = await RadioService.beginSession({
         stack: SESSION_STACK, label: `Listening on ${adapter}`, hours, requests: plan.requests,
-        max_uses: usesFor({ channels: plan.plan.channels.length, cycleSeconds: plan.plan.cycle_seconds }, hours),
+        max_uses: usesFor({ channels: plan.plan.channels.length, windowsPerHour: plan.windows_per_hour }, hours),
       })
       sessionId = session.id
       state.value = await RadioService.start(adapter, hours)

@@ -180,9 +180,13 @@ const (
 	// PortLAN tells a stack which devices the core knows on the local network, as tags made under the stack's own vault purpose with the names
 	// the operator gave them: the stack can join what it heard to the network's inventory without an address crossing the port (ADR-0058).
 	PortLAN = "lan"
+	// PortMeshClients tells a stack which devices are joined to each box of the owner's mesh router, with each box's signal of them, as tags under
+	// the stack's own vault purpose: asking may cause a read of the router, which the core limits (Constitution I.15, ADR-0059). Only the Radio
+	// stack is given it, while it runs a watch.
+	PortMeshClients = "meshclients"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

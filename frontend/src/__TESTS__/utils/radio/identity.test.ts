@@ -46,8 +46,9 @@ describe('radio identity', () => {
     expect(evidenceOf(dev({}), words)).toEqual(['none'])
   })
 
-  it('offers a label from make and kind, never the name on your network or the network it broadcasts', () => {
-    expect(defaultLabel(dev({ ident: ident({ lan_name: 'Kitchen iPad', brand: 'Apple', kind: 'phone' }), network: 'Smiths' }))).toBe('Apple phone or tablet')
+  it('offers a label from make and model or maker, never the guessed kind, the name on your network or the network it broadcasts', () => {
+    expect(defaultLabel(dev({ ident: ident({ lan_name: 'Kitchen iPad', brand: 'Apple', kind: 'phone' }), network: 'Smiths' }))).toBe('Apple')
+    expect(defaultLabel(dev({ ident: ident({ kind: 'phone', kind_source: 'private_address' }) }))).toBe('My device') // the guess stays beside the name, where it can change
     expect(defaultLabel(dev({ network: 'Smiths' }))).toBe('My device')
     expect(defaultLabel(dev({ ident: ident({ brand: 'Sky UK Ltd', model: 'SR203' }) }))).toBe('Sky UK SR203')
   })

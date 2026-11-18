@@ -93,6 +93,10 @@ export interface RadioListenState {
   cycles: number
   frames: number
   windows: RadioWindow[]
+  /** Extra windows between sweeps on the channels your devices use (they only move the picture), what they read, and whether they stopped. */
+  focus_windows?: number
+  focus_frames?: number
+  focus_off?: boolean
   ended?: RadioEnded
   last_error?: string
   plan: RadioPlan
@@ -104,6 +108,20 @@ export interface RadioListenRequest {
   params: unknown
 }
 
+/** One device in the mesh router's latest list of joined devices (Constitution I.15, ADR-0059). */
+export interface RadioRouterSeen {
+  /** The box's short id, your name for it on the Network page, and whether it is the main router. */
+  box: string
+  box_name?: string
+  main?: boolean
+  band: '2G' | '5G' | '6G'
+  guest?: boolean
+  dbm: number
+  /** Unix seconds the router's list was read. */
+  at: number
+  moving?: boolean
+}
+
 /** GET /admin/api/radio/listening/plan: the one list a session approves and the run asks. */
 export interface RadioPlanView {
   adapter: string
@@ -112,6 +130,8 @@ export interface RadioPlanView {
   max_hours: number
   /** How long the saved plan says a start runs for. */
   hours: number
+  /** Every window an hour the run may ask for, the sweep's and the focus windows' between sweeps: the session's uses are sized from it. */
+  windows_per_hour: number
 }
 
 export type RadioClass = 'infrastructure' | 'personal' | 'neighbour' | 'transient' | 'unknown'
@@ -249,6 +269,10 @@ export interface RadioLiveDevice {
   trend: RadioTrend
   channel: number
   heard: boolean
+  /** Its signal moved a lot within a few minutes, from the extra windows on your devices' channels or the router's readings: the picture's word only. */
+  moving?: boolean
+  /** What your mesh router's latest list says of it: the box it is joined to and that box's signal. Never evidence that it is yours. */
+  router?: RadioRouterSeen
   /** Drawn from the stored days only: not heard now, and `dbm` is its mean over the days kept. */
   usual?: boolean
   /** The device's own mean over the days kept, when there are enough readings; `shift_db` is how far it is now, `unusual` says that is a lot for it. */

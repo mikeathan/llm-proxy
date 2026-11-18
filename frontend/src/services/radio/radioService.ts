@@ -31,8 +31,9 @@ export class RadioService {
     return del(`${API_ENDPOINTS.helperSessions}/${encodeURIComponent(id)}`)
   }
 
+  /** Starts a watch. `focus` says the session was sized from the plan's `windows_per_hour`, so the stack may add focus windows between sweeps. */
   static start(adapter: string, hours: number): Promise<RadioListenState> {
-    return post<RadioListenState>(API_ENDPOINTS.radioListening, { adapter, hours })
+    return post<RadioListenState>(API_ENDPOINTS.radioListening, { adapter, hours, focus: true })
   }
 
   static stop(): Promise<RadioListenState> {
@@ -107,6 +108,11 @@ export class RadioService {
   /** Makes a device heard on the radar the owner's, by the short id the radar shows. Only a marker is kept, not an address. */
   static markMine(id: string, label: string): Promise<RadioMarkedMine> {
     return post<RadioMarkedMine>(`${API_ENDPOINTS.radioMarkMine}/${encodeURIComponent(id)}`, { label })
+  }
+
+  /** Renames one of the owner's devices, by the short id the page shows; 404 when it is not theirs. */
+  static renameMine(id: string, label: string): Promise<RadioMarkedMine> {
+    return put<RadioMarkedMine>(`${API_ENDPOINTS.radioMarkMine}/${encodeURIComponent(id)}`, { label })
   }
 
   /** One device's signal over this run, from memory; 404 when the run ended or the device was silent for a whole track. */
