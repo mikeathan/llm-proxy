@@ -519,31 +519,3 @@ export const RADIO_CHANNEL_MINE = 'your network'
 export const radioChannelCrowd = (name: string, channel: number, devices: number, quietest: number): string =>
   `${name} is on channel ${channel} with ${devices} ${devices === 1 ? 'device' : 'devices'}. Channel ${quietest} is the quietest.`
 
-// Radio · Report: the daily radio report as an automation, set up and run from the Around you tab.
-/** The playbook's id, and the name of the automation and its task file made from it. */
-export const RADIO_REPORT_ID = 'radio-watch-report'
-export const RADIO_REPORT_TITLE = 'Radio report'
-export const RADIO_REPORT_INTRO = 'Asks the assistant to read what the sensor has found and write a short report. It runs on a local model only and does not listen itself: it reads what was already heard.'
-export const RADIO_REPORT_SCHEDULE_LABEL = 'When it runs'
-export const RADIO_REPORT_MANUAL = 'Only when I press Analyse'
-export const RADIO_REPORT_DAILY = 'Every morning at 7:00'
-export const RADIO_REPORT_WORKSPACE = 'Workspace'
-export const RADIO_REPORT_SETUP = 'Set up and analyse'
-export const RADIO_REPORT_ANALYSE = 'Analyse now'
-export const RADIO_REPORT_RUNNING = 'Analysing…'
-export const RADIO_REPORT_QUEUED = 'Waiting for its turn…'
-export const RADIO_REPORT_LAST = 'Last report'
-export const RADIO_REPORT_OPEN = 'Open it in Automations'
-export const RADIO_REPORT_OFF = 'Switch the Radio stack on in Modules first: the report has nothing to read while it is off.'
-export const RADIO_REPORT_NOT_LISTENING = 'Not listening now. The report will rest on what was heard earlier.'
-export const RADIO_REPORT_START = 'Start listening'
-export const RADIO_REPORT_FAILED = 'The report could not be set up or run.'
-export const RADIO_REPORT_NO_WORKSPACE = 'There is no workspace to put the report in. Create one first.'
-export const RADIO_REPORT_RUNS_MANUAL = 'Runs only when you press Analyse.'
-/** The playbook's own schedule, which has its own words; any other schedule is told as "on its schedule" and left to the Automations page. */
-export const RADIO_REPORT_DAILY_CRON = '0 7 * * *'
-export const radioReportRuns = (cron: string | undefined, next: string | undefined): string => {
-  const when = cron === RADIO_REPORT_DAILY_CRON ? 'every morning at 7:00' : 'on its own schedule'
-  return `Runs ${when}${next ? `; next run ${new Date(next).toLocaleString()}` : ''}.`
-}
-

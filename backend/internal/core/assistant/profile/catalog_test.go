@@ -29,7 +29,7 @@ func writeUser(t *testing.T, dir, id, content string) {
 }
 
 // shippedBuiltins is how many profiles are built in.
-const shippedBuiltins = 9
+const shippedBuiltins = 8
 
 func TestBuiltinsAreTheShipped(t *testing.T) {
 	c, _ := newCatalog(t)
@@ -40,7 +40,7 @@ func TestBuiltinsAreTheShipped(t *testing.T) {
 			t.Errorf("built-in %s is incomplete: %+v", p.ID, p)
 		}
 	}
-	if got, want := strings.Join(ids, ","), "builder,general,operator,radio-reporter,research,security-auditor,task-runner,watcher,web-researcher"; got != want {
+	if got, want := strings.Join(ids, ","), "builder,general,operator,research,security-auditor,task-runner,watcher,web-researcher"; got != want {
 		t.Errorf("built-ins = %s, want %s", got, want)
 	}
 }
@@ -284,30 +284,5 @@ func TestSecurityAuditorReadsTheWindowDigestAndKeepsTheFactsToCode(t *testing.T)
 		if strings.Contains(text, scenario) {
 			t.Errorf("the prompt is generic; it must not name %q", scenario)
 		}
-	}
-}
-
-// The radio reporter is the profile the daily radio report runs under: it can read the findings tools and nothing else, saves nothing, never asks
-// and never runs on a cloud model. An empty tool list would have offered every tool to an unattended run.
-func TestRadioReporterIsLockedDown(t *testing.T) {
-	c, _ := newCatalog(t)
-	p, ok := c.Get("radio-reporter")
-	if !ok {
-		t.Fatal("no built-in radio-reporter profile")
-	}
-	if !p.LocalOnly || p.MemorySave != SaveOff || p.Memory != models.MemoryModeOff || len(p.Delegates) != 0 || p.Reminders {
-		t.Errorf("radio-reporter = %+v", p)
-	}
-	if !slices.Equal(p.Tools, []string{models.CategoryNetFindings}) {
-		t.Errorf("tools = %v, want only %s", p.Tools, models.CategoryNetFindings)
-	}
-	hidden := p.ExcludedTools()
-	for _, tool := range []string{models.ToolTerminalExecute, models.ToolFileWrite, models.ToolNetworkFetch, models.ToolInternetSearch, models.ToolNotifyUser, models.ToolMemoryUpdate, models.ToolMemoryForget, models.ToolDelegate, models.ToolNetworkScan, models.ToolScheduleReminder} {
-		if !slices.Contains(hidden, tool) {
-			t.Errorf("%s must be hidden from the radio reporter", tool)
-		}
-	}
-	if slices.Contains(hidden, models.ToolRadioDigest) {
-		t.Error("the radio reporter must be offered radio_digest")
 	}
 }

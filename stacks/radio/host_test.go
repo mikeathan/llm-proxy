@@ -126,8 +126,8 @@ func TestThisComputersOwnCardNeverMoves(t *testing.T) {
 		if d.Ident == nil || d.Ident.ThisComputer == "" {
 			t.Fatalf("the host card is known: %+v", d.Ident)
 		}
-		if d.Moving || d.Trend != TrendUnknown || d.Unusual {
-			t.Errorf("this computer's own card never moves: moving %v trend %s unusual %v", d.Moving, d.Trend, d.Unusual)
+		if d.Moving || d.Trend != TrendUnknown || d.Unusual || d.Ident.Motion != "" {
+			t.Errorf("this computer's own card never moves: moving %v trend %s unusual %v motion %q", d.Moving, d.Trend, d.Unusual, d.Ident.Motion)
 		}
 		return
 	}

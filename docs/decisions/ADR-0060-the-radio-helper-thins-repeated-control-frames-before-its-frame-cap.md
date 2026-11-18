@@ -1,7 +1,7 @@
 ---
 id: ADR-0060
 title: The radio helper thins repeated control frames before its frame cap
-status: proposed
+status: accepted
 date: 2026-11-18
 subsystems: [network-audit]
 supersedes:
@@ -56,4 +56,4 @@ this option on 2026-11-18 over skipping CTS/ACK alone and over a larger cap for 
 - Constitution I.16 (amended), I.17; ADR-0052, ADR-0053, ADR-0056
 - `backend/internal/platform/privhelper/wire/radio.go` (`RadioThinner`), `backend/internal/platform/privhelper/capture/radio.go`
 - `stacks/radio/window.go` (`Trailer.Skipped`, `WindowSummary.Skipped`)
-- Handoff `docs/PLANS/cross-cutting/radio-filters-mobile-and-radar-movement-handoff-2026-11-18.md`
+- `docs/PLANS/cross-cutting/radio-stack.md` → Remaining work (the v0.100.0 handoff, harvested there)

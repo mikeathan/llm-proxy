@@ -1,7 +1,7 @@
 ---
 id: ADR-0058
 title: Radio names a device from what it broadcasts, learns its class from the owner's answers, and joins the network inventory by tag
-status: proposed
+status: accepted
 date: 2026-11-17
 subsystems: [network-audit]
 supersedes:
