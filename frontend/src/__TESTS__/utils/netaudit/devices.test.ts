@@ -105,6 +105,12 @@ describe('deviceStatus', () => {
   it('needs a look when the server calls the device new', () => expect(deviceStatus(device({ new: true, approved: false }), NOW)).toBe('attention'))
   it('is online when seen within half an hour', () => expect(deviceStatus(device({ last_seen: '2026-10-30T11:35:00Z' }), NOW)).toBe('online'))
   it('is offline after that', () => expect(deviceStatus(device({ last_seen: '2026-10-30T11:20:00Z' }), NOW)).toBe('offline'))
+  it("is online when the router's list named it lately, though the sweep did not hear it", () =>
+    expect(deviceStatus(device({ last_seen: '2026-10-30T09:00:00Z', router_seen: '2026-10-30T11:50:00Z' }), NOW)).toBe('online'))
+  it("an old mark from the router's list never makes a device that answered offline", () =>
+    expect(deviceStatus(device({ last_seen: '2026-10-30T11:50:00Z', router_seen: '2026-10-30T01:00:00Z' }), NOW)).toBe('online'))
+  it("says when it was last seen or listed, whichever is later", () =>
+    expect(deviceSeen(device({ last_seen: '2026-10-30T09:00:00Z', router_seen: '2026-10-30T11:00:00Z' }), NOW)).toBe(deviceSeen(device({ last_seen: '2026-10-30T11:00:00Z' }), NOW)))
   it('leaves an old visitor nobody approved offline, not in the news', () => {
     expect(deviceStatus(device({ approved: false, new: false, last_seen: '2026-10-01T00:00:00Z' }), NOW)).toBe('offline')
   })

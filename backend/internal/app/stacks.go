@@ -132,6 +132,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig, Monitors: []string{netaudit.MonitorPhoneHome}},
 		{ID: "router_connections", Title: "Router connections", Purpose: "Where each device connects, read from the router once a night.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsLAN, StepUp: true,
 			Switch: n.RouterConnConfig, Monitors: []string{netaudit.MonitorRouterConn}, Ready: func() (bool, string) { return routerConnReady(lan, n.RouterConn) }},
+		{ID: "router_clients", Title: "Joined devices, from the router", Purpose: "Keeps a dozing phone online, from the router's list of joined Wi-Fi devices.", Stack: stack.Network, Layer: "discover", Sends: stack.SendsLAN, StepUp: true,
+			Needs: []string{"presence"}, Switch: n.RouterClientsConfig, Ready: func() (bool, string) { return routerConnReady(lan, n.RouterConn) }},
 		{ID: "login_watch", Title: "Failed logins, this computer", Purpose: "Tells you when someone keeps failing to log in here.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Switch: n.LoginWatchConfig, Monitors: []string{netaudit.MonitorLoginWatch}, Ready: loginReady},
 		{ID: "wifi_lookalikes", Title: "Wi-Fi look-alikes", Purpose: "Tells you when a Wi-Fi network copies yours.", Stack: stack.Network, Layer: "discover", Sends: stack.SendsNothing,

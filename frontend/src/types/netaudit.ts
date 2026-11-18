@@ -417,6 +417,8 @@ export interface NetworkDevice {
   suggested_name?: string
   first_seen: string
   last_seen: string
+  /** When the router's list of joined Wi-Fi devices last named it (the "Joined devices, from the router" module); absent when it never did. */
+  router_seen?: string
   approved: boolean
   /** A private hardware address, as phones and laptops use to hide the real one. */
   randomized: boolean

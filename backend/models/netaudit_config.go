@@ -103,6 +103,9 @@ type NetauditConfig struct {
 	// the router's table, and has the nightly audit's own code read it once (Constitution I.15). Off until the operator turns it on (a step-up
 	// action); it needs the router's setup to be finished.
 	RouterConnWatchEnabled bool `yaml:"router_conn_watch_enabled,omitempty" json:"router_conn_watch_enabled"`
+	// RouterClientsEnabled has each presence look read the router's list of joined Wi-Fi devices and keep the inventory's own devices that it
+	// lists online (Constitution I.15, ADR-0062). Off until the operator turns it on (a step-up action); it needs the router's setup finished.
+	RouterClientsEnabled bool `yaml:"router_clients_enabled,omitempty" json:"router_clients_enabled"`
 	// AttackPathsOff stops the attack paths (the Overview card and the report section). They only read what the audit already holds,
 	// so they are on unless switched off.
 	AttackPathsOff bool `yaml:"attack_paths_off,omitempty" json:"attack_paths_off"`

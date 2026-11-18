@@ -59,6 +59,11 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It keeps no address and no connection, only company and country names with dates, and only this program's own code signs in to the router.",
 		ShowsUp: "As new marks on the Traffic tab and as findings in the nightly report.",
 	},
+	"router_clients": {
+		Watches: "Which of your devices the router lists as joined to its Wi-Fi, read at each presence look, so a phone that dozes and does not answer stays online.",
+		Never:   "It keeps only when the router last listed each device you already have, never a guest, never a new device and never where in the house it is; only this program's own code signs in to the router.",
+		ShowsUp: "As Online on the Devices tab.",
+	},
 	"known_bad": {
 		Watches:  "The names devices ask for, compared with abuse.ch's list of hosts that serve malware.",
 		Never:    "No name a device asked for is sent anywhere; only the list is downloaded, when you press Download.",

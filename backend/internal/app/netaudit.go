@@ -162,7 +162,10 @@ type netauditServices struct {
 	RouterConn *routerconn.Manager
 	// RouterConnConfig is the router watch's switch and RouterHistory what it remembers of where each device connected (Constitution I.15).
 	RouterConnConfig *netaudit.RouterConnConfig
-	RouterHistory    *routerhistory.History
+	// RouterClientsConfig is the switch for presence reading the router's list of joined Wi-Fi devices; RouterJoined is that read (ADR-0062).
+	RouterClientsConfig *netaudit.RouterClientsConfig
+	RouterJoined        *netaudit.RouterJoined
+	RouterHistory       *routerhistory.History
 	// RouterConnReady says whether the guardrails allow the local network, asked before each nightly read.
 	RouterConnReady func() (bool, string)
 	// RouterConnGate holds the report's reads of the router to one per three hours, whoever starts the runs.
@@ -669,6 +672,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	known := s.newTracking(store, scope, netTools)
 	phone := s.newPhoneHome(store, scope)
 	routerConn := s.newRouterConn(store, known.Inventory)
+	routerClients, routerJoined := newRouterJoined(store, routerConn.Manager, known.Inventory, func() (bool, string) { return networkReady(guard(), true, false) })
 	bad := s.newKnownBad(store, netTools)
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
@@ -697,35 +701,37 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Vulns:     scan.Vulns,
 		Ubuntu:    ubuntu,
 
-		Inventory:         known.Inventory,
-		Identities:        known.Identities,
-		History:           known.History,
-		Names:             known.Names,
-		NamesConfig:       known.NamesConfig,
-		Summary:           known.Summary,
-		Discovery6:        known.Discovery6,
-		AttackPathsConfig: netaudit.NewAttackPathsConfig(store),
-		KnownBadConfig:    bad.Config,
-		KnownBad:          bad.Manager,
-		KnownBadList:      bad.List,
-		DestinationOwners: s.newDestinationOwners(netTools),
-		DestinationPlaces: s.newDestinationPlaces(netTools),
-		RouteTrace:        s.newRouteTrace(guard),
-		RouterConn:        routerConn.Manager,
-		RouterConnConfig:  routerConn.Config,
-		RouterConnReady:   func() (bool, string) { return networkReady(guard(), true, false) },
-		RouterConnGate:    newReadGate(routerConnReadGap, time.Now),
-		RouterHistory:     routerConn.History,
-		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
-		WebChecker:        webChecker,
-		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
-		UDPChecks:         &netaudit.UDPChecks{Asker: stackUDPAsker{host: network}},
-		RunHealth:         netaudit.NewRunHealth(),
-		PhoneHome:         phone.Watch,
-		PhoneHomeConfig:   phone.Config,
-		Ports:             known.Ports,
-		Host:              known.Host,
-		Router:            newRouterCheck(stackRouterProber{host: network, module: networkRouterModule}, known.Inventory, scope).WithExposure(outside.Exposure),
+		Inventory:           known.Inventory,
+		Identities:          known.Identities,
+		History:             known.History,
+		Names:               known.Names,
+		NamesConfig:         known.NamesConfig,
+		Summary:             known.Summary,
+		Discovery6:          known.Discovery6,
+		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
+		KnownBadConfig:      bad.Config,
+		KnownBad:            bad.Manager,
+		KnownBadList:        bad.List,
+		DestinationOwners:   s.newDestinationOwners(netTools),
+		DestinationPlaces:   s.newDestinationPlaces(netTools),
+		RouteTrace:          s.newRouteTrace(guard),
+		RouterConn:          routerConn.Manager,
+		RouterConnConfig:    routerConn.Config,
+		RouterClientsConfig: routerClients,
+		RouterJoined:        routerJoined,
+		RouterConnReady:     func() (bool, string) { return networkReady(guard(), true, false) },
+		RouterConnGate:      newReadGate(routerConnReadGap, time.Now),
+		RouterHistory:       routerConn.History,
+		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
+		WebChecker:          webChecker,
+		UDPChecksConfig:     netaudit.NewUDPChecksConfig(store),
+		UDPChecks:           &netaudit.UDPChecks{Asker: stackUDPAsker{host: network}},
+		RunHealth:           netaudit.NewRunHealth(),
+		PhoneHome:           phone.Watch,
+		PhoneHomeConfig:     phone.Config,
+		Ports:               known.Ports,
+		Host:                known.Host,
+		Router:              newRouterCheck(stackRouterProber{host: network, module: networkRouterModule}, known.Inventory, scope).WithExposure(outside.Exposure),
 
 		OutsideLookupConfig: outside.Config,
 		Exposure:            outside.Exposure,
