@@ -32,11 +32,11 @@ describe('RadioAskCard', () => {
     expect(w.text()).toContain('may be yours')
   })
 
-  it('sends "mine" under its make and kind and "not mine" for the server to place', async () => {
+  it('sends "mine" under its maker, never its guessed kind, and "not mine" for the server to place', async () => {
     const w = await show()
     await w.get('[data-test="radio-ask-mine"]').trigger('click')
     await flushPromises()
-    expect(service.markMine).toHaveBeenCalledWith('aa000001', 'Apple phone or tablet')
+    expect(service.markMine).toHaveBeenCalledWith('aa000001', 'Apple')
     await w.get('[data-test="radio-ask-not-mine"]').trigger('click')
     await flushPromises()
     expect(service.setClass).toHaveBeenCalledWith('aa000001', 'not_mine')

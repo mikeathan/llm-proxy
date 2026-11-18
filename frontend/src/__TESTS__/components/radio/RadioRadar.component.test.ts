@@ -79,6 +79,13 @@ describe('RadioRadar', () => {
     expect(rows[1]!.text()).toContain('getting closer')
   })
 
+  it('says which box of your mesh a device is joined to, and that it is moving now', async () => {
+    service.live.mockResolvedValue(view([dev({ id: 'mine1', mine: true, label: 'my phone', class: 'personal', moving: true, router: { box: '7726d4bd', main: true, band: '5G', dbm: -57, at: 1 } })]))
+    const w = await show()
+    expect(w.get('[data-test="radio-row-router"]').text()).toBe('via the main router')
+    expect(w.get('[data-test="radio-row-moving"]').text()).toBe('moving now')
+  })
+
   it('opens a device’s own page from its row or its dot, with no card in between', async () => {
     const w = await show()
     await w.findAll('[data-test="radio-radar-row-button"]')[1]!.trigger('click')

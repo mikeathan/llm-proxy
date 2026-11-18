@@ -15,8 +15,8 @@ import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode
 import { toRadio } from "../router/routes"
 import {
   RADIO_CLASS_HELP, RADIO_CLASS_ORDER, RADIO_CLASS_WORDS, RADIO_DETAIL_NETWORK_NOTE, RADIO_DETAIL_SIGNAL, RADIO_DEVICE_COLUMNS, RADIO_MAKER_RANDOM_HELP,
-  RADIO_MARK_BUTTON, RADIO_MARK_LABEL, RADIO_MARK_NOTE, RADIO_MARK_PLACEHOLDER, RADIO_MARK_SAVE, RADIO_REASONS, RADIO_RING_WORDS, RADIO_SIGNAL_HELP,
-  RADIO_SIGNAL_WORDS, RADIO_TREND_WORDS, radioChannelBand, radioChannelsLine, radioDbmLine, radioHeardLine, radioHeardSpan, radioRangeLine,
+  RADIO_MARK_BUTTON, RADIO_MARK_LABEL, RADIO_MARK_NO_NAME, RADIO_MARK_NOTE, RADIO_MARK_PLACEHOLDER, RADIO_MARK_SAVE, RADIO_RENAME_BUTTON, RADIO_RENAME_SAVE, RADIO_REASONS, RADIO_RING_WORDS, RADIO_SIGNAL_HELP,
+  RADIO_MOVING_NOW, RADIO_SIGNAL_WORDS, RADIO_TREND_WORDS, radioChannelBand, radioReadAgo, radioRouterLine, radioChannelsLine, radioDbmLine, radioHeardLine, radioHeardSpan, radioRangeLine,
   radioRetryWord, radioUsualLine, radioWaitingLine, radioWaitingPercent, radioWifiWord,
 } from "../constants/radio"
 import {
@@ -61,9 +61,21 @@ const naming = ref(false)
 const label = ref("")
 const metres = ref(1)
 
+function startNaming(): void {
+  if (!d.value) return
+  label.value = d.value.mine ? (d.value.label ?? "") : defaultLabel(d.value)
+  naming.value = true
+}
+
+// saveMine marks the device yours under the name, or renames it when it is already yours.
 async function saveMine(): Promise<void> {
-  const name = label.value.trim() || (d.value ? defaultLabel(d.value) : "")
-  if (name && (await dev.markMine(name))) naming.value = false
+  if (!d.value) return
+  const name = label.value.trim() || (d.value.mine ? "" : defaultLabel(d.value))
+  if (!name) {
+    dev.error.value = RADIO_MARK_NO_NAME
+    return
+  }
+  if (await (d.value.mine ? dev.renameMine(name) : dev.markMine(name))) naming.value = false
 }
 
 watch(id, () => { dev.view.value = null; void dev.load() })
@@ -92,7 +104,8 @@ usePolling(() => { void dev.load(); now.value = Math.floor(Date.now() / MS_PER_S
             <div class="flex flex-col gap-2" data-test="radio-device-where">
               <RadioRadarCanvas :devices="[d]" :selected="d.id" :edge="edge" solo />
               <p class="m-0 text-primary" data-test="radio-device-range">{{ radioRangeLine(d.near_m, d.far_m) }} · {{ RADIO_RING_WORDS[d.ring] }}</p>
-              <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ radioDbmLine(d.dbm) }}<template v-if="d.channel"> · {{ radioChannelBand(d.channel) }}</template><template v-if="!d.usual && d.trend !== 'unknown'"> · {{ RADIO_TREND_WORDS[d.trend] }}</template><template v-if="ident?.motion"> · {{ RADIO_MOTION_WORDS[ident.motion] }}</template></p>
+              <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ radioDbmLine(d.dbm) }}<template v-if="d.channel"> · {{ radioChannelBand(d.channel) }}</template><template v-if="!d.usual && d.trend !== 'unknown'"> · {{ RADIO_TREND_WORDS[d.trend] }}</template><template v-if="ident?.motion"> · {{ RADIO_MOTION_WORDS[ident.motion] }}</template><template v-if="d.moving"> · <span class="text-accent-brand" data-test="radio-device-moving">{{ RADIO_MOVING_NOW }}</span></template></p>
+              <p v-if="d.router" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-device-router">{{ radioRouterLine(d.router, radioReadAgo(Math.max(0, now - d.router.at))) }}</p>
               <p v-if="d.usual_dbm" class="m-0 text-[length:var(--text-small)] text-muted">{{ radioUsualLine(d.usual_dbm, d.dbm) }}</p>
               <p v-if="d.detail" class="m-0 text-[length:var(--text-small)] text-muted" data-test="radio-device-heard">{{ radioHeardSpan(d.detail.first_seen, heardAgoWord(d, now) || d.detail.last_seen) }}</p>
               <p class="m-0 text-[length:var(--text-small)] text-faint">{{ RADIO_RADAR_SOLO_HELP }}</p>
@@ -157,16 +170,17 @@ usePolling(() => { void dev.load(); now.value = Math.floor(Date.now() / MS_PER_S
           <Panel :title="RADIO_DEVICE_ANSWER">
             <div class="flex flex-col gap-3" data-test="radio-device-answer">
               <div v-if="!d.mine" class="flex flex-wrap gap-2">
-                <BaseButton v-if="!naming" variant="primary" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-mine" @click="naming = true; label = defaultLabel(d)">{{ RADIO_MARK_BUTTON }}</BaseButton>
+                <BaseButton v-if="!naming" variant="primary" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-mine" @click="startNaming">{{ RADIO_MARK_BUTTON }}</BaseButton>
                 <BaseButton variant="secondary" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-not-mine" @click="dev.setClass('not_mine')">{{ RADIO_DEVICE_NOT_MINE }}</BaseButton>
                 <BaseButton variant="ghost" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-hand-back" @click="dev.setClass('')">{{ RADIO_DEVICE_HAND_BACK }}</BaseButton>
               </div>
+              <BaseButton v-if="d.mine && !naming" variant="secondary" class-name="self-start max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-rename" @click="startNaming">{{ RADIO_RENAME_BUTTON }}</BaseButton>
               <form v-if="naming" class="flex flex-wrap items-end gap-2" @submit.prevent="saveMine">
                 <label class="flex flex-col gap-1 text-[length:var(--text-small)] text-secondary">{{ RADIO_MARK_LABEL }}
                   <input v-model="label" type="text" maxlength="60" :placeholder="RADIO_MARK_PLACEHOLDER" class="h-8 w-64 max-w-full rounded-[var(--radius-md)] border border-control bg-canvas px-2.5 text-primary focus-visible:outline-none focus-visible:ring-2 max-sm:h-11" data-test="radio-device-mine-input" />
                 </label>
-                <BaseButton type="submit" variant="primary" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-mine-save">{{ RADIO_MARK_SAVE }}</BaseButton>
-                <p class="m-0 w-full text-[length:var(--text-small)] text-muted" data-test="radio-device-mine-note">{{ RADIO_MARK_NOTE }}</p>
+                <BaseButton type="submit" variant="primary" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-mine-save">{{ d.mine ? RADIO_RENAME_SAVE : RADIO_MARK_SAVE }}</BaseButton>
+                <p v-if="!d.mine" class="m-0 w-full text-[length:var(--text-small)] text-muted" data-test="radio-device-mine-note">{{ RADIO_MARK_NOTE }}</p>
               </form>
               <label class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary">{{ RADIO_DEVICE_KIND_LABEL }}
                 <SelectInput :model-value="ident?.kind ?? 'unknown'" :options="kindOptions" :label="RADIO_DEVICE_KIND_LABEL" class="max-sm:!h-11" data-test="radio-device-kind-select" @update:model-value="dev.setKind($event as RadioDeviceKind)" />

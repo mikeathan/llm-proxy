@@ -8,7 +8,7 @@ vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }
 
 import { useRadioListening } from '../../../composables/radio/useRadioListening'
 
-const plan = { adapter: 'wlx00', plan: { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 }, max_hours: 12,
+const plan = { adapter: 'wlx00', plan: { channels: [1, 6, 11, 36, 60, 149], window_seconds: 20, cycle_seconds: 300 }, max_hours: 12, windows_per_hour: 144,
   requests: [{ action: 'radio_listen', params: { iface: 'wlx00', channel: 60, seconds: 20 } }] }
 const running = { listening: true, cycles: 0, frames: 0, windows: [], plan: plan.plan, until: '2026-11-14T10:00:00Z' }
 
@@ -27,7 +27,7 @@ describe('useRadioListening', () => {
   it('opens a session for the exact list the stack gave, then starts the run', async () => {
     const l = useRadioListening()
     await l.start('wlx00', 2)
-    expect(service.beginSession).toHaveBeenCalledWith({ stack: 'radio', label: 'Listening on wlx00', hours: 2, requests: plan.requests, max_uses: 156 })
+    expect(service.beginSession).toHaveBeenCalledWith({ stack: 'radio', label: 'Listening on wlx00', hours: 2, requests: plan.requests, max_uses: 300 }) // 144 windows an hour (72 sweep, 72 focus) for 2 hours, plus a margin
     expect(service.start).toHaveBeenCalledWith('wlx00', 2)
     expect(l.state.value?.listening).toBe(true)
   })
@@ -42,15 +42,19 @@ describe('useRadioListening', () => {
 
   it('never asks for more uses than the core allows', async () => {
     const l = useRadioListening()
-    service.plan.mockResolvedValue({ ...plan, plan: { ...plan.plan, cycle_seconds: 60 } })
+    service.plan.mockResolvedValue({ ...plan, windows_per_hour: 240 })
     await l.start('wlx00', 168)
     expect(service.beginSession.mock.calls[0]![0].max_uses).toBe(7 * 24 * 240)
   })
 
-  it('asks for the uses a seven-day watch needs, which the old 5000 limit could not cover', async () => {
+  it('asks for the uses a seven-day watch needs, sweeps and focus windows both, from the stack windows an hour', async () => {
     const l = useRadioListening()
+    service.plan.mockResolvedValue({ ...plan, windows_per_hour: 72 })
     await l.start('wlx00', 168)
     expect(service.beginSession.mock.calls[0]![0].max_uses).toBe(12096 + 12) // 72 windows an hour for 168 hours, plus a margin
+    service.plan.mockResolvedValue(plan)
+    await l.start('wlx00', 168)
+    expect(service.beginSession.mock.calls[1]![0].max_uses).toBe(24192 + 12) // 144 an hour: focus windows never spend a sweep's session
   })
 
   it('resumes a stopped watch for the hours it had left, through the same session start', async () => {

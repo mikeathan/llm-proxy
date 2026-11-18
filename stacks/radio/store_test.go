@@ -15,7 +15,7 @@ var t0 = time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
 
 func day(n int) time.Time { return t0.AddDate(0, 0, n) }
 
-func openTest(t *testing.T, capBytes int64) (*Store, string) {
+func openTest(t testing.TB, capBytes int64) (*Store, string) {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "radio.db")
 	s, err := OpenStore(p, capBytes)

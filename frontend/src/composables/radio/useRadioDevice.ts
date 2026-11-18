@@ -48,6 +48,7 @@ export function useRadioDevice(id: Ref<string>) {
   return {
     view, error, gone, busy, saved, load,
     markMine: (label: string) => act(() => RadioService.markMine(id.value, label)),
+    renameMine: (label: string) => act(() => RadioService.renameMine(id.value, label)),
     setClass: (cls: RadioClass | '' | 'not_mine') => act(() => RadioService.setClass(id.value, cls)),
     setKind: (kind: RadioDeviceKind) => act(() => RadioService.setKind(id.value, kind)),
     calibrate: (metres: number) => act(() => RadioService.calibrate(id.value, metres)),

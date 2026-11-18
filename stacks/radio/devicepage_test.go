@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"os"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -225,6 +225,65 @@ func TestADeviceOnYourNetworkIsExplainedWithTheModelThatSortedIt(t *testing.T) {
 	}
 	if row := rowOf(t, store, neighbour); best != row.Class {
 		t.Errorf("the page's top chance %q must be the stored class %q", best, row.Class)
+	}
+}
+
+// A device the owner marked as theirs is sorted always here or comes and goes (decideYours): the page's chances must say the same, not the
+// neighbour's chance the numbers alone would give (vertex, 2026-11-18: "comes and goes, 100%" over a "neighbour 56%" bar).
+func TestADeviceYouMarkedIsExplainedAsTheClassItWasGiven(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	cycleOf(t, rec, r.now, dataAt(neighbour, -85))
+	if resp := callID(t, r, http.MethodPost, MarkMinePath, shortOf(neighbour), `{"label":"Roku"}`); resp.Status != http.StatusCreated {
+		t.Fatalf("%d %s", resp.Status, resp.Body)
+	}
+	for range 14 {
+		cycleOf(t, rec, r.now, dataAt(neighbour, -85)) // weak and not on your Wi-Fi: alone it would read as a neighbour's
+	}
+	var v DeviceView
+	resp := callID(t, r, http.MethodGet, DeviceViewPath, shortOf(neighbour), "")
+	if err := json.Unmarshal(resp.Body, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Chances["neighbour"] != 0 || v.Chances["transient"] != 0 {
+		t.Errorf("marked yours, it is never a neighbour's or a passer-by: %v", v.Chances)
+	}
+	row := rowOf(t, store, neighbour)
+	if row.Class != string(ClassInfrastructure) && row.Class != string(ClassPersonal) {
+		t.Fatalf("marked yours: %+v", row)
+	}
+	if got := v.Chances[row.Class]; got != row.Conf {
+		t.Errorf("the page's chance of %q is %d, the stored confidence %d", row.Class, got, row.Conf)
+	}
+	for _, f := range v.Factors {
+		if f.Toward != row.Class {
+			t.Errorf("a factor points toward %q, not the class %q", f.Toward, row.Class)
+		}
+	}
+}
+
+// A device you marked can be renamed (vertex, 2026-11-18: two Macs were saved as "Phone or tablet" and could not be renamed); one that is not
+// yours cannot, so a rename never makes a device yours.
+func TestADeviceYouMarkedCanBeRenamedAndOneThatIsNotYoursCannot(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	cycleOf(t, rec, r.now, dataAt(neighbour, -60))
+	if resp := callID(t, r, http.MethodPut, MarkMinePath, shortOf(neighbour), `{"label":"Mac"}`); resp.Status != http.StatusNotFound {
+		t.Errorf("not yours: %d %s", resp.Status, resp.Body)
+	}
+	if row := rowOf(t, store, neighbour); row.Owner || row.Label != "" {
+		t.Fatalf("a rename must not make it yours: %+v", row)
+	}
+	if resp := callID(t, r, http.MethodPost, MarkMinePath, shortOf(neighbour), `{"label":"Phone or tablet"}`); resp.Status != http.StatusCreated {
+		t.Fatalf("%d %s", resp.Status, resp.Body)
+	}
+	for body, want := range map[string]int{`{"label":"  "}`: http.StatusBadRequest, `{"label":"Mac","x":1}`: http.StatusBadRequest, `{"label":" Mac "}`: http.StatusOK} {
+		if resp := callID(t, r, http.MethodPut, MarkMinePath, shortOf(neighbour), body); resp.Status != want {
+			t.Errorf("%s: %d %s, want %d", body, resp.Status, resp.Body, want)
+		}
+	}
+	if row := rowOf(t, store, neighbour); !row.Owner || row.Label != "Mac" {
+		t.Errorf("renamed: %+v", row)
 	}
 }
 

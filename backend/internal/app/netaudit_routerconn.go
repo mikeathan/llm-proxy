@@ -74,7 +74,7 @@ func (s *AppServices) newRouterConn(store netaudit.PolicyStore, inventory *netau
 	}
 	manager := routerconn.New(routerconn.Deps{
 		Settings: routerConnSettings{store: store}, Secret: secret,
-		Read: routerssh.ReadTable, Probe: routerssh.ProbeHostKey,
+		Read: routerssh.ReadTable, Probe: routerssh.ProbeHostKey, Dial: dialMesh,
 		Owners: func() routerconn.Owners {
 			if owners := s.netaudit.currentOwners(); owners != nil {
 				return func(a netip.Addr) (models.TrafficOwner, bool) { return owners(a) }
@@ -84,7 +84,19 @@ func (s *AppServices) newRouterConn(store netaudit.PolicyStore, inventory *netau
 		Watching: config.Enabled,
 		Observe:  routerConnObserver(config.Enabled, history, inventory, time.Now),
 	})
+	// The list of joined devices is read on a connection kept open between reads (ADR-0059): a reset removes the key it signed in with, so
+	// it closes then too, and at shutdown (AppServices.Shutdown).
+	s.AppCtx.AfterFactoryReset("The router's list of devices", func() error { manager.CloseMesh(); return nil })
 	return routerConnParts{Manager: manager, Config: config, History: history}
+}
+
+// dialMesh opens the connection for the router's list of joined devices. A failed dial is a nil reader, never a typed nil.
+func dialMesh(ctx context.Context, t routerssh.Target) (routerconn.ClientReader, error) {
+	c, err := routerssh.Dial(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 // routerConnObserver adds a read to the history while the watch is on. A device is known by its hardware address when the inventory has

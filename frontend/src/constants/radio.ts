@@ -77,6 +77,22 @@ export const radioHoursLabel = (h: number): string => {
 }
 export const radioListeningUntil = (when: string): string => `Listening until ${when}.`
 export const radioFramesLine = (frames: number): string => `${frames.toLocaleString()} frames heard so far.`
+/** The extra windows between sweeps on your devices' channels: they move the picture only, so nothing new is stored. */
+export const radioFocusLine = (windows: number, off: boolean): string =>
+  off ? 'Extra listening on your devices\' channels stopped for this watch; every channel is still swept.'
+    : windows ? `${windows.toLocaleString()} extra ${windows === 1 ? 'window' : 'windows'} on your devices' channels.` : ''
+export const RADIO_MOVING_NOW = 'moving now'
+const RADIO_ROUTER_BANDS: Record<string, string> = { '2G': '2.4 GHz', '5G': '5 GHz', '6G': '6 GHz' }
+/** Which box of your mesh a device is joined to: your name for the box, else the main router or a mesh box. */
+export const radioRouterBox = (r: { box_name?: string; main?: boolean }): string => r.box_name || (r.main ? 'the main router' : 'a mesh box')
+/** The router's word on a device, for its page: the box, the band, the box's signal and how long ago the list was read. */
+export const radioRouterLine = (r: { box_name?: string; main?: boolean; band: string; guest?: boolean; dbm: number }, ago: string): string =>
+  `Your router: joined to ${radioRouterBox(r)} on ${RADIO_ROUTER_BANDS[r.band] ?? r.band}${r.guest ? ' (guest network)' : ''}, ${r.dbm} dBm there${ago ? `, ${ago}` : ''}.`
+/** How long ago the router's list was read. */
+export const radioReadAgo = (secondsAgo: number): string =>
+  secondsAgo < 90 ? `read ${Math.max(1, Math.round(secondsAgo))} s ago` : `read ${Math.round(secondsAgo / 60)} min ago`
+/** The short form for a row. */
+export const radioRouterShort = (r: { box_name?: string; main?: boolean; guest?: boolean }): string => `via ${radioRouterBox(r)}${r.guest ? ' (guest)' : ''}`
 /** Where the run is: a cycle is one window on each channel of the plan. */
 export const radioCycleLine = (cycles: number, heard: number, of: number): string =>
   heard >= of || heard === 0
@@ -433,6 +449,8 @@ export const RADIO_MARK_BUTTON = 'This is mine'
 export const RADIO_MARK_LABEL = 'Name it'
 export const RADIO_MARK_PLACEHOLDER = 'for example: hall plug'
 export const RADIO_MARK_SAVE = 'Save as mine'
+export const RADIO_RENAME_BUTTON = 'Rename'
+export const RADIO_RENAME_SAVE = 'Save name'
 export const RADIO_MARK_FAILED = 'The device could not be saved as yours.'
 export const RADIO_MARK_NO_NAME = 'Give it a name first.'
 

@@ -13,7 +13,7 @@ import { useRadioScanPlan } from "../../composables/radio/useRadioScanPlan"
 import {
   RADIO_ENDED, RADIO_LISTEN_ADAPTER, RADIO_LISTEN_INTRO, RADIO_LISTEN_NO_ADAPTER, RADIO_LISTEN_OFF,
   RADIO_LISTEN_START, RADIO_LISTEN_MANUAL, RADIO_LISTEN_STOP, RADIO_LISTEN_TITLE, radioCycleLine,
-  radioFramesLine, radioListenLength, radioListeningUntil, RADIO_RESUME_BUTTON, RADIO_RESUME_DISMISS, RADIO_RESUME_TITLE, radioResumeLine,
+  radioFocusLine, radioFramesLine, radioListenLength, radioListeningUntil, RADIO_RESUME_BUTTON, RADIO_RESUME_DISMISS, RADIO_RESUME_TITLE, radioResumeLine,
 } from "../../constants/radio"
 
 // Radio · Listening: choose an adapter and a time, confirm the passphrase once, and watch the windows come in. The run is the stack's; a
@@ -70,7 +70,7 @@ onMounted(async () => {
           <StatusTag state="running" label="Listening" />
           <span data-test="radio-listen-until">{{ radioListeningUntil(until) }}</span>
         </p>
-        <p class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-listen-progress">{{ radioCycleLine(l.state.value?.cycles ?? 0, heardInCycle, channels.length) }} {{ radioFramesLine(l.state.value?.frames ?? 0) }}</p>
+        <p class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-listen-progress">{{ radioCycleLine(l.state.value?.cycles ?? 0, heardInCycle, channels.length) }} {{ radioFramesLine(l.state.value?.frames ?? 0) }} {{ radioFocusLine(l.state.value?.focus_windows ?? 0, !!l.state.value?.focus_off) }}</p>
         <div><BaseButton variant="secondary" class-name="max-sm:!h-11" :disabled="l.busy.value" data-test="radio-listen-stop" @click="l.stop">{{ RADIO_LISTEN_STOP }}</BaseButton></div>
       </div>
 

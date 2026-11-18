@@ -3,56 +3,96 @@ status: partial
 date: 2026-11-18
 last_reviewed: 2026-11-18
 related_specs: [SPEC-006]
-constitution_references: [I.16, I.17]
-evidence: Session of 2026-11-18. v0.96.0 (PR #262) was merged and deployed; read-only GETs of vertex's radio API one cycle after deploy; the owner asked how to tell whether a device is theirs and for one tap to open a device. Replaces radio-identify-classify-render-handoff-2026-11-17.md (its items 1 and 2 are done; 3 and 4 are below). Delete this file when the branch merges and the vertex checks below are done (harvest first, documentation-stewardship).
+constitution_references: [I.15, I.16, I.17]
+evidence: v0.97.0 (PR #263) merged and deployed by the owner on 2026-11-18 (vertex reports v0.97.0, commit 85bc643d). Read-only GETs of vertex's radio API found two page bugs, fixed in v0.98.0 on branch radio-page-chances-and-ask-name, which also carries the focus windows and the router's list of joined devices (ADR-0059, I.15 amended) the owner asked for; the router was measured with the owner's own SSH. Analysis and measurements: docs/audits/2026-11-18-radio-continuous-monitoring.md (§4a radar movement, §5 the bugs, §7 focus windows, §8 the router read). Delete this file when v0.98.0 is merged and checked on vertex (harvest first, documentation-stewardship).
 ---
 
-# Radio: device page in one tap, kind from your name, held classes (handoff, 2026-11-18)
+# Radio: v0.98.0 page fixes, focus windows and the router's list of joined devices (handoff, 2026-11-18)
 
-**Branch** `radio-card-kind-fixes`, from `origin/main` at `8ef1197b`; **v0.97.0**; **uncommitted** (the owner approved the branch; commit and
-push wait for the owner).
+**Branch** `radio-page-chances-and-ask-name`, from `origin/main` at `85bc643d`; **v0.98.0**; **committed and pushed** (`378a1afa`, then
+this handoff's update), **PR #264** (https://github.com/mikeathan/llm-proxy/pull/264), not merged. The branch now tracks its own remote.
+Merge order: #264 alone, nothing waits on it. Nothing on vertex was changed; the 7-day watch started 2026-11-18 08:00:40 UTC ends when #264
+is deployed (a restart ends every session).
 
-## What vertex showed on v0.96.0 (read-only GETs, one cycle after deploy)
-15 of 62 live devices on your Wi-Fi, 9 of 55 `joined_own`, 15 inventory names joined (Mac, M4 MacBook air, iPhone, roku, sinkhole…), 4 radios
-`your_ap`; the ASUS mesh is two boxes (`a0be4927`, `7726d4bd`), both yours: one per mesh unit, so correct. No device sent a WPS model. The
-owner's card ("Possibly: always here" on their own router `7b1db396`) was opened before the first cycle under rules version 3; the API now
-says `your_ap`, 100.
+## Start here (new session)
+1. `gh pr view 264` and `gh pr checks 264`: CI state and any review comments. Fix on this branch; never push to `main`.
+2. Once the owner has merged and deployed, check vertex read-only with `$LLM_PROXY_TOKEN` against `http://vertex.local:4001`:
+   `GET /admin/api/version` (v0.98.0), `GET /admin/api/radio/listening` (`focus_windows` counting, `focus_off` false),
+   `GET /admin/api/radio/air/live` (the phone's dot has `router` with a box name and `dbm`; `moving` true while carried).
+   The owner's phone is `4ded1379` on the radar and the client at `.127` in the router's list; never print a full address.
+3. Then items 3 and later under "Left, in order" below.
 
-## What is built
-- **One tap opens the device page.** A row, a radar dot or a "What changed" entry opens `/radio/device/:id`; the bottom card
-  (`RadioDeviceDetail.vue`) and the "showing only" focus mode are removed (`useRadioAround.ts` `open`). Everything the card showed is on the
-  page now: first and last heard, the signal word, the "Waiting: …" bar (`DeviceView` gained `listened_cycles`/`min_listened_cycles`), the
-  Advanced heard/retries/channels counts, the private-address and network-name notes, and the note under "This is mine".
-- **Kind from your name for it** (`kinds.go`, rung after the model name, source `your_name_for_it`, 75): read in memory from the inventory
-  for the page only, never for a router's radio, never stored or trained on; matched on whole words (`wordLexicon`), so "Cameron-iPhone" is a
-  phone, not a camera. ADR-0058 decision 4 amended.
-- **A device you marked yours is never a neighbour's or a passer-by** (`decideYours`, `learn.go`): the likelier of always here and comes
-  and goes, at that share of the two, no hysteresis.
-- **A held class says so**: `DeviceIdent.Pending` (`ident.go`); the conclusion reads "Changing to: …" instead of the old class at 0%.
-- **No "too new to tell"**: the trend is about this run's in-memory trail (reset by every restart), so it is hidden while unknown.
+## What v0.98.0 holds
+- **The device page's chances agree with the class of a device you marked** (`vector.houses`, `ownedVector`, `learn.go`; `explain`,
+  `devicepage.go`). The owner's word is set only when sorting and explaining, never on a training vector.
+- **The offered name never carries the guessed kind** (`defaultLabel`, `frontend/src/utils/radio/identity.ts`).
+- **A device you marked can be renamed** ("Rename" on its page; `PUT /admin/api/radio/air/mine/{id}`, `renameMine`, `Store.RenameOwner`).
+  A new admin route beyond the literal fix: a marked device cannot be marked again, so there was no other way to correct the Macs' names.
+- **Focus windows between sweeps** (`stacks/radio/focus.go`; audit §7): the idle time after each full sweep is spent on the channels your
+  devices were heard on, weighted by their frames. The sweep is unchanged, so unknown devices are found as before and nothing stored
+  changes (a test compares the stored rows and track). They move the dot, set "moving now", have their own frame budget, size the session
+  through `windows_per_hour` (144 for the default plan), and turn off for the run on a refusal without ending it. The owner said on
+  2026-11-18 that I.16 covers them as written (ADR-0059).
+- **The mesh router's list of joined devices during a watch** (ADR-0059; **Constitution I.15 amended**, the owner approved on 2026-11-18;
+  audit §8): `cat /tmp/clientlist.json` over one kept-open SSH connection, at most once every 30 s, closed after 2 minutes idle and on
+  every setup change, reset and shutdown; parsed strictly (fuzzed), addresses on this network dropped; given to the Radio stack only, through
+  its own port `meshclients`, as tags. Each dot says "via <box>" (box named from the inventory, the gateway as the main router), the page
+  says the box, band, its signal and when it was read, and "moving now" also comes from the router's readings. Never stored, never "yours".
+  Vertex's router setup is already done (`192.168.50.1:23`, key saved, host key pinned: read-only GET 2026-11-18).
 
-**Checks run (all passed):** `go build ./...`, `go test ./...`, `go run ./tools/check-complexity/` in `backend`; `GOWORK=off go vet` and
-`GOWORK=off go test -race ./...` in `stacks/radio`; `go test ./...` in `stacks/sdk`; `npm run build`;
-`./scripts/check-agent-harness.sh`. Final run after the last change: `npm test` 3,171, `npm run test:visual` 388 of 388, backend and radio
-`-race` green. **Not run:** anything on vertex.
+**Checks run (all passed):** `go build ./...`, `go test ./...`, `go run ./tools/check-complexity/` in `backend` (re-run after the focus
+work: see the final report); `GOWORK=off go vet ./...` and `GOWORK=off go test -race ./...` in `stacks/radio`; `go test ./...` in
+`stacks/sdk`; `npm test` (3,179), `npm run build`, `npm run test:visual`; `./scripts/check-agent-harness.sh`; the benchmarks
+`GOWORK=off go test -run '^$' -bench 'FocusIngest|SweepIngest' -benchtime 20x .` in `stacks/radio`. **Not run:** anything on vertex.
 
 ## Left, in order
-1. **Owner:** review, then approve commit and push (one pull request). Note: `RadioDeviceDetail.vue` was removed with `git rm`, so its
-   deletion is already staged.
-2. **Deploy and look on vertex**: the Mac rows should read kind computer ("from your name for it"), "samsung - tv" a TV, the Nest Mini a
-   speaker; the Roku you marked (`70f44fb0`) should be always here or comes and goes, not a neighbour's; tapping a row opens the page.
-3. **Answer the "Help it learn" card** for a few days; then check the learned line ("gives back N of M") on Around you.
-4. **The two Roku records** (`33fb3ee8` on your Wi-Fi, `70f44fb0` not): **not merged.** Both were marked "roku" by the owner. A guess, not
-   checked: the Roku's Wi-Fi Direct radio for its remote. `decideYours` stops the second one being sorted a neighbour's. Merging them needs
-   evidence they are one box (same address block, the Direct network's name).
-5. **Next architecture (needs an ADR and a Constitution item):** Bluetooth and a second-room sensor through ESPHome Bluetooth proxies on the
-   LAN, as nodeherder does (research addendum §6 in `docs/audits/2026-11-17-radio-identification-research.md`).
+1. **Owner:** review PR #264 and merge it.
+2. **Owner: read the Constitution change on its own** (`git diff HEAD -- CONSTITUTION.md`: one new I.15 bullet and two sentences changed)
+   and ADR-0059; merging the pull request is the approval of the security review. Note: the next watch's passphrase dialog asks for about
+   twice the uses (24,204 for 7 days, against 12,108).
+3. **Deploy, start a new watch, and look on vertex:** your phone's row says "via ZenWiFi_XD4-28F0" (or the main router) and its page the
+   router's signal; the listening line counts "extra windows on your devices' channels"; your phone's
+   row says "moving now" when carried; `70f44fb0`'s chances show only always here / comes and goes; rename the Macs (`991ba3f9`,
+   `bd105ebf`). After a day, read the phone's track (`GET /admin/api/radio/air/track/4ded1379`) and compare its heard share with 29%.
+   **Measure the helper's cost**, which the benchmark does not cover: each window spawns about 8 short processes in the helper (link
+   down/up, monitor/managed mode, channel, info) and moves up to about 2 MB, and focus roughly doubles the windows. Compare the cumulative
+   CPU time of the service and helper processes (`ps -o pid,time,rss,comm` or `/proc/<pid>/stat`) over an hour with and without focus.
+4. **Router read: done.** Measured (audit §8.1) and built (§8.2). The commands below are kept as the recipe to re-check another router.
+5. **Answer the Help it learn card** for a few days, then check the learned line ("gives back N of M") on Around you.
+6. **The two Roku records** (`33fb3ee8`, `70f44fb0`): not merged; merging needs evidence they are one box.
+
+## Commands for the router read (item 4)
+Run from the Mac, read-only. **None is verified on this router**: they are the usual ASUS candidates. Each address keeps its first three
+bytes (the maker) and its last byte, so entries still match between commands but not with a device.
+
+```sh
+# The owner's router login (port 23, its own key), as a function: r '<command on the router>'
+r() { ssh -o IdentitiesOnly=yes -i ~/.ssh/router_key_v2 -p 23 admin@192.168.50.1 "$@"; }
+M='s/(([0-9A-Fa-f]{2}:){3})([0-9A-Fa-f]{2}:){2}([0-9A-Fa-f]{2})/\1xx:xx:\4/g'
+# 1. Firmware, mode and radios
+r 'nvram get firmver; nvram get buildno; nvram get extendno; nvram get sw_mode; nvram get wl_ifnames; nvram get cfg_master'
+# 2. Clients on each radio, with signal, idle time and state, and how long the listing takes
+r 'for i in $(nvram get wl_ifnames); do echo "== $i $(date +%s)"; wl -i $i assoclist; echo "listed $(date +%s)"; for m in $(wl -i $i assoclist | cut -d" " -f2); do echo "-- $m"; wl -i $i sta_info $m | grep -iE "rssi|idle|state|in network"; done; done' 2>&1 | sed -E "$M"
+# 3. AiMesh: does the main router know the satellite's clients?
+r 'ls -la /tmp/*client* /jffs/.sys/*client* /tmp/*.json 2>/dev/null; nvram get cfg_clientlist | head -c 400' 2>&1 | sed -E "$M"
+r 'for f in /tmp/clientlist.json /jffs/.sys/cfg_mnt/clientlist.json; do [ -f "$f" ] && { echo "== $f"; head -c 1500 "$f"; echo; }; done' 2>&1 | sed -E "$M"
+# 4. One connection, several sessions? (the "keep one connection open" design)
+ssh -o IdentitiesOnly=yes -i ~/.ssh/router_key_v2 -p 23 -o ControlMaster=yes -o ControlPath=/tmp/asus-%r@%h-%p -o ControlPersist=60 -fN admin@192.168.50.1
+ssh -o ControlPath=/tmp/asus-%r@%h-%p -p 23 admin@192.168.50.1 'echo second session ok'
+ssh -o ControlPath=/tmp/asus-%r@%h-%p -p 23 -O exit admin@192.168.50.1
+# 5. The satellite: repeat 1 and 2 with r2() { ssh -o IdentitiesOnly=yes -i ~/.ssh/router_key_v2 -p 23 admin@<satellite address> "$@"; }
+```
+
+What the output decides: (2) whether per-client signal and idle time are readable, and what one read costs the router; (3) whether one read
+of the main router covers clients on both mesh boxes or the satellite must be read too; (4) whether one open connection can serve every
+read (if the second command fails, the fallback is a login per read, at most once a minute).
 
 ## Traps
 - `stacks/radio` is not in `go.work`: run its tests with `GOWORK=off`.
-- The inventory name feeds the page's kind only; the classifier's `fixed_kind` feature still uses `KindOf` (stored row). Feeding it the name
-  would make training depend on a name that is never stored.
-- `lexicon` (model names) still matches substrings; only the name rung uses whole words. The word lists are shared, so a new word affects both.
-- The night bit uses the server's local time (`isNight`, `features.go`).
+- The picture already changes window by window (`LiveSnapshot`); an earlier version of this file said once a cycle, which was wrong.
+- Sweep frames and focus frames have separate budgets (`framesPerHour`, `focusFramesPerHour`): only sweep frames can end a watch.
+- A session's uses are one pool: focus windows run only when the start says `"focus": true` (the page sends it because it sized the
+  session from `windows_per_hour`); a start without it only sweeps (`TestAStartThatDidNotAskForFocusOnlySweeps`).
+- Smoothing the dot with a median of readings was tried and dropped (audit §7): it delays a real move.
 
-**First file to open:** `stacks/radio/kinds.go`, then `frontend/src/composables/radio/useRadioAround.ts`.
+**First file to open:** `stacks/radio/mesh.go` and `stacks/radio/focus.go`, then `backend/internal/core/netaudit/routerconn/mesh.go`.

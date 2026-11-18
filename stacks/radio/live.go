@@ -53,6 +53,8 @@ type liveSample struct {
 	heard   bool
 	// since and last are the unix times of the first and the last finished cycle of this run that heard the device, 0 when none did yet.
 	since, last int64
+	// moving is the focus windows' word that its signal just moved (movingOf); picture only.
+	moving bool
 }
 
 func firstChannel(mask uint64) int {
@@ -143,7 +145,8 @@ func (r *Recorder) LastCycleAt() int64 {
 func (r *Recorder) ClearLive() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.live, r.tracks, r.netNames, r.knownAPs, r.liveCycle, r.lastCycle = nil, nil, nil, nil, 0, 0
+	r.live, r.tracks, r.netNames, r.knownAPs, r.focus, r.liveCycle, r.lastCycle = nil, nil, nil, nil, nil, 0, 0
+	r.meshIdx, r.meshTrail, r.meshAsked, r.meshListAt = nil, nil, time.Time{}, 0
 }
 
 // TrackSnapshot is the device whose short id this is: its points, the cycle count now and whether any is a point at all. It copies; the caller
@@ -159,7 +162,8 @@ func (r *Recorder) TrackSnapshot(id string) (tag []byte, pts []trackPt, now int,
 	return nil, nil, r.liveCycle, false
 }
 
-// LiveSnapshot is every device in the picture, the open cycle's reading first.
+// LiveSnapshot is every device in the picture, newest reading last: the finished cycles, then the focus windows since the last one, then the
+// open cycle's reading.
 func (r *Recorder) LiveSnapshot() []liveSample {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
@@ -171,21 +175,60 @@ func (r *Recorder) LiveSnapshot() []liveSample {
 		if pts := r.tracks[tag]; len(pts) > 0 {
 			s.since, s.last = pts[0].at, pts[len(pts)-1].at
 		}
-		if a := r.cycle[tag]; a != nil && a.n > 0 {
-			s.trail = append(s.trail, float64(a.sum)/float64(a.n))
-			s.channel, s.heard = firstChannel(a.channels), true
-		}
+		r.withFocus(&s, tag, d.trail)
+		r.withOpenCycle(&s, tag)
 		s.signal = s.trail[len(s.trail)-1]
 		out = append(out, s)
 	}
-	for tag, a := range r.cycle {
-		if seen[tag] || a.n == 0 || len(out) >= liveMaxDevices {
-			continue
-		}
-		m := float64(a.sum) / float64(a.n)
-		out = append(out, liveSample{tag: []byte(tag), signal: m, trail: []float64{m}, channel: firstChannel(a.channels), heard: true})
+	for tag := range r.cycle {
+		seen = r.addUnseen(&out, seen, tag)
+	}
+	for tag := range r.focus {
+		seen = r.addUnseen(&out, seen, tag)
 	}
 	return out
+}
+
+// withFocus adds the focus readings since the last finished cycle to a sample. cmu is held.
+func (r *Recorder) withFocus(s *liveSample, tag string, cycles []float64) {
+	recent := r.focusSince(tag, r.lastCycle)
+	if len(recent) == 0 {
+		return
+	}
+	for _, p := range recent {
+		s.trail = append(s.trail, p.signal)
+	}
+	s.channel, s.heard = recent[len(recent)-1].channel, true
+	last := 0.0
+	if len(cycles) > 0 {
+		last = cycles[len(cycles)-1]
+	}
+	s.moving = movingOf(last, len(cycles) > 0, recent)
+}
+
+// withOpenCycle adds the open cycle's reading to a sample. cmu is held.
+func (r *Recorder) withOpenCycle(s *liveSample, tag string) {
+	if a := r.cycle[tag]; a != nil && a.n > 0 {
+		s.trail = append(s.trail, float64(a.sum)/float64(a.n))
+		s.channel, s.heard = firstChannel(a.channels), true
+	}
+}
+
+// addUnseen adds a device heard only in the open cycle or a focus window since the last cycle, not yet in the picture. cmu is held.
+func (r *Recorder) addUnseen(out *[]liveSample, seen map[string]bool, tag string) map[string]bool {
+	if seen[tag] || len(*out) >= liveMaxDevices {
+		return seen
+	}
+	s := liveSample{tag: []byte(tag)}
+	r.withFocus(&s, tag, nil)
+	r.withOpenCycle(&s, tag)
+	if len(s.trail) == 0 {
+		return seen
+	}
+	seen[tag] = true
+	s.signal = s.trail[len(s.trail)-1]
+	*out = append(*out, s)
+	return seen
 }
 
 // LiveDevice is one dot of the radar. A neighbour is a short id and a class; only the owner's devices carry a label.
@@ -203,6 +246,11 @@ type LiveDevice struct {
 	Trend   string  `json:"trend"`
 	Channel int     `json:"channel"`
 	Heard   bool    `json:"heard"`
+	// Moving says the signal moved by crossJumpDB or more within a few minutes, from the focus windows (focus.go) or the router's readings
+	// (mesh.go): the picture's word only.
+	Moving bool `json:"moving,omitempty"`
+	// Router is what the mesh router's latest list says of the device (mesh.go), nil when it is not in it: never stored, never evidence that it is yours.
+	Router *RouterSeen `json:"router,omitempty"`
 	// Usual is a device drawn from its stored days only: it is not being heard now, and Dbm is its mean over the days kept.
 	Usual bool `json:"usual,omitempty"`
 	// UsualDbm is the device's own mean over the days kept, when there are enough samples to call it a baseline; ShiftDB is how far the signal now is
@@ -356,6 +404,9 @@ func (s *Stack) liveView(ctx context.Context, h stacksdk.Host, rec *Recorder, st
 	sort.Slice(v.Devices, func(i, j int) bool { return v.Devices[i].Dbm > v.Devices[j].Dbm })
 	for _, u := range usualDots(model, base, detail, now) {
 		u.Ident = set.identOf(u.tag, nil)
+		if u.Router = rec.RouterOf(u.tag); u.Router != nil {
+			u.Moving = u.Router.Moving
+		}
 		v.Devices = append(v.Devices, u.LiveDevice)
 	}
 	return v, set, nil
@@ -374,6 +425,8 @@ func heardDot(model DistanceModel, rec *Recorder, sm liveSample, dev Device, b b
 	d.TailM = tailOf(model, sm.trail, sm.channel)
 	d.Network = rec.NetworkName(sm.tag)
 	d.HeardSince, d.LastAt = sm.since, sm.last
+	d.Router = rec.RouterOf(sm.tag)
+	d.Moving = sm.moving || (d.Router != nil && d.Router.Moving)
 	return d
 }
 

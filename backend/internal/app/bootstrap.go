@@ -516,6 +516,9 @@ func (s AppServices) Shutdown(ctx context.Context) {
 	if s.netaudit != nil && s.netaudit.Vulns != nil {
 		s.netaudit.Vulns.Close()
 	}
+	if s.netaudit != nil && s.netaudit.RouterConn != nil {
+		s.netaudit.RouterConn.CloseMesh() // the list's connection kept open between reads (ADR-0059)
+	}
 	s.flushNetaudit()
 	if s.Runtime != nil {
 		logging.Info("Shutting down LLM runtime...")

@@ -29,6 +29,8 @@ type Host struct {
 	Vault Vault
 	// LAN is the core's inventory of the local network, as tags; nil unless the manifest requires PortLAN.
 	LAN LAN
+	// Mesh is the mesh router's list of joined devices, as tags; nil unless the manifest requires PortMeshClients.
+	Mesh MeshClients
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -133,6 +135,32 @@ type LANDevice struct {
 // the inventory, and empty when there is none. Failures are an *Error: CodeInvalid for a bad purpose, CodeUnavailable when the core has no key.
 type LAN interface {
 	Devices(ctx context.Context, purpose string) ([]LANDevice, error)
+}
+
+// MeshDevice is one device joined to a box of the owner's mesh router. Box is the box's own tag; BoxName is the operator's name for the box on
+// the network page, empty when there is none; Main says the box is the network's gateway. Band is "2G", "5G" or "6G"; Guest says the guest
+// network; RSSI is the box's signal of the device in dBm.
+type MeshDevice struct {
+	Tag     []byte
+	Box     []byte
+	BoxName string
+	Main    bool
+	Band    string
+	Guest   bool
+	RSSI    int
+}
+
+// MeshView is the latest list the core read, with when it read it.
+type MeshView struct {
+	At      time.Time
+	Devices []MeshDevice
+}
+
+// MeshClients answers the mesh router's latest list of joined devices as tags under purpose (the same rules as Vault.Tag). Asking may cause a
+// read of the router; the core reads at most once every 30 seconds however often it is asked and answers its last list in between. Failures are
+// an *Error: CodeUnavailable when the router is not set up or could not be read.
+type MeshClients interface {
+	Clients(ctx context.Context, purpose string) (MeshView, error)
 }
 
 // StorageUse is how much of its data folder one file of a stack uses and the most it may use. It is counts and a time only, no names of

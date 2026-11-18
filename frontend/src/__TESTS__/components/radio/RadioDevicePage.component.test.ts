@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import type { RadioDeviceView as DeviceView, RadioLiveDevice } from '../../../types/radio'
 
-const service = vi.hoisted(() => ({ device: vi.fn(), markMine: vi.fn(), setClass: vi.fn(), setKind: vi.fn(), calibrate: vi.fn(), track: vi.fn() }))
+const service = vi.hoisted(() => ({ device: vi.fn(), markMine: vi.fn(), renameMine: vi.fn(), setClass: vi.fn(), setKind: vi.fn(), calibrate: vi.fn(), track: vi.fn() }))
 vi.mock('../../../services/radio/radioService', () => ({ RadioService: service }))
 vi.mock('vue-router', async (orig) => ({ ...(await orig<typeof import('vue-router')>()), useRoute: () => ({ params: { id: '2a6e3b0d' } }) }))
 
@@ -30,6 +30,7 @@ beforeEach(() => {
   service.setClass.mockResolvedValue({ class: 'neighbour' })
   service.setKind.mockResolvedValue({ kind: 'tv' })
   service.markMine.mockResolvedValue({ label: 'x' })
+  service.renameMine.mockResolvedValue({ label: 'x' })
   service.track.mockRejectedValue(new HttpError('none', '', 404))
 })
 
@@ -68,6 +69,45 @@ describe('RadioDeviceView', () => {
     await w.get('[data-test="radio-device-mine-save"]').trigger('submit')
     await flushPromises()
     expect(service.markMine).toHaveBeenCalledWith('2a6e3b0d', 'Hall hub')
+  })
+
+  it('renames a device you marked, starting from the name it has', async () => {
+    service.device.mockResolvedValue(page({ device: { ...sky, mine: true, label: 'Phone or tablet', class: 'personal' } }))
+    const w = await show()
+    expect(w.find('[data-test="radio-device-mine"]').exists()).toBe(false)
+    await w.get('[data-test="radio-device-rename"]').trigger('click')
+    const input = w.get<HTMLInputElement>('[data-test="radio-device-mine-input"]')
+    expect(input.element.value).toBe('Phone or tablet')
+    await input.setValue('Mac')
+    await w.get('[data-test="radio-device-mine-save"]').trigger('submit')
+    await flushPromises()
+    expect(service.renameMine).toHaveBeenCalledWith('2a6e3b0d', 'Mac')
+    expect(service.markMine).not.toHaveBeenCalled()
+  })
+
+  it('says when its signal is moving now, from the extra windows', async () => {
+    service.device.mockResolvedValue(page({ device: { ...sky, moving: true } }))
+    const w = await show()
+    expect(w.get('[data-test="radio-device-moving"]').text()).toBe('moving now')
+  })
+
+  it('says which box of your mesh it is joined to and that box\'s signal, never as proof it is yours', async () => {
+    const at = Math.floor(Date.now() / 1000) - 20
+    service.device.mockResolvedValue(page({ device: { ...sky, router: { box: '7726d4bd', box_name: 'ZenWiFi first floor', band: '5G', dbm: -57, at } } }))
+    const w = await show()
+    expect(w.get('[data-test="radio-device-router"]').text()).toMatch(/^Your router: joined to ZenWiFi first floor on 5 GHz, -57 dBm there, read \d+ s ago\.$/)
+    expect(w.get('[data-test="radio-device-conclusion"]').text()).toBe('Probably: a neighbour’s router')
+  })
+
+  it('says to give a name when a rename is saved empty', async () => {
+    service.device.mockResolvedValue(page({ device: { ...sky, mine: true, label: 'Phone or tablet', class: 'personal' } }))
+    const w = await show()
+    await w.get('[data-test="radio-device-rename"]').trigger('click')
+    await w.get('[data-test="radio-device-mine-input"]').setValue('  ')
+    await w.get('[data-test="radio-device-mine-save"]').trigger('submit')
+    await flushPromises()
+    expect(service.renameMine).not.toHaveBeenCalled()
+    expect(w.text()).toContain('Give it a name first.')
   })
 
   it('says when it was first and last heard, and no trend until there are enough readings', async () => {

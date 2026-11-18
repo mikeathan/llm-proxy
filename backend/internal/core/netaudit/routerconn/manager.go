@@ -61,8 +61,10 @@ type Deps struct {
 	Settings Settings
 	Secret   Secret
 	Read     func(context.Context, routerssh.Target) ([]byte, error)
-	Probe    func(ctx context.Context, address string) (line, fingerprint string, err error)
-	Owners   func() Owners
+	// Dial opens a connection for the list of joined devices (routerssh.Dial); nil leaves the list off.
+	Dial   func(context.Context, routerssh.Target) (ClientReader, error)
+	Probe  func(ctx context.Context, address string) (line, fingerprint string, err error)
+	Owners func() Owners
 	// Observe is given each read before it is kept, to be added to the router watch's history, which marks the places that are new in it.
 	// It is nil, or does nothing, while the watch is off.
 	Observe func(*models.RouterConnections)
@@ -91,6 +93,8 @@ type Manager struct {
 	running bool
 	ended   time.Time
 	last    *models.RouterConnections
+
+	mesh mesh // the list of joined devices (mesh.go)
 }
 
 // New builds a manager.
@@ -135,6 +139,7 @@ func (m *Manager) SetTarget(address, user string) error {
 	if err := m.deps.Settings.Set(address, user, hostKey); err != nil {
 		return fmt.Errorf("failed to save the router settings: %w", err)
 	}
+	m.CloseMesh()
 	return nil
 }
 
@@ -146,6 +151,7 @@ func (m *Manager) SetKey(key string) error {
 	if err := m.deps.Secret.Set(key); err != nil {
 		return fmt.Errorf("failed to save the router key: %w", err)
 	}
+	m.CloseMesh()
 	return nil
 }
 
@@ -157,6 +163,7 @@ func (m *Manager) ClearKey() error {
 	m.mu.Lock()
 	m.last = nil
 	m.mu.Unlock()
+	m.CloseMesh()
 	return nil
 }
 
@@ -187,6 +194,7 @@ func (m *Manager) Pin(ctx context.Context, confirm string) error {
 	if err := m.deps.Settings.Set(addr, user, line); err != nil {
 		return fmt.Errorf("failed to save the router's key: %w", err)
 	}
+	m.CloseMesh()
 	return nil
 }
 

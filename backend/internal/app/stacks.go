@@ -299,7 +299,8 @@ func radioStack() stacksdk.Stack { return radio.New(nil) }
 //
 // The helper's routes are built after the stacks are, so the stack's Privileged port is a late-bound one (latePrivileged) that routes.go fills when
 // the helper routes exist; until then a request is refused as unavailable.
-func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, notify func(ctx context.Context, message string) error, inventory func() (models.DeviceInventory, error)) (*stackHost, error) {
+func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, notify func(ctx context.Context, message string) error, inventory func() (models.DeviceInventory, error),
+	mesh func(context.Context) (*models.MeshClients, error)) (*stackHost, error) {
 	st := radioStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
@@ -319,6 +320,9 @@ func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, not
 		// The network inventory as tags under the stack's own purpose: Radio names a device it hears by the name the operator gave it on the network,
 		// and no address crosses (ADR-0058).
 		LAN: stackport.LAN{Vault: vault, Inventory: inventory},
+		// The mesh router's list of joined devices, while a watch runs: the router manager reads it at most once every 30 s (Constitution I.15,
+		// ADR-0059); only this stack is given the port.
+		Mesh: stackport.Mesh{Vault: vault, Read: mesh, Inventory: inventory},
 	})
 	if err != nil {
 		return nil, err

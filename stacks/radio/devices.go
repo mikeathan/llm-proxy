@@ -23,7 +23,7 @@ const (
 	DevicePath = "/admin/api/radio/devices/mine/{id}"
 	// ForgetPath makes the stack forget everything about other people's devices and rotates the tags (POST).
 	ForgetPath = "/admin/api/radio/forget"
-	// MarkMinePath makes a device heard on the radar the owner's (POST), by its short id.
+	// MarkMinePath makes a device heard on the radar the owner's (POST), by its short id, and renames one that is already theirs (PUT).
 	MarkMinePath = "/admin/api/radio/air/mine/{id}"
 
 	maxLabel = 60
@@ -169,6 +169,32 @@ func (s *Stack) markMine(ctx context.Context, rec *Recorder, store *Store, id st
 	}
 	rec.ForgetSighting(tags[0])
 	return jsonResponse(http.StatusCreated, map[string]string{"label": label})
+}
+
+// renameMine gives one of the owner's devices a new name, by the short id the page shows. A device that is not theirs is not found: marking it
+// is a separate answer (markMine).
+func (s *Stack) renameMine(ctx context.Context, store *Store, id string, body []byte) (stacksdk.Response, error) {
+	var b struct {
+		Label string `json:"label"`
+	}
+	if err := strictDecode(body, &b); err != nil {
+		return plainError(http.StatusBadRequest, "give the device a name")
+	}
+	label, _, bad := ownerFields(b.Label, "")
+	if bad != "" {
+		return plainError(http.StatusBadRequest, bad)
+	}
+	tag, status, msg := uniqueTag(ctx, store, id)
+	if tag == nil {
+		return plainError(status, msg)
+	}
+	switch ok, err := store.RenameOwner(ctx, tag, label); {
+	case err != nil:
+		return plainError(http.StatusInternalServerError, "the name could not be saved")
+	case !ok:
+		return plainError(http.StatusNotFound, "that device is not yours yet: say it is yours first")
+	}
+	return jsonResponse(http.StatusOK, map[string]string{"label": label})
 }
 
 func (s *Stack) removeOwner(ctx context.Context, store *Store, id string) (stacksdk.Response, error) {

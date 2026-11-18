@@ -31,7 +31,6 @@ const (
 	switchCycles    = 2    // for how many classifications in a row
 	learnedDoc      = "classifier_learned"
 	maxFactors      = 3
-	halfShare       = 0.5 // the share of each of two classes the model cannot tell apart
 )
 
 // The numbers the model reads, in this order.
@@ -60,12 +59,24 @@ var featureNames = [numContinuous + numBinary]string{"share", "signal_mean", "si
 // learnClasses are the classes the model chooses between; Unknown is what it says when it cannot.
 var learnClasses = []Class{ClassInfrastructure, ClassPersonal, ClassNeighbour, ClassTransient}
 
-// vector is one device as numbers. hasSig is false when no signal was measured, and the signal numbers are then left out.
+// vector is one device as numbers. hasSig is false when no signal was measured, and the signal numbers are then left out. yours is the owner's
+// word that the device is theirs: not a feature (it is never set on a vector the model trains on, so a held-out check cannot see the answer),
+// only a limit on the classes it can be when it is sorted and explained (ownedVector).
 type vector struct {
 	c      [numContinuous]float64
 	b      [numBinary]bool
 	hasSig bool
+	yours  bool
 }
+
+// ownedVector is v as it is sorted and explained: limited to the house's classes when the owner said the device is theirs.
+func ownedVector(v vector, row FeatureRow) vector {
+	v.yours = row.Owner
+	return v
+}
+
+// houses is whether v can only be the house's: on the owner's Wi-Fi (hard evidence) or theirs by their word.
+func (v vector) houses() bool { return v.b[bOnOwn] || v.yours }
 
 // classStats are the weighted sums of one class's examples.
 type classStats struct {
@@ -237,7 +248,7 @@ func (st *classStats) logLikelihood(v vector) [numContinuous + numBinary]float64
 	return out
 }
 
-// Posterior is the chance of each class for v. onOwn limits it to the classes a device on the owner's Wi-Fi can be.
+// Posterior is the chance of each class for v. A device that can only be the house's (houses) is limited to always here and comes and goes.
 func (m *Model) Posterior(v vector) map[Class]float64 {
 	total := 0.0
 	for _, c := range learnClasses {
@@ -246,8 +257,8 @@ func (m *Model) Posterior(v vector) map[Class]float64 {
 	logs := map[Class]float64{}
 	best := math.Inf(-1)
 	for _, c := range learnClasses {
-		if v.b[bOnOwn] && (c == ClassNeighbour || c == ClassTransient) {
-			continue // hard evidence: a device on the owner's Wi-Fi is the house's, whatever its signal says
+		if v.houses() && (c == ClassNeighbour || c == ClassTransient) {
+			continue // on the owner's Wi-Fi, or theirs by their word: the house's, whatever its signal says
 		}
 		st := m.Stats[c]
 		l := math.Log(st.W / total)
@@ -291,8 +302,8 @@ func (m *Model) Explain(v vector, chosen Class) []Factor {
 	p := m.Posterior(v)
 	second, sp := ClassUnknown, -1.0
 	for _, c := range learnClasses {
-		if c != chosen && p[c] > sp {
-			second, sp = c, p[c]
+		if pc, ok := p[c]; ok && c != chosen && pc > sp { // only a class v can be is a runner-up
+			second, sp = c, pc
 		}
 	}
 	a, b := m.Stats[chosen], m.Stats[second]
@@ -410,6 +421,7 @@ func decide(r Rules, m *Model, row FeatureRow, f Features, v vector) decision {
 	if f.CyclesListened < r.MinCyclesListened || f.CyclesHeard < r.MinCyclesHeard {
 		return decision{class: ClassUnknown, why: WhyNeedsMore}
 	}
+	v = ownedVector(v, row)
 	post := m.Posterior(v)
 	if row.Owner {
 		return decideYours(r, post, f)
@@ -436,19 +448,15 @@ func decide(r Rules, m *Model, row FeatureRow, f Features, v vector) decision {
 	return decision{class: cur, why: WhyHolding, conf: int(math.Round(100 * post[cur])), pending: string(c), pendingN: n}
 }
 
-// decideYours is the class of a device the owner said is theirs: it cannot be a neighbour's or a passer-by, so it is the likelier of always here
-// and comes and goes, at that share of the two. No hysteresis: the owner's word already settled the question it would guard.
+// decideYours is the class of a device the owner said is theirs: post is already limited to always here and comes and goes (ownedVector), so it
+// is the likelier of the two, at its chance, the same number the device page shows. No hysteresis: the owner's word already settled the
+// question it would guard.
 func decideYours(r Rules, post map[Class]float64, f Features) decision {
-	infra, personal := post[ClassInfrastructure], post[ClassPersonal]
-	c, p := ClassInfrastructure, infra
-	if personal > infra {
-		c, p = ClassPersonal, personal
+	c, p := ClassInfrastructure, post[ClassInfrastructure]
+	if post[ClassPersonal] > p {
+		c, p = ClassPersonal, post[ClassPersonal]
 	}
-	share := halfShare
-	if sum := infra + personal; sum > 0 {
-		share = p / sum
-	}
-	return decision{class: c, why: whyFor(r, c, f), conf: int(math.Round(100 * share))}
+	return decision{class: c, why: whyFor(r, c, f), conf: int(math.Round(100 * p))}
 }
 
 // whyFor is the reason word of a learned decision: the rules' own reason when they agree, else "matches what was learned".
