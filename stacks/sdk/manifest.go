@@ -151,6 +151,9 @@ type Manifest struct {
 	// Observes lists the kinds of observation (Observed*) the stack takes in: the service pushes each one it sees, as plain data, to a stack that
 	// implements Observer. A stack that lists none is never pushed one.
 	Observes []string `json:"observes,omitempty"`
+	// ReportsAir says the stack implements AirReporter: the core may pull what it heard of the inventory's devices (ADR-0061). It needs PortLAN,
+	// because the report's tags are the ones that port gave.
+	ReportsAir bool `json:"reports_air,omitempty"`
 	// Requires lists the ports the stack uses; each must be one of the Port* names below.
 	Requires []string `json:"requires"`
 }
@@ -199,7 +202,7 @@ func (m Manifest) Validate() error {
 	if m.Settings.Key == "" {
 		return fmt.Errorf("manifest %q: settings key is required", m.ID)
 	}
-	for _, check := range []func() error{m.checkLayers, m.checkModules, m.checkTools, m.checkRoutes, m.checkStorage, m.checkLooks, m.checkObserves} {
+	for _, check := range []func() error{m.checkLayers, m.checkModules, m.checkTools, m.checkRoutes, m.checkStorage, m.checkLooks, m.checkObserves, m.checkReportsAir} {
 		if err := check(); err != nil {
 			return err
 		}
@@ -337,6 +340,14 @@ func (m Manifest) checkLooks() error {
 	}
 	if len(m.Looks) > 0 && !slices.Contains(m.Requires, PortScopedGuard) {
 		return fmt.Errorf("manifest %q: a stack with a sensor must require the %q port", m.ID, PortScopedGuard)
+	}
+	return nil
+}
+
+// checkReportsAir holds a stack that reports the air to the lan port, whose tags its report is made of.
+func (m Manifest) checkReportsAir() error {
+	if m.ReportsAir && !slices.Contains(m.Requires, PortLAN) {
+		return fmt.Errorf("manifest %q: a stack that reports the air must require the %q port", m.ID, PortLAN)
 	}
 	return nil
 }

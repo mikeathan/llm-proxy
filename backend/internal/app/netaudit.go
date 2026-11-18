@@ -20,6 +20,7 @@ import (
 	"llm-proxy/internal/core/agentwatch"
 	assistantPkg "llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/devicejoin"
 	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/decoy"
@@ -41,6 +42,7 @@ import (
 	"llm-proxy/internal/core/netaudit/wifilook"
 	"llm-proxy/internal/core/radiodigest"
 	"llm-proxy/internal/core/stack"
+	"llm-proxy/internal/core/stackport"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/core/vulndata/ubuntuoval"
 	"llm-proxy/internal/core/vulndata/vulnfeed"
@@ -132,6 +134,9 @@ type netauditServices struct {
 	AgentFeed agentwatch.Feed
 	// Radio is the Radio stack as it runs in the service: the radios on this computer and what each can do. It starts no goroutine of its own.
 	Radio *stackHost
+	// Join is where the network inventory meets what Radio heard over the air (ADR-0061): the Network page's air facts, the new-device alert's
+	// note and the mapping of Radio's findings by tag. It reads on demand and runs nothing of its own.
+	Join *devicejoin.Join
 	// RadioPrivileged is the Radio stack's request channel to the helper, attached when the helper's routes are built.
 	RadioPrivileged *latePrivileged
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
@@ -425,12 +430,22 @@ func (s AppServices) NetauditLoginWatch() netaudit.LoginSource {
 	return s.netaudit.LoginWatch
 }
 
-// NetauditStackFindings is what the run reporter pulls the stacks' findings from; nil until the Network stack is hosted.
+// NetauditStackFindings is what the run reporter pulls the stacks' findings from (the Network and Radio stacks, each on its own); nil until a
+// stack is hosted.
 func (s AppServices) NetauditStackFindings() netaudit.StackFindingSource {
-	if s.netaudit == nil || s.netaudit.Network == nil {
+	if s.netaudit == nil {
 		return nil
 	}
-	return s.netaudit.Network
+	var sources netaudit.StackFindingSources
+	for _, h := range []*stackHost{s.netaudit.Network, s.netaudit.Radio} {
+		if h != nil {
+			sources = append(sources, h)
+		}
+	}
+	if len(sources) == 0 {
+		return nil
+	}
+	return sources
 }
 
 // NetauditWifi is what the run reporter reads of the Wi-Fi look-alike watch; nil until the services are wired.
@@ -777,12 +792,15 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	radioPolicy := dataMgr.Radio()
 	s.netaudit.RadioPrivileged = &latePrivileged{}
-	radioHost, err := s.newRadioHost(radioPolicy, s.netaudit.RadioPrivileged, s.bellNotifier(alerts.Log, models.NetworkAlertRadio), known.Inventory.View,
-		s.netaudit.RouterConn.MeshClients)
+	asked := &stackport.AskedPurposes{}
+	radioHost, vault, err := s.newRadioHost(radioHostDeps{Policy: radioPolicy, Priv: s.netaudit.RadioPrivileged,
+		Notify: s.bellNotifier(alerts.Log, models.NetworkAlertRadio), Inventory: known.Inventory.View, Mesh: s.netaudit.RouterConn.MeshClients,
+		Presence: devicePresence(alerts.PresenceConfig, alerts.Presence), Asked: asked})
 	if err != nil {
 		s.logger.Error("the Radio stack could not be hosted", "error", err.Error())
 	}
 	s.netaudit.Radio = radioHost
+	s.netaudit.Join = newDeviceJoin(known.Inventory.View, radioHost, vault, asked)
 
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
 	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Radio: radioPolicy, Guard: guard})

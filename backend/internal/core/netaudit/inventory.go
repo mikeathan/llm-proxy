@@ -691,6 +691,9 @@ type Pending struct {
 	movedAddrs []string
 }
 
+// NewMACs are the hardware addresses of the new devices the message tells of.
+func (p Pending) NewMACs() []string { return slices.Clone(p.macs) }
+
 // Empty reports whether there is nothing to tell.
 func (p Pending) Empty() bool {
 	return p.NewDevices == 0 && p.Changes == 0 && !p.Gateway && p.Shared == 0

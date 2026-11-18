@@ -98,3 +98,30 @@ func TestStackFindings_AFailingStackIsStatedAndNeverHidesTheScan(t *testing.T) {
 		t.Errorf("the note is stated and the scan is kept:\n%s", got)
 	}
 }
+
+// A device's foreign join from the Radio stack is worded by the core, carries no names, and is dropped when it brings names or a public subject.
+func TestStackFindings_ARadioForeignJoinIsWordedOnTheDevice(t *testing.T) {
+	ok := OfferedFinding{ID: CheckRadioJoinForeign, Subject: netip.MustParseAddr("192.168.1.20"), Count: 2}
+	got := StackFindings([]OfferedFinding{ok})
+	if len(got) != 1 || got[0].Device != "192.168.1.20" || got[0].Severity != SeverityLow || !strings.Contains(got[0].Evidence, "2 times") {
+		t.Fatalf("%+v", got)
+	}
+	if checkTitles[CheckRadioJoinForeign] == "" || remediations[CheckRadioJoinForeign] == "" || len(guides[CheckRadioJoinForeign].Steps) == 0 {
+		t.Error("the check needs a title, a fix and a guide")
+	}
+	withNames, public := ok, ok
+	withNames.Names = []string{"cafe.example"}
+	public.Subject = netip.MustParseAddr("8.8.8.8")
+	if got := StackFindings([]OfferedFinding{withNames, public}); len(got) != 0 {
+		t.Errorf("want both dropped: %+v", got)
+	}
+}
+
+// Several stacks are pulled as one source: one that fails adds nothing and is stated, and never hides another's findings.
+func TestStackFindingSources_OneFailingStackNeverHidesAnother(t *testing.T) {
+	src := StackFindingSources{fakeOffered{err: errors.New("down")}, fakeOffered{items: []OfferedFinding{dnsOffer("10.0.0.1", "a.example")}}}
+	got, err := src.Offered(context.Background())
+	if len(got) != 1 || err == nil {
+		t.Errorf("%+v %v", got, err)
+	}
+}

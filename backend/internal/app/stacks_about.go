@@ -147,6 +147,8 @@ var moduleFinds = map[string][]string{
 	"udp_probes":         {netaudit.CheckUDPService},
 	"outside_lookup":     {netaudit.CheckInternetExposedPort},
 	"dns_check":          {netaudit.CheckDNSRouterDiffers},
+	// Radio's sensors offer a device's joins to networks that are not yours, by its tag (ADR-0061).
+	"radio_sensors": {netaudit.CheckRadioJoinForeign},
 }
 
 // described fills in the words of each module.

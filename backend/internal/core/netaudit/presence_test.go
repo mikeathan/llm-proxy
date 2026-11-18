@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"llm-proxy/models"
 )
 
 type fakeInventory struct {
@@ -35,6 +37,7 @@ type presenceRig struct {
 	errs     []error
 	settings PresenceSettings
 	onLook   func(context.Context, Snapshot)
+	airNote  func(context.Context, []string) string
 }
 
 func (r *presenceRig) presence() *Presence {
@@ -48,6 +51,7 @@ func (r *presenceRig) presence() *Presence {
 		Notify:    func(_ context.Context, msg string) error { r.sent = append(r.sent, msg); return r.sendErr },
 		OnError:   func(err error) { r.errs = append(r.errs, err) },
 		OnLook:    r.onLook,
+		AirNote:   r.airNote,
 	})
 }
 
@@ -329,4 +333,52 @@ func TestPresenceMessage_TellsOfAHardwareAddressAnsweringForSeveralAddresses(t *
 	if !strings.Contains(got, "1 hardware address answering for several addresses at once") || !strings.Contains(got, "impersonat") {
 		t.Errorf("message = %q", got)
 	}
+}
+
+// A device's presence is said only while the check is on and has looked lately; otherwise it is unknown, never away.
+func TestPresenceOf_IsUnknownUnlessTheCheckLookedLately(t *testing.T) {
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	fresh := PresenceStatus{LastLook: now.Add(-5 * time.Minute)}
+	seen := func(ago time.Duration) models.NetworkDevice { return models.NetworkDevice{LastSeen: now.Add(-ago)} }
+	cases := []struct {
+		name    string
+		d       models.NetworkDevice
+		enabled bool
+		st      PresenceStatus
+		want    models.DevicePresence
+	}{
+		{"seen lately", seen(10 * time.Minute), true, fresh, models.PresenceOnline},
+		{"seen long ago", seen(2 * time.Hour), true, fresh, models.PresenceAway},
+		{"the check is off", seen(time.Minute), false, fresh, models.PresenceUnknown},
+		{"the check never looked", seen(time.Minute), true, PresenceStatus{}, models.PresenceUnknown},
+		{"the check stopped looking", seen(2 * time.Hour), true, PresenceStatus{LastLook: now.Add(-3 * time.Hour)}, models.PresenceUnknown},
+	}
+	for _, c := range cases {
+		if got := PresenceOf(c.d, c.enabled, c.st, now); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The new-device alert gains the air's fixed note for exactly the new devices, placed before the call to review; with no new device the note is
+// not asked for.
+func TestPresence_TheNewDeviceAlertCarriesTheAirsNote(t *testing.T) {
+	r := rig()
+	var asked [][]string
+	r.airNote = func(_ context.Context, macs []string) string {
+		asked = append(asked, macs)
+		return "Radio heard it over the air inside the house."
+	}
+	r.inv.pending = Pending{NewDevices: 1, macs: []string{"aa:bb:cc:00:00:01"}}
+	r.presence().Tick(context.Background())
+	if len(r.sent) != 1 || !strings.Contains(r.sent[0], "1 new device. Radio heard it over the air inside the house. Open the network audit") {
+		t.Fatalf("%v", r.sent)
+	}
+	if len(asked) != 1 || len(asked[0]) != 1 || asked[0][0] != "aa:bb:cc:00:00:01" {
+		t.Errorf("asked about %v", asked)
+	}
+	r2 := rig()
+	r2.airNote = func(context.Context, []string) string { t.Error("no new device, no note"); return "" }
+	r2.inv.pending = Pending{Gateway: true}
+	r2.presence().Tick(context.Background())
 }

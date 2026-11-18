@@ -71,3 +71,26 @@ func TestOffsetMACCarriesAcrossBytes(t *testing.T) {
 		t.Errorf("%s", got)
 	}
 }
+
+// The answer carries what the presence check says of each device, and the port remembers the purposes it was asked for (ADR-0061), so the core
+// can join the stack's report back to the inventory under the stack's own tags.
+func TestLANCarriesPresenceAndRemembersThePurposesAsked(t *testing.T) {
+	ctx := context.Background()
+	inv := models.DeviceInventory{Devices: []models.NetworkDevice{{MAC: "aa:bb:cc:00:00:10", Name: "Phone"}}}
+	asked := &AskedPurposes{}
+	lan := LAN{Vault: testVault(), Inventory: func() (models.DeviceInventory, error) { return inv, nil }, Asked: asked,
+		Presence: func(models.NetworkDevice) models.DevicePresence { return models.PresenceOnline }}
+	for _, p := range []string{"radio_device", "radio_device_e1", "radio_device_e2", "radio_device_e2"} {
+		got, err := lan.Devices(ctx, p)
+		if err != nil || len(got) != 1 || got[0].Presence != stacksdk.PresenceOnline {
+			t.Fatalf("%s: %+v %v", p, got, err)
+		}
+	}
+	if got := asked.List(); len(got) != 2 || got[0] != "radio_device_e2" || got[1] != "radio_device_e1" {
+		t.Errorf("the newest two purposes, newest first: %v", got)
+	}
+	lan.Presence = nil
+	if got, _ := lan.Devices(ctx, "radio_device"); got[0].Presence != stacksdk.PresenceUnknown {
+		t.Error("with no presence check, nothing is said of a device")
+	}
+}

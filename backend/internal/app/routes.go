@@ -162,7 +162,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	}
 	hs.Hosted = append(hs.Hosted, s.netaudit.hostedStacks()...)
 	hs.Discovery6 = handlers.NewNetauditDiscovery6Handlers(s.netaudit.Discovery6, s.netaudit.Inventory)
-	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports).WithVendors(cardMakerOf).WithDNSSilence(dnsSilence{source: s.NetauditPhoneHome})
+	hs.Devices = handlers.NewNetauditDevicesHandlers(s.netaudit.Inventory, netauditPresence{s.netaudit.PresenceConfig, s.netaudit.Presence}).WithSuggestions(s.netaudit.Names).WithPorts(s.netaudit.Ports).WithVendors(cardMakerOf).WithDNSSilence(dnsSilence{source: s.NetauditPhoneHome}).WithAir(s.netaudit.Join)
 	hs.Summary = handlers.NewNetauditSwitchHandlers(s.netaudit.Summary)
 	hs.DeviceNames = handlers.NewNetauditSwitchHandlers(s.netaudit.NamesConfig)
 	hs.FollowUp = handlers.NewNetauditSwitchHandlers(s.netaudit.FollowUpConfig)

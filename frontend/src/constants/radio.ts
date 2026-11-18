@@ -1,4 +1,4 @@
-import type { CapabilityUse, RadioAroundView, RadioChange, RadioClass, RadioHourState, RadioKind, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
+import type { CapabilityUse, RadioAroundView, RadioChange, RadioClass, RadioKind, RadioRowState, RadioRing, RadioRole, RadioSignal, RadioTier, RadioTrend } from '../types/radio'
 import type { StatusState } from '../types/ui'
 
 // The words of the Radio · Sensors page. Capability titles and notes come from the server; these are the fixed phrases around them.
@@ -131,9 +131,9 @@ export const RADIO_ENDED: Record<string, { title: string; next: string }> = {
 export const RADIO_DEVICES_TITLE = 'My devices'
 export const RADIO_DEVICES_INTRO = 'The devices you marked as yours, whether they are home, and which router box they are on. Open one to see it on the radar, rename it or change its kind.'
 export const RADIO_DEVICES_EMPTY = 'No device marked as yours yet. On Around you, hold a device next to this computer and use Find my device.'
-/** The line above the list: how many are home now, or that nothing is known while not listening. */
-export const radioMySummary = (here: number, total: number, listening: boolean): string =>
-  listening ? `${here} of ${total} ${total === 1 ? 'device' : 'devices'} home now` : `${total} ${total === 1 ? 'device' : 'devices'}. Not listening now, so who is home is not known.`
+/** The line above the list: how many are home now, or that nothing is known while neither the air nor the network can say (ADR-0061). */
+export const radioMySummary = (here: number, total: number, known: boolean): string =>
+  known ? `${here} of ${total} ${total === 1 ? 'device' : 'devices'} home now` : `${total} ${total === 1 ? 'device' : 'devices'}. Not listening now, so who is home is not known.`
 export const RADIO_MY_START = 'Start listening'
 export const RADIO_DUP_TITLE = 'Some devices share a name'
 export const radioDupLine = (label: string, count: number): string => `${count} devices are called “${label}”. Open each one and rename it so you can tell them apart.`
@@ -301,7 +301,7 @@ export const radioAirFramesLine = (devices: number, frames: number): string => `
 export const RADIO_AIR_CAP_NOTE = 'On a busy channel a window stops at 4,000 frames, so counts there are a floor.'
 
 // Radio · My devices: whether each device is here.
-export const RADIO_NOW_WORDS: Record<RadioHourState, string> = { here: 'Here now', away: 'Not heard lately', not_listening: 'Not listening, so not known' }
+export const RADIO_NOW_WORDS: Record<RadioRowState, string> = { here: 'Here now', on_network: 'Home · on the network', away: 'Not heard lately', not_listening: 'Not listening, so not known' }
 export const radioLastHeardLine = (when: string): string => `Last heard ${when}`
 export const RADIO_NEVER_HEARD = 'Never heard yet'
 

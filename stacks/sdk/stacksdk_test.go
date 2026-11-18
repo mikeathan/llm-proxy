@@ -448,6 +448,41 @@ func TestAgentWatchTypes_CarryOnlyIdsAndVettedTokens(t *testing.T) {
 	}
 }
 
+// A stack that reports the air must require the lan port, because its tags are the ones that port gave (ADR-0061).
+func TestValidate_ReportsAirNeedsTheLANPort(t *testing.T) {
+	m := validManifest()
+	m.ReportsAir = true
+	if err := m.Validate(); err == nil {
+		t.Fatal("a stack that reports the air without the lan port must be refused")
+	}
+	m.Requires = append(m.Requires, PortVault, PortLAN)
+	if err := m.Validate(); err != nil {
+		t.Fatalf("with the lan port it must validate: %v", err)
+	}
+}
+
+// An air fact carries fixed values only: the text fields are words from the SDK's own lists, so nothing a frame said can cross.
+func TestAirFact_CarriesOnlyFixedWords(t *testing.T) {
+	typ := reflect.TypeFor[AirFact]()
+	fixed := map[string]bool{"Band": true, "Ring": true, "Kind": true}
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if f.Type.Kind() == reflect.String && !fixed[f.Name] {
+			t.Errorf("AirFact.%s is text that is not from a fixed list", f.Name)
+		}
+	}
+	for _, list := range [][]string{AirBands, AirRings, AirKinds} {
+		for _, w := range list {
+			if w == "" || strings.Trim(w, "abcdefghijklmnopqrstuvwxyz0123456789_G") != "" {
+				t.Errorf("%q is not a plain token", w)
+			}
+		}
+	}
+	if !PresenceUnknown.Valid() || !PresenceOnline.Valid() || LANPresence("gone").Valid() {
+		t.Error("only the listed presences are valid")
+	}
+}
+
 // A stack may require the vault port, and the storage report is plain data.
 func TestManifest_AcceptsTheVaultPort(t *testing.T) {
 	m := validManifest()

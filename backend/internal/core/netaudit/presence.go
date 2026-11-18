@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"llm-proxy/models"
 )
 
 // Presence is the light, frequent look at who is on the network. It makes the host talk to every address in the declared scan
@@ -77,6 +79,29 @@ type PresenceDeps struct {
 	Now func() time.Time
 	// OnError is told about trouble, once per distinct message until the trouble ends.
 	OnError func(error)
+	// AirNote, if set, is a fixed phrase about where the air heard the new devices (devicejoin.NewDeviceNote, ADR-0061), or "" when it says
+	// nothing. It must be quick and must not fail the alert.
+	AirNote func(ctx context.Context, macs []string) string
+}
+
+// DeviceOnlineWindow is how lately the network must have seen a device for it to be online now; the Network page uses the same window
+// (DEVICE_ONLINE_WINDOW_MS). presenceFresh is how lately the check must have looked for its word to stand: a check that stopped looking says
+// nothing about who is there.
+const (
+	DeviceOnlineWindow = 30 * time.Minute
+	presenceFresh      = time.Hour
+)
+
+// PresenceOf says whether the network sees a device now: online or away while the check is on and looked within presenceFresh, unknown
+// otherwise.
+func PresenceOf(d models.NetworkDevice, enabled bool, st PresenceStatus, now time.Time) models.DevicePresence {
+	if !enabled || st.LastLook.IsZero() || now.Sub(st.LastLook) > presenceFresh {
+		return models.PresenceUnknown
+	}
+	if now.Sub(d.LastSeen) <= DeviceOnlineWindow {
+		return models.PresenceOnline
+	}
+	return models.PresenceAway
 }
 
 // idlePoll is how often a disabled check looks again at its setting.
@@ -195,7 +220,7 @@ func (p *Presence) alert(ctx context.Context) error {
 	if pending.Empty() {
 		return nil
 	}
-	if err := p.deps.Notify(ctx, PresenceMessage(pending)); err != nil {
+	if err := p.deps.Notify(ctx, PresenceMessageWith(pending, p.airNote(ctx, pending))); err != nil {
 		err = fmt.Errorf("presence check: could not send the alert: %w", err)
 		p.trouble(err)
 		return err
@@ -206,6 +231,14 @@ func (p *Presence) alert(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+// airNote is what the air says of the new devices, or "" when nothing is new or no note is wired.
+func (p *Presence) airNote(ctx context.Context, pending Pending) string {
+	if p.deps.AirNote == nil || pending.NewDevices == 0 {
+		return ""
+	}
+	return p.deps.AirNote(ctx, pending.NewMACs())
 }
 
 func (p *Presence) trouble(err error) {
@@ -226,7 +259,11 @@ const maxListed = 5
 
 // PresenceMessage is the alert: counts and fixed words, and where the devices are. Addresses come from this computer's own
 // neighbour table; what a device calls itself, and what the operator named a device, are never in it.
-func PresenceMessage(p Pending) string {
+func PresenceMessage(p Pending) string { return PresenceMessageWith(p, "") }
+
+// PresenceMessageWith is PresenceMessage with a fixed note about the new devices (where the air heard them), placed after the list; an empty
+// note adds nothing.
+func PresenceMessageWith(p Pending, note string) string {
 	var parts []string
 	if p.NewDevices > 0 {
 		parts = append(parts, plural(p.NewDevices, "new device", "new devices")+listed(p.newAddrs))
@@ -240,7 +277,11 @@ func PresenceMessage(p Pending) string {
 	if p.Shared > 0 {
 		parts = append(parts, plural(p.Shared, "hardware address answering for several addresses at once (a machine with several connections does this, and so does something impersonating other devices)", "hardware addresses answering for several addresses at once (a machine with several connections does this, and so does something impersonating other devices)"))
 	}
-	return "Network audit: " + strings.Join(parts, "; ") + ". Open the network audit to review."
+	msg := "Network audit: " + strings.Join(parts, "; ") + "."
+	if note != "" {
+		msg += " " + note
+	}
+	return msg + " Open the network audit to review."
 }
 
 // listed names up to maxListed addresses after a colon, then counts the rest. No address list gives no suffix.

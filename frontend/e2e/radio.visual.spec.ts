@@ -278,14 +278,17 @@ test('My devices: home first with the router box and the last day in words, a sh
   const presence = { devices: [
     ...PRESENCE.devices,
     { id: id('beefcafe'), label: 'my laptop', state: 'here', signal: 'medium', last_heard: '2026-11-14T15:00:00Z', joined_own: true, hours: HOURS },
-    { id: id('0733101c'), label: 'Phone or tablet', state: 'away', last_heard: '2026-11-14T07:00:00Z', joined_own: true, hours: away },
+    { id: id('0733101c'), label: 'Phone or tablet', state: 'away', last_heard: '2026-11-14T07:00:00Z', joined_own: true, hours: away, network: 'online' },
   ] }
   const live = { ...LIVE, devices: LIVE.devices.map((d) => d.id === 'ab' ? { ...d, moving: true, router: { box: 'x1', box_name: 'ZenWiFi_XD4-28F0', band: '5G', dbm: -66, at: 1 } }
     : d.id === 'beefcafe' ? { ...d, router: { box: 'x2', box_name: 'Asus router', main: true, band: '5G', dbm: -58, at: 1 } } : d) }
   const networks = { ...NETWORKS, access_points: [...NETWORKS.access_points, { id: 'a3', name: 'netsink', channel: 60, security: 'wpa2', confirmed: true, last_seen: '2026-11-14' }] }
   await mockAdminApi(page, { answers: { ...ANSWERS, '/radio/devices/mine': devices, '/radio/devices/mine/presence': presence, '/radio/air/live': live, '/radio/networks': networks } })
   await page.goto('radio/devices')
-  await expect(page.locator('[data-test="radio-my-summary"]')).toHaveText('2 of 4 devices home now')
+  // The phone the air has not heard lately but the network sees now is home, in the same one tag (ADR-0061).
+  await expect(page.locator('[data-test="radio-my-summary"]')).toHaveText('3 of 4 devices home now')
+  await expect(page.locator('[data-test="radio-my-device"][data-id="0733101c"]')).toHaveAttribute('data-state', 'on_network')
+  await expect(page.locator('[data-test="radio-my-device"][data-id="0733101c"]')).toContainText('Home · on the network')
   await expect(page.locator('[data-test="radio-my-dups"]')).toContainText('2 devices are called “Phone or tablet”')
   await expect(page.locator('[data-test="radio-my-device"][data-id="ab"]')).toContainText('Near this computer · Last heard')
   await expect(page.locator('[data-test="radio-my-device"][data-id="ab"]')).toContainText('moving now')

@@ -11,7 +11,7 @@ import { useRadioPresence } from "../../composables/radio/useRadioPresence"
 import { useRadioLive } from "../../composables/radio/useRadioLive"
 import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewMode"
 import { useConfirm } from "../../composables/ui/useConfirm"
-import { duplicateNames, myDeviceRows } from "../../utils/radio/myDevices"
+import { duplicateNames, myDeviceRows, rowState } from "../../utils/radio/myDevices"
 import type { MyDeviceRow } from "../../types/radio"
 import { toRadio } from "../../router/routes"
 import type { RadioClass } from "../../types/radio"
@@ -38,7 +38,9 @@ const INPUT = "h-8 w-full min-w-0 rounded-[var(--radius-md)] border border-contr
 
 const rows = computed(() => myDeviceRows(d.devices.value ?? [], p.devices.value, live.view.value?.devices ?? []))
 const listening = computed(() => !!live.view.value?.listening)
-const here = computed(() => rows.value.filter((r) => r.state === "here").length)
+// Home is heard here now or seen on the network now (ADR-0061); either listener is enough to say who is home.
+const here = computed(() => rows.value.filter((r) => rowState(r) === "here" || rowState(r) === "on_network").length)
+const known = computed(() => listening.value || rows.value.some((r) => r.onNetwork))
 const dups = computed(() => duplicateNames(rows.value))
 
 async function add(): Promise<void> {
@@ -62,7 +64,7 @@ onMounted(() => { void d.load(); void p.load(); void live.load() })
       <Callout v-if="d.error.value" tone="error" title="That did not work"><span data-test="radio-devices-error">{{ d.error.value }}</span></Callout>
       <template v-if="rows.length">
         <p class="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-primary" data-test="radio-my-summary">
-          <span>{{ radioMySummary(here, rows.length, listening) }}</span>
+          <span>{{ radioMySummary(here, rows.length, known) }}</span>
           <RouterLink v-if="live.view.value && !listening" :to="toRadio()" class="text-[length:var(--text-small)] text-accent-brand hover:underline" data-test="radio-my-start">{{ RADIO_MY_START }}</RouterLink>
         </p>
         <Callout v-if="dups.length" tone="warning" :title="RADIO_DUP_TITLE">

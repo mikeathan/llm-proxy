@@ -289,6 +289,8 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 		OnLook:    hooks.OnLook,
 		Notify:    hooks.Notify,
 		OnError:   func(err error) { logging.Warn("network presence check", "error", err.Error()) },
+		// Where the air heard the new devices, read when an alert goes out: the join is wired after the check is built.
+		AirNote: s.airNote,
 	})
 }
 

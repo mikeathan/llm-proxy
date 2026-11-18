@@ -60,6 +60,14 @@ result recorded in the ledger. That live test is still the owner's.
 - **Leave the check as a record only.** Cheapest, but the check then never protects anyone: the owner has to read a log to notice a hijack.
 - **Move the DNS check back to the core.** Undoes S2 for one finding and does not help the next module.
 
+## Amendment (2026-11-18, ADR-0061)
+
+A finding may name its device by the tag the `lan` port gave the stack (`StackFinding.Device`) instead of an address. The stack host maps the
+tag to the inventory device's address with the tags the core itself makes (`devicejoin.Join.Index`), and drops a finding whose tag names no
+inventory device or that gives both a tag and an address. The core still words every finding from its own table, and an offer's names are
+now checked per id (`radio_join_foreign_network` carries none). Several stacks' offers are pulled as one source
+(`netaudit.StackFindingSources`), so one stack that fails never hides another's.
+
 ## Links
 
 - `docs/PLANS/cross-cutting/network-security-roadmap.md` Phase 3; `docs/PLANS/cross-cutting/network-stacks-handoff-2026-11-09.md` item 4.

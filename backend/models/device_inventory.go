@@ -94,3 +94,19 @@ type SharedMAC struct {
 	MAC string   `json:"mac"`
 	IPs []string `json:"ips"`
 }
+
+// DevicePresence is whether the network sees a device now, as the presence check knows it. Unknown (the empty value) is said while the check is
+// off or has not looked lately, and is never to be read as away.
+type DevicePresence string
+
+// The presences of a device on the network.
+const (
+	PresenceUnknown DevicePresence = ""
+	PresenceOnline  DevicePresence = "online"
+	PresenceAway    DevicePresence = "away"
+)
+
+// Valid says whether p is one of the presences above.
+func (p DevicePresence) Valid() bool {
+	return p == PresenceUnknown || p == PresenceOnline || p == PresenceAway
+}

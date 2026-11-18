@@ -455,6 +455,9 @@ export interface RadioLive {
 
 export type RadioHourState = 'here' | 'away' | 'not_listening'
 
+/** A row's one status on My devices: the air's state, or on_network when the air has not heard it now but the network sees it (ADR-0061). */
+export type RadioRowState = RadioHourState | 'on_network'
+
 export interface RadioPresenceDevice {
   id: string
   label: string
@@ -462,6 +465,8 @@ export interface RadioPresenceDevice {
   signal?: RadioSignal
   last_heard?: string
   joined_own: boolean
+  /** What the network's presence check says of the device now (ADR-0061): absent when it says nothing (off, or not in the inventory). */
+  network?: 'online' | 'away'
   /** `dbm`, `near_m` and `far_m` are set for an hour the device was heard in with a measured signal: the mean and the range the radar's model gives. */
   hours: { hour: string; state: RadioHourState; signal?: RadioSignal; dbm?: number; near_m?: number; far_m?: number }[]
 }
@@ -567,6 +572,8 @@ export interface MyDeviceRow {
   /** Where in the house, from the radar and the router's boxes (utils/radio/where.ts); empty when neither places it now. */
   where: string
   moving: boolean
+  /** The network's presence check sees it now. */
+  onNetwork: boolean
 }
 
 /** Radio · Your Wi-Fi networks: one network name and its access points (utils/radio/networks.ts). */

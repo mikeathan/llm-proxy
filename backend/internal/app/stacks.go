@@ -299,38 +299,53 @@ func radioStack() stacksdk.Stack { return radio.New(nil) }
 //
 // The helper's routes are built after the stacks are, so the stack's Privileged port is a late-bound one (latePrivileged) that routes.go fills when
 // the helper routes exist; until then a request is refused as unavailable.
-func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, notify func(ctx context.Context, message string) error, inventory func() (models.DeviceInventory, error),
-	mesh func(context.Context) (*models.MeshClients, error)) (*stackHost, error) {
+//
+// The same vault and the purposes the stack asked the LAN port for are what the core joins the stack's air report back to its inventory with
+// (devicejoin, ADR-0061), so the host is returned with the join's tagger.
+func (s *AppServices) newRadioHost(d radioHostDeps) (*stackHost, stackport.Vault, error) {
 	st := radioStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
-		return nil, err
+		return nil, stackport.Vault{}, err
 	}
 	dir := s.AppCtx.RootDir()
 	configDir := s.AppCtx.dataMgr.ConfigDir()
 	keys := stackport.NewKeyCache(func() ([]byte, error) { return storage.GetMasterKey(configDir) })
 	vault := stackport.Vault{Key: keys.Get}
 	h, err := newStackHost(st, stacksdk.Host{
-		Config:     stackport.Config[models.RadioConfig]{Store: policy},
-		Events:     stackalerts.Sink{Words: radiowatch.Words, Notify: notify, OnError: func(err error) { logging.Warn("radio watch", "error", err.Error()) }},
+		Config:     stackport.Config[models.RadioConfig]{Store: d.Policy},
+		Events:     stackalerts.Sink{Words: radiowatch.Words, Notify: d.Notify, OnError: func(err error) { logging.Warn("radio watch", "error", err.Error()) }},
 		Log:        stackport.Log{Stack: st.Manifest().ID},
 		DataDir:    stackport.DataDir{Dir: dir, Files: files},
 		Vault:      vault,
-		Privileged: priv,
+		Privileged: d.Priv,
 		// The network inventory as tags under the stack's own purpose: Radio names a device it hears by the name the operator gave it on the network,
-		// and no address crosses (ADR-0058).
-		LAN: stackport.LAN{Vault: vault, Inventory: inventory},
+		// and no address crosses (ADR-0058). Each device carries what the presence check says of it now, and the purposes asked are remembered for
+		// the join back (ADR-0061).
+		LAN: stackport.LAN{Vault: vault, Inventory: d.Inventory, Presence: d.Presence, Asked: d.Asked},
 		// The mesh router's list of joined devices, while a watch runs: the router manager reads it at most once every 30 s (Constitution I.15,
 		// ADR-0059); only this stack is given the port.
-		Mesh: stackport.Mesh{Vault: vault, Read: mesh, Inventory: inventory},
+		Mesh: stackport.Mesh{Vault: vault, Read: d.Mesh, Inventory: d.Inventory},
 	})
 	if err != nil {
-		return nil, err
+		return nil, stackport.Vault{}, err
 	}
 	s.AppCtx.AfterFactoryReset("The radio database", func() error { return stackport.Remove(dir, files) })
 	// The reset replaces the master key: forget the one held in memory, or every tag would still be made with the old one.
 	s.AppCtx.AfterFactoryReset("The radio key held in memory", func() error { keys.Drop(); return nil })
-	return h, nil
+	return h, vault, nil
+}
+
+// radioHostDeps are the core services the Radio stack's ports are built over.
+type radioHostDeps struct {
+	Policy radioPolicy
+	Priv   *latePrivileged
+	Notify func(ctx context.Context, message string) error
+	// Inventory is the network inventory; Presence what the presence check says of a device now; Asked remembers the purposes the stack asked.
+	Inventory func() (models.DeviceInventory, error)
+	Presence  func(models.NetworkDevice) models.DevicePresence
+	Asked     *stackport.AskedPurposes
+	Mesh      func(context.Context) (*models.MeshClients, error)
 }
 
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes

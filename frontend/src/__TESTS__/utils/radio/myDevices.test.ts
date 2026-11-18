@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { duplicateNames, heardStretches, hoursLine, myDeviceRows } from '../../../utils/radio/myDevices'
+import { duplicateNames, heardStretches, hoursLine, myDeviceRows, rowState } from '../../../utils/radio/myDevices'
 import { formatTime } from '../../../utils/format/time'
 import type { RadioLiveDevice, RadioOwnerDevice, RadioPresenceDevice } from '../../../types/radio'
 
@@ -80,5 +80,22 @@ describe('duplicateNames', () => {
     const rows = myDeviceRows([owner(A, 'Phone or tablet'), owner(B, 'Phone or tablet'), owner(C, 'Watch')], [], [])
     expect(duplicateNames(rows)).toEqual([{ label: 'Phone or tablet', count: 2 }])
     expect(duplicateNames(rows.slice(2))).toEqual([])
+  })
+})
+
+// A device the network sees now is home on the network even when the air has not heard it lately (ADR-0061): one status from both listeners.
+describe('rowState', () => {
+  it('reads home on the network for a device the air has not heard now but the network sees, and sorts it after the ones here', () => {
+    const rows = myDeviceRows(
+      [owner(A, 'Laptop'), owner(B, 'Phone'), owner(C, 'Watch')],
+      [presence(A, 'away', hours(['away']), undefined), { ...presence(B, 'away', hours(['away'])), network: 'online' }, { ...presence(C, 'here', hours(['here'])), network: 'online' }],
+      [],
+    )
+    expect(rows.map((r) => [r.label, rowState(r)])).toEqual([['Watch', 'here'], ['Phone', 'on_network'], ['Laptop', 'away']])
+  })
+  it('never turns the network being away, or saying nothing, into anything but the air\'s own state', () => {
+    expect(rowState({ state: 'not_listening', onNetwork: false })).toBe('not_listening')
+    expect(rowState({ state: 'not_listening', onNetwork: true })).toBe('on_network')
+    expect(rowState({ state: 'here', onNetwork: true })).toBe('here')
   })
 })

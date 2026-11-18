@@ -253,6 +253,43 @@ func TestStackHost_OfferedKeepsOnlyDeclaredFindings(t *testing.T) {
 	}
 }
 
+// A finding offered by tag is put on the inventory device the tag names; one whose tag names no device, one that gives both a tag and an address,
+// and every tag finding of a host with no map, are dropped (ADR-0061).
+func TestStackHost_OfferedMapsAFindingByTagToItsDevice(t *testing.T) {
+	phone := netip.MustParseAddr("192.168.1.20")
+	h := offeringHost(t, offering{items: []stacksdk.StackFinding{
+		{ID: "declared_one", Device: []byte("tag-phone"), Count: 1},
+		{ID: "declared_one", Device: []byte("tag-neighbour"), Count: 1},
+		{ID: "declared_one", Device: []byte("tag-phone"), Subject: phone, Count: 1},
+	}})
+	if got, err := h.Offered(context.Background()); err != nil || len(got) != 0 {
+		t.Fatalf("with no map every tag finding is dropped: %+v %v", got, err)
+	}
+	h.tags = func(context.Context) (map[string]netip.Addr, error) {
+		return map[string]netip.Addr{"tag-phone": phone}, nil
+	}
+	got, err := h.Offered(context.Background())
+	if err != nil || len(got) != 1 || got[0].Subject != phone {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	h.tags = func(context.Context) (map[string]netip.Addr, error) { return nil, errors.New("inventory unreadable") }
+	if _, err := h.Offered(context.Background()); err == nil {
+		t.Error("a map that cannot be read is a failure the report states")
+	}
+}
+
+// The air is pulled only from a stack whose manifest reports it; any other is unavailable, which the join reads as off.
+func TestStackHost_AirOnlyFromAStackThatReportsIt(t *testing.T) {
+	h := offeringHost(t, offering{})
+	if _, err := h.Air(context.Background()); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("%v", err)
+	}
+	var none *stackHost
+	if _, err := none.Air(context.Background()); stacksdk.CodeOf(err) != stacksdk.CodeUnavailable {
+		t.Errorf("no host: %v", err)
+	}
+}
+
 // A stack that is slow or fails must not stall or break the nightly report.
 func TestStackHost_OfferedGivesUpOnASlowStackAndReportsAFailure(t *testing.T) {
 	old := offerTimeout

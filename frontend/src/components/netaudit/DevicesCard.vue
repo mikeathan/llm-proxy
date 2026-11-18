@@ -152,6 +152,7 @@ onMounted(load)
                   :draft="draft"
                   :busy="busy"
                   :advanced="advanced"
+                  :air-state="inventory?.air?.state"
                   @toggle="toggleRow(device.mac)"
                   @approve="approve(device.mac)"
                   @start-naming="startNaming(device)"
