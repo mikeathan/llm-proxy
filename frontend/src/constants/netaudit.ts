@@ -1104,7 +1104,9 @@ export const ROUTER_CONN_WATCH_LINK = 'Open Modules'
 // place words match Radio's "where in the house" (utils/radio/where.ts): the radar's outer rings are only "far", because your own devices two
 // floors down sit on them too.
 export const DEVICE_AIR_HEARD = (when: string): string => `heard over the air ${when}`
+export const DEVICE_AIR_HEARD_LAST = "heard over the air in Radio's last listen"
 export const DEVICE_AIR_NOT_HEARD = 'not heard over the air lately'
+export const DEVICE_AIR_PAGE_LABEL = (name: string): string => `Open ${name} on the Radio page`
 export const DEVICE_AIR_PLACE: Record<AirRing, string> = { room: 'near this computer', house: 'in the house', nearby: 'far from this computer', far: 'far from this computer' }
 export const DEVICE_AIR_BAND: Record<AirBand, string> = { '2G': '2.4 GHz', '5G': '5 GHz', '6G': '6 GHz' }
 export const DEVICE_AIR_MOVING = 'moving'

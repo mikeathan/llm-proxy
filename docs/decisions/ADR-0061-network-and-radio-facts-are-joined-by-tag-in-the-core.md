@@ -1,7 +1,7 @@
 ---
 id: ADR-0061
 title: Network and Radio facts about one device are joined by tag in the core
-status: proposed
+status: accepted
 date: 2026-11-18
 subsystems: [network-audit]
 supersedes:
@@ -42,7 +42,10 @@ purpose (the `lan` port, ADR-0058) and says nothing of what may come back. ADR-0
 - No stack imports another and no address crosses; a neighbour's device matches no inventory tag, so it is never joined to anything.
 - The new-device alert now says, in fixed words, whether Radio heard the device inside the house. That is a derived fact about an inventory
   device leaving through the connectors; it carries no name or address. **The owner's reading of I.16 for this is pending** (the amendment
-  text is in the Constitution, in force when the pull request is merged).
+  text is in the Constitution, in force when the pull request is merged). Accepted: the owner merged it (#268, 2026-11-18).
+- The Network row's "heard over the air" words open the device's Radio page (v0.103.0). The page id is made by the core from the fact's own
+  tag (its first four bytes in hex, which is how Radio addresses a device page, `devicejoin.pageOf`), so nothing the stack answers becomes a
+  link and the SDK's facts stay fixed words; the id is shown only for inventory devices, on the admin API.
 - A Radio finding about a device the nightly scan did not see that night is left out with the rest of the findings about unscanned devices
   (`restrictTo`); it comes back on a night the device is up.
 - Not done, with reasons (plan): a deauthentication burst joined with devices dropping off (the presence check keeps no departure times),

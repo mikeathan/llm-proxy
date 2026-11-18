@@ -3,6 +3,8 @@ package radio
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -84,6 +86,24 @@ func TestAirReportCarriesOnlyTheInventorysDevicesAsFixedValues(t *testing.T) {
 		if list.v != "" && !contains(list.from, list.v) {
 			t.Errorf("%q is not one of the SDK's fixed words %v", list.v, list.from)
 		}
+	}
+}
+
+// The core links a device to its Radio page by the first four bytes of the fact's tag (devicejoin pageOf): that id must open the device's page.
+func TestAirFactTagOpensTheDevicePage(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	confirmHomeAP(t, store, rec, false)
+	rec.SetLAN(fakeLAN{neighbour: {Name: "Kitchen iPad", Presence: stacksdk.PresenceOnline}})
+	for range 3 {
+		cycleOf(t, rec, r.now, data(macAP), apBeacon(macAP, "home"), dataTo(macAP, neighbour))
+	}
+	got, err := r.s.Air(context.Background())
+	if err != nil || len(got.Devices) != 1 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	if resp := callID(t, r, http.MethodGet, DeviceViewPath, hex.EncodeToString(got.Devices[0].Tag[:4]), ""); resp.Status != http.StatusOK {
+		t.Errorf("the page the core links to: %d %s", resp.Status, resp.Body)
 	}
 }
 

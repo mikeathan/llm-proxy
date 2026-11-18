@@ -7,6 +7,7 @@ package devicejoin
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"slices"
@@ -27,6 +28,9 @@ const (
 	airTimeout = 3 * time.Second
 	// futureSlack is how far ahead of the clock a time from the stack may be before it is not believed.
 	futureSlack = time.Minute
+	// pageTagBytes is how much of a device's tag names the sensing stack's page about it: Radio's device page is addressed by the first four
+	// bytes of the tag, in hex (stacks/radio shortID).
+	pageTagBytes = 4
 )
 
 // Deps are what the join reads. Air is nil when no sensing stack is hosted.
@@ -152,12 +156,20 @@ func (j *Join) Index(ctx context.Context) (map[string]models.NetworkDevice, erro
 
 // cleanFact keeps the fixed words the SDK lists and drops any other, and a time from the future.
 func cleanFact(f stacksdk.AirFact, now time.Time) models.DeviceAir {
-	d := models.DeviceAir{Heard: believed(f.Heard, now), Moving: f.Moving, OnYourWiFi: f.OnYourWiFi}
+	d := models.DeviceAir{Heard: believed(f.Heard, now), Moving: f.Moving, OnYourWiFi: f.OnYourWiFi, Page: pageOf(f.Tag)}
 	d.Band, d.Ring, d.Kind = oneOf(f.Band, stacksdk.AirBands), oneOf(f.Ring, stacksdk.AirRings), oneOf(f.Kind, stacksdk.AirKinds)
 	if d.Heard.IsZero() {
 		d.Band, d.Ring, d.Moving = "", "", false // where it is and how it moves are only known while it is heard
 	}
 	return d
+}
+
+// pageOf is the id of the stack's page about the device of this tag: made here from the tag, so nothing the stack says becomes a link.
+func pageOf(tag []byte) string {
+	if len(tag) < pageTagBytes {
+		return ""
+	}
+	return hex.EncodeToString(tag[:pageTagBytes])
 }
 
 func believed(t, now time.Time) time.Time {

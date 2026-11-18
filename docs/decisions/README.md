@@ -75,4 +75,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0058](ADR-0058-radio-names-a-device-from-what-it-broadcasts-learns-its-class-and-joins-the-network-inventory-by-tag.md) | Radio names a device from what it broadcasts, learns its class from the owner's answers, and joins the network inventory by tag | proposed | 2026-11-17 |
 | [ADR-0059](ADR-0059-radio-watch-reads-the-mesh-routers-client-list-and-listens-between-sweeps.md) | A radio watch listens again between sweeps on the owner's channels and reads the mesh router's list of joined devices | proposed | 2026-11-18 |
 | [ADR-0060](ADR-0060-the-radio-helper-thins-repeated-control-frames-before-its-frame-cap.md) | The radio helper thins repeated control frames before its frame cap | proposed | 2026-11-18 |
-| [ADR-0061](ADR-0061-network-and-radio-facts-are-joined-by-tag-in-the-core.md) | Network and Radio facts about one device are joined by tag in the core | proposed | 2026-11-18 |
+| [ADR-0061](ADR-0061-network-and-radio-facts-are-joined-by-tag-in-the-core.md) | Network and Radio facts about one device are joined by tag in the core | accepted | 2026-11-18 |

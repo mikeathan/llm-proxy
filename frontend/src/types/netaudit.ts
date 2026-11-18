@@ -451,6 +451,14 @@ export interface DeviceAir {
   moving?: boolean
   on_your_wifi?: boolean
   kind?: RadioDeviceKind
+  /** The id of the device's Radio page, made by the core from its tag. */
+  page?: string
+}
+
+/** The air phrase of a device row in two parts: heard (when; it links to the device's Radio page) and the rest (where, and in Advanced more). */
+export interface AirWords {
+  heard: string
+  rest: string
 }
 
 /** Whether Radio can say anything now: off, not listening in the last day, listening, or its report could not be read. */

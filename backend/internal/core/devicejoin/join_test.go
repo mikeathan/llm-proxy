@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net"
 	"testing"
@@ -81,6 +82,20 @@ func TestTheJoinKeepsOnlyTheInventorysDevices(t *testing.T) {
 	d, ok := Of(v, "aa:bb:cc:00:00:10")
 	if !ok || d.Ring != "house" || d.Band != "5G" || d.Kind != "phone" || !d.OnYourWiFi {
 		t.Errorf("%+v %v", d, ok)
+	}
+}
+
+// The link to the stack's page about a device is made from the device's own tag, so it opens that device; a tag too short to name one gives none.
+func TestTheJoinLinksEachDeviceToTheStacksPageByItsTag(t *testing.T) {
+	r := newRig()
+	tag := stackTag(t, "radio_device_e1", "aa:bb:cc:00:00:10")
+	r.report = stacksdk.AirReport{Listened: true, Devices: []stacksdk.AirFact{{Tag: tag, Kind: "phone"}}}
+	d, _ := Of(r.join(true).View(context.Background()), "aa:bb:cc:00:00:10")
+	if want := hex.EncodeToString(tag[:4]); d.Page != want {
+		t.Errorf("page %q, want %q", d.Page, want)
+	}
+	if got := pageOf([]byte{1, 2, 3}); got != "" {
+		t.Errorf("a short tag names no page: %q", got)
 	}
 }
 

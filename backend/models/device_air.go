@@ -19,7 +19,8 @@ const (
 
 // DeviceAir is what the air says of one inventory device, as fixed values (no name, no address, nothing a frame said). Heard is when it was last
 // heard, zero when it was not heard lately; Band ("2G", "5G", "6G"), Ring ("room", "house", "nearby", "far") and Moving are known only while it is
-// heard; Kind is what the sensing stack thinks it is; OnYourWiFi says it exchanged frames with one of the owner's confirmed access points.
+// heard; Kind is what the sensing stack thinks it is; OnYourWiFi says it exchanged frames with one of the owner's confirmed access points. Page
+// is the id of the stack's own page about the device, made by the core from the device's tag (never a value the stack answered).
 type DeviceAir struct {
 	Heard      time.Time `json:"heard,omitzero"`
 	Band       string    `json:"band,omitempty"`
@@ -27,6 +28,7 @@ type DeviceAir struct {
 	Moving     bool      `json:"moving,omitempty"`
 	OnYourWiFi bool      `json:"on_your_wifi,omitempty"`
 	Kind       string    `json:"kind,omitempty"`
+	Page       string    `json:"page,omitempty"`
 }
 
 // AirView is the join of the air with the network inventory at one moment: the state, the latest listening cycle, the bands listened on, and

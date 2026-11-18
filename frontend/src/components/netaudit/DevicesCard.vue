@@ -153,6 +153,7 @@ onMounted(load)
                   :busy="busy"
                   :advanced="advanced"
                   :air-state="inventory?.air?.state"
+                  :air-last-cycle="inventory?.air?.last_cycle"
                   @toggle="toggleRow(device.mac)"
                   @approve="approve(device.mac)"
                   @start-naming="startNaming(device)"

@@ -5,13 +5,13 @@ import StatusTag from "../common/display/StatusTag.vue"
 import Icon from "../icons/Icon.vue"
 import DeviceProbe from "./DeviceProbe.vue"
 import { DEVICE_PROBLEMS_INJECTION } from "../../composables/netaudit/useDeviceProblems"
-import { toDeviceFindings } from "../../router/routes"
+import { toDeviceFindings, toRadioDevice } from "../../router/routes"
 import { severityState } from "../../utils/netaudit/friendly"
-import { DEVICE_PROBLEMS_LINK, DEVICE_PROBLEMS_LINK_LABEL, DEVICE_DNS_NOTE, DEVICE_DNS_TAG, DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
+import { DEVICE_AIR_PAGE_LABEL, DEVICE_PROBLEMS_LINK, DEVICE_PROBLEMS_LINK_LABEL, DEVICE_DNS_NOTE, DEVICE_DNS_TAG, DEVICE_IMPORTANT_NOTE, DEVICE_MARK_IMPORTANT, DEVICE_NAME_MAX, DEVICE_UNMARK_IMPORTANT, SUGGESTION_ACCEPT, SUGGESTION_APPROVED, SUGGESTION_DISMISS, SUGGESTION_NEW_DEVICE } from "../../constants/netaudit"
 import { isRecorded } from "../../utils/format/time"
 import { deviceAddress, deviceLabel, deviceSeen, deviceStatus, portsLine, portsSummary } from "../../utils/netaudit/devices"
 import { formatRelativeTime } from "../../utils/format/time"
-import { airPhrase } from "../../utils/netaudit/air"
+import { airWords } from "../../utils/netaudit/air"
 import type { AirState, NetworkDevice } from "../../types/netaudit"
 
 // One device in the list: its name, address and status on one line, and everything else folded under it. Opening a row shows
@@ -27,6 +27,8 @@ const props = defineProps<{
   advanced: boolean
   /** Whether Radio can say anything now (the list's air state); the device's own facts are on device.air. */
   airState?: AirState
+  /** When Radio's latest listening cycle ended (the list's air), so a device heard in it says so instead of a time. */
+  airLastCycle?: string
 }>()
 const emit = defineEmits<{
   (e: "toggle"): void
@@ -50,7 +52,9 @@ const status = computed(() => deviceStatus(props.device))
 const ports = computed(() => (props.advanced ? portsLine(props.device) : portsSummary(props.device)))
 const portsRecorded = computed(() => isRecorded(props.device.ports_scanned_at))
 // What Radio heard of it, as a phrase that follows "First seen" (ADR-0061): no new line, and nothing while Radio is off or not listening.
-const air = computed(() => airPhrase(props.device.air, props.airState, props.advanced))
+// Its "heard" part links to the device's Radio page when the core gave the page's id.
+const air = computed(() => airWords(props.device.air, props.airState, props.advanced, props.airLastCycle))
+const airPage = computed(() => (air.value && /^[0-9a-f]{8}$/.test(props.device.air?.page ?? "") ? props.device.air!.page! : ""))
 const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.device.ipv6?.length ? props.device.ipv6.join(", ") : ""))
 </script>
 
@@ -86,7 +90,7 @@ const extraIPv6 = computed(() => (props.advanced && props.device.ip && props.dev
 
     <div v-if="expanded" :id="bodyId" class="flex flex-col gap-2 pb-3 pl-7 pr-2">
       <p class="m-0 text-[length:var(--text-small)] text-muted">
-        First seen {{ formatRelativeTime(device.first_seen) }}<span v-if="air" data-test="device-air"> · {{ air }}</span>
+        First seen {{ formatRelativeTime(device.first_seen) }}<span v-if="air" data-test="device-air"> · <RouterLink v-if="airPage" :to="toRadioDevice(airPage)" :aria-label="DEVICE_AIR_PAGE_LABEL(deviceLabel(device))" class="text-secondary underline decoration-dotted underline-offset-2 hover:text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring" data-test="device-air-link">{{ air.heard }}</RouterLink><template v-else>{{ air.heard }}</template><template v-if="air.rest">, {{ air.rest }}</template></span>
         <span v-if="advanced" class="font-mono"> · {{ device.mac }}</span>
       </p>
       <p v-if="device.vendor && !device.randomized" class="m-0 text-[length:var(--text-small)] text-muted" data-test="device-maker">Made by {{ device.vendor }}</p>
