@@ -1,5 +1,5 @@
 ---
-status: approved
+status: partial
 date: 2026-11-04
 last_reviewed: 2026-11-04
 related_specs: [SPEC-003]
@@ -9,8 +9,8 @@ evidence: Owner's request of 2026-11-04 (quoted in §1), checked against the rep
 
 # Network: attempts at the edge, host integrity, one timeline, device classes
 
-**Status:** approved by the owner 2026-11-04 (the four design answers in §2). Branch `network-attempts-integrity-timeline`, fresh from origin/main at v0.41.1, no upstream. All of P0 to P6 are built (P5 as a finding only); the open items are live checks on vertex.
-**Related:** [`network-security-roadmap.md`](network-security-roadmap.md) (Phase 4 router log; Phase 1 host watch), [`network-modules-redesign.md`](network-modules-redesign.md) (the tabs this plan adds one to), [ADR-0018](../../decisions/ADR-0018-router-log-only-wakes-the-presence-check.md), [ADR-0023](../../decisions/ADR-0023-network-ideas-rejected-or-already-built.md) (read before adding an idea).
+**Status:** partial: approved by the owner 2026-11-04 (the four design answers in §2) and merged in v0.45.0 (#187) and after. Branch `network-attempts-integrity-timeline`, fresh from origin/main at v0.41.1, no upstream. All of P0 to P6 are built (P5 as a finding only); the open items are live checks on vertex.
+**Related:** [`network-security-roadmap.md`](network-security-roadmap.md) (Phase 4 router log; Phase 1 host watch), [`network-modules-redesign.md`](../ARCHIVE/cross-cutting/network-modules-redesign.md) (the tabs this plan adds one to), [ADR-0018](../../decisions/ADR-0018-router-log-only-wakes-the-presence-check.md), [ADR-0023](../../decisions/ADR-0023-network-ideas-rejected-or-already-built.md) (read before adding an idea).
 
 ## 1. Goal and non-goals
 

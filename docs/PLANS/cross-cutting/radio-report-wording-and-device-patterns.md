@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: partial
 date: 2026-11-16
 last_reviewed: 2026-11-16
 related_specs: [SPEC-006, SPEC-012]

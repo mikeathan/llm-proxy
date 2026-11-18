@@ -88,6 +88,8 @@ Archiving: `git mv` the plan here under the same folder name, add a row below, a
 | [`memory/small-context-memory.md`](memory/small-context-memory.md) | Memory for Small-Context Local Models (per-run injection, window-scaled budget, progress ledger, step-aware hints, operator UX) | complete | 2026-10-01 | SPEC-001, SPEC-004, SPEC-005, SPEC-007 |
 | [`orchestrator/consistent-token-budget.md`](orchestrator/consistent-token-budget.md) | Consistent Token Budget Computation | complete | — | — |
 | [`orchestrator/resource-aware-orchestration.md`](orchestrator/resource-aware-orchestration.md) | Resource-Aware Orchestration Layer: Detailed Implementation Plan | complete | — | — |
+| [`cross-cutting/network-modules-redesign.md`](cross-cutting/network-modules-redesign.md) | Modules group and a calmer Network page (Modules navigation group, Network tabs, searchable device list, neutral finding cards; ADR-0022) | complete | 2026-11-02 | SPEC-003 |
+| [`cross-cutting/isolation-importers-switch.md`](cross-cutting/isolation-importers-switch.md) | Switch the last `sandbox`/`progexec` importers to `isolation`, with a fitness test that bans new direct importers | complete | 2026-11-12 | SPEC-006 |
 
 ## Consolidation notes (history)
 

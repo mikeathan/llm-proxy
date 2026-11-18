@@ -1,5 +1,5 @@
 ---
-status: built
+status: complete
 date: 2026-11-02
 last_reviewed: 2026-11-02
 related_specs: [SPEC-003]
@@ -9,7 +9,7 @@ evidence: Recon of 2026-11-02 (§2) and the owner-approved mockup Option A ("Qui
 
 # Modules group and a calmer Network page
 
-**Status:** built (2026-11-02), branch `modules-group-network-redesign`, uncommitted. The owner chose mockup Option A, the group
+**Status:** complete: merged as #181 and in use since (archived 2026-11-18). Built 2026-11-02 on branch `modules-group-network-redesign`. The owner chose mockup Option A, the group
 name **Modules**, and moving the network scan settings onto the Network page, then approved the branch, the SPEC-003 change
 (2.24, ADR-0022) and status groups (§6). What differs from the plan is in *What was built*.
 **Related plans:** [`network-guard-module.md`](network-guard-module.md) (built the Network page this reworks).

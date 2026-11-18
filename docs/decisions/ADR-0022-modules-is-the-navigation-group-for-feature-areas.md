@@ -11,7 +11,7 @@ superseded_by:
 # ADR-0022: Modules is the navigation group for self-contained feature areas, and a page keeps its own settings
 
 ## Context
-The Network page was added as an eighth sidebar entry, and its switches were spread over three places: the Devices tab (the new-device check, device names, IPv6, decoys, router log, internet view, DNS check), the Overview (weekly summary, notices in this browser) and Settings → Safety → Network scan (what may be scanned, vulnerability data, scan time, confinement). The owner expects more feature areas of this kind (smart home, messaging views, memory views), and a flat sidebar of eight entries on a phone already needs a More sheet. See the plan [`network-modules-redesign`](../PLANS/cross-cutting/network-modules-redesign.md) and SPEC-003 changelog 2.24.
+The Network page was added as an eighth sidebar entry, and its switches were spread over three places: the Devices tab (the new-device check, device names, IPv6, decoys, router log, internet view, DNS check), the Overview (weekly summary, notices in this browser) and Settings → Safety → Network scan (what may be scanned, vulnerability data, scan time, confinement). The owner expects more feature areas of this kind (smart home, messaging views, memory views), and a flat sidebar of eight entries on a phone already needs a More sheet. See the plan [`network-modules-redesign`](../PLANS/ARCHIVE/cross-cutting/network-modules-redesign.md) and SPEC-003 changelog 2.24.
 
 ## Decision
 - We will group self-contained feature areas under one navigation heading, **Modules**: an expandable group in the sidebar (open by default, the fold remembered, open while a destination in it is) and a heading in the phone's More sheet. Network is the first destination. No placeholder destination is shown for a module that does not exist.
@@ -30,5 +30,5 @@ A new module adds one navigation entry with `group: 'modules'` and its page; the
 
 ## Links
 - Amended by [ADR-0028](ADR-0028-stack-module-registry.md) (2026-11-05): the group is named **Stacks**; everything else here stands.
-- Plan: [`network-modules-redesign`](../PLANS/cross-cutting/network-modules-redesign.md)
+- Plan: [`network-modules-redesign`](../PLANS/ARCHIVE/cross-cutting/network-modules-redesign.md)
 - SPEC-003 changelog 2.24
