@@ -9,10 +9,18 @@ evidence: v0.97.0 (PR #263) merged and deployed by the owner on 2026-11-18 (vert
 
 # Radio: v0.98.0 page fixes, focus windows and the router's list of joined devices (handoff, 2026-11-18)
 
-**Branch** `radio-page-chances-and-ask-name`, from `origin/main` at `85bc643d`; **v0.98.0**; **uncommitted** (the owner approved the
-branch; commit and push wait for the owner). The branch tracks `origin/main`: push it with an explicit name
-(`git push -u origin radio-page-chances-and-ask-name`), never a bare `git push`. Nothing on vertex was changed; today's 7-day watch
-(started 08:00:40 UTC) runs until 2026-11-23 21:00 UTC, and a deploy ends it (a restart ends every session).
+**Branch** `radio-page-chances-and-ask-name`, from `origin/main` at `85bc643d`; **v0.98.0**; **committed and pushed** (`378a1afa`, then
+this handoff's update), **PR #264** (https://github.com/mikeathan/llm-proxy/pull/264), not merged. The branch now tracks its own remote.
+Merge order: #264 alone, nothing waits on it. Nothing on vertex was changed; the 7-day watch started 2026-11-18 08:00:40 UTC ends when #264
+is deployed (a restart ends every session).
+
+## Start here (new session)
+1. `gh pr view 264` and `gh pr checks 264`: CI state and any review comments. Fix on this branch; never push to `main`.
+2. Once the owner has merged and deployed, check vertex read-only with `$LLM_PROXY_TOKEN` against `http://vertex.local:4001`:
+   `GET /admin/api/version` (v0.98.0), `GET /admin/api/radio/listening` (`focus_windows` counting, `focus_off` false),
+   `GET /admin/api/radio/air/live` (the phone's dot has `router` with a box name and `dbm`; `moving` true while carried).
+   The owner's phone is `4ded1379` on the radar and the client at `.127` in the router's list; never print a full address.
+3. Then items 3 and later under "Left, in order" below.
 
 ## What v0.98.0 holds
 - **The device page's chances agree with the class of a device you marked** (`vector.houses`, `ownedVector`, `learn.go`; `explain`,
@@ -38,7 +46,7 @@ work: see the final report); `GOWORK=off go vet ./...` and `GOWORK=off go test -
 `GOWORK=off go test -run '^$' -bench 'FocusIngest|SweepIngest' -benchtime 20x .` in `stacks/radio`. **Not run:** anything on vertex.
 
 ## Left, in order
-1. **Owner:** review, then approve commit and push (one pull request; commit `backend/internal/transport/http/frontend_dist/index.html`).
+1. **Owner:** review PR #264 and merge it.
 2. **Owner: read the Constitution change on its own** (`git diff HEAD -- CONSTITUTION.md`: one new I.15 bullet and two sentences changed)
    and ADR-0059; merging the pull request is the approval of the security review. Note: the next watch's passphrase dialog asks for about
    twice the uses (24,204 for 7 days, against 12,108).
