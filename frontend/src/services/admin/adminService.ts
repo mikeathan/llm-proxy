@@ -9,6 +9,7 @@ import type {
   TerminalSessionView,
   WebhookInfo,
 } from '../../types/admin'
+import type { StorageReport } from '../../types/storage'
 import type { Model, ProviderManifest, ProviderModelInfo } from '../../types/model'
 import { get, post, put, del } from '../httpClient'
 
@@ -90,6 +91,8 @@ export const AdminApiService = {
 
   clearRuntimeData: (): Promise<void> =>
     post<void>(API_ENDPOINTS.clearRuntimeData),
+  storage: (): Promise<StorageReport> =>
+    get<StorageReport>(API_ENDPOINTS.storage),
 
   wipeout: (): Promise<{ root_dir: string; workspaces_dir: string }> =>
     post<{ root_dir: string; workspaces_dir: string }>(API_ENDPOINTS.wipeout),

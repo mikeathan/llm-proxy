@@ -1,7 +1,7 @@
 ---
-status: proposed
+status: partial
 date: 2026-11-13
-last_reviewed: 2026-11-13
+last_reviewed: 2026-11-18
 related_specs: [SPEC-006]
 constitution_references: [I.5, III.2, III.6, IV.6]
 evidence: Read 2026-11-13 - backend/internal/platform/db (shared SQLite provider, modernc, WAL), platform/sizewatch (cached directory sums, accounting not a quota), platform/ledger/cleaner.go, platform/persistence (JSON files written atomically), stacks/sdk/manifest.go (Manifest.Storage), the Network "Downloaded data" card (frontend DestinationDataCard.vue). No system-wide data page exists today.
@@ -34,10 +34,30 @@ the ledger and memory databases, run recordings and logs, reports, workspace fol
 - **D3 Purge and limits.** Purge with step-up, adjustable bounds, the audit line for each purge. *Check:* a purge without step-up is refused; a purge removes exactly what the preview said.
 - **D4 Watermark.** The low-disk alert and the optional-writer stop. *Check:* a fake full volume stops Radio's writer and leaves a run working.
 
-## Open items
+## Decisions (owner, 2026-11-18: "do what's best recommended")
 
-Whether export is in scope; whether the page lives under Settings or System; how workspace folders (owned by people, not by the service) are shown without offering a delete that could remove someone's work (proposal: show size only, purge by workspace through the existing flow).
+- **Placement:** Settings → Storage & logging, a "What is stored" card under the workspace storage settings (the tab that already holds run
+  logging and the workspaces folder). No new navigation entry.
+- **Export:** out of scope for now.
+- **Workspace folders:** size only, never a delete on this page (people's own work).
+- **Deletion:** stays in the flows that already exist (each row says where, in fixed words: Clear runtime data, a factory reset, Network →
+  Settings → Data, a run or recording delete). A new purge API is D3 below.
+
+## Built (2026-11-18, branch `docs-plans-tracker-cleanup`)
+
+- **D1** `internal/platform/datausage` (`Measure`: every top-level entry of the data folder is a row of its kind, and an entry no kind names
+  is a row under its own name, marked not described, so nothing hides; folders through the 60 s `sizewatch` cache), the core's kinds in
+  `internal/app/datausage.go` (`coreStoreKinds`, test `TestCoreStoreKinds_DescribeEveryDocumentedName`), `GET /admin/api/system/storage`
+  (`handlers/storage_handlers.go`), the card `frontend/src/components/settings/StorageReportCard.vue`.
+- **D2** each hosted stack's `Manifest.Storage` files are rows owned by the stack, with what a `stacksdk.StorageReporter` says of them (cap,
+  records, oldest, keep-for; Radio implements it).
+- **D4 (part)** the data folder's volume, free and size, with the host watch's level rule (`hostwatch.DiskLevel`, now exported), shown at
+  the top of the card.
 
 ## Remaining work
 
-Everything. D1 and D2 are the dependency of Radio's R1 only for the storage report; Radio can start with its own cap and join the page later.
+- **D3 purge and limits:** a purge request per store id and cut-off with step-up and an audit line, adjustable bounds, the preview of what a
+  purge removes. Needs a `Purge` method on the SDK interface for stacks (an SDK change) and a design for which core stores accept a cut-off.
+- **D4 rest:** one alert when the level becomes low or critical, and stopping optional background writers (Radio first). There is no way for
+  the core to pause a stack today (an SDK change); the low-disk finding of the host watch already exists in the nightly report.
+- Owner check on vertex: open Settings → Storage & logging and read the rows; any "Not described" row is a store to add to `coreStoreKinds`.
