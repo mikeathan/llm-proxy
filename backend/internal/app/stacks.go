@@ -328,6 +328,9 @@ func (s *AppServices) newRadioHost(d radioHostDeps) (*stackHost, stackport.Vault
 		// The mesh router's list of joined devices, while a watch runs: the router manager reads it at most once every 30 s (Constitution I.15,
 		// ADR-0059); only this stack is given the port.
 		Mesh: stackport.Mesh{Vault: vault, Read: d.Mesh, Inventory: d.Inventory},
+		// The owner's Wi-Fi networks from the core's one list, as names and tags (ADR-0063): the stack proposes and reports access points against
+		// it and keeps no list of its own; the purposes asked are remembered so the core can check what the stack reports back.
+		Networks: stackport.Networks{Vault: vault, List: d.WifiNetworks, Asked: d.NetsAsked},
 	})
 	if err != nil {
 		return nil, stackport.Vault{}, err
@@ -348,6 +351,9 @@ type radioHostDeps struct {
 	Presence  func(models.NetworkDevice) models.DevicePresence
 	Asked     *stackport.AskedPurposes
 	Mesh      func(context.Context) (*models.MeshClients, error)
+	// WifiNetworks is the core's one list of the owner's Wi-Fi networks; NetsAsked remembers the purposes the stack asked it for.
+	WifiNetworks func() []models.WifiNetwork
+	NetsAsked    *stackport.AskedPurposes
 }
 
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes

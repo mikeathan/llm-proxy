@@ -8,10 +8,11 @@ import ErrorState from "../common/feedback/ErrorState.vue"
 import LoadingState from "../common/feedback/LoadingState.vue"
 import { useWifi } from "../../composables/netaudit/useWifi"
 import {
-  WIFI_ADD, WIFI_CONFIRM, WIFI_DETAILS, WIFI_HINT, WIFI_LOOK, WIFI_NAME_LABEL, WIFI_NONE_SEEN, WIFI_NOT_LOOKED, WIFI_REMOVE, WIFI_STEPS, WIFI_TITLE,
-  WIFI_UNCONFIRMED_NOTE, wifiSeenLine,
+  WIFI_ADD, WIFI_CONFIRM, WIFI_CONFIRMED_BEFORE, WIFI_DETAILS, WIFI_HEARD_BY_RADIO, WIFI_HINT, WIFI_LOOK, WIFI_NAME_LABEL, WIFI_NONE_SEEN, WIFI_NOT_LOOKED,
+  WIFI_REMOVE, WIFI_STEPS, WIFI_TITLE, WIFI_UNCONFIRMED_NOTE, wifiConfirmBefore, wifiSeenLine,
 } from "../../constants/netaudit"
 import { formatRelativeTime, isRecorded } from "../../utils/format/time"
+import type { WifiSeen } from "../../types/netaudit"
 
 // Settings · Network · Wi-Fi look-alikes: the operator's own network names, a look at what is advertising them, and the choice of which
 // access points are theirs. The switch is on the Modules tab. Confirming and stopping a watch ask for the passphrase (the server says so).
@@ -30,6 +31,10 @@ function toggle(network: string, bssid: string, on: boolean): void {
 }
 async function confirmTicked(network: string): Promise<void> {
   if (await confirm(network, ticked[network] ?? [])) ticked[network] = []
+}
+// The access points the operator confirmed on the Radio page before the lists were one, still waiting for one confirmation here.
+function before(seen: WifiSeen[]): string[] {
+  return seen.filter((a) => a.confirmed_before && !a.confirmed).map((a) => a.bssid)
 }
 onMounted(load)
 </script>
@@ -76,10 +81,13 @@ onMounted(load)
                 </label>
                 <span class="text-[length:var(--text-small)] text-muted">{{ wifiSeenLine(a.signal, a.security) }}</span>
                 <span :class="['text-[length:var(--text-small)]', a.confirmed ? 'text-state-success' : 'text-state-running']">{{ a.confirmed ? "Confirmed as yours" : "Not confirmed" }}</span>
+                <span v-if="a.radio" class="text-[length:var(--text-small)] text-muted" data-test="wifi-seen-radio">{{ WIFI_HEARD_BY_RADIO }}</span>
+                <span v-if="a.confirmed_before && !a.confirmed" class="text-[length:var(--text-small)] text-muted" data-test="wifi-seen-before">{{ WIFI_CONFIRMED_BEFORE }}</span>
               </li>
             </ul>
-            <div v-if="n.seen.some((a) => !a.confirmed)">
+            <div v-if="n.seen.some((a) => !a.confirmed)" class="flex flex-wrap gap-2">
               <BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" :disabled="busy || !(ticked[n.name] ?? []).length" data-test="wifi-confirm" @click="confirmTicked(n.name)">{{ WIFI_CONFIRM }}</BaseButton>
+              <BaseButton v-if="before(n.seen).length" variant="primary" size="sm" class-name="max-sm:!h-11" :disabled="busy" data-test="wifi-confirm-before" @click="confirm(n.name, before(n.seen))">{{ wifiConfirmBefore(before(n.seen).length) }}</BaseButton>
             </div>
           </li>
         </ul>

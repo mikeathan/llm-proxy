@@ -136,8 +136,7 @@ func TestAnAccessPointWithTheOwnersNameIsOnlyProposedAndJoiningItNeedsConfirmati
 	s, _ := openTest(t, 0)
 	r := NewRecorder(fakeVault{}, s)
 	ctx := context.Background()
-	r.SetOwnNetworks([]string{"home"})
-	_ = r.RefreshOwnAPs(ctx)
+	f := coreList(t, r, []string{"home"})
 	record(t, r, beacon("home"), t0) // from macAP; anyone could broadcast "home"
 	assoc := rtap(cat(hdr(0x00, 0, macAP, macPhone, macAP), []byte{0x11, 0x04, 10, 0}, ie(0, []byte("home")...)))
 	cycleOf(t, r, t0, assoc)
@@ -145,17 +144,15 @@ func TestAnAccessPointWithTheOwnersNameIsOnlyProposedAndJoiningItNeedsConfirmati
 	if phone.Owner {
 		t.Fatal("not the owner's")
 	}
-	aps, err := s.OwnAPs(ctx)
+	aps, err := r.OwnAPs(ctx)
 	if err != nil || len(aps) != 1 || aps[0].Confirmed || aps[0].Name != "home" {
 		t.Fatalf("a name match proposes: %+v %v", aps, err)
 	}
 	if joined(t, s, macPhone) {
 		t.Error("joining an unconfirmed access point must not count")
 	}
-	if ok, err := s.SetOwnAPConfirmed(ctx, aps[0].Tag, true); err != nil || !ok {
-		t.Fatal(ok, err)
-	}
-	_ = r.RefreshOwnAPs(ctx)
+	f.set([]string{"home"}, macAP) // the owner confirms it on the Network page
+	_ = r.SyncOwnNetworks(ctx)
 	cycleOf(t, r, t0, assoc)
 	if !joined(t, s, macPhone) {
 		t.Error("joining a confirmed access point is the strongest evidence")
@@ -189,15 +186,13 @@ func TestForgetNeighboursKeepsTheOwnersAccessPointsMatching(t *testing.T) {
 	s, _ := openTest(t, 0)
 	r := NewRecorder(fakeVault{}, s)
 	ctx := context.Background()
-	r.SetOwnNetworks([]string{"home"})
+	coreList(t, r, []string{"home"}, macAP)
 	record(t, r, beacon("home"), t0)
-	aps, _ := s.OwnAPs(ctx)
-	_, _ = s.SetOwnAPConfirmed(ctx, aps[0].Tag, true)
 	cycleOf(t, r, t0, data(neighbour))
 	if err := r.ForgetNeighbours(ctx); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := s.OwnAPs(ctx)
+	after, _ := r.OwnAPs(ctx)
 	want, _ := fakeVault{}.Tag(ctx, purpose(tagAP, 1), macAP[:])
 	if len(after) != 1 || string(after[0].Tag) != string(want) || !after[0].Confirmed {
 		t.Errorf("the confirmed access point must follow the new epoch: %+v", after)

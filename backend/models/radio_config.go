@@ -6,9 +6,9 @@ package models
 type RadioConfig struct {
 	// Enabled is the master switch of the Radio stack (module radio_sensors).
 	Enabled bool `yaml:"enabled,omitempty" json:"enabled"`
-	// OwnNetworks are the names the operator's own Wi-Fi networks go by. A beacon with one of these names only proposes an access point: the
-	// operator confirms which addresses are theirs, because anyone can broadcast the same name.
-	OwnNetworks []string `yaml:"own_networks,omitempty" json:"own_networks"`
+	// OwnNetworks are the network names the operator typed on the Radio page before the Network page's list became the one list (ADR-0063).
+	// The service moves them into that list once at start-up and clears this; nothing else reads or writes it, and the stack is not given it.
+	OwnNetworks []string `yaml:"own_networks,omitempty" json:"-"`
 	// Channels, WindowSeconds and CycleSeconds are the operator's scan plan: the channels a listening run visits, how long it stays on each and the
 	// time from one cycle's start to the next. Empty or zero means the stack's default; the stack validates a change and applies its caps.
 	Channels      []int `yaml:"channels,omitempty" json:"channels"`

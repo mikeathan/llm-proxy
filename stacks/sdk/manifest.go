@@ -187,9 +187,12 @@ const (
 	// the stack's own vault purpose: asking may cause a read of the router, which the core limits (Constitution I.15, ADR-0059). Only the Radio
 	// stack is given it, while it runs a watch.
 	PortMeshClients = "meshclients"
+	// PortOwnNetworks gives a stack the owner's Wi-Fi network names and the access points the owner confirmed, from the core's one list, as
+	// tags under the stack's own vault purpose (ADR-0063). Only the Radio stack is given it.
+	PortOwnNetworks = "ownnetworks"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

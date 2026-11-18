@@ -560,7 +560,8 @@ export interface RouterLogState {
 /** An access point's security, reduced to one word by the server. */
 export type WifiSecurity = 'open' | 'wep' | 'wpa' | 'wpa2' | 'wpa3' | 'other'
 /** An access point the last look heard advertising one of the operator's network names. */
-export interface WifiSeen { bssid: string; signal: number; security: WifiSecurity; confirmed: boolean }
+/** One access point under one of your names. `radio`: the Radio stack heard it; `confirmed_before`: you confirmed it on the Radio page before the lists were one, so it waits for one confirmation here and raises nothing until then. */
+export interface WifiSeen { bssid: string; signal: number; security: WifiSecurity; confirmed: boolean; radio?: boolean; confirmed_before?: boolean }
 /** One of the operator's network names, the access points they confirmed as theirs, and what the last look heard. */
 export interface WifiNetwork { name: string; confirmed: string[]; seen: WifiSeen[] }
 /** The Wi-Fi look-alikes card: the switch lives on the Modules tab; `ready` is false, with `why`, while the look cannot run. */

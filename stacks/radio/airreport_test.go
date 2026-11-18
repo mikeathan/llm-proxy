@@ -138,14 +138,11 @@ func TestMyDevicesCarryTheNetworksPresence(t *testing.T) {
 func TestFindingsOfferAForeignJoinByTheInventorysTag(t *testing.T) {
 	r := devRig(t)
 	ctx := context.Background()
-	rec, store, _ := r.s.recorder(r.s.h)
+	rec, _, _ := r.s.recorder(r.s.h)
 	if err := rec.AddOwnerDevice(ctx, mineMAC, "phone", t0); err != nil {
 		t.Fatal(err)
 	}
-	ownAP(t, store, 9, "home", "wpa2", "capable", true)
-	if err := rec.RefreshOwnAPs(ctx); err != nil {
-		t.Fatal(err)
-	}
+	ownAP(t, r, 9, "home", "wpa2", "capable", true)
 	r.now = t0
 	record(t, rec, assocTo(mineMAC, neighbourAP), t0)
 	got, err := r.s.Findings(ctx)

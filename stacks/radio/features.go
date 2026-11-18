@@ -431,12 +431,16 @@ func (s *Store) SetMetaInt(ctx context.Context, key string, v int) error {
 
 // OwnAP is one of the owner's access points as the store keeps it.
 type OwnAP struct {
-	Tag       []byte
-	Sealed    []byte
-	Name      string
-	Confirmed bool
-	Channel   int
-	Security  string
+	Tag    []byte
+	Sealed []byte
+	Name   string
+	// Confirmed says the core's list of the owner's networks confirms it (Recorder.OwnAPs); the store never sets it. ConfirmedBefore says the
+	// owner confirmed it on the Radio page before the lists were one (ADR-0063): it is shown, so the owner can confirm it once on the Network
+	// page, and never counts.
+	Confirmed       bool
+	ConfirmedBefore bool
+	Channel         int
+	Security        string
 	// PMF is whether the access point protects its management frames: off, capable or required ("" until a beacon said).
 	PMF      string
 	FirstDay int64
@@ -445,8 +449,8 @@ type OwnAP struct {
 	Guest bool
 }
 
-// ProposeOwnAP records an access point that broadcasts one of the owner's network names. It stays a proposal until the owner confirms it: anyone
-// can broadcast the same name. A confirmed one is never turned back into a proposal by a later sighting.
+// ProposeOwnAP records an access point that broadcasts one of the owner's network names, for its channel, protection and guest flag. Only the
+// core's list makes it the owner's (ADR-0063): anyone can broadcast the same name. A later sighting never changes what the owner said before.
 func (s *Store) ProposeOwnAP(ctx context.Context, a OwnAP, at time.Time) error {
 	d := dayNumber(at)
 	return s.write(ctx, func() error {
@@ -457,7 +461,7 @@ func (s *Store) ProposeOwnAP(ctx context.Context, a OwnAP, at time.Time) error {
 	})
 }
 
-// OwnAPs lists the owner's access points, confirmed first.
+// OwnAPs lists the access points heard under the owner's names, those confirmed on the Radio page before the lists were one first.
 func (s *Store) OwnAPs(ctx context.Context) ([]OwnAP, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT tag, sealed, name, confirmed, channel, security, pmf, first_day, last_day, guest FROM own_aps ORDER BY confirmed DESC, name, first_day`)
 	if err != nil {
@@ -467,42 +471,12 @@ func (s *Store) OwnAPs(ctx context.Context) ([]OwnAP, error) {
 	var out []OwnAP
 	for rows.Next() {
 		var a OwnAP
-		if err := rows.Scan(&a.Tag, &a.Sealed, &a.Name, &a.Confirmed, &a.Channel, &a.Security, &a.PMF, &a.FirstDay, &a.LastDay, &a.Guest); err != nil {
+		if err := rows.Scan(&a.Tag, &a.Sealed, &a.Name, &a.ConfirmedBefore, &a.Channel, &a.Security, &a.PMF, &a.FirstDay, &a.LastDay, &a.Guest); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
 	}
 	return out, rows.Err()
-}
-
-// SetOwnAPConfirmed confirms (or, with false, withdraws) one access point and says whether there was one.
-func (s *Store) SetOwnAPConfirmed(ctx context.Context, tag []byte, yes bool) (bool, error) {
-	var found bool
-	err := s.write(ctx, func() error {
-		res, err := s.db.ExecContext(ctx, `UPDATE own_aps SET confirmed = ? WHERE tag = ?`, yes, tag)
-		if err != nil {
-			return err
-		}
-		n, _ := res.RowsAffected()
-		found = n > 0
-		return nil
-	})
-	return found, err
-}
-
-// DeleteOwnAP removes an access point the owner says is not theirs.
-func (s *Store) DeleteOwnAP(ctx context.Context, tag []byte) (bool, error) {
-	var found bool
-	err := s.write(ctx, func() error {
-		res, err := s.db.ExecContext(ctx, `DELETE FROM own_aps WHERE tag = ?`, tag)
-		if err != nil {
-			return err
-		}
-		n, _ := res.RowsAffected()
-		found = n > 0
-		return nil
-	})
-	return found, err
 }
 
 // firstChannelOf is the first channel a device has been heard on in the days kept (0 when none), which the distance model needs to pick a band.

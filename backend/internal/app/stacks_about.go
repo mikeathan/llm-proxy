@@ -27,8 +27,8 @@ var moduleAbout = map[string]stack.About{
 		ShowsUp: "As names on the Devices tab.",
 	},
 	"wifi_lookalikes": {
-		Watches:  "The Wi-Fi networks this computer's own NetworkManager can hear, for one that uses your network's name from an access point you have not confirmed.",
-		Never:    "It never scans, connects or sends anything: it reads NetworkManager's list in a sandbox that cannot use the network, and keeps only your own network's name and addresses.",
+		Watches:  "What this computer's Wi-Fi and, when it is on, the Radio stack hear, for one that uses your network's name from an access point you have not confirmed.",
+		Never:    "It never scans, connects or sends anything: it reads NetworkManager's list in a sandbox that cannot use the network and Radio's report of your own names, and keeps only your own network's name and addresses.",
 		ShowsUp:  "As a message and a bell entry at once, and as a finding in the nightly report.",
 		Settings: true,
 	},

@@ -146,18 +146,6 @@ export class RadioService {
     return get<RadioNetworks>(API_ENDPOINTS.radioNetworks)
   }
 
-  static setNetworkNames(names: string[]): Promise<{ names: string[] }> {
-    return put<{ names: string[] }>(API_ENDPOINTS.radioNetworks, { names })
-  }
-
-  static confirmNetwork(id: string): Promise<{ confirmed: boolean }> {
-    return post<{ confirmed: boolean }>(`${API_ENDPOINTS.radioNetworks}/${encodeURIComponent(id)}/confirm`)
-  }
-
-  static dropNetwork(id: string): Promise<void> {
-    return del(`${API_ENDPOINTS.radioNetworks}/${encodeURIComponent(id)}`)
-  }
-
   static removeOwnerDevice(id: string): Promise<void> {
     return del(`${API_ENDPOINTS.radioOwnerDevices}/${encodeURIComponent(id)}`)
   }

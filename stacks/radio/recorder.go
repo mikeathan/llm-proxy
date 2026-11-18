@@ -28,7 +28,7 @@ type Recorder struct {
 	loaded bool
 	epoch  int
 
-	// cmu guards the open cycle, the owner's network names and the tags of the owner's confirmed access points.
+	// cmu guards the open cycle, the core's list of the owner's networks (ownlist.go) and the tags of the owner's confirmed access points.
 	cmu      sync.Mutex
 	cycle    map[string]*agg
 	sighted  map[string]*sighting // what is already written of each sender this cycle, so a repeat frame inside it costs no write
@@ -40,6 +40,9 @@ type Recorder struct {
 	idents   map[string]Identity // this cycle: what each sender's frames said about the product (links.go)
 	knownAPs map[MAC]struct{}    // this run: the access points heard beacon, bounded (links.go)
 	ownAll   map[string]bool     // the owner's confirmed access points, guest ones included (lan.go)
+	// netPort is the core's list of the owner's networks, and ownConfirmed its confirmed access points as this epoch's tags (ownlist.go).
+	netPort      stacksdk.OwnNetworks
+	ownConfirmed map[string]bool
 
 	// lmu guards the LAN join (lan.go).
 	lmu        sync.Mutex
@@ -211,38 +214,30 @@ func (r *Recorder) noteJoin(ctx context.Context, device []byte, owner bool, bssi
 	return nil
 }
 
-// SetOwnNetworks sets the names the owner's own networks go by. A beacon with one of these names proposes an access point; only the owner's
-// confirmation makes it count.
-func (r *Recorder) SetOwnNetworks(names []string) {
-	set := make(map[string]bool, len(names))
-	for _, n := range names {
-		if n != "" {
-			set[n] = true
-		}
-	}
-	r.cmu.Lock()
-	r.ownNames = set
-	r.cmu.Unlock()
-}
-
-// RefreshOwnAPs reloads the tags of the owner's confirmed access points; call it after a confirmation and after the epoch changes.
+// RefreshOwnAPs reloads which access points are the owner's: those the core's list confirms (as last read by SyncOwnNetworks), a guest one
+// apart, because a device on a visitors' network is not the owner's evidence. An access point the list confirms counts even before a beacon of
+// it was heard.
 func (r *Recorder) RefreshOwnAPs(ctx context.Context) error {
 	aps, err := r.store.OwnAPs(ctx)
 	if err != nil {
 		return err
 	}
-	set, all := map[string]bool{}, map[string]bool{}
+	guest := map[string]bool{}
 	for _, a := range aps {
-		if a.Confirmed && !a.Guest {
-			set[string(a.Tag)] = true // a guest network is the owner's, but a device on it is a visitor's
-		}
-		if a.Confirmed {
-			all[string(a.Tag)] = true
+		if a.Guest {
+			guest[string(a.Tag)] = true
 		}
 	}
 	r.cmu.Lock()
+	defer r.cmu.Unlock()
+	set, all := map[string]bool{}, map[string]bool{}
+	for t := range r.ownConfirmed {
+		all[t] = true
+		if !guest[t] {
+			set[t] = true // a guest network is the owner's, but a device on it is a visitor's
+		}
+	}
 	r.ownAPs, r.ownAll = set, all
-	r.cmu.Unlock()
 	return nil
 }
 
@@ -434,7 +429,7 @@ func (r *Recorder) ForgetNeighbours(ctx context.Context) error {
 	r.cmu.Lock()
 	r.sighted = map[string]*sighting{} // every tag of the old epoch is gone
 	r.cmu.Unlock()
-	return r.RefreshOwnAPs(ctx)
+	return r.syncAfterRotation(ctx)
 }
 
 // apNet is what a beacon said about the access point that sent it.

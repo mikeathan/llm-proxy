@@ -38,6 +38,21 @@ describe('WifiCard', () => {
     expect(rows[1]!.text()).toContain('Not confirmed')
   })
 
+  it('marks what Radio heard, and confirms in one press the ones confirmed on the Radio page before', async () => {
+    service.wifi.mockResolvedValue(state({ networks: [{ name: 'home', confirmed: [ROUTER], seen: [
+      { bssid: ROUTER, signal: 55, security: 'wpa2', confirmed: true },
+      { bssid: TWIN, signal: 0, security: 'wpa2', confirmed: false, radio: true, confirmed_before: true },
+    ] }] }))
+    service.confirmWifi.mockResolvedValue(state())
+    const w = await mountIt()
+    const rows = w.findAll('[data-test="wifi-seen"]')
+    expect(rows[1]!.get('[data-test="wifi-seen-radio"]').text()).toBe('Heard by Radio')
+    expect(rows[1]!.get('[data-test="wifi-seen-before"]').text()).toContain('Radio page before')
+    await w.get('[data-test="wifi-confirm-before"]').trigger('click')
+    await flushPromises()
+    expect(service.confirmWifi).toHaveBeenCalledWith('home', [TWIN])
+  })
+
   it('says why the look cannot run and does not offer it', async () => {
     service.wifi.mockResolvedValue(state({ ready: false, why: 'nmcli is not installed' }))
     const w = await mountIt()

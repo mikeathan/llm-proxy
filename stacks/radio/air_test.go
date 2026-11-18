@@ -47,36 +47,25 @@ func TestAirShowsCountsByClassAndTheRulesAndNothingAboutAnyDevice(t *testing.T) 
 	_ = store
 }
 
-func TestOwnNetworkNamesProposeAccessPointsAndTheOwnerConfirmsThem(t *testing.T) {
+func TestTheNetworksViewShowsTheCoresListAndCannotChangeIt(t *testing.T) {
 	r := devRig(t)
-	resp, err := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodPut, Path: NetworksPath, Body: []byte(`{"names":["home"," "]}`)})
-	if err != nil || resp.Status != http.StatusOK {
-		t.Fatalf("%+v %v", resp, err)
-	}
-	if resp, _ := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodPut, Path: NetworksPath, Body: []byte(`{"names":["` + strings.Repeat("x", 40) + `"]}`)}); resp.Status != http.StatusBadRequest {
-		t.Errorf("an SSID is at most 32 bytes: %d", resp.Status)
+	r.nets.set([]string{"home"})
+	if resp, _ := r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodPut, Path: NetworksPath, Body: []byte(`{"names":["x"]}`)}); resp.Status == http.StatusOK {
+		t.Errorf("the names are set on the Network page only: PUT answered %d", resp.Status)
 	}
 	rec, _, _ := r.s.recorder(r.s.h)
+	if err := rec.SyncOwnNetworks(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	record(t, rec, beacon("home"), t0)
 	var v NetworksView
 	get(t, r, NetworksPath, &v)
-	if len(v.AccessPoints) != 1 || v.AccessPoints[0].Confirmed || v.AccessPoints[0].Name != "home" {
+	if len(v.Names) != 1 || v.Names[0] != "home" || len(v.AccessPoints) != 1 || v.AccessPoints[0].Confirmed || v.AccessPoints[0].Name != "home" {
 		t.Fatalf("a beacon with the owner's name proposes an access point: %+v", v)
 	}
-	id := v.AccessPoints[0].ID
-	resp, _ = r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodPost, Path: NetworkConfirmPath, Params: map[string]string{"id": id}})
-	if resp.Status != http.StatusOK {
-		t.Fatalf("%+v", resp)
-	}
+	r.nets.set([]string{"home"}, macAP) // confirmed on the Network page
 	get(t, r, NetworksPath, &v)
-	if !v.AccessPoints[0].Confirmed {
-		t.Errorf("%+v", v)
-	}
-	resp, _ = r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodDelete, Path: NetworkPath, Params: map[string]string{"id": id}})
-	if resp.Status != http.StatusOK {
-		t.Fatalf("%+v", resp)
-	}
-	if resp, _ = r.s.Handle(context.Background(), stacksdk.Request{Method: http.MethodPost, Path: NetworkConfirmPath, Params: map[string]string{"id": "zz"}}); resp.Status != http.StatusNotFound {
-		t.Errorf("%d", resp.Status)
+	if !v.AccessPoints[0].Confirmed || v.AccessPoints[0].ConfirmedBefore {
+		t.Errorf("the view reads the core's list each time: %+v", v)
 	}
 }

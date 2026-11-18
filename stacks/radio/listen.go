@@ -289,9 +289,8 @@ func (s *Stack) startListen(ctx context.Context, h stacksdk.Host, body []byte) (
 		return plainError(http.StatusInternalServerError, "the radio database could not be opened")
 	}
 	s.pruneIfDue(ctx, store, set.TrackHours)
-	rec.SetOwnNetworks(set.OwnNetworks)
 	rec.SetTrackHours(set.TrackHours)
-	if err := rec.RefreshOwnAPs(ctx); err != nil {
+	if err := rec.SyncOwnNetworks(ctx); err != nil {
 		return plainError(http.StatusInternalServerError, "the radio database could not be read")
 	}
 	plan := set.Plan()
@@ -366,6 +365,7 @@ func (s *Stack) listen(ctx context.Context, priv stacksdk.Privileged, rec *Recor
 	failures := 0
 	f := &focuser{s: s, priv: priv, rec: rec, r: r, adapter: adapter, plan: plan, budget: focusBudget{started: s.now()}, off: !r.focus}
 	for {
+		_ = rec.SyncOwnNetworks(ctx) // a confirmation on the Network page counts from the next cycle; a failed read keeps the last list
 		rec.BeginCycle()
 		sweep := make([]WindowSummary, 0, len(plan.Channels))
 		for _, ch := range plan.Channels {

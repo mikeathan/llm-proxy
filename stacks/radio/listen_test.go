@@ -60,6 +60,7 @@ type listenRig struct {
 	step chan struct{}      // the test lets a wait finish
 	h    stacksdk.Host      // the host the stack was started with, so a test can restart it
 	ev   *captureEvents     // what the stack told the operator
+	nets *fakeNetworks      // the core's list of the owner's networks
 }
 
 func newRig(t *testing.T, doc string, next func(int, ListenParams) (stacksdk.PrivilegedResult, error)) *listenRig {
@@ -84,6 +85,8 @@ func newRig(t *testing.T, doc string, next func(int, ListenParams) (stacksdk.Pri
 	_ = json.Unmarshal([]byte(doc), &cfg.doc)
 	h.Config = cfg
 	h.Privileged, h.Vault = r.priv, fakeVault{}
+	r.nets = &fakeNetworks{}
+	h.Networks = r.nets
 	r.ev = &captureEvents{}
 	h.Events = r.ev
 	r.h = h
