@@ -50,12 +50,17 @@ const (
 	WhyAccessPointSometimes Why = "access_point_comes_and_goes"
 	WhyAlwaysVaries         Why = "always_here_signal_varies"
 	WhySmartHomeMaker       Why = "maker_is_smart_home"
+	// Version 3 (2026-11-17, ADR-0058): the learned model decides; these are its own reasons.
+	WhyLearned        Why = "matches_what_was_learned"
+	WhyNoClearPattern Why = "no_clear_pattern"
+	WhyHolding        Why = "holding_until_sure"
 )
 
 // Whys lists every reason the rules can give, so a test can hold the page's table of plain words to it.
 func Whys() []Why {
 	return []Why{WhyNeedsMore, WhyJoinsAlways, WhyJoinsSometimes, WhyAlwaysSteady, WhyBrief, WhyNeverStrong, WhyStrongOnAndOff, WhyNoRuleFits,
-		WhyOwnerSaid, WhyFirstClassified, WhyNotHeardLately, WhyAccessPointAlways, WhyAccessPointSometimes, WhyAlwaysVaries, WhySmartHomeMaker}
+		WhyOwnerSaid, WhyFirstClassified, WhyNotHeardLately, WhyAccessPointAlways, WhyAccessPointSometimes, WhyAlwaysVaries, WhySmartHomeMaker,
+		WhyLearned, WhyNoClearPattern, WhyHolding}
 }
 
 // Rules is one version of the classifier.
@@ -82,11 +87,11 @@ type Rules struct {
 	SmartHomeMakers []string `json:"smart_home_makers"`
 }
 
-// DefaultRules is version 2 (version 1 plus access points, always-here devices whose signal is not steady, and the smart-home makers): provisional
+// DefaultRules is version 3: the thresholds of version 2, now the prior of the learned model (learn.go), which the owner's answers move. Version 2 was version 1 plus access points, always-here devices whose signal is not steady, and the smart-home makers): provisional
 // values chosen to be cautious (Unknown until there is evidence), not measured ones.
 func DefaultRules() Rules {
 	return Rules{
-		Version: 2, Provisional: true, WindowDays: 7,
+		Version: 3, Provisional: true, WindowDays: 7,
 		MinCyclesListened: 12, MinCyclesHeard: 3,
 		AlwaysShare: 0.8, SteadyStd: 5,
 		StrongDBm: -60, WeakDBm: -75,
@@ -106,6 +111,10 @@ type Features struct {
 	// AccessPoint is set when a beacon or probe response from the device announced a Wi-Fi generation (a phone's probe request does not; a phone hotspot does); Maker is who its address block was assigned to.
 	AccessPoint bool
 	Maker       string
+	// NightShare is the share of its days it was heard in the quiet hours; MoveShare the share of the cycles it was heard in whose signal jumped
+	// from the cycle before (movement), so it does not grow with how many cycles run in a day.
+	NightShare float64
+	MoveShare  float64
 }
 
 // FeaturesOf turns a device's rows into features. listened is the cycles the sensor listened through on each day.
@@ -119,12 +128,32 @@ func FeaturesOf(r FeatureRow, listened map[int64]int) Features {
 	if f.CyclesListened > 0 {
 		f.Share = math.Min(1, float64(f.CyclesHeard)/float64(f.CyclesListened))
 	}
+	if w := weightedListened(r, listened); r.WCycles > 0 && w > 0 {
+		f.Share = math.Min(1, r.WCycles/w) // recent days count more (recencyWeight)
+	}
+	if r.Days > 0 {
+		f.NightShare = float64(r.NightDays) / float64(r.Days)
+	}
+	if r.Cycles > 0 {
+		f.MoveShare = math.Min(1, float64(r.Crossings)/float64(r.Cycles))
+	}
 	if r.SigN > 0 && r.HasMax {
 		mean := float64(r.SigSum) / float64(r.SigN)
 		f.SignalMean, f.SignalMax, f.HasSignal = mean, r.SigMax, true
 		f.SignalStd = math.Sqrt(math.Max(0, float64(r.SigSq)/float64(r.SigN)-mean*mean))
 	}
 	return f
+}
+
+// weightedListened is the cycles the sensor listened through since the device's first day, each day weighted like the device's own cycles.
+func weightedListened(r FeatureRow, listened map[int64]int) float64 {
+	w := 0.0
+	for day, n := range listened {
+		if day >= r.FirstDay {
+			w += recencyWeight(r.Today-day) * float64(n)
+		}
+	}
+	return w
 }
 
 // rule is one step of the classifier: it answers when it applies and says nothing otherwise.
@@ -214,9 +243,16 @@ func (s *Store) CurrentRules(ctx context.Context, at time.Time) (Rules, error) {
 	return latest, s.SetMetaInt(ctx, rulesCurrent, latest.Version)
 }
 
-// ClassifyAll runs the rules over every device with rows in the window and records each class that changed, with the reason. A device whose class
-// the owner set is left alone. It returns how many devices changed class.
+// ClassifyAll trains the learned model on every device in the window (learn.go), keeps its summary, and gives each device the class it decides,
+// with its confidence and any change it is waiting to be sure of. A class the owner set is left alone. Every change of class is logged with
+// its reason. It returns how many devices changed class.
 func (s *Store) ClassifyAll(ctx context.Context, now time.Time) (int, error) {
+	return s.ClassifyAllWith(ctx, now, nil)
+}
+
+// ClassifyAllWith is ClassifyAll with the devices the network inventory knows (by tag): a device on the owner's network is evidence like one on
+// the owner's Wi-Fi.
+func (s *Store) ClassifyAllWith(ctx context.Context, now time.Time, lan map[string]LANInfo) (int, error) {
 	rules, err := s.CurrentRules(ctx, now)
 	if err != nil {
 		return 0, err
@@ -225,24 +261,55 @@ func (s *Store) ClassifyAll(ctx context.Context, now time.Time) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	changed := 0
-	for _, r := range rows {
-		if r.Class != "" && r.ClassVer == 0 {
-			continue // the owner's word
-		}
-		if r.Class != "" && r.Cycles == 0 {
-			continue // sorted once and not heard in the window: no new evidence, so no change (a silent week is not "not enough evidence")
-		}
-		cls, why := rules.Classify(FeaturesOf(r, listened))
-		if string(cls) == r.Class && r.ClassVer == rules.Version {
+	markOnLAN(rows, lan)
+	model, vectors := s.trainOn(rules, rows, listened, now)
+	if err := s.PutDoc(ctx, learnedDoc, model, now); err != nil {
+		return 0, err
+	}
+	var out []decided
+	for i, r := range rows {
+		if !decidable(r) {
 			continue
 		}
-		if err := s.SetClass(ctx, r.Tag, r.Owner, r.Class, string(cls), rules.Version, string(why), now); err != nil {
-			return changed, err
-		}
-		if string(cls) != r.Class {
-			changed++
+		if d := decide(rules, model, r, FeaturesOf(r, listened), vectors[i]); changes(r, d, rules.Version) {
+			out = append(out, decided{row: r, d: d})
 		}
 	}
-	return changed, nil
+	return s.SetDecisions(ctx, out, rules.Version, now)
+}
+
+// markOnLAN counts a device the network inventory knows as one on the owner's network.
+func markOnLAN(rows []FeatureRow, lan map[string]LANInfo) {
+	for i := range rows {
+		if _, on := lan[string(rows[i].Tag)]; on {
+			rows[i].JoinedOwn = true
+		}
+	}
+}
+
+// decidable: the owner's word stands, and a device sorted once and not heard in the window has no new evidence.
+func decidable(r FeatureRow) bool {
+	return r.Class == "" || (r.ClassVer != 0 && r.Cycles > 0)
+}
+
+// changes says whether a decision differs from what the row holds.
+func changes(r FeatureRow, d decision, version int) bool {
+	return string(d.class) != r.Class || r.ClassVer != version || d.conf != r.Conf || d.pending != r.Pending || d.pendingN != r.PendingN
+}
+
+// trainOn builds each device's numbers and trains the model on the ones that can teach.
+func (s *Store) trainOn(rules Rules, rows []FeatureRow, listened map[int64]int, now time.Time) (*Model, []vector) {
+	votes := LearnedKinds(rows)
+	offset := signalOffset(rows)
+	vectors := make([]vector, len(rows))
+	var examples []example
+	for i, r := range rows {
+		f := FeaturesOf(r, listened)
+		vectors[i] = vectorOf(rules, f, KindOf(r, votes).Kind, offset)
+		if e, ok := labelOf(rules, r, f); ok {
+			e.v = vectors[i]
+			examples = append(examples, e)
+		}
+	}
+	return Train(rules, examples, now.Unix()), vectors
 }

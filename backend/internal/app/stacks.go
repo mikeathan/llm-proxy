@@ -295,11 +295,11 @@ func radioStack() stacksdk.Stack { return radio.New(nil) }
 
 // newRadioHost hosts the Radio stack over the core's own services, one adapter per port its manifest requires: the settings document (the
 // `radio` key), the service's log, the data folder restricted to the one file the manifest lists (the database), and the vault, which derives
-// a subkey per purpose from the master key so the stack never sees a key. The database is removed by a factory reset, which also replaces the key.
+// a subkey per purpose from the master key so the stack never sees a key, and the network inventory as tags (the LAN port). The database is removed by a factory reset, which also replaces the key.
 //
 // The helper's routes are built after the stacks are, so the stack's Privileged port is a late-bound one (latePrivileged) that routes.go fills when
 // the helper routes exist; until then a request is refused as unavailable.
-func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, notify func(ctx context.Context, message string) error) (*stackHost, error) {
+func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, notify func(ctx context.Context, message string) error, inventory func() (models.DeviceInventory, error)) (*stackHost, error) {
 	st := radioStack()
 	files := st.Manifest().Storage
 	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
@@ -308,13 +308,17 @@ func (s *AppServices) newRadioHost(policy radioPolicy, priv *latePrivileged, not
 	dir := s.AppCtx.RootDir()
 	configDir := s.AppCtx.dataMgr.ConfigDir()
 	keys := stackport.NewKeyCache(func() ([]byte, error) { return storage.GetMasterKey(configDir) })
+	vault := stackport.Vault{Key: keys.Get}
 	h, err := newStackHost(st, stacksdk.Host{
 		Config:     stackport.Config[models.RadioConfig]{Store: policy},
 		Events:     stackalerts.Sink{Words: radiowatch.Words, Notify: notify, OnError: func(err error) { logging.Warn("radio watch", "error", err.Error()) }},
 		Log:        stackport.Log{Stack: st.Manifest().ID},
 		DataDir:    stackport.DataDir{Dir: dir, Files: files},
-		Vault:      stackport.Vault{Key: keys.Get},
+		Vault:      vault,
 		Privileged: priv,
+		// The network inventory as tags under the stack's own purpose: Radio names a device it hears by the name the operator gave it on the network,
+		// and no address crosses (ADR-0058).
+		LAN: stackport.LAN{Vault: vault, Inventory: inventory},
 	})
 	if err != nil {
 		return nil, err

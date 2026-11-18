@@ -177,9 +177,12 @@ const (
 	// own master key (Constitution III.6), so a stack that keeps a record about other people's devices can match a returning one without keeping
 	// what identifies it.
 	PortVault = "vault"
+	// PortLAN tells a stack which devices the core knows on the local network, as tags made under the stack's own vault purpose with the names
+	// the operator gave them: the stack can join what it heard to the network's inventory without an address crossing the port (ADR-0058).
+	PortLAN = "lan"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

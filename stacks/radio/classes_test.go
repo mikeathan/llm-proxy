@@ -86,7 +86,7 @@ func TestACycleCountsADeviceOnceAndTheClassifierFollowsTheEvidence(t *testing.T)
 		t.Fatalf("a class change is logged with its reason: %+v %v", changes, err)
 	}
 	for _, c := range changes {
-		if c.Reason == "" || c.Version != 2 {
+		if c.Reason == "" || c.Version != 3 {
 			t.Errorf("%+v", c)
 		}
 	}
@@ -213,8 +213,8 @@ func TestForgetNeighboursKeepsTheOwnersAccessPointsMatching(t *testing.T) {
 // the owner's own access points sorted as unknown, passing routers sorted as personal, and seven always-here devices with no rule at all.
 func TestVersionTwoSortsAccessPointsAndAlwaysHereDevicesTheWayVertexsAirNeeds(t *testing.T) {
 	r := DefaultRules()
-	if r.Version != 2 || !r.Provisional || len(r.SmartHomeMakers) == 0 {
-		t.Fatalf("version 2 is provisional and carries its maker list: %+v", r)
+	if r.Version != 3 || !r.Provisional || len(r.SmartHomeMakers) == 0 {
+		t.Fatalf("version 3 keeps version 2's thresholds, provisional, with its maker list: %+v", r)
 	}
 	always := Features{CyclesListened: 95, CyclesHeard: 95, Share: 1, Days: 3, HasSignal: true, SignalMean: -64, SignalMax: -50, SignalStd: 8}
 	cases := []struct {
@@ -250,13 +250,13 @@ func with(f Features, change func(*Features)) Features {
 // Rules are data and a version change is published, not applied silently: a database that holds version 1 moves to the version this code carries,
 // every device is looked at again, and each class that CHANGED is logged with the new version and its reason. A device whose class stays the same is
 // moved to the new version with no log line ("personal to personal" would fill the page with noise).
-func TestAStoreOnVersionOneMovesToVersionTwoAndOnlyARealChangeIsLogged(t *testing.T) {
+func TestAStoreOnVersionOneMovesToTheCurrentVersionAndOnlyARealChangeIsLogged(t *testing.T) {
 	s, _ := openTest(t, 0)
 	rec := NewRecorder(fakeVault{}, s)
 	ctx := context.Background()
 	wobbly, steady := MAC{0x02, 0x11, 0x22, 0x33, 0x44, 0x01}, MAC{0x02, 0x11, 0x22, 0x33, 0x44, 0x02}
 	for i := 0; i < 14; i++ { // both are heard in every cycle; one's signal swings, the other's does not
-		cycleOf(t, rec, t0, dataAt(wobbly, -40+20*(i%2)), dataAt(steady, -50))
+		cycleOf(t, rec, t0, dataAt(wobbly, -40+8*(i%2)), dataAt(steady, -50)) // an access point's wobble, not a carried device's swing
 	}
 	// Put the store back as version 1 left it: the wobbly device unknown (no rule fitted it), the steady one infrastructure, no log.
 	v1 := DefaultRules()
@@ -280,17 +280,17 @@ func TestAStoreOnVersionOneMovesToVersionTwoAndOnlyARealChangeIsLogged(t *testin
 	}
 
 	got, err := s.CurrentRules(ctx, t0)
-	if err != nil || got.Version != 2 {
-		t.Fatalf("the rules in force must be this code's version 2: %+v, %v", got, err)
+	if err != nil || got.Version != 3 {
+		t.Fatalf("the rules in force must be this code's version 3: %+v, %v", got, err)
 	}
-	if v, _ := s.MetaInt(ctx, "classifier_current"); v != 2 {
-		t.Errorf("classifier_current = %d, want 2", v)
+	if v, _ := s.MetaInt(ctx, "classifier_current"); v != 3 {
+		t.Errorf("classifier_current = %d, want 3", v)
 	}
 	if changed, err := s.ClassifyAll(ctx, t0); err != nil || changed != 1 {
 		t.Fatalf("exactly one device changes class: %d, %v", changed, err)
 	}
 	log, err := s.RecentClassChanges(ctx, dayNumber(t0)-1, 10)
-	if err != nil || len(log) != 1 || log[0].From != "unknown" || log[0].To != "infrastructure" || log[0].Version != 2 || log[0].Reason != string(WhyAlwaysVaries) {
+	if err != nil || len(log) != 1 || log[0].From != "unknown" || log[0].To != "infrastructure" || log[0].Version != 3 || log[0].Reason != string(WhyAlwaysVaries) {
 		t.Errorf("one logged change, with version 2 and its reason: %+v, %v", log, err)
 	}
 	for name, tag := range map[string][]byte{"wobbly": wt, "steady": st} {
@@ -299,7 +299,7 @@ func TestAStoreOnVersionOneMovesToVersionTwoAndOnlyARealChangeIsLogged(t *testin
 		}
 	}
 	var stale int
-	_ = s.db.QueryRow(`SELECT count(*) FROM devices WHERE owner = 0 AND class_ver != 2`).Scan(&stale)
+	_ = s.db.QueryRow(`SELECT count(*) FROM devices WHERE owner = 0 AND class_ver != 3`).Scan(&stale)
 	if stale != 0 {
 		t.Errorf("%d devices are still on an old rules version", stale)
 	}

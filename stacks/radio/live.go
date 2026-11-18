@@ -91,11 +91,18 @@ func (r *Recorder) absorbCycle(heard map[string]*agg, at time.Time) {
 			r.live[tag] = d
 		}
 		d.missed, d.channel = 0, firstChannel(a.channels)
-		d.trail = append(d.trail, float64(a.sum)/float64(a.n))
+		mean := float64(a.sum) / float64(a.n)
+		a.crossed = jumped(d.trail, mean) // read by FlushCycle, which runs after this
+		d.trail = append(d.trail, mean)
 		if len(d.trail) > liveTrailCycles {
 			d.trail = d.trail[len(d.trail)-liveTrailCycles:]
 		}
 	}
+}
+
+// jumped says whether a cycle's mean signal moved by crossJumpDB or more from the cycle before: movement, not an access point's wobble.
+func jumped(trail []float64, mean float64) bool {
+	return len(trail) > 0 && math.Abs(trail[len(trail)-1]-mean) >= crossJumpDB
 }
 
 // absorbTracks adds the finished cycle to each heard device's track and forgets the tracks that have gone a whole track length without a point.
@@ -136,7 +143,7 @@ func (r *Recorder) LastCycleAt() int64 {
 func (r *Recorder) ClearLive() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.live, r.tracks, r.netNames, r.liveCycle, r.lastCycle = nil, nil, nil, 0, 0
+	r.live, r.tracks, r.netNames, r.knownAPs, r.liveCycle, r.lastCycle = nil, nil, nil, nil, 0, 0
 }
 
 // TrackSnapshot is the device whose short id this is: its points, the cycle count now and whether any is a point at all. It copies; the caller
@@ -212,6 +219,8 @@ type LiveDevice struct {
 	// HeardSince and LastAt are the unix times of the first and the latest finished cycle of this run that heard the device (memory only, like the picture).
 	HeardSince int64 `json:"heard_since,omitempty"`
 	LastAt     int64 `json:"last_at,omitempty"`
+	// Ident is what names the device and why (ident.go): its kind, maker and model, the network it uses, its box, its name on your network.
+	Ident *DeviceIdent `json:"ident,omitempty"`
 }
 
 // LiveView is the answer of LivePath.
@@ -285,13 +294,34 @@ func classWord(c string) string {
 }
 
 func (s *Stack) live(ctx context.Context, h stacksdk.Host, rec *Recorder, store *Store) (stacksdk.Response, error) {
+	v, _, err := s.liveView(ctx, h, rec, store)
+	if err != nil {
+		return plainError(http.StatusInternalServerError, "the air could not be read")
+	}
+	return jsonResponse(http.StatusOK, v)
+}
+
+// liveSet is the live picture with what was read to build it, so the device page and the networks view reuse one reading.
+type liveSet struct {
+	rules    Rules
+	rows     []FeatureRow
+	byTag    map[string]FeatureRow
+	byShort  map[string]FeatureRow // short id to row, for the short ids only one device has
+	listened map[int64]int
+	ident    identCtx
+	trails   map[string][]float64
+}
+
+// liveView builds the radar's answer.
+func (s *Stack) liveView(ctx context.Context, h stacksdk.Host, rec *Recorder, store *Store) (LiveView, liveSet, error) {
 	model := s.distanceModel(ctx, store)
 	st := s.listenState(ctx, s.h)
 	v := LiveView{Listening: st.Listening, Cycles: st.Cycles, Model: model, Devices: []LiveDevice{}, Rings: map[string]int{}, CycleSeconds: s.settings(ctx, h).Plan().CycleSeconds, LastCycleAt: rec.LastCycleAt()}
 	rules, rows, listened, err := s.airRows(ctx, store)
 	if err != nil {
-		return plainError(http.StatusInternalServerError, "the air could not be read")
+		return v, liveSet{}, err
 	}
+	set := newLiveSet(rules, rows, listened, rec.LANIndex(ctx))
 	v.MinListened = rules.MinCyclesListened
 	for _, n := range listened {
 		v.Listened += n
@@ -308,32 +338,71 @@ func (s *Stack) live(ctx context.Context, h stacksdk.Host, rec *Recorder, store 
 	for _, sm := range rec.LiveSnapshot() {
 		dev, ok, err := store.Device(ctx, sm.tag)
 		if err != nil {
-			return plainError(http.StatusInternalServerError, "the air could not be read")
+			return v, set, err
 		}
 		if !ok {
 			continue
 		}
 		now[string(sm.tag)] = true
-		d := dotOf(model, sm.tag, sm.signal, sm.channel)
-		d.Mine, d.Class, d.Trend, d.Heard = dev.Owner, classWord(dev.Class), TrendOf(sm.trail), sm.heard
-		if dev.Owner {
-			d.Label = dev.Label
-		}
-		if b := base[string(sm.tag)]; b.ok {
-			compareToUsual(&d, sm.signal, b)
-		}
-		d.TailM = tailOf(model, sm.trail, sm.channel)
-		d.Network = rec.NetworkName(sm.tag)
-		d.HeardSince, d.LastAt = sm.since, sm.last
+		d := heardDot(model, rec, sm, dev, base[string(sm.tag)])
 		if ad, ok := detail[string(sm.tag)]; ok && !dev.Owner {
 			d.Detail = &ad
 		}
+		set.trails[string(sm.tag)] = sm.trail
+		d.Ident = set.identOf(sm.tag, sm.trail)
 		v.Rings[d.Ring]++
 		v.Devices = append(v.Devices, d)
 	}
 	sort.Slice(v.Devices, func(i, j int) bool { return v.Devices[i].Dbm > v.Devices[j].Dbm })
-	v.Devices = append(v.Devices, usualDots(model, base, detail, now)...)
-	return jsonResponse(http.StatusOK, v)
+	for _, u := range usualDots(model, base, detail, now) {
+		u.Ident = set.identOf(u.tag, nil)
+		v.Devices = append(v.Devices, u.LiveDevice)
+	}
+	return v, set, nil
+}
+
+// heardDot is a device heard in this run, placed on the model.
+func heardDot(model DistanceModel, rec *Recorder, sm liveSample, dev Device, b baseline) LiveDevice {
+	d := dotOf(model, sm.tag, sm.signal, sm.channel)
+	d.Mine, d.Class, d.Trend, d.Heard = dev.Owner, classWord(dev.Class), TrendOf(sm.trail), sm.heard
+	if dev.Owner {
+		d.Label = dev.Label
+	}
+	if b.ok {
+		compareToUsual(&d, sm.signal, b)
+	}
+	d.TailM = tailOf(model, sm.trail, sm.channel)
+	d.Network = rec.NetworkName(sm.tag)
+	d.HeardSince, d.LastAt = sm.since, sm.last
+	return d
+}
+
+// newLiveSet indexes the rows by tag and by short id (a short id two devices share is left out of the second).
+func newLiveSet(rules Rules, rows []FeatureRow, listened map[int64]int, lan map[string]LANInfo) liveSet {
+	markOnLAN(rows, lan) // exactly as ClassifyAllWith does, so the page explains with the evidence the classifier used
+	set := liveSet{rules: rules, rows: rows, byTag: make(map[string]FeatureRow, len(rows)), byShort: map[string]FeatureRow{}, listened: listened, ident: newIdentCtx(rows, lan), trails: map[string][]float64{}}
+	twice := map[string]bool{}
+	for _, r := range rows {
+		set.byTag[string(r.Tag)] = r
+		if _, has := set.byShort[shortID(r.Tag)]; has {
+			twice[shortID(r.Tag)] = true
+		}
+		set.byShort[shortID(r.Tag)] = r
+	}
+	for id := range twice {
+		delete(set.byShort, id)
+	}
+	return set
+}
+
+// identOf is a stored device's identity, nil when it has no row in the window.
+func (set liveSet) identOf(tag []byte, trail []float64) *DeviceIdent {
+	r, ok := set.byTag[string(tag)]
+	if !ok {
+		return nil
+	}
+	id := set.ident.of(r, trail)
+	return &id
 }
 
 // compareToUsual sets how far a device's signal now is from its own baseline, and whether that is unusual for it.
@@ -346,8 +415,14 @@ func compareToUsual(d *LiveDevice, signal float64, b baseline) {
 
 // usualDots draws every device the stored days know that is not being heard now, at its mean signal. Stored data is day-level (ADR-0053), so
 // these dots say where a device usually is, never where it was at some moment.
-func usualDots(model DistanceModel, base map[string]baseline, detail map[string]AirDevice, now map[string]bool) []LiveDevice {
-	var out []LiveDevice
+// usualDot is a dot drawn from the stored days, with the tag it was made from (never sent).
+type usualDot struct {
+	LiveDevice
+	tag []byte
+}
+
+func usualDots(model DistanceModel, base map[string]baseline, detail map[string]AirDevice, now map[string]bool) []usualDot {
+	var out []usualDot
 	for tag, b := range base {
 		if now[tag] || b.row.SigN == 0 || b.row.Cycles == 0 {
 			continue
@@ -360,7 +435,7 @@ func usualDots(model DistanceModel, base map[string]baseline, detail map[string]
 		if ad, ok := detail[tag]; ok {
 			d.Detail = &ad
 		}
-		out = append(out, d)
+		out = append(out, usualDot{LiveDevice: d, tag: b.row.Tag})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Dbm > out[j].Dbm || (out[i].Dbm == out[j].Dbm && out[i].ID < out[j].ID)
@@ -368,22 +443,53 @@ func usualDots(model DistanceModel, base map[string]baseline, detail map[string]
 	return out[:min(len(out), maxUsualDots)]
 }
 
-// calibrate takes the owner's device as standing one metre from the sensor: its signal now is the signal at one metre for its band.
-func (s *Stack) calibrate(ctx context.Context, rec *Recorder, store *Store, id string) (stacksdk.Response, error) {
+// calibrate takes the owner's device as standing a known distance from the sensor (one metre unless the body says {"metres": n}): its signal now
+// gives the signal at one metre for its band. One of the owner's own access points can be used the same way, at the distance the owner measured,
+// so a fixed mesh node calibrates the picture without anyone holding a phone next to the computer.
+func (s *Stack) calibrate(ctx context.Context, rec *Recorder, store *Store, id string, body []byte) (stacksdk.Response, error) {
+	at, bad := calibrationMetres(body)
+	if bad != "" {
+		return plainError(http.StatusBadRequest, bad)
+	}
 	for _, sm := range rec.LiveSnapshot() {
 		if shortID(sm.tag) != id {
 			continue
 		}
-		if dev, ok, err := store.Device(ctx, sm.tag); err != nil || !ok || !dev.Owner {
+		if mine, err := store.CanCalibrate(ctx, sm.tag); err != nil || !mine {
 			break
 		}
-		model := s.distanceModel(ctx, store).WithRef(sm.channel, math.Round(sm.signal))
+		cur := s.distanceModel(ctx, store)
+		model := cur.WithRef(sm.channel, math.Round(refAt(cur, sm.signal, at)))
 		if err := store.PutDoc(ctx, distanceDoc, model, s.now()); err != nil {
 			return plainError(http.StatusInternalServerError, "the calibration could not be kept")
 		}
 		return jsonResponse(http.StatusOK, model)
 	}
-	return plainError(http.StatusNotFound, "only a device of yours that is being heard can be used to calibrate")
+	return plainError(http.StatusNotFound, "only a device or access point of yours that is being heard can be used to calibrate")
+}
+
+const maxCalibrationMetres = 30
+
+// calibrationMetres reads the optional distance; no body is one metre.
+func calibrationMetres(body []byte) (float64, string) {
+	if len(body) == 0 {
+		return 1, ""
+	}
+	var b struct {
+		Metres float64 `json:"metres"`
+	}
+	if err := strictDecode(body, &b); err != nil || (b.Metres != 0 && (b.Metres < 0.5 || b.Metres > maxCalibrationMetres)) {
+		return 0, "give the distance in metres, from 0.5 to 30"
+	}
+	if b.Metres == 0 {
+		return 1, "" // {} is the one-metre calibration the page has always sent
+	}
+	return b.Metres, ""
+}
+
+// refAt is the signal at one metre that makes a reading at d metres fit the model, using the middle of its two exponents.
+func refAt(m DistanceModel, signal, d float64) float64 {
+	return signal + 10*((m.NearExp+m.FarExp)/2)*math.Log10(d)
 }
 
 // TrackPoint is one cycle of a track. At is the unix time of the cycle; Run counts unbroken stretches, so a device that was silent for several

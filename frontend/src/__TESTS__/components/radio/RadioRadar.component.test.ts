@@ -43,6 +43,25 @@ async function show() {
 }
 
 describe('RadioRadar', () => {
+  it('zooms with the buttons and the wheel, and goes back to fitting everything', async () => {
+    const w = await show()
+    const edge = () => Number(w.get('[data-test="radio-radar-svg"]').attributes('data-edge'))
+    const fitted = edge()
+    expect(fitted).toBe(10) // framed on the typical device (median 3.5 m), not the far one at 18 m
+    expect(w.findAll('[data-test="radio-dot"][data-beyond="1"]').map((d) => d.attributes('data-id'))).toEqual(['far1']) // on the rim, faded, and counted
+    expect(w.get('[data-test="radio-beyond"]').text()).toBe('1 beyond the edge')
+    await w.get('[data-test="radio-zoom-in"]').trigger('click')
+    expect(edge()).toBe(5)
+    await w.get('[data-test="radio-radar-svg"]').trigger('wheel', { deltaY: 100 })
+    expect(edge()).toBe(10)
+    await w.get('[data-test="radio-zoom-out"]').trigger('click')
+    expect(edge()).toBe(20)
+    expect(w.find('[data-test="radio-beyond"]').exists()).toBe(false)
+    await w.get('[data-test="radio-zoom-in"]').trigger('click')
+    await w.get('[data-test="radio-zoom-reset"]').trigger('click')
+    expect(edge()).toBe(fitted)
+  })
+
   it('draws one dot per device and labels only the owner’s device, by name', async () => {
     const w = await show()
     expect(w.get('[data-test="radio-radar-summary"]').text()).toBe('3 devices heard now, 1 of them yours')
@@ -61,7 +80,7 @@ describe('RadioRadar', () => {
   it('labels a neighbour only once it is chosen, and offers calibration only for the owner’s device', async () => {
     const w = await show()
     await w.findAll('[data-test="radio-radar-row"]')[1]!.get('button').trigger('click')
-    expect(w.findAll('[data-test="radio-dot-label"]').map((l) => l.text())).toEqual(['close1 · 2–6 m']) // a picked device is drawn alone
+    expect(w.findAll('[data-test="radio-dot-label"]').map((l) => l.text())).toEqual(['Unknown device · 2–6 m']) // a picked device is drawn alone, by a name and never its short id
     expect(w.find('[data-test="radio-calibrate"]').exists()).toBe(false)
     await w.findAll('[data-test="radio-radar-row"]')[0]!.get('button').trigger('click')
     await w.get('[data-test="radio-calibrate"]').trigger('click')
@@ -237,12 +256,13 @@ describe('RadioRadar', () => {
       expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
     })
 
-    it('shows each device by its maker, with the kind, Wi-Fi generation and channel, and says a random address has none', async () => {
+    it('shows each device by its maker, with what it is, Wi-Fi generation and channel, and never titles one by its short id', async () => {
       service.live.mockResolvedValue(crowd())
       const w = await show()
       const titles = w.findAll('[data-test="radio-row-title"]').map((t) => t.text())
-      expect(titles).toEqual(['TP-Link', 'Maker not listed', 'Random address'])
-      expect(w.findAll('[data-test="radio-row-facts"]')[0]!.text()).toBe('Always here · Access point · Wi-Fi 5 · channel 60, 5 GHz')
+      expect(titles).toEqual(['TP-Link', 'Unknown device', 'Device (private address)'])
+      expect(w.findAll('[data-test="radio-row-facts"]')[0]!.text()).toBe('Access point · Wi-Fi 5 · channel 60, 5 GHz')
+      expect(w.findAll('[data-test="radio-row-facts"]')[2]!.text()).toContain('Random address')
     })
 
     it('labels every dot with its range, and draws a line from the centre, only when asked', async () => {
@@ -252,13 +272,18 @@ describe('RadioRadar', () => {
       expect(w.findAll('[data-test="radio-dot-spoke"]')).toHaveLength(0)
       await w.get('[data-test="radio-toggle-range"] input').setValue(true)
       await w.get('[data-test="radio-toggle-spoke"] input').setValue(true)
-      expect(w.findAll('[data-test="radio-dot-label"]')).toHaveLength(3)
+      const labels = w.findAll('[data-test="radio-dot-label"]').length
+      expect(labels).toBeGreaterThan(0) // a label that would overlap one already drawn is left out
+      expect(labels).toBeLessThanOrEqual(3)
       expect(w.findAll('[data-test="radio-dot-spoke"]')).toHaveLength(3)
     })
 
-    it('colours by kind with a provisional note, and goes neutral when switched off', async () => {
+    it('colours by whose a device is, and by its provisional kind with a note when asked', async () => {
       service.live.mockResolvedValue(crowd())
       const w = await show()
+      expect(w.find('[data-test="radio-own-legend"]').exists()).toBe(true)
+      expect(w.find('[data-test="radio-legend"]').exists()).toBe(false)
+      await w.get('[data-test="radio-toggle-colours"] input').setValue(true)
       expect(w.get('[data-test="radio-colours-note"]').text()).toContain('provisional')
       expect(w.find('[data-test="radio-legend"]').exists()).toBe(true)
       await w.get('[data-test="radio-toggle-colours"] input').setValue(false)

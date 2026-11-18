@@ -33,6 +33,19 @@ type AirView struct {
 	// Total is how many devices of other people are known.
 	Total   int           `json:"total"`
 	Changes []ClassChange `json:"changes"`
+	// Learned is what the classifier learned in the last cycle: how many of the owner's answers and evidence cases it trained on, and how many
+	// owner answers it gives back when each is held out. Sums only: no device.
+	Learned *LearnedView `json:"learned,omitempty"`
+}
+
+// LearnedView is the learned classifier as the page shows it.
+type LearnedView struct {
+	OwnerLabels    int   `json:"owner_labels"`
+	EvidenceLabels int   `json:"evidence_labels"`
+	SelfLabels     int   `json:"self_labels"`
+	Agree          int   `json:"agree"`
+	Checked        int   `json:"checked"`
+	TrainedAt      int64 `json:"trained_at"`
 }
 
 // RulesView is the rules in force, as the page shows them.
@@ -51,6 +64,8 @@ type NetworkAP struct {
 	Security  string `json:"security"`
 	Confirmed bool   `json:"confirmed"`
 	LastSeen  string `json:"last_seen"`
+	// Guest is the owner's word that it is a visitors' network (a device on it is no evidence of being the owner's).
+	Guest bool `json:"guest"`
 }
 
 // NetworksView is the answer of NetworksPath.
@@ -81,7 +96,13 @@ func (s *Stack) handleAir(ctx context.Context, req stacksdk.Request) (stacksdk.R
 		http.MethodGet + " " + KeepPath:            func() (stacksdk.Response, error) { return s.keepView(ctx, h, store) },
 		http.MethodPut + " " + KeepPath:            func() (stacksdk.Response, error) { return s.setKeep(ctx, h, rec, store, req.Body) },
 		http.MethodDelete + " " + KeepPath:         func() (stacksdk.Response, error) { return s.dropTracks(ctx, h, store) },
-		http.MethodPost + " " + CalibratePath:      func() (stacksdk.Response, error) { return s.calibrate(ctx, rec, store, id) },
+		http.MethodPost + " " + CalibratePath:      func() (stacksdk.Response, error) { return s.calibrate(ctx, rec, store, id, req.Body) },
+		http.MethodGet + " " + DeviceViewPath:      func() (stacksdk.Response, error) { return s.deviceView(ctx, h, rec, store, id) },
+		http.MethodGet + " " + AroundNetworksPath:  func() (stacksdk.Response, error) { return s.aroundNetworks(ctx, h, rec, store) },
+		http.MethodGet + " " + AskPath:             func() (stacksdk.Response, error) { return s.ask(ctx, h, rec, store) },
+		http.MethodPut + " " + KindPath:            func() (stacksdk.Response, error) { return s.setKind(ctx, store, id, req.Body) },
+		http.MethodPut + " " + ClassPath:           func() (stacksdk.Response, error) { return s.setClass(ctx, store, id, req.Body) },
+		http.MethodPut + " " + GuestPath:           func() (stacksdk.Response, error) { return s.setGuest(ctx, rec, store, id, req.Body) },
 		http.MethodPost + " " + MarkMinePath:       func() (stacksdk.Response, error) { return s.markMine(ctx, rec, store, id, req.Body) },
 		http.MethodGet + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.networks(ctx, h, store) },
 		http.MethodPut + " " + NetworksPath:        func() (stacksdk.Response, error) { return s.setNetworkNames(ctx, h, rec, req.Body) },
@@ -121,6 +142,9 @@ func (s *Stack) air(ctx context.Context, store *Store) (stacksdk.Response, error
 	for _, n := range air {
 		v.Listened += n
 	}
+	if m, ok, err := store.LearnedModel(ctx); err == nil && ok {
+		v.Learned = &LearnedView{OwnerLabels: m.Owner, EvidenceLabels: m.Evidence, SelfLabels: m.Self, Agree: m.Agree, Checked: m.Checked, TrainedAt: m.TrainedAt}
+	}
 	for _, c := range Classes {
 		v.Counts[string(c)] = 0
 	}
@@ -141,7 +165,7 @@ func (s *Stack) networks(ctx context.Context, h stacksdk.Host, store *Store) (st
 	}
 	v := NetworksView{Names: append([]string{}, s.settings(ctx, h).OwnNetworks...), AccessPoints: []NetworkAP{}}
 	for _, a := range aps {
-		v.AccessPoints = append(v.AccessPoints, NetworkAP{ID: hex.EncodeToString(a.Tag), Name: a.Name, Channel: a.Channel, Security: a.Security, Confirmed: a.Confirmed, LastSeen: dayString(a.LastDay)})
+		v.AccessPoints = append(v.AccessPoints, NetworkAP{ID: hex.EncodeToString(a.Tag), Name: a.Name, Channel: a.Channel, Security: a.Security, Confirmed: a.Confirmed, LastSeen: dayString(a.LastDay), Guest: a.Guest})
 	}
 	return jsonResponse(http.StatusOK, v)
 }

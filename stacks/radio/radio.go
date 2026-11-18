@@ -137,9 +137,11 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 			{Method: http.MethodGet, Path: PresencePath}, {Method: http.MethodGet, Path: DigestPath},
 			{Method: http.MethodGet, Path: NetworksPath}, {Method: http.MethodPut, Path: NetworksPath},
 			{Method: http.MethodPost, Path: NetworkConfirmPath}, {Method: http.MethodDelete, Path: NetworkPath},
+			{Method: http.MethodGet, Path: DeviceViewPath}, {Method: http.MethodGet, Path: AroundNetworksPath}, {Method: http.MethodGet, Path: AskPath},
+			{Method: http.MethodPut, Path: KindPath}, {Method: http.MethodPut, Path: ClassPath}, {Method: http.MethodPut, Path: GuestPath},
 		},
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
-		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged},
+		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged, stacksdk.PortLAN},
 		Storage:  []string{DBFile},
 	}
 }
@@ -202,7 +204,8 @@ func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Resp
 		return s.handleDigest(ctx, req)
 	case DevicesPath, DevicePath, ForgetPath, PresencePath:
 		return s.handleDevices(ctx, req)
-	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, MarkMinePath, TrackPath, KeepPath, NetworksPath, NetworkPath, NetworkConfirmPath:
+	case AirPath, AirDevicesPath, AirwavesPath, LivePath, CalibratePath, MarkMinePath, TrackPath, KeepPath, NetworksPath, NetworkPath, NetworkConfirmPath,
+		DeviceViewPath, AroundNetworksPath, AskPath, KindPath, ClassPath, GuestPath:
 		return s.handleAir(ctx, req)
 	}
 	if req.Method != http.MethodGet || req.Path != RoutePath {
@@ -282,11 +285,11 @@ func (s *Stack) listeningAdapter() string {
 
 // wildcardRoutes are the routes of this stack that carry a {id} segment. The core hands Handle the path as it was requested
 // (".../track/9714bc3d"), not the pattern the route was declared with, so dispatch first maps it back to the pattern.
-var wildcardRoutes = []string{DevicePath, CalibratePath, MarkMinePath, TrackPath, NetworkPath, NetworkConfirmPath}
+var wildcardRoutes = []string{DevicePath, CalibratePath, MarkMinePath, TrackPath, NetworkPath, NetworkConfirmPath, DeviceViewPath, KindPath, ClassPath, GuestPath}
 
 // fixedRoutes are the routes a wildcard route would also match ("/devices/mine/presence" against ".../mine/{id}"); like the core's
 // router, a fixed route wins over a wildcard.
-var fixedRoutes = []string{DevicesPath, PresencePath, ForgetPath, AirPath, AirDevicesPath, AirwavesPath, LivePath, KeepPath, NetworksPath}
+var fixedRoutes = []string{DevicesPath, PresencePath, ForgetPath, AirPath, AirDevicesPath, AirwavesPath, LivePath, KeepPath, NetworksPath, AroundNetworksPath, AskPath}
 
 // routePattern returns the declared wildcard route that path matches, or path itself when none does (a fixed route, or an unknown one).
 func routePattern(path string) string {

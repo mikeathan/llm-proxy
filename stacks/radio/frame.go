@@ -105,6 +105,8 @@ type Frame struct {
 	Reason     uint16 // deauthentication and disassociation
 	// PayloadLen is the length of a data frame's body as captured (headers-only capture makes it a lower bound).
 	PayloadLen int
+	// Ident is what the frame's elements say about the product that sent it (identity.go); never a device-chosen name.
+	Ident Identity
 }
 
 // Parse reads one frame that starts with a radiotap header (link type IEEE802_11_RADIO).
@@ -285,6 +287,7 @@ func parseDot11(b []byte, f *Frame) error {
 		f.Kind = KindControl
 		if len(b) >= 16 && sub != 12 && sub != 13 { // CTS and ACK carry only a receiver
 			copy(f.Transmitter[:], b[10:16])
+			f.Transmitter[0] &^= 1 // an RTS that signals its bandwidth sets the group bit of its sender's address; the sender is still one device
 			f.HasTransmitter = true
 		}
 		return nil
@@ -419,6 +422,8 @@ func parseReason(body []byte, sub uint8, f *Frame) error {
 // parseIEs walks the information elements. An element that claims more bytes than remain ends the walk; what was read before it stays.
 func parseIEs(b []byte, privacy bool, f *Frame) {
 	var sec secScan
+	var sig signer
+	signs := f.Kind == KindProbeRequest || f.Kind == KindAssociationRequest
 	sawSSID := false
 	for i := 0; i+2 <= len(b); {
 		id, n := b[i], int(b[i+1])
@@ -427,6 +432,9 @@ func parseIEs(b []byte, privacy bool, f *Frame) {
 		}
 		body := b[i+2 : i+2+n]
 		i += 2 + n
+		if signs {
+			sig.add(id, body)
+		}
 		if id == 0 {
 			if !sawSSID {
 				sawSSID = true
@@ -439,6 +447,7 @@ func parseIEs(b []byte, privacy bool, f *Frame) {
 	if f.Kind == KindBeacon || f.Kind == KindProbeResponse {
 		f.Security = sec.result(privacy)
 	}
+	f.Ident.Signature = sig.sum()
 }
 
 func readIE(id byte, body []byte, f *Frame, sec *secScan) {
@@ -452,6 +461,8 @@ func readIE(id byte, body []byte, f *Frame, sec *secScan) {
 		sec.rsn(body)
 	case id == 221 && isWPAElement(body):
 		sec.wpa = true
+	case id == 221:
+		f.Ident.readVendor(body)
 	default:
 		f.Beacon.Generation = max(f.Beacon.Generation, generationOf(id, body))
 	}

@@ -157,6 +157,9 @@ export const RADIO_REASONS: Record<string, string> = {
   always_here_signal_varies: 'always here, though its signal moves about',
   maker_is_smart_home: 'made by a maker of smart-home modules',
   not_heard_lately: 'sorted before, and not heard in the last few days',
+  matches_what_was_learned: 'it matches what was learned from this house and your answers',
+  no_clear_pattern: 'no clear pattern yet',
+  holding_until_sure: 'it may be changing; kept as it was until the evidence holds',
 }
 export const radioChangeLine = (n: number, from: string, to: string, reason: string): string => {
   const what = `${n} ${n === 1 ? 'device' : 'devices'}`
@@ -391,10 +394,11 @@ export const radioResumeLine = (why: string | undefined, hoursLeft: number, unti
 
 // Radio · Around you: the three views, the toggles, what a device row says about itself, and marking a device as yours.
 export const RADIO_VIEW_LABEL = 'View'
-export const RADIO_VIEW_WORDS: Record<RadioAroundView, string> = { radar: 'Radar', changes: 'What changed', channels: 'By channel' }
-export const RADIO_VIEW_ORDER: RadioAroundView[] = ['radar', 'changes', 'channels']
+export const RADIO_VIEW_WORDS: Record<RadioAroundView, string> = { radar: 'Radar', networks: 'Networks', changes: 'What changed', channels: 'By channel' }
+export const RADIO_VIEW_ORDER: RadioAroundView[] = ['radar', 'networks', 'changes', 'channels']
 export const RADIO_VIEW_HELP: Record<RadioAroundView, string> = {
-  radar: 'The radar and one list. Pick a group or a device to see only those.',
+  radar: 'The radar and one list. Zoom with the buttons, the wheel or two fingers; pick a device to open it.',
+  networks: 'Every router around the house, with the devices that use it. Yours first.',
   changes: 'New devices, devices unlike their usual, and devices that are usually here and not heard now.',
   channels: 'How crowded each channel is. Pick a channel to see only the devices on it.',
 }

@@ -9,15 +9,40 @@ import (
 // place and never rebuilt. Version 0 is a file with the first schema (or none); each step below runs once, inside one transaction.
 //
 //	1 the first schema (devices, beacons, events, meta)
+//	8 ADR-0058: what a device says it is (WPS make, model and type; a vendor hint; a request signature), the network it uses, the box it is part of,
+//	  its kind (what it is) and the classifier's confidence and pending change; the learned model's statistics live in docs. A guest flag on the owner's APs.
 //	7 ADR-0057: what a frame says about a device, kept next to its tag (the maker from its address block, its Wi-Fi generation); never the address, and a network name only in memory
 //	6 ADR-0055: the optional per-cycle signal track (off by default; empty unless the owner turns it on)
 //	5 R4: the strongest signal an access point was heard at (a hidden one close to the house)
 //	4 R4: whether each of the owner's own access points protects its management frames (from its beacon)
 //	3 R5: how often a device retried and the channels it was heard on (per day), and the owner's own presence by hour
 //	2 R3 part 2: day-level aggregates for the classifier, the owner's own access points, stored documents (the probe, the rules) and the class log
-const schemaVersion = 7
+const schemaVersion = 8
 
 var migrations = map[int][]string{
+	8: {
+		`ALTER TABLE devices ADD COLUMN wps_maker TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN model TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN category INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE devices ADD COLUMN hint TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN sig INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE devices ADD COLUMN net BLOB`,
+		`ALTER TABLE devices ADD COLUMN own_cycles INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE devices ADD COLUMN own_ap INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE devices ADD COLUMN box BLOB`,
+		`ALTER TABLE devices ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN kind_by TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN conf INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE devices ADD COLUMN pending TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE devices ADD COLUMN pending_n INTEGER NOT NULL DEFAULT 0`,
+		`CREATE INDEX devices_net ON devices(net)`,
+		`CREATE INDEX devices_box ON devices(box)`,
+		`ALTER TABLE own_aps ADD COLUMN guest INTEGER NOT NULL DEFAULT 0`,
+		// Two day-level facts the classifier weighs (ADR-0058): was it heard in the quiet hours of the night (one bit a day, never the hour), and
+		// how many times its signal crossed a band between one cycle and the next (movement).
+		`ALTER TABLE daily ADD COLUMN night INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE daily ADD COLUMN crossings INTEGER NOT NULL DEFAULT 0`,
+	},
 	7: {
 		`ALTER TABLE devices ADD COLUMN maker TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE devices ADD COLUMN wifi_gen INTEGER NOT NULL DEFAULT 0`,

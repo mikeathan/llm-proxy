@@ -221,6 +221,37 @@ func TestProbe_ATimeLimitEndsTheRunAndSaysSo(t *testing.T) {
 	}
 }
 
+// lateTimer is a context whose deadline has passed but whose timer has not fired yet: Err is still nil. A connection given that deadline
+// fails at once, so a run that waited for Err alone could race through every remaining path and report itself complete (seen under -race
+// in CI). This holds that moment open so the test does not depend on scheduling.
+type lateTimer struct{ context.Context }
+
+func (lateTimer) Deadline() (time.Time, bool) { return time.Now().Add(-time.Millisecond), true }
+
+func TestProbe_APassedDeadlineIsPartialBeforeTheTimerFires(t *testing.T) {
+	srv := httptest.NewServer(device(&recorder{}))
+	defer srv.Close()
+	res, err := prober(allowAll).Probe(lateTimer{context.Background()}, []Target{targetOf(t, srv, false)}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Partial {
+		t.Error("a run whose deadline passed must say it is partial, even before the context reports it")
+	}
+}
+
+func TestProbeTLS_APassedDeadlineIsPartialBeforeTheTimerFires(t *testing.T) {
+	srv := httptest.NewTLSServer(device(&recorder{}))
+	defer srv.Close()
+	res, err := prober(allowAll).ProbeTLS(lateTimer{context.Background()}, []Target{targetOf(t, srv, true)}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Partial {
+		t.Error("a certificate run whose deadline passed must say it is partial, even before the context reports it")
+	}
+}
+
 func TestProbe_ACancelledRunIsAnErrorNotAPartialResult(t *testing.T) {
 	srv := httptest.NewServer(device(&recorder{}))
 	defer srv.Close()

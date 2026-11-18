@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import Panel from "../common/layout/Panel.vue"
 import Callout from "../common/feedback/Callout.vue"
 import RadioAroundStatus from "./RadioAroundStatus.vue"
@@ -7,6 +7,8 @@ import RadioAroundControls from "./RadioAroundControls.vue"
 import RadioViewRadar from "./RadioViewRadar.vue"
 import RadioViewChanges from "./RadioViewChanges.vue"
 import RadioViewChannels from "./RadioViewChannels.vue"
+import RadioViewNetworks from "./RadioViewNetworks.vue"
+import RadioAskCard from "./RadioAskCard.vue"
 import RadioDeviceDetail from "./RadioDeviceDetail.vue"
 import RadioFindMine from "./RadioFindMine.vue"
 import RadioAirwaves from "./RadioAirwaves.vue"
@@ -31,6 +33,7 @@ const view = computed(() => live.view.value)
 const around = useRadioAround(view)
 const now = ref(Math.floor(Date.now() / MS_PER_SECOND))
 const today = computed(() => new Date(now.value * 1000).toISOString().slice(0, 10))
+watch(today, (t) => { around.today.value = t }, { immediate: true })
 const everyone = computed(() => around.everyone.value)
 const heard = computed(() => everyone.value.filter((d) => !d.usual))
 const mineCount = computed(() => heard.value.filter((d) => d.mine).length)
@@ -55,8 +58,10 @@ usePolling(() => { now.value = Math.floor(Date.now() / MS_PER_SECOND) }, MS_PER_
         <p v-if="!everyone.length" class="m-0 text-secondary" data-test="radio-radar-empty">{{ RADIO_RADAR_EMPTY }}</p>
         <template v-else>
           <p class="m-0 text-primary" data-test="radio-radar-summary">{{ radioRadarSummary(heard.length, mineCount) }}<template v-if="unusualCount"><span class="ml-2 text-state-running" data-test="radio-radar-unusual">{{ radioUnusualSummary(unusualCount) }}</span></template></p>
-          <RadioAroundControls :mode="around.mode.value" :range="around.toggles.value.range" :spoke="around.toggles.value.spoke" :colours="around.toggles.value.colours" :usual="around.toggles.value.usual" @update:mode="around.mode.value = $event" @toggle="(k: keyof RadioAroundToggles, on: boolean) => around.setToggle(k, on)" />
+          <RadioAskCard @answered="live.load()" />
+          <RadioAroundControls :mode="around.mode.value" :range="around.toggles.value.range" :spoke="around.toggles.value.spoke" :colours="around.toggles.value.colours" :usual="around.toggles.value.usual" :brief="around.toggles.value.brief" @update:mode="around.mode.value = $event" @toggle="(k: keyof RadioAroundToggles, on: boolean) => around.setToggle(k, on)" />
           <RadioViewRadar v-if="around.mode.value === 'radar'" :around="around" :routers="routers" :now="now" />
+          <RadioViewNetworks v-else-if="around.mode.value === 'networks'" />
           <RadioViewChanges v-else-if="around.mode.value === 'changes'" :around="around" :today="today" :now="now" />
           <RadioViewChannels v-else :around="around" :routers="routers" :now="now" />
           <RadioDeviceDetail v-if="around.chosen.value" :device="around.chosen.value" :listened="view.listened_cycles" :min-listened="view.min_listened_cycles" :busy="live.busy.value" :now="now" @close="around.selected.value = null" @calibrate="live.calibrate" @mark="mark" />

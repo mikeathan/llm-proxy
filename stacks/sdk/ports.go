@@ -27,6 +27,8 @@ type Host struct {
 	SecretScan SecretScan
 	// Vault is the core's keyed tags and sealed values; nil unless the manifest requires PortVault.
 	Vault Vault
+	// LAN is the core's inventory of the local network, as tags; nil unless the manifest requires PortLAN.
+	LAN LAN
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -113,6 +115,24 @@ type Vault interface {
 	Seal(ctx context.Context, purpose string, value []byte) ([]byte, error)
 	// Open returns what Seal sealed for the same purpose.
 	Open(ctx context.Context, purpose string, sealed []byte) ([]byte, error)
+}
+
+// LANDevice is one device the core knows on the local network. Tag is the vault's tag of its hardware address under the purpose the stack asked
+// for, so it equals the tag the stack makes of the same address and nothing else; the address itself never crosses. Name is what the operator
+// called it (shown on screen only: never in a finding, a prompt or a message). Router is set for the gateway and for the addresses next to it
+// (Offset is how far: 0 is the gateway's own), which is where a router's Wi-Fi radios usually sit.
+type LANDevice struct {
+	Tag        []byte
+	Name       string
+	Router     bool
+	Offset     int
+	Randomized bool
+}
+
+// LAN answers which devices the core knows on the local network, as tags under purpose (the same rules as Vault.Tag). The answer is bounded by
+// the inventory, and empty when there is none. Failures are an *Error: CodeInvalid for a bad purpose, CodeUnavailable when the core has no key.
+type LAN interface {
+	Devices(ctx context.Context, purpose string) ([]LANDevice, error)
 }
 
 // StorageUse is how much of its data folder one file of a stack uses and the most it may use. It is counts and a time only, no names of
@@ -512,5 +532,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}}
 }

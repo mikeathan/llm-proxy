@@ -133,8 +133,12 @@ export interface RadioAir {
   listened_cycles: number
   counts: Record<RadioClass, number>
   total: number
-  changes: { day: string; from: string; to: string; version: number; reason: string; n: number }[]
+  changes: RadioClassChange[]
+  learned?: RadioLearned
 }
+
+/** One change of class: on the overview, a count of one kind of change on a day; on a device's page, that device's own change (n is 1). */
+export interface RadioClassChange { day: string; from: string; to: string; version: number; reason: string; n: number }
 
 export interface RadioNetworkAP {
   id: string
@@ -143,6 +147,8 @@ export interface RadioNetworkAP {
   security: string
   confirmed: boolean
   last_seen: string
+  /** A guest network: a device on it is a visitor's, so using it is no evidence of being yours. */
+  guest?: boolean
 }
 
 export interface RadioNetworks {
@@ -258,6 +264,123 @@ export interface RadioLiveDevice {
   /** Unix seconds of the first and latest finished cycle of this run that heard it. */
   heard_since?: number
   last_at?: number
+  /** What names it and why (ADR-0058): worked out when the page asks, never stored. */
+  ident?: RadioIdent
+}
+
+/** What a device is. */
+export type RadioDeviceKind = 'router' | 'phone' | 'computer' | 'tv' | 'speaker' | 'smart_home' | 'camera' | 'wearable' | 'printer' | 'console' | 'unknown'
+
+/** The evidence a kind came from, strongest first. */
+export type RadioKindSource = 'owner_said' | 'announced_type' | 'model_name' | 'learned_from_you' | 'sends_beacons' | 'maker' | 'vendor_element' | 'private_address' | 'no_evidence'
+
+/** What names a device and why: its kind, maker and model, its name on your network, the network and router it belongs to. */
+export interface RadioIdent {
+  kind: RadioDeviceKind
+  kind_confidence: number
+  kind_source: RadioKindSource
+  brand?: string
+  /** The brand is only a vendor element's company: a hint, not proof. */
+  brand_hint?: boolean
+  model?: string
+  /** The name you gave it on the Network page; router_radio says its address sits next to your router's. */
+  lan_name?: string
+  router_radio?: boolean
+  on_your_wifi?: boolean
+  own_cycles?: number
+  your_ap?: boolean
+  net?: string
+  net_yours?: boolean
+  box?: string
+  box_size?: number
+  box_yours?: boolean
+  clients?: number
+  confidence: number
+  family?: number
+  motion?: 'still' | 'moving'
+  /** A guess from the first readings, before the sorting has enough evidence: never a class. */
+  first_look?: 'mobile' | 'neighbour'
+}
+
+/** What the sorting read about a device, in numbers the owner can check. */
+export interface RadioEvidence {
+  share_percent: number
+  days: number
+  night_days: number
+  move_percent: number
+  cycles_heard: number
+  strongest_dbm?: number
+  mean_dbm?: number
+}
+
+/** Whose a device is, by the evidence: yours (your word), likely yours, not yours, or unknown. */
+export type RadioOwnership = 'mine' | 'likely' | 'neighbour' | 'unknown'
+
+/** A device as either a radar dot or a list line: what naming it needs. */
+export type Nameable = Pick<RadioLiveDevice, 'id' | 'mine' | 'label' | 'class' | 'network' | 'ident'> & { detail?: RadioLiveDevice['detail'] }
+
+/** A device as a line in a list. */
+export interface RadioMember {
+  id: string
+  mine: boolean
+  label?: string
+  class: RadioClass
+  heard: boolean
+  dbm: number
+  network?: string
+  channel?: number
+  ident?: RadioIdent
+  reason?: 'likely_yours' | 'close_and_unsure'
+}
+
+/** One number that pushed a class decision. */
+export interface RadioFactor { feature: string; toward: RadioClass }
+
+/** GET /admin/api/radio/air/device/{id}: one device in full. */
+export interface RadioDeviceView {
+  device: RadioLiveDevice
+  chances: Partial<Record<RadioClass, number>>
+  factors: RadioFactor[]
+  uses?: RadioMember
+  radios: RadioMember[]
+  clients: RadioMember[]
+  history: RadioClassChange[]
+  model: RadioLive['model']
+  evidence?: RadioEvidence
+}
+
+/** One router around the house, its radios and the devices that use it. */
+export interface RadioNetworkGroup {
+  id: string
+  yours: boolean
+  names: string[]
+  radios: RadioMember[]
+  clients: RadioMember[]
+  strongest_dbm: number
+  heard: boolean
+}
+
+/** GET /admin/api/radio/air/networks */
+export interface RadioAroundNetworks {
+  groups: RadioNetworkGroup[]
+  unconnected: RadioMember[]
+  total: number
+}
+
+/** What the learned classifier trained on, and how well it agrees with your answers. */
+export interface RadioLearned {
+  owner_labels: number
+  evidence_labels: number
+  self_labels: number
+  agree: number
+  checked: number
+  trained_at: number
+}
+
+/** GET /admin/api/radio/air/ask: the few devices your answer would help most with. */
+export interface RadioAsk {
+  devices: RadioMember[]
+  learned: Partial<RadioLearned>
 }
 
 /** One cycle of a track: `at` is unix seconds; a `run` is an unbroken stretch, so a new run is drawn as a gap. */
@@ -329,10 +452,10 @@ export interface RadioDigest {
 }
 
 /** The three ways the Around you tab can be read; one drop-down switches between them over the same data. */
-export type RadioAroundView = 'radar' | 'changes' | 'channels'
+export type RadioAroundView = 'radar' | 'networks' | 'changes' | 'channels'
 
-/** What the Around you list and radar are narrowed to: everyone, the owner's devices, those unlike their usual, or one kind. */
-export type RadioAroundFilter = 'all' | 'mine' | 'unusual' | RadioClass
+/** What the Around you list and radar are narrowed to: everyone, yours, likely yours (evidence, not your word), routers, new today, those unlike their usual, or one kind. */
+export type RadioAroundFilter = 'all' | 'mine' | 'likely' | 'routers' | 'new' | 'unusual' | RadioClass
 
 /** The device the owner named from the radar. */
 export interface RadioMarkedMine { label: string }
@@ -347,7 +470,7 @@ export interface RadioChange {
 export interface RadioChannelCount { channel: number; devices: number }
 
 /** The radar switches of the Around you tab, remembered per person. */
-export interface RadioAroundToggles { range: boolean; spoke: boolean; colours: boolean; usual: boolean }
+export interface RadioAroundToggles { range: boolean; spoke: boolean; colours: boolean; usual: boolean; brief: boolean }
 
 /** What the Around you views share: the chosen view, the radar switches, the narrowing and the picked device (see composables/radio/useRadioAround). */
 export interface RadioAroundState {
@@ -362,6 +485,8 @@ export interface RadioAroundState {
   shown: ComputedRef<RadioLiveDevice[]>
   /** How many devices the chips and the channel allow that are usually here and not heard now, while the switch keeps them out. */
   usualHidden: ComputedRef<number>
+  /** How many passers-by the "hide passers-by" switch keeps out. */
+  briefHidden: ComputedRef<number>
   chosen: ComputedRef<RadioLiveDevice | null>
   /** What the radar draws: only the picked device while focus is on, otherwise `shown`. */
   drawn: ComputedRef<RadioLiveDevice[]>
@@ -369,6 +494,8 @@ export interface RadioAroundState {
   setToggle: (key: keyof RadioAroundToggles, on: boolean) => void
   setFilter: (next: RadioAroundFilter) => void
   setChannel: (next: number | null) => void
+  /** Today as YYYY-MM-DD, for the "new today" chip. */
+  today: Ref<string>
 }
 
 /** A short tag on a device row: far from its usual (a warning) or how many cycles remain before it can be sorted. `test` is the row's test hook. */

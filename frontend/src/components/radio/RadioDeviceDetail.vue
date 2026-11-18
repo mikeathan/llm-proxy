@@ -12,6 +12,9 @@ import {
   radioUsualLine, radioWaitingLine, radioWaitingPercent, radioWifiWord,
 } from "../../constants/radio"
 import { deviceTitle, heardAgoWord } from "../../utils/radio/describe"
+import { conclusionOf } from "../../utils/radio/identity"
+import { RADIO_DETAIL_OPEN } from "../../constants/radioIdentity"
+import { toRadioDevice } from "../../router/routes"
 import type { RadioLiveDevice } from "../../types/radio"
 
 // Radio · one device, opened from the radar or the list: what it is as far as its frames say (maker, Wi-Fi generation, network name, fixed or random
@@ -40,8 +43,12 @@ function save(): void {
   <div class="flex flex-col gap-3 rounded-[var(--radius-md)] bg-surface-raised px-3 py-3" data-test="radio-radar-chosen">
     <div class="flex items-baseline justify-between gap-3">
       <span class="text-primary">{{ deviceTitle(device) }} <span class="font-mono text-[length:var(--text-small)] text-faint">{{ device.id }}</span>: {{ device.usual ? "usually " : "" }}{{ device.dbm }} dBm on {{ radioChannelBand(device.channel) }}, {{ radioRangeLine(device.near_m, device.far_m) }}<template v-if="!device.usual">, {{ RADIO_TREND_WORDS[device.trend] }}</template>.</span>
-      <button type="button" class="min-h-11 flex-none px-2 text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2" data-test="radio-detail-close" @click="emit('close')">{{ RADIO_DETAIL_CLOSE }}</button>
+      <span class="flex flex-none items-baseline gap-1">
+        <RouterLink :to="toRadioDevice(device.id)" class="inline-flex min-h-11 items-center px-2 text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-8" data-test="radio-detail-open">{{ RADIO_DETAIL_OPEN }}</RouterLink>
+        <button type="button" class="min-h-11 flex-none px-2 text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2" data-test="radio-detail-close" @click="emit('close')">{{ RADIO_DETAIL_CLOSE }}</button>
+      </span>
     </div>
+    <p class="m-0 text-secondary" data-test="radio-detail-conclusion">{{ conclusionOf(device) }}</p>
     <p v-if="!device.mine" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="radio-detail-kind">
       <span class="text-primary">{{ RADIO_CLASS_WORDS[device.class] }}.</span> {{ RADIO_CLASS_HELP[device.class] }}
     </p>

@@ -18,6 +18,7 @@ export const ROUTE_NAMES = {
   network: 'network',
   agents: 'agents',
   radio: 'radio',
+  radioDevice: 'radio-device',
   reminders: 'reminders',
   models: 'models',
   activity: 'activity',
