@@ -31,6 +31,7 @@ const (
 	switchCycles    = 2    // for how many classifications in a row
 	learnedDoc      = "classifier_learned"
 	maxFactors      = 3
+	halfShare       = 0.5 // the share of each of two classes the model cannot tell apart
 )
 
 // The numbers the model reads, in this order.
@@ -409,7 +410,11 @@ func decide(r Rules, m *Model, row FeatureRow, f Features, v vector) decision {
 	if f.CyclesListened < r.MinCyclesListened || f.CyclesHeard < r.MinCyclesHeard {
 		return decision{class: ClassUnknown, why: WhyNeedsMore}
 	}
-	c, p := top(m.Posterior(v))
+	post := m.Posterior(v)
+	if row.Owner {
+		return decideYours(r, post, f)
+	}
+	c, p := top(post)
 	conf := int(math.Round(100 * p))
 	if p < confidenceFloor {
 		c = ClassUnknown
@@ -418,7 +423,6 @@ func decide(r Rules, m *Model, row FeatureRow, f Features, v vector) decision {
 	if cur == "" || cur == ClassUnknown || cur == c {
 		return decision{class: c, why: whyFor(r, c, f), conf: conf}
 	}
-	post := m.Posterior(v)
 	if c == ClassUnknown { // unsure is no reason to drop a class already earned: keep it, with no change pending
 		return decision{class: cur, why: whyFor(r, cur, f), conf: int(math.Round(100 * post[cur]))}
 	}
@@ -430,6 +434,21 @@ func decide(r Rules, m *Model, row FeatureRow, f Features, v vector) decision {
 		return decision{class: c, why: whyFor(r, c, f), conf: conf}
 	}
 	return decision{class: cur, why: WhyHolding, conf: int(math.Round(100 * post[cur])), pending: string(c), pendingN: n}
+}
+
+// decideYours is the class of a device the owner said is theirs: it cannot be a neighbour's or a passer-by, so it is the likelier of always here
+// and comes and goes, at that share of the two. No hysteresis: the owner's word already settled the question it would guard.
+func decideYours(r Rules, post map[Class]float64, f Features) decision {
+	infra, personal := post[ClassInfrastructure], post[ClassPersonal]
+	c, p := ClassInfrastructure, infra
+	if personal > infra {
+		c, p = ClassPersonal, personal
+	}
+	share := halfShare
+	if sum := infra + personal; sum > 0 {
+		share = p / sum
+	}
+	return decision{class: c, why: whyFor(r, c, f), conf: int(math.Round(100 * share))}
 }
 
 // whyFor is the reason word of a learned decision: the rules' own reason when they agree, else "matches what was learned".

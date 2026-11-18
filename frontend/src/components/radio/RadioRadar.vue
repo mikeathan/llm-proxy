@@ -9,7 +9,6 @@ import RadioViewChanges from "./RadioViewChanges.vue"
 import RadioViewChannels from "./RadioViewChannels.vue"
 import RadioViewNetworks from "./RadioViewNetworks.vue"
 import RadioAskCard from "./RadioAskCard.vue"
-import RadioDeviceDetail from "./RadioDeviceDetail.vue"
 import RadioFindMine from "./RadioFindMine.vue"
 import RadioAirwaves from "./RadioAirwaves.vue"
 import RadioReadGuide from "./RadioReadGuide.vue"
@@ -22,8 +21,8 @@ import { RADIO_AROUND_TITLE, RADIO_RADAR_EMPTY, radioRadarSummary, radioUnusualS
 import type { RadioAroundToggles } from "../../types/radio"
 
 // Radio · Around you: one tab, three views of the same picture (radar, what changed, by channel) picked from a drop-down. The picture is the server's
-// live answer (memory while listening, the stored days for devices not heard now). The chips, the channel and the picked device narrow the radar and
-// the list together; a picked device is drawn alone until "show all". A device opens below with what its frames say about it and a way to name it.
+// live answer (memory while listening, the stored days for devices not heard now). The chips and the channel narrow the radar and the list together;
+// a device opens its own page.
 const live = useRadioLive()
 const airwaves = useRadioAirwaves()
 const { advanced } = useNetauditViewMode()
@@ -41,7 +40,7 @@ const unusualCount = computed(() => heard.value.filter((d) => d.unusual).length)
 const routers = computed(() => airwaves.view.value?.routers ?? [])
 
 async function mark(id: string, label: string): Promise<void> {
-  if (await live.markMine(id, label)) around.selected.value = null
+  await live.markMine(id, label)
 }
 
 onMounted(() => { void live.load(); void airwaves.load() })
@@ -64,7 +63,6 @@ usePolling(() => { now.value = Math.floor(Date.now() / MS_PER_SECOND) }, MS_PER_
           <RadioViewNetworks v-else-if="around.mode.value === 'networks'" />
           <RadioViewChanges v-else-if="around.mode.value === 'changes'" :around="around" :today="today" :now="now" />
           <RadioViewChannels v-else :around="around" :routers="routers" :now="now" />
-          <RadioDeviceDetail v-if="around.chosen.value" :device="around.chosen.value" :listened="view.listened_cycles" :min-listened="view.min_listened_cycles" :busy="live.busy.value" :now="now" @close="around.selected.value = null" @calibrate="live.calibrate" @mark="mark" />
           <RadioFindMine :devices="everyone" :busy="live.busy.value" :now="now" @mark="mark" />
           <p v-if="live.error.value" class="m-0 text-state-error" data-test="radio-radar-action-error">{{ live.error.value }}</p>
           <RadioAirwaves v-if="advanced && around.mode.value === 'channels'" />

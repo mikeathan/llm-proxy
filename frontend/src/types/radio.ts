@@ -272,7 +272,7 @@ export interface RadioLiveDevice {
 export type RadioDeviceKind = 'router' | 'phone' | 'computer' | 'tv' | 'speaker' | 'smart_home' | 'camera' | 'wearable' | 'printer' | 'console' | 'unknown'
 
 /** The evidence a kind came from, strongest first. */
-export type RadioKindSource = 'owner_said' | 'announced_type' | 'model_name' | 'learned_from_you' | 'sends_beacons' | 'maker' | 'vendor_element' | 'private_address' | 'no_evidence'
+export type RadioKindSource = 'owner_said' | 'announced_type' | 'model_name' | 'your_name_for_it' | 'learned_from_you' | 'sends_beacons' | 'maker' | 'vendor_element' | 'private_address' | 'no_evidence'
 
 /** What names a device and why: its kind, maker and model, its name on your network, the network and router it belongs to. */
 export interface RadioIdent {
@@ -296,6 +296,8 @@ export interface RadioIdent {
   box_yours?: boolean
   clients?: number
   confidence: number
+  /** The class the sorting now thinks it is and is waiting one more cycle to be sure of; `confidence` is then for the class still held. */
+  pending?: RadioClass
   family?: number
   motion?: 'still' | 'moving'
   /** A guess from the first readings, before the sorting has enough evidence: never a class. */
@@ -347,6 +349,9 @@ export interface RadioDeviceView {
   history: RadioClassChange[]
   model: RadioLive['model']
   evidence?: RadioEvidence
+  /** Cycles the sensor has listened through, and how many sorting needs: what an unsorted device is waiting for. */
+  listened_cycles: number
+  min_listened_cycles: number
 }
 
 /** One router around the house, its radios and the devices that use it. */
@@ -472,14 +477,12 @@ export interface RadioChannelCount { channel: number; devices: number }
 /** The radar switches of the Around you tab, remembered per person. */
 export interface RadioAroundToggles { range: boolean; spoke: boolean; colours: boolean; usual: boolean; brief: boolean }
 
-/** What the Around you views share: the chosen view, the radar switches, the narrowing and the picked device (see composables/radio/useRadioAround). */
+/** What the Around you views share: the chosen view, the radar switches and the narrowing (see composables/radio/useRadioAround). */
 export interface RadioAroundState {
   mode: Ref<RadioAroundView>
   toggles: Ref<RadioAroundToggles>
   filter: Ref<RadioAroundFilter>
   channel: Ref<number | null>
-  selected: Ref<string | null>
-  focused: Ref<boolean>
   everyone: ComputedRef<RadioLiveDevice[]>
   /** Everything the chips, the channel and the "usual" switch allow, closest first. */
   shown: ComputedRef<RadioLiveDevice[]>
@@ -487,10 +490,8 @@ export interface RadioAroundState {
   usualHidden: ComputedRef<number>
   /** How many passers-by the "hide passers-by" switch keeps out. */
   briefHidden: ComputedRef<number>
-  chosen: ComputedRef<RadioLiveDevice | null>
-  /** What the radar draws: only the picked device while focus is on, otherwise `shown`. */
-  drawn: ComputedRef<RadioLiveDevice[]>
-  pick: (id: string) => void
+  /** Opens a device's own page. */
+  open: (id: string) => void
   setToggle: (key: keyof RadioAroundToggles, on: boolean) => void
   setFilter: (next: RadioAroundFilter) => void
   setChannel: (next: number | null) => void

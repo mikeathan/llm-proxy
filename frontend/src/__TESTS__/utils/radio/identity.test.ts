@@ -25,6 +25,13 @@ describe('radio identity', () => {
     expect(conclusionOf(dev({ ident: ident({ your_ap: true }) }))).toBe('Your router')
   })
 
+  it('says a class change it is waiting to be sure of, never the old class at nought per cent', () => {
+    const held = dev({ class: 'infrastructure', ident: ident({ confidence: 0, pending: 'personal' }) })
+    expect(conclusionOf(held)).toBe('Changing to: comes and goes')
+    expect(conclusionOf(dev({ class: 'neighbour', ident: ident({ confidence: 70, pending: 'neighbour' }) }))).toBe('Probably: a neighbour’s device')
+    expect(conclusionOf(dev({ class: 'infrastructure', ident: ident({ on_your_wifi: true, pending: 'personal' }) }))).toBe('Uses your Wi-Fi')
+  })
+
   it('joins brand and model without repeating the brand, and trims company words', () => {
     expect(brandModel(ident({ brand: 'ASUSTek COMPUTER INC.', model: 'RT-AX88U' }))).toBe('ASUSTek RT-AX88U')
     expect(brandModel(ident({ brand: 'Netgear', model: 'Netgear Orbi RBR50' }))).toBe('Netgear Orbi RBR50')

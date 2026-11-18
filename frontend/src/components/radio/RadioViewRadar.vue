@@ -9,8 +9,8 @@ import { RADIO_RADAR_USUAL_SHOW_BRIEF, radioBriefHidden } from "../../constants/
 import { channelCounts } from "../../utils/radio/around"
 import type { RadioAroundState } from "../../types/radio"
 
-// Radio · view "Radar": chips, the radar and the one list side by side, a small channel strip under the chips. The chips, the channel and the picked
-// device narrow the radar and the list together.
+// Radio · view "Radar": chips, the radar and the one list side by side, a small channel strip under the chips. The chips and the channel narrow
+// the radar and the list together; a device opens its own page.
 const props = defineProps<{ around: RadioAroundState; routers: { name: string; channel: number }[]; now: number }>()
 const a = computed(() => props.around)
 const counts = computed(() => channelCounts(a.value.everyone.value))
@@ -28,7 +28,7 @@ const counts = computed(() => channelCounts(a.value.everyone.value))
       <p v-if="a.briefHidden.value" class="m-0 flex flex-wrap items-baseline gap-x-3 text-[length:var(--text-small)] text-muted" data-test="radio-brief-hidden">{{ radioBriefHidden(a.briefHidden.value) }}
         <button type="button" class="min-h-11 text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-8" data-test="radio-brief-show" @click="a.setToggle('brief', false)">{{ RADIO_RADAR_USUAL_SHOW_BRIEF }}</button>
       </p>
-      <RadioDeviceList :devices="a.shown.value" :selected="a.selected.value" :now="now" :usual-hidden="a.usualHidden.value" :usual-on="a.toggles.value.usual" @pick="a.pick" @usual="a.setToggle('usual', $event)" />
+      <RadioDeviceList :devices="a.shown.value" :now="now" :usual-hidden="a.usualHidden.value" :usual-on="a.toggles.value.usual" @open="a.open" @usual="a.setToggle('usual', $event)" />
     </div>
   </div>
 </template>

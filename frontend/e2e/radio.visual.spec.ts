@@ -150,7 +150,7 @@ test('Listening: the scan plan opens to channel chips, and a plan that cannot ru
   await touchTargets(page, testInfo)
 })
 
-test('Around you: the status line, the radar with one list, the device opened below and the channels', async ({ page }, testInfo) => {
+test('Around you: the status line, the radar with one list, and a row that opens the device page', async ({ page }, testInfo) => {
   await setNetauditView(page, 'advanced')
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('radio/around')
@@ -174,35 +174,24 @@ test('Around you: the status line, the radar with one list, the device opened be
   await page.locator('[data-test="radio-usual-toggle"]').click()
   await expect(page.locator('[data-test="radio-radar-row"][data-usual="1"]')).toHaveCount(3)
   await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(8)
-  await page.locator('[data-test="radio-radar-row"]', { hasText: 'a1b2c3d4' }).locator('[data-test="radio-radar-row-button"]').click()
-  await expect(page.locator('[data-test="radio-radar-chosen"]')).toContainText('dBm on channel')
-  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(1) // a picked device is drawn alone
-  await expect(page.locator('[data-test="radio-air-waiting"]')).toContainText('Waiting:')
-  await expect(page.locator('[data-test="radio-track"] svg')).toBeVisible()
-  await expect(page.locator('[data-test="radio-track-line"]')).toHaveCount(2)
   await page.locator('[data-test="radio-guide"] summary').click()
   await expect(page.locator('[data-test="radio-around-provisional"]')).toContainText('first draft')
   await lookAt(page, testInfo, 'around-you', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)
+  await page.locator('[data-test="radio-radar-row-button"]', { hasText: 'SKY UK SR203' }).click() // one tap: straight to the device's page
+  await expect(page).toHaveURL(/radio\/device\/99aa00bb$/)
+  await expect(page.locator('[data-test="radio-device-title"]')).toHaveText('SKY UK SR203')
 })
 
-test('Around you: what a device is (maker, Wi-Fi, network), the switches, naming one, and the other two views', async ({ page }, testInfo) => {
+test('Around you: the switches, finding my device, and the other two views', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: ANSWERS })
   await page.goto('radio/around')
   await expect(page.locator('[data-test="radio-row-title"]', { hasText: 'netsink-2G' })).toBeVisible()
-  await page.locator('[data-test="radio-radar-row-button"]', { hasText: 'netsink-2G' }).click()
-  await expect(page.locator('[data-test="radio-detail-maker"]')).toHaveText('TP-Link')
-  await expect(page.locator('[data-test="radio-detail-network"]')).toHaveText('netsink-2G')
-  await expect(page.locator('[data-test="radio-detail-facts"]')).toContainText('Wi-Fi 5')
-  await expect(page.locator('[data-test="radio-focus-note"]')).toContainText('Showing only netsink-2G')
-  await page.locator('[data-test="radio-focus-all"]').click()
   await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(5)
   await page.locator('[data-test="radio-toggle-range"]').click()
   await page.locator('[data-test="radio-toggle-spoke"]').click()
   await expect(page.locator('[data-test="radio-dot-spoke"]')).toHaveCount(5)
-  await page.locator('[data-test="radio-mark-open"]').click()
-  await expect(page.locator('[data-test="radio-mark-input"]')).toBeVisible()
   await page.locator('[data-test="radio-find-open"]').click()
   await expect(page.locator('[data-test="radio-find-candidate"]')).toHaveCount(3)
   await lookAt(page, testInfo, 'around-you-device', true)

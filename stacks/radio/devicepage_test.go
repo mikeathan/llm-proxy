@@ -68,11 +68,17 @@ func TestTheDevicePageNamesADeviceByItsNetworkAndRouter(t *testing.T) {
 	if id == nil || id.LANName != "Kitchen iPad" || !id.OnYourWiFi || !id.NetYours || !id.LikelyYours() {
 		t.Fatalf("the device's identity: %+v", id)
 	}
+	if id.Kind != DevicePhone || id.KindSource != KindFromName {
+		t.Errorf("an iPad by your name for it: %s from %s", id.Kind, id.KindSource)
+	}
 	if v.Uses == nil || v.Uses.ID != shortOf(macAP) || v.Uses.Network != "home" {
 		t.Errorf("it uses your access point: %+v", v.Uses)
 	}
 	if len(v.Chances) == 0 {
 		t.Errorf("the model's chances should be given")
+	}
+	if v.Listened == 0 || v.MinListened == 0 {
+		t.Errorf("the page needs what sorting waits for: listened %d of %d", v.Listened, v.MinListened)
 	}
 	if v.Device.Mine {
 		t.Error("evidence is shown, never turned into ownership")

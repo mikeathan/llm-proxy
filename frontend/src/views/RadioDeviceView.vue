@@ -11,10 +11,13 @@ import RadioTrack from "../components/radio/RadioTrack.vue"
 import RadioMemberRow from "../components/radio/RadioMemberRow.vue"
 import { useRadioDevice } from "../composables/radio/useRadioDevice"
 import { usePolling } from "../composables/ui/usePolling"
+import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
 import { toRadio } from "../router/routes"
 import {
-  RADIO_CLASS_HELP, RADIO_CLASS_ORDER, RADIO_CLASS_WORDS, RADIO_MARK_BUTTON, RADIO_MARK_LABEL, RADIO_MARK_PLACEHOLDER, RADIO_MARK_SAVE, RADIO_REASONS,
-  RADIO_RING_WORDS, RADIO_TREND_WORDS, radioChannelBand, radioDbmLine, radioRangeLine, radioUsualLine, radioWifiWord,
+  RADIO_CLASS_HELP, RADIO_CLASS_ORDER, RADIO_CLASS_WORDS, RADIO_DETAIL_NETWORK_NOTE, RADIO_DETAIL_SIGNAL, RADIO_DEVICE_COLUMNS, RADIO_MAKER_RANDOM_HELP,
+  RADIO_MARK_BUTTON, RADIO_MARK_LABEL, RADIO_MARK_NOTE, RADIO_MARK_PLACEHOLDER, RADIO_MARK_SAVE, RADIO_REASONS, RADIO_RING_WORDS, RADIO_SIGNAL_HELP,
+  RADIO_SIGNAL_WORDS, RADIO_TREND_WORDS, radioChannelBand, radioChannelsLine, radioDbmLine, radioHeardLine, radioHeardSpan, radioRangeLine,
+  radioRetryWord, radioUsualLine, radioWaitingLine, radioWaitingPercent, radioWifiWord,
 } from "../constants/radio"
 import {
   RADIO_DEVICE_ADDRESS, RADIO_DEVICE_ADDRESS_FIXED, RADIO_DEVICE_ADDRESS_PRIVATE, RADIO_DEVICE_ANSWER, RADIO_DEVICE_BACK, RADIO_DEVICE_CALIBRATE,
@@ -27,6 +30,7 @@ import {
   RADIO_DEVICE_GONE_TITLE, RADIO_DEVICE_FAILED_TITLE, radioDeviceChange, RADIO_DEVICE_EVIDENCE, radioEvidenceLine,
 } from "../constants/radioIdentity"
 import { conclusionOf, defaultLabel, evidenceOf, nameOf, ownershipOf } from "../utils/radio/identity"
+import { heardAgoWord } from "../utils/radio/describe"
 import { edgeToFit } from "../utils/radio/radar"
 import type { RadioDeviceKind } from "../types/radio"
 
@@ -36,7 +40,10 @@ import type { RadioDeviceKind } from "../types/radio"
 const route = useRoute()
 const id = computed(() => String(route.params.id ?? ""))
 const dev = useRadioDevice(id)
+const { advanced } = useNetauditViewMode()
 const REFRESH_MS = 30000
+const MS_PER_SECOND = 1000
+const now = ref(Math.floor(Date.now() / MS_PER_SECOND))
 const v = computed(() => dev.view.value)
 const d = computed(() => v.value?.device ?? null)
 const ident = computed(() => d.value?.ident)
@@ -47,6 +54,7 @@ const evidence = computed(() => (d.value ? evidenceOf(d.value, {
   netOther: RADIO_EVIDENCE_NET_OTHER, none: RADIO_EVIDENCE_NONE, onWiFi: radioOnWiFiCycles,
 }) : []))
 const chances = computed(() => RADIO_CLASS_ORDER.filter((c) => c !== "unknown").map((c) => ({ c, pct: v.value?.chances[c] ?? 0 })))
+const waiting = computed(() => (d.value?.detail?.why === "needs_more_listening" && v.value ? { heard: d.value.detail.cycles_heard, need: d.value.detail.need_heard, listened: v.value.listened_cycles, min: v.value.min_listened_cycles } : null))
 const canCalibrate = computed(() => !!d.value && !d.value.usual && (d.value.mine || !!ident.value?.your_ap))
 const kindOptions = RADIO_KIND_ORDER.map((k) => ({ value: k, label: RADIO_KIND_WORDS[k] }))
 const naming = ref(false)
@@ -60,7 +68,7 @@ async function saveMine(): Promise<void> {
 
 watch(id, () => { dev.view.value = null; void dev.load() })
 onMounted(() => { void dev.load() })
-usePolling(() => { void dev.load() }, REFRESH_MS)
+usePolling(() => { void dev.load(); now.value = Math.floor(Date.now() / MS_PER_SECOND) }, REFRESH_MS)
 </script>
 
 <template>
@@ -84,8 +92,9 @@ usePolling(() => { void dev.load() }, REFRESH_MS)
             <div class="flex flex-col gap-2" data-test="radio-device-where">
               <RadioRadarCanvas :devices="[d]" :selected="d.id" :edge="edge" solo />
               <p class="m-0 text-primary" data-test="radio-device-range">{{ radioRangeLine(d.near_m, d.far_m) }} · {{ RADIO_RING_WORDS[d.ring] }}</p>
-              <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ radioDbmLine(d.dbm) }}<template v-if="d.channel"> · {{ radioChannelBand(d.channel) }}</template><template v-if="!d.usual"> · {{ RADIO_TREND_WORDS[d.trend] }}</template><template v-if="ident?.motion"> · {{ RADIO_MOTION_WORDS[ident.motion] }}</template></p>
+              <p class="m-0 text-[length:var(--text-small)] text-secondary">{{ radioDbmLine(d.dbm) }}<template v-if="d.channel"> · {{ radioChannelBand(d.channel) }}</template><template v-if="!d.usual && d.trend !== 'unknown'"> · {{ RADIO_TREND_WORDS[d.trend] }}</template><template v-if="ident?.motion"> · {{ RADIO_MOTION_WORDS[ident.motion] }}</template></p>
               <p v-if="d.usual_dbm" class="m-0 text-[length:var(--text-small)] text-muted">{{ radioUsualLine(d.usual_dbm, d.dbm) }}</p>
+              <p v-if="d.detail" class="m-0 text-[length:var(--text-small)] text-muted" data-test="radio-device-heard">{{ radioHeardSpan(d.detail.first_seen, heardAgoWord(d, now) || d.detail.last_seen) }}</p>
               <p class="m-0 text-[length:var(--text-small)] text-faint">{{ RADIO_RADAR_SOLO_HELP }}</p>
               <RadioTrack v-if="!d.usual" :id="d.id" />
             </div>
@@ -100,8 +109,14 @@ usePolling(() => { void dev.load() }, REFRESH_MS)
               <template v-if="ident?.brand"><dt class="text-muted">{{ RADIO_DEVICE_MAKER }}</dt><dd class="m-0 text-primary" data-test="radio-device-maker">{{ ident.brand }} <span v-if="ident.brand_hint" class="text-muted">{{ RADIO_HINT_SUFFIX }}</span></dd></template>
               <template v-if="ident?.model"><dt class="text-muted">{{ RADIO_DEVICE_MODEL }}</dt><dd class="m-0 text-primary" data-test="radio-device-model">{{ ident.model }}</dd></template>
               <template v-if="d.detail?.wifi_generation"><dt class="text-muted">{{ RADIO_DEVICE_WIFI }}</dt><dd class="m-0 text-primary">{{ radioWifiWord(d.detail.wifi_generation) }}</dd></template>
-              <template v-if="d.network"><dt class="text-muted">{{ RADIO_DEVICE_NETWORK }}</dt><dd class="m-0 text-primary">{{ d.network }}</dd></template>
-              <template v-if="d.detail"><dt class="text-muted">{{ RADIO_DEVICE_ADDRESS }}</dt><dd class="m-0 text-primary">{{ d.detail.random_address ? RADIO_DEVICE_ADDRESS_PRIVATE : RADIO_DEVICE_ADDRESS_FIXED }}</dd></template>
+              <template v-if="d.network"><dt class="text-muted">{{ RADIO_DEVICE_NETWORK }}</dt><dd class="m-0 text-primary" :title="RADIO_DETAIL_NETWORK_NOTE" data-test="radio-device-network-name">{{ d.network }}</dd></template>
+              <template v-if="d.detail"><dt class="text-muted">{{ RADIO_DEVICE_ADDRESS }}</dt><dd class="m-0 text-primary" data-test="radio-device-address">{{ d.detail.random_address ? RADIO_DEVICE_ADDRESS_PRIVATE : RADIO_DEVICE_ADDRESS_FIXED }}<span v-if="d.detail.random_address" class="block text-muted">{{ RADIO_MAKER_RANDOM_HELP }}</span></dd></template>
+              <template v-if="d.detail"><dt class="text-muted">{{ RADIO_DETAIL_SIGNAL }}</dt><dd class="m-0 text-primary" data-test="radio-device-signal">{{ RADIO_SIGNAL_WORDS[d.detail.signal] }} <span class="text-muted">— {{ RADIO_SIGNAL_HELP[d.detail.signal] }}</span></dd></template>
+            </dl>
+            <dl v-if="advanced && d.detail" class="m-0 mt-2 grid grid-cols-2 gap-x-4 gap-y-0.5 text-[length:var(--text-small)] text-muted sm:grid-cols-3" data-test="radio-device-counts">
+              <div><dt class="inline">{{ RADIO_DEVICE_COLUMNS.heard }}</dt> <dd class="m-0 inline font-mono text-secondary" data-test="radio-device-heard-in">{{ radioHeardLine(d.detail.cycles_heard, v?.listened_cycles ?? 0) }}</dd></div>
+              <div><dt class="inline">{{ RADIO_DEVICE_COLUMNS.retries }}</dt> <dd class="m-0 inline font-mono text-secondary" data-test="radio-device-retries">{{ radioRetryWord(d.detail.retry_percent) }}</dd></div>
+              <div><dt class="inline">{{ RADIO_DEVICE_COLUMNS.channels }}</dt> <dd class="m-0 inline font-mono text-secondary" data-test="radio-device-channels">{{ radioChannelsLine(d.detail.channels) }}</dd></div>
             </dl>
             <p v-if="v?.evidence" class="m-0 mt-2 text-[length:var(--text-small)] text-secondary" data-test="radio-device-evidence-line"><span class="text-muted">{{ RADIO_DEVICE_EVIDENCE }}:</span> {{ radioEvidenceLine(v.evidence) }}</p>
             <p v-if="ident?.family" class="m-0 mt-2 text-[length:var(--text-small)] text-muted" data-test="radio-device-family">{{ RADIO_DEVICE_FAMILY(ident.family) }}</p>
@@ -109,6 +124,12 @@ usePolling(() => { void dev.load() }, REFRESH_MS)
 
           <Panel :title="RADIO_DEVICE_WHOSE">
             <div class="flex flex-col gap-3" data-test="radio-device-whose">
+              <div v-if="waiting" class="flex flex-col gap-1" data-test="radio-device-waiting">
+                <div class="h-1.5 w-full overflow-hidden rounded-full bg-hairline" role="progressbar" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="radioWaitingPercent(waiting.heard, waiting.need, waiting.listened, waiting.min)">
+                  <div class="h-full bg-accent-brand" :style="{ width: radioWaitingPercent(waiting.heard, waiting.need, waiting.listened, waiting.min) + '%' }" />
+                </div>
+                <span class="text-[length:var(--text-small)] text-muted">{{ radioWaitingLine(waiting.heard, waiting.need, waiting.listened, waiting.min) }}</span>
+              </div>
               <ul class="m-0 flex list-disc flex-col gap-0.5 pl-5 text-[length:var(--text-small)] text-secondary" data-test="radio-device-evidence"><li v-for="e in evidence" :key="e">{{ e }}</li></ul>
               <div v-if="!d.mine" class="flex flex-col gap-1">
                 <p class="m-0 text-[length:var(--text-small)] text-secondary"><span class="text-primary">{{ RADIO_CLASS_WORDS[d.class] }}</span> — {{ RADIO_CLASS_HELP[d.class] }}<template v-if="d.detail"> ({{ RADIO_REASONS[d.detail.why] ?? d.detail.why }})</template></p>
@@ -145,6 +166,7 @@ usePolling(() => { void dev.load() }, REFRESH_MS)
                   <input v-model="label" type="text" maxlength="60" :placeholder="RADIO_MARK_PLACEHOLDER" class="h-8 w-64 max-w-full rounded-[var(--radius-md)] border border-control bg-canvas px-2.5 text-primary focus-visible:outline-none focus-visible:ring-2 max-sm:h-11" data-test="radio-device-mine-input" />
                 </label>
                 <BaseButton type="submit" variant="primary" class-name="max-sm:!h-11" :disabled="dev.busy.value" data-test="radio-device-mine-save">{{ RADIO_MARK_SAVE }}</BaseButton>
+                <p class="m-0 w-full text-[length:var(--text-small)] text-muted" data-test="radio-device-mine-note">{{ RADIO_MARK_NOTE }}</p>
               </form>
               <label class="flex flex-wrap items-center gap-2 text-[length:var(--text-small)] text-secondary">{{ RADIO_DEVICE_KIND_LABEL }}
                 <SelectInput :model-value="ident?.kind ?? 'unknown'" :options="kindOptions" :label="RADIO_DEVICE_KIND_LABEL" class="max-sm:!h-11" data-test="radio-device-kind-select" @update:model-value="dev.setKind($event as RadioDeviceKind)" />

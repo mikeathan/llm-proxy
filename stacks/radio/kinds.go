@@ -1,7 +1,9 @@
 package radio
 
 import (
+	"slices"
 	"strings"
+	"unicode"
 )
 
 // What a device is (ADR-0058): a router, a phone, a TV. Separate from its class (how it behaves around the house): a router can be the house's own
@@ -10,6 +12,8 @@ import (
 //  1. the owner's word;
 //  2. the WPS device type the device announced;
 //  3. its model name;
+//  3b. the owner's own name for it on the Network page, read with the same words as a model name (shown only, never stored or trained on:
+//      the name stays off the disk, Constitution I.16);
 //  4. what the owner said about other devices of the same maker (learned: label spreading, ADR-0058);
 //  5. sending beacons (an access point);
 //  6. the maker of its address block, when that maker makes one kind of thing;
@@ -47,6 +51,7 @@ const (
 	KindFromOwner   KindSource = "owner_said"
 	KindFromWPSType KindSource = "announced_type"
 	KindFromModel   KindSource = "model_name"
+	KindFromName    KindSource = "your_name_for_it"
 	KindFromLearned KindSource = "learned_from_you"
 	KindFromBeacons KindSource = "sends_beacons"
 	KindFromMaker   KindSource = "maker"
@@ -60,7 +65,7 @@ const (
 
 // KindSources lists every source, so a test can hold the page's words to it.
 func KindSources() []KindSource {
-	return []KindSource{KindFromOwner, KindFromWPSType, KindFromModel, KindFromLearned, KindFromBeacons, KindFromMaker, KindFromHint, KindFromPrivate, KindFromNothing}
+	return []KindSource{KindFromOwner, KindFromWPSType, KindFromModel, KindFromName, KindFromLearned, KindFromBeacons, KindFromMaker, KindFromHint, KindFromPrivate, KindFromNothing}
 }
 
 // KindInput is what is known about a device that bears on its kind.
@@ -73,6 +78,8 @@ type KindInput struct {
 	Model       string
 	Category    int
 	Hint        string
+	// Name is the owner's name for it in the network inventory, when it has one and is not a router's radio. Held in memory only.
+	Name string
 	// Learned is what the owner said about other devices of each maker: maker (lower case) to kind to how many.
 	Learned map[string]map[DeviceKind]int
 }
@@ -98,6 +105,10 @@ var kindLadder = []kindStep{
 	func(in KindInput) (KindGuess, bool) {
 		k, ok := lexicon(modelWords, in.Model)
 		return KindGuess{k, 80, KindFromModel}, ok
+	},
+	func(in KindInput) (KindGuess, bool) {
+		k, ok := wordLexicon(modelWords, in.Name)
+		return KindGuess{k, 75, KindFromName}, ok
 	},
 	learnedKind,
 	func(in KindInput) (KindGuess, bool) {
@@ -161,6 +172,32 @@ func makerKey(in KindInput) string {
 	return strings.ToLower(in.WPSMaker)
 }
 
+// wordLexicon is lexicon over whole words, for a name a person chose ("Google-Nest-Mini", "Cameron-iPhone"): the name and each part are split
+// on anything that is not a letter or a digit, and a part matches only as a run of whole words, so "Cameron" is no camera and "Ernest" no Nest.
+func wordLexicon(words []kindWord, text string) (DeviceKind, bool) {
+	name := wordsOf(text)
+	for _, w := range words {
+		if part := wordsOf(w.part); len(part) > 0 && containsRun(name, part) {
+			return w.kind, true
+		}
+	}
+	return "", false
+}
+
+func wordsOf(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+}
+
+// containsRun says whether part appears in words as consecutive whole words.
+func containsRun(words, part []string) bool {
+	for i := 0; i+len(part) <= len(words); i++ {
+		if slices.Equal(words[i:i+len(part)], part) {
+			return true
+		}
+	}
+	return false
+}
+
 // lexicon finds the first word of a list in the text (lower case).
 func lexicon(words []kindWord, text string) (DeviceKind, bool) {
 	t := strings.ToLower(text)
@@ -192,12 +229,14 @@ var hintKinds = map[string]DeviceKind{"Apple": DevicePhone}
 // modelWords are parts of a model name, most specific first.
 var modelWords = []kindWord{
 	{"chromecast", DeviceTV}, {"fire tv", DeviceTV}, {"firetv", DeviceTV}, {"roku", DeviceTV}, {"apple tv", DeviceTV}, {"bravia", DeviceTV}, {"smart tv", DeviceTV},
+	{"nest mini", DeviceSpeaker}, {"nest audio", DeviceSpeaker}, {"home mini", DeviceSpeaker}, {"speaker", DeviceSpeaker},
 	{"sky q", DeviceTV}, {"now tv", DeviceTV}, {"stick", DeviceTV}, {" tv", DeviceTV}, {"echo", DeviceSpeaker}, {"sonos", DeviceSpeaker}, {"homepod", DeviceSpeaker},
 	{"nest", DeviceSmartHome}, {"hue", DeviceSmartHome}, {"plug", DeviceSmartHome}, {"bulb", DeviceSmartHome}, {"thermostat", DeviceSmartHome},
 	{"doorbell", DeviceCamera}, {"cam", DeviceCamera}, {"printer", DevicePrinter}, {"laserjet", DevicePrinter}, {"deskjet", DevicePrinter}, {"officejet", DevicePrinter},
 	{"envy", DevicePrinter}, {"pixma", DevicePrinter}, {"xbox", DeviceConsole}, {"playstation", DeviceConsole}, {"switch", DeviceConsole},
 	{"iphone", DevicePhone}, {"galaxy", DevicePhone}, {"pixel", DevicePhone}, {"ipad", DevicePhone}, {"watch", DeviceWearable},
-	{"macbook", DeviceComputer}, {"laptop", DeviceComputer}, {"windows", DeviceComputer},
+	{"macbook", DeviceComputer}, {"laptop", DeviceComputer}, {"windows", DeviceComputer}, {"imac", DeviceComputer}, {"mac mini", DeviceComputer},
+	{"desktop", DeviceComputer}, {"mac", DeviceComputer},
 	{"hub", DeviceRouter}, {"router", DeviceRouter}, {"extender", DeviceRouter}, {"repeater", DeviceRouter}, {"mesh", DeviceRouter}, {"booster", DeviceRouter},
 	{"archer", DeviceRouter}, {"deco", DeviceRouter}, {"orbi", DeviceRouter}, {"rt-", DeviceRouter}, {"fritz", DeviceRouter}, {"eero", DeviceRouter},
 }
@@ -256,9 +295,14 @@ func LearnedKinds(rows []FeatureRow) map[string]map[DeviceKind]int {
 
 // KindOf is a device's kind from its row. Its own answer is never counted as learned evidence for itself: the owner's word is rung 1.
 func KindOf(r FeatureRow, learned map[string]map[DeviceKind]int) KindGuess {
+	return GuessKind(kindInputOf(r, learned))
+}
+
+// kindInputOf is what a device's row says about its kind.
+func kindInputOf(r FeatureRow, learned map[string]map[DeviceKind]int) KindInput {
 	in := KindInput{AccessPoint: r.WifiGen > 0, Random: r.Random, Maker: r.Maker, WPSMaker: r.WPSMaker, Model: r.Model, Category: r.Category, Hint: r.Hint, Learned: learned}
 	if r.KindBy == kindByOwner {
 		in.OwnerKind = DeviceKind(r.Kind)
 	}
-	return GuessKind(in)
+	return in
 }

@@ -33,7 +33,7 @@ const headline = computed(() => {
           {{ radioChannelFilterLine(a.channel.value) }}
           <button type="button" class="min-h-11 text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-8" data-test="radio-channel-clear" @click="a.setChannel(a.channel.value)">{{ RADIO_CHANNEL_ALL }}</button>
         </p>
-        <RadioDeviceList :devices="a.shown.value" :selected="a.selected.value" :now="now" :usual-hidden="a.usualHidden.value" :usual-on="a.toggles.value.usual" @pick="a.pick" @usual="a.setToggle('usual', $event)" />
+        <RadioDeviceList :devices="a.shown.value" :now="now" :usual-hidden="a.usualHidden.value" :usual-on="a.toggles.value.usual" @open="a.open" @usual="a.setToggle('usual', $event)" />
       </div>
     </div>
   </div>
