@@ -144,6 +144,19 @@ func TestAHiddenNetworkHeardWeakIsNotNear(t *testing.T) {
 	}
 }
 
+// Beacons stored before the parser dropped "no reading" chains can hold a max of 0 dBm: that is not a strong hidden network.
+func TestAHiddenNetworkWithAStoredZeroMaxIsNotNear(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	record(t, rec, beacon("", rsnWPA2), t0)
+	if _, err := store.db.Exec(`UPDATE beacons SET sig_max = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := findingOf(digestOf(t, r), "radio_hidden_ap_near"); ok {
+		t.Error("a stored 0 dBm is no reading, not a strong signal")
+	}
+}
+
 func TestAWindowSummaryCountsTheOwnersFrames(t *testing.T) {
 	s, _ := openTest(t, 0)
 	rec := NewRecorder(fakeVault{}, s)

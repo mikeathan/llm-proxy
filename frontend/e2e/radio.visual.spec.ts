@@ -164,7 +164,11 @@ test('Around you: the status line, the radar with one list, and a row that opens
   await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(5) // the three usually here and the passer-by stay out until asked for
   await expect(page.locator('[data-test="radio-brief-hidden"]')).toContainText('1 passer-by hidden')
   await expect(page.locator('[data-test="radio-dot-label"]')).toHaveText('my phone · 1.4–3.2 m')
-  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(8) // with Routers, now that one device says it is one
+  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(7) // what a device is (router, phone…) is the kind drop-down, not a chip
+  await expect(page.locator('[data-test="radio-kind-pick"] select')).toBeVisible()
+  await page.locator('[data-test="radio-kind-pick"] select').selectOption('router')
+  await expect(page.locator('[data-test="radio-radar-row"]')).toHaveCount(1) // the SKY router, the one device that says it is one
+  await page.locator('[data-test="radio-kind-pick"] select').selectOption('any')
   await expect(page.locator('[data-test="radio-ask-row"]')).toHaveCount(1)
   await expect(page.locator('[data-test="radio-row-title"]', { hasText: 'SKY UK SR203' })).toBeVisible() // named by make and model, never by its short id
   await expect(page.locator('[data-test="radio-row-title"]').first()).toBeVisible()
@@ -182,6 +186,23 @@ test('Around you: the status line, the radar with one list, and a row that opens
   await page.locator('[data-test="radio-radar-row-button"]', { hasText: 'SKY UK SR203' }).click() // one tap: straight to the device's page
   await expect(page).toHaveURL(/radio\/device\/99aa00bb$/)
   await expect(page.locator('[data-test="radio-device-title"]')).toHaveText('SKY UK SR203')
+})
+
+// The owner's phone screenshot (2026-11-18): a one-word name beside a reading with a trend, "moving now" and a router box squeezed the name to one
+// letter a line. On a phone the reading goes under the name, so the name keeps the row's width.
+test('Around you: on a phone a long one-word name keeps its width beside a full reading', async ({ page }, testInfo) => {
+  const long = { id: '374a25da', mine: true, label: 'Gaoshengda', class: 'infrastructure', dbm: -21, near_m: 1, far_m: 1, ring: 'room', angle: 81, trend: 'closer', moving: true, channel: 60, heard: true,
+    router: { box: 'ec58a5dd', box_name: 'ZenWiFi_XD4-28F0', band: '5G', dbm: -79, at: 1 }, last_at: Math.floor(Date.now() / 1000) - 240, tail_m: [1, 1, 1, 1],
+    ident: { kind: 'computer', kind_confidence: 100, kind_source: 'this_computer', confidence: 100, this_computer: 'wlp2s0' } }
+  await mockAdminApi(page, { answers: { ...ANSWERS, '/radio/air/live': { ...LIVE, devices: [long, ...LIVE.devices] } } })
+  await page.goto('radio/around')
+  const title = page.locator('[data-test="radio-row-title"]', { hasText: 'Gaoshengda' })
+  await expect(title).toBeVisible()
+  const box = await title.boundingBox()
+  expect(box?.width).toBeGreaterThan(60) // one letter a line was about 12 px wide
+  expect(box?.height).toBeLessThan(40) // one line, not ten
+  await lookAt(page.locator('[data-test="radio-row"]', { has: title }), testInfo, 'around-you-long-row')
+  await expectNoSidewaysScroll(page)
 })
 
 test('Around you: the switches, finding my device, and the other two views', async ({ page }, testInfo) => {

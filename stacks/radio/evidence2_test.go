@@ -118,3 +118,22 @@ func TestAnAccessPointYouStopConfirmingLosesItsMark(t *testing.T) {
 		t.Error("withdrawn, the mark goes at the next cycle it is heard")
 	}
 }
+
+// Days stored before the parser dropped "no reading" chains hold 0 dBm readings: a stored mean of 0 dBm or more is no signal, so the radar never
+// draws such a device beside the computer and the rules never call it strong.
+func TestStoredZeroSignalIsNoSignal(t *testing.T) {
+	r := FeatureRow{FirstDay: dayNumber(t0), Days: 1, Cycles: 1, SigN: 4, SigSum: 0, SigSq: 0, SigMax: 0, HasMax: true, Today: dayNumber(t0)}
+	if f := FeaturesOf(r, map[int64]int{dayNumber(t0): 10}); f.HasSignal {
+		t.Errorf("a stored mean of 0 dBm is no signal, got %+v", f)
+	}
+	r.SigSum, r.SigSq, r.SigMax = -200, 10000, -50
+	if f := FeaturesOf(r, map[int64]int{dayNumber(t0): 10}); !f.HasSignal || f.SignalMean != -50 {
+		t.Errorf("a real mean is kept, got %+v", f)
+	}
+	// Mostly real readings with one "no reading" frame: the day's max is 0, so the strongest is not known and would make the device "strong"
+	// (25 such devices on vertex, 2026-11-18). No signal evidence until those days age out.
+	r.SigN, r.SigSum, r.SigMax = 5, -200, 0
+	if f := FeaturesOf(r, map[int64]int{dayNumber(t0): 10}); f.HasSignal {
+		t.Errorf("a stored max of 0 dBm is no signal, got %+v", f)
+	}
+}

@@ -12,7 +12,8 @@ import (
 // This file is the program the privileged helper runs for the radio_listen action (Constitution I.16). By the time it starts, the helper has put
 // one USB adapter in monitor mode on one channel; the program only reads: it opens a packet socket on the adapter, keeps the first bytes of
 // each frame (wire.RadioSnapFor: 512 for a beacon, 64 for any other frame) and writes them as records. It sends nothing, parses no frame beyond
-// the two bytes that tell a beacon, and stops at the window or the frame cap. Anyone in range controls these bytes, so the unprivileged service
+// the two bytes that tell a beacon and, of a control frame, its sender (wire.RadioThinner, ADR-0060: receiver-only control frames are skipped
+// and a sender's repeats thinned before the cap counts them), and stops at the window or the frame cap. Anyone in range controls these bytes, so the unprivileged service
 // reads them with its own strict parser.
 
 // RadioCommand is the argument that makes the helper binary run this program instead of serving a connection.
@@ -34,6 +35,7 @@ func RunRadio(src Source, w io.Writer, cfg RadioConfig) error {
 	start := cfg.Now()
 	deadline := start.Add(time.Duration(cfg.Seconds) * time.Second)
 	var frames uint32
+	thin := wire.NewRadioThinner()
 	stop := wire.StopWindow
 	for {
 		if int(frames) >= cfg.MaxFrames {
@@ -48,7 +50,7 @@ func RunRadio(src Source, w io.Writer, cfg RadioConfig) error {
 			stop = wire.StopSocketError
 			break
 		}
-		if frame == nil {
+		if frame == nil || !thin.Keep(frame) {
 			continue
 		}
 		offset := uint32(cfg.Now().Sub(start) / time.Millisecond)
@@ -58,7 +60,7 @@ func RunRadio(src Source, w io.Writer, cfg RadioConfig) error {
 		frames++
 	}
 	seen, dropped := src.Stats()
-	return writeRadioTrailer(w, wire.RadioTrailer{Stop: stop, Frames: frames, KernelSeen: seen, KernelDropped: dropped, ElapsedMs: uint32(cfg.Now().Sub(start) / time.Millisecond)})
+	return writeRadioTrailer(w, wire.RadioTrailer{Stop: stop, Frames: frames, KernelSeen: seen, KernelDropped: dropped, ElapsedMs: uint32(cfg.Now().Sub(start) / time.Millisecond), Skipped: thin.Skipped})
 }
 
 // FailRadio writes a trailer for a window that could not start (no interface, the interface is down, no packet socket).

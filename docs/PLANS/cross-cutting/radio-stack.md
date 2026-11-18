@@ -151,3 +151,9 @@ Ask first (AGENTS.md): the `modernc.org/sqlite` dependency in the stack's `go.mo
 ## Remaining work
 
 R2 onward as §9 (I.16 and the parser are done): the helper actions `radio_probe` / `radio_listen`, the parser with fuzzing, the SQLite store with caps and retention. R2 needs **a pcap from vertex** (capture with tcpdump on a monitor interface; keep it out of the repo, derive a small synthetic fixture).
+
+**Carried from the v0.99.0 handoff (harvested 2026-11-18, after v0.99.0 was merged as #265 and checked on vertex: `374a25da` reads `this_computer: "wlp2s0"`):**
+owner-side: rename the "Phone or tablet" devices and "Apple"; compare the phone's heard share with 29% (`GET /admin/api/radio/air/track/4ded1379`);
+answer the Help it learn card for a few days, then read "gives back N of M". Needs a shell on vertex: the helper's CPU cost of focus windows
+(`ps -o pid,time,rss,comm` over an hour, with and without focus). Needs evidence: whether the two Roku records (`33fb3ee8`, `70f44fb0`) are one box.
+Owner to choose: the next phase (`docs/audits/2026-11-18-radio-continuous-monitoring.md` §3, §4a; the audit recommends ESPHome Bluetooth proxies).

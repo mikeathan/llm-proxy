@@ -108,6 +108,7 @@ export const radioCycleLine = (cycles: number, heard: number, of: number): strin
     ? `${cycles} ${cycles === 1 ? 'cycle' : 'cycles'} done. ${cycles === 0 ? 'The first one is starting.' : 'Waiting for the next one.'}`
     : `Cycle ${cycles + 1} in progress: ${heard} of ${of} channels heard.${cycles ? ` ${cycles} ${cycles === 1 ? 'cycle' : 'cycles'} done.` : ''}`
 export const RADIO_WINDOW_CUT = 'Stopped at the 4,000-frame limit: a busy channel, so counts here are a floor.'
+export const RADIO_WINDOW_SKIPPED_HELP = 'Short control frames that name no device, and a device’s repeats past its first few, are left out so the window listens its full length.'
 export const RADIO_WINDOW_CUT_BADGE = 'Busy channel'
 export const RADIO_WINDOW_MISSED = 'missed by the adapter'
 export const RADIO_START_NEEDS = 'You will be asked for your passphrase once.' 
@@ -146,6 +147,13 @@ export const radioHoursLine = (heard: number, listened: number, day: number): st
   if (listened === 0) return `Not listened to in the last ${day} hours`
   if (heard === 0) return listened === day ? `Not heard in the last ${day} hours` : `Not heard in the ${listened} hours listened today`
   return listened === day ? `Heard in ${heard} of the last ${day} hours` : `Heard in ${heard} of the ${listened} hours listened today`
+}
+export const radioStretchSpan = (from: string, to: string): string => `${from}–${to}`
+export const radioStretchSince = (from: string): string => `since ${from}`
+/** The count sentence, then when it was heard: "…: 07:00–09:00, 13:00–14:00 and since 18:00 (2 earlier)". */
+export const radioHeardWhen = (count: string, parts: string[], earlier: number): string => {
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] ?? ''
+  return `${count}: ${list}${earlier > 0 ? ` (${earlier} earlier)` : ''}`
 }
 export const RADIO_DEVICE_ADDRESS = 'Address (like 3a:91:5c:d2:7e:44)'
 export const RADIO_DEVICE_LABEL = 'Name'
@@ -239,6 +247,8 @@ export const RADIO_CLASS_BY_RULES = 'decided by the rules'
 export const radioBand = (channel: number): string => (channel <= 14 ? '2.4 GHz' : '5 GHz')
 export const radioChannelWord = (channel: number): string => `Channel ${channel}`
 export const radioWindowOwn = (n: number): string => `${n} from your devices`
+/** The helper's thinner (ADR-0060): repeated control frames left out so the frame limit holds frames that name a device. */
+export const radioWindowSkipped = (n: number): string => `${n.toLocaleString()} repeats left out`
 export const radioWindowFrames = (n: number): string => `${n.toLocaleString()} ${n === 1 ? 'frame' : 'frames'}`
 export const radioWindowsHint = (cycleSeconds: number, windowSeconds: number): string => `One window of ${windowSeconds} seconds on each channel in turn, a new cycle every ${Math.round(cycleSeconds / 60)} minutes.`
 export const RADIO_WINDOWS_EMPTY = 'No window has finished yet. The first one takes about 20 seconds.'
@@ -290,14 +300,10 @@ export const radioAirClassLine = (devices: number, frames: number, percent: numb
 export const radioAirFramesLine = (devices: number, frames: number): string => `${devices} ${devices === 1 ? 'device' : 'devices'}, ${frames.toLocaleString()} frames`
 export const RADIO_AIR_CAP_NOTE = 'On a busy channel a window stops at 4,000 frames, so counts there are a floor.'
 
-// Radio · My devices: where each device is, hour by hour.
-export const RADIO_PRESENCE_TITLE = 'Where your devices are'
-export const RADIO_HOUR_WORDS: Record<RadioHourState, string> = { here: 'here', away: 'not heard', not_listening: 'not listening' }
+// Radio · My devices: whether each device is here.
 export const RADIO_NOW_WORDS: Record<RadioHourState, string> = { here: 'Here now', away: 'Not heard lately', not_listening: 'Not listening, so not known' }
 export const radioLastHeardLine = (when: string): string => `Last heard ${when}`
 export const RADIO_NEVER_HEARD = 'Never heard yet'
-export const radioHourTitle = (when: string, state: RadioHourState, signal?: RadioSignal): string =>
-  `${when}: ${RADIO_HOUR_WORDS[state]}${state === 'here' && signal && signal !== 'unknown' ? `, ${RADIO_SIGNAL_WORDS[signal].toLowerCase()} signal` : ''}`
 
 // Detail level (the same Simple and Advanced as the Network screens).
 export const RADIO_DETAIL_LABEL = 'How much detail'
@@ -370,8 +376,6 @@ export const RADIO_RADAR_USUAL_ROW = 'usually here'
 export const radioShiftWord = (shift: number, usual: number): string =>
   shift > 0 ? `${shift} dB stronger than its usual ${usual} dBm: closer than usual` : `${-shift} dB weaker than its usual ${usual} dBm: farther than usual`
 export const radioUnusualSummary = (n: number): string => `${n} ${n === 1 ? 'is' : 'are'} unlike ${n === 1 ? 'its' : 'their'} usual.`
-export const RADIO_PRESENCE_NOW = 'now'
-export const radioPresenceAgo = (hours: number): string => `${hours} hours ago`
 
 export const RADIO_TRACK_TITLE = 'Distance over time'
 export const RADIO_TRACK_FAILED = 'The track could not be read.'
@@ -429,7 +433,7 @@ export const radioListMore = (n: number): string => `Show ${n} more`
 export const RADIO_LIST_LESS = 'Show fewer'
 export const RADIO_GUIDE_TITLE = 'How to read this'
 export const RADIO_GUIDE_DIRECTION = 'Which way a device lies is not measured with one adapter, so a dot keeps a steady place on its ring. Only how far is estimated, as a range, from how strong its signal is.'
-export const RADIO_GUIDE_MOTION = 'A dot moves once a cycle, when the sensor has been round every channel. A shorter cycle in the scan plan gives more frequent movement.'
+export const RADIO_GUIDE_MOTION = 'A dot moves only when the sensor hears the device again: once a cycle, and more often for your own devices between cycles. A phone with its screen off can stay quiet for 10 minutes or more, so its dot stays where it was last heard, faded, and its row says when that was. Moving it a step or two within a room changes its signal less than the signal wobbles, so the dot may not move at all.'
 export const RADIO_LISTEN_MANUAL = 'A run lasts the length the scan plan sets, up to 7 days, then ends by itself. Nothing starts a run on its own. A restart of the service ends one that is going, and this page then offers to resume it, which asks for your passphrase again.'
 export const RADIO_RESUME_TITLE = 'Listening stopped before its time'
 export const RADIO_RESUME_BUTTON = 'Resume listening'
@@ -491,6 +495,11 @@ export const RADIO_FIND_STEPS = 'Hold your device next to the computer and make 
 export const RADIO_FIND_NONE = 'Nothing is being heard strongly yet.'
 export const RADIO_FIND_CLOSE = 'Close'
 export const RADIO_FIND_CANDIDATE = 'Strongest now'
+export const radioFindLead = (db: number | null, clear: boolean): string =>
+  db === null ? 'Only one device is heard strongly: if it is not yours, make yours send and wait for the next reading.'
+    : clear ? `The strongest is ${db} dB ahead of the next: very likely the one next to the computer.`
+      : `The strongest is only ${db} dB ahead of the next, about as much as a signal wobbles. Make your device send again and wait for the next reading before you name one.`
+export const RADIO_FIND_OPEN_HINT = 'Tap a name to see its page: what it is, whose it probably is and why.'
 
 // What changed.
 export const RADIO_AROUND_CHANGES_TITLE = 'What changed'

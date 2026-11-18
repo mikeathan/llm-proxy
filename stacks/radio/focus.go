@@ -42,7 +42,7 @@ func FocusIngest(ctx context.Context, rec *Recorder, raw []byte, asked WindowAsk
 		return WindowSummary{}, err
 	}
 	sum := WindowSummary{Channel: asked.Channel, Frames: len(w.Records), Stop: w.Trailer.Stop.String(), KernelSeen: w.Trailer.KernelSeen,
-		KernelDropped: w.Trailer.KernelDropped, ElapsedMs: w.Trailer.ElapsedMs, At: start}
+		KernelDropped: w.Trailer.KernelDropped, ElapsedMs: w.Trailer.ElapsedMs, Skipped: w.Trailer.Skipped, At: start}
 	heard := map[string]*agg{}
 	for _, r := range w.Records {
 		f, perr := Parse(r.Frame)

@@ -247,6 +247,30 @@ func TestParseMultipleAntennas(t *testing.T) {
 	}
 }
 
+// A field of 0 dBm is taken as an antenna chain with no reading (an assumption: no capture shows which chain). Vertex's rtw88_8822bu sensor
+// gave 0 dBm on 2026-11-18, and seven devices were drawn beside the computer at "0 dBm". A received signal is never 0 dBm or more, so such a
+// field is no reading: the other antenna's is kept, and a frame with only that field has no signal.
+func TestParseZeroSignalIsNoReading(t *testing.T) {
+	frameWith := func(a, b byte) []byte {
+		h := []byte{
+			0, 0, 0, 0,
+			0x20, 0x08, 0x00, 0xa0,
+			0x20, 0x08, 0x00, 0x00,
+			a, 0,
+			b, 1,
+		}
+		binary.LittleEndian.PutUint16(h[2:], uint16(len(h)))
+		frame := append(h, hdr(0x80, 0, macBroad, macAP, macAP)...)
+		return append(frame, make([]byte, 12)...)
+	}
+	if f, err := Parse(frameWith(0x00, 0xc4)); err != nil || !f.SignalOK || f.Signal != -60 {
+		t.Errorf("a 0 dBm chain beside a -60 dBm one: want -60, got %+v %v", f, err)
+	}
+	if f, err := Parse(frameWith(0x00, 0x05)); err != nil || f.SignalOK {
+		t.Errorf("0 and +5 dBm are no reading: want no signal, got %+v %v", f, err)
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	f.Add(beacon("home", rsnWPA2))
 	f.Add(beacon("x", rsnWPA3))

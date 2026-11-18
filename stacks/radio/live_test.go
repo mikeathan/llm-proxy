@@ -221,6 +221,24 @@ func TestTheStoredDaysDrawWhatIsUsuallyHereButNotHeardNow(t *testing.T) {
 	}
 }
 
+// Days stored before the parser dropped "no reading" chains hold 0 dBm: such a device is not drawn at all, never beside the computer.
+func TestAStoredZeroSignalIsNotDrawnBesideTheComputer(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	other := MAC{0xb8, 0x27, 0xeb, 7, 7, 7}
+	for i := 0; i < 3; i++ {
+		cycleOf(t, rec, r.now, dataAt(neighbour, -60), dataAt(other, -75))
+	}
+	if _, err := store.db.Exec(`UPDATE daily SET sig_sum = 0, sig_sq = 0, sig_max = 0 WHERE sig_sum = -225`); err != nil {
+		t.Fatal(err)
+	}
+	rec.ClearLive()
+	v := liveOf(t, r)
+	if len(v.Devices) != 1 || v.Devices[0].Dbm != -60 {
+		t.Errorf("only the device with a real signal is drawn: %+v", v.Devices)
+	}
+}
+
 func TestADeviceMuchCloserThanItsOwnUsualIsFlagged(t *testing.T) {
 	r := devRig(t)
 	rec, _, _ := r.s.recorder(r.s.h)

@@ -3,6 +3,7 @@ import { computed } from "vue"
 import RadioAroundRadar from "./RadioAroundRadar.vue"
 import RadioDeviceList from "./RadioDeviceList.vue"
 import RadioChannelBars from "./RadioChannelBars.vue"
+import RadioKindPick from "./RadioKindPick.vue"
 import {
   RADIO_CHANNELS_HEAD, RADIO_CHANNELS_TITLE, RADIO_CHANNEL_ALL, radioChannelCrowd, radioChannelFilterLine,
 } from "../../constants/radio"
@@ -10,7 +11,8 @@ import { channelCounts } from "../../utils/radio/around"
 import type { RadioAroundState } from "../../types/radio"
 
 // Radio · view "By channel": how crowded each channel is, your own network marked on its channel, and the radar and list narrowed to the channel you
-// pick. The headline answers "is my Wi-Fi on a crowded channel?".
+// pick. The headline answers "is my Wi-Fi on a crowded channel?". The kind drop-down is here too: the kind is shared with the radar view, so it is
+// always shown where it narrows the list.
 const props = defineProps<{ around: RadioAroundState; routers: { name: string; channel: number }[]; now: number }>()
 const a = computed(() => props.around)
 const counts = computed(() => channelCounts(a.value.everyone.value))
@@ -33,6 +35,7 @@ const headline = computed(() => {
           {{ radioChannelFilterLine(a.channel.value) }}
           <button type="button" class="min-h-11 text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-8" data-test="radio-channel-clear" @click="a.setChannel(a.channel.value)">{{ RADIO_CHANNEL_ALL }}</button>
         </p>
+        <RadioKindPick :kinds="a.kinds.value" :model-value="a.kind.value" @update:model-value="a.setKind" />
         <RadioDeviceList :devices="a.shown.value" :now="now" :usual-hidden="a.usualHidden.value" :usual-on="a.toggles.value.usual" @open="a.open" @usual="a.setToggle('usual', $event)" />
       </div>
     </div>

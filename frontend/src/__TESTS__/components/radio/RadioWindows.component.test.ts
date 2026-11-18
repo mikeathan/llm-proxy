@@ -36,6 +36,13 @@ describe('RadioWindows', () => {
     expect(own[0]!.text()).toBe('7 from your devices')
   })
 
+  it('says how many repeated control frames were left out so the window could run its full length', () => {
+    const w = mount(RadioWindows, { props: { windows: [win(60, 1800, { skipped: 21500 }), win(1, 10)] } })
+    const skipped = w.findAll('[data-test="radio-window-skipped"]')
+    expect(skipped).toHaveLength(1)
+    expect(skipped[0]!.text()).toBe('21,500 repeats left out')
+  })
+
   it('says what a silent window means instead of showing nothing', () => {
     const w = mount(RadioWindows, { props: { windows: [win(36, 0, { stop: 'window', channel_matched: false })] } })
     expect(w.get('[data-test="radio-window"]').text()).toContain('0 frames')

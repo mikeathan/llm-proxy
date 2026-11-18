@@ -137,8 +137,9 @@ func FeaturesOf(r FeatureRow, listened map[int64]int) Features {
 	if r.Cycles > 0 {
 		f.MoveShare = math.Min(1, float64(r.Crossings)/float64(r.Cycles))
 	}
-	if r.SigN > 0 && r.HasMax {
-		mean := float64(r.SigSum) / float64(r.SigN)
+	// A stored max of 0 dBm or more means a day holds a "no reading" chain stored before the parser dropped them (maxReceivedDBm): the strongest
+	// is not known and the mean leans strong, so the days give no signal evidence until they age out of the window.
+	if mean := float64(r.SigSum) / float64(max(r.SigN, 1)); r.SigN > 0 && r.HasMax && r.SigMax <= maxReceivedDBm {
 		f.SignalMean, f.SignalMax, f.HasSignal = mean, r.SigMax, true
 		f.SignalStd = math.Sqrt(math.Max(0, float64(r.SigSq)/float64(r.SigN)-mean*mean))
 	}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { byCloseness, changesOf, channelCounts, countFor, matchesFilter, narrow, strongestNow } from '../../../utils/radio/around'
+import { byCloseness, changesOf, channelCounts, countFor, findLead, kindCounts, matchesFilter, matchesKind, narrow, strongestNow } from '../../../utils/radio/around'
 import type { RadioLiveDevice } from '../../../types/radio'
 
 const dev = (over: Partial<RadioLiveDevice>): RadioLiveDevice => ({
@@ -34,6 +34,23 @@ describe('around filters', () => {
     expect(narrow(wide, { filter: 'all', channel: null, showUsual: false }).map((d) => d.id)).toEqual(['a', 'b'])
   })
 
+  it('narrows by kind too, on top of the chip: a router is also an access point of yours, and a device with no kind yet is "not known"', () => {
+    const ident = (kind: NonNullable<RadioLiveDevice['ident']>['kind'], over = {}) => ({ kind, kind_confidence: 80, kind_source: 'model_name' as const, confidence: 80, ...over })
+    const kinds = [
+      dev({ id: 'r', ident: ident('router') }),
+      dev({ id: 'ap', ident: ident('unknown', { your_ap: true }) }),
+      dev({ id: 'p', mine: true, class: 'personal', ident: ident('phone') }),
+      dev({ id: 's', ident: ident('speaker') }),
+      dev({ id: 'q' }),
+    ]
+    expect(kinds.filter((d) => matchesKind(d, 'router')).map((d) => d.id)).toEqual(['r', 'ap'])
+    expect(kinds.filter((d) => matchesKind(d, 'unknown')).map((d) => d.id)).toEqual(['q'])
+    expect(kinds.filter((d) => matchesKind(d, 'any'))).toHaveLength(5)
+    expect(narrow(kinds, { filter: 'mine', kind: 'phone', channel: null, showUsual: false }).map((d) => d.id)).toEqual(['p'])
+    expect(narrow(kinds, { filter: 'mine', kind: 'speaker', channel: null, showUsual: false })).toEqual([])
+    expect(kindCounts(kinds)).toEqual([{ kind: 'router', count: 2 }, { kind: 'phone', count: 1 }, { kind: 'speaker', count: 1 }, { kind: 'unknown', count: 1 }])
+  })
+
   it('puts the owner’s devices first, then the closest', () => {
     const sorted = byCloseness([dev({ id: 'far', near_m: 10, far_m: 40 }), dev({ id: 'mine', mine: true, near_m: 30, far_m: 60 }), dev({ id: 'near', near_m: 1, far_m: 3 })])
     expect(sorted.map((d) => d.id)).toEqual(['mine', 'near', 'far'])
@@ -63,5 +80,17 @@ describe('channels and the find-my-device shortlist', () => {
   it('offers the three strongest devices heard now that are not already the owner’s', () => {
     const out = strongestNow([dev({ id: 'a', dbm: -80 }), dev({ id: 'b', dbm: -40 }), dev({ id: 'm', mine: true, dbm: -30 }), dev({ id: 'c', dbm: -50 }), dev({ id: 'd', dbm: -60 }), dev({ id: 'u', dbm: -20, usual: true })])
     expect(out.map((d) => d.id)).toEqual(['b', 'c', 'd'])
+  })
+
+  it('never offers this computer’s own Wi-Fi card: it is always the strongest and never the device in your hand', () => {
+    const own = dev({ id: 'h', dbm: -20, ident: { kind: 'computer', kind_confidence: 100, kind_source: 'this_computer', confidence: 100, this_computer: 'wlp2s0' } })
+    expect(strongestNow([own, dev({ id: 'b', dbm: -45 })]).map((d) => d.id)).toEqual(['b'])
+  })
+
+  it('says how far the strongest is ahead of the next, and whether that is clear', () => {
+    expect(findLead([dev({ dbm: -35 }), dev({ dbm: -52 })])).toEqual({ db: 17, clear: true })
+    expect(findLead([dev({ dbm: -45 }), dev({ dbm: -50 })])).toEqual({ db: 5, clear: false })
+    expect(findLead([dev({ dbm: -45 })])).toEqual({ db: null, clear: true })
+    expect(findLead([])).toBeNull()
   })
 })

@@ -3,7 +3,6 @@ import { computed } from "vue"
 import Icon from "../icons/Icon.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
-import RadioPresenceStrip from "./RadioPresenceStrip.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { hoursLine } from "../../utils/radio/myDevices"
 import type { MyDeviceRow } from "../../types/radio"
@@ -15,8 +14,9 @@ import {
 } from "../../constants/radio"
 
 // Radio · My devices: one of your devices as a row that opens its page. Simple says what you need at a glance: the name, home or not, when it
-// was last heard, the router box it is on and whether it is moving, and the last day as one sentence. Advanced adds the signal, the class and
-// the hour squares, and the Remove button (beside the link, never inside it).
+// was last heard, the router box it is on and whether it is moving, and the last day as one sentence with its clock times. Advanced adds the
+// signal and the class, and the Remove button (beside the link, never inside it). The hour squares were dropped (2026-11-18): the owner read
+// them as gaps and could not tell what they meant.
 const props = defineProps<{ row: MyDeviceRow; advanced: boolean; busy: boolean }>()
 const emit = defineEmits<{ (e: "remove", row: MyDeviceRow): void }>()
 const NOW_STATE = { here: "running", away: "neutral", not_listening: "queued" } as const
@@ -55,6 +55,5 @@ const details = computed(() => {
       </RouterLink>
       <BaseButton v-if="advanced" variant="secondary" class-name="flex-none max-sm:!h-11" :disabled="busy" data-test="radio-my-device-remove" @click="emit('remove', row)">{{ RADIO_DEVICE_REMOVE }}</BaseButton>
     </div>
-    <RadioPresenceStrip v-if="advanced && row.presence" :device="row.presence" class="pl-11" />
   </li>
 </template>

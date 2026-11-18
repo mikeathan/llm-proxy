@@ -98,7 +98,11 @@ export const RADIO_OWNERSHIP_WORDS: Record<RadioOwnership, string> = { mine: 'Yo
 
 // The extra filter chips.
 export const RADIO_FILTER_LIKELY = 'Likely yours'
-export const RADIO_FILTER_ROUTERS = 'Routers'
+export const RADIO_KIND_PICK_LABEL = 'Kind'
+export const RADIO_KIND_ANY = 'Any kind'
+/** The kind drop-down's word for a device with no kind yet ("Device" reads as a kind of its own). */
+export const RADIO_KIND_NOT_KNOWN = 'Not known yet'
+export const radioKindOption = (word: string, n: number): string => `${word} (${n})`
 export const RADIO_FILTER_NEW = 'New today'
 export const RADIO_FILTER_HIDE_BRIEF = 'Hide passers-by'
 
@@ -174,10 +178,6 @@ export const radioZoomLine = (m: number): string => `Edge: ${m} m`
 export const RADIO_RADAR_BEYOND = 'beyond the edge'
 export const RADIO_RADAR_SOLO_HELP = 'Only its distance is measured, not which way: it could be anywhere on the shaded ring.'
 
-// The presence strip's legend.
-export const RADIO_PRESENCE_LEGEND_HEARD = 'Heard'
-export const RADIO_PRESENCE_LEGEND_AWAY = 'Listened, not heard'
-export const RADIO_PRESENCE_LEGEND_OFF = 'Not listening'
 export const RADIO_DEVICE_GONE_TITLE = 'Not heard lately'
 export const RADIO_DEVICE_FAILED_TITLE = 'Could not read'
 /** One of a device's own class changes: "neighbour → personal, you said so". */

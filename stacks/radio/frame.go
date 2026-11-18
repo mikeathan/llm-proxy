@@ -142,6 +142,10 @@ type radiotap struct {
 	fcsAtEnd bool
 }
 
+// maxReceivedDBm is the strongest signal a received frame can have. A radio a hand's width away reads about −10 dBm, so 0 dBm or more is a
+// driver's "no reading" for one antenna chain, never a signal.
+const maxReceivedDBm = -1
+
 type rtSize struct{ size, align int }
 
 // rtSizes gives the size and alignment of a radiotap field by presence bit. A bit not in the table has an unknown size, after which the
@@ -244,6 +248,9 @@ func takeField(bit int, v []byte, rt *radiotap) {
 		}
 	case 5:
 		s := int(int8(v[0]))
+		if s > maxReceivedDBm {
+			return // a chain with no reading (0 dBm, seen from vertex's rtw88_8822bu sensor): never stronger than a real one
+		}
 		if !rt.signalOK || s > rt.signal {
 			rt.signal, rt.signalOK = s, true
 		}
