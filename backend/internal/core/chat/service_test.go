@@ -237,7 +237,6 @@ func TestAssistant_RunWithCancel_RegistersInMap(t *testing.T) {
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
 	engine := toolregistry.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
@@ -279,7 +278,6 @@ func TestAssistant_RunWithCancel_CanBeCancelled(t *testing.T) {
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
 	engine := toolregistry.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)
@@ -345,7 +343,6 @@ func TestAssistant_RunWithCancel_SurvivesParentContextCancel(t *testing.T) {
 	logger := logging.NewNopLogger()
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
 	engine := toolregistry.NewEngine(mockMCP, logger)
 
