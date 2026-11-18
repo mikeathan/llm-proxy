@@ -105,3 +105,31 @@ func TestYourOwnKindForTheHostCardOutranksThisComputer(t *testing.T) {
 		t.Fatalf("your word for its kind stands, and it is still this computer: %+v", id)
 	}
 }
+
+// The listening computer's own card is fixed to the sensor: its signal wobbles, but it never "gets closer" or "moves now".
+func TestThisComputersOwnCardNeverMoves(t *testing.T) {
+	r := devRig(t)
+	rec, store, _ := r.s.recorder(r.s.h)
+	confirmHomeAP(t, store, rec, false)
+	rec.SetHost([]HostRadio{{Iface: "wlp2s0", MAC: neighbour}})
+	for i := range 14 {
+		dbm := -60
+		if i%2 == 1 {
+			dbm = -30 // a jump of 30 dB each cycle: movement for any other device
+		}
+		cycleOf(t, rec, r.now, data(macAP), apBeacon(macAP, "home"), dataAt(neighbour, dbm), dataTo(macAP, neighbour))
+	}
+	for _, d := range liveOf(t, r).Devices {
+		if d.ID != shortOf(neighbour) {
+			continue
+		}
+		if d.Ident == nil || d.Ident.ThisComputer == "" {
+			t.Fatalf("the host card is known: %+v", d.Ident)
+		}
+		if d.Moving || d.Trend != TrendUnknown || d.Unusual {
+			t.Errorf("this computer's own card never moves: moving %v trend %s unusual %v", d.Moving, d.Trend, d.Unusual)
+		}
+		return
+	}
+	t.Fatal("the host card is not in the picture")
+}

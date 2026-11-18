@@ -44,8 +44,8 @@ describe('RadioMyDevices', () => {
     const rows = w.findAll('[data-test="radio-my-device"]')
     expect(rows.map((r) => r.get('[data-test="radio-my-device-name"]').text())).toEqual(['Phone', 'Laptop'])
     expect(rows[0]!.get('[data-test="radio-my-device-facts"]').text()).toContain('Joined to ZenWiFi · Last heard')
-    expect(rows[0]!.get('[data-test="radio-my-device-hours"]').text()).toBe('Heard in 24 of the last 24 hours')
-    expect(rows[1]!.get('[data-test="radio-my-device-hours"]').text()).toBe('Heard in 12 of the last 24 hours')
+    expect(rows[0]!.get('[data-test="radio-my-device-hours"]').text()).toMatch(/^Heard in 24 of the last 24 hours: since \d/)
+    expect(rows[1]!.get('[data-test="radio-my-device-hours"]').text()).toMatch(/^Heard in 12 of the last 24 hours: .+ and .+ \(9 earlier\)$/)
     expect(rows[0]!.get('a').attributes('href')).toContain('bbbbbbbb')
     expect(w.find('[data-test="radio-presence-hour"]').exists()).toBe(false)
     expect(w.find('[data-test="radio-my-device-remove"]').exists()).toBe(false)
@@ -74,14 +74,15 @@ describe('RadioMyDevices', () => {
     expect(w.get('[data-test="radio-my-device"]').attributes('data-state')).toBe('not_listening')
   })
 
-  it('in Advanced, shows the class and hour squares, and removes a device only after you confirm', async () => {
+  it('in Advanced, shows the class, never the hour squares, and removes a device only after you confirm', async () => {
     useNetauditViewMode().set('advanced')
     service.ownerDevices.mockResolvedValue([device(A, 'Laptop', 'personal', 'owner')])
     service.presence.mockResolvedValue({ devices: [{ id: A, label: 'Laptop', state: 'here', signal: 'strong', joined_own: true, hours: hours(48) }] })
     service.removeOwnerDevice.mockResolvedValue(undefined)
     const w = await show()
     expect(w.get('[data-test="radio-my-device-details"]').text()).toBe('Comes and goes (your word) · Strong signal')
-    expect(w.findAll('[data-test="radio-presence-hour"]')).toHaveLength(48)
+    expect(w.find('[data-test="radio-presence-hour"]').exists()).toBe(false)
+    expect(w.get('[data-test="radio-my-device-hours"]').text()).toMatch(/^Heard in 24 of the last 24 hours: since /)
     confirm.mockResolvedValueOnce(false)
     await w.get('[data-test="radio-my-device-remove"]').trigger('click')
     await flushPromises()

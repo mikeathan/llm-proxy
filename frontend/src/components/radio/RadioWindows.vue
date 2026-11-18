@@ -2,8 +2,8 @@
 import { computed } from "vue"
 import { formatTime } from "../../utils/format/time"
 import {
-  RADIO_WINDOWS_EMPTY, RADIO_WINDOWS_TITLE, RADIO_WINDOW_CUT, RADIO_WINDOW_CUT_BADGE, RADIO_WINDOW_MISSED, RADIO_WINDOW_OFF_CHANNEL, RADIO_WINDOW_ON_CHANNEL,
-  radioBand, radioChannelWord, radioWindowFrames, radioWindowOwn,
+  RADIO_WINDOWS_EMPTY, RADIO_WINDOWS_TITLE, RADIO_WINDOW_CUT, RADIO_WINDOW_CUT_BADGE, RADIO_WINDOW_SKIPPED_HELP, RADIO_WINDOW_MISSED, RADIO_WINDOW_OFF_CHANNEL, RADIO_WINDOW_ON_CHANNEL,
+  radioBand, radioChannelWord, radioWindowFrames, radioWindowOwn, radioWindowSkipped,
 } from "../../constants/radio"
 import type { RadioWindow } from "../../types/radio"
 
@@ -32,6 +32,7 @@ function note(w: RadioWindow): string {
           <span v-if="w.stop === 'frame_cap'" class="rounded-[var(--radius-sm)] bg-state-running/15 px-1.5 text-state-running" data-test="radio-window-badge">{{ RADIO_WINDOW_CUT_BADGE }}</span>
           <span v-if="w.stop === 'frame_cap'" class="text-state-running" data-test="radio-window-cut">{{ RADIO_WINDOW_CUT }}</span>
           <span v-if="w.own_frames" class="text-state-success" data-test="radio-window-own">{{ radioWindowOwn(w.own_frames) }}</span>
+          <span v-if="w.skipped" :title="RADIO_WINDOW_SKIPPED_HELP" data-test="radio-window-skipped">{{ radioWindowSkipped(w.skipped) }}</span>
           <span v-if="w.kernel_dropped" class="text-state-running">{{ w.kernel_dropped }} {{ RADIO_WINDOW_MISSED }}</span>
           <span data-test="radio-window-note">{{ note(w) }}</span>
         </span>

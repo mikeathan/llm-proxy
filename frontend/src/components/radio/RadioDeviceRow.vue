@@ -11,7 +11,8 @@ import type { RadioLiveDevice } from "../../types/radio"
 
 // Radio · one row of the device list. It leads with what the device is called (your name for it, its name on your network, its make and model, its
 // network, its maker and kind) and one line saying whose it probably is; then what it is, the distance, which way it is moving and when it was
-// heard. The short id is a small handle at the end. A tap anywhere on the row opens the device's own page.
+// heard. The short id is a small handle at the end. A tap anywhere on the row opens the device's own page. On a phone the reading drops under the
+// name: side by side, its unbreakable lines squeezed the name to one letter a line (owner's screenshot, 2026-11-18).
 const props = defineProps<{ device: RadioLiveDevice; now: number }>()
 const emit = defineEmits<{ (e: "open", id: string): void }>()
 const TRAIL_W = 56
@@ -29,22 +30,24 @@ const OWN_CLASS = { mine: "border-accent-brand text-accent-brand", likely: "bord
   <div class="flex w-full items-start gap-2" data-test="radio-row" :data-own="own">
     <button type="button" class="flex min-h-11 min-w-0 flex-1 items-start gap-3 py-2 text-left hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2" :aria-label="`Open ${deviceTitle(device)}`" data-test="radio-radar-row-button" @click="emit('open', device.id)">
       <span class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-[var(--radius-md)] border" :class="OWN_CLASS[own]" aria-hidden="true"><Icon :name="icon" size="sm" /></span>
-      <span class="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
-          <span class="min-w-0 break-words" :class="own === 'mine' || own === 'likely' ? 'text-primary' : 'text-secondary'" data-test="radio-row-title">{{ deviceTitle(device) }}</span>
-          <span class="text-[length:var(--text-small)]" :class="own === 'mine' || own === 'likely' ? 'text-accent-brand' : 'text-muted'" data-test="radio-row-own">{{ own === 'mine' ? RADIO_OWNERSHIP_WORDS.mine : conclusionOf(device) }}</span>
+      <span class="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:gap-3">
+        <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span class="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <span class="min-w-0 break-words" :class="own === 'mine' || own === 'likely' ? 'text-primary' : 'text-secondary'" data-test="radio-row-title">{{ deviceTitle(device) }}</span>
+            <span class="text-[length:var(--text-small)]" :class="own === 'mine' || own === 'likely' ? 'text-accent-brand' : 'text-muted'" data-test="radio-row-own">{{ own === 'mine' ? RADIO_OWNERSHIP_WORDS.mine : conclusionOf(device) }}</span>
+          </span>
+          <span class="text-[length:var(--text-small)] text-muted" data-test="radio-row-facts">{{ facts.join(" · ") }}</span>
+          <span v-if="tags.length" class="flex flex-wrap gap-1">
+            <span v-for="t in tags" :key="t.text" class="rounded-full border px-2 text-[length:var(--text-small)]" :class="t.warn ? 'border-state-running text-state-running' : 'border-hairline text-muted'" data-test="radio-row-tag" :data-tag="t.test">{{ t.text }}</span>
+          </span>
         </span>
-        <span class="text-[length:var(--text-small)] text-muted" data-test="radio-row-facts">{{ facts.join(" · ") }}</span>
-        <span v-if="tags.length" class="flex flex-wrap gap-1">
-          <span v-for="t in tags" :key="t.text" class="rounded-full border px-2 text-[length:var(--text-small)]" :class="t.warn ? 'border-state-running text-state-running' : 'border-hairline text-muted'" data-test="radio-row-tag" :data-tag="t.test">{{ t.text }}</span>
+        <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[length:var(--text-small)] sm:flex-none sm:flex-col sm:flex-nowrap sm:items-end sm:text-right" data-test="radio-row-reading">
+          <span class="font-mono text-primary" data-test="radio-row-range">{{ radioRangeLine(device.near_m, device.far_m) }}</span>
+          <span class="text-muted">{{ radioDbmLine(device.dbm) }}<template v-if="!device.usual && device.trend !== 'unknown'"> · {{ RADIO_TREND_MARK[device.trend] }} {{ RADIO_TREND_WORDS[device.trend] }}</template><template v-if="device.moving"> · <span class="text-accent-brand" data-test="radio-row-moving">{{ RADIO_MOVING_NOW }}</span></template></span>
+          <span v-if="device.router" class="text-muted" data-test="radio-row-router">{{ radioRouterShort(device.router) }}</span>
+          <svg v-if="trail" :viewBox="`0 0 ${TRAIL_W} ${TRAIL_H}`" class="h-4 w-14 text-accent-brand" role="img" aria-label="Where it was over the last readings" data-test="radio-row-trail"><polyline :points="trail" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+          <span class="text-faint" data-test="radio-row-heard">{{ heard }} · <span class="font-mono" data-test="radio-row-id">{{ device.id }}</span></span>
         </span>
-      </span>
-      <span class="flex flex-none flex-col items-end gap-0.5 text-[length:var(--text-small)]">
-        <span class="font-mono text-primary" data-test="radio-row-range">{{ radioRangeLine(device.near_m, device.far_m) }}</span>
-        <span class="text-muted">{{ radioDbmLine(device.dbm) }}<template v-if="!device.usual && device.trend !== 'unknown'"> · {{ RADIO_TREND_MARK[device.trend] }} {{ RADIO_TREND_WORDS[device.trend] }}</template><template v-if="device.moving"> · <span class="text-accent-brand" data-test="radio-row-moving">{{ RADIO_MOVING_NOW }}</span></template></span>
-        <span v-if="device.router" class="text-muted" data-test="radio-row-router">{{ radioRouterShort(device.router) }}</span>
-        <svg v-if="trail" :viewBox="`0 0 ${TRAIL_W} ${TRAIL_H}`" class="h-4 w-14 text-accent-brand" role="img" aria-label="Where it was over the last readings" data-test="radio-row-trail"><polyline :points="trail" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
-        <span class="text-faint" data-test="radio-row-heard">{{ heard }} · <span class="font-mono" data-test="radio-row-id">{{ device.id }}</span></span>
       </span>
       <span class="mt-2 flex-none text-muted" aria-hidden="true"><Icon name="chevron-right" size="sm" /></span>
     </button>

@@ -54,6 +54,25 @@ func TestRunRadioStopsAtTheFrameCapAndSaysSo(t *testing.T) {
 	}
 }
 
+// On a busy channel the cap filled with control frames in about 4 s (vertex, 2026-11-18): receiver-only ones are skipped and a sender's repeats
+// are thinned before the cap counts them, so the window lasts and the trailer says how many were left out.
+func TestRunRadioThinsControlFramesBeforeTheCap(t *testing.T) {
+	var frames [][]byte
+	for range 100 {
+		rts := radioFrame(0xb4, 40)
+		rts[12+15] = 7 // one sender
+		frames = append(frames, radioFrame(0xc4, 30), rts)
+	}
+	frames = append(frames, radioFrame(0x80, 200))
+	recs, tr := runRadio(t, hostSource(frames...), 30, 50)
+	if tr.Stop == wire.StopFrameCap {
+		t.Fatalf("the cap filled with thinned frames: %d records", len(recs))
+	}
+	if len(recs) != wire.RadioControlPerSender+1 || tr.Skipped != uint32(100+100-wire.RadioControlPerSender) {
+		t.Errorf("records %d skipped %d", len(recs), tr.Skipped)
+	}
+}
+
 func TestRunRadioAReadErrorEndsTheWindowWithAReasonNotAFailure(t *testing.T) {
 	src := hostSource(radioFrame(0x40, 100))
 	src.err = errors.New("network is down")

@@ -38,7 +38,7 @@ const mounted: Array<{ unmount: () => void }> = []
 afterEach(() => { mounted.splice(0).forEach((w) => w.unmount()) })
 
 async function show() {
-  const w = mount(RadioRadar, { global: { stubs: { RouterLink: { template: '<a data-test="radio-status-start"><slot /></a>' } } } })
+  const w = mount(RadioRadar, { global: { stubs: { RouterLink: { props: ['to'], template: '<a data-test="radio-status-start" :data-to="JSON.stringify(to)"><slot /></a>' } } } })
   mounted.push(w)
   await flushPromises()
   return w
@@ -153,6 +153,24 @@ describe('RadioRadar', () => {
     expect(w.findAll('[data-test="radio-radar-row"]').map((r) => r.text())).toEqual([expect.stringContaining('my phone')])
     await w.get('[data-filter="neighbour"]').trigger('click')
     expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(2)
+  })
+
+  it('narrows by kind on top of the chip, offering only the kinds there are, with "not known yet" for a device with no kind', async () => {
+    const ident = (kind: NonNullable<RadioLiveDevice['ident']>['kind']) => ({ kind, kind_confidence: 80, kind_source: 'model_name' as const, confidence: 80 })
+    service.live.mockResolvedValue(view([
+      dev({ id: 'p1', mine: true, label: 'my phone', class: 'personal', ident: ident('phone') }),
+      dev({ id: 's1', ident: ident('speaker') }),
+      dev({ id: 'p2', ident: ident('phone') }),
+      dev({ id: 'q1' }),
+    ]))
+    const w = await show()
+    const select = w.get('[data-test="radio-kind-select"] select, select[aria-label="Kind"]')
+    expect(select.findAll('option').map((o) => o.text())).toEqual(['Any kind (4)', 'Phone or tablet (2)', 'Speaker (1)', 'Not known yet (1)'])
+    await select.setValue('phone')
+    expect(w.findAll('[data-test="radio-radar-row"]')).toHaveLength(2)
+    await w.get('[data-filter="mine"]').trigger('click')
+    expect(w.findAll('[data-test="radio-radar-row"]').map((r) => r.text())).toEqual([expect.stringContaining('my phone')])
+    expect(w.find('[data-filter="routers"]').exists()).toBe(false) // a router is a kind now, not a chip
   })
 
   it('says whether it is live: the time to the next reading and how far the sorting has got', async () => {
@@ -286,6 +304,9 @@ describe('RadioRadar', () => {
       await w.get('[data-test="radio-find-open"]').trigger('click')
       const found = w.findAll('[data-test="radio-find-candidate"]')
       expect(found).toHaveLength(3)
+      expect(JSON.parse(found[0]!.get('[data-test="radio-find-open-device"]').attributes('data-to')!)).toMatchObject({ params: { id: 'a1' } }) // a name opens the device's page
+      expect(found[0]!.get('[data-test="radio-find-whose"]').text()).not.toBe('')
+      expect(w.get('[data-test="radio-find-lead"]').text()).toContain('only 0 dB ahead of the next') // all three alike: not yet clear which
       await found[0]!.get('button').trigger('click')
       await w.get('[data-test="radio-find-input"]').setValue('my tablet')
       await w.get('[data-test="radio-find-save"]').trigger('submit')

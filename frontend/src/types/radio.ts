@@ -63,6 +63,8 @@ export interface RadioWindow {
   kernel_seen: number
   kernel_dropped: number
   elapsed_ms: number
+  /** Control frames the helper left out before its frame cap: ones that name no sender, and a sender's repeats (ADR-0060). Absent from an older helper. */
+  skipped?: number
   on_channel: number
   off_channel: number
   channel_matched: boolean
@@ -464,6 +466,10 @@ export interface RadioPresenceDevice {
   hours: { hour: string; state: RadioHourState; signal?: RadioSignal; dbm?: number; near_m?: number; far_m?: number }[]
 }
 
+/** One stretch of hours a device of yours was heard in: the start of its first hour and the end of its last, or no end when it runs into the
+ * current hour (it is "since" then). ISO times. */
+export interface RadioHeardStretch { from: string; to?: string }
+
 /** GET /admin/api/radio/devices/mine/presence */
 export interface RadioPresence {
   devices: RadioPresenceDevice[]
@@ -485,8 +491,17 @@ export interface RadioDigest {
 /** The three ways the Around you tab can be read; one drop-down switches between them over the same data. */
 export type RadioAroundView = 'radar' | 'networks' | 'changes' | 'channels'
 
-/** What the Around you list and radar are narrowed to: everyone, yours, likely yours (evidence, not your word), routers, new today, those unlike their usual, or one kind. */
-export type RadioAroundFilter = 'all' | 'mine' | 'likely' | 'routers' | 'new' | 'unusual' | RadioClass
+/** What the Around you chips narrow the list and radar to: everyone, yours, likely yours (evidence, not your word), new today, those unlike their usual, or one class. */
+export type RadioAroundFilter = 'all' | 'mine' | 'likely' | 'new' | 'unusual' | RadioClass
+
+/** The second filter of Around you, apart from the chips: one kind of device, or any. */
+export type RadioKindFilter = 'any' | RadioDeviceKind
+
+/** Find my device: how many dB the strongest leads the next by (null when it is alone), and whether that is clearly it. */
+export interface RadioFindLead { db: number | null; clear: boolean }
+
+/** How many devices are of one kind. */
+export interface RadioKindCount { kind: RadioDeviceKind; count: number }
 
 /** The device the owner named from the radar. */
 export interface RadioMarkedMine { label: string }
@@ -508,6 +523,10 @@ export interface RadioAroundState {
   mode: Ref<RadioAroundView>
   toggles: Ref<RadioAroundToggles>
   filter: Ref<RadioAroundFilter>
+  /** The kind drop-down, combined with the chip. */
+  kind: Ref<RadioKindFilter>
+  /** How many devices of each kind the chip, the channel and the switches allow, for the kind drop-down. */
+  kinds: ComputedRef<RadioKindCount[]>
   channel: Ref<number | null>
   everyone: ComputedRef<RadioLiveDevice[]>
   /** Everything the chips, the channel and the "usual" switch allow, closest first. */
@@ -520,6 +539,7 @@ export interface RadioAroundState {
   open: (id: string) => void
   setToggle: (key: keyof RadioAroundToggles, on: boolean) => void
   setFilter: (next: RadioAroundFilter) => void
+  setKind: (next: RadioKindFilter) => void
   setChannel: (next: number | null) => void
   /** Today as YYYY-MM-DD, for the "new today" chip. */
   today: Ref<string>
@@ -541,11 +561,12 @@ export interface MyDeviceRow {
   /** Of the last 24 hours: in how many it was heard, and in how many the sensor listened at all. */
   heard24: number
   listened24: number
+  /** The stretches of the last day it was heard in, oldest first (utils/radio/myDevices.ts heardStretches). */
+  stretches: RadioHeardStretch[]
   kind: RadioDeviceKind
   /** Where in the house, from the radar and the router's boxes (utils/radio/where.ts); empty when neither places it now. */
   where: string
   moving: boolean
-  presence?: RadioPresenceDevice
 }
 
 /** Radio · Your Wi-Fi networks: one network name and its access points (utils/radio/networks.ts). */

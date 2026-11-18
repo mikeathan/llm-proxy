@@ -320,12 +320,13 @@ func (s *Stack) distanceModel(ctx context.Context, store *Store) DistanceModel {
 type baseline struct {
 	mean, std float64
 	row       FeatureRow
+	has       bool // the stored days hold a real signal (FeaturesOf)
 	ok        bool // enough samples to call it a baseline
 }
 
 func baselineOf(r FeatureRow, listened map[int64]int) baseline {
 	f := FeaturesOf(r, listened)
-	return baseline{mean: f.SignalMean, std: f.SignalStd, row: r, ok: f.HasSignal && r.SigN >= usualMinSamples}
+	return baseline{mean: f.SignalMean, std: f.SignalStd, row: r, has: f.HasSignal, ok: f.HasSignal && r.SigN >= usualMinSamples}
 }
 
 // dotOf places a signal on the model: the range, the ring and a stable angle.
@@ -398,6 +399,7 @@ func (s *Stack) liveView(ctx context.Context, h stacksdk.Host, rec *Recorder, st
 		}
 		set.trails[string(sm.tag)] = sm.trail
 		d.Ident = set.identOf(sm.tag, sm.trail)
+		fixedToSensor(&d)
 		v.Rings[d.Ring]++
 		v.Devices = append(v.Devices, d)
 	}
@@ -407,6 +409,7 @@ func (s *Stack) liveView(ctx context.Context, h stacksdk.Host, rec *Recorder, st
 		if u.Router = rec.RouterOf(u.tag); u.Router != nil {
 			u.Moving = u.Router.Moving
 		}
+		fixedToSensor(&u.LiveDevice)
 		v.Devices = append(v.Devices, u.LiveDevice)
 	}
 	return v, set, nil
@@ -428,6 +431,14 @@ func heardDot(model DistanceModel, rec *Recorder, sm liveSample, dev Device, b b
 	d.Router = rec.RouterOf(sm.tag)
 	d.Moving = sm.moving || (d.Router != nil && d.Router.Moving)
 	return d
+}
+
+// fixedToSensor clears the movement words of this computer's own card: it is fixed to the sensor, so a change in its signal is the radio's
+// wobble, never a move.
+func fixedToSensor(d *LiveDevice) {
+	if d.Ident != nil && d.Ident.ThisComputer != "" {
+		d.Moving, d.Trend, d.Unusual, d.ShiftDB = false, TrendUnknown, false, 0
+	}
 }
 
 // newLiveSet indexes the rows by tag and by short id (a short id two devices share is left out of the second).
@@ -477,7 +488,7 @@ type usualDot struct {
 func usualDots(model DistanceModel, base map[string]baseline, detail map[string]AirDevice, now map[string]bool) []usualDot {
 	var out []usualDot
 	for tag, b := range base {
-		if now[tag] || b.row.SigN == 0 || b.row.Cycles == 0 {
+		if now[tag] || !b.has || b.row.Cycles == 0 {
 			continue
 		}
 		d := dotOf(model, b.row.Tag, b.mean, firstChannel(b.row.Channels))

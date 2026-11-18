@@ -25,6 +25,7 @@ func windowBytes(stop byte, frames [][]byte, trailer bool) []byte {
 		binary.BigEndian.PutUint32(tr[12:16], 90)
 		binary.BigEndian.PutUint32(tr[16:20], 3)
 		binary.BigEndian.PutUint32(tr[20:24], 20000)
+		binary.BigEndian.PutUint32(tr[24:28], 5000) // the helper's thinner left out 5,000 control frames (ADR-0060)
 		out = append(out, tr[:]...)
 	}
 	return out
@@ -35,7 +36,7 @@ func TestDecodeWindowReadsRecordsAndTrailer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(w.Records) != 2 || w.Trailer.Stop != StopWindow || w.Trailer.KernelSeen != 90 || w.Trailer.KernelDropped != 3 || w.Trailer.ElapsedMs != 20000 || !w.Trailer.Present {
+	if len(w.Records) != 2 || w.Trailer.Stop != StopWindow || w.Trailer.KernelSeen != 90 || w.Trailer.KernelDropped != 3 || w.Trailer.ElapsedMs != 20000 || w.Trailer.Skipped != 5000 || !w.Trailer.Present {
 		t.Errorf("%+v", w)
 	}
 	if w.Records[1].OffsetMs != 100 {
@@ -95,7 +96,7 @@ func TestIngestRecordsFramesAndSummarisesTheWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	// data(): sender recorded; beacon: AP recorded; garbage: counted as unread, not an error.
-	if sum.Frames != 3 || sum.Recorded != 2 || sum.Unread != 1 || sum.Stop != "window" || sum.KernelDropped != 3 {
+	if sum.Frames != 3 || sum.Recorded != 2 || sum.Unread != 1 || sum.Stop != "window" || sum.KernelDropped != 3 || sum.Skipped != 5000 {
 		t.Errorf("%+v", sum)
 	}
 	if sum.OnChannel != 2 || sum.OffChannel != 0 || !sum.ChannelMatched {

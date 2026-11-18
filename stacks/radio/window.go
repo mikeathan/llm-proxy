@@ -67,7 +67,9 @@ type Trailer struct {
 	Frames                    uint32
 	KernelSeen, KernelDropped uint32
 	ElapsedMs                 uint32
-	Present                   bool
+	// Skipped is how many control frames the helper's thinner left out before its frame cap (ADR-0060): CTS and ACK, and a sender's repeats.
+	Skipped uint32
+	Present bool
 }
 
 // Window is a decoded output.
@@ -123,7 +125,8 @@ func splitTrailer(data []byte) ([]byte, Trailer, error) {
 	t := data[n-trailerSize:]
 	tr := Trailer{
 		Stop: StopReason(t[4]), Frames: binary.BigEndian.Uint32(t[8:12]), KernelSeen: binary.BigEndian.Uint32(t[12:16]),
-		KernelDropped: binary.BigEndian.Uint32(t[16:20]), ElapsedMs: binary.BigEndian.Uint32(t[20:24]), Present: true,
+		KernelDropped: binary.BigEndian.Uint32(t[16:20]), ElapsedMs: binary.BigEndian.Uint32(t[20:24]), Skipped: binary.BigEndian.Uint32(t[24:28]),
+		Present: true,
 	}
 	if tr.Stop > StopUnsupported {
 		return nil, Trailer{}, ErrWindowFormat
@@ -148,6 +151,8 @@ type WindowSummary struct {
 	KernelSeen    uint32 `json:"kernel_seen"`
 	KernelDropped uint32 `json:"kernel_dropped"`
 	ElapsedMs     uint32 `json:"elapsed_ms"`
+	// Skipped is how many control frames the helper left out so the window's cap holds frames that name a device (ADR-0060).
+	Skipped       uint32 `json:"skipped"`
 	OnChannel     int    `json:"on_channel"`
 	OffChannel    int    `json:"off_channel"`
 	HeardChannels []int  `json:"heard_channels,omitempty"`
@@ -166,7 +171,7 @@ func Ingest(ctx context.Context, rec *Recorder, raw []byte, asked WindowAsked, s
 	}
 	sum := WindowSummary{
 		Channel: asked.Channel, Frames: len(w.Records), Stop: w.Trailer.Stop.String(), KernelSeen: w.Trailer.KernelSeen,
-		KernelDropped: w.Trailer.KernelDropped, ElapsedMs: w.Trailer.ElapsedMs, At: start,
+		KernelDropped: w.Trailer.KernelDropped, ElapsedMs: w.Trailer.ElapsedMs, Skipped: w.Trailer.Skipped, At: start,
 	}
 	heard := map[int]bool{}
 	for _, r := range w.Records {

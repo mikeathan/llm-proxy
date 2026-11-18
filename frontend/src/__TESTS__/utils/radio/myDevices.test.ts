@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { duplicateNames, hoursLine, myDeviceRows } from '../../../utils/radio/myDevices'
+import { duplicateNames, heardStretches, hoursLine, myDeviceRows } from '../../../utils/radio/myDevices'
+import { formatTime } from '../../../utils/format/time'
 import type { RadioLiveDevice, RadioOwnerDevice, RadioPresenceDevice } from '../../../types/radio'
 
 const owner = (id: string, label: string, over: Partial<RadioOwnerDevice> = {}): RadioOwnerDevice => ({
@@ -52,6 +53,25 @@ describe('hoursLine', () => {
     expect(hoursLine({ ...base, heard24: 22, listened24: 24 })).toBe('Heard in 22 of the last 24 hours')
     expect(hoursLine({ ...base, heard24: 3, listened24: 5 })).toBe('Heard in 3 of the 5 hours listened today')
     expect(hoursLine({ ...base, heard24: 0, listened24: 0 })).toBe('Not listened to in the last 24 hours')
+  })
+})
+
+describe('heardStretches', () => {
+  const at = (h: number): string => new Date(Date.UTC(2026, 10, 18, h)).toISOString()
+  it('joins the hours heard in a row into stretches, and a stretch that runs into the current hour has no end', () => {
+    expect(heardStretches(hours(['here', 'here', 'away', 'not_listening', 'here', 'away']))).toEqual([{ from: at(0), to: at(2) }, { from: at(4), to: at(5) }])
+    expect(heardStretches(hours(['away', 'here', 'here']))).toEqual([{ from: at(1) }])
+    expect(heardStretches(hours(['away', 'not_listening']))).toEqual([])
+  })
+
+  it('says the stretches as clock times after the count, the newest three, with how many earlier ones are left out', () => {
+    const states: Hour['state'][] = ['here', 'away', 'here', 'away', 'here', 'away', 'here', 'away', 'here', 'here']
+    const [row] = myDeviceRows([owner(A, 'Phone')], [presence(A, 'here', hours(states))], [])
+    expect(row!.stretches).toHaveLength(5)
+    const t = (h: number): string => formatTime(at(h))
+    expect(hoursLine(row!)).toBe(`Heard in 6 of the 10 hours listened today: ${t(4)}–${t(5)}, ${t(6)}–${t(7)} and since ${t(8)} (2 earlier)`)
+    const [one] = myDeviceRows([owner(A, 'Phone')], [presence(A, 'away', hours(['here', 'away']))], [])
+    expect(hoursLine(one!)).toBe(`Heard in 1 of the 2 hours listened today: ${t(0)}–${t(1)}`)
   })
 })
 

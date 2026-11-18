@@ -323,6 +323,7 @@ func (s *Store) ownerEventDevices(ctx context.Context, kind string, sinceDay int
 // hiddenNear counts hidden networks (a zero-length name) of other people heard from sinceDay on at a signal of at least strongDBm.
 func (s *Store) hiddenNear(ctx context.Context, sinceDay int64, strongDBm int) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM beacons WHERE own = 0 AND name_len = 0 AND last_day >= ? AND sig_max >= ?`, sinceDay, strongDBm).Scan(&n)
+	// A max above maxReceivedDBm is a "no reading" chain stored before the parser dropped them, not a strong beacon.
+	err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM beacons WHERE own = 0 AND name_len = 0 AND last_day >= ? AND sig_max >= ? AND sig_max <= ?`, sinceDay, strongDBm, maxReceivedDBm).Scan(&n)
 	return n, err
 }

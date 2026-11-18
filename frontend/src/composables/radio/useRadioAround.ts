@@ -2,12 +2,13 @@ import { computed, ref, type Ref } from "vue"
 import { useRouter } from "vue-router"
 import { usePersistedState } from "../ui/usePersistedState"
 import { RADIO_VIEW_ORDER } from "../../constants/radio"
-import { byCloseness, narrow } from "../../utils/radio/around"
+import { byCloseness, kindCounts, narrow } from "../../utils/radio/around"
 import { toRadioDevice } from "../../router/routes"
-import type { RadioAroundFilter, RadioAroundState, RadioAroundToggles, RadioAroundView, RadioLive, RadioLiveDevice } from "../../types/radio"
+import type { RadioAroundFilter, RadioAroundState, RadioAroundToggles, RadioAroundView, RadioKindFilter, RadioLive, RadioLiveDevice } from "../../types/radio"
 
-// Radio · Around you: what the owner has chosen to look at. One state, shared by the radar and the list of whichever view is open, so a chip or a
-// channel narrows both. A tap on a device (a dot, a row, a change) opens its own page. The view and the toggles are remembered per person.
+// Radio · Around you: what the owner has chosen to look at. One state, shared by the radar and the list of whichever view is open, so a chip, a
+// kind or a channel narrows both. The kind is a second filter on top of the chip ("Yours" and "Phone or tablet": your phones). A tap on a device
+// (a dot, a row, a change) opens its own page. The view and the toggles are remembered per person.
 const KEY_VIEW = "radio-around-view"
 const KEY_TOGGLES = "radio-around-toggles"
 const VERSION = 2
@@ -27,25 +28,29 @@ export function useRadioAround(view: Ref<RadioLive | null>): RadioAroundState {
   const mode = usePersistedState<RadioAroundView>(KEY_VIEW, { version: VERSION, parse: parseView, fallback: "radar" })
   const toggles = usePersistedState<RadioAroundToggles>(KEY_TOGGLES, { version: VERSION, parse: parseToggles, fallback: DEFAULT_TOGGLES })
   const filter = ref<RadioAroundFilter>("all")
+  const kind = ref<RadioKindFilter>("any")
   const channel = ref<number | null>(null)
   const today = ref(new Date().toISOString().slice(0, 10))
 
   const everyone = computed<RadioLiveDevice[]>(() => view.value?.devices ?? [])
   const shown = computed(() => {
-    const list = byCloseness(narrow(everyone.value, { filter: filter.value, channel: channel.value, showUsual: toggles.value.usual, hideBrief: toggles.value.brief, today: today.value }))
+    const list = byCloseness(narrow(everyone.value, { filter: filter.value, kind: kind.value, channel: channel.value, showUsual: toggles.value.usual, hideBrief: toggles.value.brief, today: today.value }))
     return [...list.filter((d) => !d.usual), ...list.filter((d) => d.usual)] // heard now first, then the ones usually here
   })
   /** Devices that match the chips and the channel but are usually here and not heard now, which the "usual" switch keeps out of the radar and the list. */
-  const usualHidden = computed(() => (toggles.value.usual ? 0 : narrow(everyone.value, { filter: filter.value, channel: channel.value, showUsual: true, hideBrief: toggles.value.brief, today: today.value }).filter((d) => d.usual).length))
+  const usualHidden = computed(() => (toggles.value.usual ? 0 : narrow(everyone.value, { filter: filter.value, kind: kind.value, channel: channel.value, showUsual: true, hideBrief: toggles.value.brief, today: today.value }).filter((d) => d.usual).length))
   /** How many passers-by the switch keeps out of the radar and the list. */
-  const briefHidden = computed(() => (toggles.value.brief ? narrow(everyone.value, { filter: filter.value, channel: channel.value, showUsual: toggles.value.usual, today: today.value }).filter((d) => !d.mine && d.class === "transient").length : 0))
+  const briefHidden = computed(() => (toggles.value.brief ? narrow(everyone.value, { filter: filter.value, kind: kind.value, channel: channel.value, showUsual: toggles.value.usual, today: today.value }).filter((d) => !d.mine && d.class === "transient").length : 0))
+  /** The kinds among what the chip, the channel and the switches allow, so the drop-down never offers a kind with nothing to show. */
+  const kinds = computed(() => kindCounts(narrow(everyone.value, { filter: filter.value, channel: channel.value, showUsual: toggles.value.usual, hideBrief: toggles.value.brief, today: today.value })))
   const router = useRouter()
 
   /** Opens a device's own page: what it is, whose it is and why, where it is, and the owner's answers. */
   function open(id: string): void { void router.push(toRadioDevice(id)) }
   function setToggle(key: keyof RadioAroundToggles, on: boolean): void { toggles.value = { ...toggles.value, [key]: on } }
   function setFilter(next: RadioAroundFilter): void { filter.value = next }
+  function setKind(next: RadioKindFilter): void { kind.value = next }
   function setChannel(next: number | null): void { channel.value = channel.value === next ? null : next }
 
-  return { mode, toggles, filter, channel, everyone, shown, usualHidden, briefHidden, open, setToggle, setFilter, setChannel, today }
+  return { mode, toggles, filter, kind, kinds, channel, everyone, shown, usualHidden, briefHidden, open, setToggle, setFilter, setKind, setChannel, today }
 }
