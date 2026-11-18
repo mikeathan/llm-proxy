@@ -157,3 +157,16 @@ owner-side: rename the "Phone or tablet" devices and "Apple"; compare the phone'
 answer the Help it learn card for a few days, then read "gives back N of M". Needs a shell on vertex: the helper's CPU cost of focus windows
 (`ps -o pid,time,rss,comm` over an hour, with and without focus). Needs evidence: whether the two Roku records (`33fb3ee8`, `70f44fb0`) are one box.
 Owner to choose: the next phase (`docs/audits/2026-11-18-radio-continuous-monitoring.md` §3, §4a; the audit recommends ESPHome Bluetooth proxies).
+
+**The radio report is removed (2026-11-18, v0.101.0, owner's decision):** the playbook `radio-watch-report`, the `radio-reporter` profile and the
+Analyse card on Around you are gone (they could only restate the digest; `docs/architecture/network-capabilities.md` keeps the reason); R4's
+"template and Analyse button" are therefore not to be built. `radio_digest` stays for the chat. An automation already made on a server keeps
+its task file and now names a profile that does not exist: delete it on the Automations page (vertex: `workspace-1/radio-watch-report`).
+
+**Carried from the v0.100.0 handoff (harvested 2026-11-18, after v0.100.0 was merged as #266 and checked on vertex, read-only):** no live
+device read stronger than −20 dBm apart from this computer's card `374a25da`, none read 0 dBm, and channel 60's window ran its full 20 s
+(`elapsed_ms` 20004, 13,438 of 15,816 frames left out as repeats). Found: the host card still carried `ident.motion: "moving"`, so its device
+page said "moving about"; fixed in v0.101.0 (`motionUnlessHost`, `stacks/radio/ident.go`). Left: compare how often the phone `4ded1379` is heard
+(`GET /admin/api/radio/air/track/4ded1379`) with the 5–30 minutes of 2026-11-18, now that channel 60 gets its whole window; owner-side: move a
+phone while using it (screen on) and watch its dot over two readings (a phone with its screen off is heard only every 5–30 minutes). After the
+v0.101.0 deploy: `GET /admin/api/radio/air/device/374a25da` has no `motion`.

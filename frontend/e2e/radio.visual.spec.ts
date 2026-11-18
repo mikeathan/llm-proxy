@@ -156,8 +156,6 @@ test('Around you: the status line, the radar with one list, and a row that opens
   await page.goto('radio/around')
   await expect(page.locator('[data-test="radio-finding"]')).toContainText('management frames')
   await expect(page.locator('[data-test="radio-finding-means"]')).toContainText('low risk on its own')
-  await expect(page.locator('[data-test="radio-report-setup"]')).toBeVisible() // the report card: no automation yet, so it asks when to run
-  await expect(page.locator('[data-test="radio-report-go"]')).toHaveText('Set up and analyse')
   await expect(page.locator('[data-test="radio-status-next"]')).toContainText('Next reading in')
   await expect(page.locator('[data-test="radio-status-sorting"]')).toContainText('Sorting starts after 12 cycles (5 done)')
   await expect(page.locator('[data-test="radio-radar-summary"]')).toContainText('6 devices heard now, 1 of them yours')

@@ -1,9 +1,9 @@
 ---
 id: SPEC-012
 title: Prompt Profiles
-version: "1.8"
+version: "1.9"
 status: draft
-last_updated: 2026-11-16
+last_updated: 2026-11-18
 constitution_references: [II.13, II.3]
 related_specs: [SPEC-001, SPEC-004, SPEC-007, SPEC-011]
 supersedes:
@@ -13,6 +13,9 @@ supersedes:
 
 ## Changelog
 
+- **1.9 (2026-11-18)** — The **Radio reporter** built-in and the daily radio report it ran are removed: the report could only
+  restate the digest (counts and fixed words). `radio_digest` stays in the `netfindings` category, offered in a chat by `general`
+  and `operator`. Eight built-ins ship again.
 - **1.8 (2026-11-16)** — The built-in **Radio reporter** (`radio-reporter`: only `netfindings`, memory off, nothing saved, local
   only) that the daily radio report runs under, and the `radio_digest` tool in the `netfindings` category (counts, tiers and
   the core's own words for each finding; the stack's ids, tiers and kinds are checked against fixed lists and the answer is

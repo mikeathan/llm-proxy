@@ -76,6 +76,15 @@ const (
 	movingDB     = 4.5
 )
 
+// motionUnlessHost is motionOf, except for this computer's own card (self names its interface): it is fixed to the sensor, so a change in its
+// signal is the radio's wobble, never a move (as fixedToSensor in live.go).
+func motionUnlessHost(trail []float64, self string) string {
+	if self != "" {
+		return ""
+	}
+	return motionOf(trail)
+}
+
 // motionOf reads still or moving from a trail of per-cycle signals: a still device's signal barely moves, a carried one's swings.
 func motionOf(trail []float64) string {
 	if len(trail) < motionMin {
@@ -145,7 +154,7 @@ func (c identCtx) of(r FeatureRow, trail []float64) DeviceIdent {
 		k = KindGuess{DeviceComputer, 100, KindFromThisComputer} // only your own word for its kind outranks knowing it is this computer
 	}
 	id := DeviceIdent{Kind: k.Kind, KindConf: k.Confidence, KindSource: k.Source, Model: r.Model, OnYourWiFi: r.JoinedOwn && r.OwnCycles > 0, OwnCycles: r.OwnCycles,
-		YourAP: r.OwnAP, Confidence: r.Conf, Pending: Class(r.Pending), Clients: c.clients[string(r.Tag)], Motion: motionOf(trail)}
+		YourAP: r.OwnAP, Confidence: r.Conf, Pending: Class(r.Pending), Clients: c.clients[string(r.Tag)], Motion: motionUnlessHost(trail, l.Self)}
 	id.Brand, id.BrandHint = brandOf(r)
 	id.FirstLook = firstLook(r, c.weakDBm)
 	if onLAN {

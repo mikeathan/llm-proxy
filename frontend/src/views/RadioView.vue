@@ -8,7 +8,6 @@ import RadioSensors from "../components/radio/RadioSensors.vue"
 import RadioListening from "../components/radio/RadioListening.vue"
 import RadioAroundLink from "../components/radio/RadioAroundLink.vue"
 import RadioFindings from "../components/radio/RadioFindings.vue"
-import RadioReport from "../components/radio/RadioReport.vue"
 import RadioScanPlan from "../components/radio/RadioScanPlan.vue"
 import RadioKeeping from "../components/radio/RadioKeeping.vue"
 import RadioRadar from "../components/radio/RadioRadar.vue"
@@ -54,7 +53,6 @@ const tabs: readonly StackTabItem[] = [
     <template v-else-if="tab === 'around'">
       <RadioFindings />
       <RadioRadar />
-      <RadioReport />
     </template>
     <template v-else-if="tab === 'devices'">
       <RadioMyDevices />

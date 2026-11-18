@@ -1,7 +1,7 @@
 ---
 id: ADR-0059
 title: A radio watch listens again between sweeps on the owner's channels and reads the mesh router's list of joined devices
-status: proposed
+status: accepted
 date: 2026-11-18
 subsystems: [network-audit]
 supersedes:
