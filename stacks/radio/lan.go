@@ -17,6 +17,8 @@ const lanCacheFor = time.Minute
 type LANInfo struct {
 	Name   string
 	Router bool
+	// Self is the name of this computer's own interface when the device is this computer's Wi-Fi card (host.go); it wins over the inventory.
+	Self string
 }
 
 // SetLAN gives the recorder the core's LAN port; nil leaves the join off.
@@ -31,7 +33,7 @@ func (r *Recorder) SetLAN(l stacksdk.LAN) {
 func (r *Recorder) LANIndex(ctx context.Context) map[string]LANInfo {
 	r.lmu.Lock()
 	defer r.lmu.Unlock()
-	if r.lan == nil {
+	if r.lan == nil && len(r.host) == 0 {
 		return nil
 	}
 	if r.lanIndex != nil && time.Since(r.lanAt) < lanCacheFor {
@@ -41,11 +43,25 @@ func (r *Recorder) LANIndex(ctx context.Context) map[string]LANInfo {
 	if err != nil {
 		return r.lanIndex
 	}
-	list, err := r.lan.Devices(ctx, purpose(tagDevice, e))
+	idx, err := r.inventoryIndex(ctx, e)
 	if err != nil {
 		return r.lanIndex
 	}
-	idx := make(map[string]LANInfo, len(list))
+	r.addHost(ctx, idx, e)
+	r.lanIndex, r.lanAt = idx, time.Now()
+	return idx
+}
+
+// inventoryIndex is the network inventory by tag; empty when the join is off. lmu is held.
+func (r *Recorder) inventoryIndex(ctx context.Context, epoch int) (map[string]LANInfo, error) {
+	idx := map[string]LANInfo{}
+	if r.lan == nil {
+		return idx, nil
+	}
+	list, err := r.lan.Devices(ctx, purpose(tagDevice, epoch))
+	if err != nil {
+		return nil, err
+	}
 	for _, d := range list {
 		cur, has := idx[string(d.Tag)]
 		if has && !cur.Router {
@@ -53,8 +69,16 @@ func (r *Recorder) LANIndex(ctx context.Context) map[string]LANInfo {
 		}
 		idx[string(d.Tag)] = LANInfo{Name: d.Name, Router: d.Router && (!has || cur.Router)}
 	}
-	r.lanIndex, r.lanAt = idx, time.Now()
-	return idx
+	return idx, nil
+}
+
+// addHost marks this computer's own wireless interfaces in the index (host.go); they win over the inventory. lmu is held.
+func (r *Recorder) addHost(ctx context.Context, idx map[string]LANInfo, epoch int) {
+	for _, h := range r.host {
+		if t, err := r.vault.Tag(ctx, purpose(tagDevice, epoch), h.MAC[:]); err == nil {
+			idx[string(t)] = LANInfo{Self: h.Iface}
+		}
+	}
 }
 
 // isOwnAPAny says whether an access point is one of the owner's confirmed ones, guest networks included.

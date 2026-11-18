@@ -247,15 +247,35 @@ test('Sensors: a role for each radio, the probe, and the details folded away', a
   await touchTargets(page, testInfo)
 })
 
-test('My devices: the owner’s devices with their kind, and the networks to confirm', async ({ page }, testInfo) => {
-  await mockAdminApi(page, { answers: ANSWERS })
+test('My devices: home first with the router box and the last day in words, a shared name to fix, and the networks grouped', async ({ page }, testInfo) => {
+  const id = (short: string) => short.padEnd(64, '0')
+  const devices = { devices: [
+    ...DEVICES.devices,
+    { id: id('beefcafe'), label: 'my laptop', visits: 5, first_seen: '2026-11-10', last_seen: '2026-11-14', class: 'infrastructure', class_by: 'rules' },
+    { id: id('0733101c'), label: 'Phone or tablet', visits: 5, first_seen: '2026-11-10', last_seen: '2026-11-14', class: 'personal', class_by: 'rules' },
+    { id: id('991ba3f9'), label: 'Phone or tablet', visits: 5, first_seen: '2026-11-10', last_seen: '2026-11-13', class: 'personal', class_by: 'rules' },
+  ] }
+  const away = HOURS.map((h, i) => ({ hour: h.hour, state: i < 20 ? 'not_listening' : i < 40 ? 'here' : 'away' }))
+  const presence = { devices: [
+    ...PRESENCE.devices,
+    { id: id('beefcafe'), label: 'my laptop', state: 'here', signal: 'medium', last_heard: '2026-11-14T15:00:00Z', joined_own: true, hours: HOURS },
+    { id: id('0733101c'), label: 'Phone or tablet', state: 'away', last_heard: '2026-11-14T07:00:00Z', joined_own: true, hours: away },
+  ] }
+  const live = { ...LIVE, devices: LIVE.devices.map((d) => d.id === 'ab' ? { ...d, moving: true, router: { box: 'x1', box_name: 'ZenWiFi_XD4-28F0', band: '5G', dbm: -66, at: 1 } }
+    : d.id === 'beefcafe' ? { ...d, router: { box: 'x2', box_name: 'Asus router', main: true, band: '5G', dbm: -58, at: 1 } } : d) }
+  const networks = { ...NETWORKS, access_points: [...NETWORKS.access_points, { id: 'a3', name: 'netsink', channel: 60, security: 'wpa2', confirmed: true, last_seen: '2026-11-14' }] }
+  await mockAdminApi(page, { answers: { ...ANSWERS, '/radio/devices/mine': devices, '/radio/devices/mine/presence': presence, '/radio/air/live': live, '/radio/networks': networks } })
   await page.goto('radio/devices')
-  await expect(page.locator('[data-test="radio-device-class"]')).toHaveText('Comes and goes')
-  await expect(page.locator('[data-test="radio-device-presence"]')).toContainText('Here now')
-  await expect(page.locator('[data-test="radio-presence-hour"]')).toHaveCount(48)
-  await expect(page.locator('[data-test="radio-presence-bar"]').first()).toBeVisible()
+  await expect(page.locator('[data-test="radio-my-summary"]')).toHaveText('2 of 4 devices home now')
+  await expect(page.locator('[data-test="radio-my-dups"]')).toContainText('2 devices are called “Phone or tablet”')
+  await expect(page.locator('[data-test="radio-my-device"][data-id="ab"]')).toContainText('Near this computer · Last heard')
+  await expect(page.locator('[data-test="radio-my-device"][data-id="ab"]')).toContainText('moving now')
+  await expect(page.locator('[data-test="radio-my-device"][data-id="beefcafe"]')).toContainText('Near Asus router')
+  await expect(page.locator('[data-test="radio-my-device"]').last()).toHaveAttribute('data-state', 'not_listening')
+  await expect(page.locator('[data-test="radio-presence-hour"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="radio-network-line"]').first()).toHaveText('5 GHz · channel 60 · 2 access points confirmed')
+  await expect(page.locator('[data-test="radio-ap"][data-confirmed="false"]')).toContainText('netsink-2G')
   await lookAt(page, testInfo, 'my-devices', true)
-  await expect(page.locator('[data-test="radio-ap"][data-confirmed="false"]')).toContainText('Candidate')
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)
 })

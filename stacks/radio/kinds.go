@@ -48,19 +48,21 @@ type KindSource string
 
 // The sources, strongest first.
 const (
-	KindFromOwner   KindSource = "owner_said"
-	KindFromWPSType KindSource = "announced_type"
-	KindFromModel   KindSource = "model_name"
-	KindFromName    KindSource = "your_name_for_it"
-	KindFromLearned KindSource = "learned_from_you"
-	KindFromBeacons KindSource = "sends_beacons"
-	KindFromMaker   KindSource = "maker"
-	KindFromHint    KindSource = "vendor_element"
-	KindFromPrivate KindSource = "private_address"
-	KindFromNothing KindSource = "no_evidence"
-	kindByOwner                = "owner"
-	learnedMinVotes            = 1
-	learnedMinShare            = 0.66
+	KindFromOwner KindSource = "owner_said"
+	// KindFromThisComputer: it is this computer's own Wi-Fi card (host.go).
+	KindFromThisComputer KindSource = "this_computer"
+	KindFromWPSType      KindSource = "announced_type"
+	KindFromModel        KindSource = "model_name"
+	KindFromName         KindSource = "your_name_for_it"
+	KindFromLearned      KindSource = "learned_from_you"
+	KindFromBeacons      KindSource = "sends_beacons"
+	KindFromMaker        KindSource = "maker"
+	KindFromHint         KindSource = "vendor_element"
+	KindFromPrivate      KindSource = "private_address"
+	KindFromNothing      KindSource = "no_evidence"
+	kindByOwner                     = "owner"
+	learnedMinVotes                 = 1
+	learnedMinShare                 = 0.66
 )
 
 // KindSources lists every source, so a test can hold the page's words to it.
@@ -253,7 +255,7 @@ var makerWords = []kindWord{
 	{"tado", DeviceSmartHome}, {"hive", DeviceSmartHome}, {"meross", DeviceSmartHome}, {"wiz connected", DeviceSmartHome},
 	{"ring", DeviceCamera}, {"arlo", DeviceCamera}, {"wyze", DeviceCamera}, {"hikvision", DeviceCamera}, {"dahua", DeviceCamera}, {"reolink", DeviceCamera},
 	{"eufy", DeviceCamera}, {"blink", DeviceCamera},
-	{"roku", DeviceTV}, {"lg electronics", DeviceTV}, {"vizio", DeviceTV}, {"hisense", DeviceTV}, {"tcl", DeviceTV}, {"gaoshengda", DeviceTV}, {"gsd viet nam", DeviceTV},
+	{"roku", DeviceTV}, {"lg electronics", DeviceTV}, {"vizio", DeviceTV}, {"hisense", DeviceTV}, {"tcl", DeviceTV},
 	{"sonos", DeviceSpeaker}, {"bose", DeviceSpeaker},
 	{"hewlett packard", DevicePrinter}, {"hp inc", DevicePrinter}, {"canon", DevicePrinter}, {"seiko epson", DevicePrinter}, {"brother", DevicePrinter},
 	{"nintendo", DeviceConsole}, {"sony interactive", DeviceConsole},

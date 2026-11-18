@@ -16,6 +16,8 @@ type DeviceIdent struct {
 	// next to the gateway's, where a router's Wi-Fi radios are.
 	LANName     string `json:"lan_name,omitempty"`
 	RouterRadio bool   `json:"router_radio,omitempty"`
+	// ThisComputer is the name of the interface when the device is this computer's own Wi-Fi card (host.go).
+	ThisComputer string `json:"this_computer,omitempty"`
 	// OnYourWiFi: it exchanged frames with one of your confirmed (not guest) access points; OwnCycles is in how many cycles.
 	OnYourWiFi bool `json:"on_your_wifi,omitempty"`
 	OwnCycles  int  `json:"own_cycles,omitempty"`
@@ -139,12 +141,15 @@ func (c identCtx) of(r FeatureRow, trail []float64) DeviceIdent {
 		in.Name = l.Name
 	}
 	k := GuessKind(in)
+	if onLAN && l.Self != "" && k.Source != KindFromOwner {
+		k = KindGuess{DeviceComputer, 100, KindFromThisComputer} // only your own word for its kind outranks knowing it is this computer
+	}
 	id := DeviceIdent{Kind: k.Kind, KindConf: k.Confidence, KindSource: k.Source, Model: r.Model, OnYourWiFi: r.JoinedOwn && r.OwnCycles > 0, OwnCycles: r.OwnCycles,
 		YourAP: r.OwnAP, Confidence: r.Conf, Pending: Class(r.Pending), Clients: c.clients[string(r.Tag)], Motion: motionOf(trail)}
 	id.Brand, id.BrandHint = brandOf(r)
 	id.FirstLook = firstLook(r, c.weakDBm)
 	if onLAN {
-		id.LANName, id.RouterRadio = l.Name, l.Router
+		id.LANName, id.RouterRadio, id.ThisComputer = l.Name, l.Router, l.Self
 	}
 	if len(r.Net) > 0 {
 		id.Net, id.NetYours = shortID(r.Net), c.apMine[string(r.Net)]
@@ -174,5 +179,5 @@ func brandOf(r FeatureRow) (string, bool) {
 // LikelyYours says whether the evidence points to the owner's device without the owner having said so: on the owner's Wi-Fi, in the network
 // inventory, or one of the owner's own access points. It is a suggestion the page asks the owner to confirm, never a decision.
 func (d DeviceIdent) LikelyYours() bool {
-	return d.OnYourWiFi || (d.LANName != "" && !d.RouterRadio) || d.YourAP || d.BoxYours || d.RouterRadio
+	return d.OnYourWiFi || (d.LANName != "" && !d.RouterRadio) || d.YourAP || d.BoxYours || d.RouterRadio || d.ThisComputer != ""
 }

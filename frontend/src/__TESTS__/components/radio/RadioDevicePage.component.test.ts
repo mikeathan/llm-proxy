@@ -55,6 +55,7 @@ describe('RadioDeviceView', () => {
     expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(1)
     expect(w.find('[data-test="radio-solo-band"]').exists()).toBe(true)
     expect(w.get('[data-test="radio-device-range"]').text()).toContain('9–30 m')
+    expect(w.find('[data-test="radio-device-where-line"]').exists()).toBe(false) // no router reading: the range line already says the ring
   })
 
   it('lists the devices that use it and saves the owner’s answers', async () => {
@@ -95,6 +96,7 @@ describe('RadioDeviceView', () => {
     const at = Math.floor(Date.now() / 1000) - 20
     service.device.mockResolvedValue(page({ device: { ...sky, router: { box: '7726d4bd', box_name: 'ZenWiFi first floor', band: '5G', dbm: -57, at } } }))
     const w = await show()
+    expect(w.get('[data-test="radio-device-where-line"]').text()).toBe('Near ZenWiFi first floor')
     expect(w.get('[data-test="radio-device-router"]').text()).toMatch(/^Your router: joined to ZenWiFi first floor on 5 GHz, -57 dBm there, read \d+ s ago\.$/)
     expect(w.get('[data-test="radio-device-conclusion"]').text()).toBe('Probably: a neighbour’s router')
   })

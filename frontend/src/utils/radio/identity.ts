@@ -1,7 +1,7 @@
 import {
   RADIO_FIRST_LOOK, RADIO_KIND_WORDS, RADIO_MY_DEVICE, RADIO_OWN_HOUSE, RADIO_OWN_MINE, RADIO_OWN_NEIGHBOUR, RADIO_OWN_NEIGHBOUR_ROUTER, RADIO_OWN_ON_WIFI, RADIO_OWN_PASSING,
-  RADIO_OWN_PERSONAL, RADIO_OWN_ROUTER_RADIO, RADIO_OWN_UNSURE, RADIO_OWN_YOUR_ROUTER, RADIO_UNKNOWN_DEVICE, radioBrandKind, radioKindPrivate,
-  radioOwnChanging, radioOwnOnLAN, radioSureWord,
+  RADIO_OWN_PERSONAL, RADIO_OWN_ROUTER_RADIO, RADIO_OWN_THIS_COMPUTER, RADIO_OWN_UNSURE, RADIO_OWN_YOUR_ROUTER, RADIO_UNKNOWN_DEVICE, radioBrandKind, radioKindPrivate,
+  radioOwnChanging, radioOwnOnLAN, radioSureWord, radioThisComputer,
 } from '../../constants/radioIdentity'
 import type { Nameable, RadioClass, RadioDeviceKind, RadioIdent, RadioOwnership } from '../../types/radio'
 
@@ -21,9 +21,14 @@ export function brandModel(id: RadioIdent | undefined): string {
   return `${shortBrand(brand)} ${model}`
 }
 
-/** A maker's name without the company words ("ASUSTek COMPUTER INC." reads "ASUSTek"). */
+// The city many makers put first in their registered name ("Hui Zhou Gaoshengda", "Shenzhen Century Xinyang"): the city is not the maker.
+const CITY_PREFIX = /^(hui zhou|huizhou|shenzhen|guangzhou|dongguan|hangzhou|shanghai|beijing|xiamen|zhuhai|suzhou|ningbo|fujian|guangdong|zhongshan|foshan|chengdu|wuhan|qingdao|tianjin|nanjing)\s+/i
+
+/** A maker's name without the city it starts with and the company words ("ASUSTek COMPUTER INC." reads "ASUSTek", "Hui Zhou Gaoshengda"
+ * reads "Gaoshengda"). */
 export function shortBrand(brand: string): string {
-  const cut = brand.replace(/[,.]/g, ' ').split(/\s+/).filter((w) => w && !/^(inc|ltd|limited|corp|corporation|co|company|computer|technologies|technology|electronics|international|gmbh|sa|ag|plc|llc)$/i.test(w))
+  const named = brand.trim().replace(CITY_PREFIX, '')
+  const cut = named.replace(/[,.]/g, ' ').split(/\s+/).filter((w) => w && !/^(inc|ltd|limited|corp|corporation|co|company|computer|technologies|technology|electronics|international|gmbh|sa|ag|plc|llc)$/i.test(w))
   return cut.slice(0, 2).join(' ') || brand
 }
 
@@ -32,6 +37,7 @@ export function shortBrand(brand: string): string {
 export function nameOf(d: Nameable): string {
   if (d.mine && d.label) return d.label
   const id = d.ident
+  if (id?.this_computer) return radioThisComputer(id.this_computer)
   if (id?.lan_name && !id.router_radio) return id.lan_name
   const bm = brandModel(id)
   if (bm) return bm
@@ -49,7 +55,7 @@ export function nameOf(d: Nameable): string {
 export function ownershipOf(d: Nameable): RadioOwnership {
   if (d.mine) return 'mine'
   const id = d.ident
-  if (id && (id.on_your_wifi || id.your_ap || id.box_yours || id.router_radio || (id.lan_name && !id.router_radio) || id.net_yours)) return 'likely'
+  if (id && (id.this_computer || id.on_your_wifi || id.your_ap || id.box_yours || id.router_radio || (id.lan_name && !id.router_radio) || id.net_yours)) return 'likely'
   if (d.class === 'neighbour' || d.class === 'transient' || (id?.net && !id.net_yours)) return 'neighbour'
   return 'unknown'
 }
@@ -58,6 +64,7 @@ export function ownershipOf(d: Nameable): RadioOwnership {
 export function conclusionOf(d: Nameable): string {
   const id = d.ident
   if (d.mine) return RADIO_OWN_MINE
+  if (id?.this_computer) return RADIO_OWN_THIS_COMPUTER
   if (id?.your_ap) return RADIO_OWN_YOUR_ROUTER
   if (id?.box_yours || id?.router_radio) return RADIO_OWN_ROUTER_RADIO
   if (id?.lan_name) return radioOwnOnLAN(id.lan_name)

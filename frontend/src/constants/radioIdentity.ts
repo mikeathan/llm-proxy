@@ -37,6 +37,7 @@ export const RADIO_KIND_SOURCES: Record<RadioKindSource, string> = {
   vendor_element: 'a hint in what it sends',
   private_address: 'it uses a private address, as phones, tablets and laptops do',
   no_evidence: 'nothing it sends says what it is',
+  this_computer: 'it is this computer’s own Wi-Fi card',
 }
 
 /** The numbers the learned classifier weighs, as the device page names them. */
@@ -69,6 +70,9 @@ export const RADIO_OWN_YOUR_ROUTER = 'Your router'
 export const RADIO_OWN_ROUTER_RADIO = 'A radio of your router'
 export const radioOwnOnLAN = (name: string): string => `On your network as “${name}”`
 export const RADIO_OWN_ON_WIFI = 'Uses your Wi-Fi'
+export const RADIO_OWN_THIS_COMPUTER = 'This computer, the one listening'
+/** The name of the listening computer's own Wi-Fi card, with its interface. */
+export const radioThisComputer = (iface: string): string => `This computer’s Wi-Fi (${iface})`
 export const RADIO_OWN_NEIGHBOUR_ROUTER = 'A neighbour’s router'
 export const RADIO_OWN_NEIGHBOUR = 'A neighbour’s device'
 export const RADIO_OWN_PASSING = 'Passing by'

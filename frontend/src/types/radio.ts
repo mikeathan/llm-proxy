@@ -296,7 +296,7 @@ export interface RadioLiveDevice {
 export type RadioDeviceKind = 'router' | 'phone' | 'computer' | 'tv' | 'speaker' | 'smart_home' | 'camera' | 'wearable' | 'printer' | 'console' | 'unknown'
 
 /** The evidence a kind came from, strongest first. */
-export type RadioKindSource = 'owner_said' | 'announced_type' | 'model_name' | 'your_name_for_it' | 'learned_from_you' | 'sends_beacons' | 'maker' | 'vendor_element' | 'private_address' | 'no_evidence'
+export type RadioKindSource = 'owner_said' | 'announced_type' | 'model_name' | 'your_name_for_it' | 'learned_from_you' | 'sends_beacons' | 'maker' | 'vendor_element' | 'private_address' | 'no_evidence' | 'this_computer'
 
 /** What names a device and why: its kind, maker and model, its name on your network, the network and router it belongs to. */
 export interface RadioIdent {
@@ -310,6 +310,8 @@ export interface RadioIdent {
   /** The name you gave it on the Network page; router_radio says its address sits next to your router's. */
   lan_name?: string
   router_radio?: boolean
+  /** The interface name when it is the listening computer's own Wi-Fi card. */
+  this_computer?: string
   on_your_wifi?: boolean
   own_cycles?: number
   your_ap?: boolean
@@ -525,3 +527,32 @@ export interface RadioAroundState {
 
 /** A short tag on a device row: far from its usual (a warning) or how many cycles remain before it can be sorted. `test` is the row's test hook. */
 export interface RadioDeviceTag { text: string; warn: boolean; test: string }
+
+/** Radio · My devices: one row of the list (utils/radio/myDevices.ts). */
+export interface MyDeviceRow {
+  id: string
+  short: string
+  label: string
+  cls: RadioClass
+  classBy: RadioOwnerDevice['class_by']
+  state: RadioHourState
+  lastHeard?: string
+  signal?: RadioSignal
+  /** Of the last 24 hours: in how many it was heard, and in how many the sensor listened at all. */
+  heard24: number
+  listened24: number
+  kind: RadioDeviceKind
+  /** Where in the house, from the radar and the router's boxes (utils/radio/where.ts); empty when neither places it now. */
+  where: string
+  moving: boolean
+  presence?: RadioPresenceDevice
+}
+
+/** Radio · Your Wi-Fi networks: one network name and its access points (utils/radio/networks.ts). */
+export interface NetworkGroup {
+  name: string
+  /** The channels its confirmed access points use, lowest first. */
+  channels: number[]
+  confirmed: RadioNetworkAP[]
+  candidates: RadioNetworkAP[]
+}
