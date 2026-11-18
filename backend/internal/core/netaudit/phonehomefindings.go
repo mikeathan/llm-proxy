@@ -177,7 +177,7 @@ func PhoneHomeDevices(inv models.DeviceInventory) []phonehome.InventoryDevice {
 		if d.Randomized || (inv.GatewayMAC != "" && d.MAC == inv.GatewayMAC) {
 			continue
 		}
-		out = append(out, phonehome.InventoryDevice{MAC: d.MAC, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen})
+		out = append(out, phonehome.InventoryDevice{MAC: d.MAC, FirstSeen: d.FirstSeen, LastSeen: d.SeenAt()})
 	}
 	return out
 }

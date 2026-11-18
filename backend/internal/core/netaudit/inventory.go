@@ -366,9 +366,9 @@ func InventoryFindings(inv models.DeviceInventory, now time.Time) []Finding {
 		}
 	}
 	for _, d := range inv.Devices {
-		if d.IP != "" && d.Name != "" && !d.Randomized && !d.LastSeen.IsZero() && now.Sub(d.LastSeen) > MissingAfter {
+		if seen := d.SeenAt(); d.IP != "" && d.Name != "" && !d.Randomized && !seen.IsZero() && now.Sub(seen) > MissingAfter {
 			out = append(out, Finding{Device: d.IP, Check: CheckDeviceMissing, Severity: SeverityLow,
-				Evidence: fmt.Sprintf("A device you named has not been seen on the network for %d days (last seen %s)", int(now.Sub(d.LastSeen).Hours()/24), d.LastSeen.Format(dateLayout))})
+				Evidence: fmt.Sprintf("A device you named has not been seen on the network for %d days (last seen %s)", int(now.Sub(seen).Hours()/24), seen.Format(dateLayout))})
 		}
 	}
 	return out

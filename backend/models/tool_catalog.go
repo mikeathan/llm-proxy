@@ -76,6 +76,8 @@ var toolCatalog = []ToolSpec{
 	{Name: ToolMemorySearch, Category: CategoryMemory, Effect: EffectReadOnly},
 	{Name: ToolMemoryUpdate, Category: CategoryMemory, Effect: EffectHousekeeping},
 	{Name: ToolMemoryForget, Category: CategoryMemory},
+	// session_search reads this workspace's own conversation files; it reaches no network.
+	{Name: ToolSessionSearch, Category: CategoryMemory, Effect: EffectReadOnly},
 	{Name: ToolScheduleReminder, Category: CategoryReminders},
 	{Name: ToolListReminders, Category: CategoryReminders, Effect: EffectReadOnly},
 	{Name: ToolCancelReminder, Category: CategoryReminders},

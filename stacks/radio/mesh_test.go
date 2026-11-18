@@ -121,3 +121,35 @@ func TestARunKeepsTheRoutersListFreshThroughTheIdleTime(t *testing.T) {
 		t.Errorf("asked during the sweep and after the first step: %d", asks)
 	}
 }
+
+// downMesh is a meshclients port whose list cannot be had: the Network module's router setup is not finished, the router is down, or the core
+// is not reading it.
+type downMesh struct{ asks int }
+
+func (m *downMesh) Clients(context.Context, string) (stacksdk.MeshView, error) {
+	m.asks++
+	return stacksdk.MeshView{}, stacksdk.Errorf(stacksdk.CodeUnavailable, "the router's list of devices is not available")
+}
+
+// Radio does not depend on the Network module: with the router's list unavailable it is asked, the answer is dropped, and the radio hears and
+// shows its devices as before, with no router reading on any dot.
+func TestTheRadioWorksAsBeforeWhenTheRoutersListIsUnavailable(t *testing.T) {
+	r := devRig(t)
+	rec, _, _ := r.s.recorder(r.s.h)
+	m := &downMesh{}
+	rec.SetMesh(m)
+	cycleOf(t, rec, r.now, dataAt(neighbour, -70))
+	rec.RefreshMesh(context.Background(), r.now)
+	if m.asks != 1 {
+		t.Fatalf("asked %d times, want 1", m.asks)
+	}
+	devices := liveOf(t, r).Devices
+	if len(devices) == 0 {
+		t.Fatal("the radio still shows what it heard")
+	}
+	for _, d := range devices {
+		if d.Router != nil {
+			t.Errorf("no router reading without the list: %+v", d)
+		}
+	}
+}

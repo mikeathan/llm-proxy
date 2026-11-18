@@ -208,12 +208,12 @@ type AirwavesView struct {
 	Listened    int `json:"listened_cycles"`
 }
 
-func (s *Stack) airwaves(ctx context.Context, store *Store) (stacksdk.Response, error) {
+func (s *Stack) airwaves(ctx context.Context, rec *Recorder, store *Store) (stacksdk.Response, error) {
 	rules, rows, listened, err := s.airRows(ctx, store)
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the air could not be read")
 	}
-	aps, err := store.OwnAPs(ctx)
+	aps, err := rec.OwnAPs(ctx)
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the air could not be read")
 	}

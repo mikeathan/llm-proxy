@@ -15,8 +15,8 @@ const (
 	criticalBytes    = 2 << 30
 )
 
-// diskLevel judges one volume. A large volume is not a finding for being at 9%: the free bytes must be low too.
-func diskLevel(free, total uint64) int {
+// DiskLevel judges one volume (0, DiskLow or DiskCritical). A large volume is not a finding for being at 9%: the free bytes must be low too.
+func DiskLevel(free, total uint64) int {
 	if total == 0 {
 		return 0
 	}
@@ -35,7 +35,7 @@ func diskLevel(free, total uint64) int {
 func (h Hardener) diskLow(out *Hardening) {
 	space := h.Space
 	if space == nil {
-		space = volumeSpace
+		space = VolumeSpace
 	}
 	for _, p := range h.DiskPaths {
 		free, total, err := space(p)
@@ -43,12 +43,12 @@ func (h Hardener) diskLow(out *Hardening) {
 			out.Unreadable++
 			continue
 		}
-		out.DiskLow = max(out.DiskLow, diskLevel(free, total))
+		out.DiskLow = max(out.DiskLow, DiskLevel(free, total))
 	}
 }
 
-// volumeSpace is the free space (what an ordinary account may use) and the size of the volume holding path.
-func volumeSpace(path string) (free, total uint64, err error) {
+// VolumeSpace is the free space (what an ordinary account may use) and the size of the volume holding path.
+func VolumeSpace(path string) (free, total uint64, err error) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		return 0, 0, err

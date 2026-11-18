@@ -119,7 +119,7 @@ func countDevices(inv models.DeviceInventory, now time.Time) DeviceCounts {
 		if newDeviceIsNews(d, now) {
 			c.New++
 		}
-		if now.Sub(d.LastSeen) <= 24*time.Hour {
+		if now.Sub(d.SeenAt()) <= 24*time.Hour {
 			c.Active++
 		}
 	}

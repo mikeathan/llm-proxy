@@ -24,6 +24,7 @@ import (
 type HandlerSet struct {
 	Admin       *handlers.AdminHandlers
 	System      *handlers.SystemHandlers
+	Storage     *handlers.StorageHandlers
 	Secrets     *handlers.SecretsHandlers
 	Process     *handlers.ProcessHandlers
 	MCP         *handlers.MCPHandlers
@@ -117,6 +118,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	})
 	hs.Admin = handlers.NewAdminHandlers(s.Runtime, s.AppCtx, s.Logger(), buildInfo, s.AppCtx.Orchestrator())
 	hs.System = handlers.NewSystemHandlers(s.AppCtx, s.Logger(), buildInfo)
+	hs.Storage = handlers.NewStorageHandlers(s.StorageReport)
 	hs.Secrets = handlers.NewSecretsHandlers(s.AppCtx)
 	hs.Process = handlers.NewProcessHandlers(s.Runtime, s.AppCtx, s.Logger())
 	hs.MCP = handlers.NewMCPHandlers(s.AppCtx)
@@ -282,6 +284,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/system", hs.System.AdminSystemHandler, jsonMethodNotAllowed)
 	router.Put("/admin/api/system", hs.System.AdminSystemPutHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/restart", hs.System.AdminRestartHandler, jsonMethodNotAllowed)
+	router.Get("/admin/api/system/storage", hs.Storage.Get, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/factory-reset", hs.System.AdminFactoryResetHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/clear-runtime-data", hs.System.AdminClearRuntimeDataHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/system/wipeout", hs.System.AdminWipeoutHandler, jsonMethodNotAllowed)

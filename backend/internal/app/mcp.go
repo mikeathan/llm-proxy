@@ -18,9 +18,6 @@ func configureMCP(dataMgr *storage.DataManager, logger logging.Logger, dialer fu
 	orch := mcp.NewOrchestrator(logger)
 	orch.DialContext = dialer
 
-	// Initialize Resource Mirror
-	mirror := mcp.NewResourceMirror()
-
 	// Subscribe Registry Updates -> MCP Orchestrator
 	dataMgr.Registry().OnChange(func(reg models.RegistryData) {
 		sys := dataMgr.System().Get()
@@ -32,15 +29,7 @@ func configureMCP(dataMgr *storage.DataManager, logger logging.Logger, dialer fu
 	sys := dataMgr.System().Get()
 	orch.Reload(context.Background(), translateMCPServers(currentReg.MCPServers), sys.Server.Bind)
 
-	// Register prompt updates handled by Orchestrator (which propagates to Clients)
-	orch.OnPromptUpdate(func(prompt string) {
-		mirror.SetSystemPrompt(prompt)
-	})
-
-	// Subscribe to system prompt to receive updates
-	orch.Subscribe(context.Background(), "nodeherder://system-prompt")
-
-	return mcp.NewMCPNodeHerder(orch, mirror, logger), nil
+	return mcp.NewMCPNodeHerder(orch), nil
 }
 
 // translateMCPServers converts registry servers to internal model configs.

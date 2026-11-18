@@ -23,6 +23,7 @@ const TOOLS: Record<string, ToolDef> = {
   memory_search: { kind: 'memory-search', verb: 'Searched memory', argKey: 'query' },
   memory_update: { kind: 'memory-save', verb: 'Saved to memory', argKey: 'content' },
   memory_forget: { kind: 'memory-forget', verb: 'Forgot a memory', argKey: 'text' },
+  session_search: { kind: 'memory-search', verb: 'Searched earlier conversations', argKey: 'query' },
   network_scan: { kind: 'network', verb: 'Scanned the network' },
   get_network_info: { kind: 'network', verb: 'Read network settings' },
   notify_user: { kind: 'notify', verb: 'Sent a notification', argKey: 'message' },

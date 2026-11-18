@@ -139,6 +139,8 @@ type netauditServices struct {
 	Join *devicejoin.Join
 	// RadioPrivileged is the Radio stack's request channel to the helper, attached when the helper's routes are built.
 	RadioPrivileged *latePrivileged
+	// RadioNetworks is the ownnetworks port the Radio stack is given, kept here to check the access points it reports back (ADR-0063).
+	RadioNetworks stackport.Networks
 	// Monitors watches the module's own parts and alerts when one that is switched on stops working (monitor_stalled).
 	Monitors *netaudit.MonitorWatch
 	// CheckIn sends the daily "still running" note while CheckInConfig has it switched on.
@@ -162,7 +164,10 @@ type netauditServices struct {
 	RouterConn *routerconn.Manager
 	// RouterConnConfig is the router watch's switch and RouterHistory what it remembers of where each device connected (Constitution I.15).
 	RouterConnConfig *netaudit.RouterConnConfig
-	RouterHistory    *routerhistory.History
+	// RouterClientsConfig is the switch for presence reading the router's list of joined Wi-Fi devices; RouterJoined is that read (ADR-0062).
+	RouterClientsConfig *netaudit.RouterClientsConfig
+	RouterJoined        *netaudit.RouterJoined
+	RouterHistory       *routerhistory.History
 	// RouterConnReady says whether the guardrails allow the local network, asked before each nightly read.
 	RouterConnReady func() (bool, string)
 	// RouterConnGate holds the report's reads of the router to one per three hours, whoever starts the runs.
@@ -669,6 +674,7 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	known := s.newTracking(store, scope, netTools)
 	phone := s.newPhoneHome(store, scope)
 	routerConn := s.newRouterConn(store, known.Inventory)
+	routerClients, routerJoined := newRouterJoined(store, routerConn.Manager, known.Inventory, func() (bool, string) { return networkReady(guard(), true, false) })
 	bad := s.newKnownBad(store, netTools)
 	alerts := s.newAlerting(alertingDeps{Store: store, Scope: scope, Service: scan.Service, Tracking: known, PhoneHome: phone})
 
@@ -697,35 +703,37 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 		Vulns:     scan.Vulns,
 		Ubuntu:    ubuntu,
 
-		Inventory:         known.Inventory,
-		Identities:        known.Identities,
-		History:           known.History,
-		Names:             known.Names,
-		NamesConfig:       known.NamesConfig,
-		Summary:           known.Summary,
-		Discovery6:        known.Discovery6,
-		AttackPathsConfig: netaudit.NewAttackPathsConfig(store),
-		KnownBadConfig:    bad.Config,
-		KnownBad:          bad.Manager,
-		KnownBadList:      bad.List,
-		DestinationOwners: s.newDestinationOwners(netTools),
-		DestinationPlaces: s.newDestinationPlaces(netTools),
-		RouteTrace:        s.newRouteTrace(guard),
-		RouterConn:        routerConn.Manager,
-		RouterConnConfig:  routerConn.Config,
-		RouterConnReady:   func() (bool, string) { return networkReady(guard(), true, false) },
-		RouterConnGate:    newReadGate(routerConnReadGap, time.Now),
-		RouterHistory:     routerConn.History,
-		WebChecksConfig:   netaudit.NewWebChecksConfig(store),
-		WebChecker:        webChecker,
-		UDPChecksConfig:   netaudit.NewUDPChecksConfig(store),
-		UDPChecks:         &netaudit.UDPChecks{Asker: stackUDPAsker{host: network}},
-		RunHealth:         netaudit.NewRunHealth(),
-		PhoneHome:         phone.Watch,
-		PhoneHomeConfig:   phone.Config,
-		Ports:             known.Ports,
-		Host:              known.Host,
-		Router:            newRouterCheck(stackRouterProber{host: network, module: networkRouterModule}, known.Inventory, scope).WithExposure(outside.Exposure),
+		Inventory:           known.Inventory,
+		Identities:          known.Identities,
+		History:             known.History,
+		Names:               known.Names,
+		NamesConfig:         known.NamesConfig,
+		Summary:             known.Summary,
+		Discovery6:          known.Discovery6,
+		AttackPathsConfig:   netaudit.NewAttackPathsConfig(store),
+		KnownBadConfig:      bad.Config,
+		KnownBad:            bad.Manager,
+		KnownBadList:        bad.List,
+		DestinationOwners:   s.newDestinationOwners(netTools),
+		DestinationPlaces:   s.newDestinationPlaces(netTools),
+		RouteTrace:          s.newRouteTrace(guard),
+		RouterConn:          routerConn.Manager,
+		RouterConnConfig:    routerConn.Config,
+		RouterClientsConfig: routerClients,
+		RouterJoined:        routerJoined,
+		RouterConnReady:     func() (bool, string) { return networkReady(guard(), true, false) },
+		RouterConnGate:      newReadGate(routerConnReadGap, time.Now),
+		RouterHistory:       routerConn.History,
+		WebChecksConfig:     netaudit.NewWebChecksConfig(store),
+		WebChecker:          webChecker,
+		UDPChecksConfig:     netaudit.NewUDPChecksConfig(store),
+		UDPChecks:           &netaudit.UDPChecks{Asker: stackUDPAsker{host: network}},
+		RunHealth:           netaudit.NewRunHealth(),
+		PhoneHome:           phone.Watch,
+		PhoneHomeConfig:     phone.Config,
+		Ports:               known.Ports,
+		Host:                known.Host,
+		Router:              newRouterCheck(stackRouterProber{host: network, module: networkRouterModule}, known.Inventory, scope).WithExposure(outside.Exposure),
 
 		OutsideLookupConfig: outside.Config,
 		Exposure:            outside.Exposure,
@@ -760,12 +768,14 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.Footprint = s.newFootprint(store, netTools)
 	s.netaudit.WifiConfig = netaudit.NewWifiConfig(store)
 	s.netaudit.Wifi = netaudit.NewWifiWatch(netaudit.WifiWatchDeps{
-		List:    wifilook.New(scan.Runner).List,
+		List: wifilook.New(scan.Runner).List,
+		// What the Radio stack heard under the operator's names, checked by the core: one look-alike check over both sensors (ADR-0063).
+		Air:     s.wifiAir,
 		Config:  s.netaudit.WifiConfig,
 		Notify:  s.alertNotifier(alerts.Log, models.NetworkAlertWifi),
 		OnError: func(err error) { logging.Warn("network wifi look-alikes", "error", err.Error()) },
 	})
-	s.netaudit.WifiReady = s.wifiReady(store, s.netaudit.WifiConfig)
+	s.netaudit.WifiReady = s.wifiReady(store, s.netaudit.WifiConfig, dataMgr.Radio())
 	s.netaudit.PhoneHomeAlerts = netaudit.NewPhoneHomeAlerts(netaudit.PhoneHomeAlertDeps{
 		Watch: phone.Watch, Enabled: phone.Config.Enabled, Inventory: known.Inventory.View, KnownBad: bad.matcher(),
 		Notify:  s.alertNotifier(alerts.Log, models.NetworkAlertPhoneHome),
@@ -792,14 +802,16 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 
 	radioPolicy := dataMgr.Radio()
 	s.netaudit.RadioPrivileged = &latePrivileged{}
-	asked := &stackport.AskedPurposes{}
+	asked, netsAsked := &stackport.AskedPurposes{}, &stackport.AskedPurposes{}
+	moveRadioNetworkNames(radioPolicy, store)
 	radioHost, vault, err := s.newRadioHost(radioHostDeps{Policy: radioPolicy, Priv: s.netaudit.RadioPrivileged,
 		Notify: s.bellNotifier(alerts.Log, models.NetworkAlertRadio), Inventory: known.Inventory.View, Mesh: s.netaudit.RouterConn.MeshClients,
-		Presence: devicePresence(alerts.PresenceConfig, alerts.Presence), Asked: asked})
+		Presence: devicePresence(alerts.PresenceConfig, alerts.Presence), Asked: asked, WifiNetworks: s.netaudit.WifiConfig.Networks, NetsAsked: netsAsked})
 	if err != nil {
 		s.logger.Error("the Radio stack could not be hosted", "error", err.Error())
 	}
 	s.netaudit.Radio = radioHost
+	s.netaudit.RadioNetworks = stackport.Networks{Vault: vault, List: s.netaudit.WifiConfig.Networks, Asked: netsAsked}
 	s.netaudit.Join = newDeviceJoin(known.Inventory.View, radioHost, vault, asked)
 
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
@@ -1001,18 +1013,54 @@ func localModelPorts(reg models.RegistryData) []int {
 
 // wifiReady says whether the Wi-Fi look can run, and when it cannot, why in plain words: nmcli must be installed, programs must be
 // confined on this computer (or the operator has allowed running them unconfined), and the operator must have named a network.
-func (s *AppServices) wifiReady(store netaudit.PolicyStore, cfg *netaudit.WifiConfig) func() (bool, string) {
+func (s *AppServices) wifiReady(store netaudit.PolicyStore, cfg *netaudit.WifiConfig, radio radioPolicy) func() (bool, string) {
 	return func() (bool, string) {
+		if len(cfg.Networks()) == 0 {
+			return false, "add your Wi-Fi network's name on the Settings tab"
+		}
+		if radio.Get().Enabled {
+			return true, "" // the Radio stack listens for the same names (ADR-0063)
+		}
 		if err := wifilook.Installed(); err != nil {
 			return false, err.Error()
 		}
 		if s.AppCtx.sandboxProv.Effective().Filesystem.Mechanism == isolation.EnforcementNone && !store.Get().AllowUnconfined {
 			return false, "programs are not confined on this computer, so this one is not run (see the sandbox settings)"
 		}
-		if len(cfg.Networks()) == 0 {
-			return false, "add your Wi-Fi network's name on the Settings tab"
-		}
 		return true, ""
+	}
+}
+
+// wifiAir is what the Radio stack heard lately under the operator's network names, each access point checked by the core before it counts
+// (stackport.Networks.Sightings); false while Radio is off, not hosted or cannot answer, so the look-alike check works from this computer's
+// own Wi-Fi alone.
+func (s *AppServices) wifiAir(ctx context.Context) ([]models.WifiSighting, bool) {
+	if s.netaudit == nil || s.netaudit.Radio == nil {
+		return nil, false
+	}
+	report, err := s.netaudit.Radio.Air(ctx)
+	if err != nil {
+		return nil, false
+	}
+	return s.netaudit.RadioNetworks.Sightings(ctx, report.APs), true
+}
+
+// moveRadioNetworkNames moves the network names the operator once typed on the Radio page into the Network page's one list, and clears them
+// from the Radio settings (ADR-0063). Run once at start-up; with nothing to move it writes nothing. Names beyond the list's bound are dropped,
+// and the access points confirmed on the Radio page are not moved: the operator confirms them once on the Network page.
+func moveRadioNetworkNames(radio radioPolicy, store netaudit.PolicyStore) {
+	names := radio.Get().OwnNetworks
+	if len(names) == 0 {
+		return
+	}
+	cfg := netaudit.NewWifiConfig(store)
+	for _, n := range names {
+		if err := cfg.AddNetwork(n); err != nil {
+			logging.Debug("moving a Radio network name", "error", err.Error())
+		}
+	}
+	if err := radio.Update(func(c *models.RadioConfig) error { c.OwnNetworks = nil; return nil }); err != nil {
+		logging.Warn("moving the Radio network names", "error", err.Error())
 	}
 }
 

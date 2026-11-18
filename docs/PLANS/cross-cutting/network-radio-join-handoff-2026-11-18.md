@@ -10,6 +10,9 @@ evidence: ADR-0061 (accepted); docs/PLANS/cross-cutting/network-radio-joined-by-
 # Network and Radio joined by tag (handoff)
 
 ## Branch state
+- **Since 2026-11-18 (later the same day):** v0.103.0 merged as #269. On branch `docs-plans-tracker-cleanup` (from `main` at `f96d25d4`): the
+  router's list of joined devices also keeps Network presence online (ADR-0062) and the owner's networks are one list with one look-alike check
+  (ADR-0063, item 5 below). Item 4 (3a) was dropped by the owner on 2026-11-18 ("not worth it").
 - **v0.102.0 (the join) is merged:** PR #268, merge commit `2b5c5282`, deployed on vertex and seen working there (the s24's row read "heard
   over the air 3 minutes ago, near this computer, 5 GHz, on your Wi-Fi, Radio thinks: Phone or tablet").
 - **v0.103.0 is on branch `network-air-radio-link`**, made from `origin/main` at `2b5c5282`, committed and pushed with its pull request
@@ -34,16 +37,16 @@ evidence: ADR-0061 (accepted); docs/PLANS/cross-cutting/network-radio-joined-by-
 - **Not run on vertex.**
 
 ## What is left, in order
-1. **Owner: merge the v0.103.0 pull request and deploy.** Then on vertex open Network → Devices → a heard device: the phrase says "in
+1. **Done: v0.103.0 merged (#269).** Owner: on vertex open Network → Devices → a heard device: the phrase says "in
    Radio's last listen" and tapping it opens that device's Radio page.
 2. **Device page rough edge:** a Radio My devices row reading "Home · on the network" opens a device page that may still say "not heard in the
    last few days". The page could say the network sees it now (the presence is already on `LANInfo`). Not built; small, Radio-only.
 3. **Devices matched but not heard:** on vertex the iPhone, Lindiwe's iPhone, the Samsung TV, espressif and nodeherder had an air fact with no
    `heard` (so "not heard over the air lately"). Unverified why: iPhones rotate their private Wi-Fi address, others may be quiet or off the
    listened channels. Look at `/admin/api/radio/air/live` and the scan plan's channels before changing anything.
-4. **Parked 3a** (deauthentication burst and devices dropping off): needs the presence check to keep when a device left (it keeps only
+4. **Dropped by the owner 2026-11-18: 3a** (deauthentication burst and devices dropping off): needs the presence check to keep when a device left (it keeps only
    `LastSeen`); a plan of its own and the owner's go-ahead.
-5. **Parked 3d** (one look-alike check): the owner decides whether the core's `WifiNetworks` and Radio's own access points become one list
+5. **Built 2026-11-18 as ADR-0063: 3d** (one look-alike check): the owner decides whether the core's `WifiNetworks` and Radio's own access points become one list
    and whether `radio_rogue_twin` alerts.
 
 ## Traps found

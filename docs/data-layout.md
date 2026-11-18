@@ -33,6 +33,13 @@ The single root contains:
 The playbook (task-template) library is not on disk: the shipped playbooks are embedded in the binary and read from there.
 An older install may still have a `templates/` directory (and a `.shipped.json` in it); it is no longer read and can be deleted.
 
+## What is stored (the data management page)
+
+Settings → Storage & logging → What is stored lists every top-level entry of the data root as a row of its kind, with its size, and where it can
+be removed; a stack's file is a row owned by the stack; an entry the service does not recognise is listed under its own name. The workspace
+folders are shown as a size only. `GET /admin/api/system/storage` (`internal/app/datausage.go`, `internal/platform/datausage`). A new store
+under the root must be added to `coreStoreKinds`, or it shows as "Not described".
+
 ## workspaces/ — agent working files
 
 - Path: `{workspaces_dir}/{workspaceID}/` where `{workspaces_dir}` defaults to

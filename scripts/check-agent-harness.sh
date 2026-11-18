@@ -181,13 +181,16 @@ for f in docs/SPECS/*.md; do
   [ "$cat_status" = "$st" ] || fail "$f: status '$st' but docs/SPECS/README.md says '${cat_status:-<none>}'"
 done
 
-# --- 10. Live plans: table status matches each plan, and nothing finished stays live ---
+# --- 10. Live plans: table status is a known word, matches each plan, and nothing finished stays live ---
 # Rows: | [Name](path) | status | date | specs | what's left |. The plan's own status is its
 # `status:` frontmatter or a `**Status:**` line in the first lines; plans that declare neither are skipped.
 section "[10] plan status vs docs/PLANS/README.md"
 while IFS='|' read -r rel table_status; do
-  case "$table_status" in complete|superseded|reverted)
-    fail "docs/PLANS/README.md: $rel is '$table_status' — harvest it and move it to docs/PLANS/ARCHIVE/" ;;
+  case "$table_status" in
+    complete|superseded|reverted)
+      fail "docs/PLANS/README.md: $rel is '$table_status' — harvest it and move it to docs/PLANS/ARCHIVE/" ;;
+    proposed|approved|active|partial) ;;
+    *) fail "docs/PLANS/README.md: $rel has status '$table_status'; a live plan is proposed, approved, active or partial" ;;
   esac
   f="docs/PLANS/$rel"
   [ -e "$f" ] || continue

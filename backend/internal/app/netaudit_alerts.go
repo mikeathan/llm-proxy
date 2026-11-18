@@ -291,6 +291,8 @@ func (s *AppServices) newPresence(service *netaudit.Service, inventory *netaudit
 		OnError:   func(err error) { logging.Warn("network presence check", "error", err.Error()) },
 		// Where the air heard the new devices, read when an alert goes out: the join is wired after the check is built.
 		AirNote: s.airNote,
+		// The router's list of joined Wi-Fi devices keeps a dozing phone online (ADR-0062); wired after the check is built, like the note.
+		Joined: s.routerJoined,
 	})
 }
 

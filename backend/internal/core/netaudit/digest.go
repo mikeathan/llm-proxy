@@ -24,7 +24,7 @@ func DigestMessage(inv models.DeviceInventory, series []models.NetworkDay, now t
 		if inv.Baselined && now.Sub(d.FirstSeen) <= digestEvery {
 			fresh++
 		}
-		if now.Sub(d.LastSeen) > digestEvery {
+		if now.Sub(d.SeenAt()) > digestEvery {
 			unseen++
 		}
 		if d.Name == "" {

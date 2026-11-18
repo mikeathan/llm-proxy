@@ -220,23 +220,18 @@ export const radioChangeLine = (n: number, from: string, to: string, reason: str
 
 // Radio · Your networks: the names of your own Wi-Fi, and which access points are yours.
 export const RADIO_NETWORKS_TITLE = 'Your Wi-Fi networks'
-export const RADIO_NETWORKS_INTRO = 'A device that joins one of these is sorted as yours. Anyone can use the same network name, so an access point counts only once you confirm it.'
+export const RADIO_NETWORKS_INTRO = 'A device that joins one of these is sorted as yours. The names and which access points are yours come from Wi-Fi look-alikes on the Network page, the one list of your networks: anyone can use the same name, so an access point counts only once you confirm it there.'
 /** A network's one line: its band and channels and how many of its access points you confirmed. */
 export const radioNetworkLine = (channels: number[], confirmed: number): string => {
   const where = channels.length ? `${[...new Set(channels.map((c) => radioBand(c)))].join(' and ')} · channel ${channels.join(', ')} · ` : ''
   return confirmed ? `${where}${confirmed} ${confirmed === 1 ? 'access point' : 'access points'} confirmed` : 'No access point confirmed yet'
 }
 export const RADIO_NETWORK_ASK_TITLE = 'Are these yours?'
-export const radioNetworkAsk = (n: number): string => `${n} ${n === 1 ? 'access point broadcasts' : 'access points broadcast'} one of your network names. Confirm the ones that are yours.`
-export const RADIO_NETWORK_ADD_OPEN = 'Add a network name'
-export const RADIO_NETWORK_ADD_CLOSE = 'Cancel'
-export const RADIO_NETWORK_NAME = 'Network name'
-export const RADIO_NETWORK_ADD = 'Add name'
-export const RADIO_NETWORK_NONE = 'No network named yet.'
-export const RADIO_NETWORK_REMOVE_NAME = 'Remove name'
-export const RADIO_AP_CONFIRM = 'Yes, this is mine'
-export const RADIO_AP_REJECT = 'Not mine'
+export const radioNetworkAsk = (n: number): string => `${n} ${n === 1 ? 'access point broadcasts' : 'access points broadcast'} one of your network names and ${n === 1 ? 'is' : 'are'} not confirmed. Confirm the ones that are yours on the Network page.`
+export const RADIO_NETWORK_NONE = 'No network named yet. Add your network\u2019s name on the Network page.'
+export const RADIO_NETWORKS_OPEN = 'Open Wi-Fi look-alikes'
 export const RADIO_AP_CONFIRMED = 'Confirmed as yours'
+export const RADIO_AP_CONFIRMED_BEFORE = 'You confirmed it here before: confirm it once on the Network page'
 export const radioApLine = (name: string, channel: number, security: string, seen: string): string => `${name} · channel ${channel} · ${security || 'security unknown'} · last heard ${seen}`
 export const RADIO_NETWORKS_FAILED = 'Your networks could not be read.'
 export const RADIO_CLASS_PICK = 'Kind of device (optional)'

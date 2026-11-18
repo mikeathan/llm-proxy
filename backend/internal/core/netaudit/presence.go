@@ -82,6 +82,9 @@ type PresenceDeps struct {
 	// AirNote, if set, is a fixed phrase about where the air heard the new devices (devicejoin.NewDeviceNote, ADR-0061), or "" when it says
 	// nothing. It must be quick and must not fail the alert.
 	AirNote func(ctx context.Context, macs []string) string
+	// Joined, if set, reads the router's list of joined Wi-Fi devices and marks the inventory's own devices it names (RouterJoined.Look,
+	// ADR-0062). It runs after the alert, must stop when ctx ends, and its failures never stop or fail the look.
+	Joined func(ctx context.Context)
 }
 
 // DeviceOnlineWindow is how lately the network must have seen a device for it to be online now; the Network page uses the same window
@@ -98,7 +101,7 @@ func PresenceOf(d models.NetworkDevice, enabled bool, st PresenceStatus, now tim
 	if !enabled || st.LastLook.IsZero() || now.Sub(st.LastLook) > presenceFresh {
 		return models.PresenceUnknown
 	}
-	if now.Sub(d.LastSeen) <= DeviceOnlineWindow {
+	if now.Sub(d.SeenAt()) <= DeviceOnlineWindow {
 		return models.PresenceOnline
 	}
 	return models.PresenceAway
@@ -197,6 +200,9 @@ func (p *Presence) Tick(ctx context.Context) {
 	// The alert goes first: whatever rides on a look (naming devices, the weekly summary) may be slow, and must never hold
 	// an alert back. It runs even when the alert could not be sent, because it does not depend on a connector.
 	alertErr := p.alert(ctx)
+	if p.deps.Joined != nil {
+		p.deps.Joined(ctx)
+	}
 	if p.deps.OnLook != nil {
 		p.deps.OnLook(ctx, snap)
 	}

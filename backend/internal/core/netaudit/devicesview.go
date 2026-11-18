@@ -21,9 +21,11 @@ type DeviceView struct {
 	SuggestedName string    `json:"suggested_name,omitempty"`
 	FirstSeen     time.Time `json:"first_seen"`
 	LastSeen      time.Time `json:"last_seen"`
-	Approved      bool      `json:"approved"`
-	Important     bool      `json:"important,omitempty"`
-	Randomized    bool      `json:"randomized"`
+	// RouterSeen is when the router's list of joined Wi-Fi devices last named it (ADR-0062); zero when it never did.
+	RouterSeen time.Time `json:"router_seen,omitzero"`
+	Approved   bool      `json:"approved"`
+	Important  bool      `json:"important,omitempty"`
+	Randomized bool      `json:"randomized"`
 	// New is true while the device is unapproved and was seen lately: the same test that makes it a finding.
 	New bool `json:"new"`
 	// OpenPorts are the ports the device had open at its last completed scan, and PortsScannedAt when that was; both are
@@ -82,7 +84,7 @@ func ViewOf(inv models.DeviceInventory, now time.Time, vendors VendorLookup) Inv
 	}
 	for _, d := range inv.Devices {
 		view.Devices = append(view.Devices, DeviceView{
-			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
+			MAC: d.MAC, IP: d.IP, IPv6: d.IPv6, Name: d.Name, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen, RouterSeen: d.RouterSeen,
 			Approved: d.Approved, Important: d.Important, Randomized: d.Randomized, New: newDeviceIsNews(d, now), Vendor: vendors.of(d.MAC),
 			UDPPorts: d.UDPPorts, UDPScannedAt: d.UDPScannedAt, OSGuesses: d.OSGuesses, OSDetectedAt: d.OSDetectedAt,
 		})

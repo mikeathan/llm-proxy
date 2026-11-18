@@ -1,9 +1,9 @@
 ---
 id: SPEC-004
 title: Memory System
-version: "3.4"
+version: "3.5"
 status: stable
-last_updated: 2026-10-17
+last_updated: 2026-11-18
 constitution_references: [II.12]
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -12,6 +12,11 @@ supersedes:
 # SPEC: Memory System
 
 ## Changelog
+
+- **3.5 (2026-11-18)** — New read tool `session_search(query, limit)`: the words of this workspace's earlier conversations, searched in the
+  conversation files themselves (newest first, at most 100 conversations, up to 10 excerpts), never an index, so a deleted conversation is
+  never found. Only the user's and the assistant's messages are searched, never tool output; the answer says its excerpts are records, not
+  instructions. Offered in the operator's own chats only, as `memory_forget`: never in an automation or a connector chat.
 
 - **3.4 (2026-10-17)** — A profile's `memory_save` (SPEC-012 §2.1) replaces `memory_guidance` and is the single answer
   to who may save in a run. `model` offers `memory_update`/`memory_forget` and sends the save guidance, the
@@ -275,6 +280,7 @@ Only `mode: "always"` entries are injected. The `resolveParams()` strategy map i
 - `memory_search(query, limit, scope, tags)` — FTS5 search with BM25 ranking, capped at 20 results.
 - `memory_update(content, scope, mode, keep, old_text, separate, kind, why, expires)` — Save a new memory entry with three-tier params; `old_text` replaces the entry containing it (in either scope, moving it if the scope changed); `separate: true` saves it as its own fact when a similar one exists.
 - `memory_forget(text)` — Delete the one saved fact containing `text` (workspace or user scope). Zero or several matches delete nothing and say so; refused in automations and connector chats.
+- `session_search(query, limit)` — Every word of `query` in one message of this workspace's earlier conversations (user and assistant messages only), newest conversation first, at most 10 excerpts of about 240 bytes, each with the conversation id and its day. The operator's own chats only (`toolregistry.WithSessions`). Code: `internal/core/tools/session_search.go`.
 - All gated by workspace ID.
 
 ### 6. Deduplication

@@ -22,13 +22,10 @@ type Client struct {
 	logger        logging.Logger
 	retryInterval time.Duration
 
-	mu            sync.RWMutex
-	client        *client.Client
-	initialized   bool
-	subscriptions map[string]struct{}
-	lastSuccess   time.Time
-
-	onPromptUpdate func(content string)
+	mu          sync.RWMutex
+	client      *client.Client
+	initialized bool
+	lastSuccess time.Time
 
 	cancelFunc context.CancelFunc // Used to stop the background manager
 	done       chan struct{}      // Closed when manager loop exits
@@ -36,11 +33,10 @@ type Client struct {
 
 // Orchestrator (formerly ClientPool) orchestrates multiple MCP Clients.
 type Orchestrator struct {
-	logger         logging.Logger
-	mu             sync.RWMutex
-	clients        map[string]*Client // Keyed by server name
-	onPromptUpdate func(content string)
-	DialContext    func(ctx context.Context, network, addr string) (net.Conn, error)
+	logger      logging.Logger
+	mu          sync.RWMutex
+	clients     map[string]*Client // Keyed by server name
+	DialContext func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // ClientInterface allows mocking the client or using the real one.

@@ -713,6 +713,39 @@ func TestLocalToolRegistry_ReminderToolsHiddenFromUnattendedRuns(t *testing.T) {
 	}
 }
 
+type sessionsStub struct{ listed int }
+
+func (s *sessionsStub) RecentSessionIDs(string, int) []string {
+	s.listed++
+	return nil
+}
+func (s *sessionsStub) ReadSession(string, string) (*models.AssistantSession, error) {
+	return nil, nil
+}
+
+// The owner's past conversations are not for an unattended run or a connector chat to read: session_search is listed and callable only in
+// the operator's own chat.
+func TestLocalToolRegistry_SessionSearchOnlyInTheOperatorsOwnChat(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
+	store := &sessionsStub{}
+	r.WithSessions(store)
+	call := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolSessionSearch, Arguments: `{"query":"router"}`}}
+	for name, ctx := range map[string]context.Context{
+		"an unattended run": models.WithUnattendedRun(context.Background()),
+		"a connector chat":  models.WithOriginConnector(context.Background(), "telegram"),
+	} {
+		if slices.Contains(listedToolNames(t, r, ctx), models.ToolSessionSearch) {
+			t.Errorf("session_search must not be listed to %s", name)
+		}
+		if _, err := r.ExecuteTool(ctx, call); err == nil || store.listed != 0 {
+			t.Errorf("%s must be refused without reading: err=%v listed=%d", name, err, store.listed)
+		}
+	}
+	if !slices.Contains(listedToolNames(t, r, context.Background()), models.ToolSessionSearch) {
+		t.Error("an attended chat must see the tool")
+	}
+}
+
 // The model reaches the rest of a long file through read_file's offset and limit; models differ in whether they send
 // those as numbers or as text, and the schema the model is shown must offer them.
 func TestLocalToolRegistry_ReadFileInPieces(t *testing.T) {

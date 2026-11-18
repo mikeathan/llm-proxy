@@ -167,7 +167,10 @@ export interface RadioNetworkAP {
   name: string
   channel: number
   security: string
+  /** Confirmed as yours on the Network page (the one list of your networks). */
   confirmed: boolean
+  /** You confirmed it on this page before the lists were one: it still needs one confirmation on the Network page. */
+  confirmed_before?: boolean
   last_seen: string
   /** A guest network: a device on it is a visitor's, so using it is no evidence of being yours. */
   guest?: boolean

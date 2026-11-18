@@ -132,6 +132,8 @@ func networkModules(d stackDeps) []stack.Module {
 			Needs: []string{"router_log"}, Switch: n.PhoneHomeConfig, Monitors: []string{netaudit.MonitorPhoneHome}},
 		{ID: "router_connections", Title: "Router connections", Purpose: "Where each device connects, read from the router once a night.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsLAN, StepUp: true,
 			Switch: n.RouterConnConfig, Monitors: []string{netaudit.MonitorRouterConn}, Ready: func() (bool, string) { return routerConnReady(lan, n.RouterConn) }},
+		{ID: "router_clients", Title: "Joined devices, from the router", Purpose: "Keeps a dozing phone online, from the router's list of joined Wi-Fi devices.", Stack: stack.Network, Layer: "discover", Sends: stack.SendsLAN, StepUp: true,
+			Needs: []string{"presence"}, Switch: n.RouterClientsConfig, Ready: func() (bool, string) { return routerConnReady(lan, n.RouterConn) }},
 		{ID: "login_watch", Title: "Failed logins, this computer", Purpose: "Tells you when someone keeps failing to log in here.", Stack: stack.Network, Layer: "listen", Sends: stack.SendsNothing,
 			Switch: n.LoginWatchConfig, Monitors: []string{netaudit.MonitorLoginWatch}, Ready: loginReady},
 		{ID: "wifi_lookalikes", Title: "Wi-Fi look-alikes", Purpose: "Tells you when a Wi-Fi network copies yours.", Stack: stack.Network, Layer: "discover", Sends: stack.SendsNothing,
@@ -326,6 +328,9 @@ func (s *AppServices) newRadioHost(d radioHostDeps) (*stackHost, stackport.Vault
 		// The mesh router's list of joined devices, while a watch runs: the router manager reads it at most once every 30 s (Constitution I.15,
 		// ADR-0059); only this stack is given the port.
 		Mesh: stackport.Mesh{Vault: vault, Read: d.Mesh, Inventory: d.Inventory},
+		// The owner's Wi-Fi networks from the core's one list, as names and tags (ADR-0063): the stack proposes and reports access points against
+		// it and keeps no list of its own; the purposes asked are remembered so the core can check what the stack reports back.
+		Networks: stackport.Networks{Vault: vault, List: d.WifiNetworks, Asked: d.NetsAsked},
 	})
 	if err != nil {
 		return nil, stackport.Vault{}, err
@@ -346,6 +351,9 @@ type radioHostDeps struct {
 	Presence  func(models.NetworkDevice) models.DevicePresence
 	Asked     *stackport.AskedPurposes
 	Mesh      func(context.Context) (*models.MeshClients, error)
+	// WifiNetworks is the core's one list of the owner's Wi-Fi networks; NetsAsked remembers the purposes the stack asked it for.
+	WifiNetworks func() []models.WifiNetwork
+	NetsAsked    *stackport.AskedPurposes
 }
 
 // pokedSwitch wakes a listener's loop after the setting changed, as the feature's own route did, so the socket opens or closes

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// confirmHomeAP makes macAP one of the owner's confirmed access points, as the owner's confirmation does.
+// confirmHomeAP makes macAP one of the owner's confirmed access points, as a confirmation on the Network page does.
 func confirmHomeAP(t *testing.T, s *Store, r *Recorder, guest bool) {
 	t.Helper()
 	ctx := context.Background()
@@ -16,17 +16,12 @@ func confirmHomeAP(t *testing.T, s *Store, r *Recorder, guest bool) {
 	if err := s.ProposeOwnAP(ctx, OwnAP{Tag: apTag, Sealed: []byte{1}, Name: "home"}, t0); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SetOwnAPConfirmed(ctx, apTag, true); err != nil {
-		t.Fatal(err)
-	}
 	if guest {
 		if _, err := s.SetOwnAPGuest(ctx, apTag, true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := r.RefreshOwnAPs(ctx); err != nil {
-		t.Fatal(err)
-	}
+	confirmTags(t, r, apTag)
 }
 
 func rowOf(t *testing.T, s *Store, m MAC) FeatureRow {

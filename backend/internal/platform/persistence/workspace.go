@@ -752,6 +752,41 @@ func (m *WorkspaceManager) collectSessionIDs(workspaceID string) []string {
 	return sessionIDs
 }
 
+// RecentSessionIDs lists a workspace's conversation ids, the most recently written first, at most max, from the files' own times: no
+// conversation is decoded. A conversation in both the metadata directory and the legacy one is listed once.
+func (m *WorkspaceManager) RecentSessionIDs(workspaceID string, max int) []string {
+	type entry struct {
+		id string
+		at time.Time
+	}
+	seen := map[string]bool{}
+	var all []entry
+	for _, dir := range []string{m.resolver.SessionsDir(workspaceID), m.sessionOldDir(workspaceID)} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			id := strings.TrimSuffix(e.Name(), ".json")
+			if e.IsDir() || filepath.Ext(e.Name()) != ".json" || seen[id] {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			seen[id] = true
+			all = append(all, entry{id: id, at: info.ModTime()})
+		}
+	}
+	slices.SortStableFunc(all, func(a, b entry) int { return b.at.Compare(a.at) })
+	out := make([]string, 0, min(len(all), max))
+	for _, e := range all[:min(len(all), max)] {
+		out = append(out, e.id)
+	}
+	return out
+}
+
 // ListSessions returns a list of session summaries for a workspace.
 // Checks both the metadata directory and the legacy workspace directory.
 func (m *WorkspaceManager) ListSessions(workspaceID string) ([]models.SessionBrief, error) {

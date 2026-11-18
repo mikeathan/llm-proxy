@@ -119,6 +119,7 @@ export const API_ENDPOINTS = {
   restart: `${API_BASE}/system/restart`,
   factoryReset: `${API_BASE}/system/factory-reset`,
   clearRuntimeData: `${API_BASE}/system/clear-runtime-data`,
+  storage: `${API_BASE}/system/storage`,
   wipeout: `${API_BASE}/system/wipeout`,
   hostSettings: `${API_BASE}/host`,
   terminalReset: `${API_BASE}/host/terminal/reset`,

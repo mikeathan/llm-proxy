@@ -16,3 +16,12 @@ func TestOnlyTheRadioStackIsGivenTheRoutersListOfDevices(t *testing.T) {
 		}
 	}
 }
+
+// The core's list of the owner's Wi-Fi networks is given to the Radio stack only (ADR-0063).
+func TestOnlyTheRadioStackIsGivenTheOwnersWifiNetworks(t *testing.T) {
+	for _, m := range []stacksdk.Manifest{networkStack().Manifest(), agentsStack().Manifest(), radioStack().Manifest()} {
+		if got, want := slices.Contains(m.Requires, stacksdk.PortOwnNetworks), m.ID == radioStack().Manifest().ID; got != want {
+			t.Errorf("stack %q requires the ownnetworks port: %v", m.ID, got)
+		}
+	}
+}

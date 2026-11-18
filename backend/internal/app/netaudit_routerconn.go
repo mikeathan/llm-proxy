@@ -222,3 +222,28 @@ func routerConnReady(lan func() (bool, string), manager *routerconn.Manager) (bo
 	}
 	return true, ""
 }
+
+// newRouterJoined builds presence's read of the router's list of joined Wi-Fi devices (ADR-0062): its switch, and the look each presence look
+// runs. It reads through the same manager as a Radio watch (one read per 30 s, shared), only while the switch is on and the guardrails allow the
+// local network, and it needs nothing from the Radio stack: with Radio off or not hosted it works the same.
+func newRouterJoined(store netaudit.PolicyStore, manager *routerconn.Manager, inventory *netaudit.Inventory, lan func() (bool, string)) (*netaudit.RouterClientsConfig, *netaudit.RouterJoined) {
+	config := netaudit.NewRouterClientsConfig(store)
+	joined := netaudit.NewRouterJoined(netaudit.RouterJoined{
+		Enabled: func() bool {
+			ok, _ := lan()
+			return ok && config.Enabled()
+		},
+		Read:    manager.MeshClients,
+		Mark:    inventory.MarkJoined,
+		OnError: func(err error) { logging.Warn("network presence check", "error", err.Error()) },
+	})
+	return config, &joined
+}
+
+// routerJoined is presence's look at the router's list; nothing until the Network services are wired.
+func (s *AppServices) routerJoined(ctx context.Context) {
+	if s.netaudit == nil || s.netaudit.RouterJoined == nil {
+		return
+	}
+	s.netaudit.RouterJoined.Look(ctx)
+}

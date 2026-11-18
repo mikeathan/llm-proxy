@@ -233,6 +233,7 @@ A workspace's `assistant_profile` (workspace config `PUT`) and an automation's `
 | GET | `/admin/api/system` | System settings |
 | PUT | `/admin/api/system` | Update system |
 | POST | `/admin/api/system/restart` | Restart server |
+| GET | `/admin/api/system/storage` | What is stored in the data folder: one row per kind of store with its size and where it is removed, stack files with their caps, anything not recognised under its own name, the workspace folders as a size, and the volume's free space and level (read only) |
 
 ### Host
 
