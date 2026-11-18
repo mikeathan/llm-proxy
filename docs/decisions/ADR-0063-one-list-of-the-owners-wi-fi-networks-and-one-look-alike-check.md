@@ -46,6 +46,9 @@ side may depend on the other.
   reported as such.
   - The card marks them "You confirmed it on the Radio page before" and offers one press to confirm them.
   - They raise no alert or finding until then, and are never treated as confirmed.
+  - In Radio a join to one of them counts neither as the owner's evidence nor as a join to a foreign network (`ownBefore`,
+    `stacks/radio/recorder.go`), so no false `radio_join_foreign_network` is stored meanwhile. Radio's own marks for those boxes are off
+    until the owner confirms once: confirm right after deploying.
 - **Names move once.** At start-up the core moves `RadioConfig.OwnNetworks` into `WifiNetworks` and clears it (`moveRadioNetworkNames`).
   The field is no longer sent to the stack. Access points are not moved: a stack never writes the trusted list.
 

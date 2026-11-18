@@ -715,26 +715,31 @@ func TestLocalToolRegistry_ReminderToolsHiddenFromUnattendedRuns(t *testing.T) {
 
 type sessionsStub struct{ listed int }
 
-func (s *sessionsStub) ListSessions(string) ([]models.SessionBrief, error) {
+func (s *sessionsStub) RecentSessionIDs(string, int) []string {
 	s.listed++
-	return nil, nil
+	return nil
 }
 func (s *sessionsStub) ReadSession(string, string) (*models.AssistantSession, error) {
 	return nil, nil
 }
 
-// The owner's past conversations are not for an unattended run to read: session_search is listed and callable only in an attended chat.
-func TestLocalToolRegistry_SessionSearchHiddenFromUnattendedRuns(t *testing.T) {
+// The owner's past conversations are not for an unattended run or a connector chat to read: session_search is listed and callable only in
+// the operator's own chat.
+func TestLocalToolRegistry_SessionSearchOnlyInTheOperatorsOwnChat(t *testing.T) {
 	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
 	store := &sessionsStub{}
 	r.WithSessions(store)
-	unattended := models.WithUnattendedRun(context.Background())
-	if slices.Contains(listedToolNames(t, r, unattended), models.ToolSessionSearch) {
-		t.Error("session_search must not be listed to an unattended run")
-	}
 	call := proxy.ToolCall{Function: proxy.FunctionCall{Name: models.ToolSessionSearch, Arguments: `{"query":"router"}`}}
-	if _, err := r.ExecuteTool(unattended, call); err == nil || store.listed != 0 {
-		t.Errorf("an unattended run must be refused without reading: err=%v listed=%d", err, store.listed)
+	for name, ctx := range map[string]context.Context{
+		"an unattended run": models.WithUnattendedRun(context.Background()),
+		"a connector chat":  models.WithOriginConnector(context.Background(), "telegram"),
+	} {
+		if slices.Contains(listedToolNames(t, r, ctx), models.ToolSessionSearch) {
+			t.Errorf("session_search must not be listed to %s", name)
+		}
+		if _, err := r.ExecuteTool(ctx, call); err == nil || store.listed != 0 {
+			t.Errorf("%s must be refused without reading: err=%v listed=%d", name, err, store.listed)
+		}
 	}
 	if !slices.Contains(listedToolNames(t, r, context.Background()), models.ToolSessionSearch) {
 		t.Error("an attended chat must see the tool")

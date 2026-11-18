@@ -48,6 +48,7 @@ describe('WifiCard', () => {
     const rows = w.findAll('[data-test="wifi-seen"]')
     expect(rows[1]!.get('[data-test="wifi-seen-radio"]').text()).toBe('Heard by Radio')
     expect(rows[1]!.get('[data-test="wifi-seen-before"]').text()).toContain('Radio page before')
+    expect(rows[1]!.text()).not.toContain('% signal')
     await w.get('[data-test="wifi-confirm-before"]').trigger('click')
     await flushPromises()
     expect(service.confirmWifi).toHaveBeenCalledWith('home', [TWIN])

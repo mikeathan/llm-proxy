@@ -43,6 +43,9 @@ type Recorder struct {
 	// netPort is the core's list of the owner's networks, and ownConfirmed its confirmed access points as this epoch's tags (ownlist.go).
 	netPort      stacksdk.OwnNetworks
 	ownConfirmed map[string]bool
+	// ownBefore are access points the owner confirmed on the Radio page before the lists were one and has not confirmed in the core list yet:
+	// a join to one is counted neither as the owner's evidence nor as a join to a foreign network.
+	ownBefore map[string]bool
 
 	// lmu guards the LAN join (lan.go).
 	lmu        sync.Mutex
@@ -203,9 +206,11 @@ func (r *Recorder) noteJoin(ctx context.Context, device []byte, owner bool, bssi
 		return err
 	}
 	r.cmu.Lock()
-	own, anyOwn := r.ownAPs[string(ap)], len(r.ownAPs) > 0
+	own, anyOwn, before := r.ownAPs[string(ap)], len(r.ownAPs) > 0, r.ownBefore[string(ap)]
 	r.cmu.Unlock()
 	switch {
+	case before:
+		return nil // confirmed on the Radio page before the lists were one, not yet on the Network page: neither the owner's nor foreign
 	case own:
 		return r.store.MarkJoinedOwn(ctx, device)
 	case owner && anyOwn:
@@ -230,14 +235,19 @@ func (r *Recorder) RefreshOwnAPs(ctx context.Context) error {
 	}
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	set, all := map[string]bool{}, map[string]bool{}
+	set, all, before := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for t := range r.ownConfirmed {
 		all[t] = true
 		if !guest[t] {
 			set[t] = true // a guest network is the owner's, but a device on it is a visitor's
 		}
 	}
-	r.ownAPs, r.ownAll = set, all
+	for _, a := range aps {
+		if a.ConfirmedBefore && !r.ownConfirmed[string(a.Tag)] {
+			before[string(a.Tag)] = true
+		}
+	}
+	r.ownAPs, r.ownAll, r.ownBefore = set, all, before
 	return nil
 }
 

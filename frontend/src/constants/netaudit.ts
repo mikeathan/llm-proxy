@@ -614,6 +614,8 @@ export const WIFI_UNCONFIRMED_NOTE = 'None of its access points is confirmed yet
 export const WIFI_HEARD_BY_RADIO = 'Heard by Radio'
 export const WIFI_CONFIRMED_BEFORE = 'You confirmed it on the Radio page before'
 export const wifiConfirmBefore = (n: number): string => `Confirm the ${n === 1 ? 'one' : n} you confirmed on the Radio page`
+/** An access point's protection in words: "no security" for an open one. */
+export const wifiSecurityWord = (security: string): string => (security === 'open' ? 'no security' : security.toUpperCase())
 export const wifiSeenLine = (signal: number, security: string): string => `${signal}% signal \u00b7 ${security === 'open' ? 'no security' : security.toUpperCase()}`
 
 // Network · Settings · Privileged helper.

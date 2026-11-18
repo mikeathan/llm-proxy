@@ -27,9 +27,10 @@ const (
 	sessionSearchMaxWords = 8
 )
 
-// SessionReader is the part of the conversation store the search reads; *persistence.WorkspaceManager satisfies it.
+// SessionReader is the part of the conversation store the search reads; *persistence.WorkspaceManager satisfies it. RecentSessionIDs lists
+// without decoding, so only the conversations a search reads are opened.
 type SessionReader interface {
-	ListSessions(workspaceID string) ([]models.SessionBrief, error)
+	RecentSessionIDs(workspaceID string, max int) []string
 	ReadSession(workspaceID, sessionID string) (*models.AssistantSession, error)
 }
 
@@ -63,16 +64,12 @@ func (s *SessionSearchTools) Search(ctx context.Context, args struct {
 		limit = sessionSearchDefaultLimit
 	}
 	ws := models.GetWorkspaceID(ctx)
-	briefs, err := s.sessions.ListSessions(ws)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list the conversations: %w", err)
-	}
 	var hits []sessionHit
-	for _, b := range briefs[:min(len(briefs), sessionSearchMaxConversations)] {
+	for _, id := range s.sessions.RecentSessionIDs(ws, sessionSearchMaxConversations) {
 		if ctx.Err() != nil || len(hits) >= limit {
 			break
 		}
-		session, err := s.sessions.ReadSession(ws, b.ID)
+		session, err := s.sessions.ReadSession(ws, id)
 		if err != nil || session == nil {
 			continue
 		}

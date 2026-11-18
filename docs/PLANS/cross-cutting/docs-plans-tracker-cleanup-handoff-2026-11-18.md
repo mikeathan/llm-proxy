@@ -21,12 +21,15 @@ pull request. Nothing here has run on vertex.
 - Network presence reads the router's list of joined Wi-Fi devices (ADR-0062)
 - Measure which WorkspaceManager methods each consumer calls (coupling plan P0)
 - Remove the NodeHerder MCP system-prompt subscription nobody read
+- Hand over what is left of the branch, record two learnings, and bump to v0.104.0
+- Review fixes: no false foreign joins after the upgrade, session_search for the owner only, honest bounds
 
 ## Checks run (2026-11-18, on the final tree)
 
 - `cd backend && go build ./... && go test ./...`: pass. `go run ./tools/check-complexity/`: OK, no new violations.
 - `cd stacks/radio && GOWORK=off go test ./...`: pass. `cd stacks/sdk && go test ./...`: pass.
-- `cd frontend && npm test`: 326+ files pass. `npm run build`: pass. `npm run test:visual`: 394 passed.
+- `cd frontend && npm test`: 327 files, 3207 tests pass. `npm run build`: pass. `npm run test:visual`: 394 passed (before the last review
+  fixes; `e2e/network-wifi.visual.spec.ts` re-run after them: 2 passed).
 - `./scripts/check-agent-harness.sh`: PASS (and it now fails a live plan with an unknown status word; tried with `built`).
 
 ## What is left, in order
@@ -36,7 +39,8 @@ pull request. Nothing here has run on vertex.
      tab. The router's log should show at most one sign-in per 5 minutes from presence (ADR-0062).
    - Network → Settings → Watching → Wi-Fi look-alikes: `netsink-2G` is now in the list (moved from Radio). Its access points that you
      confirmed on the Radio page show "You confirmed it on the Radio page before". Press the "Confirm the … you confirmed on the Radio page"
-     button once per network. Until then they raise nothing. Then the Radio page's Your Wi-Fi networks shows them as confirmed (ADR-0063).
+     button once per network, **right after deploying**: until then they raise nothing, and Radio counts a join to them as neither yours nor
+     foreign, so its own-network marks for those boxes are off. Then the Radio page's Your Wi-Fi networks shows them as confirmed (ADR-0063).
    - Settings → Storage & logging → What is stored: read the rows. Any "Not described" row is a store to add to `coreStoreKinds`
      (`backend/internal/app/datausage.go`).
    - A chat: ask about something said in an earlier conversation; the assistant may call `session_search`.

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -18,13 +17,9 @@ type fakeSessions struct {
 	ws       string
 }
 
-func (f *fakeSessions) ListSessions(ws string) ([]models.SessionBrief, error) {
+func (f *fakeSessions) RecentSessionIDs(ws string, max int) []string {
 	f.ws = ws
-	out := make([]models.SessionBrief, 0, len(f.order))
-	for _, id := range f.order {
-		out = append(out, models.SessionBrief{ID: id})
-	}
-	return out, nil
+	return f.order[:min(len(f.order), max)]
 }
 
 func (f *fakeSessions) ReadSession(ws, id string) (*models.AssistantSession, error) {
@@ -99,19 +94,10 @@ func TestSessionSearch_NothingFoundAndNothingToSearch(t *testing.T) {
 	}
 }
 
-type failingSessions struct{ fakeSessions }
-
-func (*failingSessions) ListSessions(string) ([]models.SessionBrief, error) {
-	return nil, errors.New("disk")
-}
-
-func TestSessionSearch_AStoreThatCannotListIsAnError(t *testing.T) {
-	_, err := NewSessionSearchTools(&failingSessions{}).Search(context.Background(), struct {
-		Query string `json:"query"`
-		Limit int    `json:"limit"`
-	}{"router", 0})
-	if err == nil {
-		t.Error("want an error")
+// A workspace with no conversation says nothing matched.
+func TestSessionSearch_AWorkspaceWithNoConversation(t *testing.T) {
+	if got := search(t, NewSessionSearchTools(&fakeSessions{}), "router", 0); !strings.HasPrefix(got, "No earlier conversation") {
+		t.Errorf("%q", got)
 	}
 }
 

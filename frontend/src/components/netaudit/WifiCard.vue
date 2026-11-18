@@ -9,7 +9,7 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import { useWifi } from "../../composables/netaudit/useWifi"
 import {
   WIFI_ADD, WIFI_CONFIRM, WIFI_CONFIRMED_BEFORE, WIFI_DETAILS, WIFI_HEARD_BY_RADIO, WIFI_HINT, WIFI_LOOK, WIFI_NAME_LABEL, WIFI_NONE_SEEN, WIFI_NOT_LOOKED,
-  WIFI_REMOVE, WIFI_STEPS, WIFI_TITLE, WIFI_UNCONFIRMED_NOTE, wifiConfirmBefore, wifiSeenLine,
+  WIFI_REMOVE, WIFI_STEPS, WIFI_TITLE, WIFI_UNCONFIRMED_NOTE, wifiConfirmBefore, wifiSecurityWord, wifiSeenLine,
 } from "../../constants/netaudit"
 import { formatRelativeTime, isRecorded } from "../../utils/format/time"
 import type { WifiSeen } from "../../types/netaudit"
@@ -79,7 +79,7 @@ onMounted(load)
                   <input v-if="!a.confirmed" type="checkbox" class="h-4 w-4 flex-none accent-[rgb(var(--accent-brand))]" :checked="(ticked[n.name] ?? []).includes(a.bssid)" :aria-label="`${a.bssid} is mine`" @change="toggle(n.name, a.bssid, ($event.target as HTMLInputElement).checked)" />
                   <span class="font-mono text-[length:var(--text-small)] text-primary">{{ a.bssid }}</span>
                 </label>
-                <span class="text-[length:var(--text-small)] text-muted">{{ wifiSeenLine(a.signal, a.security) }}</span>
+                <span class="text-[length:var(--text-small)] text-muted">{{ a.radio && !a.signal ? wifiSecurityWord(a.security) : wifiSeenLine(a.signal, a.security) }}</span>
                 <span :class="['text-[length:var(--text-small)]', a.confirmed ? 'text-state-success' : 'text-state-running']">{{ a.confirmed ? "Confirmed as yours" : "Not confirmed" }}</span>
                 <span v-if="a.radio" class="text-[length:var(--text-small)] text-muted" data-test="wifi-seen-radio">{{ WIFI_HEARD_BY_RADIO }}</span>
                 <span v-if="a.confirmed_before && !a.confirmed" class="text-[length:var(--text-small)] text-muted" data-test="wifi-seen-before">{{ WIFI_CONFIRMED_BEFORE }}</span>

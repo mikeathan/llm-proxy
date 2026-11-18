@@ -162,3 +162,33 @@ func TestWithoutTheCoresListNothingIsTheOwners(t *testing.T) {
 		t.Errorf("aps = %+v", aps)
 	}
 }
+
+// After the upgrade, an access point the owner confirmed on the Radio page before (and not yet in the core list) is neither the owner's nor
+// foreign: one of the owner's devices joining it adds no foreign-join event, so no false finding is stored before the owner confirms it once.
+func TestAJoinToAnAccessPointConfirmedBeforeIsNeitherOwnNorForeign(t *testing.T) {
+	s, _ := openTest(t, 0)
+	r := NewRecorder(fakeVault{}, s)
+	ctx := context.Background()
+	coreList(t, r, []string{"home", "home-2G"}, neighbourAP)                 // the core confirms one access point
+	record(t, r, beacon("home-2G"), t0)                                      // macAP broadcasts the other name
+	if _, err := s.db.Exec(`UPDATE own_aps SET confirmed = 1`); err != nil { // as the Radio page used to
+		t.Fatal(err)
+	}
+	if err := r.SyncOwnNetworks(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AddOwnerDevice(ctx, mineMAC, "phone", t0); err != nil {
+		t.Fatal(err)
+	}
+	cycleOf(t, r, t0, assocTo(mineMAC, macAP))
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM events WHERE kind = ?`, eventJoinForeign).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("a join to an access point confirmed before is not foreign: %d events", n)
+	}
+	if own, _ := r.isOwnAP(ctx, macAP); own {
+		t.Error("and it is not the owner's evidence either, until the core list confirms it")
+	}
+}

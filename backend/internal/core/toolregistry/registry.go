@@ -672,12 +672,15 @@ func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegi
 	return r
 }
 
-// WithSessions enables session_search over the conversation store. It is scoped to attended runs: an unattended automation may be steered by
-// content it read, and the owner's past conversations are not for it to read.
+// WithSessions enables session_search over the conversation store. It is scoped to the operator's own chat, as memory_forget is: an
+// unattended automation may be steered by content it read, and whoever writes to a connector chat is not the owner, so neither may read the
+// owner's past conversations.
 func (r *LocalToolRegistry) WithSessions(store tools.SessionReader) *LocalToolRegistry {
 	r.Sessions = tools.NewSessionSearchTools(store)
-	attended := func(ctx context.Context) bool { return !models.IsUnattendedRun(ctx) }
-	registerScopedTool(r, models.ToolSessionSearch, attended, r.Sessions.Search)
+	ownerChat := func(ctx context.Context) bool {
+		return !models.IsUnattendedRun(ctx) && models.OriginConnector(ctx) == ""
+	}
+	registerScopedTool(r, models.ToolSessionSearch, ownerChat, r.Sessions.Search)
 	return r
 }
 
