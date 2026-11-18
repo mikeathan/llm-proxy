@@ -7,8 +7,10 @@ related_specs: [SPEC-004]
 > **Status summary (2026-09-05, plan-hygiene review):**
 > - ✅ Done: Phase 1 (nudge, usage meter, dedup); "Week 3" memory-tool improvements
 >   (replace-by-substring, user profile + UI).
-> - ⬜ **Open:** the Session Search tool (FTS5 `session_search`) — heading below says
->   "Phase 2 — Week 2" but was never started; and the Skill System (procedural memory).
+> - ✅ Done 2026-11-18: the Session Search tool `session_search`, built without the FTS5 index below: it searches the conversation files
+>   themselves (bounded, newest first), so a deleted conversation is never found and no second copy of what was said is kept
+>   (`internal/core/tools/session_search.go`, SPEC-004 3.5). Attended runs only.
+> - ⬜ **Open:** the Skill System (procedural memory).
 > - ⚠️ The plan contains two sections both numbered "Phase 2" (Week 2 = session search,
 >   Week 3 = tool improvements). The Week-3 one is relabelled **Phase 2b** below; internal
 >   task IDs (2.1–2.4) are unchanged.

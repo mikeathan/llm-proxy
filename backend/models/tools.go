@@ -89,6 +89,8 @@ const (
 	ToolMemorySearch = "memory_search"
 	ToolMemoryUpdate = "memory_update"
 	ToolMemoryForget = "memory_forget"
+	// ToolSessionSearch searches the words of this workspace's past conversations (attended runs only).
+	ToolSessionSearch = "session_search"
 
 	// Automation (unattended runs only)
 	ToolAutomationJournal = "automation_journal"
