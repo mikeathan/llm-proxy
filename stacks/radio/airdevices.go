@@ -296,6 +296,9 @@ type PresenceDevice struct {
 	LastHeard string         `json:"last_heard,omitempty"` // the start of the last hour it was heard
 	JoinedOwn bool           `json:"joined_own"`
 	Hours     []PresenceHour `json:"hours"`
+	// Network is what the network's presence check says of the device now, through the lan port (ADR-0061): online, away, or empty when it
+	// says nothing (the check is off, or the device is not in the inventory). The page uses it for a device the air has not heard lately.
+	Network stacksdk.LANPresence `json:"network,omitempty"`
 }
 
 // PresenceView is the answer of PresencePath.
@@ -303,7 +306,7 @@ type PresenceView struct {
 	Devices []PresenceDevice `json:"devices"`
 }
 
-func (s *Stack) presence(ctx context.Context, store *Store) (stacksdk.Response, error) {
+func (s *Stack) presence(ctx context.Context, rec *Recorder, store *Store) (stacksdk.Response, error) {
 	rules, err := store.CurrentRules(ctx, s.now())
 	if err != nil {
 		return plainError(http.StatusInternalServerError, "the presence could not be read")
@@ -320,11 +323,13 @@ func (s *Stack) presence(ctx context.Context, store *Store) (stacksdk.Response, 
 		return plainError(http.StatusInternalServerError, "the presence could not be read")
 	}
 	v := PresenceView{Devices: []PresenceDevice{}}
+	lan := rec.LANIndex(ctx)
 	for _, o := range owners {
 		d, err := presenceOf(ctx, store, rules, model, o, listening, from, now)
 		if err != nil {
 			return plainError(http.StatusInternalServerError, "the presence could not be read")
 		}
+		d.Network = lan[string(o.Tag)].Presence
 		v.Devices = append(v.Devices, d)
 	}
 	return jsonResponse(http.StatusOK, v)

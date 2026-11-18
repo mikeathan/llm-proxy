@@ -122,13 +122,31 @@ type Vault interface {
 // LANDevice is one device the core knows on the local network. Tag is the vault's tag of its hardware address under the purpose the stack asked
 // for, so it equals the tag the stack makes of the same address and nothing else; the address itself never crosses. Name is what the operator
 // called it (shown on screen only: never in a finding, a prompt or a message). Router is set for the gateway and for the addresses next to it
-// (Offset is how far: 0 is the gateway's own), which is where a router's Wi-Fi radios usually sit.
+// (Offset is how far: 0 is the gateway's own), which is where a router's Wi-Fi radios usually sit. Presence is what the core's presence check
+// says of the device now (empty for the router's neighbouring addresses).
 type LANDevice struct {
 	Tag        []byte
 	Name       string
 	Router     bool
 	Offset     int
 	Randomized bool
+	Presence   LANPresence
+}
+
+// LANPresence is whether the network sees a device now. The core says online or away only while its presence check is on and has looked
+// lately; otherwise it says nothing (PresenceUnknown), which is never to be read as away.
+type LANPresence string
+
+// The presence of a device on the network.
+const (
+	PresenceUnknown LANPresence = ""
+	PresenceOnline  LANPresence = "online"
+	PresenceAway    LANPresence = "away"
+)
+
+// Valid says whether p is one of the presences above.
+func (p LANPresence) Valid() bool {
+	return p == PresenceUnknown || p == PresenceOnline || p == PresenceAway
 }
 
 // LAN answers which devices the core knows on the local network, as tags under purpose (the same rules as Vault.Tag). The answer is bounded by
@@ -161,6 +179,49 @@ type MeshView struct {
 // an *Error: CodeUnavailable when the router is not set up or could not be read.
 type MeshClients interface {
 	Clients(ctx context.Context, purpose string) (MeshView, error)
+}
+
+// MaxAirFacts bounds the devices one air report carries; the core reads no more.
+const MaxAirFacts = 1024
+
+// The fixed words an air fact may carry. The core drops a value outside these lists.
+var (
+	// AirBands are the Wi-Fi bands a device can be heard on.
+	AirBands = []string{"2G", "5G", "6G"}
+	// AirRings are how far a device is estimated to be from the sensor, nearest first (an estimate with its uncertainty, never a fact).
+	AirRings = []string{"room", "house", "nearby", "far"}
+	// AirKinds are what a device is, from the stack's evidence ladder.
+	AirKinds = []string{"router", "phone", "computer", "tv", "speaker", "smart_home", "camera", "wearable", "printer", "console", "unknown"}
+)
+
+// AirFact is what a sensing stack heard of one device of the network inventory, as fixed values: no name, no address and nothing a frame said.
+// Tag is the tag the core gave the device through the lan port. Heard is when it was last heard (zero when it was not heard in the stack's
+// window); Band and Ring are from AirBands and AirRings (empty when not known); Moving says its signal moved a lot lately; OnYourWiFi says it
+// exchanged frames with one of the owner's confirmed access points; Kind is from AirKinds.
+type AirFact struct {
+	Tag        []byte    `json:"tag"`
+	Heard      time.Time `json:"heard,omitzero"`
+	Band       string    `json:"band,omitempty"`
+	Ring       string    `json:"ring,omitempty"`
+	Moving     bool      `json:"moving,omitempty"`
+	OnYourWiFi bool      `json:"on_your_wifi,omitempty"`
+	Kind       string    `json:"kind,omitempty"`
+}
+
+// AirReport is a sensing stack's answer about the devices of the network inventory. Listened says it finished a listening cycle in the last
+// day (LastCycle is when the latest ended), and Bands the bands it listened on: without them, a device not heard is unknown, never away.
+type AirReport struct {
+	Listened  bool      `json:"listened"`
+	LastCycle time.Time `json:"last_cycle,omitzero"`
+	Bands     []string  `json:"bands,omitempty"`
+	Devices   []AirFact `json:"devices"`
+}
+
+// AirReporter is implemented by a stack that declares Manifest.ReportsAir (ADR-0061). The core pulls it to show what the air says of the devices
+// on the Network page: it must be quick, must not send and must read only what the stack already kept. Its tags are made under a purpose the
+// stack asked the lan port for, so the core can match them to its inventory and nothing else; the core drops a tag of any other device.
+type AirReporter interface {
+	Air(ctx context.Context) (AirReport, error)
 }
 
 // StorageUse is how much of its data folder one file of a stack uses and the most it may use. It is counts and a time only, no names of
@@ -231,6 +292,9 @@ type StackFinding struct {
 	ID string `json:"id"`
 	// Subject is the device the finding is about.
 	Subject netip.Addr `json:"subject"`
+	// Device is the device the finding is about as the tag the lan port gave it, for a stack that knows devices only by tag (ADR-0061); the core
+	// maps it to the inventory device's address, or drops the finding. A finding gives Subject or Device, not both.
+	Device []byte `json:"device,omitempty"`
 	// Count is how many times, or in a row, the stack saw it.
 	Count int `json:"count,omitempty"`
 	// Names are host names the operator chose to watch.
@@ -560,5 +624,5 @@ type Privileged interface {
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON
 // round trip (Constitution IV.6).
 func PortTypes() []any {
-	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}}
+	return []any{Manifest{}, Event{}, FetchRequest{}, FetchResponse{}, ModuleStatus{}, Tally{}, RunRequest{}, RunResult{}, Error{}, ToolSpec{}, RouteSpec{}, Request{}, Response{}, PrivilegedRequest{}, PrivilegedResult{}, StackFinding{}, LookRequest{}, LookResult{}, Pair{}, WebTarget{}, WebRequest{}, WebHit{}, WebResult{}, CertFact{}, CertResult{}, RouterRequest{}, RouterMapping{}, RouterResult{}, Observation{}, SecretHit{}, Alert{}, StorageUse{}, LANDevice{}, AirFact{}, AirReport{}}
 }

@@ -2,6 +2,7 @@
 import type { Ref } from 'vue'
 import type { SettingsTab } from './admin'
 import type { NetworkTab } from './routes'
+import type { RadioDeviceKind } from './radio'
 
 /** Simple shows plain sentences and what needs a look; Advanced shows ports, versions and the full list. */
 export type NetauditViewMode = 'simple' | 'advanced'
@@ -433,6 +434,32 @@ export interface NetworkDevice {
   udp_scanned_at?: string
   os_guesses?: OsGuess[]
   os_detected_at?: string
+  /** What Radio heard of the device over the air, as fixed values (ADR-0061); absent when Radio has nothing for it. */
+  air?: DeviceAir
+}
+
+/** The Wi-Fi bands and the radar's rings a device can be heard on and placed in (stacksdk.AirBands, AirRings). */
+export type AirBand = '2G' | '5G' | '6G'
+export type AirRing = 'room' | 'house' | 'nearby' | 'far'
+
+/** What Radio heard of one device of the network: when it was last heard (absent when not lately), and while heard the band, where and whether
+ * it moves; what Radio thinks it is; and whether it used one of your confirmed access points. */
+export interface DeviceAir {
+  heard?: string
+  band?: AirBand
+  ring?: AirRing
+  moving?: boolean
+  on_your_wifi?: boolean
+  kind?: RadioDeviceKind
+}
+
+/** Whether Radio can say anything now: off, not listening in the last day, listening, or its report could not be read. */
+export type AirState = 'off' | 'not_listening' | 'listening' | 'unreadable'
+
+export interface AirView {
+  state: AirState
+  last_cycle?: string
+  bands?: AirBand[]
 }
 
 /** The router's hardware address and whether it is the one on record. */
@@ -447,6 +474,8 @@ export interface DeviceInventory {
   devices: NetworkDevice[]
   gateway: DeviceGateway
   baselined: boolean
+  /** Whether Radio can say anything of the devices now; absent when the join is not wired. */
+  air?: AirView
   updated_at: string
 }
 

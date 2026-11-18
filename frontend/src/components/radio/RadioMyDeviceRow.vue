@@ -4,7 +4,7 @@ import Icon from "../icons/Icon.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { formatRelativeTime } from "../../utils/format/time"
-import { hoursLine } from "../../utils/radio/myDevices"
+import { hoursLine, rowState } from "../../utils/radio/myDevices"
 import type { MyDeviceRow } from "../../types/radio"
 import { toRadioDevice } from "../../router/routes"
 import { RADIO_KIND_ICON } from "../../constants/radioIdentity"
@@ -19,7 +19,9 @@ import {
 // them as gaps and could not tell what they meant.
 const props = defineProps<{ row: MyDeviceRow; advanced: boolean; busy: boolean }>()
 const emit = defineEmits<{ (e: "remove", row: MyDeviceRow): void }>()
-const NOW_STATE = { here: "running", away: "neutral", not_listening: "queued" } as const
+const NOW_STATE = { here: "running", on_network: "running", away: "neutral", not_listening: "queued" } as const
+// One status from both listeners: a device the network sees now is home even when the air has not heard it lately (ADR-0061).
+const shown = computed(() => rowState(props.row))
 const facts = computed(() => {
   const r = props.row
   const out = [r.lastHeard ? radioLastHeardLine(formatRelativeTime(r.lastHeard)) : RADIO_NEVER_HEARD]
@@ -36,16 +38,16 @@ const details = computed(() => {
 </script>
 
 <template>
-  <li class="flex flex-col gap-2 py-3" data-test="radio-my-device" :data-id="row.short" :data-state="row.state">
+  <li class="flex flex-col gap-2 py-3" data-test="radio-my-device" :data-id="row.short" :data-state="shown">
     <div class="flex items-start gap-3">
       <RouterLink :to="toRadioDevice(row.short)" class="flex min-h-11 min-w-0 flex-1 items-start gap-3 rounded-[var(--radius-md)] hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2" data-test="radio-my-device-open">
-        <span class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-[var(--radius-md)] border" :class="row.state === 'here' ? 'border-accent-brand text-accent-brand' : 'border-hairline text-muted'" aria-hidden="true">
+        <span class="mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-[var(--radius-md)] border" :class="shown === 'here' || shown === 'on_network' ? 'border-accent-brand text-accent-brand' : 'border-hairline text-muted'" aria-hidden="true">
           <Icon :name="RADIO_KIND_ICON[row.kind]" size="sm" />
         </span>
         <span class="flex min-w-0 flex-1 flex-col gap-1">
           <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span class="min-w-0 break-words font-medium text-primary" data-test="radio-my-device-name">{{ row.label }}</span>
-            <StatusTag :state="NOW_STATE[row.state]" :label="RADIO_NOW_WORDS[row.state]" />
+            <StatusTag :state="NOW_STATE[shown]" :label="RADIO_NOW_WORDS[shown]" />
           </span>
           <span class="text-[length:var(--text-small)] text-secondary" data-test="radio-my-device-facts">{{ facts.join(" · ") }}</span>
           <span class="text-[length:var(--text-small)] text-muted" data-test="radio-my-device-hours">{{ hoursLine(row) }}</span>

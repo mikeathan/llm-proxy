@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
 
+	"llm-proxy/internal/core/devicejoin"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/netaudit/names"
 	"llm-proxy/models"
@@ -45,8 +47,14 @@ type DNSSilence interface {
 	SilentDevices(inv models.DeviceInventory) map[string]bool
 }
 
+// AirJoin is what the air says of the inventory's devices (devicejoin.Join, ADR-0061): a state, and fixed facts by hardware address.
+type AirJoin interface {
+	View(ctx context.Context) models.AirView
+}
+
 // NetauditDevicesHandlers serve the device list and the presence check's settings.
 type NetauditDevicesHandlers struct {
+	air         AirJoin
 	devices     DeviceInventory
 	presence    PresenceControl
 	suggestions NameSuggestions
@@ -68,6 +76,12 @@ func (h *NetauditDevicesHandlers) WithDNSSilence(s DNSSilence) *NetauditDevicesH
 	return h
 }
 
+// WithAir has the list carry what the air says of each device; without it the list says nothing of the air.
+func (h *NetauditDevicesHandlers) WithAir(a AirJoin) *NetauditDevicesHandlers {
+	h.air = a
+	return h
+}
+
 // WithVendors has the list name the maker of each card; without it no maker is shown.
 func (h *NetauditDevicesHandlers) WithVendors(v netaudit.VendorLookup) *NetauditDevicesHandlers {
 	h.vendors = v
@@ -85,7 +99,7 @@ func NewNetauditDevicesHandlers(devices DeviceInventory, presence PresenceContro
 }
 
 // List returns every device seen on the network, those that need a look first, and the router's hardware address.
-func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, _ *http.Request) {
+func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, r *http.Request) {
 	inv, err := h.devices.View()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -102,7 +116,23 @@ func (h *NetauditDevicesHandlers) List(w http.ResponseWriter, _ *http.Request) {
 	}
 	h.addPorts(&view)
 	h.addSilence(&view, inv)
+	h.addAir(r.Context(), &view)
 	respondJSON(w, view)
+}
+
+// addAir puts the air's state on the list and its facts on each device it has them for. A sensing stack that is off or could not be read adds
+// only its state, so the page can say so once and never reads it as "not there".
+func (h *NetauditDevicesHandlers) addAir(ctx context.Context, view *netaudit.InventoryView) {
+	if h.air == nil {
+		return
+	}
+	air := h.air.View(ctx)
+	view.Air = &air
+	for i, d := range view.Devices {
+		if fact, ok := devicejoin.Of(air, d.MAC); ok {
+			view.Devices[i].Air = &fact
+		}
+	}
 }
 
 // addSilence marks each device the watch calls silent.
@@ -165,12 +195,12 @@ func (h *NetauditDevicesHandlers) Update(w http.ResponseWriter, r *http.Request)
 		writeJSONError(w, http.StatusBadRequest, "say what to change: a name, approved, important or clear_probe")
 		return
 	}
-	h.respondChange(w, err)
+	h.respondChange(w, r, err)
 }
 
 // Forget removes a device from the list; if it is on the network it comes back as a new device.
 func (h *NetauditDevicesHandlers) Forget(w http.ResponseWriter, r *http.Request) {
-	h.respondChange(w, h.devices.Forget(r.PathValue("mac")))
+	h.respondChange(w, r, h.devices.Forget(r.PathValue("mac")))
 }
 
 // DismissSuggestion rejects the name a device gave when asked, so it is not offered again. It names nothing and approves
@@ -180,21 +210,21 @@ func (h *NetauditDevicesHandlers) DismissSuggestion(w http.ResponseWriter, r *ht
 		writeJSONError(w, http.StatusNotFound, names.ErrNoSuggestion.Error())
 		return
 	}
-	h.respondChange(w, h.suggestions.Dismiss(r.PathValue("mac")))
+	h.respondChange(w, r, h.suggestions.Dismiss(r.PathValue("mac")))
 }
 
 // ConfirmGateway accepts the router's current hardware address as the right one. It silences the alarm for a spoofed
 // router, so it is a step-up route.
-func (h *NetauditDevicesHandlers) ConfirmGateway(w http.ResponseWriter, _ *http.Request) {
-	h.respondChange(w, h.devices.ConfirmGateway())
+func (h *NetauditDevicesHandlers) ConfirmGateway(w http.ResponseWriter, r *http.Request) {
+	h.respondChange(w, r, h.devices.ConfirmGateway())
 }
 
-func (h *NetauditDevicesHandlers) respondChange(w http.ResponseWriter, err error) {
+func (h *NetauditDevicesHandlers) respondChange(w http.ResponseWriter, r *http.Request, err error) {
 	if err != nil {
 		writeJSONError(w, deviceStatus(err), err.Error())
 		return
 	}
-	h.List(w, nil)
+	h.List(w, r)
 }
 
 func deviceStatus(err error) int {

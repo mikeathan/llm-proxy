@@ -39,6 +39,8 @@ type DeviceView struct {
 	UDPScannedAt time.Time             `json:"udp_scanned_at,omitzero"`
 	OSGuesses    []models.ProbeOSGuess `json:"os_guesses,omitempty"`
 	OSDetectedAt time.Time             `json:"os_detected_at,omitzero"`
+	// Air is what the Radio stack heard of the device, as fixed values (ADR-0061); nil when it has nothing for it. Shown on screen only.
+	Air *models.DeviceAir `json:"air,omitempty"`
 }
 
 // GatewayView is the router's hardware address and whether it is the one on record.
@@ -55,6 +57,8 @@ type InventoryView struct {
 	Gateway   GatewayView  `json:"gateway"`
 	Baselined bool         `json:"baselined"`
 	UpdatedAt time.Time    `json:"updated_at"`
+	// Air is whether the air can say anything now (off, not listening, listening, unreadable), when the join is wired.
+	Air *models.AirView `json:"air,omitempty"`
 }
 
 // VendorLookup names the maker of a network card from its hardware address, or returns "" when it does not know. The registry of

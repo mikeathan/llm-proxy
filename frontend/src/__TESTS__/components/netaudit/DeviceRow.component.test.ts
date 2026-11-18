@@ -57,3 +57,26 @@ describe('DeviceRow problems link', () => {
     expect(w.find('[data-test="device-problems"]').exists()).toBe(false)
   })
 })
+
+// What Radio heard follows "First seen" in the opened row (ADR-0061): never a new line, never on the folded row, and nothing while Radio is off.
+describe('DeviceRow air phrase', () => {
+  const heard = device({ air: { heard: new Date().toISOString(), ring: 'house', band: '5G', kind: 'phone' } })
+  const open = (d: NetworkDevice, airState?: 'listening' | 'off', advanced = false) =>
+    mount(DeviceRow, { props: { device: d, expanded: true, editing: false, draft: '', busy: false, advanced, airState } })
+
+  it('says when and where in the opened row, on the First seen line', () => {
+    const w = open(heard, 'listening')
+    const phrase = w.get('[data-test="device-air"]')
+    expect(phrase.text()).toContain('heard over the air')
+    expect(phrase.text()).toContain('in the house')
+    expect(phrase.element.parentElement?.textContent).toContain('First seen')
+  })
+
+  it('keeps the band for Advanced and says nothing while Radio is off or on a folded row', () => {
+    expect(open(heard, 'listening').get('[data-test="device-air"]').text()).not.toContain('GHz')
+    expect(open(heard, 'listening', true).get('[data-test="device-air"]').text()).toContain('5 GHz')
+    expect(open(heard, 'off').find('[data-test="device-air"]').exists()).toBe(false)
+    const folded = mount(DeviceRow, { props: { device: heard, expanded: false, editing: false, draft: '', busy: false, advanced: false, airState: 'listening' } })
+    expect(folded.find('[data-test="device-air"]').exists()).toBe(false)
+  })
+})

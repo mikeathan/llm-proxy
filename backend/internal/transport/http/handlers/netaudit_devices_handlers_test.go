@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -247,6 +248,46 @@ func TestDevicesHandlers_ListMarksTheDevicesThatAskTheRouterForNothing(t *testin
 	plain := NewNetauditDevicesHandlers(devices, &fakePresence{})
 	if strings.Contains(do(plain.List, http.MethodGet, "/admin/api/netaudit/devices", "").Body.String(), "dns_silent") {
 		t.Error("without a watch no device carries the flag")
+	}
+}
+
+type fakeAir models.AirView
+
+func (f fakeAir) View(context.Context) models.AirView { return models.AirView(f) }
+
+// The list carries the air's state once and its facts on the devices it has them for; without a join it says nothing of the air.
+func TestDevicesHandlers_ListCarriesWhatTheAirSaysOfEachDevice(t *testing.T) {
+	now := time.Now()
+	devices := &fakeDevices{inv: models.DeviceInventory{Baselined: true, Devices: []models.NetworkDevice{
+		{MAC: "AA:BB:CC:00:00:01", IP: "192.168.1.5", FirstSeen: now, LastSeen: now},
+		{MAC: "aa:bb:cc:00:00:02", IP: "192.168.1.6", FirstSeen: now, LastSeen: now},
+	}}}
+	air := fakeAir{State: models.AirListening, ByMAC: map[string]models.DeviceAir{"aa:bb:cc:00:00:01": {Heard: now, Ring: "house", Kind: "phone"}}}
+	h := NewNetauditDevicesHandlers(devices, &fakePresence{}).WithAir(air)
+	body := do(h.List, http.MethodGet, "/admin/api/netaudit/devices", "").Body.Bytes()
+	var got netaudit.InventoryView
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Air == nil || got.Air.State != models.AirListening {
+		t.Fatalf("the air's state: %+v", got.Air)
+	}
+	by := map[string]netaudit.DeviceView{}
+	for _, d := range got.Devices {
+		by[strings.ToLower(d.MAC)] = d
+	}
+	if a := by["aa:bb:cc:00:00:01"].Air; a == nil || a.Ring != "house" || a.Kind != "phone" {
+		t.Errorf("the first device's air: %+v", a)
+	}
+	if by["aa:bb:cc:00:00:02"].Air != nil {
+		t.Error("a device the air has nothing for carries nothing")
+	}
+	if strings.Contains(string(body), "by_mac") {
+		t.Error("the join's index by hardware address is never sent")
+	}
+	plain := NewNetauditDevicesHandlers(devices, &fakePresence{})
+	if strings.Contains(do(plain.List, http.MethodGet, "/admin/api/netaudit/devices", "").Body.String(), "\"air\"") {
+		t.Error("without a join the list says nothing of the air")
 	}
 }
 

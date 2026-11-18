@@ -1,6 +1,6 @@
 import type { ChoiceOption } from '../types/ui'
 import type { NetworkSettingsGroup } from '../types/routes'
-import type { DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, ProblemLayout, RequirementCode, DestinationTable, TrafficKindWord, TrafficWhereView, RequirementCopy } from '../types/netaudit'
+import type { AirBand, AirRing, DeviceAction, DeviceFilter, DeviceStatus, HelpSection, IPv6DiscoveryProblem, NearbyFilter, NearbyKind, NearbyStatus, NetauditHelpTopic, NetauditViewMode, ProblemLayout, RequirementCode, DestinationTable, TrafficKindWord, TrafficWhereView, RequirementCopy } from '../types/netaudit'
 
 // Network scan screens (plan network-audit, F-A): wording and fixed choices. The server names what is missing; the
 // words around it live here.
@@ -1099,3 +1099,14 @@ export const PLACE_NEW = 'New today'
 export const ROUTER_CONN_WATCH_ON = 'Watching: a history is kept of where each device connects, and the nightly audit reads the router. New companies and countries show as New today.'
 export const ROUTER_CONN_WATCH_OFF = 'No history yet. Switch on Router connections in Modules to mark what is new each day and to read the router in the nightly audit.'
 export const ROUTER_CONN_WATCH_LINK = 'Open Modules'
+
+// What Radio heard of a device over the air, said on the device's row (ADR-0061): one phrase beside "First seen", never a line of its own. The
+// place words match Radio's "where in the house" (utils/radio/where.ts): the radar's outer rings are only "far", because your own devices two
+// floors down sit on them too.
+export const DEVICE_AIR_HEARD = (when: string): string => `heard over the air ${when}`
+export const DEVICE_AIR_NOT_HEARD = 'not heard over the air lately'
+export const DEVICE_AIR_PLACE: Record<AirRing, string> = { room: 'near this computer', house: 'in the house', nearby: 'far from this computer', far: 'far from this computer' }
+export const DEVICE_AIR_BAND: Record<AirBand, string> = { '2G': '2.4 GHz', '5G': '5 GHz', '6G': '6 GHz' }
+export const DEVICE_AIR_MOVING = 'moving'
+export const DEVICE_AIR_YOUR_WIFI = 'on your Wi-Fi'
+export const DEVICE_AIR_KIND = (kind: string): string => `Radio thinks: ${kind}`

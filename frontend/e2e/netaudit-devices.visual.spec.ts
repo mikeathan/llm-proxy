@@ -26,6 +26,11 @@ const STATES = {
     devices: { devices: [device({ mac: 'aa:bb:cc:00:00:09', ip: '192.168.1.77', approved: false, new: true, suggested_name: 'Samsung' }), device({ ip: '192.168.1.8', suggested_name: 'example-laptop-with-a-long-name' })], gateway: { ip: '192.168.1.1', mac: 'aa:bb:cc:00:00:02', changed: false }, baselined: true, updated_at: seen },
     presence,
   },
+  // What Radio heard follows "First seen" in an opened row (ADR-0061): the longest Advanced phrase must still fit a phone.
+  air: {
+    devices: { devices: [device({ name: 'Phone', air: { heard: seen, ring: 'house', band: '5G', moving: true, on_your_wifi: true, kind: 'tv' } }), device({ mac: 'aa:bb:cc:00:00:02', ip: '192.168.1.6', name: 'Laptop', air: { kind: 'computer' } })], gateway: { changed: false }, baselined: true, updated_at: seen, air: { state: 'listening', last_cycle: seen, bands: ['2G', '5G'] } },
+    presence,
+  },
   // Unnamed devices: the open ports from the last scan help tell them apart, and the prompt opens the naming list.
   unnamed: {
     devices: { devices: [device({ ip: '192.168.1.5', open_ports: [22, 80, 8080], ports_scanned_at: seen }), device({ mac: 'aa:bb:cc:00:00:02', ip: '192.168.1.6', open_ports: [], ports_scanned_at: seen }), device({ mac: 'aa:bb:cc:00:00:03', ip: '192.168.1.7', name: 'Printer' })], gateway: { changed: false }, baselined: true, updated_at: seen },
@@ -86,6 +91,17 @@ for (const view of ['simple', 'advanced'] as const) {
         await expect(card.getByText(view === 'advanced' ? 'Open ports: 22, 80, 8080' : '3 open ports')).toBeVisible()
         await expect(card.getByText('No open ports')).toBeVisible()
         await expect(card.getByText('Printer')).toHaveCount(0)
+        await expectNoSidewaysScroll(page)
+      }
+      if (name === 'air') {
+        const folded = card.locator('[data-test="device-toggle"][aria-expanded="false"]')
+        while (await folded.count()) await folded.first().click()
+        const phone = card.locator('[data-test="device-aa:bb:cc:00:00:01"] [data-test="device-air"]')
+        await expect(phone).toContainText('heard over the air')
+        await expect(phone).toContainText('in the house')
+        await expect(card.locator('[data-test="device-aa:bb:cc:00:00:02"] [data-test="device-air"]')).toContainText('not heard over the air lately')
+        if (view === 'advanced') await expect(phone).toContainText('Radio thinks: TV or streamer')
+        else await expect(phone).not.toContainText('GHz')
         await expectNoSidewaysScroll(page)
       }
       if (name === 'router-changed') {

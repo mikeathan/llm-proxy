@@ -23,6 +23,9 @@ type stackHost struct {
 	host  stacksdk.Host
 	// observes is the kinds of observation the manifest announced, read once: Observe runs on every agent event, so it must not rebuild the manifest.
 	observes map[string]bool
+	// tags maps the tags the lan port gave this stack to the inventory devices' addresses, for a finding offered by tag (ADR-0061); nil drops
+	// every such finding.
+	tags func(ctx context.Context) (map[string]netip.Addr, error)
 }
 
 // newStackHost checks the manifest and that the host gives every port the manifest requires (and none it does not).
@@ -142,13 +145,39 @@ func (h *stackHost) Offered(ctx context.Context) ([]netaudit.OfferedFinding, err
 			declared[id] = true
 		}
 	}
+	subjects, err := h.tagSubjects(ctx, got)
+	if err != nil {
+		return nil, fmt.Errorf("failed to map the findings of stack %q to devices: %w", h.stack.Manifest().ID, err)
+	}
 	var out []netaudit.OfferedFinding
 	for _, f := range got {
-		if declared[f.ID] {
-			out = append(out, netaudit.OfferedFinding{ID: f.ID, Subject: f.Subject, Count: f.Count, Names: slices.Clone(f.Names), Since: f.Since})
+		subject, ok := subjectOf(f, subjects)
+		if declared[f.ID] && ok {
+			out = append(out, netaudit.OfferedFinding{ID: f.ID, Subject: subject, Count: f.Count, Names: slices.Clone(f.Names), Since: f.Since})
 		}
 	}
 	return out, nil
+}
+
+// tagSubjects is the map from tags to devices, read once when some finding is offered by tag; nil when none is or the host has no map.
+func (h *stackHost) tagSubjects(ctx context.Context, got []stacksdk.StackFinding) (map[string]netip.Addr, error) {
+	if h.tags == nil || !slices.ContainsFunc(got, func(f stacksdk.StackFinding) bool { return len(f.Device) > 0 }) {
+		return nil, nil
+	}
+	return h.tags(ctx)
+}
+
+// subjectOf is the device a finding is about: its address, or the address of the inventory device its tag names. A finding that gives both,
+// or a tag that names no inventory device, has no subject and is dropped.
+func subjectOf(f stacksdk.StackFinding, subjects map[string]netip.Addr) (netip.Addr, bool) {
+	if len(f.Device) == 0 {
+		return f.Subject, true
+	}
+	if f.Subject.IsValid() {
+		return netip.Addr{}, false
+	}
+	a, ok := subjects[string(f.Device)]
+	return a, ok
 }
 
 // lookTimeout bounds how long the nightly report waits for a sensor: 64 devices, two questions each, four at a time, two seconds a question is

@@ -1,7 +1,7 @@
 import { radioHeardWhen, radioHoursLine, radioStretchSince, radioStretchSpan } from '../../constants/radio'
 import { formatTime } from '../format/time'
 import { whereOf } from './where'
-import type { MyDeviceRow, RadioHeardStretch, RadioHourState, RadioLiveDevice, RadioOwnerDevice, RadioPresenceDevice } from '../../types/radio'
+import type { MyDeviceRow, RadioHeardStretch, RadioLiveDevice, RadioOwnerDevice, RadioPresenceDevice, RadioRowState } from '../../types/radio'
 
 // Radio · My devices: one row per device of yours, from the three reads the tab makes (your devices, where they were hour by hour, and the live
 // picture while listening). Pure functions over what the server sent; no state.
@@ -11,9 +11,13 @@ const SHORT_ID = 8
 const DAY_HOURS = 24
 /** How many stretches the sentence names, newest first kept; the rest are counted. */
 const STRETCHES_SAID = 3
-const STATE_ORDER: Record<RadioHourState, number> = { here: 0, away: 1, not_listening: 2 }
+const STATE_ORDER: Record<RadioRowState, number> = { here: 0, on_network: 1, away: 2, not_listening: 3 }
 
-/** The rows, here now first, then away, then not known; by name within each. */
+/** A row's one status: heard here now wins; otherwise a device the network sees now is home on the network, whatever the air says, because a
+ * sleeping phone is heard over the air only every few minutes (vertex, 2026-11-18); otherwise the air's own state. */
+export const rowState = (r: Pick<MyDeviceRow, 'state' | 'onNetwork'>): RadioRowState => (r.state !== 'here' && r.onNetwork ? 'on_network' : r.state)
+
+/** The rows, here now first, then home on the network, then away, then not known; by name within each. */
 export function myDeviceRows(devices: RadioOwnerDevice[], presence: RadioPresenceDevice[], live: RadioLiveDevice[]): MyDeviceRow[] {
   const byID = new Map(presence.map((p) => [p.id, p]))
   const liveBy = new Map(live.map((d) => [d.id, d]))
@@ -26,10 +30,10 @@ export function myDeviceRows(devices: RadioOwnerDevice[], presence: RadioPresenc
       id: d.id, short, label: d.label, cls: d.class, classBy: d.class_by,
       state: p?.state ?? 'not_listening', lastHeard: p?.last_heard, signal: p?.signal,
       heard24: last.filter((h) => h.state === 'here').length, listened24: last.filter((h) => h.state !== 'not_listening').length, stretches: heardStretches(last),
-      kind: l?.ident?.kind ?? 'unknown', where: l ? whereOf(l) : '', moving: !!l?.moving,
+      kind: l?.ident?.kind ?? 'unknown', where: l ? whereOf(l) : '', moving: !!l?.moving, onNetwork: p?.network === 'online',
     }
   })
-  return rows.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.label.localeCompare(b.label))
+  return rows.sort((a, b) => STATE_ORDER[rowState(a)] - STATE_ORDER[rowState(b)] || a.label.localeCompare(b.label))
 }
 
 /** The hours heard in a row, joined: each stretch from the start of its first hour to the end of its last, and no end when it runs into the

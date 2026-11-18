@@ -123,7 +123,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 					Watches: "The wireless adapters plugged into this computer, from the system's own records.",
 					Never:   "It sends nothing and listens to nothing yet. With no adapter it does nothing at all.",
 					ShowsUp: "On the Radio page.",
-				}},
+				},
+				Finds: []string{findingForeign}},
 		},
 		Routes: []stacksdk.RouteSpec{
 			{Method: http.MethodGet, Path: RoutePath},
@@ -144,7 +145,8 @@ func (s *Stack) Manifest() stacksdk.Manifest {
 		Settings: stacksdk.SettingsSchema{Key: SettingsKey, Version: 1},
 		Requires: []string{stacksdk.PortConfig, stacksdk.PortEvents, stacksdk.PortLog, stacksdk.PortDataDir, stacksdk.PortVault, stacksdk.PortPrivileged, stacksdk.PortLAN,
 			stacksdk.PortMeshClients},
-		Storage: []string{DBFile},
+		Storage:    []string{DBFile},
+		ReportsAir: true,
 	}
 }
 
@@ -193,8 +195,7 @@ func (s *Stack) CallTool(_ context.Context, name string, _ json.RawMessage) (jso
 	return nil, stacksdk.Errorf(stacksdk.CodeNotFound, "no tool "+name)
 }
 
-// Findings: the stack offers nothing to the nightly report yet.
-func (s *Stack) Findings(context.Context) ([]stacksdk.StackFinding, error) { return nil, nil }
+// Findings (airreport.go) offers the nightly report one finding per device of the network inventory, by tag.
 
 // Handle answers the one route: discovery, read fresh each time (a few small files), so a plugged-in adapter shows on the next look.
 func (s *Stack) Handle(ctx context.Context, req stacksdk.Request) (stacksdk.Response, error) {

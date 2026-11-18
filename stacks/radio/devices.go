@@ -81,7 +81,7 @@ func (s *Stack) handleDevices(ctx context.Context, req stacksdk.Request) (stacks
 	routes := map[string]func() (stacksdk.Response, error){
 		http.MethodGet + " " + DevicesPath:   func() (stacksdk.Response, error) { return s.listOwners(ctx, store) },
 		http.MethodPost + " " + DevicesPath:  func() (stacksdk.Response, error) { return s.addOwner(ctx, rec, req.Body) },
-		http.MethodGet + " " + PresencePath:  func() (stacksdk.Response, error) { return s.presence(ctx, store) },
+		http.MethodGet + " " + PresencePath:  func() (stacksdk.Response, error) { return s.presence(ctx, rec, store) },
 		http.MethodDelete + " " + DevicePath: func() (stacksdk.Response, error) { return s.removeOwner(ctx, store, req.Params["id"]) },
 		http.MethodPost + " " + ForgetPath:   func() (stacksdk.Response, error) { return s.forget(ctx, rec) },
 	}

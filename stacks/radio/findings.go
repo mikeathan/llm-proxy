@@ -320,6 +320,25 @@ func (s *Store) ownerEventDevices(ctx context.Context, kind string, sinceDay int
 	return n, err
 }
 
+// eventCounts is how many events of the kind each device had from sinceDay on, by tag.
+func (s *Store) eventCounts(ctx context.Context, kind string, sinceDay int64) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT tag, sum(n) FROM events WHERE kind = ? AND day >= ? GROUP BY tag`, kind, sinceDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var tag []byte
+		var n int
+		if err := rows.Scan(&tag, &n); err != nil {
+			return nil, err
+		}
+		out[string(tag)] = n
+	}
+	return out, rows.Err()
+}
+
 // hiddenNear counts hidden networks (a zero-length name) of other people heard from sinceDay on at a signal of at least strongDBm.
 func (s *Store) hiddenNear(ctx context.Context, sinceDay int64, strongDBm int) (int, error) {
 	var n int

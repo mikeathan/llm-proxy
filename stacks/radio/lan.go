@@ -17,6 +17,8 @@ const lanCacheFor = time.Minute
 type LANInfo struct {
 	Name   string
 	Router bool
+	// Presence is what the network's presence check says of the device now (empty when it says nothing).
+	Presence stacksdk.LANPresence
 	// Self is the name of this computer's own interface when the device is this computer's Wi-Fi card (host.go); it wins over the inventory.
 	Self string
 }
@@ -67,9 +69,17 @@ func (r *Recorder) inventoryIndex(ctx context.Context, epoch int) (map[string]LA
 		if has && !cur.Router {
 			continue // a device's own entry wins over the router's neighbouring addresses
 		}
-		idx[string(d.Tag)] = LANInfo{Name: d.Name, Router: d.Router && (!has || cur.Router)}
+		idx[string(d.Tag)] = LANInfo{Name: d.Name, Router: d.Router && (!has || cur.Router), Presence: lanPresence(d.Presence)}
 	}
 	return idx, nil
+}
+
+// lanPresence keeps a presence the SDK knows and drops any other word.
+func lanPresence(p stacksdk.LANPresence) stacksdk.LANPresence {
+	if !p.Valid() {
+		return stacksdk.PresenceUnknown
+	}
+	return p
 }
 
 // addHost marks this computer's own wireless interfaces in the index (host.go); they win over the inventory. lmu is held.

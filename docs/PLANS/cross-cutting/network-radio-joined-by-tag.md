@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: in-progress
 date: 2026-11-18
 last_reviewed: 2026-11-18
 related_specs: [SPEC-006]
@@ -59,5 +59,39 @@ second report. *Needs:* SDK change and ADR-0036 amended.
 ## Recommendation
 1 first (small, rule-safe, fixes the "phone not heard" confusion the owner saw), then 2 with its ADR; 3 and 4 after 2 exists.
 
+## Chosen design (2026-11-18, owner: "the full work", in a fresh branch, no more noise in the UI, each side independent)
+
+**One owner of the join.** `backend/internal/core/devicejoin` is the only code that sees both sides. It holds no store and no key: it reads the
+inventory, pulls Radio's air report through the stack host (timeout, "could not read"), re-tags each inventory hardware address under the
+purpose Radio itself used for the `lan` port, and keeps only the facts whose tag matches an inventory device. Its answer is cached for a minute.
+It is wired in `internal/app` (`netaudit.go`), the only place that names a stack.
+
+**Ports (SDK, plain data).**
+- `LANDevice` gains `Presence` (`online`, `away`, or empty when unknown). The core sets `Presence` only while its presence
+  check is on and has looked lately; empty is never read as "away".
+- `AirReporter` (optional, declared by `Manifest.ReportsAir`, which needs `PortLAN`): `Air(ctx)` answers `AirReport`: the purpose its tags are
+  made under, whether it listened in the last day and its last cycle, the bands it listened on, and per inventory device an `AirFact` of fixed
+  values (last heard, band, ring, moving, on your Wi-Fi, kind). Only devices the stack matched to the inventory are in it; the core drops any
+  other tag, and accepts only a purpose the same stack asked the `lan` port for (`stackport.LAN` remembers them).
+- `StackFinding` gains `Device` (a tag) and `TagPurpose`: a finding about an inventory device by tag. The core maps it to the device's address
+  or drops it (ADR-0036 amended by ADR-0061).
+
+**What each side gains.**
+1. Radio, My devices: a device not heard over the air but online on the network reads **"Home · on the network"** instead of "Not heard lately"
+   (the same one tag, never an extra one).
+2. Network, a device row: one sentence in the opened row, "Over the air: a phone, in the house, heard 2 minutes ago" (Advanced adds the band
+   and "moving"). Nothing is added to the closed row and nothing shows while Radio is off or has not listened in the last day.
+3b. The new-device alert gains one fixed phrase when Radio listened: "Heard over the air inside the house." or "Not heard over the air."
+3c + 4. Radio offers `radio_join_foreign_network` per inventory device by tag; the nightly report words it on that device.
+
+**Each side off.** Radio off or not listening: no air facts, no phrase, no finding; the Network page is as before. Presence check off: Radio's
+rows keep their air-only words. Either failure is a "could not read" in the log, never "not there".
+
+**Parked, with reasons.** 3a (deauth burst and devices dropping off): the presence check keeps only a last-seen time, not when devices left,
+and Radio counts deauthentication senders per day, so there is no honest join yet. 3d (one look-alike check): Radio's `radio_rogue_twin`
+raises no alert and its subject is an access point, which no inventory device is, so switching the core's check off would silently lose the
+alert; merging the two lists of confirmed access points is the owner's decision.
+
 ## Remaining work
-- Owner: choose the steps; approve the SDK change for 1; read I.16 for 2.
+Built in v0.102.0 on branch `network-radio-join` (ADR-0061). What is left, the checks run and the owner's decisions are in
+[`network-radio-join-handoff-2026-11-18.md`](network-radio-join-handoff-2026-11-18.md).
