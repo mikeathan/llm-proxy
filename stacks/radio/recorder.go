@@ -29,13 +29,23 @@ type Recorder struct {
 	epoch  int
 
 	// cmu guards the open cycle, the owner's network names and the tags of the owner's confirmed access points.
-	cmu        sync.Mutex
-	cycle      map[string]*agg
-	sighted    map[string]*sighting // what is already written of each sender this cycle, so a repeat frame inside it costs no write
-	ownNames   map[string]bool
-	ownAPs     map[string]bool
-	apNets     map[MAC]apNet     // the networks beacons announced this cycle, until the cycle ends (the address is only ever in memory)
-	netNames   map[string]string // device tag to the network name it broadcasts: memory only, per run, never written (ADR-0053)
+	cmu      sync.Mutex
+	cycle    map[string]*agg
+	sighted  map[string]*sighting // what is already written of each sender this cycle, so a repeat frame inside it costs no write
+	ownNames map[string]bool
+	ownAPs   map[string]bool
+	apNets   map[MAC]apNet       // the networks beacons announced this cycle, until the cycle ends (the address is only ever in memory)
+	netNames map[string]string   // device tag to the network name it broadcasts: memory only, per run, never written (ADR-0053)
+	links    map[MAC]map[MAC]int // this cycle: device to access point to frames exchanged (links.go)
+	idents   map[string]Identity // this cycle: what each sender's frames said about the product (links.go)
+	knownAPs map[MAC]struct{}    // this run: the access points heard beacon, bounded (links.go)
+	ownAll   map[string]bool     // the owner's confirmed access points, guest ones included (lan.go)
+
+	// lmu guards the LAN join (lan.go).
+	lmu        sync.Mutex
+	lan        stacksdk.LAN
+	lanIndex   map[string]LANInfo
+	lanAt      time.Time
 	live       map[string]*liveDev
 	tracks     map[string][]trackPt // memory only, per run (live.go)
 	trackHours atomic.Int32         // 0: nothing finer than a day goes to the disk (ADR-0055)
@@ -110,7 +120,7 @@ func (r *Recorder) BeginCycle() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
 	r.cycle = map[string]*agg{}
-	r.apNets = nil
+	r.apNets, r.links, r.idents = nil, nil, nil
 	r.sighted = map[string]*sighting{}
 }
 
@@ -119,14 +129,14 @@ func (r *Recorder) BeginCycle() {
 func (r *Recorder) DropCycle() {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	r.cycle, r.sighted, r.apNets = nil, nil, nil
+	r.cycle, r.sighted, r.apNets, r.links, r.idents = nil, nil, nil, nil, nil
 }
 
 // EndCycle writes the finished cycle and then lets the classifier look at what it changed.
 func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
 	r.cmu.Lock()
-	heard, nets := r.cycle, r.apNets
-	r.cycle, r.apNets = nil, nil
+	heard, nets, links, idents := r.cycle, r.apNets, r.links, r.idents
+	r.cycle, r.apNets, r.links, r.idents = nil, nil, nil, nil
 	r.absorbCycle(heard, at)
 	r.cmu.Unlock()
 	if heard == nil {
@@ -138,10 +148,16 @@ func (r *Recorder) EndCycle(ctx context.Context, at time.Time) error {
 	if err := r.writeNetworks(ctx, nets); err != nil {
 		return err
 	}
+	if err := r.writeLinks(ctx, links); err != nil {
+		return err
+	}
+	if err := r.writeIdentities(ctx, idents); err != nil {
+		return err
+	}
 	if err := r.keepTrack(ctx, at, heard); err != nil {
 		return err
 	}
-	_, err := r.store.ClassifyAll(ctx, at)
+	_, err := r.store.ClassifyAllWith(ctx, at, r.LANIndex(ctx))
 	return err
 }
 
@@ -160,6 +176,8 @@ func (r *Recorder) addToCycle(tag []byte, f Frame) {
 	if f.Transmitter[0]&2 != 0 { // a locally administered address: a phone's per-network random one
 		a.random = true
 	}
+	r.noteIdentity(tag, f.Ident)
+	r.noteLink(f)
 }
 
 // eventJoinForeign counts a device of the owner's asking to join an access point that is not one of the owner's confirmed ones.
@@ -205,14 +223,17 @@ func (r *Recorder) RefreshOwnAPs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	set := map[string]bool{}
+	set, all := map[string]bool{}, map[string]bool{}
 	for _, a := range aps {
+		if a.Confirmed && !a.Guest {
+			set[string(a.Tag)] = true // a guest network is the owner's, but a device on it is a visitor's
+		}
 		if a.Confirmed {
-			set[string(a.Tag)] = true
+			all[string(a.Tag)] = true
 		}
 	}
 	r.cmu.Lock()
-	r.ownAPs = set
+	r.ownAPs, r.ownAll = set, all
 	r.cmu.Unlock()
 	return nil
 }
@@ -410,8 +431,9 @@ func (r *Recorder) ForgetNeighbours(ctx context.Context) error {
 
 // apNet is what a beacon said about the access point that sent it.
 type apNet struct {
-	name string
-	gen  int
+	name  string
+	gen   int
+	ident Identity
 }
 
 // maxCycleNets bounds the networks one cycle remembers: a flood of forged beacons cannot grow it.
@@ -421,7 +443,8 @@ const maxCycleNets = 512
 func (r *Recorder) noteNetwork(f Frame) {
 	r.cmu.Lock()
 	defer r.cmu.Unlock()
-	if r.cycle == nil || (f.SSID == "" && f.Beacon.Generation == 0) {
+	r.noteKnownAP(f.BSSID)
+	if r.cycle == nil || (f.SSID == "" && f.Beacon.Generation == 0 && f.Ident == (Identity{})) {
 		return
 	}
 	if r.apNets == nil {
@@ -435,6 +458,7 @@ func (r *Recorder) noteNetwork(f Frame) {
 		n.name = f.SSID
 	}
 	n.gen = max(n.gen, f.Beacon.Generation)
+	n.ident = mergeIdentity(n.ident, f.Ident)
 	r.apNets[f.BSSID] = n
 }
 
@@ -443,18 +467,44 @@ func (r *Recorder) noteNetwork(f Frame) {
 func (r *Recorder) writeNetworks(ctx context.Context, nets map[MAC]apNet) error {
 	infos := make([]NetInfo, 0, len(nets))
 	names := make(map[string]string, len(nets))
+	idents := make([]IdentityRow, 0, len(nets))
+	boxes := make([]BoxRow, 0, len(nets))
+	mine := make(map[string]bool, len(nets))
 	for mac, n := range nets {
 		tag, err := r.tag(ctx, tagDevice, mac[:])
 		if err != nil {
 			return err
 		}
+		own, err := r.isOwnAPAny(ctx, mac)
+		if err != nil {
+			return err
+		}
+		mine[string(tag)] = own
+		key := boxKey(mac)
+		box, err := r.tag(ctx, tagBox, key[:])
+		if err != nil {
+			return err
+		}
 		infos = append(infos, NetInfo{Tag: tag, Gen: n.gen})
+		boxes = append(boxes, BoxRow{Tag: tag, Box: box})
+		if n.ident != (Identity{}) {
+			idents = append(idents, IdentityRow{Tag: tag, Manufacturer: n.ident.Manufacturer, Model: n.ident.Model, Category: n.ident.Category, Hint: n.ident.Hint})
+		}
 		if n.name != "" {
 			names[string(tag)] = n.name
 		}
 	}
 	r.rememberNames(names)
-	return r.store.SetWifiGenerations(ctx, infos)
+	if err := r.store.SetWifiGenerations(ctx, infos); err != nil {
+		return err
+	}
+	if err := r.store.SetBoxes(ctx, boxes); err != nil {
+		return err
+	}
+	if err := r.store.SetOwnAPRows(ctx, mine); err != nil {
+		return err
+	}
+	return r.store.SetIdentities(ctx, idents)
 }
 
 // rememberNames adds network names to the run's memory, bounded like the live picture.

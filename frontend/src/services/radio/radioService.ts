@@ -1,6 +1,6 @@
 import { API_ENDPOINTS } from '../../constants/api'
 import { del, get, post, put } from '../httpClient'
-import type { HelperSession, RadioAir, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanSave, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioMarkedMine, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
+import type { HelperSession, RadioAir, RadioAroundNetworks, RadioAsk, RadioDeviceView, RadioDeviceKind, RadioAirwaves, RadioClass, RadioDigest, RadioLive, RadioScan, RadioScanSave, RadioTrack, RadioKeeping, RadioPresence, RadioListenState, RadioMarkedMine, RadioNetworks, RadioOwnerDevice, RadioPlanView, RadioView } from '../../types/radio'
 
 /** The Radio stack: the sensors page, the listening run, the owner's devices. Reading the sensors sends nothing and listens to nothing. */
 export class RadioService {
@@ -69,9 +69,39 @@ export class RadioService {
     return get<RadioLive>(API_ENDPOINTS.radioLive)
   }
 
-  /** Takes one of the owner's devices as standing one metre from the computer, so every distance is measured from it. */
-  static calibrate(id: string): Promise<{ calibrated: boolean }> {
-    return post<{ calibrated: boolean }>(`${API_ENDPOINTS.radioCalibrate}/${encodeURIComponent(id)}`, {})
+  /** Takes one of your devices (or access points) as standing `metres` from the computer (one when not given), so every distance is measured from it. */
+  static calibrate(id: string, metres?: number): Promise<{ calibrated: boolean }> {
+    return post<{ calibrated: boolean }>(`${API_ENDPOINTS.radioCalibrate}/${encodeURIComponent(id)}`, metres ? { metres } : {})
+  }
+
+  /** One device in full: what names it, why, the network and router it belongs to, its class history. */
+  static device(id: string): Promise<RadioDeviceView> {
+    return get<RadioDeviceView>(`${API_ENDPOINTS.radioDevice}/${encodeURIComponent(id)}`)
+  }
+
+  /** Every router around the house, its radios and the devices that use it. */
+  static aroundNetworks(): Promise<RadioAroundNetworks> {
+    return get<RadioAroundNetworks>(API_ENDPOINTS.radioAroundNetworks)
+  }
+
+  /** The few devices your answer would help the classifier most with. */
+  static ask(): Promise<RadioAsk> {
+    return get<RadioAsk>(API_ENDPOINTS.radioAsk)
+  }
+
+  /** Says what a device is; 'unknown' hands the kind back to the evidence. */
+  static setKind(id: string, kind: RadioDeviceKind): Promise<{ kind: RadioDeviceKind }> {
+    return put<{ kind: RadioDeviceKind }>(`${API_ENDPOINTS.radioKind}/${encodeURIComponent(id)}`, { kind })
+  }
+
+  /** Says which class a device is; 'not_mine' lets the server record a neighbour's or a passer-by, and an empty class hands it back to the classifier. */
+  static setClass(id: string, cls: RadioClass | '' | 'not_mine'): Promise<{ class: string }> {
+    return put<{ class: string }>(`${API_ENDPOINTS.radioClass}/${encodeURIComponent(id)}`, { class: cls })
+  }
+
+  /** Marks one of your access points as a guest network. */
+  static setGuest(id: string, guest: boolean): Promise<{ guest: boolean }> {
+    return put<{ guest: boolean }>(`${API_ENDPOINTS.radioNetworks}/${encodeURIComponent(id)}/guest`, { guest })
   }
 
   /** Makes a device heard on the radar the owner's, by the short id the radar shows. Only a marker is kept, not an address. */

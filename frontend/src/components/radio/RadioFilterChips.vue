@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { RADIO_CHIP_WORDS, RADIO_CLASS_ORDER, RADIO_FILTER_ALL, RADIO_FILTER_LABEL, RADIO_FILTER_MINE, RADIO_FILTER_UNUSUAL } from "../../constants/radio"
+import { RADIO_FILTER_LIKELY, RADIO_FILTER_NEW, RADIO_FILTER_ROUTERS } from "../../constants/radioIdentity"
 import { countFor } from "../../utils/radio/around"
 import type { RadioAroundFilter, RadioLiveDevice } from "../../types/radio"
 
-// Radio · the filter chips with their counts: everyone, yours, those unlike their usual, then each kind. The count is over every device the picture
-// holds, so a chip never says 0 for something the list would show. A chip narrows both the radar and the list.
-const props = defineProps<{ devices: RadioLiveDevice[]; modelValue: RadioAroundFilter }>()
+// Radio · the filter chips with their counts: everyone, yours, likely yours (the evidence says so), routers, new today, those unlike their usual,
+// then each kind. The count is over every device the picture holds, so a chip never says 0 for something the list would show. A chip narrows both
+// the radar and the list; a chip with nothing in it is not shown, except All and Yours.
+const props = defineProps<{ devices: RadioLiveDevice[]; modelValue: RadioAroundFilter; today?: string }>()
 const emit = defineEmits<{ (e: "update:modelValue", value: RadioAroundFilter): void }>()
 const chips = computed(() => [
   { id: "all" as RadioAroundFilter, label: RADIO_FILTER_ALL },
   { id: "mine" as RadioAroundFilter, label: RADIO_FILTER_MINE },
+  { id: "likely" as RadioAroundFilter, label: RADIO_FILTER_LIKELY },
+  { id: "routers" as RadioAroundFilter, label: RADIO_FILTER_ROUTERS },
+  { id: "new" as RadioAroundFilter, label: RADIO_FILTER_NEW },
   { id: "unusual" as RadioAroundFilter, label: RADIO_FILTER_UNUSUAL },
   ...RADIO_CLASS_ORDER.map((c) => ({ id: c as RadioAroundFilter, label: RADIO_CHIP_WORDS[c] })),
-].map((c) => ({ ...c, n: countFor(props.devices, c.id) })).filter((c) => c.n > 0 || c.id === "all" || c.id === "mine"))
+].map((c) => ({ ...c, n: countFor(props.devices, c.id, props.today ?? "") })).filter((c) => c.n > 0 || c.id === "all" || c.id === "mine" || c.id === props.modelValue))
 </script>
 
 <template>

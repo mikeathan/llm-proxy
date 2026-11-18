@@ -1,18 +1,25 @@
 import type { RadioAroundFilter, RadioChange, RadioChannelCount, RadioLiveDevice } from "../../types/radio"
+import { isRouter, ownershipOf } from "./identity"
 
 // Radio · Around you: the pure rules behind the filter chips, the three views and the "find my device" shortlist. No state, no timers.
 
 const FIND_MAX = 3
 
-/** Whether a device belongs to a chip: everyone, the owner's, those unlike their usual, or one kind of someone else's. */
-export function matchesFilter(d: RadioLiveDevice, filter: RadioAroundFilter): boolean {
-  if (filter === "all") return true
-  if (filter === "mine") return d.mine
-  if (filter === "unusual") return !!d.unusual
+/** Whether a device belongs to a chip: everyone, yours, likely yours (the evidence, not your word), routers, new today, those unlike their usual,
+ * or one kind of someone else's. `today` (YYYY-MM-DD) is what "new" is measured against. */
+export function matchesFilter(d: RadioLiveDevice, filter: RadioAroundFilter, today = ""): boolean {
+  switch (filter) {
+    case "all": return true
+    case "mine": return d.mine
+    case "likely": return ownershipOf(d) === "likely"
+    case "routers": return isRouter(d)
+    case "new": return !!today && d.detail?.first_seen === today
+    case "unusual": return !!d.unusual
+  }
   return !d.mine && d.class === filter
 }
 
-export const countFor = (devices: RadioLiveDevice[], filter: RadioAroundFilter): number => devices.filter((d) => matchesFilter(d, filter)).length
+export const countFor = (devices: RadioLiveDevice[], filter: RadioAroundFilter, today = ""): number => devices.filter((d) => matchesFilter(d, filter, today)).length
 
 /** Closest first, the owner's own before everyone else's. */
 export function byCloseness(list: RadioLiveDevice[]): RadioLiveDevice[] {
@@ -20,8 +27,8 @@ export function byCloseness(list: RadioLiveDevice[]): RadioLiveDevice[] {
 }
 
 /** The devices the radar and the list show: the chip, the channel, and whether the ones not heard now are drawn. */
-export function narrow(devices: RadioLiveDevice[], o: { filter: RadioAroundFilter; channel: number | null; showUsual: boolean }): RadioLiveDevice[] {
-  return devices.filter((d) => matchesFilter(d, o.filter) && (o.channel === null || d.channel === o.channel) && (o.showUsual || !d.usual))
+export function narrow(devices: RadioLiveDevice[], o: { filter: RadioAroundFilter; channel: number | null; showUsual: boolean; hideBrief?: boolean; today?: string }): RadioLiveDevice[] {
+  return devices.filter((d) => matchesFilter(d, o.filter, o.today) && (o.channel === null || d.channel === o.channel) && (o.showUsual || !d.usual) && !(o.hideBrief && !d.mine && d.class === "transient"))
 }
 
 /** Arrivals first heard today, devices unlike their usual, and devices usually here that are not heard now. A day is the finest the stored history knows. */

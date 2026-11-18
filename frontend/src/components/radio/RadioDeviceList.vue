@@ -1,14 +1,19 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
+import { useRouter } from "vue-router"
 import RadioDeviceRow from "./RadioDeviceRow.vue"
+import { toRadioDevice } from "../../router/routes"
 import { RADIO_LIST_LESS, RADIO_LIST_NONE, RADIO_RADAR_USUAL_HIDE, RADIO_RADAR_USUAL_SHOW, radioListMore, radioUsualMore } from "../../constants/radio"
 import type { RadioLiveDevice } from "../../types/radio"
 
-// Radio · the one list of devices, already narrowed by the chips, the channel and the "usual" switch. Closest first; a row opens the device.
+// Radio · the one list of devices, already narrowed by the chips, the channel and the "usual" switch. Closest first; a row picks the device and its
+// arrow opens the device's own page.
 const props = defineProps<{ devices: RadioLiveDevice[]; selected: string | null; now: number; usualHidden: number; usualOn: boolean }>()
 const emit = defineEmits<{ (e: "pick", id: string): void; (e: "usual", on: boolean): void }>()
 const PAGE = 12
 const showAll = ref(false)
+const router = useRouter()
+function open(id: string): void { void router.push(toRadioDevice(id)) }
 const rows = computed(() => (showAll.value ? props.devices : props.devices.slice(0, PAGE)))
 const hidden = computed(() => props.devices.length - rows.value.length)
 </script>
@@ -18,7 +23,7 @@ const hidden = computed(() => props.devices.length - rows.value.length)
     <p v-if="!devices.length" class="m-0 text-secondary" data-test="radio-list-none">{{ RADIO_LIST_NONE }}</p>
     <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" data-test="radio-radar-list">
       <li v-for="d in rows" :key="d.id" data-test="radio-radar-row" :data-usual="d.usual ? 1 : 0">
-        <RadioDeviceRow :device="d" :selected="selected === d.id" :now="now" @pick="emit('pick', $event)" />
+        <RadioDeviceRow :device="d" :selected="selected === d.id" :now="now" @pick="emit('pick', $event)" @open="open" />
       </li>
     </ul>
     <p v-if="usualHidden > 0 || usualOn" class="m-0 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[length:var(--text-small)] text-muted" data-test="radio-radar-usual">

@@ -14,6 +14,7 @@ const AutomationsView = () => import('../views/AutomationsView.vue')
 const NetworkView = () => import('../views/NetworkView.vue')
 const AgentsView = () => import('../views/AgentsView.vue')
 const RadioView = () => import('../views/RadioView.vue')
+const RadioDeviceView = () => import('../views/RadioDeviceView.vue')
 const RemindersView = () => import('../views/RemindersView.vue')
 const ModelsView = () => import('../views/ModelsView.vue')
 const ActivityView = () => import('../views/ActivityView.vue')
@@ -66,6 +67,8 @@ export const routes: RouteRecordRaw[] = [
   { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', fullWidth: true, title: 'Network' } },
   { path: `/agents/:tab(${AGENTS_TAB_PATTERN})?`, name: ROUTE_NAMES.agents, component: AgentsView, meta: { destination: 'agents', fullWidth: true, title: 'Agents' } },
   { path: `/radio/:tab(${RADIO_TAB_PATTERN})?`, name: ROUTE_NAMES.radio, component: RadioView, meta: { destination: 'radio', fullWidth: true, title: 'Radio' } },
+  // One device in full. Its own segment ("device"), so the tab pattern above never captures it.
+  { path: '/radio/device/:id([0-9a-f]{8})', name: ROUTE_NAMES.radioDevice, component: RadioDeviceView, meta: { destination: 'radio', fullWidth: true, title: 'Radio device' } },
   { path: '/reminders', name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },

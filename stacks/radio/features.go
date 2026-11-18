@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +26,25 @@ type agg struct {
 	random    bool
 	// gen is the highest Wi-Fi generation a frame of this device announced (4, 5 or 6), 0 when none did.
 	gen int
+	// crossed is set when the cycle's mean signal jumped by crossJumpDB or more from the cycle before (absorbCycle): one crossing.
+	crossed bool
+}
+
+// The quiet hours (local time, [nightFrom, nightTo)): a device heard then on many days is always-on equipment, not a person. Only one bit a day is
+// kept, never the hour.
+const (
+	nightFrom   = 1
+	nightTo     = 5
+	crossJumpDB = 10.0 // a jump this big between one cycle's mean and the next is movement; an access point's wobble is smaller
+)
+
+func isNight(t time.Time) bool { h := t.Local().Hour(); return h >= nightFrom && h < nightTo }
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // channelBit is the bit a channel has in a channel mask: its place in validChannels (0 for a channel the plan cannot visit).
@@ -68,6 +89,7 @@ func (a *agg) add(f Frame) {
 // for the day. It is one transaction, so a cycle is counted whole or not at all.
 func (s *Store) FlushCycle(ctx context.Context, at time.Time, heard map[string]*agg) error {
 	day := dayNumber(at)
+	night := isNight(at)
 	return s.write(ctx, func() error {
 		tx, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
@@ -86,11 +108,12 @@ func (s *Store) FlushCycle(ctx context.Context, at time.Time, heard map[string]*
 			if a.hasMax {
 				mx = a.max
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO daily(tag, day, cycles, frames, sig_n, sig_sum, sig_sq, sig_max, retries, channels) VALUES(?,?,1,?,?,?,?,?,?,?)
+			if _, err := tx.ExecContext(ctx, `INSERT INTO daily(tag, day, cycles, frames, sig_n, sig_sum, sig_sq, sig_max, retries, channels, night, crossings) VALUES(?,?,1,?,?,?,?,?,?,?,?,?)
 				ON CONFLICT(tag, day) DO UPDATE SET cycles = cycles + 1, frames = frames + excluded.frames, sig_n = sig_n + excluded.sig_n,
 				sig_sum = sig_sum + excluded.sig_sum, sig_sq = sig_sq + excluded.sig_sq, retries = retries + excluded.retries, channels = channels | excluded.channels,
+				night = max(night, excluded.night), crossings = crossings + excluded.crossings,
 				sig_max = CASE WHEN excluded.sig_max IS NULL THEN sig_max WHEN sig_max IS NULL THEN excluded.sig_max ELSE max(sig_max, excluded.sig_max) END`,
-				[]byte(tag), day, a.frames, a.n, a.sum, a.sq, mx, a.retries, int64(a.channels)); err != nil {
+				[]byte(tag), day, a.frames, a.n, a.sum, a.sq, mx, a.retries, int64(a.channels), boolInt(night), boolInt(a.crossed)); err != nil {
 				return err
 			}
 			if err := flushOwnerHour(ctx, tx, []byte(tag), hour, a, mx); err != nil {
@@ -151,32 +174,55 @@ type FeatureRow struct {
 	Random       bool
 	JoinedOwn    bool
 	// Maker and WifiGen are what its frames said about it (ADR-0057): the maker of its address block and the highest Wi-Fi generation it announced.
-	Maker    string
-	WifiGen  int
-	FirstDay int64 // the first day with a row
-	LastDay  int64 // the last day with a row (the device's own last day when it has none)
-	Days     int
-	Cycles   int
-	Frames   int
-	Retries  int
-	Channels uint64
-	SigN     int64
-	SigSum   int64
-	SigSq    int64
-	SigMax   int
-	HasMax   bool
+	Maker   string
+	WifiGen int
+	// What it says it is, the network it uses, its box, its kind and the classifier's state (ADR-0058).
+	WPSMaker, Model, Hint string
+	Category              int
+	Sig                   uint64
+	Net, Box              []byte
+	OwnCycles             int
+	OwnAP                 bool
+	Kind, KindBy          string
+	Conf                  int
+	Pending               string
+	PendingN              int
+	// NightDays is how many days it was heard in the quiet hours; Crossings how many times its signal changed band between cycles; WCycles the
+	// cycles it was heard in, each day weighted by its age (recencyWeight), and Today the day the weights are counted from.
+	NightDays int
+	Crossings int
+	WCycles   float64
+	Today     int64
+	FirstDay  int64 // the first day with a row
+	LastDay   int64 // the last day with a row (the device's own last day when it has none)
+	Days      int
+	Cycles    int
+	Frames    int
+	Retries   int
+	Channels  uint64
+	SigN      int64
+	SigSum    int64
+	SigSq     int64
+	SigMax    int
+	HasMax    bool
 }
 
 // FeatureRows adds up every device's daily rows from sinceDay on, and returns them with the number of cycles the sensor listened through on each
 // of those days (the denominator of "present most of the time").
 func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, map[int64]int, error) {
+	today, err := s.latestAirDay(ctx, sinceDay)
+	if err != nil {
+		return nil, nil, err
+	}
 	// A device with no row in the window is still a row here (it has been heard, and has not yet been through a finished cycle), so every
 	// device is sorted and the card and the list agree. The owner's devices are listed only once they have a row.
 	rows, err := s.db.QueryContext(ctx, `SELECT d.tag, d.owner, d.label, d.class, d.class_ver, d.random, d.joined_own, d.maker, d.wifi_gen,
+			d.wps_maker, d.model, d.hint, d.category, d.sig, d.net, d.box, d.own_cycles, d.own_ap, d.kind, d.kind_by, d.conf, d.pending, d.pending_n,
+			COALESCE(sum(x.night), 0), COALESCE(sum(x.crossings), 0), COALESCE(sum(x.cycles * `+weightSQL+`), 0),
 			COALESCE(min(x.day), d.first_day), COALESCE(max(x.day), d.last_day), count(x.day), COALESCE(sum(x.cycles), 0), COALESCE(sum(x.frames), 0), COALESCE(sum(x.retries), 0),
 			COALESCE(group_concat(x.channels), ''), COALESCE(sum(x.sig_n), 0), COALESCE(sum(x.sig_sum), 0), COALESCE(sum(x.sig_sq), 0), max(x.sig_max)
 		FROM devices d LEFT JOIN daily x ON x.tag = d.tag AND x.day >= ?1
-		WHERE d.owner = 0 OR x.day IS NOT NULL GROUP BY d.tag`, sinceDay)
+		WHERE d.owner = 0 OR x.day IS NOT NULL GROUP BY d.tag`, sinceDay, today)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -186,11 +232,15 @@ func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, 
 		var r FeatureRow
 		var mx sql.NullInt64
 		var masks string
+		var sig int64
 		if err := rows.Scan(&r.Tag, &r.Owner, &r.Label, &r.Class, &r.ClassVer, &r.Random, &r.JoinedOwn, &r.Maker, &r.WifiGen,
+			&r.WPSMaker, &r.Model, &r.Hint, &r.Category, &sig, &r.Net, &r.Box, &r.OwnCycles, &r.OwnAP, &r.Kind, &r.KindBy, &r.Conf, &r.Pending, &r.PendingN,
+			&r.NightDays, &r.Crossings, &r.WCycles,
 			&r.FirstDay, &r.LastDay, &r.Days, &r.Cycles, &r.Frames, &r.Retries, &masks, &r.SigN, &r.SigSum, &r.SigSq, &mx); err != nil {
 			return nil, nil, err
 		}
 		r.Channels = orMasks(masks)
+		r.Sig, r.Today = uint64(sig), today
 		r.SigMax, r.HasMax = int(mx.Int64), mx.Valid
 		out = append(out, r)
 	}
@@ -199,6 +249,37 @@ func (s *Store) FeatureRows(ctx context.Context, sinceDay int64) ([]FeatureRow, 
 	}
 	air, err := s.airDays(ctx, sinceDay)
 	return out, air, err
+}
+
+// Recency (ADR-0058, borrowed from the wireless observations of nodeherder): a day's evidence weighs half as much every recencyHalfLife days, so a
+// device whose behaviour changed is judged on what it does now and one odd day is one small voice. The weights are counted from the latest day
+// the sensor listened (Today), not the clock, so the same rows always give the same answer.
+const recencyHalfLife = 2.0
+
+// recencyWeight is the weight of a day age days before Today.
+func recencyWeight(age int64) float64 { return math.Pow(0.5, float64(max(0, age))/recencyHalfLife) }
+
+// weightSQL is recencyWeight as SQL over ?2 (Today) and x.day, written out for the 30 days anything is kept; older days weigh nothing.
+var weightSQL = func() string {
+	var b strings.Builder
+	b.WriteString("(CASE (?2 - x.day)")
+	for age := int64(0); age <= 30; age++ {
+		fmt.Fprintf(&b, " WHEN %d THEN %.6f", age, recencyWeight(age))
+	}
+	b.WriteString(" ELSE 0 END)")
+	return b.String()
+}()
+
+// latestAirDay is the latest day the sensor listened from sinceDay on, or sinceDay when it has not.
+func (s *Store) latestAirDay(ctx context.Context, sinceDay int64) (int64, error) {
+	var d sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT max(day) FROM air_days WHERE day >= ?`, sinceDay).Scan(&d); err != nil {
+		return 0, err
+	}
+	if !d.Valid {
+		return sinceDay, nil
+	}
+	return d.Int64, nil
 }
 
 // orMasks joins the channel masks of a device's days (a comma-separated list, as group_concat gives it) into one.
@@ -360,6 +441,8 @@ type OwnAP struct {
 	PMF      string
 	FirstDay int64
 	LastDay  int64
+	// Guest is the owner's word that this network is for visitors: a device on it is not evidence of being the owner's.
+	Guest bool
 }
 
 // ProposeOwnAP records an access point that broadcasts one of the owner's network names. It stays a proposal until the owner confirms it: anyone
@@ -376,7 +459,7 @@ func (s *Store) ProposeOwnAP(ctx context.Context, a OwnAP, at time.Time) error {
 
 // OwnAPs lists the owner's access points, confirmed first.
 func (s *Store) OwnAPs(ctx context.Context) ([]OwnAP, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT tag, sealed, name, confirmed, channel, security, pmf, first_day, last_day FROM own_aps ORDER BY confirmed DESC, name, first_day`)
+	rows, err := s.db.QueryContext(ctx, `SELECT tag, sealed, name, confirmed, channel, security, pmf, first_day, last_day, guest FROM own_aps ORDER BY confirmed DESC, name, first_day`)
 	if err != nil {
 		return nil, err
 	}
@@ -384,7 +467,7 @@ func (s *Store) OwnAPs(ctx context.Context) ([]OwnAP, error) {
 	var out []OwnAP
 	for rows.Next() {
 		var a OwnAP
-		if err := rows.Scan(&a.Tag, &a.Sealed, &a.Name, &a.Confirmed, &a.Channel, &a.Security, &a.PMF, &a.FirstDay, &a.LastDay); err != nil {
+		if err := rows.Scan(&a.Tag, &a.Sealed, &a.Name, &a.Confirmed, &a.Channel, &a.Security, &a.PMF, &a.FirstDay, &a.LastDay, &a.Guest); err != nil {
 			return nil, err
 		}
 		out = append(out, a)

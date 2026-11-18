@@ -5,6 +5,8 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import FormField from "../common/forms/FormField.vue"
 import Callout from "../common/feedback/Callout.vue"
 import StatusTag from "../common/display/StatusTag.vue"
+import BaseToggle from "../common/buttons/BaseToggle.vue"
+import { RADIO_AP_GUEST, RADIO_AP_GUEST_HELP } from "../../constants/radioIdentity"
 import { useRadioNetworks } from "../../composables/radio/useRadioNetworks"
 import {
   RADIO_AP_CANDIDATE, RADIO_AP_CONFIRM, RADIO_AP_CONFIRMED, RADIO_AP_REJECT, RADIO_NETWORKS_INTRO, RADIO_NETWORKS_TITLE, RADIO_NETWORK_ADD,
@@ -43,7 +45,8 @@ onMounted(() => { void n.load() })
       <ul v-if="n.networks.value?.access_points.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0">
         <li v-for="ap in n.networks.value.access_points" :key="ap.id" class="flex flex-col gap-1.5 py-2" data-test="radio-ap" :data-confirmed="ap.confirmed">
           <span class="break-words text-[length:var(--text-small)] text-primary">{{ radioApLine(ap.name, ap.channel, ap.security, ap.last_seen) }}</span>
-          <span v-if="ap.confirmed" class="flex items-center gap-2"><StatusTag state="success" :label="RADIO_AP_CONFIRMED" /><BaseButton variant="secondary" class-name="max-sm:!h-11" :disabled="n.busy.value" data-test="radio-ap-reject" @click="n.reject(ap.id)">{{ RADIO_AP_REJECT }}</BaseButton></span>
+          <span v-if="ap.confirmed" class="flex flex-wrap items-center gap-3"><StatusTag state="success" :label="RADIO_AP_CONFIRMED" /><BaseButton variant="secondary" class-name="max-sm:!h-11" :disabled="n.busy.value" data-test="radio-ap-reject" @click="n.reject(ap.id)">{{ RADIO_AP_REJECT }}</BaseButton>
+            <BaseToggle :model-value="!!ap.guest" :label="RADIO_AP_GUEST" :title="RADIO_AP_GUEST_HELP" data-test="radio-ap-guest" @update:model-value="n.setGuest(ap.id, $event)" /></span>
           <span v-else class="flex flex-wrap items-center gap-2">
             <span class="text-[length:var(--text-small)] text-muted">{{ RADIO_AP_CANDIDATE }}</span>
             <BaseButton variant="primary" class-name="max-sm:!h-11" :disabled="n.busy.value" data-test="radio-ap-confirm" @click="n.confirm(ap.id)">{{ RADIO_AP_CONFIRM }}</BaseButton>

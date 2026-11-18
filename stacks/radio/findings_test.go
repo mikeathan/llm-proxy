@@ -135,7 +135,7 @@ func TestNoFindingIsRaisedForAStrongDeviceTheRulesCanPlace(t *testing.T) {
 	r := devRig(t)
 	rec, _, _ := r.s.recorder(r.s.h)
 	for i := 0; i < 14; i++ {
-		cycleOf(t, rec, r.now, dataAt(neighbour, -40+20*(i%2)))
+		cycleOf(t, rec, r.now, dataAt(neighbour, -40+8*(i%2)))
 	}
 	d := digestOf(t, r)
 	if len(d.Findings) != 0 {
@@ -199,7 +199,7 @@ func TestDigestSaysWhetherAWatchIsRunningNowAndHowProvisionalTheKindsAre(t *test
 	if d.Listening.Now || d.Listening.HoursLeft != 0 {
 		t.Errorf("no watch is running: %+v", d.Listening)
 	}
-	if d.Classifier.Version != 2 || !d.Classifier.Provisional {
+	if d.Classifier.Version != 3 || !d.Classifier.Provisional {
 		t.Errorf("the digest must say which classifier sorted the devices and that it is provisional: %+v", d.Classifier)
 	}
 }

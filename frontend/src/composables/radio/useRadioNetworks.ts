@@ -30,5 +30,6 @@ export function useRadioNetworks() {
     removeName: (name: string) => run(() => RadioService.setNetworkNames((networks.value?.names ?? []).filter((n) => n !== name))),
     confirm: (id: string) => run(() => RadioService.confirmNetwork(id)),
     reject: (id: string) => run(() => RadioService.dropNetwork(id)),
+    setGuest: (id: string, guest: boolean) => run(() => RadioService.setGuest(id, guest)),
   }
 }

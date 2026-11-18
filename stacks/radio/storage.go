@@ -63,6 +63,9 @@ func (s *Stack) recorder(h stacksdk.Host) (*Recorder, *Store, error) {
 			return nil, nil, errors.New("radio: no vault")
 		}
 		s.rec = NewRecorder(h.Vault, st)
+		if h.LAN != nil {
+			s.rec.SetLAN(h.LAN)
+		}
 	}
 	return s.rec, st, nil
 }

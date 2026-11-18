@@ -75,6 +75,9 @@ export const toRadio = (tab?: RadioTab): RouteLocationNamedRaw => ({
   params: tab ? { tab } : {},
 })
 
+/** One radio device's page, by the short id the radar shows. */
+export const toRadioDevice = (id: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.radioDevice, params: { id } })
+
 /** The place a requirement's fix points at: `network-scan` is the Network page's Settings tab, anything else a Settings section. */
 export const toRequirementFix = (section: RequirementFixSection): RouteLocationNamedRaw =>
   section === 'network-scan' ? toNetwork('settings') : toSettings(section)

@@ -65,13 +65,33 @@ const LIVE = {
     { id: 'a1b2c3d4', mine: false, class: 'unknown', dbm: -62, near_m: 3, far_m: 11, ring: 'house', angle: 215, trend: 'closer', channel: 60, heard: true, unusual: true, usual_dbm: -78, shift_db: 16,
       tail_m: [14, 11, 8, 5, 3.5], detail: { id: 'a1b2c3d4', class: 'unknown', why: 'needs_more_listening', signal: 'weak', first_seen: '2026-11-12', last_seen: '2026-11-14', cycles_heard: 2, need_heard: 3, retry_percent: 12, channels: [1, 11, 60], random_address: false, joined_own: false } },
     { id: 'e5f6a7b8', mine: false, class: 'neighbour', dbm: -70, near_m: 5, far_m: 24, ring: 'house', angle: 300, trend: 'away', channel: 11, heard: false },
-    { id: '99aa00bb', mine: false, class: 'neighbour', last_at: Math.floor(Date.now() / 1000) - 300, dbm: -78, near_m: 8, far_m: 48, ring: 'nearby', angle: 75, trend: 'unknown', channel: 1, heard: true },
+    { id: '99aa00bb', mine: false, class: 'neighbour', last_at: Math.floor(Date.now() / 1000) - 300, dbm: -78, near_m: 8, far_m: 48, ring: 'nearby', angle: 75, trend: 'unknown', channel: 1, heard: true, network: 'SKY9F2A1',
+      ident: { kind: 'router', kind_confidence: 90, kind_source: 'sends_beacons', brand: 'SKY UK', model: 'SR203', confidence: 74, clients: 2, box: 'b0b0b0b0', box_size: 2 } },
     { id: '12ab34cd', mine: false, class: 'transient', dbm: -84, near_m: 14, far_m: 100, ring: 'nearby', angle: 255, trend: 'unknown', channel: 36, heard: true },
     { id: 'beefcafe', mine: true, label: 'my laptop', class: 'infrastructure', dbm: -52, near_m: 1.7, far_m: 4.5, ring: 'room', angle: 170, trend: 'unknown', channel: 36, heard: false, usual: true },
     { id: '0badf00d', mine: false, class: 'infrastructure', dbm: -66, near_m: 4, far_m: 16, ring: 'house', angle: 20, trend: 'unknown', channel: 6, heard: false, usual: true },
     { id: 'feedbeef', mine: false, class: 'neighbour', dbm: -81, near_m: 10, far_m: 60, ring: 'nearby', angle: 330, trend: 'unknown', channel: 1, heard: false, usual: true },
   ],
 }
+const SKY_ROW = LIVE.devices.find((d) => d.id === '99aa00bb')!
+const DEVICE_PAGE = {
+  device: SKY_ROW, chances: { neighbour: 74, infrastructure: 15, personal: 6, transient: 5 }, factors: [{ feature: 'signal_max', toward: 'neighbour' }, { feature: 'uses_your_wifi', toward: 'neighbour' }],
+  radios: [{ id: '99aa00bc', mine: false, class: 'neighbour', heard: true, dbm: -80, network: 'SKY9F2A1-5G', ident: SKY_ROW.ident }],
+  clients: [{ id: '5ca1ab1e', mine: false, class: 'neighbour', heard: true, dbm: -83, ident: { kind: 'tv', kind_confidence: 80, kind_source: 'model_name', brand: 'SKY UK', model: 'Sky Q', confidence: 70, net: '99aa00bb' } }],
+  history: [{ day: '2026-11-13', from: 'unknown', to: 'neighbour', version: 3, reason: 'matches_what_was_learned', n: 1 }],
+  model: LIVE.model,
+}
+const AROUND_NETWORKS = {
+  total: 6,
+  groups: [
+    { id: 'aa11aa11', yours: true, names: ['netsink-2G'], strongest_dbm: -55, heard: true,
+      radios: [{ id: 'c0ffee11', mine: false, class: 'infrastructure', heard: true, dbm: -55, network: 'netsink-2G', ident: { kind: 'router', kind_confidence: 90, kind_source: 'sends_beacons', brand: 'TP-Link', model: 'Archer AX55', confidence: 92, your_ap: true } }],
+      clients: [{ id: 'ab', mine: true, label: 'my phone', class: 'personal', heard: true, dbm: -48 }, { id: 'a1b2c3d4', mine: false, class: 'unknown', heard: true, dbm: -62, ident: { kind: 'tv', kind_confidence: 60, kind_source: 'maker', brand: 'Roku', confidence: 40, on_your_wifi: true, own_cycles: 3 } }] },
+    { id: 'b0b0b0b0', yours: false, names: ['SKY9F2A1', 'SKY9F2A1-5G'], strongest_dbm: -78, heard: true, radios: [{ id: '99aa00bb', mine: false, class: 'neighbour', heard: true, dbm: -78, ident: SKY_ROW.ident }, DEVICE_PAGE.radios[0]], clients: DEVICE_PAGE.clients },
+  ],
+  unconnected: [{ id: '12ab34cd', mine: false, class: 'transient', heard: true, dbm: -84, ident: { kind: 'phone', kind_confidence: 35, kind_source: 'private_address', confidence: 66 } }],
+}
+const ASK = { learned: { owner_labels: 1, agree: 1, checked: 1 }, devices: [AROUND_NETWORKS.groups[0]!.clients[1]!].map((m) => ({ ...m, reason: 'likely_yours' })) }
 const TRACK = {
   id: 'a1b2c3d4', mine: false, trend: 'closer', stored: true, now: 1_800_000_000,
   points: Array.from({ length: 40 }, (_, i) => ({ at: 1_800_000_000 - (40 - i) * 600 - (i > 22 ? 5400 : 0), dbm: -80 + i, near_m: 12 - i * 0.2, far_m: 40 - i * 0.7, run: i > 22 ? 1 : 0 })),
@@ -92,6 +112,7 @@ const ANSWERS = {
   '/radio/digest': DIGEST,
   '/radio/sensors': SENSORS, '/radio/listening': LISTENING, '/radio/air': AIR, '/radio/air/devices': AIR_DEVICES, '/radio/air/airwaves': AIRWAVES, '/radio/air/live': LIVE, '/radio/air/track/a1b2c3d4': TRACK, '/radio/listening/settings': SCAN,
   '/radio/devices/mine': DEVICES, '/radio/devices/mine/presence': PRESENCE, '/radio/networks': NETWORKS,
+  '/radio/air/ask': ASK, '/radio/air/networks': AROUND_NETWORKS, '/radio/air/device/99aa00bb': DEVICE_PAGE, '/radio/air/track/99aa00bb': TRACK,
 }
 
 async function touchTargets(page: import('@playwright/test').Page, testInfo: import('@playwright/test').TestInfo) {
@@ -140,17 +161,20 @@ test('Around you: the status line, the radar with one list, the device opened be
   await expect(page.locator('[data-test="radio-status-next"]')).toContainText('Next reading in')
   await expect(page.locator('[data-test="radio-status-sorting"]')).toContainText('Sorting starts after 12 cycles (5 done)')
   await expect(page.locator('[data-test="radio-radar-summary"]')).toContainText('6 devices heard now, 1 of them yours')
-  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(6) // the three usually here stay out until asked for
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(5) // the three usually here and the passer-by stay out until asked for
+  await expect(page.locator('[data-test="radio-brief-hidden"]')).toContainText('1 passer-by hidden')
   await expect(page.locator('[data-test="radio-dot-label"]')).toHaveText('my phone · 1.4–3.2 m')
-  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(7)
+  await expect(page.locator('[data-test="radio-chip"]')).toHaveCount(8) // with Routers, now that one device says it is one
+  await expect(page.locator('[data-test="radio-ask-row"]')).toHaveCount(1)
+  await expect(page.locator('[data-test="radio-row-title"]', { hasText: 'SKY UK SR203' })).toBeVisible() // named by make and model, never by its short id
   await expect(page.locator('[data-test="radio-row-title"]').first()).toBeVisible()
   await page.locator('[data-filter="neighbour"]').click()
   await expect(page.locator('[data-test="radio-radar-row"]')).toHaveCount(2)
   await page.locator('[data-filter="all"]').click()
   await page.locator('[data-test="radio-usual-toggle"]').click()
   await expect(page.locator('[data-test="radio-radar-row"][data-usual="1"]')).toHaveCount(3)
-  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(9)
-  await page.locator('[data-test="radio-radar-row"]', { hasText: 'a1b2c3d4' }).locator('button').click()
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(8)
+  await page.locator('[data-test="radio-radar-row"]', { hasText: 'a1b2c3d4' }).locator('[data-test="radio-radar-row-button"]').click()
   await expect(page.locator('[data-test="radio-radar-chosen"]')).toContainText('dBm on channel')
   await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(1) // a picked device is drawn alone
   await expect(page.locator('[data-test="radio-air-waiting"]')).toContainText('Waiting:')
@@ -173,10 +197,10 @@ test('Around you: what a device is (maker, Wi-Fi, network), the switches, naming
   await expect(page.locator('[data-test="radio-detail-facts"]')).toContainText('Wi-Fi 5')
   await expect(page.locator('[data-test="radio-focus-note"]')).toContainText('Showing only netsink-2G')
   await page.locator('[data-test="radio-focus-all"]').click()
-  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(6)
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(5)
   await page.locator('[data-test="radio-toggle-range"]').click()
   await page.locator('[data-test="radio-toggle-spoke"]').click()
-  await expect(page.locator('[data-test="radio-dot-spoke"]')).toHaveCount(6)
+  await expect(page.locator('[data-test="radio-dot-spoke"]')).toHaveCount(5)
   await page.locator('[data-test="radio-mark-open"]').click()
   await expect(page.locator('[data-test="radio-mark-input"]')).toBeVisible()
   await page.locator('[data-test="radio-find-open"]').click()
@@ -191,6 +215,31 @@ test('Around you: what a device is (maker, Wi-Fi, network), the switches, naming
   await page.locator('[data-channel="6"]').click()
   await expect(page.locator('[data-test="radio-channel-note"]')).toContainText('channel 6')
   await lookAt(page, testInfo, 'around-you-channels', true)
+  await expectNoSidewaysScroll(page)
+  await touchTargets(page, testInfo)
+})
+
+test('Around you: the networks view puts your router first, with the devices on each', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: ANSWERS })
+  await page.goto('radio/around')
+  await page.locator('[data-test="radio-view-select"]').selectOption('networks')
+  await expect(page.locator('[data-test="radio-network-group"]')).toHaveCount(2)
+  await expect(page.locator('[data-test="radio-network-group"]').first()).toHaveAttribute('data-yours', '1')
+  await expect(page.locator('[data-test="radio-network-title"]').first()).toHaveText('TP-Link Archer AX55')
+  await lookAt(page, testInfo, 'around-you-networks', true)
+  await expectNoSidewaysScroll(page)
+  await touchTargets(page, testInfo)
+})
+
+test('Device page: what it is, whose it is and why, alone on the radar, and its router', async ({ page }, testInfo) => {
+  await mockAdminApi(page, { answers: ANSWERS })
+  await page.goto('radio/device/99aa00bb')
+  await expect(page.locator('[data-test="radio-device-title"]')).toHaveText('SKY UK SR203')
+  await expect(page.locator('[data-test="radio-device-conclusion"]')).toHaveText('Probably: a neighbour’s router')
+  await expect(page.locator('[data-test="radio-solo-band"]')).toBeVisible()
+  await expect(page.locator('[data-test="radio-dot"]')).toHaveCount(1)
+  await expect(page.locator('[data-test="radio-device-network"] [data-test="radio-member"]')).toHaveCount(2)
+  await lookAt(page, testInfo, 'device-page', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)
 })

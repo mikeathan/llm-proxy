@@ -393,6 +393,9 @@ func (s *Store) ForgetOthers(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := clearReferences(ctx, s.db); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, "PRAGMA incremental_vacuum")
 	return err
 }
@@ -477,6 +480,9 @@ func (s *Store) Rotate(ctx context.Context, epoch int, retag, retagAP map[string
 		if _, err := tx.ExecContext(ctx, q); err != nil {
 			return err
 		}
+	}
+	if err := clearReferences(ctx, tx); err != nil {
+		return err
 	}
 	if err := retagOwnAPs(ctx, tx, retagAP); err != nil {
 		return err

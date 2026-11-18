@@ -48,6 +48,7 @@ func checkPorts(m stacksdk.Manifest, h stacksdk.Host) error {
 		stacksdk.PortDataDir: h.DataDir != nil, stacksdk.PortGuard: h.Guard != nil, stacksdk.PortFetch: h.Fetch != nil,
 		stacksdk.PortGateway: h.Gateway != nil, stacksdk.PortIsolation: h.Isolation != nil, stacksdk.PortPrivileged: h.Privileged != nil,
 		stacksdk.PortScopedGuard: h.ScopedGuard != nil, stacksdk.PortSecretScan: h.SecretScan != nil, stacksdk.PortVault: h.Vault != nil,
+		stacksdk.PortLAN: h.LAN != nil,
 	}
 	for port, has := range given {
 		if want := slices.Contains(m.Requires, port); want != has {
