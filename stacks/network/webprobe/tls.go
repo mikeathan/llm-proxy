@@ -77,7 +77,7 @@ func (p *Prober) ProbeTLS(ctx context.Context, targets []Target, limit time.Dura
 		if facts, ok := p.handshakes(runCtx, t); ok {
 			res.Facts = append(res.Facts, facts)
 		}
-		if runCtx.Err() != nil {
+		if ended(runCtx) {
 			return finish(ctx, res)
 		}
 	}

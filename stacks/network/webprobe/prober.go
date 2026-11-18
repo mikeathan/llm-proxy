@@ -140,7 +140,7 @@ func (p *Prober) probeTarget(ctx context.Context, t Target) ([]Hit, bool) {
 				return nil, false
 			}
 			answers[path] = p.fetch(ctx, t, path)
-			if ctx.Err() != nil {
+			if ended(ctx) {
 				return nil, false
 			}
 		}
@@ -161,10 +161,21 @@ func matched(c Check, answers map[string]*Response) bool {
 	})
 }
 
+// ended reports whether ctx is over: cancelled, or past its deadline. The deadline is read too because a connection given that deadline
+// fails the moment it passes, before the context's own timer fires and sets Err; a loop that waited for Err alone could run through every
+// remaining request in that gap and report the run complete.
+func ended(ctx context.Context) bool {
+	if ctx.Err() != nil {
+		return true
+	}
+	deadline, ok := ctx.Deadline()
+	return ok && !time.Now().Before(deadline)
+}
+
 // wait pauses between two requests; false when ctx ended during the wait.
 func (p *Prober) wait(ctx context.Context) bool {
 	if p.pace <= 0 {
-		return ctx.Err() == nil
+		return !ended(ctx)
 	}
 	select {
 	case <-ctx.Done():
