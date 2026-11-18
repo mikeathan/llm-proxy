@@ -1,11 +1,13 @@
 import { computed, ref, type Ref } from "vue"
+import { useRouter } from "vue-router"
 import { usePersistedState } from "../ui/usePersistedState"
 import { RADIO_VIEW_ORDER } from "../../constants/radio"
 import { byCloseness, narrow } from "../../utils/radio/around"
+import { toRadioDevice } from "../../router/routes"
 import type { RadioAroundFilter, RadioAroundState, RadioAroundToggles, RadioAroundView, RadioLive, RadioLiveDevice } from "../../types/radio"
 
 // Radio · Around you: what the owner has chosen to look at. One state, shared by the radar and the list of whichever view is open, so a chip or a
-// channel narrows both and a picked device shows alone on the radar until "show all". The view and the toggles are remembered per person.
+// channel narrows both. A tap on a device (a dot, a row, a change) opens its own page. The view and the toggles are remembered per person.
 const KEY_VIEW = "radio-around-view"
 const KEY_TOGGLES = "radio-around-toggles"
 const VERSION = 2
@@ -26,8 +28,6 @@ export function useRadioAround(view: Ref<RadioLive | null>): RadioAroundState {
   const toggles = usePersistedState<RadioAroundToggles>(KEY_TOGGLES, { version: VERSION, parse: parseToggles, fallback: DEFAULT_TOGGLES })
   const filter = ref<RadioAroundFilter>("all")
   const channel = ref<number | null>(null)
-  const selected = ref<string | null>(null)
-  const focused = ref(true)
   const today = ref(new Date().toISOString().slice(0, 10))
 
   const everyone = computed<RadioLiveDevice[]>(() => view.value?.devices ?? [])
@@ -39,18 +39,13 @@ export function useRadioAround(view: Ref<RadioLive | null>): RadioAroundState {
   const usualHidden = computed(() => (toggles.value.usual ? 0 : narrow(everyone.value, { filter: filter.value, channel: channel.value, showUsual: true, hideBrief: toggles.value.brief, today: today.value }).filter((d) => d.usual).length))
   /** How many passers-by the switch keeps out of the radar and the list. */
   const briefHidden = computed(() => (toggles.value.brief ? narrow(everyone.value, { filter: filter.value, channel: channel.value, showUsual: toggles.value.usual, today: today.value }).filter((d) => !d.mine && d.class === "transient").length : 0))
-  const chosen = computed(() => everyone.value.find((d) => d.id === selected.value) ?? null)
-  /** What the radar draws: only the picked device while one is picked and focus is on, otherwise everything the chips and channel allow. */
-  const drawn = computed(() => (chosen.value && focused.value ? [chosen.value] : shown.value))
+  const router = useRouter()
 
-  function pick(id: string): void {
-    if (selected.value === id) { selected.value = null; return }
-    selected.value = id
-    focused.value = true
-  }
+  /** Opens a device's own page: what it is, whose it is and why, where it is, and the owner's answers. */
+  function open(id: string): void { void router.push(toRadioDevice(id)) }
   function setToggle(key: keyof RadioAroundToggles, on: boolean): void { toggles.value = { ...toggles.value, [key]: on } }
-  function setFilter(next: RadioAroundFilter): void { filter.value = next; selected.value = null }
-  function setChannel(next: number | null): void { channel.value = channel.value === next ? null : next; selected.value = null }
+  function setFilter(next: RadioAroundFilter): void { filter.value = next }
+  function setChannel(next: number | null): void { channel.value = channel.value === next ? null : next }
 
-  return { mode, toggles, filter, channel, selected, focused, everyone, shown, usualHidden, briefHidden, chosen, drawn, pick, setToggle, setFilter, setChannel, today }
+  return { mode, toggles, filter, channel, everyone, shown, usualHidden, briefHidden, open, setToggle, setFilter, setChannel, today }
 }

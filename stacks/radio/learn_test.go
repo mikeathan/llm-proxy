@@ -62,6 +62,26 @@ func TestADeviceOnYourWiFiIsNeverANeighboursOrAPasserBy(t *testing.T) {
 }
 
 // A device whose numbers sit near a boundary must not change class every cycle: a change needs to hold for two cycles in a row.
+// A device the owner said is theirs is never a neighbour's or a passer-by: its class is the likelier of always here and comes and goes.
+func TestADeviceYouSaidIsYoursIsNeverANeighboursOrAPasserBy(t *testing.T) {
+	r := DefaultRules()
+	m := Train(r, nil, 0)
+	for name, f := range map[string]Features{"far": farAway, "passer-by": passerBy} {
+		if got, _ := top(m.Posterior(vec(f))); got != ClassNeighbour && got != ClassTransient {
+			t.Fatalf("%s: the fixture must look like someone else's, got %s", name, got)
+		}
+		for _, cur := range []string{"", string(ClassInfrastructure), string(ClassNeighbour)} {
+			d := decide(r, m, FeatureRow{Owner: true, Class: cur, ClassVer: r.Version}, f, vec(f))
+			if d.class != ClassInfrastructure && d.class != ClassPersonal {
+				t.Errorf("%s from %q: %+v", name, cur, d)
+			}
+			if d.conf < 0 || d.conf > 100 {
+				t.Errorf("%s from %q: confidence %d", name, cur, d.conf)
+			}
+		}
+	}
+}
+
 func TestAClassChangeMustHoldForTwoCyclesBeforeItIsMade(t *testing.T) {
 	r := DefaultRules()
 	m := Train(r, nil, 0)
@@ -143,6 +163,15 @@ func TestKindsComeFromTheStrongestEvidence(t *testing.T) {
 		"owner":          {KindInput{OwnerKind: DeviceTV, AccessPoint: true}, DeviceTV, KindFromOwner},
 		"wps type":       {KindInput{Category: wpsDisplay, AccessPoint: true}, DeviceTV, KindFromWPSType},
 		"model":          {KindInput{Model: "Fire TV Stick", Maker: "Amazon"}, DeviceTV, KindFromModel},
+		"your name mac":  {KindInput{Name: "M4 MacBook air", Random: true}, DeviceComputer, KindFromName},
+		"your name imac": {KindInput{Name: "Mac", Random: true}, DeviceComputer, KindFromName},
+		"your name tv":   {KindInput{Name: "samsung - tv", Maker: "Samsung Electronics"}, DeviceTV, KindFromName},
+		"your name nest": {KindInput{Name: "Google-Nest-Mini", Maker: "Google"}, DeviceSpeaker, KindFromName},
+		"model over nm":  {KindInput{Model: "Fire TV Stick", Name: "my laptop"}, DeviceTV, KindFromModel},
+		"name says none": {KindInput{Name: "nodeherder", Random: true}, DevicePhone, KindFromPrivate},
+		"a guest phone":  {KindInput{Name: "Cameron-iPhone", Random: true}, DevicePhone, KindFromName},
+		"ernest's ipad":  {KindInput{Name: "Ernest-iPad", Random: true}, DevicePhone, KindFromName},
+		"a word inside":  {KindInput{Name: "machine-room", Random: true}, DevicePhone, KindFromPrivate},
 		"learned":        {KindInput{Maker: "Espressif Inc.", Learned: learned}, DeviceCamera, KindFromLearned},
 		"beacons":        {KindInput{AccessPoint: true, Maker: "Apple"}, DeviceRouter, KindFromBeacons},
 		"maker":          {KindInput{Maker: "Arcadyan"}, DeviceRouter, KindFromMaker},

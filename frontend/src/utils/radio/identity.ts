@@ -1,9 +1,9 @@
 import {
   RADIO_FIRST_LOOK, RADIO_KIND_WORDS, RADIO_MY_DEVICE, RADIO_OWN_HOUSE, RADIO_OWN_MINE, RADIO_OWN_NEIGHBOUR, RADIO_OWN_NEIGHBOUR_ROUTER, RADIO_OWN_ON_WIFI, RADIO_OWN_PASSING,
   RADIO_OWN_PERSONAL, RADIO_OWN_ROUTER_RADIO, RADIO_OWN_UNSURE, RADIO_OWN_YOUR_ROUTER, RADIO_UNKNOWN_DEVICE, radioBrandKind, radioKindPrivate,
-  radioOwnOnLAN, radioSureWord,
+  radioOwnChanging, radioOwnOnLAN, radioSureWord,
 } from '../../constants/radioIdentity'
-import type { Nameable, RadioDeviceKind, RadioIdent, RadioOwnership } from '../../types/radio'
+import type { Nameable, RadioClass, RadioDeviceKind, RadioIdent, RadioOwnership } from '../../types/radio'
 
 // Radio · how a device is named and what the page concludes about it (ADR-0058). Pure functions over what the server sent; no state.
 // The short id (four bytes of a one-way tag) is a handle shown small beside the name, never the name itself.
@@ -62,13 +62,14 @@ export function conclusionOf(d: Nameable): string {
   if (id?.box_yours || id?.router_radio) return RADIO_OWN_ROUTER_RADIO
   if (id?.lan_name) return radioOwnOnLAN(id.lan_name)
   if (id?.on_your_wifi) return RADIO_OWN_ON_WIFI
+  if (id?.pending && id.pending !== d.class) return radioOwnChanging(classPhrase(d, id.pending))
   if (d.class === 'unknown') return id?.first_look ? RADIO_FIRST_LOOK[id.first_look] : RADIO_OWN_UNSURE
-  return `${radioSureWord(id?.confidence ?? 0)}: ${classPhrase(d).toLowerCase()}`
+  return `${radioSureWord(id?.confidence ?? 0)}: ${classPhrase(d, d.class).toLowerCase()}`
 }
 
-function classPhrase(d: Nameable): string {
+function classPhrase(d: Nameable, c: RadioClass): string {
   const router = kindOf(d) === 'router'
-  switch (d.class) {
+  switch (c) {
     case 'neighbour': return router ? RADIO_OWN_NEIGHBOUR_ROUTER : RADIO_OWN_NEIGHBOUR
     case 'transient': return RADIO_OWN_PASSING
     case 'infrastructure': return RADIO_OWN_HOUSE

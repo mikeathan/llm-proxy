@@ -9,7 +9,7 @@ import { deviceFacts, deviceTitle, heardAgoWord } from "../../utils/radio/descri
 import type { RadioAroundState, RadioChange } from "../../types/radio"
 
 // Radio · view "What changed": new devices, devices unlike their usual and devices that are usually here and not heard now, most important first. A
-// pick shows that device alone on the radar. The stored history is by the day, so "new" means first heard today.
+// tap opens that device's own page. The stored history is by the day, so "new" means first heard today.
 const props = defineProps<{ around: RadioAroundState; today: string; now: number }>()
 const kind = ref<"all" | RadioChange["kind"]>("all")
 const changes = computed(() => changesOf(props.around.everyone.value, props.today).filter((c) => kind.value === "all" || c.kind === kind.value))
@@ -26,7 +26,7 @@ const TONE: Record<RadioChange["kind"], string> = { unusual: "border-state-runni
       <p v-if="!changes.length" class="m-0 text-secondary" data-test="radio-changes-none">{{ RADIO_CHANGES_NONE }}</p>
       <ul class="m-0 flex list-none flex-col divide-y divide-hairline p-0" data-test="radio-changes">
         <li v-for="c in changes" :key="c.device.id + c.kind">
-          <button type="button" class="flex min-h-11 w-full items-start justify-between gap-3 py-2 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2" :class="around.selected.value === c.device.id ? 'bg-surface-active' : ''" :aria-pressed="around.selected.value === c.device.id" data-test="radio-change" @click="around.pick(c.device.id)">
+          <button type="button" class="flex min-h-11 w-full items-start justify-between gap-3 py-2 text-left hover:text-primary focus-visible:outline-none focus-visible:ring-2" data-test="radio-change" @click="around.open(c.device.id)">
             <span class="flex min-w-0 flex-col gap-0.5">
               <span class="truncate text-secondary">{{ deviceTitle(c.device) }} <span class="font-mono text-[length:var(--text-small)] text-faint">{{ c.device.id }}</span></span>
               <span class="text-[length:var(--text-small)] text-muted">{{ radioAroundChangeLine(c.kind) }} · {{ deviceFacts(c.device).join(" · ") }}</span>

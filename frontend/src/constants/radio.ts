@@ -208,8 +208,6 @@ export const RADIO_DEVICE_COLUMNS = { id: 'Device', signal: 'Signal', heard: 'He
 export const radioHeardLine = (heard: number, listened: number): string => `${heard} of ${listened} cycles`
 export const radioRetryWord = (percent: number): string => `${percent}%`
 export const radioChannelsLine = (channels: number[] | null): string => (channels?.length ? channels.join(', ') : 'none')
-export const RADIO_RANDOM_ADDRESS = 'Uses a changing address, like a phone does'
-export const RADIO_JOINED_OWN = 'Joined your network'
 /** What a device that is still unsorted is waiting for: more cycles heard, and more cycles listened to overall. */
 export const radioWaitingLine = (heard: number, needHeard: number, listened: number, needListened: number): string => {
   const parts: string[] = []
@@ -220,6 +218,13 @@ export const radioWaitingLine = (heard: number, needHeard: number, listened: num
 /** How far along the evidence is, 0 to 100, for the bar of an unsorted device. */
 export const radioWaitingPercent = (heard: number, needHeard: number, listened: number, needListened: number): number =>
   Math.round(100 * Math.min(1, Math.min(heard / Math.max(needHeard, 1), listened / Math.max(needListened, 1))))
+export const RADIO_DETAIL_SIGNAL = 'Signal'
+export const RADIO_DETAIL_NETWORK_NOTE = 'Shown while it is heard. A network name is never stored.'
+export const RADIO_MAKER_RANDOM_HELP = 'Phones and laptops send a made-up address on purpose, so their maker cannot be read.'
+export const RADIO_MARK_NOTE = 'Only a marker for this device is kept, not its address. A phone with a random address stops matching when it picks a new one, and every mark ends when you forget the neighbours.'
+/** When a device was first and last heard, for its page. */
+export const radioHeardSpan = (first: string, last: string): string => `First heard ${first} · last heard ${last}`
+export const RADIO_RANDOM_ADDRESS = 'Uses a changing address, like a phone does'
 
 // Radio · Airwaves: how the channels and the kinds of device use the air. Counts only.
 export const RADIO_AIR_TITLE = 'Airwaves'
@@ -278,7 +283,6 @@ export const RADIO_RADAR_MINE = 'Yours'
 export const RADIO_RADAR_NOT_HEARD = 'not heard this cycle'
 export const RADIO_RADAR_PROVISIONAL = 'Distances come from a starting guess for how fast a signal fades, so read them as rough rings, not metres. Stand one of your devices one metre from this computer and press Calibrate to measure from it.'
 export const RADIO_RADAR_CALIBRATED = 'Calibrated against your device at one metre. Still a range: walls and antennas move it.'
-export const RADIO_RADAR_CALIBRATE = 'Calibrate: this device is 1 m from the computer'
 export const radioRangeLine = (near: number, far: number): string => (near >= far - 0.05 ? `about ${near} m` : `${near}–${far} m`)
 export const radioDotLabel = (d: { mine: boolean; label?: string; id: string }): string => (d.mine ? d.label || d.id : d.id)
 export const radioRadarSummary = (n: number, mine: number): string => `${n} ${n === 1 ? 'device' : 'devices'} heard now${mine ? `, ${mine} of them yours` : ''}`
@@ -377,11 +381,6 @@ export const RADIO_CHIP_WORDS: Record<RadioClass, string> = {
 export const RADIO_LIST_NONE = 'No device in this group.'
 export const radioListMore = (n: number): string => `Show ${n} more`
 export const RADIO_LIST_LESS = 'Show fewer'
-export const RADIO_DETAIL_CLOSE = 'Close'
-export const RADIO_DETAIL_WHY = 'Why this kind'
-export const RADIO_DETAIL_SIGNAL = 'Signal'
-export const RADIO_DETAIL_LAST = 'Last heard'
-export const RADIO_DETAIL_FIRST = 'First heard'
 export const RADIO_GUIDE_TITLE = 'How to read this'
 export const RADIO_GUIDE_DIRECTION = 'Which way a device lies is not measured with one adapter, so a dot keeps a steady place on its ring. Only how far is estimated, as a range, from how strong its signal is.'
 export const RADIO_GUIDE_MOTION = 'A dot moves once a cycle, when the sensor has been round every channel. A shorter cycle in the scan plan gives more frequent movement.'
@@ -409,8 +408,6 @@ export const RADIO_TOGGLE_USUAL = 'Where devices usually are'
 export const RADIO_TOGGLE_SPOKE_HELP = 'A line from the computer to each dot. Only how far is measured, never which way, so the line shows distance and nothing else.'
 export const RADIO_COLOURS_PROVISIONAL = 'Kinds are provisional: the rules that sort devices have not been measured yet.'
 export const RADIO_FILTER_UNUSUAL = 'Unusual'
-export const RADIO_FOCUS_ALL = 'Show all devices'
-export const radioFocusLine = (title: string): string => `Showing only ${title}.`
 export const RADIO_CHANNEL_ALL = 'All channels'
 export const radioChannelFilterLine = (channel: number): string => `Only the devices heard on channel ${channel}.`
 export const RADIO_RADAR_NO_DIRECTION = 'Which way a device lies is not measured: a dot keeps a steady place on its ring. Only the distance range is real.'
@@ -418,7 +415,6 @@ export const RADIO_RADAR_NO_DIRECTION = 'Which way a device lies is not measured
 // A row says what the device is, as far as its frames reveal. Never an address.
 export const RADIO_MAKER_RANDOM = 'Random address'
 export const RADIO_MAKER_UNKNOWN = 'Maker not listed'
-export const RADIO_MAKER_RANDOM_HELP = 'Phones and laptops send a made-up address on purpose, so their maker cannot be read.'
 export const radioWifiWord = (generation: number): string => `Wi-Fi ${generation}`
 /** A device that sent beacons: it announces a network, so it is an access point (a phone does not). */
 export const RADIO_ACCESS_POINT = 'Access point'
@@ -431,17 +427,6 @@ export const radioHeardAgo = (secondsAgo: number): string => {
 export const radioDbmLine = (dbm: number): string => `${dbm} dBm`
 export const radioSortsIn = (cycles: number): string => `sorted in ${cycles} more ${cycles === 1 ? 'cycle' : 'cycles'}`
 export const radioUsualLine = (usualDbm: number, nowDbm: number): string => `Usually ${usualDbm} dBm, now ${nowDbm} dBm.`
-export const radioFirstHeardRun = (secondsAgo: number): string => `First heard this run ${Math.max(1, Math.round(secondsAgo / 60))} min ago`
-export const radioHeardCycles = (cycles: number): string => `heard in ${cycles} ${cycles === 1 ? 'cycle' : 'cycles'}`
-export const RADIO_DETAIL_MAKER = 'Maker'
-export const RADIO_DETAIL_WIFI = 'Wi-Fi'
-export const RADIO_DETAIL_NETWORK = 'Broadcasts the network'
-export const RADIO_DETAIL_HISTORY = 'History'
-export const RADIO_DETAIL_WHERE = 'Where'
-export const RADIO_DETAIL_ADDRESS = 'Address'
-export const RADIO_DETAIL_ADDRESS_VALUE = 'Fixed'
-export const RADIO_DETAIL_ADDRESS_RANDOM = 'Random: changes now and then'
-export const RADIO_DETAIL_NETWORK_NOTE = 'Shown while it is heard. A network name is never stored.'
 
 // Mark a device as yours from the radar.
 export const RADIO_MARK_BUTTON = 'This is mine'
@@ -449,7 +434,6 @@ export const RADIO_MARK_LABEL = 'Name it'
 export const RADIO_MARK_PLACEHOLDER = 'for example: hall plug'
 export const RADIO_MARK_SAVE = 'Save as mine'
 export const RADIO_MARK_FAILED = 'The device could not be saved as yours.'
-export const RADIO_MARK_NOTE = 'Only a marker for this device is kept, not its address. A phone with a random address stops matching when it picks a new one, and every mark ends when you forget the neighbours.'
 export const RADIO_MARK_NO_NAME = 'Give it a name first.'
 
 // Find mine: hold the device by the computer and pick it from the strongest.

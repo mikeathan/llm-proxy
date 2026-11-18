@@ -68,6 +68,10 @@ type DeviceView struct {
 	// Evidence is what the sorting read, in numbers the owner can check (after nodeherder's evidence view): "heard in 82% of readings over 6
 	// days, at night on 5 of them, moved in 3% of readings".
 	Evidence *Evidence `json:"evidence,omitempty"`
+	// Listened is how many cycles the sensor has listened through in the window, MinListened how many sorting needs (as on the live view), so
+	// the page can say what an unsorted device is waiting for.
+	Listened    int `json:"listened_cycles"`
+	MinListened int `json:"min_listened_cycles"`
 }
 
 // Evidence is a device's behaviour over the window.
@@ -140,7 +144,8 @@ func (s *Stack) deviceView(ctx context.Context, h stacksdk.Host, rec *Recorder, 
 		return plainError(http.StatusNotFound, "that device is not in the picture: it has not been heard in the last few days")
 	}
 	row, tag := rowByShort(set, id)
-	out := DeviceView{Device: d, Chances: map[string]int{}, Factors: []Factor{}, Radios: []Member{}, Clients: []Member{}, History: []ClassChange{}, Model: v.Model}
+	out := DeviceView{Device: d, Chances: map[string]int{}, Factors: []Factor{}, Radios: []Member{}, Clients: []Member{}, History: []ClassChange{}, Model: v.Model,
+		Listened: v.Listened, MinListened: v.MinListened}
 	if tag != nil {
 		s.explain(set, row, &out)
 		out.History, _ = store.DeviceClassLog(ctx, tag, maxDeviceLog)

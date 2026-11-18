@@ -32,6 +32,9 @@ type DeviceIdent struct {
 	Clients int `json:"clients,omitempty"`
 	// Confidence is how sure the classifier is of its class (0 to 100).
 	Confidence int `json:"confidence"`
+	// Pending is the class the classifier now thinks it is and is waiting one more cycle to be sure of (hysteresis); Confidence is then its
+	// confidence in the class still held, which can be low.
+	Pending Class `json:"pending,omitempty"`
 	// Family is how many other private-address devices share its request signature: the same kind of device, never "the same device".
 	Family int `json:"family,omitempty"`
 	// Motion is still, moving or "" (not enough cycles), from how its signal moved over the last cycles.
@@ -130,12 +133,17 @@ func newIdentCtx(rows []FeatureRow, lan map[string]LANInfo) identCtx {
 
 // of is one device's identity.
 func (c identCtx) of(r FeatureRow, trail []float64) DeviceIdent {
-	k := KindOf(r, c.votes)
+	in := kindInputOf(r, c.votes)
+	l, onLAN := c.lan[string(r.Tag)]
+	if onLAN && !l.Router {
+		in.Name = l.Name
+	}
+	k := GuessKind(in)
 	id := DeviceIdent{Kind: k.Kind, KindConf: k.Confidence, KindSource: k.Source, Model: r.Model, OnYourWiFi: r.JoinedOwn && r.OwnCycles > 0, OwnCycles: r.OwnCycles,
-		YourAP: r.OwnAP, Confidence: r.Conf, Clients: c.clients[string(r.Tag)], Motion: motionOf(trail)}
+		YourAP: r.OwnAP, Confidence: r.Conf, Pending: Class(r.Pending), Clients: c.clients[string(r.Tag)], Motion: motionOf(trail)}
 	id.Brand, id.BrandHint = brandOf(r)
 	id.FirstLook = firstLook(r, c.weakDBm)
-	if l, ok := c.lan[string(r.Tag)]; ok {
+	if onLAN {
 		id.LANName, id.RouterRadio = l.Name, l.Router
 	}
 	if len(r.Net) > 0 {

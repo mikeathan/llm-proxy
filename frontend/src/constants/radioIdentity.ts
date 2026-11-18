@@ -30,6 +30,7 @@ export const RADIO_KIND_SOURCES: Record<RadioKindSource, string> = {
   owner_said: 'you said so',
   announced_type: 'the device announces its type',
   model_name: 'from its model name',
+  your_name_for_it: 'from your name for it on the Network page',
   learned_from_you: 'learned from what you said about other devices of this maker',
   sends_beacons: 'it broadcasts a Wi-Fi network',
   maker: 'from its maker',
@@ -74,6 +75,8 @@ export const RADIO_OWN_PASSING = 'Passing by'
 export const RADIO_OWN_HOUSE = 'Always here'
 export const RADIO_OWN_PERSONAL = 'Comes and goes'
 export const RADIO_OWN_UNSURE = 'Not sure yet'
+/** A class change the sorting is waiting one more cycle to be sure of. */
+export const radioOwnChanging = (to: string): string => `Changing to: ${to.toLowerCase()}`
 export const RADIO_FIRST_LOOK: Record<'mobile' | 'neighbour', string> = {
   mobile: 'First look: probably someone’s phone, watch or earbuds',
   neighbour: 'First look: probably a neighbour’s',
@@ -171,7 +174,6 @@ export const RADIO_RADAR_SOLO_HELP = 'Only its distance is measured, not which w
 export const RADIO_PRESENCE_LEGEND_HEARD = 'Heard'
 export const RADIO_PRESENCE_LEGEND_AWAY = 'Listened, not heard'
 export const RADIO_PRESENCE_LEGEND_OFF = 'Not listening'
-export const RADIO_DETAIL_OPEN = 'Open page'
 export const RADIO_DEVICE_GONE_TITLE = 'Not heard lately'
 export const RADIO_DEVICE_FAILED_TITLE = 'Could not read'
 /** One of a device's own class changes: "neighbour → personal, you said so". */
