@@ -2,23 +2,21 @@
 import { computed } from "vue"
 import Icon from "../icons/Icon.vue"
 import StatusTag from "../common/display/StatusTag.vue"
-import BaseButton from "../common/buttons/BaseButton.vue"
 import { formatRelativeTime } from "../../utils/format/time"
 import { hoursLine, rowState } from "../../utils/radio/myDevices"
 import type { MyDeviceRow } from "../../types/radio"
 import { toRadioDevice } from "../../router/routes"
 import { RADIO_KIND_ICON } from "../../constants/radioIdentity"
 import {
-  RADIO_CLASS_BY_OWNER, RADIO_CLASS_BY_RULES, RADIO_CLASS_WORDS, RADIO_DEVICE_REMOVE, RADIO_MOVING_NOW, RADIO_NEVER_HEARD, RADIO_NOW_WORDS, RADIO_SIGNAL_WORDS,
+  RADIO_CLASS_BY_OWNER, RADIO_CLASS_BY_RULES, RADIO_CLASS_WORDS, RADIO_MOVING_NOW, RADIO_NEVER_HEARD, RADIO_NOW_WORDS, RADIO_SIGNAL_WORDS,
   radioLastHeardLine,
 } from "../../constants/radio"
 
 // Radio · My devices: one of your devices as a row that opens its page. Simple says what you need at a glance: the name, home or not, when it
 // was last heard, the router box it is on and whether it is moving, and the last day as one sentence with its clock times. Advanced adds the
-// signal and the class, and the Remove button (beside the link, never inside it). The hour squares were dropped (2026-11-18): the owner read
+// signal and the class. Removing a device is on the Radio page. The hour squares were dropped (2026-11-18): the owner read
 // them as gaps and could not tell what they meant.
-const props = defineProps<{ row: MyDeviceRow; advanced: boolean; busy: boolean }>()
-const emit = defineEmits<{ (e: "remove", row: MyDeviceRow): void }>()
+const props = defineProps<{ row: MyDeviceRow; advanced: boolean }>()
 const NOW_STATE = { here: "running", on_network: "running", away: "neutral", not_listening: "queued" } as const
 // One status from both listeners: a device the network sees now is home even when the air has not heard it lately (ADR-0061).
 const shown = computed(() => rowState(props.row))
@@ -55,7 +53,6 @@ const details = computed(() => {
         </span>
         <Icon name="chevron-right" size="sm" class-name="mt-2 flex-none text-faint" />
       </RouterLink>
-      <BaseButton v-if="advanced" variant="secondary" class-name="flex-none max-sm:!h-11" :disabled="busy" data-test="radio-my-device-remove" @click="emit('remove', row)">{{ RADIO_DEVICE_REMOVE }}</BaseButton>
     </div>
   </li>
 </template>

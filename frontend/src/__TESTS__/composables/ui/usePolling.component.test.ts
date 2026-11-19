@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, h, KeepAlive, nextTick, ref } from 'vue'
+import { DASHBOARD_CARD_VISIBLE } from '../../../constants/dashboard'
 import { usePolling } from '../../../composables/ui/usePolling'
 
 const INTERVAL_MS = 1000
@@ -17,6 +18,23 @@ function hostWith(task: () => void) {
 
 describe('usePolling', () => {
   afterEach(() => vi.useRealTimers())
+
+  it('inside a dashboard card, skips its ticks while the card is out of view and runs once when it returns', async () => {
+    vi.useFakeTimers()
+    const task = vi.fn()
+    const visible = ref(true)
+    const Poller = hostWith(task)
+    mount(defineComponent({ provide: { [DASHBOARD_CARD_VISIBLE as symbol]: visible }, render: () => h(Poller) }))
+    vi.advanceTimersByTime(INTERVAL_MS)
+    expect(task).toHaveBeenCalledTimes(1)
+    visible.value = false
+    await nextTick()
+    vi.advanceTimersByTime(INTERVAL_MS * 5)
+    expect(task).toHaveBeenCalledTimes(1)
+    visible.value = true
+    await nextTick()
+    expect(task).toHaveBeenCalledTimes(2)
+  })
 
   it('runs on the interval while mounted and stops on unmount', () => {
     vi.useFakeTimers()

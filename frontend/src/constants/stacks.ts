@@ -53,6 +53,7 @@ export const FOUND_BY_PREFIX = 'Found by'
 export const FOUND_BY_OFF = 'off. Switch it on to keep this check running.'
 export const COVERAGE_OPEN_MODULES = 'Open the Modules tab'
 export const coverageLine = (on: number, total: number): string => `${on} of ${total} protections are watching`
+export const COVERAGE_UNREAD = 'What is watching could not be read, so nothing is said about it here.'
 export const COVERAGE_ALL_ON = 'Every protection is on.'
 export const COVERAGE_OFF_INTRO = 'Off, and what each would watch:'
 export const HELP_MODULES_TITLE = 'What each switch does'

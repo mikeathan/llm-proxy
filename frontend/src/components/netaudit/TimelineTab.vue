@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, toRef } from "vue"
-import Panel from "../common/layout/Panel.vue"
 import SegmentedControl from "../common/forms/SegmentedControl.vue"
 import StatusTag from "../common/display/StatusTag.vue"
 import RouterBlocksCard from "./RouterBlocksCard.vue"
@@ -15,11 +14,11 @@ import { useNetauditViewMode } from "../../composables/netaudit/useNetauditViewM
 import { activityText, clockTime, rowLink, daySummary, dropEchoedAlerts, filterRows, foldRows, groupByDay } from "../../utils/netaudit/activity"
 import {
   ACTIVITY_EMPTY, ACTIVITY_EMPTY_FILTERED, ROUTER_FILTER_OPTION, ACTIVITY_FILTER_LABEL, ACTIVITY_FILTER_OPTIONS, ACTIVITY_LIMIT_ADVANCED, ACTIVITY_LIMIT_SIMPLE,
-  ACTIVITY_RELATED_NOTE, ACTIVITY_RELATED_TAG, ACTIVITY_TITLE, TIMELINE_EXPLAIN_HINT, TIMELINE_EXPLAIN_LABEL, TIMELINE_EXPLAIN_NOTE, TIMELINE_EXPLAINING, TIMELINE_EXPLAIN_NOTHING,
+  ACTIVITY_RELATED_NOTE, ACTIVITY_RELATED_TAG, TIMELINE_EXPLAIN_HINT, TIMELINE_EXPLAIN_LABEL, TIMELINE_EXPLAIN_NOTE, TIMELINE_EXPLAINING, TIMELINE_EXPLAIN_NOTHING,
 } from "../../constants/netaudit"
 import type { ActivityFilter, ActivityItem, ActivityRow, NetworkAudit } from "../../types/netaudit"
 
-// The Timeline tab: one timeline of what happened lately, built by the server from records it already keeps (new devices,
+// The Timeline card on the dashboard's Network board: one timeline of what happened lately, built by the server from records it already keeps (new devices,
 // changed ports, the last audit, the alerts). Simple shows the latest few rows; Advanced a longer list and each device's
 // addresses. It reads, and starts nothing.
 const props = defineProps<{ audit: NetworkAudit | null }>()
@@ -55,14 +54,12 @@ onMounted(() => void load())
 </script>
 
 <template>
-  <Panel :title="ACTIVITY_TITLE" flush data-test="activity">
-    <template #actions>
-      <BaseButton variant="ghost" size="sm" icon="refresh" :loading="loading" class-name="max-sm:!h-11" @click="load">Refresh</BaseButton>
-    </template>
-    <div class="border-b border-hairline/60 px-4 py-3">
+  <div data-test="activity">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-hairline/60 pb-3">
       <SegmentedControl v-model="filter" :options="filterOptions" :label="ACTIVITY_FILTER_LABEL" variant="quiet" touch />
+      <BaseButton variant="ghost" size="sm" icon="refresh" :loading="loading" class-name="max-sm:!h-11" @click="load">Refresh</BaseButton>
     </div>
-    <div v-if="audit" class="flex flex-col gap-2 border-b border-hairline/60 px-4 py-3" data-test="explain">
+    <div v-if="audit" class="flex flex-col gap-2 border-b border-hairline/60 py-3" data-test="explain">
       <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
         <BaseButton variant="secondary" :loading="explain.loading.value" class-name="max-sm:!h-11" data-test="explain-button" @click="explain.explain">{{ explain.loading.value ? TIMELINE_EXPLAINING : TIMELINE_EXPLAIN_LABEL }}</BaseButton>
         <span class="text-[length:var(--text-small)] text-muted">{{ TIMELINE_EXPLAIN_HINT }}</span>
@@ -81,7 +78,7 @@ onMounted(() => void load())
     <LoadingState v-else-if="!loaded" label="Reading the activity" :rows="3" />
     <EmptyState v-else-if="!groups.length" :title="filter === 'all' ? 'Quiet' : 'Nothing here'" :body="filter === 'all' ? ACTIVITY_EMPTY : ACTIVITY_EMPTY_FILTERED" />
     <template v-else>
-      <p v-if="error" role="alert" class="m-0 px-4 py-2 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
+      <p v-if="error" role="alert" class="m-0 py-2 text-[length:var(--text-small)] text-state-error">{{ error }}</p>
       <div class="max-w-3xl">
         <section v-for="(g, gi) in groups" :key="g.heading" :aria-label="g.heading" data-test="activity-day">
           <h3 class="m-0">
@@ -125,5 +122,5 @@ onMounted(() => void load())
         </section>
       </div>
     </template>
-  </Panel>
+  </div>
 </template>

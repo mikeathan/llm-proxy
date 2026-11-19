@@ -51,5 +51,8 @@ export interface DashboardBoardTemplate {
 /** How much room a card has, by its own width: small shows a headline, medium adds a trend or a short list, large shows the detail. */
 export type DashboardCardSize = 'xs' | 'sm' | 'lg'
 
+/** The lines on stack pages that point to the dashboard: a stack's board, or one card of it. */
+export type BoardHintKey = 'network' | 'radio' | 'traffic' | 'radio-devices'
+
 /** The layout choices that re-flow the cards of one board. */
 export type DashboardPreset = 'default' | 'compact' | 'two-columns' | 'one-column'

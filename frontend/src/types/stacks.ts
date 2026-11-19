@@ -62,6 +62,13 @@ export interface StackCounts {
   blocked: number
 }
 
+/** A stack in the list of stacks (GET /stacks): its name and how many of its modules are on. */
+export interface StackSummary extends StackCounts {
+  id: StackId
+  title: string
+  purpose: string
+}
+
 /** One stack with its layers, top first. */
 export interface StackView {
   id: StackId

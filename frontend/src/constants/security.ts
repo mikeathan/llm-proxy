@@ -14,6 +14,7 @@ export const LOCKDOWN_RELEASE_MESSAGE = 'Automations, the terminal, the network,
 export const LOCKDOWN_ON_TAG = 'On'
 
 export const AGENT_ACTIVITY_TITLE = 'Agent activity'
+export const AGENTS_CARD_LOCKDOWN_OFF = 'Lock down is off'
 export const AGENT_ACTIVITY_INTRO =
   'What the safety rules stopped, what agents asked you to approve, new places a regular automation fetched from, and keys found in files agents wrote. Names only, never what was sent.'
 export const AGENT_ACTIVITY_EMPTY = 'Nothing recorded yet'

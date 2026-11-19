@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from "vue"
+import { computed, provide, watch } from "vue"
 import { useRoute } from "vue-router"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
@@ -10,7 +10,6 @@ import StackModules from "../components/stacks/StackModules.vue"
 import StackBoardLink from "../components/stacks/StackBoardLink.vue"
 import NetauditToolbar from "../components/netaudit/NetauditToolbar.vue"
 import ReadinessBanner from "../components/netaudit/ReadinessBanner.vue"
-import TimelineTab from "../components/netaudit/TimelineTab.vue"
 import TrafficTab from "../components/netaudit/TrafficTab.vue"
 import AuditsPanel from "../components/netaudit/AuditsPanel.vue"
 import NetworkSettings from "../components/netaudit/NetworkSettings.vue"
@@ -19,25 +18,24 @@ import CaptureWindowCard from "../components/netaudit/CaptureWindowCard.vue"
 import NearbySection from "../components/netaudit/NearbySection.vue"
 import FindingsReport from "../components/netaudit/FindingsReport.vue"
 import NetauditHelp from "../components/netaudit/NetauditHelp.vue"
-import { useDispatcher } from "../composables/automation/useDispatcher"
+import { useNetworkAudit } from "../composables/netaudit/useNetworkAudit"
 import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
 import { DEVICE_PROBLEMS_INJECTION, useDeviceProblems } from "../composables/netaudit/useDeviceProblems"
-import { AUDITOR_PROFILE, AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_SUBTITLE, NETWORK_TAB_LABELS, NETWORK_TITLE } from "../constants/netaudit"
+import { AUDITS_SET_UP, NETWORK_FINDINGS_NEEDS_AUDIT, NETWORK_SUBTITLE, NETWORK_TAB_LABELS, NETWORK_TITLE } from "../constants/netaudit"
 import { toNetwork, toNetworkSettings } from "../router/routes"
 import { NETWORK_SETTINGS_GROUPS, NETWORK_TABS } from "../types/routes"
-import type { NetworkAudit } from "../types/netaudit"
 import type { StackTabItem } from "../types/stacks"
 import type { NetworkSettingsGroup, NetworkTab } from "../types/routes"
 
 // Network: the home network as a security feature of its own, the first stack under the Stacks group. The page is where it is controlled:
-// Devices (who is on it, and what to decide about each), Findings (the last audit, and what to decide about each), Traffic (a look at this
-// computer's own traffic), Timeline (one list of what happened), Audits (the scans that run on a schedule), Modules (the switchboard: every
+// Devices (who is on it, and what to decide about each), Findings (the last audit, and what to decide about each), Traffic (the look at this
+// computer's own traffic and the router setup), Audits (the scans that run on a schedule), Modules (the switchboard: every
 // module is switched here and nowhere else) and Settings (the limits and details of each). The overview (the verdict, the figures, what
 // changed) is on the dashboard's Network board, which the header links to. The audit itself stays an ordinary automation, and this page reads
 // its results. Simple or Advanced, and Help, are in the page header and mean the same on every tab.
 const route = useRoute()
 const { advanced } = useNetauditViewMode()
-const { automations, fetchAutomations } = useDispatcher()
+const { audit, loaded: automationsLoaded } = useNetworkAudit()
 
 const tab = computed<NetworkTab>(() => {
   const t = route.params.tab
@@ -50,22 +48,10 @@ const settingsGroup = computed<NetworkSettingsGroup>(() => {
 })
 // The page without a tab is Devices, the first of them.
 const tabs: readonly StackTabItem[] = NETWORK_TABS.map((t) => ({ id: t, label: NETWORK_TAB_LABELS[t], to: toNetwork(t) }))
-const audit = computed<NetworkAudit | null>(() => {
-  const a = automations.value.find((x) => x.profile === AUDITOR_PROFILE)
-  return a ? { workspaceId: a.workspace, automation: a.name } : null
-})
-
-// False until the automations have been read, so the page never offers "set up" while an audit exists.
-const automationsLoaded = ref(false)
 // The open problems by device, for the device list and the traffic detail; read again when the audit is known and when the tab changes.
 const deviceProblems = useDeviceProblems(() => audit.value)
 provide(DEVICE_PROBLEMS_INJECTION, deviceProblems)
 watch([() => audit.value?.automation, tab], () => void deviceProblems.load())
-
-onMounted(async () => {
-  await fetchAutomations(true)
-  automationsLoaded.value = true
-})
 </script>
 
 <template>
@@ -92,7 +78,6 @@ onMounted(async () => {
     </template>
 
     <TrafficTab v-else-if="tab === 'traffic'" @open-tab="$router.push($event === 'settings' ? toNetworkSettings('helper') : toNetwork($event))" />
-    <TimelineTab v-else-if="tab === 'timeline'" :audit="audit" />
     <AuditsPanel v-else-if="tab === 'audits'" />
     <StackModules v-else-if="tab === 'modules'" stack="network" />
     <NetworkSettings v-else :group="settingsGroup" />

@@ -1,4 +1,4 @@
-import type { DashboardBoardTemplate, DashboardCardSize, DashboardCols, DashboardPreset, DashboardRows, DashboardSource } from '../types/dashboard'
+import type { BoardHintKey, DashboardBoardTemplate, DashboardCardSize, DashboardCols, DashboardPreset, DashboardRows, DashboardSource } from '../types/dashboard'
 import type { ChoiceOption } from '../types/ui'
 
 // The dashboard's words and shipped layouts. The limits match core/dashboard on the server, which refuses more.
@@ -10,6 +10,8 @@ export const IN_DASHBOARD_CARD: InjectionKey<boolean> = Symbol('in-dashboard-car
 
 /** Provided by a dashboard card to everything inside it: the size its own width gives it. Outside a card (or before it is measured) it is large. */
 export const DASHBOARD_CARD_SIZE: InjectionKey<Ref<DashboardCardSize>> = Symbol('dashboard-card-size')
+/** Provided by a dashboard card to everything inside it: whether the card is on screen now. Polling inside a card pauses while it is not, and catches up when it returns. */
+export const DASHBOARD_CARD_VISIBLE: InjectionKey<Ref<boolean>> = Symbol('dashboard-card-visible')
 /** A card narrower than this is small; narrower than the next, medium; otherwise large (in pixels of the card's own width). */
 export const SMALL_CARD_BELOW_PX = 300
 export const LARGE_CARD_FROM_PX = 560
@@ -66,11 +68,18 @@ export const PRESET_OPTIONS: ChoiceOption[] = [
 export const PRESET_COLS: Record<Exclude<DashboardPreset, 'default'>, DashboardCols> = { compact: 3, 'two-columns': 6, 'one-column': 12 }
 export const PINNED_COLS: DashboardCols = 4
 
-/** The line on a stack's page that points to its own board on the dashboard, where its views are. */
-export const BOARD_HINT: Record<'network' | 'radio', { text: string; link: string }> = {
-  network: { text: 'The overview, the figures and what changed are on the dashboard.', link: 'Open the Network board' },
-  radio: { text: 'The radar, what changed and how the channels are used are on the dashboard.', link: 'Open the Radio board' },
+/**
+ * The line on a stack's page that points to where its views went on the dashboard: the board, and (when a view is one card) the card, so the
+ * dashboard can say so when the owner's saved board does not have it yet.
+ */
+export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; board: string; card?: string }> = {
+  network: { text: 'The overview, the figures, what changed and the timeline are on the dashboard.', link: 'Open the Network board', board: 'network', card: 'network-timeline' },
+  traffic: { text: 'Where each device talks to (a map and its places by company) is on the dashboard.', link: 'Open Traffic by device', board: 'network', card: 'network-traffic' },
+  radio: { text: 'The radar, what changed and how the channels are used are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
+  'radio-devices': { text: 'How your devices are doing (home or away, which router box) is on the dashboard.', link: 'Open My devices', board: 'radio', card: 'radio-devices' },
 }
+export const CARD_MISSING = (title: string): string => `${title} is not on this board.`
+export const CARD_MISSING_ADD = 'Add it'
 export const ARRANGE_LABEL = 'Arrange'
 export const ARRANGE_DONE_LABEL = 'Done'
 export const ADD_CARD_LABEL = 'Add card'
@@ -122,6 +131,8 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
       { id: 'network-posture', cols: 8, rows: 1 },
       { id: 'network-changes', cols: 4, rows: 1 },
       { id: 'network-figures', cols: 12, rows: 1 },
+      { id: 'network-timeline', cols: 12, rows: 1 },
+      { id: 'network-traffic', cols: 12, rows: 1 },
       { id: 'network-coverage', cols: 12, rows: 1 },
       { id: 'network-attack-paths', cols: 6, rows: 1 },
       { id: 'network-standing', cols: 6, rows: 1 },
@@ -133,6 +144,7 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
     source: 'radio',
     cards: [
       { id: 'radio-around', cols: 12, rows: 2 },
+      { id: 'radio-devices', cols: 12, rows: 1 },
       { id: 'radio-findings', cols: 12, rows: 1 },
     ],
   },

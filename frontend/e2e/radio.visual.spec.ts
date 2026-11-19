@@ -150,6 +150,16 @@ test('Listening: the scan plan opens to channel chips, and a plan that cannot ru
   await touchTargets(page, testInfo)
 })
 
+test('Radio board: the radar card keeps all its content at 2x, with no scroll of its own', async ({ page }) => {
+  await setNetauditView(page, 'advanced')
+  await mockAdminApi(page, { answers: ANSWERS })
+  await page.goto('dashboard?board=radio')
+  await expect(page.locator('[data-test="radio-radar-summary"]')).toBeVisible()
+  const m = await page.locator('[data-test="card-radio-around"]').evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight, cell: el.parentElement!.clientHeight }))
+  expect(m.scroll).toBeLessThanOrEqual(m.client + 1)
+  expect(m.client).toBeGreaterThanOrEqual(448)
+})
+
 test('Radio board: the status line, the radar with one list, and a row that opens the device page', async ({ page }, testInfo) => {
   await setNetauditView(page, 'advanced')
   await mockAdminApi(page, { answers: ANSWERS })
@@ -262,7 +272,7 @@ test('Sensors: a role for each radio, the probe, and the details folded away', a
   await touchTargets(page, testInfo)
 })
 
-test('My devices: home first with the router box and the last day in words, a shared name to fix, and the networks grouped', async ({ page }, testInfo) => {
+test('My devices (dashboard card): home first with the router box and the last day in words, a shared name to fix; the Radio page keeps remove, add and the networks grouped', async ({ page }, testInfo) => {
   const id = (short: string) => short.padEnd(64, '0')
   const devices = { devices: [
     ...DEVICES.devices,
@@ -280,7 +290,7 @@ test('My devices: home first with the router box and the last day in words, a sh
     : d.id === 'beefcafe' ? { ...d, router: { box: 'x2', box_name: 'Asus router', main: true, band: '5G', dbm: -58, at: 1 } } : d) }
   const networks = { ...NETWORKS, access_points: [...NETWORKS.access_points, { id: 'a3', name: 'netsink', channel: 60, security: 'wpa2', confirmed: true, last_seen: '2026-11-14' }] }
   await mockAdminApi(page, { answers: { ...ANSWERS, '/radio/devices/mine': devices, '/radio/devices/mine/presence': presence, '/radio/air/live': live, '/radio/networks': networks } })
-  await page.goto('radio/devices')
+  await page.goto('dashboard?board=radio')
   // The phone the air has not heard lately but the network sees now is home, in the same one tag (ADR-0061).
   await expect(page.locator('[data-test="radio-my-summary"]')).toHaveText('3 of 4 devices home now')
   await expect(page.locator('[data-test="radio-my-device"][data-id="0733101c"]')).toHaveAttribute('data-state', 'on_network')
@@ -291,9 +301,16 @@ test('My devices: home first with the router box and the last day in words, a sh
   await expect(page.locator('[data-test="radio-my-device"][data-id="beefcafe"]')).toContainText('Near Asus router')
   await expect(page.locator('[data-test="radio-my-device"]').last()).toHaveAttribute('data-state', 'not_listening')
   await expect(page.locator('[data-test="radio-presence-hour"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="radio-my-device-remove"]')).toHaveCount(0)
+  await lookAt(page, testInfo, 'my-devices', true)
+  await expectNoSidewaysScroll(page)
+  await touchTargets(page, testInfo)
+  // The Radio page holds the control side (remove, add by address) and the networks.
+  await page.goto('radio/devices')
+  await expect(page.locator('[data-test="radio-manage-name"]')).toContainText(['my laptop'])
   await expect(page.locator('[data-test="radio-network-line"]').first()).toHaveText('5 GHz · channel 60 · 2 access points confirmed')
   await expect(page.locator('[data-test="radio-ap"][data-confirmed="false"]')).toContainText('netsink-2G')
-  await lookAt(page, testInfo, 'my-devices', true)
+  await lookAt(page, testInfo, 'my-devices-manage', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)
 })
@@ -304,7 +321,8 @@ test('My devices: Claim your devices holds finding a device, and the stack page 
   await expect(page.locator('[data-test="radio-claim"]')).toBeVisible()
   await page.locator('[data-test="radio-find-open"]').click()
   await expect(page.locator('[data-test="radio-find-candidate"]')).toHaveCount(3)
-  await expect(page.locator('[data-test="open-board"]')).toHaveAttribute('href', /dashboard\?board=radio/)
+  await expect(page.locator('[data-test="open-board"]').first()).toHaveAttribute('href', /dashboard\?board=radio$/)
+  await expect(page.locator('[data-test="open-board"]').nth(1)).toHaveAttribute('href', /dashboard\?board=radio&card=radio-devices/)
   await lookAt(page, testInfo, 'claim-your-devices', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)

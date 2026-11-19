@@ -49,4 +49,13 @@ describe('CoverageStrip', () => {
     service.stack.mockReturnValue(new Promise(() => {}))
     expect(mount(await loadStrip()).find('[data-test="coverage"]').exists()).toBe(false)
   })
+
+  it('says it could not read what is watching, once the read has ended without an answer', async () => {
+    service.stack.mockRejectedValue(new Error('down'))
+    const w = mount(await loadStrip())
+    await flushPromises()
+    expect(w.get('[data-test="coverage-unread"]').text()).toContain('could not be read')
+    await w.get('[data-test="coverage-unread"] button').trigger('click')
+    expect(w.emitted('open-tab')?.[0]).toEqual(['modules'])
+  })
 })

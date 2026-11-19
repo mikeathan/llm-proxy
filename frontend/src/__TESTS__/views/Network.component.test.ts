@@ -15,7 +15,6 @@ import NetworkView from '../../views/NetworkView.vue'
 const STUBS = {
   DevicesCard: { template: '<div data-test="stub-devices" />' },
   FindingsReport: { template: '<div data-test="stub-findings" />' },
-  TimelineTab: { props: ['audit'], template: '<div data-test="stub-timeline" />' },
   TrafficTab: { emits: ['open-tab'], template: '<div data-test="stub-traffic" @click="$emit(\'open-tab\', \'settings\')" />' },
   AuditsPanel: { template: '<div data-test="stub-audits" />' },
   StackModules: { props: ['stack'], template: '<div data-test="stub-modules" :data-stack="stack" />' },
@@ -39,28 +38,27 @@ describe('NetworkView', () => {
     automations.value = []
   })
 
-  it('has the tabs Devices, Findings, Traffic, Timeline, Audits, Modules and Settings: the overview is on the dashboard', async () => {
+  it('has the tabs Devices, Findings, Traffic, Audits, Modules and Settings: the overview is on the dashboard', async () => {
     const { wrapper } = await mountAt('/network')
-    expect(tabLabels(wrapper)).toEqual(['Devices', 'Findings', 'Traffic', 'Timeline', 'Audits', 'Modules', 'Settings'])
-    expect(wrapper.findAll('a.stack-tab').map((a) => a.attributes('href'))).toEqual(['/network/devices', '/network/findings', '/network/traffic', '/network/timeline', '/network/audits', '/network/modules', '/network/settings'])
+    expect(tabLabels(wrapper)).toEqual(['Devices', 'Findings', 'Traffic', 'Audits', 'Modules', 'Settings'])
+    expect(wrapper.findAll('a.stack-tab').map((a) => a.attributes('href'))).toEqual(['/network/devices', '/network/findings', '/network/traffic', '/network/audits', '/network/modules', '/network/settings'])
   })
 
   it.each([
     ['/network', 'stub-devices'], // the page without a tab is Devices
     ['/network/devices', 'stub-devices'],
     ['/network/traffic', 'stub-traffic'],
-    ['/network/timeline', 'stub-timeline'],
     ['/network/audits', 'stub-audits'],
     ['/network/modules', 'stub-modules'],
     ['/network/settings', 'stub-settings'],
   ])('shows one thing on %s', async (path, shown) => {
     const { wrapper } = await mountAt(path)
-    const all = ['stub-devices', 'stub-findings', 'stub-traffic', 'stub-timeline', 'stub-audits', 'stub-modules', 'stub-settings']
+    const all = ['stub-devices', 'stub-findings', 'stub-traffic', 'stub-audits', 'stub-modules', 'stub-settings']
     expect(all.filter((id) => wrapper.find(`[data-test="${id}"]`).exists())).toEqual([shown])
   })
 
   it('keeps Simple/Advanced and Help in the page header, once, on every tab', async () => {
-    for (const path of ['/network', '/network/devices', '/network/findings', '/network/traffic', '/network/timeline', '/network/audits', '/network/modules', '/network/settings']) {
+    for (const path of ['/network', '/network/devices', '/network/findings', '/network/traffic', '/network/audits', '/network/modules', '/network/settings']) {
       const { wrapper } = await mountAt(path)
       expect(wrapper.get('header').findAll('[role="radio"], [role="tab"], button').some((b) => b.attributes('aria-label') === 'Help')).toBe(true)
       expect(wrapper.findAll('button').filter((b) => b.attributes('aria-label') === 'Help')).toHaveLength(1)
@@ -78,8 +76,8 @@ describe('NetworkView', () => {
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/network/audits'))
   })
 
-  it('links to its own board on the dashboard, where the overview is', async () => {
+  it('links to its own board on the dashboard, where the overview and the timeline are (the timeline card, which a saved board may lack)', async () => {
     const { wrapper } = await mountAt('/network/findings')
-    expect(wrapper.get('[data-test="open-board"]').attributes('href')).toBe('/dashboard?board=network')
+    expect(wrapper.get('[data-test="open-board"]').attributes('href')).toBe('/dashboard?board=network&card=network-timeline')
   })
 })

@@ -15,7 +15,7 @@ import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode
 import { RADIO_DETAIL_LABEL } from "../constants/radio"
 import { VIEW_MODE_OPTIONS } from "../constants/netaudit"
 import type { NetauditViewMode } from "../types/netaudit"
-import RadioMyDevices from "../components/radio/RadioMyDevices.vue"
+import RadioManageDevices from "../components/radio/RadioManageDevices.vue"
 import RadioNetworks from "../components/radio/RadioNetworks.vue"
 import { RADIO_LISTENING_LABEL, RADIO_SUBTITLE, RADIO_TAB_LABELS, RADIO_TITLE } from "../constants/stacks"
 import { toRadio } from "../router/routes"
@@ -23,8 +23,8 @@ import { RADIO_TABS } from "../types/routes"
 import type { RadioTab } from "../types/routes"
 import type { StackTabItem } from "../types/stacks"
 
-// Radio: the third stack. Listening (start and watch a run) is the page; My devices holds the devices and networks that are yours, the one place
-// to claim a device, and where they are; Sensors says what each radio is for; Modules is the switchboard. The radar, what changed and how the
+// Radio: the third stack. Listening (start and watch a run) is the page; My devices holds the devices and networks that are yours: the one place
+// to claim a device, to add one by address or remove one; Sensors says what each radio is for; Modules is the switchboard. The radar, how your devices are doing, what changed and how the
 // channels are used are on the dashboard's Radio board, which the header links to. Simple and Advanced are the same remembered choice as on
 // the Network screens.
 const { mode, set } = useNetauditViewMode()
@@ -53,7 +53,7 @@ const tabs: readonly StackTabItem[] = [
     <RadioSensors v-else-if="tab === 'sensors'" />
     <template v-else-if="tab === 'devices'">
       <RadioClaim />
-      <RadioMyDevices />
+      <RadioManageDevices />
       <RadioNetworks />
     </template>
     <template v-else>

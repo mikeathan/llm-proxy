@@ -62,6 +62,49 @@ test('arranging: a layout re-flows the board, a card is resized, and the board o
   await expect(page.locator('[data-test="reset-board"]')).toHaveCount(0)
 })
 
+// Real layout, so happy-dom cannot stand in: resizing one card must not change its neighbours, and "later" must move a card one place on screen.
+test('arranging on a wide screen: resizing never stretches the neighbour, and a card moves one place at a time', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'the grid is one column on a phone')
+  await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
+  await page.goto('dashboard?board=network')
+  await expect(page.locator('[data-test="network-posture-card"]')).toBeVisible()
+  await page.locator('[data-test="arrange"]').click()
+  const card = (id: string) => page.locator(`[data-test="card-${id}"]`)
+  const box = async (id: string) => (await card(id).boundingBox())!
+  // The first row holds Network posture (8) and What changed (4).
+  const before = await box('network-changes')
+  const own = card('network-posture')
+  await own.locator('[aria-label="Height of Network posture"] button', { hasText: '2×' }).click()
+  await expect.poll(async () => (await box('network-posture')).height).toBeGreaterThan(400)
+  expect((await box('network-changes')).height).toBe(before.height)
+  await own.locator('[aria-label="Height of Network posture"] button', { hasText: '1×' }).click()
+  await own.locator('[aria-label="Width of Network posture"] button', { hasText: 'S' }).click()
+  await expect.poll(async () => (await box('network-posture')).width).toBeLessThan(before.width)
+  expect((await box('network-changes')).height).toBe(before.height)
+  // "Later" twice: the card is third in board order and in the sorted positions on screen.
+  const order = async () => {
+    const ids = ['network-posture', 'network-changes', 'network-figures', 'network-coverage', 'network-attack-paths', 'network-standing']
+    const at = await Promise.all(ids.map(async (id) => ({ id, b: await box(id) })))
+    return at.sort((a, b) => a.b.y - b.b.y || a.b.x - b.b.x).map((c) => c.id)
+  }
+  expect((await order()).slice(0, 3)).toEqual(['network-posture', 'network-changes', 'network-figures'])
+  for (const expected of [['network-changes', 'network-posture', 'network-figures'], ['network-changes', 'network-figures', 'network-posture']]) {
+    await own.locator('[data-move="later"]').click()
+    await expect.poll(async () => (await order()).slice(0, 3)).toEqual(expected)
+  }
+})
+
+test('a card a stack page links to is offered when the saved board predates it', async ({ page }) => {
+  const saved = { boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }, { id: 'network', name: 'Network', cards: [{ id: 'network-posture', cols: 8, rows: 1 }] }] }
+  await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': saved } })
+  await page.goto('network/traffic')
+  await page.locator('[data-test="traffic-tab"] [data-test="open-board"]').click()
+  await expect(page.locator('[data-test="add-wanted-card"]')).toBeVisible()
+  await page.locator('[data-test="add-wanted-card"]').click()
+  await expect(page.locator('[data-test="card-network-traffic"]')).toBeVisible()
+  await expect(page.locator('[data-test="add-wanted-card"]')).toHaveCount(0)
+})
+
 test('the stack pages link to their own board', async ({ page }) => {
   await mockAdminApi(page)
   await page.goto('network')

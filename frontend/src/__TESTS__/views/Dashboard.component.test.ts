@@ -7,6 +7,8 @@ import type { DashboardCardDef, DashboardLayout } from '../../types/dashboard'
 
 const service = vi.hoisted(() => ({ layout: vi.fn(), save: vi.fn(), reset: vi.fn() }))
 vi.mock('../../services/dashboard/dashboardService', () => ({ DashboardService: service }))
+const stacksService = vi.hoisted(() => ({ list: vi.fn() }))
+vi.mock('../../services/stacks/stacksService', () => ({ StacksService: stacksService }))
 
 // Two cards stand in for the catalogue: the view places cards, it does not read their data.
 vi.mock('../../components/dashboard/cardRegistry', () => {
@@ -41,6 +43,10 @@ beforeEach(() => {
   service.layout.mockResolvedValue({ boards: [] })
   service.save.mockImplementation(async (l: DashboardLayout) => l)
   service.reset.mockResolvedValue({ boards: [] })
+  stacksService.list.mockResolvedValue([
+    { id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 },
+    { id: 'radio', title: 'Radio', purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 },
+  ])
 })
 afterEach(() => {
   mounted.forEach((w) => w.unmount())
@@ -114,6 +120,43 @@ describe('DashboardView', () => {
     expect(cardTitles(w).map((t) => t.toLowerCase())).toContain('around you')
     await w.get('[data-test="add-card"]').trigger('click')
     expect(w.get('[data-test="catalogue-radio-around"]').text()).toContain('On this board') // it closes after an add; opened again it says so
+  })
+
+  it('offers only the cards and boards of a stack that has a module on', async () => {
+    stacksService.list.mockResolvedValue([{ id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 }, { id: 'radio', title: 'Radio', purpose: '', on: 0, total: 4, stopped: 0, blocked: 0 }])
+    const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="add-card"]').trigger('click')
+    expect(w.find('[data-test="catalogue-reminders"]').exists()).toBe(true) // not a stack: always offered
+    expect(w.find('[data-test="catalogue-radio-around"]').exists()).toBe(false) // the radio stack has nothing on
+    await w.get('[data-test="add-board"]').trigger('click')
+    expect(w.find('[data-test="add-board-network"]').exists()).toBe(false) // already on the dashboard, so not offered again
+    expect(w.find('[data-test="add-board-radio"]').exists()).toBe(false)
+  })
+
+  it('says a linked card is not on the saved board, and adds it with one press', async () => {
+    service.layout.mockResolvedValue({ boards: [
+      { id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] },
+      { id: 'radio', name: 'Radio', cards: [{ id: 'host-health', cols: 12, rows: 1 }] },
+    ] })
+    const { w } = await open('/dashboard?board=radio&card=radio-around')
+    expect(w.get('[data-test="add-wanted-card"]').text()).toBe('Add it')
+    expect(w.text()).toContain('Around you is not on this board.')
+    await w.get('[data-test="add-wanted-card"]').trigger('click')
+    await flushPromises()
+    expect(cardTitles(w).map((t) => t.toLowerCase())).toContain('around you')
+    expect(w.find('[data-test="add-wanted-card"]').exists()).toBe(false)
+  })
+
+  it('says nothing when the linked card is already on the board', async () => {
+    const { w } = await open('/dashboard?board=home&card=host-health')
+    expect(w.find('[data-test="add-wanted-card"]').exists()).toBe(false)
+  })
+
+  it('offers everything when the list of stacks cannot be read', async () => {
+    stacksService.list.mockRejectedValue(new Error('down'))
+    const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="add-card"]').trigger('click')
+    expect(w.find('[data-test="catalogue-radio-around"]').exists()).toBe(true)
   })
 
   it('says why it shows the standard boards when the layout cannot be read', async () => {

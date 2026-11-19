@@ -61,7 +61,7 @@ row is confirmed against the running page when its slice is built. **Keep** the 
 
 | Repeat | Where | Proposal |
 |---|---|---|
-| Four device lists | `DevicesCard` (Network), `NearbySection` (Network), `TrafficDeviceRail` (Network), `RadioMyDevices` (Radio) | Keep one device row and one list component fed by the core join (ADR-0061), shown on the stack pages and as an optional Devices card; retire the other lists once it covers their facts. Largest saving in this audit. |
+| Four device lists | `DevicesCard` (Network), `NearbySection` (Network), `TrafficDeviceRail` (Network), `RadioMyDevices` (Radio) | **Checked when built (2026-11-19, ADR-0065): not one list.** The four answer different questions (table below). One read-only Devices card was added; nothing was retired; the owner decides whether to merge any further. |
 | Two lists of Wi-Fi networks | `RadioViewNetworks` (Around you, view "Networks") and `RadioNetworks` (My devices, "Your Wi-Fi networks") | **Checked when built: not a duplicate.** One is a view (the routers around the house with the devices on each) and stays on the radar card as its Networks view; the other holds the decisions (confirm a name, Not mine, the guest switch) and stays on My devices. Both kept. |
 | Two channel pictures | `RadioAirwaves` (channel bars, retries) and `RadioViewChannels` (by channel) | One channels card on `RadioChannelBars`. Drop one. |
 | Three ways to say "this is mine" | `RadioAskCard` (Help it learn), `RadioFindMine` (Find my device), add-by-address in `RadioMyDevices` | **Built (owner agreed 2026-11-19):** one section, `RadioClaim` (Claim your devices), on My devices, holding Find my device and Help it learn; add-by-address stays folded under Advanced. The three still write the same records through `useRadioLive`. |
@@ -70,6 +70,21 @@ row is confirmed against the running page when its slice is built. **Keep** the 
 | Notes as a disclosure | `RadioReadGuide` | Fold into the radar card's help. |
 | The overview twice | `NetworkOverviewPanel` with `StandingCard`, `CoverageStrip`, `AttackPathsCard` (Overview tab) and `AuditOverview` (inside Findings) | **Built:** the parts are the Network board's cards, the tab and `NetworkOverviewPanel` are gone. `AuditOverview` stays inside the saved report. |
 | Two renders of one report | `FindingsSimple` and `FindingsAdvanced` | Keep: it is the owner's Simple and Advanced choice and both read the same data. |
+
+### The four device lists, fact by fact (read from the source 2026-11-19)
+
+| List | Whose devices | Facts it shows | What it can do | Source |
+|---|---|---|---|---|
+| `DevicesCard` (Network → Devices) | the inventory: every device the network has seen | name or maker, IPv4/IPv6 address, status (needs a look, online, offline), first and last seen, "heard over the air" with the Radio page link, open ports and OS guesses, DNS-silent note, suggested name | approve, name, mark important, forget, probe a device, confirm a gateway change | `/netaudit/devices` (+ presence, IPv6 discovery) |
+| `NearbySection` (Network → Devices) | devices around that say what they are (mDNS, SSDP and similar), most of them not in the inventory | name, what it advertises as, address, first services, a pinned problem, heard or not in the last look | run the look, filter, copy the raw facts, open a detail sheet | `/netaudit/nearby` |
+| `TrafficDeviceRail` (Network → Traffic) | this computer and the router's connection table | name, address, bytes or connection count, the phone-home flag | pick the device the pane beside it shows (a picker, not a list of facts) | the host look, the router table, the inventory, device lookups |
+| `RadioMyDevices` (Radio) | the devices the owner marked as theirs | name, home or away from both listeners, last heard, router box, moving now, the last day in words, class and signal (Advanced) | open its page (the control side moved to Add or remove a device) | `/radio/devices/mine`, presence, live |
+| **Devices card** (new, read-only) | the inventory | name, status, address, last seen, what Radio heard (with the page link) | open the Devices tab | the same as `DevicesCard` |
+
+What each has that the others lack: the inventory list is the only one with decisions and ports; Nearby is the only one about devices outside the
+inventory; the rail is the only one with traffic weight and flags and exists to choose a device for the pane; My devices is the only one with the
+owner's marks, hour-by-hour presence and the router box. One row with all of those would drop a fact or put a control on the dashboard (rule 1). The
+join that already exists (ADR-0061) is the inventory row's "heard over the air" line, which the new card reuses.
 
 ### The rest, by decision
 
@@ -99,4 +114,4 @@ Not in this audit: the 40 other netaudit components and the radio device page (`
 
 ## Remaining Work
 
-Built on the branch: the server layout and its routes, the board and card engine, Home and the host, automations, reminders, Network (six cards) and Radio (two cards) boards, the Network and Radio page changes, tests and browser specs. Left, in order, with what each needs: see `control-center-dashboard-handoff-2026-11-19.md`.
+Built on branch `dashboard-card-controls-and-cards` (v0.106.0, ADR-0065) on top of #271: the card controls (height, order, drag grip, focus), polling only for cards in view, only the cards of a stack that is on, a link to one card with "Add it", the **Timeline**, **Traffic by device** and **My devices** cards (and the page copies removed), a read-only **Devices** card, and **Recent conversations** and **Agent activity** cards. Left, in order, with what each needs: see `control-center-dashboard-handoff-2026-11-19.md`.
