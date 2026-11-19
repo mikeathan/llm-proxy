@@ -220,7 +220,10 @@ func (c *conn) logf(level stacksdk.Level, msg string, kv ...string) {
 func (c *conn) run(ctx context.Context) {
 	backoff := c.timing.BackoffMin
 	for ctx.Err() == nil {
-		c.set(StatusConnecting, "")
+		// A server that is down stays "stopped" with its reason between retries, instead of flickering back to "connecting" on every attempt.
+		if c.snapshot().Status != StatusStopped {
+			c.set(StatusConnecting, "")
+		}
 		cli, connCancel, err := c.connect(ctx)
 		if err != nil {
 			c.set(StatusStopped, classify(err))
