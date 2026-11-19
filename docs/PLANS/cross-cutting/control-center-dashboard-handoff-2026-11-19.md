@@ -4,39 +4,39 @@ date: 2026-11-19
 last_reviewed: 2026-11-19
 related_specs: [SPEC-003, SPEC-006]
 constitution_references: [IV.6, I.16]
-evidence: branch control-center-boards (cut from main at f96d25d4, v0.103.0); ADR-0064; SPEC-003 2.67; plan control-center-dashboard.md; frontend/src/components/dashboard/, domain/dashboard.ts, composables/dashboard/, views/DashboardView.vue; backend/internal/core/dashboard/, transport/http/handlers/dashboard_handlers.go; e2e/dashboard.visual.spec.ts
+evidence: branch dashboard-card-controls-and-cards (cut from main at 9fc07f3f, v0.105.0; ADR-0065; SPEC-003 2.68); #271 merged; plan control-center-dashboard.md; frontend/src/components/dashboard/, domain/dashboard.ts, composables/dashboard/, composables/stacks/useEnabledStacks.ts, components/netaudit/TrafficDevices.vue, components/radio/RadioManageDevices.vue; e2e/dashboard.visual.spec.ts
 ---
 
-# Dashboard of boards and cards: handoff (2026-11-19)
+# Dashboard of boards and cards: handoff (2026-11-19, second pass)
 
 ## State
-- **Branch** `control-center-boards`, cut from `main` at `f96d25d4` (v0.103.0) and merged with `main` after PR #270 (v0.104.0) on 2026-11-19; version bumped to 0.105.0, ADR-0064. The pull request is #271.
-- **Not run on vertex.** The dashboard was run in a browser against mocked answers (`e2e/dashboard.visual.spec.ts`), never against the real server and real data.
+- **Branch** `dashboard-card-controls-and-cards`, cut from fresh `main` (`9fc07f3f`, after #271 was merged and deployed). **Nothing is committed or pushed**; the work is in the working tree, with `frontend_dist/index.html` rebuilt. Version `0.106.0`, ADR-0065 (`proposed` until you read decision 6), SPEC-003 2.68. No backend change; no Go code reads `VERSION`.
+- **Not run on vertex.** The owner's first run (of #271) found the card controls wrong; those are fixed and proved in a real browser, but the new cards have run only against mocked answers.
 
-## Built
-- **Server:** `GET`, `PUT`, `DELETE /admin/api/dashboard` (`core/dashboard`, `persistence.DashboardStore`, `handlers/dashboard_handlers.go`), validated and bounded, forgotten by a factory reset, with tests at each layer.
-- **Engine:** `domain/dashboard.ts` (pure layout rules), `useDashboard` (edit at once, saves in order, revert and toast on failure), `DashboardView` with board tabs, toolbar, grid, card frame, catalogue, drag and keyboard move, layouts, pin to Home and `?board=`.
-- **Cards (12):** host health, running now, recent runs, reminders, network posture, what changed, figures, what is watching, ways in, standing, radio around you (the radar), radio findings. Each shows a small, medium or large version from its own width.
-- **Stack pages:** Network lost its Overview tab (Devices is the page without a tab); Radio lost Around you and gained **Claim your devices**; both have a line to their board. `/dashboard` replaced `/overview` and is where `/` lands; the phone bar is Dashboard, Assistant, Workspace, Automations, More (Reminders moved under More).
-- **Removed:** `OverviewView`, `NetworkOverviewPanel`, `RadioAroundLink` and their tests.
+## Built (this branch)
+- **Card controls.** Height is 1x (content) or 2x (at least 28 rem), never a row span; cards flow in board order; "earlier" and "later" move one place on screen and keep focus; only a grip drags (`DashboardGrid.vue`, `DashboardCardFrame.vue`). `e2e/dashboard.visual.spec.ts` measures it (neighbour height unchanged; visual order equals board order).
+- **Only what is on.** `useEnabledStacks` reads `GET /admin/api/stacks`; the catalogue and Add board offer a stack's cards and board only while it has a module on (unknown: everything).
+- **Polling.** One `IntersectionObserver` in the frame provides `DASHBOARD_CARD_VISIBLE`; `usePolling` skips a tick for a card out of view and runs on return. (A shared global poller, `useGlobalRunActivity`, is not card-owned and is unchanged.)
+- **Cards moved off the pages:** `What happened lately` (the Timeline tab is gone), `Traffic by device` (the Traffic tab keeps the look, the router setup, Trace a route and the tables line), `My devices` (Radio; the page keeps Claim, **Add or remove a device**, and the networks). New: `Devices`, `Recent conversations`, `Agent activity`. Timeline, Traffic and My devices are on the shipped boards; the new three are in the catalogue only.
+- **Links to a card.** `?card=` on the dashboard; the stack pages link to it; a saved board without it says so and offers "Add it" (`BOARD_HINT`).
+- `What is watching` says when the modules could not be read.
 
-## Checks
-The commands run and their results are in the pull request description. Backend: `go build ./...`, `go test ./...`, `go run ./tools/check-complexity/`. Frontend: `npm run build` (lint, types, build), `npm test`, `npm run test:visual`. Harness: `./scripts/check-agent-harness.sh`.
+## Checks run (2026-11-19)
+`npm run build` (lint, types, build) passed; `npx vitest run` 339 files, 3,279 tests passed; `npm run test:visual` 407 passed, 1 skipped (a desktop-only check on the mobile project) before the last CSS change (2x became a minimum height), then the dashboard, radio, timeline and traffic specs re-run: 81 passed, 1 skipped. The full visual run was not repeated after that change. Backend untouched except `VERSION`: `go build ./...`, `go test ./internal/transport/... ./internal/app/...` passed and the complexity tool reported no new violations; the full `go test ./...` was **not** run. `./scripts/check-agent-harness.sh` passed.
 
 ## Left, in order
-1. **Run it on vertex** (owner): open `/dashboard`; look at Home, the Network and Radio boards with real data; resize a card; reload; open it from a second browser (the layout should follow). Needs: the build deployed. First command: `cd frontend && npm run build`, then the usual deploy.
-2. **Cards the stack pages still own as views** (each its own slice: move the view to a card, remove the page copy): Network **Timeline** (`TimelineTab`) and **Traffic** (headline, by-device map and places; the router setup and Trace a route stay), Radio **My devices** (the read part) and **recently heard**. Pin to Home works for any card in the catalogue.
-3. **One device list.** Four lists remain (`DevicesCard`, `NearbySection`, `TrafficDeviceRail`, `RadioMyDevices`). Make one row and one list component fed by the core join (ADR-0061), offered as an optional **Devices** card in the Network catalogue; retire the others once it covers their facts. Needs: the owner's check of what each list shows today that the others do not.
-4. **Offer only cards whose stack or module is on.** The catalogue lists every card; a card whose stack is off shows its own off or empty state. The design's contract (a stack declares its cards and when they show) needs a list of enabled stacks (`StacksService` has `stack(id)` only).
-5. **Cards for the sources the mocks had and the catalogue has not:** assistant (approvals waiting, recent conversations), agents, the LLM queue. The engine takes each with one catalogue entry.
-6. **Polling.** `useNetworkSnapshot` shares the Network reads; the radar card polls its own (15 s); Host health shares `useMetrics`. A card on a board that is not open is not mounted and does not poll; a card scrolled out of view on the open board still does.
+1. **Run it on vertex** (owner): the dashboard with the real boards. Your saved Network and Radio boards predate the new cards: your saved boards predate three cards, and each page links to its card with an **Add it** line: open the Network page's link (Timeline), the Traffic tab's link (Traffic by device) and the Radio page's Add or remove a device link (My devices), pressing **Add it** on each, or use **Add card**; check that the radar reads as before (it measured as tall as its content); try Arrange (resize, earlier, later, drag by the grip). First command: build and deploy as usual.
+2. **The four device lists were not merged** (a deviation from the plan, ADR-0065, table in the plan). The owner decides whether any should go: for example the traffic rail could become the Devices card with a traffic column, or My devices could take the Devices row. Needs: your reading of the table.
+3. **Assistant: approvals waiting.** There is no list of waiting approvals to read (they live in the open chat as a guardrail banner); a card needs a new endpoint or a shared store. Not built.
+4. **The LLM queue card** was not built: `Running now` already shows the model lanes and the queued runs by position.
+5. **Home** does not ship the new cards (Recent conversations, Agent activity, Devices). Say which belong on Home.
+6. **`useDevices().load()`** reads the inventory, presence and IPv6 state; the Devices card needs only the inventory.
 
 ## Traps
-- A `Panel` inside a card draws only its content (`IN_DASHBOARD_CARD`): a card built from an existing panel component needs no edit, but the title and actions are the card's. Pitfalls 72 and 73.
-- The card's version is chosen by its measured width, not CSS (`useCardSize`); in a test it is large unless a `ResizeObserver` and `matchMedia` are stubbed (`DashboardCardFrame.component.test.ts`).
-- A browser check that counts cards must wait for them: they load as they are first shown.
-- The `What is watching` card is empty while the modules cannot be read (`CoverageStrip` draws nothing without modules); give it its own line in slice 4.
-- A test that mounts a card with a router link needs the real route table (`createAppRouter`), not a one-route stand-in.
+- A card made of several `Panel`s must `provide(IN_DASHBOARD_CARD, false)` (pitfall 74). A card's height is never a grid row span (pitfall 75).
+- Happy-dom does no layout: check geometry in the browser spec.
+- `vue-tsc -p tsconfig.app.json` is the fast typecheck; the lint rules (types only in `src/types/`) run in `npm run build`.
+- A card that links from a stack page needs an entry in `BOARD_HINT` with its board and card id.
 
 ## First file to open
-`frontend/src/components/dashboard/cardRegistry.ts` (the catalogue), then `frontend/src/domain/dashboard.ts` (the rules) and `docs/PLANS/cross-cutting/control-center-dashboard.md` (the design and the audit).
+`frontend/src/components/dashboard/cardRegistry.ts` (the catalogue), then `frontend/src/components/dashboard/DashboardGrid.vue` (the flow) and `docs/decisions/ADR-0065-...`.

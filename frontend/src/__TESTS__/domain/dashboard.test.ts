@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { addBoard, addCard, applyPreset, boardsToOffer, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth } from '../../domain/dashboard'
+import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth } from '../../domain/dashboard'
 import { BOARD_TEMPLATES, HOME_BOARD_ID, MAX_BOARDS, MAX_CARDS_PER_BOARD } from '../../constants/dashboard'
-import type { DashboardLayout } from '../../types/dashboard'
+import type { DashboardCardDef, DashboardLayout } from '../../types/dashboard'
 
 const everyCard = new Set(BOARD_TEMPLATES.flatMap((t) => t.cards.map((c) => c.id)))
 const small: DashboardLayout = {
@@ -147,5 +147,27 @@ describe('sizeForWidth', () => {
 
   it.each([0, -5, Number.NaN, Number.POSITIVE_INFINITY])('counts %s, which is not a measured width, as large so nothing is hidden before layout', (px) => {
     expect(sizeForWidth(px)).toBe('lg')
+  })
+
+  describe('stacks that are off', () => {
+    const def = (id: string, source: string) => ({ id, source }) as unknown as DashboardCardDef
+    const defs = [def('h', 'host'), def('n', 'network'), def('r', 'radio'), def('a', 'automations')]
+
+    it('offers every card while the list of stacks is not known', () => {
+      expect(cardsToOffer(defs, null).map((d) => d.id)).toEqual(['h', 'n', 'r', 'a'])
+    })
+
+    it('offers a stack card only while the stack has a module on, and every other card always', () => {
+      expect(cardsToOffer(defs, new Set(['network'])).map((d) => d.id)).toEqual(['h', 'n', 'a'])
+      expect(cardsToOffer(defs, new Set()).map((d) => d.id)).toEqual(['h', 'a'])
+      expect(sourceIsOn(null, new Set())).toBe(true)
+    })
+
+    it('offers a stack board only while the stack is on', () => {
+      const without: DashboardLayout = { boards: shippedLayout().boards.filter((b) => b.id !== 'radio' && b.id !== 'network') }
+      expect(boardsToOffer(without, new Set(['radio'])).map((t) => t.id)).toEqual(['radio'])
+      expect(boardsToOffer(without, new Set()).map((t) => t.id)).toEqual([])
+      expect(boardsToOffer(without, null).map((t) => t.id)).toEqual(['network', 'radio'])
+    })
   })
 })

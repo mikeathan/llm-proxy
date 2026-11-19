@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { defineComponent, h, nextTick } from 'vue'
+import { defineComponent, h, inject, nextTick } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import DashboardCardFrame from '../../../components/dashboard/DashboardCardFrame.vue'
 import Panel from '../../../components/common/layout/Panel.vue'
 import { useCardSize } from '../../../composables/dashboard/useCardSize'
+import { DASHBOARD_CARD_VISIBLE } from '../../../constants/dashboard'
 import { fakeMatchMedia } from '../../helpers/fakeMatchMedia'
 import type { DashboardCardDef } from '../../../types/dashboard'
 
@@ -14,6 +15,14 @@ const Probe = defineComponent({
     return () => h('div', { 'data-test': 'probe' }, [size.value, h(Panel, { title: 'Inner' }, () => 'inside')])
   },
 })
+const Seen = defineComponent({ setup() { const v = inject(DASHBOARD_CARD_VISIBLE)!; return () => h('div', { 'data-test': 'seen' }, String(v.value)) } })
+const seenDef: DashboardCardDef = { id: 'seen', source: 'network', title: 'Seen card', component: Seen, cols: 4, rows: 1, control: () => ({ name: 'network' }) }
+let intersect: ((on: boolean) => void) | undefined
+class FakeIntersection {
+  constructor(cb: IntersectionObserverCallback) { intersect = (on) => cb([{ isIntersecting: on } as IntersectionObserverEntry], this as unknown as IntersectionObserver) }
+  observe() {}
+  disconnect() {}
+}
 const def: DashboardCardDef = { id: 'probe', source: 'network', title: 'Probe card', component: Probe, cols: 4, rows: 1, control: () => ({ name: 'network' }) }
 
 let resize: ((width: number) => void) | undefined
@@ -38,6 +47,18 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); resize = undefined })
 
 describe('DashboardCardFrame', () => {
+  it('tells what is inside whether the card is on screen, from one observer of its own', async () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersection)
+    const w = mount(DashboardCardFrame, { props: { def: seenDef, placement: { id: 'seen', cols: 4, rows: 1 }, arrange: false, index: 0, count: 1, pinned: false, onHome: false }, global: { plugins: [router] } })
+    expect(w.get('[data-test="seen"]').text()).toBe('true') // counts as visible until it is known
+    intersect!(false)
+    await nextTick()
+    expect(w.get('[data-test="seen"]').text()).toBe('false')
+    intersect!(true)
+    await nextTick()
+    expect(w.get('[data-test="seen"]').text()).toBe('true')
+  })
+
   it('draws the title, the source chip and the arrow to the control page', () => {
     const w = show()
     expect(w.text()).toContain('Probe card')

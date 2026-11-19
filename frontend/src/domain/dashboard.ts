@@ -1,5 +1,6 @@
 import { BOARD_TEMPLATES, HOME_BOARD_ID, LARGE_CARD_FROM_PX, SMALL_CARD_BELOW_PX, MAX_BOARDS, MAX_BOARD_NAME, MAX_CARDS_PER_BOARD, NEW_BOARD_NAME, PINNED_COLS, PRESET_COLS } from '../constants/dashboard'
-import type { DashboardBoard, DashboardBoardTemplate, DashboardCardSize, DashboardCols, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows } from '../types/dashboard'
+import { STACK_IDS } from '../types/stacks'
+import type { DashboardBoard, DashboardBoardTemplate, DashboardCardDef, DashboardCardSize, DashboardCols, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows, DashboardSource } from '../types/dashboard'
 
 // The dashboard's layout rules, as pure functions: each takes a layout (or a board's cards) and returns a new one, so the
 // composable that owns the state stays thin and every rule is testable without a screen.
@@ -117,8 +118,20 @@ export function renameBoard(layout: DashboardLayout, boardId: string, name: stri
   return replaceBoard(layout, boardId, (b) => ({ ...b, name: trimmed }))
 }
 
-/** The shipped boards that are not on the dashboard now, for the "Add board" menu. */
-export function boardsToOffer(layout: DashboardLayout): DashboardBoardTemplate[] {
+const STACK_SOURCES: ReadonlySet<string> = new Set(STACK_IDS)
+
+/**
+ * Whether something that comes from `source` is worth offering. Host, assistant, automations and reminders are always there; a stack's
+ * cards and board are offered only while the stack has a module on. `on` null means the list of stacks is not known: offer everything.
+ */
+export const sourceIsOn = (source: DashboardSource | null, on: ReadonlySet<string> | null): boolean =>
+  on === null || source === null || !STACK_SOURCES.has(source) || on.has(source)
+
+/** The cards the catalogue offers: those whose stack is on. */
+export const cardsToOffer = (defs: readonly DashboardCardDef[], on: ReadonlySet<string> | null): DashboardCardDef[] => defs.filter((d) => sourceIsOn(d.source, on))
+
+/** The shipped boards that are not on the dashboard now and whose stack is on, for the "Add board" menu. */
+export function boardsToOffer(layout: DashboardLayout, on: ReadonlySet<string> | null = null): DashboardBoardTemplate[] {
   const present = new Set(layout.boards.map((b) => b.id))
-  return BOARD_TEMPLATES.filter((t) => t.source !== null && !present.has(t.id))
+  return BOARD_TEMPLATES.filter((t) => t.source !== null && !present.has(t.id) && sourceIsOn(t.source, on))
 }

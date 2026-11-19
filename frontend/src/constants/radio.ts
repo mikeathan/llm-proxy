@@ -130,7 +130,9 @@ export const RADIO_ENDED: Record<string, { title: string; next: string }> = {
 // Radio · My devices: the owner names the devices that are theirs; everyone else's is only counted.
 export const RADIO_DEVICES_TITLE = 'My devices'
 export const RADIO_DEVICES_INTRO = 'The devices you marked as yours, whether they are home, and which router box they are on. Open one to see it on the radar, rename it or change its kind.'
-export const RADIO_DEVICES_EMPTY = 'No device marked as yours yet. On Around you, hold a device next to this computer and use Find my device.'
+export const RADIO_DEVICES_EMPTY = 'No device marked as yours yet. On the Radio page, My devices tab, hold a device next to this computer and use Find my device.'
+export const RADIO_MANAGE_TITLE = 'Add or remove a device'
+export const RADIO_MANAGE_EMPTY = 'No device marked as yours yet. Use Find my device above.'
 /** The line above the list: how many are home now, or that nothing is known while neither the air nor the network can say (ADR-0061). */
 export const radioMySummary = (here: number, total: number, known: boolean): string =>
   known ? `${here} of ${total} ${total === 1 ? 'device' : 'devices'} home now` : `${total} ${total === 1 ? 'device' : 'devices'}. Not listening now, so who is home is not known.`
@@ -138,7 +140,7 @@ export const RADIO_MY_START = 'Start listening'
 export const RADIO_DUP_TITLE = 'Some devices share a name'
 export const radioDupLine = (label: string, count: number): string => `${count} devices are called “${label}”. Open each one and rename it so you can tell them apart.`
 export const RADIO_ADD_OPEN = 'Add a device by its address'
-export const RADIO_ADD_HINT = 'Easier: on Around you, hold the device next to this computer and use Find my device. Use this only when you know its address.'
+export const RADIO_ADD_HINT = 'Easier: hold the device next to this computer and use Find my device above. Use this only when you know its address.'
 export const RADIO_ADD_CLOSE = 'Cancel'
 export const RADIO_REMOVE_TITLE = 'Remove this device?'
 export const radioRemoveBody = (label: string): string => `“${label}” stops being marked as yours, and its name, its sealed address and its hour-by-hour history are deleted. If it is heard again it starts as an unknown device.`

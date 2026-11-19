@@ -4,7 +4,7 @@ import Panel from "../common/layout/Panel.vue"
 import Disclosure from "../common/layout/Disclosure.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import { useModuleSources } from "../../composables/netaudit/useModuleSources"
-import { COVERAGE_ALL_ON, COVERAGE_OFF_INTRO, COVERAGE_OPEN_MODULES, coverageLine } from "../../constants/stacks"
+import { COVERAGE_ALL_ON, COVERAGE_OFF_INTRO, COVERAGE_OPEN_MODULES, COVERAGE_UNREAD, coverageLine } from "../../constants/stacks"
 import type { NetworkTab } from "../../types/routes"
 
 // What is watching and what is not, on the first screen: "14 of 16 protections are watching", and the ones that are off, each with
@@ -20,7 +20,12 @@ const line = computed(() => {
   if (stopped.value.length) parts.push(`${stopped.value.length} stopped`)
   return parts.join(" · ")
 })
-onMounted(load)
+// False until the first read has ended, so "could not be read" is never shown while it is still on its way.
+const read = ref(false)
+onMounted(async () => {
+  await load()
+  read.value = true
+})
 </script>
 
 <template>
@@ -41,6 +46,12 @@ onMounted(load)
         </div>
       </Disclosure>
       <p v-if="!off.length && !stopped.length" class="m-0 text-[length:var(--text-small)] text-muted" data-test="coverage-all-on">{{ COVERAGE_ALL_ON }}</p>
+    </div>
+  </Panel>
+  <Panel v-else-if="read" data-test="coverage-unread">
+    <div class="flex flex-col gap-2">
+      <p class="m-0 text-muted">{{ COVERAGE_UNREAD }}</p>
+      <div><BaseButton variant="secondary" size="sm" class-name="max-sm:!h-11" @click="emit('open-tab', 'modules')">{{ COVERAGE_OPEN_MODULES }}</BaseButton></div>
     </div>
   </Panel>
 </template>

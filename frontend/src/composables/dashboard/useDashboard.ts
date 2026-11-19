@@ -1,4 +1,4 @@
-import { computed, ref, toRaw } from 'vue'
+import { computed, ref, toRaw, type Ref } from 'vue'
 import { DashboardService } from '../../services/dashboard/dashboardService'
 import { useToast } from '../useToast'
 import { usePersistedState } from '../ui/usePersistedState'
@@ -12,9 +12,9 @@ const STORAGE_VERSION = 1
 /**
  * The dashboard's state: the layout the server keeps for the owner, the board that is open in this browser, and the edits.
  * An edit shows at once and is saved after the one before it; if the save fails the layout goes back to what was last saved,
- * and a toast says so. `knownCards` are the cards the screen can draw, so a card it cannot draw never reaches the grid.
+ * and a toast says so. `knownCards` are the cards the screen can draw, so a card it cannot draw never reaches the grid; `enabledStacks` narrows the boards offered.
  */
-export function useDashboard(knownCards: ReadonlySet<string>) {
+export function useDashboard(knownCards: ReadonlySet<string>, enabledStacks: Ref<ReadonlySet<string> | null> = ref(null)) {
   const toast = useToast()
   const layout = ref<DashboardLayout | null>(null)
   const loading = ref(true)
@@ -28,7 +28,7 @@ export function useDashboard(knownCards: ReadonlySet<string>) {
   const boards = computed<DashboardBoard[]>(() => layout.value?.boards ?? [])
   // A board removed in another browser must not leave this one on a page that does not exist: it falls back to Home.
   const board = computed<DashboardBoard | null>(() => boards.value.find((b) => b.id === activeId.value) ?? boards.value.find((b) => b.id === HOME_BOARD_ID) ?? null)
-  const offeredBoards = computed<DashboardBoardTemplate[]>(() => boardsToOffer({ boards: boards.value }))
+  const offeredBoards = computed<DashboardBoardTemplate[]>(() => boardsToOffer({ boards: boards.value }, enabledStacks.value))
 
   /** Which preset the open board is in now, or 'custom' once a card has been moved or resized by hand. */
   const preset = computed<DashboardPreset | 'custom'>(() => {

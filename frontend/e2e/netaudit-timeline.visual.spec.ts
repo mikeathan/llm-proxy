@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi, setNetauditView } from './support/adminApi'
 
-// Network → Timeline: one timeline. At both widths and in Simple and Advanced nothing may scroll sideways, every control is
+// Dashboard → Network board → What happened lately: one timeline. At both widths and in Simple and Advanced nothing may scroll sideways, every control is
 // a touch target on a phone, a long unbroken name wraps and does not widen the page, and the quiet and failed states say
 // what they are. The screenshots are for looking at.
 const at = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString()
@@ -24,7 +24,7 @@ async function open(page: Page, view: 'simple' | 'advanced', activity: unknown, 
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/automations': [AUDIT] } })
   await page.route('**/admin/api/netaudit/activity*', (route) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(activity) }))
-  await page.goto('network/timeline')
+  await page.goto('dashboard?board=network')
   await expect(page.getByRole('region', { name: 'What happened lately' })).toBeVisible()
 }
 
@@ -62,14 +62,13 @@ for (const view of ['simple', 'advanced'] as const) {
   })
 }
 
-test('the Timeline tab is reachable from the tab strip', async ({ page }, testInfo) => {
+test('the Network page no longer has a Timeline tab: it is a card on the Network board', async ({ page }) => {
   await setNetauditView(page, 'simple')
   await mockAdminApi(page, {})
   await page.goto('network')
-  await page.getByRole('link', { name: 'Timeline' }).click()
-  await expect(page).toHaveURL(/network\/timeline$/)
-  await expectNoSidewaysScroll(page)
-  if (testInfo.project.name === 'mobile') expect((await page.getByRole('link', { name: 'Timeline' }).boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  await expect(page.getByRole('link', { name: 'Timeline' })).toHaveCount(0)
+  await page.goto('dashboard?board=network')
+  await expect(page.getByRole('region', { name: 'What happened lately' })).toBeVisible()
 })
 
 for (const view of ['simple', 'advanced'] as const) {

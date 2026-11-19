@@ -40,7 +40,7 @@ describe('TrafficTab', () => {
   it('says in one line whether the naming tables are on and links to Settings, instead of drawing their cards', async () => {
     const w = await mountTab()
     expect(w.get('[data-test="traffic-tables-line"]').text()).toContain('are off')
-    expect(w.getComponent(RouterLinkStub).props('to')).toEqual({ name: 'network', params: { tab: 'settings' }, query: { group: 'data' } })
+    expect(w.findAllComponents(RouterLinkStub).find((l) => l.attributes('data-test') === 'traffic-tables-link')!.props('to')).toEqual({ name: 'network', params: { tab: 'settings' }, query: { group: 'data' } })
     expect(w.get('[data-test="traffic-tables-link"]').text()).toBe('Turn on')
     expect(w.find('[data-test="destination-data"]').exists()).toBe(false)
     service.destinationData.mockResolvedValue({ ranges: 500_000, source: 'iptoasn.com' })
@@ -59,7 +59,6 @@ describe('TrafficTab', () => {
 
   it('invites the first look with one button, and says it asks for the passphrase', async () => {
     const w = await mountTab()
-    expect(w.get('[data-test="traffic-never"]').text()).toContain('No devices yet')
     expect(w.get('[data-test="traffic-listen"]').text()).toBe('Listen now')
     expect(w.text()).toContain('Asks for your passphrase each time.')
   })
@@ -85,7 +84,7 @@ describe('TrafficTab', () => {
     service.lastHostTraffic.mockResolvedValue(kept)
     const w = await mountTab()
     expect(w.find('[data-test="traffic-unavailable"]').exists()).toBe(true)
-    expect(w.find('[data-test="traffic-headline"]').exists()).toBe(true)
+    expect(w.find('[data-test="traffic-when"]').exists()).toBe(true)
   })
 
   it('listens, says it is listening, then shows the result with when and where', async () => {
@@ -98,9 +97,7 @@ describe('TrafficTab', () => {
     service.lastHostTraffic.mockResolvedValue(kept)
     finish({ parsed: kept })
     await flushPromises()
-    expect(w.get('[data-test="traffic-headline"]').text()).toContain('sent 1 KB and received 2 KB')
     expect(w.get('[data-test="traffic-when"]').text()).toContain('wlp2s0')
-    expect(w.find('[data-test="traffic-never"]').exists()).toBe(false)
   })
 
   it('says plainly when a press failed, keeps the last look, and lets the person try again', async () => {
@@ -110,7 +107,7 @@ describe('TrafficTab', () => {
     await w.get('[data-test="traffic-listen"]').trigger('click')
     await flushPromises()
     expect(w.get('[data-test="traffic-error"]').text()).toContain('passphrase')
-    expect(w.find('[data-test="traffic-headline"]').exists()).toBe(true)
+    expect(w.find('[data-test="traffic-when"]').exists()).toBe(true)
     expect(w.get('[data-test="traffic-listen"]').attributes('disabled')).toBeUndefined()
   })
 
@@ -132,53 +129,16 @@ describe('TrafficTab', () => {
       await vi.advanceTimersByTimeAsync(3000)
       await flushPromises()
       expect(w.get('[data-test="traffic-listen"]').attributes('disabled')).toBeUndefined()
-      expect(w.find('[data-test="traffic-report"]').exists()).toBe(true)
+      expect(w.find('[data-test="traffic-when"]').exists()).toBe(true)
       w.unmount()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  describe('by device', () => {
-    const GOOGLE = { asn: 15169, name: 'GOOGLE - Google LLC', country: 'US', place_country: 'US', city: 'Mountain View', point: { lat: 37.4, lon: -122.1 } }
-    const READ = {
-      address: '192.168.50.1', user: 'admin', key_saved: true, fingerprint: 'SHA256:abc',
-      last: {
-        at: '2026-11-12T10:00:00Z', lines: 245, kept: 40,
-        devices: [
-          { address: '192.168.50.251', total: 39, places: [
-            { address: '142.251.155.120', port: 443, proto: 'udp', count: 31, owner: GOOGLE },
-            { address: '142.251.30.95', port: 443, proto: 'udp', count: 8, owner: GOOGLE },
-          ] },
-          { address: '192.168.50.10', total: 1, places: [{ address: '8.8.8.8', port: 53, proto: 'udp', count: 1 }] },
-        ],
-      },
-    }
-
-    it('shows the router\'s devices, and the map and company groups of the busiest one, with no look at this computer', async () => {
-      service.routerConn.mockResolvedValue(READ)
-      service.devices.mockResolvedValue({ devices: [{ mac: 'aa:aa', ip: '192.168.50.251', name: 'M4 MacBook Air', first_seen: 'x', last_seen: 'x', approved: true, randomized: false, new: false }] })
-      const w = await mountTab()
-      expect(w.find('[data-test="traffic-never"]').exists()).toBe(false)
-      expect(w.findAll('[data-test="rail-device"]').map((d) => d.get('span span').text())).toEqual(['M4 MacBook Air', 'Device 192.168.50.10'])
-      expect(w.get('[data-test="device-name"]').text()).toContain('M4 MacBook Air')
-      expect(w.findAll('[data-test="map-dot"]')).toHaveLength(1)
-      expect(w.findAll('[data-test="place-group"]')).toHaveLength(1)
-      expect(w.get('[data-test="group-title"]').text()).toBe('Google LLC')
-      expect(w.get('[data-test="group-figure"]').text()).toBe('39')
-    })
-
-    it('puts this computer first once it has looked, with its headline, and its internet places as company groups', async () => {
-      service.lastHostTraffic.mockResolvedValue({ ...kept, destinations: [{ address: '104.16.1.1', bytes: 3072, internet: true, owner: { asn: 13335, name: 'CLOUDFLARENET - Cloudflare, Inc.', country: 'US', city: 'Toronto', place_country: 'CA', point: { lat: 43.7, lon: -79.4 } } }] })
-      service.routerConn.mockResolvedValue(READ)
-      const w = await mountTab()
-      expect(w.findAll('[data-test="rail-device"]')[0]!.text()).toContain('This computer')
-      expect(w.get('[data-test="traffic-headline"]').text()).toContain('sent 1 KB')
-      expect(w.get('[data-test="group-title"]').text()).toBe('Cloudflare, Inc.')
-      expect(w.findAll('[data-test="map-dot"]')).toHaveLength(1)
-      await w.findAll('[data-test="rail-device"]')[1]!.trigger('click')
-      expect(w.find('[data-test="traffic-headline"]').exists()).toBe(false)
-      expect(w.get('[data-test="device-source"]').text()).toBe('The router\u2019s table')
-    })
+  it('points to the dashboard for the by-device view: the map and the places are not on this page', async () => {
+    const w = await mountTab()
+    expect(w.find('[data-test="traffic-devices"]').exists()).toBe(false)
+    expect(w.find('[data-test="open-board"]').exists()).toBe(true)
   })
 })

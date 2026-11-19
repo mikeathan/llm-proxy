@@ -283,7 +283,7 @@ export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
-export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', traffic: 'Traffic', timeline: 'Timeline', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
+export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', traffic: 'Traffic', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
 export const NETWORK_OVERVIEW_LOAD_FAILED = 'The network overview could not be read.'
@@ -512,7 +512,7 @@ export const NEARBY_SERVICE_NAMES: Record<string, string> = {
   '_companion-link._tcp': 'Apple device', '_homekit._tcp': 'HomeKit', '_hap._tcp': 'HomeKit',
 }
 
-// The Timeline tab: one timeline of what happened lately. Simple shows the latest few rows, Advanced a long list with each
+// The Timeline card (dashboard, Network board): one timeline of what happened lately. Simple shows the latest few rows, Advanced a long list with each
 // device's address.
 export const ACTIVITY_TITLE = 'What happened lately'
 export const ACTIVITY_LIMIT_SIMPLE = 20
@@ -1055,7 +1055,7 @@ export const DEVICE_RAIL_SECTION_FLAGGED = (n: number): string => `Needs a look 
 export const DEVICE_RAIL_SECTION_OTHERS = (n: number): string => `On your network · ${n}`
 export const DEVICE_RAIL_NONE = 'No device matches.'
 export const DEVICE_RAIL_EMPTY_TITLE = 'No devices yet'
-export const DEVICE_RAIL_EMPTY_BODY = 'Press Listen now to look at this computer, or read the router below. The devices appear here.'
+export const DEVICE_RAIL_EMPTY_BODY = 'On the Network page, Traffic tab, press Listen now to look at this computer, or read the router there. The devices appear here.'
 export const DEVICE_RAIL_FLAG_LABEL = (name: string): string => `${name}: the watch raised a flag`
 export const DEVICE_PICKER_OPEN = 'Change'
 export const DEVICE_PICKER_CLOSE = 'Close'
