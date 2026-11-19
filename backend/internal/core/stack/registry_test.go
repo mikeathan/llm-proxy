@@ -333,7 +333,7 @@ func TestSwitchOff_SwitchesOffEveryModuleThatIsOnAndOnlyThatStack(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.SwitchOff(Network); err != nil {
+	if err := reg.SwitchAll(Network, false); err != nil {
 		t.Fatal(err)
 	}
 	if a.on || a.sets != 1 || b.sets != 0 {
@@ -342,7 +342,7 @@ func TestSwitchOff_SwitchesOffEveryModuleThatIsOnAndOnlyThatStack(t *testing.T) 
 	if !other.on || other.sets != 0 {
 		t.Error("switching the Network off touched another stack")
 	}
-	if err := reg.SwitchOff("mars"); !errors.Is(err, ErrNotFound) {
+	if err := reg.SwitchAll("mars", false); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown stack: err = %v, want ErrNotFound", err)
 	}
 }
@@ -353,7 +353,7 @@ func TestSwitchOff_StopsAtTheFirstFailureAndSaysWhich(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.SwitchOff(Network); err == nil || !strings.Contains(err.Error(), "a") {
+	if err := reg.SwitchAll(Network, false); err == nil || !strings.Contains(err.Error(), "a") {
 		t.Fatalf("err = %v, want one naming module a", err)
 	}
 	if !b.on {
@@ -369,14 +369,69 @@ func TestSwitchOffNeedsStepUp_OnlyWhileAGuardedModuleIsOn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if need, _ := reg.SwitchOffNeedsStepUp(Network); need {
+	if need, _ := reg.SwitchAllNeedsStepUp(Network, false); need {
 		t.Error("a guarded module that is already off must not ask for the passphrase")
 	}
 	guarded.on = true
-	if need, _ := reg.SwitchOffNeedsStepUp(Network); !need {
+	if need, _ := reg.SwitchAllNeedsStepUp(Network, false); !need {
 		t.Error("a guarded module that is on must ask for the passphrase")
 	}
-	if _, err := reg.SwitchOffNeedsStepUp("mars"); !errors.Is(err, ErrNotFound) {
+	if _, err := reg.SwitchAllNeedsStepUp("mars", false); !errors.Is(err, ErrNotFound) {
 		t.Errorf("unknown stack: err = %v", err)
+	}
+}
+
+func TestSwitchAllOn_SwitchesOnEveryModuleThatIsOffInDependencyOrder(t *testing.T) {
+	a, b, c := &fakeSwitch{}, &fakeSwitch{on: true}, &fakeSwitch{}
+	other := &fakeSwitch{}
+	// c needs a and is listed first, so a single pass in list order would leave it off.
+	reg, err := New(testStacks(), []Module{
+		module("c", "listen", c, "a"),
+		module("a", "discover", a),
+		module("b", "discover", b),
+		{ID: "o", Title: "o", Stack: Agents, Layer: "watch", Sends: SendsNothing, Switch: other},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SwitchAll(Network, true); err != nil {
+		t.Fatal(err)
+	}
+	if !a.on || !b.on || !c.on || b.sets != 0 {
+		t.Errorf("a=%v b=%v (sets %d) c=%v; want all on, the one already on untouched", a.on, b.on, b.sets, c.on)
+	}
+	if other.on {
+		t.Error("switching the Network on touched another stack")
+	}
+}
+
+func TestSwitchAllOn_StopsAtTheFirstFailureAndSaysWhich(t *testing.T) {
+	a, b := &fakeSwitch{setErr: errors.New("disk full")}, &fakeSwitch{}
+	reg, err := New(testStacks(), []Module{module("a", "discover", a), module("b", "listen", b)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SwitchAll(Network, true); err == nil || !strings.Contains(err.Error(), "a") {
+		t.Fatalf("err = %v, want one naming module a", err)
+	}
+	if b.on {
+		t.Error("the run went on past a failure")
+	}
+}
+
+func TestSwitchAllNeedsStepUp_OnTurnsOnWhatIsOff(t *testing.T) {
+	guarded := &fakeSwitch{on: true}
+	g := module("g", "listen", guarded)
+	g.StepUp = true
+	reg, err := New(testStacks(), []Module{module("p", "discover", &fakeSwitch{}), g})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if need, _ := reg.SwitchAllNeedsStepUp(Network, true); need {
+		t.Error("a guarded module that is already on must not ask for the passphrase to switch all on")
+	}
+	guarded.on = false
+	if need, _ := reg.SwitchAllNeedsStepUp(Network, true); !need {
+		t.Error("a guarded module that is off must ask for the passphrase to be switched on")
 	}
 }

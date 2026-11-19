@@ -6,7 +6,7 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import ModuleTile from "./ModuleTile.vue"
 import { useStack } from "../../composables/stacks/useStack"
 import { useConfirm } from "../../composables/ui/useConfirm"
-import { LEFT_BLOCKED_PREFIX, STACK_IS_OFF_LINE, STACK_MODULES_INTRO, STACK_OFF_CONFIRM, STACK_OFF_LABEL, STACK_OFF_MESSAGE, moduleElementId, stackOffTitle, stackSummaryLine } from "../../constants/stacks"
+import { LEFT_BLOCKED_PREFIX, STACK_ALL_LABEL, STACK_ALL_OFF_LABEL, STACK_ALL_ON_LABEL, STACK_IS_OFF_LINE, STACK_MODULES_INTRO, STACK_OFF_CONFIRM, STACK_OFF_MESSAGE, STACK_ON_CONFIRM, STACK_ON_MESSAGE, moduleElementId, stackOffTitle, stackOnTitle, stackSummaryLine } from "../../constants/stacks"
 import { layerNumber } from "../../utils/stacks/modules"
 import { toNetworkSettings } from "../../router/routes"
 import { MODULE_SETTINGS_GROUP } from "../../constants/netaudit"
@@ -17,14 +17,16 @@ import type { StackId } from "../../types/stacks"
 // tile (a row on a phone) with its switch and one status line. A switch that the server refuses leaves the module as it was
 // and says why beside it.
 const props = defineProps<{ stack: StackId }>()
-const { stack, error, errorFor, busyModule, leftBlocked, switchingOff, offError, load, set, switchOff } = useStack(props.stack)
+const { stack, error, errorFor, busyModule, leftBlocked, switchingAll, allError, load, set, switchAll } = useStack(props.stack)
 const { confirm } = useConfirm()
 
-// A stack has no switch of its own: it is on while a module of it is on. Switching it off is every module off, asked once.
-async function askSwitchOff(): Promise<void> {
+// A stack has no switch of its own: it is on while a module of it is on. Switching it all on or off is every module in one state, asked once.
+async function askSwitchAll(enabled: boolean): Promise<void> {
   if (!stack.value) return
-  const ok = await confirm({ title: stackOffTitle(stack.value.title), message: STACK_OFF_MESSAGE, type: "warning", confirmText: STACK_OFF_CONFIRM })
-  if (ok) await switchOff()
+  const ok = enabled
+    ? await confirm({ title: stackOnTitle(stack.value.title), message: STACK_ON_MESSAGE, type: "warning", confirmText: STACK_ON_CONFIRM })
+    : await confirm({ title: stackOffTitle(stack.value.title), message: STACK_OFF_MESSAGE, type: "warning", confirmText: STACK_OFF_CONFIRM })
+  if (ok) await switchAll(enabled)
 }
 
 const summary = computed(() => stack.value?.summary)
@@ -55,10 +57,13 @@ onMounted(load)
           <template v-if="summary.stopped"> &middot; <span class="text-state-running">{{ summary.stopped }} stopped</span></template>
           <template v-if="summary.blocked"> &middot; <span class="text-muted">{{ summary.blocked }} blocked</span></template>
         </p>
-        <BaseButton v-if="summary.on > 0" variant="secondary" class-name="max-sm:!h-11" :disabled="switchingOff" data-test="stack-off" @click="askSwitchOff">{{ STACK_OFF_LABEL }}</BaseButton>
+        <div role="group" :aria-label="STACK_ALL_LABEL" :title="STACK_ALL_LABEL" class="flex gap-2">
+          <BaseButton variant="secondary" class-name="max-sm:!h-11" :disabled="switchingAll || summary.on === summary.total" data-test="stack-all-on" @click="askSwitchAll(true)">{{ STACK_ALL_ON_LABEL }}</BaseButton>
+          <BaseButton variant="danger" class-name="max-sm:!h-11" :disabled="switchingAll || summary.on === 0" data-test="stack-all-off" @click="askSwitchAll(false)">{{ STACK_ALL_OFF_LABEL }}</BaseButton>
+        </div>
       </div>
       <p v-if="summary && summary.on === 0" class="m-0 text-[length:var(--text-small)] text-muted" data-test="stack-is-off">{{ STACK_IS_OFF_LINE }}</p>
-      <p v-if="offError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="stack-off-error">{{ offError }}</p>
+      <p v-if="allError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="stack-all-error">{{ allError }}</p>
       <p v-if="leftBlocked.length" role="status" class="m-0 text-[length:var(--text-small)] text-muted" data-test="left-blocked">{{ LEFT_BLOCKED_PREFIX }}{{ leftBlocked.join(", ") }}.</p>
 
       <section

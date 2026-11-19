@@ -12,9 +12,9 @@ export class StacksService {
     return get<StackView>(API_ENDPOINTS.stack(id))
   }
 
-  /** Switches off every module of the stack that is on; a stack has no switch of its own. Asks for the passphrase only when a guarded module is on. */
-  static async switchOff(stack: StackId): Promise<SwitchedStack> {
-    const answer = await post<SwitchedStack>(API_ENDPOINTS.stackOff(stack), {})
+  /** Switches every module of the stack on, or off; a stack has no switch of its own. Asks for the passphrase only when a guarded module would change. */
+  static async switchAll(stack: StackId, enabled: boolean): Promise<SwitchedStack> {
+    const answer = await post<SwitchedStack>(API_ENDPOINTS.stackAll(stack, enabled), {})
     return { ...answer, blocked: answer.blocked ?? [] }
   }
 

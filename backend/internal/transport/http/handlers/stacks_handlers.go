@@ -14,8 +14,8 @@ type StackRegistry interface {
 	View(id stack.StackID, stalled map[string]bool) (stack.StackView, error)
 	Module(id stack.StackID, module string) (stack.Module, bool)
 	Switch(id stack.StackID, module string, enabled bool) (stack.Outcome, error)
-	SwitchOffNeedsStepUp(id stack.StackID) (bool, error)
-	SwitchOff(id stack.StackID) error
+	SwitchAllNeedsStepUp(id stack.StackID, enabled bool) (bool, error)
+	SwitchAll(id stack.StackID, enabled bool) error
 }
 
 // StackHandlers serve the stacks and their modules (ADR-0028): the list, one stack with its layers, and the one route that
@@ -67,11 +67,18 @@ type switchedStack struct {
 	Blocked []string `json:"blocked"`
 }
 
-// PostOff switches a whole stack off: every module of it that is on. The passphrase is asked only when one of those modules needs it,
-// before anything is changed. Switching a stack on has no route: a person chooses which modules to run, one at a time.
-func (h *StackHandlers) PostOff(w http.ResponseWriter, r *http.Request) {
+// PostOff switches a whole stack off: every module of it that is on.
+func (h *StackHandlers) PostOff(w http.ResponseWriter, r *http.Request) { h.switchAll(w, r, false) }
+
+// PostOn switches a whole stack on: every module of it that is off, the ones that need another after it. A module the guardrails block is
+// switched on all the same and says it is blocked, exactly as when it is switched one by one.
+func (h *StackHandlers) PostOn(w http.ResponseWriter, r *http.Request) { h.switchAll(w, r, true) }
+
+// switchAll puts every module of a stack in one state. The passphrase is asked only when a module that would change needs it, before
+// anything is changed.
+func (h *StackHandlers) switchAll(w http.ResponseWriter, r *http.Request, enabled bool) {
 	id := stack.StackID(r.PathValue("stack"))
-	needs, err := h.registry.SwitchOffNeedsStepUp(id)
+	needs, err := h.registry.SwitchAllNeedsStepUp(id, enabled)
 	if errors.Is(err, stack.ErrNotFound) {
 		writeJSONError(w, http.StatusNotFound, "no such stack")
 		return
@@ -80,7 +87,7 @@ func (h *StackHandlers) PostOff(w http.ResponseWriter, r *http.Request) {
 		api.RefuseStepUp(w, r)
 		return
 	}
-	if err := h.registry.SwitchOff(id); err != nil {
+	if err := h.registry.SwitchAll(id, enabled); err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

@@ -442,31 +442,45 @@ func (r *Registry) needsOff(m Module) []string {
 	return off
 }
 
-// SwitchOffNeedsStepUp reports whether stopping the stack would switch off a module that needs the passphrase: only modules that are on
-// are switched, so a stack whose passphrase-guarded modules are already off can be stopped without it.
-func (r *Registry) SwitchOffNeedsStepUp(id StackID) (bool, error) {
+// SwitchAllNeedsStepUp reports whether switching the stack all on (enabled) or all off would change a module that needs the passphrase:
+// only modules that are not already in the wanted state are changed, so a stack whose guarded modules are already there asks for nothing.
+func (r *Registry) SwitchAllNeedsStepUp(id StackID, enabled bool) (bool, error) {
 	if _, ok := r.stack(id); !ok {
 		return false, ErrNotFound
 	}
-	return slices.ContainsFunc(r.modules, func(m Module) bool { return m.Stack == id && m.StepUp && m.Switch.Enabled() }), nil
+	return slices.ContainsFunc(r.modules, func(m Module) bool { return m.Stack == id && m.StepUp && m.Switch.Enabled() != enabled }), nil
 }
 
-// SwitchOff turns off every module of the stack that is on, which is what switching a stack off means: a stack is on while any module of
-// it is on (the menu and the dashboard read that), so no setting of its own exists. A module already off is left alone. It stops at the
-// first module that cannot be switched; the ones before it stay off, and the stack's view says which.
-func (r *Registry) SwitchOff(id StackID) error {
+// SwitchAll puts every module of the stack in the wanted state, which is what switching a stack off (or all on) means: a stack is on while
+// any module of it is on (the menu and the dashboard read that), so no setting of its own exists. A module already there is left alone.
+// Switching on goes in dependency order, so a module that needs another finds it on. It stops at the first module that cannot be switched;
+// the ones before stay as changed, and the stack's view says which. A module that needs one that cannot be on is left off.
+func (r *Registry) SwitchAll(id StackID, enabled bool) error {
 	if _, ok := r.stack(id); !ok {
 		return ErrNotFound
 	}
-	for _, m := range r.modules {
-		if m.Stack != id || !m.Switch.Enabled() {
-			continue
-		}
-		if err := m.Switch.Set(false); err != nil {
-			return fmt.Errorf("switching %s: %w", m.ID, err)
+	for {
+		changed, err := r.switchPass(id, enabled)
+		if err != nil || !changed || !enabled {
+			return err
 		}
 	}
-	return nil
+}
+
+// switchPass makes one walk over the stack's modules, switching each that is not in the wanted state (and, when switching on, whose needs
+// are on), and says whether it changed any. Switching on repeats it until nothing changes: a module that needs a later one waits a pass.
+func (r *Registry) switchPass(id StackID, enabled bool) (bool, error) {
+	changed := false
+	for _, m := range r.modules {
+		if m.Stack != id || m.Switch.Enabled() == enabled || (enabled && len(r.needsOff(m)) > 0) {
+			continue
+		}
+		if err := m.Switch.Set(enabled); err != nil {
+			return changed, fmt.Errorf("switching %s: %w", m.ID, err)
+		}
+		changed = true
+	}
+	return changed, nil
 }
 
 // Outcome is what a switch change left behind: on switching a module off, the titles of the modules that are on and need it.
