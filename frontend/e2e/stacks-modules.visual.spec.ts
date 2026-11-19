@@ -20,6 +20,10 @@ const AGENTS = {
   id: 'agents', title: 'Agents', purpose: '', actions: [{ id: 'lockdown', title: 'Lock down', purpose: '' }], summary: { on: 2, total: 2, stopped: 0, blocked: 0 },
   layers: [{ id: 'watch', title: 'Watch', modules: [module('agent_activity', 'Agent activity', { sends: 'message', step_up: true }), module('secrets_pass', 'Secrets pass', { sends: 'message', step_up: true })] }],
 }
+const REMINDERS = {
+  id: 'reminders', title: 'Reminders', purpose: '', actions: [], summary: { on: 1, total: 1, stopped: 0, blocked: 0 },
+  layers: [{ id: 'remind', title: 'Remind', modules: [module('reminders', 'Reminders', { sends: 'message' })] }],
+}
 
 test('the Network Modules tab fits the screen and its switches are touch targets', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/stacks/network': NETWORK } })
@@ -45,5 +49,16 @@ test('the Agents page opens on the activity and has a Modules tab with its two p
   await page.getByRole('link', { name: 'Modules', exact: true }).last().click()
   await expect(page.getByRole('switch', { name: 'Agent activity' })).toBeVisible()
   await expect(page.getByRole('switch', { name: 'Secrets pass' })).toBeVisible()
+  await expectNoSidewaysScroll(page)
+})
+
+test('the Reminders page is a stack page: the list, and a Modules tab with its one switch', async ({ page }) => {
+  await mockAdminApi(page, { answers: { '/stacks/reminders': REMINDERS, '/reminders': { open: [], recent: [] } } })
+  await page.goto('reminders')
+  await expect(page.getByRole('heading', { name: 'Reminders', level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New reminder' })).toBeVisible()
+  await page.getByRole('link', { name: 'Modules', exact: true }).last().click()
+  await expect(page.getByRole('switch', { name: 'Reminders' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New reminder' })).toHaveCount(0)
   await expectNoSidewaysScroll(page)
 })

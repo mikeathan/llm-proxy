@@ -1,48 +1,33 @@
 package tools
 
 import (
-	"cmp"
 	"context"
-	"errors"
-	"fmt"
-	"strings"
-	"time"
 
 	"llm-proxy/models"
 )
 
-// ReminderSpec is a reminder as the agent asked for it. At is zero for a
-// recurring reminder, which starts at its next cron occurrence.
-type ReminderSpec struct {
+// ReminderRequest is what the assistant asked for, with the two facts only the core knows: the zone the conversation reports and the connector
+// the message arrived through. The core adds them from its own context, never from the model's arguments.
+type ReminderRequest struct {
 	Message   string
-	At        time.Time
+	When      string
 	Cron      string
-	Until     *time.Time
-	Zone      string // IANA name, already resolved
-	Connector string // channel type; empty = the origin, else the default channel
-	Origin    string // connector type the request arrived through; empty for the web chat
+	Until     string
+	Timezone  string
+	Connector string
+	// ChatZone is used when the assistant named no zone, so "8pm" means the person's 8pm.
+	ChatZone string
+	// Origin is the connector type the request arrived through; empty for the web chat.
+	Origin string
 }
 
-// ReminderView is a stored reminder as shown back to the agent.
-type ReminderView struct {
-	ID      int64
-	Message string
-	At      time.Time
-	Cron    string
-	Zone    string
-	Channel string // where it will be delivered, or "in-app"
-	Paused  bool
-}
-
-// ReminderService is what the tools need from the reminders subsystem. It is
-// declared here, with its own types, so this package does not import it; the app
-// layer adapts the concrete service.
+// ReminderService is what the tools need from the Reminders stack (ADR-0068). It is declared here, with its own types, so this package imports
+// neither the stack nor the SDK; the app layer adapts the hosted stack. Each call answers with the sentence the person is shown (the stack
+// resolves the time, the zone and the channel and states them, so a wrong guess is visible at once), or with the refusal in the stack's words.
 type ReminderService interface {
-	Schedule(ctx context.Context, spec ReminderSpec) (ReminderView, error)
-	Cancel(ctx context.Context, id int64) error
-	List(ctx context.Context) ([]ReminderView, error)
-	// Zone resolves the requested IANA name, falling back to the owner's zone.
-	Zone(requested string) (*time.Location, error)
+	Schedule(ctx context.Context, req ReminderRequest) (string, error)
+	List(ctx context.Context) (string, error)
+	Cancel(ctx context.Context, id int64) (string, error)
 }
 
 // ReminderTools lets the agent schedule, list and cancel reminders.
@@ -68,95 +53,32 @@ type CancelReminderArgs struct {
 	ID int64 `json:"id"`
 }
 
-// Schedule stores a reminder. The result states the resolved absolute time, zone
-// and channel so the user can spot a wrong guess immediately.
+// Schedule stores a reminder. The result states the resolved absolute time, zone and channel so the user can spot a wrong guess immediately.
 func (t *ReminderTools) Schedule(ctx context.Context, args ScheduleReminderArgs) (any, error) {
-	spec, err := t.parseSpec(ctx, args)
+	out, err := t.svc.Schedule(ctx, ReminderRequest{
+		Message: args.Message, When: args.When, Cron: args.Cron, Until: args.Until, Timezone: args.Timezone, Connector: args.Connector,
+		ChatZone: models.ChatTimezone(ctx), Origin: models.OriginConnector(ctx),
+	})
 	if err != nil {
 		return nil, err
 	}
-	spec.Origin = models.OriginConnector(ctx)
-	view, err := t.svc.Schedule(ctx, spec)
-	if err != nil {
-		return nil, err
-	}
-	loc, _ := time.LoadLocation(view.Zone)
-	if loc == nil {
-		loc = time.UTC
-	}
-	when := view.At.In(loc).Format(models.ReminderTimeLayout)
-	if view.Cron != "" {
-		return fmt.Sprintf("Reminder %d set: repeats (%s) starting %s %s via %s", view.ID, view.Cron, when, view.Zone, view.Channel), nil
-	}
-	return fmt.Sprintf("Reminder %d set for %s %s via %s", view.ID, when, view.Zone, view.Channel), nil
-}
-
-func (t *ReminderTools) parseSpec(ctx context.Context, args ScheduleReminderArgs) (ReminderSpec, error) {
-	if strings.TrimSpace(args.Message) == "" {
-		return ReminderSpec{}, errors.New("message is required: what should the reminder say?")
-	}
-	if (args.When == "") == (args.Cron == "") {
-		return ReminderSpec{}, errors.New("give exactly one of 'when' (one-off) or 'cron' (recurring)")
-	}
-	// A zone the user named wins; otherwise the conversation's own zone, so "8pm" means their 8pm.
-	loc, err := t.svc.Zone(cmp.Or(strings.TrimSpace(args.Timezone), models.ChatTimezone(ctx)))
-	if err != nil {
-		return ReminderSpec{}, err
-	}
-	spec := ReminderSpec{
-		Message:   args.Message,
-		Cron:      strings.TrimSpace(args.Cron),
-		Zone:      loc.String(),
-		Connector: strings.ToLower(strings.TrimSpace(args.Connector)),
-	}
-	if args.When != "" {
-		at, err := models.ParseInstantIn("when", args.When, loc)
-		if err != nil {
-			return ReminderSpec{}, err
-		}
-		spec.At = at
-	}
-	if args.Until != "" {
-		until, err := models.ParseInstantIn("until", args.Until, loc)
-		if err != nil {
-			return ReminderSpec{}, err
-		}
-		spec.Until = &until
-	}
-	return spec, nil
+	return out, nil
 }
 
 // List describes the open reminders.
 func (t *ReminderTools) List(ctx context.Context, _ struct{}) (any, error) {
-	views, err := t.svc.List(ctx)
+	out, err := t.svc.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(views) == 0 {
-		return "No open reminders.", nil
-	}
-	var b strings.Builder
-	for _, v := range views {
-		loc, _ := time.LoadLocation(v.Zone)
-		if loc == nil {
-			loc = time.UTC
-		}
-		fmt.Fprintf(&b, "%d: %q at %s %s via %s", v.ID, v.Message, v.At.In(loc).Format(models.ReminderTimeLayout), v.Zone, v.Channel)
-		if v.Cron != "" {
-			fmt.Fprintf(&b, " (repeats: %s)", v.Cron)
-		}
-		if v.Paused {
-			b.WriteString(" (paused)")
-		}
-		b.WriteByte('\n')
-	}
-	return strings.TrimSpace(b.String()), nil
+	return out, nil
 }
 
 // Cancel cancels an open reminder.
 func (t *ReminderTools) Cancel(ctx context.Context, args CancelReminderArgs) (any, error) {
-	if err := t.svc.Cancel(ctx, args.ID); err != nil {
+	out, err := t.svc.Cancel(ctx, args.ID)
+	if err != nil {
 		return nil, err
 	}
-	return fmt.Sprintf("Reminder %d cancelled.", args.ID), nil
+	return out, nil
 }

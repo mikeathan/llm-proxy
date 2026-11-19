@@ -14,7 +14,7 @@ import (
 func buildCommands(s *AppServices, disp *automation.Dispatcher) *commands.Registry {
 	var cmds []commands.Command
 	if s.Reminders != nil {
-		cmds = append(cmds, commands.Remind(s.Reminders))
+		cmds = append(cmds, commands.Remind(*s.Reminders))
 	}
 	if catalog := s.Profiles(); catalog != nil {
 		agents := commands.Agents{Catalog: catalog, HelpersOff: func() string { return helpersOff(s) }}

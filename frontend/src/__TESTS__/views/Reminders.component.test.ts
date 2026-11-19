@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { ROUTE_NAMES } from '../../types/routes'
 import type { ReminderItem, ReminderList } from '../../types/reminders'
 
 const { listMock, editMock, removeMock, confirmMock, createMock, pauseMock, resumeMock, skipMock } = vi.hoisted(() => ({
@@ -28,9 +30,11 @@ const item = (over: Partial<ReminderItem>): ReminderItem => ({
   connector: '', channel: 'telegram', status: 'scheduled', ...over,
 })
 
-async function mountView(list: ReminderList) {
-  listMock.mockResolvedValue(list)
-  const w = mount(RemindersView, { global: { stubs: { Icon: true, BrandMark: true } } })
+async function mountView(list: ReminderList | null, path = '/reminders') {
+  if (list) listMock.mockResolvedValue(list) // null: the test has set up its own answer
+  const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/reminders/:tab(modules)?', name: ROUTE_NAMES.reminders, component: { template: '<div />' } }] })
+  await router.push(path)
+  const w = mount(RemindersView, { global: { plugins: [router], stubs: { Icon: true, BrandMark: true, StackModules: { props: ['stack'], template: '<div data-test="stub-modules" :data-stack="stack" />' } } } })
   await flushPromises()
   return w
 }
@@ -44,6 +48,17 @@ beforeEach(() => {
 })
 
 describe('RemindersView', () => {
+  it('is a stack page: the list and a Modules tab, which shows the switchboard of the stack instead of the list', async () => {
+    const w = await mountView({ open: [item({})], recent: [] })
+    expect(w.findAll('a.stack-tab').map((a) => a.text())).toEqual(['Reminders', 'Modules'])
+    expect(w.text()).toContain('Call the bank')
+    expect(w.find('[data-test="stub-modules"]').exists()).toBe(false)
+    const m = await mountView({ open: [item({})], recent: [] }, '/reminders/modules')
+    expect(m.get('[data-test="stub-modules"]').attributes('data-stack')).toBe('reminders')
+    expect(m.text()).not.toContain('Call the bank')
+    expect(m.text()).not.toContain('New reminder')
+  })
+
   it('lists upcoming reminders with when, channel and repeat, and history apart', async () => {
     const w = await mountView({
       open: [item({}), item({ id: 2, message: 'Standup', cron: '0 9 * * 1', channel: 'in-app', connector: 'in-app' })],
@@ -83,8 +98,7 @@ describe('RemindersView', () => {
 
   it('says so when the list cannot be read', async () => {
     listMock.mockRejectedValue(new Error('failed to list reminders'))
-    const w = mount(RemindersView, { global: { stubs: { Icon: true, BrandMark: true } } })
-    await flushPromises()
+    const w = await mountView(null)
     expect(w.text()).toContain('failed to list reminders')
     expect(w.text()).not.toMatch(/no reminders/i)
   })

@@ -15,9 +15,9 @@ describe('buildNavigation', () => {
   it('shows a stack only while it has a module on, and offers "Add a stack" only while one is off', () => {
     const ids = (stacksOn?: Set<string> | null) => buildNavigation({ ...base, stacksOn }).map((i) => i.id)
     expect(ids(null)).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'network', 'agents', 'radio', 'reminders', 'models', 'activity', 'settings']) // unknown: everything
-    expect(ids(new Set(['network', 'agents', 'radio']))).not.toContain('stacks')
-    expect(ids(new Set(['agents']))).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'agents', 'stacks', 'reminders', 'models', 'activity', 'settings'])
-    expect(ids(new Set())).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'stacks', 'reminders', 'models', 'activity', 'settings'])
+    expect(ids(new Set(['network', 'agents', 'radio', 'reminders']))).not.toContain('stacks')
+    expect(ids(new Set(['agents']))).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'agents', 'stacks', 'models', 'activity', 'settings'])
+    expect(ids(new Set())).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'stacks', 'models', 'activity', 'settings'])
   })
 
   it('opens Network and Radio on their own page, never on a board of the dashboard', () => {
@@ -73,13 +73,13 @@ describe('buildNavigation', () => {
 describe('groupNavigation', () => {
   const entries = (over: Partial<Parameters<typeof buildNavigation>[0]> = {}) => groupNavigation(buildNavigation({ ...base, ...over }))
 
-  it('places Stacks where its first child sat, with Network, Agents and Radio inside it', () => {
+  it('places Stacks where its first child sat, with Network, Agents, Radio and Reminders inside it', () => {
     const list = entries()
     expect(list.map((e) => (e.kind === 'group' ? `[${e.group.label}]` : e.item.label))).toEqual([
-      'Dashboard', 'Assistant', 'Workspace', 'Automations', '[Stacks]', 'Reminders', 'Models', 'Activity', 'Settings',
+      'Dashboard', 'Assistant', 'Workspace', 'Automations', '[Stacks]', 'Models', 'Activity', 'Settings',
     ])
     const group = list.find((e) => e.kind === 'group')
-    expect(group?.kind === 'group' && group.group.items.map((i) => i.id)).toEqual(['network', 'agents', 'radio'])
+    expect(group?.kind === 'group' && group.group.items.map((i) => i.id)).toEqual(['network', 'agents', 'radio', 'reminders'])
   })
 
   it('is current, and carries the unread count, when a child is', () => {

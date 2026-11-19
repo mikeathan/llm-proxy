@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
-	"llm-proxy/internal/platform/logging"
+	"llm-proxy-stacks/sdk"
 )
 
 const (
@@ -65,6 +66,24 @@ type Config struct {
 	Skipped func() []string
 	// Policy is the lifecycle numbers; the zero value means DefaultPolicy.
 	Policy Policy
+	// Schedule evaluates cron expressions (the schedule port).
+	Schedule stacksdk.Schedule
+	// Log writes one structured line; nil logs nothing.
+	Log stacksdk.Logger
+	// Enabled says whether the module is switched on; nil means always. While it is off nothing is delivered and a change is refused (ErrOff).
+	Enabled func() bool
+	// OnRun is told each time the loop looked at the due reminders; nil does nothing.
+	OnRun func(at time.Time)
+}
+
+// on reports whether the module is switched on.
+func (s *Service) on() bool { return s.cfg.Enabled == nil || s.cfg.Enabled() }
+
+// log writes one line through the host's logger, if there is one.
+func (s *Service) log(level stacksdk.Level, msg string, fields ...string) {
+	if s.cfg.Log != nil {
+		s.cfg.Log.Log(level, msg, fields...)
+	}
 }
 
 // Service owns the reminder lifecycle: creation, cancellation and the single
@@ -92,6 +111,7 @@ func NewService(s *Store, d Deliverer, n Notice, c Clock, cfg Config) *Service {
 	if cfg.Policy.MaxAttempts == 0 {
 		cfg.Policy = DefaultPolicy()
 	}
+	cfg.Policy.Cron = cfg.Schedule
 	return &Service{store: s, deliver: d, notice: n, clock: c, cfg: cfg,
 		channel: ChannelPolicy{Connectors: d.Connectors, Skipped: cfg.Skipped}, wake: make(chan struct{}, 1), held: make(map[int64]time.Time)}
 }
@@ -106,6 +126,9 @@ func (s *Service) Channel(stored string) string { return ChannelLabel(s.Channels
 // Create validates and stores a reminder, then wakes the loop. A recurring
 // reminder without FireAt starts at its next cron occurrence.
 func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
+	if !s.on() {
+		return Reminder{}, ErrOff
+	}
 	r, err := s.prepare(r)
 	if err != nil {
 		return Reminder{}, err
@@ -121,7 +144,7 @@ func (s *Service) Create(ctx context.Context, r Reminder) (Reminder, error) {
 	}
 	s.poke()
 	// Facts about the schedule only: the message is the user's own text and is never logged.
-	logging.Info("reminder created", "id", id, "fire_at", r.FireAt.UTC().Format(time.RFC3339), "cron", r.Cron,
+	s.log(stacksdk.LevelInfo, "reminder created", "id", strconv.FormatInt(id, 10), "fire_at", r.FireAt.UTC().Format(time.RFC3339), "cron", r.Cron,
 		"zone", r.Timezone, "channel", r.Connector, "created_by", r.CreatedBy)
 	return s.store.Get(ctx, id)
 }
@@ -136,6 +159,9 @@ func (s *Service) Plan(r Reminder) (Reminder, error) { return s.prepare(r) }
 // ErrNotFound when it is cancelled or unknown; ErrInvalid (wrapped) when the new
 // description is refused, in which case nothing changes.
 func (s *Service) Edit(ctx context.Context, id int64, in Reminder) (Reminder, error) {
+	if !s.on() {
+		return Reminder{}, ErrOff
+	}
 	cur, err := s.store.Get(ctx, id)
 	if err != nil {
 		return Reminder{}, err
@@ -158,13 +184,13 @@ func (s *Service) Edit(ctx context.Context, id int64, in Reminder) (Reminder, er
 func (s *Service) prepare(r Reminder) (Reminder, error) {
 	now := s.clock.Now()
 	if r.Cron != "" && r.FireAt.IsZero() {
-		next, ok := NextFire(r, now)
+		next, ok := NextFire(s.cfg.Schedule, r, now)
 		if !ok {
 			return Reminder{}, fmt.Errorf("%w: recurrence never fires again", ErrInvalid)
 		}
 		r.FireAt = next
 	}
-	if err := ValidateNew(r, now); err != nil {
+	if err := ValidateNew(s.cfg.Schedule, r, now); err != nil {
 		return Reminder{}, fmt.Errorf("%w: %s", ErrInvalid, err)
 	}
 	if err := s.channel.ValidateNamed(r.Connector); err != nil {
@@ -181,12 +207,12 @@ func (s *Service) Pause(ctx context.Context, id int64) (Reminder, error) {
 
 // Resume brings a paused reminder back at its next occurrence.
 func (s *Service) Resume(ctx context.Context, id int64) (Reminder, error) {
-	return s.change(ctx, id, StatusPaused, func(r Reminder) (Reminder, error) { return Resume(r, s.clock.Now()) })
+	return s.change(ctx, id, StatusPaused, func(r Reminder) (Reminder, error) { return Resume(s.cfg.Schedule, r, s.clock.Now()) })
 }
 
 // Skip moves a repeating reminder past its next occurrence.
 func (s *Service) Skip(ctx context.Context, id int64) (Reminder, error) {
-	return s.change(ctx, id, StatusScheduled, func(r Reminder) (Reminder, error) { return SkipNext(r) })
+	return s.change(ctx, id, StatusScheduled, func(r Reminder) (Reminder, error) { return SkipNext(s.cfg.Schedule, r) })
 }
 
 // change reads a reminder, applies one of the pure state changes and writes the
@@ -279,10 +305,15 @@ func (s *Service) Run(ctx context.Context) {
 // armTimer returns a timer for the earliest open reminder, or nil when none. A
 // reminder held back after a failed save is not due again before its hold ends.
 func (s *Service) armTimer(ctx context.Context) Timer {
+	// While the module is off nothing is delivered, and a reminder that fell due then is overdue: a timer for it would fire at once and the loop
+	// would spin. The loop waits for a wake (the switch changing pokes it) or the end of ctx.
+	if !s.on() {
+		return nil
+	}
 	open, err := s.store.ListScheduled(ctx)
 	if err != nil || len(open) == 0 {
 		if err != nil && ctx.Err() == nil {
-			logging.Warn("reminders: list failed", "error", err)
+			s.log(stacksdk.LevelWarn, "reminders: list failed", "error", err.Error())
 		}
 		return nil
 	}
@@ -304,10 +335,16 @@ func (s *Service) effectiveTime(r Reminder) time.Time {
 }
 
 func (s *Service) processDue(ctx context.Context) {
+	if !s.on() {
+		return
+	}
+	if s.cfg.OnRun != nil {
+		s.cfg.OnRun(s.clock.Now())
+	}
 	due, err := s.store.Due(ctx, s.clock.Now())
 	if err != nil {
 		if ctx.Err() == nil {
-			logging.Warn("reminders: due query failed", "error", err)
+			s.log(stacksdk.LevelWarn, "reminders: due query failed", "error", err.Error())
 		}
 		return
 	}
@@ -398,7 +435,7 @@ func (s *Service) save(ctx context.Context, r Reminder, now time.Time) {
 	if err == nil || errors.Is(err, ErrNotFound) || ctx.Err() != nil {
 		return
 	}
-	logging.Warn("reminders: update failed", "id", r.ID, "error", err)
+	s.log(stacksdk.LevelWarn, "reminders: update failed", "id", strconv.FormatInt(r.ID, 10), "error", err.Error())
 	s.hold(r.ID, now)
 }
 

@@ -36,7 +36,6 @@ type HandlerSet struct {
 	Dispatcher  *handlers.DispatcherHandlers
 	Recordings  *handlers.RecordingHandlers
 	Memory      *handlers.MemoryHandlers
-	Reminders   *handlers.ReminderHandlers
 	Profiles    *handlers.ProfileHandlers
 	Helpers     *handlers.HelpersHandlers
 	Netaudit    *handlers.NetauditHandlers
@@ -182,10 +181,6 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 
 	if store := s.AppCtx.MemoryStore(); store != nil {
 		hs.Memory = handlers.NewMemoryHandlers(store).WithModelResolver(s.ModelConfig).WithSessionRetention(s.AppCtx.SessionRetention)
-	}
-
-	if s.Reminders != nil {
-		hs.Reminders = handlers.NewReminderHandlers(reminderZone(s), s.Reminders)
 	}
 
 	commTools := communicationTools(s.ToolProvider())
@@ -523,17 +518,6 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/netaudit/expectations", hs.Netaudit.ListExpectations, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/expectations", hs.Netaudit.SetExpectation, jsonMethodNotAllowed)
 	router.Delete("/admin/api/netaudit/expectations", hs.Netaudit.RemoveExpectation, jsonMethodNotAllowed)
-
-	if hs.Reminders != nil {
-		router.Get("/admin/api/reminders", hs.Reminders.List, jsonMethodNotAllowed)
-		router.Get("/admin/api/reminders/events", hs.Reminders.Events, jsonMethodNotAllowed)
-		router.Post("/admin/api/reminders", hs.Reminders.Create, jsonMethodNotAllowed)
-		router.Put("/admin/api/reminders/{id}", hs.Reminders.Edit, jsonMethodNotAllowed)
-		router.Post("/admin/api/reminders/{id}/pause", hs.Reminders.Pause, jsonMethodNotAllowed)
-		router.Post("/admin/api/reminders/{id}/resume", hs.Reminders.Resume, jsonMethodNotAllowed)
-		router.Post("/admin/api/reminders/{id}/skip", hs.Reminders.Skip, jsonMethodNotAllowed)
-		router.Delete("/admin/api/reminders/{id}", hs.Reminders.Delete, jsonMethodNotAllowed)
-	}
 
 	router.Get("/admin/api/commands", hs.Commands.List, jsonMethodNotAllowed)
 	router.Post("/admin/api/commands/run", hs.Commands.Run, jsonMethodNotAllowed)

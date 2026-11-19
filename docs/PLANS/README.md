@@ -32,6 +32,7 @@ harness checks the plan's own status line matches this table).
 
 | Plan | Status | Date | Related Specs | What's left |
 |------|--------|------|---------------|-------------|
+| [The Reminders stack](cross-cutting/reminders-stack.md) | partial | 2026-11-19 | SPEC-011, SPEC-003 | built and tested on branch stack-sensors-agents-and-next-stack (uncommitted); owner: merge, check on vertex, later drop the old table |
 | [WorkspaceManager coupling](cross-cutting/workspace-manager-coupling.md) | approved | 2026-10-27 | SPEC-007 | P0 measured 2026-11-18; P1/P2 built 2026-11-19 for six of seven files (TaskFileReader, ConversationStore, SessionStore, state and config readers); next the guardrail engine (nil trap), P3, P4 |
 | [Agent Improvements](agent-loop/agent-improvements.md) | partial | — | SPEC-001 | re-scoped 2026-09-05: only Phase 4 (tool dedup), Phase 5 (UsageTracker), Phase 7 remainder (sub-agent wrap) still valid — see re-scope note in plan |
 | [Large Result Storage](agent-loop/large-result-storage.md) | partial | 2026-10-19 | SPEC-001, SPEC-003, SPEC-004, SPEC-006, SPEC-007 | Phase 0 ranged `read_file` built (#99; live model check open); Phase 1 step 1 read-only checks next; §4 decisions made 2026-10-20 (chat reports in the workspace, clear-runtime-data keeps automation reports, no saving into read-only workspaces); then spill, purge, UI; Phase 6 (demote old results to recoverable stubs under pressure) after Phases 1–2 |

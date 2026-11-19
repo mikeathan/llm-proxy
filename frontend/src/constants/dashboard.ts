@@ -77,6 +77,7 @@ export const PINNED_COLS: DashboardCols = 4
  */
 export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; board: string }> = {
   network: { text: 'Devices, findings, audits, traffic and the timeline are on the dashboard.', link: 'Open the Network board', board: 'network' },
+  agents: { text: 'What the agents did, and where they fetched from, is on the dashboard.', link: 'Open the Agents board', board: 'agents' },
   radio: { text: 'The radar, your devices, your networks and what changed are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
 }
 export const CARD_MISSING = (title: string): string => `${title} is not on this board.`
@@ -150,10 +151,17 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
     cards: [
       { id: 'radio-around', cols: 12, rows: 2 },
       { id: 'radio-devices', cols: 12, rows: 1 },
+      { id: 'radio-sensors', cols: 6, rows: 1 },
       { id: 'radio-manage', cols: 6, rows: 1 },
       { id: 'radio-networks', cols: 6, rows: 1 },
       { id: 'radio-findings', cols: 12, rows: 1 },
     ],
+  },
+  {
+    id: 'agents',
+    name: 'Agents',
+    source: 'agents',
+    cards: [{ id: 'agents-activity', cols: 12, rows: 2 }],
   },
   {
     id: 'automations',

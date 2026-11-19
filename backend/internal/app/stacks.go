@@ -15,9 +15,12 @@ import (
 	"llm-proxy-stacks/network"
 	"llm-proxy-stacks/network/oui"
 	"llm-proxy-stacks/radio"
+	"llm-proxy-stacks/reminders"
 	"llm-proxy-stacks/sdk"
 
 	"llm-proxy/internal/core/agentwatch"
+	"llm-proxy/internal/core/automation"
+	"llm-proxy/internal/core/commands"
 	"llm-proxy/internal/core/netaudit"
 	"llm-proxy/internal/core/radiowatch"
 	"llm-proxy/internal/core/stack"
@@ -59,11 +62,20 @@ type radioPolicy interface {
 	Update(func(*models.RadioConfig) error) error
 }
 
+// remindersPolicy is the Reminders stack's stored settings: *storage's reminders view.
+type remindersPolicy interface {
+	Get() models.RemindersConfig
+	Update(func(*models.RemindersConfig) error) error
+}
+
 // stackDeps are what the registry is built from.
 type stackDeps struct {
 	Network *netauditServices
 	Agents  agentsPolicy
 	Radio   radioPolicy
+	// Reminders is the stored switch and settings; RemindersHost is told when the switch changes (nil when the stack could not be hosted).
+	Reminders     remindersPolicy
+	RemindersHost *stackHost
 	// Guard reads the network Guardrails each time, so a change in Settings shows at once.
 	Guard func() models.NetworkGuardrailsConfig
 }
@@ -76,7 +88,7 @@ const (
 )
 
 func newStackRegistry(d stackDeps) (*stack.Registry, error) {
-	reg, err := stack.New(stackDefinitions(), described(slices.Concat(networkModules(d), agentModules(d), radioModules(d))))
+	reg, err := stack.New(stackDefinitions(), described(slices.Concat(networkModules(d), agentModules(d), radioModules(d), remindersModules(d))))
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the stack registry: %w", err)
 	}
@@ -104,6 +116,10 @@ func stackDefinitions() []stack.Stack {
 		{
 			ID: stack.Radio, Title: "Radio", Purpose: "Listen to the radio around this computer, with the adapters you plug in.",
 			Layers: []stack.Layer{{ID: "sensors", Title: "Sensors", Purpose: "The radios this computer has, and what each can do"}},
+		},
+		{
+			ID: stack.Reminders, Title: "Reminders", Purpose: "Remind you of things, word for word, at the right time.",
+			Layers: []stack.Layer{{ID: "remind", Title: "Remind", Purpose: "What you asked to be reminded of"}},
 		},
 	}
 }
@@ -190,6 +206,36 @@ func radioModules(d stackDeps) []stack.Module {
 		{ID: radio.SensorsModuleID, Title: "Radio sensors", Purpose: "Find the radios on this computer and say what each can do.", Stack: stack.Radio, Layer: "sensors", Sends: stack.SendsNothing,
 			Switch: radioSwitch{d.Radio}},
 	}
+}
+
+// remindersModules is the Reminders stack's one switch. It sends only what the owner asked to be reminded of, so its switch needs no passphrase.
+func remindersModules(d stackDeps) []stack.Module {
+	return []stack.Module{
+		{ID: reminders.ModuleID, Title: "Reminders", Purpose: "Keep the reminders you ask for and send them on time.", Stack: stack.Reminders, Layer: "remind", Sends: stack.SendsMessage,
+			Switch: remindersSwitch{store: d.Reminders, host: d.RemindersHost}},
+	}
+}
+
+// remindersSwitch is the Reminders settings' "off" flag read as a switch: on while the flag is not set. Changing it wakes the stack, so a reminder
+// that fell due while the module was off is handled now.
+type remindersSwitch struct {
+	store remindersPolicy
+	host  *stackHost
+}
+
+func (r remindersSwitch) Enabled() bool { return !r.store.Get().Disabled }
+
+func (r remindersSwitch) Set(enabled bool) error {
+	if err := r.store.Update(func(c *models.RemindersConfig) error {
+		c.Disabled = !enabled
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save the reminders switch: %w", err)
+	}
+	if r.host != nil {
+		_ = r.host.stack.ConfigChanged(context.Background())
+	}
+	return nil
 }
 
 // radioSwitch is the Radio policy's one flag read as a switch.
@@ -407,7 +453,7 @@ const observeTimeout = 2 * time.Second
 func (n *netauditServices) observedModule(id string) (stack.Observed, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
 	defer cancel()
-	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio} {
+	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders} {
 		if h == nil {
 			continue
 		}
@@ -503,4 +549,133 @@ func (s *AppServices) radioOn(ctx context.Context) bool {
 	}
 	st, ok := s.netaudit.Radio.Module(ctx, radio.SensorsModuleID)
 	return ok && st.Enabled
+}
+
+// remindersStack is the Reminders stack: the reminders the owner asks for, kept and sent word for word (ADR-0068). Only this file imports a stack (Constitution IV.6).
+func remindersStack() stacksdk.Stack { return reminders.New() }
+
+// newRemindersHost hosts the Reminders stack over the core's own services, one adapter per port its manifest requires: the settings document (the
+// `reminders` key, unchanged), the service's log, the data folder restricted to the one file the manifest lists (its database), and the notify port,
+// which sends the owner's own text, unchanged, to a connector the owner enabled. The connectors are read each time, so one switched on later is
+// included. A factory reset erases the reminders (the owner's decision, 2026-11-19; before the stack they survived it): the stack empties its database in
+// place, so no handle is left dangling, and the old table of the main database is emptied too.
+func (s *AppServices) newRemindersHost(policy remindersPolicy) (*stackHost, error) {
+	st := remindersStack()
+	files := st.Manifest().Storage
+	if _, err := claimedFiles(networkStack().Manifest(), agentsStack().Manifest(), st.Manifest()); err != nil {
+		return nil, err
+	}
+	dir := s.AppCtx.RootDir()
+	connectors := func() *tools.CommunicationTools { return communicationTools(s.toolProvider) }
+	h, err := newStackHost(st, stacksdk.Host{
+		Config:   stackport.Config[models.RemindersConfig]{Store: policy},
+		Log:      stackport.Log{Stack: st.Manifest().ID},
+		DataDir:  stackport.DataDir{Dir: dir, Files: files},
+		Schedule: stackport.Schedule{Parse: func(expr string) (interface{ Next(time.Time) time.Time }, error) { return automation.ParseCron(expr) }},
+		Notify: stackport.Notify{
+			Types: func() []string {
+				if c := connectors(); c != nil {
+					return c.Types()
+				}
+				return nil
+			},
+			Deliver: func(ctx context.Context, channel, text string) error {
+				c := connectors()
+				if c == nil {
+					return errors.New("no connector is set up")
+				}
+				// Plain: the reminder is the owner's own text and must not be parsed as markup.
+				return c.NotifyAllPlain(ctx, text, channel)
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.AppCtx.AfterFactoryReset("Your reminders", func() error { return s.eraseReminders(context.Background(), h) })
+	return h, nil
+}
+
+// eraseStackReminders empties the Reminders stack's database.
+func eraseStackReminders(ctx context.Context, h *stackHost) error {
+	st, ok := h.stack.(*reminders.Stack)
+	if !ok {
+		return errors.New("the hosted stack is not the Reminders stack")
+	}
+	return st.EraseAll(ctx)
+}
+
+// legacyReminder is a row of the reminders table the service kept in its main database before the Reminders stack existed.
+type legacyReminder struct {
+	ID                           int64
+	Message, Cron, Timezone      string
+	Connector, Status, LastError string
+	CreatedBy, Event             string
+	FireAt, CreatedAt            time.Time
+	Until, EventAt               *time.Time
+	Rev                          int64
+	Attempts                     int
+}
+
+// stageLegacyReminders hands those rows to the stack before it starts; the stack copies them in its own Start, once (it remembers that it did), so
+// nothing can be set ahead of them and take an id they hold.
+func stageLegacyReminders(h *stackHost, rows []legacyReminder) error {
+	st, ok := h.stack.(*reminders.Stack)
+	if !ok {
+		return errors.New("the hosted stack is not the Reminders stack")
+	}
+	out := make([]reminders.Reminder, 0, len(rows))
+	for _, r := range rows {
+		rem := reminders.Reminder{ID: r.ID, Message: r.Message, FireAt: r.FireAt, Cron: r.Cron, Until: r.Until, Timezone: r.Timezone, Connector: r.Connector,
+			Status: reminders.Status(r.Status), Rev: r.Rev, Attempts: r.Attempts, LastError: r.LastError, CreatedBy: r.CreatedBy, CreatedAt: r.CreatedAt, Event: r.Event}
+		if r.EventAt != nil {
+			rem.EventAt = *r.EventAt
+		}
+		out = append(out, rem)
+	}
+	st.StageLegacy(out)
+	return nil
+}
+
+// remindersPort is the hosted Reminders stack as the assistant's tools and the /remind command use it: each call is one of the stack's declared
+// tools, answered with the sentence the person is shown or the refusal in the stack's own words. What only the core knows (the connector the
+// message arrived through, the conversation's zone) is added by the caller from its own context, never taken from the model.
+type remindersPort struct{ h *stackHost }
+
+func (p remindersPort) call(ctx context.Context, name string, args any) (string, error) {
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return "", err
+	}
+	out, err := p.h.stack.CallTool(ctx, name, raw)
+	if err != nil {
+		var coded *stacksdk.Error
+		if errors.As(err, &coded) {
+			return "", errors.New(coded.Message)
+		}
+		return "", err
+	}
+	var text string
+	if err := json.Unmarshal(out, &text); err != nil {
+		return "", fmt.Errorf("the Reminders stack answered something that is not text: %w", err)
+	}
+	return text, nil
+}
+
+func (p remindersPort) Schedule(ctx context.Context, r tools.ReminderRequest) (string, error) {
+	return p.call(ctx, reminders.ToolSchedule, reminders.ScheduleArgs{Message: r.Message, When: r.When, Cron: r.Cron, Until: r.Until,
+		Timezone: r.Timezone, Connector: r.Connector, ChatZone: r.ChatZone, Origin: r.Origin})
+}
+
+func (p remindersPort) List(ctx context.Context) (string, error) {
+	return p.call(ctx, reminders.ToolList, struct{}{})
+}
+
+func (p remindersPort) Cancel(ctx context.Context, id int64) (string, error) {
+	return p.call(ctx, reminders.ToolCancel, reminders.CancelArgs{ID: id})
+}
+
+// Remind is /remind: the stack reads the person's text and either describes the reminder or stores it.
+func (p remindersPort) Remind(ctx context.Context, r commands.RemindRequest) (string, error) {
+	return p.call(ctx, reminders.ToolCommand, reminders.CommandArgs{Text: r.Text, Zone: r.Zone, Now: r.Now, Origin: r.Origin, Preview: r.Preview})
 }

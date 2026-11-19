@@ -58,6 +58,7 @@ require (
 	llm-proxy-stacks/agents v0.0.0
 	llm-proxy-stacks/network v0.0.0
 	llm-proxy-stacks/radio v0.0.0
+	llm-proxy-stacks/reminders v0.0.0
 	llm-proxy-stacks/sdk v0.0.0
 )
 
@@ -68,3 +69,5 @@ replace llm-proxy-stacks/agents => ../stacks/agents
 replace llm-proxy-stacks/network => ../stacks/network
 
 replace llm-proxy-stacks/radio => ../stacks/radio
+
+replace llm-proxy-stacks/reminders => ../stacks/reminders

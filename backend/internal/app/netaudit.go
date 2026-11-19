@@ -134,6 +134,10 @@ type netauditServices struct {
 	AgentFeed agentwatch.Feed
 	// Radio is the Radio stack as it runs in the service: the radios on this computer and what each can do. It starts no goroutine of its own.
 	Radio *stackHost
+	// Reminders is the Reminders stack as it runs in the service: the reminders the owner asked for, kept and sent word for word (ADR-0068).
+	// RemindersLegacy stages the rows the service kept in its main database before the stack existed, just before the stack starts.
+	Reminders       *stackHost
+	RemindersLegacy func(ctx context.Context)
 	// Join is where the network inventory meets what Radio heard over the air (ADR-0061): the Network page's air facts, the new-device alert's
 	// note and the mapping of Radio's findings by tag. It reads on demand and runs nothing of its own.
 	Join *devicejoin.Join
@@ -527,6 +531,13 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	add(n.FollowUp != nil, func(ctx context.Context) { n.FollowUp.Run(ctx) })
 	add(n.Agents != nil, func(ctx context.Context) { n.Agents.Run(ctx) })
 	add(n.Radio != nil, func(ctx context.Context) { n.Radio.Run(ctx) })
+	add(n.Reminders != nil, func(ctx context.Context) {
+		// The old rows are staged first: the stack copies them in its Start, before anything can answer or set a reminder.
+		if n.RemindersLegacy != nil {
+			n.RemindersLegacy(ctx)
+		}
+		n.Reminders.Run(ctx)
+	})
 	add(n.CheckIn != nil, func(ctx context.Context) { n.CheckIn.Run(ctx) })
 	return loops
 }
@@ -534,7 +545,7 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 // hostedStacks are the stacks running in the service, each of which mounts the routes its manifest declares.
 func (n *netauditServices) hostedStacks() []stacksdk.Stack {
 	var out []stacksdk.Stack
-	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio} {
+	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders} {
 		if h != nil {
 			out = append(out, h.stack)
 		}
@@ -814,8 +825,19 @@ func (s *AppServices) wireNetaudit(dataMgr *storage.DataManager) {
 	s.netaudit.RadioNetworks = stackport.Networks{Vault: vault, List: s.netaudit.WifiConfig.Networks, Asked: netsAsked}
 	s.netaudit.Join = newDeviceJoin(known.Inventory.View, radioHost, vault, asked)
 
+	// The reminders live in their own stack. A host that could not be built leaves reminders unavailable and everything else as it was.
+	remindersPolicy := dataMgr.Reminders()
+	remindersHost, err := s.newRemindersHost(remindersPolicy)
+	if err != nil {
+		s.logger.Error("the Reminders stack could not be hosted", "error", err.Error())
+	}
+	s.netaudit.Reminders = remindersHost
+	if remindersHost != nil {
+		s.netaudit.RemindersLegacy = func(ctx context.Context) { s.stageLegacyReminders(ctx, remindersHost) }
+	}
+
 	// The registry is a static description checked by tests; one that is inconsistent is a bug to stop at start, not to serve.
-	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Radio: radioPolicy, Guard: guard})
+	registry, err := newStackRegistry(stackDeps{Network: s.netaudit, Agents: agents, Radio: radioPolicy, Reminders: remindersPolicy, RemindersHost: remindersHost, Guard: guard})
 	if err != nil {
 		panic(err)
 	}

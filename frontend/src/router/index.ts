@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type LocationQuery, type RouteLocationRaw, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
-import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
+import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, REMINDERS_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import { toDashboard, toWorkspaceFile, toWorkspaceSection } from './routes'
 import { homeLocation } from '../utils/navigation'
 import { DASHBOARD_TITLE } from '../constants/dashboard'
@@ -33,6 +33,7 @@ const toBoardCard = (board: string, card: string, query: LocationQuery): RouteLo
 const NETWORK_TAB_PATTERN = NETWORK_TABS.join('|')
 const AGENTS_TAB_PATTERN = AGENTS_TABS.join('|')
 const RADIO_TAB_PATTERN = RADIO_TABS.join('|')
+const REMINDERS_TAB_PATTERN = REMINDERS_TABS.join('|')
 const SECTION_PATTERN = WORKSPACE_SECTIONS.join('|')
 
 // Dev-only living design reference (D23): `import.meta.env.DEV` is a build-time
@@ -70,13 +71,14 @@ export const routes: RouteRecordRaw[] = [
   // The tabs that became cards of the dashboard's boards keep their addresses: a bookmark or an old link lands on the card (and keeps a `?finding=` or `?device=`).
   { path: `/network/:tab(${Object.keys(NETWORK_TAB_CARDS).join('|')})`, redirect: (to) => toBoardCard('network', NETWORK_TAB_CARDS[String(to.params.tab)]!, to.query) },
   { path: '/radio/devices', redirect: (to) => toBoardCard('radio', 'radio-devices', to.query) },
+  { path: '/radio/sensors', redirect: (to) => toBoardCard('radio', 'radio-sensors', to.query) },
   { path: `/network/:tab(${NETWORK_TAB_PATTERN})?`, name: ROUTE_NAMES.network, component: NetworkView, meta: { destination: 'network', fullWidth: true, title: 'Network' } },
   { path: '/stacks', name: ROUTE_NAMES.stacks, component: StacksView, meta: { destination: 'stacks', title: 'Stacks' } },
   { path: `/agents/:tab(${AGENTS_TAB_PATTERN})?`, name: ROUTE_NAMES.agents, component: AgentsView, meta: { destination: 'agents', fullWidth: true, title: 'Agents' } },
   { path: `/radio/:tab(${RADIO_TAB_PATTERN})?`, name: ROUTE_NAMES.radio, component: RadioView, meta: { destination: 'radio', fullWidth: true, title: 'Radio' } },
   // One device in full. Its own segment ("device"), so the tab pattern above never captures it.
   { path: '/radio/device/:id([0-9a-f]{8})', name: ROUTE_NAMES.radioDevice, component: RadioDeviceView, meta: { destination: 'radio', fullWidth: true, title: 'Radio device' } },
-  { path: '/reminders', name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
+  { path: `/reminders/:tab(${REMINDERS_TAB_PATTERN})?`, name: ROUTE_NAMES.reminders, component: RemindersView, meta: { destination: 'reminders', title: 'Reminders' } },
 
   { path: '/models', name: ROUTE_NAMES.models, component: ModelsView, meta: { destination: 'models', title: 'Models' } },
   { path: '/activity', name: ROUTE_NAMES.activity, component: ActivityView, meta: { destination: 'activity', keepAlive: true, title: 'Activity' } },

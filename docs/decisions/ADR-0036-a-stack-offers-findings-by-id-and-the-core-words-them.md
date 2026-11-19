@@ -10,6 +10,8 @@ superseded_by:
 
 # ADR-0036: A stack offers findings by id and the core words them
 
+> **Amended 2026-11-19 by [ADR-0068](ADR-0068-reminders-are-a-stack-with-its-own-store-a-notify-port-and-a-schedule-port.md) (proposed):** the rule below is unchanged for everything a stack finds or reports. One narrow exception: the Reminders stack may hand the core the owner's own stored text, through the `notify` port, to be sent unchanged to an enabled connector.
+
 ## Context
 
 The router DNS check (`stacks/network/dnscheck`) has run hourly since 2026-11-01: 567 comparisons, 567 matches, 0 differ, 0 cannot compare

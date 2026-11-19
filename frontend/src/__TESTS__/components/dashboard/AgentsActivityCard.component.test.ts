@@ -35,6 +35,12 @@ describe('AgentsActivityCard', () => {
     expect(w.find('[data-test="agents-empty"]').exists()).toBe(true)
   })
 
+  it('lists where automations fetch from, closed until opened, once it is large', async () => {
+    service.agentWatch.mockResolvedValue({ events: [event(1)], automations: [{ workspace: 'ws', automation: 'nightly', hosts: ['example.com'] }] })
+    const w = await mountCard()
+    expect(w.find('[data-test="agents-destinations"]').exists()).toBe(true)
+  })
+
   it('says it could not read the record', async () => {
     service.agentWatch.mockRejectedValue(new Error('down'))
     const w = await mountCard()

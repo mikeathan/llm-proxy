@@ -35,12 +35,13 @@ type DataManager struct {
 	appConfigStore *Store[models.AppConfig]
 
 	// Facade views over appConfigStore.
-	systemView   *SystemConfigView
-	settingsView *UserSettingsView
-	hostView     *hostSettingsView
-	netauditView *netauditView
-	agentsView   *agentsView
-	radioView    *radioView
+	systemView    *SystemConfigView
+	settingsView  *UserSettingsView
+	hostView      *hostSettingsView
+	netauditView  *netauditView
+	agentsView    *agentsView
+	radioView     *radioView
+	remindersView *remindersView
 
 	// Secrets (Credentials)
 	encSecretStore *Store[models.EncryptedSecretData]
@@ -96,6 +97,7 @@ func NewDataManager(p paths.Paths) (*DataManager, error) {
 	m.netauditView = &netauditView{mgr: m}
 	m.agentsView = &agentsView{mgr: m}
 	m.radioView = &radioView{mgr: m}
+	m.remindersView = &remindersView{mgr: m}
 
 	return m, nil
 }
@@ -371,6 +373,9 @@ func (m *DataManager) Agents() *agentsView { return m.agentsView }
 
 // Radio is the Radio stack's policy (settings.yml → radio:), off until the operator switches it on.
 func (m *DataManager) Radio() *radioView { return m.radioView }
+
+// Reminders is the Reminders stack's settings (settings.yml → reminders:): the skipped connectors, the zone and the module's switch.
+func (m *DataManager) Reminders() *remindersView { return m.remindersView }
 
 func (m *DataManager) Secrets() models.SecretsStore {
 	m.secretsMu.RLock()

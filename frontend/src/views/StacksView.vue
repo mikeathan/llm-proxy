@@ -6,7 +6,7 @@ import LoadingState from "../components/common/feedback/LoadingState.vue"
 import { StacksService } from "../services/stacks/stacksService"
 import { useEnabledStacks } from "../composables/stacks/useEnabledStacks"
 import { errorMessage } from "../utils/errors"
-import { toAgents, toNetwork, toRadio } from "../router/routes"
+import { toAgents, toNetwork, toRadio, toReminders } from "../router/routes"
 import { STACK_LOAD_FAILED, STACKS_GROUP_LABEL, STACKS_INTRO, STACKS_MODULES_LINK, stackStateLine } from "../constants/stacks"
 import type { StackId, StackSummary } from "../types/stacks"
 
@@ -19,6 +19,7 @@ const MODULES_PAGE: Record<StackId, () => ReturnType<typeof toNetwork>> = {
   network: () => toNetwork("modules"),
   agents: () => toAgents("modules"),
   radio: () => toRadio("modules"),
+  reminders: () => toReminders("modules"),
 }
 const rows = computed(() => (stacks.value ?? []).map((s) => ({ ...s, to: MODULES_PAGE[s.id]() })))
 

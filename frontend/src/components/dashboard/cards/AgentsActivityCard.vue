@@ -1,22 +1,25 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue"
+import { computed, onMounted, ref } from "vue"
 import LoadingState from "../../common/feedback/LoadingState.vue"
 import ErrorState from "../../common/feedback/ErrorState.vue"
 import StatusTag from "../../common/display/StatusTag.vue"
+import Disclosure from "../../common/layout/Disclosure.vue"
 import { CARD_LIST_SCROLL } from "../../../constants/dashboard"
 import { useCardSize } from "../../../composables/dashboard/useCardSize"
 import { useAgentActivity } from "../../../composables/security/useAgentActivity"
 import { usePolling } from "../../../composables/ui/usePolling"
-import { agentEventSource, agentEventText } from "../../../utils/security/agentWatch"
+import { agentEventSource, agentEventText, automationLine } from "../../../utils/security/agentWatch"
 import { formatRelativeTime } from "../../../utils/format/time"
-import { AGENT_ACTIVITY_EMPTY, AGENTS_CARD_LOCKDOWN_OFF, LOCKDOWN_ON_TAG } from "../../../constants/security"
+import { AGENT_ACTIVITY_EMPTY, AGENTS_CARD_LOCKDOWN_OFF, DESTINATIONS_TITLE, LOCKDOWN_ON_TAG } from "../../../constants/security"
 
 // Dashboard card · Agent activity: whether lock down is on, and what the agents did lately, newest first. It only reads; the lock down switch is
-// on the Agents page. Small is the lock down state and the latest event; medium and large a list that scrolls (large adds where each came from).
+// on the Agents page. Small is the lock down state and the latest event; medium and large a list that scrolls (large adds where each came from, and where automations fetch from).
 const KEPT = 50
 const REFRESH_MS = 30000
 const size = useCardSize()
 const a = useAgentActivity()
+const destinationsOpen = ref(false)
+const destinations = computed(() => a.record.value?.automations ?? [])
 const events = computed(() => (a.record.value?.events ?? []).slice(0, size.value === "xs" ? 1 : KEPT))
 onMounted(() => { void a.load() })
 usePolling(() => { void a.load() }, REFRESH_MS)
@@ -41,6 +44,9 @@ usePolling(() => { void a.load() }, REFRESH_MS)
           </span>
         </li>
       </ul>
+      <Disclosure v-if="size === 'lg' && destinations.length" :title="DESTINATIONS_TITLE" :summary="String(destinations.length)" :open="destinationsOpen" data-test="agents-destinations" @update:open="destinationsOpen = $event">
+        <p v-for="d in destinations" :key="`${d.workspace}/${d.automation}`" class="m-0 break-words text-[length:var(--text-small)] text-secondary">{{ automationLine(d) }}</p>
+      </Disclosure>
     </template>
   </div>
 </template>

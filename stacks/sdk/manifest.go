@@ -190,9 +190,16 @@ const (
 	// PortOwnNetworks gives a stack the owner's Wi-Fi network names and the access points the owner confirmed, from the core's one list, as
 	// tags under the stack's own vault purpose (ADR-0063). Only the Radio stack is given it.
 	PortOwnNetworks = "ownnetworks"
+	// PortNotify lets a stack hand the core one piece of its owner's own text to send, unchanged, to the owner's connectors (ADR-0068, which amends
+	// ADR-0036: an alert is worded by the core, but a reminder is the owner's own words). It names a connector type and never an address, a
+	// token or a chat; the core sends only to a connector the owner enabled, bounds the text, and logs the fact of a send and never the text.
+	PortNotify = "notify"
+	// PortSchedule evaluates the service's one cron grammar for a stack that schedules by it (ADR-0068): the core owns the parser, so a stack accepts
+	// exactly what automations accept and the SDK, which requires nothing, carries no scheduler library.
+	PortSchedule = "schedule"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

@@ -96,6 +96,9 @@ type RemindersConfig struct {
 	// Timezone is an IANA name (Europe/London) used for chat sources that do not
 	// report the user's zone, such as an inbound connector message.
 	Timezone string `yaml:"timezone,omitempty" json:"timezone,omitempty"`
+	// Disabled is the Reminders module's switch (ADR-0068), stored as an "off" flag so an install that has always had reminders keeps them on.
+	// The settings form never sets it: only the stack's Modules page does (applySettingsFields keeps the stored value).
+	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 }
 
 // ErrRemindersConfigInvalid is the save-boundary failure for reminder settings;

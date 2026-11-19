@@ -8,7 +8,7 @@ import (
 
 var (
 	t0     = time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)
-	policy = Policy{LateWindow: 12 * time.Hour, LateGrace: 2 * time.Minute, MaxAttempts: 3,
+	policy = Policy{Cron: testSchedule, LateWindow: 12 * time.Hour, LateGrace: 2 * time.Minute, MaxAttempts: 3,
 		RetryDelays: []time.Duration{time.Minute, 5 * time.Minute}}
 )
 
@@ -163,34 +163,34 @@ func TestResume_MovesToTheNextOccurrenceAfterNow(t *testing.T) {
 	paused := daily(t0) // 09:00 daily, due 12 Oct
 	paused.Status = StatusPaused
 	now := t0.Add(72 * time.Hour).Add(time.Hour) // paused for three days, now 10:00 on the 15th
-	got, err := Resume(paused, now)
+	got, err := Resume(testSchedule, paused, now)
 	if err != nil || got.Status != StatusScheduled || !got.FireAt.Equal(time.Date(2026, 10, 16, 9, 0, 0, 0, time.UTC)) {
 		t.Fatalf("got %+v err=%v, want scheduled for the 16th (no replay of what was silenced)", got, err)
 	}
-	if _, err := Resume(daily(t0), now); !errors.Is(err, ErrInvalid) {
+	if _, err := Resume(testSchedule, daily(t0), now); !errors.Is(err, ErrInvalid) {
 		t.Errorf("resuming a reminder that is not paused, err = %v", err)
 	}
 	ended := paused
 	until := t0.Add(time.Hour)
 	ended.Until = &until
-	if _, err := Resume(ended, now); !errors.Is(err, ErrInvalid) {
+	if _, err := Resume(testSchedule, ended, now); !errors.Is(err, ErrInvalid) {
 		t.Errorf("resuming one whose end date has passed, err = %v", err)
 	}
 }
 
 func TestSkipNext(t *testing.T) {
 	r := daily(t0.Add(24 * time.Hour)) // next is tomorrow 09:00
-	got, err := SkipNext(r)
+	got, err := SkipNext(testSchedule, r)
 	if err != nil || got.Status != StatusScheduled || !got.FireAt.Equal(t0.Add(48*time.Hour)) {
 		t.Fatalf("got %+v err=%v, want the occurrence after the next one", got, err)
 	}
-	if _, err := SkipNext(oneOff(t0)); !errors.Is(err, ErrInvalid) {
+	if _, err := SkipNext(testSchedule, oneOff(t0)); !errors.Is(err, ErrInvalid) {
 		t.Errorf("a one-off has nothing to skip to, err = %v", err)
 	}
 	last := daily(t0)
 	until := t0.Add(time.Hour)
 	last.Until = &until
-	if _, err := SkipNext(last); !errors.Is(err, ErrInvalid) {
+	if _, err := SkipNext(testSchedule, last); !errors.Is(err, ErrInvalid) {
 		t.Errorf("skipping the last occurrence, err = %v (delete it instead)", err)
 	}
 }

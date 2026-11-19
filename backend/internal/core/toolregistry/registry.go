@@ -690,10 +690,11 @@ func (r *LocalToolRegistry) WithSessions(store tools.SessionReader) *LocalToolRe
 // construction so the constructor's signature does not grow; the app layer owns
 // the reminder service and passes it in. They are scoped to attended runs: an
 // unattended automation may be steered by content it read, and a reminder is a
-// message to the owner that outlives the run.
-func (r *LocalToolRegistry) WithReminders(svc tools.ReminderService) *LocalToolRegistry {
+// message to the owner that outlives the run. They are listed only while the
+// Reminders module is on (on is read each time), so the model is never offered a tool that can only refuse.
+func (r *LocalToolRegistry) WithReminders(svc tools.ReminderService, on func() bool) *LocalToolRegistry {
 	r.Reminders = tools.NewReminderTools(svc)
-	attended := func(ctx context.Context) bool { return !models.IsUnattendedRun(ctx) }
+	attended := func(ctx context.Context) bool { return !models.IsUnattendedRun(ctx) && on() }
 	registerScopedTool(r, models.ToolScheduleReminder, attended, r.Reminders.Schedule)
 	registerScopedTool(r, models.ToolListReminders, attended, r.Reminders.List)
 	registerScopedTool(r, models.ToolCancelReminder, attended, r.Reminders.Cancel)

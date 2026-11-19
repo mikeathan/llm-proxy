@@ -17,7 +17,8 @@ import (
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
 // ParseCron parses an expression with the service's one cron grammar, for callers
-// outside this package (reminders) that must accept exactly what automations accept.
+// outside this package (the Reminders stack, through its schedule port) that must
+// accept exactly what automations accept.
 func ParseCron(expr string) (cron.Schedule, error) {
 	return cronParser.Parse(expr)
 }

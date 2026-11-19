@@ -2,24 +2,19 @@ package reminders
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"llm-proxy/internal/platform/db"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	p, err := db.Open(filepath.Join(t.TempDir(), "test.db"))
+	s, err := OpenStore(filepath.Join(t.TempDir(), "reminders.db"))
 	if err != nil {
-		t.Fatalf("db.Open: %v", err)
+		t.Fatalf("OpenStore: %v", err)
 	}
-	t.Cleanup(func() { _ = p.DB().Close() })
-	s, err := NewStore(p)
-	if err != nil {
-		t.Fatalf("NewStore: %v", err)
-	}
+	t.Cleanup(func() { _ = s.Close() })
 	return s
 }
 
@@ -321,5 +316,41 @@ func TestStore_LatestEventAtIsZeroWithoutEvents(t *testing.T) {
 	s := newTestStore(t)
 	if got, err := s.LatestEventAt(context.Background()); err != nil || !got.IsZero() {
 		t.Errorf("got %v, %v", got, err)
+	}
+}
+
+func TestStore_NoFileUntilTheFirstWriteAndReadsOfNothingAreEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reminders.db")
+	s, err := OpenStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if open, err := s.ListOpen(ctx); err != nil || len(open) != 0 {
+		t.Fatalf("ListOpen = %v, %v", open, err)
+	}
+	if _, err := s.Get(ctx, 1); err != ErrNotFound {
+		t.Fatalf("Get = %v, want not found", err)
+	}
+	if n, err := s.CountOpen(ctx); err != nil || n != 0 {
+		t.Fatalf("CountOpen = %d, %v", n, err)
+	}
+	if at, err := s.LatestEventAt(ctx); err != nil || !at.IsZero() {
+		t.Fatalf("LatestEventAt = %v, %v", at, err)
+	}
+	for name, err := range map[string]error{"cancel": s.Cancel(ctx, 1), "delete": s.Delete(ctx, 1), "update": s.Update(ctx, Reminder{ID: 1}), "replace": s.Replace(ctx, Reminder{ID: 1})} {
+		if err != ErrNotFound {
+			t.Errorf("%s of a reminder in a file that is not there = %v, want not found", name, err)
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("reading made a file: %v", err)
+	}
+	if _, err := s.Add(ctx, Reminder{Message: "x", FireAt: base}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the first write must create the file: %v", err)
 	}
 }

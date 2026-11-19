@@ -1,6 +1,3 @@
-// Package reminders stores user reminders and delivers them verbatim at the
-// right time. There is no LLM at fire time: the text the user asked for is the
-// text that is sent.
 package reminders
 
 import (
@@ -8,10 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
-	"llm-proxy/internal/platform/db"
+	_ "modernc.org/sqlite"
 )
 
 // Status is where a reminder is in its life.
@@ -79,41 +79,80 @@ CREATE TABLE IF NOT EXISTS reminders (
     timezone   TEXT NOT NULL DEFAULT '',
     connector  TEXT NOT NULL DEFAULT '',
     status     TEXT NOT NULL DEFAULT 'scheduled',
+    rev        INTEGER NOT NULL DEFAULT 0,
     attempts   INTEGER NOT NULL DEFAULT 0,
     last_error TEXT NOT NULL DEFAULT '',
     created_by TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    event      TEXT NOT NULL DEFAULT '',
+    event_at   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, fire_at);
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 `
 
 const columns = `id, message, fire_at, cron, until_at, timezone, connector, status, rev, attempts, last_error, created_by, created_at, event, event_at`
 
-// Store persists reminders in the shared SQLite database. Times are stored as
-// UTC unix seconds.
+// Store persists reminders in the stack's own SQLite database. Times are stored as UTC unix seconds (an outcome's time in milliseconds).
+//
+// The file is created by the first write, not by opening the store: an install that never sets a reminder has no database, and a read of a file
+// that is not there is an empty answer. A change to a reminder of a file that is not there is "not found", as for any reminder that does not exist.
 type Store struct {
-	db *sql.DB
+	path string
+	mu   sync.Mutex
+	db   *sql.DB
 }
 
-// NewStore creates the reminders table if needed.
-func NewStore(p db.Provider) (*Store, error) {
-	database := p.DB()
-	if _, err := database.Exec(migrateSQL); err != nil {
-		return nil, fmt.Errorf("reminders migrate: %w", err)
+// errAbsent says the database file does not exist yet, so there is nothing to read.
+var errAbsent = errors.New("reminders: no database yet")
+
+// OpenStore returns the store over the database at path. It touches nothing on disk: the file is created, with its schema, by the first write.
+func OpenStore(path string) (*Store, error) {
+	if path == "" {
+		return nil, errors.New("reminders store: no path")
 	}
-	// Additive and idempotent: SQLite has no ADD COLUMN IF NOT EXISTS.
-	if _, err := database.Exec(`ALTER TABLE reminders ADD COLUMN rev INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		return nil, fmt.Errorf("reminders migrate rev: %w", err)
+	return &Store{path: path}, nil
+}
+
+// conn returns the open database. With create it opens the file (creating it and its schema if need be); without, a file that is not there is errAbsent.
+func (s *Store) conn(create bool) (*sql.DB, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db != nil {
+		return s.db, nil
 	}
-	for _, column := range []string{
-		`event TEXT NOT NULL DEFAULT ''`,
-		`event_at INTEGER NOT NULL DEFAULT 0`, // unix milliseconds: several outcomes can land inside one second
-	} {
-		if _, err := database.Exec(`ALTER TABLE reminders ADD COLUMN ` + column); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-			return nil, fmt.Errorf("reminders migrate %s: %w", column, err)
+	if !create {
+		if _, err := os.Stat(s.path); errors.Is(err, fs.ErrNotExist) {
+			return nil, errAbsent
 		}
 	}
-	return &Store{db: database}, nil
+	dsn := s.path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)"
+	database, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("reminders store: %w", err)
+	}
+	database.SetMaxOpenConns(1)
+	if _, err := database.Exec(migrateSQL); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("reminders migrate: %w", err)
+	}
+	s.db = database
+	return database, nil
+}
+
+// Close closes the database if it was opened, which checkpoints the log.
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	err := s.db.Close()
+	s.db = nil
+	return err
 }
 
 // Add inserts a scheduled reminder and returns its id.
@@ -122,7 +161,11 @@ func (s *Store) Add(ctx context.Context, r Reminder) (int64, error) {
 	if r.Until != nil {
 		until = r.Until.Unix()
 	}
-	res, err := s.db.ExecContext(ctx,
+	db, err := s.conn(true)
+	if err != nil {
+		return 0, err
+	}
+	res, err := db.ExecContext(ctx,
 		`INSERT INTO reminders (message, fire_at, cron, until_at, timezone, connector, status, created_by, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, ?)`,
 		r.Message, r.FireAt.Unix(), r.Cron, until, r.Timezone, r.Connector, r.CreatedBy, time.Now().Unix())
@@ -134,7 +177,13 @@ func (s *Store) Add(ctx context.Context, r Reminder) (int64, error) {
 
 // Get returns one reminder in any status.
 func (s *Store) Get(ctx context.Context, id int64) (Reminder, error) {
-	r, err := scan(s.db.QueryRowContext(ctx, `SELECT `+columns+` FROM reminders WHERE id = ?`, id))
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return Reminder{}, ErrNotFound
+	} else if err != nil {
+		return Reminder{}, err
+	}
+	r, err := scan(db.QueryRowContext(ctx, `SELECT `+columns+` FROM reminders WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Reminder{}, ErrNotFound
 	}
@@ -197,7 +246,13 @@ func (s *Store) EventsAfter(ctx context.Context, after time.Time, limit int) ([]
 // client starts from so it announces only what happens after it began watching.
 func (s *Store) LatestEventAt(ctx context.Context) (time.Time, error) {
 	var millis int64
-	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(event_at), 0) FROM reminders`).Scan(&millis); err != nil {
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return time.Time{}, nil
+	} else if err != nil {
+		return time.Time{}, err
+	}
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(event_at), 0) FROM reminders`).Scan(&millis); err != nil {
 		return time.Time{}, fmt.Errorf("reminders latest event: %w", err)
 	}
 	if millis <= 0 {
@@ -211,7 +266,13 @@ func (s *Store) LatestEventAt(ctx context.Context) (time.Time, error) {
 // means a cancel, delete or edit got there first: the user's change wins and the
 // stale result is dropped.
 func (s *Store) Update(ctx context.Context, r Reminder) error {
-	res, err := s.db.ExecContext(ctx,
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx,
 		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ?, event = ?, event_at = ? WHERE id = ? AND status = 'scheduled' AND rev = ?`,
 		r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.Event, eventMillis(r.EventAt), r.ID, r.Rev)
 	if err != nil {
@@ -233,7 +294,13 @@ func (s *Store) Replace(ctx context.Context, r Reminder) error {
 	editable := append(append([]Status{}, openStatuses...), finishedStatuses...)
 	in, args := inClause(editable)
 	args = append([]any{r.Message, r.FireAt.Unix(), r.Cron, until, r.Connector, r.ID}, args...)
-	res, err := s.db.ExecContext(ctx,
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx,
 		`UPDATE reminders SET message = ?, fire_at = ?, cron = ?, until_at = ?, connector = ?, attempts = 0, last_error = '',
 		   status = CASE WHEN status = 'paused' THEN 'paused' ELSE 'scheduled' END, rev = rev + 1
 		 WHERE id = ? AND status IN (`+in+`)`, args...)
@@ -249,7 +316,13 @@ func (s *Store) Replace(ctx context.Context, r Reminder) error {
 func (s *Store) Transition(ctx context.Context, r Reminder, from ...Status) error {
 	in, args := inClause(from)
 	args = append([]any{r.FireAt.Unix(), string(r.Status), r.Attempts, r.LastError, r.ID}, args...)
-	res, err := s.db.ExecContext(ctx,
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx,
 		`UPDATE reminders SET fire_at = ?, status = ?, attempts = ?, last_error = ?, rev = rev + 1 WHERE id = ? AND status IN (`+in+`)`, args...)
 	if err != nil {
 		return fmt.Errorf("reminders transition: %w", err)
@@ -267,7 +340,13 @@ func affected(res sql.Result) error {
 
 // Delete removes a reminder in any status; ErrNotFound when there is none.
 func (s *Store) Delete(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, id)
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx, `DELETE FROM reminders WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("reminders delete: %w", err)
 	}
@@ -276,7 +355,13 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 
 // Cancel marks a scheduled reminder cancelled; ErrNotFound when it is not open.
 func (s *Store) Cancel(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE reminders SET status = 'cancelled', rev = rev + 1 WHERE id = ? AND status IN ('scheduled','paused')`, id)
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx, `UPDATE reminders SET status = 'cancelled', rev = rev + 1 WHERE id = ? AND status IN ('scheduled','paused')`, id)
 	if err != nil {
 		return fmt.Errorf("reminders cancel: %w", err)
 	}
@@ -286,12 +371,24 @@ func (s *Store) Cancel(ctx context.Context, id int64) error {
 // CountOpen is the number of scheduled reminders.
 func (s *Store) CountOpen(ctx context.Context) (int, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM reminders WHERE status IN ('scheduled','paused')`).Scan(&n)
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM reminders WHERE status IN ('scheduled','paused')`).Scan(&n)
 	return n, err
 }
 
 func (s *Store) query(ctx context.Context, q string, args ...any) ([]Reminder, error) {
-	rows, err := s.db.QueryContext(ctx, q, args...)
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("reminders query: %w", err)
 	}
@@ -332,4 +429,74 @@ func scan(row scanner) (Reminder, error) {
 		r.Until = &u
 	}
 	return r, nil
+}
+
+// legacyImported is the meta key that says the rows of the old shared database were copied in, so they are copied once and never again.
+const legacyImported = "legacy_imported"
+
+// ImportLegacy copies the reminders the service kept in its main database before this stack existed, once. It keeps each id, status, revision,
+// attempts, failure, outcome and creation time, so an id the owner or an agent remembers still means the same reminder and a paused or
+// scheduled one stays so. It does nothing when it has already run; the old table is never touched here. The count is how many rows were
+// copied.
+func (s *Store) ImportLegacy(ctx context.Context, rows []Reminder) (int, error) {
+	db, err := s.conn(true)
+	if err != nil {
+		return 0, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("reminders import: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var done string
+	switch err := tx.QueryRowContext(ctx, `SELECT value FROM meta WHERE key = ?`, legacyImported).Scan(&done); {
+	case err == nil:
+		return 0, nil
+	case !errors.Is(err, sql.ErrNoRows):
+		return 0, fmt.Errorf("reminders import: %w", err)
+	}
+	for _, r := range rows {
+		var until any
+		if r.Until != nil {
+			until = r.Until.Unix()
+		}
+		if err := insertLegacy(ctx, tx, r, until); err != nil {
+			return 0, fmt.Errorf("reminders import: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES (?, ?)`, legacyImported, "1"); err != nil {
+		return 0, fmt.Errorf("reminders import: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("reminders import: %w", err)
+	}
+	return len(rows), nil
+}
+
+// insertLegacy copies one old row, keeping its id. An id that is already taken (a reminder was set in this file before the copy could run) must not
+// lose the old reminder or stop the copy: it is kept under the next free id instead.
+func insertLegacy(ctx context.Context, tx *sql.Tx, r Reminder, until any) error {
+	args := []any{r.ID, r.Message, r.FireAt.Unix(), r.Cron, until, r.Timezone, r.Connector, string(r.Status), r.Rev, r.Attempts, r.LastError,
+		r.CreatedBy, r.CreatedAt.Unix(), r.Event, eventMillis(r.EventAt)}
+	_, err := tx.ExecContext(ctx, `INSERT INTO reminders (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args...)
+	if err == nil || !strings.Contains(err.Error(), "constraint") {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO reminders (`+strings.TrimPrefix(columns, "id, ")+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args[1:]...)
+	return err
+}
+
+// DeleteAll removes every reminder, keeping the file and the marker that says the old rows were copied (so they are never copied back). A file that is not there is
+// already empty.
+func (s *Store) DeleteAll(ctx context.Context) error {
+	db, err := s.conn(false)
+	if errors.Is(err, errAbsent) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if _, err := db.ExecContext(ctx, `DELETE FROM reminders`); err != nil {
+		return fmt.Errorf("reminders erase: %w", err)
+	}
+	return nil
 }

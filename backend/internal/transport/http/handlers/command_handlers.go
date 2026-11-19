@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"llm-proxy/internal/core/commands"
-	"llm-proxy/internal/core/reminders"
+	"llm-proxy/models"
 )
 
 // CommandHandlers serves the slash commands to the web chat: the list for its
@@ -48,7 +48,7 @@ func (h *CommandHandlers) env(r commandRequest) commands.Env {
 	if h.ownerZone != nil {
 		owner = h.ownerZone()
 	}
-	return commands.Env{Zone: reminders.ChatZone(owner, r.Timezone), WorkspaceID: r.WorkspaceID}
+	return commands.Env{Zone: models.ChatZone(owner, r.Timezone), WorkspaceID: r.WorkspaceID}
 }
 
 // List handles GET /admin/api/commands.

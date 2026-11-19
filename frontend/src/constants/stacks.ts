@@ -54,7 +54,7 @@ export const LEFT_BLOCKED_PREFIX = 'Now waiting for it: '
 /** The Agents page. Activity is the page without a tab. */
 export const AGENTS_TITLE = 'Agents'
 export const AGENTS_SUBTITLE = 'What the agents on this computer did, and what to do if something looks wrong.'
-export const AGENTS_ACTIVITY_LABEL = 'Activity'
+export const AGENTS_LOCKDOWN_LABEL = 'Lock down'
 export const AGENTS_TAB_LABELS = { modules: 'Modules' } as const
 
 /** Where a module's switch used to be, on its detail card. */
@@ -75,8 +75,12 @@ export const COVERAGE_ALL_ON = 'Every protection is on.'
 export const COVERAGE_OFF_INTRO = 'Off, and what each would watch:'
 export const HELP_MODULES_TITLE = 'What each switch does'
 
+/** The Reminders page. The list of reminders is the page without a tab. */
+export const REMINDERS_LIST_LABEL = 'Reminders'
+export const REMINDERS_TAB_LABELS = { modules: 'Modules' } as const
+
 /** The Radio page. Sensors is the page without a tab. */
 export const RADIO_TITLE = 'Radio'
 export const RADIO_SUBTITLE = 'Listen to the radio around this computer, and see what is there.'
 export const RADIO_LISTENING_LABEL = 'Listening'
-export const RADIO_TAB_LABELS = { sensors: 'Sensors', modules: 'Modules' } as const
+export const RADIO_TAB_LABELS = { modules: 'Modules' } as const

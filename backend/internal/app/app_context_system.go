@@ -224,7 +224,10 @@ func applySettingsFields(set *models.UserSettings, req models.SystemUpdatePayloa
 		set.Scheduler = req.Scheduler
 	}
 	if req.Reminders != nil {
-		set.Reminders = req.Reminders
+		// The form saves the owner's connectors and zone; the module's switch is not on it and is never changed by it.
+		next := *req.Reminders
+		next.Disabled = set.Reminders.Effective().Disabled
+		set.Reminders = &next
 	}
 	if req.Agent != nil {
 		set.Agent = req.Agent

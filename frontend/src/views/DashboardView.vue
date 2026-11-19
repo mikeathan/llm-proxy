@@ -71,9 +71,14 @@ onMounted(async () => {
   openFromAddress()
 })
 watch(() => route.query.board, openFromAddress)
+// A stack page links to its board. A layout saved before that board shipped does not have it, so following the link adds the shipped board
+// (the owner asked for it by following the link; the same board is in the Add board menu). A board that is not shipped is not made up.
 function openFromAddress() {
   const id = route.query.board
-  if (typeof id === "string") d.open(id)
+  if (typeof id !== "string") return
+  const shipped = d.boards.value.some((b) => b.id === id) ? undefined : d.offeredBoards.value.find((t) => t.id === id)
+  if (shipped) d.addBoardFrom(shipped)
+  else d.open(id)
 }
 </script>
 

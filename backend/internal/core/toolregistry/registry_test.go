@@ -655,20 +655,19 @@ func TestLocalToolRegistry_SearchToolTimeRange(t *testing.T) {
 	}
 }
 
-type reminderServiceStub struct{ got tools.ReminderSpec }
+type reminderServiceStub struct{ got tools.ReminderRequest }
 
-func (s *reminderServiceStub) Schedule(_ context.Context, spec tools.ReminderSpec) (tools.ReminderView, error) {
-	s.got = spec
-	return tools.ReminderView{ID: 1, Message: spec.Message, At: spec.At, Zone: spec.Zone, Channel: "telegram"}, nil
+func (s *reminderServiceStub) Schedule(_ context.Context, req tools.ReminderRequest) (string, error) {
+	s.got = req
+	return "Reminder 1 set for the time the stack resolved", nil
 }
-func (s *reminderServiceStub) Cancel(context.Context, int64) error                { return nil }
-func (s *reminderServiceStub) List(context.Context) ([]tools.ReminderView, error) { return nil, nil }
-func (s *reminderServiceStub) Zone(string) (*time.Location, error)                { return time.UTC, nil }
+func (s *reminderServiceStub) Cancel(context.Context, int64) (string, error) { return "", nil }
+func (s *reminderServiceStub) List(context.Context) (string, error)          { return "", nil }
 
 func TestLocalToolRegistry_ReminderToolsRegisteredAndCallable(t *testing.T) {
 	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
 	svc := &reminderServiceStub{}
-	r.WithReminders(svc)
+	r.WithReminders(svc, func() bool { return true })
 
 	names := listedToolNames(t, r, context.Background())
 	for _, want := range []string{models.ToolScheduleReminder, models.ToolListReminders, models.ToolCancelReminder} {
@@ -682,8 +681,8 @@ func TestLocalToolRegistry_ReminderToolsRegisteredAndCallable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
 	}
-	if svc.got.Message != "call bank" || !svc.got.At.Equal(time.Date(2026, 10, 12, 8, 0, 0, 0, time.UTC)) {
-		t.Fatalf("spec = %+v", svc.got)
+	if svc.got.Message != "call bank" || svc.got.When != "2026-10-12T09:00:00+01:00" || svc.got.Timezone != "Europe/London" {
+		t.Fatalf("request = %+v", svc.got)
 	}
 	if !strings.Contains(fmt.Sprint(out), "Reminder 1 set") {
 		t.Errorf("result = %v", out)
@@ -695,7 +694,7 @@ func TestLocalToolRegistry_ReminderToolsRegisteredAndCallable(t *testing.T) {
 func TestLocalToolRegistry_ReminderToolsHiddenFromUnattendedRuns(t *testing.T) {
 	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
 	svc := &reminderServiceStub{}
-	r.WithReminders(svc)
+	r.WithReminders(svc, func() bool { return true })
 
 	unattended := models.WithUnattendedRun(context.Background())
 	for _, name := range []string{models.ToolScheduleReminder, models.ToolListReminders, models.ToolCancelReminder} {
@@ -792,4 +791,20 @@ func TestLocalToolRegistry_ReadFileInPieces(t *testing.T) {
 		return
 	}
 	t.Error("read_file is not listed")
+}
+
+// While the Reminders module is off the model is not offered the tools.
+func TestLocalToolRegistry_ReminderToolsHiddenWhileTheModuleIsOff(t *testing.T) {
+	r := NewLocalToolRegistry(nil, nil, nil, nil, nil, nil)
+	on := false
+	r.WithReminders(&reminderServiceStub{}, func() bool { return on })
+	for _, name := range []string{models.ToolScheduleReminder, models.ToolListReminders, models.ToolCancelReminder} {
+		if slices.Contains(listedToolNames(t, r, context.Background()), name) {
+			t.Errorf("%s must not be listed while the module is off", name)
+		}
+	}
+	on = true
+	if !slices.Contains(listedToolNames(t, r, context.Background()), models.ToolScheduleReminder) {
+		t.Error("switching the module on lists the tools again")
+	}
 }
