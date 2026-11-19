@@ -453,10 +453,7 @@ const observeTimeout = 2 * time.Second
 func (n *netauditServices) observedModule(id string) (stack.Observed, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), observeTimeout)
 	defer cancel()
-	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders} {
-		if h == nil {
-			continue
-		}
+	for _, h := range n.hosts() {
 		if st, ok := h.Module(ctx, id); ok {
 			return stack.Observed{LastRun: st.LastRun, Problem: st.Problem}, true
 		}
