@@ -11,9 +11,8 @@ import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../..
 import type { AutomationRun } from "../../../types/dispatcher"
 import type { DataTableColumn } from "../../../types/ui"
 
-// Dashboard card · Recent runs: the last automation runs, newest first. Small is the last run; medium a list that scrolls; large the table of the latest few.
+// Dashboard card · Recent runs: the last automation runs, newest first. Small is the last run; medium a list that scrolls; large the table; both scroll inside the card, so every kept run can be reached at any size.
 const RECENT_RUNS = 20
-const TABLE_ROWS = 5
 const size = useCardSize()
 const { fetchGlobalActivity } = useDispatcher()
 const runs = ref<AutomationRun[]>([])
@@ -64,8 +63,8 @@ const runKey = (run: AutomationRun) => run.id
         </li>
         <li v-if="!runs.length && !loading" class="text-muted">No runs yet</li>
       </ul>
-      <div v-else>
-        <DataTable :columns="COLUMNS" :rows="runs.slice(0, TABLE_ROWS)" :row-key="runKey" caption="Recent runs" :loading="loading" :error="error" empty-title="No runs yet" empty-body="Automation runs appear here as they finish.">
+      <div v-else :class="CARD_LIST_SCROLL[size]" data-test="recent-runs-table">
+        <DataTable :columns="COLUMNS" :rows="runs" :row-key="runKey" caption="Recent runs" :loading="loading" :error="error" empty-title="No runs yet" empty-body="Automation runs appear here as they finish.">
           <template #cell-time="{ row }"><time :datetime="row.timestamp" :title="formatAbsoluteTime(row.timestamp)" class="font-mono text-[length:var(--text-small)] text-muted">{{ formatRelativeTime(row.timestamp) }}</time></template>
           <template #cell-run="{ row }"><RouterLink :to="historicalRunTarget(row)" :aria-label="`Open run ${runLabel(row)}`" class="rounded-[var(--radius-sm)] font-mono text-[length:var(--text-small)] text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2">{{ runLabel(row) }}</RouterLink></template>
           <template #cell-status="{ row }"><StatusTag v-bind="runOutcomeTag(row)" /></template>
