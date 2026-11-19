@@ -13,7 +13,7 @@ const show = (s: NetworkStanding) => mount(StandingCard, { props: { standing: s 
 
 describe('StandingCard link', () => {
   it('leads to the open problems when some are tracked', () => {
-    expect(show(standing()).get('[data-test="standing-link"]').attributes('href')).toBe('/network/findings')
+    expect(show(standing()).get('[data-test="standing-link"]').attributes('href')).toBe('/dashboard?board=network&card=network-findings')
   })
 
   it('offers no link when nothing is tracked or there is no history yet', () => {

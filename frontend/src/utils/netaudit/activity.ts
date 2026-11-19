@@ -1,5 +1,5 @@
 import { PORT_NAMES, ROUTER_PORTS_SHOWN } from '../../constants/netaudit'
-import { toDeviceFindings, toNetwork } from '../../router/routes'
+import { toDeviceFindings, toNetworkCard } from '../../router/routes'
 import type { RouteLocationNamedRaw } from 'vue-router'
 import type { ActivityFilter, ActivityGroupOfRows, ActivityItem, ActivityRow } from '../../types/netaudit'
 
@@ -172,5 +172,5 @@ export function dropEchoedAlerts(rows: ActivityRow[]): ActivityRow[] {
  */
 export function rowLink(row: ActivityRow): RouteLocationNamedRaw | null {
   if ((row.kind === 'finding_fixed' || row.kind === 'finding_returned') && row.device) return toDeviceFindings(row.device)
-  return row.kind === 'audit' ? toNetwork('findings') : null
+  return row.kind === 'audit' ? toNetworkCard('network-findings') : null
 }

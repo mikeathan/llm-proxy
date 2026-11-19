@@ -24,6 +24,9 @@ const audit = {
   trigger_value: '0 2 * * *', profile: 'security-auditor', history: [{ id: 'r1', timestamp: '2026-10-28T18:00:00Z', error: '', output: '', duration_ms: 1000, model: '' }],
 }
 
+// The Findings card alone on the Network board, so the report is read without the other cards' filters beside it.
+const FINDINGS_BOARD = { boards: [{ id: 'home', name: 'Home', cards: [] }, { id: 'network', name: 'Network', cards: [{ id: 'network-findings', cols: 12, rows: 1 }] }] }
+
 async function open(page: Page, id: keyof typeof THEMES) {
   await page.addInitScript(([s, a, themeId, scheme]) => {
     const envelope = (data: unknown) => JSON.stringify({ version: 1, data })
@@ -31,8 +34,8 @@ async function open(page: Page, id: keyof typeof THEMES) {
     localStorage.setItem(a, envelope({ themeId, presetId: themeId, scheme, overrides: {} }))
   }, [SELECTION_KEY, APPLIED_KEY, id, THEMES[id]] as const)
   await setNetauditView(page, 'advanced')
-  await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/netaudit/deep': [], '/automations': [audit], '/workspaces': [{ id: 'ws' }] } })
-  await page.goto('network/findings')
+  await mockAdminApi(page, { answers: { '/netaudit/findings': report, '/netaudit/expectations': [], '/netaudit/deep': [], '/automations': [audit], '/workspaces': [{ id: 'ws' }], '/dashboard': FINDINGS_BOARD } })
+  await page.goto('dashboard?board=network')
   await expect(page.locator('html')).toHaveAttribute('data-theme', id)
   await expect(page.getByRole('radio', { name: /^Problems \(1\)/ })).toBeChecked()
 }

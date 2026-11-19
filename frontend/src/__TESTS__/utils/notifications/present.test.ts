@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { describeNotification, summarizeBatch } from '../../../utils/notifications/present'
-import { toAutomation, toNetwork, toReminders, toSettings } from '../../../router/routes'
+import { toAutomation, toNetworkCard, toReminders, toSettings } from '../../../router/routes'
 import type { NetworkAlertItem, ReminderAlertItem, ReminderEventKind, RunEndItem } from '../../../types/notifications'
 
 const reminder = (event: ReminderEventKind, message = 'call bank'): ReminderAlertItem =>
@@ -9,7 +9,7 @@ const run = (outcome: RunEndItem['outcome'], kind: RunEndItem['kind'] = 'automat
   ({ id: `run-${label}`, kind, label, workspace: 'ws', outcome, target: toAutomation('ws/news'), destination: 'automations' })
 
 const network = (over: Partial<NetworkAlertItem> = {}): NetworkAlertItem =>
-  ({ id: 'network-1', kind: 'network', alertKind: 'decoy', message: 'Network audit: a decoy was touched.', delivery: 'sent', count: 1, repeatKey: 'decoy:m', target: toNetwork('devices'), destination: 'network', ...over })
+  ({ id: 'network-1', kind: 'network', alertKind: 'decoy', message: 'Network audit: a decoy was touched.', delivery: 'sent', count: 1, repeatKey: 'decoy:m', target: toNetworkCard('network-devices'), destination: 'network', ...over })
 
 describe('summarizeBatch', () => {
   it.each([

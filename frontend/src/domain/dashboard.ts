@@ -127,6 +127,29 @@ const STACK_SOURCES: ReadonlySet<string> = new Set(STACK_IDS)
 export const sourceIsOn = (source: DashboardSource | null, on: ReadonlySet<string> | null): boolean =>
   on === null || source === null || !STACK_SOURCES.has(source) || on.has(source)
 
+/**
+ * What the screen shows of a stored layout while some stacks are off: a stack's board and its cards are hidden (not deleted, so they come back
+ * with the stack). A board the owner made keeps its other cards. `on` null means unknown: show everything.
+ */
+export function visibleLayout(layout: DashboardLayout, defs: ReadonlyMap<string, DashboardCardDef>, on: ReadonlySet<string> | null): DashboardLayout {
+  if (on === null) return layout
+  const boards = layout.boards
+    .filter((b) => sourceIsOn(templateOf(b.id)?.source ?? null, on))
+    .map((b) => ({ ...b, cards: b.cards.filter((c) => sourceIsOn(defs.get(c.id)?.source ?? null, on)) }))
+  return { boards }
+}
+
+/**
+ * The cards a shipped board has now that the owner's saved copy of it does not, and that they have not been told about: a board saved before a card
+ * existed would otherwise never show it. `seen` are the card ids already offered for this board.
+ */
+export function newShippedCards(board: DashboardBoard, seen: readonly string[], on: ReadonlySet<string> | null, defs: ReadonlyMap<string, DashboardCardDef>): string[] {
+  const template = templateOf(board.id)
+  if (!template) return []
+  const have = new Set(board.cards.map((c) => c.id))
+  return template.cards.map((c) => c.id).filter((id) => !have.has(id) && !seen.includes(id) && defs.has(id) && sourceIsOn(defs.get(id)!.source, on))
+}
+
 /** The cards the catalogue offers: those whose stack is on. */
 export const cardsToOffer = (defs: readonly DashboardCardDef[], on: ReadonlySet<string> | null): DashboardCardDef[] => defs.filter((d) => sourceIsOn(d.source, on))
 

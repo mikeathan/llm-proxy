@@ -48,7 +48,9 @@ type workspaceConfigEntry struct {
 
 // newCachedConfigReader builds a readConfigFunc that caches per-workspace
 // config reads, invalidated by mtime and bounded by TTL + size (PL-3).
-func newCachedConfigReader(persistence *persistence.WorkspaceManager, resolver storage.Resolver) readConfigFunc {
+func newCachedConfigReader(persistence interface {
+	ReadConfig(workspaceID string) (*models.WorkspaceConfig, error)
+}, resolver storage.Resolver) readConfigFunc {
 	mtimeValid := func(wsID string, e *workspaceConfigEntry) bool {
 		info, err := os.Stat(resolver.Config(wsID))
 		return err == nil && info.ModTime().Equal(e.modTime)

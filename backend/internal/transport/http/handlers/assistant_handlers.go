@@ -16,6 +16,17 @@ import (
 	"llm-proxy/models"
 )
 
+// SessionStore is what the chat handlers do with saved conversations. *persistence.WorkspaceManager satisfies it.
+type SessionStore interface {
+	ListSessions(workspaceID string) ([]models.SessionBrief, error)
+	ReadSession(workspaceID, sessionID string) (*models.AssistantSession, error)
+	WriteSession(workspaceID string, session *models.AssistantSession) error
+	DeleteSession(workspaceID, sessionID string) error
+	DeleteAllSessions(workspaceID string) error
+}
+
+var _ SessionStore = (*persistence.WorkspaceManager)(nil)
+
 // AssistantHandlerDeps is what the chat handlers use of the app; the turn lifecycle's own needs are chat.Deps.
 type AssistantHandlerDeps interface {
 	Limiter() ratelimiter.Limiter
@@ -34,7 +45,7 @@ type AssistantHandlerDeps interface {
 type AssistantMessageHandler struct {
 	limiter     ratelimiter.Limiter
 	logger      logging.Logger
-	persistence *persistence.WorkspaceManager
+	persistence SessionStore
 	svc         AssistantHandlerDeps
 	turns       *chat.Service
 	// reviewTimeout bounds a memory review's wait plus model call; zero means memoryReviewTimeout.

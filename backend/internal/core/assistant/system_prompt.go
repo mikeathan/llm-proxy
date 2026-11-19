@@ -6,7 +6,6 @@ import (
 	"llm-proxy/internal/core"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
-	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
 
@@ -22,10 +21,17 @@ const (
 // AGENTS.md are picked up without a restart.
 var agentsFileCache = core.NewTTLCache[string, string](agentsFileCacheMaxEntries, agentsFileCacheTTL, nil)
 
+// TaskFileReader is the one thing a system prompt needs from storage: a workspace's task file.
+// *persistence.WorkspaceManager satisfies it. A caller with no storage passes an untyped nil (a typed nil pointer
+// would not read as nil here).
+type TaskFileReader interface {
+	ReadTaskFile(workspaceID, name string) (string, error)
+}
+
 // LoadAgentsFile returns the workspace's own notes from AGENTS.md, as the model should see them: comments removed.
 // It is empty when the file is missing, holds only comments (the seeded stub) or is one of the old defaults this app
 // used to seed — a persona that now lives in the profiles, which a workspace must not keep layering on top of them.
-func LoadAgentsFile(pm *persistence.WorkspaceManager, workspaceID string) string {
+func LoadAgentsFile(pm TaskFileReader, workspaceID string) string {
 	if workspaceID == "" || pm == nil {
 		return ""
 	}
@@ -44,6 +50,6 @@ func LoadAgentsFile(pm *persistence.WorkspaceManager, workspaceID string) string
 
 // BuildSystemPrompt layers a run's system prompt — the profile's behaviour, the core rules, the workspace's notes —
 // for the tool-call mode in use. Chat and automation both build it here.
-func BuildSystemPrompt(pm *persistence.WorkspaceManager, workspaceID string, p profile.Profile, useNativeTools bool) string {
+func BuildSystemPrompt(pm TaskFileReader, workspaceID string, p profile.Profile, useNativeTools bool) string {
 	return prompts.AssembleSystemPrompt(prompts.PromptParts{Native: useNativeTools, Profile: p.Instructions, Notes: LoadAgentsFile(pm, workspaceID)})
 }

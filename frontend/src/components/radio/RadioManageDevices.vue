@@ -5,7 +5,6 @@ import BaseButton from "../common/buttons/BaseButton.vue"
 import FormField from "../common/forms/FormField.vue"
 import Callout from "../common/feedback/Callout.vue"
 import SelectInput from "../common/forms/SelectInput.vue"
-import StackBoardLink from "../stacks/StackBoardLink.vue"
 import { useRadioDevices } from "../../composables/radio/useRadioDevices"
 import { useConfirm } from "../../composables/ui/useConfirm"
 import type { RadioClass, RadioOwnerDevice } from "../../types/radio"
@@ -41,7 +40,6 @@ onMounted(() => { void d.load() })
 <template>
   <Panel :title="RADIO_MANAGE_TITLE">
     <div class="flex flex-col gap-3" data-test="radio-manage">
-      <StackBoardLink stack="radio-devices" />
       <Callout v-if="d.error.value" tone="error" title="That did not work"><span data-test="radio-devices-error">{{ d.error.value }}</span></Callout>
       <ul v-if="d.devices.value?.length" class="m-0 flex list-none flex-col divide-y divide-hairline p-0" data-test="radio-manage-list">
         <li v-for="x in d.devices.value" :key="x.id" class="flex items-center justify-between gap-3 py-2" data-test="radio-manage-device">

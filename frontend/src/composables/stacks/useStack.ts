@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { useEnabledStacks } from './useEnabledStacks'
 import { StacksService } from '../../services/stacks/stacksService'
 import { errorMessage } from '../../utils/errors'
 import { STACK_LOAD_FAILED, STACK_SWITCH_FAILED } from '../../constants/stacks'
@@ -14,6 +15,7 @@ export function useStack(id: StackId) {
   const errorFor = ref<{ module: string; message: string } | null>(null)
   const busyModule = ref<string | null>(null)
   const leftBlocked = ref<string[]>([])
+  const stacksOn = useEnabledStacks()
 
   async function load(): Promise<void> {
     try {
@@ -31,6 +33,8 @@ export function useStack(id: StackId) {
       stack.value = next
       leftBlocked.value = blocked
       errorFor.value = null
+      // The navigation and the dashboard show a stack only while a module of it is on.
+      void stacksOn.load()
     } catch (err) {
       errorFor.value = { module, message: errorMessage(err, STACK_SWITCH_FAILED) }
     } finally {

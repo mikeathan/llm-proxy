@@ -8,7 +8,7 @@ import { useNetworkSnapshot } from "../../../composables/netaudit/useNetworkSnap
 import { hasRouterCounts, refusedToday, seriesOf } from "../../../utils/netaudit/networkOverview"
 import { formatRelativeTime, isRecorded } from "../../../utils/format/time"
 import { NETWORK_NO_AUDIT, NETWORK_TREND_NOTE, PROBLEMS_SEE_ALL, ROUTER_STAT_CAPTION, ROUTER_STAT_LABEL } from "../../../constants/netaudit"
-import { toNetwork } from "../../../router/routes"
+import { toNetworkCard } from "../../../router/routes"
 
 // Dashboard card · Network figures: the devices and problems with their 30-day trend, the router's refused attempts, and when the audit and
 // the new-device check last looked. It only shows what the server already knows, so it adds no scanning.
@@ -42,7 +42,7 @@ const devicesCaption = computed(() => {
         <StatCard label="Devices" :value="String(overview.devices.known)" :caption="devicesCaption"><Sparkline :values="devicesTrend" label="Devices known" unit="devices" state="info" /></StatCard>
         <StatCard label="Problems" :value="hasAudit ? String(overview.findings.open) : NO_VALUE" :caption="hasAudit ? problemsCaption : NETWORK_NO_AUDIT">
           <Sparkline v-if="hasAudit" :values="findingsTrend" label="Problems" unit="problems" state="success" />
-          <RouterLink v-if="hasAudit && overview.findings.open > 0" :to="toNetwork('findings')" class="inline-flex min-h-8 items-center self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline max-sm:min-h-11" data-test="problems-link">{{ PROBLEMS_SEE_ALL }}</RouterLink>
+          <RouterLink v-if="hasAudit && overview.findings.open > 0" :to="toNetworkCard('network-findings')" class="inline-flex min-h-8 items-center self-start text-[length:var(--text-small)] text-accent-info-text underline-offset-2 hover:underline max-sm:min-h-11" data-test="problems-link">{{ PROBLEMS_SEE_ALL }}</RouterLink>
         </StatCard>
         <StatCard v-if="showRouter" :label="ROUTER_STAT_LABEL" :value="refused.toLocaleString('en-US')" :caption="ROUTER_STAT_CAPTION" data-test="router-stat"><Sparkline :values="refusedTrend" label="Attempts the router refused" unit="a day" state="info" /></StatCard>
         <StatCard label="Last audit" :value="lastAudit" plain />

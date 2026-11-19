@@ -2,19 +2,19 @@ import { computed, ref, toRaw, type Ref } from 'vue'
 import { DashboardService } from '../../services/dashboard/dashboardService'
 import { useToast } from '../useToast'
 import { usePersistedState } from '../ui/usePersistedState'
-import { addBoard, addCard, applyPreset, boardsToOffer, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout } from '../../domain/dashboard'
+import { addBoard, addCard, visibleLayout, applyPreset, boardsToOffer, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout } from '../../domain/dashboard'
 import { HOME_BOARD_ID, LAYOUT_LOAD_FAILED, LAYOUT_SAVE_FAILED } from '../../constants/dashboard'
 import { errorMessage } from '../../utils/errors'
-import type { DashboardBoard, DashboardBoardTemplate, DashboardCols, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows } from '../../types/dashboard'
+import type { DashboardBoard, DashboardBoardTemplate, DashboardCardDef, DashboardCols, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows } from '../../types/dashboard'
 
 const STORAGE_VERSION = 1
 
 /**
  * The dashboard's state: the layout the server keeps for the owner, the board that is open in this browser, and the edits.
  * An edit shows at once and is saved after the one before it; if the save fails the layout goes back to what was last saved,
- * and a toast says so. `knownCards` are the cards the screen can draw, so a card it cannot draw never reaches the grid; `enabledStacks` narrows the boards offered.
+ * and a toast says so. `knownCards` are the cards the screen can draw, so a card it cannot draw never reaches the grid; `enabledStacks` narrows the boards offered and shown.
  */
-export function useDashboard(knownCards: ReadonlySet<string>, enabledStacks: Ref<ReadonlySet<string> | null> = ref(null)) {
+export function useDashboard(knownCards: ReadonlySet<string>, enabledStacks: Ref<ReadonlySet<string> | null> = ref(null), defs: ReadonlyMap<string, DashboardCardDef> = new Map()) {
   const toast = useToast()
   const layout = ref<DashboardLayout | null>(null)
   const loading = ref(true)
@@ -25,7 +25,8 @@ export function useDashboard(knownCards: ReadonlySet<string>, enabledStacks: Ref
   let confirmed: DashboardLayout | null = null
   let queue: Promise<void> = Promise.resolve()
 
-  const boards = computed<DashboardBoard[]>(() => layout.value?.boards ?? [])
+  // A stack that is off has no board and no cards on the screen; its saved boards are kept for when it is back on.
+  const boards = computed<DashboardBoard[]>(() => (layout.value ? visibleLayout(layout.value, defs, enabledStacks.value).boards : []))
   // A board removed in another browser must not leave this one on a page that does not exist: it falls back to Home.
   const board = computed<DashboardBoard | null>(() => boards.value.find((b) => b.id === activeId.value) ?? boards.value.find((b) => b.id === HOME_BOARD_ID) ?? null)
   const offeredBoards = computed<DashboardBoardTemplate[]>(() => boardsToOffer({ boards: boards.value }, enabledStacks.value))

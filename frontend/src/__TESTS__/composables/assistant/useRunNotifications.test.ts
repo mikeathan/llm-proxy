@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, shallowRef } from 'vue'
 import { createRunNotifications } from '../../../composables/assistant/useRunNotifications'
-import { toAutomation, toNetwork, toReminders, toWorkspace, toWorkspaceAssistant } from '../../../router/routes'
+import { toAutomation, toNetworkCard, toReminders, toWorkspace, toWorkspaceAssistant } from '../../../router/routes'
 import type { GlobalRunTick, LaneHolder } from '../../../types/assistant'
 import type { AutomationRun } from '../../../types/dispatcher'
 import type { NetworkAlertItem, NotificationItem, ReminderAlertItem, RunEndItem } from '../../../types/notifications'
@@ -220,7 +220,7 @@ describe('reminder alerts on the bell', () => {
 
 describe('network alerts on the bell', () => {
   const net = (id: number, over: Partial<NetworkAlertItem> = {}): NetworkAlertItem =>
-    ({ id: `network-${id}`, kind: 'network', alertKind: 'decoy', message: 'decoy m', delivery: 'sent', count: 1, repeatKey: 'decoy:decoy m', target: toNetwork('devices'), destination: 'network', ...over })
+    ({ id: `network-${id}`, kind: 'network', alertKind: 'decoy', message: 'decoy m', delivery: 'sent', count: 1, repeatKey: 'decoy:decoy m', target: toNetworkCard('network-devices'), destination: 'network', ...over })
 
   it('lists a network alert beside runs, counts it and announces its text', () => {
     const { n, announce } = setup()

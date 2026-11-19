@@ -283,7 +283,7 @@ export const DECOYS_NEEDS_LOOK = 'Needs a look'
 export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
-export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', traffic: 'Traffic', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
+export const NETWORK_TAB_LABELS = { modules: 'Modules', settings: 'Settings' } as const
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
 export const NETWORK_OVERVIEW_LOAD_FAILED = 'The network overview could not be read.'
@@ -335,8 +335,8 @@ export const NETWORK_RECENT_NONE = 'Nothing has changed in the last two weeks.'
 export const NETWORK_AUDITS_TITLE = 'Network audits'
 export const NETWORK_FINDINGS_NEEDS_AUDIT = 'Findings come from a network audit. Set one up and its results appear here.'
 export const NETWORK_TREND_NOTE = 'Counts only, kept for 13 months. Looking never adds scanning: these come from checks that already run.'
-export const NETWORK_POINTER_BODY = 'Part of Network: the devices, trends and what changed are on that page; this one runs and schedules the audit.'
-export const NETWORK_POINTER_LINK = 'Open Network'
+export const NETWORK_POINTER_BODY = 'Part of Network: the devices, findings and what changed are on its board; this one runs and schedules the audit.'
+export const NETWORK_POINTER_LINK = 'Open the Network board'
 
 /** The name a device gave when asked: a hint, never the device's identity. */
 export const SUGGESTION_NEW_DEVICE = (name: string): string => `It calls itself “${name}”. Anyone can choose that, so check it is yours first.`

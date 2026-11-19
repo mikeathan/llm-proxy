@@ -5,7 +5,7 @@ import PopoverPanel from "../common/layout/PopoverPanel.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import MicroLabel from "../common/display/MicroLabel.vue"
 import { useDismissable } from "../../composables/ui/useDismissable"
-import { ADD_BOARD_LABEL, BOARD_ALREADY_ADDED, HOME_BOARD_ID, MAX_BOARD_NAME, REMOVE_BOARD_LABEL, RENAME_BOARD_LABEL, SOURCE_LABELS } from "../../constants/dashboard"
+import { ADD_BOARD_LABEL, BOARD_ALREADY_ADDED, HOME_BOARD_ID, MAX_BOARD_NAME, REMOVE_BOARD_LABEL, RENAME_BOARD_LABEL, RESET_ALL_LABEL, SOURCE_LABELS } from "../../constants/dashboard"
 import type { DashboardBoard, DashboardBoardTemplate } from "../../types/dashboard"
 
 // The boards of the dashboard, as tabs. Home comes first and stays. While arranging, the open board can be renamed or removed here, and
@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: "add", template?: DashboardBoardTemplate): void
   (e: "remove", id: string): void
   (e: "rename", id: string, name: string): void
+  (e: "reset-all"): void
 }>()
 
 const menuOpen = ref(false)
@@ -49,6 +50,7 @@ function rename(event: Event) {
             <span v-if="t.source" class="pr-2 text-[length:var(--text-small)] text-muted">{{ SOURCE_LABELS[t.source] }}</span>
           </li>
           <li v-if="!offered.length" class="px-2 py-1 text-[length:var(--text-small)] text-muted">{{ BOARD_ALREADY_ADDED }}: every stack board.</li>
+          <li class="mt-1 border-t border-hairline px-0 pt-1"><BaseButton variant="ghost" class-name="w-full justify-start max-sm:!h-11" data-test="reset-all-boards" @click="menuOpen = false; emit('reset-all')">{{ RESET_ALL_LABEL }}</BaseButton></li>
         </ul>
       </PopoverPanel>
     </div>

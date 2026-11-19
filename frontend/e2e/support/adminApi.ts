@@ -22,10 +22,13 @@ const DNS_CHECK = {
   status: { last_run: NEVER },
   summary: { comparisons: 0, matches: 0, differs: 0, cannot_compare: 0, overlapping: 0, first: NEVER, last: NEVER, differences: [] },
 }
+// Every stack has a module on, so the menu and the dashboard show Network, Agents and Radio unless a spec says otherwise.
+const STACKS = { stacks: ['network', 'agents', 'radio'].map((id) => ({ id, title: id, purpose: '', on: 2, total: 4, stopped: 0, blocked: 0 })) }
 // Signed in, so no spec sees the login page or the "sign-in is not set up" banner unless it asks for them.
 const SIGNED_IN = { set_up: true, setup_open: false, authenticated: true, elevated: false, encrypted: true }
 
 const DEFAULT_ANSWERS: Record<string, unknown> = {
+  '/stacks': STACKS,
   '/netaudit/readiness': READY,
   '/auth/status': SIGNED_IN,
   '/netaudit/devices': DEVICES,

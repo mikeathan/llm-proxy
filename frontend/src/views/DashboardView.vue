@@ -8,11 +8,14 @@ import DashboardBoardTabs from "../components/dashboard/DashboardBoardTabs.vue"
 import DashboardToolbar from "../components/dashboard/DashboardToolbar.vue"
 import DashboardGrid from "../components/dashboard/DashboardGrid.vue"
 import CardCatalogue from "../components/dashboard/CardCatalogue.vue"
+import DashboardStackChrome from "../components/dashboard/DashboardStackChrome.vue"
 import { CARD_DEFS, CARD_DEFS_BY_ID, KNOWN_CARD_IDS } from "../components/dashboard/cardRegistry"
 import { useEnabledStacks } from "../composables/stacks/useEnabledStacks"
 import { useDashboard } from "../composables/dashboard/useDashboard"
-import { cardsToOffer, templateOf } from "../domain/dashboard"
-import { CARD_MISSING, CARD_MISSING_ADD, DASHBOARD_EYEBROW, DASHBOARD_SUBTITLE, DASHBOARD_TITLE, MAX_BOARDS } from "../constants/dashboard"
+import { cardsToOffer, newShippedCards, templateOf } from "../domain/dashboard"
+import { CARD_MISSING, CARD_MISSING_ADD, DASHBOARD_EYEBROW, DASHBOARD_SUBTITLE, DASHBOARD_TITLE, MAX_BOARDS, RESET_ALL_CONFIRM, NEW_CARDS_ADD, NEW_CARDS_DISMISS, NEW_CARDS_TITLE } from "../constants/dashboard"
+import { useConfirm } from "../composables/ui/useConfirm"
+import { usePersistedState } from "../composables/ui/usePersistedState"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
 import type { DashboardCardDef } from "../types/dashboard"
 
@@ -21,7 +24,7 @@ import type { DashboardCardDef } from "../types/dashboard"
 // browser; the board that is open is remembered per browser, and `?board=` opens one (the stack pages link to theirs).
 const route = useRoute()
 const stacks = useEnabledStacks()
-const d = useDashboard(KNOWN_CARD_IDS, stacks.on)
+const d = useDashboard(KNOWN_CARD_IDS, stacks.on, CARD_DEFS_BY_ID)
 // A card or board of a stack with nothing switched on is not offered (one already on a board stays, and says it is off itself).
 const offeredCards = computed(() => cardsToOffer(CARD_DEFS, stacks.on.value))
 const onBoard = computed(() => new Set(d.board.value?.cards.map((c) => c.id)))
@@ -34,6 +37,30 @@ const wantedCard = computed(() => {
   return typeof id === "string" ? (CARD_DEFS_BY_ID.get(id) ?? null) : null
 })
 const missingCard = computed(() => (wantedCard.value && d.board.value && !onBoard.value.has(wantedCard.value.id) ? wantedCard.value : null))
+
+// A saved copy of a shipped board does not have the cards added since it was saved: say so once, and let the owner add them or not. What was offered
+// is remembered per browser, so a card they decline (or removed on purpose) does not come back.
+const SEEN_VERSION = 1
+const offered = usePersistedState<Record<string, string[]>>("dashboard-offered-cards", {
+  version: SEEN_VERSION,
+  parse: (data) => (data && typeof data === "object" && !Array.isArray(data) ? (data as Record<string, string[]>) : null),
+  fallback: {},
+})
+const newCards = computed(() => (d.board.value ? newShippedCards(d.board.value, offered.value[d.board.value.id] ?? [], stacks.on.value, CARD_DEFS_BY_ID) : []))
+function settleNewCards(add: boolean) {
+  const board = d.board.value
+  if (!board) return
+  for (const id of newCards.value) {
+    const def = CARD_DEFS_BY_ID.get(id)
+    if (add && def) addCard(def)
+  }
+  offered.value = { ...offered.value, [board.id]: [...(offered.value[board.id] ?? []), ...newCards.value] }
+}
+
+const { confirm } = useConfirm()
+async function resetEverything() {
+  if (await confirm({ ...RESET_ALL_CONFIRM, type: "warning" })) await d.resetAll()
+}
 
 function addCard(def: DashboardCardDef) {
   d.add({ id: def.id, cols: def.cols, rows: def.rows })
@@ -62,6 +89,12 @@ function openFromAddress() {
     <Callout v-if="missingCard" tone="info" :title="CARD_MISSING(missingCard.title)">
       <template #actions><BaseButton variant="secondary" class-name="max-sm:!h-11" data-test="add-wanted-card" @click="addCard(missingCard)">{{ CARD_MISSING_ADD }}</BaseButton></template>
     </Callout>
+    <Callout v-if="newCards.length" tone="info" :title="NEW_CARDS_TITLE(newCards.map((id) => CARD_DEFS_BY_ID.get(id)!.title))">
+      <template #actions>
+        <BaseButton variant="secondary" class-name="max-sm:!h-11" data-test="add-new-cards" @click="settleNewCards(true)">{{ NEW_CARDS_ADD }}</BaseButton>
+        <BaseButton variant="ghost" class-name="max-sm:!h-11" data-test="dismiss-new-cards" @click="settleNewCards(false)">{{ NEW_CARDS_DISMISS }}</BaseButton>
+      </template>
+    </Callout>
     <Callout v-if="d.error.value" tone="warning" title="Showing the standard boards"><span data-test="dashboard-error">{{ d.error.value }}</span></Callout>
     <LoadingState v-if="d.loading.value && !d.layout.value" label="Loading the dashboard" :rows="3" />
     <template v-else-if="d.board.value">
@@ -75,7 +108,9 @@ function openFromAddress() {
         @add="d.addBoardFrom"
         @remove="d.removeBoardById"
         @rename="d.rename"
+        @reset-all="resetEverything"
       />
+      <DashboardStackChrome :board="d.board.value" :defs="CARD_DEFS_BY_ID" />
       <DashboardGrid
         :board="d.board.value"
         :defs="CARD_DEFS_BY_ID"

@@ -72,18 +72,21 @@ export const PINNED_COLS: DashboardCols = 4
  * The line on a stack's page that points to where its views went on the dashboard: the board, and (when a view is one card) the card, so the
  * dashboard can say so when the owner's saved board does not have it yet.
  */
-export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; board: string; card?: string }> = {
-  network: { text: 'The overview, the figures, what changed and the timeline are on the dashboard.', link: 'Open the Network board', board: 'network', card: 'network-timeline' },
-  traffic: { text: 'Where each device talks to (a map and its places by company) is on the dashboard.', link: 'Open Traffic by device', board: 'network', card: 'network-traffic' },
-  radio: { text: 'The radar, what changed and how the channels are used are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
-  'radio-devices': { text: 'How your devices are doing (home or away, which router box) is on the dashboard.', link: 'Open My devices', board: 'radio', card: 'radio-devices' },
+export const BOARD_HINT: Record<BoardHintKey, { text: string; link: string; board: string }> = {
+  network: { text: 'Devices, findings, audits, traffic and the timeline are on the dashboard.', link: 'Open the Network board', board: 'network' },
+  radio: { text: 'The radar, your devices, your networks and what changed are on the dashboard.', link: 'Open the Radio board', board: 'radio' },
 }
 export const CARD_MISSING = (title: string): string => `${title} is not on this board.`
 export const CARD_MISSING_ADD = 'Add it'
+export const NEW_CARDS_TITLE = (titles: string[]): string => `New on this board: ${titles.join(', ')}.`
+export const NEW_CARDS_ADD = 'Add them'
+export const NEW_CARDS_DISMISS = 'Not now'
 export const ARRANGE_LABEL = 'Arrange'
 export const ARRANGE_DONE_LABEL = 'Done'
 export const ADD_CARD_LABEL = 'Add card'
 export const ADD_BOARD_LABEL = 'Add board'
+export const RESET_ALL_LABEL = 'Put every board back as shipped'
+export const RESET_ALL_CONFIRM = { title: 'Put every board back as shipped?', message: 'Your boards, the cards on them and their order go back to how they came: boards you added or renamed are removed.', confirmText: 'Put them back' } as const
 export const RESET_BOARD_LABEL = 'Reset board'
 export const PIN_LABEL = 'Pin to Home'
 export const PINNED_LABEL = 'On Home'
@@ -131,11 +134,16 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
       { id: 'network-posture', cols: 8, rows: 1 },
       { id: 'network-changes', cols: 4, rows: 1 },
       { id: 'network-figures', cols: 12, rows: 1 },
-      { id: 'network-timeline', cols: 12, rows: 1 },
-      { id: 'network-traffic', cols: 12, rows: 1 },
-      { id: 'network-coverage', cols: 12, rows: 1 },
+      { id: 'network-devices', cols: 12, rows: 1 },
+      { id: 'network-findings', cols: 12, rows: 1 },
       { id: 'network-attack-paths', cols: 6, rows: 1 },
       { id: 'network-standing', cols: 6, rows: 1 },
+      { id: 'network-timeline', cols: 12, rows: 1 },
+      { id: 'network-traffic', cols: 12, rows: 1 },
+      { id: 'network-audits', cols: 6, rows: 1 },
+      { id: 'network-trace', cols: 6, rows: 1 },
+      { id: 'network-nearby', cols: 12, rows: 1 },
+      { id: 'network-coverage', cols: 12, rows: 1 },
     ],
   },
   {
@@ -145,6 +153,8 @@ export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
     cards: [
       { id: 'radio-around', cols: 12, rows: 2 },
       { id: 'radio-devices', cols: 12, rows: 1 },
+      { id: 'radio-manage', cols: 6, rows: 1 },
+      { id: 'radio-networks', cols: 6, rows: 1 },
       { id: 'radio-findings', cols: 12, rows: 1 },
     ],
   },

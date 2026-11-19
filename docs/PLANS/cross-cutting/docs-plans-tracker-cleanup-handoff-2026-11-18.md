@@ -48,7 +48,7 @@ pull request. Nothing here has run on vertex.
    D1 yes with the plan's limits, D4 yes. Then Phase 1 (`RunReason`, with a real producer) and Phase 3 (`schedule_followup`).
 3. **Data page D3 and the rest of D4** (`cross-cutting/data-management-page.md`). Both need an SDK change (`Purge` on the storage interface,
    and a way to pause a stack's optional writers). Ask first.
-4. **WorkspaceManager P1** (`cross-cutting/workspace-manager-coupling.md` §3a): four small interfaces for seven files.
+4. **WorkspaceManager P1: built 2026-11-19** for six of the seven files (`cross-cutting/workspace-manager-coupling.md` §3b); the guardrail engine is left on purpose (nil trap).
 5. **ADR statuses for the owner to set** (not changed here): those still `proposed` whose work is merged are listed in the pull request.
 
 ## Traps found

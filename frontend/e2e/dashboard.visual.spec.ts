@@ -32,7 +32,7 @@ test('Home: cards from every part of the system, one board of them', async ({ pa
   }
 })
 
-test('the Network board holds the overview the Network page used to open on', async ({ page }, testInfo) => {
+test('the Network board holds the overview, the devices and the findings', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
   await page.goto('dashboard?board=network')
   await expect(page.locator('[data-test="board-tab"][aria-current="page"]')).toHaveText('Network')
@@ -62,8 +62,8 @@ test('arranging: a layout re-flows the board, a card is resized, and the board o
   await expect(page.locator('[data-test="reset-board"]')).toHaveCount(0)
 })
 
-// Real layout, so happy-dom cannot stand in: resizing one card must not change its neighbours, and "later" must move a card one place on screen.
-test('arranging on a wide screen: resizing never stretches the neighbour, and a card moves one place at a time', async ({ page }, testInfo) => {
+// Real layout, so happy-dom cannot stand in: resizing one card must not change its neighbours, and a short card leaves no hole under it.
+test('arranging on a wide screen: resizing never stretches the neighbour, and "later" moves a card', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'the grid is one column on a phone')
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
   await page.goto('dashboard?board=network')
@@ -81,24 +81,35 @@ test('arranging on a wide screen: resizing never stretches the neighbour, and a 
   await own.locator('[aria-label="Width of Network posture"] button', { hasText: 'S' }).click()
   await expect.poll(async () => (await box('network-posture')).width).toBeLessThan(before.width)
   expect((await box('network-changes')).height).toBe(before.height)
-  // "Later" twice: the card is third in board order and in the sorted positions on screen.
-  const order = async () => {
-    const ids = ['network-posture', 'network-changes', 'network-figures', 'network-coverage', 'network-attack-paths', 'network-standing']
-    const at = await Promise.all(ids.map(async (id) => ({ id, b: await box(id) })))
-    return at.sort((a, b) => a.b.y - b.b.y || a.b.x - b.b.x).map((c) => c.id)
-  }
-  expect((await order()).slice(0, 3)).toEqual(['network-posture', 'network-changes', 'network-figures'])
-  for (const expected of [['network-changes', 'network-posture', 'network-figures'], ['network-changes', 'network-figures', 'network-posture']]) {
-    await own.locator('[data-move="later"]').click()
-    await expect.poll(async () => (await order()).slice(0, 3)).toEqual(expected)
-  }
+  // "Later" changes where the card sits: it goes after the card that followed it.
+  const at = await box('network-posture')
+  await own.locator('[data-move="later"]').click()
+  await expect.poll(async () => JSON.stringify(await box('network-posture'))).not.toBe(JSON.stringify(at))
+})
+
+// A tall card must not leave a hole under the short cards beside it: the next card goes under the shorter one, not below the whole row.
+test('a tall card leaves no hole: the next card is placed under a short one', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop', 'the grid is one column on a phone')
+  const layout = { boards: [{ id: 'home', name: 'Home', cards: [
+    { id: 'reminders', cols: 4, rows: 1 }, { id: 'host-health', cols: 4, rows: 1 }, { id: 'radio-around', cols: 4, rows: 2 }, { id: 'running-now', cols: 4, rows: 1 }, { id: 'recent-runs', cols: 4, rows: 1 },
+  ] }] }
+  await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': layout } })
+  await page.goto('dashboard')
+  await expect(page.locator('[data-test="card-radio-around"]')).toBeVisible()
+  await expect(page.locator('[data-test="card-running-now"]')).toBeVisible()
+  const box = async (id: string) => (await page.locator(`[data-test="card-${id}"]`).boundingBox())!
+  // The cards load as they are first shown and change height as they do, so the packing is read until it settles.
+  await expect.poll(async () => {
+    const [radar, next, ...above] = await Promise.all(['radio-around', 'running-now', 'reminders', 'host-health'].map(box))
+    const shortest = Math.min(...above.map((b) => b.y + b.height))
+    return radar.height > 400 && next.y < radar.y + radar.height - 100 && next.x < radar.x && next.y < shortest + 40
+  }).toBe(true) // beside the tall card, not below it; under a short card; a gap and no more
 })
 
 test('a card a stack page links to is offered when the saved board predates it', async ({ page }) => {
   const saved = { boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }, { id: 'network', name: 'Network', cards: [{ id: 'network-posture', cols: 8, rows: 1 }] }] }
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': saved } })
-  await page.goto('network/traffic')
-  await page.locator('[data-test="traffic-tab"] [data-test="open-board"]').click()
+  await page.goto('network/traffic') // an old tab address: it opens the card on the board
   await expect(page.locator('[data-test="add-wanted-card"]')).toBeVisible()
   await page.locator('[data-test="add-wanted-card"]').click()
   await expect(page.locator('[data-test="card-network-traffic"]')).toBeVisible()
@@ -107,7 +118,7 @@ test('a card a stack page links to is offered when the saved board predates it',
 
 test('the stack pages link to their own board', async ({ page }) => {
   await mockAdminApi(page)
-  await page.goto('network')
+  await page.goto('network/modules')
   await page.locator('[data-test="open-board"]').click()
   await expect(page.locator('[data-test="board-tab"][aria-current="page"]')).toHaveText('Network')
 })

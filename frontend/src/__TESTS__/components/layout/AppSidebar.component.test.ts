@@ -43,7 +43,7 @@ describe('AppSidebar', () => {
     const { wrapper } = await mountAt('/dashboard')
     const toggle = wrapper.get('[data-test="group-stacks"]')
     expect(toggle.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('#group-stacks a[data-destination="network"]').attributes('href')).toBe('/network')
+    expect(wrapper.get('#group-stacks a[data-destination="network"]').attributes('href')).toBe('/dashboard?board=network')
     expect(wrapper.get('#group-stacks a[data-destination="agents"]').attributes('href')).toBe('/agents')
     await toggle.trigger('click')
     expect(toggle.attributes('aria-expanded')).toBe('false')
@@ -53,12 +53,15 @@ describe('AppSidebar', () => {
     expect(again.wrapper.get('[data-test="group-stacks"]').attributes('aria-expanded')).toBe('false')
   })
 
-  it('opens Stacks and marks it current while a child is open, even if it was closed', async () => {
+  it('opens Stacks and marks it current while a child is open, even if it was closed: its page, or its board on the dashboard', async () => {
     const closed = await mountAt('/dashboard')
     await closed.wrapper.get('[data-test="group-stacks"]').trigger('click')
-    const { wrapper } = await mountAt('/network/devices')
+    const { wrapper } = await mountAt('/network/modules')
     expect(wrapper.get('[data-test="group-stacks"]').attributes('aria-expanded')).toBe('true')
     expect(wrapper.get('a[data-destination="network"]').attributes('aria-current')).toBe('page')
+    const board = await mountAt('/network/devices')
+    expect(board.wrapper.get('a[data-destination="network"]').attributes('aria-current')).toBe('page')
+    expect(board.wrapper.get('a[data-destination="dashboard"]').attributes('aria-current')).toBeUndefined()
   })
 
   it('opens the assistant and the files of the workspace last used, or the list while none is known', async () => {

@@ -1,6 +1,7 @@
 // Network scan (plan network-audit): the shapes the /admin/api/netaudit endpoints return and take.
 import type { Ref } from 'vue'
 import type { SettingsTab } from './admin'
+import type { RouteLocationNamedRaw } from 'vue-router'
 import type { NetworkTab } from './routes'
 import type { RadioDeviceKind } from './radio'
 
@@ -924,10 +925,10 @@ export interface AttackPath {
   all_accepted?: boolean
 }
 
-/** The one thing the verdict card suggests doing next, and the Network tab it happens on. */
+/** The one thing the verdict card suggests doing next, and where it happens. */
 export interface NetworkNextAction {
   label: string
-  tab: NetworkTab
+  to: RouteLocationNamedRaw
 }
 
 /** The audit whose last result the overview counts. */

@@ -33,7 +33,7 @@ describe('BottomTabs', () => {
   it('has Dashboard, Assistant, Workspace and Automations, then More', async () => {
     const { wrapper } = await mountAt('/models')
     expect(tabs(wrapper).map((a) => a.attributes('aria-label'))).toEqual(['Dashboard', 'Assistant', 'Workspace', 'Automations'])
-    expect(tabs(wrapper).map((a) => a.attributes('href'))).toEqual(['/dashboard', '/workspaces/demo/assistant', '/workspaces/demo/files', '/automations'])
+    expect(tabs(wrapper).map((a) => a.attributes('href'))).toEqual(['/dashboard?board=home', '/workspaces/demo/assistant', '/workspaces/demo/files', '/automations'])
     expect(more(wrapper).text()).toContain('More')
   })
 

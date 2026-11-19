@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test'
 import { expectNoSidewaysScroll, mockAdminApi } from './support/adminApi'
 
 // Stacks: Network and Agents sit under a Stacks heading, in the sidebar on a wide screen and in the More sheet on a phone, and
-// every Network tab is reachable from the page. Nothing scrolls sideways; touch targets are 44 px on a phone.
-test('Network and Agents are under Stacks and every Network tab fits the screen', async ({ page }, testInfo) => {
+// the Network page has two tabs, Modules and Settings (what is to be seen is on the dashboard's Network board). Nothing scrolls sideways; touch targets are 44 px on a phone.
+test('Network and Agents are under Stacks and the Network page has only Modules and Settings', async ({ page }, testInfo) => {
   await mockAdminApi(page)
-  await page.goto('network')
+  await page.goto('network/modules')
   await expect(page.getByRole('heading', { name: 'Network', level: 1 })).toBeVisible()
   const mobile = testInfo.project.name === 'mobile'
   if (mobile) {
@@ -27,7 +27,8 @@ test('Network and Agents are under Stacks and every Network tab fits the screen'
     // While Network is open the group stays open: the current page is never hidden.
     await expect(group).toHaveAttribute('aria-expanded', 'true')
   }
-  for (const tab of ['Devices', 'Findings', 'Audits', 'Modules', 'Settings']) {
+  await expect(page.locator('a.stack-tab')).toHaveText(['Modules', 'Settings'])
+  for (const tab of ['Modules', 'Settings']) {
     const link = page.getByRole('link', { name: tab, exact: true }).last()
     await link.click()
     await expect(page.getByRole('heading', { name: 'Network', level: 1 })).toBeVisible()

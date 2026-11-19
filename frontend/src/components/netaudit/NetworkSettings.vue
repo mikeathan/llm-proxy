@@ -14,6 +14,7 @@ import FootprintCard from "./FootprintCard.vue"
 import NearbyCard from "./NearbyCard.vue"
 import WifiCard from "./WifiCard.vue"
 import HelperCard from "./HelperCard.vue"
+import RouterConnectionsCard from "./RouterConnectionsCard.vue"
 import DestinationDataCard from "./DestinationDataCard.vue"
 import { SETTINGS_GROUP_COPY, SETTINGS_SAVES_AT_ONCE } from "../../constants/netaudit"
 import type { NetworkSettingsGroup } from "../../types/routes"
@@ -38,6 +39,7 @@ defineProps<{ group: NetworkSettingsGroup }>()
         <DeviceCheckSettings />
         <DecoysCard />
         <RouterLogCard />
+        <RouterConnectionsCard />
         <DnsCheckCard />
         <NearbyCard />
         <WifiCard />

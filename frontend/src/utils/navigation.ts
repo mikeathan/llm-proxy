@@ -1,9 +1,12 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { toActivity, toAgents, toAutomations, toDashboard, toRadio, toModels, toNetwork, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
+import { toActivity, toAgents, toAutomations, toDashboard, toModels, toNetworkCard, toRadioCard, toReminders, toSettings, toStacks, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
+import { HOME_BOARD_ID } from '../constants/dashboard'
 import type { Destination, NavEntry, NavGroup, NavGroupId, NavId, NavItem } from '../types/routes'
 import type { NotificationItem } from '../types/notifications'
 import { STACKS_GROUP_LABEL } from '../constants/stacks'
+import { STACK_IDS } from '../types/stacks'
+import type { StackId } from '../types/stacks'
 
 // The shell's destinations (plan frontend-redesign-v2, V1/V6), built once for both
 // navigations: the sidebar and the phone's bottom bar. The Dashboard leads (it is where the app opens), then the Assistant; Workspace is
@@ -12,9 +15,13 @@ import { STACKS_GROUP_LABEL } from '../constants/stacks'
 // known. Pure, so the two navigations cannot drift apart.
 
 interface NavContext {
+  /** The stacks with a module on; null while unknown, which shows every stack. */
+  stacksOn?: ReadonlySet<string> | null
   lastWorkspace: string | null
   routeName: string | null | undefined
   destination: Destination | undefined
+  /** The board open on the dashboard (`?board=`); a stack's board counts as that stack's entry, not as the Dashboard. */
+  board?: string
   badges: Partial<Record<NavId, number>>
 }
 
@@ -25,14 +32,20 @@ interface NavSpec {
   /** Shown in the phone tab bar; the rest sit under More. */
   tab: boolean
   group?: NavGroupId
+  /** A stack's entry shows only while the stack has a module on. */
+  stack?: StackId
   to: (ws: string | null) => RouteLocationNamedRaw
   current: (ctx: NavContext) => boolean
 }
 
 const onDestination = (destination: Destination) => (ctx: NavContext) => ctx.destination === destination
 
+// Network and Radio open their board on the dashboard, where everything to be seen is; their own page (modules, settings, listening) is the same entry.
+const isStackBoard = (board: string | undefined): boolean => board === 'network' || board === 'radio'
+const onStack = (stack: 'network' | 'radio') => (ctx: NavContext) => ctx.destination === stack || (ctx.destination === 'dashboard' && ctx.board === stack)
+
 const SPECS: readonly NavSpec[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'nav-overview', tab: true, to: () => toDashboard(), current: onDestination('dashboard') },
+  { id: 'dashboard', label: 'Dashboard', icon: 'nav-overview', tab: true, to: () => toDashboard(HOME_BOARD_ID), current: (ctx) => ctx.destination === 'dashboard' && !isStackBoard(ctx.board) },
   {
     id: 'assistant',
     label: 'Assistant',
@@ -50,17 +63,21 @@ const SPECS: readonly NavSpec[] = [
     current: (ctx) => ctx.destination === 'workspaces' && ctx.routeName !== ROUTE_NAMES.workspaceAssistant,
   },
   { id: 'automations', label: 'Automations', icon: 'nav-automations', tab: true, to: toAutomations, current: onDestination('automations') },
-  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'stacks', to: () => toNetwork(), current: onDestination('network') },
-  { id: 'agents', label: 'Agents', icon: 'nav-agents', tab: false, group: 'stacks', to: () => toAgents(), current: onDestination('agents') },
-  { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', to: () => toRadio(), current: onDestination('radio') },
+  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'stacks', stack: 'network', to: () => toNetworkCard(), current: onStack('network') },
+  { id: 'agents', label: 'Agents', icon: 'nav-agents', tab: false, group: 'stacks', stack: 'agents', to: () => toAgents(), current: onDestination('agents') },
+  { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', stack: 'radio', to: () => toRadioCard(), current: onStack('radio') },
+  { id: 'stacks', label: 'Add a stack', icon: 'nav-stacks', tab: false, group: 'stacks', to: () => toStacks(), current: onDestination('stacks') },
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: false, to: toReminders, current: onDestination('reminders') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },
   { id: 'settings', label: 'Settings', icon: 'nav-settings', tab: false, to: () => toSettings(), current: onDestination('settings') },
 ]
 
+/** The entry that switches a stack on shows only while one is off (and the list is known). */
+const stackIsOff = (on: ReadonlySet<string> | null | undefined): boolean => !!on && STACK_IDS.some((id) => !on.has(id))
+
 export function buildNavigation(ctx: NavContext): NavItem[] {
-  return SPECS.map((spec) => ({
+  return SPECS.filter((spec) => spec.id === 'stacks' ? stackIsOff(ctx.stacksOn) : !spec.stack || !ctx.stacksOn || ctx.stacksOn.has(spec.stack)).map((spec) => ({
     id: spec.id,
     label: spec.label,
     icon: spec.icon,

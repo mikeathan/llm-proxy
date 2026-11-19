@@ -24,13 +24,16 @@ evidence: branch dashboard-card-controls-and-cards (cut from main at 9fc07f3f, v
 ## Checks run (2026-11-19)
 `npm run build` (lint, types, build) passed; `npx vitest run` 339 files, 3,279 tests passed; `npm run test:visual` 407 passed, 1 skipped (a desktop-only check on the mobile project) before the last CSS change (2x became a minimum height), then the dashboard, radio, timeline and traffic specs re-run: 81 passed, 1 skipped. The full visual run was not repeated after that change. Backend untouched except `VERSION`: `go build ./...`, `go test ./internal/transport/... ./internal/app/...` passed and the complexity tool reported no new violations; the full `go test ./...` was **not** run. `./scripts/check-agent-harness.sh` passed.
 
+## Built after this handoff (branch `remaining-work-handoff-cleanup`, ADR-0066, SPEC-003 2.69)
+The stack pages keep only control (Network: Modules, Settings), their views are cards (Devices, Findings, Audits, Nearby, Trace, Traffic with the look; Radio Claim and manage, Your Wi-Fi networks), a stack that is off is hidden everywhere (with an Add a stack page), old tab links redirect to the card, a saved board is offered the cards it lacks, the grid packs by measured height, and Add board has Put every board back as shipped. Checks: `npx vitest run` 340 files, 3287 tests; `npm run build`; `npx playwright test` 412 (the last full run had 1 timing failure in the new packing test, since made to poll and passed 3 of 3). Not run on vertex.
+
 ## Left, in order
 1. **Run it on vertex** (owner): the dashboard with the real boards. Your saved Network and Radio boards predate the new cards: your saved boards predate three cards, and each page links to its card with an **Add it** line: open the Network page's link (Timeline), the Traffic tab's link (Traffic by device) and the Radio page's Add or remove a device link (My devices), pressing **Add it** on each, or use **Add card**; check that the radar reads as before (it measured as tall as its content); try Arrange (resize, earlier, later, drag by the grip). First command: build and deploy as usual.
 2. **The four device lists were not merged** (a deviation from the plan, ADR-0065, table in the plan). The owner decides whether any should go: for example the traffic rail could become the Devices card with a traffic column, or My devices could take the Devices row. Needs: your reading of the table.
 3. **Assistant: approvals waiting.** There is no list of waiting approvals to read (they live in the open chat as a guardrail banner); a card needs a new endpoint or a shared store. Not built.
 4. **The LLM queue card** was not built: `Running now` already shows the model lanes and the queued runs by position.
 5. **Home** does not ship the new cards (Recent conversations, Agent activity, Devices). Say which belong on Home.
-6. **`useDevices().load()`** reads the inventory, presence and IPv6 state; the Devices card needs only the inventory.
+6. **Done 2026-11-19:** the Devices card calls `useDevices().loadInventory()`, which reads only the list (the list already carries presence); `load()` stays for the Network page.
 
 ## Traps
 - A card made of several `Panel`s must `provide(IN_DASHBOARD_CARD, false)` (pitfall 74). A card's height is never a grid row span (pitfall 75).

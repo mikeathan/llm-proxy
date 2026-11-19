@@ -1,8 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RouterLinkStub, flushPromises, mount } from '@vue/test-utils'
+import { ref } from 'vue'
 
-const service = vi.hoisted(() => ({ devices: vi.fn(), presence: vi.fn(), ipv6Discovery: vi.fn() }))
+const service = vi.hoisted(() => ({ devices: vi.fn(), presence: vi.fn(), ipv6Discovery: vi.fn(), captureWindow: vi.fn() }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
+// The card asks which audit is the owner's, to link a device to its problems; here there is none.
+vi.mock('../../../composables/netaudit/useNetworkAudit', () => ({ useNetworkAudit: () => ({ audit: ref(null), loaded: ref(true) }) }))
+vi.mock('../../../composables/netaudit/useCaptureWindow', () => ({
+  useCaptureWindow: () => ({ available: ref(false), summary: ref(null), loaded: ref(true), running: ref(false), error: ref(''), load: vi.fn(), listen: vi.fn() }),
+}))
 
 import NetworkDevicesCard from '../../../components/dashboard/cards/NetworkDevicesCard.vue'
 
@@ -17,39 +23,27 @@ const mountCard = async () => {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  service.presence.mockResolvedValue({ enabled: true })
+  service.presence.mockResolvedValue({ enabled: true, interval_minutes: 10, allowed_intervals: [5, 10] })
   service.ipv6Discovery.mockResolvedValue({ enabled: false })
 })
 
+// The list itself (naming, approving, forgetting, the groups) is tested with DevicesCard; here only that the card carries it.
 describe('NetworkDevicesCard', () => {
-  it('lists the devices that need a look first, then online, then offline, in the words of the Network page', async () => {
+  it('shows the device list with its decisions, the devices that need a look first', async () => {
     service.devices.mockResolvedValue({
       devices: [device('aa', { name: 'Old TV', last_seen: ago(5 * 86_400_000) }), device('bbb', { name: 'Phone' }), device('cccc', { new: true, name: 'Stranger' })],
       gateway: { changed: false }, baselined: true, updated_at: ago(0),
     })
     const w = await mountCard()
-    const rows = w.findAll('li')
-    expect(rows.map((r) => r.text())).toEqual([expect.stringContaining('Stranger'), expect.stringContaining('Phone'), expect.stringContaining('Old TV')])
-    expect(rows[0]!.text()).toContain('Needs a look')
-    expect(rows[2]!.text()).toContain('Offline')
-    expect(w.get('[data-test="devices-card-summary"]').text()).not.toBe('')
+    expect(w.get('[data-test="devices-summary"]').text()).not.toBe('')
+    const groups = w.findAll('[data-test^="group-"]').map((g) => g.attributes('data-test'))
+    expect(groups).toEqual(['group-attention', 'group-online', 'group-offline'])
+    expect(w.get('[data-test="group-attention"]').text()).toContain('Stranger')
   })
 
-  it('says what Radio heard, and links it to the Radio page of the device only for a page id the core made', async () => {
-    service.devices.mockResolvedValue({
-      devices: [device('aa', { name: 'Phone', air: { heard: ago(120_000), ring: 'house', page: '4ded1379' } }), device('bbb', { name: 'Tablet', air: { heard: ago(120_000), ring: 'house', page: '<script>' } })],
-      gateway: { changed: false }, baselined: true, air: { state: 'listening' }, updated_at: ago(0),
-    })
-    const w = await mountCard()
-    const links = w.findAllComponents(RouterLinkStub).filter((l) => (l.props('to') as { name?: string }).name === 'radio-device')
-    expect(links).toHaveLength(1)
-    expect(links[0]!.props('to')).toEqual({ name: 'radio-device', params: { id: '4ded1379' } })
-    expect(w.findAll('[data-test="devices-card-air"]')).toHaveLength(2)
-  })
-
-  it('says it could not read the devices, with what to do', async () => {
+  it('says it could not read the devices', async () => {
     service.devices.mockRejectedValue(new Error('down'))
     const w = await mountCard()
-    expect(w.text()).toContain('The devices could not be read')
+    expect(w.get('[role="alert"]').text()).not.toBe('')
   })
 })
