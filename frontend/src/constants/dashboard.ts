@@ -9,6 +9,9 @@ import type { InjectionKey, Ref } from 'vue'
 export const IN_DASHBOARD_CARD: InjectionKey<boolean> = Symbol('in-dashboard-card')
 
 /** Provided by a dashboard card to everything inside it: the size its own width gives it. Outside a card (or before it is measured) it is large. */
+/** The room a card's list gets at each card size: the list scrolls inside it, so a smaller card shows fewer rows at a time and never hides the rest. */
+export const CARD_LIST_SCROLL: Record<DashboardCardSize, string> = { xs: '', sm: 'max-h-72 overflow-y-auto', lg: 'max-h-[36rem] overflow-y-auto' }
+
 export const DASHBOARD_CARD_SIZE: InjectionKey<Ref<DashboardCardSize>> = Symbol('dashboard-card-size')
 /** Provided by a dashboard card to everything inside it: whether the card is on screen now. Polling inside a card pauses while it is not, and catches up when it returns. */
 export const DASHBOARD_CARD_VISIBLE: InjectionKey<Ref<boolean>> = Symbol('dashboard-card-visible')

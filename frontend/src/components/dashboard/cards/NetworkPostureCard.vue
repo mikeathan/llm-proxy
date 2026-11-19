@@ -3,6 +3,7 @@ import { computed } from "vue"
 import StatusTag from "../../common/display/StatusTag.vue"
 import LoadingState from "../../common/feedback/LoadingState.vue"
 import ErrorState from "../../common/feedback/ErrorState.vue"
+import { CARD_LIST_SCROLL } from "../../../constants/dashboard"
 import { useCardSize } from "../../../composables/dashboard/useCardSize"
 import { useNetworkSnapshot } from "../../../composables/netaudit/useNetworkSnapshot"
 import { attentionReasons, nextAction, postureHeadline } from "../../../utils/netaudit/networkOverview"
@@ -11,13 +12,12 @@ import type { NetworkPosture } from "../../../types/netaudit"
 import type { StatusState } from "../../../types/ui"
 
 // Dashboard card · Network posture: one verdict, what needs a look and the next step, which links to the Network page where it is done.
-// Small is the verdict and the count; medium adds the reasons; large adds the next step. It only reads what the server already knows.
+// Small is the verdict and the count; medium adds the reasons in a list that scrolls; large adds the next step. It only reads what the server already knows.
 const POSTURE_TAG: Record<NetworkPosture, { state: StatusState; label: string }> = {
   unknown: { state: "neutral", label: "Not looked at" },
   quiet: { state: "success", label: "Quiet" },
   attention: { state: "warning", label: "Needs a look" },
 }
-const SHORT_REASONS = 2
 const size = useCardSize()
 const { overview, error, hasAudit } = useNetworkSnapshot()
 const tag = computed(() => (overview.value ? POSTURE_TAG[overview.value.posture] : null))
@@ -35,8 +35,8 @@ const next = computed(() => (overview.value ? nextAction(overview.value, hasAudi
         <span v-if="size === 'xs'" class="text-muted" data-test="posture-count">{{ reasons.length }} to look at</span>
       </div>
       <p v-if="size !== 'xs'" class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">{{ postureHeadline(overview) }}</p>
-      <ul v-if="size === 'sm' && reasons.length" class="m-0 mt-2 list-none p-0 text-secondary" aria-label="What needs a look">
-        <li v-for="r in reasons.slice(0, SHORT_REASONS)" :key="r">{{ r }}</li>
+      <ul v-if="size === 'sm' && reasons.length" :class="['m-0 mt-2 list-none p-0 text-secondary', CARD_LIST_SCROLL[size]]" aria-label="What needs a look">
+        <li v-for="r in reasons" :key="r">{{ r }}</li>
       </ul>
       <div v-if="size === 'lg'">
         <ul v-if="reasons.length" class="m-0 mt-2 flex list-none flex-col gap-1 p-0 text-secondary" aria-label="What needs a look">

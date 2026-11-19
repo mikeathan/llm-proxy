@@ -5,6 +5,7 @@ import LoadingState from "../../common/feedback/LoadingState.vue"
 import ErrorState from "../../common/feedback/ErrorState.vue"
 import EmptyState from "../../common/feedback/EmptyState.vue"
 import StatusTag from "../../common/display/StatusTag.vue"
+import { CARD_LIST_SCROLL } from "../../../constants/dashboard"
 import { useCardSize } from "../../../composables/dashboard/useCardSize"
 import { useActiveWorkspace } from "../../../composables/ui/useActiveWorkspace"
 import { useLastWorkspace } from "../../../composables/ui/useLastWorkspace"
@@ -16,8 +17,9 @@ import { errorMessage } from "../../../utils/errors"
 import type { SessionBrief } from "../../../types/assistant"
 
 // Dashboard card · Recent conversations: the latest conversations of the workspace the assistant opens, newest first, each a link into it. A
-// conversation still running says so. Small is the count; medium a short list; large the longer list. It reads; talking is in the assistant.
-const SHOWN = { xs: 0, sm: 4, lg: 8 } as const
+// conversation still running says so. Small is the count; medium and large show a list that scrolls, so every conversation (up to KEPT) is in
+// it and a smaller card never hides the rest. It reads; talking is in the assistant.
+const KEPT = 50
 const REFRESH_MS = 30000
 const FAILED = "The conversations could not be read."
 const size = useCardSize()
@@ -42,7 +44,7 @@ async function load(): Promise<void> {
   }
 }
 
-const shown = computed(() => (sessions.value ?? []).slice(0, SHOWN[size.value]))
+const shown = computed(() => (size.value === 'xs' ? [] : (sessions.value ?? []).slice(0, KEPT)))
 const running = computed(() => (sessions.value ?? []).filter((s) => s.running).length)
 watch(workspace, () => { sessions.value = null; void load() }, { immediate: true })
 usePolling(() => { void load() }, REFRESH_MS)
@@ -56,7 +58,7 @@ usePolling(() => { void load() }, REFRESH_MS)
     <EmptyState v-else-if="!sessions.length" title="No conversations yet" body="Start one from the assistant." />
     <template v-else>
       <p class="m-0 text-primary" data-test="assistant-recent-count">{{ sessions.length }} {{ sessions.length === 1 ? "conversation" : "conversations" }}<template v-if="running"> · {{ running }} running</template></p>
-      <ul v-if="shown.length" class="m-0 mt-2 flex list-none flex-col p-0" aria-label="Recent conversations">
+      <ul v-if="shown.length" :class="['m-0 mt-2 flex list-none flex-col p-0', CARD_LIST_SCROLL[size]]" aria-label="Recent conversations" data-test="assistant-recent-list">
         <li v-for="s in shown" :key="s.id" class="border-b border-hairline/60 last:border-b-0" data-test="assistant-recent-session">
           <RouterLink :to="toWorkspaceAssistant(workspace!, s.id)" class="flex min-h-11 flex-col gap-0.5 py-2 hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2">
             <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
