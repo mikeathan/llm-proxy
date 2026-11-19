@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
+import { useRoute } from "vue-router"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
 import LoadingState from "../components/common/feedback/LoadingState.vue"
 import EmptyState from "../components/common/feedback/EmptyState.vue"
 import ErrorState from "../components/common/feedback/ErrorState.vue"
+import StackTabs from "../components/stacks/StackTabs.vue"
+import StackModules from "../components/stacks/StackModules.vue"
 import ReminderEditor from "../components/reminders/ReminderEditor.vue"
 import ReminderRow from "../components/reminders/ReminderRow.vue"
 import { useReminders } from "../composables/reminders/useReminders"
@@ -14,12 +17,21 @@ import { useConfirm } from "../composables/ui/useConfirm"
 import { useToast } from "../composables/useToast"
 import { browserTimeZone, defaultReminderTime } from "../utils/format/timezone"
 import { REMINDER_EXAMPLE, RELOAD_HINT } from "../constants/reminders"
+import { REMINDERS_LIST_LABEL, REMINDERS_TAB_LABELS } from "../constants/stacks"
+import { toReminders } from "../router/routes"
+import type { StackTabItem } from "../types/stacks"
 import type { ReminderEdit, ReminderItem } from "../types/reminders"
 
 // Reminders: everything the assistant has been asked to remind you of, and what
 // you set here. Upcoming ones can be edited, deleted, and (repeating ones) paused
 // or skipped; finished ones (sent, missed, failed) stay in the history until
-// deleted, and can be rescheduled.
+// deleted, and can be rescheduled. The page is a stack's page (ADR-0068): its Modules tab is where the stack is switched on and off.
+const route = useRoute()
+const onModules = computed(() => route.params.tab === "modules")
+const tabs: readonly StackTabItem[] = [
+  { id: "reminders", label: REMINDERS_LIST_LABEL, to: toReminders() },
+  { id: "modules", label: REMINDERS_TAB_LABELS.modules, to: toReminders("modules") },
+]
 
 const NEW = "new" as const
 
@@ -74,10 +86,14 @@ const act = (run: (id: number) => Promise<boolean>, r: ReminderItem) => {
 <template>
   <div class="flex flex-col gap-4">
     <PageHeader eyebrow="Assistant" title="Reminders" subtitle="Ask the assistant to set one, or add one here; edit or delete them here">
-      <template #actions>
+      <template v-if="!onModules" #actions>
         <BaseButton size="sm" icon="plus" :disabled="editing === NEW" @click="open(NEW)">New reminder</BaseButton>
       </template>
     </PageHeader>
+    <StackTabs label="Reminders" :tabs="tabs" :active="onModules ? 'modules' : 'reminders'" />
+    <StackModules v-if="onModules" stack="reminders" />
+
+    <template v-else>
 
     <Panel v-if="editing === NEW" title="New reminder">
       <ReminderEditor :reminder="blankReminder()" :channels="channels" :saving="saving" :error="actionError" creating @save="submit(NEW, $event)" @cancel="editing = null" />
@@ -114,6 +130,7 @@ const act = (run: (id: number) => Promise<boolean>, r: ReminderItem) => {
           </li>
         </ul>
       </Panel>
+    </template>
     </template>
   </div>
 </template>

@@ -1,9 +1,9 @@
 ---
 id: SPEC-011
 title: Reminders
-version: "1.6"
+version: "1.7"
 status: stable
-last_updated: 2026-10-18
+last_updated: 2026-11-19
 constitution_references: [II.2, II.14, V]
 related_specs: [SPEC-009, SPEC-001]
 supersedes:
@@ -12,6 +12,14 @@ supersedes:
 # SPEC: Reminders
 
 ## Changelog
+
+- **1.7 (2026-11-19)** — **Reminders are a stack** (ADR-0068; plan `reminders-stack`). Behaviour the person sees is unchanged: the same eight routes with the same JSON, the same reply
+  sentences, the `(late) ` prefix, the 50-open and 15-minute limits, the revision guard and the error words. What changed under it: the code is `stacks/reminders`; the rows are in the stack's own
+  database (`reminders.db` in the data folder, created by the first write) and the rows of the main database's `reminders` table are copied in once, inside the stack's start and before it answers anything (ids, status,
+  revision, attempts, outcome and times kept; the old table is left in place and no longer read); sending goes through the `notify` port (the core sends the owner's text unchanged as plain text to an
+  enabled connector, at most 16 KiB) and cron is evaluated through the `schedule` port over the one grammar automations use. New: a module switch, `reminders.disabled` (an off flag in the
+  existing `reminders:` settings; the Settings form never changes it). While it is off nothing is delivered, a create or edit is refused with "Reminders is switched off: switch it on under Stacks"
+  (409 on the routes), and what fell due is handled by the late/missed policy when it is switched on. A factory reset now erases the reminders (before, they survived it); the assistant's reminder tools are not offered while the module is off. The page moved under Stacks with a Modules tab (SPEC-003 2.73).
 
 - **1.6 (2026-10-18)** — The web UI is told when a reminder fires. Until now the "in-app notice" was only the saved row,
   read when the Reminders page was opened, so a reminder that went to Telegram (or to the web UI alone) gave the open web UI
@@ -62,7 +70,7 @@ supersedes:
   request came through — never because it happens to be the only one configured. A reminder with no channel and no
   default now goes to the web UI only (previously the single configured connector was picked). The Settings option
   "Automatic" is now **Web UI only**; a reminder's own channel choice "Default channel" follows the setting. Internally,
-  where a reminder goes is decided in one place (`ChannelPolicy`, `core/reminders/channel.go`) and what a delivery
+  where a reminder goes is decided in one place (`ChannelPolicy`, `stacks/reminders/channel.go`) and what a delivery
   outcome does to a reminder in one pure function (`Policy.Advance`, `transition.go`); behaviour of retries, late and
   missed handling is unchanged.
 
@@ -106,7 +114,7 @@ chosen connector or the default one. No model runs when it fires, so it costs no
    user or browser can read). A connector-originated chat
    reports the owner zone (`reminders.timezone`, else `UTC`) to the agent instead of a hard-coded `UTC`
    (`WebhookHandler.OwnerTimezone`). The zone is stored with the reminder, so recurrence follows that zone across DST.
-6. **Delivery.** One timer loop (`reminders.Service.Run`, started by the app lifecycle, tethered to the root context)
+6. **Delivery.** One timer loop (`reminders.Service.Run`, started with the Reminders stack by the app lifecycle, tethered to the root context)
    sleeps until the earliest scheduled time and is woken by create/cancel. Text is sent through
    `CommunicationTools.NotifyAllPlain` with a 30 s timeout: a connector with a `SendPlain` path (Telegram) sends it with
    no markup parsing, so a Markdown link or `*x*` arrives as typed. A one-off becomes `done`; a recurring reminder advances to its next
@@ -133,9 +141,9 @@ chosen connector or the default one. No model runs when it fires, so it costs no
 
 ## 3. Data model
 
-Table `reminders` in the shared SQLite database (`core/reminders/store.go`): `id, message, fire_at (UTC unix),
+Table `reminders` in the stack's own SQLite database (`stacks/reminders/store.go`, file `reminders.db`): `id, message, fire_at (UTC unix),
 cron, until_at, timezone, connector, status (scheduled|paused|done|cancelled|missed|failed), rev, attempts, last_error, created_by,
-created_at, event, event_at (unix milliseconds)`. Settings (`settings.yml`, `reminders:`): `skip_connectors` (list), `timezone`; both optional, saved whole,
+created_at, event, event_at (unix milliseconds)`. Settings (`settings.yml`, `reminders:`): `skip_connectors` (list), `timezone` and `disabled` (the module's switch, off flag); all optional. The Settings form saves the first two whole and keeps `disabled`;
 timezone validated at save (400).
 
 ## 4. API

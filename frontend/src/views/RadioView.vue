@@ -5,7 +5,6 @@ import PageHeader from "../components/common/layout/PageHeader.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
 import StackModules from "../components/stacks/StackModules.vue"
 import StackBoardLink from "../components/stacks/StackBoardLink.vue"
-import RadioSensors from "../components/radio/RadioSensors.vue"
 import RadioListening from "../components/radio/RadioListening.vue"
 import RadioScanPlan from "../components/radio/RadioScanPlan.vue"
 import RadioKeeping from "../components/radio/RadioKeeping.vue"
@@ -15,8 +14,8 @@ import { RADIO_TABS } from "../types/routes"
 import type { RadioTab } from "../types/routes"
 import type { StackTabItem } from "../types/stacks"
 
-// Radio: the third stack. Listening (start and watch a run, and how it is set up) is the page, because starting it needs the passphrase; Sensors says
-// what each radio is for; Modules is the switchboard. The radar, your devices (and claiming, adding and removing them), your networks, what changed and
+// Radio: the third stack. Listening (start and watch a run, and how it is set up) is the page, because starting it needs the passphrase; Modules is the
+// switchboard. What each radio is for, the radar, your devices (and claiming, adding and removing them), your networks, what changed and
 // how the channels are used are cards on the dashboard's Radio board, which the header links to; the old /radio/devices address opens its card.
 const route = useRoute()
 // Counts the saves of the scan plan: the Listening panel is rebuilt on each, so its "runs for" line never shows an old length.
@@ -37,7 +36,6 @@ const tabs: readonly StackTabItem[] = [
     <StackTabs :label="RADIO_TITLE" :tabs="tabs" :active="tab ?? 'listening'" />
     <StackBoardLink stack="radio" />
     <StackModules v-if="tab === 'modules'" stack="radio" />
-    <RadioSensors v-else-if="tab === 'sensors'" />
     <template v-else>
       <RadioListening :key="planSaves" />
       <RadioScanPlan @saved="planSaves++" />

@@ -6,6 +6,23 @@ import (
 	"time"
 )
 
+// localZoneName is Go's name for the server's own zone, which no user or browser can read.
+const localZoneName = "Local"
+
+// ChatZone is the timezone a conversation reports to the agent, so a person never has to state theirs: the owner's configured zone, else the zone
+// their browser reported, else UTC. A name that is not a known IANA zone (including the browser's "Local") is skipped, never passed on.
+func ChatZone(owner, browser string) string {
+	for _, name := range []string{owner, browser} {
+		if name == "" || name == localZoneName {
+			continue
+		}
+		if _, err := time.LoadLocation(name); err == nil {
+			return name
+		}
+	}
+	return time.UTC.String()
+}
+
 // ReminderTimeLayout is how a reminder's local time is written back to the user.
 const ReminderTimeLayout = "Mon 2 Jan 2006 15:04"
 

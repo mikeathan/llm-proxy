@@ -13,7 +13,6 @@ import (
 
 	"llm-proxy/internal/core/assistant"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/run"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/platform/logging"
@@ -258,7 +257,7 @@ func (s *Service) zone(browser string) string {
 	if s.ownerZone != nil {
 		owner = s.ownerZone()
 	}
-	return reminders.ChatZone(owner, browser)
+	return models.ChatZone(owner, browser)
 }
 
 // modelName is the model the request runs: the one it names, else the primary.

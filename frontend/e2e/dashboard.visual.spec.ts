@@ -20,7 +20,7 @@ test('Home ships minimal: one card no stack board repeats', async ({ page }, tes
   await page.goto('dashboard')
   await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
   await expect(page.locator('[data-test="board-tab"][aria-current="page"]')).toHaveText('Home')
-  await expect(page.locator('[data-test="board-tab"]')).toHaveText(['Home', 'LLM and host', 'Network', 'Radio', 'Automations'])
+  await expect(page.locator('[data-test="board-tab"]')).toHaveText(['Home', 'LLM and host', 'Network', 'Radio', 'Agents', 'Automations'])
   await expect(page.locator('[data-test="card-assistant-recent"]')).toBeVisible()
   await expect(page.locator('[data-test="dashboard-grid"] > div')).toHaveCount(1)
   await expectNoSidewaysScroll(page)

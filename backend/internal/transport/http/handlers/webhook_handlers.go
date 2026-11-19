@@ -11,7 +11,6 @@ import (
 	"llm-proxy/internal/core/commands"
 	"llm-proxy/internal/core/eventbus"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
 	"llm-proxy/internal/platform/ratelimiter"
@@ -65,7 +64,7 @@ func (h *WebhookHandler) agentTimezone() string {
 	if h.OwnerTimezone != nil {
 		owner = h.OwnerTimezone()
 	}
-	return reminders.ChatZone(owner, "")
+	return models.ChatZone(owner, "")
 }
 
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {

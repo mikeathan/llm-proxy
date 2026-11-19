@@ -33,6 +33,10 @@ type Host struct {
 	Mesh MeshClients
 	// Networks is the owner's Wi-Fi networks from the core's one list, as names and tags; nil unless the manifest requires PortOwnNetworks.
 	Networks OwnNetworks
+	// Notify sends the owner's own text, unchanged, to the owner's connectors; nil unless the manifest requires PortNotify.
+	Notify Notify
+	// Schedule evaluates cron expressions with the service's one grammar; nil unless the manifest requires PortSchedule.
+	Schedule Schedule
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -663,6 +667,27 @@ type PrivilegedResult struct {
 // CodeInvalid for parameters the catalogue refuses, CodeTimeout when it ran out of time.
 type Privileged interface {
 	Run(ctx context.Context, req PrivilegedRequest) (PrivilegedResult, error)
+}
+
+// MaxNotifyBytes bounds the text of one message that crosses the notify port.
+const MaxNotifyBytes = 16 * 1024
+
+// Notify is the one way a stack sends the owner a message it did not word through the core's alert table: the owner's own text, stored by
+// the stack and sent back unchanged (a reminder). A channel is a connector type such as "telegram", never an address or a token; the core
+// sends only to a connector the owner enabled, as plain text that is never parsed as markup. Failures are an *Error: CodeInvalid for a
+// channel that is not enabled or a text that is empty or longer than MaxNotifyBytes, CodeUnavailable when nothing could be reached.
+type Notify interface {
+	// Channels lists the connector types that are enabled now.
+	Channels(ctx context.Context) ([]string, error)
+	// Send sends text to one enabled connector type.
+	Send(ctx context.Context, channel, text string) error
+}
+
+// Schedule evaluates cron expressions (five fields: minute, hour, day of month, month, day of week; or a descriptor such as @daily; never seconds).
+// Next is the first time strictly after the given time at which the expression fires, in the given time's own location, and the zero time when it
+// never fires again. An expression that is not valid is an *Error with CodeInvalid and the grammar's own message.
+type Schedule interface {
+	Next(expr string, after time.Time) (time.Time, error)
 }
 
 // PortTypes are the request, result and event types that cross a port. A test checks that each is plain data and survives a JSON

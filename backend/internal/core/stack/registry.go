@@ -19,6 +19,8 @@ const (
 	Network StackID = "network"
 	Agents  StackID = "agents"
 	Radio   StackID = "radio"
+	// Reminders is the Reminders stack (ADR-0068).
+	Reminders StackID = "reminders"
 )
 
 // Valid reports whether the id is well formed: lower-case letters, digits and underscores, starting with a letter. Which stacks exist

@@ -2,86 +2,91 @@ package app
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	assistantPkg "llm-proxy/internal/core/assistant"
-	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/toolregistry"
-	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/transport/http/handlers"
-	"llm-proxy/models"
 )
 
-// reminderDeliverer sends reminder text through the shared connector set. Like
-// connectorNotifier it is a system-side send path: the destination is the
-// operator's own connector and the text is exactly what the user asked for.
-type reminderDeliverer struct {
-	comm *tools.CommunicationTools
-}
-
-func (d reminderDeliverer) Deliver(ctx context.Context, connector, message string) error {
-	// Plain: the reminder is the user's own text and must not be parsed as markup.
-	return d.comm.NotifyAllPlain(ctx, message, connector)
-}
-
-func (d reminderDeliverer) Connectors() []string { return d.comm.Types() }
-
-// reminderNotice records each delivery outcome. The persisted reminder row is the
-// in-app notice (served by GET /admin/api/reminders); the log line carries the id
-// and outcome but never the message, which is user content.
-type reminderNotice struct{}
-
-func (reminderNotice) Notify(_ context.Context, r reminders.Reminder, event string) {
-	logging.Info("reminder", "id", r.ID, "event", event, "channel", r.Connector)
-}
-
-// reminderPort adapts the reminders service to the agent tools' interface.
-type reminderPort struct {
-	svc      *reminders.Service
-	settings func() models.RemindersConfig
-}
-
-func (p reminderPort) Zone(requested string) (*time.Location, error) {
-	return reminders.ResolveZone(requested, p.settings().Timezone)
-}
-
-func (p reminderPort) Schedule(ctx context.Context, spec tools.ReminderSpec) (tools.ReminderView, error) {
-	got, err := p.svc.Create(ctx, reminders.Reminder{
-		Message:   spec.Message,
-		FireAt:    spec.At,
-		Cron:      spec.Cron,
-		Until:     spec.Until,
-		Timezone:  spec.Zone,
-		Connector: spec.Connector,
-		Origin:    spec.Origin,
-		CreatedBy: "assistant",
-	})
-	if err != nil {
-		return tools.ReminderView{}, err
+// initReminders attaches the hosted Reminders stack to the assistant's tools and to /remind. It is a no-op (reminders unavailable, everything else
+// unaffected) when the stack could not be hosted or the tool registry is missing. The stack's own loop is started by the app lifecycle with the
+// other stacks, not here.
+func (c *Container) initReminders(s *AppServices) {
+	registry := localRegistry(s.toolProvider)
+	if s.netaudit == nil || s.netaudit.Reminders == nil || registry == nil {
+		logging.Warn("reminders disabled: the stack or the tool registry is unavailable")
+		return
 	}
-	return p.view(got), nil
+	port := &remindersPort{h: s.netaudit.Reminders}
+	s.Reminders = port
+	registry.WithReminders(port, func() bool { return !s.AppCtx.GetSettings().Reminders.Effective().Disabled })
 }
 
-func (p reminderPort) Cancel(ctx context.Context, id int64) error { return p.svc.Cancel(ctx, id) }
+// stageLegacyReminders reads the reminders the service kept in its main database before the Reminders stack existed and stages them on the stack, which
+// copies them into its own database in its Start, once. It runs before the stack is started. The old table is left as it was (nothing deletes it), and a
+// factory reset keeps it, as it always kept orchestrator.db. A read that fails is logged and tried again at the next start.
+func (s *AppServices) stageLegacyReminders(ctx context.Context, h *stackHost) {
+	provider := s.AppCtx.DBProvider()
+	if provider == nil {
+		return
+	}
+	rows, err := readLegacyReminders(ctx, provider.DB())
+	if err != nil {
+		logging.Warn("reminders: the old reminders could not be read; they will be tried again at the next start", "error", err)
+		return
+	}
+	if len(rows) == 0 {
+		return // nothing to copy: the stack creates its database when the first reminder is set
+	}
+	if err := stageLegacyReminders(h, rows); err != nil {
+		logging.Warn("reminders: the old reminders could not be handed to the stack", "error", err)
+	}
+}
 
-func (p reminderPort) List(ctx context.Context) ([]tools.ReminderView, error) {
-	open, err := p.svc.List(ctx)
+// legacyColumns are the columns of the old table, in the order readLegacyReminders scans them.
+const legacyColumns = `id, message, fire_at, cron, until_at, timezone, connector, status, rev, attempts, last_error, created_by, created_at, event, event_at`
+
+// readLegacyReminders reads every row of the old reminders table, or none when the table does not exist (a new install, or an install that never
+// had one). Times are stored as unix seconds, and an outcome's time as unix milliseconds.
+func readLegacyReminders(ctx context.Context, db *sql.DB) ([]legacyReminder, error) {
+	var name string
+	switch err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'reminders'`).Scan(&name); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+	case err != nil:
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT `+legacyColumns+` FROM reminders ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
-	views := make([]tools.ReminderView, len(open))
-	for i, r := range open {
-		views[i] = p.view(r)
+	defer rows.Close()
+	var out []legacyReminder
+	for rows.Next() {
+		var (
+			r                          legacyReminder
+			fireAt, createdAt, eventAt int64
+			until                      sql.NullInt64
+		)
+		if err := rows.Scan(&r.ID, &r.Message, &fireAt, &r.Cron, &until, &r.Timezone, &r.Connector, &r.Status, &r.Rev, &r.Attempts, &r.LastError,
+			&r.CreatedBy, &createdAt, &r.Event, &eventAt); err != nil {
+			return nil, err
+		}
+		r.FireAt, r.CreatedAt = time.Unix(fireAt, 0).UTC(), time.Unix(createdAt, 0).UTC()
+		if until.Valid {
+			u := time.Unix(until.Int64, 0).UTC()
+			r.Until = &u
+		}
+		if eventAt > 0 {
+			e := time.UnixMilli(eventAt).UTC()
+			r.EventAt = &e
+		}
+		out = append(out, r)
 	}
-	return views, nil
-}
-
-func (p reminderPort) view(r reminders.Reminder) tools.ReminderView {
-	return tools.ReminderView{
-		ID: r.ID, Message: r.Message, At: r.FireAt, Cron: r.Cron, Zone: r.Timezone,
-		Channel: p.svc.Channel(r.Connector), Paused: r.Status == reminders.StatusPaused,
-	}
+	return out, rows.Err()
 }
 
 // localRegistry finds the local tool registry inside the tool provider chain.
@@ -98,33 +103,28 @@ func localRegistry(tp assistantPkg.ToolProvider) *toolregistry.LocalToolRegistry
 	return nil
 }
 
-// reminderZone resolves the timezone for a reminder created from the UI the same
-// way the assistant's tool does: the one sent, else the owner's setting, else UTC.
-func reminderZone(s *AppServices) handlers.ZoneResolver {
-	return func(requested string) (*time.Location, error) {
-		return reminders.ResolveZone(requested, s.AppCtx.GetSettings().Reminders.Effective().Timezone)
+// eraseReminders removes every reminder for a factory reset: the stack's own, and the rows still in the old table of the main database (which the
+// reset keeps), so none can be copied in later and none is left behind.
+func (s *AppServices) eraseReminders(ctx context.Context, h *stackHost) error {
+	if err := eraseStackReminders(ctx, h); err != nil {
+		return err
 	}
+	provider := s.AppCtx.DBProvider()
+	if provider == nil {
+		return nil
+	}
+	return clearLegacyReminders(ctx, provider.DB())
 }
 
-// initReminders builds the reminder service and attaches its tools. It is a no-op
-// (reminders unavailable, everything else unaffected) when the database or the
-// connector registry is missing. The returned service's Run loop is started by
-// the app lifecycle, not here.
-func (c *Container) initReminders(s *AppServices) {
-	provider := s.AppCtx.DBProvider()
-	comm := communicationTools(s.toolProvider)
-	registry := localRegistry(s.toolProvider)
-	if provider == nil || comm == nil || registry == nil {
-		logging.Warn("reminders disabled: database or tool registry unavailable")
-		return
+// clearLegacyReminders empties the old reminders table; a database without it has nothing to clear.
+func clearLegacyReminders(ctx context.Context, db *sql.DB) error {
+	var name string
+	switch err := db.QueryRowContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'reminders'`).Scan(&name); {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return err
 	}
-	store, err := reminders.NewStore(provider)
-	if err != nil {
-		logging.Error("reminders disabled: store failed", "error", err)
-		return
-	}
-	settings := func() models.RemindersConfig { return s.AppCtx.GetSettings().Reminders.Effective() }
-	s.Reminders = reminders.NewService(store, reminderDeliverer{comm: comm}, reminderNotice{}, reminders.SystemClock(),
-		reminders.Config{Skipped: func() []string { return settings().SkipConnectors }})
-	registry.WithReminders(reminderPort{svc: s.Reminders, settings: settings})
+	_, err := db.ExecContext(ctx, `DELETE FROM reminders`)
+	return err
 }

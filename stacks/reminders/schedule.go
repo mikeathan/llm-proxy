@@ -6,8 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"llm-proxy/internal/core/automation"
+	"llm-proxy-stacks/sdk"
 )
+
+// maxMessageBytes is the longest reminder: what the notify port will send, less the "(late) " prefix a late one carries.
+const maxMessageBytes = stacksdk.MaxNotifyBytes - len(latePrefix)
 
 const (
 	// MaxHorizon is how far ahead a reminder may be set.
@@ -39,29 +42,28 @@ func ResolveZone(requested, ownerZone string) (*time.Location, error) {
 // NextFire is the next time r should fire strictly after `after`. A one-off
 // fires at FireAt once; a recurring reminder follows its cron in its own
 // timezone and stops after Until.
-func NextFire(r Reminder, after time.Time) (time.Time, bool) {
+func NextFire(c stacksdk.Schedule, r Reminder, after time.Time) (time.Time, bool) {
 	if r.Cron == "" {
 		return r.FireAt, r.FireAt.After(after)
-	}
-	sched, err := automation.ParseCron(r.Cron)
-	if err != nil {
-		return time.Time{}, false
 	}
 	loc, err := time.LoadLocation(r.Timezone)
 	if err != nil {
 		loc = time.Local
 	}
-	next := sched.Next(after.In(loc))
-	if next.IsZero() || (r.Until != nil && next.After(*r.Until)) {
+	next, err := c.Next(r.Cron, after.In(loc))
+	if err != nil || next.IsZero() || (r.Until != nil && next.After(*r.Until)) {
 		return time.Time{}, false
 	}
 	return next.UTC(), true
 }
 
 // ValidateNew checks a reminder before it is stored.
-func ValidateNew(r Reminder, now time.Time) error {
+func ValidateNew(c stacksdk.Schedule, r Reminder, now time.Time) error {
 	if strings.TrimSpace(r.Message) == "" {
 		return errors.New("reminder message is empty")
+	}
+	if len(r.Message) > maxMessageBytes {
+		return fmt.Errorf("reminder message is longer than a message may be (%d bytes)", maxMessageBytes)
 	}
 	if !r.FireAt.After(now) {
 		return fmt.Errorf("reminder time %s is in the past", r.FireAt.Format(time.RFC3339))
@@ -72,12 +74,12 @@ func ValidateNew(r Reminder, now time.Time) error {
 	if r.Cron == "" {
 		return nil
 	}
-	return validateCron(r, now)
+	return validateCron(c, r, now)
 }
 
-func validateCron(r Reminder, now time.Time) error {
-	if _, err := automation.ParseCron(r.Cron); err != nil {
-		return fmt.Errorf("invalid recurrence %q: %w", r.Cron, err)
+func validateCron(c stacksdk.Schedule, r Reminder, now time.Time) error {
+	if _, err := c.Next(r.Cron, now); err != nil {
+		return fmt.Errorf("invalid recurrence %q: %s", r.Cron, grammarMessage(err))
 	}
 	if r.Until != nil && !r.Until.After(now) {
 		return errors.New("the 'until' time is in the past")
@@ -85,7 +87,7 @@ func validateCron(r Reminder, now time.Time) error {
 	at := now
 	var prev time.Time
 	for i := 0; i < gapSamples; i++ {
-		next, ok := NextFire(r, at)
+		next, ok := NextFire(c, r, at)
 		if !ok {
 			break
 		}
@@ -97,21 +99,11 @@ func validateCron(r Reminder, now time.Time) error {
 	return nil
 }
 
-// localZoneName is Go's name for the server's own zone, which no user or browser can read.
-const localZoneName = "Local"
-
-// ChatZone is the timezone a conversation reports to the agent, so a person never has
-// to state theirs: the owner's configured zone, else the zone their browser reported,
-// else UTC. A name that is not a known IANA zone (including the browser's "Local") is
-// skipped, never passed on.
-func ChatZone(owner, browser string) string {
-	for _, name := range []string{owner, browser} {
-		if name == "" || name == localZoneName {
-			continue
-		}
-		if _, err := time.LoadLocation(name); err == nil {
-			return name
-		}
+// grammarMessage is the schedule's own words for a bad expression, without the SDK's code prefix.
+func grammarMessage(err error) string {
+	var coded *stacksdk.Error
+	if errors.As(err, &coded) {
+		return coded.Message
 	}
-	return time.UTC.String()
+	return err.Error()
 }

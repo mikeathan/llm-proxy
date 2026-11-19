@@ -125,14 +125,21 @@ describe('DashboardView', () => {
   })
 
   it('offers only the cards and boards of a stack that has a module on', async () => {
-    stacksService.list.mockResolvedValue([{ id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 }, { id: 'radio', title: 'Radio', purpose: '', on: 0, total: 4, stopped: 0, blocked: 0 }])
+    stacksService.list.mockResolvedValue([{ id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 }, { id: 'radio', title: 'Radio', purpose: '', on: 0, total: 4, stopped: 0, blocked: 0 }, { id: 'reminders', title: 'Reminders', purpose: '', on: 1, total: 1, stopped: 0, blocked: 0 }])
     const { w } = await open('/dashboard?board=automations')
     await w.get('[data-test="add-card"]').trigger('click')
-    expect(w.find('[data-test="catalogue-reminders"]').exists()).toBe(true) // not a stack: always offered
+    expect(w.find('[data-test="catalogue-reminders"]').exists()).toBe(true) // the reminders stack is on
     expect(w.find('[data-test="catalogue-radio-around"]').exists()).toBe(false) // the radio stack has nothing on
     await w.get('[data-test="add-board"]').trigger('click')
     expect(w.find('[data-test="add-board-network"]').exists()).toBe(false) // already on the dashboard, so not offered again
     expect(w.find('[data-test="add-board-radio"]').exists()).toBe(false) // and Radio has nothing on
+  })
+
+  it('hides the Reminders card while the Reminders stack is off', async () => {
+    stacksService.list.mockResolvedValue([{ id: 'reminders', title: 'Reminders', purpose: '', on: 0, total: 1, stopped: 0, blocked: 0 }])
+    const { w } = await open('/dashboard?board=automations')
+    await w.get('[data-test="add-card"]').trigger('click')
+    expect(w.find('[data-test="catalogue-reminders"]').exists()).toBe(false)
   })
 
   it('hides the board and the cards of a stack that has nothing on, and shows them again when it is back on', async () => {
@@ -193,6 +200,21 @@ describe('DashboardView', () => {
     await flushPromises()
     expect(cardTitles(w).map((t) => t.toLowerCase())).toContain('around you')
     expect(w.find('[data-test="add-wanted-card"]').exists()).toBe(false)
+  })
+
+  it('adds a shipped board that a saved layout predates when a stack page links to it', async () => {
+    service.layout.mockResolvedValue({ boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }] })
+    stacksService.list.mockResolvedValue([{ id: 'agents', title: 'Agents', purpose: '', on: 2, total: 2, stopped: 0, blocked: 0 }])
+    const { w } = await open('/dashboard?board=agents')
+    expect(current(w)).toEqual(['Agents'])
+    expect(service.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not make up a board that did not ship', async () => {
+    service.layout.mockResolvedValue({ boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }] })
+    const { w } = await open('/dashboard?board=nothing-like-this')
+    expect(current(w)).toEqual(['Home'])
+    expect(service.save).not.toHaveBeenCalled()
   })
 
   it('says nothing when the linked card is already on the board', async () => {

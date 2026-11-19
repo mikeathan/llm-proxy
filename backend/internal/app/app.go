@@ -126,12 +126,6 @@ func New(ctx context.Context, dataMgr *storage.DataManager, logger logging.Logge
 
 	startMemoryJobs(ctx, svc.AppCtx.MemoryStore)
 
-	// Reminders: one timer loop, tethered to the app context (Constitution
-	// II.2/II.14); nil when reminders are unavailable.
-	if svc.Reminders != nil {
-		go svc.Reminders.Run(ctx)
-	}
-
 	// An OpenAI-style model whose server listing identifies llama.cpp is a local
 	// workload; models saved before the listing said so are marked here, off the
 	// startup path, tethered to the app context.

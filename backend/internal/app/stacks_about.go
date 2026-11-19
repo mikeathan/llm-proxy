@@ -127,6 +127,12 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It sends nothing and listens to nothing yet. With no adapter it does nothing at all.",
 		ShowsUp: "On the Radio page.",
 	},
+	"reminders": {
+		Watches:  "The reminders you set, here, in chat or from a connector.",
+		Never:    "It sends your own words, unchanged: no model writes or rewrites a reminder when it fires.",
+		ShowsUp:  "As a message on your connectors, in the web page, and on the Reminders card.",
+		Settings: true,
+	},
 	"secrets_pass": {
 		Watches: "Workspace files, each night, for credentials left in them.",
 		Never:   "It never shows a secret, only the file and the kind.",

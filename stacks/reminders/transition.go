@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"llm-proxy-stacks/sdk"
 )
 
 // Notice events: what the in-app record and the log are told about a reminder.
@@ -36,6 +38,8 @@ type Policy struct {
 	LateGrace   time.Duration   // overdue by no more than this is OnTime
 	MaxAttempts int             // delivery tries before giving up
 	RetryDelays []time.Duration // wait before retry 2, 3, … (the last repeats)
+	// Cron evaluates a recurring reminder's next occurrence (the schedule port); a policy that only judges one-offs may leave it nil.
+	Cron stacksdk.Schedule
 }
 
 // DefaultPolicy is the shipped lifecycle (SPEC-011 §2): late up to 12 h, 3
@@ -111,13 +115,13 @@ func (p Policy) Advance(r Reminder, o Outcome, now time.Time) Step {
 		if o.late {
 			event = EventLate
 		}
-		next := moveOnOr(reset(r), now, StatusDone)
+		next := moveOnOr(p.Cron, reset(r), now, StatusDone)
 		if o.warn != "" {
 			event, next.LastError = EventPartial, truncate(o.warn, maxErrorLength)
 		}
 		return Step{Next: next, Event: event}
 	case outcomeOverdue:
-		return Step{Next: moveOnOr(reset(r), now, StatusMissed), Event: EventMissed}
+		return Step{Next: moveOnOr(p.Cron, reset(r), now, StatusMissed), Event: EventMissed}
 	default:
 		return p.failed(r, o.err, now)
 	}
@@ -133,7 +137,7 @@ func (p Policy) failed(r Reminder, cause string, now time.Time) Step {
 	// Out of attempts: a recurring reminder reports it and goes on to its next
 	// occurrence, so a short connector outage does not end it for good.
 	r.Attempts = 0
-	next := moveOnOr(r, now, StatusFailed)
+	next := moveOnOr(p.Cron, r, now, StatusFailed)
 	if next.Status == StatusFailed {
 		next.Attempts = p.MaxAttempts
 	}
@@ -153,8 +157,8 @@ func reset(r Reminder) Reminder {
 
 // moveOnOr moves a recurring reminder to its next occurrence after now, or
 // closes it with the given status when it is a one-off or has no occurrence left.
-func moveOnOr(r Reminder, now time.Time, closed Status) Reminder {
-	if next, ok := NextFire(r, now); r.Cron != "" && ok {
+func moveOnOr(c stacksdk.Schedule, r Reminder, now time.Time, closed Status) Reminder {
+	if next, ok := NextFire(c, r, now); r.Cron != "" && ok {
 		r.FireAt = next
 		return r
 	}
@@ -185,11 +189,11 @@ func Pause(r Reminder) (Reminder, error) {
 
 // Resume un-silences a paused reminder at its next occurrence after now; what
 // was silenced in between is not replayed.
-func Resume(r Reminder, now time.Time) (Reminder, error) {
+func Resume(c stacksdk.Schedule, r Reminder, now time.Time) (Reminder, error) {
 	if r.Status != StatusPaused {
 		return r, fmt.Errorf("%w: the reminder is not paused", ErrInvalid)
 	}
-	next, ok := NextFire(r, now)
+	next, ok := NextFire(c, r, now)
 	if !ok {
 		return r, fmt.Errorf("%w: it has no occurrence left before its end date: delete it or edit the end date", ErrInvalid)
 	}
@@ -199,11 +203,11 @@ func Resume(r Reminder, now time.Time) (Reminder, error) {
 
 // SkipNext moves a repeating reminder past its next occurrence (the one coming
 // up is not sent; the one after it is).
-func SkipNext(r Reminder) (Reminder, error) {
+func SkipNext(c stacksdk.Schedule, r Reminder) (Reminder, error) {
 	if r.Cron == "" || r.Status != StatusScheduled {
 		return r, fmt.Errorf("%w: only a scheduled repeating reminder has a next occurrence to skip", ErrInvalid)
 	}
-	next, ok := NextFire(r, r.FireAt)
+	next, ok := NextFire(c, r, r.FireAt)
 	if !ok {
 		return r, fmt.Errorf("%w: that is its last occurrence: delete it instead", ErrInvalid)
 	}

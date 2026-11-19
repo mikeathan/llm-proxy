@@ -146,7 +146,8 @@ func newRig(t *testing.T, skipped ...string) *rig {
 		notes: &fakeNotice{},
 	}
 	r.svc = NewService(r.store, r.del, r.notes, r.clock, Config{
-		Skipped: func() []string { return skipped },
+		Schedule: testSchedule,
+		Skipped:  func() []string { return skipped },
 	})
 	return r
 }
@@ -413,7 +414,11 @@ func TestRun_FailedSaveDoesNotSpin(t *testing.T) {
 	r := newRig(t)
 	r.create(t, "once", time.Hour, "")
 	// Reads keep working, every write fails (a busy or read-only database).
-	if _, err := r.store.db.Exec(`CREATE TRIGGER no_writes BEFORE UPDATE ON reminders BEGIN SELECT RAISE(ABORT, 'database is read-only'); END`); err != nil {
+	db, derr := r.store.conn(true)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER no_writes BEFORE UPDATE ON reminders BEGIN SELECT RAISE(ABORT, 'database is read-only'); END`); err != nil {
 		t.Fatal(err)
 	}
 	r.clock.Advance(2 * time.Hour)

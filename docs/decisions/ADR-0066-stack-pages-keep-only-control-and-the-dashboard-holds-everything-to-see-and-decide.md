@@ -19,7 +19,7 @@ ADR-0065, `router/index.ts`, `components/dashboard/cardRegistry.ts`.
 
 ## Decision
 1. **A stack page is Modules and Settings, plus what needs the passphrase.** Network: Modules, Settings. Radio: Listening (starting a run asks
-   for the passphrase), Sensors, Modules. Agents: Activity, Modules. Router setup moved to Network Settings → Watching.
+   for the passphrase), Modules. Agents: Lock down, Modules. (Amended 2026-11-19, v0.111.0: Radio's Sensors tab became the card "Radios on this computer" and Agents' Activity tab became the Agent activity card on a new Agents board; `/radio/sensors` redirects to its card.) Router setup moved to Network Settings → Watching.
 2. **Everything to see is a card.** Network: Devices, Findings, Audits, Nearby, Trace a route, Traffic by device (with the look). Radio: Claim and
    manage devices, Your Wi-Fi networks (My devices and the radar were already cards). The shipped boards hold them.
 3. **A card may carry the decision about one item** (name, approve or forget a device; accept a finding; claim, add or remove a radio

@@ -86,8 +86,12 @@ export const AGENTS_TABS = ['modules'] as const
 export type AgentsTab = (typeof AGENTS_TABS)[number]
 
 // The tabs of the Radio page, addressable at /radio/:tab. Listening is the page without a tab.
-export const RADIO_TABS = ['sensors', 'modules'] as const
+export const RADIO_TABS = ['modules'] as const
 export type RadioTab = (typeof RADIO_TABS)[number]
+
+// The tabs of the Reminders page, addressable at /reminders/:tab. The list of reminders is the page without a tab.
+export const REMINDERS_TABS = ['modules'] as const
+export type RemindersTab = (typeof REMINDERS_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the
 // assistant have their own routes; `settings` is the workspace guardrail layer.

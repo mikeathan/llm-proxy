@@ -25,7 +25,6 @@ import (
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/proxy/recorder"
-	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/runlane"
 	"llm-proxy/internal/core/toolregistry"
 	"llm-proxy/internal/core/tools"
@@ -88,7 +87,9 @@ func withNetauditSources(reporter *netaudit.RunReporter, svc handlers.AssistantS
 	}
 	withNetauditChecks(reporter, svc)
 	withNetauditProbes(reporter, svc)
-	if v, ok := svc.(interface{ NetauditFootprint() netaudit.FootprintSource }); ok && v.NetauditFootprint() != nil {
+	if v, ok := svc.(interface {
+		NetauditFootprint() netaudit.FootprintSource
+	}); ok && v.NetauditFootprint() != nil {
 		reporter.WithFootprint(v.NetauditFootprint())
 	}
 	withNetauditInsight(reporter, svc)
@@ -121,10 +122,14 @@ func withNetauditInsight(reporter *netaudit.RunReporter, svc handlers.AssistantS
 		reporter.WithPhoneHome(v.NetauditPhoneHome())
 	}
 	withNetauditHostWatches(reporter, svc)
-	if v, ok := svc.(interface{ NetauditRouterConn() netaudit.RouterConnSource }); ok && v.NetauditRouterConn() != nil {
+	if v, ok := svc.(interface {
+		NetauditRouterConn() netaudit.RouterConnSource
+	}); ok && v.NetauditRouterConn() != nil {
 		reporter.WithRouterConn(v.NetauditRouterConn())
 	}
-	if v, ok := svc.(interface{ NetauditRouterLog() netaudit.RouterLogSource }); ok && v.NetauditRouterLog() != nil {
+	if v, ok := svc.(interface {
+		NetauditRouterLog() netaudit.RouterLogSource
+	}); ok && v.NetauditRouterLog() != nil {
 		reporter.WithRouterLog(v.NetauditRouterLog())
 	}
 	if v, ok := svc.(interface{ NetauditAttackPaths() func() bool }); ok && v.NetauditAttackPaths() != nil {
@@ -140,7 +145,9 @@ func withNetauditHostWatches(reporter *netaudit.RunReporter, svc handlers.Assist
 	if v, ok := svc.(interface{ NetauditWifi() netaudit.WifiSource }); ok && v.NetauditWifi() != nil {
 		reporter.WithWifi(v.NetauditWifi())
 	}
-	if v, ok := svc.(interface{ NetauditStackFindings() netaudit.StackFindingSource }); ok && v.NetauditStackFindings() != nil {
+	if v, ok := svc.(interface {
+		NetauditStackFindings() netaudit.StackFindingSource
+	}); ok && v.NetauditStackFindings() != nil {
 		reporter.WithStackFindings(v.NetauditStackFindings())
 	}
 }
@@ -479,7 +486,7 @@ type AppServices struct {
 	egressCancel           context.CancelFunc // stops the agent egress proxy (Phase 1c)
 	// Reminders delivers stored reminders; nil when the database or the connector
 	// registry is unavailable. Its Run loop is started by the app lifecycle.
-	Reminders *reminders.Service
+	Reminders *remindersPort
 	// subRunner runs delegated tasks. The runner keeps its own copy of these services taken before this is set, so a
 	// child run has none: delegation is one level deep by construction.
 	subRunner assistantPkg.SubRunner
