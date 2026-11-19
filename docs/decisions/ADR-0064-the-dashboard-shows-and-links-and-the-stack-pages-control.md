@@ -14,7 +14,7 @@ superseded_by:
 Each stack (Network, Radio) had one page with its views, its decisions and its settings together, and the app had no one place to see how the
 system was. The owner asked (2026-11-18) for a control center that could hold anything: the host and models, the assistant, automations,
 reminders and every stack, as cards that can be sized and arranged, with a ready-made view per stack. Evidence: the plan
-`cross-cutting/control-center-dashboard.md` (mocks A to E, the component audit), ADR-0022 and ADR-0028 (a stack keeps its settings and its
+`ARCHIVE/cross-cutting/control-center-dashboard.md` (mocks A to E, the component audit), ADR-0022 and ADR-0028 (a stack keeps its settings and its
 Modules tab), ADR-0061 (only the core joins Network and Radio), Constitution IV.6.
 
 ## Decision
@@ -43,5 +43,5 @@ Modules tab), ADR-0061 (only the core joins Network and Radio), Constitution IV.
 - **Layout per browser.** Does not follow the owner to a phone; sign-in has no user accounts to key it by, so the server holds one.
 
 ## Links
-- Plan: `docs/PLANS/cross-cutting/control-center-dashboard.md`; handoff: `control-center-dashboard-handoff-2026-11-19.md`.
+- Plan: `docs/PLANS/ARCHIVE/cross-cutting/control-center-dashboard.md`.
 - SPEC-003 2.67; code: `frontend/src/components/dashboard/`, `frontend/src/domain/dashboard.ts`, `backend/internal/core/dashboard/`.

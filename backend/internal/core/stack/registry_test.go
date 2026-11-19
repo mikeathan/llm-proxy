@@ -2,6 +2,7 @@ package stack
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -319,5 +320,63 @@ func TestView_ABlockedModuleNamesTheModulesItNeedsByID(t *testing.T) {
 				t.Errorf("c = %+v, want nothing blocking it once a is on", m)
 			}
 		}
+	}
+}
+
+func TestSwitchOff_SwitchesOffEveryModuleThatIsOnAndOnlyThatStack(t *testing.T) {
+	a, b, other := &fakeSwitch{on: true}, &fakeSwitch{}, &fakeSwitch{on: true}
+	reg, err := New(testStacks(), []Module{
+		module("a", "discover", a),
+		module("b", "listen", b),
+		{ID: "o", Title: "o", Stack: Agents, Layer: "watch", Sends: SendsNothing, Switch: other},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SwitchOff(Network); err != nil {
+		t.Fatal(err)
+	}
+	if a.on || a.sets != 1 || b.sets != 0 {
+		t.Errorf("a.on=%v a.sets=%d b.sets=%d; want a off by one write and the module already off untouched", a.on, a.sets, b.sets)
+	}
+	if !other.on || other.sets != 0 {
+		t.Error("switching the Network off touched another stack")
+	}
+	if err := reg.SwitchOff("mars"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown stack: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestSwitchOff_StopsAtTheFirstFailureAndSaysWhich(t *testing.T) {
+	a, b := &fakeSwitch{on: true, setErr: errors.New("disk full")}, &fakeSwitch{on: true}
+	reg, err := New(testStacks(), []Module{module("a", "discover", a), module("b", "listen", b)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.SwitchOff(Network); err == nil || !strings.Contains(err.Error(), "a") {
+		t.Fatalf("err = %v, want one naming module a", err)
+	}
+	if !b.on {
+		t.Error("the run went on past a failure")
+	}
+}
+
+func TestSwitchOffNeedsStepUp_OnlyWhileAGuardedModuleIsOn(t *testing.T) {
+	plain, guarded := &fakeSwitch{on: true}, &fakeSwitch{}
+	g := module("g", "listen", guarded)
+	g.StepUp = true
+	reg, err := New(testStacks(), []Module{module("p", "discover", plain), g})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if need, _ := reg.SwitchOffNeedsStepUp(Network); need {
+		t.Error("a guarded module that is already off must not ask for the passphrase")
+	}
+	guarded.on = true
+	if need, _ := reg.SwitchOffNeedsStepUp(Network); !need {
+		t.Error("a guarded module that is on must ask for the passphrase")
+	}
+	if _, err := reg.SwitchOffNeedsStepUp("mars"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown stack: err = %v", err)
 	}
 }

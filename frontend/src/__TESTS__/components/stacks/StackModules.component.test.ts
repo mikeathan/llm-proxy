@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { StackView, SwitchedStack } from '../../../types/stacks'
 
-const service = vi.hoisted(() => ({ stack: vi.fn(), setModule: vi.fn() }))
+const service = vi.hoisted(() => ({ stack: vi.fn(), setModule: vi.fn(), switchOff: vi.fn() }))
 vi.mock('../../../services/stacks/stacksService', () => ({ StacksService: service }))
+const confirm = vi.hoisted(() => vi.fn())
+vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
 
 import StackModules from '../../../components/stacks/StackModules.vue'
 
@@ -26,7 +28,7 @@ const mountIt = async () => {
 }
 
 describe('StackModules', () => {
-  beforeEach(() => { service.stack.mockReset(); service.setModule.mockReset(); service.stack.mockResolvedValue(network()) })
+  beforeEach(() => { service.stack.mockReset(); service.setModule.mockReset(); service.switchOff.mockReset(); confirm.mockReset(); service.stack.mockResolvedValue(network()) })
   afterEach(() => { wrapper?.unmount(); wrapper = undefined })
 
   it('draws the layers top first, numbered from the bottom', async () => {
@@ -74,6 +76,31 @@ describe('StackModules', () => {
     await flushPromises()
     expect((box.element as HTMLInputElement).checked).toBe(false)
     expect(w.get('[data-test="module-weekly_summary"] [data-test="module-error"]').text()).toBe('needs Presence check')
+  })
+
+  it('switches the whole stack off only after the person confirms', async () => {
+    const off: SwitchedStack = { ...network(), summary: { on: 0, total: 3, stopped: 0, blocked: 1 }, blocked: [] }
+    off.layers[1]!.modules[0]!.enabled = false
+    service.switchOff.mockResolvedValue(off)
+    confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    const w = await mountIt()
+    await w.get('[data-test="stack-off"]').trigger('click')
+    await flushPromises()
+    expect(service.switchOff).not.toHaveBeenCalled()
+    await w.get('[data-test="stack-off"]').trigger('click')
+    await flushPromises()
+    expect(service.switchOff).toHaveBeenCalledWith('network')
+    expect(w.find('[data-test="stack-off"]').exists()).toBe(false)
+    expect(w.get('[data-test="stack-is-off"]').text()).toContain('Off: no module of this stack is on')
+  })
+
+  it('says so when switching the stack off fails', async () => {
+    confirm.mockResolvedValue(true)
+    service.switchOff.mockRejectedValue(new Error('switching presence: disk full'))
+    const w = await mountIt()
+    await w.get('[data-test="stack-off"]').trigger('click')
+    await flushPromises()
+    expect(w.get('[data-test="stack-off-error"]').text()).toContain('disk full')
   })
 
   it('names what a switch-off left waiting', async () => {

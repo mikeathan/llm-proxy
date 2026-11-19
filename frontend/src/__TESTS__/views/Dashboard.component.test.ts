@@ -14,6 +14,7 @@ vi.mock('../../services/stacks/stacksService', () => ({ StacksService: stacksSer
 vi.mock('../../components/dashboard/cardRegistry', () => {
   const fake = (name: string) => defineComponent({ setup: () => () => h('p', { 'data-test': 'fake-card' }, name) })
   const defs = [
+    { id: 'assistant-recent', source: 'assistant', title: 'Recent conversations', component: fake('recent body'), cols: 4, rows: 1, control: () => ({ name: 'dashboard' }) },
     { id: 'host-health', source: 'host', title: 'Host health', component: fake('host body'), cols: 12, rows: 1, control: () => ({ name: 'dashboard' }) },
     { id: 'radio-around', source: 'radio', title: 'Around you', component: fake('radar body'), cols: 4, rows: 1, control: () => ({ name: 'dashboard' }) },
     { id: 'reminders', source: 'reminders', title: 'Reminders', component: fake('reminders body'), cols: 4, rows: 1, control: () => ({ name: 'dashboard' }) },
@@ -65,7 +66,7 @@ describe('DashboardView', () => {
     const { w } = await open()
     expect(tabs(w).map((t) => t.text())).toEqual(['Home', 'LLM and host', 'Network', 'Radio', 'Automations'])
     expect(current(w)).toEqual(['Home'])
-    expect(cardTitles(w).map((t) => t.toLowerCase())).toEqual(['host health', 'around you', 'reminders'])
+    expect(cardTitles(w).map((t) => t.toLowerCase())).toEqual(['recent conversations']) // Home ships minimal: nothing a stack board already shows
     expect(service.save).not.toHaveBeenCalled() // nothing is stored until the owner changes something
   })
 
@@ -84,6 +85,7 @@ describe('DashboardView', () => {
   })
 
   it('arranges: resizing a card saves the layout and the board reads Custom', async () => {
+    service.layout.mockResolvedValue({ boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }, { id: 'reminders', cols: 4, rows: 1 }] }] })
     const { w } = await open()
     await w.get('[data-test="arrange"]').trigger('click')
     const group = w.get('[aria-label="Width of Host health"]')
@@ -137,7 +139,7 @@ describe('DashboardView', () => {
     stacksService.list.mockResolvedValue([{ id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 }, { id: 'radio', title: 'Radio', purpose: '', on: 0, total: 4, stopped: 0, blocked: 0 }])
     const { w } = await open()
     expect(tabs(w).map((t) => t.text())).toEqual(['Home', 'LLM and host', 'Network', 'Automations'])
-    expect(cardTitles(w).map((t) => t.toLowerCase())).toEqual(['host health', 'reminders']) // Home has no radar while Radio is off
+    expect(cardTitles(w).map((t) => t.toLowerCase())).toEqual(['recent conversations'])
     expect(service.save).not.toHaveBeenCalled() // hidden, not deleted
   })
 
@@ -194,7 +196,7 @@ describe('DashboardView', () => {
   })
 
   it('says nothing when the linked card is already on the board', async () => {
-    const { w } = await open('/dashboard?board=home&card=host-health')
+    const { w } = await open('/dashboard?board=host&card=host-health')
     expect(w.find('[data-test="add-wanted-card"]').exists()).toBe(false)
   })
 

@@ -2,7 +2,7 @@ import { ref } from 'vue'
 import { useEnabledStacks } from './useEnabledStacks'
 import { StacksService } from '../../services/stacks/stacksService'
 import { errorMessage } from '../../utils/errors'
-import { STACK_LOAD_FAILED, STACK_SWITCH_FAILED } from '../../constants/stacks'
+import { STACK_LOAD_FAILED, STACK_OFF_FAILED, STACK_SWITCH_FAILED } from '../../constants/stacks'
 import type { StackId, StackView } from '../../types/stacks'
 
 /**
@@ -42,5 +42,26 @@ export function useStack(id: StackId) {
     }
   }
 
-  return { stack, error, errorFor, busyModule, leftBlocked, load, set }
+  const switchingOff = ref(false)
+  const offError = ref('')
+
+  /** Switches the whole stack off. A refusal or a failure part-way leaves the stack as it is now (some modules may be off), so it is read again. */
+  async function switchOff(): Promise<void> {
+    switchingOff.value = true
+    offError.value = ''
+    try {
+      const { blocked, ...next } = await StacksService.switchOff(id)
+      stack.value = next
+      leftBlocked.value = blocked
+      errorFor.value = null
+    } catch (err) {
+      offError.value = errorMessage(err, STACK_OFF_FAILED)
+      await load()
+    } finally {
+      switchingOff.value = false
+      void stacksOn.load()
+    }
+  }
+
+  return { stack, error, errorFor, busyModule, leftBlocked, switchingOff, offError, load, set, switchOff }
 }

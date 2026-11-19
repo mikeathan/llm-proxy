@@ -14,6 +14,9 @@ vi.mock('../../../services/dashboard/dashboardService', () => ({
 const known = new Set(BOARD_TEMPLATES.flatMap((t) => t.cards.map((c) => c.id)))
 const service = vi.mocked(DashboardService)
 
+// Home ships minimal, so tests that arrange cards start from a Home a person has filled.
+const filledHome: DashboardLayout = { boards: [{ id: HOME_BOARD_ID, name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }, { id: 'running-now', cols: 4, rows: 1 }, { id: 'recent-runs', cols: 8, rows: 1 }] }] }
+
 async function opened(stored: DashboardLayout = { boards: [] }) {
   service.layout.mockResolvedValue(stored)
   service.save.mockImplementation(async (l) => l)
@@ -46,7 +49,7 @@ describe('useDashboard', () => {
   })
 
   it('shows an edit at once and saves the whole layout', async () => {
-    const d = await opened()
+    const d = await opened(filledHome)
     d.resize('host-health', { cols: 6 })
     expect(d.board.value?.cards[0]?.cols).toBe(6)
     expect(d.preset.value).toBe('custom')
@@ -56,7 +59,7 @@ describe('useDashboard', () => {
   })
 
   it('puts the layout back and says so when a save fails', async () => {
-    const d = await opened()
+    const d = await opened(filledHome)
     service.save.mockRejectedValue(new Error('no'))
     d.remove('running-now')
     expect(d.board.value?.cards.some((c) => c.id === 'running-now')).toBe(false)
@@ -66,7 +69,7 @@ describe('useDashboard', () => {
   })
 
   it('applies a preset to the open board and reports it', async () => {
-    const d = await opened()
+    const d = await opened(filledHome)
     d.setPreset('one-column')
     expect(d.board.value?.cards.every((c) => c.cols === 12 && c.rows === 1)).toBe(true)
     expect(d.preset.value).toBe('one-column')

@@ -15,6 +15,7 @@ export const API_ENDPOINTS = {
   dashboard: `${API_BASE}/dashboard`,
   stacks: `${API_BASE}/stacks`,
   stack: (id: string) => `${API_BASE}/stacks/${encodeURIComponent(id)}`,
+  stackOff: (stack: string) => `${API_BASE}/stacks/${encodeURIComponent(stack)}/off`,
   stackModule: (stack: string, id: string) => `${API_BASE}/stacks/${encodeURIComponent(stack)}/modules/${encodeURIComponent(id)}`,
   netauditKnownBad: `${API_BASE}/netaudit/known-bad`,
   netauditKnownBadKey: `${API_BASE}/netaudit/known-bad/key`,

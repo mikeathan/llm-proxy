@@ -16,7 +16,7 @@ bigger, and "earlier" and "later" did not seem to move a card. Two causes in `Da
 auto-sized rows (the rows grew to fit it, and every card in them stretched), and `grid-auto-flow: row dense` let a later card fill a gap, so
 moving a card one place in the list often changed nothing on screen. The whole cell was also `draggable`, which competes with the card's own
 buttons. The same session asked for the handoff's remaining slices: the Timeline, Traffic and My devices views as cards, one device list, only
-the cards of a stack that is on, and cards for the assistant and agents. Evidence: ADR-0064, plan `cross-cutting/control-center-dashboard.md`
+the cards of a stack that is on, and cards for the assistant and agents. Evidence: ADR-0064, plan `ARCHIVE/cross-cutting/control-center-dashboard.md`
 (the component audit), ADR-0061, `GET /admin/api/stacks` (already lists every stack with its counts).
 
 Status is `proposed` until the owner has read decision 6 (the device lists): it is accepted when they merge the branch, as ADR-0061 was.

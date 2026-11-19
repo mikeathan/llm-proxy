@@ -5,7 +5,8 @@ import LoadingState from "../common/feedback/LoadingState.vue"
 import BaseButton from "../common/buttons/BaseButton.vue"
 import ModuleTile from "./ModuleTile.vue"
 import { useStack } from "../../composables/stacks/useStack"
-import { LEFT_BLOCKED_PREFIX, STACK_MODULES_INTRO, moduleElementId, stackSummaryLine } from "../../constants/stacks"
+import { useConfirm } from "../../composables/ui/useConfirm"
+import { LEFT_BLOCKED_PREFIX, STACK_IS_OFF_LINE, STACK_MODULES_INTRO, STACK_OFF_CONFIRM, STACK_OFF_LABEL, STACK_OFF_MESSAGE, moduleElementId, stackOffTitle, stackSummaryLine } from "../../constants/stacks"
 import { layerNumber } from "../../utils/stacks/modules"
 import { toNetworkSettings } from "../../router/routes"
 import { MODULE_SETTINGS_GROUP } from "../../constants/netaudit"
@@ -16,7 +17,15 @@ import type { StackId } from "../../types/stacks"
 // tile (a row on a phone) with its switch and one status line. A switch that the server refuses leaves the module as it was
 // and says why beside it.
 const props = defineProps<{ stack: StackId }>()
-const { stack, error, errorFor, busyModule, leftBlocked, load, set } = useStack(props.stack)
+const { stack, error, errorFor, busyModule, leftBlocked, switchingOff, offError, load, set, switchOff } = useStack(props.stack)
+const { confirm } = useConfirm()
+
+// A stack has no switch of its own: it is on while a module of it is on. Switching it off is every module off, asked once.
+async function askSwitchOff(): Promise<void> {
+  if (!stack.value) return
+  const ok = await confirm({ title: stackOffTitle(stack.value.title), message: STACK_OFF_MESSAGE, type: "warning", confirmText: STACK_OFF_CONFIRM })
+  if (ok) await switchOff()
+}
 
 const summary = computed(() => stack.value?.summary)
 const titles = computed<Record<string, string>>(() => Object.fromEntries((stack.value?.layers ?? []).flatMap((l) => l.modules.map((m) => [m.id, m.title]))))
@@ -40,11 +49,16 @@ onMounted(load)
     <LoadingState v-else-if="!stack" label="Reading the modules" :rows="3" />
 
     <template v-else>
-      <p v-if="summary" class="m-0 text-[length:var(--text-small)] text-secondary" data-test="stack-summary">
-        {{ stackSummaryLine(summary.on, summary.total) }}
-        <template v-if="summary.stopped"> &middot; <span class="text-state-running">{{ summary.stopped }} stopped</span></template>
-        <template v-if="summary.blocked"> &middot; <span class="text-muted">{{ summary.blocked }} blocked</span></template>
-      </p>
+      <div v-if="summary" class="flex flex-wrap items-center justify-between gap-2">
+        <p class="m-0 text-[length:var(--text-small)] text-secondary" data-test="stack-summary">
+          {{ stackSummaryLine(summary.on, summary.total) }}
+          <template v-if="summary.stopped"> &middot; <span class="text-state-running">{{ summary.stopped }} stopped</span></template>
+          <template v-if="summary.blocked"> &middot; <span class="text-muted">{{ summary.blocked }} blocked</span></template>
+        </p>
+        <BaseButton v-if="summary.on > 0" variant="secondary" class-name="max-sm:!h-11" :disabled="switchingOff" data-test="stack-off" @click="askSwitchOff">{{ STACK_OFF_LABEL }}</BaseButton>
+      </div>
+      <p v-if="summary && summary.on === 0" class="m-0 text-[length:var(--text-small)] text-muted" data-test="stack-is-off">{{ STACK_IS_OFF_LINE }}</p>
+      <p v-if="offError" role="alert" class="m-0 text-[length:var(--text-small)] text-state-error" data-test="stack-off-error">{{ offError }}</p>
       <p v-if="leftBlocked.length" role="status" class="m-0 text-[length:var(--text-small)] text-muted" data-test="left-blocked">{{ LEFT_BLOCKED_PREFIX }}{{ leftBlocked.join(", ") }}.</p>
 
       <section

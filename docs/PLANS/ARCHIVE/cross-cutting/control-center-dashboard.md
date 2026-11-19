@@ -1,5 +1,5 @@
 ---
-status: partial
+status: complete
 date: 2026-11-19
 last_reviewed: 2026-11-19
 related_specs: [SPEC-003, SPEC-006]
@@ -114,4 +114,10 @@ Not in this audit: the 40 other netaudit components and the radio device page (`
 
 ## Remaining Work
 
-Built on branch `dashboard-card-controls-and-cards` (v0.106.0, ADR-0065) on top of #271: the card controls (height, order, drag grip, focus), polling only for cards in view, only the cards of a stack that is on, a link to one card with "Add it", the **Timeline**, **Traffic by device** and **My devices** cards (and the page copies removed), a read-only **Devices** card, and **Recent conversations** and **Agent activity** cards. Left, in order, with what each needs: see `control-center-dashboard-handoff-2026-11-19.md`.
+None. Built and merged: #271 (v0.105.0, boards and cards), #272 (v0.106.0, card controls and more cards), #273 (v0.107.0, ADR-0066), #274 (v0.108.0, the menu opens the stack pages), then v0.109.0 (a stack can be switched off, ADR-0067; Home ships minimal). Deployed and checked by the owner 2026-11-19.
+
+Not built, on purpose (no one is waiting on them; re-open only on a new ask):
+- **The four device lists** (Network Devices, Traffic by device, Radio My devices, Radio Claim and manage) stay separate cards; the table is in ADR-0065. The owner can use a card's own view or pin whichever they want to Home.
+- **A card for waiting approvals.** They live in the open chat as a guardrail banner; a card needs a new endpoint or a shared store.
+- **An LLM queue card.** `Running now` already shows the model lanes and the queued runs by position.
+- **Home ships one card** (Recent conversations): the owner's rule (2026-11-19) is that Home repeats nothing a stack board shows and that bringing more is the person's choice (Add card, or Pin to Home).
