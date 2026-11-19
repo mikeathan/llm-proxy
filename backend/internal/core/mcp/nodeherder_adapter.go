@@ -7,7 +7,6 @@ import (
 
 	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/logging"
 	"llm-proxy/models"
 
 	mcp_sdk "github.com/mark3labs/mcp-go/mcp"
@@ -15,38 +14,10 @@ import (
 
 type MCPNodeHerder struct {
 	orchestrator *Orchestrator
-	mirror       *ResourceMirror
-	logger       logging.Logger
 }
 
-func NewMCPNodeHerder(orchestrator *Orchestrator, mirror *ResourceMirror, logger logging.Logger) nodeherder.MCPService {
-	// Register the prompt update handler on the pool
-	orchestrator.OnPromptUpdate(func(content string) {
-		logger.Info("Received system-prompt update via notification")
-		mirror.SetSystemPrompt(content)
-	})
-
-	return &MCPNodeHerder{
-		orchestrator: orchestrator,
-		mirror:       mirror,
-		logger:       logger,
-	}
-}
-
-func (n *MCPNodeHerder) GetSystemPrompt() (string, error) {
-	prompt := n.mirror.GetSystemPrompt()
-	if !n.orchestrator.HasActiveClients() || prompt == "" {
-		// Try to fetch explicitly if missing or no clients active (force refresh if reconnecting)
-		content, err := n.orchestrator.ReadResource(context.Background(), "nodeherder://system-prompt")
-		if err != nil {
-			n.logger.Warn("System prompt not available, utilizing fallback", "error", err)
-			return "You are a helpful assistant. Note: IoT device context service is currently disconnected.", nil
-		}
-
-		n.mirror.SetSystemPrompt(content)
-		return content, nil
-	}
-	return prompt, nil
+func NewMCPNodeHerder(orchestrator *Orchestrator) nodeherder.MCPService {
+	return &MCPNodeHerder{orchestrator: orchestrator}
 }
 
 func (n *MCPNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {

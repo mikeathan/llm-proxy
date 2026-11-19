@@ -205,8 +205,6 @@ func TestManifest_StoresOneFileAndNeedsTheVault(t *testing.T) {
 func TestRoutePatternMapsARequestedPathBackToItsDeclaredRoute(t *testing.T) {
 	for _, tc := range []struct{ path, want string }{
 		{"/admin/api/radio/air/track/9714bc3d", TrackPath},
-		{"/admin/api/radio/networks/0ed34613cd/confirm", NetworkConfirmPath},
-		{"/admin/api/radio/networks/0ed34613cd", NetworkPath},
 		{"/admin/api/radio/devices/mine/7", DevicePath},
 		{"/admin/api/radio/air/calibrate/7", CalibratePath},
 		{"/admin/api/radio/air/mine/9714bc3d", MarkMinePath},

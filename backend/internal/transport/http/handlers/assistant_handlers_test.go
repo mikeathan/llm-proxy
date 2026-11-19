@@ -89,7 +89,6 @@ func TestHandleAssistant_AgnosticFlow(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 
 	// Setup MCP resources
-	mockMCP.SetSystemPrompt("System Prompt")
 
 	// Setup MCP Tools
 	mockMCP.SetToolsResult([]proxy.Tool{
@@ -256,7 +255,6 @@ func TestHandleAssistant_InitialSystemPrompt(t *testing.T) {
 	}
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockMCP := mocks.NewMockNodeHerder(nil)
-	mockMCP.SetSystemPrompt("BASE_PROMPT")
 	mockMCP.SetToolsResult([]proxy.Tool{})
 
 	engine := toolregistry.NewEngine(mockMCP, &noopLogger{})
@@ -322,7 +320,6 @@ func TestHandleAssistant_HistoryTruncation(t *testing.T) {
 	mockLimiter := &mocks.MockRateLimiter{}
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockMCP := mocks.NewMockNodeHerder(nil)
-	mockMCP.SetSystemPrompt("SYSTEM")
 	mockMCP.SetToolsResult([]proxy.Tool{})
 
 	engine := toolregistry.NewEngine(mockMCP, &noopLogger{})
@@ -793,7 +790,6 @@ func TestHandleAssistant_PublishesSessionLifecycleEvents(t *testing.T) {
 		Client: &mocks.MockLLMClient{},
 	}
 	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult([]proxy.Tool{
 		{
 			Type:     "function",
@@ -1031,7 +1027,6 @@ func TestAssistant_ServeHTTP_Returns202AndKeepsRunning(t *testing.T) {
 	mockMCP := mocks.NewMockNodeHerder(nil)
 	mockClient := &mocks.MockLLMClientProvider{Client: &mocks.MockLLMClient{}}
 	mockLimiter := &mocks.MockRateLimiter{}
-	mockMCP.SetSystemPrompt("System Prompt")
 	mockMCP.SetToolsResult(nil)
 	engine := toolregistry.NewEngine(mockMCP, logger)
 	service := mocks.NewMockAssistantService(mockClient, mockLimiter, engine, mockMCP)

@@ -31,6 +31,8 @@ type Host struct {
 	LAN LAN
 	// Mesh is the mesh router's list of joined devices, as tags; nil unless the manifest requires PortMeshClients.
 	Mesh MeshClients
+	// Networks is the owner's Wi-Fi networks from the core's one list, as names and tags; nil unless the manifest requires PortOwnNetworks.
+	Networks OwnNetworks
 }
 
 // Stack is what a stack package implements. It is called through this interface, in process, with plain data.
@@ -181,6 +183,23 @@ type MeshClients interface {
 	Clients(ctx context.Context, purpose string) (MeshView, error)
 }
 
+// OwnNetwork is one of the owner's Wi-Fi network names from the core's one list (ADR-0063), with the tags of the access points the owner
+// confirmed for it on the Network page, made under the purpose the stack asked for. The names are the owner's own words; no address crosses.
+type OwnNetwork struct {
+	Name      string
+	Confirmed [][]byte
+}
+
+// MaxOwnNetworks bounds one answer of the ownnetworks port.
+const MaxOwnNetworks = 8
+
+// OwnNetworks answers the owner's Wi-Fi networks from the core's one list: the names the owner watches and, as tags under purpose (the same
+// rules as Vault.Tag), the access points the owner confirmed. A stack proposes and reports access points against it, and never keeps a list of
+// its own (ADR-0063). Failures are an *Error: CodeInvalid for a bad purpose, CodeUnavailable when the core has no key.
+type OwnNetworks interface {
+	Networks(ctx context.Context, purpose string) ([]OwnNetwork, error)
+}
+
 // MaxAirFacts bounds the devices one air report carries; the core reads no more.
 const MaxAirFacts = 1024
 
@@ -215,6 +234,31 @@ type AirReport struct {
 	LastCycle time.Time `json:"last_cycle,omitzero"`
 	Bands     []string  `json:"bands,omitempty"`
 	Devices   []AirFact `json:"devices"`
+	// APs are the access points the stack heard lately broadcasting one of the names the ownnetworks port gave (ADR-0063), so the core's one
+	// look-alike check can judge them with its own; at most MaxAirAPs.
+	APs []AirAP `json:"aps,omitempty"`
+}
+
+// MaxAirAPs bounds the access points one air report carries; the core reads no more.
+const MaxAirAPs = 64
+
+// AirSecurity are the protections an access point can announce. The core drops a value outside this list.
+var AirSecurity = []string{"open", "wep", "wpa", "wpa2", "wpa3", "wpa2_wpa3", "owe"}
+
+// AirAP is one access point heard broadcasting one of the owner's network names. Name must be one the ownnetworks port gave, byte for byte; Tag
+// is the access point's hardware address tagged, and Sealed the same address sealed, both under the purpose the stack asked the ownnetworks
+// port for. The core opens Sealed only under a purpose it handed out, checks it is one unicast hardware address whose tag is Tag, and drops the
+// entry otherwise: an address crosses only for an access point that uses the owner's own name, so the owner can confirm it, and a stack can
+// never add to the list of confirmed ones. Heard is when it was last heard; Security is from AirSecurity. ConfirmedBefore says the owner
+// confirmed it on the Radio page before the lists were one: the core shows it so, and never treats it as confirmed.
+type AirAP struct {
+	Name            string    `json:"name"`
+	Tag             []byte    `json:"tag"`
+	Sealed          []byte    `json:"sealed"`
+	Security        string    `json:"security,omitempty"`
+	Channel         int       `json:"channel,omitempty"`
+	Heard           time.Time `json:"heard"`
+	ConfirmedBefore bool      `json:"confirmed_before,omitempty"`
 }
 
 // AirReporter is implemented by a stack that declares Manifest.ReportsAir (ADR-0061). The core pulls it to show what the air says of the devices

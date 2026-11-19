@@ -51,14 +51,14 @@ Removed from the core: `core/agentwatch` watch and secrets code, `persistence.Ag
 - `-race` on `internal/app`, `internal/archtest`, `core/agentwatch`, `core/stackport`: pass.
 - `go run ./tools/check-complexity/`: found `stacksdk.Manifest.Validate` at 13 after the new check; refactored to a loop of checks; now no new violations.
 - Every stack module with `GOWORK=off go vet && go test -race` (agents, example, network, sdk): pass.
-- The isolation fitness test failed first on `privhelper/client`, then passed ([`isolation-importers-switch.md`](isolation-importers-switch.md)).
+- The isolation fitness test failed first on `privhelper/client`, then passed ([`isolation-importers-switch.md`](../ARCHIVE/cross-cutting/isolation-importers-switch.md)).
 - Frontend: `npm test` (303 files, 3039 tests), `npm run build` (lint, type check) and `npm run test:visual` (372) pass; the Modules tab changes are covered by `modules.test.ts`, `ModuleTile.component.test.ts` and `StackModules.component.test.ts`.
 - **Not run:** anything on vertex; the Modules tab in a real browser with a real stack status (the visual tests use fixtures).
 
 ## Handoff
 
 Branch `agents-stack-watch-and-isolation-close-out`, cut from origin/main `c4b4f557` (v0.82.0), **uncommitted and unpushed** (VERSION 0.83.0). It also carries the
-isolation switch ([`isolation-importers-switch.md`](isolation-importers-switch.md)); they can be one PR or two. First command: `git status -sb && ./scripts/check-agent-harness.sh`;
+isolation switch ([`isolation-importers-switch.md`](../ARCHIVE/cross-cutting/isolation-importers-switch.md)); they can be one PR or two. First command: `git status -sb && ./scripts/check-agent-harness.sh`;
 first file to open: this note, then ADR-0051.
 
 ## Format check against the old writer (read, not assumed)

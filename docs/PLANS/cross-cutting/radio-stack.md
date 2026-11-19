@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: active
 date: 2026-11-13
 last_reviewed: 2026-11-13
 related_specs: [SPEC-006]

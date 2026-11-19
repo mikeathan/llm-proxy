@@ -151,10 +151,13 @@ func (c *WifiConfig) update(f func(*models.NetauditConfig) error) error {
 	return nil
 }
 
-// WifiWatchDeps are what the watch needs. List reads the access points (a guarded nmcli); Notify sends one message through the alert log
-// and fails when it could not be delivered, so it is tried again at the next look.
+// WifiWatchDeps are what the watch needs. List reads the access points this computer's own Wi-Fi hears (a guarded nmcli); Air, when set, is
+// what the Radio stack heard lately under the operator's names, already checked by the core (stackport.Networks.Sightings, ADR-0063), and
+// false when Radio is off or cannot answer. Notify sends one message through the alert log and fails when it could not be delivered, so it is
+// tried again at the next look.
 type WifiWatchDeps struct {
 	List    func(ctx context.Context) ([]wifilook.AP, error)
+	Air     func(ctx context.Context) ([]models.WifiSighting, bool)
 	Config  *WifiConfig
 	Notify  func(ctx context.Context, message string) error
 	OnError func(error)
@@ -166,8 +169,12 @@ type WifiWatchDeps struct {
 type WifiWatch struct {
 	deps WifiWatchDeps
 
-	mu       sync.Mutex
-	seen     []wifilook.AP // the last look's access points that use one of the operator's names
+	mu   sync.Mutex
+	seen []wifilook.AP // the last look's access points that use one of the operator's names
+	// radio and before mark, by hardware address, the seen access points Radio heard and those the operator confirmed on the Radio page before
+	// the lists were one (shown, not alerted, never confirmed).
+	radio    map[string]bool
+	before   map[string]bool
 	lastLook time.Time
 	lastGood time.Time
 	failed   bool
@@ -232,11 +239,11 @@ func (w *WifiWatch) Look(ctx context.Context) error {
 	return nil
 }
 
-// look reads the access points and records what concerns the operator's names. A look that fails is a failed part, said once; it is
-// never read as "no look-alikes".
+// look reads the access points both sensors heard and records what concerns the operator's names. A look in which neither answered is a
+// failed part, said once; it is never read as "no look-alikes". This computer's failure alone, with Radio answering, is still a look.
 func (w *WifiWatch) look(ctx context.Context) ([]wifilook.AP, bool) {
 	now := w.deps.Now()
-	aps, err := w.deps.List(ctx)
+	aps, radio, before, err := w.sense(ctx)
 	if err != nil {
 		w.mu.Lock()
 		w.failed = true
@@ -256,6 +263,7 @@ func (w *WifiWatch) look(ctx context.Context) ([]wifilook.AP, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.failed, w.lastErr, w.lastGood, w.lastLook = false, "", now, now
+	w.radio, w.before = radio, before
 	w.seen = w.seen[:0:0]
 	for _, a := range aps {
 		if a.SSID != "" && names[a.SSID] && len(w.seen) < maxWifiSeen {
@@ -263,10 +271,56 @@ func (w *WifiWatch) look(ctx context.Context) ([]wifilook.AP, bool) {
 		}
 	}
 	for _, l := range wifilook.Lookalikes(aps, nets) {
-		w.recent[l.BSSID] = recentLookalike{look: l, at: now}
+		if !before[l.BSSID] {
+			w.recent[l.BSSID] = recentLookalike{look: l, at: now}
+		}
 	}
 	w.prune(now)
 	return aps, true
+}
+
+// sense asks both sensors and merges what they heard. It fails only when this computer's look failed and Radio did not answer.
+func (w *WifiWatch) sense(ctx context.Context) ([]wifilook.AP, map[string]bool, map[string]bool, error) {
+	aps, err := w.deps.List(ctx)
+	sightings, airOK := w.air(ctx)
+	if err != nil && !airOK {
+		return nil, nil, nil, err
+	}
+	if err != nil {
+		aps = nil
+	}
+	merged, radio, before := mergeSightings(aps, sightings)
+	return merged, radio, before, nil
+}
+
+// air is Radio's sightings, or none when no Radio source is wired.
+func (w *WifiWatch) air(ctx context.Context) ([]models.WifiSighting, bool) {
+	if w.deps.Air == nil {
+		return nil, false
+	}
+	return w.deps.Air(ctx)
+}
+
+// mergeSightings adds Radio's sightings to this computer's access points, one entry per hardware address (this computer's own reading wins,
+// for its signal), and marks which ones Radio heard and which the operator confirmed on the Radio page before.
+func mergeSightings(aps []wifilook.AP, sightings []models.WifiSighting) ([]wifilook.AP, map[string]bool, map[string]bool) {
+	radio, before := map[string]bool{}, map[string]bool{}
+	have := map[string]bool{}
+	for _, a := range aps {
+		have[a.BSSID] = true
+	}
+	out := slices.Clone(aps)
+	for _, s := range sightings {
+		radio[s.BSSID] = true
+		if s.ConfirmedBefore {
+			before[s.BSSID] = true
+		}
+		if !have[s.BSSID] {
+			have[s.BSSID] = true
+			out = append(out, wifilook.AP{SSID: s.Name, BSSID: s.BSSID, Security: wifilook.Security(s.Security)})
+		}
+	}
+	return out, radio, before
 }
 
 // prune drops what is older than a day and, past the bound, the oldest.
@@ -298,6 +352,9 @@ func (w *WifiWatch) tell(ctx context.Context, aps []wifilook.AP) {
 	var fresh []wifilook.Lookalike
 	w.mu.Lock()
 	for _, l := range wifilook.Lookalikes(aps, networksOf(w.deps.Config.Networks())) {
+		if w.before[l.BSSID] {
+			continue // confirmed on the Radio page before: the card asks the operator to confirm it once
+		}
 		if at, ok := w.told[l.BSSID]; !ok || now.Sub(at) >= wifiAlertGap {
 			fresh = append(fresh, l)
 		}
@@ -408,6 +465,10 @@ type WifiSeen struct {
 	Signal    int               `json:"signal"`
 	Security  wifilook.Security `json:"security"`
 	Confirmed bool              `json:"confirmed"`
+	// Radio says the Radio stack heard it (it may be out of this computer's own Wi-Fi's reach); ConfirmedBefore that the operator confirmed it on
+	// the Radio page before the lists were one, so it waits for one confirmation here and raises nothing until then (ADR-0063).
+	Radio           bool `json:"radio,omitempty"`
+	ConfirmedBefore bool `json:"confirmed_before,omitempty"`
 }
 
 // WifiNetworkView is one of the operator's names with what is confirmed and what the last look saw.
@@ -438,7 +499,9 @@ func (w *WifiWatch) View() WifiView {
 		nv := WifiNetworkView{Name: n.Name, Confirmed: append([]string{}, n.Addresses...), Seen: []WifiSeen{}}
 		for _, a := range w.seen {
 			if a.SSID == n.Name {
-				nv.Seen = append(nv.Seen, WifiSeen{BSSID: a.BSSID, Signal: a.Signal, Security: a.Security, Confirmed: slices.Contains(n.Addresses, a.BSSID)})
+				confirmed := slices.Contains(n.Addresses, a.BSSID)
+				nv.Seen = append(nv.Seen, WifiSeen{BSSID: a.BSSID, Signal: a.Signal, Security: a.Security, Confirmed: confirmed,
+					Radio: w.radio[a.BSSID], ConfirmedBefore: w.before[a.BSSID] && !confirmed})
 			}
 		}
 		v.Networks = append(v.Networks, nv)

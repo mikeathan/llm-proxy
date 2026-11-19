@@ -6,6 +6,8 @@ import { fieldByLabel } from '../../helpers/fieldByLabel'
 import type { GlobalConfig, SettingsTab } from '../../../types/admin'
 import type { Model } from '../../../types/model'
 
+vi.mock('../../../services/admin/adminService', () => ({ AdminApiService: { storage: vi.fn(() => new Promise(() => {})) } }))
+
 const MODELS = [{ name: 'qwen', provider: 'local' }, { name: 'gpt', provider: 'openai' }] as Model[]
 
 // VTU's emitted() does not record script-setup emits in this harness, so the
@@ -42,7 +44,7 @@ describe('GlobalSettings sections', () => {
     ['local', ['routing', 'local engine', 'model lifecycle', 'gpu metrics']],
     ['runs', ['run scheduler', 'external requests']],
     ['memory', ['memory', 'reminders']],
-    ['storage', ['workspace storage', 'logging']],
+    ['storage', ['workspace storage', 'what is stored', 'logging']],
   ] as const)('%s shows only its panels', (section, titles) => {
     expect(visiblePanels(mountGlobal({}, section).w)).toEqual(titles)
   })

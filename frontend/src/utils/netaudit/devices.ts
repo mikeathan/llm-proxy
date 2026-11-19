@@ -33,7 +33,13 @@ export function deviceAddress(device: NetworkDevice, advanced: boolean): string 
 }
 
 /** When a device was last on the network, as the line under its name. */
-export const deviceSeen = (device: NetworkDevice, nowMs: number = Date.now()): string => `seen ${formatRelativeTime(device.last_seen, nowMs)}`
+/** The later of when the network last saw the device and when the router's list last named it as joined: a dozing phone is still joined. */
+export function lastJoined(device: NetworkDevice): string {
+  if (device.router_seen && Date.parse(device.router_seen) > Date.parse(device.last_seen)) return device.router_seen
+  return device.last_seen
+}
+
+export const deviceSeen = (device: NetworkDevice, nowMs: number = Date.now()): string => `seen ${formatRelativeTime(lastJoined(device), nowMs)}`
 
 /**
  * The devices naming can do something for: no name, a real hardware address and an IPv4 address. A private-address phone
@@ -80,12 +86,12 @@ export function udpCoverageLine(devices: NetworkDevice[], nowMs: number = Date.n
 
 /**
  * Where a device belongs in the list. One that nobody approved and that is still in the news (the server's `new`) needs a
- * look; the rest are told apart by whether they were on the network lately. "Lately" is a fixed window, because the
- * server stores when a device was last seen but not whether it is there now.
+ * look; the rest are told apart by whether they were on the network, or on the router's list of joined devices, lately. "Lately" is a
+ * fixed window, because the server stores when a device was last seen but not whether it is there now.
  */
 export function deviceStatus(device: NetworkDevice, nowMs: number = Date.now()): DeviceStatus {
   if (device.new) return 'attention'
-  return nowMs - Date.parse(device.last_seen) <= DEVICE_ONLINE_WINDOW_MS ? 'online' : 'offline'
+  return nowMs - Date.parse(lastJoined(device)) <= DEVICE_ONLINE_WINDOW_MS ? 'online' : 'offline'
 }
 
 const FILTER_TEST: Record<DeviceFilter, (device: NetworkDevice, nowMs: number) => boolean> = {

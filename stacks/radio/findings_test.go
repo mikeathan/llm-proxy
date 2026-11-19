@@ -26,16 +26,19 @@ func findingOf(d Digest, id string) (DigestFinding, bool) {
 	return DigestFinding{}, false
 }
 
-func ownAP(t *testing.T, s *Store, tag byte, name, security, pmf string, confirmed bool) {
+// ownAP stores an access point heard under one of the owner's names and, when confirmed, confirms it in the core list the rig's stack reads.
+func ownAP(t *testing.T, r *listenRig, tag byte, name, security, pmf string, confirmed bool) {
 	t.Helper()
 	ctx := context.Background()
+	rec, s, err := r.s.recorder(r.s.h)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := s.ProposeOwnAP(ctx, OwnAP{Tag: []byte{tag}, Sealed: []byte{tag}, Name: name, Channel: 60, Security: security, PMF: pmf}, t0); err != nil {
 		t.Fatal(err)
 	}
 	if confirmed {
-		if _, err := s.SetOwnAPConfirmed(ctx, []byte{tag}, true); err != nil {
-			t.Fatal(err)
-		}
+		confirmTags(t, rec, []byte{tag})
 	}
 }
 
@@ -59,12 +62,11 @@ func TestADigestWithNothingHeardHasNoFindingsAndNoMissingCheck(t *testing.T) {
 
 func TestAnUnconfirmedAccessPointWithYourNetworkNameIsATwin(t *testing.T) {
 	r := devRig(t)
-	_, store, _ := r.s.recorder(r.s.h)
-	ownAP(t, store, 1, "home", "wpa2", "capable", true)
+	ownAP(t, r, 1, "home", "wpa2", "capable", true)
 	if _, ok := findingOf(digestOf(t, r), "radio_rogue_twin"); ok {
 		t.Fatal("one confirmed access point alone is not a twin")
 	}
-	ownAP(t, store, 2, "home", "wpa2", "capable", false)
+	ownAP(t, r, 2, "home", "wpa2", "capable", false)
 	f, ok := findingOf(digestOf(t, r), "radio_rogue_twin")
 	if !ok || f.Count != 1 || f.Tier != TierSeen {
 		t.Errorf("%+v %v", f, ok)
@@ -73,11 +75,10 @@ func TestAnUnconfirmedAccessPointWithYourNetworkNameIsATwin(t *testing.T) {
 
 func TestAConfirmedAccessPointThatIsOpenOrWeakOrLacksPMFIsAFinding(t *testing.T) {
 	r := devRig(t)
-	_, store, _ := r.s.recorder(r.s.h)
-	ownAP(t, store, 1, "home", "wpa2", "off", true)
-	ownAP(t, store, 2, "guest", "open", "off", true)
-	ownAP(t, store, 3, "old", "wep", "off", true)
-	ownAP(t, store, 4, "stranger", "open", "off", false) // not confirmed: not the owner's, so not their finding
+	ownAP(t, r, 1, "home", "wpa2", "off", true)
+	ownAP(t, r, 2, "guest", "open", "off", true)
+	ownAP(t, r, 3, "old", "wep", "off", true)
+	ownAP(t, r, 4, "stranger", "open", "off", false) // not confirmed: not the owner's, so not their finding
 	d := digestOf(t, r)
 	if f, ok := findingOf(d, "radio_open_or_weak_ap"); !ok || f.Count != 2 {
 		t.Errorf("open and wep are weak: %+v %v", f, ok)
@@ -90,7 +91,7 @@ func TestAConfirmedAccessPointThatIsOpenOrWeakOrLacksPMFIsAFinding(t *testing.T)
 func TestARoutersProtectedManagementFramesAreReadFromItsBeacon(t *testing.T) {
 	r := devRig(t)
 	rec, store, _ := r.s.recorder(r.s.h)
-	rec.SetOwnNetworks([]string{"home"})
+	coreList(t, rec, []string{"home"})
 	record(t, rec, beacon("home", rsnWPA2), t0)
 	aps, _ := store.OwnAPs(context.Background())
 	if len(aps) != 1 || aps[0].PMF != PMFOff {

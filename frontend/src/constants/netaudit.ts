@@ -596,7 +596,7 @@ export const KNOWN_BAD_SWITCH_NOTE = 'The comparison is off until you switch it 
 export const WIFI_TITLE = 'Wi-Fi look-alikes'
 export const WIFI_LOAD_FAILED = 'The Wi-Fi look-alikes setting could not be read.'
 export const WIFI_HINT = 'Tells you when an access point uses your network\u2019s name from an address you have not confirmed, which is how a fake copy of your Wi-Fi catches devices.'
-export const WIFI_DETAILS = 'It reads the list of networks this computer\u2019s own NetworkManager already hears, in a sandbox that cannot use the network, and never scans or connects. Only your own network\u2019s name and addresses are kept; other people\u2019s networks are not.'
+export const WIFI_DETAILS = 'It reads the list of networks this computer\u2019s own NetworkManager already hears, in a sandbox that cannot use the network, and, when the Radio stack is on, what Radio heard broadcasting your names. It never scans, connects or sends anything. This is the one list of your networks: Radio reads the names and the access points you confirm here. Only your own network\u2019s name and addresses are kept; other people\u2019s networks are not.'
 export const WIFI_STEPS = [
   'Type your Wi-Fi network\u2019s name exactly as it appears on your devices, and add it.',
   'Press Look now. Every access point that uses the name is listed with its address.',
@@ -610,6 +610,11 @@ export const WIFI_REMOVE = 'Stop watching'
 export const WIFI_NONE_SEEN = 'No access point with this name was heard in the last look.'
 export const WIFI_NOT_LOOKED = 'No look has been made yet.'
 export const WIFI_UNCONFIRMED_NOTE = 'None of its access points is confirmed yet, so nothing is reported for this name.'
+export const WIFI_HEARD_BY_RADIO = 'Heard by Radio'
+export const WIFI_CONFIRMED_BEFORE = 'You confirmed it on the Radio page before'
+export const wifiConfirmBefore = (n: number): string => `Confirm the ${n === 1 ? 'one' : n} you confirmed on the Radio page`
+/** An access point's protection in words: "no security" for an open one. */
+export const wifiSecurityWord = (security: string): string => (security === 'open' ? 'no security' : security.toUpperCase())
 export const wifiSeenLine = (signal: number, security: string): string => `${signal}% signal \u00b7 ${security === 'open' ? 'no security' : security.toUpperCase()}`
 
 // Network · Settings · Privileged helper.

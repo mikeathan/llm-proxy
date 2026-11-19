@@ -177,7 +177,7 @@ func (s *Stack) digest(ctx context.Context, h stacksdk.Host, store *Store) (Dige
 	if d.Others, err = othersOf(ctx, store); err != nil {
 		return d, err
 	}
-	aps, err := store.OwnAPs(ctx)
+	aps, err := s.ownAPsNow(ctx, h)
 	if err != nil {
 		return d, err
 	}
@@ -280,6 +280,16 @@ func othersOf(ctx context.Context, store *Store) ([]DigestOthers, error) {
 		}
 	}
 	return out, nil
+}
+
+// ownAPsNow is the access points heard under the owner's names, marked from the core's list as it is now.
+func (s *Stack) ownAPsNow(ctx context.Context, h stacksdk.Host) ([]OwnAP, error) {
+	rec, _, err := s.recorder(h)
+	if err != nil {
+		return nil, err
+	}
+	_ = rec.SyncOwnNetworks(ctx) // a failed read keeps the last list
+	return rec.OwnAPs(ctx)
 }
 
 // ownAPFindings reads the owner's access points: twins (an unconfirmed access point under a name that has a confirmed one), weak protection and

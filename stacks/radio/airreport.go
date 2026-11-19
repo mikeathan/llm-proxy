@@ -58,6 +58,10 @@ func (s *Stack) Air(ctx context.Context) (stacksdk.AirReport, error) {
 		return out, stacksdk.Errorf(stacksdk.CodeInternal, "the air could not be read")
 	}
 	out.Devices = inventoryFacts(v, set, rec.LANIndex(ctx))
+	_ = rec.SyncOwnNetworks(ctx) // the names to report under, and this epoch's purpose asked of the port
+	if out.APs, err = rec.airAPs(ctx, s.now()); err != nil {
+		return out, stacksdk.Errorf(stacksdk.CodeInternal, "the access points could not be read")
+	}
 	return out, nil
 }
 

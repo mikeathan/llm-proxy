@@ -4,7 +4,10 @@ import { errorMessage } from '../../utils/errors'
 import { RADIO_NETWORKS_FAILED } from '../../constants/radio'
 import type { RadioNetworks } from '../../types/radio'
 
-/** Radio · Your networks: the names of the owner's own Wi-Fi, and the access points that broadcast them until the owner confirms which are theirs. */
+/**
+ * Radio · Your networks: the names of the owner's own Wi-Fi and the access points heard broadcasting them. The names and which access points
+ * are the owner's are set on the Network page (the one list); here only the guest flag, Radio's own evidence rule, is changed.
+ */
 export function useRadioNetworks() {
   const networks = ref<RadioNetworks | null>(null)
   const error = ref('')
@@ -26,10 +29,6 @@ export function useRadioNetworks() {
   return {
     networks, error, busy,
     load: () => run(async () => {}),
-    addName: (name: string) => run(() => RadioService.setNetworkNames([...(networks.value?.names ?? []), name])),
-    removeName: (name: string) => run(() => RadioService.setNetworkNames((networks.value?.names ?? []).filter((n) => n !== name))),
-    confirm: (id: string) => run(() => RadioService.confirmNetwork(id)),
-    reject: (id: string) => run(() => RadioService.dropNetwork(id)),
     setGuest: (id: string, guest: boolean) => run(() => RadioService.setGuest(id, guest)),
   }
 }

@@ -44,9 +44,8 @@ func (m *MockTokenManager) Get(ctx context.Context) (string, error) {
 type MockNodeHerder struct {
 	// Existing fields...
 
-	err          error
-	systemPrompt string
-	callCount    int
+	err       error
+	callCount int
 
 	// New fields for MCPService
 	toolsResult []proxy.Tool
@@ -55,14 +54,7 @@ type MockNodeHerder struct {
 }
 
 func NewMockNodeHerder(err error) *MockNodeHerder {
-	return &MockNodeHerder{
-		err:          err,
-		systemPrompt: "Mock System Prompt with RULES:", // Default with RULES to satisfy some old tests if any
-	}
-}
-
-func (m *MockNodeHerder) SetSystemPrompt(prompt string) {
-	m.systemPrompt = prompt
+	return &MockNodeHerder{err: err}
 }
 
 func (m *MockNodeHerder) SetToolsResult(tools []proxy.Tool) {
@@ -72,10 +64,6 @@ func (m *MockNodeHerder) SetToolsResult(tools []proxy.Tool) {
 func (m *MockNodeHerder) SetCallToolResult(result any, err error) {
 	m.callResult = result
 	m.callErr = err
-}
-
-func (m *MockNodeHerder) GetSystemPrompt() (string, error) {
-	return m.systemPrompt, nil
 }
 
 func (m *MockNodeHerder) CallCount() int {

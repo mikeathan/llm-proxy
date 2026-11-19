@@ -31,6 +31,16 @@ type DeviceInventory struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 }
 
+// SeenAt is the later of when the network last saw the device and when the router's list of joined Wi-Fi devices last named it (ADR-0062): the
+// one answer to "is it here lately" for presence, the missing-device finding, the counts and the notes. Which device holds an address is
+// decided by LastSeen alone.
+func (d NetworkDevice) SeenAt() time.Time {
+	if d.RouterSeen.After(d.LastSeen) {
+		return d.RouterSeen
+	}
+	return d.LastSeen
+}
+
 // NetworkDevice is one MAC address seen on the network.
 type NetworkDevice struct {
 	MAC string `json:"mac"`
@@ -44,6 +54,10 @@ type NetworkDevice struct {
 	Name      string    `json:"name,omitempty"`
 	FirstSeen time.Time `json:"first_seen"`
 	LastSeen  time.Time `json:"last_seen"`
+	// RouterSeen is when the router's list of joined Wi-Fi devices last named it (Constitution I.15, ADR-0062). A phone that dozes and does not
+	// answer the sweep is still joined, so it keeps the device online; it never makes one away, and never decides who holds an address
+	// (LastSeen does).
+	RouterSeen time.Time `json:"router_seen,omitzero"`
 	// Approved means the operator (or the first baseline) vouches for the device.
 	Approved bool `json:"approved"`
 	// Important means the operator marked it as one they care most about; the attack paths treat it as a prize.

@@ -27,8 +27,8 @@ var moduleAbout = map[string]stack.About{
 		ShowsUp: "As names on the Devices tab.",
 	},
 	"wifi_lookalikes": {
-		Watches:  "The Wi-Fi networks this computer's own NetworkManager can hear, for one that uses your network's name from an access point you have not confirmed.",
-		Never:    "It never scans, connects or sends anything: it reads NetworkManager's list in a sandbox that cannot use the network, and keeps only your own network's name and addresses.",
+		Watches:  "What this computer's Wi-Fi and, when it is on, the Radio stack hear, for one that uses your network's name from an access point you have not confirmed.",
+		Never:    "It never scans, connects or sends anything: it reads NetworkManager's list in a sandbox that cannot use the network and Radio's report of your own names, and keeps only your own network's name and addresses.",
 		ShowsUp:  "As a message and a bell entry at once, and as a finding in the nightly report.",
 		Settings: true,
 	},
@@ -58,6 +58,11 @@ var moduleAbout = map[string]stack.About{
 		Watches: "Which companies and countries each device connects to, read from the router once a night and when you press Read the router.",
 		Never:   "It keeps no address and no connection, only company and country names with dates, and only this program's own code signs in to the router.",
 		ShowsUp: "As new marks on the Traffic tab and as findings in the nightly report.",
+	},
+	"router_clients": {
+		Watches: "Which of your devices the router lists as joined to its Wi-Fi, read at each presence look, so a phone that dozes and does not answer stays online.",
+		Never:   "It keeps only when the router last listed each device you already have, never a guest, never a new device and never where in the house it is; only this program's own code signs in to the router.",
+		ShowsUp: "As Online on the Devices tab.",
 	},
 	"known_bad": {
 		Watches:  "The names devices ask for, compared with abuse.ch's list of hosts that serve malware.",

@@ -1,6 +1,6 @@
 # WorkspaceManager coupling — narrow the concrete type that 19 files hold
 
-**Status:** proposed (2026-10-27). Nothing is built. Not approved by the owner.
+**Status:** approved (owner, 2026-11-18). P0 measured 2026-11-18 (§3a); P1 onward not started.
 **Related Specs:** SPEC-007 (Automation Dispatcher). No SPEC names the persistence manager; checked `docs/SPECS/README.md`.
 **Constitution refs:** IV.4 (no dead code), V.3 (no half-finished work). No new invariant is proposed.
 **Origin:** a knowledge-graph run over `backend/` on 2026-10-27 (graphify, code structure only) showed `WorkspaceManager`
@@ -47,6 +47,31 @@ ripple across packages and tests can fake only what they need. No behaviour chan
 - **P4 — Re-measure.** Re-run the graph over `backend/` and compare the manager's degree and betweenness. Proof: numbers in
   the learnings ledger, whatever they show.
 
+## 3a. P0 result (measured 2026-11-18, compiler-assisted)
+
+Measured with a throwaway `golang.org/x/tools/go/packages` program (kept outside the repo): every method value whose receiver is
+`*persistence.WorkspaceManager`, per non-test file outside `platform/persistence`. 73 methods on the type. **Since 2026-10-27 the
+`core/netaudit` and `core/tools` consumers already moved to consumer-side interfaces** (`AckStore`, `BaselineStore`, `FixStore`,
+`LifeStore`, `ScanLogStore`, `ExpectationStore`, `digestStore`, `findingsview` `Baselines`, `scantool` `AckSource`, `tools`
+`JournalStore`, `automation` report writer, each commented "*persistence.WorkspaceManager satisfies it"), so they no longer call the
+concrete type and do not appear below.
+
+| File | Methods called | Decision |
+|---|---|---|
+| `app/netaudit.go`, `app/routes.go` | ListWorkspaces | leave: wiring layer |
+| `core/assistant/guardrails/remember.go` | WriteConfig | narrow: one-method `ConfigWriter` |
+| `core/assistant/system_prompt.go` | ReadTaskFile | narrow: one-method `TaskFileReader` |
+| `core/toolregistry/registry.go` | ReadConfig | narrow: `ConfigReader` |
+| `core/chat/conversation_service.go` | ReadConfig, ReadSession, WriteSession | narrow: `SessionStore` + `ConfigReader` |
+| `transport/http/handlers/assistant_handlers.go` | DeleteAllSessions, DeleteSession, ListSessions, ReadSession, WriteSession | narrow: the same `SessionStore` (5 methods) |
+| `transport/http/handlers/assistant_memory_review_handlers.go` | ReadSession | narrow: `SessionStore` |
+| `transport/http/handlers/webhook_handlers.go` | ReadState | narrow: `StateReader` |
+| `core/automation/*` (admission, execution, heartbeat, history, journal, notify, scheduling) | TryAcquireLock, ReadState, WriteState, ReleaseLock, ReadTaskFile, ReadConfig, Read/WriteHeartbeatStatus, RecentRuns, ReadJournal, Read/WriteSeen, ListWorkspaces, MetadataRoot | leave: the dispatcher is the owner of run state and locks; an interface would mirror about 14 methods (§4 rejects &gt; 6) |
+| `transport/http/handlers/services.go` | 18 methods (workspace, task-file, run, journal, lock CRUD) | leave: the admin facade over the whole manager; splitting it is the WorkspaceService question, not this plan |
+
+**Result:** the real narrowing left is four small interfaces (`SessionStore`, `ConfigReader`, `TaskFileReader`, `StateReader`, plus
+the one-method `ConfigWriter`) for seven files; the automation and admin-facade holders stay concrete on purpose. P1 starts there.
+
 ## 4. Risks and checks
 
 - Interfaces that mirror the whole manager add nothing. P0 must reject any cluster larger than about six methods.
@@ -63,4 +88,4 @@ ripple across packages and tests can fake only what they need. No behaviour chan
 
 ## Remaining Work
 
-Everything. Next step: owner approval of the scope, then P0.
+P0 done (§3a). Next: P1 for the four interfaces in §3a, then P2 package by package (chat and handlers first), P3, P4.

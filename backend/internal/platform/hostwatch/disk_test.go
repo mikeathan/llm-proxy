@@ -57,7 +57,7 @@ func TestDisk_TheWorstVolumeDecidesAndAnErrorIsCountedNotReported(t *testing.T) 
 }
 
 func TestDisk_ARealVolumeIsReadable(t *testing.T) {
-	free, total, err := volumeSpace(t.TempDir())
+	free, total, err := VolumeSpace(t.TempDir())
 	if err != nil || total == 0 || free > total {
 		t.Errorf("free %d total %d err %v", free, total, err)
 	}

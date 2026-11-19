@@ -106,13 +106,7 @@ func TestAnAccessPointYouStopConfirmingLosesItsMark(t *testing.T) {
 	if !rowOf(t, s, macAP).OwnAP {
 		t.Fatal("your confirmed access point is marked")
 	}
-	apTag, _ := fakeVault{}.Tag(context.Background(), tagAP, macAP[:])
-	if _, err := s.SetOwnAPConfirmed(context.Background(), apTag, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.RefreshOwnAPs(context.Background()); err != nil {
-		t.Fatal(err)
-	}
+	withdrawTags(t, r)
 	cycle(t, r, data(macAP), beacon("home"))
 	if rowOf(t, s, macAP).OwnAP {
 		t.Error("withdrawn, the mark goes at the next cycle it is heard")

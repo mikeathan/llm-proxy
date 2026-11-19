@@ -6,6 +6,7 @@ import SegmentedControl from "../common/forms/SegmentedControl.vue";
 import BaseToggle from "../common/buttons/BaseToggle.vue";
 import BaseButton from "../common/buttons/BaseButton.vue";
 import ToggleField from "../common/forms/ToggleField.vue";
+import StorageReportCard from "./StorageReportCard.vue";
 import {
   argsToString,
   stringToArgs,
@@ -290,6 +291,8 @@ const showSysfsPath = computed(() => gpuProvider.value === GPU_SYSFS);
         </FormField>
       </div>
     </Panel>
+
+    <StorageReportCard v-if="show('storage')" />
 
     <Panel v-show="show('lifecycle')" title="Model lifecycle">
       <div class="form-grid">

@@ -118,6 +118,7 @@ type LocalToolRegistry struct {
 	Memory        *tools.MemoryToolProvider
 	Journal       *tools.AutomationJournalTools
 	Reminders     *tools.ReminderTools
+	Sessions      *tools.SessionSearchTools
 }
 
 func NewLocalToolRegistry(
@@ -463,7 +464,7 @@ func InitializeAgentStack(
 
 	localRegistry := NewLocalToolRegistry(terminal, comm, searchTools, fsTools, network, memTools)
 	if deps.Persistence != nil {
-		localRegistry.WithJournal(deps.Persistence)
+		localRegistry.WithJournal(deps.Persistence).WithSessions(deps.Persistence)
 	}
 	provider := NewMultiToolProvider(false, localRegistry, mcp)
 	mcpEngine := NewEngine(mcp, deps.Logger)
@@ -668,6 +669,18 @@ func registerScopedTool[T any](r *LocalToolRegistry, toolName string, available 
 func (r *LocalToolRegistry) WithJournal(store tools.JournalStore) *LocalToolRegistry {
 	r.Journal = tools.NewAutomationJournalTools(store)
 	registerScopedTool(r, models.ToolAutomationJournal, models.IsJournalRun, r.Journal.Write)
+	return r
+}
+
+// WithSessions enables session_search over the conversation store. It is scoped to the operator's own chat, as memory_forget is: an
+// unattended automation may be steered by content it read, and whoever writes to a connector chat is not the owner, so neither may read the
+// owner's past conversations.
+func (r *LocalToolRegistry) WithSessions(store tools.SessionReader) *LocalToolRegistry {
+	r.Sessions = tools.NewSessionSearchTools(store)
+	ownerChat := func(ctx context.Context) bool {
+		return !models.IsUnattendedRun(ctx) && models.OriginConnector(ctx) == ""
+	}
+	registerScopedTool(r, models.ToolSessionSearch, ownerChat, r.Sessions.Search)
 	return r
 }
 

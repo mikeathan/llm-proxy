@@ -10,7 +10,7 @@ evidence: branch control-center-boards (cut from main at f96d25d4, v0.103.0); AD
 # Dashboard of boards and cards: handoff (2026-11-19)
 
 ## State
-- **Branch** `control-center-boards`, cut from `main` at `f96d25d4` (v0.103.0), version bumped to v0.105.0. The pull request is in the tracker row. It does **not** contain the 9 commits of `docs-plans-tracker-cleanup` (PR #270, which takes v0.104.0, ADR-0062 and ADR-0063); this branch's ADR is **0064** and its version **0.105.0** so the two do not collide. If this merges first, v0.104.0 is skipped; if #270 merges first, nothing changes. Either order merges: they both touch `docs/PLANS/README.md` and `docs/subsystems/admin-ui.md` (keep both rows) and `frontend_dist/index.html` (rebuild after the merge).
+- **Branch** `control-center-boards`, cut from `main` at `f96d25d4` (v0.103.0) and merged with `main` after PR #270 (v0.104.0) on 2026-11-19; version bumped to 0.105.0, ADR-0064. The pull request is #271.
 - **Not run on vertex.** The dashboard was run in a browser against mocked answers (`e2e/dashboard.visual.spec.ts`), never against the real server and real data.
 
 ## Built

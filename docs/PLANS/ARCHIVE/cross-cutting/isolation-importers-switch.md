@@ -1,5 +1,5 @@
 ---
-status: built
+status: complete
 date: 2026-11-12
 last_reviewed: 2026-11-12
 related_specs: [SPEC-006]

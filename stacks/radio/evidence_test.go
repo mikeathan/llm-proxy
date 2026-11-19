@@ -91,7 +91,7 @@ func assocTo(from, ap MAC) []byte {
 
 func TestAnOwnerDeviceJoiningAnAccessPointThatIsNotYoursIsCountedWithNoAddress(t *testing.T) {
 	r := devRig(t)
-	rec, store, _ := r.s.recorder(r.s.h)
+	rec, _, _ := r.s.recorder(r.s.h)
 	ctx := context.Background()
 	if err := rec.AddOwnerDevice(ctx, mineMAC, "phone", t0); err != nil {
 		t.Fatal(err)
@@ -100,10 +100,7 @@ func TestAnOwnerDeviceJoiningAnAccessPointThatIsNotYoursIsCountedWithNoAddress(t
 	if _, ok := findingOf(digestOf(t, r), "radio_join_foreign_network"); ok {
 		t.Fatal("with no confirmed access point of yours, every network is unknown: that is not a finding")
 	}
-	ownAP(t, store, 9, "home", "wpa2", "capable", true)
-	if err := rec.RefreshOwnAPs(ctx); err != nil {
-		t.Fatal(err)
-	}
+	ownAP(t, r, 9, "home", "wpa2", "capable", true)
 	record(t, rec, assocTo(mineMAC, neighbourAP), t0)
 	f, ok := findingOf(digestOf(t, r), "radio_join_foreign_network")
 	if !ok || f.Count != 1 || f.Tier != TierSeen {

@@ -43,7 +43,6 @@ func NewClient(name, sseURL, bindAddr string, tlsCACert string, logger logging.L
 		DialContext:   dialer,
 		logger:        logger,
 		retryInterval: 5 * time.Second,
-		subscriptions: make(map[string]struct{}),
 		done:          make(chan struct{}),
 	}
 }
@@ -274,26 +273,7 @@ func (c *Client) connect(ctx context.Context, logger *logging.PulseLogger) error
 	c.client = mcpClient
 	c.initialized = true
 	c.lastSuccess = time.Now()
-	// Copy subscriptions to local slice to avoid holding lock during network calls
-	subs := make([]string, 0, len(c.subscriptions))
-	for uri := range c.subscriptions {
-		subs = append(subs, uri)
-	}
-
 	c.mu.Unlock()
-
-	// Re-subscribe to resources
-	for _, uri := range subs {
-		subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		err := c.subscribeInternal(subCtx, mcpClient, uri)
-		cancel()
-
-		if err != nil {
-			logger.Error("Failed to re-subscribe to resource", "server", c.Name, "uri", uri, "error", err)
-		} else {
-			logger.Info("Re-subscribed to resource", "server", c.Name, "uri", uri)
-		}
-	}
 
 	return nil
 }
@@ -358,37 +338,6 @@ func (c *Client) ReadResource(ctx context.Context, uri string) (string, error) {
 	return string(jsonBytes), nil
 }
 
-func (c *Client) Subscribe(ctx context.Context, uri string) error {
-	c.mu.Lock()
-	c.subscriptions[uri] = struct{}{}
-	client := c.client
-	initialized := c.initialized
-	c.mu.Unlock()
-
-	if !initialized || client == nil {
-		// We recorded the subscription, so it will be picked up on next connect
-		c.logger.Info("Subscription queued (client not ready)", "server", c.Name, "uri", uri)
-		return nil
-	}
-
-	if err := c.subscribeInternal(ctx, client, uri); err != nil {
-		return err
-	}
-
-	c.logger.Info("Subscribed to resource", "server", c.Name, "uri", uri)
-	return nil
-}
-
-func (c *Client) subscribeInternal(ctx context.Context, client *client.Client, uri string) error {
-	req := mcp.SubscribeRequest{}
-	req.Params.URI = uri
-
-	if err := client.Subscribe(ctx, req); err != nil {
-		return fmt.Errorf("failed to subscribe to %s: %w", uri, err)
-	}
-	return nil
-}
-
 func (c *Client) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	c.mu.RLock()
 	client := c.client
@@ -428,55 +377,4 @@ func (c *Client) CallTool(ctx context.Context, name string, args map[string]any)
 	}
 
 	return result, nil
-}
-
-func (c *Client) OnPromptUpdate(handler func(content string)) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.onPromptUpdate = handler
-}
-
-func (c *Client) handleNotification(ctx context.Context, notification mcp.JSONRPCNotification) {
-
-	switch notification.Method {
-	case "notifications/resources/updated":
-		c.handleResourceUpdated(ctx, notification)
-	default:
-		c.logger.Debug("Unhandled notification", "server", c.Name, "method", notification.Method)
-	}
-}
-
-func (c *Client) handleResourceUpdated(ctx context.Context, notification mcp.JSONRPCNotification) {
-	params := notification.Params.AdditionalFields
-	uri, ok := params["uri"].(string)
-	if !ok {
-		c.logger.Warn("Resource update notification missing URI", "server", c.Name)
-		return
-	}
-
-	c.logger.Info("Resource updated", "server", c.Name, "uri", uri)
-
-	switch uri {
-	case "nodeherder://system-prompt":
-		c.mu.RLock()
-		promptHandler := c.onPromptUpdate
-		c.mu.RUnlock()
-
-		if promptHandler != nil {
-			// Fetch and update using the lifecycle context
-			go func() {
-				// Use a timeout for the fetch operation to avoid hanging
-				fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				defer cancel()
-
-				content, err := c.ReadResource(fetchCtx, uri)
-				if err != nil {
-					c.logger.Error("Initial prompt sync failed after reconnect", "server", c.Name, "error", err)
-					return
-				}
-				promptHandler(content)
-				c.logger.Info("System-prompt sync complete after notification", "server", c.Name)
-			}()
-		}
-	}
 }

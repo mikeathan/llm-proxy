@@ -20,17 +20,6 @@ func NewOrchestrator(logger logging.Logger) *Orchestrator {
 	}
 }
 
-func (m *Orchestrator) OnPromptUpdate(handler func(content string)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.onPromptUpdate = handler
-
-	// Propagate to existing clients?
-	for _, c := range m.clients {
-		c.OnPromptUpdate(handler)
-	}
-}
-
 // Reload updates the pool of MCP clients based on the new configuration.
 // It starts new clients, re-configures existing ones if needed, and stops removed ones.
 func (m *Orchestrator) Reload(ctx context.Context, serverConfigs []models.MCPServerConfig, bindAddr string) {
@@ -75,11 +64,6 @@ func (m *Orchestrator) startClient(parentCtx context.Context, cfg models.MCPServ
 	// Create a context for this client that can be cancelled
 	ctx, cancel := context.WithCancel(parentCtx)
 	client.cancelFunc = cancel
-
-	// Propagate handlers
-	if m.onPromptUpdate != nil {
-		client.OnPromptUpdate(m.onPromptUpdate)
-	}
 
 	m.clients[cfg.Name] = client
 
@@ -149,71 +133,6 @@ func (m *Orchestrator) CallTool(ctx context.Context, name string, args map[strin
 	}
 
 	return nil, fmt.Errorf("tool %s not found on any active MCP server", name)
-}
-
-func (m *Orchestrator) ReadResource(ctx context.Context, uri string) (string, error) {
-	m.mu.RLock()
-	clients := make([]*Client, 0, len(m.clients))
-	for _, c := range m.clients {
-		clients = append(clients, c)
-	}
-	m.mu.RUnlock()
-
-	type result struct {
-		content string
-		err     error
-	}
-
-	// Buffered channel to avoid blocked goroutines
-	ch := make(chan result, len(clients))
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	activeCount := 0
-	for _, c := range clients {
-		if !c.IsInitialized() {
-			continue
-		}
-		activeCount++
-		go func(c *Client) {
-			content, err := c.ReadResource(ctx, uri)
-			ch <- result{content: content, err: err}
-		}(c)
-	}
-
-	if activeCount == 0 {
-		return "", fmt.Errorf("resource %s not found (no active servers)", uri)
-	}
-
-	var lastErr error
-	for i := 0; i < activeCount; i++ {
-		res := <-ch
-		if res.err == nil {
-			return res.content, nil
-		}
-		// Ignore context canceled errors if they are due to our own cancel
-		if ctx.Err() == nil {
-			lastErr = res.err
-		}
-	}
-
-	return "", fmt.Errorf("failed to read resource %s from any server: last error: %w", uri, lastErr)
-}
-
-func (m *Orchestrator) Subscribe(ctx context.Context, uri string) {
-	m.mu.RLock()
-	clients := make([]*Client, 0, len(m.clients))
-	for _, c := range m.clients {
-		clients = append(clients, c)
-	}
-	m.mu.RUnlock()
-
-	for _, c := range clients {
-		if err := c.Subscribe(ctx, uri); err != nil {
-			m.logger.Warn("Failed to subscribe to resource", "server", c.Name, "uri", uri, "error", err)
-		}
-	}
 }
 
 func (m *Orchestrator) HasActiveClients() bool {
