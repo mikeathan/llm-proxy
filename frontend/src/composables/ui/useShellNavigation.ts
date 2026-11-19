@@ -13,7 +13,7 @@ export function useShellNavigation(badges: Readonly<Ref<Partial<Record<NavId, nu
   const stacks = useEnabledStacks()
 
   const items = computed(() =>
-    buildNavigation({ stacksOn: stacks.on.value, lastWorkspace: lastWorkspace.value, routeName: route.name as string | null | undefined, destination: route.meta.destination, board: typeof route.query.board === 'string' ? route.query.board : undefined, badges: badges.value }),
+    buildNavigation({ stacksOn: stacks.on.value, lastWorkspace: lastWorkspace.value, routeName: route.name as string | null | undefined, destination: route.meta.destination, badges: badges.value }),
   )
   const entries = computed(() => groupNavigation(items.value))
   const home = computed(() => homeLocation())

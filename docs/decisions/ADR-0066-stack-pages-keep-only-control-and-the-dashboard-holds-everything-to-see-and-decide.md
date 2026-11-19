@@ -27,8 +27,10 @@ ADR-0065, `router/index.ts`, `components/dashboard/cardRegistry.ts`.
 4. **A stack that has no module on has no menu entry, no board and no cards** (the saved layout is kept, so they return with the stack).
    One shared read of `GET /stacks` feeds the menu and the dashboard. An "Add a stack" entry (`/stacks`) shows only while one is off, as the way
    to its Modules page; an unknown list shows everything.
-5. **Network and Radio in the menu open their board.** The board's header link and the stack page's "Open the board" link are the way back and
-   forth. The old tab addresses (`/network/devices|findings|traffic|audits`, `/radio/devices`) redirect to their card and keep `?finding=` and `?device=`.
+5. **Network and Radio in the menu open their own page** (Network: Modules; Radio: Listening), which looks like a stack page, not like the
+   dashboard. (First built as "the menu opens the board"; the owner found a stack that looked like the Dashboard, with the board tabs and
+   the new-cards banner, wrong on 2026-11-19, and it was reverted in v0.108.0.) The stack page's "Open the board" link and the dashboard's
+   Network and Radio board tabs are the way to the cards. The old tab addresses (`/network/devices|findings|traffic|audits`, `/radio/devices`) redirect to their card and keep `?finding=` and `?device=`.
 6. **A board saved before a card existed is told once** ("New on this board: …", Add them or Not now, remembered per browser); nothing is added
    behind the owner's back. "Put every board back as shipped" is in the Add board menu, after a confirmation.
 7. **The grid packs like bricks.** Rows are 4 px and a cell spans as many as its measured height needs (`ResizeObserver`); sparse placement,

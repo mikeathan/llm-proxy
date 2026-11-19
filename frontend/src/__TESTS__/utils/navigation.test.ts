@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { badgeTarget, buildNavigation, groupNavigation, homeLocation } from '../../utils/navigation'
 import { ROUTE_NAMES } from '../../types/routes'
+import { toNetwork, toRadio } from '../../router/routes'
 import type { RunEndItem } from '../../types/notifications'
 
 const base = { lastWorkspace: 'demo' as string | null, routeName: ROUTE_NAMES.dashboard as string | null, destination: 'dashboard' as const, badges: {} }
@@ -19,13 +20,14 @@ describe('buildNavigation', () => {
     expect(ids(new Set())).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'stacks', 'reminders', 'models', 'activity', 'settings'])
   })
 
-  it('opens Network and Radio on their board of the dashboard, which marks them current instead of the Dashboard', () => {
-    const items = buildNavigation({ ...base, board: 'network' })
-    expect(item(items, 'network').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'network' } })
-    expect(item(items, 'radio').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'radio' } })
-    expect(items.filter((i) => i.current).map((i) => i.id)).toEqual(['network'])
-    expect(buildNavigation({ ...base, board: 'home' }).filter((i) => i.current).map((i) => i.id)).toEqual(['dashboard'])
-    expect(item(buildNavigation(base), 'dashboard').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'home' } })
+  it('opens Network and Radio on their own page, never on a board of the dashboard', () => {
+    const items = buildNavigation(base)
+    expect(item(items, 'network').to).toEqual(toNetwork())
+    expect(item(items, 'radio').to).toEqual(toRadio())
+    expect(items.filter((i) => i.current).map((i) => i.id)).toEqual(['dashboard'])
+    expect(item(items, 'dashboard').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'home' } })
+    const onNetwork = buildNavigation({ ...base, routeName: ROUTE_NAMES.network, destination: 'network' })
+    expect(onNetwork.filter((i) => i.current).map((i) => i.id)).toEqual(['network'])
   })
 
   it('opens the assistant and the files of the workspace last used', () => {

@@ -1,5 +1,5 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { toActivity, toAgents, toAutomations, toDashboard, toModels, toNetworkCard, toRadioCard, toReminders, toSettings, toStacks, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
+import { toActivity, toAgents, toAutomations, toDashboard, toModels, toNetwork, toRadio, toReminders, toSettings, toStacks, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
 import { HOME_BOARD_ID } from '../constants/dashboard'
 import type { Destination, NavEntry, NavGroup, NavGroupId, NavId, NavItem } from '../types/routes'
@@ -20,8 +20,6 @@ interface NavContext {
   lastWorkspace: string | null
   routeName: string | null | undefined
   destination: Destination | undefined
-  /** The board open on the dashboard (`?board=`); a stack's board counts as that stack's entry, not as the Dashboard. */
-  board?: string
   badges: Partial<Record<NavId, number>>
 }
 
@@ -40,12 +38,9 @@ interface NavSpec {
 
 const onDestination = (destination: Destination) => (ctx: NavContext) => ctx.destination === destination
 
-// Network and Radio open their board on the dashboard, where everything to be seen is; their own page (modules, settings, listening) is the same entry.
-const isStackBoard = (board: string | undefined): boolean => board === 'network' || board === 'radio'
-const onStack = (stack: 'network' | 'radio') => (ctx: NavContext) => ctx.destination === stack || (ctx.destination === 'dashboard' && ctx.board === stack)
 
 const SPECS: readonly NavSpec[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'nav-overview', tab: true, to: () => toDashboard(HOME_BOARD_ID), current: (ctx) => ctx.destination === 'dashboard' && !isStackBoard(ctx.board) },
+  { id: 'dashboard', label: 'Dashboard', icon: 'nav-overview', tab: true, to: () => toDashboard(HOME_BOARD_ID), current: onDestination('dashboard') },
   {
     id: 'assistant',
     label: 'Assistant',
@@ -63,9 +58,9 @@ const SPECS: readonly NavSpec[] = [
     current: (ctx) => ctx.destination === 'workspaces' && ctx.routeName !== ROUTE_NAMES.workspaceAssistant,
   },
   { id: 'automations', label: 'Automations', icon: 'nav-automations', tab: true, to: toAutomations, current: onDestination('automations') },
-  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'stacks', stack: 'network', to: () => toNetworkCard(), current: onStack('network') },
+  { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'stacks', stack: 'network', to: () => toNetwork(), current: onDestination('network') },
   { id: 'agents', label: 'Agents', icon: 'nav-agents', tab: false, group: 'stacks', stack: 'agents', to: () => toAgents(), current: onDestination('agents') },
-  { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', stack: 'radio', to: () => toRadioCard(), current: onStack('radio') },
+  { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', stack: 'radio', to: () => toRadio(), current: onDestination('radio') },
   { id: 'stacks', label: 'Add a stack', icon: 'nav-stacks', tab: false, group: 'stacks', to: () => toStacks(), current: onDestination('stacks') },
   { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: false, to: toReminders, current: onDestination('reminders') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
