@@ -69,7 +69,7 @@ onMounted(load)
 
       <template v-else-if="!state.enabled">
         <p class="m-0 text-secondary" data-test="nearby-off">{{ NEARBY_OFF_BODY }}</p>
-        <RouterLink :to="toNetworkSettings('watching')" class="inline-flex min-h-11 items-center self-start text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8" data-test="nearby-turn-on">{{ NEARBY_TURN_ON }}</RouterLink>
+        <RouterLink :to="toNetworkSettings('devices')" class="inline-flex min-h-11 items-center self-start text-accent-info-text underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring sm:min-h-8" data-test="nearby-turn-on">{{ NEARBY_TURN_ON }}</RouterLink>
       </template>
 
       <template v-else>

@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../../router'
+import { NETWORK_CARD_BOARD } from '../../constants/dashboard'
 import type { Automation } from '../../types/dispatcher'
 
 const automations = ref<Automation[]>([])
@@ -55,15 +56,15 @@ describe('NetworkView', () => {
     ['/network/findings', 'network-findings'],
     ['/network/traffic', 'network-traffic'],
     ['/network/audits', 'network-audits'],
-  ])('sends the old address %s to its card on the Network board', async (path, card) => {
+  ])('sends the old address %s to its card on the Network tab (the sub-tab that holds it)', async (path, card) => {
     const { router } = await mountAt(path)
     expect(router.currentRoute.value.name).toBe('dashboard')
-    expect(router.currentRoute.value.query).toEqual({ board: 'network', card })
+    expect(router.currentRoute.value.query).toEqual({ board: NETWORK_CARD_BOARD[card], card })
   })
 
   it('keeps the filters of an old findings link when it sends it to the card', async () => {
     const { router } = await mountAt('/network/findings?device=192.0.2.5')
-    expect(router.currentRoute.value.query).toEqual({ board: 'network', card: 'network-findings', device: '192.0.2.5' })
+    expect(router.currentRoute.value.query).toEqual({ board: 'network-findings', card: 'network-findings', device: '192.0.2.5' })
   })
 
   it('keeps Simple/Advanced and Help in the page header, once, on every tab', async () => {

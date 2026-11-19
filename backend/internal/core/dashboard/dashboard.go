@@ -15,7 +15,7 @@ import (
 
 // The limits keep one request, and the file it becomes, small.
 const (
-	MaxBoards  = 12
+	MaxBoards  = 20
 	MaxCards   = 40
 	MaxIDLen   = 40
 	MaxNameLen = 40

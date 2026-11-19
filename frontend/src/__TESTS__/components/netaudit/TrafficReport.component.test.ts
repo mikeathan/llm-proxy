@@ -264,7 +264,7 @@ describe('TrafficReport problems link', () => {
     const w = await open({ of: (a) => (a === '192.168.50.7' ? { count: 3, severity: 'high' } : null) })
     await w.get('[data-test="talk-network"] [data-test="talk-open"]').trigger('click')
     const link = w.get('[data-test="place-problems"] a')
-    expect(link.attributes('href')).toBe('/dashboard?board=network&card=network-findings&device=192.168.50.7')
+    expect(link.attributes('href')).toBe('/dashboard?board=network-findings&card=network-findings&device=192.168.50.7')
     expect(link.text()).toBe('3 problems found on this device')
   })
 

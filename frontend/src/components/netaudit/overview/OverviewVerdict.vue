@@ -11,7 +11,7 @@ import { NETWORK_CHECK_PROBLEM, NETWORK_POSTURE_UNKNOWN_NEXT } from "../../../co
 import type { NetworkPosture } from "../../../types/netaudit"
 import type { StatusState } from "../../../types/ui"
 
-// Dashboard card · Network posture: one verdict, what needs a look and the next step, which links to the Network page where it is done.
+// Network overview · the verdict: one line on how the network is, what needs a look and the next step, which links to where it is done.
 // Small is the verdict and the count; medium adds the reasons in a list that scrolls; large adds the next step. It only reads what the server already knows.
 const POSTURE_TAG: Record<NetworkPosture, { state: StatusState; label: string }> = {
   unknown: { state: "neutral", label: "Not looked at" },
@@ -26,7 +26,7 @@ const next = computed(() => (overview.value ? nextAction(overview.value, hasAudi
 </script>
 
 <template>
-  <div data-test="network-posture-card">
+  <div data-test="network-overview-verdict">
     <ErrorState v-if="error && !overview" title="The network could not be read" :cause="error" next="It is read again in a minute." />
     <LoadingState v-else-if="!overview || !tag" label="Reading the network" :rows="2" />
     <template v-else>

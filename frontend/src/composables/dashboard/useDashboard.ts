@@ -2,7 +2,7 @@ import { computed, ref, toRaw, type Ref } from 'vue'
 import { DashboardService } from '../../services/dashboard/dashboardService'
 import { useToast } from '../useToast'
 import { usePersistedState } from '../ui/usePersistedState'
-import { addBoard, addCard, visibleLayout, applyPreset, boardsToOffer, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout } from '../../domain/dashboard'
+import { addBoard, addCard, visibleLayout, applyPreset, boardsToOffer, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sourceIsOn, templateOf } from '../../domain/dashboard'
 import { HOME_BOARD_ID, LAYOUT_LOAD_FAILED, LAYOUT_SAVE_FAILED } from '../../constants/dashboard'
 import { errorMessage } from '../../utils/errors'
 import type { DashboardBoard, DashboardBoardTemplate, DashboardCardDef, DashboardCols, DashboardLayout, DashboardPlacement, DashboardPreset, DashboardRows } from '../../types/dashboard'
@@ -87,8 +87,13 @@ export function useDashboard(knownCards: ReadonlySet<string>, enabledStacks: Ref
   /** Puts the open board back to how it shipped. A board that did not ship has no shipped arrangement, so nothing changes. */
   const resetBoard = () => setPreset('default')
 
+  // A board the stack ships that the saved layout lacks (a sub-tab added since it was saved) is added when it is opened: the owner asked for it by choosing it.
   function open(id: string): void {
     if (boards.value.some((b) => b.id === id)) activeId.value = id
+    else {
+      const shipped = templateOf(id)
+      if (shipped?.source && sourceIsOn(shipped.source, enabledStacks.value)) addBoardFrom(shipped)
+    }
   }
   function addBoardFrom(template?: DashboardBoardTemplate): void {
     if (!layout.value) return

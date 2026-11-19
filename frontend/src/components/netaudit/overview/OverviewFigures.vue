@@ -10,7 +10,7 @@ import { formatRelativeTime, isRecorded } from "../../../utils/format/time"
 import { NETWORK_NO_AUDIT, NETWORK_TREND_NOTE, PROBLEMS_SEE_ALL, ROUTER_STAT_CAPTION, ROUTER_STAT_LABEL } from "../../../constants/netaudit"
 import { toNetworkCard } from "../../../router/routes"
 
-// Dashboard card · Network figures: the devices and problems with their 30-day trend, the router's refused attempts, and when the audit and
+// Network overview · the figures: the devices and problems with their 30-day trend, the router's refused attempts, and when the audit and
 // the new-device check last looked. It only shows what the server already knows, so it adds no scanning.
 const NO_VALUE = "–"
 const { overview, error, hasAudit } = useNetworkSnapshot()
@@ -34,7 +34,7 @@ const devicesCaption = computed(() => {
 </script>
 
 <template>
-  <div data-test="network-figures-card">
+  <div data-test="network-overview-figures">
     <ErrorState v-if="error && !overview" title="The network could not be read" :cause="error" next="It is read again in a minute." />
     <LoadingState v-else-if="!overview" label="Reading the network" :rows="2" />
     <template v-else>

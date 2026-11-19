@@ -12,6 +12,13 @@ body {
   @apply bg-canvas text-secondary font-sans;
 }
 
+/* The page scrollbar's room is always kept. On a tall screen the dashboard's height sits near the window's: the scrollbar appearing narrows
+   the cards, their text re-wraps and shortens the page, the scrollbar goes, and the cycle repeats (a constant flicker). A stable gutter
+   takes the width out of the loop. */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* Preflight colours placeholders with theme('colors.gray.400'); the theme has
    no palette, so it would fall back to a fixed grey. Keep them on the token. */
 @layer base {

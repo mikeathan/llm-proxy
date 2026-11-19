@@ -32,15 +32,24 @@ test('Home ships minimal: one card no stack board repeats', async ({ page }, tes
   }
 })
 
-test('the Network board holds the overview, the devices and the findings', async ({ page }, testInfo) => {
+test('Network is one tab with five sub-tabs, and the overview answers "is it all right" on the first screen', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
   await page.goto('dashboard?board=network')
   await expect(page.locator('[data-test="board-tab"][aria-current="page"]')).toHaveText('Network')
-  await expect(page.locator('[data-test="network-posture-card"]')).toContainText("The router's hardware address changed")
-  await expect(page.locator('[data-test="network-figures-card"] [data-test="stat-value"]').first()).toHaveText('12')
-  await expect(page.locator('[data-test="network-changes-card"]')).toContainText('192.168.1.77 appeared on the network')
+  await expect(page.locator('[data-test="board-tab"]')).toHaveCount(6) // Network is one tab, however many views it has
+  await expect(page.locator('[data-test="sub-tab"]')).toHaveText(['Overview', 'Devices', 'Traffic', 'Findings', 'Activity'])
+  await expect(page.locator('[data-test="network-overview-verdict"]')).toContainText("The router's hardware address changed")
+  await expect(page.locator('[data-test="network-overview-figures"] [data-test="stat-value"]').first()).toHaveText('12')
+  await expect(page.locator('[data-test="network-overview-changes"]')).toContainText('192.168.1.77 appeared on the network')
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'dashboard-network', true)
+  for (const [name, card] of [['Devices', 'network-devices'], ['Traffic', 'network-traffic'], ['Findings', 'network-findings'], ['Activity', 'network-timeline']] as const) {
+    await page.locator('[data-test="sub-tab"]', { hasText: name }).click()
+    await expect(page.locator('[data-test="sub-tab"][aria-current="page"]')).toHaveText(name)
+    await expect(page.locator(`[data-test="card-${card}"]`)).toBeVisible()
+    await expectNoSidewaysScroll(page)
+    await lookAt(page, testInfo, `dashboard-network-${name.toLowerCase()}`, true)
+  }
 })
 
 test('arranging: a layout re-flows the board, a card is resized, and the board offers to be put back', async ({ page }, testInfo) => {
@@ -66,25 +75,25 @@ test('arranging: a layout re-flows the board, a card is resized, and the board o
 test('arranging on a wide screen: resizing never stretches the neighbour, and "later" moves a card', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop', 'the grid is one column on a phone')
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
-  await page.goto('dashboard?board=network')
-  await expect(page.locator('[data-test="network-posture-card"]')).toBeVisible()
+  await page.goto('dashboard?board=host')
+  await expect(page.locator('[data-test="card-running-now"]')).toBeVisible()
   await page.locator('[data-test="arrange"]').click()
   const card = (id: string) => page.locator(`[data-test="card-${id}"]`)
   const box = async (id: string) => (await card(id).boundingBox())!
-  // The first row holds Network posture (8) and What changed (4).
-  const before = await box('network-changes')
-  const own = card('network-posture')
-  await own.locator('[aria-label="Height of Network posture"] button', { hasText: '2×' }).click()
-  await expect.poll(async () => (await box('network-posture')).height).toBeGreaterThan(400)
-  expect((await box('network-changes')).height).toBe(before.height)
-  await own.locator('[aria-label="Height of Network posture"] button', { hasText: '1×' }).click()
-  await own.locator('[aria-label="Width of Network posture"] button', { hasText: 'S' }).click()
-  await expect.poll(async () => (await box('network-posture')).width).toBeLessThan(before.width)
-  expect((await box('network-changes')).height).toBe(before.height)
+  // The second row holds Running now (6) and Recent runs (6).
+  const before = await box('recent-runs')
+  const own = card('running-now')
+  await own.locator('[aria-label="Height of Running now"] button', { hasText: '2×' }).click()
+  await expect.poll(async () => (await box('running-now')).height).toBeGreaterThan(400)
+  expect((await box('recent-runs')).height).toBe(before.height)
+  await own.locator('[aria-label="Height of Running now"] button', { hasText: '1×' }).click()
+  await own.locator('[aria-label="Width of Running now"] button', { hasText: 'S' }).click()
+  await expect.poll(async () => (await box('running-now')).width).toBeLessThan(before.width)
+  expect((await box('recent-runs')).height).toBe(before.height)
   // "Later" changes where the card sits: it goes after the card that followed it.
-  const at = await box('network-posture')
+  const at = await box('running-now')
   await own.locator('[data-move="later"]').click()
-  await expect.poll(async () => JSON.stringify(await box('network-posture'))).not.toBe(JSON.stringify(at))
+  await expect.poll(async () => JSON.stringify(await box('running-now'))).not.toBe(JSON.stringify(at))
 })
 
 // A tall card must not leave a hole under the short cards beside it: the next card goes under the shorter one, not below the whole row.
@@ -107,7 +116,7 @@ test('a tall card leaves no hole: the next card is placed under a short one', as
 })
 
 test('a card a stack page links to is offered when the saved board predates it', async ({ page }) => {
-  const saved = { boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }, { id: 'network', name: 'Network', cards: [{ id: 'network-posture', cols: 8, rows: 1 }] }] }
+  const saved = { boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }, { id: 'network-traffic', name: 'Traffic', cards: [] }] }
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': saved } })
   await page.goto('network/traffic') // an old tab address: it opens the card on the board
   await expect(page.locator('[data-test="add-wanted-card"]')).toBeVisible()

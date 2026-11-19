@@ -9,7 +9,8 @@ import type { NetworkSettingsGroup } from '../../../types/routes'
 // The Settings tab is a composition: what matters here is which group shows which cards. A group is one job; every card is in exactly one group.
 const GROUP_CARDS: Readonly<Record<NetworkSettingsGroup, readonly string[]>> = {
   scanning: ['scan-scope-settings-stub', 'scan-limits-settings-stub'],
-  watching: ['device-check-settings-stub', 'decoys-card-stub', 'router-log-card-stub', 'dns-check-card-stub', 'nearby-card-stub', 'wifi-card-stub'],
+  devices: ['device-check-settings-stub', 'decoys-card-stub', 'nearby-card-stub', 'wifi-card-stub'],
+  router: ['router-log-card-stub', 'router-connections-card-stub', 'dns-check-card-stub'],
   outside: ['outside-lookup-card-stub', 'footprint-card-stub', 'known-bad-card-stub'],
   data: ['vuln-data-card-stub', 'ubuntu-data-card-stub', 'destination-data-card-stub'],
   helper: ['helper-card-stub'],

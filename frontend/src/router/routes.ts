@@ -1,4 +1,5 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
+import { NETWORK_CARD_BOARD } from '../constants/dashboard'
 import { ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import type { RequirementFixSection } from '../types/netaudit'
 import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup, NetworkTab, RadioTab, RemindersTab, RouteSnapshot, SettingsSection, WorkspaceLocation, WorkspaceSection } from '../types/routes'
@@ -60,8 +61,8 @@ export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRa
 /** One group of the Network page's Settings tab (what to scan, watching, outside services, downloaded data, the helper). */
 export const toNetworkSettings = (group: NetworkSettingsGroup): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'settings' }, query: { group } })
 
-/** One card of the dashboard's Network board, or the board itself. */
-export const toNetworkCard = (card?: string): RouteLocationNamedRaw => toDashboard('network', card)
+/** One card of the dashboard's Network tab (the sub-tab that holds it opens), or the tab itself. */
+export const toNetworkCard = (card?: string): RouteLocationNamedRaw => toDashboard((card && NETWORK_CARD_BOARD[card]) || 'network', card)
 
 /** The Findings card, scrolled to one finding (its key) and marked for a moment. A finding that is gone from the report says so. */
 export const toFinding = (key: string): RouteLocationNamedRaw => withQuery(toNetworkCard('network-findings'), { finding: key })

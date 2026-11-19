@@ -194,9 +194,9 @@ describe('finding rows', () => {
 describe('rowLink', () => {
   it('leads a fixed or returned problem to the problems of its device and an audit tally to the Findings tab', () => {
     const base = { at: '2026-11-10T10:00:00Z', group: 'findings' as const }
-    expect(rowLink({ ...base, kind: 'finding_fixed', device: '192.168.50.7', check: 'X' })).toEqual({ name: 'dashboard', query: { board: 'network', card: 'network-findings', device: '192.168.50.7' } })
+    expect(rowLink({ ...base, kind: 'finding_fixed', device: '192.168.50.7', check: 'X' })).toEqual({ name: 'dashboard', query: { board: 'network-findings', card: 'network-findings', device: '192.168.50.7' } })
     expect(rowLink({ ...base, kind: 'finding_returned', device: '192.168.50.7' })).toMatchObject({ query: { device: '192.168.50.7' } })
-    expect(rowLink({ ...base, kind: 'audit' })).toMatchObject({ query: { board: 'network', card: 'network-findings' } })
+    expect(rowLink({ ...base, kind: 'audit' })).toMatchObject({ query: { board: 'network-findings', card: 'network-findings' } })
   })
 
   it('leads nowhere for a row that is not about a problem, or a problem with no device', () => {

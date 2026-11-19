@@ -41,6 +41,7 @@ async function open(page: Page, view: 'simple' | 'advanced', nearby: object, the
   await setNetauditView(page, view)
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/nearby': nearby } })
   await page.goto('network/devices')
+  await page.getByRole('radio', { name: 'Nearby, not on your list' }).click() // the second view of the Devices card
   await expect(page.getByRole('heading', { name: 'Nearby', exact: true })).toBeVisible()
 }
 
@@ -113,7 +114,7 @@ for (const theme of Object.keys(SCHEMES) as (keyof typeof SCHEMES)[]) {
 test('the Nearby card on the Settings tab says what it sends and has no switch', async ({ page }) => {
   await storeTheme(page, 'retro-dark')
   await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/nearby': STATES.off } })
-  await page.goto('network/settings?group=watching')
+  await page.goto('network/settings?group=devices')
   const card = page.locator('[data-test="nearby-card"]')
   await expect(card.locator('[data-test="module-switch-state"]')).toBeVisible()
   await expect(card.getByRole('switch')).toHaveCount(0)

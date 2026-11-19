@@ -19,9 +19,9 @@ import DestinationDataCard from "./DestinationDataCard.vue"
 import { SETTINGS_GROUP_COPY, SETTINGS_SAVES_AT_ONCE } from "../../constants/netaudit"
 import type { NetworkSettingsGroup } from "../../types/routes"
 
-// Network · Settings: the limits and details of the Network page, in five groups named for their job, one shown at a time. What may be scanned and
-// the scan limits come first, the checks that watch next, then the looks that ask an outside service, the downloaded tables and the privileged
-// helper. Every switch is on the Modules tab. Each part saves at once. The group is chosen in the address (`?group=`), so a link can open it.
+// Network · Settings: the limits and details of the Network page, in six groups named for their job, one shown at a time. What may be scanned and
+// the scan limits come first, then what is watched among the devices (and the Wi-Fi), what the router tells this computer, the looks that ask an
+// outside service, the downloaded tables and the privileged helper. Every switch is on the Modules tab. Each part saves at once. The group is chosen in the address (`?group=`), so a link can open it.
 defineProps<{ group: NetworkSettingsGroup }>()
 </script>
 
@@ -35,14 +35,16 @@ defineProps<{ group: NetworkSettingsGroup }>()
         <ScanScopeSettings />
         <ScanLimitsSettings />
       </template>
-      <template v-else-if="group === 'watching'">
+      <template v-else-if="group === 'devices'">
         <DeviceCheckSettings />
         <DecoysCard />
+        <NearbyCard />
+        <WifiCard />
+      </template>
+      <template v-else-if="group === 'router'">
         <RouterLogCard />
         <RouterConnectionsCard />
         <DnsCheckCard />
-        <NearbyCard />
-        <WifiCard />
       </template>
       <template v-else-if="group === 'outside'">
         <OutsideLookupCard />
