@@ -1,5 +1,5 @@
 import { watch, type Ref } from 'vue'
-import { toAgents, toNetwork, toRadio, toSettings } from '../../router/routes'
+import { toAgents, toNetworkCard, toRadioCard, toSettings } from '../../router/routes'
 import { NetauditService } from '../../services/netaudit/netauditService'
 import type { GlobalRunTick } from '../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../types/notifications'
@@ -16,7 +16,6 @@ import { usePersistedState } from '../ui/usePersistedState'
 const SEEN_LIMIT = 100
 
 // Where each kind is looked at: devices and decoys live on the Devices tab; the summary is the overview.
-const DEVICES_TAB = 'devices'
 
 interface Deps {
   lastTick: Readonly<Ref<GlobalRunTick | null>>
@@ -29,12 +28,12 @@ interface Deps {
 }
 
 /** Where an alert leads: a sign-in alert to the sign-in events, an agent alert to the agent activity, a summary or a stopped
- * monitor to the overview, the rest to Devices. */
+ * monitor to the Network board, the rest to its Devices card. */
 function targetOf(kind: NetworkAlertEvent['kind']) {
   if (kind === 'sign_in') return toSettings('sign-in')
   if (kind === 'agent') return toAgents()
-  if (kind === 'radio') return toRadio()
-  return kind === 'summary' || kind === 'monitor' ? toNetwork() : toNetwork(DEVICES_TAB)
+  if (kind === 'radio') return toRadioCard()
+  return kind === 'summary' || kind === 'monitor' ? toNetworkCard() : toNetworkCard('network-devices')
 }
 
 function alertOf(event: NetworkAlertEvent): NetworkAlertItem {

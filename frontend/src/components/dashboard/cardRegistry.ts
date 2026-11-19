@@ -1,5 +1,5 @@
 import { defineAsyncComponent } from 'vue'
-import { toActivity, toAgents, toAutomations, toModels, toNetwork, toRadio, toReminders, toWorkspaces } from '../../router/routes'
+import { toActivity, toAgents, toAutomations, toModels, toNetwork, toNetworkSettings, toRadio, toReminders, toWorkspaces } from '../../router/routes'
 import { ACTIVITY_TITLE } from '../../constants/netaudit'
 import type { DashboardCardDef } from '../../types/dashboard'
 
@@ -11,21 +11,27 @@ const card = (name: string) => defineAsyncComponent(() => import(`./cards/${name
 export const CARD_DEFS: readonly DashboardCardDef[] = [
   { id: 'assistant-recent', source: 'assistant', title: 'Recent conversations', component: card('AssistantRecentCard'), cols: 4, rows: 1, control: () => toWorkspaces() },
   { id: 'agents-activity', source: 'agents', title: 'Agent activity', component: card('AgentsActivityCard'), cols: 6, rows: 1, control: () => toAgents() },
-  { id: 'network-devices', source: 'network', title: 'Devices', component: card('NetworkDevicesCard'), cols: 6, rows: 1, control: () => toNetwork('devices') },
   { id: 'host-health', source: 'host', title: 'Host health', component: card('HostHealthCard'), cols: 12, rows: 1, control: toModels },
   { id: 'running-now', source: 'host', title: 'Running now', component: card('RunningNowCard'), cols: 4, rows: 1, control: () => toActivity() },
   { id: 'recent-runs', source: 'automations', title: 'Recent runs', component: card('RecentRunsCard'), cols: 8, rows: 1, control: toAutomations },
   { id: 'reminders', source: 'reminders', title: 'Reminders', component: card('RemindersCard'), cols: 4, rows: 1, control: toReminders },
-  { id: 'network-posture', source: 'network', title: 'Network posture', component: card('NetworkPostureCard'), cols: 4, rows: 1, control: () => toNetwork('findings') },
-  { id: 'network-changes', source: 'network', title: 'What changed', component: card('NetworkChangesCard'), cols: 4, rows: 1, control: () => toNetwork('devices') },
-  { id: 'network-timeline', source: 'network', title: ACTIVITY_TITLE, component: card('NetworkTimelineCard'), cols: 6, rows: 1, control: () => toNetwork('audits') },
-  { id: 'network-figures', source: 'network', title: 'Network figures', component: card('NetworkFiguresCard'), cols: 12, rows: 1, control: () => toNetwork('devices') },
-  { id: 'network-traffic', source: 'network', title: 'Traffic by device', component: card('NetworkTrafficCard'), cols: 12, rows: 1, control: () => toNetwork('traffic') },
+  { id: 'network-posture', source: 'network', title: 'Network posture', component: card('NetworkPostureCard'), cols: 4, rows: 1, control: () => toNetwork('modules') },
+  { id: 'network-devices', source: 'network', title: 'Devices', component: card('NetworkDevicesCard'), cols: 12, rows: 1, control: () => toNetworkSettings('watching') },
+  { id: 'network-findings', source: 'network', title: 'Findings', component: card('NetworkFindingsCard'), cols: 12, rows: 1, control: () => toNetwork('modules') },
+  { id: 'network-audits', source: 'network', title: 'Audits', component: card('NetworkAuditsCard'), cols: 6, rows: 1, control: () => toNetworkSettings('scanning') },
+  { id: 'network-nearby', source: 'network', title: 'Nearby', component: card('NetworkNearbyCard'), cols: 12, rows: 1, control: () => toNetworkSettings('watching') },
+  { id: 'network-trace', source: 'network', title: 'Trace a route', component: card('NetworkTraceCard'), cols: 6, rows: 1, control: () => toNetworkSettings('helper') },
+  { id: 'network-changes', source: 'network', title: 'What changed', component: card('NetworkChangesCard'), cols: 4, rows: 1, control: () => toNetwork('modules') },
+  { id: 'network-timeline', source: 'network', title: ACTIVITY_TITLE, component: card('NetworkTimelineCard'), cols: 6, rows: 1, control: () => toNetwork('modules') },
+  { id: 'network-figures', source: 'network', title: 'Network figures', component: card('NetworkFiguresCard'), cols: 12, rows: 1, control: () => toNetwork('modules') },
+  { id: 'network-traffic', source: 'network', title: 'Traffic by device', component: card('NetworkTrafficCard'), cols: 12, rows: 1, control: () => toNetworkSettings('helper') },
   { id: 'network-coverage', source: 'network', title: 'What is watching', component: card('NetworkCoverageCard'), cols: 12, rows: 1, control: () => toNetwork('modules') },
-  { id: 'network-attack-paths', source: 'network', title: 'Ways in', component: card('NetworkAttackPathsCard'), cols: 6, rows: 1, control: () => toNetwork('findings') },
-  { id: 'network-standing', source: 'network', title: 'Are we getting better', component: card('NetworkStandingCard'), cols: 6, rows: 1, control: () => toNetwork('findings') },
+  { id: 'network-attack-paths', source: 'network', title: 'Ways in', component: card('NetworkAttackPathsCard'), cols: 6, rows: 1, control: () => toNetwork('modules') },
+  { id: 'network-standing', source: 'network', title: 'Are we getting better', component: card('NetworkStandingCard'), cols: 6, rows: 1, control: () => toNetwork('modules') },
   { id: 'radio-around', source: 'radio', title: 'Around you', component: card('RadioAroundCard'), cols: 4, rows: 1, control: () => toRadio() },
-  { id: 'radio-devices', source: 'radio', title: 'My devices', component: card('RadioMyDevicesCard'), cols: 6, rows: 1, control: () => toRadio('devices') },
+  { id: 'radio-devices', source: 'radio', title: 'My devices', component: card('RadioMyDevicesCard'), cols: 6, rows: 1, control: () => toRadio('sensors') },
+  { id: 'radio-manage', source: 'radio', title: 'Claim and manage devices', component: card('RadioManageCard'), cols: 6, rows: 1, control: () => toRadio() },
+  { id: 'radio-networks', source: 'radio', title: 'Your Wi-Fi networks', component: card('RadioNetworksCard'), cols: 6, rows: 1, control: () => toNetworkSettings('watching') },
   { id: 'radio-findings', source: 'radio', title: 'Things to look at', component: card('RadioFindingsCard'), cols: 12, rows: 1, control: () => toRadio() },
 ]
 

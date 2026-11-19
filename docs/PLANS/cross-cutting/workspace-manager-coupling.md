@@ -1,6 +1,6 @@
 # WorkspaceManager coupling — narrow the concrete type that 19 files hold
 
-**Status:** approved (owner, 2026-11-18). P0 measured 2026-11-18 (§3a); P1 onward not started.
+**Status:** approved (owner, 2026-11-18). P0 measured 2026-11-18 (§3a); P1 and P2 built for six of the seven files 2026-11-19 (§3b); P3 and P4 not started.
 **Related Specs:** SPEC-007 (Automation Dispatcher). No SPEC names the persistence manager; checked `docs/SPECS/README.md`.
 **Constitution refs:** IV.4 (no dead code), V.3 (no half-finished work). No new invariant is proposed.
 **Origin:** a knowledge-graph run over `backend/` on 2026-10-27 (graphify, code structure only) showed `WorkspaceManager`
@@ -72,6 +72,18 @@ concrete type and do not appear below.
 **Result:** the real narrowing left is four small interfaces (`SessionStore`, `ConfigReader`, `TaskFileReader`, `StateReader`, plus
 the one-method `ConfigWriter`) for seven files; the automation and admin-facade holders stay concrete on purpose. P1 starts there.
 
+## 3b. P1/P2 result (built 2026-11-19)
+
+Each interface is declared where it is used and the manager satisfies it (a compile-time assertion where the type is exported):
+`assistant.TaskFileReader` (`LoadAgentsFile`, `BuildSystemPrompt`, `conversationSystemMessage`), `chat.ConversationStore`
+(session read and write, config read, task file), `handlers.SessionStore` (the five session methods), the `WebhookHandler` field
+(`ReadState`) and `newCachedConfigReader` (`ReadConfig`). Proof: `go build ./...`, `go test ./...`, `go run ./tools/check-complexity/`.
+
+**Not narrowed on purpose: `guardrails.GuardrailEngine` (`WriteConfig`).** The engine checks `persistence == nil`, and the registry passes
+`deps.Persistence`, which can be a nil `*WorkspaceManager`. Passed to an interface parameter, that becomes a non-nil interface holding
+a nil pointer, the check no longer fires, and "persistence not available" turns into a panic. Narrow it only together with a nil-safe
+hand-off (pass the interface only when the pointer is non-nil), and a test for the nil case.
+
 ## 4. Risks and checks
 
 - Interfaces that mirror the whole manager add nothing. P0 must reject any cluster larger than about six methods.
@@ -88,4 +100,4 @@ the one-method `ConfigWriter`) for seven files; the automation and admin-facade 
 
 ## Remaining Work
 
-P0 done (§3a). Next: P1 for the four interfaces in §3a, then P2 package by package (chat and handlers first), P3, P4.
+P0 done (§3a); P1/P2 built for six files (§3b). Left: the guardrail engine's `ConfigWriter` with its nil-safe hand-off, P3 (smaller fakes in tests), P4 (re-measure).

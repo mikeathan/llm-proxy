@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { RouterLinkStub, flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import type { HelperStatus, HostTraffic } from '../../../types/netaudit'
 
 const service = vi.hoisted(() => ({
@@ -7,7 +7,8 @@ const service = vi.hoisted(() => ({
 }))
 vi.mock('../../../services/netaudit/netauditService', () => ({ NetauditService: service }))
 
-import TrafficTab from '../../../components/netaudit/TrafficTab.vue'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import TrafficLookPanel from '../../../components/netaudit/TrafficLookPanel.vue'
 
 const ready = (over: Partial<HelperStatus> = {}): HelperStatus => ({
   supported: true, installed: true, ready: true, declared_ranges: [], install_command: 'sudo x', help_path: 'docs',
@@ -18,13 +19,14 @@ const kept = {
   bytes_in: 2048, bytes_out: 1024, bytes_through: 0, internet_bytes: 3072, local_network_bytes: 0, lookups: 0, kinds: [{ kind: 'https', bytes: 3072 }], per_second: [3072],
   destinations: [{ address: '1.1.1.1', bytes: 3072, internet: true }], flows: [], other_flows: 0, other_bytes: 0,
 } as HostTraffic
+const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/network/:tab?', name: 'network', component: { template: '<div />' } }] })
 const mountTab = async () => {
-  const w = mount(TrafficTab, { global: { stubs: { RouterLink: RouterLinkStub } } })
+  const w = mount(TrafficLookPanel, { global: { plugins: [router] } })
   await flushPromises()
   return w
 }
 
-describe('TrafficTab', () => {
+describe('TrafficLookPanel', () => {
   beforeEach(() => {
     for (const fn of Object.values(service)) fn.mockReset()
     service.helper.mockResolvedValue(ready())
@@ -37,22 +39,9 @@ describe('TrafficTab', () => {
     service.deviceLookups.mockResolvedValue({ enabled: true, devices: [] })
   })
 
-  it('says in one line whether the naming tables are on and links to Settings, instead of drawing their cards', async () => {
-    const w = await mountTab()
-    expect(w.get('[data-test="traffic-tables-line"]').text()).toContain('are off')
-    expect(w.findAllComponents(RouterLinkStub).find((l) => l.attributes('data-test') === 'traffic-tables-link')!.props('to')).toEqual({ name: 'network', params: { tab: 'settings' }, query: { group: 'data' } })
-    expect(w.get('[data-test="traffic-tables-link"]').text()).toBe('Turn on')
-    expect(w.find('[data-test="destination-data"]').exists()).toBe(false)
-    service.destinationData.mockResolvedValue({ ranges: 500_000, source: 'iptoasn.com' })
-    service.destinationPlaces.mockResolvedValue({ ranges: 7_000_000, source: 'db-ip.com' })
-    const on = await mountTab()
-    expect(on.get('[data-test="traffic-tables-line"]').text()).toBe('Operator and city names are on.')
-    expect(on.get('[data-test="traffic-tables-link"]').text()).toBe('Manage')
-  })
-
   it('shows loading until the helper and the last look have been read', () => {
     service.helper.mockReturnValue(new Promise(() => undefined))
-    const w = mount(TrafficTab, { global: { stubs: { RouterLink: RouterLinkStub } } })
+    const w = mount(TrafficLookPanel, { global: { plugins: [router] } })
     expect(w.find('[data-test="traffic-loading"]').exists()).toBe(true)
     expect(w.find('[data-test="traffic-listen"]').exists()).toBe(false)
   })
@@ -69,10 +58,10 @@ describe('TrafficTab', () => {
     expect(w.find('[data-test="traffic-listen"]').exists()).toBe(false)
     expect(w.get('[data-test="traffic-unavailable"]').text()).toContain('switched off')
     await w.get('[data-test="traffic-fix"]').trigger('click')
-    expect(w.emitted('open-tab')).toEqual([['settings']])
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/network/settings?group=helper'))
   })
 
-  it('has no fix button when the fix is not on this page, as on a computer that is not Linux', async () => {
+  it('has no fix button when there is nothing to fix here, as on a computer that is not Linux', async () => {
     service.helper.mockResolvedValue(ready({ supported: false }))
     const w = await mountTab()
     expect(w.get('[data-test="traffic-unavailable"]').text()).toContain('needs Linux')
@@ -136,9 +125,4 @@ describe('TrafficTab', () => {
     }
   })
 
-  it('points to the dashboard for the by-device view: the map and the places are not on this page', async () => {
-    const w = await mountTab()
-    expect(w.find('[data-test="traffic-devices"]').exists()).toBe(false)
-    expect(w.find('[data-test="open-board"]').exists()).toBe(true)
-  })
 })

@@ -5,6 +5,7 @@ import {
   NETWORK_NEXT_TURN_ON_CHECK,
   NETWORK_POSTURE_HEADLINES,
 } from '../../constants/netaudit'
+import { toNetwork, toNetworkCard } from '../../router/routes'
 import type { NetworkChange, NetworkDay, NetworkNextAction, NetworkOverview } from '../../types/netaudit'
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
@@ -24,11 +25,11 @@ export function attentionReasons(o: NetworkOverview): string[] {
  * device nobody approved), then serious findings; a page that has not looked at anything yet points at the way to start.
  */
 export function nextAction(o: NetworkOverview, hasAudit: boolean): NetworkNextAction | null {
-  if (o.gateway_changed || o.devices.new > 0) return { label: NETWORK_NEXT_DEVICES, tab: 'devices' }
-  if (o.findings.serious > 0) return { label: NETWORK_NEXT_FINDINGS, tab: 'findings' }
-  if (o.posture === 'attention') return { label: NETWORK_NEXT_DEVICES, tab: 'devices' }
+  if (o.gateway_changed || o.devices.new > 0) return { label: NETWORK_NEXT_DEVICES, to: toNetworkCard('network-devices') }
+  if (o.findings.serious > 0) return { label: NETWORK_NEXT_FINDINGS, to: toNetworkCard('network-findings') }
+  if (o.posture === 'attention') return { label: NETWORK_NEXT_DEVICES, to: toNetworkCard('network-devices') }
   if (o.posture !== 'unknown') return null
-  return hasAudit ? { label: NETWORK_NEXT_TURN_ON_CHECK, tab: 'settings' } : { label: NETWORK_NEXT_SET_UP_AUDIT, tab: 'audits' }
+  return hasAudit ? { label: NETWORK_NEXT_TURN_ON_CHECK, to: toNetwork('settings') } : { label: NETWORK_NEXT_SET_UP_AUDIT, to: toNetworkCard('network-audits') }
 }
 
 export const postureHeadline = (o: NetworkOverview): string => NETWORK_POSTURE_HEADLINES[o.posture]

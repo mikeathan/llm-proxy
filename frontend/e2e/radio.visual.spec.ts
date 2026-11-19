@@ -272,7 +272,7 @@ test('Sensors: a role for each radio, the probe, and the details folded away', a
   await touchTargets(page, testInfo)
 })
 
-test('My devices (dashboard card): home first with the router box and the last day in words, a shared name to fix; the Radio page keeps remove, add and the networks grouped', async ({ page }, testInfo) => {
+test('My devices (dashboard card): home first with the router box and the last day in words, a shared name to fix; the Radio board also holds claim, remove, add and the networks', async ({ page }, testInfo) => {
   const id = (short: string) => short.padEnd(64, '0')
   const devices = { devices: [
     ...DEVICES.devices,
@@ -301,12 +301,11 @@ test('My devices (dashboard card): home first with the router box and the last d
   await expect(page.locator('[data-test="radio-my-device"][data-id="beefcafe"]')).toContainText('Near Asus router')
   await expect(page.locator('[data-test="radio-my-device"]').last()).toHaveAttribute('data-state', 'not_listening')
   await expect(page.locator('[data-test="radio-presence-hour"]')).toHaveCount(0)
-  await expect(page.locator('[data-test="radio-my-device-remove"]')).toHaveCount(0)
+  await expect(page.locator('[data-test="card-radio-devices"] [data-test="radio-my-device-remove"]')).toHaveCount(0) // My devices only shows; removing is in the card below
   await lookAt(page, testInfo, 'my-devices', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)
-  // The Radio page holds the control side (remove, add by address) and the networks.
-  await page.goto('radio/devices')
+  // The same board holds the control side (remove, add by address) and the networks, as cards of their own.
   await expect(page.locator('[data-test="radio-manage-name"]')).toContainText(['my laptop'])
   await expect(page.locator('[data-test="radio-network-line"]').first()).toHaveText('5 GHz · channel 60 · 2 access points confirmed')
   await expect(page.locator('[data-test="radio-ap"][data-confirmed="false"]')).toContainText('netsink-2G')
@@ -315,14 +314,14 @@ test('My devices (dashboard card): home first with the router box and the last d
   await touchTargets(page, testInfo)
 })
 
-test('My devices: Claim your devices holds finding a device, and the stack page says where the radar went', async ({ page }, testInfo) => {
+test('Claim your devices holds finding a device, and the Radio page links back to its board', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: ANSWERS })
-  await page.goto('radio/devices')
+  await page.goto('dashboard?board=radio')
   await expect(page.locator('[data-test="radio-claim"]')).toBeVisible()
   await page.locator('[data-test="radio-find-open"]').click()
   await expect(page.locator('[data-test="radio-find-candidate"]')).toHaveCount(3)
-  await expect(page.locator('[data-test="open-board"]').first()).toHaveAttribute('href', /dashboard\?board=radio$/)
-  await expect(page.locator('[data-test="open-board"]').nth(1)).toHaveAttribute('href', /dashboard\?board=radio&card=radio-devices/)
+  await page.goto('radio')
+  await expect(page.locator('[data-test="open-board"]')).toHaveAttribute('href', /dashboard\?board=radio$/)
   await lookAt(page, testInfo, 'claim-your-devices', true)
   await expectNoSidewaysScroll(page)
   await touchTargets(page, testInfo)

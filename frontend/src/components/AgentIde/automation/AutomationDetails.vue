@@ -17,7 +17,7 @@ import { nextRunLabel, triggerLabel } from "../../../utils/automation/automation
 import { memoryModeLabel } from "../../../utils/automation/memoryMode";
 import { busyLabel, deliveryLabel, journalLabel } from "../../../utils/automation/delivery";
 import { formatAbsoluteTime, formatDuration, formatRelativeTime } from "../../../utils/format/time";
-import { toNetwork, toWorkspaceFile } from "../../../router/routes";
+import { toNetworkCard, toWorkspaceFile } from "../../../router/routes";
 import SavedReportLink from "./SavedReportLink.vue";
 import SavedReportsPanel from "./SavedReportsPanel.vue";
 import Panel from "../../common/layout/Panel.vue";
@@ -211,7 +211,7 @@ const runKey = (run: AutomationRun) => run.id;
       <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-test="network-pointer">
         <p class="m-0 min-w-0 text-[length:var(--text-small)] text-muted">
           {{ NETWORK_POINTER_BODY }}
-          <RouterLink :to="toNetwork()" class="inline-flex min-h-11 items-center text-accent-info-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-0">{{ NETWORK_POINTER_LINK }}</RouterLink>
+          <RouterLink :to="toNetworkCard('network-audits')" class="inline-flex min-h-11 items-center text-accent-info-text underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-0">{{ NETWORK_POINTER_LINK }}</RouterLink>
         </p>
         <NetauditToolbar />
       </div>

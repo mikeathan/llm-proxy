@@ -29,9 +29,9 @@ async function open(page: Page, view: 'simple' | 'advanced') {
 
 async function openAudits(page: Page, view: 'simple' | 'advanced') {
   await setNetauditView(page, view)
-  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/readiness': readiness, '/automations': [audit] } })
-  await page.goto('network/audits')
-  await expect(page.getByRole('heading', { name: 'Network audits' })).toBeVisible()
+  await mockAdminApi(page, { answers: { '/netaudit/scope': scope, '/netaudit/readiness': readiness, '/automations': [audit], '/dashboard': { boards: [{ id: 'home', name: 'Home', cards: [] }, { id: 'network', name: 'Network', cards: [{ id: 'network-audits', cols: 12, rows: 1 }] }] } } })
+  await page.goto('dashboard?board=network')
+  await expect(page.locator('[data-test="audits-panel"]')).toBeVisible() // the Audits card of the Network board
 }
 
 for (const view of ['simple', 'advanced'] as const) {

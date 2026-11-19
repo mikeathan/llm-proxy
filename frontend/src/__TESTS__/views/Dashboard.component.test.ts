@@ -130,7 +130,53 @@ describe('DashboardView', () => {
     expect(w.find('[data-test="catalogue-radio-around"]').exists()).toBe(false) // the radio stack has nothing on
     await w.get('[data-test="add-board"]').trigger('click')
     expect(w.find('[data-test="add-board-network"]').exists()).toBe(false) // already on the dashboard, so not offered again
-    expect(w.find('[data-test="add-board-radio"]').exists()).toBe(false)
+    expect(w.find('[data-test="add-board-radio"]').exists()).toBe(false) // and Radio has nothing on
+  })
+
+  it('hides the board and the cards of a stack that has nothing on, and shows them again when it is back on', async () => {
+    stacksService.list.mockResolvedValue([{ id: 'network', title: 'Network', purpose: '', on: 3, total: 5, stopped: 0, blocked: 0 }, { id: 'radio', title: 'Radio', purpose: '', on: 0, total: 4, stopped: 0, blocked: 0 }])
+    const { w } = await open()
+    expect(tabs(w).map((t) => t.text())).toEqual(['Home', 'LLM and host', 'Network', 'Automations'])
+    expect(cardTitles(w).map((t) => t.toLowerCase())).toEqual(['host health', 'reminders']) // Home has no radar while Radio is off
+    expect(service.save).not.toHaveBeenCalled() // hidden, not deleted
+  })
+
+  it('says a shipped board has cards it was saved without, adds them on request and does not ask again', async () => {
+    service.layout.mockResolvedValue({ boards: [
+      { id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] },
+      { id: 'radio', name: 'Radio', cards: [{ id: 'host-health', cols: 12, rows: 1 }] },
+    ] })
+    const { w } = await open('/dashboard?board=radio')
+    expect(w.text()).toContain('New on this board: Around you.')
+    await w.get('[data-test="add-new-cards"]').trigger('click')
+    await flushPromises()
+    expect(cardTitles(w).map((t) => t.toLowerCase())).toContain('around you')
+    expect(w.find('[data-test="add-new-cards"]').exists()).toBe(false)
+  })
+
+  it('stops offering new cards once they were declined', async () => {
+    service.layout.mockResolvedValue({ boards: [
+      { id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] },
+      { id: 'radio', name: 'Radio', cards: [{ id: 'host-health', cols: 12, rows: 1 }] },
+    ] })
+    const { w } = await open('/dashboard?board=radio')
+    await w.get('[data-test="dismiss-new-cards"]').trigger('click')
+    expect(w.find('[data-test="add-new-cards"]').exists()).toBe(false)
+    expect(cardTitles(w).map((t) => t.toLowerCase())).not.toContain('around you')
+    expect(service.save).not.toHaveBeenCalled()
+  })
+
+  it('puts every board back as shipped from the Add board menu, after asking', async () => {
+    service.layout.mockResolvedValue({ boards: [{ id: 'home', name: 'Home', cards: [{ id: 'host-health', cols: 12, rows: 1 }] }] })
+    const { w } = await open()
+    await w.get('[data-test="add-board"]').trigger('click')
+    await w.get('[data-test="reset-all-boards"]').trigger('click')
+    await flushPromises()
+    expect(service.reset).not.toHaveBeenCalled() // the dialog asks first
+    const { useConfirm } = await import('../../composables/ui/useConfirm')
+    useConfirm().handleConfirm()
+    await flushPromises()
+    expect(service.reset).toHaveBeenCalledTimes(1)
   })
 
   it('says a linked card is not on the saved board, and adds it with one press', async () => {

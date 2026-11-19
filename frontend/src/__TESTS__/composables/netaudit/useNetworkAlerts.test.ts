@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { nextTick, ref, shallowRef } from 'vue'
 import { createNetworkAlerts } from '../../../composables/netaudit/useNetworkAlerts'
-import { toAgents, toNetwork, toRadio, toSettings } from '../../../router/routes'
+import { toAgents, toNetworkCard, toRadioCard, toSettings } from '../../../router/routes'
 import type { GlobalRunTick } from '../../../types/assistant'
 import type { NetworkAlertEvent, NetworkAlertEvents, NetworkAlertItem } from '../../../types/notifications'
 
@@ -57,8 +57,8 @@ describe('network alerts', () => {
     await poll()
     expect(published).toHaveLength(1)
     expect(published[0]!.map((i) => i.alertKind)).toEqual(['summary', 'decoy'])
-    expect(published[0]![1]).toMatchObject({ kind: 'network', message: 'decoy m', repeatKey: 'decoy:decoy m', destination: 'network', target: toNetwork('devices') })
-    expect(published[0]![0]!.target).toEqual(toNetwork())
+    expect(published[0]![1]).toMatchObject({ kind: 'network', message: 'decoy m', repeatKey: 'decoy:decoy m', destination: 'network', target: toNetworkCard('network-devices') })
+    expect(published[0]![0]!.target).toEqual(toNetworkCard())
     expect(cursor.value).toBe(900)
   })
 
@@ -66,14 +66,14 @@ describe('network alerts', () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 2, items: [alert(2, { kind: 'monitor', message: 'monitor m' })] })
     await poll()
-    expect(published[0]![0]!.target).toEqual(toNetwork())
+    expect(published[0]![0]!.target).toEqual(toNetworkCard())
   })
 
   it('aims a scan-on-arrival alert at the devices', async () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 2, items: [alert(2, { kind: 'follow_up', message: 'follow m' })] })
     await poll()
-    expect(published[0]![0]!.target).toEqual(toNetwork('devices'))
+    expect(published[0]![0]!.target).toEqual(toNetworkCard('network-devices'))
   })
 
   it('aims a sign-in alert at the sign-in events', async () => {
@@ -95,7 +95,7 @@ describe('network alerts', () => {
     const { poll, replies, published } = setup(1)
     replies.push({ cursor: 2, items: [alert(2, { kind: 'radio', delivery: 'in_app', message: 'Radio: listening ends in about 30 hours.' })] })
     await poll()
-    expect(published[0]![0]!.target).toEqual(toRadio())
+    expect(published[0]![0]!.target).toEqual(toRadioCard())
     expect(published[0]![0]!.destination).toBe('radio')
     expect(published[0]![0]).toMatchObject({ alertKind: 'radio', delivery: 'in_app' })
   })

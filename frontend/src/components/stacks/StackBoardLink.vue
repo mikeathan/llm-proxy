@@ -13,6 +13,6 @@ const hint = computed(() => BOARD_HINT[props.stack])
 <template>
   <p class="m-0 text-[length:var(--text-small)] text-muted">
     {{ hint.text }}
-    <RouterLink :to="toDashboard(hint.board, hint.card)" class="text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2" data-test="open-board">{{ hint.link }} →</RouterLink>
+    <RouterLink :to="toDashboard(hint.board)" class="text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2" data-test="open-board">{{ hint.link }} →</RouterLink>
   </p>
 </template>

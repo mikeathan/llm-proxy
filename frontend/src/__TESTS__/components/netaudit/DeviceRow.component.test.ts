@@ -40,7 +40,7 @@ describe('DeviceRow problems link', () => {
   it('links a device that has open problems to them, beside the row and not inside its button', async () => {
     const w = await withProblems({ of: (a) => (a === '192.0.2.5' ? { count: 2, severity: 'high' } : null) })
     const link = w.get('[data-test="device-problems"]')
-    expect(link.attributes('href')).toBe('/network/findings?device=192.0.2.5')
+    expect(link.attributes('href')).toBe('/dashboard?board=network&card=network-findings&device=192.0.2.5')
     expect(link.text()).toBe('2 problems')
     expect(link.attributes('aria-label')).toContain('Show the 2 problems found on Chromecast')
     expect(w.get('[data-test="device-toggle"]').find('[data-test="device-problems"]').exists()).toBe(false)

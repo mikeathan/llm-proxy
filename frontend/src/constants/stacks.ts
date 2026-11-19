@@ -6,6 +6,9 @@ export const STACK_LOAD_FAILED = 'The modules could not be read. Check that the 
 export const STACK_SWITCH_FAILED = 'The switch could not be changed. Try again.'
 
 export const STACKS_GROUP_LABEL = 'Stacks'
+export const STACKS_INTRO = 'Every stack and whether anything of it is on. A stack with nothing on has no menu entry and no board on the dashboard; open its modules to switch one on.'
+export const STACKS_MODULES_LINK = 'Open its modules'
+export const stackStateLine = (on: number, total: number): string => (on === 0 ? `Off: none of its ${total} modules is on` : `On: ${on} of ${total} modules`)
 
 export const STACK_MODULES_INTRO = 'Every module of this stack, in layers. A module builds on the ones below it. Switch them here; details stay on each module’s own page.'
 
@@ -62,4 +65,4 @@ export const HELP_MODULES_TITLE = 'What each switch does'
 export const RADIO_TITLE = 'Radio'
 export const RADIO_SUBTITLE = 'Listen to the radio around this computer, and see what is there.'
 export const RADIO_LISTENING_LABEL = 'Listening'
-export const RADIO_TAB_LABELS = { devices: 'My devices', sensors: 'Sensors', modules: 'Modules' } as const
+export const RADIO_TAB_LABELS = { sensors: 'Sensors', modules: 'Modules' } as const

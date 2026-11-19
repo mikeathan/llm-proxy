@@ -52,7 +52,7 @@ describe('NetworkPostureCard', () => {
     expect(w.findAll('[aria-label="What needs a look"] li').map((l) => l.text())).toEqual(["The router's hardware address changed", '1 new device nobody has approved'])
     const next = w.get('[data-test="next-action"]')
     expect(next.text()).toBe('Review devices →')
-    expect(next.attributes('href')).toBe('/network/devices')
+    expect(next.attributes('href')).toBe('/dashboard?board=network&card=network-devices')
   })
 
   it('says it has not looked yet instead of calling an unwatched network quiet', () => {

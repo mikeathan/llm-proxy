@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '../../../../router'
 import NotificationBell from '../../../../components/common/display/NotificationBell.vue'
-import { toAutomation, toNetwork, toReminders, toSettings, toWorkspace } from '../../../../router/routes'
+import { toAutomation, toNetworkCard, toReminders, toSettings, toWorkspace } from '../../../../router/routes'
 import type { NetworkAlertItem, ReminderAlertItem, RunEndItem, RunNotification } from '../../../../types/notifications'
 
 const failed: RunEndItem = { id: 'ws/a@t', kind: 'automation', label: 'ws/a', workspace: 'ws', automationId: 'ws/a', outcome: 'failed', error: 'boom', target: toAutomation('ws/a'), destination: 'automations' }
@@ -11,7 +11,7 @@ const fired: ReminderAlertItem = { id: 'reminder-1-1', kind: 'reminder', message
 const lost: ReminderAlertItem = { ...fired, id: 'reminder-2-1', message: 'stand up', event: 'failed' }
 const ended: RunEndItem = { id: 'chat:ws@t', kind: 'assistant', label: 'ws', workspace: 'ws', outcome: 'ended', target: toWorkspace('ws'), destination: 'workspaces' }
 
-const decoyAlert: NetworkAlertItem = { id: 'network-1', kind: 'network', alertKind: 'decoy', message: 'Network audit: a device connected to a decoy service.', delivery: 'no_connector', count: 2, repeatKey: 'decoy:m', target: toNetwork('devices'), destination: 'network' }
+const decoyAlert: NetworkAlertItem = { id: 'network-1', kind: 'network', alertKind: 'decoy', message: 'Network audit: a device connected to a decoy service.', delivery: 'no_connector', count: 2, repeatKey: 'decoy:m', target: toNetworkCard('network-devices'), destination: 'network' }
 
 function mountBell(notifications: RunNotification[]) {
   return mount(NotificationBell, {
@@ -89,7 +89,7 @@ describe('NotificationBell', () => {
     expect(row.text()).toContain('a device connected to a decoy service')
     expect(row.text()).toContain('Raised 2 times')
     expect(row.text()).toContain('Not sent to your connectors: none is set up.')
-    expect(row.get('a').attributes('href')).toBe(w.vm.$router.resolve(toNetwork('devices')).href)
+    expect(row.get('a').attributes('href')).toBe(w.vm.$router.resolve(toNetworkCard('network-devices')).href)
     const fix = row.get('[data-test="notification-fix"]')
     expect(fix.text()).toBe('Set up a connector')
     expect(fix.attributes('href')).toBe(w.vm.$router.resolve(toSettings('communication')).href)

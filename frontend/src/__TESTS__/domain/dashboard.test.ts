@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth } from '../../domain/dashboard'
+import { addBoard, addCard, applyPreset, boardsToOffer, cardsToOffer, sourceIsOn, isOnBoard, moveCard, pinToHome, reconcile, removeBoard, removeCard, renameBoard, resizeCard, shippedLayout, sizeForWidth, visibleLayout, newShippedCards } from '../../domain/dashboard'
 import { BOARD_TEMPLATES, HOME_BOARD_ID, MAX_BOARDS, MAX_CARDS_PER_BOARD } from '../../constants/dashboard'
-import type { DashboardCardDef, DashboardLayout } from '../../types/dashboard'
+import type { DashboardBoard, DashboardCardDef, DashboardLayout } from '../../types/dashboard'
 
 const everyCard = new Set(BOARD_TEMPLATES.flatMap((t) => t.cards.map((c) => c.id)))
 const small: DashboardLayout = {
@@ -169,5 +169,38 @@ describe('sizeForWidth', () => {
       expect(boardsToOffer(without, new Set()).map((t) => t.id)).toEqual([])
       expect(boardsToOffer(without, null).map((t) => t.id)).toEqual(['network', 'radio'])
     })
+  })
+})
+
+describe('visibleLayout and newShippedCards', () => {
+  const def = (id: string, source: DashboardCardDef['source']) => [id, { id, source } as DashboardCardDef] as const
+  const defs = new Map([def('a', 'host'), def('n', 'network'), def('r', 'radio'), def('network-posture', 'network'), def('network-changes', 'network')])
+  const layout: DashboardLayout = {
+    boards: [
+      { id: 'home', name: 'Home', cards: [{ id: 'a', cols: 4, rows: 1 }, { id: 'n', cols: 4, rows: 1 }, { id: 'r', cols: 4, rows: 1 }] },
+      { id: 'network', name: 'Network', cards: [{ id: 'n', cols: 12, rows: 1 }] },
+      { id: 'mine', name: 'Mine', cards: [{ id: 'r', cols: 6, rows: 1 }, { id: 'a', cols: 6, rows: 1 }] },
+    ],
+  }
+
+  it('shows everything while the stacks are not known', () => {
+    expect(visibleLayout(layout, defs, null)).toBe(layout)
+  })
+
+  it('hides the board and the cards of a stack that is off, and keeps the owner\'s other cards', () => {
+    const shown = visibleLayout(layout, defs, new Set(['network']))
+    expect(shown.boards.map((b) => b.id)).toEqual(['home', 'network', 'mine'])
+    expect(ids(shown, 'home')).toEqual(['a', 'n'])
+    expect(ids(shown, 'mine')).toEqual(['a'])
+    expect(visibleLayout(layout, defs, new Set()).boards.map((b) => b.id)).toEqual(['home', 'mine']) // no Network board
+    expect(layout.boards[0]!.cards).toHaveLength(3) // the saved layout is not changed
+  })
+
+  it('lists the cards a shipped board now has and the saved copy lacks, except those already offered', () => {
+    const saved: DashboardBoard = { id: 'network', name: 'Network', cards: [{ id: 'network-posture', cols: 8, rows: 1 }] }
+    expect(newShippedCards(saved, [], null, defs)).toEqual(['network-changes'])
+    expect(newShippedCards(saved, ['network-changes'], null, defs)).toEqual([])
+    expect(newShippedCards(saved, [], new Set(), defs)).toEqual([]) // the stack is off
+    expect(newShippedCards({ id: 'mine', name: 'Mine', cards: [] } as DashboardBoard, [], null, defs)).toEqual([]) // a board that did not ship has no shipped cards
   })
 })

@@ -17,6 +17,7 @@ import AppBanner from './components/ui/AppBanner.vue'
 import ReauthDialog from './components/auth/ReauthDialog.vue'
 import { useConfirm } from './composables/ui/useConfirm'
 import { useActiveWorkspace } from './composables/ui/useActiveWorkspace'
+import { useEnabledStacks } from './composables/stacks/useEnabledStacks'
 import { useRunNotifications } from './composables/assistant/useRunNotifications'
 import NotificationBell from './components/common/display/NotificationBell.vue'
 import { badgeTarget } from './utils/navigation'
@@ -70,6 +71,7 @@ const contentClass = computed(() => [
 const { state, refresh: refreshModels } = useModels()
 const { refresh: refreshMcp } = useMcpServers()
 const { refresh: refreshWorkspaces } = useActiveWorkspace()
+const { load: loadStacks } = useEnabledStacks()
 
 // The model warning logic lives in useModelBanner, which registers its
 // state/transient watchers once at module load (no per-component startup
@@ -78,6 +80,7 @@ const { refresh: refreshWorkspaces } = useActiveWorkspace()
 // or model add without a page reload.
 onMounted(() => {
   Promise.all([refreshModels(), refreshMcp(), refreshWorkspaces()]).then(recomputeModelBanner)
+  void loadStacks()
 })
 </script>
 

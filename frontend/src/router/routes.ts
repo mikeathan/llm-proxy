@@ -8,6 +8,8 @@ import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup,
 
 const PATH_SEPARATOR = '/'
 
+const withQuery = (to: RouteLocationNamedRaw, extra: Record<string, string>): RouteLocationNamedRaw => ({ ...to, query: { ...to.query, ...extra } })
+
 /** The dashboard. `board` opens that board (the stack pages link to their own); without one it opens the board last used in this browser. */
 export const toDashboard = (board?: string, card?: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.dashboard, ...(board ? { query: { board, ...(card ? { card } : {}) } } : {}) })
 
@@ -48,7 +50,7 @@ export const toAutomationEdit = (id: string): RouteLocationNamedRaw => ({
   params: { id },
 })
 
-/** The Network page; without a tab it opens on the overview. A hash scrolls to a control on that tab. */
+/** The Network page: its Modules (the switches) and Settings. What is to be seen is on the dashboard's Network board, `toNetworkCard`. A hash scrolls to a control on the tab. */
 export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.network,
   params: tab ? { tab } : {},
@@ -58,11 +60,14 @@ export const toNetwork = (tab?: NetworkTab, hash?: string): RouteLocationNamedRa
 /** One group of the Network page's Settings tab (what to scan, watching, outside services, downloaded data, the helper). */
 export const toNetworkSettings = (group: NetworkSettingsGroup): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'settings' }, query: { group } })
 
-/** The Findings tab, scrolled to one finding (its key) and marked for a moment. A finding that is gone from the report says so. */
-export const toFinding = (key: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'findings' }, query: { finding: key } })
+/** One card of the dashboard's Network board, or the board itself. */
+export const toNetworkCard = (card?: string): RouteLocationNamedRaw => toDashboard('network', card)
 
-/** The Findings tab, scrolled to the first finding of one device (its address) with all of that device's findings marked. */
-export const toDeviceFindings = (device: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.network, params: { tab: 'findings' }, query: { device } })
+/** The Findings card, scrolled to one finding (its key) and marked for a moment. A finding that is gone from the report says so. */
+export const toFinding = (key: string): RouteLocationNamedRaw => withQuery(toNetworkCard('network-findings'), { finding: key })
+
+/** The Findings card, scrolled to the first finding of one device (its address) with all of that device's findings marked. */
+export const toDeviceFindings = (device: string): RouteLocationNamedRaw => withQuery(toNetworkCard('network-findings'), { device })
 
 /** The Agents page; without a tab it opens on the activity. */
 export const toAgents = (tab?: AgentsTab): RouteLocationNamedRaw => ({
@@ -70,11 +75,17 @@ export const toAgents = (tab?: AgentsTab): RouteLocationNamedRaw => ({
   params: tab ? { tab } : {},
 })
 
+/** The list of stacks, where one that is off is switched on. */
+export const toStacks = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.stacks })
+
 /** The Radio page; without a tab it opens on Listening. */
 export const toRadio = (tab?: RadioTab): RouteLocationNamedRaw => ({
   name: ROUTE_NAMES.radio,
   params: tab ? { tab } : {},
 })
+
+/** One card of the dashboard's Radio board, or the board itself. */
+export const toRadioCard = (card?: string): RouteLocationNamedRaw => toDashboard('radio', card)
 
 /** One radio device's page, by the short id the radar shows. */
 export const toRadioDevice = (id: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.radioDevice, params: { id } })

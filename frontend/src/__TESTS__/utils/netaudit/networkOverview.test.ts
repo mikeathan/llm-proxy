@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { attentionReasons, changeText, hasRouterCounts, nextAction, postureHeadline, refusedToday, seriesOf } from '../../../utils/netaudit/networkOverview'
+import { toNetwork, toNetworkCard } from '../../../router/routes'
 import type { NetworkDay, NetworkOverview } from '../../../types/netaudit'
 
 const overview = (over: Partial<NetworkOverview> = {}): NetworkOverview => ({
@@ -61,15 +62,15 @@ describe('nextAction', () => {
   const withOver = (over: Partial<NetworkOverview>): NetworkOverview => ({ ...base, ...over })
 
   it('offers nothing while the network is quiet', () => expect(nextAction(base, true)).toBeNull())
-  it('sends a new device to the device list', () => expect(nextAction(withOver({ posture: 'attention', devices: { ...base.devices, new: 1 } }), true)).toEqual({ label: 'Review devices', tab: 'devices' }))
+  it('sends a new device to the device list', () => expect(nextAction(withOver({ posture: 'attention', devices: { ...base.devices, new: 1 } }), true)).toEqual({ label: 'Review devices', to: toNetworkCard('network-devices') }))
   it('puts a changed router before serious findings', () => {
-    expect(nextAction(withOver({ posture: 'attention', gateway_changed: true, findings: { ...base.findings, serious: 2 } }), true)?.tab).toBe('devices')
+    expect(nextAction(withOver({ posture: 'attention', gateway_changed: true, findings: { ...base.findings, serious: 2 } }), true)?.to).toEqual(toNetworkCard('network-devices'))
   })
-  it('sends serious findings to the findings', () => expect(nextAction(withOver({ posture: 'attention', findings: { ...base.findings, serious: 1 } }), true)).toEqual({ label: 'Review findings', tab: 'findings' }))
-  it('still points somewhere for any other reason to look', () => expect(nextAction(withOver({ posture: 'attention', shared_address: true }), true)?.tab).toBe('devices'))
+  it('sends serious findings to the findings', () => expect(nextAction(withOver({ posture: 'attention', findings: { ...base.findings, serious: 1 } }), true)).toEqual({ label: 'Review findings', to: toNetworkCard('network-findings') }))
+  it('still points somewhere for any other reason to look', () => expect(nextAction(withOver({ posture: 'attention', shared_address: true }), true)?.to).toEqual(toNetworkCard('network-devices')))
   it('shows a network nobody has looked at how to start', () => {
-    expect(nextAction(withOver({ posture: 'unknown' }), false)).toEqual({ label: 'Set up a network audit', tab: 'audits' })
-    expect(nextAction(withOver({ posture: 'unknown' }), true)).toEqual({ label: 'Turn on the new-device check', tab: 'settings' })
+    expect(nextAction(withOver({ posture: 'unknown' }), false)).toEqual({ label: 'Set up a network audit', to: toNetworkCard('network-audits') })
+    expect(nextAction(withOver({ posture: 'unknown' }), true)).toEqual({ label: 'Turn on the new-device check', to: toNetwork('settings') })
   })
 })
 

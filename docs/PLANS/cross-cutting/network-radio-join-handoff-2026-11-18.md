@@ -41,7 +41,7 @@ evidence: ADR-0061 (accepted); docs/PLANS/cross-cutting/network-radio-joined-by-
    Radio's last listen" and tapping it opens that device's Radio page.
 2. **Device page rough edge:** a Radio My devices row reading "Home · on the network" opens a device page that may still say "not heard in the
    last few days". The page could say the network sees it now (the presence is already on `LANInfo`). Not built; small, Radio-only.
-3. **Devices matched but not heard:** on vertex the iPhone, Lindiwe's iPhone, the Samsung TV, espressif and nodeherder had an air fact with no
+3. **Devices matched but not heard (looked at 2026-11-19, read-only on vertex, nothing changed):** three of the five now have no `heard` (the Samsung TV, Lindiwe's iPhone, HONOR-Pad); the others were heard in the later cycles. The scan plan listens 20 s on each of channels 1, 6, 11, 36, 60, 149 every 300 s, so a device on an unlisted channel (40 to 48, 100 and up) or a quiet one is never heard; not proved which applies. Widening the plan is the owner's call. Original note:  on vertex the iPhone, Lindiwe's iPhone, the Samsung TV, espressif and nodeherder had an air fact with no
    `heard` (so "not heard over the air lately"). Unverified why: iPhones rotate their private Wi-Fi address, others may be quiet or off the
    listened channels. Look at `/admin/api/radio/air/live` and the scan plan's channels before changing anything.
 4. **Dropped by the owner 2026-11-18: 3a** (deauthentication burst and devices dropping off): needs the presence check to keep when a device left (it keeps only

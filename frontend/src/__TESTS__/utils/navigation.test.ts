@@ -11,6 +11,23 @@ describe('buildNavigation', () => {
     expect(buildNavigation(base).map((i) => i.label)).toEqual(['Dashboard', 'Assistant', 'Workspace', 'Automations', 'Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings'])
   })
 
+  it('shows a stack only while it has a module on, and offers "Add a stack" only while one is off', () => {
+    const ids = (stacksOn?: Set<string> | null) => buildNavigation({ ...base, stacksOn }).map((i) => i.id)
+    expect(ids(null)).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'network', 'agents', 'radio', 'reminders', 'models', 'activity', 'settings']) // unknown: everything
+    expect(ids(new Set(['network', 'agents', 'radio']))).not.toContain('stacks')
+    expect(ids(new Set(['agents']))).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'agents', 'stacks', 'reminders', 'models', 'activity', 'settings'])
+    expect(ids(new Set())).toEqual(['dashboard', 'assistant', 'workspace', 'automations', 'stacks', 'reminders', 'models', 'activity', 'settings'])
+  })
+
+  it('opens Network and Radio on their board of the dashboard, which marks them current instead of the Dashboard', () => {
+    const items = buildNavigation({ ...base, board: 'network' })
+    expect(item(items, 'network').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'network' } })
+    expect(item(items, 'radio').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'radio' } })
+    expect(items.filter((i) => i.current).map((i) => i.id)).toEqual(['network'])
+    expect(buildNavigation({ ...base, board: 'home' }).filter((i) => i.current).map((i) => i.id)).toEqual(['dashboard'])
+    expect(item(buildNavigation(base), 'dashboard').to).toEqual({ name: ROUTE_NAMES.dashboard, query: { board: 'home' } })
+  })
+
   it('opens the assistant and the files of the workspace last used', () => {
     const items = buildNavigation(base)
     expect(item(items, 'assistant').to).toEqual({ name: ROUTE_NAMES.workspaceAssistant, params: { ws: 'demo' } })

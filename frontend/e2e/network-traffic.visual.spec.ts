@@ -58,14 +58,15 @@ const TABLES = {
   '/netaudit/destination-places': { ranges: 7403297, loaded_at: new Date().toISOString(), source: 'db-ip.com' },
 }
 
-test('the traffic page says when the last look was, and the dashboard card shows it as a sentence, a map and who it talked to, and fits the screen', async ({ page }, testInfo) => {
+test('the traffic card says when the last look was, shows it as a sentence, a map and who it talked to, and fits the screen', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: LOOK }, '/netaudit/route-trace': { supported: true, traces: [] }, ...TABLES } })
-  await page.goto('network/traffic')
-  const traffic = page.locator('[data-test="traffic-tab"]')
-  await expect(traffic.locator('[data-test="traffic-when"]')).toContainText('wlp')
-  await expect(traffic.locator('[data-test="traffic-tables-line"]')).toHaveText('Operator and city names are on.')
-  if (testInfo.project.name === 'mobile') await expectTapArea(traffic.locator('[data-test="traffic-listen"]'))
   await page.goto('dashboard?board=network')
+  const traffic = page.locator('[data-test="card-network-traffic"]')
+  await expect(traffic.locator('[data-test="traffic-when"]')).toContainText('wlp')
+  if (testInfo.project.name === 'mobile') {
+    await traffic.locator('[data-test="traffic-listen"]').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(traffic.locator('[data-test="traffic-listen"]'))
+  }
   const tab = page.locator('[data-test="traffic-devices-block"]')
   await expect(tab.locator('[data-test="traffic-headline"]')).toContainText('sent 6 MB and received 38 MB')
   await expect(tab.locator('[data-test="traffic-self"]')).toContainText('own page and API')
@@ -117,38 +118,37 @@ test('Advanced adds the totals, the chart, the operators and the conversations',
   await lookAt(page, testInfo, 'traffic-advanced.png', true)
 })
 
-test('without the tables the tab says operator and city names are off, and links to where they are turned on', async ({ page }) => {
+test('without the tables the card says operator and city names are off, and links to where they are turned on', async ({ page }) => {
   const plain = { ...LOOK, owners_used: false, owners: null, countries: null, destinations: LOOK.destinations.map(({ owner: _o, ...d }) => d), flows: LOOK.flows.map(({ owner: _o, ...f }) => f) }
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: plain }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/destination-data': { ranges: 0, source: 'iptoasn.com' }, '/netaudit/destination-places': { ranges: 0, source: 'db-ip.com' } } })
   await page.goto('dashboard?board=network')
   await expect(page.locator('[data-test="traffic-devices-block"] [data-test="map-empty"]')).toContainText('Download the table')
-  await page.goto('network/traffic')
-  const tab = page.locator('[data-test="traffic-tab"]')
-  await expect(tab.locator('[data-test="traffic-tables-line"]')).toContainText('are off')
-  await tab.locator('[data-test="traffic-tables-link"]').click()
+  await page.locator('[data-test="map-open-tables"]').click()
   await expect(page).toHaveURL(/network\/settings\?group=data/)
   await expect(page.locator('[data-test="destination-data"]')).toBeVisible()
   await expect(page.locator('[data-test="destination-places"]')).toBeVisible()
 })
 
-test('with the action switched off the tab says why and offers the fix, and keeps the last look readable', async ({ page }, testInfo) => {
+test('with the action switched off the card says why and offers the fix, and keeps the last look readable', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': { ...READY, actions: [{ id: 'capture_host', on: false, installed: true }] }, '/netaudit/host-traffic': { summary: LOOK }, '/netaudit/route-trace': { supported: true, traces: [] } } })
-  await page.goto('network/traffic')
-  const tab = page.locator('[data-test="traffic-tab"]')
+  await page.goto('dashboard?board=network')
+  const tab = page.locator('[data-test="card-network-traffic"]')
   await expect(tab.locator('[data-test="traffic-unavailable"]')).toContainText('switched off')
   await expect(tab.locator('[data-test="traffic-listen"]')).toHaveCount(0)
   await expect(tab.locator('[data-test="traffic-when"]')).toBeVisible()
   await expectNoSidewaysScroll(page)
-  if (testInfo.project.name === 'mobile') await expectTapArea(tab.locator('[data-test="traffic-fix"]'))
+  if (testInfo.project.name === 'mobile') {
+    await tab.locator('[data-test="traffic-fix"]').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await expectTapArea(tab.locator('[data-test="traffic-fix"]'))
+  }
   await tab.locator('[data-test="traffic-fix"]').click()
   await expect(page).toHaveURL(/network\/settings/)
 })
 
-test('before the first look the tab invites one', async ({ page }) => {
+test('before the first look the card invites one', async ({ page }) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null } } })
-  await page.goto('network/traffic')
-  await expect(page.locator('[data-test="traffic-listen"]')).toBeVisible()
   await page.goto('dashboard?board=network')
+  await expect(page.locator('[data-test="traffic-listen"]')).toBeVisible()
   await expect(page.locator('[data-test="traffic-never"]')).toContainText('No devices yet')
   await expectNoSidewaysScroll(page)
 })
@@ -187,7 +187,7 @@ const LOOKUPS = {
 
 test('the trace card traces a typed address, folds the silent steps, shows the steadiness and draws the route', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [LONG_TRACE] }, '/netaudit/device-lookups': LOOKUPS, ...TABLES } })
-  await page.goto('network/traffic')
+  await page.goto('dashboard?board=network')
   const card = page.locator('[data-test="trace-card"]')
   await expect(card.locator('[data-test="trace-result"]')).toHaveCount(0)
   await card.locator('[data-test="trace-address"]').fill('91.189.91.61')
@@ -251,9 +251,9 @@ const ROUTER_READ = {
 test('the router\'s devices are in the list, with a map and company groups for each, and a route opens under a place', async ({ page }, testInfo) => {
   const inventory = { devices: [{ mac: 'aa:bb:cc:00:00:03', ip: '192.168.50.220', name: 'Doorbell', first_seen: new Date().toISOString(), last_seen: new Date().toISOString(), approved: true, randomized: false, new: false }] }
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': ROUTER_READ, '/netaudit/devices': inventory } })
-  await page.goto('network/traffic')
-  await expect(page.locator('[data-test="traffic-tab"] [data-test="router-when"]')).toContainText('245 lines, 31 connections')
-  await expect(page.locator('[data-test="traffic-tab"] [data-test="router-watch-on"]')).toBeVisible()
+  await page.goto('network/settings?group=watching') // the router is set up in Settings
+  await expect(page.locator('[data-test="router-when"]')).toContainText('245 lines, 31 connections')
+  await expect(page.locator('[data-test="router-watch-on"]')).toBeVisible()
   await page.goto('dashboard?board=network')
   const tab = page.locator('[data-test="traffic-devices-block"]')
   await expect(tab.locator('[data-test="device-name"]')).toContainText('Doorbell')
@@ -280,7 +280,7 @@ test('the router\'s devices are in the list, with a map and company groups for e
 
 test('before the router is set up it walks the three steps and never shows a key', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/admin/api/helper': READY, '/netaudit/host-traffic': { summary: null }, '/netaudit/route-trace': { supported: true, traces: [] }, '/netaudit/device-lookups': LOOKUPS, '/netaudit/router-connections': { address: '192.168.50.1', user: 'admin', key_saved: false } } })
-  await page.goto('network/traffic')
+  await page.goto('network/settings?group=watching')
   await expect(page.locator('[data-test="router-step"]')).toContainText('Step 2 of 3')
   await expect(page.locator('[data-test="router-key"]')).toBeVisible()
   await expectNoSidewaysScroll(page)

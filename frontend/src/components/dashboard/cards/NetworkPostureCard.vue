@@ -7,7 +7,6 @@ import { useCardSize } from "../../../composables/dashboard/useCardSize"
 import { useNetworkSnapshot } from "../../../composables/netaudit/useNetworkSnapshot"
 import { attentionReasons, nextAction, postureHeadline } from "../../../utils/netaudit/networkOverview"
 import { NETWORK_CHECK_PROBLEM, NETWORK_POSTURE_UNKNOWN_NEXT } from "../../../constants/netaudit"
-import { toNetwork } from "../../../router/routes"
 import type { NetworkPosture } from "../../../types/netaudit"
 import type { StatusState } from "../../../types/ui"
 
@@ -45,7 +44,7 @@ const next = computed(() => (overview.value ? nextAction(overview.value, hasAudi
         </ul>
         <p v-else-if="overview.posture === 'unknown'" class="m-0 mt-2 text-muted">{{ NETWORK_POSTURE_UNKNOWN_NEXT }}</p>
         <p v-if="overview.presence.problem" role="alert" class="m-0 mt-2 text-[length:var(--text-small)] text-state-error">{{ NETWORK_CHECK_PROBLEM }}: {{ overview.presence.problem }}</p>
-        <RouterLink v-if="next" :to="toNetwork(next.tab)" class="mt-3 inline-flex min-h-8 items-center font-mono text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2 max-sm:min-h-11" data-test="next-action">{{ next.label }} →</RouterLink>
+        <RouterLink v-if="next" :to="next.to" class="mt-3 inline-flex min-h-8 items-center font-mono text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2 max-sm:min-h-11" data-test="next-action">{{ next.label }} →</RouterLink>
       </div>
     </template>
   </div>
