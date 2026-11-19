@@ -10,7 +10,7 @@ The `RuntimeManager` interface is implemented by `LLMRuntimeManager` (production
 
 ### ToolProvider Interface (`internal/core/assistant/ports.go`)
 
-Defines how tools are listed and provided to the agent; the agent owns the interface and `internal/core/toolregistry` holds the implementations. Implemented by `LocalToolRegistry`, `MCPNodeHerder`, and `MultiToolProvider`.
+Defines how tools are listed and provided to the agent; the agent owns the interface and `internal/core/toolregistry` holds the implementations. Implemented by `LocalToolRegistry`, `StackTools` (tools a stack offers at run time, ADR-0069), and `MultiToolProvider`.
 
 ### Guardrail Decision Flow (`internal/core/assistant/agent.go`)
 

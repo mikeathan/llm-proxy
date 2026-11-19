@@ -34,6 +34,8 @@ const emit = defineEmits<{
 }>()
 
 const editing = computed(() => !!props.current)
+// Advanced opens on its own only when the form starts with a value in it; it is not tied to the field, so emptying the box does not close it under the cursor.
+const advancedOpen = !!props.modelValue.ca_cert
 const set = <K extends keyof McpServerForm>(key: K, value: McpServerForm[K]) => emit("update:modelValue", { ...props.modelValue, [key]: value })
 const text = (key: "name" | "url" | "auth_header" | "secret" | "ca_cert") => computed({ get: () => props.modelValue[key], set: (v: string) => set(key, v) })
 const name = text("name"), url = text("url"), header = text("auth_header"), secret = text("secret"), ca = text("ca_cert")
@@ -108,7 +110,7 @@ const testProblem = computed(() => (props.test?.problem_code ? MCP_PROBLEM_ADVIC
       <p class="m-0 text-[length:var(--text-small)] text-faint" data-test="mcp-trust-hint">{{ MCP_TRUST_HINTS[modelValue.trust] }}</p>
     </div>
 
-    <details class="group rounded-[var(--radius-md)] bg-canvas px-3 py-2" :open="!!modelValue.ca_cert">
+    <details class="group rounded-[var(--radius-md)] bg-canvas px-3 py-2" :open="advancedOpen">
       <summary class="flex min-h-9 cursor-pointer list-none items-center text-[length:var(--text-small)] font-medium text-secondary focus-visible:outline focus-visible:outline-2 focus-visible:outline-focus-ring">{{ MCP_ADVANCED_LABEL }}</summary>
       <div class="pb-2 pt-1">
         <FormField :label="MCP_FIELD_CA" :hint="MCP_FIELD_CA_HINT">

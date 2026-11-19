@@ -82,7 +82,7 @@ type ExecuteResponse struct {
 }
 
 // LLMServiceProvider is the minimal interface needed by LLMTaskExecutor.
-// It avoids an import cycle by not depending on the api or nodeherder packages.
+// It avoids an import cycle by not depending on the api package.
 type LLMServiceProvider interface {
 	run.OptionDeps
 	ClientProvider() proxy.LLMClientProvider

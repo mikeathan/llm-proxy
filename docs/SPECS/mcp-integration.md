@@ -1,9 +1,9 @@
 ---
 id: SPEC-008
 title: MCP Integration
-version: "1.1"
+version: "2.0"
 status: stable
-last_updated: 2026-09-29
+last_updated: 2026-11-19
 constitution_references: []
 related_specs: [SPEC-001, SPEC-006]
 supersedes:
@@ -13,72 +13,23 @@ supersedes:
 
 ## Changelog
 
-- **1.1 (2026-09-29)** — Reference correction (no behavior change): the CompositeEngine fallback
-  sentinel is `ErrToolNotInternal` (not `ErrToolNotFound`); the server-lifecycle type is
-  `mcp.Orchestrator` (formerly `ClientPool`).
+- **2.0 (2026-11-19)** — Rewritten for ADR-0069: MCP is a general client in the Agents stack (Tools layer). v1.1 described `resource_mirror.go`, SSE only, `registry.json` servers and `NodeHerder`; none of those exist now.
 
 ## I. Intent
 
-The MCP (Model Context Protocol) integration allows the agent to consume tools provided by
-external MCP servers via SSE transport. MCP servers are managed alongside local tools through
-the `MultiToolProvider`, making them transparent to the agent loop.
+Agents may use the tools of MCP servers the owner lists, over the MCP specification's Streamable HTTP transport, with nothing contacted until a server is added and switched on.
 
 ## II. Functional Requirements
 
-### 1. MCP Client
+1. **Transport.** Streamable HTTP; a server that answers the first POST with 400, 404 or 405 is tried once as the old HTTP+SSE transport. Not supported: stdio, OAuth sign-in, resources, prompts, sampling, elicitation, roots (client declares no capability for them).
+2. **Sign-in.** None, a bearer token, or one named header. The value is sealed by the vault, never returned, logged or put in a prompt; a stored value is never sent to a different address (the edit is refused until it is typed again).
+3. **Network.** Every connection goes through the guard (`httpclient` port): no environment proxy, same-host redirects only, optional per-server CA file.
+4. **Tools.** Listed with pagination, cached, refreshed on `tools/list_changed` and every five minutes; named `mcp__<server>__<tool>` (at most 64 characters). The core cuts descriptions (1,024 bytes) and schemas (16 KiB), allows 128 tools, and orders arguments required-first. Listing never waits on a server and is empty while the module is off.
+5. **Calls.** 60 s deadline; a session the server ended is started again and the call retried once; results are text (images and audio as a sentence with their size), cut at 256 KiB; a tool error is the tool's own words.
+6. **Trust.** Each server is Ask (default: every call is an approvable refusal, exact call, this workspace; unattended runs cannot use it) or Allow. A name no server offers any more but that looks like one asks. Lock down refuses every such tool.
+7. **Module.** Agents stack, Tools layer, module `mcp_servers` (off flag `mcp_off`, step-up). Routes: `GET/POST/PUT/DELETE /admin/api/mcp/servers`, `POST /admin/api/mcp/test`; writes need the passphrase.
+8. **Status.** Per server: connecting, ready, stopped (a problem id with fixed words), off.
 
-- SSE-based transport using `mark3labs/mcp-go`.
-- Connects to MCP servers configured in `registry.json` under `mcp_servers`.
-- Each server provides a list of tools via the MCP `tools/list` endpoint.
-- Tool calls to MCP servers are forwarded via the MCP `tools/call` endpoint.
+## III. Where
 
-### 2. Tool Mirroring
-
-- MCP tools are exposed through `NodeHerder` → `MCPService` interface.
-- `MCPNodeHerder` implements `ToolProvider`, wrapping MCP tools in the standard `proxy.Tool` format.
-- `MultiToolProvider` aggregates local tools (`LocalToolRegistry`) and MCP tools (`MCPNodeHerder`).
-
-### 3. Composite Engine
-
-- `CompositeEngine` tries local tool execution first, falls back to MCP when the local engine returns `ErrToolNotInternal`.
-- This ensures local tools take priority over MCP tools with the same name.
-- MCP-specific errors (connection, timeout) are mapped to standard tool errors.
-
-### 4. Resource Mirroring
-
-- `resource_mirror.go` caches system prompts from MCP servers.
-- Cached prompts are injected into the agent's system message on each turn.
-- Prompts are refreshed on reconnection.
-
-### 5. Guardrails on MCP Tools
-
-- MCP tool calls go through the same `ValidateToolCall()` flow as local tools.
-- Guardrail rules in `settings.yml` and workspace `config.yaml` apply.
-- MCP tool manifests use default guardrails (no embedded manifest override).
-
-## III. Error Handling
-
-- MCP connection failure: MCP tools disappear from the tool list (graceful degradation).
-- MCP tool call timeout: the MCP engine returns the timeout error to the caller — there is no
-  MCP→local fallback; the CompositeEngine only falls back local→MCP when the local engine returns
-  `ErrToolNotInternal`.
-- MCP SSE reconnection: automatic with exponential backoff (max 30s).
-
-## IV. Configuration
-
-MCP servers are configured in `registry.json`:
-
-```json
-{
-  "mcp_servers": [
-    {
-      "name": "my-mcp-server",
-      "url": "http://localhost:8080/sse",
-      "enabled": true
-    }
-  ]
-}
-```
-
-- Server lifecycle managed via `mcp.Orchestrator` (formerly `ClientPool`; start/stop/reconnect).
-- Per-server enable/disable toggles tool availability.
+`stacks/agents/mcpclient/`, `stacks/agents/mcp.go`, `backend/internal/core/toolregistry/dynamic.go`, `backend/internal/core/assistant/guardrails/` (`ErrAsksFirst`). Decisions: ADR-0069. Settings: the `agents` document (`mcp_servers`, `mcp_off`).
