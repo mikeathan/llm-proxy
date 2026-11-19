@@ -442,6 +442,33 @@ func (r *Registry) needsOff(m Module) []string {
 	return off
 }
 
+// SwitchOffNeedsStepUp reports whether stopping the stack would switch off a module that needs the passphrase: only modules that are on
+// are switched, so a stack whose passphrase-guarded modules are already off can be stopped without it.
+func (r *Registry) SwitchOffNeedsStepUp(id StackID) (bool, error) {
+	if _, ok := r.stack(id); !ok {
+		return false, ErrNotFound
+	}
+	return slices.ContainsFunc(r.modules, func(m Module) bool { return m.Stack == id && m.StepUp && m.Switch.Enabled() }), nil
+}
+
+// SwitchOff turns off every module of the stack that is on, which is what switching a stack off means: a stack is on while any module of
+// it is on (the menu and the dashboard read that), so no setting of its own exists. A module already off is left alone. It stops at the
+// first module that cannot be switched; the ones before it stay off, and the stack's view says which.
+func (r *Registry) SwitchOff(id StackID) error {
+	if _, ok := r.stack(id); !ok {
+		return ErrNotFound
+	}
+	for _, m := range r.modules {
+		if m.Stack != id || !m.Switch.Enabled() {
+			continue
+		}
+		if err := m.Switch.Set(false); err != nil {
+			return fmt.Errorf("switching %s: %w", m.ID, err)
+		}
+	}
+	return nil
+}
+
 // Outcome is what a switch change left behind: on switching a module off, the titles of the modules that are on and need it.
 type Outcome struct {
 	Blocked []string `json:"blocked"`

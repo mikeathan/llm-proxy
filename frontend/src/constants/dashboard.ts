@@ -101,20 +101,14 @@ export const ALL_CARDS_ADDED = 'Every card is already on this board.'
 export const BOARD_ALREADY_ADDED = 'Added'
 
 // The boards that ship ready-made. A stack's board is an ordinary board built from the same cards; the owner can remove, rename,
-// re-arrange or reset it. Home is fixed and mixes cards from every source.
+// re-arrange or reset it. Home is fixed and mixes cards from every source, but ships minimal: only a card no stack board already shows, so
+// nothing is repeated; what else to bring from another board is the person's choice (Add card, or Pin to Home).
 export const BOARD_TEMPLATES: readonly DashboardBoardTemplate[] = [
   {
     id: HOME_BOARD_ID,
     name: 'Home',
     source: null,
-    cards: [
-      { id: 'host-health', cols: 12, rows: 1 },
-      { id: 'running-now', cols: 4, rows: 1 },
-      { id: 'recent-runs', cols: 8, rows: 1 },
-      { id: 'network-posture', cols: 4, rows: 1 },
-      { id: 'radio-around', cols: 4, rows: 1 },
-      { id: 'reminders', cols: 4, rows: 1 },
-    ],
+    cards: [{ id: 'assistant-recent', cols: 6, rows: 1 }],
   },
   {
     id: 'host',

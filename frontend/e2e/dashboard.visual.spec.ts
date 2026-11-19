@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { expectNoSidewaysScroll, lookAt, mockAdminApi } from './support/adminApi'
 
-// The dashboard: boards of cards. Home mixes cards from every part of the system, a stack ships its own board, and a board re-flows from its
+// The dashboard: boards of cards. Home ships minimal (nothing a stack board repeats; the person adds more), a stack ships its own board, and a board re-flows from its
 // layout menu. On a phone every card is one full-width block, one after another. The screenshots are for looking at.
 const seen = new Date(Date.now() - 5 * 60_000).toISOString()
 const day = (offset: number, up: number, devices: number, findings: number) => ({
@@ -15,14 +15,14 @@ const OVERVIEW = {
 }
 const METRICS = { llm_tokens_per_sec: 42.1, load_percent: 31, mem_used_mb: 9_400, mem_total_mb: 32_000, gpu_error: 'No GPU detected' }
 
-test('Home: cards from every part of the system, one board of them', async ({ page }, testInfo) => {
+test('Home ships minimal: one card no stack board repeats', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
   await page.goto('dashboard')
   await expect(page.getByRole('heading', { name: 'Dashboard', level: 1 })).toBeVisible()
   await expect(page.locator('[data-test="board-tab"][aria-current="page"]')).toHaveText('Home')
   await expect(page.locator('[data-test="board-tab"]')).toHaveText(['Home', 'LLM and host', 'Network', 'Radio', 'Automations'])
-  await expect(page.locator('[data-test="host-health-card"]')).toBeVisible()
-  await expect(page.locator('[data-test="network-posture-card"]')).toContainText('Needs a look')
+  await expect(page.locator('[data-test="card-assistant-recent"]')).toBeVisible()
+  await expect(page.locator('[data-test="dashboard-grid"] > div')).toHaveCount(1)
   await expectNoSidewaysScroll(page)
   await lookAt(page, testInfo, 'dashboard-home', true)
   if (testInfo.project.name === 'mobile') {
@@ -45,8 +45,8 @@ test('the Network board holds the overview, the devices and the findings', async
 
 test('arranging: a layout re-flows the board, a card is resized, and the board offers to be put back', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/netaudit/overview': OVERVIEW, '/metrics': METRICS, '/dashboard': { boards: [] } } })
-  await page.goto('dashboard')
-  await expect(page.locator('[data-test="network-posture-card"]')).toBeVisible() // the cards load as they are first shown
+  await page.goto('dashboard?board=host')
+  await expect(page.locator('[data-test="host-health-card"]')).toBeVisible() // the cards load as they are first shown
   await page.locator('[data-test="layout-select"]').selectOption('two-columns')
   await expect(page.locator('[data-test="reset-board"]')).toBeVisible()
   if (testInfo.project.name === 'desktop') {

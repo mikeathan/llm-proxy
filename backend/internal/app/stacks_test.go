@@ -334,6 +334,7 @@ func TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase(t *testing.T)
 	mux := http.NewServeMux()
 	h := handlers.NewStackHandlers(d.reg, nil)
 	mux.HandleFunc("PUT /admin/api/stacks/{stack}/modules/{id}", h.PutModule)
+	mux.HandleFunc("POST /admin/api/stacks/{stack}/off", h.PostOff)
 
 	walked := 0
 	for _, m := range allModules(t, d.reg) {
@@ -353,6 +354,23 @@ func TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase(t *testing.T)
 		if m.Switch.Enabled() != before {
 			t.Errorf("%s/%s changed although the passphrase was missing", m.Stack, m.ID)
 		}
+	}
+	// Switching a whole stack off is guarded by the same rule: with a passphrase-guarded module on, it is refused and nothing changes.
+	guardedOn := 0
+	for _, m := range allModules(t, d.reg) {
+		if !m.StepUp || !m.Switch.Enabled() {
+			continue
+		}
+		guardedOn++
+		req := httptest.NewRequest(http.MethodPost, "/admin/api/stacks/"+string(m.Stack)+"/off", nil).WithContext(api.WithStepUp(context.Background(), false))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden || !m.Switch.Enabled() {
+			t.Errorf("%s: off without the passphrase = %d (module %s still on = %v), want 403 and no change", m.Stack, rec.Code, m.ID, m.Switch.Enabled())
+		}
+	}
+	if guardedOn == 0 {
+		t.Fatal("no passphrase-guarded module is on in the test stacks; the off route is not covered")
 	}
 	if walked < 8 {
 		t.Fatalf("walked only %d step-up modules; the check is not covering the registry", walked)

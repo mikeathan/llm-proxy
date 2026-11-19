@@ -14,6 +14,8 @@ type StackRegistry interface {
 	View(id stack.StackID, stalled map[string]bool) (stack.StackView, error)
 	Module(id stack.StackID, module string) (stack.Module, bool)
 	Switch(id stack.StackID, module string, enabled bool) (stack.Outcome, error)
+	SwitchOffNeedsStepUp(id stack.StackID) (bool, error)
+	SwitchOff(id stack.StackID) error
 }
 
 // StackHandlers serve the stacks and their modules (ADR-0028): the list, one stack with its layers, and the one route that
@@ -63,6 +65,31 @@ type moduleRequest struct {
 type switchedStack struct {
 	stack.StackView
 	Blocked []string `json:"blocked"`
+}
+
+// PostOff switches a whole stack off: every module of it that is on. The passphrase is asked only when one of those modules needs it,
+// before anything is changed. Switching a stack on has no route: a person chooses which modules to run, one at a time.
+func (h *StackHandlers) PostOff(w http.ResponseWriter, r *http.Request) {
+	id := stack.StackID(r.PathValue("stack"))
+	needs, err := h.registry.SwitchOffNeedsStepUp(id)
+	if errors.Is(err, stack.ErrNotFound) {
+		writeJSONError(w, http.StatusNotFound, "no such stack")
+		return
+	}
+	if needs && !api.StepUpGranted(r.Context()) {
+		api.RefuseStepUp(w, r)
+		return
+	}
+	if err := h.registry.SwitchOff(id); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	view, err := h.registry.View(id, h.stalledSet())
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, switchedStack{StackView: view, Blocked: []string{}})
 }
 
 // PutModule switches one module on or off. A module that needs the passphrase is refused without it before anything is read

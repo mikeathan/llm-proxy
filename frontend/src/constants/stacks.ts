@@ -35,6 +35,14 @@ export const MODULE_BLOCKED_WORD = 'Blocked'
 
 export const stackSummaryLine = (on: number, total: number): string => `${on} of ${total} on`
 
+export const STACK_OFF_FAILED = 'The stack could not be switched off. Some of its modules may still be on; check below, then try again.'
+export const STACK_OFF_LABEL = 'Switch this stack off'
+export const stackOffTitle = (title: string): string => `Switch ${title} off?`
+export const STACK_OFF_MESSAGE =
+  'Every module of this stack that is on is switched off, so it stops watching and sending. Your settings and what it already found are kept, and its menu entry and dashboard board are hidden until a module is switched on again.'
+export const STACK_OFF_CONFIRM = 'Switch off'
+export const STACK_IS_OFF_LINE = 'Off: no module of this stack is on. Switch one on below to bring the stack back.'
+
 export const LEFT_BLOCKED_PREFIX = 'Now waiting for it: '
 
 /** The Agents page. Activity is the page without a tab. */
