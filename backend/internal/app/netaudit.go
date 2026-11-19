@@ -542,13 +542,23 @@ func (s AppServices) netauditLoops() []func(context.Context) {
 	return loops
 }
 
+// hosts are the stacks the service could host, in a fixed order; a stack that could not be hosted is left out. A new stack is added here and
+// nowhere else, so no loop over "every stack" can miss one.
+func (n *netauditServices) hosts() []*stackHost {
+	var out []*stackHost
+	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders} {
+		if h != nil {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
 // hostedStacks are the stacks running in the service, each of which mounts the routes its manifest declares.
 func (n *netauditServices) hostedStacks() []stacksdk.Stack {
 	var out []stacksdk.Stack
-	for _, h := range []*stackHost{n.Network, n.Agents, n.Radio, n.Reminders} {
-		if h != nil {
-			out = append(out, h.stack)
-		}
+	for _, h := range n.hosts() {
+		out = append(out, h.stack)
 	}
 	return out
 }

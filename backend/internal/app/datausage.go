@@ -77,10 +77,7 @@ func (s *AppServices) stackStoreKinds(ctx context.Context) ([]datausage.Kind, ma
 	if s.netaudit == nil {
 		return nil, uses
 	}
-	for _, h := range []*stackHost{s.netaudit.Network, s.netaudit.Agents, s.netaudit.Radio} {
-		if h == nil {
-			continue
-		}
+	for _, h := range s.netaudit.hosts() {
 		m := h.stack.Manifest()
 		for _, f := range m.Storage {
 			kinds = append(kinds, datausage.Kind{ID: "stack:" + m.ID + ":" + f, Title: m.Title + " stack: " + f, Owner: m.ID, Names: []string{f}})
