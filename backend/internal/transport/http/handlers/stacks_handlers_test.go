@@ -59,6 +59,7 @@ func (r *stackRig) call(method, target, body string, stepUp bool) *httptest.Resp
 	mux.HandleFunc("GET /admin/api/stacks/{stack}", r.h.Get)
 	mux.HandleFunc("PUT /admin/api/stacks/{stack}/modules/{id}", r.h.PutModule)
 	mux.HandleFunc("POST /admin/api/stacks/{stack}/off", r.h.PostOff)
+	mux.HandleFunc("POST /admin/api/stacks/{stack}/on", r.h.PostOn)
 	req := httptest.NewRequest(method, target, strings.NewReader(body)).WithContext(api.WithStepUp(context.Background(), stepUp))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -193,5 +194,23 @@ func TestStackHandlers_OffRefusesAnUnknownStackAndReportsAFailedWrite(t *testing
 	r.presence.on, r.presence.setErr = true, errors.New("disk full")
 	if rec := r.call(http.MethodPost, "/admin/api/stacks/network/off", "", true); rec.Code != http.StatusInternalServerError {
 		t.Errorf("failed write = %d, want 500", rec.Code)
+	}
+}
+
+func TestStackHandlers_OnSwitchesEveryModuleOnInDependencyOrderAndAsksForThePassphrase(t *testing.T) {
+	r := newStackRig(t)
+	rec := r.call(http.MethodPost, "/admin/api/stacks/network/on", "", false)
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "reauth_required") {
+		t.Fatalf("on without the passphrase = %d %s, want 403 reauth_required", rec.Code, rec.Body.String())
+	}
+	if r.presence.on || r.decoys.on || r.summary.on {
+		t.Fatal("something was switched although the passphrase was missing")
+	}
+	rec = r.call(http.MethodPost, "/admin/api/stacks/network/on", "", true)
+	if rec.Code != http.StatusOK || !r.presence.on || !r.decoys.on || !r.summary.on {
+		t.Fatalf("on = %d %s, presence %v decoys %v summary %v", rec.Code, rec.Body.String(), r.presence.on, r.decoys.on, r.summary.on)
+	}
+	if rec := r.call(http.MethodPost, "/admin/api/stacks/mars/on", "", true); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown stack = %d, want 404", rec.Code)
 	}
 }

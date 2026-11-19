@@ -32,6 +32,14 @@ describe('AssistantRecentCard', () => {
     expect(w.findAllComponents(RouterLinkStub)[0]!.props('to')).toMatchObject({ params: { ws: 'ws' } })
   })
 
+  it('lists every conversation in a list that scrolls, so a small card does not hide the rest', async () => {
+    assistant.listSessions.mockResolvedValue(Array.from({ length: 11 }, (_, i) => session(`s${i}`, i + 1)))
+    const w = await mountCard()
+    expect(w.findAll('[data-test="assistant-recent-session"]')).toHaveLength(11)
+    expect(w.get('[data-test="assistant-recent-list"]').classes()).toEqual(expect.arrayContaining(['overflow-y-auto']))
+    expect(w.get('[data-test="assistant-recent-list"]').classes().some((c) => c.startsWith('max-h-'))).toBe(true)
+  })
+
   it('says there are none yet, and says when they could not be read', async () => {
     assistant.listSessions.mockResolvedValue([])
     expect((await mountCard()).text()).toContain('No conversations yet')

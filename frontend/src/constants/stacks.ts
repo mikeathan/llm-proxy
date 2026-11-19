@@ -35,12 +35,18 @@ export const MODULE_BLOCKED_WORD = 'Blocked'
 
 export const stackSummaryLine = (on: number, total: number): string => `${on} of ${total} on`
 
-export const STACK_OFF_FAILED = 'The stack could not be switched off. Some of its modules may still be on; check below, then try again.'
-export const STACK_OFF_LABEL = 'Switch this stack off'
+export const STACK_ALL_FAILED = 'The stack could not be switched as a whole. Some of its modules may have changed and some not; check below, then try again.'
+export const STACK_ALL_ON_LABEL = 'Switch stack on'
+export const STACK_ALL_OFF_LABEL = 'Switch stack off'
+export const STACK_ALL_LABEL = 'Switch this stack on or off, which switches all of its modules'
 export const stackOffTitle = (title: string): string => `Switch ${title} off?`
 export const STACK_OFF_MESSAGE =
-  'Every module of this stack that is on is switched off, so it stops watching and sending. Your settings and what it already found are kept, and its menu entry and dashboard board are hidden until a module is switched on again.'
+  'Switching the stack off switches off every module of it that is on, so it stops watching and sending. Your settings and what it already found are kept, and its menu entry and dashboard board are hidden until a module is switched on again.'
 export const STACK_OFF_CONFIRM = 'Switch off'
+export const stackOnTitle = (title: string): string => `Switch every ${title} module on?`
+export const STACK_ON_MESSAGE =
+  'Switching the stack on switches on every module of it that is off, including the ones that scan, listen or send. Each module says what it does under About, and a module the Guardrails block stays blocked. You can switch any of them off again one by one, or the whole stack off at once.'
+export const STACK_ON_CONFIRM = 'Switch stack on'
 export const STACK_IS_OFF_LINE = 'Off: no module of this stack is on. Switch one on below to bring the stack back.'
 
 export const LEFT_BLOCKED_PREFIX = 'Now waiting for it: '

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StackView, SwitchedStack } from '../../../types/stacks'
 
-const service = vi.hoisted(() => ({ stack: vi.fn(), setModule: vi.fn(), switchOff: vi.fn() }))
+const service = vi.hoisted(() => ({ stack: vi.fn(), setModule: vi.fn(), switchAll: vi.fn() }))
 vi.mock('../../../services/stacks/stacksService', () => ({ StacksService: service }))
 
 import { useStack } from '../../../composables/stacks/useStack'
@@ -14,7 +14,7 @@ const view = (over: Partial<StackView> = {}): StackView => ({
 const switched = (over: Partial<SwitchedStack> = {}): SwitchedStack => ({ ...view(), blocked: [], ...over })
 
 describe('useStack', () => {
-  beforeEach(() => { service.stack.mockReset(); service.setModule.mockReset(); service.switchOff.mockReset() })
+  beforeEach(() => { service.stack.mockReset(); service.setModule.mockReset(); service.switchAll.mockReset() })
 
   it('loads the stack', async () => {
     service.stack.mockResolvedValue(view())
@@ -72,22 +72,31 @@ describe('useStack', () => {
 
   it('shows the stack as the server says after switching it off', async () => {
     const off = view({ summary: { on: 0, total: 2, stopped: 0, blocked: 0 } })
-    service.switchOff.mockResolvedValue({ ...off, blocked: [] })
+    service.switchAll.mockResolvedValue({ ...off, blocked: [] })
     const s = useStack('network')
-    await s.switchOff()
-    expect(service.switchOff).toHaveBeenCalledWith('network')
+    await s.switchAll(false)
+    expect(service.switchAll).toHaveBeenCalledWith('network', false)
     expect(s.stack.value?.summary.on).toBe(0)
-    expect(s.offError.value).toBe('')
-    expect(s.switchingOff.value).toBe(false)
+    expect(s.allError.value).toBe('')
+    expect(s.switchingAll.value).toBe(false)
+  })
+
+  it('switches the whole stack on and shows the answer', async () => {
+    const on = view({ summary: { on: 2, total: 2, stopped: 0, blocked: 0 } })
+    service.switchAll.mockResolvedValue({ ...on, blocked: [] })
+    const s = useStack('network')
+    await s.switchAll(true)
+    expect(service.switchAll).toHaveBeenCalledWith('network', true)
+    expect(s.stack.value?.summary.on).toBe(2)
   })
 
   it('names the failure and reads the stack again, since some modules may be off already', async () => {
-    service.switchOff.mockRejectedValue(new Error('switching presence: disk full'))
+    service.switchAll.mockRejectedValue(new Error('switching presence: disk full'))
     service.stack.mockResolvedValue(view())
     const s = useStack('network')
-    await s.switchOff()
-    expect(s.offError.value).toContain('disk full')
+    await s.switchAll(false)
+    expect(s.allError.value).toContain('disk full')
     expect(service.stack).toHaveBeenCalledWith('network')
-    expect(s.switchingOff.value).toBe(false)
+    expect(s.switchingAll.value).toBe(false)
   })
 })

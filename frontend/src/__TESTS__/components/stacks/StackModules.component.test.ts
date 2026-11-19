@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { StackView, SwitchedStack } from '../../../types/stacks'
 
-const service = vi.hoisted(() => ({ stack: vi.fn(), setModule: vi.fn(), switchOff: vi.fn() }))
+const service = vi.hoisted(() => ({ stack: vi.fn(), setModule: vi.fn(), switchAll: vi.fn() }))
 vi.mock('../../../services/stacks/stacksService', () => ({ StacksService: service }))
 const confirm = vi.hoisted(() => vi.fn())
 vi.mock('../../../composables/ui/useConfirm', () => ({ useConfirm: () => ({ confirm }) }))
@@ -28,7 +28,7 @@ const mountIt = async () => {
 }
 
 describe('StackModules', () => {
-  beforeEach(() => { service.stack.mockReset(); service.setModule.mockReset(); service.switchOff.mockReset(); confirm.mockReset(); service.stack.mockResolvedValue(network()) })
+  beforeEach(() => { service.stack.mockReset(); service.setModule.mockReset(); service.switchAll.mockReset(); confirm.mockReset(); service.stack.mockResolvedValue(network()) })
   afterEach(() => { wrapper?.unmount(); wrapper = undefined })
 
   it('draws the layers top first, numbered from the bottom', async () => {
@@ -81,26 +81,41 @@ describe('StackModules', () => {
   it('switches the whole stack off only after the person confirms', async () => {
     const off: SwitchedStack = { ...network(), summary: { on: 0, total: 3, stopped: 0, blocked: 1 }, blocked: [] }
     off.layers[1]!.modules[0]!.enabled = false
-    service.switchOff.mockResolvedValue(off)
+    service.switchAll.mockResolvedValue(off)
     confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     const w = await mountIt()
-    await w.get('[data-test="stack-off"]').trigger('click')
+    await w.get('[data-test="stack-all-off"]').trigger('click')
     await flushPromises()
-    expect(service.switchOff).not.toHaveBeenCalled()
-    await w.get('[data-test="stack-off"]').trigger('click')
+    expect(service.switchAll).not.toHaveBeenCalled()
+    await w.get('[data-test="stack-all-off"]').trigger('click')
     await flushPromises()
-    expect(service.switchOff).toHaveBeenCalledWith('network')
-    expect(w.find('[data-test="stack-off"]').exists()).toBe(false)
+    expect(service.switchAll).toHaveBeenCalledWith('network', false)
+    expect(w.get('[data-test="stack-all-off"]').attributes('disabled')).toBeDefined()
     expect(w.get('[data-test="stack-is-off"]').text()).toContain('Off: no module of this stack is on')
+  })
+
+  it('switches the whole stack on only after the person confirms, and disables the button once all are on', async () => {
+    const on: SwitchedStack = { ...network(), summary: { on: 3, total: 3, stopped: 0, blocked: 0 }, blocked: [] }
+    service.switchAll.mockResolvedValue(on)
+    confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+    const w = await mountIt()
+    await w.get('[data-test="stack-all-on"]').trigger('click')
+    await flushPromises()
+    expect(service.switchAll).not.toHaveBeenCalled()
+    await w.get('[data-test="stack-all-on"]').trigger('click')
+    await flushPromises()
+    expect(service.switchAll).toHaveBeenCalledWith('network', true)
+    expect(w.get('[data-test="stack-all-on"]').attributes('disabled')).toBeDefined()
+    expect(w.get('[data-test="stack-all-off"]').attributes('disabled')).toBeUndefined()
   })
 
   it('says so when switching the stack off fails', async () => {
     confirm.mockResolvedValue(true)
-    service.switchOff.mockRejectedValue(new Error('switching presence: disk full'))
+    service.switchAll.mockRejectedValue(new Error('switching presence: disk full'))
     const w = await mountIt()
-    await w.get('[data-test="stack-off"]').trigger('click')
+    await w.get('[data-test="stack-all-off"]').trigger('click')
     await flushPromises()
-    expect(w.get('[data-test="stack-off-error"]').text()).toContain('disk full')
+    expect(w.get('[data-test="stack-all-error"]').text()).toContain('disk full')
   })
 
   it('names what a switch-off left waiting', async () => {

@@ -335,6 +335,7 @@ func TestStackRoute_EveryStepUpModuleIsRefusedWithoutThePassphrase(t *testing.T)
 	h := handlers.NewStackHandlers(d.reg, nil)
 	mux.HandleFunc("PUT /admin/api/stacks/{stack}/modules/{id}", h.PutModule)
 	mux.HandleFunc("POST /admin/api/stacks/{stack}/off", h.PostOff)
+	mux.HandleFunc("POST /admin/api/stacks/{stack}/on", h.PostOn)
 
 	walked := 0
 	for _, m := range allModules(t, d.reg) {

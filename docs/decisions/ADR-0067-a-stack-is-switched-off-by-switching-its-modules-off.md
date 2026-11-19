@@ -20,8 +20,10 @@ cards (ADR-0066, `useEnabledStacks`) all read that. Evidence: `core/stack/regist
 Switching a stack off means switching off every module of it that is on: `POST /admin/api/stacks/{stack}/off`, one button on the Modules tab
 behind a confirmation. No stack-level setting is stored, so there is no second source of truth that could disagree with the modules. The
 passphrase is asked (the same `reauth_required` cue as a module switch) only when a module that is on needs it, checked before anything is
-changed. A failure part-way stops at that module; the ones before stay off and the answer's error names it. There is no route to switch a stack
-**on**: which modules to run is the person's choice, made one by one on the same tab; a stack with nothing on says so there and on the Stacks page.
+changed. A failure part-way stops at that module; the ones before stay off and the answer's error names it. ~~There is no route to switch a stack
+**on**~~ — amended 2026-11-19 at the owner's request ("too many modules to switch one by one"): `POST /admin/api/stacks/{stack}/on` switches on every module that is
+off, in dependency order, behind a confirmation, with the same passphrase rule (asked only when a guarded module would change). Switching on one by one stays.
+A stack with nothing on says so on the Modules tab and on the Stacks page.
 Settings and what the modules already found are kept.
 
 ## Consequences
@@ -32,7 +34,7 @@ Settings and what the modules already found are kept.
 ## Alternatives considered
 - **A stored per-stack enabled flag**: a second truth next to the modules; the menu, board and registry would each have to honour it.
 - **The browser switching each module in turn**: many requests, many passphrase checks, and a half-off stack on a network error.
-- **A matching "switch on" that restores the last set**: more state than the request needs; left out.
+- **A "switch on" that restores the last set**: more state than the request needs; left out. (Plain "all on" was added later, see Decision.)
 
 ## Links
 - ADR-0028 (modules are the one switch), ADR-0066 (a stack that is off is hidden), SPEC-003 2.70.

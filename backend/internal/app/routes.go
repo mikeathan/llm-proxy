@@ -456,6 +456,7 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/stacks/{stack}", hs.Stacks.Get, jsonMethodNotAllowed)
 	router.Put("/admin/api/stacks/{stack}/modules/{id}", hs.Stacks.PutModule, jsonMethodNotAllowed)
 	router.Post("/admin/api/stacks/{stack}/off", hs.Stacks.PostOff, jsonMethodNotAllowed)
+	router.Post("/admin/api/stacks/{stack}/on", hs.Stacks.PostOn, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/scope", hs.Netaudit.GetScope, jsonMethodNotAllowed)
 	router.Put("/admin/api/netaudit/scope", hs.Netaudit.PutScope, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/targets/check", hs.Netaudit.CheckTargets, jsonMethodNotAllowed)
