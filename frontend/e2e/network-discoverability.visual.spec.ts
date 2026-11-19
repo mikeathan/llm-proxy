@@ -39,9 +39,9 @@ test('a module tile folds what it does, and the fold is a touch target on a phon
   if (testInfo.project.name === 'mobile') expect((await fold.boundingBox())?.height).toBeGreaterThanOrEqual(44)
 })
 
-test('the overview says how many protections are watching and what each one that is off would watch', async ({ page }, testInfo) => {
+test('the Network board says how many protections are watching and what each one that is off would watch', async ({ page }, testInfo) => {
   await mockAdminApi(page, { answers: { '/stacks/network': NETWORK, '/netaudit/overview': OVERVIEW } })
-  await page.goto('network')
+  await page.goto('dashboard?board=network')
   const line = page.locator('[data-test="coverage-line"]')
   await expect(line).toContainText('2 of 3 protections are watching · 1 stopped')
   await line.locator('button').first().click()

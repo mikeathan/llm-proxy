@@ -172,7 +172,7 @@ for (const view of ['simple', 'advanced'] as const) {
   })
 }
 
-test('the Overview shows the router figure only when the router has been counted', async ({ page }, testInfo) => {
+test('the Network board shows the router figure only when the router has been counted', async ({ page }, testInfo) => {
   await setNetauditView(page, 'simple')
   const overview = (withBlocks: boolean) => ({
     posture: 'quiet', devices: { known: 9, unnamed: 1, new: 0, active: 8 }, findings: { scanned: true, scanned_at: new Date().toISOString(), open: 3, serious: 0, new: 0 },
@@ -180,12 +180,12 @@ test('the Overview shows the router figure only when the router has been counted
     series: [iso(1), iso(0)].map((date, i) => ({ date, devices_up: 8, devices: 9, unnamed: 1, findings: 3, serious: 0, audited: true, ...(withBlocks ? { blocked: i ? 1204 : 2310 } : {}) })),
   })
   await mockAdminApi(page, { answers: { '/automations': [AUDIT], '/netaudit/overview': overview(true) } })
-  await page.goto('network')
+  await page.goto('dashboard?board=network')
   await expect(page.locator('[data-test="stats"]').getByText('Refused at the router')).toBeVisible()
   await expectNoSidewaysScroll(page)
   await lookAt(page.locator('[data-test="stats"]'), testInfo, 'overview-router-stat')
   await mockAdminApi(page, { answers: { '/automations': [AUDIT], '/netaudit/overview': overview(false) } })
-  await page.goto('network')
+  await page.goto('dashboard?board=network')
   await expect(page.locator('[data-test="stats"]')).toBeVisible()
   await expect(page.locator('[data-test="stats"]').getByText('Refused at the router')).toHaveCount(0)
 })

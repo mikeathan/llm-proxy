@@ -2,7 +2,7 @@
 import { ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import BrandMark from "../components/layout/BrandMark.vue"
-import { toOverview, toWorkspaces } from "../router/routes"
+import { toDashboard, toWorkspaces } from "../router/routes"
 import { ROUTE_NAMES } from "../types/routes"
 
 // Rendered inside the shell for any unknown path (plan D18), so a bad link is
@@ -25,9 +25,9 @@ watch(() => route.fullPath, (path) => {
     <p class="text-secondary">The link may be from an older version, or the workspace was renamed.</p>
     <div class="mt-2 flex flex-wrap gap-2">
       <RouterLink
-        :to="toOverview()"
+        :to="toDashboard()"
         class="rounded-[var(--radius-md)] border border-control bg-text-primary px-3 py-1.5 font-mono text-[length:var(--text-small)] text-inverse offset-brand focus-visible:outline-none focus-visible:ring-2"
-      >Go to Overview</RouterLink>
+      >Go to the dashboard</RouterLink>
       <RouterLink
         :to="toWorkspaces()"
         class="rounded-[var(--radius-md)] border border-control px-3 py-1.5 font-mono text-[length:var(--text-small)] text-primary hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2"

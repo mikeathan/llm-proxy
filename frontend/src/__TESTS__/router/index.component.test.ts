@@ -10,7 +10,7 @@ const nameOf = (path: string) => router.resolve(path).name
 
 describe('route table (D18)', () => {
   it.each([
-    ['/overview', ROUTE_NAMES.overview],
+    ['/dashboard', ROUTE_NAMES.dashboard],
     ['/workspaces', ROUTE_NAMES.workspaces],
     ['/workspaces/ws', ROUTE_NAMES.workspace],
     ['/workspaces/ws/files', ROUTE_NAMES.workspaceFiles],
@@ -50,14 +50,14 @@ describe('route table (D18)', () => {
     expect(nameOf(path)).toBe(ROUTE_NAMES.notFound)
   })
 
-  it('opens on the Overview until a workspace is known, then on that workspace\'s assistant', async () => {
+  it('opens on the dashboard, whichever workspace was used last', async () => {
     vi.stubGlobal('localStorage', memoryStorage())
     const r = createAppRouter(createMemoryHistory())
     await r.push('/')
-    expect(r.currentRoute.value.name).toBe(ROUTE_NAMES.overview)
+    expect(r.currentRoute.value.name).toBe(ROUTE_NAMES.dashboard)
     useLastWorkspace().remember('lab')
     await r.push('/')
-    expect(r.currentRoute.value.fullPath).toBe('/workspaces/lab/assistant')
+    expect(r.currentRoute.value.fullPath).toBe('/dashboard')
     useLastWorkspace().forget('lab')
     vi.unstubAllGlobals()
   })

@@ -49,9 +49,9 @@ describe('useSettingsSection', () => {
 
   it('does not redirect when tabs load after the user has left', async () => {
     const { router, ready } = await setup('/settings/bogus', false)
-    await router.push('/overview')
+    await router.push('/dashboard')
     ready.value = true
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe(ROUTE_NAMES.overview)
+    expect(router.currentRoute.value.name).toBe(ROUTE_NAMES.dashboard)
   })
 })

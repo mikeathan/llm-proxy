@@ -22,7 +22,7 @@ describe('useDestinationRoute', () => {
     await flushPromises()
     expect(snapshot.value.params.ws).toBe('other')
 
-    await router.push('/overview')
+    await router.push('/dashboard')
     await flushPromises()
     expect(snapshot.value.fullPath).toBe('/workspaces/other/memory')
   })

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"llm-proxy/internal/core/dashboard"
 	"llm-proxy/internal/core/llm"
 	"llm-proxy/internal/core/lockdown"
 	"llm-proxy/internal/core/orchestrator"
@@ -59,6 +60,8 @@ type AppContext struct {
 
 	// lockdown is the lock down switch, read on every tool call and before every automation starts.
 	lockdown *lockdown.Manager
+	// dashboard is the owner's dashboard layout, kept on the server so it follows the owner to every browser.
+	dashboard *dashboard.Manager
 }
 
 func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext {
@@ -81,6 +84,9 @@ func NewServer(mgr llm.RuntimeManager, dataMgr *storage.DataManager) *AppContext
 	}
 	// A factory reset starts from nothing, lock down included.
 	s.AfterFactoryReset("The lock down switch", func() error { _, err := s.lockdown.Release(); return err })
+
+	s.dashboard = dashboard.New(persistence.NewDashboardStore(rootDir))
+	s.AfterFactoryReset("The dashboard layout", s.dashboard.Reset)
 
 	s.initOrchestrator()
 
@@ -258,3 +264,6 @@ func (s *AppContext) LockedDown() bool { return s.lockdown != nil && s.lockdown.
 
 // Lockdown is the lock down switch, for its handlers.
 func (s *AppContext) Lockdown() *lockdown.Manager { return s.lockdown }
+
+// Dashboard is the dashboard layout, for its handlers.
+func (s *AppContext) Dashboard() *dashboard.Manager { return s.dashboard }

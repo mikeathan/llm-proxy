@@ -12,7 +12,7 @@ import {
   toDeviceFindings,
   toFinding,
   toNetwork,
-  toOverview,
+  toDashboard,
   toRequirementFix,
   toSettings,
   toWorkspace,
@@ -28,7 +28,7 @@ const pathOf = (to: Parameters<typeof router.resolve>[0]) => router.resolve(to).
 
 describe('typed route builders', () => {
   it.each([
-    ['overview', toOverview(), '/overview'],
+    ['overview', toDashboard(), '/dashboard'],
     ['workspaces', toWorkspaces(), '/workspaces'],
     ['workspace', toWorkspace('ws'), '/workspaces/ws'],
     ['files root', toWorkspaceFile('ws'), '/workspaces/ws/files'],
@@ -78,7 +78,7 @@ describe('workspaceLocation', () => {
     ['/workspaces/ws/assistant', { ...EMPTY, ws: 'ws', assistant: true }],
     ['/workspaces/ws/assistant/c1', { ...EMPTY, ws: 'ws', assistant: true, conversationId: 'c1' }],
     ['/workspaces/ws/memory', { ...EMPTY, ws: 'ws', section: 'memory' }],
-    ['/overview', EMPTY],
+    ['/dashboard', EMPTY],
   ])('%s', (path, expected) => {
     expect(at(path)).toEqual(expected)
   })

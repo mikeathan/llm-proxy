@@ -8,11 +8,11 @@ import { useAskPanel } from '../../../composables/ui/useAskPanel'
 import { useLastWorkspace } from '../../../composables/ui/useLastWorkspace'
 
 const empty = { render: () => null }
-async function mountField(path = '/overview', mobile = false) {
+async function mountField(path = '/dashboard', mobile = false) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/overview', name: ROUTE_NAMES.overview, component: empty },
+      { path: '/dashboard', name: ROUTE_NAMES.dashboard, component: empty },
       { path: '/workspaces/:ws/assistant/:conversationId?', name: ROUTE_NAMES.workspaceAssistant, component: empty },
     ],
   })
@@ -47,7 +47,7 @@ describe('AskField', () => {
 
   it('invites a question in words on a wide screen, and is a named icon on a narrow one', async () => {
     expect((await mountField()).w.text()).toContain('Ask the agent')
-    const icon = (await mountField('/overview', true)).w.get('button')
+    const icon = (await mountField('/dashboard', true)).w.get('button')
     expect(icon.text()).toBe('')
     expect(icon.attributes('aria-label')).toBe('Ask the assistant')
   })

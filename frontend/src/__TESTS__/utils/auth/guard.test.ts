@@ -4,7 +4,7 @@ import { ROUTE_NAMES } from '../../../types/routes'
 import type { AuthStatus } from '../../../types/auth'
 
 const status = (over: Partial<AuthStatus> = {}): AuthStatus => ({ set_up: true, setup_open: false, authenticated: false, elevated: false, encrypted: false, ...over })
-const page = { name: ROUTE_NAMES.overview, meta: {}, fullPath: '/workspaces/ws/assistant?x=1' }
+const page = { name: ROUTE_NAMES.dashboard, meta: {}, fullPath: '/workspaces/ws/assistant?x=1' }
 const login = { name: ROUTE_NAMES.login, meta: { public: true }, fullPath: '/login' }
 const setup = { name: ROUTE_NAMES.setup, meta: { public: true }, fullPath: '/setup' }
 
@@ -37,7 +37,7 @@ describe('decideRoute', () => {
 
   it('offers no setup once a passphrase exists', () => {
     expect(decideRoute(status({ set_up: true }), setup)).toEqual({ name: ROUTE_NAMES.login })
-    expect(decideRoute(status({ set_up: true, authenticated: true }), setup)).toEqual({ name: ROUTE_NAMES.overview })
+    expect(decideRoute(status({ set_up: true, authenticated: true }), setup)).toEqual({ name: ROUTE_NAMES.dashboard })
   })
 })
 

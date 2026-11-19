@@ -78,3 +78,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0061](ADR-0061-network-and-radio-facts-are-joined-by-tag-in-the-core.md) | Network and Radio facts about one device are joined by tag in the core | accepted | 2026-11-18 |
 | [ADR-0062](ADR-0062-presence-reads-the-routers-list-of-joined-devices.md) | Presence reads the router's list of joined Wi-Fi devices, so a dozing phone stays online | proposed | 2026-11-18 |
 | [ADR-0063](ADR-0063-one-list-of-the-owners-wi-fi-networks-and-one-look-alike-check.md) | One list of the owner's Wi-Fi networks, owned by the core, and one look-alike check over both sensors | proposed | 2026-11-18 |
+| [ADR-0064](ADR-0064-the-dashboard-shows-and-links-and-the-stack-pages-control.md) | The dashboard shows and links; the stack pages control | accepted | 2026-11-19 |

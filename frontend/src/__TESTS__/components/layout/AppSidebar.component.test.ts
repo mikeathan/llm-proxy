@@ -10,7 +10,7 @@ vi.mock('../../../services/admin/adminService', () => ({
   AdminApiService: { fetchVersion: () => Promise.resolve({ version: 'v1.2.3' }) },
 }))
 
-const DESTINATIONS = ['Assistant', 'Overview', 'Workspace', 'Automations', 'Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings']
+const DESTINATIONS = ['Dashboard', 'Assistant', 'Workspace', 'Automations', 'Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings']
 
 async function mountAt(path: string, props: Record<string, unknown> = {}) {
   const router = createAppRouter(createMemoryHistory())
@@ -32,15 +32,15 @@ describe('AppSidebar', () => {
     vi.unstubAllGlobals()
   })
 
-  it('links the destinations in order, Assistant first, under the versioned brand', async () => {
-    const { wrapper } = await mountAt('/overview')
+  it('links the destinations in order, Dashboard first, under the versioned brand', async () => {
+    const { wrapper } = await mountAt('/dashboard')
     expect(wrapper.text()).toContain('v1.2.3')
     expect(navLinks(wrapper).map((a) => a.attributes('aria-label'))).toEqual(DESTINATIONS)
     expect(navLinks(wrapper).every((a) => a.attributes('href'))).toBe(true)
   })
 
   it('keeps Network, Agents and Radio under an expandable Stacks group, open by default and remembered when closed', async () => {
-    const { wrapper } = await mountAt('/overview')
+    const { wrapper } = await mountAt('/dashboard')
     const toggle = wrapper.get('[data-test="group-stacks"]')
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect(wrapper.get('#group-stacks a[data-destination="network"]').attributes('href')).toBe('/network')
@@ -49,12 +49,12 @@ describe('AppSidebar', () => {
     expect(toggle.attributes('aria-expanded')).toBe('false')
     expect(wrapper.find('a[data-destination="network"]').exists()).toBe(false)
 
-    const again = await mountAt('/overview')
+    const again = await mountAt('/dashboard')
     expect(again.wrapper.get('[data-test="group-stacks"]').attributes('aria-expanded')).toBe('false')
   })
 
   it('opens Stacks and marks it current while a child is open, even if it was closed', async () => {
-    const closed = await mountAt('/overview')
+    const closed = await mountAt('/dashboard')
     await closed.wrapper.get('[data-test="group-stacks"]').trigger('click')
     const { wrapper } = await mountAt('/network/devices')
     expect(wrapper.get('[data-test="group-stacks"]').attributes('aria-expanded')).toBe('true')
@@ -62,10 +62,10 @@ describe('AppSidebar', () => {
   })
 
   it('opens the assistant and the files of the workspace last used, or the list while none is known', async () => {
-    const none = await mountAt('/overview')
+    const none = await mountAt('/dashboard')
     expect(none.wrapper.get('a[data-destination="assistant"]').attributes('href')).toBe('/workspaces')
     useLastWorkspace().remember('demo')
-    const known = await mountAt('/overview')
+    const known = await mountAt('/dashboard')
     expect(known.wrapper.get('a[data-destination="assistant"]').attributes('href')).toBe('/workspaces/demo/assistant')
     expect(known.wrapper.get('a[data-destination="workspace"]').attributes('href')).toBe('/workspaces/demo/files')
   })
@@ -82,14 +82,14 @@ describe('AppSidebar', () => {
     expect(navLinks(wrapper).some((a) => a.attributes('aria-current'))).toBe(false)
   })
 
-  it('links the brand to where the app opens', async () => {
+  it('links the brand to where the app opens: the dashboard, whichever workspace was used last', async () => {
     useLastWorkspace().remember('demo')
     const { wrapper } = await mountAt('/models')
-    expect(wrapper.get('a[aria-label$="home"]').attributes('href')).toBe('/workspaces/demo/assistant')
+    expect(wrapper.get('a[aria-label$="home"]').attributes('href')).toBe('/dashboard')
   })
 
   it('collapses to icons that keep accessible names, and persists the choice', async () => {
-    const { wrapper } = await mountAt('/overview')
+    const { wrapper } = await mountAt('/dashboard')
     const toggle = wrapper.get('[data-test="sidebar-collapse"]')
     expect(toggle.attributes('aria-expanded')).toBe('true')
     await toggle.trigger('click')
@@ -97,12 +97,12 @@ describe('AppSidebar', () => {
     expect(toggle.attributes('aria-expanded')).toBe('false')
     expect(navLinks(wrapper).map((a) => a.attributes('title'))).toEqual(DESTINATIONS)
 
-    const again = await mountAt('/overview')
+    const again = await mountAt('/dashboard')
     expect(again.wrapper.get('aside').attributes('data-collapsed')).toBe('true')
   })
 
   it('badges entries with unread run notifications, in the accessible name too', async () => {
-    const { wrapper } = await mountAt('/overview', { badges: { automations: 2, assistant: 1 } })
+    const { wrapper } = await mountAt('/dashboard', { badges: { automations: 2, assistant: 1 } })
     const link = wrapper.get('nav a[href="/automations"]')
     expect(link.attributes('aria-label')).toBe('Automations, 2 unread run notifications')
     expect(link.find('.notif-count').text()).toBe('2')

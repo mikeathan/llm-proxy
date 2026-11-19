@@ -163,7 +163,7 @@ describe('Settings (global)', () => {
     expect((modelHost(w).element as HTMLInputElement).value).toBe('0.0.0.0')
 
     confirm.mockResolvedValueOnce(false)
-    await router.push('/overview')
+    await router.push('/dashboard')
     expect(confirm).toHaveBeenCalledTimes(1)
     expect(router.currentRoute.value.fullPath).toBe('/settings/local')
   })

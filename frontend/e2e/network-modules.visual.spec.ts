@@ -27,7 +27,7 @@ test('Network and Agents are under Stacks and every Network tab fits the screen'
     // While Network is open the group stays open: the current page is never hidden.
     await expect(group).toHaveAttribute('aria-expanded', 'true')
   }
-  for (const tab of ['Overview', 'Devices', 'Findings', 'Audits', 'Modules', 'Settings']) {
+  for (const tab of ['Devices', 'Findings', 'Audits', 'Modules', 'Settings']) {
     const link = page.getByRole('link', { name: tab, exact: true }).last()
     await link.click()
     await expect(page.getByRole('heading', { name: 'Network', level: 1 })).toBeVisible()

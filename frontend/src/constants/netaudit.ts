@@ -284,7 +284,6 @@ export const DECOYS_NONE = 'Nothing has connected to a decoy.'
 
 /** The Network page: tabs, headlines and the words around the numbers. */
 export const NETWORK_TAB_LABELS = { devices: 'Devices', findings: 'Findings', traffic: 'Traffic', timeline: 'Timeline', audits: 'Audits', modules: 'Modules', settings: 'Settings' } as const
-export const NETWORK_OVERVIEW_LABEL = 'Overview'
 export const NETWORK_TITLE = 'Network'
 export const NETWORK_SUBTITLE = 'Who is on your network, what needs a look, and what changed.'
 export const NETWORK_OVERVIEW_LOAD_FAILED = 'The network overview could not be read.'

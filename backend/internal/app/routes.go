@@ -65,6 +65,7 @@ type HandlerSet struct {
 	Nearby      *handlers.NetauditNearbyHandlers
 	Alerts      *handlers.NetauditAlertHandlers
 	Lockdown    *handlers.LockdownHandlers
+	Dashboard   *handlers.DashboardHandlers
 	Discovery6  *handlers.NetauditDiscovery6Handlers
 	Commands    *handlers.CommandHandlers
 	Webhook     *handlers.WebhookHandler
@@ -158,6 +159,7 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Nearby = handlers.NewNetauditNearbyHandlers(s.netaudit.NearbyConfig, s.netaudit.NearbyLooks)
 	hs.Alerts = handlers.NewNetauditAlertHandlers(s.netaudit.Alerts)
 	hs.Lockdown = handlers.NewLockdownHandlers(s.AppCtx.Lockdown())
+	hs.Dashboard = handlers.NewDashboardHandlers(s.AppCtx.Dashboard())
 	hs.Helper = newHelperRoutes(s.AppCtx, scopePolicy(s), helperSinks{Probes: s.netaudit.Inventory, Captures: newCaptureStore(s.AppCtx), Traffic: newHostTrafficStore(s.AppCtx), Owners: s.netaudit.currentOwners, Self: trafficSelf(s.netaudit.Scope, func() string { return bindAddress(s.AppCtx.dataMgr.System().Get()) })})
 	if s.netaudit.RadioPrivileged != nil {
 		s.netaudit.RadioPrivileged.Set(hs.Helper.StackPrivileged("radio"))
@@ -497,6 +499,9 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Put("/admin/api/netaudit/nearby", hs.Nearby.Put, jsonMethodNotAllowed)
 	router.Post("/admin/api/netaudit/nearby/look", hs.Nearby.Look, jsonMethodNotAllowed)
 	router.Get("/admin/api/netaudit/alerts", hs.Alerts.Events, jsonMethodNotAllowed)
+	router.Get("/admin/api/dashboard", hs.Dashboard.Get, jsonMethodNotAllowed)
+	router.Put("/admin/api/dashboard", hs.Dashboard.Put, jsonMethodNotAllowed)
+	router.Delete("/admin/api/dashboard", hs.Dashboard.Delete, jsonMethodNotAllowed)
 	router.Get("/admin/api/lockdown", hs.Lockdown.Get, jsonMethodNotAllowed)
 	router.Post("/admin/api/lockdown", hs.Lockdown.Engage, jsonMethodNotAllowed)
 	router.Delete("/admin/api/lockdown", hs.Lockdown.Release, jsonMethodNotAllowed)

@@ -1,14 +1,14 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type Router, type RouterHistory, type RouterScrollBehavior } from 'vue-router'
 import { AGENTS_TABS, NETWORK_TABS, RADIO_TABS, ROUTE_NAMES, WORKSPACE_SECTIONS } from '../types/routes'
 import { toWorkspaceFile, toWorkspaceSection } from './routes'
-import { useLastWorkspace } from '../composables/ui/useLastWorkspace'
 import { homeLocation } from '../utils/navigation'
+import { DASHBOARD_TITLE } from '../constants/dashboard'
 
 // Route table (plan D18). Every page is a lazy chunk. Routes that share a
 // loader render the same component, so moving between them keeps one instance
 // (e.g. every Workspaces route reuses WorkspacesView and its state).
 
-const OverviewView = () => import('../views/OverviewView.vue')
+const DashboardView = () => import('../views/DashboardView.vue')
 const WorkspacesView = () => import('../views/WorkspacesView.vue')
 const AutomationsView = () => import('../views/AutomationsView.vue')
 const NetworkView = () => import('../views/NetworkView.vue')
@@ -39,9 +39,9 @@ const devRoutes: RouteRecordRaw[] = import.meta.env.DEV
   : []
 
 export const routes: RouteRecordRaw[] = [
-  // The app opens on the assistant of the workspace last used, else the Overview.
-  { path: '/', redirect: () => homeLocation(useLastWorkspace().lastWorkspace.value) },
-  { path: '/overview', name: ROUTE_NAMES.overview, component: OverviewView, meta: { destination: 'overview', title: 'Overview' } },
+  // The app opens on the dashboard: its Home board mixes cards from every part of the system.
+  { path: '/', redirect: () => homeLocation() },
+  { path: '/dashboard', name: ROUTE_NAMES.dashboard, component: DashboardView, meta: { destination: 'dashboard', fullWidth: true, title: DASHBOARD_TITLE } },
 
   { path: '/workspaces', name: ROUTE_NAMES.workspaces, component: WorkspacesView, meta: WORKSPACES_META },
   {

@@ -19,7 +19,7 @@ function makeRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/overview', name: ROUTE_NAMES.overview, component: empty, meta: { destination: 'overview' } },
+      { path: '/dashboard', name: ROUTE_NAMES.dashboard, component: empty, meta: { destination: 'dashboard' } },
       { path: '/workspaces', name: ROUTE_NAMES.workspaces, component: empty, meta: ws },
       { path: '/workspaces/:ws/files/:path(.*)*', name: ROUTE_NAMES.workspaceFiles, component: empty, meta: ws },
       { path: '/workspaces/:ws/assistant/:conversationId?', name: ROUTE_NAMES.workspaceAssistant, component: empty, meta: ws },
@@ -59,13 +59,13 @@ describe('WorkspaceSwitcher', () => {
   })
 
   it('names the workspace the shell is in', async () => {
-    const { w } = await mountAt('/overview')
+    const { w } = await mountAt('/dashboard')
     expect(trigger(w).text()).toContain('alpha')
     expect(trigger(w).attributes('aria-expanded')).toBe('false')
   })
 
   it('lists every workspace, marks the current one and links to managing them', async () => {
-    const { w } = await mountAt('/overview')
+    const { w } = await mountAt('/dashboard')
     await trigger(w).trigger('click')
     expect(choices(w).map((b) => b.text())).toEqual(['alpha', 'beta'])
     expect(choices(w).filter((b) => b.attributes('aria-current') === 'true').map((b) => b.text())).toEqual(['alpha'])
@@ -73,11 +73,11 @@ describe('WorkspaceSwitcher', () => {
   })
 
   it('switches workspace without leaving a page that has nothing to do with it', async () => {
-    const { w, router } = await mountAt('/overview')
+    const { w, router } = await mountAt('/dashboard')
     await trigger(w).trigger('click')
     await choices(w)[1]!.trigger('click')
     expect(useLastWorkspace().lastWorkspace.value).toBe('beta')
-    expect(router.currentRoute.value.path).toBe('/overview')
+    expect(router.currentRoute.value.path).toBe('/dashboard')
     expect(w.find('[role="menu"]').exists()).toBe(false)
   })
 
@@ -94,7 +94,7 @@ describe('WorkspaceSwitcher', () => {
   })
 
   it('closes on Escape', async () => {
-    const { w } = await mountAt('/overview')
+    const { w } = await mountAt('/dashboard')
     await trigger(w).trigger('click')
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
@@ -110,7 +110,7 @@ describe('WorkspaceSwitcher', () => {
   it('is absent while there are no workspaces', async () => {
     workspaces.value = []
     useLastWorkspace().forget('alpha')
-    const { w } = await mountAt('/overview')
+    const { w } = await mountAt('/dashboard')
     expect(w.text()).toBe('')
   })
 })

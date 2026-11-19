@@ -4,7 +4,7 @@ import { useMetrics } from "../../composables/system/useMetrics"
 import { useDismissable } from "../../composables/ui/useDismissable"
 import { MEMORY_THRESHOLDS, VRAM_THRESHOLDS, loadLevel, loadMeterState, summariseHost } from "../../domain/hostStats"
 import { formatPercent, formatTokenRate } from "../../utils/format/units"
-import { toOverview } from "../../router/routes"
+import { toDashboard } from "../../router/routes"
 import type { LoadLevel } from "../../types/metrics"
 import PopoverPanel from "../common/layout/PopoverPanel.vue"
 import Meter from "../common/display/Meter.vue"
@@ -90,7 +90,7 @@ useDismissable(root, open)
         </StatCard>
       </div>
 
-      <RouterLink :to="toOverview()" class="px-3 py-2.5 font-mono text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2" @click="open = false">
+      <RouterLink :to="toDashboard()" class="px-3 py-2.5 font-mono text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2" @click="open = false">
         Open Overview
       </RouterLink>
     </PopoverPanel>

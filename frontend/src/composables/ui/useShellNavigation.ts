@@ -14,6 +14,6 @@ export function useShellNavigation(badges: Readonly<Ref<Partial<Record<NavId, nu
     buildNavigation({ lastWorkspace: lastWorkspace.value, routeName: route.name as string | null | undefined, destination: route.meta.destination, badges: badges.value }),
   )
   const entries = computed(() => groupNavigation(items.value))
-  const home = computed(() => homeLocation(lastWorkspace.value))
+  const home = computed(() => homeLocation())
   return { items, entries, home }
 }

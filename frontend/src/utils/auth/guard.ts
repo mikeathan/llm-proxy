@@ -25,7 +25,7 @@ export function safeNext(next: unknown): string {
 export function decideRoute(status: AuthStatus, to: { name?: unknown; meta: { public?: boolean }; fullPath: string }): RouteLocationRaw | true {
   if (!status.set_up) return to.name === ROUTE_NAMES.setup ? true : { name: ROUTE_NAMES.setup }
   if (to.meta.public) {
-    if (to.name === ROUTE_NAMES.setup) return { name: status.authenticated ? ROUTE_NAMES.overview : ROUTE_NAMES.login }
+    if (to.name === ROUTE_NAMES.setup) return { name: status.authenticated ? ROUTE_NAMES.dashboard : ROUTE_NAMES.login }
     return status.authenticated ? { path: HOME_PATH } : true
   }
   if (status.authenticated) return true

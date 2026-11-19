@@ -135,7 +135,7 @@ describe('HostStats (header strip)', () => {
   it('links from the panel to the Overview for the full picture', async () => {
     const w = await mountStrip()
     await stripOf(w).trigger('click')
-    expect(panelOf(w).get('a').attributes('href')).toBe('/overview')
+    expect(panelOf(w).get('a').attributes('href')).toBe('/dashboard')
     w.unmount()
   })
 })

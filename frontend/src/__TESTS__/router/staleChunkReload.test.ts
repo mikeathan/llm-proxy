@@ -35,7 +35,7 @@ function harness(now = 1_000_000) {
   const router = createRouter({
     history: createMemoryHistory('/admin/'),
     routes: [
-      { path: '/overview', component: { template: '<div/>' } },
+      { path: '/dashboard', component: { template: '<div/>' } },
       { path: '/settings', component: () => Promise.reject(CHROME) },
       { path: '/broken', component: () => Promise.reject(new Error('render bug')) },
     ],
@@ -47,7 +47,7 @@ function harness(now = 1_000_000) {
 describe('installStaleChunkReload', () => {
   it('reloads onto the page that was asked for when its chunk is gone', async () => {
     const { router, deps } = harness()
-    await router.push('/overview')
+    await router.push('/dashboard')
     await router.push('/settings').catch(() => {})
     expect(deps.navigate).toHaveBeenCalledWith('/admin/settings')
   })

@@ -30,10 +30,10 @@ describe('BottomTabs', () => {
     vi.unstubAllGlobals()
   })
 
-  it('has Assistant, Workspace, Automations and Reminders, then More', async () => {
+  it('has Dashboard, Assistant, Workspace and Automations, then More', async () => {
     const { wrapper } = await mountAt('/models')
-    expect(tabs(wrapper).map((a) => a.attributes('aria-label'))).toEqual(['Assistant', 'Workspace', 'Automations', 'Reminders'])
-    expect(tabs(wrapper).map((a) => a.attributes('href'))).toEqual(['/workspaces/demo/assistant', '/workspaces/demo/files', '/automations', '/reminders'])
+    expect(tabs(wrapper).map((a) => a.attributes('aria-label'))).toEqual(['Dashboard', 'Assistant', 'Workspace', 'Automations'])
+    expect(tabs(wrapper).map((a) => a.attributes('href'))).toEqual(['/dashboard', '/workspaces/demo/assistant', '/workspaces/demo/files', '/automations'])
     expect(more(wrapper).text()).toContain('More')
   })
 
@@ -48,7 +48,7 @@ describe('BottomTabs', () => {
     expect(more(wrapper).attributes('aria-expanded')).toBe('false')
     await more(wrapper).trigger('click')
     const sheet = wrapper.get('[role="dialog"]')
-    expect(sheet.findAll('a').map((a) => a.attributes('aria-label'))).toEqual(['Overview', 'Network', 'Agents', 'Radio', 'Models', 'Activity', 'Settings'])
+    expect(sheet.findAll('a').map((a) => a.attributes('aria-label'))).toEqual(['Network', 'Agents', 'Radio', 'Reminders', 'Models', 'Activity', 'Settings'])
     expect(more(wrapper).attributes('aria-expanded')).toBe('true')
   })
 
@@ -86,7 +86,7 @@ describe('BottomTabs', () => {
 
   it('carries unread run badges, counting More for the entries under it', async () => {
     const { wrapper } = await mountAt('/models', { badges: { automations: 2, activity: 1 } })
-    expect(tabs(wrapper)[2]!.attributes('aria-label')).toBe('Automations, 2 unread run notifications')
+    expect(tabs(wrapper)[3]!.attributes('aria-label')).toBe('Automations, 2 unread run notifications')
     expect(more(wrapper).attributes('aria-label')).toBe('More, 1 unread run notification')
   })
 })
