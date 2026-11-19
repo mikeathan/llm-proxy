@@ -35,13 +35,24 @@ type ConversationDeps interface {
 	RunLoggingEnabled() bool
 }
 
+// ConversationStore is what a conversation turn reads and writes: its session, the workspace config and the task
+// file that holds the workspace's notes. *persistence.WorkspaceManager satisfies it.
+type ConversationStore interface {
+	ReadSession(workspaceID, sessionID string) (*models.AssistantSession, error)
+	WriteSession(workspaceID string, session *models.AssistantSession) error
+	ReadConfig(workspaceID string) (*models.WorkspaceConfig, error)
+	assistant.TaskFileReader
+}
+
+var _ ConversationStore = (*persistence.WorkspaceManager)(nil)
+
 type conversationService struct {
 	deps        ConversationDeps
-	persistence *persistence.WorkspaceManager
+	persistence ConversationStore
 	extractor   *memorycapture.Extractor
 }
 
-func NewConversationService(deps ConversationDeps, persistence *persistence.WorkspaceManager) ConversationService {
+func NewConversationService(deps ConversationDeps, persistence ConversationStore) ConversationService {
 	return &conversationService{deps: deps, persistence: persistence, extractor: memorycapture.NewExtractor(tools.ContainsSecret)}
 }
 

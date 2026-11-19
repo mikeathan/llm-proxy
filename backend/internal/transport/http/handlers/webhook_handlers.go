@@ -14,7 +14,6 @@ import (
 	"llm-proxy/internal/core/reminders"
 	"llm-proxy/internal/core/tools"
 	"llm-proxy/internal/platform/logging"
-	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/internal/platform/ratelimiter"
 	"llm-proxy/internal/platform/safe"
 	"llm-proxy/models"
@@ -37,10 +36,13 @@ type AgentTurns interface {
 // either the slash commands (/remind, /research, /run, ...) or the agent.
 // Replies are sent back through the same connector type.
 type WebhookHandler struct {
-	Registry    func() models.RegistryData
-	Persistence *persistence.WorkspaceManager
-	Events      assistant.EventPublisher
-	CommTools   *tools.CommunicationTools
+	Registry func() models.RegistryData
+	// Persistence reads the automation's last run; *persistence.WorkspaceManager satisfies it.
+	Persistence interface {
+		ReadState(workspaceID string) (*models.AgentState, error)
+	}
+	Events    assistant.EventPublisher
+	CommTools *tools.CommunicationTools
 	// AutomationEvents is the dispatcher's event bus: /run follows the automation it started there. nil: a started
 	// automation is not followed.
 	AutomationEvents *eventbus.Bus

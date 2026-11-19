@@ -8,7 +8,6 @@ import (
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/assistant/prompts"
 	"llm-proxy/internal/core/proxy"
-	"llm-proxy/internal/platform/persistence"
 	"llm-proxy/models"
 )
 
@@ -24,7 +23,7 @@ const MaxPersistedHistoryChars = 256 * 1024
 // (its id and context version, and the zone it reads local times in).
 // It is rebuilt every turn from the current profile and notes (so an edit or a profile switch applies at once) and is
 // the same text turn after turn, which keeps the model server's cache.
-func conversationSystemMessage(pm *persistence.WorkspaceManager, session *models.AssistantSession, zone string, p profile.Profile, useNativeTools bool) string {
+func conversationSystemMessage(pm assistant.TaskFileReader, session *models.AssistantSession, zone string, p profile.Profile, useNativeTools bool) string {
 	return prompts.BuildSystemMessage(assistant.BuildSystemPrompt(pm, session.WorkspaceID, p, useNativeTools), useNativeTools, session.ID, session.ContextVersion, zone)
 }
 
