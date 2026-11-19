@@ -4,13 +4,12 @@ import { useRoute } from "vue-router"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import StackTabs from "../components/stacks/StackTabs.vue"
 import StackModules from "../components/stacks/StackModules.vue"
+import StackBoardLink from "../components/stacks/StackBoardLink.vue"
 import RadioSensors from "../components/radio/RadioSensors.vue"
 import RadioListening from "../components/radio/RadioListening.vue"
-import RadioAroundLink from "../components/radio/RadioAroundLink.vue"
-import RadioFindings from "../components/radio/RadioFindings.vue"
 import RadioScanPlan from "../components/radio/RadioScanPlan.vue"
 import RadioKeeping from "../components/radio/RadioKeeping.vue"
-import RadioRadar from "../components/radio/RadioRadar.vue"
+import RadioClaim from "../components/radio/RadioClaim.vue"
 import SegmentedControl from "../components/common/forms/SegmentedControl.vue"
 import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
 import { RADIO_DETAIL_LABEL } from "../constants/radio"
@@ -24,9 +23,10 @@ import { RADIO_TABS } from "../types/routes"
 import type { RadioTab } from "../types/routes"
 import type { StackTabItem } from "../types/stacks"
 
-// Radio: the third stack. Listening (start and watch a run) is the page; Around you is the radar, the kinds of device and how the channels are used; My devices holds the
-// devices and networks that are yours and where they are; Sensors says what each radio is for; Modules is the switchboard. Simple and Advanced
-// are the same remembered choice as on the Network screens.
+// Radio: the third stack. Listening (start and watch a run) is the page; My devices holds the devices and networks that are yours, the one place
+// to claim a device, and where they are; Sensors says what each radio is for; Modules is the switchboard. The radar, what changed and how the
+// channels are used are on the dashboard's Radio board, which the header links to. Simple and Advanced are the same remembered choice as on
+// the Network screens.
 const { mode, set } = useNetauditViewMode()
 const route = useRoute()
 // Counts the saves of the scan plan: the Listening panel is rebuilt on each, so its "runs for" line never shows an old length.
@@ -45,16 +45,14 @@ const tabs: readonly StackTabItem[] = [
   <div class="flex flex-col gap-4">
     <PageHeader :title="RADIO_TITLE" :subtitle="RADIO_SUBTITLE" subtitle-hidden-on-phone />
     <StackTabs :label="RADIO_TITLE" :tabs="tabs" :active="tab ?? 'listening'" />
-    <div v-if="tab === 'around' || tab === 'devices'" class="flex justify-end">
+    <StackBoardLink stack="radio" />
+    <div v-if="tab === 'devices'" class="flex justify-end">
       <SegmentedControl :model-value="mode" :options="VIEW_MODE_OPTIONS" :label="RADIO_DETAIL_LABEL" variant="compact" @update:model-value="set($event as NetauditViewMode)" />
     </div>
     <StackModules v-if="tab === 'modules'" stack="radio" />
     <RadioSensors v-else-if="tab === 'sensors'" />
-    <template v-else-if="tab === 'around'">
-      <RadioFindings />
-      <RadioRadar />
-    </template>
     <template v-else-if="tab === 'devices'">
+      <RadioClaim />
       <RadioMyDevices />
       <RadioNetworks />
     </template>
@@ -62,7 +60,6 @@ const tabs: readonly StackTabItem[] = [
       <RadioListening :key="planSaves" />
       <RadioScanPlan @saved="planSaves++" />
       <RadioKeeping />
-      <RadioAroundLink />
     </template>
   </div>
 </template>

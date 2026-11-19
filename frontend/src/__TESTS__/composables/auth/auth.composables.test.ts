@@ -101,7 +101,7 @@ describe('startAuth', () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
-        { path: '/', name: 'overview', component: page },
+        { path: '/', name: 'dashboard', component: page },
         { path: '/workspaces', name: 'workspaces', component: page },
         { path: '/login', name: 'login', component: page, meta: { public: true } },
         { path: '/setup', name: 'setup', component: page, meta: { public: true } },

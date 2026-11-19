@@ -54,7 +54,7 @@ const panelOf = (w: VueWrapper) => w.find('#run-activity-panel')
 // Rows of running work are links, so the pill needs the app router like the real header.
 async function mountPill() {
   const router = createAppRouter(createMemoryHistory())
-  await router.push('/overview')
+  await router.push('/dashboard')
   const w = mount(RunActivityPill, { global: { plugins: [router], stubs: { Icon: true } } })
   await vi.waitFor(() => expect(pillOf(w).exists()).toBe(true))
   return w

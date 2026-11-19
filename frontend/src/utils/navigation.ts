@@ -1,12 +1,12 @@
 import type { RouteLocationNamedRaw } from 'vue-router'
-import { toActivity, toAgents, toAutomations, toRadio, toModels, toNetwork, toOverview, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
+import { toActivity, toAgents, toAutomations, toDashboard, toRadio, toModels, toNetwork, toReminders, toSettings, toWorkspaceAssistant, toWorkspaceFile, toWorkspaces } from '../router/routes'
 import { ROUTE_NAMES } from '../types/routes'
 import type { Destination, NavEntry, NavGroup, NavGroupId, NavId, NavItem } from '../types/routes'
 import type { NotificationItem } from '../types/notifications'
 import { STACKS_GROUP_LABEL } from '../constants/stacks'
 
 // The shell's destinations (plan frontend-redesign-v2, V1/V6), built once for both
-// navigations: the sidebar and the phone's bottom bar. Assistant leads; Workspace is
+// navigations: the sidebar and the phone's bottom bar. The Dashboard leads (it is where the app opens), then the Assistant; Workspace is
 // the one entry for the active workspace (Files, Memory, Playbooks, Heartbeat, its
 // Settings). Both open the workspace last used, or the workspace list while none is
 // known. Pure, so the two navigations cannot drift apart.
@@ -32,6 +32,7 @@ interface NavSpec {
 const onDestination = (destination: Destination) => (ctx: NavContext) => ctx.destination === destination
 
 const SPECS: readonly NavSpec[] = [
+  { id: 'dashboard', label: 'Dashboard', icon: 'nav-overview', tab: true, to: () => toDashboard(), current: onDestination('dashboard') },
   {
     id: 'assistant',
     label: 'Assistant',
@@ -40,7 +41,6 @@ const SPECS: readonly NavSpec[] = [
     to: (ws) => (ws ? toWorkspaceAssistant(ws) : toWorkspaces()),
     current: (ctx) => ctx.routeName === ROUTE_NAMES.workspaceAssistant,
   },
-  { id: 'overview', label: 'Overview', icon: 'nav-overview', tab: false, to: toOverview, current: onDestination('overview') },
   {
     id: 'workspace',
     label: 'Workspace',
@@ -53,7 +53,7 @@ const SPECS: readonly NavSpec[] = [
   { id: 'network', label: 'Network', icon: 'nav-network', tab: false, group: 'stacks', to: () => toNetwork(), current: onDestination('network') },
   { id: 'agents', label: 'Agents', icon: 'nav-agents', tab: false, group: 'stacks', to: () => toAgents(), current: onDestination('agents') },
   { id: 'radio', label: 'Radio', icon: 'nav-radio', tab: false, group: 'stacks', to: () => toRadio(), current: onDestination('radio') },
-  { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: true, to: toReminders, current: onDestination('reminders') },
+  { id: 'reminders', label: 'Reminders', icon: 'nav-reminders', tab: false, to: toReminders, current: onDestination('reminders') },
   { id: 'models', label: 'Models', icon: 'nav-models', tab: false, to: toModels, current: onDestination('models') },
   { id: 'activity', label: 'Activity', icon: 'nav-activity', tab: false, to: () => toActivity(), current: onDestination('activity') },
   { id: 'settings', label: 'Settings', icon: 'nav-settings', tab: false, to: () => toSettings(), current: onDestination('settings') },
@@ -106,6 +106,5 @@ export function badgeTarget(item: Pick<NotificationItem, 'kind' | 'destination'>
   return item.destination === 'workspaces' ? 'workspace' : item.destination
 }
 
-// Where the app opens: the assistant of the workspace last used, else the Overview.
-export const homeLocation = (lastWorkspace: string | null): RouteLocationNamedRaw =>
-  lastWorkspace ? toWorkspaceAssistant(lastWorkspace) : toOverview()
+// Where the app opens: the dashboard, whose Home board mixes cards from every part of the system.
+export const homeLocation = (): RouteLocationNamedRaw => toDashboard()

@@ -6,7 +6,6 @@ import HostStats from "./HostStats.vue"
 import BrandMark from "./BrandMark.vue"
 import WorkspaceSwitcher from "./WorkspaceSwitcher.vue"
 import { PRODUCT_NAME } from "../../config/brand"
-import { useLastWorkspace } from "../../composables/ui/useLastWorkspace"
 import { homeLocation } from "../../utils/navigation"
 
 // The top strip: where you are, plus the host stats and the global run pill,
@@ -19,8 +18,7 @@ defineProps<{
   mobile: boolean
 }>()
 
-const { lastWorkspace } = useLastWorkspace()
-const home = computed(() => homeLocation(lastWorkspace.value))
+const home = computed(() => homeLocation())
 
 const route = useRoute()
 const title = computed(() => route.meta.title ?? "")

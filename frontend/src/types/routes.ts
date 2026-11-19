@@ -4,7 +4,7 @@ import type { SettingsTab } from './admin'
 // Route names (plan D18). Navigation goes through the typed builders in
 // router/routes.ts; components never concatenate paths or spell a name.
 export const ROUTE_NAMES = {
-  overview: 'overview',
+  dashboard: 'dashboard',
   workspaces: 'workspaces',
   workspace: 'workspace',
   workspaceFiles: 'workspace-files',
@@ -32,12 +32,12 @@ export const ROUTE_NAMES = {
 export type RouteName = (typeof ROUTE_NAMES)[keyof typeof ROUTE_NAMES]
 
 // The top-level destinations shown in the sidebar (plan D9).
-export type Destination = 'overview' | 'workspaces' | 'automations' | 'network' | 'agents' | 'radio' | 'reminders' | 'models' | 'activity' | 'settings'
+export type Destination = 'dashboard' | 'workspaces' | 'automations' | 'network' | 'agents' | 'radio' | 'reminders' | 'models' | 'activity' | 'settings'
 
 // The entries of the shell navigation (sidebar and phone tab bar). Assistant and
 // Workspace both live under the `workspaces` route destination; the entry that is
 // current is told apart by route name (utils/navigation.ts).
-export type NavId = 'assistant' | 'workspace' | 'overview' | 'automations' | 'network' | 'agents' | 'radio' | 'reminders' | 'models' | 'activity' | 'settings'
+export type NavId = 'dashboard' | 'assistant' | 'workspace' | 'automations' | 'network' | 'agents' | 'radio' | 'reminders' | 'models' | 'activity' | 'settings'
 
 // A named set of destinations the shell folds under one heading: a sidebar group, a heading in
 // the phone's More sheet. Stacks is the umbrella for the platform's top-level areas (ADR-0028); Network and
@@ -85,7 +85,7 @@ export const AGENTS_TABS = ['modules'] as const
 export type AgentsTab = (typeof AGENTS_TABS)[number]
 
 // The tabs of the Radio page, addressable at /radio/:tab. Listening is the page without a tab.
-export const RADIO_TABS = ['around', 'devices', 'sensors', 'modules'] as const
+export const RADIO_TABS = ['devices', 'sensors', 'modules'] as const
 export type RadioTab = (typeof RADIO_TABS)[number]
 
 // Workspace sections addressable at /workspaces/:ws/:section. Files and the

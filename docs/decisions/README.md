@@ -76,3 +76,4 @@ Architecture Decision Records: **why** the system is the way it is. One short fi
 | [ADR-0059](ADR-0059-radio-watch-reads-the-mesh-routers-client-list-and-listens-between-sweeps.md) | A radio watch listens again between sweeps on the owner's channels and reads the mesh router's list of joined devices | proposed | 2026-11-18 |
 | [ADR-0060](ADR-0060-the-radio-helper-thins-repeated-control-frames-before-its-frame-cap.md) | The radio helper thins repeated control frames before its frame cap | proposed | 2026-11-18 |
 | [ADR-0061](ADR-0061-network-and-radio-facts-are-joined-by-tag-in-the-core.md) | Network and Radio facts about one device are joined by tag in the core | accepted | 2026-11-18 |
+| [ADR-0064](ADR-0064-the-dashboard-shows-and-links-and-the-stack-pages-control.md) | The dashboard shows and links; the stack pages control | accepted | 2026-11-19 |

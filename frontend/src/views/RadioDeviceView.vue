@@ -13,7 +13,7 @@ import RadioMemberRow from "../components/radio/RadioMemberRow.vue"
 import { useRadioDevice } from "../composables/radio/useRadioDevice"
 import { usePolling } from "../composables/ui/usePolling"
 import { useNetauditViewMode } from "../composables/netaudit/useNetauditViewMode"
-import { toRadio } from "../router/routes"
+import { toDashboard } from "../router/routes"
 import {
   RADIO_CLASS_HELP, RADIO_CLASS_ORDER, RADIO_CLASS_WORDS, RADIO_DETAIL_NETWORK_NOTE, RADIO_DETAIL_SIGNAL, RADIO_DEVICE_COLUMNS, RADIO_MAKER_RANDOM_HELP,
   RADIO_MARK_BUTTON, RADIO_MARK_LABEL, RADIO_MARK_NO_NAME, RADIO_MARK_NOTE, RADIO_MARK_PLACEHOLDER, RADIO_MARK_SAVE, RADIO_RENAME_BUTTON, RADIO_RENAME_SAVE, RADIO_REASONS, RADIO_RING_WORDS, RADIO_SIGNAL_HELP,
@@ -88,7 +88,7 @@ usePolling(() => { void dev.load(); now.value = Math.floor(Date.now() / MS_PER_S
 
 <template>
   <div class="flex flex-col gap-4" data-test="radio-device-page">
-    <RouterLink :to="toRadio('around')" class="inline-flex min-h-11 items-center gap-1 self-start text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-8" data-test="radio-device-back"><Icon name="chevron-left" size="sm" />{{ RADIO_DEVICE_BACK }}</RouterLink>
+    <RouterLink :to="toDashboard('radio')" class="inline-flex min-h-11 items-center gap-1 self-start text-accent-brand hover:underline focus-visible:outline-none focus-visible:ring-2 sm:min-h-8" data-test="radio-device-back"><Icon name="chevron-left" size="sm" />{{ RADIO_DEVICE_BACK }}</RouterLink>
     <Callout v-if="dev.error.value && !d" :tone="dev.gone.value ? 'info' : 'error'" :title="dev.gone.value ? RADIO_DEVICE_GONE_TITLE : RADIO_DEVICE_FAILED_TITLE"><span data-test="radio-device-error">{{ dev.error.value }}</span></Callout>
     <p v-else-if="!d" class="m-0 text-muted">{{ RADIO_DEVICE_LOADING }}</p>
     <template v-else>

@@ -166,7 +166,8 @@ export const RADIO_DEVICES_FAILED = 'Your devices could not be read.'
 
 // Radio · Around you: what the air holds, as counts by class. Never a device of someone else.
 export const RADIO_AROUND_TITLE = 'Around you'
-export const RADIO_AROUND_EMPTY = 'Nothing heard yet. Start listening and the devices around you are counted here by kind.'
+export const RADIO_CLAIM_TITLE = 'Claim your devices'
+export const RADIO_CLAIM_INTRO = 'Tell the stack which devices are yours. Hold a device next to this computer to find it, or answer for the few devices it is least sure about. Only ownership is recorded.'
 export const RADIO_CLASS_WORDS: Record<RadioClass, string> = {
   infrastructure: 'Always here',
   personal: 'Comes and goes',
@@ -182,7 +183,6 @@ export const RADIO_CLASS_HELP: Record<RadioClass, string> = {
   unknown: 'Too little listening so far, or no rule fits. Never a guess.',
 }
 export const RADIO_CLASS_ORDER: RadioClass[] = ['infrastructure', 'personal', 'neighbour', 'transient', 'unknown']
-export const radioAroundTotal = (n: number): string => `${n} ${n === 1 ? 'device' : 'devices'} around you`
 export const radioListenedLine = (cycles: number, need: number, days: number): string =>
   cycles >= need
     ? `Listened through ${cycles} cycles in the last ${days} days.`
@@ -254,8 +254,6 @@ export const radioWindowsHint = (cycleSeconds: number, windowSeconds: number): s
 export const RADIO_WINDOWS_EMPTY = 'No window has finished yet. The first one takes about 20 seconds.'
 
 // Radio · Neighbourhood: other people's devices, by kind, each kind opening onto its devices. A device is a short id and words, never an address.
-export const RADIO_NEIGH_LINK = 'See who is around'
-export const RADIO_TAB_LINK_AROUND = 'Open the Around you tab to see who is around'
 export const radioNeighNearUnknown = (n: number): string => `${n} ${n === 1 ? 'device that is not yet sorted has' : 'devices that are not yet sorted have'} a strong signal: close to the house.`
 export const RADIO_SIGNAL_WORDS: Record<RadioSignal, string> = { strong: 'Strong', medium: 'Medium', weak: 'Weak', unknown: 'Not measured' }
 export const RADIO_SIGNAL_HELP: Record<RadioSignal, string> = {

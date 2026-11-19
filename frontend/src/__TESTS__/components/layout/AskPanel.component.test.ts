@@ -34,7 +34,7 @@ function makeRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/overview', name: ROUTE_NAMES.overview, component: empty },
+      { path: '/dashboard', name: ROUTE_NAMES.dashboard, component: empty },
       { path: '/workspaces/:ws/assistant/:conversationId?', name: ROUTE_NAMES.workspaceAssistant, component: empty },
     ],
   })
@@ -42,7 +42,7 @@ function makeRouter(): Router {
 
 let narrow = false
 const mounted: VueWrapper[] = []
-async function mountPanel(path = '/overview') {
+async function mountPanel(path = '/dashboard') {
   const router = makeRouter()
   await router.push(path)
   const w = mount(AskPanel, { global: { plugins: [router], stubs: { AssistantChat: Chat } }, attachTo: document.body })
@@ -148,7 +148,7 @@ describe('AskPanel', () => {
     await flushPromises()
     expect(w.find('[data-test="chat"]').exists()).toBe(false)
     expect(useAskPanel().open.value).toBe(false)
-    await router.push('/overview')
+    await router.push('/dashboard')
     await flushPromises()
     expect(w.find('[data-test="chat"]').exists()).toBe(false)
   })

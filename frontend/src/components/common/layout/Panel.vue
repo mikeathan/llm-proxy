@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { useId } from "vue"
+import { inject, useId } from "vue"
 import SectionHeading from "./SectionHeading.vue"
+import { IN_DASHBOARD_CARD } from "../../../constants/dashboard"
 
 // A raised region (tone, not a border, sets it apart from the page) with an optional
 // numbered title and actions. `flush` drops the body padding for tables/lists; a
 // flush panel keeps a faint rule under its title so the rows below read as a list.
+// Inside a dashboard card the card is the panel (it draws the title, the arrow and the controls), so a Panel there draws only its content.
 defineProps<{ title?: string; flush?: boolean; preserveCase?: boolean }>()
 defineSlots<{ default(): unknown; actions?(): unknown }>()
 const titleId = useId()
+const inCard = inject(IN_DASHBOARD_CARD, false)
 </script>
 
 <template>
+  <div v-if="inCard" data-test="panel-body"><slot /></div>
   <section
+    v-else
     :aria-labelledby="title ? titleId : undefined"
     class="relative min-w-0 rounded-[var(--radius-md)] bg-surface-raised"
   >

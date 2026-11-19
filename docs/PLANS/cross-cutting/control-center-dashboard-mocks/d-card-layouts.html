@@ -1,0 +1,103 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>D · Card layouts</title><link rel=stylesheet href=mock.css><body data-theme="retro-dark-soft">
+<div class=bar><b>Mock D · B + C: cards with layouts</b><span class=mockbadge>static demo · made-up data</span><span class=grow></span><a href=index.html>← all mocks</a><div class=seg id=vw><button class=on data-v=d>Desktop</button><button data-v=p>Phone</button></div></div>
+<div class=stage><div style="width:100%;max-width:1180px">
+<p class=note>Stacks become control + settings pages only. The Dashboard is the one place for views, built from cards. Pick a <b>layout</b> (re-flows every card), or press <b>Arrange</b> to drag cards, change a card’s <b>width</b> (S/M/L/Full) and <b>height</b>, hide or add cards. Notice a card’s <i>content</i> changes with the room it gets — small = headline, medium = headline + trend, large = full detail.</p>
+<div class=frame id=frame><div class=shell>
+<nav class=nav><div class=micro style="padding:8px 10px">LLM PROXY</div><a>Assistant</a><a>Workspace</a><a>Automations</a><a>Reminders</a><a class=cur>Dashboard</a><div class="micro grp">STACKS · CONTROL</div><a>Network <span class=muted>settings</span></a><a>Radio <span class=muted>settings</span></a><a>Agents <span class=muted>settings</span></a><div class="micro grp">SYSTEM</div><a>Models</a><a>Activity</a><a>Settings</a></nav>
+<main>
+<style>
+.tb{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;position:relative}
+.tb h1{flex:1;min-width:120px}
+select,.fld{background:rgb(var(--surface-raised));color:rgb(var(--text-primary));border:1px solid rgb(var(--border-control));border-radius:6px;padding:5px 8px;font:inherit}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);grid-auto-flow:row dense;grid-auto-rows:minmax(0,auto);gap:12px;align-items:stretch}
+.card{grid-column:span var(--c);grid-row:span var(--r);display:flex;flex-direction:column;position:relative}
+.card .pb{flex:1;container-type:inline-size;container-name:card;overflow:hidden}
+.card.dragging{opacity:.35}.card.over{outline:2px solid rgb(var(--accent-brand))}
+.ctl{display:none;gap:4px;align-items:center}
+.arr .ctl{display:flex}.arr .card{outline:1px dashed rgb(var(--border-control));outline-offset:2px}
+.arr .card .ph{cursor:grab}
+.ctl .seg button{padding:2px 7px;font-size:11px}
+@container (max-width:700px){.grid>.card{grid-column:span 12!important;grid-row:span 1!important}.ctl .hh{display:none}}
+.v-xs,.v-sm,.v-lg{display:none}
+@container card (max-width:339px){.v-xs{display:block}}
+@container card (min-width:340px) and (max-width:559px){.v-sm{display:block}}
+@container card (min-width:560px){.v-lg{display:block}}
+.big{font:600 30px ui-monospace,monospace}.row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgb(var(--border-hairline))}
+.row:last-child{border:0}.bar2{height:6px;border-radius:3px;background:rgb(var(--bar-track));flex:1;overflow:hidden}.bar2>i{display:block;height:100%;background:rgb(var(--accent-info))}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.tabs{display:flex;gap:2px;margin-bottom:8px}.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:rgb(var(--text-muted));padding:4px 10px;font:inherit;cursor:pointer}.tabs button.on{color:rgb(var(--text-primary));border-color:rgb(var(--accent-brand))}
+.cat{position:absolute;right:0;top:38px;z-index:5;width:310px;background:rgb(var(--surface-active));border-radius:8px;padding:10px;display:none}.cat.open{display:block}
+.cat li{display:flex;gap:8px;align-items:center;padding:5px;border-radius:6px}
+.open-link{font-size:12px}
+</style>
+<div class=tb><div style="flex:1;min-width:140px"><div class=micro>CONTROL CENTER</div><h1>Dashboard</h1></div>
+<label class=muted>Layout <select id=preset></select></label>
+<div class=seg><button id=arr>Arrange</button></div><button class="btn g" id=addb>+ Add card</button><button class="btn g" id=reset>Reset layout</button>
+<div class=cat id=cat><div class=micro style="margin-bottom:6px">HIDDEN CARDS</div><ul class=l id=catl></ul></div></div>
+<div class=grid id=grid></div>
+<p class=muted style="font-size:12px;margin-top:14px">Layout is saved per person in the browser (here: this page only). Each card’s ↗ opens that stack’s <b>control &amp; settings</b> page, not a duplicate view. Cards for a stack or module that is switched off are not offered.</p>
+</main></div></div></div></div>
+<script>
+const spark=(pts,c='--accent-info')=>'<svg class=spark viewBox="0 0 100 26" preserveAspectRatio=none><polyline fill=none stroke="rgb(var('+c+'))" stroke-width=1.6 points="'+pts+'"/></svg>';
+const P1='0,20 10,16 20,18 30,9 40,12 50,6 60,10 70,5 80,9 90,4 100,7';
+const devs=[['Lena’s phone','Phone','ok','Home'],['Media box','Streamer','warn','1 problem'],['unnamed-7f3a','Unknown','info','New'],['Office laptop','Laptop','ok','Home'],['Doorbell','Camera','ok','Home']];
+const devRows=n=>devs.slice(0,n).map(d=>'<div class=row><b style="flex:1">'+d[0]+'</b><span class=muted>'+d[1]+'</span><span class="tag '+d[2]+'">'+d[3]+'</span></div>').join('');
+const CARDS={
+host:{t:'Host health',stack:'',tag:['ok','Model ready'],body:()=>
+ '<div class=v-xs><div class=big>42.1<small class=muted> tok/s</small></div><div class=muted>Model ready</div></div>'+
+ '<div class=v-sm><div class=big>42.1<small class=muted> tok/s</small></div>'+spark(P1)+'<div class=muted>CPU 31% · RAM 58%</div></div>'+
+ '<div class=v-lg><div class=stats><div class=stat><div class=micro>Throughput</div><div class=v>42.1</div>'+spark(P1)+'</div><div class=stat><div class=micro>CPU</div><div class=v>31%</div>'+spark('0,10 30,14 60,8 100,12','--state-success')+'</div><div class=stat><div class=micro>RAM</div><div class=v>58%</div></div><div class=stat><div class=micro>Runs today</div><div class=v>17</div></div></div></div>'},
+devices:{t:'Devices · network + radio',stack:'Network',tag:['warn','3 need a look'],body:()=>
+ '<div class=v-xs><div class=big>27</div><div class=muted>devices · 3 need a look</div></div>'+
+ '<div class=v-sm>'+devRows(3)+'</div>'+
+ '<div class=v-lg><div class=tabs><button class=on>All 27</button><button>Mine 14</button><button>Needs a look 3</button><button>New 1</button></div><div class=cols><div>'+devRows(5)+'</div><div><div class=micro>Media box</div><p class=sec style="margin:6px 0">Streamer · seen on Wi-Fi and 2.4 GHz radio</p><div class=row><span class=muted style="flex:1">Network</span><span class="tag warn">open port 8008</span></div><div class=row><span class=muted style="flex:1">Radio</span><span class="tag ok">last heard 2 min ago</span></div><div class=row><span class=muted style="flex:1">Traffic</span><span>1.2 GB today</span></div></div></div></div>'},
+posture:{t:'Network posture',stack:'Network',tag:['warn','3 problems'],body:()=>
+ '<div class=v-xs><div class=big>3</div><div class=muted>problems to fix</div></div>'+
+ '<div class=v-sm><div class=row><span class="tag err">1</span><span>Router admin open to LAN</span></div><div class=row><span class="tag warn">2</span><span>Old firmware on two devices</span></div></div>'+
+ '<div class=v-lg><div class=row><span class="tag err">High</span><span style="flex:1">Router admin reachable from guest Wi-Fi</span><a class=open-link>Fix →</a></div><div class=row><span class="tag warn">Med</span><span style="flex:1">Media box firmware 14 months old</span><a class=open-link>Fix →</a></div><div class=row><span class="tag warn">Med</span><span style="flex:1">Doorbell talks to an unknown host</span><a class=open-link>Fix →</a></div></div>'},
+radar:{t:'Radio · around you',stack:'Radio',tag:['ok','listening'],body:()=>{const r='<svg viewBox="0 0 120 120" style="width:100%;max-width:200px;display:block;margin:auto"><g fill=none stroke="rgb(var(--border-strong))"><circle cx=60 cy=60 r=18 /><circle cx=60 cy=60 r=36 /><circle cx=60 cy=60 r=54 /></g><g fill="rgb(var(--accent-info))"><circle cx=44 cy=40 r=3.5 /><circle cx=82 cy=52 r=3.5 /><circle cx=70 cy=88 r=3.5 /></g><circle cx=60 cy=60 r=4 fill="rgb(var(--accent-brand))"/></svg>';return '<div class=v-xs><div class=big>61</div><div class=muted>heard in the last hour</div></div><div class=v-sm>'+r+'</div><div class=v-lg><div class=cols><div>'+r+'</div><div><div class=micro>NEAREST</div>'+devRows(4).replace(/<span class="tag[^>]*>[^<]*<\/span>/g,'<span class=mono>-48 dBm</span>')+'</div></div></div>'}},
+traffic:{t:'Traffic by device',stack:'Network',tag:['neu','today'],body:()=>{const b=[['Media box',82],['Office laptop',55],['Lena’s phone',31],['Doorbell',12]];const r=n=>b.slice(0,n).map(x=>'<div class=row><span style="width:110px">'+x[0]+'</span><span class=bar2><i style="width:'+x[1]+'%"></i></span><span class=mono>'+x[1]/10+' GB</span></div>').join('');return '<div class=v-xs><div class=big>4.0<small class=muted> GB</small></div><div class=muted>top: Media box</div></div><div class=v-sm>'+r(3)+'</div><div class=v-lg>'+r(4)+spark(P1)+'</div>'}},
+stacks:{t:'Stacks',stack:'',tag:['ok','all running'],body:()=>{const s=[['Network','warn','needs a look'],['Radio','ok','listening'],['Agents','ok','quiet']];return '<div class=v-xs>'+s.map(x=>'<div class=row><span style="flex:1">'+x[0]+'</span><span class="tag '+x[1]+'">●</span></div>').join('')+'</div><div class=v-sm>'+s.map(x=>'<div class=row><b style="flex:1">'+x[0]+'</b><span class="tag '+x[1]+'">'+x[2]+'</span></div>').join('')+'</div><div class=v-lg>'+s.map(x=>'<div class=row><b style="width:90px">'+x[0]+'</b><span class="tag '+x[1]+'">'+x[2]+'</span><span style="flex:1"></span><a>Control &amp; settings →</a></div>').join('')+'</div>'}},
+activity:{t:'Recent activity',stack:'',tag:['neu','live'],body:()=>{const a=[['Weather run finished','2 min'],['Reminder sent: bins','1 h'],['Network audit finished','3 h'],['New device seen','5 h']];const r=n=>a.slice(0,n).map(x=>'<div class=row><span style="flex:1">'+x[0]+'</span><span class=muted>'+x[1]+'</span></div>').join('');return '<div class=v-xs><div class=big>17</div><div class=muted>runs today</div></div><div class=v-sm>'+r(3)+'</div><div class=v-lg>'+r(4)+'</div>'}}
+};
+const ORDER=['host','devices','posture','radar','traffic','stacks','activity'];
+// presets: id → [span, rows] ; absent = hidden
+const PRESETS={
+ 'Balanced':{host:[12,1],devices:[8,2],posture:[4,1],radar:[4,1],traffic:[4,1],stacks:[4,1],activity:[4,1]},
+ 'Devices first':{devices:[12,2],host:[4,1],posture:[4,1],stacks:[4,1],radar:[6,1],traffic:[6,1]},
+ 'Compact tiles':{host:[3,1],posture:[3,1],radar:[3,1],traffic:[3,1],stacks:[3,1],activity:[3,1],devices:[6,1]},
+ 'Two columns':{host:[6,1],stacks:[6,1],devices:[6,2],posture:[6,1],radar:[6,1],traffic:[6,1],activity:[6,1]},
+ 'One column (phone-style)':{host:[12,1],stacks:[12,1],devices:[12,1],posture:[12,1],radar:[12,1],traffic:[12,1],activity:[12,1]}
+};
+let st,drag=null,arrange=false;
+const $=s=>document.querySelector(s);
+const sel=$('#preset');Object.keys(PRESETS).forEach(k=>sel.add(new Option(k,k)));sel.add(new Option('Custom','Custom'));
+function load(n){const p=PRESETS[n];st=ORDER.filter(id=>p[id]).map(id=>({id,c:p[id][0],r:p[id][1]}));
+ // keep the preset's own key order
+ st=Object.keys(p).map(id=>({id,c:p[id][0],r:p[id][1]}));render()}
+function custom(){sel.value='Custom';render()}
+const W=[['S',3],['M',4],['L',8],['Full',12]],WN={3:'S',4:'M',6:'M+',8:'L',12:'Full'};
+function render(){const g=$('#grid');g.innerHTML='';g.classList.toggle('arr',arrange);
+ st.forEach((x,i)=>{const k=CARDS[x.id],e=document.createElement('div');e.className='card';e.dataset.i=i;e.draggable=arrange;
+  e.style.setProperty('--c',x.c);e.style.setProperty('--r',x.r);
+  e.innerHTML='<section class=panel style="flex:1;display:flex;flex-direction:column"><div class=ph><span class=micro>'+k.t+'</span><span class=t></span>'+(arrange?'':'<span class="tag '+k.tag[0]+'">'+k.tag[1]+'</span>')+
+  (k.stack?'<a class=ib title="Open '+k.stack+' control and settings" style="padding:2px 6px">↗</a>':'')+
+  '<span class=ctl><span class=seg>'+[[3,'S'],[4,'M'],[6,'M+'],[8,'L'],[12,'Full']].map(w=>'<button data-w='+w[0]+(x.c==w[0]?' class=on':'')+'>'+w[1]+'</button>').join('')+'</span><span class="seg hh"><button data-h=1'+(x.r==1?' class=on':'')+'>1×</button><button data-h=2'+(x.r==2?' class=on':'')+'>2×</button></span><button class=ib data-x title="Hide card">✕</button></span></div><div class=pb>'+k.body()+'</div></section>';
+  e.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{x.c=+b.dataset.w;custom()});
+  e.querySelectorAll('[data-h]').forEach(b=>b.onclick=()=>{x.r=+b.dataset.h;custom()});
+  e.querySelector('[data-x]').onclick=()=>{st.splice(i,1);custom()};
+  e.ondragstart=ev=>{drag=i;e.classList.add('dragging');ev.dataTransfer.effectAllowed='move'};
+  e.ondragend=()=>{drag=null;render()};
+  e.ondragover=ev=>{if(drag!==null){ev.preventDefault();e.classList.add('over')}};
+  e.ondragleave=()=>e.classList.remove('over');
+  e.ondrop=ev=>{ev.preventDefault();if(drag===null||drag===i)return;const m=st.splice(drag,1)[0];st.splice(i,0,m);drag=null;custom()};
+  g.appendChild(e)});
+ const hid=ORDER.filter(id=>!st.some(x=>x.id==id));$('#catl').innerHTML=hid.length?'':'<li class=muted>All cards are on the dashboard.</li>';
+ hid.forEach(id=>{const li=document.createElement('li');li.innerHTML='<span style="flex:1">'+CARDS[id].t+'</span><button class="btn g" style="padding:2px 8px">Add</button>';li.querySelector('button').onclick=()=>{st.push({id,c:4,r:1});$('#cat').classList.remove('open');custom()};$('#catl').appendChild(li)});}
+sel.onchange=()=>{if(sel.value!='Custom')load(sel.value)};
+$('#arr').onclick=e=>{arrange=!arrange;e.target.classList.toggle('on',arrange);e.target.parentNode.classList.toggle('on');e.target.textContent=arrange?'Done':'Arrange';render()};
+$('#addb').onclick=()=>$('#cat').classList.toggle('open');
+$('#reset').onclick=()=>{sel.value='Balanced';load('Balanced')};
+document.querySelectorAll('#vw button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#vw button').forEach(x=>x.classList.toggle('on',x==b));$('#frame').classList.toggle('phone',b.dataset.v=='p')});
+load('Balanced');
+</script>

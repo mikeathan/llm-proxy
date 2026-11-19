@@ -1,0 +1,141 @@
+<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>E · Boards of cards</title><link rel=stylesheet href=mock.css><body data-theme="retro-dark-soft">
+<div class=bar><b>Mock E · Dashboard with boards (tabs) of cards</b><span class=mockbadge>static demo · made-up data · layout saved in this browser</span><span class=grow></span><a href=index.html>← all mocks</a><div class=seg id=vw><button class=on data-v=d>Desktop</button><button data-v=p>Phone</button></div></div>
+<div class=stage><div style="width:100%;max-width:1180px">
+<p class=note><b>Dashboard</b> = the page. <b>Boards</b> = the tabs. <b>Cards</b> = the tiles. Home is a mixed board; a stack board (Network, Radio…) is just a board that ships with a good default layout, built from the same cards and the same grid. Stacks themselves stay control and settings. Press <b>Arrange</b> to resize, reorder, remove, or <b>Pin to Home</b>. Reload the page: your layout stays.</p>
+<div class=frame id=frame><div class=shell>
+<nav class=nav><div class=micro style="padding:8px 10px">LLM PROXY</div><a>Assistant</a><a>Workspace</a><a>Automations</a><a>Reminders</a><a class=cur>Dashboard</a><div class="micro grp">STACKS · CONTROL</div><a>Network <span class=muted>settings</span></a><a>Radio <span class=muted>settings</span></a><a>Agents <span class=muted>settings</span></a><div class="micro grp">SYSTEM</div><a>Models</a><a>Activity</a><a>Settings</a></nav>
+<main>
+<style>
+.shell{grid-template-columns:200px minmax(0,1fr)}@container (max-width:700px){.shell{grid-template-columns:minmax(0,1fr)}}.hd{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;position:relative}
+.hd h1{flex:1;min-width:120px}
+select{background:rgb(var(--surface-raised));color:rgb(var(--text-primary));border:1px solid rgb(var(--border-control));border-radius:6px;padding:5px 8px;font:inherit}
+.tabs{display:flex;gap:2px;overflow-x:auto;border-bottom:1px solid rgb(var(--border-strong));margin-bottom:12px;position:relative;scrollbar-width:thin}
+.tabs>button{background:none;border:0;border-bottom:2px solid transparent;color:rgb(var(--text-muted));padding:8px 14px;font:inherit;cursor:pointer;white-space:nowrap;margin-bottom:-1px}
+.tabs>button.on{color:rgb(var(--text-primary));border-color:rgb(var(--accent-brand))}
+.tabs .x{margin-left:6px;opacity:.7}
+.tabs .add{margin-left:auto;color:rgb(var(--accent-info-text))}
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-flow:row dense;gap:12px;align-items:stretch}
+.card{grid-column:span var(--c);grid-row:span var(--r);display:flex;flex-direction:column;min-width:0}
+.card .pb{flex:1;container-type:inline-size;container-name:card;overflow:hidden}
+.card.dragging{opacity:.35}.card.over{outline:2px solid rgb(var(--accent-brand))}
+.tag{white-space:nowrap}.ph .micro{min-width:0}.src{white-space:nowrap;font:600 10px ui-monospace,monospace;letter-spacing:.08em;padding:2px 6px;border-radius:4px;background:rgb(var(--surface-active));color:rgb(var(--text-secondary))}
+.ctl{display:none;gap:4px;align-items:center;flex-wrap:wrap}
+.arr .ctl{display:flex}.arr .card>section{outline:1px dashed rgb(var(--border-control));outline-offset:2px}.arr .ph{cursor:grab}
+.ctl .seg button{padding:2px 7px;font-size:11px}
+@container (max-width:700px){.grid>.card{grid-column:span 12!important;grid-row:span 1!important}.ctl .hh{display:none}}
+.v-xs,.v-sm,.v-lg{display:none}
+@container card (max-width:339px){.v-xs{display:block}}
+@container card (min-width:340px) and (max-width:559px){.v-sm{display:block}}
+@container card (min-width:560px){.v-lg{display:block}}
+.big{font:600 30px ui-monospace,monospace}
+.row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgb(var(--border-hairline))}.row:last-child{border:0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center}
+.pop{position:absolute;z-index:6;background:rgb(var(--surface-active));border-radius:8px;padding:10px;display:none;box-shadow:0 8px 24px rgb(0 0 0/.4)}.pop.open{display:block}
+.pop li{display:flex;gap:8px;align-items:center;padding:5px;border-radius:6px}
+.chips{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}.chips button{border:1px solid rgb(var(--border-control));background:none;color:rgb(var(--text-secondary));border-radius:99px;padding:2px 9px;font:inherit;font-size:11.5px;cursor:pointer}.chips button.on{background:rgb(var(--surface-hover));color:rgb(var(--text-primary))}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:rgb(var(--surface-active));padding:8px 14px;border-radius:8px;display:none;z-index:9}
+</style>
+<div class=hd><div style="flex:1;min-width:140px"><div class=micro>CONTROL CENTER</div><h1>Dashboard</h1></div>
+<label class=muted>Layout <select id=preset></select></label>
+<div class=seg id=arrseg><button id=arr>Arrange</button></div><button class="btn g" id=addc>+ Add card</button><button class="btn g" id=reset>Reset board</button>
+<div class=pop id=cpop style="right:0;top:40px;width:340px"><div class=micro style="margin-bottom:6px">CARDS, BY SOURCE</div><div class=chips id=chips></div><ul class=l id=cl></ul></div></div>
+<div class=tabs id=tabs></div>
+<div class=pop id=bpop style="right:0;top:150px;width:330px"><div class=micro style="margin-bottom:6px">ADD A BOARD</div><ul class=l id=bl></ul></div>
+<div class=grid id=grid></div>
+<div class=toast id=toast></div>
+<p class=muted style="font-size:12px;margin-top:14px">Boards and cards are saved per person. Most people only ever edit Home — stack boards come ready-made. Cards for a stack or module that is switched off are not offered.</p>
+</main></div></div></div></div>
+<script>
+const $=s=>document.querySelector(s);
+const sp=(p,c)=>'<svg class=spark viewBox="0 0 100 26" preserveAspectRatio=none><polyline fill=none stroke="rgb(var('+(c||'--accent-info')+'))" stroke-width=1.6 points="'+p+'"/></svg>';
+const P1='0,20 10,16 20,18 30,9 40,12 50,6 60,10 70,5 80,9 90,4 100,7',P2='0,8 20,12 40,7 60,15 80,10 100,13';
+const RAD='<svg viewBox="0 0 120 120" style="width:100%;max-width:190px;display:block;margin:auto"><g fill=none stroke="rgb(var(--border-strong))"><circle cx=60 cy=60 r=18 /><circle cx=60 cy=60 r=36 /><circle cx=60 cy=60 r=54 /></g><g fill="rgb(var(--accent-info))"><circle cx=44 cy=40 r=3.5 /><circle cx=82 cy=52 r=3.5 /><circle cx=70 cy=88 r=3.5 /></g><circle cx=60 cy=60 r=4 fill="rgb(var(--accent-brand))"/></svg>';
+const BARS='<div class=row><span style="width:100px">Media box</span><span style="flex:1;height:6px;border-radius:3px;background:rgb(var(--bar-track))"><i style="display:block;height:100%;width:82%;background:rgb(var(--accent-info))"></i></span><span class=mono>8.2 GB</span></div><div class=row><span style="width:100px">Office laptop</span><span style="flex:1;height:6px;border-radius:3px;background:rgb(var(--bar-track))"><i style="display:block;height:100%;width:55%;background:rgb(var(--accent-info))"></i></span><span class=mono>5.5 GB</span></div>';
+// spec: src, t, tag[cls,text], big, sub, rows[[left,right,cls]], viz
+const SRC={llm:['LLM','Models'],asst:['ASSISTANT','Assistant'],auto:['AUTOMATIONS','Automations'],rem:['REMINDERS','Reminders'],net:['NETWORK','Network control'],rad:['RADIO','Radio control'],agt:['AGENTS','Agents control']};
+const SRCN={llm:'LLM / host',asst:'Assistant',auto:'Automations',rem:'Reminders',net:'Network',rad:'Radio',agt:'Agents'};
+const C={
+llm_thru:{s:'llm',t:'Throughput',tag:['ok','Model ready'],big:'42.1 tok/s',sub:'Model ready',rows:[['CPU','31%'],['RAM','58%'],['GPU','74%'],['Context used','41%']],viz:sp(P1)},
+llm_model:{s:'llm',t:'Active model',tag:['ok','loaded'],big:'Qwen 32B',sub:'local · 18 GB',rows:[['Provider','llama.cpp'],['Context','32k'],['Loaded','3 h ago']]},
+llm_queue:{s:'llm',t:'Run queue',tag:['neu','idle'],big:'0',sub:'runs waiting',rows:[['Running','1'],['Waiting','0'],['Today','17']],viz:sp(P2,'--state-success')},
+asst_appr:{s:'asst',t:'Approvals waiting',tag:['warn','2'],big:'2',sub:'need your OK',rows:[['Run terminal command','now','warn'],['Send email draft','5 min','warn']]},
+asst_recent:{s:'asst',t:'Recent conversations',tag:['neu','5 today'],big:'5',sub:'today',rows:[['Plan the week','10 min'],['Fix cron job','1 h'],['Summarise news','3 h'],['Weather question','5 h']]},
+auto_next:{s:'auto',t:'Next runs',tag:['neu','4 scheduled'],big:'07:30',sub:'Morning news',rows:[['Morning news','07:30'],['Weather','08:00'],['Network audit','Sun 02:00'],['Backups','Mon 01:00']]},
+auto_fail:{s:'auto',t:'Last failures',tag:['err','1 failed'],big:'1',sub:'failed this week',rows:[['Backups — disk full','Tue','err'],['News — timeout','Sat','warn']]},
+rem_up:{s:'rem',t:'Upcoming reminders',tag:['neu','3'],big:'3',sub:'next: bins 18:00',rows:[['Put bins out','18:00'],['Call dentist','Thu'],['Renew licence','Fri']]},
+net_posture:{s:'net',t:'Posture',tag:['warn','3 problems'],big:'3',sub:'problems to fix',rows:[['Router admin open to guest Wi-Fi','High','err'],['Media box firmware old','Med','warn'],['Doorbell talks to unknown host','Med','warn']]},
+net_traffic:{s:'net',t:'Traffic by device',tag:['neu','today'],big:'4.0 GB',sub:'top: Media box',rows:[['Lena’s phone','3.1 GB'],['Doorbell','0.6 GB']],viz:BARS},
+net_presence:{s:'net',t:'Who is home',tag:['ok','5 here'],big:'5',sub:'devices on Wi-Fi',rows:[['Lena’s phone','home','ok'],['Office laptop','home','ok'],['Doorbell','home','ok']]},
+net_timeline:{s:'net',t:'Network timeline',tag:['neu','24 h'],big:'6',sub:'events in 24 h',rows:[['New device seen','5 h'],['Port opened on Media box','9 h'],['Router rebooted','18 h']],viz:sp(P2)},
+rad_radar:{s:'rad',t:'Around you',tag:['ok','listening'],big:'61',sub:'heard in the last hour',rows:[['Gaoshengda','−48 dBm'],['Unknown beacon','−61 dBm'],['TV remote','−70 dBm']],viz:RAD,vizOnly:1},
+rad_mine:{s:'rad',t:'My devices',tag:['ok','3 seen'],big:'3',sub:'of your devices heard',rows:[['This computer','here','ok'],['Earbuds','2 min','ok'],['Watch','1 h','neu']]},
+rad_heard:{s:'rad',t:'Recently heard',tag:['neu','new 2'],big:'2',sub:'new in an hour',rows:[['Unknown beacon','new','info'],['Headset','new','info'],['Gaoshengda','4 min']]},
+agt_status:{s:'agt',t:'Agents',tag:['ok','quiet'],big:'0',sub:'agents running',rows:[['Research agent','idle'],['Watcher','idle'],['Helper','idle']]}
+};
+const tg=(c,t)=>'<span class="tag '+c+'">'+t+'</span>';
+const rowsH=(r,n)=>r.slice(0,n).map(x=>'<div class=row><span style="flex:1">'+x[0]+'</span>'+(x[2]?tg(x[2],x[1]):'<span class=muted>'+x[1]+'</span>')+'</div>').join('');
+function body(k){let h='<div class=v-xs><div class=big>'+k.big+'</div><div class=muted>'+k.sub+'</div></div>';
+ h+='<div class=v-sm>'+(k.vizOnly?k.viz:'<div class=big style="font-size:24px">'+k.big+'</div>'+(k.viz||'')+rowsH(k.rows,k.viz?2:3))+'</div>';
+ h+='<div class=v-lg>'+(k.vizOnly?'<div class=cols><div>'+k.viz+'</div><div>'+rowsH(k.rows,5)+'</div></div>':(k.viz?'<div class=cols><div>'+rowsH(k.rows,5)+'</div><div>'+k.viz+'</div></div>':rowsH(k.rows,5)))+'</div>';return h}
+const D=(a)=>a.map(x=>({id:x[0],c:x[1],r:x[2]||1}));
+const DEF={
+home:{name:'Home',cards:D([['llm_thru',3],['asst_appr',3],['rem_up',3],['agt_status',3],['net_posture',4],['rad_radar',4],['auto_next',4],['net_traffic',6],['asst_recent',6]])},
+llm:{name:'LLM & host',stack:1,cards:D([['llm_thru',8,2],['llm_model',4],['llm_queue',4],['asst_appr',6],['asst_recent',6]])},
+net:{name:'Network',stack:1,cards:D([['net_posture',8],['net_presence',4],['net_traffic',8],['net_timeline',4]])},
+rad:{name:'Radio',stack:1,cards:D([['rad_radar',8,2],['rad_mine',4],['rad_heard',4]])},
+auto:{name:'Automations',stack:1,cards:D([['auto_next',6],['auto_fail',6],['rem_up',6],['asst_appr',6]])},
+agt:{name:'Agents',stack:1,cards:D([['agt_status',6],['auto_fail',6]])}
+};
+const OFFERED=['agt'],OFF=[['Wi-Fi survey','module off']];
+const KEY='mockE-v1';let S;
+const clone=o=>JSON.parse(JSON.stringify(o));
+function init(){try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
+ if(!S||!S.boards){S={cur:'home',boards:['home','llm','net','rad','auto'].map(id=>Object.assign({id:id},clone(DEF[id])))}}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+const cur=()=>S.boards.find(b=>b.id==S.cur);
+let arrange=false,drag=null,filt='all';
+const sel=$('#preset');['Default','Compact tiles','Two columns','One column'].forEach(x=>sel.add(new Option(x,x)));sel.add(new Option('Custom','Custom'));
+function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',1800)}
+function touch(){sel.value='Custom';save();render()}
+function renderTabs(){const t=$('#tabs');t.innerHTML='';
+ S.boards.forEach(b=>{const e=document.createElement('button');e.className=b.id==S.cur?'on':'';e.textContent=b.name;
+  if(arrange&&b.id!='home'){const x=document.createElement('span');x.className='x';x.textContent='✕';x.title='Remove board';x.onclick=ev=>{ev.stopPropagation();S.boards=S.boards.filter(z=>z.id!=b.id);if(S.cur==b.id)S.cur='home';save();render()};e.appendChild(x)}
+  e.onclick=()=>{S.cur=b.id;sel.value='Custom';save();render()};
+  e.ondblclick=()=>{if(b.id=='home')return;const n=prompt('Rename board',b.name);if(n){b.name=n;save();render()}};t.appendChild(e)});
+ const a=document.createElement('button');a.className='add';a.textContent='+ Add board';a.onclick=()=>{$('#bpop').classList.toggle('open');$('#cpop').classList.remove('open')};t.appendChild(a)}
+function render(){renderTabs();const b=cur(),g=$('#grid');g.innerHTML='';g.classList.toggle('arr',arrange);
+ b.cards.forEach((x,i)=>{const k=C[x.id],e=document.createElement('div');e.className='card';e.draggable=arrange;e.style.setProperty('--c',x.c);e.style.setProperty('--r',x.r);
+  const home=S.boards[0],onHome=home.cards.some(z=>z.id==x.id);
+  e.innerHTML='<section class=panel style="flex:1;display:flex;flex-direction:column"><div class=ph><span class=src>'+SRC[k.s][0]+'</span><span class=micro>'+k.t+'</span><span class=t></span>'+(arrange?'':tg(k.tag[0],k.tag[1]))+'<a class=ib title="Open '+SRC[k.s][1]+'" style="padding:2px 6px">↗</a>'+
+  '<span class=ctl><span class=seg>'+[[3,'S'],[4,'M'],[6,'M+'],[8,'L'],[12,'Full']].map(w=>'<button data-w='+w[0]+(x.c==w[0]?' class=on':'')+'>'+w[1]+'</button>').join('')+'</span><span class="seg hh"><button data-h=1'+(x.r==1?' class=on':'')+'>1×</button><button data-h=2'+(x.r==2?' class=on':'')+'>2×</button></span>'+
+  (b.id!='home'?'<button class="ib" data-pin'+(onHome?' disabled':'')+' title="Pin a small copy to Home">'+(onHome?'On Home':'Pin to Home')+'</button>':'')+'<button class=ib data-x title="Remove from this board">✕</button></span></div><div class=pb>'+body(k)+'</div></section>';
+  e.querySelectorAll('[data-w]').forEach(z=>z.onclick=()=>{x.c=+z.dataset.w;touch()});
+  e.querySelectorAll('[data-h]').forEach(z=>z.onclick=()=>{x.r=+z.dataset.h;touch()});
+  e.querySelector('[data-x]').onclick=()=>{b.cards.splice(i,1);touch()};
+  const pin=e.querySelector('[data-pin]');if(pin)pin.onclick=()=>{if(!onHome){home.cards.push({id:x.id,c:4,r:1});save();toast(k.t+' pinned to Home');render()}};
+  e.ondragstart=ev=>{drag=i;e.classList.add('dragging');ev.dataTransfer.effectAllowed='move'};e.ondragend=()=>{drag=null;render()};
+  e.ondragover=ev=>{if(drag!==null){ev.preventDefault();e.classList.add('over')}};e.ondragleave=()=>e.classList.remove('over');
+  e.ondrop=ev=>{ev.preventDefault();if(drag===null||drag===i)return;const m=b.cards.splice(drag,1)[0];b.cards.splice(i,0,m);drag=null;touch()};
+  g.appendChild(e)});
+ if(!b.cards.length)g.innerHTML='<div class=muted style="grid-column:span 12;padding:30px;text-align:center">This board is empty. Use “+ Add card”.</div>';
+ renderCat()}
+function renderCat(){const b=cur();const ch=$('#chips');ch.innerHTML='';['all'].concat(Object.keys(SRCN)).forEach(k=>{const z=document.createElement('button');z.textContent=k=='all'?'All':SRCN[k];z.className=filt==k?'on':'';z.onclick=()=>{filt=k;renderCat()};ch.appendChild(z)});
+ const l=$('#cl');l.innerHTML='';Object.keys(C).filter(id=>filt=='all'||C[id].s==filt).forEach(id=>{const k=C[id],has=b.cards.some(z=>z.id==id),li=document.createElement('li');
+  li.innerHTML='<span class=src>'+SRC[k.s][0]+'</span><span style="flex:1">'+k.t+'</span>'+(has?'<span class=muted>on board</span>':'<button class="btn g" style="padding:2px 8px">Add</button>');
+  const bt=li.querySelector('button');if(bt)bt.onclick=()=>{b.cards.push({id:id,c:4,r:1});$('#cpop').classList.remove('open');touch()};l.appendChild(li)});
+ const bl=$('#bl');bl.innerHTML='<li><span style="flex:1">Blank board</span><button class="btn g" style="padding:2px 8px" data-blank>Add</button></li>';
+ bl.querySelector('[data-blank]').onclick=()=>{const id='b'+Date.now();S.boards.push({id:id,name:'New board',cards:[]});S.cur=id;$('#bpop').classList.remove('open');save();render()};
+ bl.insertAdjacentHTML('beforeend','<li class=micro style="padding-top:8px">SHIPPED WITH A STACK</li>');
+ Object.keys(DEF).filter(id=>id!='home').forEach(id=>{const has=S.boards.some(z=>z.id==id),li=document.createElement('li');
+  li.innerHTML='<span style="flex:1">'+DEF[id].name+' <span class=muted>· '+DEF[id].cards.length+' cards</span></span>'+(has?'<span class=muted>added</span>':'<button class="btn g" style="padding:2px 8px">Add</button>');
+  const bt=li.querySelector('button');if(bt)bt.onclick=()=>{S.boards.push(Object.assign({id:id},clone(DEF[id])));S.cur=id;$('#bpop').classList.remove('open');save();render()};bl.appendChild(li)});
+ OFF.forEach(o=>{const li=document.createElement('li');li.className='muted';li.innerHTML='<span style="flex:1">'+o[0]+'</span><small>'+o[1]+' · <a>switch on in Modules</a></small>';bl.appendChild(li)})}
+sel.onchange=()=>{const b=cur(),v=sel.value;if(v=='Custom')return;
+ if(v=='Default'){b.cards=clone((DEF[b.id]||DEF.home).cards);if(!DEF[b.id])b.cards=b.cards.map(x=>x)}
+ else b.cards.forEach(x=>{x.r=1;x.c=v=='Compact tiles'?3:v=='Two columns'?6:12});save();render()};
+$('#arr').onclick=e=>{arrange=!arrange;e.target.textContent=arrange?'Done':'Arrange';e.target.parentNode.classList.toggle('on',arrange);render()};
+$('#addc').onclick=()=>{$('#cpop').classList.toggle('open');$('#bpop').classList.remove('open')};
+$('#reset').onclick=()=>{const b=cur(),d=DEF[b.id]||DEF.home;if(DEF[b.id]){b.cards=clone(d.cards)}else b.cards=[];sel.value='Default';save();render();toast(DEF[b.id]?'Reset to the '+d.name+' default':'Board cleared')};
+document.querySelectorAll('#vw button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#vw button').forEach(x=>x.classList.toggle('on',x==b));$('#frame').classList.toggle('phone',b.dataset.v=='p')});
+init();if(location.hash&&S.boards.some(z=>z.id==location.hash.slice(1)))S.cur=location.hash.slice(1);sel.value='Default';render();
+</script>

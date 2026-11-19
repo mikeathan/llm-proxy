@@ -1,0 +1,52 @@
+<script setup lang="ts">
+import { computed } from "vue"
+import StatusTag from "../../common/display/StatusTag.vue"
+import LoadingState from "../../common/feedback/LoadingState.vue"
+import ErrorState from "../../common/feedback/ErrorState.vue"
+import { useCardSize } from "../../../composables/dashboard/useCardSize"
+import { useNetworkSnapshot } from "../../../composables/netaudit/useNetworkSnapshot"
+import { attentionReasons, nextAction, postureHeadline } from "../../../utils/netaudit/networkOverview"
+import { NETWORK_CHECK_PROBLEM, NETWORK_POSTURE_UNKNOWN_NEXT } from "../../../constants/netaudit"
+import { toNetwork } from "../../../router/routes"
+import type { NetworkPosture } from "../../../types/netaudit"
+import type { StatusState } from "../../../types/ui"
+
+// Dashboard card · Network posture: one verdict, what needs a look and the next step, which links to the Network page where it is done.
+// Small is the verdict and the count; medium adds the reasons; large adds the next step. It only reads what the server already knows.
+const POSTURE_TAG: Record<NetworkPosture, { state: StatusState; label: string }> = {
+  unknown: { state: "neutral", label: "Not looked at" },
+  quiet: { state: "success", label: "Quiet" },
+  attention: { state: "warning", label: "Needs a look" },
+}
+const SHORT_REASONS = 2
+const size = useCardSize()
+const { overview, error, hasAudit } = useNetworkSnapshot()
+const tag = computed(() => (overview.value ? POSTURE_TAG[overview.value.posture] : null))
+const reasons = computed(() => (overview.value ? attentionReasons(overview.value) : []))
+const next = computed(() => (overview.value ? nextAction(overview.value, hasAudit.value) : null))
+</script>
+
+<template>
+  <div data-test="network-posture-card">
+    <ErrorState v-if="error && !overview" title="The network could not be read" :cause="error" next="It is read again in a minute." />
+    <LoadingState v-else-if="!overview || !tag" label="Reading the network" :rows="2" />
+    <template v-else>
+      <div class="mb-2 flex flex-wrap items-center gap-2">
+        <StatusTag :state="tag.state" :label="tag.label" />
+        <span v-if="size === 'xs'" class="text-muted" data-test="posture-count">{{ reasons.length }} to look at</span>
+      </div>
+      <p v-if="size !== 'xs'" class="m-0 text-[length:var(--text-heading)] font-semibold text-primary">{{ postureHeadline(overview) }}</p>
+      <ul v-if="size === 'sm' && reasons.length" class="m-0 mt-2 list-none p-0 text-secondary" aria-label="What needs a look">
+        <li v-for="r in reasons.slice(0, SHORT_REASONS)" :key="r">{{ r }}</li>
+      </ul>
+      <div v-if="size === 'lg'">
+        <ul v-if="reasons.length" class="m-0 mt-2 flex list-none flex-col gap-1 p-0 text-secondary" aria-label="What needs a look">
+          <li v-for="r in reasons" :key="r">{{ r }}</li>
+        </ul>
+        <p v-else-if="overview.posture === 'unknown'" class="m-0 mt-2 text-muted">{{ NETWORK_POSTURE_UNKNOWN_NEXT }}</p>
+        <p v-if="overview.presence.problem" role="alert" class="m-0 mt-2 text-[length:var(--text-small)] text-state-error">{{ NETWORK_CHECK_PROBLEM }}: {{ overview.presence.problem }}</p>
+        <RouterLink v-if="next" :to="toNetwork(next.tab)" class="mt-3 inline-flex min-h-8 items-center font-mono text-[length:var(--text-small)] text-accent-info-text hover:underline focus-visible:outline-none focus-visible:ring-2 max-sm:min-h-11" data-test="next-action">{{ next.label }} →</RouterLink>
+      </div>
+    </template>
+  </div>
+</template>

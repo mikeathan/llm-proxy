@@ -1,0 +1,115 @@
+:root,
+[data-theme='retro-dark'],
+[data-theme='retro-dark-soft'],
+[data-theme='retro-dark-lifted'],
+[data-theme='retro-midnight'],
+[data-theme='retro-forest'],
+[data-theme='retro-plum'] {
+  color-scheme: dark;
+
+  --canvas: 12 11 10;
+  --surface: 12 11 10;
+  --surface-raised: 26 24 22;
+  --surface-hover: 33 31 28;
+  --surface-active: 41 38 35;
+
+  /* Borders: hairline/strong are decorative panel edges only;
+     border-control identifies inputs and buttons (≥3:1, WCAG 1.4.11). */
+  --border-hairline: 38 36 33;
+  --border-strong: 58 55 50;
+  --border-control: 120 115 107;
+
+  /* Text tiers. text-decorative is large text / ornament only, never metadata. */
+  --text-primary: 242 237 227;
+  --text-secondary: 212 206 195;
+  --text-muted: 158 152 142;
+  --text-faint: 140 134 125;
+  --text-decorative: 100 96 89;
+  --text-inverse: 12 11 10;
+  /* Labels on solid accent fills (primary / danger buttons): dark ink here,
+     cream on paper's dark accents (D16 amendment, plan V10). */
+  --text-on-accent: 12 11 10;
+
+  /* Brand — the one signature accent (persimmon): eyebrow marks, active
+     navigation, focus, the wordmark. Never used for run state. */
+  --accent-brand: 255 106 61;
+
+  /* Data and state ("Signal" palette) — colour is reserved for these.
+     accent-info (cobalt) is fills and large text; accent-info-text is the
+     readable tint for links/labels. Success is mint, running is citrine;
+     each sits on a different hue from the persimmon brand. */
+  --accent-info: 108 140 255;
+  --accent-info-text: 142 166 255;
+  --state-success: 47 212 163;
+  --state-running: 232 207 74;
+  --state-queued: 191 172 98;
+  --state-error: 255 77 94;
+  --state-live: 47 212 163;
+
+  /* Utility colours. bar-track is the dither ink of empty meter tracks. */
+  --focus-ring: 255 106 61;
+  --bar-track: 58 55 50;
+  --scrim: 0 0 0;
+}
+[data-theme='retro-dark-soft'] {
+  --canvas: 34 32 29;
+  --surface: 34 32 29;
+  --surface-raised: 43 41 38;
+  --surface-hover: 51 49 46;
+  --surface-active: 59 57 54;
+  --border-hairline: 58 56 53;
+  --border-strong: 82 80 77;
+  --border-control: 138 132 122;
+  --text-muted: 178 172 162;
+  --text-faint: 172 166 156;
+  --state-error: 255 112 124;
+  --state-queued: 205 187 112;
+  --accent-info-text: 150 174 255;
+  --bar-track: 70 68 65;
+}
+*{box-sizing:border-box}
+body{margin:0;background:rgb(var(--canvas));color:rgb(var(--text-primary));font:14px/1.45 ui-sans-serif,system-ui,sans-serif}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.micro{font:600 10.5px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgb(var(--text-muted))}
+.muted{color:rgb(var(--text-muted))} .sec{color:rgb(var(--text-secondary))}
+a{color:rgb(var(--accent-info-text));text-decoration:none} a:hover{text-decoration:underline}
+.bar{display:flex;gap:12px;align-items:center;padding:10px 16px;background:rgb(var(--surface-raised));flex-wrap:wrap}
+.bar b{font-size:13px} .bar .grow{flex:1}
+.seg{display:inline-flex;border:1px solid rgb(var(--border-control));border-radius:6px;overflow:hidden}
+.seg button{background:none;border:0;color:rgb(var(--text-secondary));padding:5px 12px;font:inherit;cursor:pointer}
+.seg button.on{background:rgb(var(--surface-active));color:rgb(var(--text-primary))}
+.stage{padding:16px;display:flex;justify-content:center}
+.frame{container-type:inline-size;width:100%;max-width:1180px;transition:max-width .2s}
+.frame.phone{margin:0 auto;max-width:390px;border:8px solid rgb(var(--border-strong));border-radius:28px;padding:10px;background:rgb(var(--canvas))}
+.shell{display:grid;grid-template-columns:200px 1fr;gap:16px}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav a{padding:7px 10px;border-radius:6px;color:rgb(var(--text-secondary))}
+.nav a.cur{background:rgb(var(--surface-active));color:rgb(var(--text-primary));box-shadow:inset 2px 0 rgb(var(--accent-brand))}
+.nav .grp{margin:12px 10px 4px}
+@container (max-width:700px){.shell{grid-template-columns:1fr}.nav{flex-direction:row;overflow:auto}.nav .grp{display:none}}
+h1{font-size:20px;margin:0}
+.panel{background:rgb(var(--surface-raised));border-radius:8px;min-width:0}
+.ph{display:flex;align-items:center;gap:8px;padding:8px 12px;min-height:40px}
+.ph .t{flex:1}
+.pb{padding:4px 12px 12px}
+.ib{background:none;border:0;color:rgb(var(--text-muted));cursor:pointer;padding:4px 6px;border-radius:4px;font:inherit}
+.ib:hover{background:rgb(var(--surface-hover));color:rgb(var(--text-primary))}
+.panel.collapsed .pb{display:none}
+.tag{display:inline-block;padding:2px 8px;border-radius:99px;font:600 11px ui-monospace,monospace}
+.ok{background:rgb(var(--state-success)/.16);color:rgb(var(--state-success))}
+.warn{background:rgb(var(--state-running)/.16);color:rgb(var(--state-running))}
+.err{background:rgb(var(--state-error)/.16);color:rgb(var(--state-error))}
+.neu{background:rgb(var(--surface-active));color:rgb(var(--text-secondary))}
+.info{background:rgb(var(--accent-info)/.18);color:rgb(var(--accent-info-text))}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:1px;background:rgb(var(--border-hairline));border-radius:6px;overflow:hidden}
+.stat{background:rgb(var(--surface-raised));padding:8px 10px}
+.stat .v{font:600 22px ui-monospace,monospace}.stat .c{font-size:11.5px;color:rgb(var(--text-muted))}
+.btn{background:rgb(var(--accent-brand));color:rgb(var(--text-on-accent));border:0;border-radius:6px;padding:6px 12px;font:600 13px inherit;box-shadow:2px 2px 0 rgb(var(--accent-brand)/.45);cursor:pointer}
+.btn.g{background:none;color:rgb(var(--text-secondary));box-shadow:none;border:1px solid rgb(var(--border-control))}
+ul.l{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.spark{height:26px;width:100%}
+.note{font-size:12px;color:rgb(var(--text-muted));max-width:70ch;margin:0 auto 12px;text-align:center}
+.mockbadge{background:rgb(var(--accent-info)/.18);color:rgb(var(--accent-info-text));padding:2px 8px;border-radius:99px;font:600 11px ui-monospace,monospace}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:rgb(var(--state-success));margin-right:6px}
+.dot.off{background:rgb(var(--text-decorative))}
+.dot.w{background:rgb(var(--state-running))}

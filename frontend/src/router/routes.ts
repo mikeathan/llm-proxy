@@ -8,7 +8,8 @@ import type { ActivityFilters, AgentsTab, AutomationStart, NetworkSettingsGroup,
 
 const PATH_SEPARATOR = '/'
 
-export const toOverview = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.overview })
+/** The dashboard. `board` opens that board (the stack pages link to their own); without one it opens the board last used in this browser. */
+export const toDashboard = (board?: string): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.dashboard, ...(board ? { query: { board } } : {}) })
 
 export const toWorkspaces = (): RouteLocationNamedRaw => ({ name: ROUTE_NAMES.workspaces })
 

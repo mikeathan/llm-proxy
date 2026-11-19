@@ -297,22 +297,5 @@ describe('RadioRadar', () => {
       await w.get('[data-test="radio-channel-clear"]').trigger('click')
       expect(w.findAll('[data-test="radio-dot"]')).toHaveLength(3)
     })
-
-    it('finds my device: lists the strongest devices heard now and names the chosen one', async () => {
-      service.live.mockResolvedValue(crowd())
-      const w = await show()
-      await w.get('[data-test="radio-find-open"]').trigger('click')
-      const found = w.findAll('[data-test="radio-find-candidate"]')
-      expect(found).toHaveLength(3)
-      expect(JSON.parse(found[0]!.get('[data-test="radio-find-open-device"]').attributes('data-to')!)).toMatchObject({ params: { id: 'a1' } }) // a name opens the device's page
-      expect(found[0]!.get('[data-test="radio-find-whose"]').text()).not.toBe('')
-      expect(w.get('[data-test="radio-find-lead"]').text()).toContain('only 0 dB ahead of the next') // all three alike: not yet clear which
-      await found[0]!.get('button').trigger('click')
-      await w.get('[data-test="radio-find-input"]').setValue('my tablet')
-      await w.get('[data-test="radio-find-save"]').trigger('submit')
-      await flushPromises()
-      expect(service.markMine).toHaveBeenCalledTimes(1)
-      expect(service.markMine.mock.calls[0]![1]).toBe('my tablet')
-    })
   })
 })
