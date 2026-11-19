@@ -151,6 +151,9 @@ type Manifest struct {
 	// Observes lists the kinds of observation (Observed*) the stack takes in: the service pushes each one it sees, as plain data, to a stack that
 	// implements Observer. A stack that lists none is never pushed one.
 	Observes []string `json:"observes,omitempty"`
+	// DynamicTools says the stack implements ToolSource: it offers tools the core did not list at start, because the stack learns them at run time
+	// (an MCP server's tools, ADR-0069). The core names each one, bounds its text and puts every call behind the guardrail engine.
+	DynamicTools bool `json:"dynamic_tools,omitempty"`
 	// ReportsAir says the stack implements AirReporter: the core may pull what it heard of the inventory's devices (ADR-0061). It needs PortLAN,
 	// because the report's tags are the ones that port gave.
 	ReportsAir bool `json:"reports_air,omitempty"`
@@ -197,9 +200,13 @@ const (
 	// PortSchedule evaluates the service's one cron grammar for a stack that schedules by it (ADR-0068): the core owns the parser, so a stack accepts
 	// exactly what automations accept and the SDK, which requires nothing, carries no scheduler library.
 	PortSchedule = "schedule"
+	// PortHTTP gives a stack a guarded *http.Client for a long-lived exchange (a streamed answer, a session) that the GET of PortFetch cannot carry:
+	// every connection it makes is dialled through the core's guard, it follows a redirect only to the same host and has no overall timeout of its
+	// own (ADR-0069). A stack cannot build an http.Transport itself, so this is the only way it gets one.
+	PortHTTP = "httpclient"
 )
 
-var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule}
+var portNames = []string{PortConfig, PortEvents, PortLog, PortDataDir, PortGuard, PortFetch, PortGateway, PortIsolation, PortPrivileged, PortScopedGuard, PortSecretScan, PortVault, PortLAN, PortMeshClients, PortOwnNetworks, PortNotify, PortSchedule, PortHTTP}
 
 var idPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
 

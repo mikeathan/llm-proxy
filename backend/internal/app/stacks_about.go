@@ -117,6 +117,11 @@ var moduleAbout = map[string]stack.About{
 		Never:   "It tells you nothing else.",
 		ShowsUp: "As a short message once a day.",
 	},
+	"mcp_servers": {
+		Watches: "The MCP servers you list, and the tools each one offers.",
+		Never:   "No server is contacted until you add one and switch it on, and a tool asks you first unless you set its server to Allow.",
+		ShowsUp: "Under Tools on the Agents page, and as steps in a run.",
+	},
 	"agent_activity": {
 		Watches: "Refused tool calls, approvals and new destinations of the agents on this computer.",
 		Never:   "It reads a record of what the agents did and does not stop them.",

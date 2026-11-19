@@ -27,7 +27,6 @@ type HandlerSet struct {
 	Storage     *handlers.StorageHandlers
 	Secrets     *handlers.SecretsHandlers
 	Process     *handlers.ProcessHandlers
-	MCP         *handlers.MCPHandlers
 	Model       *handlers.ModelHandlers
 	Proxy       *handlers.ProxyHandlers
 	Turns       *chat.Service
@@ -121,7 +120,6 @@ func wireHandlers(s *AppServices, disp *automation.Dispatcher, buildInfo *buildi
 	hs.Storage = handlers.NewStorageHandlers(s.StorageReport)
 	hs.Secrets = handlers.NewSecretsHandlers(s.AppCtx)
 	hs.Process = handlers.NewProcessHandlers(s.Runtime, s.AppCtx, s.Logger())
-	hs.MCP = handlers.NewMCPHandlers(s.AppCtx)
 	hs.Model = handlers.NewModelHandlers(s.Runtime, s.AppCtx)
 	hs.Proxy = handlers.NewProxyHandlers(s.Runtime)
 	// External /v1 callers go through the model-residency gate: a request that
@@ -312,11 +310,6 @@ func buildRouter(hs *HandlerSet) http.Handler {
 	router.Get("/admin/api/runtime/processes", hs.Process.AdminProcessesHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/runtime/processes/{pid}/stop", hs.Process.AdminProcessKillHandler, jsonMethodNotAllowed)
 
-	// MCP
-	router.Get("/admin/api/mcp", hs.MCP.AdminMCPListHandler, jsonMethodNotAllowed)
-	router.Post("/admin/api/mcp", hs.MCP.AdminMCPAddHandler, jsonMethodNotAllowed)
-	router.Put("/admin/api/mcp", hs.MCP.AdminMCPUpdateHandler, jsonMethodNotAllowed)
-	router.Delete("/admin/api/mcp", hs.MCP.AdminMCPRemoveHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/models", hs.Model.AdminListProviderModelsHandler, jsonMethodNotAllowed)
 	router.Get("/admin/api/providers/manifests", hs.Model.AdminListProviderManifestsHandler, jsonMethodNotAllowed)
 	router.Post("/admin/api/providers/test", hs.Model.AdminTestProviderConnectionHandler, jsonMethodNotAllowed)

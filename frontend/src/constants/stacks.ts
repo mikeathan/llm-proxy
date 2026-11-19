@@ -53,9 +53,9 @@ export const LEFT_BLOCKED_PREFIX = 'Now waiting for it: '
 
 /** The Agents page. Activity is the page without a tab. */
 export const AGENTS_TITLE = 'Agents'
-export const AGENTS_SUBTITLE = 'What the agents on this computer did, and what to do if something looks wrong.'
+export const AGENTS_SUBTITLE = 'The tools the agents on this computer can use, and what to do if something looks wrong.'
 export const AGENTS_LOCKDOWN_LABEL = 'Lock down'
-export const AGENTS_TAB_LABELS = { modules: 'Modules' } as const
+export const AGENTS_TAB_LABELS = { tools: 'Tools', modules: 'Modules' } as const
 
 /** Where a module's switch used to be, on its detail card. */
 export const MODULE_SWITCHED_ON_NOTE = 'Switched on.'

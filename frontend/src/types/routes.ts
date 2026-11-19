@@ -82,7 +82,7 @@ export const NETWORK_SETTINGS_GROUPS = ['scanning', 'watching', 'outside', 'data
 export type NetworkSettingsGroup = (typeof NETWORK_SETTINGS_GROUPS)[number]
 
 // The tabs of the Agents page, addressable at /agents/:tab. Activity is the page without a tab.
-export const AGENTS_TABS = ['modules'] as const
+export const AGENTS_TABS = ['tools', 'modules'] as const
 export type AgentsTab = (typeof AGENTS_TABS)[number]
 
 // The tabs of the Radio page, addressable at /radio/:tab. Listening is the page without a tab.

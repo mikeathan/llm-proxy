@@ -3,7 +3,6 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue"
 import { useConfig } from "../composables/models/useConfig"
 import { useModels } from "../composables/models/useModels"
 import { useProviders } from "../composables/models/useProviders"
-import { useMcpServers } from "../composables/system/useMcpServers"
 import { useLogLevel } from "../composables/system/useMetrics"
 import { useToast } from "../composables/useToast"
 import { useConfirm } from "../composables/ui/useConfirm"
@@ -17,7 +16,6 @@ import { errorMessage } from "../utils/errors"
 import { ROUTE_NAMES } from "../types/routes"
 import type { GlobalConfig, ProviderType, SettingsTab } from "../types/admin"
 import type { Model } from "../types/model"
-import type { NewMcpServerForm } from "../types/mcp"
 import PageHeader from "../components/common/layout/PageHeader.vue"
 import Panel from "../components/common/layout/Panel.vue"
 import BaseButton from "../components/common/buttons/BaseButton.vue"
@@ -30,7 +28,6 @@ import SettingsActions from "../components/settings/SettingsActions.vue"
 import GlobalSettings from "../components/settings/GlobalSettings.vue"
 import SecuritySettings from "../components/settings/SecuritySettings.vue"
 import GuardrailSettings from "../components/settings/GuardrailSettings.vue"
-import McpServers from "../components/settings/McpServers.vue"
 import ApiKeySettings from "../components/settings/ApiKeySettings.vue"
 import ProviderModelsCard from "../components/settings/ProviderModelsCard.vue"
 import CommunicationSettings from "../components/settings/CommunicationSettings.vue"
@@ -44,7 +41,7 @@ import AppearanceSettings from "../components/settings/AppearanceSettings.vue"
 // the long forms split into numbered panels, and one save model for the shared
 // configuration — edits survive switching categories, every editable section
 // ends with the same Discard / Save row, and leaving with unsaved edits asks
-// first. Keys, models, MCP servers and processes act immediately (their own
+// first. Keys, models and processes act immediately (their own
 // APIs), so those sections have no Save.
 
 const LOCAL_PROVIDER = "local"
@@ -62,7 +59,6 @@ type DraftSection = "appearance" | "security" | "communication" | "search" | "ag
 const { config, isLoading, isSaving, isDirty: configDirty, error: configError, fetchConfig, updateConfig, discardChanges, ensureProvider } = useConfig()
 const { state: modelsState, availableModels, refresh: refreshModels } = useModels()
 const { settingsTabs, getLabel, fetchManifests } = useProviders()
-const { mcpServers, addMCPServer, toggleMCPServer, removeMCPServer } = useMcpServers()
 const { logLevel, updateLogLevel } = useLogLevel()
 const toast = useToast()
 const { confirm } = useConfirm()
@@ -135,14 +131,6 @@ function discardConfig() {
 // Switching category keeps every edit (all sections stay mounted), so only
 // leaving Settings can lose them.
 useUnsavedChangesGuard(anyDirty, { discards: (to) => to.name !== ROUTE_NAMES.settings })
-
-// ── MCP servers ───────────────────────────────────────────────────────────
-const newMcpServer = ref<NewMcpServerForm>({ name: "", url: "" })
-function handleAddMCPServer() {
-  if (!newMcpServer.value.name || !newMcpServer.value.url) return
-  addMCPServer(newMcpServer.value)
-  newMcpServer.value = { name: "", url: "" }
-}
 
 // ── Restart ───────────────────────────────────────────────────────────────
 async function restartBackend() {
@@ -306,15 +294,6 @@ const updateConfigValue = (value: GlobalConfig) => {
             </template>
           </div>
 
-          <div v-show="activeTab === 'mcp'">
-            <McpServers
-              v-model:new-mcp-server="newMcpServer"
-              :mcp-servers="mcpServers"
-              @add="handleAddMCPServer"
-              @toggle="toggleMCPServer"
-              @remove="removeMCPServer"
-            />
-          </div>
         </template>
       </div>
     </div>

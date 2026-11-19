@@ -24,10 +24,6 @@ type MockAdminService struct {
 	ResolveModelPathFunc            func(string, string) string
 	RefreshMetricsServiceFunc       func()
 	MetricsSnapshotFunc             func() metrics.MetricsSnapshot
-	ListMCPServersFunc              func() []models.MCPServerConfig
-	AddMCPServerFunc                func(models.MCPServerConfig) error
-	UpdateMCPServerFunc             func(models.MCPServerConfig) error
-	RemoveMCPServerFunc             func(string) error
 	EnvironmentFunc                 func() map[string]string
 	ModelsFunc                      func() []models.ModelConfig
 	ProvidersFunc                   func() map[string]models.ProviderItem
@@ -173,34 +169,6 @@ func (m *MockAdminService) MetricsSnapshot() metrics.MetricsSnapshot {
 		return m.MetricsSnapshotFunc()
 	}
 	return metrics.MetricsSnapshot{}
-}
-
-func (m *MockAdminService) ListMCPServers() []models.MCPServerConfig {
-	if m.ListMCPServersFunc != nil {
-		return m.ListMCPServersFunc()
-	}
-	return nil
-}
-
-func (m *MockAdminService) AddMCPServer(cfg models.MCPServerConfig) error {
-	if m.AddMCPServerFunc != nil {
-		return m.AddMCPServerFunc(cfg)
-	}
-	return nil
-}
-
-func (m *MockAdminService) UpdateMCPServer(cfg models.MCPServerConfig) error {
-	if m.UpdateMCPServerFunc != nil {
-		return m.UpdateMCPServerFunc(cfg)
-	}
-	return nil
-}
-
-func (m *MockAdminService) RemoveMCPServer(name string) error {
-	if m.RemoveMCPServerFunc != nil {
-		return m.RemoveMCPServerFunc(name)
-	}
-	return nil
 }
 
 func (m *MockAdminService) Environment() map[string]string {

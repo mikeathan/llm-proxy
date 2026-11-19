@@ -6,8 +6,8 @@ import { getSettingsTabGroups } from '../../../domain/settings'
 import { ROUTE_NAMES } from '../../../types/routes'
 import type { SettingsTab } from '../../../types/admin'
 
-const TABS: SettingsTab[] = ['appearance', 'local', 'local-models', 'limits', 'guardrails', 'gemini', 'openai', 'mcp', 'communication', 'search', 'processes']
-const LABELS: Record<string, string> = { local: 'Local Engine', 'local-models': 'Local Models', gemini: 'Google Gemini', openai: 'OpenAI', guardrails: 'Agent Guardrails', security: 'Security', limits: 'Limits & reset', mcp: 'MCP Servers', communication: 'Communication', search: 'Search', processes: 'Processes', appearance: 'Appearance' }
+const TABS: SettingsTab[] = ['appearance', 'local', 'local-models', 'limits', 'guardrails', 'gemini', 'openai', 'communication', 'search', 'processes']
+const LABELS: Record<string, string> = { local: 'Local Engine', 'local-models': 'Local Models', gemini: 'Google Gemini', openai: 'OpenAI', guardrails: 'Agent Guardrails', security: 'Security', limits: 'Limits & reset', communication: 'Communication', search: 'Search', processes: 'Processes', appearance: 'Appearance' }
 
 function mountTabs(active: SettingsTab) {
   const router = createRouter({

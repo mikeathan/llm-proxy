@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import type { GuardrailBlockedPayload } from "../../../types";
 import BaseButton from "../buttons/BaseButton.vue";
+import { toolDisplayName } from "../../../utils/assistant/toolSteps";
 
 // A guardrail blocked a tool call and the run waits for the operator. The
 // banner only asks; `submit` (the owner's submitDecision) sends the decision —
@@ -43,7 +44,7 @@ async function decide(allow: boolean, persist: boolean) {
     </p>
     <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-[length:var(--text-small)]">
       <dt class="text-muted">Tool</dt>
-      <dd class="m-0 font-mono text-primary">{{ decision.tool }}</dd>
+      <dd class="m-0 font-mono text-primary" :title="decision.tool">{{ toolDisplayName(decision.tool) }}</dd>
       <dt class="text-muted">Reason</dt>
       <dd class="m-0 text-secondary">{{ decision.reason }}</dd>
       <dt class="text-muted">Category</dt>

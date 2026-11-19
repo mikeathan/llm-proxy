@@ -48,7 +48,7 @@ func allRoutes(t *testing.T) []string {
 	t.Helper()
 	hs := &HandlerSet{
 		Admin: &handlers.AdminHandlers{}, System: &handlers.SystemHandlers{}, Secrets: &handlers.SecretsHandlers{},
-		Process: &handlers.ProcessHandlers{}, MCP: &handlers.MCPHandlers{}, Model: &handlers.ModelHandlers{},
+		Process: &handlers.ProcessHandlers{}, Model: &handlers.ModelHandlers{},
 		Proxy: &handlers.ProxyHandlers{}, Turns: &chat.Service{}, Assistant: &handlers.AssistantMessageHandler{},
 		ActiveRuns: &handlers.ActiveRunsHandler{}, Dispatcher: &handlers.DispatcherHandlers{},
 		Recordings: &handlers.RecordingHandlers{}, Memory: &handlers.MemoryHandlers{}, Profiles: &handlers.ProfileHandlers{}, Helpers: &handlers.HelpersHandlers{}, Netaudit: &handlers.NetauditHandlers{},

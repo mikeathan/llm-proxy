@@ -17,8 +17,11 @@ const NETWORK = {
   ],
 }
 const AGENTS = {
-  id: 'agents', title: 'Agents', purpose: '', actions: [{ id: 'lockdown', title: 'Lock down', purpose: '' }], summary: { on: 2, total: 2, stopped: 0, blocked: 0 },
-  layers: [{ id: 'watch', title: 'Watch', modules: [module('agent_activity', 'Agent activity', { sends: 'message', step_up: true }), module('secrets_pass', 'Secrets pass', { sends: 'message', step_up: true })] }],
+  id: 'agents', title: 'Agents', purpose: '', actions: [{ id: 'lockdown', title: 'Lock down', purpose: '' }], summary: { on: 3, total: 3, stopped: 0, blocked: 0 },
+  layers: [
+    { id: 'watch', title: 'Watch', modules: [module('agent_activity', 'Agent activity', { sends: 'message', step_up: true }), module('secrets_pass', 'Secrets pass', { sends: 'message', step_up: true })] },
+    { id: 'tools', title: 'Tools', purpose: 'Tool servers the agents can call', modules: [module('mcp_servers', 'MCP servers', { sends: 'internet', step_up: true })] },
+  ],
 }
 const REMINDERS = {
   id: 'reminders', title: 'Reminders', purpose: '', actions: [], summary: { on: 1, total: 1, stopped: 0, blocked: 0 },
@@ -41,7 +44,7 @@ test('the Network Modules tab fits the screen and its switches are touch targets
   }
 })
 
-test('the Agents page opens on the activity and has a Modules tab with its two parts', async ({ page }) => {
+test('the Agents page opens on the activity and has Tools and Modules tabs with its three parts', async ({ page }) => {
   await mockAdminApi(page, { answers: { '/stacks/agents': AGENTS } })
   await page.goto('agents')
   await expect(page.getByRole('heading', { name: 'Agents', level: 1 })).toBeVisible()
@@ -49,6 +52,7 @@ test('the Agents page opens on the activity and has a Modules tab with its two p
   await page.getByRole('link', { name: 'Modules', exact: true }).last().click()
   await expect(page.getByRole('switch', { name: 'Agent activity' })).toBeVisible()
   await expect(page.getByRole('switch', { name: 'Secrets pass' })).toBeVisible()
+  await expect(page.getByRole('switch', { name: 'MCP servers' })).toBeVisible()
   await expectNoSidewaysScroll(page)
 })
 

@@ -2,7 +2,7 @@ import type { SearchHit, ToolArgument, ToolKind, ToolResultView, ToolStepView } 
 
 // How the assistant's tool calls read in the step timeline (ChatBubble). Tool
 // names follow the backend manifests (backend/internal/core/tools/manifests);
-// anything else — an MCP tool, a tool added later — is named as it is.
+// anything else — a tool added later — is named as it is. An MCP tool (mcp__server__tool) reads as "server · tool".
 
 interface ToolDef {
   kind: ToolKind
@@ -30,6 +30,8 @@ const TOOLS: Record<string, ToolDef> = {
   delegate_task: { kind: 'delegate', verb: 'Asked helpers' },
 }
 
+const MCP_TOOL_PATTERN = /^mcp__([a-z0-9-]+)__(.+)$/
+const MCP_NAME_SEPARATOR = ' · '
 const DELEGATE_TOOL = 'delegate_task'
 const DELEGATE_TASK_SEPARATOR = ' · '
 
@@ -69,11 +71,17 @@ function parseObject(json: string): Record<string, unknown> | null {
 const firstText = (args: Record<string, unknown>): string =>
   Object.values(args).find((value): value is string => typeof value === 'string') ?? ''
 
+/** What a person is shown for a tool's name: an MCP tool (mcp__server__tool) as "server · tool", any other name as it is. */
+export function toolDisplayName(name: string): string {
+  const m = MCP_TOOL_PATTERN.exec(name)
+  return m ? `${m[1]}${MCP_NAME_SEPARATOR}${m[2]}` : name
+}
+
 /** The step a tool call reads as: its kind, a verb and its target. */
 export function describeToolStep(name: string, rawArgs: string): ToolStepView {
   const args = parseObject(rawArgs) ?? {}
   const def = TOOLS[name]
-  if (!def) return { kind: 'other', verb: `${OTHER_VERB_PREFIX}${name}`, target: firstText(args) }
+  if (!def) return { kind: 'other', verb: `${OTHER_VERB_PREFIX}${toolDisplayName(name)}`, target: firstText(args) }
   if (name === DELEGATE_TOOL) return { kind: def.kind, verb: def.verb, target: delegatedTasks(args) }
   const value = def.argKey ? args[def.argKey] : undefined
   return { kind: def.kind, verb: def.verb, target: typeof value === 'string' ? value : '' }

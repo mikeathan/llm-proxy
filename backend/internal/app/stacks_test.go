@@ -147,7 +147,7 @@ func TestStackRegistry_NetworkModulesAndTheirLayers(t *testing.T) {
 	}
 }
 
-func TestStackRegistry_AgentsHoldsTheTwoPartsAndLockDownIsItsAction(t *testing.T) {
+func TestStackRegistry_AgentsHoldsItsPartsAndLockDownIsItsAction(t *testing.T) {
 	v, err := newTestStacks(t).reg.View(stack.Agents, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -157,12 +157,12 @@ func TestStackRegistry_AgentsHoldsTheTwoPartsAndLockDownIsItsAction(t *testing.T
 		for _, m := range l.Modules {
 			ids = append(ids, m.ID)
 			if !m.StepUp {
-				t.Errorf("%s: switching off a security record must need the passphrase", m.ID)
+				t.Errorf("%s: switching a part of the Agents stack must need the passphrase", m.ID)
 			}
 		}
 	}
 	slices.Sort(ids)
-	if !slices.Equal(ids, []string{"agent_activity", "secrets_pass"}) {
+	if !slices.Equal(ids, []string{"agent_activity", "mcp_servers", "secrets_pass"}) {
 		t.Fatalf("agents modules = %v", ids)
 	}
 	if len(v.Actions) != 1 || v.Actions[0].ID != "lockdown" {

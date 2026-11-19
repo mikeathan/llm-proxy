@@ -814,3 +814,79 @@ func TestValidateToolCall_LockDownRefusesTerminalAndNetworkWhateverIsApproved(t 
 		t.Error("lifted lock down refuses nothing")
 	}
 }
+
+// ---- tools a stack offers at run time (MCP servers), ADR-0069 ----
+
+func dynamicCall(name string) proxy.ToolCall {
+	return proxy.ToolCall{Function: proxy.FunctionCall{Name: name, Arguments: `{"text":"hi"}`}}
+}
+
+func TestDynamicTools_AskIsAnApprovableRefusalAndAllowPasses(t *testing.T) {
+	e := approvalEngine(t, nil, nil)
+	e.SetDynamicToolPolicy(func(name string) (managed, ask bool) {
+		switch name {
+		case "mcp__files__echo":
+			return true, true
+		case "mcp__trusted__echo":
+			return true, false
+		}
+		return false, false
+	})
+	ctx := context.Background()
+
+	err := e.ValidateToolCall(ctx, dynamicCall("mcp__files__echo"), "ws")
+	if !errors.Is(err, ErrAsksFirst) {
+		t.Fatalf("a tool of a server that asks first must be refused with ErrAsksFirst, got %v", err)
+	}
+	if strings.Contains(err.Error(), "security violation") || strings.Contains(err.Error(), "path access denied") {
+		t.Errorf("the refusal must stay approvable: the agent treats those words as a hard boundary: %q", err)
+	}
+	if err := e.ValidateToolCall(ctx, dynamicCall("mcp__trusted__echo"), "ws"); err != nil {
+		t.Errorf("a tool of a server set to allow passes: %v", err)
+	}
+	e.MarkApproved("ws", dynamicCall("mcp__files__echo"))
+	if err := e.ValidateToolCall(ctx, dynamicCall("mcp__files__echo"), "ws"); err != nil {
+		t.Errorf("allow once passes the exact call: %v", err)
+	}
+	other := proxy.ToolCall{Function: proxy.FunctionCall{Name: "mcp__files__echo", Arguments: `{"text":"other"}`}}
+	if err := e.ValidateToolCall(ctx, other, "ws"); !errors.Is(err, ErrAsksFirst) {
+		t.Errorf("allow once covers that call only: %v", err)
+	}
+}
+
+func TestDynamicTools_ANameThatIsNoLongerOfferedFailsClosed(t *testing.T) {
+	e := approvalEngine(t, nil, nil)
+	e.SetDynamicToolPolicy(func(name string) (managed, ask bool) {
+		return strings.HasPrefix(name, "mcp__"), true
+	})
+	if err := e.ValidateToolCall(context.Background(), dynamicCall("mcp__gone__thing"), "ws"); !errors.Is(err, ErrAsksFirst) {
+		t.Fatalf("a name the policy does not know but that looks like one must ask, got %v", err)
+	}
+}
+
+func TestDynamicTools_WithoutAPolicyNothingChanges(t *testing.T) {
+	e := approvalEngine(t, nil, nil)
+	if err := e.ValidateToolCall(context.Background(), dynamicCall("mcp__files__echo"), "ws"); err != nil {
+		t.Errorf("an engine without the hook keeps its earlier behaviour: %v", err)
+	}
+}
+
+func TestDynamicTools_LockDownStillRefusesThemFirst(t *testing.T) {
+	e := approvalEngine(t, nil, nil)
+	e.SetDynamicToolPolicy(func(string) (bool, bool) { return true, false })
+	e.SetLockedDown(func() bool { return true })
+	if err := e.ValidateToolCall(context.Background(), dynamicCall("mcp__trusted__echo"), "ws"); !errors.Is(err, lockdown.ErrLockedDown) {
+		t.Fatalf("lock down refuses every tool outside the catalogue, whatever the server's trust: %v", err)
+	}
+}
+
+func TestDynamicTools_TheApprovalPromptSaysWhereToSetAllow(t *testing.T) {
+	e := approvalEngine(t, nil, nil)
+	e.SetDynamicToolPolicy(func(name string) (bool, bool) { return name == "mcp__files__echo", true })
+	if got := e.DynamicRememberReason("mcp__files__echo"); !strings.Contains(got, "Allow") || !strings.Contains(got, "Agents") {
+		t.Errorf("the prompt points to the server setting: %q", got)
+	}
+	if got := e.DynamicRememberReason("terminal_execute"); got != "" {
+		t.Errorf("a built-in tool keeps its own remember text: %q", got)
+	}
+}

@@ -6,7 +6,6 @@ import (
 	"llm-proxy/internal/core/assistant/guardrails"
 	"llm-proxy/internal/core/assistant/profile"
 	"llm-proxy/internal/core/eventbus"
-	"llm-proxy/internal/core/nodeherder"
 	"llm-proxy/internal/core/orchestrator"
 	"llm-proxy/internal/core/proxy"
 	"llm-proxy/internal/core/runlane"
@@ -31,7 +30,7 @@ func (l *noopLogger) SetLevel(logging.Level)          {}
 func (l *noopLogger) Level() logging.Level            { return logging.LevelInfo }
 
 type MockAssistantService struct {
-	Herder         nodeherder.MCPService
+	Dynamic        toolregistry.DynamicTools
 	Client         proxy.LLMClientProvider
 	RateLimiter    ratelimiter.Limiter
 	LoggerRef      logging.Logger
@@ -50,10 +49,6 @@ type MockAssistantService struct {
 	LaneRef *runlane.Scheduler
 	// ProfileCatalog overrides the default built-in-only catalog.
 	ProfileCatalog *profile.Catalog
-}
-
-func (m *MockAssistantService) NodeHerder() nodeherder.MCPService {
-	return m.Herder
 }
 
 func (m *MockAssistantService) ClientProvider() proxy.LLMClientProvider {
@@ -87,7 +82,7 @@ func (m *MockAssistantService) Engine() assistant.Engine {
 	if m.EngineRef != nil {
 		return m.EngineRef
 	}
-	return toolregistry.NewEngine(m.Herder, m.LoggerRef)
+	return toolregistry.NewEngine(m.Dynamic, m.LoggerRef)
 }
 
 func (m *MockAssistantService) GetClientForModel(ctx context.Context, modelName string) (proxy.Client, error) {
@@ -121,11 +116,11 @@ func (m *MockAssistantService) Config() *models.Config {
 }
 
 type mockToolProvider struct {
-	herder nodeherder.MCPService
+	dynamic toolregistry.DynamicTools
 }
 
 func (p *mockToolProvider) ListTools(ctx context.Context) ([]proxy.Tool, error) {
-	return p.herder.ListTools(ctx)
+	return p.dynamic.ListTools(ctx)
 }
 
 func (p *mockToolProvider) CallTool(ctx context.Context, call proxy.ToolCall) (any, error) {
@@ -137,7 +132,7 @@ func (p *mockToolProvider) UseNativeTools() bool {
 }
 
 func (m *MockAssistantService) ToolProvider() assistant.ToolProvider {
-	return &mockToolProvider{herder: m.Herder}
+	return &mockToolProvider{dynamic: m.Dynamic}
 }
 
 func (m *MockAssistantService) Persistence() *persistence.WorkspaceManager {
@@ -191,13 +186,13 @@ func NewMockAssistantService(
 	client proxy.LLMClientProvider,
 	limiter ratelimiter.Limiter,
 	engine assistant.Engine,
-	herder nodeherder.MCPService,
+	dynamic toolregistry.DynamicTools,
 ) *MockAssistantService {
 	return &MockAssistantService{
 		Client:      client,
 		RateLimiter: limiter,
 		EngineRef:   engine,
-		Herder:      herder,
+		Dynamic:     dynamic,
 		LoggerRef:   &noopLogger{},
 	}
 }

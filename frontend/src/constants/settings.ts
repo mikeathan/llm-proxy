@@ -43,7 +43,7 @@ export const SETTINGS_GROUP_SECTIONS: Record<SettingsGroupId, readonly SettingsT
   general: ["local", "runs", "agents", "memory", "storage"],
   models: ["local-models"],
   safety: ["security", "sign-in", "limits", "guardrails"],
-  connectors: ["communication", "search", "mcp"],
+  connectors: ["communication", "search"],
   appearance: ["appearance"],
   system: ["processes"],
 }

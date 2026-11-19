@@ -24,7 +24,7 @@ func (l *noopLogger) Level() logging.Level            { return logging.LevelInfo
 
 // Simple test for generic engine
 func TestExecuteTool(t *testing.T) {
-	mockMCP := mocks.NewMockNodeHerder(nil)
+	mockMCP := mocks.NewMockDynamicTools(nil)
 	logger := &noopLogger{}
 
 	engine := toolregistry.NewEngine(mockMCP, logger)

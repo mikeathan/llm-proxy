@@ -233,7 +233,7 @@ type probe struct{ method, path string }
 var stepUpProbes = []probe{
 	{"POST", "/admin/api/system/wipeout"}, {"POST", "/admin/api/system/factory-reset"}, {"POST", "/admin/api/system/clear-runtime-data"},
 	{"PUT", "/admin/api/host"}, {"PUT", "/admin/api/secrets/keys"}, {"DELETE", "/admin/api/secrets/keys"}, {"PUT", "/admin/api/secrets/tools"},
-	{"POST", "/admin/api/mcp"}, {"PUT", "/admin/api/mcp"}, {"DELETE", "/admin/api/mcp"}, {"POST", "/admin/api/auth/tokens"},
+	{"POST", "/admin/api/auth/tokens"},
 	{"POST", "/admin/api/netaudit/deep"}, {"POST", "/admin/api/netaudit/vulndata/import"},
 	{"DELETE", "/admin/api/netaudit/vulndata"}, {"POST", "/admin/api/netaudit/devices/gateway/confirm"}, {"PUT", "/admin/api/netaudit/decoys"},
 	{"DELETE", "/admin/api/netaudit/decoys/touches"}, {"PUT", "/admin/api/netaudit/follow-up-scan"}, {"PUT", "/admin/api/netaudit/outside-lookup"}, {"PUT", "/admin/api/netaudit/footprint"}, {"PUT", "/admin/api/netaudit/footprint/key"}, {"DELETE", "/admin/api/netaudit/footprint/key"},

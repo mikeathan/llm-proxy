@@ -7,7 +7,7 @@ import { useSettingsSection } from '../../../composables/settings/useSettingsSec
 import { ROUTE_NAMES } from '../../../types/routes'
 import type { SettingsTab } from '../../../types/admin'
 
-const KNOWN: SettingsTab[] = ['local', 'mcp']
+const KNOWN: SettingsTab[] = ['local', 'search']
 
 async function setup(path: string, loaded = true) {
   const router = createAppRouter(createMemoryHistory())
@@ -27,7 +27,7 @@ async function setup(path: string, loaded = true) {
 describe('useSettingsSection', () => {
   it('reads the section from the route, defaulting to local', async () => {
     expect((await setup('/settings')).section().activeTab.value).toBe('local')
-    expect((await setup('/settings/mcp')).section().activeTab.value).toBe('mcp')
+    expect((await setup('/settings/search')).section().activeTab.value).toBe('search')
   })
 
   it('shows not-found at the same URL for an unknown section once tabs are known', async () => {
@@ -40,11 +40,11 @@ describe('useSettingsSection', () => {
   })
 
   it("ignores another destination's section param while leaving", async () => {
-    const { router, section } = await setup('/settings/mcp')
+    const { router, section } = await setup('/settings/search')
     await router.push('/workspaces/ws/memory')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe(ROUTE_NAMES.workspaceSection)
-    expect(section().activeTab.value).toBe('mcp')
+    expect(section().activeTab.value).toBe('search')
   })
 
   it('does not redirect when tabs load after the user has left', async () => {

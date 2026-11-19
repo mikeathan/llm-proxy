@@ -146,7 +146,7 @@ func TestLocalToolRegistry_SearchNilIsRecordAndContinue(t *testing.T) {
 
 func TestInitializeAgentStack_Structure(t *testing.T) {
 	// verify that InitializeAgentStack returns working objects
-	provider, engine, guardrails := InitializeAgentStack(&mockAppContext{}, nil, AgentStackDeps{})
+	provider, engine, guardrails := InitializeAgentStack(&mockAppContext{}, NewStackTools(), AgentStackDeps{})
 
 	if provider == nil || engine == nil || guardrails == nil {
 		t.Fatal("InitializeAgentStack returned nil component")
@@ -165,7 +165,7 @@ func TestInitializeAgentStack_FileSystemIsolation(t *testing.T) {
 	}
 
 	// 1. Initialize the stack
-	provider, _, _ := InitializeAgentStack(appCtx, nil, AgentStackDeps{})
+	provider, _, _ := InitializeAgentStack(appCtx, NewStackTools(), AgentStackDeps{})
 
 	// 2. Access the MultiToolProvider
 	multiProvider := provider.(*MultiToolProvider)
@@ -223,7 +223,7 @@ func TestInitializeAgentStack_ContextualSecurity(t *testing.T) {
 
 	// 3. Initialize the Agent Stack
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := InitializeAgentStack(appCtx, nil, AgentStackDeps{Persistence: manager})
+	provider, _, _ := InitializeAgentStack(appCtx, NewStackTools(), AgentStackDeps{Persistence: manager})
 
 	// Access the internal registry
 	multiProvider := provider.(*MultiToolProvider)
@@ -305,7 +305,7 @@ func TestInitializeAgentStack_NetworkGuardrails(t *testing.T) {
 	manager.WriteConfig(wsID, &wsCfg)
 
 	appCtx := &mockAppContextWithDirs{workspacesDir: wsDir}
-	provider, _, _ := InitializeAgentStack(appCtx, nil, AgentStackDeps{Persistence: manager})
+	provider, _, _ := InitializeAgentStack(appCtx, NewStackTools(), AgentStackDeps{Persistence: manager})
 	multiProvider := provider.(*MultiToolProvider)
 	localRegistry := multiProvider.Providers[0].(*LocalToolRegistry)
 

@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -45,8 +47,8 @@ func TestAgentsStack_TheRegistryModulesMatchTheManifestSpecs(t *testing.T) {
 			t.Errorf("module %s is not in the registry", spec.ID)
 		}
 	}
-	if got := len(agentsStack().Manifest().Modules); got != 2 {
-		t.Errorf("the manifest has %d modules, the registry's Agents stack two", got)
+	if got := len(agentsStack().Manifest().Modules); got != 3 {
+		t.Errorf("the manifest has %d modules, the registry's Agents stack three", got)
 	}
 }
 
@@ -87,16 +89,24 @@ func TestAgentsStack_NoCoreStoreUsesTheFileItClaimsAndNoOtherStackDoes(t *testin
 	}
 }
 
-// The Agents stack's one route is a route like any other: registered with the core's router, and a read that needs no passphrase.
-func TestAgentsStack_ItsRouteIsRegisteredAndNeedsNoPassphrase(t *testing.T) {
+// The Agents stack's routes are routes like any other: registered with the core's router; reading the record and listing the servers need no passphrase,
+// and every write to a server (and trying one) does.
+func TestAgentsStack_ItsRoutesAreRegisteredAndOnlyTheServerWritesNeedThePassphrase(t *testing.T) {
 	routes := allRoutes(t)
 	for _, rt := range agentsStack().Manifest().Routes {
 		if !slices.Contains(routes, rt.Method+" "+rt.Path) {
 			t.Errorf("the stack declares %s %s but it is not registered", rt.Method, rt.Path)
 		}
 	}
-	if steps := stackStepUpRoutes([]stacksdk.Stack{agentsStack()}); len(steps) != 0 {
-		t.Errorf("reading the record needs no passphrase: %v", steps)
+	steps := stackStepUpRoutes([]stacksdk.Stack{agentsStack()})
+	for _, rt := range agentsStack().Manifest().Routes {
+		wantStep := rt.Method != http.MethodGet
+		if rt.Path == "/admin/api/agent-watch" && wantStep {
+			t.Errorf("reading the record needs no passphrase")
+		}
+		if got := slices.ContainsFunc(steps, func(s api.StepUpRoute) bool { return s.Method == rt.Method && s.Path == rt.Path }); got != wantStep {
+			t.Errorf("%s %s: needs the passphrase = %v, want %v", rt.Method, rt.Path, got, wantStep)
+		}
 	}
 }
 
@@ -141,6 +151,10 @@ func newAgentsRig(t *testing.T) *agentsRig {
 		Log:        nopLog{},
 		DataDir:    stackport.DataDir{Dir: r.dir, Files: st.Manifest().Storage},
 		SecretScan: agentwatch.Scanner{},
+		Vault:      stackport.Vault{Key: func() ([]byte, error) { return bytes.Repeat([]byte{7}, 32), nil }},
+		HTTP: stackport.HTTP{Dial: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		}},
 	}
 	h, err := newStackHost(st, host)
 	if err != nil {

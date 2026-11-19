@@ -29,7 +29,8 @@ describe('route table (D18)', () => {
     ['/models', ROUTE_NAMES.models],
     ['/activity', ROUTE_NAMES.activity],
     ['/settings', ROUTE_NAMES.settings],
-    ['/settings/mcp', ROUTE_NAMES.settings],
+    ['/settings/search', ROUTE_NAMES.settings],
+    ['/agents/tools', ROUTE_NAMES.agents],
     ['/design', ROUTE_NAMES.design],
   ])('%s → %s', (path, name) => {
     expect(nameOf(path)).toBe(name)

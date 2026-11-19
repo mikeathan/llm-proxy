@@ -40,42 +40,39 @@ func (m *MockTokenManager) Get(ctx context.Context) (string, error) {
 	return m.token, m.err
 }
 
-// Mock NodeHerder
-type MockNodeHerder struct {
-	// Existing fields...
-
+// MockDynamicTools stands in for the tools a stack offers at run time.
+type MockDynamicTools struct {
 	err       error
 	callCount int
 
-	// New fields for MCPService
 	toolsResult []proxy.Tool
 	callResult  any
 	callErr     error
 }
 
-func NewMockNodeHerder(err error) *MockNodeHerder {
-	return &MockNodeHerder{err: err}
+func NewMockDynamicTools(err error) *MockDynamicTools {
+	return &MockDynamicTools{err: err}
 }
 
-func (m *MockNodeHerder) SetToolsResult(tools []proxy.Tool) {
+func (m *MockDynamicTools) SetToolsResult(tools []proxy.Tool) {
 	m.toolsResult = tools
 }
 
-func (m *MockNodeHerder) SetCallToolResult(result any, err error) {
+func (m *MockDynamicTools) SetCallToolResult(result any, err error) {
 	m.callResult = result
 	m.callErr = err
 }
 
-func (m *MockNodeHerder) CallCount() int {
+func (m *MockDynamicTools) CallCount() int {
 	return m.callCount
 }
 
-func (m *MockNodeHerder) ListTools(ctx context.Context) ([]proxy.Tool, error) {
+func (m *MockDynamicTools) ListTools(ctx context.Context) ([]proxy.Tool, error) {
 	m.callCount++
 	return m.toolsResult, m.err
 }
 
-func (m *MockNodeHerder) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
+func (m *MockDynamicTools) CallTool(ctx context.Context, name string, args map[string]any) (any, error) {
 	m.callCount++
 	if m.callErr != nil {
 		return nil, m.callErr
@@ -87,9 +84,12 @@ func (m *MockNodeHerder) CallTool(ctx context.Context, name string, args map[str
 	return m.callResult, nil
 }
 
-func (m *MockNodeHerder) UseNativeTools() bool {
+func (m *MockDynamicTools) UseNativeTools() bool {
 	return true
 }
+
+// Policy: the double offers no tool that asks first.
+func (m *MockDynamicTools) Policy(string) (managed, ask bool) { return false, false }
 
 // Mock LLMClientProvider
 type MockLLMClientProvider struct {

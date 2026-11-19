@@ -137,8 +137,8 @@ var stepUpExact = []StepUpRoute{
 	{http.MethodPost, "/admin/api/netaudit/router-connections/read"},
 }
 
-// stepUpPrefixes are groups where every write needs it: stored secrets, and adding or changing an MCP server.
-var stepUpPrefixes = []string{"/admin/api/secrets/", "/admin/api/mcp"}
+// stepUpPrefixes are groups where every write needs it: stored secrets. The Agents stack declares its MCP server writes as step-up routes in its manifest.
+var stepUpPrefixes = []string{"/admin/api/secrets/"}
 
 // StepUpRoutes lists the exact step-up routes, so a test can check that each is a real route.
 func StepUpRoutes() []StepUpRoute { return append([]StepUpRoute(nil), stepUpExact...) }

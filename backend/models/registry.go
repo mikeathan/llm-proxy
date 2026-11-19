@@ -6,7 +6,6 @@ import "fmt"
 type RegistryData struct {
 	Providers     map[string]ProviderRegistryEntry `json:"providers"`
 	Catalogue     []ModelRegistryEntry             `json:"catalogue"`
-	MCPServers    []MCPServerRegistryEntry         `json:"mcp_servers"`
 	PrimaryModel  string                           `json:"primary_model,omitempty"`
 	FallbackModel string                           `json:"fallback_model,omitempty"`
 	Communication CommunicationConfig              `json:"communication,omitempty"`
@@ -33,13 +32,6 @@ type ModelRegistryEntry struct {
 	Prefill        *bool          `json:"prefill,omitempty"`
 	TimeoutMinutes int            `json:"timeout_minutes,omitempty"`
 	Metadata       *ModelMetadata `json:"metadata,omitempty"`
-}
-
-type MCPServerRegistryEntry struct {
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	Enabled   bool   `json:"enabled"`
-	TLSCACert string `json:"tls_ca_cert,omitempty"`
 }
 
 // ClearDanglingModelRefs ensures PrimaryModel/FallbackModel never dangle: if

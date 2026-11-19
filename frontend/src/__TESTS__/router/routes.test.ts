@@ -46,7 +46,7 @@ describe('typed route builders', () => {
     ['edit automation', toAutomationEdit('ws/nightly'), '/automations/ws%2Fnightly/edit'],
     ['models', toModels(), '/models'],
     ['settings', toSettings(), '/settings'],
-    ['settings section', toSettings('mcp'), '/settings/mcp'],
+    ['settings section', toSettings('search'), '/settings/search'],
     ['network overview', toNetwork(), '/network'],
     ['network modules', toNetwork('modules'), '/network/modules'],
     ['a card of the network board', toNetworkCard('network-audits'), '/dashboard?board=network&card=network-audits'],
